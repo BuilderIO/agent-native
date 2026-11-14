@@ -29,12 +29,22 @@ import { defineEventHandler, getHeader, readBody, setResponseStatus } from "h3";
 import type { H3Event } from "h3";
 
 import { actionCallEmitsChange } from "../action-call-classification.js";
-import { runActionInvocation } from "../action-invocation.js";
-import type { ActionRunContext } from "../action.js";
+import {
+  actionCallIntent,
+  preparedCallArguments,
+  preparedCallNeedsApproval,
+  recordInvalidActionCall,
+} from "../action.js";
+import type { ActionRunContext, PreparedActionCall } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { getAppConfig } from "../app-config/index.js";
+import { runApprovedCliAction } from "../cli/action-approval.js";
 import { getRuntimeDatabaseUrl } from "../db/client.js";
-import { resolveDevUserEmail } from "../scripts/dev-session.js";
+import {
+  type DevOrgChoice,
+  resolveDevOrgScope,
+  resolveDevUserEmail,
+} from "../scripts/dev-session.js";
 import { notifyActionChange } from "./action-change.js";
 import { resolveDeployEnvironment } from "./deploy-environment.js";
 import {
@@ -56,8 +66,38 @@ export const DEV_DB_MIGRATE_ROUTE = "/_agent-native/dev/db-migrate";
 export const DEV_ACTION_TOKEN_HEADER = "x-agent-native-dev-token";
 export const DEV_ACTION_USER_HEADER = "x-agent-native-dev-user";
 export const DEV_ACTION_ORG_HEADER = "x-agent-native-dev-org";
+/** "personal" when the CLI caller acts in no org; see AGENT_ORG_SCOPE_ENV. */
+export const DEV_ACTION_ORG_SCOPE_HEADER = "x-agent-native-dev-org-scope";
 
 export { readDevActionDiscoveryFile } from "./dev-action-discovery.js";
+
+function devOrgChoiceFromHeaders(event: H3Event): DevOrgChoice {
+  return {
+    orgId: getHeader(event, DEV_ACTION_ORG_HEADER) || undefined,
+    personal: getHeader(event, DEV_ACTION_ORG_SCOPE_HEADER) === "personal",
+  };
+}
+
+/**
+ * The caller's org scope, or the route's usual error response when the org
+ * lookup fails, so the CLI shows the database's message.
+ */
+async function resolveDevOrgScopeForRoute(
+  event: H3Event,
+  userEmail: string | undefined,
+): Promise<
+  { orgId?: string; orgScope?: "personal" } | { ok: false; error: string }
+> {
+  try {
+    return await resolveDevOrgScope(userEmail, devOrgChoiceFromHeaders(event));
+  } catch (error) {
+    setResponseStatus(event, 500);
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
 
 export function hashDatabaseKey(databaseUrl: string): string {
   return crypto.createHash("sha256").update(databaseUrl).digest("hex");
@@ -231,11 +271,56 @@ export interface MountDevActionForwardRouteOptions {
   appId?: string;
 }
 
+// How long a refused call waits for its prompted retry.
+const REVIEWED_CALL_TTL_MS = 10 * 60_000;
+
 export function mountDevActionForwardRoute(
   nitroApp: any,
   actions: Record<string, ActionEntry>,
   options?: MountDevActionForwardRouteOptions,
 ): void {
+  // The calls each refusal showed, so a prompted retry runs what the person
+  // reviewed, defaults included, instead of preparing it again. The hash is
+  // taken after defaults, so calls under one key are identical: concurrent
+  // refusals of the same call queue there, and each retry takes one.
+  const reviewedCalls = new Map<
+    string,
+    { entry: ActionEntry; prepared: PreparedActionCall; expires: number }[]
+  >();
+  const reviewedCallKey = (
+    name: string,
+    ctx: ActionRunContext,
+    argumentsHash: string,
+  ) => JSON.stringify([name, ctx.userEmail, ctx.orgId ?? null, argumentsHash]);
+  const liveReviewedCalls = (key: string, now: number) => {
+    const live = (reviewedCalls.get(key) ?? []).filter(
+      (reviewed) => reviewed.expires > now,
+    );
+    if (live.length > 0) reviewedCalls.set(key, live);
+    else reviewedCalls.delete(key);
+    return live;
+  };
+  // A reloaded action prepares its call again.
+  const takeReviewedCall = (key: string, entry: ActionEntry) => {
+    const live = liveReviewedCalls(key, Date.now());
+    const reviewed = live.shift();
+    if (live.length === 0) reviewedCalls.delete(key);
+    return reviewed?.entry === entry ? reviewed.prepared : undefined;
+  };
+  const rememberReviewedCall = (
+    key: string,
+    entry: ActionEntry,
+    prepared: PreparedActionCall,
+  ) => {
+    const now = Date.now();
+    for (const stale of [...reviewedCalls.keys()]) {
+      liveReviewedCalls(stale, now);
+    }
+    reviewedCalls.set(key, [
+      ...(reviewedCalls.get(key) ?? []),
+      { entry, prepared, expires: now + REVIEWED_CALL_TTL_MS },
+    ]);
+  };
   getH3App(nitroApp).use(
     DEV_ACTION_ROUTE,
     defineEventHandler(async (event: H3Event) => {
@@ -273,6 +358,9 @@ export function mountDevActionForwardRoute(
       const body = (await readBody(event).catch(() => null)) as {
         name?: unknown;
         input?: unknown;
+        approved?: unknown;
+        approvalSource?: unknown;
+        approvalArgumentsHash?: unknown;
       } | null;
       const name = body?.name;
       if (typeof name !== "string") {
@@ -298,11 +386,12 @@ export function mountDevActionForwardRoute(
       const userEmail =
         getHeader(event, DEV_ACTION_USER_HEADER) ||
         (await resolveDevUserEmail());
-      const orgId = getHeader(event, DEV_ACTION_ORG_HEADER) || undefined;
+      const orgScope = await resolveDevOrgScopeForRoute(event, userEmail);
+      if ("error" in orgScope) return orgScope;
 
       const context = {
         userEmail,
-        orgId,
+        ...orgScope,
         requestOrigin: getForwardedRequestOrigin(event),
       };
       return runWithRequestContext(context, async () => {
@@ -314,7 +403,62 @@ export function mountDevActionForwardRoute(
             caller: "cli",
             actionName: name,
           };
-          const result = await runActionInvocation(entry, params, ctx);
+          // A yes at the prompt answers one refusal, so it runs the call that
+          // refusal showed, once.
+          const promptApproval =
+            body?.approved === true && body.approvalSource === "prompt";
+          const approvalHash = body?.approvalArgumentsHash;
+          const reviewed =
+            promptApproval && typeof approvalHash === "string"
+              ? takeReviewedCall(
+                  reviewedCallKey(name, ctx, approvalHash),
+                  entry,
+                )
+              : undefined;
+          if (promptApproval && !reviewed) {
+            setResponseStatus(event, 409);
+            return {
+              ok: false,
+              errorCode: "approval_expired",
+              error: `Action "${name}" has no pending confirmation for this call. A confirmation runs once, and expires after 10 minutes or a dev server restart. Run the command again to review it.`,
+            };
+          }
+          const prepared = reviewed ?? (await actionCallIntent(entry, params));
+          if (!prepared.valid) {
+            await recordInvalidActionCall(entry, params, ctx, prepared.error);
+            throw prepared.error;
+          }
+          const needsApproval = await preparedCallNeedsApproval(
+            entry,
+            prepared,
+            ctx,
+          );
+          if (needsApproval && body?.approved !== true) {
+            rememberReviewedCall(
+              reviewedCallKey(name, ctx, prepared.argumentsHash),
+              entry,
+              prepared,
+            );
+            setResponseStatus(event, 409);
+            return {
+              ok: false,
+              errorCode: "approval_required",
+              error: `Action "${name}" requires human approval. Ask the person, then rerun with --approved.`,
+              arguments: preparedCallArguments(prepared),
+              argumentsHash: prepared.argumentsHash,
+            };
+          }
+          const approval = needsApproval
+            ? promptApproval
+              ? "prompt"
+              : "flag"
+            : undefined;
+          const result = await runApprovedCliAction(
+            entry,
+            prepared,
+            ctx,
+            approval,
+          );
           if (actionCallEmitsChange(entry, params, false)) {
             await notifyActionChange({ actionName: name }).catch(() => {});
           }
@@ -386,9 +530,11 @@ export function mountDevDbQueryForwardRoute(nitroApp: any): void {
       const userEmail =
         getHeader(event, DEV_ACTION_USER_HEADER) ||
         (await resolveDevUserEmail());
-      const orgId = getHeader(event, DEV_ACTION_ORG_HEADER) || undefined;
+      const orgScope = await resolveDevOrgScopeForRoute(event, userEmail);
+      if ("error" in orgScope) return orgScope;
 
-      return runWithRequestContext({ userEmail, orgId }, async () => {
+      const context = { ...(userEmail ? { userEmail } : {}), ...orgScope };
+      return runWithRequestContext(context, async () => {
         try {
           const { runDbQuery } = await import("../scripts/db/query.js");
           const databaseUrl = getRuntimeDatabaseUrl("pglite:./data/pglite");

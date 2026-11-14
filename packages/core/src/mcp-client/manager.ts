@@ -1,9 +1,11 @@
 import {
   MCP_APP_EXTENSION_ID,
   MCP_APP_MIME_TYPE,
+  noteExternalWrite,
   type ActionAuthorize,
   type ActionRunContext,
 } from "../action.js";
+import { ssrfSafeFetch } from "../extensions/url-safety.js";
 import { isJsonSchemaObject } from "../json-schema/subschemas.js";
 import {
   plainJsonSnapshot,
@@ -16,8 +18,87 @@ import {
   isFirstPartyRemoteEndpointTrusted,
   parseMergedKey,
 } from "./remote-store.js";
+import { isLocalMcpRuntime } from "./remote-url.js";
+import {
+  isWorkspaceConnectionMcpServer,
+  resolveWorkspaceConnectionMcpBearer,
+  type McpWorkspaceConnectionAuth,
+} from "./workspace-connection-servers.js";
 
 export const MCP_TOOL_PREFIX = "mcp__";
+
+function replayableMcpBody(
+  body: BodyInit | null | undefined,
+): BodyInit | undefined {
+  if (
+    typeof body === "string" ||
+    body instanceof URLSearchParams ||
+    body instanceof Blob ||
+    body instanceof ArrayBuffer ||
+    ArrayBuffer.isView(body)
+  ) {
+    return body;
+  }
+  return undefined;
+}
+
+function preparedMcpBody(
+  request: Request,
+  init?: RequestInit,
+): BodyInit | undefined {
+  return replayableMcpBody(init?.body) ?? request.body ?? undefined;
+}
+
+export async function fetchMcpOriginBound(
+  input: RequestInfo | URL,
+  init: RequestInit | undefined,
+  origin: string,
+): Promise<Response> {
+  const request = new Request(input, init);
+  return fetchPreparedMcpRequest(
+    request,
+    origin,
+    preparedMcpBody(request, init),
+  );
+}
+
+function fetchPreparedMcpRequest(
+  request: Request,
+  origin: string,
+  body: BodyInit | undefined,
+): Promise<Response> {
+  if (new URL(request.url).origin !== origin) {
+    throw new Error("MCP destination changed origin");
+  }
+  const requestOptions: RequestInit & { duplex?: "half" } = {
+    method: request.method,
+    headers: request.headers,
+    ...(body !== undefined ? { body } : {}),
+    ...(body instanceof ReadableStream ? { duplex: "half" } : {}),
+    signal: request.signal,
+    cache: request.cache,
+    credentials: request.credentials,
+    integrity: request.integrity,
+    keepalive: request.keepalive,
+    mode: request.mode,
+    referrer: request.referrer,
+    referrerPolicy: request.referrerPolicy,
+  };
+  const parsedOrigin = new URL(origin);
+  const localRuntime = isLocalMcpRuntime();
+  return ssrfSafeFetch(request.url, requestOptions, {
+    ...(localRuntime && parsedOrigin.hostname === "localhost"
+      ? { allowedLocalhostOrigin: origin }
+      : localRuntime && parsedOrigin.hostname === "127.0.0.1"
+        ? { allowedPrivateOrigins: [origin] }
+        : {}),
+    assertUrlAllowed: (candidate) => {
+      if (new URL(candidate).origin !== origin) {
+        throw new Error("MCP destination changed origin");
+      }
+    },
+  });
+}
 
 export interface McpTool {
   source: string;
@@ -39,6 +120,7 @@ interface ServerEntry {
   transport: any;
   tools: McpTool[];
   error?: string;
+  connectErrorStatus?: number;
   /** Why each listed tool left out of `tools` cannot be offered. */
   unusableTools?: string[];
   pendingRequests: number;
@@ -174,12 +256,28 @@ function sameServerConfig(a: McpServerConfig, b: McpServerConfig): boolean {
   const typeB = b.type ?? "stdio";
   if (typeA !== typeB) return false;
   if (typeA === "http" && b.type === "http" && a.type === "http") {
+    const errorIdentity = (error?: Error): string | undefined => {
+      if (!error) return undefined;
+      const metadata = error as Error & { code?: unknown; reason?: unknown };
+      return JSON.stringify([
+        error.name,
+        error.message,
+        metadata.code,
+        metadata.reason,
+      ]);
+    };
     return (
       a.url === b.url &&
       JSON.stringify(a.headers ?? {}) === JSON.stringify(b.headers ?? {}) &&
+      a.secretRequestOrigin === b.secretRequestOrigin &&
+      a.oauthAccessRefresh?.identity === b.oauthAccessRefresh?.identity &&
+      errorIdentity(a.configurationError) ===
+        errorIdentity(b.configurationError) &&
       a.firstParty === b.firstParty &&
       a.firstPartyAppId === b.firstPartyAppId &&
-      a.firstPartyOrgId === b.firstPartyOrgId
+      a.firstPartyOrgId === b.firstPartyOrgId &&
+      JSON.stringify(a.workspaceConnection ?? null) ===
+        JSON.stringify(b.workspaceConnection ?? null)
     );
   }
   if (a.type !== "http" && b.type !== "http") {
@@ -428,6 +526,8 @@ export class McpClientManager {
       );
     } catch (err: any) {
       entry.error = formatMcpConnectError(err);
+      const status = httpStatusFromError(err);
+      if (status !== undefined) entry.connectErrorStatus = status;
       console.warn(`[mcp-client] failed to connect to ${id}: ${entry.error}`);
     }
   }
@@ -441,32 +541,122 @@ export class McpClientManager {
 
     let transport: any;
     if (cfg.type === "http") {
+      if (cfg.configurationError) throw cfg.configurationError;
       if (!sdk.StreamableHTTPClientTransport) {
         throw new Error("HTTP transport not available");
       }
       const requestInit: Record<string, unknown> = {};
       const staticHeaders = { ...(cfg.headers ?? {}) };
       const transportOptions: Record<string, unknown> = { requestInit };
-      if (this.shouldInjectFirstPartyIdentity(entry)) {
+      if (isWorkspaceConnectionMcpServer(cfg)) {
+        removeAuthorizationHeaders(staticHeaders);
+        if (Object.keys(staticHeaders).length > 0) {
+          requestInit.headers = staticHeaders;
+        }
+        const auth = cfg.workspaceConnection;
+        transportOptions.fetch = async (input: unknown, init?: unknown) =>
+          fetchMcpOriginBound(
+            input as Parameters<typeof fetch>[0],
+            await buildWorkspaceConnectionRequestInit(
+              staticHeaders,
+              init,
+              auth,
+            ),
+            new URL(cfg.url).origin,
+          );
+      } else if (this.shouldInjectFirstPartyIdentity(entry)) {
         const baselineHeaders = { ...staticHeaders };
         removeAuthorizationHeaders(baselineHeaders);
         if (Object.keys(baselineHeaders).length > 0) {
           requestInit.headers = baselineHeaders;
         }
-        if (typeof fetch === "function") {
-          const nativeFetch = fetch.bind(globalThis);
-          transportOptions.fetch = async (input: unknown, init?: unknown) =>
-            nativeFetch(
-              input as Parameters<typeof fetch>[0],
-              await buildFirstPartyRequestInit(
-                staticHeaders,
-                init,
-                this.firstPartyTrust(entry),
-              ),
-            );
+        transportOptions.fetch = async (input: unknown, init?: unknown) => {
+          const trust = this.firstPartyTrust(entry);
+          return fetchMcpOriginBound(
+            input as Parameters<typeof fetch>[0],
+            await buildFirstPartyRequestInit(staticHeaders, init, trust),
+            new URL(cfg.url).origin,
+          );
+        };
+      } else {
+        if (Object.keys(staticHeaders).length > 0) {
+          requestInit.headers = staticHeaders;
         }
-      } else if (Object.keys(staticHeaders).length > 0) {
-        requestInit.headers = staticHeaders;
+        transportOptions.fetch = async (
+          input: RequestInfo | URL,
+          init?: RequestInit,
+        ) => {
+          return fetchMcpOriginBound(
+            input,
+            init,
+            cfg.secretRequestOrigin ?? new URL(cfg.url).origin,
+          );
+        };
+      }
+      if (
+        !this.shouldInjectFirstPartyIdentity(entry) &&
+        cfg.oauthAccessRefresh &&
+        typeof fetch === "function"
+      ) {
+        const refreshAccessToken = cfg.oauthAccessRefresh.refresh;
+        let refreshedAuthorization: string | undefined;
+        transportOptions.fetch = async (
+          input: RequestInfo | URL,
+          init?: RequestInit,
+        ) => {
+          const request = new Request(input, init);
+          if (refreshedAuthorization) {
+            request.headers.set("Authorization", refreshedAuthorization);
+          }
+          const origin = new URL(cfg.url).origin;
+          const retryRequest =
+            input instanceof Request && init?.body === undefined && request.body
+              ? request.clone()
+              : undefined;
+          const body = preparedMcpBody(request, init);
+          let response: Response;
+          try {
+            response = await fetchPreparedMcpRequest(request, origin, body);
+          } catch (error) {
+            void retryRequest?.body?.cancel().catch(() => {});
+            throw error;
+          }
+          if (response.status !== 401) {
+            void retryRequest?.body?.cancel().catch(() => {});
+            return response;
+          }
+          if (body instanceof ReadableStream && !retryRequest) return response;
+
+          let accessToken: string | null;
+          try {
+            accessToken = await refreshAccessToken();
+          } catch {
+            void retryRequest?.body?.cancel().catch(() => {});
+            if (this.debug) {
+              console.warn(
+                `[mcp-client] OAuth refresh failed for ${entry.id}; preserving 401`,
+              );
+            }
+            return response;
+          }
+          if (
+            !accessToken ||
+            request.headers.get("authorization") === `Bearer ${accessToken}`
+          ) {
+            void retryRequest?.body?.cancel().catch(() => {});
+            return response;
+          }
+
+          await response.body?.cancel();
+          refreshedAuthorization = `Bearer ${accessToken}`;
+          request.headers.set("Authorization", refreshedAuthorization);
+          const retryBody = retryRequest?.body ?? body;
+          return fetchPreparedMcpRequest(
+            request,
+            origin,
+            retryBody ?? undefined,
+          );
+        };
       }
       transport = new sdk.StreamableHTTPClientTransport(
         new URL(cfg.url),
@@ -930,6 +1120,7 @@ export class McpClientManager {
           `MCP server "${parsed.serverId}" changed while authorizing tool "${parsed.toolName}"`,
         );
       }
+      noteExternalWrite("mcp");
       return client.callTool({
         name: parsed.toolName,
         arguments: normalizedArgs,
@@ -1023,6 +1214,10 @@ export class McpClientManager {
     };
   }
 
+  getConnectErrorStatus(serverId: string): number | undefined {
+    return this.servers.get(serverId)?.connectErrorStatus;
+  }
+
   private shouldInjectFirstPartyIdentity(entry: ServerEntry): boolean {
     return this.firstPartyTrust(entry) !== null;
   }
@@ -1069,6 +1264,23 @@ function headersToRecord(value: unknown): Record<string, string> {
     );
   }
   return {};
+}
+
+async function buildWorkspaceConnectionRequestInit(
+  staticHeaders: Record<string, string>,
+  rawInit: unknown,
+  auth: McpWorkspaceConnectionAuth,
+): Promise<RequestInit> {
+  const init =
+    rawInit && typeof rawInit === "object" ? (rawInit as RequestInit) : {};
+  const headers = {
+    ...headersToRecord(staticHeaders),
+    ...headersToRecord(init.headers),
+  };
+  removeAuthorizationHeaders(headers);
+  // Resolved per request so a refreshed token is used as soon as it exists.
+  headers.Authorization = `Bearer ${await resolveWorkspaceConnectionMcpBearer(auth)}`;
+  return { ...init, headers };
 }
 
 async function buildFirstPartyRequestInit(

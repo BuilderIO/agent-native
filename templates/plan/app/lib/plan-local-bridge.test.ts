@@ -100,12 +100,12 @@ This valid introduction stays visible.
       "partially-valid-plan",
     );
 
-    expect(bundle.plan.content.blocks).toHaveLength(3);
-    expect(bundle.plan.content.blocks[0]).toMatchObject({
+    expect(bundle.plan.content?.blocks).toHaveLength(3);
+    expect(bundle.plan.content?.blocks[0]).toMatchObject({
       type: "rich-text",
       data: { markdown: "This valid introduction stays visible." },
     });
-    expect(bundle.plan.content.blocks.slice(1)).toEqual(
+    expect(bundle.plan.content?.blocks.slice(1)).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           id: "empty-table",

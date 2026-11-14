@@ -9,7 +9,7 @@ import {
   type GeometryHistorySelection,
 } from "@/pages/design-editor/history";
 
-type OrderToken = "file-content" | "selection";
+type OrderToken = "file-content" | "geometry";
 
 function historyRefs(
   stack: ContentHistoryEntry[] = [],
@@ -73,12 +73,12 @@ describe("linked component history reservations", () => {
     };
     const refs = historyRefs();
     const a = reserve(refs, selectionA);
-    refs.order.current.push("selection");
+    refs.order.current.push("geometry");
     const b = reserve(refs, selectionB);
 
     expect(refs.order.current).toEqual([
       "file-content",
-      "selection",
+      "geometry",
       "file-content",
     ]);
 
@@ -154,7 +154,7 @@ describe("linked component history reservations", () => {
       overviewSelectedScreenIds: ["file-a"],
       selectedLayerIds: [],
     });
-    refs.order.current.push("selection");
+    refs.order.current.push("geometry");
     const b = reserve(refs, selectionB);
     const reservedB = refs.stack.current[2]!;
 
@@ -170,7 +170,7 @@ describe("linked component history reservations", () => {
     expect(refs.selections.current).toEqual([realSelection, selectionB]);
     expect(refs.order.current).toEqual([
       "file-content",
-      "selection",
+      "geometry",
       "file-content",
     ]);
 
@@ -181,7 +181,7 @@ describe("linked component history reservations", () => {
     expect(refs.selections.current[0]).toBe(realSelection);
     expect(refs.order.current).toEqual([
       "file-content",
-      "selection",
+      "geometry",
       "file-content",
     ]);
   });

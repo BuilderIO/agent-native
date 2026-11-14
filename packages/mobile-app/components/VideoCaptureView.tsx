@@ -251,9 +251,16 @@ export function VideoCaptureView({
     null,
   );
   const [elapsedMs, setElapsedMs] = useState(0);
-  const [appState, setAppState] = useState<AppStateStatus>(
-    AppState.currentState,
-  );
+  const [appState, setAppState] = useState<AppStateStatus>(() => {
+    const currentState = AppState.currentState;
+    return currentState === "active" ||
+      currentState === "background" ||
+      currentState === "inactive" ||
+      currentState === "extension" ||
+      currentState === "unknown"
+      ? currentState
+      : "active";
+  });
   const [message, setMessage] = useState<string | null>(null);
   const [repairTarget, setRepairTarget] = useState<RepairTarget>(null);
 

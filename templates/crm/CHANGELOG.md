@@ -1,5 +1,29 @@
 # CRM changelog
 
+## 2026-11-05
+
+### Improved
+
+- Failed saves now show a clear error message instead of failing silently.
+
+## 2026-10-26
+
+### Improved
+
+- CRM duplicate review can use the configured AI decision provider.
+
+## 2026-10-23
+
+### Fixed
+
+- CRM-to-Clips call automation setup is marked as unavailable.
+
+## 2026-10-22
+
+### Improved
+
+- Approval links from a connected agent, such as Claude Code, now open the review inside the app, in its own theme.
+
 ## 2026-10-09
 
 ### Improved

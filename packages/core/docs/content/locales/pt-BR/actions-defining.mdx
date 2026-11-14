@@ -88,9 +88,9 @@ O framework descobre automaticamente cada arquivo em `actions/` e o monta na ini
         },
         {
           name: "outputErrorStrategy",
-          type: '"warn" | "strict" | "fallback"',
+          type: '"strict" | "warn" | "fallback"',
           optional: true,
-          default: '"warn"',
+          default: '"strict"',
           description:
             "O que acontece quando há uma incompatibilidade na saída.",
         },
@@ -99,7 +99,14 @@ O framework descobre automaticamente cada arquivo em `actions/` e o monta na ini
           type: "TReturn",
           optional: true,
           description:
-            'Retornado no lugar de um resultado inválido quando outputErrorStrategy é "fallback".',
+            'Obsoleto. Retornado no lugar de um resultado inválido quando outputErrorStrategy é "fallback".',
+        },
+        {
+          name: "errors",
+          type: "ActionErrors",
+          optional: true,
+          description:
+            "O conjunto fechado de códigos de erro da action, de defineActionErrors. Veja Declarando códigos de erro abaixo.",
         },
         {
           name: "mcpOutputSchema",
@@ -241,24 +248,50 @@ export default defineAction({
     summary: z.string(),
     messageCount: z.number(),
   }),
-  outputErrorStrategy: "warn", // default
   run: async ({ threadId }) => {
     /* ...returns { summary, messageCount } ... */
   },
 });
 ```
 
+O tipo de retorno da action vem de `outputSchema`, e `run` deve retornar um valor que o schema aceite, então um resultado que foge do schema é um erro de compilação antes de ser um erro em tempo de execução.
+
 `outputErrorStrategy` controla o que acontece em uma incompatibilidade:
 
-| Estratégia   | Comportamento na incompatibilidade                                                                                       |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------ |
-| `"warn"`     | **Padrão.** Executa `console.warn` com os problemas e retorna o resultado **original** sem alterações. Não é disruptivo. |
-| `"strict"`   | Lança um erro claro, para que um bug na action seja fácil de perceber.                                                   |
-| `"fallback"` | Retorna o valor `outputFallback` fornecido no lugar do resultado inválido.                                               |
+| Estratégia   | Comportamento na incompatibilidade                                                                                                      |
+| ------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| `"strict"`   | **Padrão.** Lança `ActionOutputContractError`, para que um bug na action falhe de forma evidente.                                       |
+| `"warn"`     | Executa `console.warn` com os problemas e retorna o resultado **original** sem alterações. Use enquanto corrige um schema.              |
+| `"fallback"` | **Obsoleto.** Retorna `outputFallback` no lugar do resultado inválido, que os chamadores não conseguem distinguir de um resultado real. |
 
 Quando `run()` tem sucesso, o framework retorna o valor validado, então quaisquer defaults ou coerções em `outputSchema` entram em vigor, da mesma forma que acontece para a entrada. Quando você não passa um `outputSchema`, o valor de retorno permanece inalterado.
 
 A verificação estrita roda depois de `run()`, então o erro (`ActionOutputContractError`, `errorCode: "output_contract_violation"`) informa o que já aconteceu: `effect` é `"committed"` assim que uma escrita entrou no seu handler, na própria chamada ou em uma action que ela chamou (mesmo a partir de uma action somente leitura), e quem chama não deve repeti-la; caso contrário, é `"none"`. A mensagem lista apenas caminhos de campos declarados e códigos de problema, nunca os valores retornados.
+
+### Declarando códigos de erro {#error-codes}
+
+`defineActionErrors` declara o conjunto fechado de `errorCode`s com os quais uma action falha. Seus `fail` e `noWrite` aceitam apenas esses códigos, então um código escrito errado não compila, e passá-lo como `errors` publica os códigos como `errorCodes` na definição.
+
+```ts
+const errors = defineActionErrors("thread_not_found", "thread_locked");
+
+export default defineAction({
+  description: "Archive a thread.",
+  schema: z.object({ threadId: z.string() }),
+  outputSchema: z.object({ archived: z.literal(true) }),
+  errors,
+  run: async ({ threadId }) => {
+    const thread = await findThread(threadId);
+    if (!thread) {
+      errors.noWrite("Thread not found.", "thread_not_found", {
+        statusCode: 404,
+      });
+    }
+    /* ... */
+    return { archived: true };
+  },
+});
+```
 
 ### Anunciar o contrato via MCP {#mcp-output-schema}
 
@@ -414,6 +447,7 @@ Toda action que o agente pode ver ocupa um slot na lista de ferramentas do model
 - Antes de adicionar uma nova action de leitura para cada consulta ou filtro, considere primeiro uma opção mais geral: o [trio de API de provedor](/docs/template-dispatch-developers#calling-a-provider-directly) (`provider-api-catalog`, `provider-api-docs` e `provider-api-request`) para dados de provedor, ou a ferramenta dev `db-query` para dados do app.
 - Marque actions apenas de UI ou programáticas como [`agentTool: false`](/docs/actions-access-control#agent-tool). Elas continuam chamáveis a partir do frontend ou por HTTP, sem ocupar um slot na lista de ferramentas do modelo.
 - Marque com `deferLoading: false` o punhado de actions que o agente usa o tempo todo. São esses os schemas enviados na primeira requisição ao modelo; todo o resto carrega sob demanda pelo `tool-search` quando o agente precisa. Assim que uma action se exclui desse jeito, todas as não marcadas passam a ser adiadas, então marque o conjunto inicial inteiro de uma vez em vez de uma action por vez. Isso é sobre quanto custa o primeiro turno, não sobre acesso: uma action adiada é chamável assim que o `tool-search` a retorna. Actions adiadas ainda aparecem por nome no índice de ferramentas do prompt, agrupadas pelo substantivo após o verbo principal, então nomes no formato `verb-noun`, como `list-dashboards` e `create-dashboard`, são o que permite ao agente encontrá-las. É a forma por action do array `initialToolNames` do plugin, e um app pode usar qualquer uma das duas.
+- Dê `searchHints` a uma action quando os usuários chamam a tarefa dela por palavras que não estão no nome nem na descrição, como `["auto-archive rule", "inbox rule"]` em uma action de regras da caixa de entrada. O `tool-search` dá a essas palavras peso logo abaixo do nome, e elas nunca são enviadas ao modelo, então não custam contexto. Mantenha-as curtas e factuais (no máximo 12, com até 60 caracteres cada), e não uma lista de todos os pedidos que a action poderia atender.
 - Exclua ou oculte actions que a UI não usa mais, em vez de deixá-las expostas ao modelo.
 
 O repositório inclui um helper consultivo, `node scripts/audit-template-actions.mjs [template ...]` (alias `pnpm actions:audit`). Ele varre a pasta `actions/` de um template e sinaliza actions que a UI pode não estar mais usando, além de grupos de actions por campo que poderiam ser combinadas em uma só. Ele sempre sai com código 0 e nunca falha o CI, e suas heurísticas são conservadoras, então trate a saída dele como uma sugestão, não um erro.

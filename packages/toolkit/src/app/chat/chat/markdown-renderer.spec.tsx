@@ -33,6 +33,9 @@ function MarkdownTableProbe() {
         <tr>
           <td>Value</td>
         </tr>
+        <tr>
+          <td>A sentence long enough to wrap inside the conversation lane.</td>
+        </tr>
       </tbody>
     </Table>
   );
@@ -225,6 +228,122 @@ describe("useSmoothStreamingText", () => {
     expect(nextText.startsWith(visibleText ?? "")).toBe(true);
   });
 
+  function runFrames(count: number, startAt = 16) {
+    for (let index = 0; index < count; index += 1) {
+      const callbacks = frameCallbacks.splice(0);
+      act(() => {
+        for (const callback of callbacks) callback(startAt + index * 16);
+      });
+    }
+  }
+
+  it("paces in-app markdown with the shared word reveal, fade and hold-back", async () => {
+    await new Promise<void>((resolve) => {
+      loadMarkdown();
+      onMarkdownReady(resolve);
+    });
+    const text = "Shared pacing reveals words. Then **a bold run that";
+    act(() => {
+      root.render(
+        <SmoothMarkdownText
+          text={text}
+          streaming
+          resetKey="in-app-fade"
+          statusType="running"
+        />,
+      );
+    });
+    runFrames(120);
+
+    const paragraph = container.querySelector(".agent-markdown p");
+    expect(paragraph?.classList.contains("agentkit-stream-block")).toBe(true);
+    expect(
+      container.querySelectorAll(".agentkit-stream-word")[0]?.textContent,
+    ).toBe("Shared ");
+    // The unclosed bold run streams in bold instead of showing its asterisks.
+    expect(paragraph?.textContent).toBe(
+      "Shared pacing reveals words. Then a bold run that",
+    );
+    expect(paragraph?.querySelector("strong")?.textContent).toBe(
+      "a bold run that",
+    );
+
+    act(() => {
+      root.render(
+        <SmoothMarkdownText
+          text={`${text} closes**.`}
+          streaming={false}
+          resetKey="in-app-fade"
+          statusType="complete"
+        />,
+      );
+    });
+    runFrames(120, 2_000);
+    expect(container.querySelector(".agent-markdown p")).toBe(paragraph);
+    expect(container.querySelector("strong")?.textContent).toBe(
+      "a bold run that closes",
+    );
+  });
+
+  it("does not animate an in-app message that mounts complete", async () => {
+    await new Promise<void>((resolve) => {
+      loadMarkdown();
+      onMarkdownReady(resolve);
+    });
+    act(() => {
+      root.render(
+        <SmoothMarkdownText
+          text="A finished **answer**."
+          streaming={false}
+          resetKey="in-app-history"
+        />,
+      );
+    });
+
+    expect(container.textContent).toBe("A finished answer.");
+    expect(container.querySelector(".agentkit-stream-word")).toBeNull();
+    expect(container.querySelector(".agentkit-stream-block")).toBeNull();
+  });
+
+  it("paces in-app markdown without fading under reduced motion", async () => {
+    await new Promise<void>((resolve) => {
+      loadMarkdown();
+      onMarkdownReady(resolve);
+    });
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = ((query: string) => ({
+      matches: query === "(prefers-reduced-motion: reduce)",
+      media: query,
+      addEventListener: () => undefined,
+      removeEventListener: () => undefined,
+    })) as unknown as typeof window.matchMedia;
+    try {
+      const text =
+        "One network chunk carries fifteen words that should still arrive at a steady pace.";
+      act(() => {
+        root.render(
+          <SmoothMarkdownText
+            text={text}
+            streaming
+            resetKey="in-app-reduced-motion"
+            statusType="running"
+          />,
+        );
+      });
+      runFrames(1);
+      const first = container.textContent ?? "";
+      expect(first.length).toBeGreaterThan(0);
+      expect(first.length).toBeLessThan(text.length);
+
+      runFrames(400, 32);
+      expect(container.textContent).toBe(text);
+      expect(container.querySelector(".agentkit-stream-word")).toBeNull();
+      expect(container.querySelector(".agentkit-stream-block")).toBeNull();
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
+  });
+
   it("keeps wide markdown tables inside a scrollable wrapper", () => {
     act(() => {
       root.render(<MarkdownTableProbe />);
@@ -234,6 +353,16 @@ describe("useSmoothStreamingText", () => {
     expect(wrapper).not.toBeNull();
     expect(wrapper?.querySelector("table")).not.toBeNull();
     expect(wrapper?.querySelector("th")?.textContent).toBe("Column");
+    // Prose cells wrap; short ones stay on one line.
+    const cells = Array.from(
+      wrapper?.querySelectorAll("th, td") ?? [],
+      (cell) => [cell.textContent?.trim(), cell.hasAttribute("data-prose")],
+    );
+    expect(cells).toEqual([
+      ["Column", false],
+      ["Value", false],
+      ["A sentence long enough to wrap inside the conversation lane.", true],
+    ]);
   });
 
   it("keeps completed live markdown blocks memoized while the tail streams", async () => {

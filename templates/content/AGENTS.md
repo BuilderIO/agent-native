@@ -12,7 +12,7 @@ Use local docs only (no web research): `pnpm action docs-search --query "<topic>
 
 - UI feedback: target 100 ms, never exceed 400 ms; acknowledge before network work.
 - Use Content actions for operations; call them directly. `ask_app` delegates to Content's agent. Do not use raw HTTP or SQL for mutations unless a skill requires it and preserves access checks.
-- Live Yjs body writes use actions. External agents use revisioned `edit-document` (with `initializeContent` only for an empty body); browser full rewrites use `update-document`. Preserve user-authored content; prefer targeted edits unless asked to rewrite.
+- Live Yjs body writes use actions. External agents use revisioned `edit-document` (with `initializeContent` only for an empty body); browser full rewrites use `update-document`. Preserve user-authored content, and keep Mermaid and math source rather than swapping in images unless the user asks for one; prefer targeted edits unless asked to rewrite.
 - Mutations signal UI refresh. Use `refresh-list` only after an out-of-band mutation leaves the UI stale. Check auto-included `<current-screen>` first; refresh stale context with `view-screen`, and use only ids from context or action results.
 - Documents are private by default; change access with sharing actions. Notion uses per-user OAuth and needs editor access for writes; see `notion-integration` for provider requests.
 - Store large files outside SQL and persist references only. For external integrations, inspect the workspace/provider connection catalog first; reuse its scoped resolver. Never hardcode credentials, private data, or customer data.
@@ -34,6 +34,7 @@ Every action has a schema; use `tool-search` for comments, sharing, Collections,
 | `view-screen` / `navigate` / `refresh-list` | Read context, move UI, refresh after out-of-band writes |
 | `list-documents` / `search-documents` / `get-document` / `pull-document` | Browse metadata, search, read, or flush live state before reading |
 | `get-blocks-field-word-count` | Count one exact collection field; omit `propertyId` for primary body |
+| `share-local-file-document` | Create/refresh a shareable copy, possibly already shared; outside-agent calls need approval |
 | `create-document` / `edit-document` / `update-document` / `delete-document` | Create, revision-edit, update, or move a page and children to Trash |
 | `import-content` / `undo-content-import` | Import Markdown as pages; undo trashes unedited imports |
 | `list-content-trash` / `get-trashed-document` | Find/read authorized Trash without restoring |

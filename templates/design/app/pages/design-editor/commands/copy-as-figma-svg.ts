@@ -18,7 +18,7 @@ import {
 import type { DesignFile } from "@/pages/design-editor/types";
 
 export interface CopyAsFigmaSvgArgs {
-  activeFile: DesignFile;
+  activeFile: DesignFile | undefined;
   /** Join keys for the `design_exported` this command reports. */
   exportTracking?: BrowserDesignExportContext;
   figmaSvgExportingRef: RefObject<boolean>;

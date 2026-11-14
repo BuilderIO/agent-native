@@ -70,6 +70,17 @@ async function installBridge(page: import("@playwright/test").Page) {
   await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
 }
 
+// These layers sit inside an unnamed row, so a plain click selects the row.
+async function deepSelectAt(
+  page: import("@playwright/test").Page,
+  x: number,
+  y: number,
+) {
+  await page.keyboard.down("Meta");
+  await page.mouse.click(x, y);
+  await page.keyboard.up("Meta");
+}
+
 describe("padding interaction bridge", () => {
   it("uses one visual tick length for horizontal and vertical padding indicators", async () => {
     const browser = await chromium.launch({ headless: true });
@@ -305,7 +316,8 @@ describe("padding interaction bridge", () => {
 
       const card = page.locator("#card");
       const cardBox = (await card.boundingBox())!;
-      await page.mouse.click(
+      await deepSelectAt(
+        page,
         cardBox.x + cardBox.width / 2,
         cardBox.y + cardBox.height / 2,
       );
@@ -385,7 +397,8 @@ describe("padding interaction bridge", () => {
 
       const item = page.locator("#leaf");
       const itemBox = (await item.boundingBox())!;
-      await page.mouse.click(
+      await deepSelectAt(
+        page,
         itemBox.x + itemBox.width / 2,
         itemBox.y + itemBox.height / 2,
       );
@@ -507,7 +520,8 @@ describe("padding interaction bridge", () => {
 
       const item = page.locator("#auto");
       const itemBox = (await item.boundingBox())!;
-      await page.mouse.click(
+      await deepSelectAt(
+        page,
         itemBox.x + itemBox.width / 2,
         itemBox.y + itemBox.height / 2,
       );

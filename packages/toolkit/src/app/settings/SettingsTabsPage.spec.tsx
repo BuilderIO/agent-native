@@ -501,6 +501,34 @@ describe("SettingsTabsPage", () => {
     ).toContain("ChatGPT plan access");
   });
 
+  it("lists each core lab the server registered, once, before app labs", async () => {
+    const queryClient = createQueryClientWithLabs({
+      "mcp-app-cards": { enabled: false, source: "default", mixed: false },
+      "clips.meetings": { enabled: false, source: "default", mixed: false },
+    });
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <MemoryRouter initialEntries={["/settings/labs"]}>
+            <SettingsTabsPage
+              redesign={false}
+              general={<div>General content</div>}
+              labs={[
+                { key: "clips.meetings", displayName: "Meetings" },
+                { key: "mcp-app-cards", displayName: "Stale copy" },
+              ]}
+            />
+          </MemoryRouter>
+        </QueryClientProvider>,
+      );
+    });
+
+    const rows = Array.from(
+      container.querySelectorAll("[data-testid=labs-content] span"),
+    ).map((row) => row.textContent);
+    expect(rows).toEqual(["App cards in chat apps", "Meetings"]);
+  });
+
   it("places labs after app-specific tabs such as notifications", () => {
     act(() => {
       root.render(

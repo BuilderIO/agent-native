@@ -9,6 +9,7 @@ import {
   resolveClipsSocialImageUrl,
 } from "../../shared/share-meta.js";
 import { getDb, schema } from "../db/index.js";
+import { isRecordingExpired } from "./recording-page-access.js";
 
 const SLACK_API_URL = "https://slack.com/api/chat.unfurl";
 const MAX_UNFURL_LINKS = 5;
@@ -194,12 +195,6 @@ function appPath(path: string, basePath: string): string {
   return base ? `/${base}${path}` : path;
 }
 
-function isExpired(value: string | null): boolean {
-  if (!value) return false;
-  const expires = new Date(value).getTime();
-  return Number.isFinite(expires) && expires < Date.now();
-}
-
 function formatSlackDuration(durationMs: number): string | null {
   if (!Number.isFinite(durationMs) || durationMs <= 0) return null;
   const totalSeconds = Math.floor(durationMs / 1000);
@@ -222,7 +217,7 @@ export function isSlackPlayableRecording(
     !recording.password &&
     !recording.archivedAt &&
     !recording.trashedAt &&
-    !isExpired(recording.expiresAt) &&
+    !isRecordingExpired(recording.expiresAt) &&
     Boolean(recording.videoUrl)
   );
 }

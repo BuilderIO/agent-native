@@ -514,10 +514,7 @@ async function altDragWidgetOut(
   await page.keyboard.up("Alt");
 }
 
-/**
- * Selects Widget and deletes it. On the overview a plain click reaches the nested Widget; once its screen is
- * focused a plain click stops at Main, so that caller deep-selects with Cmd/Ctrl held.
- */
+/** Selects Widget and deletes it. A plain click stops at Main, so callers deep-select with Cmd/Ctrl held. */
 async function deleteWidget(app: App, screenId: string, held: string[]) {
   const widget = await boxFor(app.page, screenId, "widget");
   for (const key of held) await app.page.keyboard.down(key);
@@ -1006,7 +1003,9 @@ test.describe("script-bearing screen flash — Tailwind/Alpine CDN latency simul
       namedNodes(await app.savedNodes(id, BOARD), "Widget"),
       "undo removed the copy",
     ).toEqual([]);
-    await capture("delete-widget", () => deleteWidget(app, screenOneId, []));
+    await capture("delete-widget", () =>
+      deleteWidget(app, screenOneId, ["ControlOrMeta"]),
+    );
     expect(
       (await app.savedNodes(id)).has("widget"),
       "Delete removed Widget",

@@ -10,12 +10,16 @@ const UNITS: { unit: Intl.RelativeTimeFormatUnit; ms: number }[] = [
 /**
  * "2 min. ago" or "in 3 min." in the reader's language. An instant that does
  * not parse comes back as null, so the caller shows nothing rather than a
- * made-up time.
+ * made-up time. `past` says the instant already happened: a clock that has not
+ * caught up with it, or a server stamp a moment ahead of it, reads as now
+ * instead of as "in 6 sec.", which beside a status such as "Done" reads as how
+ * long the work took.
  */
 export function formatRelativeTime(
   instant: string | number | null | undefined,
   now: number,
   locale: string,
+  options: { past?: boolean } = {},
 ): string | null {
   if (instant === null || instant === undefined || instant === "") return null;
   const at = typeof instant === "number" ? instant : Date.parse(instant);
@@ -24,12 +28,40 @@ export function formatRelativeTime(
     numeric: "auto",
     style: "short",
   });
-  const diff = at - now;
+  const diff = options.past ? Math.min(at - now, 0) : at - now;
   const size = Math.abs(diff);
   for (const { unit, ms } of UNITS) {
     if (size >= ms) return formatter.format(Math.trunc(diff / ms), unit);
   }
   return formatter.format(Math.trunc(diff / 1000), "second");
+}
+
+/** When a run finished, or started while it is still going, as time since: a run is always in the past. */
+export function formatRunTime(
+  run: { startedAt: string; finishedAt: string | null },
+  now: number,
+  locale: string,
+): string | null {
+  return formatRelativeTime(run.finishedAt ?? run.startedAt, now, locale, {
+    past: true,
+  });
+}
+
+/**
+ * When a run started, as the reader's own date and clock to the second, so two
+ * runs a few minutes apart do not both read "3 days ago". A stamp that does not
+ * parse comes back as null, never as a made-up time.
+ */
+export function formatRunStart(
+  run: { startedAt: string },
+  locale: string,
+): string | null {
+  const at = Date.parse(run.startedAt);
+  if (!Number.isFinite(at)) return null;
+  return new Date(at).toLocaleString(locale, {
+    dateStyle: "medium",
+    timeStyle: "medium",
+  });
 }
 
 export type ScheduleSummary =

@@ -25,6 +25,14 @@ Binary uploads hit the **custom API** routes (`/api/uploads/:id/chunk` and `/api
 
 Some recordings are linked to a meeting — when `meeting_id` is non-null on the recording row, it was created via `start-meeting-recording` and both the `recording` and `meetings` skills apply. See the `meetings` skill for the bidirectional link.
 
+## Permanent removal
+
+`delete-recording-permanent` removes an owned recording and its access rows in the same transaction that saves its media cleanup intent. Its `recordingRemoved` result is separate from `mediaCleanup.status`: `pending` and `blocked` retain recovery references; `retained_shared` means another recording still uses the files; only `complete` confirms cleanup and settled hosted accounting. Repeating the action returns the existing intent.
+
+`list-recording-media-cleanups` exposes the owner's safe summaries, also shown in Trash after a reload. `retry-recording-media-cleanup` queues an attempt under the original owner, organization and provider space. Missing credentials, uncertain provider outcomes and unresolved producers remain visible. Tokenized media URLs stay encrypted in the server journal and do not appear in these results.
+
+Builder uploads remain hidden. New hidden uploads record server-side ownership provenance. Cleanup registers those files with compression disabled, deletes the exact registered URL and delays stored-URL verification for at least two minutes. A successful delete request alone is pending; serving bytes, access denial and uncertain responses remain retryable. Only negative checks of every recorded URL can complete an owned object's cleanup. This is serving evidence, not an inventory of unknown provider variants. Files without provenance and unresolved compression remain blocked. Existing orphaned files are not swept.
+
 ## Lifecycle
 
 1. **Intent.** Either the user clicks Record (global `Cmd+Shift+L`) or the agent calls `pnpm action start-recording --mode=screen`. The agent version writes `record-intent` to application state; the UI picks it up and initiates the same flow as a user click.
@@ -44,7 +52,7 @@ Some recordings are linked to a meeting — when `meeting_id` is non-null on the
 
 ## Agent file upload
 
-An outside agent (MCP or CLI) with a local video file calls `create-recording-upload` with an explicit `visibility`, the file's `mimeType` and `sizeBytes`, and ideally `durationMs`/`width`/`height`. It creates the row through `create-recording` and returns a `chunkUrl`, an `Authorization: Bearer` upload ticket, `chunkSizeBytes` (3 MiB), `totalChunks`, `shareUrl`, and `next`. The agent POSTs the chunks in order with `&index=N&isFinal=0`, and the last with `isFinal=1`, which finalizes exactly as a browser upload does. Don't call `finalize-recording` separately.
+An outside agent (MCP or CLI) with a local video file calls `create-recording-upload` with an explicit `visibility`, the file's `mimeType` and `sizeBytes`. `durationMs`/`width`/`height` are optional: once it holds the file, Clips fills in any left out, and corrects `hasAudio` if the file has no audio stream. It creates the row through `create-recording` and returns a `chunkUrl`, an `Authorization: Bearer` upload ticket, `chunkSizeBytes` (3 MiB), `totalChunks`, `shareUrl`, and `next`. The agent POSTs the chunks in order with `&index=N&isFinal=0`, and the last with `isFinal=1`, which finalizes exactly as a browser upload does. Don't call `finalize-recording` separately.
 
 The size limit depends on where the clip is stored: `MAX_UPLOAD_BYTES` (2 GiB) with connected storage, and `maxClipBytes` (250 MB by default, `CLIPS_HOSTED_STORAGE_MAX_CLIP_BYTES`) on free hosted storage. The action passes `sizeBytes` through `create-recording` to `resolveClipsVideoStorage`, which refuses a file over the hosted limit with 413 `upload_too_large` before it reserves a hosted grant, so a refusal never leaves a grant held by no recording. The message and `details.maxUploadBytes` give the caller's limit. `create-recording`'s schema caps `sizeBytes` at `MAX_UPLOAD_BYTES`, and the chunk route still enforces the limit on the bytes actually received.
 
@@ -316,6 +324,7 @@ the recorder recreates it on every start.
 | ------------------------------ | ------------------------------------------------------------------------------------- |
 | Permission denied              | Mark the recording row `status: "failed"`, `failureReason: "permission"`.             |
 | Transient chunk upload failure | Pause delivery; replay the in-memory source only while the current tab remains open.  |
+| Gateway 502/503/504 at upload start or finalize | The Builder gateway calls retry with bounded backoff (3 attempts at start, 4 at finalize; never after finalize's own timeout), then fail as `BuilderGatewayError`; the `recording_failed` event carries `gateway_step`, `gateway_attempts` and `gateway_trace_id`, which finds the request in the upload function's logs. |
 | `IndexedDB` write failure      | Continue capture and upload; the local backup is unavailable for that specific chunk. |
 | `MediaRecorder` error event    | Stop, finalize what we have, set `failureReason`; let the user retry.                 |
 | User closes tab mid-recording  | No background resend or closed-tab recovery is promised.                              |

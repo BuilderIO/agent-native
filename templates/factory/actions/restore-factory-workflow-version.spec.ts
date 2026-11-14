@@ -31,6 +31,11 @@ vi.mock("../server/lib/factory-definitions.js", async () => {
     await import("../server/workflow-host/testing/workflow-actions-kit.js");
   return kit.factoryDefinitionsModule;
 });
+vi.mock("../server/lib/factory-sentry-fallback.js", async () => {
+  const kit =
+    await import("../server/workflow-host/testing/workflow-actions-kit.js");
+  return kit.sentryFallbackModule;
+});
 
 import * as kit from "../server/workflow-host/testing/workflow-actions-kit.js";
 import restore from "./restore-factory-workflow-version.js";
@@ -255,6 +260,57 @@ describe("restore-factory-workflow-version", () => {
     expect((await store.getWorkflow(scope, created.workflowId))?.version).toBe(
       4,
     );
+  });
+
+  // Saved straight to the store: a save refuses these graphs today, an older
+  // one accepted them, and an enabled one of them still runs.
+  async function olderVersion(graph: ReturnType<typeof kit.simpleGraph>) {
+    const store = kit.currentStore();
+    const workflow = await store.createWorkflow(scope, {
+      name: "Old",
+      graph,
+      ownerEmail: kit.USER_EMAIL,
+    });
+    await store.saveWorkflowGraph(scope, {
+      workflowId: workflow.id,
+      expectedVersion: 1,
+      graph: kit.simpleGraph(),
+      source: "save",
+      summary: "Newer",
+      createdBy: kit.USER_EMAIL,
+    });
+    return workflow.id;
+  }
+
+  it("restores a version that reads a field its operation does not declare", async () => {
+    const workflowId = await olderVersion(kit.graphReadingUndeclaredOutput());
+
+    const result = await bring(workflowId, 1, 2);
+
+    expect(result).toMatchObject({ version: 3, restoredFrom: 1 });
+  });
+
+  it("restores a Sentry source that names no project when the factory's settings name an organization", async () => {
+    const workflowId = await olderVersion(kit.graphWithUnscopedSentry());
+    kit.setSentryFallbackConfigured(true);
+
+    const result = await bring(workflowId, 1, 2);
+
+    expect(result).toMatchObject({ version: 3, restoredFrom: 1 });
+  });
+
+  it("refuses that Sentry source when the factory has no Sentry settings, and saves nothing", async () => {
+    const workflowId = await olderVersion(kit.graphWithUnscopedSentry());
+
+    const failure = await kit.failureOf(() => bring(workflowId, 1, 2));
+
+    expect(failure.errorCode).toBe("graph_invalid");
+    expect(failure.details?.issues).toEqual([
+      expect.objectContaining({ code: "source_scope_unsupported" }),
+    ]);
+    expect(
+      (await kit.currentStore().getWorkflow(scope, workflowId))?.version,
+    ).toBe(2);
   });
 });
 

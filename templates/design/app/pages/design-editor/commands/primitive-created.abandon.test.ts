@@ -2,6 +2,7 @@
 import { afterEach, expect, it, vi } from "vitest";
 
 import {
+  beginPendingTextDelivery,
   failPendingTextCapture,
   HOST_COMMIT_RETRY_DELAYS_MS,
   peekPendingTextCapture,
@@ -62,6 +63,20 @@ it("stops the ladder asking for activation once the frame has committed the text
 
   releasePendingTextCapture("board", "text-1");
   expect(ladderIsAbandoned?.()).toBe(true);
+});
+
+it("stops the ladder once the owning canvas has posted the typed text", () => {
+  vi.useFakeTimers();
+  ladderOutcome = "not-editing";
+  runPrimitiveCreated(createArgs(vi.fn()), "board", "text-1");
+  for (const char of "Sta") {
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: char }));
+  }
+  expect(ladderIsAbandoned?.()).toBe(false);
+
+  beginPendingTextDelivery("board", "text-1", "");
+  expect(ladderIsAbandoned?.()).toBe(true);
+  releasePendingTextCapture("board", "text-1");
 });
 
 function createArgs(

@@ -9,7 +9,6 @@ const mocks = vi.hoisted(() => ({
   hasEventAutomation: vi.fn(),
   activeRules: [] as Array<Record<string, unknown>>,
   userSettings: new Map<string, unknown>(),
-  getJevContextCredentials: vi.fn(),
   getUserSetting: vi.fn(),
   mutateUserSetting: vi.fn(),
   putUserSetting: vi.fn(),
@@ -19,13 +18,14 @@ const mocks = vi.hoisted(() => ({
   gmailGetMessage: vi.fn(),
   gmailBatchGetMessages: vi.fn(),
   isResolvedEngineUsableForRequest: vi.fn(),
-  isJevEnabled: vi.fn(),
   readDeployCredentialEnv: vi.fn(),
   registerBuiltinEngines: vi.fn(),
   resolveCredential: vi.fn(),
   resolveEngine: vi.fn(),
-  resolveAutomationModelSettings: vi.fn(),
-  requestJevThroughBuilder: vi.fn(),
+  resolveTextAutomationModelSettings: vi.fn(),
+  decide: vi.fn(),
+  getDecisionsStatus: vi.fn(),
+  recordUsage: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/agent/engine", () => ({
@@ -33,15 +33,20 @@ vi.mock("@agent-native/core/agent/engine", () => ({
   registerBuiltinEngines: mocks.registerBuiltinEngines,
   resolveEngine: mocks.resolveEngine,
 }));
+vi.mock("@agent-native/core/decisions", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/decisions")>()),
+  decide: mocks.decide,
+  getDecisionsStatus: mocks.getDecisionsStatus,
+}));
+vi.mock("@agent-native/core/usage", () => ({
+  recordUsage: mocks.recordUsage,
+}));
 vi.mock("@agent-native/core/credentials", () => ({
   resolveCredential: mocks.resolveCredential,
 }));
 vi.mock("@agent-native/core/server", () => ({
   getRequestContext: () => undefined,
-  getJevContextCredentials: mocks.getJevContextCredentials,
-  isJevEnabled: mocks.isJevEnabled,
   readDeployCredentialEnv: mocks.readDeployCredentialEnv,
-  requestJevThroughBuilder: mocks.requestJevThroughBuilder,
   runWithRequestContext: (_context: unknown, callback: () => unknown) =>
     callback(),
 }));
@@ -77,14 +82,7 @@ vi.mock("./automation-actions.js", () => ({
   executeActions: mocks.executeActions,
 }));
 vi.mock("./automation-model.js", () => ({
-  resolveAutomationModelSettings:
-    mocks.resolveAutomationModelSettings.mockResolvedValue({
-      engine: "typesafe",
-      model: "jev-latest",
-    }),
-  resolveTextAutomationModelSettings: vi.fn(),
-  TYPESAFE_AUTOMATION_ENGINE: "typesafe",
-  TYPESAFE_AUTOMATION_MODEL: "jev-latest",
+  resolveTextAutomationModelSettings: mocks.resolveTextAutomationModelSettings,
 }));
 vi.mock("./google-api.js", () => ({
   gmailGetProfile: mocks.gmailGetProfile,
@@ -95,15 +93,17 @@ vi.mock("./google-api.js", () => ({
 }));
 vi.mock("./google-auth.js", () => ({}));
 
+import { MAX_DECISION_PAYLOAD_BYTES } from "@agent-native/core/decisions";
+
 import { aiPriorityEmailKey } from "../../shared/ai-priority.js";
 import {
   evaluateAiFilterBackfillRules,
   previewAutomationPriority,
   previewAutomationRules,
   processAutomationsForAccount,
+  rewriteAutomationRuleCondition,
 } from "./automation-engine.js";
 
-const builderAuth = { authorization: "Bearer builder-test-token" };
 const email = {
   id: "email-1",
   threadId: "thread-1",
@@ -118,7 +118,55 @@ const email = {
   isTrashed: false,
 };
 
-describe("Mail Jev automation routing", () => {
+function decisionResult(
+  questions: Array<{ name: string; type: string }>,
+  {
+    probabilities = [],
+    provider = "jev",
+    model = provider === "jev" ? "jev-latest" : "gpt-6-luna",
+    failures = [],
+    refusals = [],
+  }: {
+    probabilities?: number[];
+    provider?: "jev" | "openai";
+    model?: string;
+    failures?: string[];
+    refusals?: string[];
+  } = {},
+) {
+  const answers = Object.fromEntries(
+    questions.flatMap((question, index) => {
+      if (failures.includes(question.name)) return [];
+      return [
+        [
+          question.name,
+          refusals.includes(question.name)
+            ? { type: "refusal", name: question.name }
+            : {
+                type: question.type,
+                name: question.name,
+                probability: probabilities[index] ?? 0.91,
+              },
+        ],
+      ];
+    }),
+  );
+  return {
+    status: "ok",
+    provider,
+    model,
+    answers,
+    ...(failures.length
+      ? {
+          questionFailures: Object.fromEntries(
+            failures.map((name) => [name, "invalid_response"]),
+          ),
+        }
+      : {}),
+  };
+}
+
+describe("Mail decision automation routing", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.gmailGetProfile.mockReset();
@@ -129,12 +177,13 @@ describe("Mail Jev automation routing", () => {
     mocks.userSettings.clear();
     mocks.hasEventAutomation.mockResolvedValue(false);
     mocks.activeRules = [{ id: "rule-1", kind: "automation", actions: "[]" }];
-    mocks.getJevContextCredentials.mockResolvedValue({
-      apiKey: undefined,
-      personalApiKey: undefined,
-      builderAuth,
+    mocks.getDecisionsStatus.mockResolvedValue({
+      providerOrder: ["jev", "openai"],
+      providers: [
+        { provider: "jev", status: "ready" },
+        { provider: "openai", status: "not_configured" },
+      ],
     });
-    mocks.isJevEnabled.mockResolvedValue(true);
     mocks.getAiFilterState.mockResolvedValue({ enabled: false, feedback: [] });
     mocks.emitAsync.mockResolvedValue(undefined);
     mocks.getUserSetting.mockImplementation(
@@ -187,83 +236,101 @@ describe("Mail Jev automation routing", () => {
         where: async () => [...mocks.activeRules],
       }),
     });
-    mocks.requestJevThroughBuilder.mockResolvedValue({
-      answers: { q_0_0: { noul: 0.91 } },
-    });
+    mocks.decide.mockImplementation(
+      async ({
+        questions,
+      }: {
+        questions: Array<{ name: string; type: string }>;
+      }) => decisionResult(questions),
+    );
+    mocks.resolveTextAutomationModelSettings.mockResolvedValue({});
+    mocks.recordUsage.mockResolvedValue(undefined);
   });
 
   afterEach(() => vi.unstubAllGlobals());
 
-  it("checks model availability while processing a queued backfill", async () => {
-    mocks.resolveAutomationModelSettings.mockResolvedValueOnce({
-      engine: "ai-sdk:openrouter",
-      model: "openai/gpt-6-luna",
-    });
-    mocks.isResolvedEngineUsableForRequest.mockResolvedValue(false);
-
-    await expect(
-      evaluateAiFilterBackfillRules(
-        [],
-        [],
-        "unavailable-owner@example.com",
-        {} as never,
-      ),
-    ).rejects.toThrow("No LLM provider is connected for Mail AI rules.");
-  });
-
-  it("resolves a saved scoped Anthropic credential for the owner", async () => {
-    mocks.resolveCredential.mockResolvedValue("saved-workspace-key");
-    mocks.resolveAutomationModelSettings.mockResolvedValueOnce({
-      engine: "anthropic",
-      model: "claude-sonnet-5",
-    });
-
-    await previewAutomationRules([], [], "key-owner@example.com", {} as never);
-
-    expect(mocks.resolveCredential).toHaveBeenCalledWith("ANTHROPIC_API_KEY", {
-      userEmail: "key-owner@example.com",
-    });
-    expect(mocks.resolveEngine).toHaveBeenCalledWith({
-      engineOption: "anthropic",
-      apiKey: "saved-workspace-key",
-    });
-  });
-
-  it("evaluates Mail AI filters through Builder without a user key", async () => {
+  it("evaluates Mail AI rules through the shared decision action", async () => {
     const result = await previewAutomationRules(
       [email],
       [
         {
           id: "rule-1",
           name: "Important",
-          condition: "Work from the finance team",
+          condition: "Finance updates",
           actions: [],
         },
       ],
       "owner@example.com",
-      {} as never,
     );
 
     expect(
       result.matches.get(aiPriorityEmailKey(email.accountEmail, email.id)),
     ).toEqual([
-      expect.objectContaining({ ruleId: "rule-1", confidence: 0.91 }),
+      expect.objectContaining({
+        ruleId: "rule-1",
+        confidence: 0.91,
+        provider: "jev",
+        model: "jev-latest",
+      }),
     ]);
-    expect(mocks.requestJevThroughBuilder).toHaveBeenCalledWith(
-      builderAuth,
-      expect.objectContaining({ model: "jev-latest" }),
-      { timeoutMs: 12_000 },
+    expect(result).toMatchObject({ evaluatedCount: 1, failedCount: 0 });
+    expect(mocks.decide).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ownerEmail: "owner@example.com",
+        questions: [expect.objectContaining({ type: "predicate" })],
+      }),
     );
+    expect(mocks.resolveTextAutomationModelSettings).not.toHaveBeenCalled();
+  });
+
+  it("marks malformed rule answers retryable in live automation and backfills", async () => {
+    const rules = [
+      {
+        id: "rule-1",
+        name: "Important",
+        condition: "Finance updates",
+        actions: [],
+      },
+    ];
+    mocks.decide.mockImplementation(
+      async ({
+        questions,
+      }: {
+        questions: Array<{ name: string; type: string }>;
+      }) => decisionResult(questions, { failures: ["q_0"] }),
+    );
+
+    const live = await previewAutomationRules(
+      [email],
+      rules,
+      "owner@example.com",
+    );
+    const backfill = await evaluateAiFilterBackfillRules(
+      [email],
+      rules,
+      "owner@example.com",
+      [],
+    );
+
+    const failure = {
+      emailId: email.id,
+      accountEmail: email.accountEmail,
+      ruleId: "rule-1",
+      reason: "invalid_response",
+      retryable: true,
+    };
+    expect(live.failures).toEqual([failure]);
+    expect(backfill.failures).toEqual([failure]);
   });
 
   it("keeps AI-filter results distinct for matching IDs across accounts", async () => {
-    mocks.requestJevThroughBuilder.mockResolvedValue({
-      answers: {
-        q_0_0: { noul: 0.2 },
-        q_1_0: { noul: 0.91 },
-      },
-    });
-
+    mocks.decide.mockImplementationOnce(
+      async ({
+        questions,
+      }: {
+        questions: Array<{ name: string; type: string }>;
+      }) => decisionResult(questions, { probabilities: [0.2, 0.91] }),
+    );
     const firstAccount = "first@example.test";
     const secondAccount = "second@example.test";
     const result = await previewAutomationRules(
@@ -275,15 +342,13 @@ describe("Mail Jev automation routing", () => {
         {
           id: "rule-1",
           name: "Important",
-          condition: "Work from the finance team",
+          condition: "Finance updates",
           actions: [],
         },
       ],
       "owner@example.com",
-      {} as never,
     );
 
-    expect(result.matches.size).toBe(2);
     expect(
       result.matches.get(aiPriorityEmailKey(firstAccount, email.id)),
     ).toEqual([]);
@@ -295,9 +360,47 @@ describe("Mail Jev automation routing", () => {
   });
 
   it("preserves a complete no-match classification", async () => {
-    mocks.requestJevThroughBuilder.mockResolvedValue({
-      answers: { q_0_0: { noul: 0.2 } },
-    });
+    mocks.decide.mockImplementationOnce(
+      async ({
+        questions,
+      }: {
+        questions: Array<{ name: string; type: string }>;
+      }) => decisionResult(questions, { probabilities: [0.2] }),
+    );
+    const result = await previewAutomationRules(
+      [email],
+      [
+        {
+          id: "rule-1",
+          name: "Important",
+          condition: "Finance updates",
+          actions: [],
+        },
+      ],
+      "owner@example.com",
+    );
+
+    expect(
+      result.matches.get(aiPriorityEmailKey(email.accountEmail, email.id)),
+    ).toEqual([]);
+    expect(result).toMatchObject({ evaluatedCount: 1, failedCount: 0 });
+  });
+
+  it("keeps long rule conditions in structured input instead of question instructions", async () => {
+    const condition = "important detail ".repeat(400);
+    mocks.decide.mockImplementationOnce(
+      async ({
+        input,
+        questions,
+      }: {
+        input: Array<{ value: { rules: Array<{ condition: string }> } }>;
+        questions: Array<{ name: string; type: string; instructions: string }>;
+      }) => {
+        expect(input[0]?.value.rules[0]?.condition).toBe(condition);
+        expect(questions[0]?.instructions.length).toBeLessThan(4_000);
+        return decisionResult(questions);
+      },
+    );
 
     const result = await previewAutomationRules(
       [email],
@@ -305,141 +408,427 @@ describe("Mail Jev automation routing", () => {
         {
           id: "rule-1",
           name: "Important",
-          condition: "Work from the finance team",
+          condition,
           actions: [],
         },
       ],
       "owner@example.com",
-      {} as never,
     );
 
+    expect(result).toMatchObject({ evaluatedCount: 1, failedCount: 0 });
+  });
+
+  it("includes only the latest twenty saved feedback examples in rule input", async () => {
+    const feedback = Array.from({ length: 25 }, (_, index) => ({
+      id: `feedback-${index}`,
+      disposition: index % 2 === 0 ? ("spam" as const) : ("not_spam" as const),
+      sender: `sender-${index}@example.test`,
+      subject: `Subject ${index}`,
+      comment: `Note ${index}`,
+      createdAt: index,
+    }));
+    mocks.getAiFilterState.mockResolvedValue({ enabled: true, feedback });
+    mocks.decide.mockImplementationOnce(
+      async ({
+        input,
+        questions,
+      }: {
+        input: Array<{
+          value: {
+            feedback: Array<Record<string, unknown>>;
+          };
+        }>;
+        questions: Array<{
+          name: string;
+          type: string;
+          instructions: string;
+        }>;
+      }) => {
+        expect(input[0]?.value.feedback).toEqual(
+          feedback
+            .slice(-20)
+            .map(({ disposition, sender, subject, comment }) => ({
+              decision: disposition === "spam" ? "unwanted" : "keep",
+              sender,
+              subject,
+              comment,
+            })),
+        );
+        expect(questions[0]?.instructions).toContain("user-confirmed feedback");
+        expect(
+          new TextEncoder().encode(JSON.stringify({ input, questions }))
+            .byteLength,
+        ).toBeLessThanOrEqual(MAX_DECISION_PAYLOAD_BYTES);
+        return decisionResult(questions);
+      },
+    );
+
+    const result = await previewAutomationRules(
+      [email],
+      [
+        {
+          id: "rule-1",
+          name: "Important",
+          condition: "Finance updates",
+          actions: [],
+        },
+      ],
+      "owner@example.com",
+    );
+
+    expect(result).toMatchObject({ evaluatedCount: 1, failedCount: 0 });
+  });
+
+  it("reports a single rule above the payload limit without aborting evaluation", async () => {
+    const result = await previewAutomationRules(
+      [email],
+      [
+        {
+          id: "rule-1",
+          name: "Important",
+          condition: "x".repeat(MAX_DECISION_PAYLOAD_BYTES + 1),
+          actions: [],
+        },
+      ],
+      "owner@example.com",
+    );
+
+    expect(result).toMatchObject({ evaluatedCount: 0, failedCount: 1 });
+    expect(result.failures).toEqual([
+      expect.objectContaining({
+        emailId: email.id,
+        ruleId: "rule-1",
+        reason: "invalid_input",
+        retryable: false,
+      }),
+    ]);
+    expect(mocks.decide).not.toHaveBeenCalled();
+  });
+
+  it("reports refusal and omitted answers per email without creating scores", async () => {
+    const messages = [
+      { ...email, id: "matched" },
+      { ...email, id: "omitted" },
+      { ...email, id: "refused" },
+    ];
+    mocks.decide.mockImplementationOnce(
+      async ({
+        questions,
+      }: {
+        questions: Array<{ name: string; type: string }>;
+      }) =>
+        decisionResult(questions, {
+          probabilities: [0.91, 0, 0],
+          failures: ["q_1"],
+          refusals: ["q_2"],
+        }),
+    );
+
+    const result = await previewAutomationPriority(
+      messages,
+      "owner@example.com",
+      "Prioritize work messages.",
+    );
+
+    expect(
+      result.scores.get(aiPriorityEmailKey(email.accountEmail, "matched")),
+    ).toMatchObject({ score: 0.91 });
+    expect(
+      result.scores.has(aiPriorityEmailKey(email.accountEmail, "omitted")),
+    ).toBe(false);
+    expect(
+      result.scores.has(aiPriorityEmailKey(email.accountEmail, "refused")),
+    ).toBe(false);
+    expect(result).toMatchObject({ evaluatedCount: 1, failedCount: 2 });
+    expect(result.failures).toEqual([
+      expect.objectContaining({
+        emailId: "omitted",
+        reason: "invalid_response",
+      }),
+      expect.objectContaining({ emailId: "refused", reason: "refusal" }),
+    ]);
+  });
+
+  it("reports a fully incomplete priority response as failed emails", async () => {
+    const messages = [
+      { ...email, id: "first" },
+      { ...email, id: "second" },
+    ];
+    mocks.decide.mockImplementationOnce(
+      async ({
+        questions,
+      }: {
+        questions: Array<{ name: string; type: string }>;
+      }) => decisionResult(questions, { failures: ["q_0", "q_1"] }),
+    );
+
+    const result = await previewAutomationPriority(
+      messages,
+      "owner@example.com",
+      "Prioritize work messages.",
+    );
+
+    expect(result.scores.size).toBe(0);
+    expect(result).toMatchObject({ evaluatedCount: 0, failedCount: 2 });
+    expect(result.failures).toEqual([
+      expect.objectContaining({ emailId: "first", reason: "invalid_response" }),
+      expect.objectContaining({
+        emailId: "second",
+        reason: "invalid_response",
+      }),
+    ]);
+  });
+
+  it("uses the OpenAI decision result for rule scoring when Jev is unavailable", async () => {
+    mocks.getDecisionsStatus.mockResolvedValue({
+      providerOrder: ["jev", "openai"],
+      providers: [
+        { provider: "jev", status: "not_configured" },
+        { provider: "openai", status: "ready" },
+      ],
+    });
+    mocks.decide.mockImplementationOnce(
+      async ({
+        questions,
+      }: {
+        questions: Array<{ name: string; type: string }>;
+      }) =>
+        decisionResult(questions, {
+          provider: "openai",
+          probabilities: [0.84],
+        }),
+    );
+
+    const result = await evaluateAiFilterBackfillRules(
+      [email],
+      [
+        {
+          id: "rule-1",
+          name: "Important",
+          condition: "Finance updates",
+          actions: [],
+        },
+      ],
+      "owner@example.com",
+      [],
+    );
+
+    expect(result.model).toEqual({ provider: "openai", model: "gpt-6-luna" });
     expect(
       result.matches.get(aiPriorityEmailKey(email.accountEmail, email.id)),
-    ).toEqual([]);
+    ).toEqual([
+      expect.objectContaining({
+        provider: "openai",
+        model: "gpt-6-luna",
+        confidence: 0.84,
+      }),
+    ]);
   });
 
-  it("fails when Jev omits a rule answer instead of treating it as no-match", async () => {
-    mocks.requestJevThroughBuilder.mockResolvedValue({ answers: {} });
-
-    await expect(
-      previewAutomationRules(
-        [email],
-        [
-          {
-            id: "rule-1",
-            name: "Important",
-            condition: "Work from the finance team",
-            actions: [],
-          },
-        ],
-        "owner@example.com",
-        { feedback: [] } as never,
-      ),
-    ).rejects.toThrow("TypeSafe Jev omitted one or more rule answers.");
-  });
-
-  it("fails when a model omits an email classification", async () => {
-    mocks.resolveAutomationModelSettings.mockResolvedValueOnce({
-      engine: "anthropic",
-      model: "claude-sonnet-5",
-    });
-    mocks.resolveCredential.mockResolvedValue("test-anthropic-key");
-    mocks.resolveEngine.mockImplementation(async () => ({
-      defaultModel: "claude-sonnet-5",
-      configured: true,
-      stream: async function* () {
-        yield { type: "text-delta", text: "[]" };
-      },
-    }));
-
-    await expect(
-      previewAutomationRules(
-        [email],
-        [
-          {
-            id: "rule-1",
-            name: "Important",
-            condition: "Work from the finance team",
-            actions: [],
-          },
-        ],
-        "owner@example.com",
-        { feedback: [] } as never,
-      ),
-    ).rejects.toThrow("Model omitted one or more email classifications.");
-  });
-
-  it("bounds Anthropic rule results per response", async () => {
-    mocks.resolveAutomationModelSettings.mockResolvedValueOnce({
-      engine: "anthropic",
-      model: "claude-sonnet-5",
-    });
-    mocks.resolveCredential.mockResolvedValue("test-anthropic-key");
-    const calls: Array<{ emailIds: string[]; ruleIds: string[] }> = [];
-    mocks.resolveEngine.mockImplementation(async () => ({
-      defaultModel: "claude-sonnet-5",
-      configured: true,
-      stream: async function* (input: {
-        messages: Array<{ content: Array<{ text: string }> }>;
-      }) {
-        const prompt = input.messages[0]!.content[0]!.text;
-        const emailIds = [...prompt.matchAll(/\(emailId: (.+)\) ---/g)].map(
-          ([, id]) => JSON.parse(id!),
-        );
-        const ruleIds = [...prompt.matchAll(/^\d+\. \[id: ([^\]]+)\]/gm)].map(
-          ([, id]) => id!,
-        );
-        calls.push({ emailIds, ruleIds });
-        yield {
-          type: "text-delta",
-          text: JSON.stringify(
-            emailIds.map((emailId) => ({
-              emailId,
-              matches: ruleIds.map((ruleId) => ({
-                ruleId,
-                match: false,
-                confidence: 0,
-              })),
-            })),
-          ),
-        };
-      },
-    }));
-
-    const emails = Array.from({ length: 10 }, (_, index) => ({
-      ...email,
-      id: `email-${index}`,
-      threadId: `thread-${index}`,
-    }));
-    const rules = Array.from({ length: 4 }, (_, index) => ({
-      id: `rule-${index}`,
-      name: `Rule ${index}`,
-      condition: `Condition ${index}`,
+  it("splits long rule requests at the serialized decision payload limit", async () => {
+    const rules = Array.from({ length: 80 }, (_, index) => ({
+      id: `large-rule-${index}`,
+      name: `Large rule ${index}`,
+      condition: `Match this phrase ${"x".repeat(3_500)}`,
       actions: [],
     }));
-    const result = await previewAutomationRules(
-      emails,
-      rules,
-      "large-batch@example.test",
-      { feedback: [] } as never,
+    mocks.decide.mockImplementation(
+      async ({
+        questions,
+      }: {
+        questions: Array<{ name: string; type: string }>;
+      }) => decisionResult(questions),
     );
 
-    expect(
-      calls.map(({ emailIds, ruleIds }) => emailIds.length * ruleIds.length),
-    ).toEqual([32, 8]);
-    expect(result.matches.size).toBe(10);
-    expect([...result.matches.values()]).toEqual(
-      Array.from({ length: 10 }, () => []),
+    const result = await evaluateAiFilterBackfillRules(
+      [email],
+      rules,
+      "owner@example.com",
+      [],
     );
+
+    expect(result.evaluatedCount).toBe(rules.length);
+    expect(mocks.decide.mock.calls.length).toBeGreaterThan(1);
+    for (const [request] of mocks.decide.mock.calls) {
+      const serialized = JSON.stringify({
+        input: request.input,
+        questions: request.questions,
+      });
+      expect(
+        new TextEncoder().encode(serialized).byteLength,
+      ).toBeLessThanOrEqual(MAX_DECISION_PAYLOAD_BYTES);
+    }
   });
 
-  it("keeps Jev priority answers distinct for matching IDs across accounts", async () => {
-    mocks.requestJevThroughBuilder.mockResolvedValue({
-      answers: {
-        q_0: { noul: 0.2 },
-        q_1: { noul: 0.9 },
-      },
+  it("records usage with the actual decision provider and model", async () => {
+    mocks.decide.mockImplementationOnce(
+      async ({
+        questions,
+      }: {
+        questions: Array<{ name: string; type: string }>;
+      }) => ({
+        ...decisionResult(questions, { provider: "openai" }),
+        usage: { inputTokens: 12, outputTokens: 4 },
+      }),
+    );
+
+    await previewAutomationRules(
+      [email],
+      [
+        {
+          id: "rule-1",
+          name: "Important",
+          condition: "Finance updates",
+          actions: [],
+        },
+      ],
+      "owner@example.com",
+    );
+
+    expect(mocks.recordUsage).toHaveBeenCalledWith({
+      ownerEmail: "owner@example.com",
+      inputTokens: 12,
+      outputTokens: 4,
+      model: "gpt-6-luna",
+      engineName: "openai",
+      label: "automation",
+      app: "mail",
     });
+  });
+
+  it("splits Priority requests by serialized bytes and pins the first fallback provider", async () => {
+    const emails = Array.from({ length: 50 }, (_, index) => ({
+      ...email,
+      id: `large-${index}`,
+      subject: "\u0000".repeat(500),
+      snippet: "\u0000".repeat(2_000),
+    }));
+    const requestBytes: number[] = [];
+    const decisionProviders: Array<readonly ("jev" | "openai")[] | undefined> =
+      [];
+    const guidance = "Prioritize the user's guidance. ".repeat(200);
+    mocks.decide.mockImplementation(
+      async ({
+        input,
+        questions,
+        options,
+      }: {
+        input: Array<{ value: { guidance: string } }>;
+        questions: Array<{ name: string; type: string; instructions: string }>;
+        options?: { providers?: readonly ("jev" | "openai")[] };
+      }) => {
+        decisionProviders.push(options?.providers);
+        requestBytes.push(
+          new TextEncoder().encode(JSON.stringify({ input, questions }))
+            .byteLength,
+        );
+        expect(input[0]?.value.guidance).toBe(guidance);
+        expect(
+          questions.every((question) => question.instructions.length < 4_000),
+        ).toBe(true);
+        return decisionResult(questions, { provider: "openai" });
+      },
+    );
+
+    const result = await previewAutomationPriority(
+      emails,
+      "owner@example.com",
+      guidance,
+      undefined,
+      ["jev", "openai"],
+    );
+
+    expect(requestBytes.length).toBeGreaterThan(1);
+    expect(
+      requestBytes.every((size) => size <= MAX_DECISION_PAYLOAD_BYTES),
+    ).toBe(true);
+    expect(decisionProviders[0]).toEqual(["jev", "openai"]);
+    expect(decisionProviders.slice(1).length).toBeGreaterThan(0);
+    expect(
+      decisionProviders
+        .slice(1)
+        .every(
+          (providers) => providers?.length === 1 && providers[0] === "openai",
+        ),
+    ).toBe(true);
+    expect(
+      [...result.scores.values()].every((score) => score.provider === "openai"),
+    ).toBe(true);
+    expect(result).toMatchObject({ evaluatedCount: 50, failedCount: 0 });
+  });
+
+  it("reports a single Priority email above the payload limit without calling the provider", async () => {
+    const result = await previewAutomationPriority(
+      [email],
+      "owner@example.com",
+      "x".repeat(MAX_DECISION_PAYLOAD_BYTES + 1),
+    );
+
+    expect(result).toMatchObject({ evaluatedCount: 0, failedCount: 1 });
+    expect(result.failures).toEqual([
+      expect.objectContaining({
+        emailId: email.id,
+        reason: "invalid_input",
+        retryable: false,
+      }),
+    ]);
+    expect(mocks.decide).not.toHaveBeenCalled();
+  });
+
+  it("warns when usage recording fails without failing the rule evaluation", async () => {
+    mocks.recordUsage.mockRejectedValueOnce(new Error("usage unavailable"));
+    mocks.decide.mockImplementationOnce(
+      async ({
+        questions,
+      }: {
+        questions: Array<{ name: string; type: string }>;
+      }) => ({
+        ...decisionResult(questions),
+        usage: { inputTokens: 1, outputTokens: 1 },
+      }),
+    );
+    const warning = vi
+      .spyOn(console, "warn")
+      .mockImplementation(() => undefined);
+
+    try {
+      const result = await previewAutomationRules(
+        [email],
+        [
+          {
+            id: "rule-1",
+            name: "Important",
+            condition: "Finance updates",
+            actions: [],
+          },
+        ],
+        "owner@example.com",
+      );
+
+      expect(result.failedCount).toBe(0);
+      expect(
+        result.matches.get(aiPriorityEmailKey(email.accountEmail, email.id)),
+      ).toHaveLength(1);
+      expect(warning).toHaveBeenCalledWith(
+        "[automation-engine] Mail decision usage recording failed.",
+      );
+    } finally {
+      warning.mockRestore();
+    }
+  });
+
+  it("keeps priority answers distinct across accounts and records the provider model", async () => {
+    mocks.decide.mockImplementationOnce(
+      async ({
+        questions,
+      }: {
+        questions: Array<{ name: string; type: string }>;
+      }) =>
+        decisionResult(questions, {
+          provider: "openai",
+          probabilities: [0.2, 0.9],
+        }),
+    );
     const result = await previewAutomationPriority(
       [
         { ...email, accountEmail: "first@example.test" },
@@ -447,160 +836,218 @@ describe("Mail Jev automation routing", () => {
       ],
       "owner@example.com",
       "Prioritize work messages.",
-      { builderAuth } as never,
     );
 
     expect(
       result.scores.get(aiPriorityEmailKey("first@example.test", email.id)),
-    ).toMatchObject({
-      score: 0.2,
-    });
+    ).toMatchObject({ score: 0.2, provider: "openai", model: "gpt-6-luna" });
     expect(
       result.scores.get(aiPriorityEmailKey("second@example.test", email.id)),
-    ).toMatchObject({
-      score: 0.9,
-    });
-    const requestBody = mocks.requestJevThroughBuilder.mock.calls[0]?.[1] as {
-      state: { emails: Array<Record<string, unknown>> };
+    ).toMatchObject({ score: 0.9, provider: "openai", model: "gpt-6-luna" });
+    const request = mocks.decide.mock.calls[0]?.[0] as {
+      input: Array<{ value: { emails: Array<Record<string, unknown>> } }>;
     };
-    expect(requestBody.state.emails[0]).not.toHaveProperty("labels");
+    expect(request.input[0]?.value.emails[0]).not.toHaveProperty("labels");
   });
 
   it("scores priority batches with a concurrency limit of three", async () => {
     let inFlight = 0;
     let maxInFlight = 0;
-    mocks.requestJevThroughBuilder.mockImplementation(
-      async (_auth: unknown, body: { questions: Record<string, unknown> }) => {
+    mocks.decide.mockImplementation(
+      async ({
+        questions,
+      }: {
+        questions: Array<{ name: string; type: string }>;
+      }) => {
         inFlight += 1;
         maxInFlight = Math.max(maxInFlight, inFlight);
         await new Promise((resolve) => setTimeout(resolve, 10));
         inFlight -= 1;
-        return {
-          answers: Object.fromEntries(
-            Object.keys(body.questions).map((question) => [
-              question,
-              { noul: 0.7 },
-            ]),
-          ),
-        };
+        return decisionResult(questions, {
+          probabilities: questions.map(() => 0.7),
+        });
       },
     );
     const emails = Array.from({ length: 200 }, (_, index) => ({
       ...email,
-      id: `email-${index}`,
-      threadId: `thread-${index}`,
+      id: "email-" + index,
+      threadId: "thread-" + index,
     }));
 
     const result = await previewAutomationPriority(
       emails,
       "owner@example.com",
       "Prioritize work messages.",
-      { builderAuth } as never,
     );
 
-    expect(mocks.requestJevThroughBuilder).toHaveBeenCalledTimes(4);
+    expect(mocks.decide).toHaveBeenCalledTimes(4);
     expect(maxInFlight).toBe(3);
     expect(result.scores.size).toBe(200);
   });
 
-  it("does not use a deployment key as direct fallback", async () => {
-    mocks.getJevContextCredentials.mockResolvedValue({
-      apiKey: "deployment-jev-key",
-      personalApiKey: undefined,
-      builderAuth,
-    });
-    mocks.requestJevThroughBuilder.mockRejectedValue(
-      new Error("Builder proxy unavailable"),
-    );
-    vi.stubGlobal("fetch", vi.fn());
+  it("keeps successful priority scores when a sibling batch rejects", async () => {
+    const messages = Array.from({ length: 100 }, (_, index) => ({
+      ...email,
+      id: `priority-${index}`,
+      threadId: `thread-${index}`,
+    }));
+    mocks.decide
+      .mockRejectedValueOnce(new Error("decision transport rejected"))
+      .mockImplementationOnce(
+        async ({
+          questions,
+        }: {
+          questions: Array<{ name: string; type: string }>;
+        }) =>
+          decisionResult(questions, {
+            probabilities: questions.map(() => 0.8),
+          }),
+      );
 
-    await expect(
-      previewAutomationRules(
-        [email],
-        [
-          {
-            id: "rule-1",
-            name: "Important",
-            condition: "Work from the finance team",
-            actions: [],
-          },
-        ],
-        "owner@example.com",
-        {} as never,
-      ),
-    ).rejects.toThrow("Builder proxy unavailable");
-    expect(fetch).not.toHaveBeenCalled();
+    const result = await previewAutomationPriority(
+      messages,
+      "owner@example.com",
+      "Prioritize work messages.",
+    );
+
+    expect(result).toMatchObject({ evaluatedCount: 50, failedCount: 50 });
+    expect(result.scores.size).toBe(50);
+    expect(
+      result.scores.has(aiPriorityEmailKey(email.accountEmail, "priority-0")),
+    ).toBe(false);
+    expect(
+      result.scores.has(aiPriorityEmailKey(email.accountEmail, "priority-99")),
+    ).toBe(true);
+    expect(result.failures).toHaveLength(50);
+    expect(result.failures[0]).toMatchObject({
+      emailId: "priority-0",
+      reason: "provider_error",
+      retryable: true,
+    });
   });
 
-  it("keeps using the legacy Typesafe deployment key for saved automation settings", async () => {
-    mocks.isJevEnabled.mockResolvedValue(false);
-    mocks.readDeployCredentialEnv.mockReturnValue("legacy-typesafe-key");
-    vi.stubGlobal(
-      "fetch",
-      vi.fn().mockResolvedValue(
-        new Response(JSON.stringify({ answers: { q_0_0: { noul: 0.91 } } }), {
-          status: 200,
-        }),
-      ),
+  it("keeps completed Priority batches when a sibling batch times out", async () => {
+    const messages = Array.from({ length: 200 }, (_, index) => ({
+      ...email,
+      id: `priority-${index}`,
+      threadId: `priority-thread-${index}`,
+    }));
+    const controller = new AbortController();
+    let signalSecondStarted = () => {};
+    const secondStarted = new Promise<void>((resolve) => {
+      signalSecondStarted = resolve;
+    });
+    let callIndex = 0;
+    mocks.decide.mockImplementation(
+      ({
+        questions,
+        options,
+      }: {
+        questions: Array<{ name: string; type: string }>;
+        options: { signal?: AbortSignal };
+      }) => {
+        callIndex += 1;
+        if (callIndex === 1 || callIndex === 3) {
+          return Promise.resolve(
+            decisionResult(questions, {
+              probabilities: questions.map(() => 0.9),
+            }),
+          );
+        }
+        return new Promise((_resolve, reject) => {
+          const signal = options.signal;
+          if (!signal) throw new Error("Expected the Priority deadline.");
+          signal.addEventListener("abort", () => reject(signal.reason), {
+            once: true,
+          });
+          signalSecondStarted();
+        });
+      },
     );
+
+    const evaluation = previewAutomationPriority(
+      messages,
+      "owner@example.com",
+      "Prioritize work messages.",
+      controller.signal,
+    );
+    await secondStarted;
+    controller.abort(new DOMException("Timed out", "TimeoutError"));
+    const result = await evaluation;
+
+    expect(result.scores.size).toBe(100);
+    expect(result).toMatchObject({ evaluatedCount: 100, failedCount: 100 });
+    expect(result.failures).toHaveLength(100);
+    expect(result.failures).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          emailId: "priority-50",
+          reason: "timeout",
+          retryable: true,
+        }),
+        expect.objectContaining({
+          emailId: "priority-150",
+          reason: "timeout",
+          retryable: true,
+        }),
+      ]),
+    );
+  });
+
+  it("keeps decision batches within the provider question limit", async () => {
+    const emails = Array.from({ length: 20 }, (_, index) => ({
+      ...email,
+      id: "email-" + index,
+    }));
+    const rules = Array.from({ length: 21 }, (_, index) => ({
+      id: "rule-" + index,
+      name: "Rule " + index,
+      condition: "Condition " + index,
+      actions: [],
+    }));
 
     const result = await previewAutomationRules(
-      [email],
-      [
-        {
-          id: "rule-1",
-          name: "Important",
-          condition: "Work from the finance team",
-          actions: [],
-        },
-      ],
+      emails,
+      rules,
       "owner@example.com",
-      {} as never,
     );
 
-    expect(
-      result.matches.get(aiPriorityEmailKey(email.accountEmail, email.id)),
-    ).toEqual([
-      expect.objectContaining({ ruleId: "rule-1", confidence: 0.91 }),
-    ]);
-    expect(fetch).toHaveBeenCalledWith(
-      "https://api.typesafe.ai/v1/systemone",
-      expect.objectContaining({
-        headers: expect.objectContaining({
-          Authorization: "Bearer legacy-typesafe-key",
-        }),
-      }),
+    const requests = mocks.decide.mock.calls.map(
+      ([input]) => input as { questions: Array<unknown> },
     );
-    expect(mocks.requestJevThroughBuilder).not.toHaveBeenCalled();
+    expect(requests.map(({ questions }) => questions.length)).toEqual([
+      400, 20,
+    ]);
+    expect(result.evaluatedCount).toBe(420);
   });
 
-  it("surfaces entitlement lookup failures rather than reporting Jev disabled", async () => {
-    mocks.isJevEnabled.mockRejectedValue(
-      new Error("Could not check Jev credentials or Builder entitlement."),
-    );
+  it("continues to use a text model for rewriting AI-filter rules", async () => {
+    mocks.resolveTextAutomationModelSettings.mockResolvedValue({
+      engine: "anthropic",
+      model: "claude-sonnet-5",
+    });
+    mocks.resolveCredential.mockResolvedValue(undefined);
+    mocks.readDeployCredentialEnv.mockReturnValue(undefined);
+    mocks.resolveEngine.mockResolvedValue({
+      defaultModel: "claude-sonnet-5",
+      stream: async function* () {
+        yield { type: "text-delta", text: "Invoices from the finance team" };
+      },
+    });
 
     await expect(
-      previewAutomationRules(
-        [email],
-        [
-          {
-            id: "rule-1",
-            name: "Important",
-            condition: "Work from the finance team",
-            actions: [],
-          },
-        ],
+      rewriteAutomationRuleCondition(
         "owner@example.com",
-        {} as never,
+        { id: "rule-1", name: "Important", condition: "Old rule", actions: [] },
+        [],
       ),
-    ).rejects.toThrow(
-      "Could not check Jev credentials or Builder entitlement.",
-    );
+    ).resolves.toBe("Invoices from the finance team");
+    expect(mocks.decide).not.toHaveBeenCalled();
   });
 
-  it("returns an automation error when Jev availability cannot be checked", async () => {
-    mocks.isJevEnabled.mockRejectedValue(
-      new Error("Builder Jev availability unavailable"),
+  it("reports unavailable decision status during automation polling", async () => {
+    mocks.getDecisionsStatus.mockRejectedValue(
+      new Error("Decision provider status unavailable"),
     );
 
     await expect(
@@ -676,7 +1123,7 @@ describe("Mail Jev automation routing", () => {
         eventId: `mail.message.received:${accountEmail}:incoming-1`,
       }),
     );
-    expect(mocks.isJevEnabled).not.toHaveBeenCalled();
+    expect(mocks.getDecisionsStatus).not.toHaveBeenCalled();
   });
 
   it("aborts an in-flight Gmail read and still releases the poll lease", async () => {
@@ -946,12 +1393,14 @@ describe("Mail Jev automation routing", () => {
       suggestionThreshold: 0.5,
     });
     mocks.executeActions.mockResolvedValue({ successes: 1, failures: 0 });
-    mocks.requestJevThroughBuilder.mockResolvedValue({
-      answers: {
-        q_0_0: { noul: 0.99 },
-        q_1_0: { noul: 0.99 },
-      },
-    });
+    mocks.decide.mockImplementationOnce(
+      async ({
+        questions,
+      }: {
+        questions: Array<{ name: string; type: string }>;
+      }) =>
+        decisionResult(questions, { probabilities: questions.map(() => 0.99) }),
+    );
     mocks.userSettings.set("owner@example.com:automation-watermark", {
       lastHistoryId: "history-1",
       lastTimestamp: Date.now(),
@@ -996,7 +1445,7 @@ describe("Mail Jev automation routing", () => {
       "google-access-token",
     );
 
-    expect(mocks.requestJevThroughBuilder).toHaveBeenCalledOnce();
+    expect(mocks.decide).toHaveBeenCalledOnce();
     expect(mocks.executeActions.mock.calls).toEqual([
       [
         [{ type: "label", labelName: "agent-native-important" }],
@@ -1031,11 +1480,14 @@ describe("Mail Jev automation routing", () => {
       feedback: [],
       suggestionThreshold: 0.5,
     });
-    mocks.requestJevThroughBuilder.mockResolvedValue({
-      answers: {
-        q_0_0: { noul: 0.99 },
-      },
-    });
+    mocks.decide.mockImplementationOnce(
+      async ({
+        questions,
+      }: {
+        questions: Array<{ name: string; type: string }>;
+      }) =>
+        decisionResult(questions, { probabilities: questions.map(() => 0.99) }),
+    );
     mocks.executeActions
       .mockResolvedValueOnce({
         successes: 0,
@@ -1131,6 +1583,439 @@ describe("Mail Jev automation routing", () => {
         "owner@example.com:mail-automation-pending-notifications:mailbox@example.com",
       ),
     ).toEqual([]);
+  });
+
+  it("keeps failed poll classifications pending for a later retry", async () => {
+    const now = Date.now();
+    mocks.activeRules = [
+      {
+        id: "tag-rule",
+        domain: "mail",
+        kind: "ai-filter",
+        name: "Project updates",
+        condition: "Project updates",
+        actions: JSON.stringify([
+          { type: "label", labelName: "Project updates" },
+        ]),
+        enabled: 1,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ];
+    mocks.getAiFilterState.mockResolvedValue({
+      enabled: true,
+      autoFilter: false,
+      autoFilterThreshold: 0.92,
+      suggestionThreshold: 0.5,
+      feedback: [],
+      decisions: [],
+    });
+    mocks.executeActions.mockResolvedValue({ successes: 1, failures: 0 });
+    mocks.userSettings.set("owner@example.com:automation-watermark", {
+      lastHistoryId: "history-1",
+      lastTimestamp: now,
+    });
+    mocks.gmailListHistory
+      .mockResolvedValueOnce({
+        historyId: "history-2",
+        history: [
+          {
+            messagesAdded: [
+              { message: { id: "partial", labelIds: ["INBOX"] } },
+            ],
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ historyId: "history-3", history: [] });
+    mocks.gmailBatchGetMessages
+      .mockResolvedValueOnce([
+        {
+          id: "partial",
+          data: {
+            id: "partial",
+            threadId: "thread-partial",
+            internalDate: String(now + 1_000),
+            labelIds: ["INBOX"],
+            payload: { headers: [] },
+          },
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: "partial",
+          data: {
+            id: "partial",
+            threadId: "thread-partial",
+            internalDate: String(now + 1_000),
+            labelIds: ["INBOX"],
+            payload: { headers: [] },
+          },
+        },
+      ]);
+    mocks.decide
+      .mockImplementationOnce(
+        async ({
+          questions,
+        }: {
+          questions: Array<{ name: string; type: string }>;
+        }) => decisionResult(questions, { failures: ["q_0"] }),
+      )
+      .mockImplementationOnce(
+        async ({
+          questions,
+        }: {
+          questions: Array<{ name: string; type: string }>;
+        }) => decisionResult(questions),
+      );
+
+    const result = await processAutomationsForAccount(
+      "owner@example.com",
+      "mailbox@example.com",
+      "google-access-token",
+    );
+
+    expect(result).toMatchObject({
+      errors: 1,
+      decisionFailures: [
+        {
+          emailId: "partial",
+          accountEmail: "mailbox@example.com",
+          ruleId: "tag-rule",
+          reason: "invalid_response",
+        },
+      ],
+    });
+    expect(mocks.executeActions).not.toHaveBeenCalled();
+    expect(
+      mocks.userSettings.get("owner@example.com:automation-watermark"),
+    ).toMatchObject({ pendingMessageIds: ["partial"] });
+    expect(
+      mocks.userSettings.get("owner@example.com:automation-processed-ids"),
+    ).toMatchObject({ ids: [] });
+
+    const retried = await processAutomationsForAccount(
+      "owner@example.com",
+      "mailbox@example.com",
+      "google-access-token",
+    );
+
+    expect(retried.decisionFailures).toEqual([]);
+    expect(mocks.executeActions).toHaveBeenCalledTimes(1);
+    expect(mocks.gmailBatchGetMessages).toHaveBeenCalledTimes(2);
+    expect(
+      mocks.userSettings.get("owner@example.com:automation-watermark"),
+    ).not.toHaveProperty("pendingMessageIds");
+    expect(
+      mocks.userSettings.get("owner@example.com:automation-processed-ids"),
+    ).toMatchObject({ ids: ["partial"] });
+  });
+
+  it("queues every pair in a batch after a top-level decision failure", async () => {
+    const now = Date.now();
+    mocks.activeRules = [
+      {
+        id: "tag-rule",
+        domain: "mail",
+        kind: "automation",
+        name: "Project updates",
+        condition: "Project updates",
+        actions: JSON.stringify([{ type: "star" }]),
+        enabled: 1,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ];
+    mocks.userSettings.set("owner@example.com:automation-watermark", {
+      lastHistoryId: "history-1",
+      lastTimestamp: now,
+    });
+    mocks.gmailListHistory.mockResolvedValueOnce({
+      historyId: "history-2",
+      history: [
+        {
+          messagesAdded: [{ message: { id: "failed", labelIds: ["INBOX"] } }],
+        },
+      ],
+    });
+    mocks.gmailBatchGetMessages.mockResolvedValueOnce([
+      {
+        id: "failed",
+        data: {
+          id: "failed",
+          threadId: "thread-failed",
+          internalDate: String(now + 1_000),
+          labelIds: ["INBOX"],
+          payload: { headers: [] },
+        },
+      },
+    ]);
+    mocks.decide.mockResolvedValueOnce({
+      status: "failed",
+      reason: "provider_error",
+      provider: "jev",
+    });
+
+    const result = await processAutomationsForAccount(
+      "owner@example.com",
+      "mailbox@example.com",
+      "google-access-token",
+    );
+
+    expect(result).toMatchObject({
+      errors: 1,
+      decisionFailures: [
+        {
+          emailId: "failed",
+          accountEmail: "mailbox@example.com",
+          ruleId: "tag-rule",
+          reason: "provider_error",
+          retryable: true,
+        },
+      ],
+    });
+    expect(mocks.executeActions).not.toHaveBeenCalled();
+    expect(
+      mocks.userSettings.get("owner@example.com:automation-watermark"),
+    ).toMatchObject({
+      pendingMessageIds: ["failed"],
+      pendingDecisionAttempts: { failed: 1 },
+    });
+    expect(
+      mocks.userSettings.get("owner@example.com:automation-processed-ids"),
+    ).toMatchObject({ ids: [] });
+  });
+
+  it("executes successful rule matches before terminalizing an oversized rule", async () => {
+    const now = Date.now();
+    mocks.activeRules = [
+      {
+        id: "successful-rule",
+        domain: "mail",
+        kind: "automation",
+        name: "Star project mail",
+        condition: "Project updates",
+        actions: JSON.stringify([{ type: "star" }]),
+        enabled: 1,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: "oversized-rule",
+        domain: "mail",
+        kind: "automation",
+        name: "Oversized rule",
+        condition: "x".repeat(MAX_DECISION_PAYLOAD_BYTES + 1),
+        actions: JSON.stringify([{ type: "trash" }]),
+        enabled: 1,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ];
+    mocks.executeActions.mockResolvedValue({ successes: 1, failures: 0 });
+    mocks.userSettings.set("owner@example.com:automation-watermark", {
+      lastHistoryId: "history-1",
+      lastTimestamp: now,
+    });
+    mocks.gmailListHistory.mockResolvedValueOnce({
+      historyId: "history-2",
+      history: [
+        {
+          messagesAdded: [{ message: { id: "partial", labelIds: ["INBOX"] } }],
+        },
+      ],
+    });
+    mocks.gmailBatchGetMessages.mockResolvedValueOnce([
+      {
+        id: "partial",
+        data: {
+          id: "partial",
+          threadId: "thread-partial",
+          internalDate: String(now + 1_000),
+          labelIds: ["INBOX"],
+          payload: { headers: [] },
+        },
+      },
+    ]);
+
+    const result = await processAutomationsForAccount(
+      "owner@example.com",
+      "mailbox@example.com",
+      "google-access-token",
+    );
+
+    expect(result).toMatchObject({
+      errors: 1,
+      decisionFailures: [
+        expect.objectContaining({
+          emailId: "partial",
+          ruleId: "oversized-rule",
+          reason: "invalid_input",
+          retryable: false,
+        }),
+      ],
+    });
+    expect(mocks.executeActions).toHaveBeenCalledOnce();
+    expect(mocks.executeActions).toHaveBeenCalledWith(
+      [{ type: "star" }],
+      expect.objectContaining({ messageId: "partial" }),
+    );
+    expect(
+      mocks.userSettings.get("owner@example.com:automation-watermark"),
+    ).not.toHaveProperty("pendingMessageIds");
+    expect(
+      mocks.userSettings.get("owner@example.com:automation-processed-ids"),
+    ).toMatchObject({ ids: ["partial"] });
+  });
+
+  it("leaves history capacity when decision retry IDs fill the pending queue", async () => {
+    const now = Date.now();
+    const accountEmail = "mailbox@example.com";
+    const pendingIds = Array.from(
+      { length: 50 },
+      (_, index) => `stalled-${index}`,
+    );
+    mocks.activeRules = [
+      {
+        id: "tag-rule",
+        domain: "mail",
+        kind: "ai-filter",
+        name: "Project updates",
+        condition: "Project updates",
+        actions: JSON.stringify([
+          { type: "label", labelName: "Project updates" },
+        ]),
+        enabled: 1,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ];
+    mocks.getAiFilterState.mockResolvedValue({ enabled: true, feedback: [] });
+    mocks.userSettings.set("owner@example.com:automation-watermark", {
+      lastHistoryId: "history-1",
+      lastTimestamp: now,
+      pendingMessageIds: pendingIds,
+    });
+    mocks.gmailListHistory.mockResolvedValueOnce({
+      historyId: "history-2",
+      history: [
+        {
+          messagesAdded: [
+            { message: { id: "new-inbox-message", labelIds: ["INBOX"] } },
+          ],
+        },
+      ],
+    });
+    mocks.gmailBatchGetMessages.mockImplementationOnce(
+      async (_accessToken: string, ids: string[]) =>
+        ids.map((id) => ({
+          id,
+          data: {
+            id,
+            threadId: `thread-${id}`,
+            labelIds: ["INBOX"],
+            payload: { headers: [] },
+          },
+        })),
+    );
+    mocks.decide.mockImplementationOnce(
+      async ({
+        questions,
+      }: {
+        questions: Array<{ name: string; type: string }>;
+      }) =>
+        decisionResult(questions, {
+          failures: questions.map(({ name }) => name),
+        }),
+    );
+
+    const result = await processAutomationsForAccount(
+      "owner@example.com",
+      accountEmail,
+      "google-access-token",
+    );
+
+    expect(result.messagesProcessed).toBe(41);
+    expect(mocks.gmailBatchGetMessages).toHaveBeenCalledWith(
+      "google-access-token",
+      expect.arrayContaining([...pendingIds.slice(0, 40), "new-inbox-message"]),
+      "metadata",
+      "incremental",
+      undefined,
+    );
+    expect(
+      mocks.userSettings.get("owner@example.com:automation-watermark"),
+    ).toMatchObject({
+      lastHistoryId: "history-2",
+      pendingMessageIds: expect.arrayContaining(["new-inbox-message"]),
+      pendingDecisionAttempts: { "new-inbox-message": 1 },
+    });
+  });
+
+  it("stops retrying a decision after the bounded attempt limit", async () => {
+    const now = Date.now();
+    mocks.activeRules = [
+      {
+        id: "tag-rule",
+        domain: "mail",
+        kind: "ai-filter",
+        name: "Project updates",
+        condition: "Project updates",
+        actions: JSON.stringify([
+          { type: "label", labelName: "Project updates" },
+        ]),
+        enabled: 1,
+        createdAt: now,
+        updatedAt: now,
+      },
+    ];
+    mocks.getAiFilterState.mockResolvedValue({ enabled: true, feedback: [] });
+    mocks.userSettings.set("owner@example.com:automation-watermark", {
+      lastHistoryId: "history-1",
+      lastTimestamp: now,
+      pendingMessageIds: ["stuck"],
+      pendingDecisionAttempts: { stuck: 4 },
+    });
+    mocks.gmailListHistory.mockResolvedValueOnce({
+      historyId: "history-2",
+      history: [],
+    });
+    mocks.gmailBatchGetMessages.mockResolvedValueOnce([
+      {
+        id: "stuck",
+        data: {
+          id: "stuck",
+          threadId: "thread-stuck",
+          labelIds: ["INBOX"],
+          payload: { headers: [] },
+        },
+      },
+    ]);
+    mocks.decide.mockImplementationOnce(
+      async ({
+        questions,
+      }: {
+        questions: Array<{ name: string; type: string }>;
+      }) => decisionResult(questions, { failures: ["q_0"] }),
+    );
+
+    await processAutomationsForAccount(
+      "owner@example.com",
+      "mailbox@example.com",
+      "google-access-token",
+    );
+
+    expect(
+      mocks.userSettings.get("owner@example.com:automation-watermark"),
+    ).toMatchObject({ lastHistoryId: "history-2" });
+    expect(
+      mocks.userSettings.get("owner@example.com:automation-watermark"),
+    ).not.toHaveProperty("pendingMessageIds");
+    expect(
+      mocks.userSettings.get("owner@example.com:automation-watermark"),
+    ).not.toHaveProperty("pendingDecisionAttempts");
+    expect(
+      mocks.userSettings.get("owner@example.com:automation-processed-ids"),
+    ).toMatchObject({ ids: ["stuck"] });
   });
 
   it("drops notification retries after the attempt limit", async () => {

@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { createTestPglite } from "../a2a/test-pglite.js";
@@ -74,10 +76,12 @@ vi.mock("../db/ddl-guard.js", () => ({
 const {
   AgentRunEventNotPersistedError,
   beginAgentExecutionStep,
+  privateExecutionStepInputJson,
   claimBackgroundRun,
   claimTaskExecutionLease,
   claimTurnExecutionLease,
   clearLedgerForThread,
+  clearRunDispatchPayload,
   completeAgentExecutionStep,
   finalizeClaimedBackgroundRunFailure,
   getRunById,
@@ -87,6 +91,7 @@ const {
   insertRunEvent,
   insertRunEvents,
   markAgentExecutionStepDispatched,
+  resetAgentExecutionStepBeforeInvocation,
   markRunAbortedAtSafeBoundary,
   updateRunStatusIfRunning,
   recordLateAgentExecutionStepOutcome,
@@ -95,13 +100,16 @@ const {
   persistRunCheckpointEvent,
   markRunAborted,
   markTurnAborted,
+  readRunDispatchPayload,
   readBackgroundRunClaim,
   reapUnclaimedBackgroundRun,
   reapIfStale,
   renewTaskExecutionLease,
+  renewTurnExecutionLease,
   UNCLAIMED_BACKGROUND_RUN_GRACE_MS,
   updateRunTerminalStateIfRunning,
   writeLedgerEntry,
+  tryClaimRunSlot,
 } = await import("./run-store.js");
 
 beforeAll(async () => {
@@ -114,6 +122,104 @@ afterAll(async () => {
 });
 
 describe("task execution leases", () => {
+  it("admits a model step again only for the same tool and arguments hash", async () => {
+    const threadId = "thread-step-intent-identity";
+    const turnId = "turn-step-intent-identity";
+    const runId = "run-step-intent-identity";
+    await insertRun(runId, threadId, turnId);
+    const fence = await claimTurnExecutionLease(threadId, turnId, runId);
+    const intent = {
+      ...fence,
+      stepId: "model-step:intent-identity",
+      operationId: "model-step:intent-identity",
+      toolName: "create-deck",
+      inputJson: JSON.stringify({
+        argumentsHash: "hash-a",
+        input: { title: "Q3 plan", theme: "dark" },
+      }),
+      replayPolicy: "retry-safe" as const,
+    };
+
+    await withExecutionFence(fence, async () => {
+      await expect(beginAgentExecutionStep(intent)).resolves.toEqual({
+        status: "execute",
+        wasDispatched: false,
+      });
+      await expect(
+        beginAgentExecutionStep({
+          ...intent,
+          inputJson: JSON.stringify({
+            argumentsHash: "hash-a",
+            input: { theme: "dark", title: "Q3 plan" },
+          }),
+        }),
+      ).resolves.toEqual({ status: "execute", wasDispatched: false });
+      await expect(
+        beginAgentExecutionStep({
+          ...intent,
+          inputJson: JSON.stringify({
+            argumentsHash: "hash-b",
+            input: { title: "Q3 plan", theme: "dark" },
+          }),
+        }),
+      ).rejects.toThrow("was retried with a different intent");
+      await expect(
+        beginAgentExecutionStep({ ...intent, toolName: "delete-deck" }),
+      ).rejects.toThrow("was retried with a different intent");
+    });
+  });
+
+  it("reopens a persisted dispatch after cancellation before action invocation", async () => {
+    const threadId = "thread-cancel-before-invocation";
+    const turnId = "turn-cancel-before-invocation";
+    const runId = "run-cancel-before-invocation";
+    await insertRun(runId, threadId, turnId);
+    const fence = await claimTurnExecutionLease(threadId, turnId, runId);
+    const intent = {
+      ...fence,
+      stepId: "cancelled-write",
+      operationId: "test:cancel-before-invocation",
+      toolName: "write",
+      inputJson: "{}",
+      replayPolicy: "never" as const,
+    };
+
+    await withExecutionFence(fence, async () => {
+      await expect(beginAgentExecutionStep(intent)).resolves.toEqual({
+        status: "execute",
+        wasDispatched: false,
+      });
+      await markAgentExecutionStepDispatched(intent);
+      await resetAgentExecutionStepBeforeInvocation(intent);
+    });
+
+    const retryRunId = `${runId}-retry`;
+    await insertRun(retryRunId, threadId, turnId);
+    await pglite.query(
+      `UPDATE agent_execution_leases
+          SET lease_expires_at = clock_timestamp() - INTERVAL '1 millisecond'
+        WHERE thread_id = ? AND turn_id = ?`,
+      [threadId, turnId],
+    );
+    const retryFence = await claimTurnExecutionLease(
+      threadId,
+      turnId,
+      retryRunId,
+    );
+    await withExecutionFence(retryFence, () =>
+      expect(
+        beginAgentExecutionStep({
+          ...retryFence,
+          stepId: intent.stepId,
+          operationId: intent.operationId,
+          toolName: intent.toolName,
+          inputJson: intent.inputJson,
+          replayPolicy: intent.replayPolicy,
+        }),
+      ).resolves.toEqual({ status: "execute", wasDispatched: false }),
+    );
+  });
+
   it("writes a continuation checkpoint and terminal reason atomically", async () => {
     const runId = "run-atomic-checkpoint";
     await insertRun(runId, "thread-atomic-checkpoint");
@@ -611,6 +717,202 @@ describe("task execution leases", () => {
     ).rejects.toMatchObject({ code: "missing_execution_fence" });
   });
 
+  it("rejects run insertion and slot claims when a requested fence is missing", async () => {
+    const threadId = "thread-missing-fenced-run-admission";
+    const turnId = "turn-missing-fenced-run-admission";
+
+    await expect(
+      withExecutionLeaseRequested(() =>
+        insertRun("run-missing-fenced-insert", threadId, turnId),
+      ),
+    ).rejects.toMatchObject({ code: "missing_execution_fence" });
+    await expect(
+      withExecutionLeaseRequested(() =>
+        tryClaimRunSlot(threadId, "run-missing-fenced-slot", undefined, {
+          turnId,
+        }),
+      ),
+    ).rejects.toMatchObject({ code: "missing_execution_fence" });
+
+    const rows = await pglite.query(
+      "SELECT id FROM agent_runs WHERE id IN (?, ?)",
+      ["run-missing-fenced-insert", "run-missing-fenced-slot"],
+    );
+    expect(rows.rows).toHaveLength(0);
+  });
+
+  it("fences run-slot inserts against a replaced execution generation", async () => {
+    const threadId = "thread-fenced-slot-insert";
+    const turnId = "turn-fenced-slot-insert";
+    const firstRunId = "run-fenced-slot-first";
+    const secondRunId = "run-fenced-slot-second";
+    await insertRun(firstRunId, threadId, turnId);
+    const firstFence = await claimTurnExecutionLease(
+      threadId,
+      turnId,
+      firstRunId,
+    );
+    await insertRun(secondRunId, threadId, turnId);
+    await pglite.query(
+      `UPDATE agent_execution_leases
+          SET lease_expires_at = clock_timestamp() - INTERVAL '1 millisecond'
+        WHERE thread_id = ? AND turn_id = ?`,
+      [threadId, turnId],
+    );
+    const secondFence = await claimTurnExecutionLease(
+      threadId,
+      turnId,
+      secondRunId,
+    );
+    await pglite.query(
+      "UPDATE agent_runs SET status = 'completed' WHERE id IN (?, ?)",
+      [firstRunId, secondRunId],
+    );
+
+    await expect(
+      withExecutionFence(firstFence, () =>
+        tryClaimRunSlot(threadId, "run-fenced-slot-stale-child", undefined, {
+          turnId,
+        }),
+      ),
+    ).rejects.toMatchObject({ code: "stale_execution_fence" });
+
+    await expect(
+      withExecutionFence(secondFence, () =>
+        tryClaimRunSlot(threadId, "run-fenced-slot-current-child", undefined, {
+          turnId,
+        }),
+      ),
+    ).resolves.toMatchObject({ claimed: true });
+    const staleInsert = await pglite.query(
+      "SELECT id FROM agent_runs WHERE id = ?",
+      ["run-fenced-slot-stale-child"],
+    );
+    expect(staleInsert.rows).toHaveLength(0);
+  });
+
+  it("keeps a worker whose lease lapsed while nobody replaced it", async () => {
+    const threadId = "thread-lapsed-lease";
+    const turnId = "turn-lapsed-lease";
+    const runId = "run-lapsed-lease";
+    await insertRun(runId, threadId, turnId);
+    const fence = await claimTurnExecutionLease(threadId, turnId, runId);
+    await pglite.query(
+      `UPDATE agent_execution_leases
+          SET lease_expires_at = clock_timestamp() - INTERVAL '1 second',
+              updated_at = clock_timestamp() - INTERVAL '16 seconds'
+        WHERE thread_id = ? AND turn_id = ?`,
+      [threadId, turnId],
+    );
+
+    await expect(
+      withExecutionFence(fence, () =>
+        insertRunEvent(runId, 0, JSON.stringify({ type: "text", text: "x" })),
+      ),
+    ).resolves.toBeUndefined();
+    await expect(renewTurnExecutionLease(fence)).resolves.toBeUndefined();
+    const lease = await pglite.query<{ live: boolean }>(
+      `SELECT lease_expires_at > clock_timestamp() AS live
+         FROM agent_execution_leases WHERE thread_id = ? AND turn_id = ?`,
+      [threadId, turnId],
+    );
+    expect(lease.rows[0]?.live).toBe(true);
+  });
+
+  it("fences a lapsed lease out once it was revoked, its run ended, or a worker replaced it", async () => {
+    const threadId = "thread-lapsed-lease-ended";
+    const turnId = "turn-lapsed-lease-ended";
+    const runId = "run-lapsed-lease-ended";
+    await insertRun(runId, threadId, turnId);
+    const fence = await claimTurnExecutionLease(threadId, turnId, runId);
+    const expire = () =>
+      pglite.query(
+        `UPDATE agent_execution_leases
+            SET lease_expires_at = clock_timestamp() - INTERVAL '1 second',
+                updated_at = clock_timestamp() - INTERVAL '16 seconds'
+          WHERE thread_id = ? AND turn_id = ?`,
+        [threadId, turnId],
+      );
+    await pglite.query(
+      `UPDATE agent_execution_leases
+          SET lease_expires_at = clock_timestamp(), updated_at = clock_timestamp()
+        WHERE thread_id = ? AND turn_id = ?`,
+      [threadId, turnId],
+    );
+    await expect(renewTurnExecutionLease(fence)).rejects.toMatchObject({
+      code: "stale_execution_fence",
+    });
+
+    await expire();
+    await pglite.query(
+      "UPDATE agent_runs SET status = 'errored' WHERE id = ?",
+      [runId],
+    );
+    await expect(renewTurnExecutionLease(fence)).rejects.toMatchObject({
+      code: "stale_execution_fence",
+    });
+    await expect(
+      withExecutionFence(fence, () =>
+        insertRunEvent(runId, 0, JSON.stringify({ type: "text", text: "x" })),
+      ),
+    ).rejects.toMatchObject({ cause: { code: "stale_execution_fence" } });
+
+    await pglite.query(
+      "UPDATE agent_runs SET status = 'running' WHERE id = ?",
+      [runId],
+    );
+    const replacement = await claimTurnExecutionLease(threadId, turnId, runId);
+    await expire();
+    await expect(renewTurnExecutionLease(fence)).rejects.toMatchObject({
+      code: "stale_execution_fence",
+    });
+    await expect(renewTurnExecutionLease(replacement)).resolves.toBeUndefined();
+  });
+
+  it("does not clear a run dispatch payload from a stale generation", async () => {
+    const threadId = "thread-fenced-dispatch-payload";
+    const turnId = "turn-fenced-dispatch-payload";
+    const firstRunId = "run-fenced-dispatch-payload-first";
+    const secondRunId = "run-fenced-dispatch-payload-second";
+    await insertRun(firstRunId, threadId, turnId, {
+      dispatchPayload: "first-payload",
+    });
+    const firstFence = await claimTurnExecutionLease(
+      threadId,
+      turnId,
+      firstRunId,
+    );
+    await insertRun(secondRunId, threadId, turnId);
+    await pglite.query(
+      `UPDATE agent_execution_leases
+          SET lease_expires_at = clock_timestamp() - INTERVAL '1 millisecond'
+        WHERE thread_id = ? AND turn_id = ?`,
+      [threadId, turnId],
+    );
+    await claimTurnExecutionLease(threadId, turnId, secondRunId);
+
+    await expect(
+      withExecutionFence(firstFence, () => clearRunDispatchPayload(firstRunId)),
+    ).rejects.toMatchObject({ code: "stale_execution_fence" });
+    await expect(readRunDispatchPayload(firstRunId)).resolves.toBe(
+      "first-payload",
+    );
+    const currentRunId = "run-fenced-dispatch-payload-current";
+    const currentTurnId = "turn-fenced-dispatch-payload-current";
+    await insertRun(currentRunId, threadId, currentTurnId, {
+      dispatchPayload: "current-payload",
+    });
+    const currentFence = await claimTurnExecutionLease(
+      threadId,
+      currentTurnId,
+      currentRunId,
+    );
+    await withExecutionFence(currentFence, () =>
+      clearRunDispatchPayload(currentRunId),
+    );
+    await expect(readRunDispatchPayload(currentRunId)).resolves.toBeNull();
+  });
+
   it("claims and renews without an agent_runs row, then fences stale generations", async () => {
     const threadId = "a2a-task:lease-test";
     const turnId = "lease-test";
@@ -914,6 +1216,114 @@ describe("task execution leases", () => {
     expect(
       (receipt.rows[0] as { result_json: string | null }).result_json,
     ).toBeNull();
+  });
+
+  it("resets a prepared or dispatched step before its handler starts", async () => {
+    const threadId = "thread-reset-before-invocation";
+    const turnId = "turn-reset-before-invocation";
+    const runId = "run-reset-before-invocation";
+    const stepId = "step-reset-before-invocation";
+    await insertRun(runId, threadId, turnId);
+    const fence = await claimTurnExecutionLease(threadId, turnId, runId);
+    const intent = {
+      ...fence,
+      stepId,
+      operationId: "test:reset-before-invocation",
+      toolName: "write",
+      inputJson: "{}",
+      replayPolicy: "never" as const,
+    };
+
+    await withExecutionFence(fence, async () => {
+      await beginAgentExecutionStep(intent);
+      await resetAgentExecutionStepBeforeInvocation(intent);
+      await markAgentExecutionStepDispatched(intent);
+      await resetAgentExecutionStepBeforeInvocation(intent);
+    });
+
+    const step = await pglite.query(
+      `SELECT status FROM agent_execution_steps
+        WHERE thread_id = ? AND turn_id = ? AND step_id = ?`,
+      [threadId, turnId, stepId],
+    );
+    expect(step.rows[0]).toMatchObject({ status: "prepared" });
+  });
+
+  it("reconciles an uninvoked dispatched step under the replacement lease", async () => {
+    const threadId = "thread-reconcile-replaced-lease";
+    const turnId = "turn-reconcile-replaced-lease";
+    const previousRunId = "run-reconcile-replaced-lease-previous";
+    const currentRunId = "run-reconcile-replaced-lease-current";
+    const stepId = "step-reconcile-replaced-lease";
+    await insertRun(previousRunId, threadId, turnId);
+    await insertRun(currentRunId, threadId, turnId);
+    const previousFence = await claimTurnExecutionLease(
+      threadId,
+      turnId,
+      previousRunId,
+    );
+    const previousIntent = {
+      ...previousFence,
+      stepId,
+      operationId: "test:reconcile-replaced-lease",
+      toolName: "write",
+      inputJson: "{}",
+      replayPolicy: "never" as const,
+    };
+
+    await withExecutionFence(previousFence, async () => {
+      await beginAgentExecutionStep(previousIntent);
+      await markAgentExecutionStepDispatched(previousIntent);
+    });
+    await pglite
+      .prepare(
+        `UPDATE agent_execution_leases
+         SET lease_expires_at = clock_timestamp() - INTERVAL '1 millisecond'
+         WHERE thread_id = ? AND turn_id = ?`,
+      )
+      .run(threadId, turnId);
+    const currentFence = await claimTurnExecutionLease(
+      threadId,
+      turnId,
+      currentRunId,
+    );
+    const currentIntent = {
+      ...previousIntent,
+      runId: currentRunId,
+      generation: currentFence.generation,
+    };
+
+    await expect(
+      withExecutionFence(currentFence, () =>
+        beginAgentExecutionStep(currentIntent),
+      ),
+    ).resolves.toEqual({ status: "unknown" });
+    await expect(
+      withExecutionFence(currentFence, () =>
+        resetAgentExecutionStepBeforeInvocation(previousIntent),
+      ),
+    ).rejects.toMatchObject({ code: "stale_execution_fence" });
+    await withExecutionFence(previousFence, () =>
+      resetAgentExecutionStepBeforeInvocation(previousIntent),
+    );
+    await expect(
+      withExecutionFence(currentFence, () =>
+        beginAgentExecutionStep(currentIntent),
+      ),
+    ).resolves.toEqual({ status: "execute", wasDispatched: false });
+
+    const step = await pglite.query(
+      `SELECT status, run_id, generation FROM agent_execution_steps
+        WHERE thread_id = ? AND turn_id = ? AND step_id = ?`,
+      [threadId, turnId, stepId],
+    );
+    expect(step.rows[0]).toMatchObject({
+      status: "prepared",
+      run_id: currentRunId,
+    });
+    expect(
+      String((step.rows[0] as { generation: string | number }).generation),
+    ).toBe(currentFence.generation);
   });
 
   it("commits terminal status and failure details before a successor claims", async () => {
@@ -1385,4 +1795,130 @@ describe("run event batches", () => {
       { seq: 1, event_at: 1_001, event_data: events[1]!.eventData },
     ]);
   });
+});
+
+it("rejects an unbound private legacy step intent", async () => {
+  const threadId = "thread-private-legacy-intent";
+  const turnId = "turn-private-legacy-intent";
+  const runId = "run-private-legacy-intent";
+  await insertRun(runId, threadId, turnId);
+  const fence = await claimTurnExecutionLease(threadId, turnId, runId);
+  const intent = {
+    ...fence,
+    stepId: "private-step",
+    operationId: "private-step",
+    toolName: "private-action",
+    inputJson: JSON.stringify({ omitFromPersistedHistory: true }),
+    replayPolicy: "never" as const,
+  };
+  await expect(
+    withExecutionFence(fence, () => beginAgentExecutionStep(intent)),
+  ).rejects.toThrow(/private.*identity/i);
+});
+
+it("binds a private step to opaque scoped argument identity", async () => {
+  const threadId = "thread-private-bound-intent";
+  const turnId = "turn-private-bound-intent";
+  const runId = "run-private-bound-intent";
+  const sentinel = "private-argument-sentinel";
+  const argumentsHash = createHash("sha256").update(sentinel).digest("hex");
+  await insertRun(runId, threadId, turnId);
+  const fence = await claimTurnExecutionLease(threadId, turnId, runId);
+  const inputJson = privateExecutionStepInputJson({
+    threadId,
+    turnId,
+    toolName: "private-action",
+    argumentsHash,
+  });
+  const intent = {
+    ...fence,
+    stepId: "private-step",
+    operationId: "private-step",
+    toolName: "private-action",
+    inputJson,
+    replayPolicy: "never" as const,
+  };
+  await withExecutionFence(fence, async () => {
+    expect(await beginAgentExecutionStep(intent)).toMatchObject({
+      status: "execute",
+    });
+    expect(await beginAgentExecutionStep(intent)).toMatchObject({
+      status: "execute",
+    });
+    const different = privateExecutionStepInputJson({
+      threadId,
+      turnId,
+      toolName: "private-action",
+      argumentsHash: createHash("sha256").update("different").digest("hex"),
+    });
+    await expect(
+      beginAgentExecutionStep({ ...intent, inputJson: different }),
+    ).rejects.toThrow("was retried with a different intent");
+  });
+  const { rows } = await pglite.query<{ input_json: string }>(
+    "SELECT input_json FROM agent_execution_steps WHERE thread_id = $1 AND step_id = $2",
+    [threadId, intent.stepId],
+  );
+  expect(rows).toHaveLength(1);
+  expect(rows[0]?.input_json).toBe(inputJson);
+  expect(inputJson).not.toContain(sentinel);
+  expect(inputJson).not.toContain(argumentsHash);
+  expect(JSON.parse(inputJson)).toEqual({
+    omitFromPersistedHistory: true,
+    identity: expect.stringMatching(/^hmac-v1:[a-f0-9]{64}$/),
+  });
+});
+
+it("refuses an existing unbound private row and a changed keyed identity", async () => {
+  const threadId = "thread-private-old-intent";
+  const turnId = "turn-private-old-intent";
+  const runId = "run-private-old-intent";
+  await insertRun(runId, threadId, turnId);
+  const fence = await claimTurnExecutionLease(threadId, turnId, runId);
+  const intent = {
+    ...fence,
+    stepId: "legacy-private-step",
+    operationId: "legacy-private-step",
+    toolName: "private-action",
+    inputJson: privateExecutionStepInputJson({
+      threadId,
+      turnId,
+      toolName: "private-action",
+      argumentsHash: "synthetic-argument-hash",
+    }),
+    replayPolicy: "never" as const,
+  };
+  await pglite.query(
+    `INSERT INTO agent_execution_steps
+      (thread_id, turn_id, step_id, operation_id, tool_name, input_json,
+       replay_policy, status, run_id, generation)
+      VALUES ($1, $2, $3, $4, $5, $6, 'never', 'prepared', $7, CAST($8 AS BIGINT))`,
+    [
+      threadId,
+      turnId,
+      intent.stepId,
+      intent.operationId,
+      intent.toolName,
+      JSON.stringify({ omitFromPersistedHistory: true }),
+      runId,
+      fence.generation,
+    ],
+  );
+  await expect(
+    withExecutionFence(fence, () => beginAgentExecutionStep(intent)),
+  ).rejects.toThrow(/private.*identity/i);
+  await pglite.query(
+    "UPDATE agent_execution_steps SET input_json = $1 WHERE thread_id = $2 AND step_id = $3",
+    [
+      JSON.stringify({
+        omitFromPersistedHistory: true,
+        identity: `hmac-v1:${"f".repeat(64)}`,
+      }),
+      threadId,
+      intent.stepId,
+    ],
+  );
+  await expect(
+    withExecutionFence(fence, () => beginAgentExecutionStep(intent)),
+  ).rejects.toThrow("was retried with a different intent");
 });

@@ -71,6 +71,7 @@ vi.mock("../org/app-roles.js", async (importOriginal) => ({
 }));
 
 vi.mock("./run-store.js", () => ({
+  BACKGROUND_PROCESSING_RUN_STALE_MS: 45_000,
   writeLedgerEntry: writeLedgerMock,
   readLedgerEntry: readLedgerMock,
   clearLedgerForThread: clearLedgerMock,
@@ -398,7 +399,9 @@ describe("tool-call result ledger", () => {
     expect(toolDone).toMatchObject({
       type: "tool_done",
       tool: "manage-draft",
-      result: JSON.stringify({ message: "Deleted draft draft-1" }, null, 2),
+    });
+    expect(JSON.parse(toolDone.result)).toEqual({
+      message: "Deleted draft draft-1",
     });
     expect(toolDone.chatUI).toBeUndefined();
     expect(events.some((event) => event.type === "widget.created")).toBe(false);
@@ -433,8 +436,9 @@ describe("tool-call result ledger", () => {
       threadId: "thread-standard-change-widget",
     });
 
-    expect(events.find((event) => event.type === "tool_done")).toMatchObject({
-      result: JSON.stringify(result, null, 2),
+    const toolDone = events.find((event) => event.type === "tool_done");
+    expect(JSON.parse(toolDone.result)).toEqual(result);
+    expect(toolDone).toMatchObject({
       chatUI: { renderer: "core.record-change" },
       chatUIResult: { change: result.change },
     });
@@ -479,8 +483,9 @@ describe("tool-call result ledger", () => {
       threadId: "thread-structured-widget",
     });
 
-    expect(events.find((event) => event.type === "tool_done")).toMatchObject({
-      result: JSON.stringify(result, null, 2),
+    const toolDone = events.find((event) => event.type === "tool_done");
+    expect(JSON.parse(toolDone.result)).toEqual(result);
+    expect(toolDone).toMatchObject({
       chatUI: { renderer: "mail.draft-created" },
       chatUIResult: widgetResult,
     });

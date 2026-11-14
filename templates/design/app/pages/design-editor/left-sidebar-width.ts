@@ -1,8 +1,12 @@
+import { AGENT_SIDEBAR_MIN_WIDTH } from "@agent-native/core/client/agent-sidebar-state";
+
 import type { DesignLeftPanel } from "@/pages/design-editor/types";
 
-export const DEFAULT_LEFT_SIDEBAR_WIDTH = 280;
+// The Agent panel shares this column and holds its own 320px floor; a
+// narrower column would clip the chat.
+export const DEFAULT_LEFT_SIDEBAR_WIDTH = AGENT_SIDEBAR_MIN_WIDTH;
 const LEFT_SIDEBAR_WIDTH_STEP = 8;
-const LEFT_SIDEBAR_MIN_WIDTH = 232;
+const LEFT_SIDEBAR_MIN_WIDTH = AGENT_SIDEBAR_MIN_WIDTH;
 const LEFT_SIDEBAR_MAX_WIDTH = 416;
 const CODE_PANEL_MIN_WIDTH = 520;
 const CODE_PANEL_MAX_WIDTH = 1100;

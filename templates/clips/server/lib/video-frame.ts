@@ -3,6 +3,12 @@ import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import type { RemoteFrameInput } from "./agent-frame-range.js";
+import {
+  IMAGE_EXTENSION_BY_MIME,
+  isSupportedImageMimeType,
+} from "./image-signature.js";
+import { RecordingMediaFetchError } from "./recording-media-fetch-error.js";
 import {
   frameSheetFfmpegArgs,
   frameSheetFpsFromProbe,
@@ -72,7 +78,10 @@ function isMissingVideoTrack(stderr: string): boolean {
   );
 }
 
-function mapFfmpegError(err: unknown): VideoFrameExtractionError {
+function mapFfmpegError(
+  err: unknown,
+): VideoFrameExtractionError | RecordingMediaFetchError {
+  if (err instanceof RecordingMediaFetchError) return err;
   const message = err instanceof Error ? err.message : String(err);
   const stderr = err instanceof FfmpegRunError ? err.stderr : "";
   if (/enoent|not found|eacces|enoexec/i.test(message)) {
@@ -93,36 +102,60 @@ function mapFfmpegError(err: unknown): VideoFrameExtractionError {
   );
 }
 
+function remoteInputArgs(remote?: RemoteFrameInput): string[] {
+  return remote
+    ? [
+        "-protocol_whitelist",
+        "http,tcp",
+        "-f",
+        remote.format,
+        ...(remote.format === "mov" ? ["-enable_drefs", "0"] : []),
+      ]
+    : [];
+}
+
 async function runFfmpeg(
   args: string[],
   timeoutMs = FRAME_EXTRACTION_TIMEOUT_MS,
+  remote?: RemoteFrameInput,
 ): Promise<string> {
-  return new Promise<string>((resolve, reject) => {
-    const child = spawn(resolveFfmpegCommand(), args, {
-      stdio: ["ignore", "ignore", "pipe"],
-    });
-    let stderr = "";
-    const timeout = setTimeout(() => {
-      child.kill("SIGKILL");
-      reject(new FfmpegRunError("ffmpeg timed out", stderr));
-    }, timeoutMs);
+  try {
+    const allowedMs = remote
+      ? Math.min(timeoutMs, remote.remainingMs())
+      : timeoutMs;
+    return await new Promise<string>((resolve, reject) => {
+      // observed-write-ok: FFmpeg only reads media and writes temporary frame files or null output.
+      const child = spawn(resolveFfmpegCommand(), args, {
+        stdio: ["ignore", "ignore", "pipe"],
+      });
+      let stderr = "";
+      const collectStderr = (chunk: Buffer) => {
+        stderr = (stderr + chunk.toString("utf8")).slice(-STDERR_LIMIT);
+      };
+      const timeout = setTimeout(() => {
+        child.kill("SIGKILL");
+        child.stderr.removeListener("data", collectStderr);
+        child.stderr.destroy();
+        reject(new FfmpegRunError("ffmpeg timed out", stderr));
+      }, allowedMs);
 
-    child.stderr?.on("data", (chunk: Buffer) => {
-      stderr = (stderr + chunk.toString("utf8")).slice(-STDERR_LIMIT);
+      child.stderr.on("data", collectStderr);
+      child.on("error", (err) => {
+        clearTimeout(timeout);
+        reject(new FfmpegRunError(err.message, stderr));
+      });
+      child.on("close", (code) => {
+        clearTimeout(timeout);
+        if (code === 0) {
+          resolve(stderr);
+          return;
+        }
+        reject(new FfmpegRunError(`ffmpeg exited with code ${code}`, stderr));
+      });
     });
-    child.on("error", (err) => {
-      clearTimeout(timeout);
-      reject(new FfmpegRunError(err.message, stderr));
-    });
-    child.on("close", (code) => {
-      clearTimeout(timeout);
-      if (code === 0) {
-        resolve(stderr);
-        return;
-      }
-      reject(new FfmpegRunError(`ffmpeg exited with code ${code}`, stderr));
-    });
-  });
+  } finally {
+    await remote?.assertHealthy();
+  }
 }
 
 function parseDurationMs(stderr: string): number | null {
@@ -157,17 +190,24 @@ export async function probeMediaDurationMs(
 
 export async function probeMediaDurationMsFromFile(
   mediaPath: string,
-  options: { requireComplete?: boolean; maxQueueWaitMs?: number } = {},
+  options: {
+    requireComplete?: boolean;
+    maxQueueWaitMs?: number;
+    remote?: RemoteFrameInput;
+  } = {},
 ): Promise<number | null> {
-  const info = await stat(mediaPath);
-  if (!info.size) return null;
+  if (!options.remote) {
+    const info = await stat(mediaPath);
+    if (!info.size) return null;
+  }
 
   const requireComplete = options.requireComplete === true;
 
   const runInSlot = requireComplete
     ? (fn: () => Promise<number | null>) =>
         withMediaValidationSlot(fn, options.maxQueueWaitMs)
-    : withFrameExtractionSlot;
+    : (fn: () => Promise<number | null>) =>
+        withFrameExtractionSlot(fn, options.remote);
 
   try {
     return await runInSlot(async () => {
@@ -178,6 +218,7 @@ export async function probeMediaDurationMsFromFile(
             "-hide_banner",
             ...(requireComplete ? ["-xerror"] : []),
             "-nostdin",
+            ...remoteInputArgs(options.remote),
             "-i",
             mediaPath,
             ...(requireComplete
@@ -185,6 +226,7 @@ export async function probeMediaDurationMsFromFile(
               : ["-map", "0:v:0?", "-frames:v", "1", "-f", "null", "-"]),
           ],
           requireComplete ? COMPLETE_MEDIA_VALIDATION_TIMEOUT_MS : undefined,
+          options.remote,
         );
       } catch (error) {
         if (error instanceof FfmpegRunError) return null;
@@ -198,16 +240,45 @@ export async function probeMediaDurationMsFromFile(
   }
 }
 
-async function withFrameExtractionSlot<T>(fn: () => Promise<T>): Promise<T> {
+async function withFrameExtractionSlot<T>(
+  fn: () => Promise<T>,
+  remote?: RemoteFrameInput,
+): Promise<T> {
   if (activeFrameExtractions >= MAX_CONCURRENT_FRAME_EXTRACTIONS) {
-    await new Promise<void>((resolve) => frameExtractionWaiters.push(resolve));
+    const waitMs = remote?.remainingMs();
+    await new Promise<void>((resolve, reject) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const waiter = () => {
+        clearTimeout(timer);
+        resolve();
+      };
+      frameExtractionWaiters.push(waiter);
+      if (remote)
+        timer = setTimeout(() => {
+          const index = frameExtractionWaiters.indexOf(waiter);
+          if (index >= 0) frameExtractionWaiters.splice(index, 1);
+          reject(
+            new RecordingMediaFetchError(
+              "Recording range deadline exceeded.",
+              504,
+            ),
+          );
+        }, waitMs);
+    });
+  } else {
+    activeFrameExtractions += 1;
   }
-  activeFrameExtractions += 1;
   try {
+    remote?.remainingMs();
     return await fn();
   } finally {
-    activeFrameExtractions = Math.max(0, activeFrameExtractions - 1);
-    frameExtractionWaiters.shift()?.();
+    const waiter = frameExtractionWaiters.shift();
+    if (waiter) {
+      // Keep the slot counted while transferring its ownership to the waiter.
+      waiter();
+    } else {
+      activeFrameExtractions -= 1;
+    }
   }
 }
 
@@ -284,15 +355,44 @@ export async function extractJpegFrame({
   }
 }
 
+/**
+ * A still image as a JPEG at the frame size cap, for a screenshot that is
+ * another type or too large to hand to an agent as it is.
+ */
+export async function convertImageToJpeg({
+  imageBytes,
+  mimeType,
+}: {
+  imageBytes: Uint8Array;
+  mimeType: string;
+}): Promise<Uint8Array> {
+  // observed-write-ok: temp file, removed below
+  const dir = await mkdtemp(join(tmpdir(), "clips-image-input-"));
+  const inputPath = join(
+    dir,
+    `input${isSupportedImageMimeType(mimeType) ? IMAGE_EXTENSION_BY_MIME[mimeType] : ".img"}`,
+  );
+  try {
+    // observed-write-ok: temp file, removed below
+    await writeFile(inputPath, imageBytes);
+    return await extractJpegFrameFromFile({ mediaPath: inputPath, atMs: 0 });
+  } finally {
+    // observed-write-ok: removes this call's temp directory
+    await rm(dir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
 export async function extractJpegFrameFromFile({
   mediaPath,
   atMs,
+  remote,
 }: {
   mediaPath: string;
   atMs: number;
+  remote?: RemoteFrameInput | undefined;
 }): Promise<Uint8Array> {
-  const info = await stat(mediaPath);
-  if (!info.size) {
+  const info = remote ? null : await stat(mediaPath);
+  if (info && !info.size) {
     throw new VideoFrameExtractionError(
       "EMPTY_MEDIA",
       "Recording media is empty.",
@@ -303,27 +403,32 @@ export async function extractJpegFrameFromFile({
     const dir = await mkdtemp(join(tmpdir(), "clips-frame-output-"));
     const outputPath = join(dir, "frame.jpg");
     try {
-      await runFfmpeg([
-        "-hide_banner",
-        "-loglevel",
-        "error",
-        "-nostdin",
-        "-y",
-        // ffmpeg starts at the first frame at or after -ss. Comment times are
-        // a frame start rounded up to a whole millisecond, so begin 1 ms
-        // early to keep a sub-millisecond start (30 fps MP4) on that frame.
-        "-ss",
-        String(Math.max(0, atMs - 1) / 1000),
-        "-i",
-        mediaPath,
-        "-frames:v",
-        "1",
-        "-vf",
-        "scale='min(1280,iw)':-2",
-        "-q:v",
-        "3",
-        outputPath,
-      ]).catch((err) => {
+      await runFfmpeg(
+        [
+          "-hide_banner",
+          "-loglevel",
+          "error",
+          "-nostdin",
+          "-y",
+          // ffmpeg starts at the first frame at or after -ss. Comment times are
+          // a frame start rounded up to a whole millisecond, so begin 1 ms
+          // early to keep a sub-millisecond start (30 fps MP4) on that frame.
+          "-ss",
+          String(Math.max(0, atMs - 1) / 1000),
+          ...remoteInputArgs(remote),
+          "-i",
+          mediaPath,
+          "-frames:v",
+          "1",
+          "-vf",
+          "scale='min(1280,iw)':-2",
+          "-q:v",
+          "3",
+          outputPath,
+        ],
+        undefined,
+        remote,
+      ).catch((err) => {
         throw mapFfmpegError(err);
       });
 
@@ -348,47 +453,59 @@ export async function extractJpegFrameFromFile({
 
       return new Uint8Array(await readFile(outputPath));
     } catch (err) {
-      if (err instanceof VideoFrameExtractionError) throw err;
+      if (
+        err instanceof VideoFrameExtractionError ||
+        err instanceof RecordingMediaFetchError
+      )
+        throw err;
       throw mapFfmpegError(err);
     } finally {
       await rm(dir, { recursive: true, force: true }).catch(() => {});
     }
-  });
+  }, remote);
 }
 
 /** The frame rate a frame sheet uses when its request leaves fps out. */
 export async function probeFrameSheetFpsFromFile(
   mediaPath: string,
+  remote?: RemoteFrameInput,
 ): Promise<number> {
   return withFrameExtractionSlot(async () => {
-    const stderr = await runFfmpeg([
-      "-hide_banner",
-      "-nostdin",
-      "-i",
-      mediaPath,
-      "-map",
-      "0:v:0?",
-      "-frames:v",
-      "1",
-      "-f",
-      "null",
-      "-",
-    ]).catch((err) => {
+    const stderr = await runFfmpeg(
+      [
+        "-hide_banner",
+        "-nostdin",
+        ...remoteInputArgs(remote),
+        "-i",
+        mediaPath,
+        "-map",
+        "0:v:0?",
+        "-frames:v",
+        "1",
+        "-f",
+        "null",
+        "-",
+      ],
+      undefined,
+      remote,
+    ).catch((err) => {
       throw mapFfmpegError(err);
     });
     return frameSheetFpsFromProbe(stderr);
-  });
+  }, remote);
 }
 
 export async function extractJpegFrameSheetFromFile({
   mediaPath,
   plan,
+  remote,
 }: {
   mediaPath: string;
   plan: FrameSheetPlan;
+  remote?: RemoteFrameInput | undefined;
 }): Promise<Uint8Array> {
-  const info = await stat(mediaPath);
-  if (!info.size) {
+  const info = remote ? null : await stat(mediaPath);
+  if (info && !info.size) {
     throw new VideoFrameExtractionError(
       "EMPTY_MEDIA",
       "Recording media is empty.",
@@ -408,6 +525,7 @@ export async function extractJpegFrameSheetFromFile({
           "-nostdin",
           "-y",
           ...inputArgs,
+          ...remoteInputArgs(remote),
           "-i",
           mediaPath,
           "-an",
@@ -421,6 +539,7 @@ export async function extractJpegFrameSheetFromFile({
           outputPath,
         ],
         FRAME_SHEET_TIMEOUT_MS,
+        remote,
       ).catch((err) => {
         throw mapFfmpegError(err);
       });
@@ -443,10 +562,14 @@ export async function extractJpegFrameSheetFromFile({
 
       return new Uint8Array(await readFile(outputPath));
     } catch (err) {
-      if (err instanceof VideoFrameExtractionError) throw err;
+      if (
+        err instanceof VideoFrameExtractionError ||
+        err instanceof RecordingMediaFetchError
+      )
+        throw err;
       throw mapFfmpegError(err);
     } finally {
       await rm(dir, { recursive: true, force: true }).catch(() => {});
     }
-  });
+  }, remote);
 }

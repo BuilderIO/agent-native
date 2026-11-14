@@ -17,6 +17,10 @@ import {
   getOrCreateAnalyticsAnonymousId,
   getOrCreateAnalyticsSessionId,
 } from "./analytics-session.js";
+import { apiBaseUrl, appApiPath } from "./api-path.js";
+import { clientCommitSha } from "./build-compatibility.js";
+import { whenConsentAllows } from "./consent.js";
+import { markPassThroughFetch } from "./fetch-transport.js";
 import { replayEndpointFromAnalyticsEndpoint } from "./session-replay-endpoint.js";
 import {
   SESSION_REPLAY_BLOCK_ATTRIBUTE,
@@ -116,6 +120,7 @@ interface SessionReplayState {
   awaitingFullSnapshot: boolean;
   stopRecorder: ReplayStopFn | null;
   restoreUrlMonitor: (() => void) | null;
+  lastNavigationPath: string | null;
   removeLifecycleListeners: (() => void) | null;
   restoreIframeBridge: (() => void) | null;
   addCustomEvent: ((tag: string, payload: unknown) => void) | null;
@@ -242,7 +247,8 @@ export interface SessionReplayStartResult {
     | "url-blocked"
     | "already-active"
     | "import-failed"
-    | "record-failed";
+    | "record-failed"
+    | "consent-required";
   replayId?: string;
   sessionId?: string;
   sampled?: boolean;
@@ -367,6 +373,7 @@ export const SESSION_REPLAY_CONSOLE_EVENT_TAG = "agent-native.console";
 export const SESSION_REPLAY_NETWORK_EVENT_TAG = "agent-native.network";
 export const SESSION_REPLAY_AGENT_CHAT_EVENT_TAG = "agent-native.chat";
 export const SESSION_REPLAY_ANALYTICS_EVENT_TAG = "agent-native.event";
+export const SESSION_REPLAY_NAVIGATION_EVENT_TAG = "agent-native.navigation";
 export const SESSION_REPLAY_VITALS_EVENT_TAG = "agent-native.vitals";
 export const SESSION_REPLAY_SLOW_REQUEST_EVENT_TAG =
   "agent-native.slow_request";
@@ -453,6 +460,7 @@ function getState(): SessionReplayState {
       awaitingFullSnapshot: false,
       stopRecorder: null,
       restoreUrlMonitor: null,
+      lastNavigationPath: null,
       removeLifecycleListeners: null,
       restoreIframeBridge: null,
       addCustomEvent: null,
@@ -862,6 +870,7 @@ function defaultReplayEndpoint(): string {
       )
     : null;
   if (derived) return derived;
+  if (apiBaseUrl()) return appApiPath(DEFAULT_REPLAY_PATH);
   return typeof window !== "undefined"
     ? `${window.location.origin}${DEFAULT_REPLAY_PATH}`
     : DEFAULT_REPLAY_PATH;
@@ -1566,6 +1575,7 @@ function buildReplayBody(
   const properties = state.suppressIdentityInProperties
     ? stripReplayIdentityProperties(replayProperties)
     : replayProperties;
+  const commitSha = clientCommitSha();
   const eventTimestamps = events.map((event) => event.timestampMs);
   const nowMs = Date.now();
   const startedAtMs =
@@ -1596,6 +1606,7 @@ function buildReplayBody(
         : undefined,
     timestamp: new Date().toISOString(),
     properties,
+    ...(commitSha ? { metadata: { commit_sha: commitSha } } : {}),
   };
   const envelopeJson = JSON.stringify(envelope);
   return {
@@ -1716,6 +1727,9 @@ function isDefinitiveReplayUploadClientError(status: number): boolean {
 const MAX_TRANSIENT_REPLAY_CLIENT_FAILURES = 3;
 const REPLAY_UPLOAD_TIMEOUT_MS = 15_000;
 
+// Uploads in flight, so a consent reject can abort them.
+const activeReplayUploads = new Set<AbortController>();
+
 function startReplayUploadTimeout(): {
   signal: AbortSignal | undefined;
   promise: Promise<never>;
@@ -1735,11 +1749,15 @@ function startReplayUploadTimeout(): {
     controller?.abort();
     rejectTimeout(timeoutError);
   }, REPLAY_UPLOAD_TIMEOUT_MS);
+  if (controller) activeReplayUploads.add(controller);
   return {
     signal: controller?.signal,
     promise,
     didTimeout: () => timedOut,
-    done: () => clearTimeout(timer),
+    done: () => {
+      clearTimeout(timer);
+      if (controller) activeReplayUploads.delete(controller);
+    },
   };
 }
 
@@ -2187,6 +2205,12 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
   if (isSyntheticBrowserTraffic()) return;
   const state = getState();
   if (!state.options) return;
+  if (replayConsentWithdrawn) {
+    // An upload in flight at the reject can put its batch back; drop it.
+    discardWithdrawnReplay(state);
+    for (const resolve of state.pendingFlushWaiters.splice(0)) resolve();
+    return;
+  }
   if (replayUploadsParked(state, Date.now())) return;
   if (state.pendingReplayUpload) {
     state.pendingFlushReason = mergePendingFlushReason(
@@ -2232,6 +2256,9 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
     return;
   }
   state.flushing = true;
+  // A reject while this upload is in flight withdraws its events for good,
+  // even if the visitor accepts again before it settles.
+  const consentGeneration = replayConsentGeneration;
   let uploaded = false;
   let reservedSequence = false;
   let splitRejectedBatch = false;
@@ -2255,6 +2282,8 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
     // between; it is queued as the pending reason.
     const outcome = await sendReplayUpload(state.options, payload.body, {
       beforeUpload: (keepalive) => {
+        // Compression can take long enough for a reject to land first.
+        if (consentGeneration !== replayConsentGeneration) return "defer";
         const pendingReason = state.pendingFlushReason;
         if (
           !keepalive &&
@@ -2270,7 +2299,9 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
       },
     });
     if (outcome === "deferred") {
-      restoreReplayEvents(state, events);
+      if (consentGeneration === replayConsentGeneration) {
+        restoreReplayEvents(state, events);
+      }
     } else {
       state.automaticConflictRestartAttempted = false;
       state.transientClientErrorFailures = 0;
@@ -2336,7 +2367,9 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
           quotaDecision?.kind === "stop") &&
         !splitBatch &&
         !isUnsplittableOversizedBatch;
-      if (splitBatch) {
+      if (consentGeneration !== replayConsentGeneration) {
+        // Withdrawn while in flight; nothing goes back on the queue.
+      } else if (splitBatch) {
         state.retryBatches.unshift(...splitBatch);
         splitRejectedBatch = true;
       } else if (isUnsplittableOversizedBatch) {
@@ -2462,6 +2495,9 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
       state.automaticConflictRestartAttempted = true;
     }
 
+    // The stop forgets the caller's start; a recovered recording keeps it,
+    // so a reject and a later accept can bring it back.
+    const consentStartOptions = replayAllowedOptions;
     await stopSessionReplay("upload-rejected");
 
     let restartResult: SessionReplayStartResult | null = null;
@@ -2471,6 +2507,9 @@ export async function flushSessionReplay(reason = "manual"): Promise<void> {
         rejectedOptions,
         payload.sessionId,
       );
+      if (restartResult.started) replayAllowedOptions = consentStartOptions;
+      // A reject during the recovery leaves the start for the next accept.
+      if (!replayConsentGranted) replayAwaitingConsent ??= consentStartOptions;
     }
 
     const details: SessionReplayUploadRejectedDetails = {
@@ -2534,6 +2573,16 @@ async function restartSessionReplayWithFreshIdentityInternal(
     return { started: false, reason: "disabled", sessionId, sampled: true };
   }
 
+  // Recovery restarts without going through startSessionReplay, so a reject
+  // that landed while the old recording stopped must still hold here.
+  if (!replayConsentGranted) {
+    return {
+      started: false,
+      reason: "consent-required",
+      sessionId,
+      sampled: true,
+    };
+  }
   const initialProperties = replayExtraProperties(options);
   if (options.requireSignedInUser && !replayUserEmail(initialProperties)) {
     return {
@@ -2562,13 +2611,26 @@ async function restartSessionReplayWithFreshIdentityInternal(
   );
 }
 
+/**
+ * rrweb only marks page loads, so a single-page app's route changes would
+ * otherwise leave no trace. Only the path is recorded, never the query string.
+ */
+function emitReplayNavigation(state: SessionReplayState): void {
+  const path = window.location.pathname;
+  if (path === state.lastNavigationPath) return;
+  state.lastNavigationPath = path;
+  emitReplayCustomEvent(state, SESSION_REPLAY_NAVIGATION_EVENT_TAG, { path });
+}
+
 function installUrlMonitor(state: SessionReplayState): void {
   if (!state.options || state.restoreUrlMonitor) return;
   const options = state.options;
   const check = () => {
     if (!isUrlRecordable(window.location.href, options)) {
       void stopSessionReplay("url-blocked");
+      return;
     }
+    emitReplayNavigation(state);
   };
   const originalPushState = window.history.pushState.bind(window.history);
   const originalReplaceState = window.history.replaceState.bind(window.history);
@@ -2593,6 +2655,22 @@ function installUrlMonitor(state: SessionReplayState): void {
 
 function installLifecycleListeners(state: SessionReplayState): void {
   if (state.removeLifecycleListeners) return;
+  // A failed run's message is masked in the replay, so this mark, which never
+  // carries the message, is what keeps the failure findable.
+  const markFailedRun = (event: Event) => {
+    const detail = (event as CustomEvent).detail ?? {};
+    const text = (value: unknown) =>
+      typeof value === "string" ? value : undefined;
+    emitSessionReplayAgentChatEvent({
+      phase: "run-failed",
+      surface: "app",
+      runId: text(detail.runId),
+      tabId: text(detail.tabId),
+      errorCode: text(detail.errorCode),
+      recoverable: detail.recoverable === true,
+    });
+  };
+  window.addEventListener("agent-chat:run-error", markFailedRun);
   const flushOnHidden = () => {
     if (document.visibilityState === "hidden") {
       void flushSessionReplay("visibility-hidden");
@@ -2618,6 +2696,7 @@ function installLifecycleListeners(state: SessionReplayState): void {
     document.removeEventListener("visibilitychange", flushOnHidden);
     window.removeEventListener("pagehide", flushOnUnload);
     window.removeEventListener("pageshow", resumeFromBfcache);
+    window.removeEventListener("agent-chat:run-error", markFailedRun);
     state.removeLifecycleListeners = null;
   };
 }
@@ -3390,6 +3469,8 @@ function installNetworkCapture(
       );
     };
     window.fetch = wrappedFetch as typeof window.fetch;
+    // Requests go out unchanged, so reads cached by transport see through it.
+    markPassThroughFetch(wrappedFetch as typeof window.fetch, originalFetch);
     restores.push(() => {
       if (window.fetch === (wrappedFetch as typeof window.fetch)) {
         window.fetch = originalFetch;
@@ -3549,6 +3630,85 @@ function installCaptureInterceptors(state: SessionReplayState): void {
   };
 }
 
+let replayConsentWatched = false;
+let replayConsentGranted = false;
+let replayConsentWithdrawn = false;
+let replayConsentGeneration = 0;
+let replayAllowedOptions: SessionReplayOptions | null = null;
+
+function discardWithdrawnReplay(state: SessionReplayState): void {
+  for (const upload of activeReplayUploads) upload.abort();
+  activeReplayUploads.clear();
+  state.queue = [];
+  state.queuedBytes = 0;
+  state.retryBatches = [];
+  state.pendingFlushReason = null;
+  for (const resolve of state.pendingFlushWaiters.splice(0)) resolve();
+}
+let replayAwaitingConsent: SessionReplayOptions | null = null;
+let replayCallerStops = 0;
+
+/**
+ * Replay waits for analytics consent where the banner applies, without the
+ * time zone's early guess: a recording that already uploaded can't be undone.
+ * A start asked for before the answer runs once consent arrives.
+ */
+function replayConsentAllows(options: SessionReplayOptions): boolean {
+  if (!replayConsentWatched) {
+    replayConsentWatched = true;
+    whenConsentAllows(
+      "performance",
+      () => {
+        replayConsentGranted = true;
+        // What an upload in flight at the reject put back stays withdrawn.
+        if (replayConsentWithdrawn) discardWithdrawnReplay(getState());
+        replayConsentWithdrawn = false;
+        const waiting = replayAwaitingConsent;
+        replayAwaitingConsent = null;
+        if (!waiting) return;
+        // A reject during the last start cancels it, and an accept that
+        // quickly gets that canceled start back; ask once more after it.
+        const stops = replayCallerStops;
+        void startSessionReplay(waiting).then((result) => {
+          if (
+            !result.started &&
+            replayConsentGranted &&
+            !getState().active &&
+            replayCallerStops === stops
+          ) {
+            void startSessionReplay(waiting);
+          }
+        });
+      },
+      {
+        // The region's first answer revokes before any choice, so a start
+        // asked for earlier keeps waiting for an accept.
+        revoke: () => {
+          const wasGranted = replayConsentGranted;
+          replayConsentGranted = false;
+          if (!wasGranted) {
+            // A replay id an earlier page stored never carries past a reject.
+            const storedReplayId = readStoredReplaySession()?.replayId;
+            if (storedReplayId) removeStoredReplaySession(storedReplayId);
+            return;
+          }
+          replayConsentWithdrawn = true;
+          replayConsentGeneration += 1;
+          // A fresh accept on this page records again, under a new identity.
+          replayAwaitingConsent = replayAllowedOptions ?? replayAwaitingConsent;
+          void stopSessionReplay("consent-revoked");
+        },
+      },
+    );
+  }
+  if (replayConsentGranted) {
+    replayAllowedOptions = options;
+    return true;
+  }
+  replayAwaitingConsent = options;
+  return false;
+}
+
 export async function startSessionReplay(
   options: SessionReplayOptions = {},
 ): Promise<SessionReplayStartResult> {
@@ -3564,6 +3724,9 @@ export async function startSessionReplay(
   }
   const normalized = normalizeOptions(options);
   if (!normalized) return { started: false, reason: "missing-public-key" };
+  if (!replayConsentAllows(options)) {
+    return { started: false, reason: "consent-required" };
+  }
 
   const sessionId = getOrCreateAnalyticsSessionId();
   if (!sessionId) return { started: false, reason: "missing-session-id" };
@@ -3823,6 +3986,8 @@ async function startSessionReplayRecorder(
         ? rrweb.record.addCustomEvent
         : null;
     installCaptureInterceptors(state);
+    state.lastNavigationPath = null;
+    emitReplayNavigation(state);
     try {
       normalized.onRecordingStarted?.(replaySession.replayId);
     } catch {
@@ -3869,6 +4034,18 @@ export async function stopSessionReplay(reason = "manual"): Promise<void> {
   if (reason !== "upload-timeout") state.pendingReplayStart = null;
   if (reason !== "pagehide-persisted") {
     state.bfcacheRestored = false;
+  }
+  if (reason === "consent-revoked") {
+    // Also when recording already stopped: a later accept starts afresh.
+    const storedReplayId =
+      state.replayId ?? readStoredReplaySession()?.replayId;
+    discardWithdrawnReplay(state);
+    if (storedReplayId) removeStoredReplaySession(storedReplayId);
+  } else if (reason !== "upload-timeout") {
+    // Any other stop is final: a later accept doesn't bring it back.
+    replayAwaitingConsent = null;
+    replayAllowedOptions = null;
+    replayCallerStops += 1;
   }
   if (!state.active) {
     if (authClearedReplayId) removeStoredReplaySession(authClearedReplayId);
@@ -3928,6 +4105,8 @@ export async function stopSessionReplay(reason = "manual"): Promise<void> {
     // best-effort cleanup
   }
   state.broadcastChannel = null;
+  // A reject withdraws what is still buffered, so it is never uploaded.
+  if (reason === "consent-revoked") return;
   const sequenceBeforeFinalFlush = state.sequence;
   try {
     await flushSessionReplay(reason);
@@ -4102,11 +4281,13 @@ export function emitSessionReplayWebVitals(
 }
 
 export type SessionReplayAgentChatEvent = {
-  phase: "surface-mounted" | "run-observed" | "run-stopped";
+  phase: "surface-mounted" | "run-observed" | "run-stopped" | "run-failed";
   surface: string | number;
   threadId?: string | number;
-  runId?: string | number;
-  tabId?: string | number;
+  runId?: string | number | undefined;
+  tabId?: string | number | undefined;
+  errorCode?: string | undefined;
+  recoverable?: boolean;
 };
 
 export function emitSessionReplayAgentChatEvent(
@@ -4126,5 +4307,9 @@ export function emitSessionReplayAgentChatEvent(
     ...(bounded(input.threadId) ? { threadId: bounded(input.threadId) } : {}),
     ...(bounded(input.runId) ? { runId: bounded(input.runId) } : {}),
     ...(bounded(input.tabId) ? { tabId: bounded(input.tabId) } : {}),
+    ...(bounded(input.errorCode)
+      ? { errorCode: bounded(input.errorCode) }
+      : {}),
+    ...(input.recoverable ? { recoverable: true } : {}),
   });
 }

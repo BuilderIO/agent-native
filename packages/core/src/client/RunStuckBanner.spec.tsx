@@ -498,7 +498,11 @@ describe("RunStuckBanner", () => {
       "agentChat.recovery.statusUnreadable",
     );
     expect(container.textContent).not.toContain("This chat looks stuck.");
-    expect(container.querySelectorAll("button")).toHaveLength(0);
+    expect(
+      [...container.querySelectorAll("button")].map((button) =>
+        button.getAttribute("aria-label"),
+      ),
+    ).toEqual(["agentChat.common.dismiss"]);
 
     await act(async () => {
       await vi.advanceTimersByTimeAsync(25_000);
@@ -1042,10 +1046,11 @@ describe("RunStuckBanner", () => {
 
     expect(container.textContent).toContain("Retrying automatically now.");
     const buttons = [...container.querySelectorAll("button")];
-    expect(buttons.map((button) => button.textContent)).toEqual([
-      "Retry",
-      "Cancel",
-    ]);
+    expect(
+      buttons.map(
+        (button) => button.textContent || button.getAttribute("aria-label"),
+      ),
+    ).toEqual(["Retry", "Cancel", "agentChat.common.dismiss"]);
     expect(buttons.every((button) => button.disabled)).toBe(false);
   });
   describe("reconciling with the server's run state", () => {

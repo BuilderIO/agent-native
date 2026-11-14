@@ -299,12 +299,28 @@ describe("new comment responsive draft", () => {
 
   it("lets focus moved away right after opening stay put", async () => {
     await show(1280);
-    await act(async () => start(selected));
-    const outside =
-      container.querySelector<HTMLButtonElement>("[data-outside]")!;
-    outside.focus();
-    await settle();
-    expect(document.activeElement).toBe(outside);
+    vi.useFakeTimers({
+      toFake: [
+        "setTimeout",
+        "clearTimeout",
+        "requestAnimationFrame",
+        "cancelAnimationFrame",
+      ],
+    });
+    try {
+      await act(async () => start(selected));
+      const outside =
+        container.querySelector<HTMLButtonElement>("[data-outside]");
+      if (!outside) throw new Error("Outside focus target was not rendered");
+      outside.focus();
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(50);
+        vi.advanceTimersToNextFrame();
+      });
+      expect(document.activeElement).toBe(outside);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("retains a failed submission, clears success and explicitly starts a fresh selection", async () => {
@@ -338,6 +354,58 @@ describe("new comment responsive draft", () => {
     expect(richEditor(container)).toBeNull();
     await open();
     expect(richEditorValue(input())).toBe("");
+  });
+
+  it("cancels an empty new comment on Escape, and asks before discarding typed text", async () => {
+    const confirmation = () =>
+      document.querySelector<HTMLElement>('[role="alertdialog"]');
+    await show(1280);
+    await open();
+    await press("Escape");
+    await settle();
+    expect(confirmation()).toBeNull();
+    expect(richEditor(container)).toBeNull();
+    expect(completed).toHaveBeenCalledTimes(1);
+
+    await open();
+    await type("Unsent thought");
+    await press("Escape");
+    await settle();
+    expect(confirmation()?.textContent).toContain(
+      "comments.discardCommentQuestion",
+    );
+    expect(richEditorValue(input())).toBe("Unsent thought");
+    const discard = [...confirmation()!.querySelectorAll("button")].find(
+      (button) => button.textContent === "comments.discard",
+    )!;
+    expect(document.activeElement).toBe(discard);
+    await act(async () => discard.click());
+    await settle();
+    expect(confirmation()).toBeNull();
+    expect(richEditor(container)).toBeNull();
+    expect(completed).toHaveBeenCalledTimes(2);
+    await open();
+    expect(richEditorValue(input())).toBe("");
+  });
+
+  it("keeps a written new comment open when another thread opens, and closes an empty one", async () => {
+    await show(1280);
+    await open();
+    await act(async () => owner.setPendingComment(null, { keepWritten: true }));
+    await settle();
+    expect(owner.pendingComment).toBeNull();
+    expect(richEditor(container)).toBeNull();
+
+    await open();
+    await type("Half a thought");
+    await act(async () => owner.setPendingComment(null, { keepWritten: true }));
+    await settle();
+    expect(owner.pendingComment).not.toBeNull();
+    expect(richEditorValue(input())).toBe("Half a thought");
+    // Closing it on purpose still works.
+    await act(async () => owner.setPendingComment(null));
+    await settle();
+    expect(owner.pendingComment).toBeNull();
   });
 
   it("isolates document drafts and does not preserve text when a new selection replaces one", async () => {
@@ -616,6 +684,8 @@ describe("new comment responsive draft", () => {
     );
     expect(source).toContain("onPendingChange={changePendingComment}");
     expect(source).toContain("if (!completePendingComment(id)) return;");
+    // Opening a thread keeps a new comment someone has written.
+    expect(source).toContain("setPendingComment(null, { keepWritten: true });");
     expect(source).not.toMatch(
       /\[pendingComment,\s*setPendingComment\]\s*=\s*useState/,
     );

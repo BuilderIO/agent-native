@@ -173,7 +173,7 @@ Auto-mounted on every app. Speaks the standard MCP handshake (`initialize` → `
 
 </Endpoint>
 
-アクションが `mcpApp` を宣言する場合、サーバーは公式の MCP アプリ拡張機能 (`io.modelcontextprotocol/ui`) もアドバタイズし、アプリ リソースの `resources/list`、`resources/templates/list`、および `resources/read` をサポートします。 MCP アプリをレンダリングするホストは、UI をインラインで表示できます。そうでないホストでもツールを呼び出してディープリンク フォールバックを使用できます。製品 UI は、`embedApp()` を使用する必要があります。これにより、インライン サーフェスは、別のプレーン HTML 実装ではなく、実際の React アプリ ルート、または分析チャートなどの共有 React コンポーネントをレンダリングする焦点の高いルートになります。サーバーは標準の MCP アプリ メタデータと ChatGPT アプリ SDK 互換性メタデータの両方を発行するため、アプリ対応ホストは同じ `ui://` リソースを見つけることができます。現在の公式拡張機能マトリックスには、Claude、Claude デスクトップ、VS Code GitHub Copilot、Goose、Postman、MCPJam、ChatGPT、および Cursor が含まれています。ホストのサポートはバージョンやプランによって異なるため、ユーザー向けのガイダンスとして [External Agents MCP Apps notes](/docs/external-agents#mcp-apps-compatibility) を使用してください。
+アクションが `mcpApp` を宣言する場合、サーバーは公式の MCP アプリ拡張機能 (`io.modelcontextprotocol/ui`) もアドバタイズし、アプリ リソースの `resources/list`、`resources/templates/list`、および `resources/read` をサポートします。 MCP アプリをレンダリングするホストは、UI をインラインで表示できます。そうでないホストでもツールを呼び出してディープリンク フォールバックを使用できます。製品 UI は、`embedApp()` を使用する必要があります。これにより、インライン サーフェスは、別のプレーン HTML 実装ではなく、実際の React アプリ ルート、または分析チャートなどの共有 React コンポーネントをレンダリングする焦点の高いルートになります。サーバーは標準の MCP アプリ メタデータと ChatGPT アプリ SDK 互換性メタデータの両方を発行するため、アプリ対応ホストは同じ `ui://` リソースを見つけることができます。表示対応ホストとリンクで開くクライアントについては [MCP Apps](/docs/mcp-apps#client-support) を参照してください。
 
 ### MCP アプリ埋め込みブリッジ {#mcp-app-embed-bridge}
 

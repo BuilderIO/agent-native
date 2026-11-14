@@ -17,29 +17,28 @@ import {
   type H3Event,
 } from "h3";
 
+import { buildAgentEditedTimeline } from "../../lib/agent-edited-timeline.js";
+import {
+  createAgentFrameMediaSource,
+  loadAgentFrame,
+} from "../../lib/agent-frame-load.js";
 import {
   describeFrameFailure,
   frameFailureStatus,
   loadAgentFrameAccess,
   sendFrameJson,
 } from "../../lib/agent-frame-request.js";
+import { clampAgentFrameAtMs } from "../../lib/agent-frame-store.js";
 import {
   ensureRecordingThumbnail,
   RECORDING_THUMBNAIL_AT_MS,
 } from "../../lib/ensure-recording-thumbnail.js";
 import {
   CLIPS_AGENT_ACCESS_PARAM,
-  loadRecordingMediaFile,
   loadScreenshotImage,
   queryString,
   type PublicAgentAccess,
 } from "../../lib/public-agent-context.js";
-import {
-  extractJpegFrameFromFile,
-  probeMediaDurationMsFromFile,
-  VideoFrameExtractionError,
-} from "../../lib/video-frame.js";
-
 const MAX_CACHED_FRAMES = 64;
 const MAX_CACHED_FRAME_BYTES = 2 * 1024 * 1024;
 
@@ -106,9 +105,11 @@ function applyFrameHeaders(event: H3Event) {
 
 async function persistDefaultThumbnailIfMissing(
   access: PublicAgentAccess,
+  requestedMs: number,
   frame: Uint8Array,
   mimeType: string,
 ): Promise<void> {
+  if (requestedMs !== RECORDING_THUMBNAIL_AT_MS) return;
   if (access.recording.thumbnailUrl) return;
   try {
     await runWithRequestContext(
@@ -155,57 +156,6 @@ function redirectToResolvedFrame(
   });
 }
 
-async function extractFrameWithStaleDurationRecovery({
-  mediaPath,
-  atMs,
-}: {
-  mediaPath: string;
-  atMs: number;
-}): Promise<{ frame: Uint8Array; atMs: number }> {
-  try {
-    return {
-      frame: await extractJpegFrameFromFile({ mediaPath, atMs }),
-      atMs,
-    };
-  } catch (error) {
-    if (
-      !(error instanceof VideoFrameExtractionError) ||
-      error.code !== "NO_FRAME_AT_TIMESTAMP" ||
-      atMs <= 0
-    ) {
-      throw error;
-    }
-
-    const actualDurationMs = await probeMediaDurationMsFromFile(mediaPath);
-    if (actualDurationMs === null || actualDurationMs > atMs + 1) {
-      throw error;
-    }
-
-    const candidates = [
-      Math.max(0, actualDurationMs - 1),
-      Math.max(0, actualDurationMs - 1000),
-      0,
-    ].filter((candidate, index, values) => values.indexOf(candidate) === index);
-    for (const candidate of candidates) {
-      if (candidate === atMs) continue;
-      try {
-        return {
-          frame: await extractJpegFrameFromFile({ mediaPath, atMs: candidate }),
-          atMs: candidate,
-        };
-      } catch (candidateError) {
-        if (
-          !(candidateError instanceof VideoFrameExtractionError) ||
-          candidateError.code !== "NO_FRAME_AT_TIMESTAMP"
-        ) {
-          throw candidateError;
-        }
-      }
-    }
-    throw error;
-  }
-}
-
 export default defineEventHandler(async (event: H3Event) => {
   const query = getQuery(event);
   const accessResult = await loadAgentFrameAccess(event);
@@ -228,16 +178,22 @@ export default defineEventHandler(async (event: H3Event) => {
       return sendFrameJson(event, status, describeFrameFailure(err, status));
     }
   }
-  const durationMs =
-    typeof recording.durationMs === "number" ? recording.durationMs : 0;
+  // atMs is on the edited timeline the context reports; the media and the
+  // stored frames are in the original recording.
+  const timeline = buildAgentEditedTimeline(
+    recording.editsJson,
+    typeof recording.durationMs === "number" ? recording.durationMs : 0,
+  );
   const requestedMs = parseTimestampMs(
     queryString(query.atMs),
     queryString(query.tSeconds),
   );
-  const atMs =
-    durationMs > 0
-      ? Math.min(requestedMs, Math.max(0, durationMs - 1))
-      : requestedMs;
+  const atMs = timeline.toSourceMs(
+    clampAgentFrameAtMs(
+      parseTimestampMs(queryString(query.atMs), queryString(query.tSeconds)),
+      timeline.durationMs,
+    ),
+  );
   const key = cacheKey({
     recordingId: recording.id,
     updatedAt: recording.updatedAt,
@@ -246,48 +202,42 @@ export default defineEventHandler(async (event: H3Event) => {
 
   const access = accessResult.access;
   const cacheable = isPubliclyCacheableFrame(access);
+  const storedMimeType =
+    recording.videoFormat === "mp4" ? "video/mp4" : "video/webm";
   const cached = cacheable ? getCachedFrame(key) : null;
   if (cached) {
-    if (requestedMs === RECORDING_THUMBNAIL_AT_MS) {
-      await persistDefaultThumbnailIfMissing(
-        access,
-        new Uint8Array(cached),
-        recording.videoFormat === "mp4" ? "video/mp4" : "video/webm",
-      );
-    }
+    await persistDefaultThumbnailIfMissing(
+      access,
+      requestedMs,
+      new Uint8Array(cached),
+      storedMimeType,
+    );
     applyFrameHeaders(event);
     return cached;
   }
 
+  const media = createAgentFrameMediaSource(recording);
   try {
-    const media = await loadRecordingMediaFile(recording);
-    try {
-      const resolved = await extractFrameWithStaleDurationRecovery({
-        mediaPath: media.path,
-        atMs,
-      });
-
-      if (requestedMs === RECORDING_THUMBNAIL_AT_MS) {
-        await persistDefaultThumbnailIfMissing(
-          access,
-          resolved.frame,
-          media.mimeType,
-        );
-      }
-
-      if (resolved.atMs !== atMs) {
-        return redirectToResolvedFrame(event, access, resolved.atMs);
-      }
-
-      applyFrameHeaders(event);
-      const buffer = Buffer.from(resolved.frame);
-      if (cacheable) setCachedFrame(key, buffer);
-      return buffer;
-    } finally {
-      await media.cleanup().catch(() => {});
+    const loaded = await loadAgentFrame(recording, atMs, {
+      media,
+      onFrame: (frame, mimeType) =>
+        persistDefaultThumbnailIfMissing(access, requestedMs, frame, mimeType),
+    });
+    if (loaded.moved) {
+      return redirectToResolvedFrame(
+        event,
+        access,
+        timeline.fromSourceMs(loaded.atMs),
+      );
     }
+    applyFrameHeaders(event);
+    const buffer = Buffer.from(loaded.frame);
+    if (cacheable) setCachedFrame(key, buffer);
+    return buffer;
   } catch (err) {
     const status = frameFailureStatus(err);
     return sendFrameJson(event, status, describeFrameFailure(err, status));
+  } finally {
+    await media.cleanup();
   }
 });

@@ -9,7 +9,9 @@ import type { FrameworkToolsConfig } from "../../framework-tools.js";
 import type { McpActionEntryOptions } from "../../mcp-client/index.js";
 import type { ExternalAgentPolicy } from "../../mcp/external-agent-policy.js";
 import type { DatabaseToolsOption } from "../../scripts/db/tool-mode.js";
+import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
 import type { PromptExamples } from "../prompts/index.js";
+import type { RealtimeVoiceIntelligence } from "../realtime-voice.js";
 import type {
   AgentChatAdditionalActionsExternalSurface,
   ResolveAgentChatAdditionalActions,
@@ -59,6 +61,8 @@ export interface AgentChatPluginOptions {
    * model from the rest of the process, which no first-party app does.
    */
   model?: string;
+  /** Fallback effort when a run has no user-selected reasoning effort. */
+  reasoningEffort?: ReasoningEffort;
   runSoftTimeoutMs?: number;
   runNoProgressTimeoutMs?: number;
   /**
@@ -90,6 +94,13 @@ export interface AgentChatPluginOptions {
         | Record<string, MentionProvider>
         | Promise<Record<string, MentionProvider>>);
   appId?: string;
+  /**
+   * Job `appId` values this app's scheduler runs besides `appId`. The scheduler
+   * lease, run history and health rows stay under `appId`, so the extra values
+   * only widen which job files this app picks up; a build that does not list
+   * them skips those files.
+   */
+  additionalJobAppIds?: string[];
   clientCompatibilityVersion?: string;
   connectApps?: boolean;
   backgroundMcpTools?: "requested" | "all";
@@ -134,6 +145,11 @@ export interface AgentChatPluginOptions {
     owner: string,
   ) => string | null | Promise<string | null>;
   finalResponseGuard?: AgentLoopFinalResponseGuard;
+  /** Validate native data widgets before they are returned for publication. */
+  validateDataWidget?: (
+    input: Parameters<ActionEntry["run"]>[0],
+    context: Parameters<ActionEntry["run"]>[1],
+  ) => void | Promise<void>;
   prepareRequest?: ProductionAgentOptions["prepareRequest"];
   resolveActionSurface?: ProductionAgentOptions["resolveActionSurface"];
   /**
@@ -160,6 +176,21 @@ export interface AgentChatPluginOptions {
   leanPrompt?: boolean;
   skipFilesContext?: boolean;
   initialToolNames?: string[];
+  /** Voice chat settings for this app's realtime voice sessions. */
+  realtimeVoice?: {
+    /**
+     * How the voice agent talks and sizes its actions. Both the spoken and the
+     * tool-using model read it, ahead of `systemPrompt`.
+     */
+    instructions?: string;
+    /** Edit tools loaded at session start so they skip `tool-search`. */
+    priorityToolNames?: readonly string[];
+    /**
+     * The intelligence used until the user picks one. `"balanced"` raises
+     * only the tool-using model's reasoning effort.
+     */
+    defaultIntelligence?: RealtimeVoiceIntelligence;
+  };
   corpusTools?: "initial" | "lazy";
   lazyContext?: boolean;
   nativeActionsInDev?: boolean;

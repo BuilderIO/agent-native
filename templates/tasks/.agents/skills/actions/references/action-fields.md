@@ -73,17 +73,34 @@ export default defineAction({
   description: "Summarize a thread.",
   schema: z.object({ threadId: z.string() }),
   outputSchema: z.object({ summary: z.string(), messageCount: z.number() }),
-  outputErrorStrategy: "warn", // default; "strict" | "fallback"
-  // outputFallback: { summary: "", messageCount: 0 }, // used only by "fallback"
   run: async ({ threadId }) => {
     /* ... */
   },
 });
 ```
 
-- `"warn"` (default) — `console.warn` the issues and return the **original** result unchanged. Non-breaking, with one exception: a connection request or stop signal thrown while the result is checked (from a transform or refinement) still ends the call as that signal, with a framework message in place of its own.
-- `"strict"` — throw `ActionOutputContractError` (`errorCode: "output_contract_violation"`) so a buggy action surfaces loudly.
-- `"fallback"` — return `outputFallback` in place of the invalid result.
+Every new action declares `outputSchema` (`guard:action-output-schema` fails a new `defineAction` without one). The action's return type is inferred from it, and `run` must return what the schema accepts, so a drifting result is a compile error.
+
+- `"strict"` (default) — throw `ActionOutputContractError` (`errorCode: "output_contract_violation"`) so a buggy action surfaces loudly.
+- `"warn"` — `console.warn` the issues and return the **original** result unchanged. Only for an existing schema you are still fixing. A connection request or stop signal thrown while the result is checked (from a transform or refinement) still ends the call as that signal, with a framework message in place of its own.
+- `"fallback"` — deprecated, and the guard rejects new uses: it returns `outputFallback`, a value callers cannot tell from a real result.
+
+Declare the codes an action fails with as a closed set, and fail through it so a misspelled code does not compile:
+
+```ts
+const errors = defineActionErrors("thread_not_found", "thread_locked");
+export default defineAction({
+  /* schema, outputSchema, */
+  errors, // published as `errorCodes` on the definition
+  run: async ({ threadId }) => {
+    if (!thread)
+      errors.noWrite("Thread not found.", "thread_not_found", {
+        statusCode: 404,
+      });
+    /* ... */
+  },
+});
+```
 
 On success the validated value is returned, so coercion/defaults on `outputSchema` apply. Omit `outputSchema` and behavior is byte-for-byte unchanged (no wrapping).
 
@@ -140,6 +157,6 @@ export default defineAction({
 
 When the gate is truthy and the call isn't yet approved, the loop emits an `approval_required` event and **stops the turn — `run()` never executes**. A predicate gates conditionally (e.g. only external recipients) and **fails closed**: a throw is treated as "approval required". It receives its own copy of the prepared snapshot of the validated arguments, defaults applied, and the approval binds to the snapshot's hash, so an approved call runs only with the arguments that were approved (a Date binds by its time). The human approves via the chat UI's Approve affordance, which re-issues the turn with the call's `approvalKey`, and only then does the action run.
 
-Approval is given in the app, so HTTP never grants it. The HTTP action route and the generated Workers entry run a gated call only for the proven app UI (a frontend call from the signed-in user, same origin, holding the short-lived UI capability; `isProvenUiRequest`, the proof `uiOnly` uses) or the app's MCP directory widget. Every other direct HTTP caller (bearer or API key, MCP OAuth token, org service token, extension iframe, or mobile app) gets `409 approval_required`, and a service identity can never approve. A2A tasks use their separate approval flow. The task pauses until its owner approves, then replays the approved tool call under its approval lease. The shared client presents the capability with every write from a signed-in session (minted once per user, reused for nine minutes, never for reads or public pages), so a gated button works on its first request. A call without proof gets `403 ui_capability_required`; the client then re-mints and retries once, which is only the fallback for an expired or rejected capability. The agent loop, plan mode registry, HTTP action route, generated Workers entry, and MCP dispatch evaluate the gate through `preparedCallNeedsApproval`, so a throwing predicate asks there too. The local `pnpm action ...` CLI calls `handler.run()` directly and does not evaluate `needsApproval`. Treat it as a local development tool, not an approval boundary. A caller that must run unattended needs a different action, never a bypass of the gate.
+The public HTTP action API never grants approval. The HTTP action route and the generated Workers entry run a gated call only for the proven app UI (a frontend call from the signed-in user, same origin, holding the short-lived UI capability; `isProvenUiRequest`, the proof `uiOnly` uses) or the app's MCP directory widget. Every other direct HTTP caller (bearer or API key, MCP OAuth token, org service token, extension iframe, or mobile app) gets `409 approval_required`, and a service identity can never approve. A2A tasks use their separate approval flow. The task pauses until its owner approves, then replays the approved tool call under its approval lease. The shared client presents the capability with every write from a signed-in session (minted once per user, reused for nine minutes, never for reads or public pages), so a gated button works on its first request. A call without proof gets `403 ui_capability_required`; the client then re-mints and retries once, which is only the fallback for an expired or rejected capability. The agent loop, plan mode registry, HTTP action route, generated Workers entry, and MCP dispatch evaluate the gate through `preparedCallNeedsApproval`, so a throwing predicate asks there too. The local `pnpm action ...` CLI also evaluates `needsApproval` against prepared parsed/defaulted input with caller `cli`. When stdin and stdout are TTYs, it prints the action and arguments and prompts `y/N`. Only `y` or `yes` runs the call. Otherwise, the agent must ask the person, then rerun the exact original command arguments with reserved `--approved` appended. The flag is stripped before input parsing and is harmless on ungated actions. Use it only after the person approves the specific call. A caller that must run unattended needs a different action, never a bypass of the gate.
 
 **Keep approvals rare** — the default is off and almost every action should leave it off. The canonical example is Mail's `send-email` (`needsApproval: true`). See the `security` skill and the Human Approval doc.

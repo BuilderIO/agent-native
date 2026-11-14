@@ -116,7 +116,9 @@ describe("AgentConversationMessageView", () => {
       id: "example-renderer",
       match: "example-tool",
       Component: ({ context }) => (
-        <div data-testid="example-renderer">{context.resultText}</div>
+        <div data-testid="example-renderer">
+          Custom renderer: {context.resultText}
+        </div>
       ),
     });
     act(() =>
@@ -144,10 +146,58 @@ describe("AgentConversationMessageView", () => {
     expect(container.querySelector('[data-testid="example-renderer"]')).toBe(
       null,
     );
+    expect(container.textContent).not.toContain("Custom renderer:");
+    expect(container.querySelector("pre span")?.textContent).toBe(
+      "Example Document failed.",
+    );
     expect(
       container.querySelector("pre span")?.hasAttribute("data-an-mask"),
     ).toBe(true);
   });
+
+  it.each([
+    ["running", "running"],
+    ["activity", "running"],
+    ["completed", "completed"],
+  ] as const)(
+    "passes %s status to conversation custom renderers as %s",
+    (state, status) => {
+      registerToolRenderer({
+        id: "example-status-renderer",
+        match: "example-status-tool",
+        Component: ({ context }) => (
+          <div data-testid="example-tool-status" data-status={context.status} />
+        ),
+      });
+      act(() =>
+        root.render(
+          <AgentConversationMessageView
+            message={{
+              id: "message-status",
+              role: "assistant",
+              parts: [
+                {
+                  id: "tool-status",
+                  type: "tool",
+                  tool: {
+                    id: "tool-status",
+                    name: "example-status-tool",
+                    state,
+                  },
+                },
+              ],
+            }}
+          />,
+        ),
+      );
+
+      expect(
+        container
+          .querySelector('[data-testid="example-tool-status"]')
+          ?.getAttribute("data-status"),
+      ).toBe(status);
+    },
+  );
 
   it.each(["errored", "completed"] as const)(
     "blocks only an errored tool's MCP App from replays (%s)",

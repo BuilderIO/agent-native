@@ -9,6 +9,8 @@ import { persistCaptureFile } from "./persist-capture";
 const APP_GROUP = "group.com.agentnative.mobile";
 
 interface IOSCompanionModule {
+  peekPendingQuickAction(): Promise<{ id: string; path: string } | null>;
+  acknowledgeQuickAction(id: string): Promise<void>;
   startCaptureActivity(
     captureId: string,
     kind: string,
@@ -71,6 +73,22 @@ export function endIOSCaptureActivity(
 
 export function endStaleIOSCaptureActivities() {
   return nativeCompanion?.endStaleCaptureActivities().catch(() => null);
+}
+
+export function peekPendingIOSQuickAction() {
+  return nativeCompanion?.peekPendingQuickAction();
+}
+
+export function acknowledgeIOSQuickAction(id: string) {
+  return nativeCompanion?.acknowledgeQuickAction(id);
+}
+
+export function subscribeToIOSQuickActionAvailable(listener: () => void) {
+  const subscription = companionEvents?.addListener(
+    "quickActionAvailable",
+    listener,
+  );
+  return () => subscription?.remove();
 }
 
 export function subscribeToIOSCaptureStop(

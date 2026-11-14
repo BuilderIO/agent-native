@@ -1,3 +1,4 @@
+import { useT } from "@agent-native/core/client/i18n";
 import {
   Tooltip,
   TooltipContent,
@@ -17,7 +18,7 @@ import {
   chatFirstNavTabActive,
   type ChatFirstPrimaryTab,
 } from "./active-surface.js";
-import { defaultChatFirstCopy } from "./copy.js";
+import { useChatFirstCopy } from "./copy.js";
 import type { ChatFirstCopy } from "./types.js";
 
 export type { ChatFirstPrimaryTab };
@@ -30,7 +31,7 @@ export function ChatFirstPrimaryNavigation({
   activeTab,
   collapsed = false,
   stickyNewChat = false,
-  copy = defaultChatFirstCopy,
+  copy: copyProp,
 }: {
   onNewChat?: () => void;
   onOpenIntegrations: () => void;
@@ -41,12 +42,14 @@ export function ChatFirstPrimaryNavigation({
   stickyNewChat?: boolean;
   copy?: ChatFirstCopy;
 }) {
+  const t = useT();
+  const copy = useChatFirstCopy(copyProp);
   const surface = chatFirstActiveSurface({ activeTab });
   const isTabActive = (tab: ChatFirstPrimaryTab) =>
     chatFirstNavTabActive(surface, tab);
 
   const tabClassName = (tab: ChatFirstPrimaryTab) =>
-    `flex h-8 w-full items-center gap-2 rounded-md text-[13px] font-medium transition-[background-color,color] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
+    `agent-kit-density flex h-8 w-full items-center gap-2 rounded-md font-medium transition-[background-color,color] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring ${
       collapsed ? "justify-center px-0" : "px-2"
     } ${
       isTabActive(tab)
@@ -73,8 +76,7 @@ export function ChatFirstPrimaryNavigation({
     const control = (
       <button
         type="button"
-        role="tab"
-        aria-selected={isTabActive(tab)}
+        aria-current={isTabActive(tab) ? "page" : undefined}
         aria-label={collapsed || tab === "new-chat" ? label : undefined}
         className={[tabClassName(tab), className].filter(Boolean).join(" ")}
         onClick={onSelect}
@@ -97,7 +99,7 @@ export function ChatFirstPrimaryNavigation({
     ? renderTab(
         "new-chat",
         <>
-          <IconPlus size={15} className="shrink-0" aria-hidden="true" />
+          <IconPlus size={16} className="shrink-0" aria-hidden="true" />
           <span className={collapsed ? "sr-only" : undefined}>
             {copy("newChat")}
           </span>
@@ -109,7 +111,7 @@ export function ChatFirstPrimaryNavigation({
   const integrationsTab = renderTab(
     "integrations",
     <>
-      <IconPlugConnected size={15} className="shrink-0" aria-hidden="true" />
+      <IconPlugConnected size={16} className="shrink-0" aria-hidden="true" />
       <span className={collapsed ? "sr-only" : undefined}>
         {copy("integrations")}
       </span>
@@ -119,7 +121,7 @@ export function ChatFirstPrimaryNavigation({
   const scheduledTab = renderTab(
     "scheduled",
     <>
-      <IconClock size={15} className="shrink-0" aria-hidden="true" />
+      <IconClock size={16} className="shrink-0" aria-hidden="true" />
       <span className={collapsed ? "sr-only" : undefined}>
         {copy("scheduled")}
       </span>
@@ -130,7 +132,7 @@ export function ChatFirstPrimaryNavigation({
     ? renderTab(
         "search",
         <>
-          <IconSearch size={15} className="shrink-0" aria-hidden="true" />
+          <IconSearch size={16} className="shrink-0" aria-hidden="true" />
           <span className={collapsed ? "sr-only" : undefined}>
             {copy("search")}
           </span>
@@ -148,31 +150,26 @@ export function ChatFirstPrimaryNavigation({
               {newChatTab}
             </div>
           ) : null}
-          <div className="code-agents-nav-list" aria-label="Agent navigation">
-            <div
-              role="tablist"
-              aria-label="Primary navigation"
-              className="grid gap-px"
-            >
+          <nav
+            className="code-agents-nav-list"
+            aria-label={t("agentChat.chatFirst.agentNavigation")}
+          >
+            <div className="grid gap-px">
               {integrationsTab}
               {scheduledTab}
               {searchTab}
             </div>
-          </div>
+          </nav>
         </>
       ) : (
-        <div>
-          <div
-            role="tablist"
-            aria-label="Primary navigation"
-            className="grid gap-px"
-          >
+        <nav aria-label={t("agentChat.chatFirst.primaryNavigation")}>
+          <div className="grid gap-px">
             {newChatTab}
             {integrationsTab}
             {scheduledTab}
             {searchTab}
           </div>
-        </div>
+        </nav>
       )}
     </TooltipProvider>
   );

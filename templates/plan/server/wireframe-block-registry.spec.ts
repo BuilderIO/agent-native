@@ -83,7 +83,7 @@ describe("plan block registry — wireframe", () => {
     const source = wireframeContent();
     const folder = await exportPlanContentToMdxFolder({
       content: source,
-      title: source.title,
+      title: source.title ?? "",
       brief: source.brief,
     });
 
@@ -124,7 +124,7 @@ describe("plan block registry — wireframe", () => {
     });
     const folder = await exportPlanContentToMdxFolder({
       content: source,
-      title: source.title,
+      title: source.title ?? "",
     });
 
     expect(folder["plan.mdx"]).toContain("<Screen");

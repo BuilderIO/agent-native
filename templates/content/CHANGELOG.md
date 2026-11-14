@@ -3,11 +3,333 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
-## 2026-10-21
+## 2026-11-10
 
 ### Fixed
 
+- Content's agent is now told to keep a Mermaid diagram's source when asked to draw it, instead of replacing it with an image.
+- Images you pick from Assets now show for everyone who can read the page, not only people with access to your Assets library.
+
+## 2026-11-09
+
+### Improved
+
+- Share controls use a consistent compact layout.
+- More save failures now say why, such as being offline or lacking permission.
+
+### Fixed
+
+- When someone else types in the paragraph you're typing in, your cursor stays after your own last letter, so your words no longer get mixed into theirs.
+- Keep app loading and offline caching compatible with privacy-safe script names
+
+## 2026-11-08
+
+### Improved
+
+- Ask AI works on comments in every Blocks field tab, and its edits there are suggestions on that tab
+- Builder sources now read and write only through your Builder.io connection, so deploy keys no longer reach them; the Builder docs sync still uses keys.
+- Collection sort menus name each direction for the column's values: Old → new for dates, Low → high for numbers, A → Z for text, and Unchecked → checked for checkboxes.
+
+### Fixed
+
+- An open collection row page now updates when that row is edited elsewhere, such as by an agent or in another tab, and a retried row edit returns the first result instead of a conflict error
+- Pages created over MCP now appear in the Files sidebar without a reload.
+- Sorting a collection by a checkbox keeps empty boxes with the unchecked rows, and ascending lists unchecked rows first.
+- Suggested edits from an agent or a collaborator now reach a page you have open within seconds, instead of at its next idle check or your next reload.
+- A suggested replacement reads clearly: the old text stays struck through while selected, the new words start a little apart from it, and the card shows the new text whole instead of underlining scattered letters.
+
+## 2026-11-07
+
+### Added
+
+- Collection row menus now offer Copy link and Comment, view menus offer Copy link to view, and the row ⋯ and add-view + show on touch screens.
+- Pick "This page" in the search menu to search the open page and everything inside it: its sub-pages, its collections, and their rows.
+
+### Improved
+
+- A row's hidden properties now sit behind one line that opens in place, replacing the separate Hidden in this view line and Hidden properties menu.
+- Search answers much faster, most of all for queries with several common words.
+- The search menu shows matching page titles as you type, without waiting for the server.
+
+### Fixed
+
+- A brief failure loading a collection row's Properties no longer flashes an error or replaces the editor, and Retry now keeps the row open.
+- A search could fail with an error if it was the first thing a newly started server was asked to do.
+- Accepting a suggestion no longer fails with "The Page is busy" while other pages in Content are being created, edited, moved or deleted.
+- A truncated collection column header shows its full name again when you reach it with the keyboard, not only on hover.
+- An AI reply in a comment thread shows as soon as the AI finishes, and so does a change it applied to the page, without waiting for another comment or a reload.
+
+## 2026-11-06
+
+### Added
+
+- Columns have widths you can drag or set with the arrow keys, the slash menu inserts two, three or four columns, and a column set left with one column turns back into ordinary blocks.
+
+### Fixed
+
+- Suggesting mode now shows edits other people make to the page, and the next suggestion saves instead of failing with "Could not create suggestion".
+
+## 2026-11-05
+
+### Improved
+
+- Failed saves now show a clear error message instead of failing silently.
+
+### Fixed
+
+- Notion setup now waits for connection status and lets you retry if the check fails.
+
+## 2026-11-04
+
+### Improved
+
+- The agent finds the right Content action more often when you say page, column, or revert instead of the action's own terms.
+
+### Fixed
+
+- Accepting an edit with a line break or a new block no longer shows a syncing line or moves the page.
+- Replacing a collection source avoids a false error after the change is saved
+- Agent block edits work on collection rows using live editing
+- Submitting an unchanged page body no longer makes it look newly edited.
+- Switching a page to live editing preserves unsaved text, including intentional clears.
+
+## 2026-11-03
+
+### Improved
+
+- Clicking another row while a row's panel is open switches the panel to that row instead of closing it, and the panel's toolbar, title and properties stay in place as rows change.
+
+### Fixed
+
+- A new line added to a code block while suggesting now works like any other line: what you type stays on it when accepted, and Backspace and the arrow keys start from it, instead of acting on the line above
+- After you drag a block down by its handle, the caret stays on that block instead of landing in the one below it.
+- An expanded image, video or audio file shows above the dimmed page instead of under it, and clicking it or its toolbar no longer closes it
+
+## 2026-11-02
+
+### Improved
+
+- A row opened from a view lists its properties in that view's order, with the ones the view hides under a Hidden in this view line, in the row panel and on full pages.
+
+### Fixed
+
+- Set up Notion in a document's menu now starts the Notion connection directly instead of sending you to an Integrations page that already shows Notion as connected.
+- Fixed a video an agent uploads into a page over MCP saving as a Clip that can't play
+- Empty Trash now explains that you need to pick a workspace in the filter when you have several.
+
+## 2026-11-01
+
+### Fixed
+
+- Accepting suggested edits on a page an agent wrote no longer shows a false save error, and a new comment shows your profile name from the moment you send it.
+- One busy signed-out reader of a public page no longer stops its Clips playing for everyone else: each reader's network gets its own request budget.
+- Cleared pages stay empty when another editor opens them after a saved version has been synchronized.
+- Edited collection rows close without a save error after their changes have saved
+- A list item with a second paragraph or a line of code under its first line keeps all its text beside the bullet, instead of squeezing it into a narrow column.
+
+## 2026-10-31
+
+### Added
+
+- A comment thread that asked an agent for changes has an Accept and resolve button that accepts them all and resolves the thread in one click.
+- Agents connected over MCP can upload a video file into a page as a Clip, which follows the page's sharing like one you upload
+
+### Improved
+
+- Pages you've opened before appear at once and take typing right away, catching up with the server behind the scenes
+- Search forgives typos: when nothing matches, a misspelled word also finds pages whose titles or descriptions have the word you meant.
+- A suggestion that is still loading shows a placeholder in its thread, with a Retry if it fails to load, and the page slides over when the comment margin opens instead of jumping.
+- Agents sign their comment replies with their full model name, and the @ menu lists people first and each agent once.
+- When an agent rewrites most of a paragraph, its suggestion shows the old paragraph and the new one instead of a strike every few words.
+- Reloading a page you've opened before starts sooner: Content keeps its app code on your device, so the page draws without waiting on the network for it.
+- Adding a filter on a status, select, multi-select or person property that already has a chip now opens that chip, so a second value joins it, and two chips that mean the same thing fold into one.
+
+### Fixed
+
+- Accepting an agent's suggestions no longer moves the comment card, scrolls the page, empties the card, or breaks up the highlight while the change saves.
+- A comment on a Clip in a page is saved once, even when you post it again after an error, and no longer shows an error while its emails send
+- Expanding or double-clicking an image, video or audio file opens it full screen again instead of crashing the page
+
+## 2026-10-30
+
+### Added
+
+- Public pages have a reader view for people without an account, with the page's path, links to its public sub-pages, and a way to sign up or sign in
+
+### Fixed
+
+- A copied link to a page that isn't public no longer calls it a public document in the browser tab or in link previews.
+
+## 2026-10-29
+
+### Added
+
+- The agent can copy a table view to another view with its own filters
+
+### Improved
+
+- Images you paste, drop or upload into a private page load only for people who can open that page
+- Large Collection tables stay responsive while agents write to them: filter chips open six to nine times faster, and a live update redraws only the rows that changed.
+- Sharing is one panel: invite people and your organization's agents from one field, see everyone with access in one list, and find Copy link and Send to at the bottom.
+
+### Fixed
+
+- Opening and closing an unchanged row no longer attempts to save its page.
+
+## 2026-10-28
+
+### Improved
+
+- Content menus use consistent text-only actions.
+
+### Fixed
+
+- Comment AI can shorten selected paragraphs on pages with large images while preserving surrounding content
+- Choosing Use saved after an interrupted recovery no longer lets the discarded edits come back later
+- Renaming a page while an agent edits it no longer stops your typing from saving or undoes the agent's edit on reload
+
+## 2026-10-27
+
+### Improved
+
+- Suggest edits works in every Blocks field tab, and accepting a tab's suggestion changes only that tab
+- A public page's link opens a read-only copy for people who aren't signed in, instead of asking them to sign in
+- An AI suggestion in a comment thread uses the same group as suggested changes in the margin: its summary, edit count, Accept all and Reject all come first, and opening it shows each edit with the usual check and X.
+
+### Fixed
+
+- Edits to a public page reach its readers within a minute, and making it private or moving it to Trash takes it down just as fast
+- Two collections connected to the same Builder model can no longer push over each other's changes to the same entry at the same moment.
+- Restoring page history preserves text without exposing unauthorized private callout images
+- An agent's Accept on words someone is still typing in returns the suggestion to pending instead of failing with a server error
+- Opening a page you can't access goes straight to the no-access screen without a brief error first, including when you come back to it
+
+## 2026-10-26
+
+### Improved
+
+- A comment sent to AI says what it asks for on its send button (Reply, Suggest or Apply), and while the AI works, the thread names the model doing it.
+
+### Fixed
+
+- Opening another comment thread while you're writing a new comment keeps what you wrote.
+- When the AI answers in a long comment thread, the card shows the start of its answer instead of jumping to the end, and scrolling past either end of a card no longer scrolls the page.
+- Document reads preserve bodies containing ordinary prose about starting an embed.
+
+## 2026-10-25
+
+### Fixed
+
+- A GitHub folder linked into a Personal space now fills its collection, instead of saying GitHub isn't connected for the person who linked it
+- Changes an agent makes at the end of a page, such as adding an item to a closing list, now stay when you have the page open instead of being saved over. So does a block an agent adds right before or after one you're editing.
+- In Suggesting mode, Accept and Reject show at once on a suggestion you just typed or added to, and the session's other suggestions stay on screen
+- Web addresses in collections and page properties open in a new tab when you click the link, and clicking the rest of the cell still edits them.
+- While suggesting, the struck-out word no longer blinks off with each keystroke
+
+## 2026-10-24
+
+### Added
+
+- Agents can register webhooks that send a signed event when a property changes on a collection row or page, or when a comment is created or resolved.
+- Agents can write a property only while it still holds the value they read, even when someone changed it and changed it back in between. Each value also carries a change ID, so an agent can act once per change.
+- Pick Published or Draft in a Builder entry's status to stage a publish or unpublish; the source review sends it.
+
+### Improved
+
+- Content responds sooner after a quiet spell, because a newly started server loads and prepares less code before its first response
+
+### Fixed
+
+- A copied block that holds data, such as an inline database, keeps its data when pasted instead of disappearing on save.
+- Cmd+Z and Cmd+Shift+Z undo and redo a change to a toggle's title while you're typing in it.
+- Deleting a property no longer leaves filters or sorts on it in shared views or your personal views, so a filter on a deleted property no longer hides every page.
+- Document saves no longer mistake closed editor sessions for active editors
+- Refreshing a Builder collection keeps edits Content has not pushed yet, and the review flags the ones Builder changed too.
+- Resolving a comment from its card in the margin closes the card. In a stack of comments, the next one opens in its place.
+
+## 2026-10-23
+
+### Added
+
+- Builder collections show each entry's Builder status (Published, Draft, or Unpublished changes) in the table, board, and page info.
+
+### Improved
+
+- A folded comment stack's new front card now comes up over the old one, and an opened stack's clicked comment sits level with its text
+
+### Fixed
+
+- A comment on a video now stays attached to that video, sits beside it in the margin, and opens it when clicked, instead of showing Highlight unavailable.
+- A local-folder sync no longer overwrites an edit saved while it runs or leaves that edit out of a conflict it reports, and a file that comes back to the folder no longer offers to unlink its page.
+- Public pages show each block's name while the page is still loading, instead of the block's source.
+- Pushing a Builder update from a large collection now ends on Pushed instead of Checked and Ready to send to Builder.
+- You can comment on text selected across paragraphs and other blocks, and its quote reads with a space where the blocks meet.
+
+## 2026-10-22
+
+### Added
+
+- Outside assistants can open shareable local-file copies in Content, with approval before creating or refreshing the copy.
+- Collection filters add does not contain, starts with, ends with, on or before, and on or after. Date filters can use relative days like today, and is within picks a range the way Notion does, such as the past 2 weeks or this month. A date without a time now counts as the whole day, so "on or before today" keeps rows from later today.
+- Blocks with several comment threads fold into one stack in the margin, which opens in place when you click it or a highlight
+
+### Improved
+
+- Shareable local-file copies open inline with document editing and sharing controls in compatible agent hosts.
+- Approval links from a connected agent, such as Claude Code, now open the review inside the app, in its own theme.
+- Tables get Header row, Header column and Fit to width in their block menu, colours for rows and columns, and menus that close the moment you press Escape.
+- The block menu turns a block into another kind, colours it and comments on it, filters as you type, and shows each action’s shortcut. It says why a locked block can’t be duplicated or deleted, and a click beside the page lets go of a selected block.
+- A big GitHub folder fills its collection much faster, and keeps filling while the collection is open rather than waiting for the next background sync
+- Collections with large select or multi-select properties open faster and use less memory, because each property definition is sent once instead of with every row
+- Pressing Escape while writing a comment, reply or edit cancels it, and asks first if you've written something.
+- A collection linked to a big GitHub folder fills faster, and pushes to other linked collections aren't held up while it does
+- Accept remaining and Reject remaining show the result for every suggested edit at once
+- Accepting a group of suggested edits saves faster and adds one page version
+
+### Fixed
+
+- Pages using the live copy keep unsent edits through a refresh, closed tab, or lost connection.
+- A comment on the start of a block no longer highlights blocks added just above it.
+- Saving a Builder entry from Content no longer snaps back on the next refresh, and draft entries get a plain save that Builder shows right away.
+- The Page stays editable while Accept, Reject, Accept remaining, and Reject remaining save, and a failed save returns only that decision to pending
+- A GitHub folder sync keeps going when file storage fails, filling pages without their images and adding them on a later sync
+- Opening a page no longer saves an edit again after another open tab's save already stored it.
+- Changes made from a menu or popover, such as an image's alt text, are always saved.
+- Agents can read saved page titles and text after an unrelated icon change fails.
+- Text an agent writes inside a callout, column or synced block without indenting it now shows on the page and survives your edits.
+
+## 2026-10-21
+
+### Added
+
+- Agents' suggested edits show inline in MCP Apps hosts like Claude and ChatGPT, where you can accept or reject them
+- The Comments panel is now **Discussion**: comment on a whole page without selecting text, and sort and filter every comment on the page by status, type, what it points at, or who wrote it
+- List rows can show the first lines of each page under its title: pick **Page text** for Line 2
+
+### Improved
+
+- Suggested edits show an agent's whole reason: open a group to read past the first two lines, and lone edits show the reason above the change
+
+### Fixed
+
+- Undoing a slash command now turns the block back in one step, keeps its text, and leaves the caret where it was
+- Blocks fields keep unconfirmed saves visible, and agent reads handle changing collection fields and older editors reliably
+- Compact HTML table row groups keep their cells, and unsupported block colors are reported during Markdown checks.
+- Suggestions keep refusing unmatched emphasis in stored Markdown
 - Organization favorites include documents shared with the current member
+
+## 2026-10-20
+
+### Improved
+
+- The advanced filter and each filter group inside it have their own And/Or, so a view can match rows like "Status is Done and (Owner is me or Owner is empty)".
+
+### Fixed
+
+- Suggested edits that add, remove, split, or merge paragraphs, line breaks, and list items now show where the break goes and save as one clear suggestion
+- Builder content sync keeps read and write status accurate when API responses fail.
+- HTML table cells preserve a trailing backslash when opening Markdown.
+- Preserve empty paragraph colors and refuse unsupported inline image and oversized math formatting before content is stored.
 
 ## 2026-10-19
 
@@ -22,6 +344,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Fixed
 
+- Fresh document reads require confirmation from every open editor before returning saved content.
 - List views no longer run off the side of the screen on phones
 - Edits made from a block's menu or a table's row and column menus, such as deleting a table, adding a row or turning off the header row, are now saved instead of coming back after a reload
 - Starting a comment puts the cursor in the comment box, ready to type.
@@ -35,6 +358,7 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Added
 
+- Fill a collection from a GitHub folder through its Sources settings, which an empty collection links to from under its title and which say up front when GitHub can't link and what to do instead. A short preview comes before linking, the collection shows where its pages come from and when they last updated, with a link back to its folder in Sources, and unlinking asks first
 - Connected AI assistants can make a collection from a GitHub folder, or link an empty one: each Markdown file becomes a view-only page, and a sync brings in the latest pushes
 - Make a collection from a GitHub folder in the sidebar's New menu, or fill an empty one from its Sources settings, which say up front when GitHub can't link and what to do instead. A short preview comes before linking, the collection shows where its pages come from and when they last updated, and unlinking asks first
 - Connected AI assistants can link a new collection to a GitHub folder: each Markdown file becomes a view-only page, and a sync brings in the latest pushes
@@ -57,10 +381,26 @@ time from the command menu (Cmd+K → "What's new").
 
 - Connected AI assistants can read a page with the edits still open in your editor
 
+### Fixed
+
+- Builder Content avoids retrying a write when Builder accepted it but the response could not be saved.
+- Agents reading a page you have open no longer wait or fail when your edits are already saved
+
 ## 2026-10-16
+
+### Improved
+
+- Opening a page you can edit no longer rebuilds its editor once the live copy connects, so the page holds still and keeps your scroll position.
 
 ### Fixed
 
+- Accepting a suggestion on a Page that changed since it was suggested no longer shows "Something went wrong"
+- A page open in a tab that shows it's in the trash reopens within seconds when someone restores it.
+- A page restored from Trash returns to its place in its collection, and edits to a page in Trash are refused
+- Agent-written Markdown keeps nested lists indented with spaces, underscore bold and italics, and escaped punctuation
+- Pages moved or imported at the same time can no longer end up under their own sub-pages, under a page in Trash, or with stale sharing
+- Re-importing a Markdown export of a page brings it back as it was, without reporting it as lost, and the import report names any other page fields it leaves out.
+- Saving a page or restoring one of its versions no longer fails when the page is restored or moved to Trash at the same moment, and a page in Trash can't be saved over
 - Opening a page in a new tab while another tab is still saving no longer sends a second save or files a copy to History.
 - Typing steadily in one tab no longer makes another open tab show "This page changed elsewhere" after its edits saved.
 - Reopening a page after someone else renamed it no longer adds a copy of your edits to Version History
@@ -959,91 +1299,5 @@ time from the command menu (Cmd+K → "What's new").
 - Builder-sourced database rows now open with sync protection immediately and keep source-field columns stable during background refreshes.
 - Database rows and pages open faster from recently loaded data.
 - Preview panels close reliably, narrow sidebar row actions stay reachable, and adding properties now shows progress.
-
-## 2026-07-01
-
-### Added
-
-- Builder source rows can be staged in bulk with a reviewable diff before writeback.
-
-### Improved
-
-- Builder database sources keep loading rows in the background with clearer progress and page-opening feedback.
-- Builder source components now show clearer preservation and review states during readable body sync; previously hydrated Builder bodies may need refresh before guarded push.
-- Builder source refreshes now show progress and keep large docs/blog databases usable while large row sets load incrementally.
-
-### Fixed
-
-- Builder source attachment now starts with a usable first batch of rows while larger docs/blog collections continue loading.
-- Builder source attachment now stays connected after large collections finish attaching.
-- Database pages now delete to Trash without leaving the app on a failed page route.
-
-## 2026-06-30
-
-### Improved
-
-- Builder source components now render as preserved preview blocks inside hydrated article bodies.
-- Cmd+K search now opens from the editor and finds real documents, databases, and local-file results.
-
-### Fixed
-
-- Builder article media now render as images and embeds when readable body content syncs from Builder.
-- /database once again creates an inline database in the current page instead of opening a child database page, and the sidebar restores Page/Database create menus plus inline database Trash controls.
-- Editor floating toolbars now use theme-aware colors in light and dark mode.
-- Sidebar favorites now keep long titles tidy and stay in sync with saved page titles.
-
-## 2026-06-29
-
-### Added
-
-- Builder CMS sources now sync article bodies into Content and push approved body edits through the Builder review flow.
-- Reusable MDX references now preview linked local documents inline.
-
-### Improved
-
-- Database sources can now be added as more rows or matched details, with an in-app role repair path and field picker.
-
-### Fixed
-
-- Builder review checks now preserve publish and unpublish choices before sending updates.
-- Database gallery layouts now adapt cleanly when the agent sidebar narrows the app.
-- Fixed loading the final rows in larger databases without breaking the table.
-- Read-only pages no longer try to autosave or open editor-only realtime connections.
-
-## 2026-06-28
-
-### Improved
-
-- Left sidebar collapse motion and footer controls now feel smoother and use less divider chrome.
-
-## 2026-06-27
-
-### Fixed
-
-- Traditional Chinese copy now uses Taiwan terminology and clearer technical wording.
-
-## 2026-06-25
-
-### Improved
-
-- The editor toolbar now has a one-click page link copy button next to Share.
-- The editor toolbar now shows page breadcrumbs and the latest edit time like Notion.
-
-### Fixed
-
-- Comment cards now track their highlighted text while scrolling and no longer stay open after you click away.
-- Comments now scroll with the document and stay below the page toolbar.
-- Creating a database from the slash menu no longer leaves stale command text or a purple selected strip when returning to the page.
-- Sidebar hover controls no longer leave a lingering fade when moving between pages.
-- Sidebar page actions are now easier to see when hovering inactive pages.
-- Text selections in the editor no longer show white gaps when the formatting toolbar appears.
-- The /page command now leaves a Notion-style page reference and clears stale cursor labels when you return.
-
-## 2026-06-24
-
-### Added
-
-- A new Settings page gives quick access to language, workspace, and agent preferences.
-- Added a language picker and localized app chrome for supported languages.
 
 For the full list of updates, see the [changelog folder](./changelog/).

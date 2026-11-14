@@ -2,6 +2,24 @@ import { operationItemId } from "../triage/ids.js";
 import type { TripwireSink } from "../tripwire/types.js";
 import type { WorkflowScope } from "../workflow/adapter.js";
 import { evaluatePath, validateResponsePath } from "../workflow/expressions.js";
+import type {
+  FieldsToKeep,
+  MissingReport,
+} from "../workflow/fields-to-keep.js";
+import {
+  STATUS_WITH_PAGING_REFUSAL,
+  allowedResponseHeaders,
+  readFreeAuth,
+  readFreeFieldsToKeep,
+  readFreeHeaders,
+  readFreePagination,
+  readFreePath,
+  readFreeQuery,
+  readFreeTimeout,
+  type FreeFormCheck,
+  type FreeFormFailureCode,
+  type FreeFormPagination,
+} from "../workflow/free-form-request.js";
 import {
   MAX_INLINE_ITEMS,
   boundItem,
@@ -31,7 +49,8 @@ type ProviderOperationFailureCode =
   | "invalid_table"
   | "unsafe_placeholder"
   | "unbound_placeholder"
-  | "unexpected_response";
+  | "unexpected_response"
+  | FreeFormFailureCode;
 
 /** Never carries a response body or a field value, only the operation id and which part was wrong. */
 export class ProviderOperationError extends Error {
@@ -58,19 +77,30 @@ type ProviderRequestImplementation = Extract<
 interface ProviderRequestInput {
   fields: Readonly<Record<string, unknown>>;
   /** The stored position of a cursor source; absent on its first run. */
-  cursor?: string;
+  cursor?: string | undefined;
   /** The span of a window source, as ISO timestamps. */
-  window?: { from: string; to: string };
+  window?: { from: string; to: string } | undefined;
 }
 
 export interface BuiltProviderRequest {
   method: ProviderRequestImplementation["method"];
   /** Percent-encoded. May still hold `{projectId}`-style tokens, which core fills from the connection. */
   path: string;
-  query: Record<string, string>;
+  /** A list repeats its parameter. Only a free-form request has one. */
+  query: Record<string, string | string[]>;
   body?: unknown;
   /** Declared optional path placeholders left for core to fill. */
   openPlaceholders: readonly string[];
+  /** The rest is set only by a free-form request, and only for what its fields gave. */
+  headers?: Record<string, string>;
+  /** `none` sends no credential. */
+  auth?: "none";
+  timeoutMs?: number;
+  fetchAllPages?: FreeFormPagination;
+  /** The answer carries the status and a few headers around the body. */
+  includeStatus?: true;
+  /** Only these paths of the provider's answer are kept, before any size budget. */
+  fieldsToKeep?: FieldsToKeep;
 }
 
 const PLACEHOLDER = /\{([A-Za-z_][A-Za-z0-9_]*)\}/g;
@@ -215,13 +245,13 @@ function resolveInput(
   if (def.cursor && input.cursor !== undefined && isBound(input.cursor)) {
     values.set(def.cursor.param, input.cursor);
   }
-  if (def.cursor?.forward) {
+  const forward = def.cursor?.forward;
+  if (def.cursor && forward?.sortParam !== undefined) {
     // The first run has no position and asks for the newest rows to prime on;
     // every run after it pages forward from the stored position.
-    const { param, forward } = def.cursor;
     values.set(
       forward.sortParam,
-      values.has(param) ? forward.oldestFirst : forward.newestFirst,
+      values.has(def.cursor.param) ? forward.oldestFirst : forward.newestFirst,
     );
   }
   for (const name of required) {
@@ -233,7 +263,7 @@ function resolveInput(
   const known = new Set<string>([
     ...declared.keys(),
     ...(def.cursor ? [def.cursor.param] : []),
-    ...(def.cursor?.forward ? [def.cursor.forward.sortParam] : []),
+    ...(forward?.sortParam === undefined ? [] : [forward.sortParam]),
     ...(def.window ? [def.window.fromParam, def.window.toParam] : []),
   ]);
   return {
@@ -320,15 +350,33 @@ function encodePathValue(
   return segments.map(encodeURIComponent).join("/");
 }
 
+/** What a free-form check handed back, or the typed failure it was. */
+function takeFreeForm<T>(def: OperationDefinition, check: FreeFormCheck<T>): T {
+  if (!check.ok) fail(check.code, def, check.message);
+  return check.value;
+}
+
 function renderPath(
   def: OperationDefinition,
   template: string,
   resolved: Resolved,
 ): { path: string; open: string[] } {
   const open: string[] = [];
+  const freeForm =
+    def.implementation.type === "provider-request"
+      ? def.implementation.freeForm
+      : undefined;
   const path = template.replace(PLACEHOLDER, (match, name: string) => {
     const slot = resolved.slot(name);
     if (slot.kind === "literal") return match;
+    if (slot.kind === "bound" && freeForm?.path === name) {
+      const typed = takeFreeForm(
+        def,
+        readFreePath(slot.value, freeForm.placeholders),
+      );
+      open.push(...typed.open);
+      return typed.path;
+    }
     if (slot.kind === "bound") return encodePathValue(def, name, slot.value);
     if (slot.required)
       fail("missing_field", def, `needs a value for "${name}".`);
@@ -431,6 +479,86 @@ function providerImplementation(
   return def.implementation;
 }
 
+type FreeFormNames = NonNullable<ProviderRequestImplementation["freeForm"]>;
+
+/**
+ * What a free-form operation's optional fields add to the request. The path is
+ * rendered with the template; this reads the rest, and each one that was given
+ * is checked by the same readers the save-time validator uses.
+ */
+function renderFreeForm(
+  def: OperationDefinition,
+  names: FreeFormNames,
+  resolved: Resolved,
+): {
+  query?: Record<string, string | string[]>;
+  rest: Pick<
+    BuiltProviderRequest,
+    | "headers"
+    | "auth"
+    | "timeoutMs"
+    | "fetchAllPages"
+    | "includeStatus"
+    | "fieldsToKeep"
+  >;
+} {
+  const given = (name: string | undefined): unknown => {
+    if (name === undefined) return undefined;
+    const slot = resolved.slot(name);
+    return slot.kind === "bound" ? slot.value : undefined;
+  };
+  const queryValue = given(names.query);
+  const headersValue = given(names.headers);
+  const authValue = given(names.auth);
+  const timeoutValue = given(names.timeoutSeconds);
+  const paginationValue = given(names.pagination);
+  const status = given(names.includeStatus) === true;
+  const keepValue = given(names.fieldsToKeep);
+
+  const query =
+    queryValue === undefined
+      ? undefined
+      : takeFreeForm(def, readFreeQuery(queryValue));
+  const headers =
+    headersValue === undefined
+      ? undefined
+      : takeFreeForm(def, readFreeHeaders(headersValue));
+  const auth =
+    authValue === undefined
+      ? undefined
+      : takeFreeForm(def, readFreeAuth(authValue));
+  const timeoutMs =
+    timeoutValue === undefined
+      ? undefined
+      : takeFreeForm(def, readFreeTimeout(timeoutValue));
+  const pagination =
+    paginationValue === undefined
+      ? undefined
+      : takeFreeForm(def, readFreePagination(paginationValue));
+  const fieldsToKeep =
+    keepValue === undefined
+      ? undefined
+      : takeFreeForm(def, readFreeFieldsToKeep(keepValue));
+  if (status && pagination) {
+    fail(
+      STATUS_WITH_PAGING_REFUSAL.code,
+      def,
+      STATUS_WITH_PAGING_REFUSAL.message,
+    );
+  }
+  return {
+    ...(query ? { query } : {}),
+    rest: {
+      ...(headers && Object.keys(headers).length > 0 ? { headers } : {}),
+      ...(auth === "none" ? { auth: "none" as const } : {}),
+      ...(timeoutMs === undefined ? {} : { timeoutMs }),
+      ...(pagination ? { fetchAllPages: pagination } : {}),
+      ...(status ? { includeStatus: true as const } : {}),
+      ...(fieldsToKeep ? { fieldsToKeep } : {}),
+    },
+  };
+}
+
 /**
  * The request for one run of a catalog operation. It reads only the catalog:
  * the caller supplies field values, never a path, method or body shape. A
@@ -444,7 +572,7 @@ export function buildProviderRequest(
   const implementation = providerImplementation(def);
   const resolved = resolveInput(def, input);
   const { path, open } = renderPath(def, implementation.pathTemplate, resolved);
-  const query: Record<string, string> = {};
+  const query: Record<string, string | string[]> = {};
   for (const [key, template] of Object.entries(implementation.query ?? {})) {
     const rendered = renderString(def, template, resolved, "query");
     if (rendered === DROP || rendered === DROP_ENCLOSING) continue;
@@ -454,6 +582,10 @@ export function buildProviderRequest(
     implementation.bodyTemplate === undefined
       ? undefined
       : renderBody(def, implementation.bodyTemplate, resolved);
+  const freeForm = implementation.freeForm
+    ? renderFreeForm(def, implementation.freeForm, resolved)
+    : undefined;
+  Object.assign(query, freeForm?.query);
   return {
     method: implementation.method,
     path,
@@ -462,6 +594,7 @@ export function buildProviderRequest(
       ? {}
       : { body }),
     openPlaceholders: open,
+    ...freeForm?.rest,
   };
 }
 
@@ -586,64 +719,189 @@ function fitString(value: string, budget: number): string {
 }
 
 /**
- * Keeps what fits, in order, descending into the first thing that does not:
- * a long transcript keeps its leading sentences, a long list its leading
- * entries. `undefined` means not even an empty container fits.
+ * What a cut took out, by where, so an answer that was cut never reads as
+ * whole: a list shortened (`kept` of `of`), a text clipped (characters kept of
+ * the whole), keys left out (their names). Places and counts, never a value.
  */
-function trimToFit(value: unknown, budget: number): unknown {
+type Cut =
+  | { path: string; kept: number; of: number }
+  | { path: string; keptChars: number; ofChars: number }
+  | { path: string; droppedKeys: string[]; droppedCount: number };
+
+// A cut answer carries its report beside the data, so the report has a size of
+// its own: at most six places, each with a short path and at most two key names.
+const MAX_CUTS_REPORTED = 6;
+const MAX_CUT_PATH_CHARS = 60;
+const MAX_DROPPED_KEY_NAMES = 2;
+const MAX_KEY_NAME_CHARS = 20;
+// The worst report is six entries of about 200 characters, plus its own keys.
+const CUT_REPORT_RESERVE_CHARS = 1_500;
+
+function shortPath(path: string): string {
+  return path.length <= MAX_CUT_PATH_CHARS
+    ? path
+    : `…${path.slice(path.length - (MAX_CUT_PATH_CHARS - 1))}`;
+}
+
+function childPath(path: string, key: string | number): string {
+  if (typeof key === "number") return `${path}[${key}]`;
+  return path === "" ? key : `${path}.${key}`;
+}
+
+function pathDepth(path: string): number {
+  return (path.match(/[.[]/g) ?? []).length;
+}
+
+class CutLog {
+  private readonly all: Cut[] = [];
+
+  list(path: string, kept: number, of: number): void {
+    this.all.push({ path: shortPath(path), kept, of });
+  }
+
+  text(path: string, keptChars: number, ofChars: number): void {
+    this.all.push({ path: shortPath(path), keptChars, ofChars });
+  }
+
+  keys(path: string, names: readonly string[]): void {
+    this.all.push({
+      path: shortPath(path),
+      droppedKeys: names
+        .slice(0, MAX_DROPPED_KEY_NAMES)
+        .map((name) => name.slice(0, MAX_KEY_NAME_CHARS)),
+      droppedCount: names.length,
+    });
+  }
+
+  /** The shallowest places first, so the cut nearest the root is never the one left out. */
+  report(): { cuts: Cut[]; cutsOmitted?: number } {
+    const ordered = [...this.all].sort(
+      (a, b) => pathDepth(a.path) - pathDepth(b.path),
+    );
+    const cuts = ordered.slice(0, MAX_CUTS_REPORTED);
+    const omitted = ordered.length - cuts.length;
+    return { cuts, ...(omitted > 0 ? { cutsOmitted: omitted } : {}) };
+  }
+}
+
+/**
+ * Keeps what fits, in order. Only the first entry of a list is cut down to fit
+ * (a long transcript keeps its leading sentences): a later entry that does not
+ * fit is left out whole, because one cut short would pass for a whole entry.
+ * Everything it shortens, clips or leaves out is written to `log`.
+ * `undefined` means not even an empty container fits.
+ */
+function trimToFit(
+  value: unknown,
+  budget: number,
+  log: CutLog,
+  path: string,
+): unknown {
   if (jsonLength(value) <= budget) return value;
   if (budget < 2) return undefined;
-  if (typeof value === "string") return fitString(value, budget);
+  if (typeof value === "string") {
+    const clipped = fitString(value, budget);
+    log.text(path, clipped.length, value.length);
+    return clipped;
+  }
   if (Array.isArray(value)) {
     const kept: unknown[] = [];
     let used = 2;
     for (const element of value) {
       const remaining = budget - used - (kept.length > 0 ? 1 : 0);
-      const fitted = trimToFit(element, remaining);
-      if (fitted === undefined) break;
-      kept.push(fitted);
-      used += jsonLength(fitted) + (kept.length > 1 ? 1 : 0);
-      if (jsonLength(element) > remaining) break;
+      if (jsonLength(element) <= remaining) {
+        kept.push(element);
+        used += jsonLength(element) + (kept.length > 1 ? 1 : 0);
+        continue;
+      }
+      if (kept.length === 0) {
+        const fitted = trimToFit(element, remaining, log, childPath(path, 0));
+        if (fitted !== undefined) kept.push(fitted);
+      }
+      break;
     }
+    if (kept.length < value.length) log.list(path, kept.length, value.length);
     return kept;
   }
   if (isRecord(value)) {
     const kept: Record<string, unknown> = {};
+    const dropped: string[] = [];
     let used = 2;
     let count = 0;
     for (const [key, entry] of Object.entries(value)) {
       const keyCost = jsonLength(key) + 1 + (count > 0 ? 1 : 0);
-      const fitted = trimToFit(entry, budget - used - keyCost);
-      if (fitted === undefined) continue;
+      const fitted = trimToFit(
+        entry,
+        budget - used - keyCost,
+        log,
+        childPath(path, key),
+      );
+      if (fitted === undefined) {
+        dropped.push(key);
+        continue;
+      }
       kept[key] = fitted;
       used += keyCost + jsonLength(fitted);
       count += 1;
     }
+    if (dropped.length > 0) log.keys(path, dropped);
     return kept;
   }
   return undefined;
 }
 
+// Names a cut answer's own report uses; a body that has one is wrapped as `value`.
+const REPORT_KEYS = ["truncated", "cuts", "cutsOmitted"] as const;
+
+/** The size a report of the paths that matched nothing takes, and what it adds to the room a body has. */
+function leadChars(lead: MissingReport | undefined): number {
+  return lead ? jsonLength(lead) + 2 : 0;
+}
+
 /**
  * The response as a node reads it: the provider's own JSON, so a graph path
  * such as `nodes.thread.data[0].id` is a path into the provider's answer. Over
- * the budget it is trimmed and `truncated: true` says so; a response that is
- * not an object, or already has a `truncated` key, is wrapped as `value`.
+ * the budget it is cut and says so, first: `truncated: true`, then `cuts`,
+ * which names each list shortened (`kept` of `of`), text clipped and key left
+ * out, so a clipped summary of the answer still shows it. A list is wrapped as
+ * `value` (with `count` and `totalAvailable`) and so is a response that is not
+ * an object or already uses the report's names. `lead` is the report of the
+ * "fields to keep" paths that matched nothing: it sits at the front, beside
+ * `truncated`, under the same wrapping rule, and takes its room off the body's.
  */
 export function boundOutput(
   body: unknown,
   budgetChars: number = PROVIDER_PAYLOAD_BUDGET_CHARS,
+  lead?: MissingReport,
 ): { output: unknown; truncated: boolean } {
-  if (jsonLength(body) <= budgetChars)
-    return { output: body, truncated: false };
-  const room = budgetChars - 40;
+  const leadKeys = lead ? Object.keys(lead) : [];
+  const collides = (key: string) =>
+    isRecord(body) && Object.prototype.hasOwnProperty.call(body, key);
+  const fits = jsonLength(body) + leadChars(lead) <= budgetChars;
+  if (fits && !lead) return { output: body, truncated: false };
   const wrap =
-    !isRecord(body) || Object.prototype.hasOwnProperty.call(body, "truncated");
-  const trimmed = trimToFit(body, room);
+    !isRecord(body) ||
+    [...REPORT_KEYS, ...leadKeys].some((key) => collides(key));
+  if (fits && lead) {
+    return {
+      output: wrap
+        ? { ...lead, value: body }
+        : { ...lead, ...(body as object) },
+      truncated: false,
+    };
+  }
+  const room = budgetChars - 40 - CUT_REPORT_RESERVE_CHARS - leadChars(lead);
+  const log = new CutLog();
+  const trimmed = trimToFit(body, room, log, wrap ? "value" : "");
+  const list =
+    wrap && Array.isArray(body) && Array.isArray(trimmed)
+      ? { count: trimmed.length, totalAvailable: body.length }
+      : {};
+  const report = { truncated: true, ...lead, ...list, ...log.report() };
   return {
     output: wrap
-      ? { value: trimmed, truncated: true }
-      : { ...(trimmed as Record<string, unknown>), truncated: true },
+      ? { ...report, value: trimmed }
+      : { ...report, ...(trimmed as Record<string, unknown>) },
     truncated: true,
   };
 }
@@ -743,6 +1001,45 @@ function readMapped<T>(
   return undefined;
 }
 
+const RFC3339_TIME =
+  /^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})(?:\.(\d+))?(Z|[+-]\d{2}:\d{2})$/i;
+
+// Stripe sends `created` as whole seconds since the epoch, always ten digits.
+const EPOCH_SECONDS = /^\d{10}$/;
+
+interface Moment {
+  /** Milliseconds since the epoch, to the whole second. */
+  seconds: number;
+  /** The digits after the second, as written: a Date would keep only three of them. */
+  fraction: string;
+}
+
+function readTime(text: string): Moment | undefined {
+  const trimmed = text.trim();
+  if (EPOCH_SECONDS.test(trimmed)) {
+    return { seconds: Number(trimmed) * 1000, fraction: "" };
+  }
+  const match = RFC3339_TIME.exec(trimmed);
+  if (!match) return undefined;
+  const [, base = "", fraction = "", zone = ""] = match;
+  const seconds = Date.parse(`${base.toUpperCase()}${zone.toUpperCase()}`);
+  return Number.isNaN(seconds) ? undefined : { seconds, fraction };
+}
+
+/** Orders two positions that `mapRow` already read as times. */
+function comparePositions(a: string, b: string): number {
+  const left = readTime(a);
+  const right = readTime(b);
+  if (left === undefined || right === undefined) {
+    throw new TypeError("a position was ordered without being read as a time.");
+  }
+  if (left.seconds !== right.seconds) return left.seconds - right.seconds;
+  const width = Math.max(left.fraction.length, right.fraction.length);
+  const before = left.fraction.padEnd(width, "0");
+  const after = right.fraction.padEnd(width, "0");
+  return before < after ? -1 : before > after ? 1 : 0;
+}
+
 /** One row of the page: an item, or a row with no value for a required field. */
 type MappedRow =
   | { item: NormalizedItem; position?: string }
@@ -801,6 +1098,12 @@ function mapRow(
     position = hit.found ? readScalarText(hit.value) : undefined;
     if (position === undefined) {
       return unexpected(def, `has no "${forward.itemPath}" on item ${index}`);
+    }
+    if (forward.sortInCode && readTime(position) === undefined) {
+      return unexpected(
+        def,
+        `has a "${forward.itemPath}" on item ${index} that is not an RFC 3339 time or whole epoch seconds`,
+      );
     }
   }
   if (skipped) return { skipped: true };
@@ -899,12 +1202,16 @@ export function mapItems(
   const rows: readonly unknown[] = list.value;
   const items: NormalizedItem[] = [];
   const positions: string[] = [];
+  const tracked: { item: NormalizedItem; position: string }[] = [];
   try {
     rows.forEach((element, index) => {
       const mapped = mapRow(def, element, index, scope);
       if ("skipped" in mapped) return;
       items.push(mapped.item);
-      if (mapped.position !== undefined) positions.push(mapped.position);
+      if (mapped.position !== undefined) {
+        positions.push(mapped.position);
+        tracked.push({ item: mapped.item, position: mapped.position });
+      }
     });
   } catch (error) {
     if (error instanceof ProviderOperationError) {
@@ -933,11 +1240,36 @@ export function mapItems(
       ...countMappingGaps(def, mapping, rows),
     });
   }
+  const inCode = def.cursor?.forward?.sortInCode;
   if (options.oldestFirst) {
-    return { items, positions, skippedRows };
+    if (!inCode) return { items, positions, skippedRows };
+    failIfPartialPage(def, body, inCode.morePath, rows.length, observe);
+    const order = tracked.sort((a, b) =>
+      comparePositions(a.position, b.position),
+    );
+    return {
+      items: order.map((entry) => entry.item),
+      positions: order.map((entry) => entry.position),
+      skippedRows,
+    };
   }
   let cursor: string | undefined;
-  if (def.cursor && items.length > 0) {
+  if (inCode && positions.length > 0) {
+    // A provider that sorts nothing has no "newest first" row to read: the
+    // position is the latest one on the page. A page that is only part of the
+    // rows may not hold the latest, which is worth a trace, not a failure:
+    // enabling a workflow over a long history must still work.
+    if (pageIsPartial(def, body, inCode.morePath, observe)) {
+      reportShape(observe, def, {
+        reason: "priming_page_partial",
+        rows: rows.length,
+        path: inCode.morePath,
+      });
+    }
+    cursor = positions.reduce((latest, position) =>
+      comparePositions(position, latest) > 0 ? position : latest,
+    );
+  } else if (def.cursor?.path !== undefined && items.length > 0) {
     const hit = readPath(def, body, def.cursor.path);
     cursor = hit.found ? readScalarText(hit.value) : undefined;
     if (cursor === undefined) {
@@ -954,6 +1286,70 @@ export function mapItems(
     }
   }
   return { items, skippedRows, ...(cursor === undefined ? {} : { cursor }) };
+}
+
+/**
+ * Whether the response says it holds only part of the rows. Absent means it
+ * holds them all; a value that is neither `true` nor `false` is a response the
+ * operation did not promise, not an answer.
+ */
+function pageIsPartial(
+  def: OperationDefinition,
+  body: unknown,
+  morePath: string,
+  observe: ProviderObservation | undefined,
+): boolean {
+  const more = readPath(def, body, morePath);
+  if (!more.found || more.value === false) return false;
+  if (more.value === true) return true;
+  reportShape(observe, def, { reason: "page_flag_unreadable", path: morePath });
+  return unexpected(def, `has a "${morePath}" that is neither true nor false`);
+}
+
+/**
+ * A page sorted here is the oldest of the rows only when it holds all of them.
+ * A page the response calls partial would lose the rows it left out: the
+ * position moves past the rows kept, and the oldest may be the ones missing.
+ */
+function failIfPartialPage(
+  def: OperationDefinition,
+  body: unknown,
+  morePath: string,
+  rows: number,
+  observe: ProviderObservation | undefined,
+): void {
+  if (!pageIsPartial(def, body, morePath, observe)) return;
+  reportShape(observe, def, { reason: "page_partial", rows, path: morePath });
+  unexpected(
+    def,
+    `holds only part of the rows newer than the stored position (${rows} on the page, and "${morePath}" says more follow), so the oldest of them cannot be picked`,
+  );
+}
+
+/**
+ * Where an oldest-first page cut after `kept` rows may resume. Resuming after
+ * a time skips every row with that time, so a cut inside rows that share one
+ * keeps only the times it can take whole; when the first time alone is more
+ * than a run takes, no position can continue the page and it fails.
+ */
+function keepWholeMoments(
+  def: OperationDefinition,
+  positions: readonly string[],
+  kept: number,
+): number {
+  let end = kept;
+  for (; end > 0; end -= 1) {
+    const last = positions[end - 1];
+    const next = positions[end];
+    if (!last || !next || comparePositions(last, next) !== 0) break;
+  }
+  if (end === 0 && kept > 0) {
+    unexpected(
+      def,
+      `has more rows at one time than a run takes (${kept}), so it cannot resume between them`,
+    );
+  }
+  return end;
 }
 
 interface FittedItems {
@@ -993,6 +1389,81 @@ export function fitItems(
   };
 }
 
+/**
+ * The body that stands for "no rows" when a provider answers an empty range
+ * with a 404 the operation declares (`emptyRange`), or undefined for any other
+ * response. Only a 404 whose body is a list of error texts, every one of them
+ * containing the declared words, qualifies: a 404 for any other cause, an
+ * unreadable body, or a mixed list stays the failure it is.
+ */
+export function emptyRangeBody(
+  def: OperationDefinition,
+  response: { status: number; json: unknown },
+): unknown {
+  const { emptyRange, itemMapping } = def;
+  if (!emptyRange || !itemMapping || response.status !== 404) return undefined;
+  const { json } = response;
+  if (!isRecord(json) || !Array.isArray(json.errors)) return undefined;
+  const words = emptyRange.errorIncludes.toLowerCase();
+  const saysEmpty =
+    json.errors.length > 0 &&
+    json.errors.every(
+      (text) => typeof text === "string" && text.toLowerCase().includes(words),
+    );
+  if (!saysEmpty) return undefined;
+  const path = itemMapping.itemsPath
+    ? validateResponsePath(itemMapping.itemsPath)
+    : undefined;
+  if (path && !path.ok) return undefined;
+  return [...(path?.path.segments ?? [])]
+    .reverse()
+    .reduce<unknown>((inner, segment) => ({ [segment]: inner }), []);
+}
+
+// The `body` key and the commas around it.
+const STATUS_FRAME_RESERVE_CHARS = 40;
+
+/**
+ * `{ status, headers, body }`, with the body cut to what the budget leaves
+ * once the status and the allow-listed headers are counted. A cut answer leads
+ * with its report (`truncated`, `cuts`, whose paths start at `body`), so the
+ * provider's own data is never mixed with ours. The report of "fields to keep"
+ * paths that matched nothing (`lead`) leads, and only the body was trimmed.
+ */
+function withStatus(
+  def: OperationDefinition,
+  body: unknown,
+  frame: { status: number; headers: unknown },
+  budgetChars: number = PROVIDER_PAYLOAD_BUDGET_CHARS,
+  lead?: MissingReport,
+): { output: unknown; truncated: boolean } {
+  const headers = allowedResponseHeaders(frame.headers);
+  const fixed = jsonLength({ status: frame.status, headers }) + leadChars(lead);
+  const room = budgetChars - fixed - STATUS_FRAME_RESERVE_CHARS;
+  if (jsonLength(body) <= room) {
+    return {
+      output: { ...lead, status: frame.status, headers, body },
+      truncated: false,
+    };
+  }
+  const log = new CutLog();
+  const trimmed = trimToFit(body, room - CUT_REPORT_RESERVE_CHARS, log, "body");
+  if (trimmed === undefined) {
+    return unexpected(def, "has headers too large to leave room for its body");
+  }
+  return {
+    output: {
+      truncated: true,
+      ...lead,
+      ...log.report(),
+      status: frame.status,
+      headers,
+      body: trimmed,
+    },
+    truncated: true,
+  };
+}
+
 export interface ParsedOperationResponse {
   output: unknown;
   truncated: boolean;
@@ -1023,12 +1494,16 @@ export function parseProviderResponse(
   def: OperationDefinition,
   body: unknown,
   options: {
-    scope?: WorkflowScope;
-    limit?: number;
-    prime?: boolean;
-    cursor?: string;
-    budgetChars?: number;
-    observe?: ProviderObservation;
+    scope?: WorkflowScope | undefined;
+    limit?: number | undefined;
+    prime?: boolean | undefined;
+    cursor?: string | undefined;
+    budgetChars?: number | undefined;
+    observe?: ProviderObservation | undefined;
+    /** A free-form request that asked for the status: the answer is wrapped around the body. */
+    includeStatus?: { status: number; headers: unknown } | undefined;
+    /** The "fields to keep" paths that matched nothing, to lead the answer. */
+    fieldsMissing?: MissingReport | undefined;
   } = {},
 ): ParsedOperationResponse {
   if (body === undefined) {
@@ -1062,19 +1537,24 @@ export function parseProviderResponse(
       limit: options.limit,
       budgetChars: options.budgetChars,
     });
+    const kept =
+      fitted.cut && def.cursor?.forward?.sortInCode && mapped.positions
+        ? keepWholeMoments(def, mapped.positions, fitted.items.length)
+        : fitted.items.length;
+    const items = fitted.items.slice(0, kept);
     const cursor = oldestFirst
-      ? mapped.positions?.[fitted.items.length - 1]
+      ? mapped.positions?.[kept - 1]
       : fitted.cut
         ? undefined
         : mapped.cursor;
     return {
       output: {
-        itemCount: fitted.items.length,
+        itemCount: items.length,
         truncated: fitted.cut,
         ...skipped,
       },
       truncated: fitted.cut,
-      items: fitted.items,
+      items,
       ...skipped,
       ...(fitted.totalAvailable === undefined
         ? {}
@@ -1083,6 +1563,26 @@ export function parseProviderResponse(
     };
   }
   const receipt = extractReceipt(def, body, options.observe);
-  const bounded = boundOutput(body, options.budgetChars);
+  // A lookup that runs once per item declares its own, smaller budget.
+  const budgetChars =
+    def.answerBudgetChars === undefined
+      ? options.budgetChars
+      : Math.min(
+          options.budgetChars ?? PROVIDER_PAYLOAD_BUDGET_CHARS,
+          def.answerBudgetChars,
+        );
+  if (options.includeStatus) {
+    return {
+      ...withStatus(
+        def,
+        body,
+        options.includeStatus,
+        budgetChars,
+        options.fieldsMissing,
+      ),
+      ...receipt,
+    };
+  }
+  const bounded = boundOutput(body, budgetChars, options.fieldsMissing);
   return { ...bounded, ...receipt };
 }

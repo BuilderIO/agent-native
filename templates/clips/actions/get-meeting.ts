@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { resolveAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
@@ -8,6 +9,14 @@ import {
   materializeCalendarMeetingFromVirtualId,
   parseCalendarMeetingId,
 } from "../server/lib/calendar-event-meetings.js";
+import { loadMeetingRecordingContent } from "../server/lib/meeting-recording-access.js";
+import { storedEarlierAudioMinutes } from "../shared/earlier-audio.js";
+import {
+  parseTranscriptSegments,
+  storedSegmentsUnreadable,
+} from "../shared/transcript-segments.js";
+import { isAgentMeetingCaller } from "./lib/meeting-content.js";
+import { boundTranscriptForAgent } from "./lib/transcript-preview.js";
 
 interface Bullet {
   text: string;
@@ -20,32 +29,78 @@ interface ActionItem {
   completedAt?: string | null;
 }
 
-function safeParseArray<T>(
+/** A stored JSON list, or null when it can't be read; an absent one is empty. */
+function readStoredArray<T>(
   raw: string | null | undefined,
   rowId: string,
   field: string,
-): T[] {
+): T[] | null {
   if (!raw) return [];
   try {
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as T[]) : [];
+    if (Array.isArray(parsed)) return parsed as T[];
   } catch (err) {
     console.warn(
       `[get-meeting] malformed ${field} JSON on row ${rowId}:`,
       (err as Error)?.message ?? err,
     );
-    return [];
+    return null; // coercion-ok: null is "unreadable", which callers tell from []
   }
+  console.warn(`[get-meeting] ${field} on row ${rowId} is not a list`);
+  return null;
+}
+
+/**
+ * The meeting for an agent, with each detail once: bullets come parsed and
+ * action items come in the top-level `actionItems`, so the stored JSON copies
+ * and the parsed duplicate go.
+ */
+function meetingForAgent<
+  T extends {
+    bulletsJson: string;
+    actionItemsJson: string;
+    actionItemsParsed: unknown;
+  },
+>({
+  bulletsJson: _bulletsJson,
+  actionItemsJson: _actionItemsJson,
+  actionItemsParsed: _actionItemsParsed,
+  ...meeting
+}: T) {
+  return meeting;
+}
+
+function transcriptForAgent<T extends { fullText?: string | null }>(
+  { segmentsJson, ...transcript }: T & { segmentsJson?: string | null },
+  fullTextOffset: number | undefined,
+) {
+  const bounded = boundTranscriptForAgent({
+    fullText: transcript.fullText,
+    segments: parseTranscriptSegments(segmentsJson),
+    ...(fullTextOffset === undefined ? {} : { fullTextOffset }),
+    action: "get-meeting",
+  });
+  if (!storedSegmentsUnreadable(segmentsJson))
+    return { ...transcript, ...bounded, segmentsUnreadable: false };
+  return {
+    ...transcript,
+    ...bounded,
+    segmentCount: null,
+    segmentsUnreadable: true,
+    note: `${bounded.note} Its timed segments couldn't be read, so none are listed.`,
+  };
 }
 
 export default defineAction({
   description:
-    'Get a meeting by id with its participants, action items, and a reference to its recording (if any). When no meeting is returned, `meeting` is null and `reason` is "unavailable" — it does not distinguish missing from inaccessible. A read failure throws instead.',
+    'Get a meeting by id with its participants, action items, transcript, and a reference to its recording (if any). Agent calls receive the summary, notes, bullets, action items and participants whole, each once (action items only in actionItems), and the transcript in bounded chunks. For them, bullets or actionItems are null when the stored list cannot be read, and segmentsUnreadable=true means the timed transcript segments could not be read. Pass transcriptOffset from nextFullTextOffset until it is null to read the complete transcript. `earlierAudioMinutes` is how much audio from before the user started recording its transcript holds, 0 when none; remove-earlier-meeting-audio takes it out. When no meeting is returned, `meeting` is null and `reason` is "unavailable" — it does not distinguish missing from inaccessible. A read failure throws instead.',
   schema: z.object({
     id: z.string().describe("Meeting id"),
+    transcriptOffset: z.coerce.number().int().min(0).optional(),
   }),
+  mcpApp: { compactCatalog: true },
   http: { method: "GET" },
-  run: async (args) => {
+  run: async (args, ctx) => {
     let meetingId = args.id;
     if (parseCalendarMeetingId(args.id)) {
       const materialized = await materializeCalendarMeetingFromVirtualId(
@@ -59,6 +114,7 @@ export default defineAction({
     const access = await resolveAccess("meeting", meetingId);
     if (!access) return { meeting: null, reason: "unavailable" as const };
 
+    const forAgent = isAgentMeetingCaller(ctx?.caller);
     const db = getDb();
     const [row] = await db
       .select()
@@ -72,12 +128,12 @@ export default defineAction({
       .limit(1);
     if (!row) return { meeting: null, reason: "unavailable" as const };
 
-    const bullets = safeParseArray<Bullet>(
+    const storedBullets = readStoredArray<Bullet>(
       row.bulletsJson,
       row.id,
       "bullets_json",
     );
-    const actionItemsParsed = safeParseArray<ActionItem>(
+    const storedActionItems = readStoredArray<ActionItem>(
       row.actionItemsJson,
       row.id,
       "action_items_json",
@@ -85,8 +141,8 @@ export default defineAction({
 
     const meeting = {
       ...row,
-      bullets,
-      actionItemsParsed,
+      bullets: storedBullets ?? [],
+      actionItemsParsed: storedActionItems ?? [],
     };
 
     const participants = await db
@@ -100,31 +156,26 @@ export default defineAction({
       .where(eq(schema.meetingActionItems.meetingId, meetingId));
     const actionItems = actionItemRows.length
       ? actionItemRows
-      : actionItemsParsed;
+      : meeting.actionItemsParsed;
 
-    let recording = null;
-    let transcript = null;
-    if (row.recordingId) {
-      const [rec] = await db
-        .select()
-        .from(schema.recordings)
-        .where(eq(schema.recordings.id, row.recordingId))
-        .limit(1);
-      recording = rec ?? null;
-      const [tr] = await db
-        .select()
-        .from(schema.recordingTranscripts)
-        .where(eq(schema.recordingTranscripts.recordingId, row.recordingId))
-        .limit(1);
-      transcript = tr ?? null;
-    }
+    const { recording, transcript } = await loadMeetingRecordingContent(
+      row,
+      getRequestUserEmail(),
+    );
 
     return {
-      meeting,
+      meeting: forAgent
+        ? { ...meetingForAgent(meeting), bullets: storedBullets }
+        : meeting,
       participants,
-      actionItems,
+      actionItems:
+        forAgent && !actionItemRows.length ? storedActionItems : actionItems,
       recording,
-      transcript,
+      transcript:
+        transcript && forAgent
+          ? transcriptForAgent(transcript, args.transcriptOffset)
+          : transcript,
+      earlierAudioMinutes: storedEarlierAudioMinutes(transcript?.segmentsJson),
       role: access.role,
     };
   },

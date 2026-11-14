@@ -24,11 +24,15 @@ export {
 } from "./agent/index.js";
 export {
   defineAction,
+  defineActionErrors,
+  type ActionErrors,
   fail,
   type FailOptions,
   ActionContractError,
   isActionContractError,
   type ActionContractErrorOptions,
+  NoWriteError,
+  isNoWriteError,
   ActionOutputContractError,
   isActionOutputContractError,
   type ActionOutputContractErrorOptions,
@@ -53,6 +57,7 @@ export {
   type ActionMcpAppResourceConfig,
   type ActionMcpAppResourceMeta,
 } from "./action.js";
+export { isOutsideAgentCall } from "./action-caller.js";
 export * from "./user-profile/index.js";
 export {
   embedApp,
@@ -288,6 +293,7 @@ export {
   saveUsageAlert,
   setUsageAlertEnabled,
   USAGE_ALERT_DEFAULT_DAILY_USD,
+  USAGE_ALERT_DEFAULT_MONTHLY_USD,
   USAGE_ALERT_UNIT_SCALE,
   type SaveUsageAlertInput,
   type UsageAlertAccess,

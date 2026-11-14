@@ -29,8 +29,8 @@ on `org`.
 
 Clips **adds two things** on top of the framework system:
 
-1. **Password** — an optional bcrypt'd string on the `recordings` row. When set, all non-owner viewers must enter it to play the recording.
-2. **`expiresAt`** — an optional ISO timestamp on the `recordings` row. After this time, all non-owner access is denied (even to principals with explicit grants).
+1. **Password** — an optional encrypted string on the `recordings` row. For public recordings, non-owner viewers must enter it to play the recording. Private and organization access use the framework ACL; a stored password is retained and applies again if the recording becomes public.
+2. **`expiresAt`** — an optional ISO timestamp on the `recordings` row. After this time, all non-owner access is denied (even to principals with explicit grants). Existing values remain enforced, although the Share panel no longer edits expiry.
 
 These are **additive** — they never grant access the framework denies, only tighten it.
 
@@ -47,43 +47,29 @@ Read this skill before:
 
 ## Data model touched
 
-- **`recordings.password`** (nullable text) — bcrypt hash.
+- **`recordings.password`** (nullable text) — encrypted password value.
+- **`hasPassword`** reports whether a password is stored, including dormant passwords on private or organization recordings; it does not by itself indicate an active password gate.
 - **`recordings.expires_at`** (nullable ISO string).
 - **`recording_shares`** — framework-managed. Do not insert directly — use `share-resource`.
 - **`recordings.visibility`** — framework-managed column from `ownableColumns()`.
 - **`recording_viewers`** + **`recording_events`** — view counting.
 - **`recording_views`** — append-only per-view log (who viewed, when) backing the owner-facing "Viewed by" popover. See "View counting" below.
 - **`recording_agent_views`** — outside agents reading a clip through its public agent APIs, counted separately from humans. See "Agent views" below.
+- **`recording_content_bindings`** — the Agent-Native Content documents a Clip is placed in. See "Clips in Content documents" below.
 
 ## Dropping in the share UI
 
-Clips' `app/components/player/share-dialog.tsx` is a **thin wrapper around the framework `ShareDialog`** from `@agent-native/core/client`. The framework component handles per-user / per-org grants, visibility, and tabbed copy-link / embed UI — Clips just composes it with recording-specific extras.
+Recordings and meetings use Toolkit `ShareButton` for the standard access,
+copy-link, and Send to controls. Public recordings can set, change, or remove a
+password under General access. Existing expiry values remain enforced, but are
+not edited in this panel. Meeting transcript visibility remains a
+meeting-specific control. Pending redactions block sharing until they are burned
+into the recording. Private and password-protected recording agent handoffs use
+scoped recording agent links; a password-protected viewer cannot mint one.
 
-```tsx
-import { ShareDialog } from "@agent-native/core/client";
-
-<ShareDialog
-  resourceType="recording"
-  resourceId={recording.id}
-  resourceTitle={recording.title}
-  shareUrl={`${origin}/share/${recording.id}`}
-  embedUrl={`${origin}/embed/${recording.id}`}
-  linkTabExtras={
-    <>
-      {/* Password + expiry render in the Link tab, below the share URL. */}
-      <PasswordField recordingId={recording.id} />
-      <ExpiryField recordingId={recording.id} />
-    </>
-  }
-  embedTabContent={<EmbedSnippetAndOptions recordingId={recording.id} />}
-/>;
-```
-
-- `shareUrl` / `embedUrl` — the copy-link and embed URLs the framework renders in its tabs.
-- `linkTabExtras` — Clips-specific controls (password, expiry) shown beneath the link.
-- `embedTabContent` — full replacement for the Embed tab body (embed code, params like `?t=`, `?autoplay=`).
-
-The password and expiry fields call `update-recording --password=...` / `--expiresAt=...`. Keep Clips' share-dialog wrapper minimal — any new generic sharing feature belongs in the framework component, not here.
+Embed URLs remain available through `build-embed-url`; embedding does not change
+access. Public share pages emit link-preview metadata, while an iframe is a
+separate playback integration.
 
 ## Shared with me
 
@@ -93,6 +79,31 @@ direct user/org grants and organization-visible recordings while excluding
 public-link-only clips. The UI exposes the same collection at `/shared`; use
 `navigate --view=shared` to open it. `view-screen` returns the recordings
 currently visible in that collection.
+
+## Changing many clips at once
+
+For a request over many of the user's own clips, such as "make my clips older
+than a week private unless I've shared them with someone", find them with one
+`list-recordings` call and change them with one call per 100:
+
+- `list-recordings` takes `createdBefore` / `createdAfter` (an ISO date such
+  as `2026-10-25`, or a date-time with its offset such as `2026-10-25T12:00:00Z`),
+  `visibility` (a list, such as `["public", "org"]`) and `hasShares`
+  (`false` for clips whose share list names no person, group or org; it
+  reads that list, not visibility, and only ever matches the user's own
+  clips).
+- `set-resource-visibility` takes `resourceIds` with `resourceType:
+  "recording"`. Making any clip public asks for one approval for the call.
+- `archive-recording`, `trash-recording`, `restore-recording` and
+  `delete-recording-permanent` take `ids`; `tag-recording` and
+  `add-recording-to-space` take `recordingIds`.
+
+Every clip in the call is checked first; if the user can't change one, none
+change and the error names it. The result lists each clip as `changed`,
+`unchanged` (already that way) or `skipped` with a reason. Report the counts
+back, not the clips one by one. A long `delete-recording-permanent` batch
+can stop early and list the clips it didn't reach as skipped; call it again
+with those ids.
 
 ## Discovery boundary for public clips
 
@@ -124,10 +135,10 @@ async function canAccess(
     if (new Date(rec.expiresAt) < new Date()) return false;
   }
 
-  // 3. Password — non-owner only.
-  if (rec.password && requester?.email !== rec.ownerEmail) {
+  // 3. Password — public links, non-owner only.
+  if (rec.visibility === "public" && rec.password && requester?.email !== rec.ownerEmail) {
     if (!providedPassword) return false;
-    if (!(await bcrypt.compare(providedPassword, rec.password))) return false;
+    if (!verifySharePassword(providedPassword, rec.password)) return false;
   }
 
   return true;
@@ -135,6 +146,23 @@ async function canAccess(
 ```
 
 Framework first, Clips additions second. Don't invert this — the framework owns the "is this row visible at all" question.
+
+## Clips in Content documents
+
+A Clip placed in a Content document has one `recording_content_bindings` row per (recording, Content app, document). `origin` is `upload` (made in the document) or `link` (pasted); `state` is `active` or `trashed`. A duplicated document adds its own row.
+
+- Only an active `upload` binding grants access: a Content reader with no access of their own becomes a viewer of that one recording (`server/lib/content-doc-grant.ts`, a host access resolver registered with `includeSignedOut: true` so it is asked about signed-out readers of a public document too). A reader's own Clips sharing, in their active workspace, still applies and is never lowered. A `link` binding, or none, leaves the Clip's own sharing in charge. When every binding is trashed, document readers lose access; the owner never does.
+- The Clip's own rules still apply on top: Trash, takedown and expiry refuse document readers, a password-protected Clip does not play through a document, and with comments off document readers see no comments and cannot write.
+- Content calls `/api/content-clips/:recordingId/playback` and `/comments` (GET `?limit=<n>` to list the first n thread starts, at most `CONTENT_CLIP_MAX_COMMENT_THREADS`, which is also what a request with no `limit` gets, with `truncated` when there are more and each thread's text and author cut to `CONTENT_CLIP_COMMENT_PREVIEW_CHARS` and `CONTENT_CLIP_COMMENT_AUTHOR_CHARS`, so Content can cap what it reads (playback likewise cuts the title to `CONTENT_CLIP_RECORDING_TITLE_CHARS`); POST to add, reply, edit, delete, resolve or react) server to server with a one-minute A2A token. `shared/content-clip-contract.ts` is the contract: audience `<Clips URL>/content-clips`, one scope, and `document_id` + `recording_id` claims. A signed-out reader of a public document gets the `content-clip:public-read` scope: playback and the comment list, never a write.
+- The token is signed with `CONTENT_CLIPS_PEER_SECRET` (`clips.contentPeerSecret`, read with `resolveContentClipsPeerSecret`), a secret only the Content and Clips deployments hold, and Clips verifies it with that secret alone. That is what makes the token's issuer trustworthy as the Content app: a token signed with the deployment `A2A_SECRET` or a workspace secret is refused, because other apps hold those. While the secret is unset, shorter than 32 characters, or equal to `A2A_SECRET`, every route answers 503 with code `content_clips_not_configured`; set it on both deployments.
+- Playback returns Clips media URLs with a five-minute `content_grant` that names the reader, not a role. The grant is signed with a key derived from `CONTENT_CLIPS_PEER_SECRET`, never the app's own server secret (which a workspace derives from `A2A_SECRET`), and a media request carrying a grant while the secret is unusable gets the same 503. `/api/video` and `/api/thumbnail` re-run every gate on each request, so trashing the binding stops a URL already handed out. An expired grant is a 403 with code `content_grant_expired`; Content's player then asks Content for playback again, which re-checks document access.
+- Each reader's reads and writes of one Clip through one document are rate-limited per process. A request counts against the Clip's bucket only once Clips has opened it: Content mints a token for any recording id a page reader names, so counting earlier would let a reader name made-up ids until their own spent bucket dropped out. A full map drops its oldest bucket rather than refuse a new one. A request whose Clip doesn't open counts as a miss against that reader's misses for that Clip and document; once they are spent, the Clip is refused before any database read. Misses are kept per Clip so made-up ids can't use up a real Clip's, which leaves a caller who keeps naming new made-up ids unbounded here: each costs one lookup, and Content's own per-visitor limit has to bound it. Every signed-out reader of a document shares the public reader's buckets.
+- A Content editor's upload uses the `content-clip:upload` scope, whose token carries `document_id`, the editor's `name`, and the browser's `client_ip` when Content knows it, never a `recording_id`. Content checks that the reader can edit the page before minting it. `GET /api/content-clips/upload-status` answers the editor's `storage` state (`ready`, `free` with what's left, `used_up`, `none`, or `account_required` when the email has no Clips account or workspace; Clips never makes either). `POST /api/content-clips/uploads` adds the `upload` binding first, then a private recording the editor owns, and returns a ticketed `chunkUrl` and `cancelUrl`; a state that can't take the file is a 409 `storage_required` with that `storage`. The start carries the `uploadKey` Content makes once per picked file, kept on the binding with the file's type and size: a start repeated with the same key, page, and editor never makes a second Clip. It answers that upload with another ticket and the first start's plan while it is uploading, a 409 `upload_already_finished` with `recordingId` and `status` once a final chunk holds it or Clips is making the Clip, a 409 `upload_starting` while the latest start is still making its recording (Content repeats it after a few seconds), or a 409 `upload_key_used` when it was cancelled or failed, is parked until storage is connected, began in another block, or describes a file of another type or size. A start that fails deletes its binding only when nothing can be left: a refusal raised before any recording or free clip (`refusedStart`), or an error with `cleanupConfirmed: true`. Any other failure keeps the binding and marks `upload_start_failed_at`, and a repeat that finds no recording under a marked binding, or one whose latest attempt is `RESERVATION_GRACE_MS` old, takes the start over with a compare-and-swap on the binding (`takeOverStart`) and makes the recording under the binding's own recording id, so the free clip reserved per recording id is never held twice; of repeats that overlap, the rest get `upload_starting`. A kept binding whose start left a recording answers from where that upload stands, so one whose recording failed answers `upload_key_used` like a cancelled one; that key's upload ended, and Content starts the file again under a new key. Earlier tickets keep working, since overlapping repeats each hand one back: a recording keeps its four newest (`addRecordingUploadTicket`) and still holds one upload slot, while an agent's `create-recording-upload` keeps one. A repeat skips the storage check, since its first start may have taken the last free clip.
+- The editor's browser posts the file to `/api/uploads/:recordingId/content-chunk` with the ticket in the query, no cookie, and no custom headers, so the request is a CORS simple request and no preflight reaches the auth guard. Only the paired built-in Content's origin (`pairedContentOrigin`) gets `Access-Control-Allow-Origin`, never the request's own `Origin`, and the answer never allows credentials.
+- When the page gives an upload up (its block is gone, the editor can no longer edit, or a chunk failed for good), the browser POSTs `cancelUrl` (`/api/uploads/:recordingId/content-cancel?ticket=…`) the same way. Clips' own abort fails the recording and releases its free clip, as the lease reaper would an hour later; the `upload` binding stays. Where an upload stands is one answer, `readUploadPhase` in `server/lib/final-chunk-claim.ts`: `uploading`, `finishing` (a final chunk holds it), `parked` (Clips has the whole file and waits for storage), `finished` (`processing` or `ready`) or `ended` (cancelled or failed). The repeated start, the cancel and the Content chunk route all use it, and nothing else reads its three stores (the final chunk's claim, the upload state and the recording row) together. It reads the claim first, then the upload state, then the row. Before Clips takes the final chunk's bytes, on the buffered and the resumable path alike, the Content chunk route renews the row's lease to outlast its claim, only while the row is `uploading`, then claims the upload, changing its upload state with the same compare-and-swap the abort claims with; once Clips accepts the chunk it writes `parked` or `finished` into the upload state, and only then gives the claim up, so a reader that finds no claim finds where the upload went. A final chunk that fails gives the claim up with the upload still `uploading`. A claim older than `FINAL_CHUNK_CLAIM_TTL_MS` (a little over Clips' 75 s function timeout) was left by a request that was cut off, so the upload reads `uploading` again and the next final chunk or cancel takes it over. A live claim is never taken over: a cancel or another send of the final chunk changes nothing while the upload is `finishing` and answers 409 `upload_finishing` (`CONTENT_CLIP_CHUNK_FINISHING` for the chunk), which Content repeats every few seconds, the chunk for a little longer than the claim lasts. A final chunk sent once the upload is `parked` or `finished` answers the first one's success (202 `waitingForStorage`, or 200 with `status`) and Clips takes no bytes; one that finds the upload `ended` is refused (409). The answer's `outcome` comes from the phase read after the abort, never from the abort's `ok`: `cancelled` (200) once it is `ended`, a repeat included and a parked upload too, or `already_finished` (409, with `status`) once it is `finished`. Any other answer means it wasn't cancelled; an upload whose cancels keep finding `finishing` is left to the reaper. The reaper reads only the row's lease, never the phase: it fails a row whose lease ran out in one conditional update, so it either failed the row before the final chunk renewed it, and the chunk finds it `ended`, or it leaves the row. A page in Trash can still cancel. A closed tab is still left to the reaper.
+- Upload-origin Clips are listed under From Content (`list-recordings` view `from-content`, each with `contentPageUrl` back to its page), and Library's own list leaves them out. A folder someone moved one into still lists it, and linked Clips stay in Library.
+- `isActiveUploadBinding` / `activeUploadBinding()` in `server/lib/content-uploads.ts` is the one test for an active upload binding. Playback's grant, the chunk route, From Content and its page links all use it, so an upload whose page is in Trash plays for no document reader, takes no chunks (409), and lists in neither From Content nor Library.
+- Create and change binding rows only through Content's upload and lifecycle flows.
 
 ## Embed URLs
 
@@ -220,22 +248,29 @@ context instead of stopping at the share page or transcript preview:
    size-limit, and temporary storage errors do not prove that media is missing
    or that the link lacks access.
    If `failureKind: expired`, ask the owner to extend or remove the clip expiry
-   in the Share menu, save, then create and send a new **Share with agents**
+   through `update-recording`, then create and send a new **Share with agents**
    link. Never claim to have seen frames that were not returned as images.
 
-The JSON discovery payload and HTTP endpoints work without browser tools. A
-WebMCP-capable browser is optional; its frame tool returns a URL, so the agent
-must still fetch that URL as an image.
+The JSON discovery payload and HTTP endpoints work without browser tools. An
+agent that cannot open frame URLs as images (claude.ai, a ChatGPT custom
+connector) calls the `get-recording-frames` MCP tool instead, once Clips is
+connected as an MCP connector (`apis.mcp.connectUrl`). It takes the
+`recordingId` plus up to four `atMs` values, and returns the frames as image
+blocks; without `atMs` it returns the first four recommended frames and lists
+all of them. It checks only the connected user's own access (owner, share,
+organization, public); an `agent_access` token does not grant it. A
+public password-protected clip fails with `password_required` for anyone but its
+owner.
 
 Recordings can expose URLs meant for external agents without handing over raw
 video bytes:
 
-| Endpoint                                          | Meaning                                                                                                      |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `/api/agent-context.json?id=<recordingId>`        | Clip metadata, transcript summary, recommended frames, and API discovery links                               |
-| `/api/agent-transcript.json?id=<recordingId>`     | Timestamped transcript segments with `startMs`, `endMs`, `timestamp`, `range`, `text`, and optional `source`; add `maxSegments` to page and continue with the returned `nextStartIndex` |
-| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>` | JPEG frame extracted from the video at the requested original-video timestamp                                |
-| `/api/agent-frames.jpg?id=<recordingId>&startMs=<ms>&endMs=<ms>&fps=<n>` | One JPEG contact sheet of up to 36 consecutive frames from a range; the `X-Clips-Frame-Sheet-Fps`, `-Grid` and `-Times` headers describe the cells |
+| Endpoint                                                                 | Meaning                                                                                                                                                                                 |
+| ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `/api/agent-context.json?id=<recordingId>`                               | Clip metadata, transcript summary, recommended frames, and API discovery links                                                                                                          |
+| `/api/agent-transcript.json?id=<recordingId>`                            | Timestamped transcript segments with `startMs`, `endMs`, `timestamp`, `range`, `text`, and optional `source`; add `maxSegments` to page and continue with the returned `nextStartIndex` |
+| `/api/agent-frame.jpg?id=<recordingId>&atMs=<ms>`                        | JPEG frame extracted from the video at the requested original-video timestamp                                                                                                           |
+| `/api/agent-frames.jpg?id=<recordingId>&startMs=<ms>&endMs=<ms>&fps=<n>` | One JPEG contact sheet of up to 36 consecutive frames from a range; the `X-Clips-Frame-Sheet-Fps`, `-Grid` and `-Times` headers describe the cells                                      |
 
 These endpoints follow the same access model as `/api/public-recording`, plus a
 temporary agent-link path:
@@ -246,7 +281,7 @@ temporary agent-link path:
   `/share/:recordingId`. The share page SSR advertises the agent context URL,
   and the JSON endpoints accept the same scoped token.
 - Expired clips return expired.
-- Password-protected clips require `password=<pw>` once; successful JSON
+- Public password-protected clips require `password=<pw>` once; successful JSON
   responses include short-lived tokenized links so the plaintext password is not
   copied into downstream agent prompts, browser history, or logs.
 - If a discovery, context, or transcript payload reports `agentReadiness.state`
@@ -263,6 +298,29 @@ temporary agent-link path:
   transcribe Clips recordings.
 - Frame extraction must use the checked recording media path and must not expose
   raw provider URLs.
+
+### Downloading the video file
+
+The agent APIs above never hand out the video itself. When another app or
+tool needs the owner's own file (a private recording, say),
+`create-recording-download-link` returns a link to `/api/video/:id` with a
+`download_access` token:
+
+- **Owner-only.** Admins, editors and viewers are refused; a viewer of a shared
+  clip uses its share link.
+- **One recording, one owner.** The token signs the recording id and its
+  owner's email, so it works for nothing else and stops working if the clip
+  changes hands. A share-with-agents token or a share-password token is not a
+  download token, and the reverse.
+- **Minutes, not hours.** Ten minutes by default, `ttlSeconds` 60 to 3600.
+  The route checks expiry on every request, Range requests included, so a
+  long download fetched in ranges needs a fresh link if it outlives the first.
+- **Checked again on use.** A recording that has gone to Trash, is no longer
+  `ready`, plays only in an embedded player, or has redactions not yet burned
+  in is refused when the link is made and when it is used. Earlier-screen-time
+  footage is refused too.
+- **No fallback.** A bad or expired `download_access` answers 403 or 410; the
+  route never retries it as the caller's session.
 
 Public agent context also exposes the recording's redacted browser diagnostics:
 the bounded relative event sequence as `browserDiagnostics.timeline`, including
@@ -283,7 +341,7 @@ continued with `start=nextStart`). An open public link, a share password, or a
 link made by a viewer gets the summary only, because event data is more
 sensitive than the summary.
 
-Password-protected clips require the password once to mint a short-lived token,
+Public password-protected clips require the password once to mint a short-lived token,
 which is returned inside the agent-context links.
 
 Use the `@agent-native/core/server` and `@agent-native/core/shared` agent-access
@@ -305,11 +363,11 @@ URL-only clients without loading the share page.
 When a `/share/:id`, `/embed/:id`, or public `/r/:id` page is open in a
 WebMCP-capable browser, the page also registers these read-only tools:
 
-| WebMCP tool | Purpose |
-| --- | --- |
-| `clips-get-context` | Clip metadata, readiness, transcript status, and HTTP API URLs |
+| WebMCP tool            | Purpose                                                                                                |
+| ---------------------- | ------------------------------------------------------------------------------------------------------ |
+| `clips-get-context`    | Clip metadata, readiness, transcript status, and HTTP API URLs                                         |
 | `clips-get-transcript` | Bounded timestamped segments, with optional time bounds and stable-index pagination; may omit fullText |
-| `clips-get-frame` | An existing authenticated JPEG frame URL for `atMs` |
+| `clips-get-frame`      | An existing authenticated JPEG frame URL for `atMs`                                                    |
 
 For any client, fetch the agent context URL and use its HTTP API URLs. For
 complete transcript text, use `apis.transcript`. If the page is already open
@@ -321,8 +379,8 @@ that value back as `startIndex` so overlapping transcript segments are not
 skipped.
 The URL endpoint accepts the same `startIndex`, `maxSegments`, `startMs`, and
 `endMs` parameters, and keeps `nextStartMs` for older clients. The frame tool
-returns an image URL and `mimeType: image/jpeg`; fetch that URL as an image
-rather than expecting WebMCP to carry binary bytes. WebMCP is optional
+returns an image URL and `mimeType: image/jpeg`; fetch that URL as an image,
+or call `get-recording-frames` when the client cannot. WebMCP is optional
 progressive enhancement and page-local. HTTP access remains first-class and
 browser-independent: use the existing `agentContextUrl`, `apis.transcript`,
 and `apis.frame` URLs above. These URLs, password handling, scoped
@@ -415,8 +473,8 @@ On top of the aggregate `viewCount` shown in the library and the `views` stat in
 ## Rules
 
 - **Never** write to `recording_shares` directly. Always go through `share-resource` / `unshare-resource`.
-- **Never** store a plaintext password. Use bcrypt on write; bcrypt-compare on read.
-- **Never** bypass the access check on `/api/video/:id`. Streaming routes are the #1 data-leak vector.
+- **Never** store a plaintext password. Use the share-password helper to encrypt and verify it.
+- **Never** bypass the access check on `/api/video/:id`. Streaming routes are the #1 data-leak vector. The only thing that stands in for a signed-in owner there is a `download_access` token, verified against the recording's current owner.
 - **Password + expiry are additions**, not replacements — the framework's `accessFilter` still runs first.
 - The embed route (`/embed/:shareId`) is **anonymous by default** — don't require auth, but still go through `canAccess`.
 - `build-embed-url` is the single source of truth for embed URLs — keep it in sync with the query params the player accepts.

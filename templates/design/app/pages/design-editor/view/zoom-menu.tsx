@@ -24,8 +24,7 @@ import type { EditorCore } from "../domains/use-editor-core";
 import type { EditorLayoutAndStructure } from "../domains/use-editor-layout-and-structure";
 import type { EditorModes } from "../domains/use-editor-modes";
 import type { EditorScreenRendering } from "../domains/use-editor-screen-rendering";
-
-const ZOOM_MENU_ROW_CLASS = "h-6 px-2 py-0 text-[12px]";
+import type { EditorSourceAndSync } from "../domains/use-editor-source-and-sync";
 
 function ZoomMenuRow({
   label,
@@ -41,11 +40,7 @@ function ZoomMenuRow({
   onSelect: () => void;
 }) {
   return (
-    <DropdownMenuItem
-      onClick={onSelect}
-      disabled={disabled}
-      className={ZOOM_MENU_ROW_CLASS}
-    >
+    <DropdownMenuItem onClick={onSelect} disabled={disabled ?? false}>
       <span className="flex size-4 shrink-0 items-center justify-center">
         {checked ? <IconCheck className="size-3.5" /> : null}
       </span>
@@ -66,6 +61,7 @@ export function renderZoomMenu({
   editorLayoutAndStructure,
   editorModes,
   editorScreenRendering,
+  editorSourceAndSync,
   controlId,
 }: {
   editorCore: EditorCore;
@@ -74,12 +70,14 @@ export function renderZoomMenu({
   editorLayoutAndStructure: EditorLayoutAndStructure;
   editorModes: EditorModes;
   editorScreenRendering: EditorScreenRendering;
+  editorSourceAndSync: EditorSourceAndSync;
   controlId: "toolbar" | "inspector" | "topbar";
 }) {
   const { t, shortcut, viewMode } = editorCore;
   const { handleZoomIn, handleZoomOut, setZoom } =
     editorActiveScreenAndGeometry;
   const { handleZoomToFit } = editorCanvasAndScreens;
+  const { handleZoomToSelection } = editorSourceAndSync;
   const { suppressOverviewPopForExplicitZoomRef } = editorModes;
   const {
     viewSettings: {
@@ -143,7 +141,7 @@ export function renderZoomMenu({
       </Tooltip>
       <DropdownMenuContent
         align="end"
-        className="design-editor-app-menu-content w-52 rounded-lg bg-[var(--design-editor-panel-bg)] p-1"
+        className="design-editor-app-menu-content w-52 bg-[var(--design-editor-panel-bg)]"
       >
         <div className="px-1 pb-1 pt-0.5">
           <div className="flex h-7 items-center rounded-[5px] border border-[var(--design-editor-accent-color)] bg-[var(--design-editor-control-bg)] px-2 text-[12px] font-medium tabular-nums text-foreground focus-within:ring-1 focus-within:ring-[var(--design-editor-accent-color)]">
@@ -191,6 +189,11 @@ export function renderZoomMenu({
           shortcut={shortcut("shift+1")}
           onSelect={handleZoomToFit}
         />
+        <ZoomMenuRow
+          label={t("designEditor.keyboardShortcuts.commands.zoomSelection")}
+          shortcut={shortcut("shift+2")}
+          onSelect={handleZoomToSelection}
+        />
         {[50, 100, 200].map((preset) => (
           <ZoomMenuRow
             key={preset}
@@ -200,7 +203,7 @@ export function renderZoomMenu({
                 {preset}%
               </>
             }
-            shortcut={preset === 100 ? shortcut("$mod+0") : undefined}
+            shortcut={preset === 100 ? shortcut("shift+0") : undefined}
             onSelect={() => {
               suppressOverviewPopForExplicitZoomRef.current = true;
               setZoom(preset);
@@ -222,6 +225,7 @@ export function renderZoomMenu({
         <ZoomMenuRow
           label={"Rulers" /* i18n-ignore */}
           checked={rulers}
+          shortcut={shortcut("shift+r")}
           disabled={viewMode !== "overview"}
           onSelect={() => toggleViewSetting("rulers")}
         />

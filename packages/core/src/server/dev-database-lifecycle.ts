@@ -4,6 +4,7 @@ import {
   resumePgliteClientAccess,
   waitForPgliteClientOperations,
 } from "../db/client.js";
+import { stopBackgroundJobs } from "./background-jobs.js";
 
 const devDatabaseCloseApps = new WeakSet<object>();
 let devDatabaseClosePromise: Promise<void> | undefined;
@@ -60,8 +61,48 @@ async function closeDevDatabase(requestId?: string): Promise<void> {
 }
 
 export function installDevDatabaseCloseHook(nitroApp: any): void {
-  if (process.env.NODE_ENV !== "development") return;
   if (!nitroApp?.hooks?.hook || devDatabaseCloseApps.has(nitroApp)) return;
   devDatabaseCloseApps.add(nitroApp);
-  nitroApp.hooks.hook("close", closeDevDatabase);
+  // Jobs must stop first: a tick against a closing client becomes an
+  // unhandled rejection and its next interval keeps the process alive.
+  // Keep this on the Nitro close hook (not inside closeDevDatabase): a
+  // Vite HMR restart closes/resumes the DB through that same function and
+  // nothing restarts jobs on resume.
+  nitroApp.hooks.hook("close", async () => {
+    await stopBackgroundJobs();
+    // Only the dev server owns its database. In production, detached work
+    // such as a sandbox run can still be saving its result while Nitro closes.
+    if (process.env.NODE_ENV === "development") {
+      await closeDevDatabaseOnShutdown();
+    }
+  });
+}
+
+/** How long a closing dev server waits for its database before exiting without it. */
+const DEV_DATABASE_SHUTDOWN_TIMEOUT_MS = 5_000;
+
+/**
+ * Closing waits for every query in flight, and a job still running after the
+ * background-job deadline can hold one open indefinitely. Give up after a
+ * deadline instead: PGlite releases its lock when the process exits.
+ */
+async function closeDevDatabaseOnShutdown(): Promise<void> {
+  const timeoutMs = DEV_DATABASE_SHUTDOWN_TIMEOUT_MS;
+  const closing = closeDevDatabase();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timedOut = new Promise<"timed-out">((resolve) => {
+    timer = setTimeout(() => resolve("timed-out"), timeoutMs);
+    timer.unref();
+  });
+  try {
+    if ((await Promise.race([closing, timedOut])) !== "timed-out") return;
+  } finally {
+    clearTimeout(timer);
+  }
+  closing.catch((error) => {
+    console.error("[agent-native] dev database close failed:", error);
+  });
+  console.warn(
+    `[agent-native] dev database still closing after ${timeoutMs}ms; shutting down without it.`,
+  );
 }

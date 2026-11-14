@@ -1,3 +1,5 @@
+import { markClientDraftThread } from "@agent-native/toolkit/app/chat/agentkit-chat/rail";
+
 const CHAT_HOME_THREAD_STORAGE_KEY = "agent-native.chat-home-thread";
 const CHAT_HOME_THREAD_TTL_MS = 10 * 60 * 1000;
 
@@ -17,6 +19,7 @@ function createChatThreadId(): string {
 export function getChatHomeThreadId(): string {
   const create = () => {
     const id = createChatThreadId();
+    markClientDraftThread(id);
     if (typeof window !== "undefined") {
       try {
         window.sessionStorage.setItem(

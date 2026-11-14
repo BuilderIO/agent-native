@@ -28,6 +28,7 @@ import { Link } from "react-router";
 
 import { isEmbedSessionExpiredMessage } from "../lib/embed-session-recovery";
 import {
+  isWorkspaceAppHostPageUrl,
   isWorkspaceSsoApp,
   isDispatchWorkspaceAppId,
   navigateToWorkspaceApp,
@@ -35,6 +36,7 @@ import {
   workspaceAppRouteForChildPath,
   workspaceAppDirectHref,
   workspaceAppHref,
+  workspaceAppTargetPath,
   type WorkspaceAppSummary,
 } from "../lib/workspace-apps";
 import { DISPATCH_WORKSPACE_SSO_FLAG } from "../shared/feature-flags";
@@ -149,6 +151,19 @@ export function WorkspaceAppChatRail({
 }: WorkspaceAppChatRailProps) {
   const t = useT();
   const appChat = useWorkspaceAppChatApi(appId);
+  const retryRef = useRef<HTMLButtonElement>(null);
+
+  // The embedded app's chat button hands its toggle to Dispatch; with no sidebar mounted it would otherwise do nothing.
+  useEffect(() => {
+    if (!appChat.unavailable) return;
+    const focusRetry = () => retryRef.current?.focus();
+    window.addEventListener("agent-panel:toggle", focusRetry);
+    window.addEventListener("agent-panel:open", focusRetry);
+    return () => {
+      window.removeEventListener("agent-panel:toggle", focusRetry);
+      window.removeEventListener("agent-panel:open", focusRetry);
+    };
+  }, [appChat.unavailable]);
 
   if (appChat.unavailable) {
     return (
@@ -168,6 +183,7 @@ export function WorkspaceAppChatRail({
                 })}
               </span>
               <Button
+                ref={retryRef}
                 type="button"
                 variant="outline"
                 size="sm"
@@ -284,33 +300,63 @@ export function WorkspaceAppFrame({
     skipActionQueryInvalidation: true,
     timeoutMs: EMBED_SESSION_TIMEOUT_MS,
   });
+  const isHostPageUrl = isWorkspaceAppHostPageUrl(
+    app,
+    typeof window === "undefined" ? undefined : window.location.origin,
+  );
+  const appUrl = isHostPageUrl ? null : (app.url ?? null);
   const appHref = workspaceAppHref({
     id: app.id,
     name: app.name,
     path: app.path ?? "",
     homePath: app.homePath ?? undefined,
-    url: app.url,
+    url: appUrl,
     isDispatch: app.isDispatch ?? isDispatchWorkspaceAppId(app.id),
   });
   const topWindowHref = useMemo(() => {
     if (embedPath !== undefined) {
       return workspaceAppDirectHref(
-        { path: app.path, url: app.url },
+        { path: app.path ?? null, url: appUrl },
         embedPath,
       );
     }
     if (initialPath !== undefined) {
       return workspaceAppDirectHref(
-        { path: app.path, url: app.url },
+        { path: app.path ?? null, url: appUrl },
         initialPath,
       );
     }
 
     return appHref;
-  }, [appHref, embedPath, initialPath]);
+  }, [app.path, appHref, appUrl, embedPath, initialPath]);
   const openInTopWindow = shouldOpenWorkspaceAppInTopWindow();
   const topWindowSsoAttemptKey = `${app.id}\u0000${app.path ?? ""}\u0000${app.url ?? ""}\u0000${embedPath ?? ""}\u0000${initialPath ?? ""}\u0000${embedAttempt}`;
   const topWindowSsoAttemptedRef = useRef<string | null>(null);
+  // A same-origin workspace app already shares the workspace session cookie, so
+  // framing it through an embed session makes it worse: an ordinary embed
+  // session is limited to its document and static assets (embed-session.ts
+  // embedSessionAllowsRequest, pinned by "limits ordinary scope ... to its
+  // document and static runtime requests"), which leaves the framed app unable
+  // to call any of its own actions. Measured on a hosted workspace: framed with
+  // the token the app answered none of 16 action calls with 200 and rendered its
+  // failure copy; framed directly it answered all 16.
+  // Keep the embedded presentation without the credential.
+  const hostPageDirectUrl = useMemo(() => {
+    if (!isHostPageUrl) return null;
+    const targetPath = embedPath ?? initialPath;
+    const href =
+      targetPath !== undefined
+        ? workspaceAppDirectHref(
+            { path: app.path ?? null, url: appUrl },
+            targetPath,
+          )
+        : appHref;
+    // No embed parameters: without a token \`embedded=1\` only changes
+    // batching, and the plain app URL is what the existing direct fallback
+    // already loads when a mint fails.
+    return href || null;
+  }, [app.path, appHref, appUrl, embedPath, initialPath, isHostPageUrl]);
+
   const embedInput = useMemo<EmbedSessionInput | null>(() => {
     if (embedPath !== undefined) {
       return buildChatFirstEmbedSessionInput(app.id, embedPath);
@@ -319,14 +365,29 @@ export function WorkspaceAppFrame({
       return buildChatFirstEmbedSessionInput(app.id, initialPath);
     }
     if (!appHref) return null;
+    if (isHostPageUrl) {
+      return buildChatFirstEmbedSessionInput(
+        app.id,
+        workspaceAppTargetPath({ homePath: app.homePath ?? null }),
+      );
+    }
     return {
       app: app.id,
-      ...(app.url?.trim() ? { url: appHref } : { path: appHref }),
+      ...(appUrl?.trim() ? { url: appHref } : { path: appHref }),
       chrome: "minimal",
     };
-  }, [app.id, app.path, app.url, appHref, embedPath, initialPath]);
+  }, [
+    app.homePath,
+    app.id,
+    appHref,
+    appUrl,
+    embedPath,
+    initialPath,
+    isHostPageUrl,
+  ]);
 
   useEffect(() => {
+    if (hostPageDirectUrl) return;
     if (openInTopWindow && useWorkspaceSso && embedInput) {
       setTopWindowNavigationFailed(false);
       return;
@@ -356,6 +417,12 @@ export function WorkspaceAppFrame({
   ]);
 
   useEffect(() => {
+    if (hostPageDirectUrl) {
+      setEmbedUrl(hostPageDirectUrl);
+      setEmbedError(null);
+      setIsDirectFallback(false);
+      return;
+    }
     const useTopWindowSso = openInTopWindow && useWorkspaceSso && !!embedInput;
     if (
       !embedInput ||
@@ -410,7 +477,7 @@ export function WorkspaceAppFrame({
         const fallbackHref =
           initialPath !== undefined || embedPath !== undefined
             ? workspaceAppDirectHref(
-                { path: app.path ?? "", url: app.url },
+                { path: app.path ?? "", url: appUrl },
                 initialPath ?? embedPath ?? "/",
               )
             : appHref;
@@ -429,6 +496,7 @@ export function WorkspaceAppFrame({
     createWorkspaceSsoEmbedSession.mutateAsync,
     embedInput,
     embedPath,
+    hostPageDirectUrl,
     initialPath,
     embedAttempt,
     openInTopWindow,
@@ -485,7 +553,7 @@ export function WorkspaceAppFrame({
       }
 
       const route = workspaceAppRouteForChildPath(
-        { id: app.id, path: app.path ?? "", url: app.url },
+        { id: app.id, path: app.path ?? "", url: appUrl },
         message.path,
       );
       if (route) onChildRouteChange(route);
@@ -493,7 +561,7 @@ export function WorkspaceAppFrame({
 
     window.addEventListener("message", handleWorkspaceAppRoute);
     return () => window.removeEventListener("message", handleWorkspaceAppRoute);
-  }, [app.id, app.path, app.url, embedUrl, onChildRouteChange]);
+  }, [app.id, app.path, appUrl, embedUrl, onChildRouteChange]);
 
   useEffect(() => {
     postThemeToFrame();
@@ -693,11 +761,28 @@ const MAX_KEEP_ALIVE_APPS = 3;
 
 export function WorkspaceAppKeepAlive({
   activeAppId,
+  initialPath,
+  onChildRouteChange,
 }: {
   activeAppId: string | null;
+  /**
+   * The deep route for the app being shown. Without it every kept-alive pane
+   * opens the app's home: this wrapper is what Layout renders for an app route,
+   * so the route's own deep path has to reach the host through here.
+   */
+  initialPath?: string;
+  onChildRouteChange?: (path: string) => void;
 }) {
   const [visitedAppIds, setVisitedAppIds] = useState<string[]>(() =>
     activeAppId ? [activeAppId] : [],
+  );
+  // Remember the route each app was last shown at. Handing the deep path only to
+  // the active app would reset a neighbour to its home the moment another app
+  // becomes active, which is exactly what keep-alive exists to prevent.
+  const [pathByAppId, setPathByAppId] = useState<Record<string, string>>(() =>
+    activeAppId && initialPath !== undefined
+      ? { [activeAppId]: initialPath }
+      : {},
   );
 
   useEffect(() => {
@@ -709,6 +794,15 @@ export function WorkspaceAppKeepAlive({
       ),
     );
   }, [activeAppId]);
+
+  useEffect(() => {
+    if (!activeAppId || initialPath === undefined) return;
+    setPathByAppId((current) =>
+      current[activeAppId] === initialPath
+        ? current
+        : { ...current, [activeAppId]: initialPath },
+    );
+  }, [activeAppId, initialPath]);
 
   const renderedAppIds =
     activeAppId && !visitedAppIds.includes(activeAppId)
@@ -729,7 +823,13 @@ export function WorkspaceAppKeepAlive({
             aria-hidden={!active}
             className={active ? "h-full min-h-0" : "hidden"}
           >
-            <WorkspaceAppHost appId={appId} />
+            <WorkspaceAppHost
+              appId={appId}
+              {...(Object.hasOwn(pathByAppId, appId)
+                ? { initialPath: pathByAppId[appId] }
+                : {})}
+              {...(active && onChildRouteChange ? { onChildRouteChange } : {})}
+            />
           </div>
         );
       })}

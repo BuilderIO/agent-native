@@ -3,6 +3,7 @@ import {
   useRecentEdits,
   type AttributedRecentEdit,
 } from "@agent-native/core/client/collab";
+import { useFeatureFlag } from "@agent-native/core/client/feature-flags";
 import {
   callAction,
   getBrowserTabId,
@@ -11,18 +12,23 @@ import {
 import { isEmbedMcpChatBridgeActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { useFileUploadStatus } from "@agent-native/core/client/uploads";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { RegistryBlockDataProvider } from "@agent-native/toolkit/app/blocks";
 import { RecentEditHighlights } from "@agent-native/toolkit/collab-ui";
 import { type RegistryBlockSideMapBlock } from "@agent-native/toolkit/editor";
 import {
   applyDocSurgically,
   createSharedEditorExtensions,
+  RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION,
   TaskListPasteNormalization,
   useCollabReconcile,
   type UseCollabReconcileResult,
 } from "@agent-native/toolkit/editor";
+import type { ContentLinkTarget } from "@shared/api";
 import { appStateKeyForBrowserTab } from "@shared/app-state-tabs";
+import { isContentClipUploadMimeType } from "@shared/clips-peer-contract";
 import type { EditorMountMode } from "@shared/editor-mount-outcomes";
+import { CLIP_EMBED_FLAG } from "@shared/feature-flags";
 import { isMarkdownFilePath } from "@shared/import/paths";
 import { canonicalizeNfm, docToNfm, nfmToDoc } from "@shared/nfm";
 import {
@@ -31,8 +37,11 @@ import {
   type ParsedRegistryBlock,
 } from "@shared/nfm-registry";
 import { suggestionFormattingSourceRange } from "@shared/suggestion-formatting";
+import type { SuggestionPlacement } from "@shared/suggestion-placement";
 import {
   suggestionAnchorText,
+  suggestionLinkDestinations,
+  suggestionTextPresentation,
   suggestionTextPresentationForSource,
   type SuggestionPresentationContext,
 } from "@shared/suggestion-text";
@@ -44,6 +53,7 @@ import {
   type Extensions,
 } from "@tiptap/core";
 import Blockquote from "@tiptap/extension-blockquote";
+import { isChangeOrigin } from "@tiptap/extension-collaboration";
 import Link from "@tiptap/extension-link";
 import { Table as BaseTable } from "@tiptap/extension-table";
 import { TableCell } from "@tiptap/extension-table-cell";
@@ -78,7 +88,11 @@ import {
   Node as TiptapNode,
   mergeAttributes,
 } from "@tiptap/react";
-import { prosemirrorToYDoc, yUndoPluginKey } from "@tiptap/y-tiptap";
+import {
+  prosemirrorToYDoc,
+  ySyncPluginKey,
+  yUndoPluginKey,
+} from "@tiptap/y-tiptap";
 import { defaultMarkdownSerializer } from "prosemirror-markdown";
 import {
   useCallback,
@@ -91,7 +105,11 @@ import {
 import { toast } from "sonner";
 import { Markdown } from "tiptap-markdown";
 import { Awareness } from "y-protocols/awareness";
-import { encodeStateAsUpdate, type Doc as YDoc } from "yjs";
+import {
+  encodeStateAsUpdate,
+  type Doc as YDoc,
+  type Transaction as YTransaction,
+} from "yjs";
 
 import { contentBlockRegistry } from "@/blocks/contentBlockRegistry";
 import { FileStorageStatusGate } from "@/components/editor/FileStorageStatusGate";
@@ -102,19 +120,38 @@ import {
   markStartupMilestone,
 } from "@/lib/startup-timing";
 
+import { BlockActionsMenu } from "./BlockActionsMenu";
 import { BubbleToolbar, ReadOnlyCommentBubble } from "./BubbleToolbar";
+import { announceClipCancel } from "./clip-embed/clip-upload-notices";
+import {
+  holdDroppedClipFile,
+  watchClipUploadBlocks,
+} from "./clip-embed/clip-uploads";
+import { ColumnResizeControls } from "./ColumnResizeControls";
 import {
   buildDocText,
   resolveAnchor,
   resolveAnchorPoint,
   type CommentTextAnchor,
 } from "./comment-anchors";
+import {
+  commentAnchorBlockAt,
+  commentThreadAt,
+  threadCommentBlock,
+  type CommentBlockTarget,
+} from "./comment-block-anchors";
 import { buildContentSelectionPayload } from "./content-selection";
 import {
   isEditorDraftSaveAccepted,
   type EditorDraftSaveResult,
 } from "./editor-draft-save";
+import { reportEditorMerge } from "./editor-merge-telemetry";
 import { observeEditorMount } from "./editor-mount-telemetry";
+import {
+  EDITOR_NON_EDIT_META,
+  isActiveSlashCommandDraft,
+  runPersistableHistoryCommand,
+} from "./editor-transaction-meta";
 import { AudioNode } from "./extensions/AudioNode";
 import { BodyElementTiming } from "./extensions/BodyElementTiming";
 import { CodeBlock } from "./extensions/CodeBlockNode";
@@ -127,7 +164,7 @@ import {
 } from "./extensions/CommentHighlight";
 import { ContentReferenceNode } from "./extensions/ContentReferenceNode";
 import { DragHandle } from "./extensions/DragHandle";
-import { ImageNode } from "./extensions/ImageNode";
+import { ImageNode, type ContentImageOptions } from "./extensions/ImageNode";
 import {
   LOCAL_FILE_USER_EDIT_META,
   LocalMdxComponentNode,
@@ -136,9 +173,12 @@ import {
   CompatibleCode,
   createNotionEditorExtensions,
   focusMostRecentEmptyToggleSummary,
+  TOGGLE_SUMMARY_PLACEHOLDER,
+  TOGGLE_TITLE_NODE,
 } from "./extensions/NotionExtensions";
 import { notionFidelityExtensions } from "./extensions/NotionFidelity";
 import {
+  createContentBlockId,
   LockedSourceComponentBlocks,
   RegistryBlockNode,
 } from "./extensions/registryBlocks";
@@ -146,10 +186,15 @@ import {
   SuggestionHighlight,
   acceptedSuggestionAtRange,
   editorDocumentSource,
+  isProvisionalDraftSpec,
   setSuggestionHighlights,
+  suggestionDecisionHoldsHistory,
+  suggestionHighlightKey,
   type SuggestionHighlightSpec,
 } from "./extensions/SuggestionHighlight";
-import { VideoNode } from "./extensions/VideoNode";
+import { TablePresentation } from "./extensions/TablePresentation";
+import { VideoBlockIds } from "./extensions/VideoBlockIds";
+import { VideoNode, type ContentVideoOptions } from "./extensions/VideoNode";
 import {
   getImageFiles,
   getAudioFiles,
@@ -160,7 +205,9 @@ import {
   audioUploadErrorMessage,
   completeImageFileUpload,
   createMediaUploadId,
+  ImagePersistenceError,
   ImageRenderError,
+  ImageStorageUnavailableError,
   imageUploadErrorMessage,
   uploadAudioFile,
   uploadImageFile,
@@ -168,20 +215,38 @@ import {
   uploadVideoFile,
   videoUploadErrorMessage,
 } from "./image-upload";
+import {
+  commitImageUploadPreview,
+  failedImageUploadId,
+  failImageUploadPreview,
+  hasAnyImageUploadPreview,
+  hasImageUploadPreview,
+  holdImageUploadPreview,
+  isFailedImageUploadId,
+  noteImageUploadBlockRemoved,
+  releaseImageUploadPreview,
+  releaseImageUploadPreviewsFor,
+  startImageUploadPreview,
+  waitForImageUploadsToSettle,
+  wasImageUploadBlockRemoved,
+} from "./image-upload-previews";
 import { LinkHoverPreview } from "./LinkHoverPreview";
 import {
   LIVE_BODY_PARITY_QUIET_MS,
   measureLiveBodyParity,
   reportLiveBodyParity,
 } from "./live-body-parity";
+import { imageDisplaySrc } from "./private-media-src";
 import { SlashCommandMenu } from "./SlashCommandMenu";
 import { StaticDocumentBody } from "./StaticDocumentBody";
+import { suggestionPlacements } from "./suggestion-placement";
+import { caretAfterPageSwap } from "./suggestions/keep-caret";
 import {
   resolveSuggestionPresentationRange,
   type SuggestionPresentationTransition,
 } from "./suggestions/presentation-rebase";
 import { SuggestingReadOnlyBlocks } from "./suggestions/read-only-blocks";
-import { ContentTableView } from "./table-view";
+import { ContentTableView, contentTableColumnSizing } from "./table-view";
 import { TableHoverControls } from "./TableHoverControls";
 import { WidgetLoadDiagnostic } from "./WidgetLoadDiagnostic";
 
@@ -670,7 +735,13 @@ const NotionMarkdownShortcuts = Extension.create({
       if (!view.state.selection.empty) return null;
 
       const { $from } = view.state.selection;
-      if (!$from.parent.isTextblock) return null;
+      // A Toggle's title is its own line, not a block to turn into another.
+      if (
+        !$from.parent.isTextblock ||
+        $from.parent.type.name === TOGGLE_TITLE_NODE
+      ) {
+        return null;
+      }
 
       const blockStart = $from.start();
       const textBeforeCursor = view.state.doc.textBetween(blockStart, from);
@@ -853,14 +924,18 @@ const CustomTable = BaseTable.extend({
       },
     };
   },
+  addProseMirrorPlugins() {
+    // Ahead of Table's own `columnResizing`, whose mousedown starts a drag.
+    return [contentTableColumnSizing(), ...(this.parent?.() ?? [])];
+  },
 });
 
 const NotionTableHeader = TableHeader.extend({
   addAttributes() {
     return { ...this.parent?.(), ...tableAlignmentAttribute };
   },
-  // Header cells render as <td>, so copying or pasting a table reads them back
-  // from their class. The higher priority puts this rule before tableCell's.
+  // Header cells rendered as <td> before they were <th>, and clipboards may
+  // still hold those. The higher priority puts this rule before tableCell's.
   parseHTML() {
     return [
       { tag: "td.content-table-header-cell", priority: 60 },
@@ -869,7 +944,7 @@ const NotionTableHeader = TableHeader.extend({
   },
   renderHTML({ HTMLAttributes }) {
     return [
-      "td",
+      "th",
       mergeAttributes(this.options.HTMLAttributes, HTMLAttributes, {
         class: "content-table-header-cell",
       }),
@@ -1014,7 +1089,9 @@ function buildNormalizeTableHeadersTransaction(state: CoreEditor["state"]) {
   });
 
   return changed
-    ? transaction.setMeta(normalizeTableHeadersPluginKey, true)
+    ? transaction
+        .setMeta(normalizeTableHeadersPluginKey, true)
+        .setMeta(EDITOR_NON_EDIT_META, true)
     : null;
 }
 
@@ -1242,6 +1319,8 @@ export interface VisualEditorSuggestion {
   anchor: { from: number; prefix: string; suffix: string };
   settlementReadbackContent?: string | null;
   presentation: "draft" | "canonical" | "settling";
+  /** Accepted but not saved yet: its words can't be edited until it is. */
+  frozen?: boolean;
 }
 
 export function acceptedSuggestionRendered(
@@ -1426,7 +1505,26 @@ function suggestionAnchorRange(
   const collapsedRange = collapsedDeletionTextblock();
   if (collapsedRange) return collapsedRange;
   if (sourceMatches) {
-    const exactRange = sourceRangeToPm(sourceFrom, sourceTo);
+    // An empty paragraph has no text to map, so a span that opens or closes
+    // with one maps the text beside it, or the place it starts when that's
+    // all it holds.
+    const emptyLine = "<empty-block/>";
+    let mapFrom = sourceFrom;
+    let mapTo = sourceTo;
+    for (;;) {
+      if (
+        mapTo - mapFrom > emptyLine.length &&
+        source.slice(mapTo - emptyLine.length - 1, mapTo) === `\n${emptyLine}`
+      )
+        mapTo -= emptyLine.length + 1;
+      else if (
+        mapTo - mapFrom > emptyLine.length &&
+        source.startsWith(`${emptyLine}\n`, mapFrom)
+      )
+        mapFrom += emptyLine.length + 1;
+      else break;
+    }
+    const exactRange = sourceRangeToPm(mapFrom, mapTo);
     if (exactRange) return exactRange;
   }
   const mappedSource = suggestionAnchorText(source);
@@ -1538,11 +1636,16 @@ export function suggestionHighlightSpec(
     };
   }
   if (suggestion.presentation === "draft") {
+    const newLines = /^\n+$/.test(suggestionAnchorText(suggestion.afterText));
+    // A code line's break is real text, so it takes a highlight. An uneditable
+    // widget beside it would send Chrome's caret, typing and Backspace up a line.
+    const inCode = !!doc.resolve(range.from).parent.type.spec.code;
     if (
-      /^\n+$/.test(suggestionAnchorText(suggestion.afterText)) ||
-      (afterPresentation &&
-        afterPresentation.length > 0 &&
-        afterPresentation.every((node) => node.type === "indent"))
+      !inCode &&
+      (newLines ||
+        (afterPresentation &&
+          afterPresentation.length > 0 &&
+          afterPresentation.every((node) => node.type === "indent")))
     ) {
       return {
         suggestionId: suggestion.id,
@@ -1562,6 +1665,7 @@ export function suggestionHighlightSpec(
         deletedText: suggestion.beforeText,
         deletedPresentation: suggestion.beforePresentation,
         editableBoundary: true,
+        draft: true,
       };
     }
     return {
@@ -1569,6 +1673,7 @@ export function suggestionHighlightSpec(
       kind: "mark",
       from: range.from,
       to: range.to,
+      draft: true,
       deletedText:
         suggestion.kind === "replace_text" ? suggestion.beforeText : undefined,
       deletedPresentation:
@@ -1577,13 +1682,21 @@ export function suggestionHighlightSpec(
           : undefined,
       editableBoundary: suggestion.kind === "replace_text",
       editableText: true,
+      lineBreak: newLines,
     };
   }
+  // Removed syntax with no text, such as indentation, a list marker, or an
+  // empty paragraph, is not in the document text, so it is drawn instead.
   const structuralDeletion =
     /^\n+$/.test(suggestionAnchorText(suggestion.beforeText)) ||
     (beforePresentation &&
       beforePresentation.length > 0 &&
-      beforePresentation.every((node) => node.type === "indent"));
+      beforePresentation.every(
+        (node) =>
+          node.type === "indent" ||
+          node.type === "block" ||
+          (node.type === "text" && /^↵+$/.test(node.value)),
+      ));
   return {
     suggestionId: suggestion.id,
     kind:
@@ -1604,6 +1717,15 @@ export function suggestionHighlightSpec(
     deletedPresentation: structuralDeletion
       ? suggestion.beforePresentation
       : undefined,
+    ...(suggestion.kind === "replace_text"
+      ? {
+          replacedLinks: suggestionLinkDestinations(
+            beforePresentation ??
+              suggestionTextPresentation(suggestion.beforeText),
+          ),
+        }
+      : {}),
+    ...(suggestion.frozen ? { frozen: true } : {}),
   };
 }
 
@@ -1677,6 +1799,8 @@ interface VisualEditorProps {
   ydoc?: YDoc | null;
   /** Shadow mode: compare saves with the body built from the live copy. */
   observeLiveBody?: boolean;
+  /** The page saves no body; its body is the live copy. */
+  bodyIsLiveCopy?: boolean;
   /**
    * The stored body is on screen in this editor's place until it draws. Read
    * when the editor mounts.
@@ -1690,6 +1814,11 @@ interface VisualEditorProps {
   suggesting?: boolean;
   widgetLoadDiagnosticsActive?: boolean;
   localFileMode?: boolean;
+  /**
+   * Images pasted, dropped or picked into this body go to private storage
+   * and load only for people who can open the page.
+   */
+  privateImageUploads?: boolean;
   localFilePath?: string | null;
   referenceDepth?: number;
   onComment?: (
@@ -1699,10 +1828,12 @@ interface VisualEditorProps {
     range?: { from: number; to: number },
     suggestionId?: string,
   ) => void;
+  /** Starts a comment on a whole block, such as a video. */
+  onBlockComment?: (target: CommentBlockTarget, offsetTop: number) => void;
   commentThreads?: CommentThread[];
   activeThreadId?: string | null;
   hoveredThreadId?: string | null;
-  pendingHighlight?: { from: number; to: number } | null;
+  pendingHighlight?: { from: number; to: number; blockId?: string } | null;
   onActivateThread?: (threadId: string) => void;
   suggestions?: VisualEditorSuggestion[];
   acceptedDecisionReadback?: { id: string; content: string } | null;
@@ -1722,6 +1853,8 @@ interface VisualEditorProps {
     actualContent: string,
   ) => void;
   activeSuggestionId?: string | null;
+  /** The suggestions decided together with the active one. */
+  activeSuggestionUnitIds?: readonly string[];
   onActivateSuggestion?: (suggestionId: string) => void;
   onHoverSuggestion?: (suggestionId: string | null) => void;
   onSuggestionReplacementIntent?: (intent: {
@@ -1736,6 +1869,7 @@ interface VisualEditorProps {
   showCommentIndicators?: boolean;
   onJoinTitle?: (text: string) => void;
   onOpenNotionPageLink?: (documentId: string) => void;
+  resolveNotionPageLink?: (id: string) => ContentLinkTarget | null;
   notionPageId?: string | null;
   onHistoryControllerChange?: (
     controller: VisualEditorHistoryController | null,
@@ -1747,7 +1881,15 @@ interface VisualEditorProps {
   onPersistenceControllerChange?: (
     controller: VisualEditorPersistenceController | null,
   ) => void;
+  /** Receives a reader for where the editor shows suggestions' words. */
+  onSuggestionPlacementsChange?: (
+    read: VisualEditorSuggestionPlacements | null,
+  ) => void;
 }
+
+export type VisualEditorSuggestionPlacements = (
+  suggestionIds: readonly string[],
+) => Record<string, SuggestionPlacement>;
 
 export interface VisualEditorHistoryState {
   canUndo: boolean;
@@ -2002,39 +2144,33 @@ export function shouldApplyExternalContentSync({
   return true;
 }
 
-export function shouldPersistLocalFileEditorUpdate({
-  docChanged,
-  editorFocused,
-  explicitLocalFileUserEdit,
-  recentUserEditIntent,
-  transactionUiEvent,
-}: {
-  docChanged: boolean;
-  editorFocused: boolean;
-  explicitLocalFileUserEdit?: boolean;
-  recentUserEditIntent: boolean;
-  transactionUiEvent: unknown;
-}): boolean {
-  if (!docChanged) return false;
-  if (explicitLocalFileUserEdit) return true;
-  if (editorFocused) return true;
-  if (recentUserEditIntent) return true;
-  return Boolean(transactionUiEvent);
+// Another tab's or an agent's change, arriving over the live copy. Undo
+// arrives the same way but is this tab's own.
+function isRemoteCollabChange(transaction: Transaction): boolean {
+  return (
+    isChangeOrigin(transaction) &&
+    !transaction.getMeta(ySyncPluginKey)?.isUndoRedoOperation
+  );
 }
 
-export function shouldPersistCollaborativeEditorUpdate({
-  collab,
-  editorFocused,
-  userInitiated,
-}: {
-  collab: boolean;
-  editorFocused: boolean;
-  userInitiated: boolean;
-}) {
-  return !collab || editorFocused || userInitiated;
+// Every local change to the document saves, wherever focus is, unless it
+// came from another tab or an agent, or the editor made it itself. Tiptap
+// reports a batch under its root, so a click or focus whose appended fix-up
+// changes the document isn't an edit.
+export function isLocalEditorEdit(transaction: Transaction): boolean {
+  return (
+    transaction.docChanged &&
+    !isRemoteCollabChange(transaction) &&
+    !transaction.getMeta(RICH_MARKDOWN_PROGRAMMATIC_TRANSACTION) &&
+    transaction.getMeta(EDITOR_NON_EDIT_META) !== true
+  );
 }
 
-export function isUserInitiatedCollaborativeEditorUpdate({
+// A load or reconcile can briefly look like a local change that empties the
+// editor, so a change that leaves the page empty saves only with this
+// evidence. Commands that can empty a page, such as undo and the table menus,
+// mark their transactions.
+export function hasDirectUserEditEvidence({
   editorFocused,
   explicitUserEdit,
   recentUserEditIntent,
@@ -2068,38 +2204,6 @@ export function shouldPersistEffectivelyEmptyEditorUpdate({
   return userInitiated;
 }
 
-function isActiveSlashCommandDraft(editor: CoreEditor): boolean {
-  const { state } = editor;
-  if (!state.selection.empty) return false;
-  const { from, $from } = state.selection;
-  if (!$from.parent.isTextblock) return false;
-
-  const blockStart = $from.start();
-  const textBefore = state.doc.textBetween(blockStart, from, "\n");
-  return /^\s*\/[a-zA-Z0-9]*$/.test(textBefore);
-}
-
-export function runPersistableHistoryCommand(
-  editor: CoreEditor,
-  command: "undo" | "redo",
-): boolean {
-  let applied = false;
-  for (let index = 0; index < 20; index += 1) {
-    const changed = editor
-      .chain()
-      .focus()
-      .command(({ tr }) => {
-        tr.setMeta(LOCAL_FILE_USER_EDIT_META, true);
-        return true;
-      })
-      [command]()
-      .run();
-    applied ||= changed;
-    if (!changed || !isActiveSlashCommandDraft(editor)) break;
-  }
-  return applied;
-}
-
 interface VisualEditorExtensionOptions {
   documentId?: string;
   ydoc?: YDoc | null;
@@ -2110,12 +2214,18 @@ interface VisualEditorExtensionOptions {
     email?: string;
     avatarUrl?: string;
   } | null;
-  onImageComment?: (quotedText: string, offsetTop: number) => void;
+  /** Starts a comment on the whole image or audio clip at `pos`. */
+  onMediaComment?: ContentImageOptions["onImageComment"];
+  onVideoComment?: ContentVideoOptions["onVideoComment"];
+  canCommentOnVideo?: ContentVideoOptions["canCommentOnVideo"];
   onImageFilePickerRequest?: (request: PendingImagePicker) => void;
+  usesPrivateImageUploads?: () => boolean;
+  onPickedImageFile?: ContentImageOptions["onPickedImageFile"];
   canMutateMedia?: () => boolean;
   isSuggesting?: () => boolean;
   onJoinTitle?: (text: string) => void;
   onOpenNotionPageLink?: (documentId: string) => void;
+  resolveNotionPageLink?: (id: string) => ContentLinkTarget | null;
   localFilePath?: string | null;
   referenceDepth?: number;
   emptyBlockPlaceholder?: string;
@@ -2168,6 +2278,7 @@ function threadAnchor(thread: CommentThread) {
     prefix: thread.prefix ?? undefined,
     suffix: thread.suffix ?? undefined,
     startOffset: thread.startOffset ?? undefined,
+    blockId: thread.block?.blockId,
   };
 }
 
@@ -2208,12 +2319,87 @@ const MediaSourceCommit = Extension.create<{
   },
 });
 
+// Marks the editor's own steps in an image upload, which change a block's
+// upload id without the user removing the block.
+const IMAGE_UPLOAD_STEP_META = "contentImageUploadStep";
+
+function heldImageUploadIds(doc: ProseMirrorNode): Set<string> {
+  const ids = new Set<string>();
+  doc.descendants((node) => {
+    if (
+      node.type.name === "image" &&
+      hasImageUploadPreview(node.attrs.uploadId)
+    ) {
+      ids.add(node.attrs.uploadId as string);
+    }
+    return true;
+  });
+  return ids;
+}
+
+/**
+ * The upload ids of this tab's image blocks inside the ranges `transaction`
+ * replaced, so an edit elsewhere on a long page costs no full scan.
+ */
+function touchedImageUploadIds(transaction: Transaction): Set<string> {
+  const ids = new Set<string>();
+  // The doc before each step. Typed as possibly missing so the index read is
+  // checked; Content's lib predates `.at()`.
+  const docs: readonly (ProseMirrorNode | undefined)[] = transaction.docs;
+  transaction.steps.forEach((step, index) => {
+    const doc = docs[index];
+    if (!doc) return;
+    step.getMap().forEach((oldStart, oldEnd) => {
+      if (oldEnd <= oldStart) return;
+      doc.nodesBetween(oldStart, oldEnd, (node) => {
+        if (
+          node.type.name === "image" &&
+          hasImageUploadPreview(node.attrs.uploadId)
+        ) {
+          ids.add(node.attrs.uploadId as string);
+        }
+        return true;
+      });
+    });
+  });
+  return ids;
+}
+
+/**
+ * Notes when the user deletes a block this tab is uploading an image for, so
+ * its upload doesn't put the block back. A collaborator's change can drop the
+ * block too while the page reconciles; its upload restores it then.
+ */
+const ImageUploadRemovals = Extension.create({
+  name: "imageUploadRemovals",
+  onTransaction({ transaction }) {
+    if (
+      !transaction.docChanged ||
+      !hasAnyImageUploadPreview() ||
+      !isLocalEditorEdit(transaction) ||
+      transaction.getMeta(IMAGE_UPLOAD_STEP_META)
+    ) {
+      return;
+    }
+    const touched = touchedImageUploadIds(transaction);
+    if (touched.size === 0) return;
+    // A moved block was replaced too; only one gone from the page is deleted.
+    const after = heldImageUploadIds(transaction.doc);
+    for (const uploadId of touched) {
+      if (!after.has(uploadId)) noteImageUploadBlockRemoved(uploadId);
+    }
+  },
+});
+
 export function shouldSkipMediaDraftPersistence(editor: CoreEditor): boolean {
   let hasPendingUpload = false;
   editor.state.doc.descendants((node) => {
     if (
       MEDIA_NODE_TYPES.has(node.type.name as MediaNodeType) &&
-      Boolean(node.attrs.uploadId)
+      Boolean(node.attrs.uploadId) &&
+      // A failed upload's block keeps what it had before the upload, which
+      // can save; only this tab can retry it.
+      !isFailedImageUploadId(node.attrs.uploadId)
     ) {
       hasPendingUpload = true;
       return false;
@@ -2246,6 +2432,7 @@ function mediaNodeLabel(typeName: MediaNodeType) {
 interface PendingMediaUpload {
   file: File;
   uploadId: string;
+  position: number;
 }
 
 export interface PendingImagePicker {
@@ -2268,6 +2455,7 @@ function insertPendingMediaNodes(
   typeName: MediaNodeType,
   files: File[],
   position: number,
+  beforeInsert?: (pending: PendingMediaUpload[]) => void,
 ): PendingMediaUpload[] {
   const nodeType = view.state.schema.nodes[typeName];
   if (!nodeType) {
@@ -2287,11 +2475,12 @@ function insertPendingMediaNodes(
         ? { src: null, alt: "", uploadId }
         : { src: null, uploadId },
     );
+    pendingUploads.push({ file, uploadId, position: insertPos });
     tr = tr.insert(insertPos, node);
     insertPos = Math.min(insertPos + node.nodeSize, tr.doc.content.size);
-    pendingUploads.push({ file, uploadId });
   }
 
+  beforeInsert?.(pendingUploads);
   view.dispatch(tr.scrollIntoView());
   return pendingUploads;
 }
@@ -2301,9 +2490,12 @@ function updatePendingMediaNode(
   typeName: MediaNodeType,
   uploadId: string,
   attrs: Record<string, unknown>,
+  { addToHistory = true }: { addToHistory?: boolean } = {},
 ) {
   let found = false;
-  let tr = view.state.tr;
+  let tr = addToHistory
+    ? view.state.tr
+    : view.state.tr.setMeta("addToHistory", false);
 
   view.state.doc.descendants((node, pos) => {
     if (found) return false;
@@ -2320,7 +2512,7 @@ function updatePendingMediaNode(
   });
 
   if (found) {
-    view.dispatch(tr);
+    view.dispatch(tr.setMeta(IMAGE_UPLOAD_STEP_META, true));
   }
   return found;
 }
@@ -2332,7 +2524,11 @@ function replacePendingMediaUploadId(
   nextUploadId: string,
 ) {
   let found = false;
-  let tr = view.state.tr;
+  // Undo leaves the id swap alone: taking it back would read as the user
+  // deleting the upload it starts.
+  let tr = view.state.tr
+    .setMeta(IMAGE_UPLOAD_STEP_META, true)
+    .setMeta("addToHistory", false);
 
   view.state.doc.descendants((node, pos) => {
     if (found) return false;
@@ -2374,7 +2570,7 @@ function insertImageNodeAtPendingPosition(
     if (restoreSelection) {
       tr = tr.setSelection(NodeSelection.create(tr.doc, position));
     }
-    view.dispatch(tr.scrollIntoView());
+    view.dispatch(tr.setMeta(IMAGE_UPLOAD_STEP_META, true).scrollIntoView());
     if (restoreSelection) view.focus();
     return true;
   } catch (error) {
@@ -2394,22 +2590,251 @@ export function ensurePendingImageUpload(
   return insertImageNodeAtPendingPosition(view, request, { uploadId }, false);
 }
 
+/**
+ * Writes an upload's progress into its block: the uploaded copy, the finished
+ * image or the failure. Undo leaves these alone and takes back the user's own
+ * edits, such as adding or deleting the block, since taking back one step
+ * would bring back an upload that has already moved on.
+ */
 export function commitPendingImageUpload(
   view: EditorView,
   request: PendingImagePicker,
   uploadId: string,
   attrs: Record<string, unknown>,
 ) {
-  if (updatePendingMediaNode(view, "image", uploadId, attrs)) return true;
+  if (
+    updatePendingMediaNode(view, "image", uploadId, attrs, {
+      addToHistory: false,
+    })
+  )
+    return true;
   return insertImageNodeAtPendingPosition(view, request, attrs, false);
 }
 
-function findPendingImageElement(view: EditorView, uploadId: string) {
-  return (
+/**
+ * The block's image for `src`, once the block shows it. A block drawing its
+ * upload's preview holds the picked file's image too, which proves nothing
+ * about the uploaded copy.
+ */
+function findPendingImageElement(
+  view: EditorView,
+  uploadId: string,
+  src: string,
+) {
+  const image =
     Array.from(view.dom.querySelectorAll<HTMLElement>("[data-image-upload-id]"))
       .find((element) => element.dataset.imageUploadId === uploadId)
-      ?.querySelector<HTMLImageElement>("img") ?? null
-  );
+      ?.querySelector<HTMLImageElement>("img:not([data-upload-preview])") ??
+    null;
+  return image?.getAttribute("src") === imageDisplaySrc(src) ? image : null;
+}
+
+function hasPendingImageNode(view: EditorView, uploadId: string) {
+  let found = false;
+  view.state.doc.descendants((node) => {
+    if (found) return false;
+    found = node.type.name === "image" && node.attrs.uploadId === uploadId;
+    return !found;
+  });
+  return found;
+}
+
+interface ImageUploadMessages {
+  added: string;
+  addedMany: string;
+  broken: string;
+  someFailed: (failed: number, total: number) => string;
+}
+
+const DEFAULT_IMAGE_UPLOAD_MESSAGES: ImageUploadMessages = {
+  added: "Image added",
+  addedMany: "Images added",
+  broken: "Image could not be loaded",
+  someFailed: (failed, total) => `${failed} of ${total} image uploads failed.`,
+};
+
+export interface ImageUploadOptions {
+  /** Saves the page with the image in it; false when the save failed. */
+  persist?: () => boolean | Promise<boolean>;
+  /** True while the editor can't take the image, such as when suggesting. */
+  isBlocked?: () => boolean;
+  /** Whose previews these are, so they go when that editor closes. */
+  owner?: object;
+  messages?: ImageUploadMessages;
+}
+
+export type ImageUploadOutcome =
+  | { status: "added" }
+  | { status: "stopped" }
+  | { status: "failed"; error: unknown };
+
+interface ImageUploadRun {
+  view: EditorView;
+  file: File;
+  uploadId: string;
+  /** Where the block was and what it held, to restore it from. */
+  request: PendingImagePicker;
+  /** Set on the image along with its uploaded copy, such as an Assets ID. */
+  attrs?: Record<string, unknown> | undefined;
+  upload: (file: File) => Promise<string>;
+  persist: () => boolean | Promise<boolean>;
+  isBlocked?: (() => boolean) | undefined;
+  messages: ImageUploadMessages;
+  /** Without private storage, puts the image in some other way instead. */
+  onStorageUnavailable?: (() => void) | undefined;
+}
+
+function imageUploadFailureMessage(
+  error: unknown,
+  messages: ImageUploadMessages,
+) {
+  return error instanceof ImageRenderError
+    ? messages.broken
+    : imageUploadErrorMessage(error);
+}
+
+function announceImageUpload(
+  outcome: ImageUploadOutcome,
+  messages: ImageUploadMessages,
+) {
+  if (outcome.status === "added") toast.success(messages.added);
+  if (outcome.status === "failed") {
+    toast.error(imageUploadFailureMessage(outcome.error, messages));
+  }
+}
+
+/**
+ * Uploads the file for the block already in the page as `uploadId`: the one
+ * path drops, pastes and the Upload button share. The block draws the picked
+ * file while it waits; the uploaded copy replaces it once that copy has drawn
+ * and the page has saved it. A failed upload keeps the pick in its block,
+ * which offers Retry and Remove, while the page keeps what the block held
+ * before. A block the user deleted stays deleted, however late its upload
+ * answers.
+ */
+export async function runImageUpload(
+  run: ImageUploadRun,
+): Promise<ImageUploadOutcome> {
+  const { view, file, uploadId, request, upload, persist, isBlocked } = run;
+  const attrs = run.attrs ?? {};
+  const closed = () => !view.dom.isConnected;
+  const removed = () =>
+    wasImageUploadBlockRemoved(uploadId) &&
+    !hasPendingImageNode(view, uploadId);
+  const canWrite = () => !closed() && !removed() && !isBlocked?.();
+  // Deleted while it waited behind earlier files in the same drop.
+  if (removed()) {
+    releaseImageUploadPreview(uploadId);
+    return { status: "stopped" };
+  }
+  // The editor stopped taking images, such as by starting to suggest, while
+  // this file waited: its block goes back as it was, and nothing uploads.
+  if (isBlocked?.()) {
+    releaseImageUploadPreview(uploadId);
+    if (!closed() && hasPendingImageNode(view, uploadId)) {
+      restorePendingImagePicker(view, request, uploadId);
+    }
+    return { status: "stopped" };
+  }
+  let stagedSrc: string | null = null;
+  // Set from the upload's callbacks, so it is read through the object.
+  const progress = { committed: false };
+  startImageUploadPreview(uploadId);
+  try {
+    await completeImageFileUpload({
+      file,
+      upload,
+      stageAttributes: (src) => {
+        if (!canWrite()) return;
+        if (
+          commitPendingImageUpload(view, request, uploadId, {
+            ...attrs,
+            src,
+            uploadId,
+          })
+        )
+          stagedSrc = src;
+      },
+      waitForRender: async () => {
+        const src = stagedSrc;
+        if (src === null) throw new Error("The image block isn't available.");
+        await waitForRenderedImage(
+          () => findPendingImageElement(view, uploadId, src),
+          () => closed() || removed() || Boolean(isBlocked?.()),
+        );
+      },
+      commitAttributes: (src) => {
+        if (!canWrite()) return;
+        progress.committed = commitPendingImageUpload(view, request, uploadId, {
+          ...attrs,
+          src,
+          uploadId: null,
+        });
+        if (progress.committed) commitImageUploadPreview(uploadId);
+      },
+      persistCommittedImage: async () =>
+        progress.committed && !closed() && (await persist()),
+    });
+    releaseImageUploadPreview(uploadId);
+    return { status: "added" };
+  } catch (error) {
+    if (closed() || removed()) {
+      releaseImageUploadPreview(uploadId);
+      return { status: "stopped" };
+    }
+    if (progress.committed) {
+      // The image is in the page; only its save failed.
+      releaseImageUploadPreview(uploadId);
+      return { status: "failed", error };
+    }
+    if (isBlocked?.()) {
+      // The editor stopped taking images, such as by starting to suggest:
+      // the block goes back as it was, with nothing to retry or report.
+      releaseImageUploadPreview(uploadId);
+      restorePendingImagePicker(view, request, uploadId);
+      return { status: "stopped" };
+    }
+    if (
+      error instanceof ImageStorageUnavailableError &&
+      run.onStorageUnavailable
+    ) {
+      releaseImageUploadPreview(uploadId);
+      restorePendingImagePicker(view, request, uploadId);
+      run.onStorageUnavailable();
+      return { status: "stopped" };
+    }
+    const failedId = failedImageUploadId(uploadId);
+    // The staged copy may already carry `attrs`, such as an Assets ID and its
+    // alt text, so each one goes back to what the block held.
+    const restored = Object.fromEntries(
+      Object.keys(attrs).map((key) => [key, request.attrs[key] ?? null]),
+    );
+    const kept =
+      hasImageUploadPreview(uploadId) &&
+      commitPendingImageUpload(view, request, uploadId, {
+        ...restored,
+        src: request.attrs.src ?? null,
+        uploadId: failedId,
+      });
+    if (!kept) {
+      releaseImageUploadPreview(uploadId);
+      restorePendingImagePicker(view, request, uploadId);
+      return { status: "failed", error };
+    }
+    failImageUploadPreview(
+      uploadId,
+      error instanceof ImageRenderError ? "render" : "upload",
+      () => {
+        if (isBlocked?.()) return;
+        if (!replacePendingMediaUploadId(view, "image", failedId, uploadId))
+          return;
+        void runImageUpload(run).then((outcome) =>
+          announceImageUpload(outcome, run.messages),
+        );
+      },
+    );
+    return { status: "failed", error };
+  }
 }
 
 export function restorePendingImagePicker(
@@ -2437,7 +2862,11 @@ export function restorePendingImagePicker(
 
   if (found && nodePosition !== null) {
     tr = tr.setSelection(NodeSelection.create(tr.doc, nodePosition));
-    view.dispatch(tr);
+    // Like the pick it closes, undo leaves this alone: bringing the pick's id
+    // back would hold the page's saves with nothing left to finish it.
+    view.dispatch(
+      tr.setMeta(IMAGE_UPLOAD_STEP_META, true).setMeta("addToHistory", false),
+    );
     view.focus();
     return true;
   }
@@ -2462,6 +2891,8 @@ function getVisualEditorPlaceholder({
   hasAnchor: boolean;
   emptyBlockPlaceholder?: string;
 }): string {
+  if (node.type.name === TOGGLE_TITLE_NODE) return TOGGLE_SUMMARY_PLACEHOLDER;
+
   const isToggleBody =
     node.type.name === "paragraph" &&
     hasAncestorType(editor, pos, "notionToggle");
@@ -2561,55 +2992,166 @@ const VisualEditorPlaceholder = Extension.create<{
   },
 });
 
+/**
+ * True when some of these files go to the public file store, so they wait
+ * for its setup. Private image uploads go to the page's own image route,
+ * which reports missing private storage itself.
+ */
+function mediaNeedsFileStorage(
+  files: { imageFiles: File[]; videoFiles: File[]; audioFiles: File[] },
+  privateImages: boolean,
+): boolean {
+  return (
+    (files.imageFiles.length > 0 && !privateImages) ||
+    files.videoFiles.length > 0 ||
+    files.audioFiles.length > 0
+  );
+}
+
 export async function uploadAndInsertImageFiles(
   view: EditorView,
   files: File[],
   position: number,
+  upload: (file: File) => Promise<string> = uploadImageFile,
+  {
+    persist = () => true,
+    isBlocked,
+    owner = view,
+    messages = DEFAULT_IMAGE_UPLOAD_MESSAGES,
+  }: ImageUploadOptions = {},
 ): Promise<void> {
   if (files.length === 0) return;
 
   let pendingUploads: PendingMediaUpload[];
+  const heldIds: string[] = [];
   try {
-    pendingUploads = insertPendingMediaNodes(view, "image", files, position);
+    // Held before the blocks exist, so each draws its file from the start.
+    pendingUploads = insertPendingMediaNodes(
+      view,
+      "image",
+      files,
+      position,
+      (pending) => {
+        for (const { uploadId, file } of pending) {
+          holdImageUploadPreview(uploadId, file, owner);
+          heldIds.push(uploadId);
+        }
+      },
+    );
   } catch (error) {
+    for (const uploadId of heldIds) releaseImageUploadPreview(uploadId);
     toast.error(imageUploadErrorMessage(error));
     return;
   }
 
-  const toastId = toast.loading(
-    files.length === 1
-      ? "Uploading image..."
-      : `Uploading ${files.length} images...`,
-  );
-
+  let added = 0;
   let failed = 0;
   let firstError: unknown = null;
+  // A save skips the page while any of its blocks still waits for an upload,
+  // so the batch saves once its last upload has settled, for every image
+  // added meanwhile. A Retry that finishes before then waits for that save;
+  // one after it saves for itself. Set from the uploads' callbacks, so it is
+  // read through the object.
+  const batch = {
+    running: null as string | null,
+    settled: false,
+    saveOwed: false,
+  };
+  let reportBatchSave: (saved: boolean) => void = () => {};
+  const batchSave = new Promise<boolean>((resolve) => {
+    reportBatchSave = resolve;
+  });
+  const persistInBatch = (uploadId: string) => () => {
+    if (batch.settled) return persist();
+    batch.saveOwed = true;
+    return batch.running === uploadId ? true : batchSave;
+  };
 
   for (const pending of pendingUploads) {
-    try {
-      const src = await uploadImageFile(pending.file);
-      if (!view.dom.isConnected) return;
-      updatePendingMediaNode(view, "image", pending.uploadId, { src, alt: "" });
-    } catch (error) {
+    if (!view.dom.isConnected) break;
+    batch.running = pending.uploadId;
+    const outcome = await runImageUpload({
+      view,
+      file: pending.file,
+      uploadId: pending.uploadId,
+      request: {
+        pickerId: pending.uploadId,
+        position: pending.position,
+        attrs: { src: null, alt: "", uploadId: pending.uploadId },
+      },
+      upload,
+      persist: persistInBatch(pending.uploadId),
+      isBlocked,
+      messages,
+    });
+    if (outcome.status === "added") added += 1;
+    if (outcome.status === "failed") {
       failed += 1;
-      firstError ??= error;
-      if (view.dom.isConnected) {
-        updatePendingMediaNode(view, "image", pending.uploadId, {});
-      }
+      firstError ??= outcome.error;
     }
+  }
+  batch.running = null;
+  batch.settled = true;
+  if (!view.dom.isConnected) {
+    reportBatchSave(false);
+    return;
+  }
+  // A Retry may wait on this save, so it settles even when the save throws.
+  const saveBatch = async () => {
+    try {
+      return await persist();
+    } catch (error) {
+      console.error("Could not save the dropped images:", error);
+      return false;
+    }
+  };
+  const saved = !batch.saveOwed || (await saveBatch());
+  reportBatchSave(saved);
+  if (!saved) {
+    toast.error(
+      imageUploadFailureMessage(new ImagePersistenceError(), messages),
+    );
+    return;
   }
 
   if (failed === 0) {
-    toast.success(files.length === 1 ? "Image added" : "Images added", {
-      id: toastId,
-    });
+    if (added > 0) {
+      toast.success(added === 1 ? messages.added : messages.addedMany);
+    }
   } else if (files.length === 1) {
-    toast.error(imageUploadErrorMessage(firstError), { id: toastId });
+    toast.error(imageUploadFailureMessage(firstError, messages));
   } else {
     toast.error(
-      `${failed} of ${files.length} image uploads failed. ${imageUploadErrorMessage(firstError)}`,
-      { id: toastId },
+      `${messages.someFailed(failed, files.length)} ${imageUploadFailureMessage(firstError, messages)}`,
     );
+  }
+}
+
+/**
+ * Video files dropped or pasted while Clips in pages is on: each of a type
+ * Clips takes becomes an empty video block that uploads its file to Clips as
+ * the Upload tab does, never to Content's own file storage. Any other is
+ * refused with `refusedMessage` and gets no block.
+ */
+export function insertVideoFilesForClips(
+  view: EditorView,
+  files: File[],
+  position: number,
+  refusedMessage: string,
+) {
+  const taken = files.filter((file) => isContentClipUploadMimeType(file.type));
+  if (taken.length < files.length) toast.error(refusedMessage);
+  if (taken.length === 0) return;
+  try {
+    // The blocks may start as soon as they're in the page, so their files
+    // must be waiting first.
+    insertPendingMediaNodes(view, "video", taken, position, (pending) => {
+      for (const { uploadId, file } of pending) {
+        holdDroppedClipFile(uploadId, file);
+      }
+    });
+  } catch (error) {
+    toast.error(videoUploadErrorMessage(error));
   }
 }
 
@@ -2722,12 +3264,17 @@ export function createVisualEditorExtensions({
   ydoc,
   localAwareness,
   user,
-  onImageComment,
+  onMediaComment,
+  onVideoComment,
+  canCommentOnVideo,
   onImageFilePickerRequest,
+  usesPrivateImageUploads,
+  onPickedImageFile,
   canMutateMedia,
   isSuggesting,
   onJoinTitle,
   onOpenNotionPageLink,
+  resolveNotionPageLink,
   localFilePath,
   referenceDepth = 0,
   emptyBlockPlaceholder = DEFAULT_EMPTY_BLOCK_PLACEHOLDER,
@@ -2780,23 +3327,31 @@ export function createVisualEditorExtensions({
       ImageNode.configure({
         HTMLAttributes: { class: "content-image" },
         documentId,
-        onImageComment,
+        onImageComment: onMediaComment,
         onImageFilePickerRequest,
+        usesPrivateImageUploads,
+        onPickedImageFile,
         canMutateMedia,
       }),
       VideoNode.configure({
         HTMLAttributes: { class: "content-video" },
         documentId,
-        onVideoComment: onImageComment,
+        onVideoComment,
+        canCommentOnVideo,
         canMutateMedia,
+      }),
+      VideoBlockIds.configure({
+        isEdit: isLocalEditorEdit,
+        canAssign: canMutateMedia,
       }),
       AudioNode.configure({
         HTMLAttributes: { class: "content-audio" },
         documentId,
-        onAudioComment: onImageComment,
+        onAudioComment: onMediaComment,
         canMutateMedia,
       }),
       MediaSourceCommit.configure({ onMediaSourceCommitted }),
+      ImageUploadRemovals,
       CustomTable.configure({
         resizable: true,
         View: ContentTableView,
@@ -2807,12 +3362,15 @@ export function createVisualEditorExtensions({
       NotionTableCell,
       NormalizeTableHeaders,
       NormalizeTableAlignment,
+      TablePresentation,
       ...(isSuggesting
         ? [SuggestingReadOnlyBlocks.configure({ isSuggesting })]
         : []),
       ...createNotionEditorExtensions({
         documentId,
         onOpenPageLink: onOpenNotionPageLink,
+        isEdit: isLocalEditorEdit,
+        resolvePageLink: resolveNotionPageLink,
       }),
       ...notionFidelityExtensions,
       RegistryBlockNode,
@@ -3049,6 +3607,12 @@ function useRegistryBlockStore(editor: CoreEditor | null) {
                           __raw: refreshedRaw,
                         },
                       );
+                      // The source still names the id the block was copied
+                      // from. Every tab holding the copy makes this rewrite,
+                      // so saving it would have a tab that only received the
+                      // copy save it again. It reaches the saved page with the
+                      // next edit.
+                      tr.setMeta(EDITOR_NON_EDIT_META, true);
                       editor.view.dispatch(tr);
                       const entry = cacheRef.current.get(blockId);
                       if (entry) entry.rawSource = refreshedRaw;
@@ -3121,7 +3685,6 @@ function useRegistryBlockStore(editor: CoreEditor | null) {
         ...node.attrs,
         __raw: raw,
       });
-      tr.setMeta(LOCAL_FILE_USER_EDIT_META, true);
       editor.view.dispatch(tr);
       bump();
     },
@@ -3156,6 +3719,7 @@ export function VisualEditor({
   onImportFiles,
   ydoc,
   observeLiveBody = false,
+  bodyIsLiveCopy = false,
   replacesStoredBody = false,
   collabSynced = true,
   awareness,
@@ -3165,9 +3729,11 @@ export function VisualEditor({
   suggesting = false,
   widgetLoadDiagnosticsActive = false,
   localFileMode = false,
+  privateImageUploads = false,
   localFilePath,
   referenceDepth,
   onComment,
+  onBlockComment,
   commentThreads,
   activeThreadId,
   hoveredThreadId,
@@ -3181,6 +3747,7 @@ export function VisualEditor({
   onProposalDecisionRendered,
   onProposalDecisionReadbackOutdated,
   activeSuggestionId,
+  activeSuggestionUnitIds,
   onActivateSuggestion,
   onHoverSuggestion,
   onSuggestionReplacementIntent,
@@ -3190,13 +3757,17 @@ export function VisualEditor({
   showCommentIndicators = true,
   onJoinTitle,
   onOpenNotionPageLink,
+  resolveNotionPageLink,
   notionPageId,
   onHistoryControllerChange,
   onHistoryStateChange,
   onSelectionControllerChange,
   onPersistenceControllerChange,
+  onSuggestionPlacementsChange,
 }: VisualEditorProps) {
   const t = useT();
+  const tRef = useRef(t);
+  tRef.current = t;
   const widgetBridgeActive = isEmbedMcpChatBridgeActive();
   const widgetDiagnosticsActive =
     widgetBridgeActive || widgetLoadDiagnosticsActive;
@@ -3218,6 +3789,73 @@ export function VisualEditor({
   const [isDraggingMedia, setIsDraggingMedia] = useState(false);
   const suggestingRef = useRef(suggesting);
   suggestingRef.current = suggesting;
+  const privateImageTargetRef = useRef<{ documentId: string } | null>(null);
+  privateImageTargetRef.current =
+    privateImageUploads && documentId ? { documentId } : null;
+  const privateImagesEnabled = privateImageTargetRef.current !== null;
+  const usesPrivateImageUploads = useCallback(
+    () => privateImageTargetRef.current !== null,
+    [],
+  );
+  const uploadBodyImage = useCallback(
+    (file: File) => uploadImageFile(file, privateImageTargetRef.current),
+    [],
+  );
+  // Saves the page once an uploaded image is in it. Set below, once the
+  // editor and its save path exist.
+  const persistUploadedImageRef = useRef<() => Promise<boolean>>(
+    async () => false,
+  );
+  // Whose image previews these are, so closing the editor lets them go.
+  const [imageUploadOwner] = useState(() => ({}));
+  useEffect(
+    () => () => releaseImageUploadPreviewsFor(imageUploadOwner),
+    [imageUploadOwner],
+  );
+  const imageUploadOptions = useCallback(
+    (): Required<ImageUploadOptions> => ({
+      persist: () => persistUploadedImageRef.current(),
+      isBlocked: () => suggestingRef.current,
+      owner: imageUploadOwner,
+      messages: {
+        added: tRef.current("editor.media.imageAdded"),
+        addedMany: tRef.current("editor.media.imagesAdded"),
+        broken: tRef.current("editor.media.imageBroken"),
+        someFailed: (failed, total) =>
+          tRef.current("editor.media.imageUploadsFailed", { failed, total }),
+      },
+    }),
+    [imageUploadOwner],
+  );
+  const uploadBodyImages = useCallback(
+    (view: EditorView, files: File[], position: number) =>
+      uploadAndInsertImageFiles(
+        view,
+        files,
+        position,
+        uploadBodyImage,
+        imageUploadOptions(),
+      ),
+    [imageUploadOptions, uploadBodyImage],
+  );
+  // Set once the editor exists; the image extension needs a stable callback.
+  const uploadPendingImageFileRef =
+    useRef<ContentImageOptions["onPickedImageFile"]>(undefined);
+  const onPickedImageFile = useCallback<
+    NonNullable<ContentImageOptions["onPickedImageFile"]>
+  >(
+    (request, file, attrs, onStorageUnavailable) =>
+      uploadPendingImageFileRef.current?.(
+        request,
+        file,
+        attrs,
+        onStorageUnavailable,
+      ),
+    [],
+  );
+  const clipsEnabled = useFeatureFlag(CLIP_EMBED_FLAG.key);
+  const videosGoToClipsRef = useRef(false);
+  videosGoToClipsRef.current = clipsEnabled && Boolean(documentId);
   const wrapperRef = useRef<HTMLDivElement>(null);
   const imageFileInputRef = useRef<HTMLInputElement>(null);
   const pendingImagePickerRef = useRef<PendingImagePicker | null>(null);
@@ -3268,6 +3906,8 @@ export function VisualEditor({
   onSaveContentRef.current = onSaveContent;
   const onActivateThreadRef = useRef(onActivateThread);
   onActivateThreadRef.current = onActivateThread;
+  const activeThreadIdRef = useRef(activeThreadId);
+  activeThreadIdRef.current = activeThreadId;
   const onActivateSuggestionRef = useRef(onActivateSuggestion);
   onActivateSuggestionRef.current = onActivateSuggestion;
   const onHoverSuggestionRef = useRef(onHoverSuggestion);
@@ -3338,6 +3978,78 @@ export function VisualEditor({
   );
   const threadsRef = useRef(commentThreads);
   threadsRef.current = commentThreads;
+  const onBlockCommentRef = useRef(onBlockComment);
+  onBlockCommentRef.current = onBlockComment;
+  const canCommentOnBlocks = !!onBlockComment;
+  const savesVideoIds = useCallback(
+    (view: EditorView) => view.editable && !suggestingRef.current,
+    [],
+  );
+  // A tab that can't save an id comments on a video only by the id it already
+  // goes by, so a video that goes by none shows no Comment button there.
+  const canCommentOnVideo = useCallback(
+    (view: EditorView, pos: number) =>
+      savesVideoIds(view) || !!commentAnchorBlockAt(view.state.doc, pos),
+    [savesVideoIds],
+  );
+  const onVideoComment = useMemo<ContentVideoOptions["onVideoComment"]>(
+    () =>
+      canCommentOnBlocks
+        ? (view, pos, offsetTop) => {
+            const { doc } = view.state;
+            const node = doc.nodeAt(pos);
+            if (!node) return;
+            const canWrite = savesVideoIds(view);
+            // A video whose id another video shares goes by none, so it gets
+            // an id of its own before a thread can point at it.
+            const blockId =
+              commentAnchorBlockAt(doc, pos)?.blockId ??
+              (canWrite ? createContentBlockId("video") : null);
+            if (!blockId) return;
+            // A thread names a video saved without an id by its derived id.
+            // Writing that down saves the id with the page, so an agent that
+            // reads the page finds it instead of minting one that strands it.
+            if (node.attrs.blockId !== blockId && canWrite)
+              view.dispatch(
+                view.state.tr
+                  .setNodeAttribute(pos, "blockId", blockId)
+                  .setMeta("addToHistory", false),
+              );
+            onBlockCommentRef.current?.(
+              {
+                blockId,
+                blockType: "video",
+                from: pos,
+                to: pos + node.nodeSize,
+              },
+              offsetTop,
+            );
+          }
+        : undefined,
+    [canCommentOnBlocks, savesVideoIds],
+  );
+  // An image or audio clip goes by an id derived from its file, which nothing
+  // writes down, so any tab that comments can start a thread on one.
+  const onMediaComment = useMemo<ContentImageOptions["onImageComment"]>(
+    () =>
+      canCommentOnBlocks
+        ? (view, pos, offsetTop) => {
+            const node = view.state.doc.nodeAt(pos);
+            const block = commentAnchorBlockAt(view.state.doc, pos);
+            if (!node || !block) return;
+            onBlockCommentRef.current?.(
+              {
+                blockId: block.blockId,
+                blockType: block.blockType,
+                from: pos,
+                to: pos + node.nodeSize,
+              },
+              offsetTop,
+            );
+          }
+        : undefined,
+    [canCommentOnBlocks],
+  );
   const findCommentQuote = useCallback(
     (threadId: string, doc: ProseMirrorNode) => {
       const thread = threadsRef.current?.find((t) => t.threadId === threadId);
@@ -3350,7 +4062,10 @@ export function VisualEditor({
     (request: PendingImagePicker) => {
       runIfMediaCreationAllowed(suggestingRef.current, () => {
         if (pendingImagePickerRef.current) return;
-        if (fileStorageStateRef.current !== "configured") {
+        if (
+          !privateImageTargetRef.current &&
+          fileStorageStateRef.current !== "configured"
+        ) {
           if (editor) restorePendingImagePicker(editor.view, request);
           setIsFileStorageSetupOpen(true);
           return;
@@ -3375,11 +4090,7 @@ export function VisualEditor({
       return;
     }
     if (pending.imageFiles.length > 0) {
-      void uploadAndInsertImageFiles(
-        pending.view,
-        pending.imageFiles,
-        pending.position,
-      );
+      void uploadBodyImages(pending.view, pending.imageFiles, pending.position);
     }
     if (pending.videoFiles.length > 0) {
       void uploadAndInsertVideoFiles(
@@ -3395,7 +4106,7 @@ export function VisualEditor({
         pending.position,
       );
     }
-  }, [documentId, fileStorageConfigured]);
+  }, [documentId, fileStorageConfigured, uploadBodyImages]);
   const canMutateMedia = useCallback(() => !suggestingRef.current, []);
   const isSuggesting = useCallback(() => suggestingRef.current, []);
   const isVisualEditorFocused = useCallback((editor: CoreEditor) => {
@@ -3442,17 +4153,51 @@ export function VisualEditor({
         ydoc,
         localAwareness,
         user,
-        onImageComment: onComment,
+        onMediaComment,
+        onVideoComment,
+        canCommentOnVideo,
         onImageFilePickerRequest,
+        usesPrivateImageUploads,
+        onPickedImageFile,
         canMutateMedia,
         isSuggesting,
         onJoinTitle,
         onOpenNotionPageLink,
+        resolveNotionPageLink,
         localFilePath,
         referenceDepth,
         emptyBlockPlaceholder: t("editor.emptyBlockPlaceholder"),
         onMediaSourceCommitted,
         findCommentQuote,
+      }),
+      Extension.create({
+        name: "suggestingCaretOnPageSwap",
+        addProseMirrorPlugins() {
+          return [
+            new Plugin({
+              // The suggestion draft starting over from a newer Page swaps the
+              // editor's content; the caret stays by the text around it.
+              appendTransaction(transactions, oldState, newState) {
+                if (
+                  !isSuggesting() ||
+                  !guardsRef.current?.isSettingContentRef.current ||
+                  !oldState.selection.empty ||
+                  !transactions.some((transaction) => transaction.docChanged)
+                )
+                  return null;
+                const at = caretAfterPageSwap(
+                  oldState.doc,
+                  oldState.selection.from,
+                  newState.doc,
+                );
+                if (at === null || at === newState.selection.from) return null;
+                return newState.tr.setSelection(
+                  TextSelection.create(newState.doc, at),
+                );
+              },
+            }),
+          ];
+        },
       }),
       Extension.create({
         name: "contentEditorEscape",
@@ -3488,12 +4233,17 @@ export function VisualEditor({
       ydoc,
       localAwareness,
       user,
-      onComment,
+      onMediaComment,
+      onVideoComment,
+      canCommentOnVideo,
       onImageFilePickerRequest,
+      usesPrivateImageUploads,
+      onPickedImageFile,
       canMutateMedia,
       isSuggesting,
       onJoinTitle,
       onOpenNotionPageLink,
+      resolveNotionPageLink,
       localFilePath,
       referenceDepth,
       t,
@@ -3515,6 +4265,12 @@ export function VisualEditor({
   }, []);
   const lastUserEditIntentAtRef = useRef(0);
   const hasUserEditIntentRef = useRef(false);
+  // Set by a person's typing that lands before the live copy's seed check
+  // finishes, and cleared when a seed, a restore or another tab replaces it.
+  const unseededEditRef = useRef(false);
+  // The Page text sent up for each version of the editor's document, so the
+  // highlights can tell whether the Page's drafts have caught up with it.
+  const sentContentRef = useRef(new WeakMap<ProseMirrorNode, string>());
   const markUserEditIntent = useCallback(() => {
     lastUserEditIntentAtRef.current = Date.now();
     hasUserEditIntentRef.current = true;
@@ -3539,6 +4295,7 @@ export function VisualEditor({
             : ("unchanged" as const);
         scheduleLiveBodyParity(editorToPersist);
         const normalized = options?.markdown ?? serialized;
+        sentContentRef.current.set(editorToPersist.state.doc, normalized);
         if (localFileMode && normalized === content && options?.strict !== true)
           return "unchanged" as const;
         if (
@@ -3601,7 +4358,7 @@ export function VisualEditor({
         throw new Error(t("empty.genericError"));
       }
     } catch (error) {
-      toast.error(t("empty.genericError"));
+      reportWriteFailure(error, { label: t("empty.genericError") });
       console.error("Media source persistence error:", error);
     }
   };
@@ -3669,12 +4426,30 @@ export function VisualEditor({
             top: event.clientY,
           });
           const position = coords?.pos ?? view.state.selection.from;
-          if (fileStorageStateRef.current !== "configured") {
+          const videosToClips =
+            videosGoToClipsRef.current && videoFiles.length > 0;
+          const storedVideoFiles = videosToClips ? [] : videoFiles;
+          if (videosToClips) {
+            insertVideoFilesForClips(
+              view,
+              videoFiles,
+              position,
+              tRef.current("clipEmbed.uploadType"),
+            );
+            if (imageFiles.length === 0 && audioFiles.length === 0) return;
+          }
+          if (
+            fileStorageStateRef.current !== "configured" &&
+            mediaNeedsFileStorage(
+              { imageFiles, videoFiles: storedVideoFiles, audioFiles },
+              privateImageTargetRef.current !== null,
+            )
+          ) {
             pendingMediaFilesRef.current = {
               view,
               documentId: documentId ?? null,
               imageFiles,
-              videoFiles,
+              videoFiles: storedVideoFiles,
               audioFiles,
               position,
             };
@@ -3682,10 +4457,10 @@ export function VisualEditor({
             return;
           }
           if (imageFiles.length > 0) {
-            void uploadAndInsertImageFiles(view, imageFiles, position);
+            void uploadBodyImages(view, imageFiles, position);
           }
-          if (videoFiles.length > 0) {
-            void uploadAndInsertVideoFiles(view, videoFiles, position);
+          if (storedVideoFiles.length > 0) {
+            void uploadAndInsertVideoFiles(view, storedVideoFiles, position);
           }
           if (audioFiles.length > 0) {
             void uploadAndInsertAudioFiles(view, audioFiles, position);
@@ -3708,12 +4483,30 @@ export function VisualEditor({
         }
         return runIfMediaCreationAllowed(suggestingRef.current, () => {
           event.preventDefault();
-          if (fileStorageStateRef.current !== "configured") {
+          const videosToClips =
+            videosGoToClipsRef.current && videoFiles.length > 0;
+          const storedVideoFiles = videosToClips ? [] : videoFiles;
+          if (videosToClips) {
+            insertVideoFilesForClips(
+              view,
+              videoFiles,
+              view.state.selection.from,
+              tRef.current("clipEmbed.uploadType"),
+            );
+            if (imageFiles.length === 0 && audioFiles.length === 0) return;
+          }
+          if (
+            fileStorageStateRef.current !== "configured" &&
+            mediaNeedsFileStorage(
+              { imageFiles, videoFiles: storedVideoFiles, audioFiles },
+              privateImageTargetRef.current !== null,
+            )
+          ) {
             pendingMediaFilesRef.current = {
               view,
               documentId: documentId ?? null,
               imageFiles,
-              videoFiles,
+              videoFiles: storedVideoFiles,
               audioFiles,
               position: view.state.selection.from,
             };
@@ -3721,16 +4514,12 @@ export function VisualEditor({
             return;
           }
           if (imageFiles.length > 0) {
-            void uploadAndInsertImageFiles(
-              view,
-              imageFiles,
-              view.state.selection.from,
-            );
+            void uploadBodyImages(view, imageFiles, view.state.selection.from);
           }
-          if (videoFiles.length > 0) {
+          if (storedVideoFiles.length > 0) {
             void uploadAndInsertVideoFiles(
               view,
-              videoFiles,
+              storedVideoFiles,
               view.state.selection.from,
             );
           }
@@ -3744,12 +4533,30 @@ export function VisualEditor({
         });
       },
       handleDOMEvents: {
-        beforeinput(view) {
+        beforeinput(view, event) {
+          if (
+            (event.inputType === "historyUndo" ||
+              event.inputType === "historyRedo") &&
+            suggestionDecisionHoldsHistory(view.state)
+          ) {
+            event.preventDefault();
+            return true;
+          }
           if (view.editable) markUserEditIntent();
           return false;
         },
         keydown(view, event) {
           if (view.editable) markUserEditIntent();
+          if (
+            (event.metaKey || event.ctrlKey) &&
+            !event.altKey &&
+            (event.key.toLowerCase() === "z" ||
+              event.key.toLowerCase() === "y") &&
+            suggestionDecisionHoldsHistory(view.state)
+          ) {
+            event.preventDefault();
+            return true;
+          }
           if (
             view.editable &&
             (event.metaKey || event.ctrlKey) &&
@@ -3799,7 +4606,7 @@ export function VisualEditor({
       },
     },
     editable,
-    onTransaction: ({ editor }) => {
+    onTransaction: ({ editor, transaction }) => {
       if (observedDocumentRef.current !== editor.state.doc) {
         observedDocumentRef.current = editor.state.doc;
         documentVersionRef.current = {};
@@ -3823,28 +4630,8 @@ export function VisualEditor({
     onUpdate: ({ editor, transaction }) => {
       const guards = guardsRef.current;
       guards?.reportRemoteUpdate(transaction);
-      if (!guards || guards.shouldIgnoreUpdate(transaction)) return;
-      if (
-        localFileMode &&
-        transaction.getMeta(normalizeTableHeadersPluginKey)
-      ) {
-        return;
-      }
-      if (
-        localFileMode &&
-        !shouldPersistLocalFileEditorUpdate({
-          docChanged: transaction.docChanged,
-          editorFocused: editor.isFocused,
-          explicitLocalFileUserEdit:
-            transaction.getMeta(LOCAL_FILE_USER_EDIT_META) === true,
-          recentUserEditIntent:
-            Date.now() - lastUserEditIntentAtRef.current < 2000,
-          transactionUiEvent: transaction.getMeta("uiEvent"),
-        })
-      ) {
-        return;
-      }
-      const userInitiated = isUserInitiatedCollaborativeEditorUpdate({
+      if (!guards) return;
+      const userInitiated = hasDirectUserEditEvidence({
         editorFocused: editor.isFocused,
         explicitUserEdit:
           transaction.getMeta(LOCAL_FILE_USER_EDIT_META) === true,
@@ -3852,16 +4639,23 @@ export function VisualEditor({
           Date.now() - lastUserEditIntentAtRef.current < 2000,
         transactionUiEvent: transaction.getMeta("uiEvent"),
       });
-      if (userInitiated) hasUserEditIntentRef.current = true;
-      if (
-        !shouldPersistCollaborativeEditorUpdate({
-          collab: !!ydoc,
-          editorFocused: editor.isFocused,
-          userInitiated,
-        })
-      ) {
+      if (guards.shouldIgnoreUpdate(transaction)) {
+        // The guards drop every edit until the live copy's seed check
+        // finishes, so typing that lands first is saved once it does, unless
+        // the seed replaces it.
+        if (guards.isSettingContentRef.current) {
+          unseededEditRef.current = false;
+        } else if (
+          guards.initialSeedPending &&
+          userInitiated &&
+          isLocalEditorEdit(transaction)
+        ) {
+          unseededEditRef.current = true;
+        }
         return;
       }
+      if (!isLocalEditorEdit(transaction)) return;
+      hasUserEditIntentRef.current = true;
       if (isActiveSlashCommandDraft(editor)) return;
       if (shouldSkipMediaDraftPersistence(editor)) return;
       const priorSelection =
@@ -3876,9 +4670,8 @@ export function VisualEditor({
       if (replacementIntent) {
         onSuggestionReplacementIntentRef.current?.(replacementIntent);
       }
-      void persistEditorContent(editor, {
-        userInitiated,
-      });
+      unseededEditRef.current = false;
+      void persistEditorContent(editor, { userInitiated });
     },
   });
   historyEditorRef.current = editor;
@@ -3963,6 +4756,18 @@ export function VisualEditor({
     };
   }, [editor]);
 
+  // It checks the page's blocks at once, so not before the page is in.
+  useEffect(() => {
+    if (!documentId || !collabSynced) return;
+    return watchClipUploadBlocks(editor, documentId, (upload, cancelled) => {
+      void announceClipCancel(cancelled, {
+        recordingId: upload.recordingId,
+        cancelledKey: "clipEmbed.uploadCancelledBlockGone",
+        t: tRef.current,
+      });
+    });
+  }, [collabSynced, documentId, editor]);
+
   useEffect(() => {
     if (!editor) {
       onPersistenceControllerChange?.(null);
@@ -4027,6 +4832,7 @@ export function VisualEditor({
             canonicalizeNfm(snapshot.content);
         }
         if (applied) {
+          unseededEditRef.current = false;
           draftEmissionGenerationRef.current += 1;
           acknowledgedRestoreRef.current = {
             documentId: documentId ?? null,
@@ -4052,6 +4858,16 @@ export function VisualEditor({
     onHistoryControllerChange,
     onHistoryStateChange,
   ]);
+
+  useEffect(() => {
+    if (!onSuggestionPlacementsChange) return;
+    onSuggestionPlacementsChange((suggestionIds) =>
+      editor.isDestroyed
+        ? {}
+        : suggestionPlacements(editor.state, suggestionIds),
+    );
+    return () => onSuggestionPlacementsChange(null);
+  }, [editor, onSuggestionPlacementsChange]);
 
   useEffect(() => {
     if (!editor) {
@@ -4163,6 +4979,76 @@ export function VisualEditor({
     };
   }, [documentId]);
 
+  // Uploads `file` as the image `request` placeholds, then sets `attrs` on it.
+  const uploadPendingImageFile = useCallback(
+    async (
+      request: PendingImagePicker,
+      file: File,
+      attrs: Record<string, unknown>,
+      onStorageUnavailable?: () => void,
+    ) => {
+      if (suggestingRef.current) return;
+      if (
+        !privateImageTargetRef.current &&
+        fileStorageStateRef.current !== "configured"
+      ) {
+        restorePendingImagePicker(editor.view, request);
+        setIsFileStorageSetupOpen(true);
+        return;
+      }
+
+      const uploadId = createMediaUploadId("image");
+      const options = imageUploadOptions();
+      // Held before the block takes the upload, so it draws the file at once.
+      holdImageUploadPreview(uploadId, file, imageUploadOwner);
+      if (!ensurePendingImageUpload(editor.view, request, uploadId)) {
+        releaseImageUploadPreview(uploadId);
+        return;
+      }
+
+      const outcome = await runImageUpload({
+        view: editor.view,
+        file,
+        uploadId,
+        request,
+        attrs,
+        upload: uploadBodyImage,
+        persist: options.persist,
+        isBlocked: options.isBlocked,
+        messages: options.messages,
+        onStorageUnavailable,
+      });
+      if (!editor.isDestroyed) announceImageUpload(outcome, options.messages);
+    },
+    [editor, imageUploadOptions, imageUploadOwner, uploadBodyImage],
+  );
+  persistUploadedImageRef.current = async () => {
+    // The page doesn't save while another of this editor's images is still on
+    // its way, so the save waits for those rather than being skipped.
+    await waitForImageUploadsToSettle(imageUploadOwner);
+    if (editor.isDestroyed || suggestingRef.current) return false;
+    // Strict, so a save the page skips, such as while another block waits on
+    // its picker, reports as failed instead of "Image added".
+    return isEditorDraftSaveAccepted(
+      await persistEditorContent(editor, {
+        immediate: true,
+        userInitiated: true,
+        strict: true,
+      }),
+    );
+  };
+
+  useEffect(() => {
+    uploadPendingImageFileRef.current = (
+      request,
+      file,
+      attrs,
+      onStorageUnavailable,
+    ) => {
+      void uploadPendingImageFile(request, file, attrs, onStorageUnavailable);
+    };
+  }, [uploadPendingImageFile]);
+
   const handleImageFileInputChange = useCallback(
     async (event: Event) => {
       const input = event.currentTarget as HTMLInputElement;
@@ -4170,74 +5056,11 @@ export function VisualEditor({
       input.value = "";
       const request = pendingImagePickerRef.current;
       pendingImagePickerRef.current = null;
-      if (suggestingRef.current) return;
-      if (!editor || !file || !request) return;
-      if (fileStorageStateRef.current !== "configured") {
-        restorePendingImagePicker(editor.view, request);
-        setIsFileStorageSetupOpen(true);
-        return;
-      }
-
-      const uploadId = createMediaUploadId("image");
-      if (!ensurePendingImageUpload(editor.view, request, uploadId)) return;
-
-      const toastId = toast.loading(t("editor.media.uploadingImage"));
-      let staged = false;
-      let committed = false;
-      try {
-        await completeImageFileUpload({
-          file,
-          stageAttributes: (src) => {
-            if (editor.isDestroyed || suggestingRef.current) return;
-            staged = commitPendingImageUpload(editor.view, request, uploadId, {
-              src,
-              uploadId,
-            });
-          },
-          waitForRender: async () => {
-            if (!staged) throw new Error(t("empty.genericError"));
-            await waitForRenderedImage(() =>
-              findPendingImageElement(editor.view, uploadId),
-            );
-          },
-          commitAttributes: (src) => {
-            if (editor.isDestroyed || suggestingRef.current) return;
-            committed = commitPendingImageUpload(
-              editor.view,
-              request,
-              uploadId,
-              { src, uploadId: null },
-            );
-          },
-          persistCommittedImage: async () => {
-            if (!committed || editor.isDestroyed || suggestingRef.current)
-              return false;
-            const result = await persistEditorContent(editor, {
-              immediate: true,
-              userInitiated: true,
-            });
-            return isEditorDraftSaveAccepted(result);
-          },
-        });
-        if (!committed) throw new Error(t("empty.genericError"));
-        toast.success(t("editor.media.imageAdded"), { id: toastId });
-      } catch (error) {
-        if (editor.isDestroyed) {
-          toast.dismiss(toastId);
-          return;
-        }
-        if (!committed) {
-          restorePendingImagePicker(editor.view, request, uploadId);
-        }
-        toast.error(
-          error instanceof ImageRenderError
-            ? t("editor.media.imageBroken")
-            : imageUploadErrorMessage(error),
-          { id: toastId },
-        );
-      }
+      if (!file || !request) return;
+      // A file the author uploads replaces any image copied from Assets.
+      await uploadPendingImageFile(request, file, { assetId: null });
     },
-    [editor, persistEditorContent, t],
+    [uploadPendingImageFile],
   );
 
   const handleImageFileInputCancel = useCallback(() => {
@@ -4307,6 +5130,33 @@ export function VisualEditor({
       } finally {
         seedDoc.destroy();
       }
+    },
+    [documentId],
+  );
+  const requestSnapshotAdoption = useCallback(
+    async ({ revision, update }: { revision: string; update: Uint8Array }) => {
+      if (!documentId)
+        throw new Error("A document ID is required to adopt a snapshot.");
+      let binary = "";
+      for (const byte of update) binary += String.fromCharCode(byte);
+      const result = await callAction<{
+        status: "adopted" | "already-adopted" | "rebase" | "stale";
+        adoptedRevision: string | null;
+        adoptedBody: string | null;
+        stateBase64: string;
+      }>("adopt-document-snapshot", {
+        id: documentId,
+        revision,
+        adoptionUpdateBase64: btoa(binary),
+      });
+      return {
+        status: result.status,
+        adoptedRevision: result.adoptedRevision,
+        adoptedBody: result.adoptedBody,
+        state: Uint8Array.from(atob(result.stateBase64), (char) =>
+          char.charCodeAt(0),
+        ),
+      };
     },
     [documentId],
   );
@@ -4386,12 +5236,17 @@ export function VisualEditor({
       : collabContentRevision,
     requestCollabSync,
     onBaseAwareReconcile,
+    onBaseAwareMerge: documentId
+      ? (outcome) => reportEditorMerge(documentId, "open_editor", outcome)
+      : undefined,
     onRemoteSnapshotChange: onRemoteSnapshotChange
       ? reportRemoteSnapshot
       : undefined,
     isEditorClean,
     requestInitialSeed:
       ydoc && editable && documentId ? requestInitialSeed : undefined,
+    requestSnapshotAdoption:
+      ydoc && editable && documentId ? requestSnapshotAdoption : undefined,
     onInitialSeedError,
     overlapPolicy: "prefer-live",
     editable,
@@ -4404,6 +5259,30 @@ export function VisualEditor({
     initialAppliedUpdatedAt: null,
   });
   guardsRef.current = collabState;
+  useEffect(() => {
+    if (!editor || editor.isDestroyed || !editable) return;
+    if (collabState.initialSeedPending || !unseededEditRef.current) return;
+    unseededEditRef.current = false;
+    hasUserEditIntentRef.current = true;
+    if (isActiveSlashCommandDraft(editor)) return;
+    if (shouldSkipMediaDraftPersistence(editor)) return;
+    void persistEditorContent(editor, { userInitiated: true });
+  }, [collabState.initialSeedPending, editable, editor, persistEditorContent]);
+  // Another tab's change that deletes what this tab wrote replaces the typing.
+  // A change elsewhere on the page merges with it, and the page saves both.
+  useEffect(() => {
+    if (!ydoc) return;
+    const dropReplacedEdit = (transaction: YTransaction) => {
+      if (
+        !transaction.local &&
+        transaction.deleteSet.clients.has(ydoc.clientID)
+      ) {
+        unseededEditRef.current = false;
+      }
+    };
+    ydoc.on("afterTransaction", dropReplacedEdit);
+    return () => ydoc.off("afterTransaction", dropReplacedEdit);
+  }, [ydoc]);
   // A live copy nobody has opened yet is empty until the server seeds it from
   // the stored body, a round trip after this editor mounts. The stored body
   // stands in for it until then, so the page never shows an empty editor.
@@ -4584,7 +5463,7 @@ export function VisualEditor({
     [commentThreads],
   );
   const pendingKey = pendingHighlight
-    ? `${pendingHighlight.from}-${pendingHighlight.to}`
+    ? `${pendingHighlight.from}-${pendingHighlight.to}-${pendingHighlight.blockId ?? ""}`
     : "";
   const resolvedQuotesRef = useRef(new Map<string, string>());
 
@@ -4620,14 +5499,19 @@ export function VisualEditor({
         specs.push(existing);
         continue;
       }
-      const range = resolveAnchor(view.state.doc, anchor);
+      const block = threadCommentBlock(view.state.doc, thread);
+      const range = block
+        ? {
+            from: block.pos,
+            to: block.pos + block.nodeSize,
+            blockId: block.blockId,
+          }
+        : thread.block
+          ? null
+          : resolveAnchor(view.state.doc, anchor);
       if (range) {
         resolvedQuotesRef.current.set(thread.threadId, quote);
-        specs.push({
-          threadId: thread.threadId,
-          from: range.from,
-          to: range.to,
-        });
+        specs.push({ threadId: thread.threadId, ...range });
       } else if (existing) {
         // An edit to the quoted text, such as an accepted suggestion, can
         // reach the editor before the thread's re-anchored quote does.
@@ -4710,31 +5594,75 @@ export function VisualEditor({
         .join("|"),
     [suggestions],
   );
-  const applySuggestionsRef = useRef<((report?: boolean) => void) | null>(null);
+  const applySuggestionsRef = useRef<
+    ((report?: boolean, transaction?: Transaction) => void) | null
+  >(null);
 
   useLayoutEffect(() => {
     if (!editor || editor.isDestroyed) return;
-    const apply = (report = true) => {
+    const apply = (report = true, transaction?: Transaction) => {
       if (editor.isDestroyed) return;
+      const drafting = suggesting && editable;
+      // The Page redraws the author's drafts a frame or two after their
+      // typing, and until then the highlight plugin moves the drafts along
+      // with it. Undo puts the original words back, so it waits instead.
+      const typed =
+        drafting && !transaction?.getMeta("history$")
+          ? (suggestionHighlightKey.getState(editor.state)?.specs ?? [])
+          : [];
+      const sent = sentContentRef.current.get(editor.state.doc);
+      let lagging = !!transaction || (sent !== undefined && sent !== content);
       const specs = suggestions
-        .map((suggestion) =>
-          suggestionHighlightSpec(editor.state.doc, suggestion),
-        )
+        .map((suggestion) => {
+          const spec = suggestionHighlightSpec(editor.state.doc, suggestion);
+          if (!spec && drafting && suggestion.presentation === "draft") {
+            lagging = true;
+            return (
+              typed.find(
+                (held) => held.draft && held.suggestionId === suggestion.id,
+              ) ?? null
+            );
+          }
+          const unitSpec =
+            spec && activeSuggestionUnitIds?.includes(suggestion.id)
+              ? { ...spec, inActiveUnit: true }
+              : spec;
+          // While suggesting, a saved suggestion's text outside the document
+          // is somewhere to type beside, not a control to focus.
+          return unitSpec &&
+            suggesting &&
+            editable &&
+            suggestion.presentation === "canonical"
+            ? { ...unitSpec, editableBoundary: true }
+            : unitSpec;
+        })
         .filter((spec): spec is SuggestionHighlightSpec => spec !== null);
+      if (lagging) specs.push(...typed.filter(isProvisionalDraftSpec));
       if (report)
         onSuggestionAnchorsChange?.(
-          Array.from(new Set(specs.map((spec) => spec.suggestionId))),
+          Array.from(
+            new Set(
+              specs
+                .filter((spec) => !isProvisionalDraftSpec(spec))
+                .map((spec) => spec.suggestionId),
+            ),
+          ),
         );
+      // A decision that's saving keeps its words drawn and held either way.
       const visibleSpecs = showCommentIndicators
         ? specs
-        : specs.filter((spec) => spec.settling);
+        : specs.filter((spec) => spec.settling || spec.frozen);
       const selection = pendingNativeSuggestionSelection(
         editor.view,
         visibleSpecs,
       );
       setSuggestionHighlights(
         editor.view,
-        { specs: visibleSpecs, activeId: activeSuggestionId ?? null },
+        {
+          specs: visibleSpecs,
+          activeId: activeSuggestionId ?? null,
+          drafting,
+        },
         selection.status === "mapped" ? selection.selection : undefined,
       );
     };
@@ -4745,8 +5673,12 @@ export function VisualEditor({
     };
   }, [
     activeSuggestionId,
+    activeSuggestionUnitIds,
+    content,
+    editable,
     editor,
     onSuggestionAnchorsChange,
+    suggesting,
     suggestions,
     suggestionsSignature,
     showCommentIndicators,
@@ -4762,7 +5694,7 @@ export function VisualEditor({
       // Collaboration redraws an identical Page when the editor's plugins
       // change, and the highlight plugin keeps its highlights for that.
       if (transaction.docChanged && !transaction.before.eq(transaction.doc))
-        applySuggestionsRef.current?.(!suggestingRef.current);
+        applySuggestionsRef.current?.(!suggestingRef.current, transaction);
     };
     editor.on("transaction", onTransaction);
     return () => {
@@ -4770,34 +5702,46 @@ export function VisualEditor({
     };
   }, [editor]);
 
+  // Callers build the readbacks inline and render again on every report, so
+  // these checks key on the readbacks' fields and report each divergent body
+  // once: keyed on the objects, each report re-runs its check until React
+  // aborts the render.
+  const acceptedReadbackId = acceptedDecisionReadback?.id ?? null;
+  const acceptedReadbackContent = acceptedDecisionReadback?.content ?? null;
   useLayoutEffect(() => {
-    if (!editor || editor.isDestroyed || !acceptedDecisionReadback) return;
+    if (
+      !editor ||
+      editor.isDestroyed ||
+      acceptedReadbackId === null ||
+      acceptedReadbackContent === null
+    )
+      return;
     const settlingSuggestion = suggestions.find(
-      (suggestion) => suggestion.id === acceptedDecisionReadback.id,
+      (suggestion) => suggestion.id === acceptedReadbackId,
     );
     if (!settlingSuggestion) return;
+    let reported: string | null = null;
     const check = () => {
       if (editor.isDestroyed) return;
       const actualContent = docToNfm(editor.getJSON() as any);
       if (
         acceptedSuggestionRendered(
           actualContent,
-          acceptedDecisionReadback.content,
+          acceptedReadbackContent,
           settlingSuggestion,
         )
       ) {
-        onAcceptedDecisionRendered?.(acceptedDecisionReadback.id);
+        onAcceptedDecisionRendered?.(acceptedReadbackId);
       } else if (
+        actualContent !== reported &&
         acceptedSuggestionReadbackOutdated(
           actualContent,
-          acceptedDecisionReadback.content,
+          acceptedReadbackContent,
           settlingSuggestion,
         )
       ) {
-        onAcceptedDecisionReadbackOutdated?.(
-          acceptedDecisionReadback.id,
-          actualContent,
-        );
+        reported = actualContent;
+        onAcceptedDecisionReadbackOutdated?.(acceptedReadbackId, actualContent);
       }
     };
     editor.on("transaction", check);
@@ -4806,27 +5750,44 @@ export function VisualEditor({
       editor.off("transaction", check);
     };
   }, [
-    acceptedDecisionReadback,
+    acceptedReadbackContent,
+    acceptedReadbackId,
     editor,
     onAcceptedDecisionRendered,
     onAcceptedDecisionReadbackOutdated,
     suggestions,
   ]);
 
+  const proposalReadbackGeneration =
+    proposalDecisionReadback?.generation ?? null;
+  const proposalReadbackContent = proposalDecisionReadback?.content ?? null;
+  const proposalReadbackBefore =
+    proposalDecisionReadback?.beforeContent ?? null;
   useLayoutEffect(() => {
-    if (!editor || editor.isDestroyed || !proposalDecisionReadback) return;
+    if (
+      !editor ||
+      editor.isDestroyed ||
+      proposalReadbackGeneration === null ||
+      proposalReadbackContent === null ||
+      proposalReadbackBefore === null
+    )
+      return;
+    let reported: string | null = null;
     const check = () => {
       if (editor.isDestroyed) return;
       const actual = canonicalizeNfm(docToNfm(editor.getJSON() as any));
-      if (actual === canonicalizeNfm(proposalDecisionReadback.content))
-        onProposalDecisionRendered?.(proposalDecisionReadback.generation);
+      if (actual === canonicalizeNfm(proposalReadbackContent))
+        onProposalDecisionRendered?.(proposalReadbackGeneration);
       else if (
-        actual !== canonicalizeNfm(proposalDecisionReadback.beforeContent)
-      )
+        actual !== reported &&
+        actual !== canonicalizeNfm(proposalReadbackBefore)
+      ) {
+        reported = actual;
         onProposalDecisionReadbackOutdated?.(
-          proposalDecisionReadback.generation,
+          proposalReadbackGeneration,
           actual,
         );
+      }
     };
     editor.on("transaction", check);
     check();
@@ -4837,7 +5798,9 @@ export function VisualEditor({
     editor,
     onProposalDecisionReadbackOutdated,
     onProposalDecisionRendered,
-    proposalDecisionReadback,
+    proposalReadbackBefore,
+    proposalReadbackContent,
+    proposalReadbackGeneration,
   ]);
 
   useEffect(() => {
@@ -4899,10 +5862,8 @@ export function VisualEditor({
         onActivateSuggestionRef.current?.(suggestion.dataset.suggestionId);
         return;
       }
-      const comment = target?.closest<HTMLElement>("[data-comment-thread]");
-      if (comment?.dataset.commentThread) {
-        onActivateThreadRef.current?.(comment.dataset.commentThread);
-      }
+      const threadId = commentThreadAt(target, activeThreadIdRef.current);
+      if (threadId) onActivateThreadRef.current?.(threadId);
     };
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Enter" && event.key !== " ") return;
@@ -4990,6 +5951,7 @@ export function VisualEditor({
           suggesting={suggesting}
           directoryWidgetEditing={directoryWidgetEditing}
           notionPageId={notionPageId}
+          bodyIsLiveCopy={bodyIsLiveCopy}
           onDraftCommitted={() =>
             Promise.resolve(
               persistEditorContent(editor, { userInitiated: true }),
@@ -5008,6 +5970,16 @@ export function VisualEditor({
       ) : null}
       <LinkHoverPreview editor={editor} editable={editable} />
       {editable && !suggesting ? <TableHoverControls editor={editor} /> : null}
+      {editable && !suggesting ? (
+        <ColumnResizeControls editor={editor} />
+      ) : null}
+      {editable ? (
+        <BlockActionsMenu
+          editor={editor}
+          onComment={onComment}
+          suggesting={suggesting}
+        />
+      ) : null}
       {editable && isDraggingMedia ? (
         <div className="media-drop-overlay">
           <div className="media-drop-overlay__content">
@@ -5052,7 +6024,7 @@ export function VisualEditor({
       <input
         ref={imageFileInputRef}
         type="file"
-        disabled={!fileStorageConfigured}
+        disabled={!fileStorageConfigured && !privateImagesEnabled}
         className="hidden"
         tabIndex={-1}
         aria-hidden="true"

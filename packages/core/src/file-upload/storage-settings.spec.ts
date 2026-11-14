@@ -2,6 +2,31 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const store = vi.hoisted(() => new Map<string, string>());
 const roleRef = vi.hoisted(() => ({ role: "owner" as string | null }));
+const unreadable = vi.hoisted(() => new Set<string>());
+const readErrorRef = vi.hoisted(() => ({ error: null as Error | null }));
+const { AppSecretDecryptionError } = vi.hoisted(() => ({
+  AppSecretDecryptionError: class extends Error {
+    readonly errorCode = "app_secret_unreadable";
+
+    constructor() {
+      super("A saved connection could not be decrypted.");
+      this.name = "AppSecretDecryptionError";
+    }
+  },
+}));
+const { CredentialStoreUnavailableError } = vi.hoisted(() => ({
+  CredentialStoreUnavailableError: class extends Error {
+    constructor() {
+      super("Could not read saved connections.");
+      this.name = "CredentialStoreUnavailableError";
+    }
+  },
+}));
+
+vi.mock("../secrets/errors.js", () => ({ AppSecretDecryptionError }));
+vi.mock("../server/credential-provider.js", () => ({
+  CredentialStoreUnavailableError,
+}));
 const providersRef = vi.hoisted(() => ({
   list: [] as Array<{
     id: string;
@@ -9,6 +34,7 @@ const providersRef = vi.hoisted(() => ({
     publicBaseUrlOptional?: boolean;
   }>,
   active: null as { id: string; name: string } | null,
+  activeError: null as Error | null,
 }));
 const builderRef = vi.hoisted(() => ({
   result: false as boolean | Error,
@@ -25,12 +51,26 @@ const readinessRef = vi.hoisted(() => ({
 vi.mock("../secrets/storage.js", () => ({
   readAppSecrets: vi.fn(
     async (args: { keys: string[]; scope: string; scopeId: string }) => {
+      if (readErrorRef.error) throw readErrorRef.error;
       const out = new Map<string, { value: string }>();
       for (const key of args.keys) {
         const value = store.get(`${args.scope}:${args.scopeId}:${key}`);
+        if (value !== undefined && unreadable.has(key)) {
+          throw new AppSecretDecryptionError();
+        }
         if (value !== undefined) out.set(key, { value });
       }
       return out;
+    },
+  ),
+  readAppSecret: vi.fn(
+    async (args: { key: string; scope: string; scopeId: string }) => {
+      if (readErrorRef.error) throw readErrorRef.error;
+      const value = store.get(`${args.scope}:${args.scopeId}:${args.key}`);
+      if (value !== undefined && unreadable.has(args.key)) {
+        throw new AppSecretDecryptionError();
+      }
+      return value === undefined ? null : { value };
     },
   ),
   writeAppSecret: vi.fn(
@@ -41,6 +81,7 @@ vi.mock("../secrets/storage.js", () => ({
       scopeId: string;
     }) => {
       store.set(`${args.scope}:${args.scopeId}:${args.key}`, args.value);
+      unreadable.delete(args.key);
       return "id";
     },
   ),
@@ -60,7 +101,10 @@ vi.mock("../db/client.js", () => ({
 
 vi.mock("./registry.js", () => ({
   listFileUploadProviders: () => providersRef.list,
-  getActiveFileUploadProviderForRequest: async () => providersRef.active,
+  getActiveFileUploadProviderForRequest: async () => {
+    if (providersRef.activeError) throw providersRef.activeError;
+    return providersRef.active;
+  },
 }));
 
 vi.mock("../server/builder-api-auth.js", () => ({
@@ -100,9 +144,12 @@ const complete = {
 describe("file storage settings", () => {
   beforeEach(() => {
     store.clear();
+    unreadable.clear();
+    readErrorRef.error = null;
     roleRef.role = "owner";
     providersRef.list = [{ id: "s3", name: "S3-compatible object storage" }];
     providersRef.active = null;
+    providersRef.activeError = null;
     builderRef.result = false;
     readinessRef.result = {
       selectedOrg: "selected",
@@ -144,6 +191,91 @@ describe("file storage settings", () => {
       configured: true,
       bucket: "renamed-bucket",
     });
+  });
+
+  it("isolates unreadable keys, blocks partial saves, and allows replacement", async () => {
+    await saveFileStorage(ctx, complete);
+    unreadable.add("S3_SECRET_ACCESS_KEY");
+
+    const status = await getFileStorageStatus(ctx);
+    expect(status).toMatchObject({
+      configured: false,
+      configurationUnavailable: true,
+      unreadableFields: ["secretAccessKey"],
+      saved: { secretAccessKey: true },
+    });
+    await expect(
+      saveFileStorage(ctx, { bucket: "changed-bucket" }),
+    ).rejects.toMatchObject({
+      statusCode: 503,
+      errorCode: "credential_store_unavailable",
+      details: { unreadableFields: ["secretAccessKey"] },
+    });
+    expect(store.get(key("S3_BUCKET"))).toBe(complete.bucket);
+
+    const repaired = await saveFileStorage(ctx, {
+      secretAccessKey: "replacement-secret",
+    });
+    expect(repaired).toMatchObject({
+      configured: true,
+      configurationUnavailable: false,
+      unreadableFields: [],
+    });
+    expect(store.get(key("S3_SECRET_ACCESS_KEY"))).toBe("replacement-secret");
+  });
+
+  it("does not fall back to a legacy value when the current S3 value is unreadable", async () => {
+    await saveFileStorage(ctx, complete);
+    store.set(key("R2_SECRET_ACCESS_KEY"), "legacy-secret");
+    unreadable.add("S3_SECRET_ACCESS_KEY");
+
+    const status = await getFileStorageStatus(ctx);
+
+    expect(status).toMatchObject({
+      configured: false,
+      configurationUnavailable: true,
+      unreadableFields: ["secretAccessKey"],
+    });
+  });
+
+  it("preserves unreadable optional values during unrelated saves and can clear them explicitly", async () => {
+    await saveFileStorage(ctx, { ...complete, region: "us-west-2" });
+    unreadable.add("S3_REGION");
+
+    const partial = await saveFileStorage(ctx, { bucket: "changed-bucket" });
+    expect(store.get(key("S3_REGION"))).toBe("us-west-2");
+    expect(partial.unreadableFields).toContain("region");
+    expect(partial.configured).toBe(true);
+
+    const cleared = await saveFileStorage(ctx, { region: "" });
+    expect(store.has(key("S3_REGION"))).toBe(false);
+    expect(cleared.unreadableFields).not.toContain("region");
+  });
+
+  it("propagates storage query failures instead of treating them as unreadable secrets", async () => {
+    const error = new Error("database unavailable");
+    readErrorRef.error = error;
+
+    await expect(getFileStorageStatus(ctx)).rejects.toBe(error);
+  });
+
+  it("reports an unavailable active-provider check without claiming no provider is configured", async () => {
+    providersRef.activeError = new CredentialStoreUnavailableError();
+
+    const status = await getFileStorageStatus(ctx);
+
+    expect(status).toMatchObject({
+      configurationUnavailable: true,
+      activeProvider: null,
+      activeProviderUnavailable: true,
+    });
+  });
+
+  it("propagates unrelated active-provider errors", async () => {
+    const error = new Error("provider configuration bug");
+    providersRef.activeError = error;
+
+    await expect(getFileStorageStatus(ctx)).rejects.toBe(error);
   });
 
   it("requires the keys on first setup", async () => {

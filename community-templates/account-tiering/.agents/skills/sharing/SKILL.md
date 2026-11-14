@@ -28,8 +28,8 @@ change the app's visibility or manage its share grants.
 ### Three visibility levels
 
 - **`private`** — owner + explicit share grants only. Default.
-- **`org`** — owner + explicit grants + anyone in the same org (read-only).
-- **`public`** — owner + explicit grants + **anyone with the link** (read-only). Public docs do NOT appear in other users' list/sidebar/search results — `accessFilter` omits them by default. They're reachable by id (`resolveAccess` admits them) so direct links and SSR routes like `/p/:id` keep working. If a list endpoint legitimately needs cross-user public discovery (a template gallery, etc.), pass `accessFilter(table, shares, ctx, minRole, { includePublic: true })`.
+- **`org`** — owner + explicit grants + anyone in the same org. Members can view by default; `set-resource-visibility` with `role` lets them comment or edit. That role is stored as the share grant to the resource's own org, so it is removed when the resource leaves `org`.
+- **`public`** — owner + explicit grants + **anyone with the link**. They can view by default; `set-resource-visibility` with `role: "commenter"` lets signed-in people with the link comment (never edit). That role is a share row for the `link` principal, which is never listed or shared as a person, and it is removed when the resource leaves `public`. Public docs do NOT appear in other users' list/sidebar/search results — `accessFilter` omits them by default. They're reachable by id (`resolveAccess` admits them) so direct links and SSR routes like `/p/:id` keep working. If a list endpoint legitimately needs cross-user public discovery (a template gallery, etc.), pass `accessFilter(table, shares, ctx, minRole, { includePublic: true })`.
 
 Visibility is coarse. Explicit share grants are fine-grained (per user, reusable
 organization group, or per org).
@@ -41,7 +41,13 @@ organization group, or per org).
 - **`editor`** — read + write.
 - **`admin`** — read + write + manage shares. Does NOT replace the single `owner_email` on the resource.
 
-There are three role systems and they never imply one another. A share role answers "what may this person do to **one row**". An org role (`org_members.role`) answers "what may this person do to the **team**". An app role (`defineAppRoles`, see the `authentication` skill) answers "what may this person do inside **one app**". A share `admin` is not an app admin and neither is an org admin.
+Share roles apply to one resource; organization roles apply to a team; app
+roles apply within one app. These are separate permissions. For role setup,
+use `agent-native-docs` to find the current organization and app-role guide.
+
+Before adding an admin gate, identify which role system protects that operation
+and use its existing role descriptor and permission checks. Do not replace role
+checks with an email comparison or a custom `isAdmin` column.
 
 ### Anonymous public URLs stay separate
 
@@ -52,21 +58,19 @@ Form "publish" slugs, booking-link slugs, any feature that exposes a URL to unau
 In your template's `server/db/schema.ts`:
 
 ```ts
+import { sql } from "drizzle-orm";
+import { pgTable, text } from "drizzle-orm/pg-core";
 import {
-  table,
-  text,
-  integer,
-  now,
-  ownableColumns,
   createSharesTable,
+  ownableColumns,
 } from "@agent-native/core/db/schema";
 
-export const decks = table("decks", {
+export const decks = pgTable("decks", {
   id: text("id").primaryKey(),
   title: text("title").notNull(),
   data: text("data").notNull(),
-  createdAt: text("created_at").notNull().default(now()),
-  updatedAt: text("updated_at").notNull().default(now()),
+  createdAt: text("created_at").notNull().default(sql`now()`),
+  updatedAt: text("updated_at").notNull().default(sql`now()`),
   ...ownableColumns(), // adds owner_email, org_id, visibility
 });
 
@@ -95,6 +99,9 @@ registerShareableResource({
 });
 ```
 
+Add `agentRead: { actions: ["get-deck"] }` naming the MCP tool that reads one
+resource, so the share panel can send it to Claude, Claude Code and Codex.
+
 The `type` string is the stable id the UI and actions use. `getDb` is required — the framework-level share actions use it to reach your template's DB.
 
 ### Restricting public visibility and cross-org user shares
@@ -114,7 +121,7 @@ registerShareableResource({
 - **`allowPublic: false`** — `set-resource-visibility('public')` throws `ForbiddenError`, `accessFilter` / `resolveAccess` treat any stored `'public'` row as private (defense in depth against bad data), and the share popover hides the "Public" option. `list-resource-shares` returns `policy.allowPublic: false` so the UI follows the server.
 - **`requireOrgMemberForUserShares: true`** — `share-resource` looks up `principalId` in `org_members` and `org_invitations` (pending) for the resource's `orgId` and rejects user shares to anyone else. The same flag also pins `principalType: "org"` shares to the resource's own org — sharing to a *different* org would let that org's members run code in the viewer's auth context (same threat model as a public extension). (The flag name is kept for backward compatibility; treat it as "lock both user and org shares to the resource's org".)
 
-Use both for resources that execute code or expose privileged data with the *viewer's* credentials. Extensions ship with both set: an extension's HTML calls actions / SQL / the secrets-injecting proxy as the viewer, so a public or cross-org-shared extension would let a stranger run arbitrary code with someone else's auth context. `scripts/guard-extension-no-public.mjs` (CI + `pnpm prep`) statically enforces that the extension registration keeps both flags set.
+Use both for resources that execute code or expose privileged data with the *viewer's* credentials. A public or cross-org-shared resource with that access could let an unrelated user act with the viewer's credentials.
 
 Defaults match historical behaviour: `allowPublic: true`, `requireOrgMemberForUserShares: false`. Resources that don't set the flags work as before.
 
@@ -131,7 +138,10 @@ so group changes apply to existing shares.
 Workspace apps opt into this flag and use the organization default visibility
 setting. The app creator is the durable `owner_email`, while organization
 owners/admins receive admin access through the registration's
-`canManageAccess` callback.
+`canManageAccess` callback. For these registrations, a direct resource-level
+`admin` share does not override that manager policy; it grants the editor role
+for access checks, while only the creator and callback-approved managers can
+change visibility or manage share grants.
 
 ## Filter list/read queries
 
@@ -164,24 +174,27 @@ For delete actions use `"admin"` (or fold in `"owner"` to require the real owner
 
 `authorize` is a different axis, not an alternative: it gates whether the caller may run the operation at all, while `assertAccess` scopes which row they may touch. A write action restricted to some teammates needs both — `authorize: appAccess.requireAny(...)` on the action, `assertAccess` inside `run`.
 
+## Check many resources at once
+
+Never call `resolveAccess` in a loop over a list: each call runs several queries, so a page that checks every row pays that per row. When rows come from somewhere `accessFilter` cannot reach (a manifest, a gateway response), use `resolveAccessMany("deck", ids, ctx, { skipResourceBody: true })`. It returns a `Map` of the ids the viewer can open, makes the same decision as `resolveAccess`, and reads rows, shares, org membership, and group membership once. Give a registration that uses `canManageAccess` a `canManageAccessKey` (for example `resource.orgId`) so the manager check is asked once per key, not once per row.
+
 ## Create actions must set owner
 
 When inserting a new row, fill `ownerEmail` and `orgId` from the request context:
 
 ```ts
+import { fail } from "@agent-native/core/action";
 import {
   getRequestUserEmail,
   getRequestOrgId,
 } from "@agent-native/core/server/request-context";
 
 const ownerEmail = getRequestUserEmail();
-// Never fall back to a sentinel like "local@localhost" — that pools every
-// unauthenticated write into one shared tenant (see the 2026-04-29 leak and
-// guard-no-localhost-fallback). Throw / 401 when there is no session instead.
-if (!ownerEmail) throw new Error("Not authenticated");
+// Never fall back to a shared sentinel owner; require an authenticated session.
+if (!ownerEmail) fail("Not authenticated", { statusCode: 401 });
 
 await db.insert(schema.decks).values({
-  id: nanoid(),
+  id: crypto.randomUUID(),
   title,
   data,
   ownerEmail,
@@ -194,7 +207,7 @@ await db.insert(schema.decks).values({
 ## Drop in the share UI
 
 ```tsx
-import { ShareButton } from "@agent-native/core/client/sharing";
+import { ShareButton } from "@agent-native/toolkit/app/sharing";
 
 // In the resource's header/toolbar:
 <ShareButton
@@ -208,27 +221,43 @@ For list views, show `<VisibilityBadge visibility={row.visibility} />` next to e
 
 ## Standard share surface
 
-All app share popovers should use the same compact surface contract:
+All app share popovers use one single-panel surface, top to bottom:
+
+1. The invite field: one input for people, organization groups, and the
+   org's agents, a role picker, and Invite.
+2. People with access: the owner, people, groups, and agents in one list.
+   Roles read "Can view", "Can comment", "Can edit", "Can manage access";
+   Remove access lives in each row's role menu.
+3. General access: Only people invited / Anyone at <org> / Anyone with the
+   link. Anyone at <org> has a role picker (Can view / Can comment / Can
+   edit) and Anyone with the link has one (Can view / Can comment); the
+   grants behind them are not listed under People. Changes save at once;
+   only a type registered with `confirmOrgVisibility: true` (chats) asks
+   before going from private to the organization.
+4. A footer with Copy link (`shareUrl`) and a Send to menu.
+
+Rules:
 
 - Use the text-only `ShareTrigger` from `@agent-native/toolkit/sharing`.
-- Render ordinary links with `ShareCopyRow`, which exposes a Copy action without
-  printing the raw URL.
-- Keep general access and individual people access in the standard Core sharing
-  flow. The people flow supports email invites, roles, notifications, and
-  removal through the shared share actions.
-- Add `ShareAgentsSection` only when the resource has a real agent-readable
-  link or prompt. Keep it collapsed by default and supply domain-specific
-  content through the shared section shell.
-- When `supportsGroupShares` is enabled, keep the existing people input as the
-  only entry point and include organization groups in its autocomplete. Do not
-  add a separate group-management surface to each resource.
-- App-specific tabs or controls may remain when they represent a real domain
-  action (for example, an embed-code editor), but they should retain the same
-  trigger, copy-row, access, and spacing language.
-
-`ShareDisclosureSection` is the toolkit-owned shell for optional expandable
-share details; use its `ShareAgentsSection` or `SharePeopleSection` wrappers
-instead of creating another collapsible share panel in a template.
+- Never split people and agents into separate tabs or sections. Agents that
+  can hold their own access are org service principals
+  (`svc-<name>@service.<orgId>`); `list-resource-shares` returns them as
+  `agents` for managers, and they are shared as ordinary `user` principals.
+  Agents that connect over MCP or OAuth act as the person who connected
+  them, so they get no row: put ways to hand the resource to them in Send to.
+- Send to (`sendTo`) holds every handoff: `openInAgent` (Claude, Claude Code,
+  Codex), resource-specific `items`, `copyAgentPrompt`, and
+  `openMcpSettings`. Do not add another agent panel or tab.
+- Declare `agentRead: { actions: ["get-<thing>"] }` (plus `idParam` when the
+  tool's id argument is not `id`) on the registration. The panel then builds
+  Open in Claude, Claude Code and Codex and Copy agent prompt itself: the
+  prompt sends the agent to this app's MCP server to call that tool with the
+  person's own permissions. Pass `sendTo.openInAgent` only when the app needs
+  a different prompt. Agent-readable resources also get Copy agent link.
+- When `supportsGroupShares` is enabled, groups come from the same invite
+  field's autocomplete. Do not add a separate group-management surface.
+- App-specific tabs (`shareTabs`) may remain when they represent a real
+  domain action (for example, an embed-code editor).
 
 ## Actions available everywhere
 
@@ -239,11 +268,19 @@ The framework auto-mounts these actions in every template — no per-template bo
 | `share-resource`           | `resourceType, resourceId, principalType, principalId, role, notify?, resourceUrl?, message?` | Grant a user, group, or org access. `notify` defaults to true for individual user shares; `resourceUrl` can provide the direct app link and `message` an optional short note for the notification email. |
 | `unshare-resource`         | `resourceType, resourceId, principalType, principalId`                         | Revoke access.                            |
 | `list-resource-shares`     | `resourceType, resourceId`                                                     | Current visibility + all share grants.    |
-| `set-resource-visibility`  | `resourceType, resourceId, visibility`                                         | Change to `private` / `org` / `public`.  |
+| `set-resource-visibility`  | `resourceType, resourceId` (or `resourceIds`, up to 100), `visibility`, `role?` | Change to `private` / `org` / `public`. With `org`, `role` (`viewer` / `commenter` / `editor`) sets what members can do; with `public`, `role` (`viewer` / `commenter`) sets what signed-in people with the link can do. With `resourceIds`, every resource is checked first and none change if one can't; one approval covers the call. |
 
 Both the agent and the UI use these same actions. The agent calls them as tools;
 UI code should use `ShareButton` / `ShareDialog` or the action client hooks
 instead of hand-writing route calls.
+
+To re-skin the share notification email for the whole app, register
+`overrideTransactionalEmail("core.resource-shared", render)` from a server
+plugin. Do not fork `share-resource` or add another per-resource hook: the
+registration's `getBrandName` / `getLogoUrl` / `getSender` / `getHeroHtml` /
+`getShareEmailExtras` hooks still feed the default template and the override's
+props. See
+`/docs/deployment#email-templates`.
 
 ## Migration pattern for existing tables
 
@@ -263,14 +300,10 @@ When retrofitting an existing resource table:
 Sharing doesn't apply to:
 
 - **Personal-data apps** (mail) — user-scoped by design.
-- **External source-of-truth apps** (issues → Jira, recruiting → Greenhouse) — ACL lives in the upstream system.
+- **External source-of-truth data** — apply the access policy enforced by the upstream system.
 - **Demo/boilerplate** (starter) — no resources.
 
 For these, add a short note to the template's `AGENTS.md` explaining why.
-
-## Analytics (follow-up)
-
-Dashboards and analyses in the `analytics` template currently live in the settings KV store (`u:<email>:dashboard-*` keys), not SQL. Sharing requires either migrating them to SQL tables (then applying this skill) or extending the settings store with a parallel share overlay. This is a tracked follow-up — see the analytics template's `AGENTS.md`.
 
 ## Debugging
 

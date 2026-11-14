@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AgentCard, AgentSkill } from "../a2a/types.js";
 import { _resetCapabilityCacheForTests } from "../server/agent-capabilities.js";
+import { registerAgentContextAgentFilter } from "../server/agent-context-agents.js";
 import type { DiscoveredAgent } from "../server/agent-discovery.js";
 
 const getAgentCard = vi.fn();
@@ -117,7 +118,10 @@ describe("describe-workspace-apps", () => {
     expect(output).toContain("Analytics (analytics)");
     expect(output).toContain("Product analytics, funnels, and session replay.");
     expect(output).toContain("query-events");
-    expect(discoverAgentsWithDirectoryStatus).toHaveBeenCalledWith("coach");
+    expect(discoverAgentsWithDirectoryStatus).toHaveBeenCalledWith(
+      "coach",
+      undefined,
+    );
   });
 
   it("separates direct reads from capabilities that require message delegation", async () => {
@@ -214,6 +218,27 @@ describe("describe-workspace-apps", () => {
     expect(output).not.toContain("App 0 (app-0)");
   });
 
+  it("lists only the peers the app's agent-context filter keeps", async () => {
+    discoverAgents.mockResolvedValue([
+      agent(),
+      agent({ id: "mail", name: "Mail", description: "Send email." }),
+    ]);
+    const unregister = registerAgentContextAgentFilter("coach", (agents) =>
+      agents.filter((peer) => peer.id !== "mail"),
+    );
+    try {
+      const output = await run({}, undefined, "coach");
+      expect(output).toContain("1 other app reachable from this one");
+
+      const missing = await run({ app: "nope" }, undefined, "coach");
+      expect(missing).toBe(
+        'Error: no workspace app "nope". Available: analytics',
+      );
+    } finally {
+      unregister();
+    }
+  });
+
   it("reports when a supplied query matches no workspace apps", async () => {
     discoverAgents.mockResolvedValue([agent()]);
     discoverAgentsWithDirectoryStatus.mockResolvedValue({
@@ -282,6 +307,46 @@ describe("describe-workspace-apps", () => {
     const output = await run({ app: "analytics" }, undefined, "coach");
 
     expect(output).toContain("Agent-Native analytics agent");
+  });
+
+  it("shows the authored when-to-use guidance the ranking matched on", async () => {
+    discoverAgents.mockResolvedValue([
+      agent({
+        id: "cs-account-health",
+        name: "CS Account Health",
+        description: "Customer success dashboard: account health and usage.",
+        whenToUse: [
+          "Look up AI credit usage for a customer account or user email.",
+          "Review renewal risk, ARR at risk, and open support escalations for a named customer account before a QBR or renewal call.",
+          "Summarize recent Gong calls and HubSpot activity for a customer account ahead of an executive check-in with that customer.",
+        ],
+      }),
+      agent({
+        id: "adoption-kpis",
+        name: "Adoption KPIs",
+        description: "Workspace app for Adoption KPIs.",
+      }),
+    ]);
+
+    const summary = await run(
+      { query: "agent credits used by a customer user email" },
+      undefined,
+      "dispatch",
+    );
+    findAgent.mockResolvedValue(
+      (await discoverAgents()).find(
+        (peer: DiscoveredAgent) => peer.id === "cs-account-health",
+      ),
+    );
+    const detail = await run({ app: "cs-account-health" }, undefined, "coach");
+
+    const guidance =
+      "When to use: Look up AI credit usage for a customer account or user email.";
+    expect(summary).toContain(guidance);
+    expect(detail).toContain(guidance);
+    // Later entries must survive past the 240-character description budget.
+    expect(summary).toContain("executive check-in with that customer.");
+    expect(detail).toContain("executive check-in with that customer.");
   });
 
   it("lists the real app ids when the requested app does not exist", async () => {

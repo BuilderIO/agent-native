@@ -2,12 +2,16 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const {
+  AGENT_SIDEBAR_MIN_WIDTH,
+  AGENT_SIDEBAR_WIDTH_STEP,
   consumeAgentSidebarUrlOpenOverride,
   clampAgentSidebarWidth,
   dispatchAgentSidebarStateChange,
   getAgentSidebarMaxWidth,
+  getAgentSidebarState,
   getAgentSidebarOpenPreferenceKey,
   getAgentSidebarWideWidth,
+  snapAgentSidebarWidth,
   getInitialAgentSidebarOpen,
   hasChatThreadDeepLink,
   requestAgentSidebarOpen,
@@ -91,14 +95,28 @@ describe("agent sidebar width presets", () => {
     expect(getAgentSidebarWideWidth(1024)).toBe(768);
   });
 
-  it("keeps the existing 700px drag ceiling below the wide preset", () => {
-    expect(getAgentSidebarMaxWidth(800)).toBe(700);
+  it("keeps the wide preset on the 8px grid", () => {
+    expect(getAgentSidebarWideWidth(1000)).toBe(744);
+    expect(getAgentSidebarWideWidth(1366)).toBe(1024);
+    expect(snapAgentSidebarWidth(381)).toBe(384);
+    expect(snapAgentSidebarWidth(379)).toBe(376);
+  });
+
+  it("keeps the 704px drag ceiling below the wide preset", () => {
+    expect(getAgentSidebarMaxWidth(800)).toBe(704);
     expect(getAgentSidebarMaxWidth(1440)).toBe(1080);
   });
 
   it("clamps manual widths to the responsive maximum", () => {
     expect(clampAgentSidebarWidth(1200, 1024)).toBe(768);
-    expect(clampAgentSidebarWidth(100, 1440)).toBe(280);
+    expect(clampAgentSidebarWidth(100, 1440)).toBe(320);
+  });
+});
+
+describe("agent sidebar width floor", () => {
+  it("keeps the floor on the 8px grid", () => {
+    expect(AGENT_SIDEBAR_MIN_WIDTH).toBe(320);
+    expect(AGENT_SIDEBAR_MIN_WIDTH % AGENT_SIDEBAR_WIDTH_STEP).toBe(0);
   });
 });
 
@@ -497,5 +515,20 @@ describe("dispatchAgentSidebarStateChange", () => {
     });
 
     window.removeEventListener(SIDEBAR_STATE_CHANGE_EVENT, listener);
+  });
+
+  it("remembers the last announced state for controls that mount later", () => {
+    dispatchAgentSidebarStateChange({ open: true, source: "app", mode: "app" });
+    expect(getAgentSidebarState()).toEqual({
+      open: true,
+      source: "app",
+      mode: "app",
+    });
+    dispatchAgentSidebarStateChange({
+      open: false,
+      source: "app",
+      mode: "app",
+    });
+    expect(getAgentSidebarState()?.open).toBe(false);
   });
 });

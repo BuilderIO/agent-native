@@ -11,6 +11,7 @@ import path from "node:path";
 
 import {
   expect,
+  test,
   type APIRequestContext,
   type BrowserContext,
   type Page,
@@ -21,6 +22,7 @@ import {
 } from "@playwright/test";
 import type { Editor } from "@tiptap/core";
 
+import { COLLAB_OUTBOX_PREFIXES } from "../../../packages/core/src/collab/outbox-keys";
 import { AUTH_FILES } from "./auth-files";
 import {
   appendFixtureInput,
@@ -37,7 +39,7 @@ import {
 
 export const ACTION_HEADERS = {
   "X-Agent-Native-Frontend": "1",
-  "X-Agent-Native-Client-Compatibility": "content-spaces-v1",
+  "X-Agent-Native-Client-Compatibility": "content-video-block-ids-v1",
   "X-Agent-Native-Build-Id": "development",
 };
 
@@ -76,7 +78,6 @@ const SESSION_PATH = "/_agent-native/auth/session";
 const EVENTS_PATH = "/_agent-native/events";
 const POLL_PATH = "/_agent-native/poll";
 const COLLAB_UPDATE_PATH = /^\/_agent-native\/collab\/[^/]+\/update$/;
-export const OUTBOX_PREFIX = "agent-native-collab-outbox-v1:";
 
 /**
  * The request that saves a tab's typing. A legacy page saves its whole body
@@ -180,7 +181,11 @@ export async function signInAccount(
  * mints it first, as the app's client does before its writes.
  */
 export async function presentUiCapability(page: Page): Promise<void> {
-  const response = await page.request.get("/_agent-native/ui-capability");
+  const response = await page.request.get("/_agent-native/ui-capability", {
+    headers: {
+      Origin: new URL(test.info().project.use.baseURL ?? page.url()).origin,
+    },
+  });
   expect(response.ok(), `ui-capability (${response.status()})`).toBe(true);
 }
 
@@ -189,10 +194,15 @@ export async function postAction<T = Record<string, unknown>>(
   name: string,
   data: Record<string, unknown>,
   headers: Record<string, string> = ACTION_HEADERS,
+  baseURL?: string,
 ): Promise<T> {
   const response = await page.request.post(`/_agent-native/actions/${name}`, {
     data,
-    headers,
+    headers: {
+      Origin: new URL(baseURL ?? test.info().project.use.baseURL ?? page.url())
+        .origin,
+      ...headers,
+    },
   });
   const text = await response.text();
   expect(response.ok(), `${name} (${response.status()}): ${text}`).toBe(true);
@@ -211,7 +221,10 @@ export async function postUiAction(
   data: Record<string, unknown>,
 ) {
   const capability = await page.request.get("/_agent-native/ui-capability", {
-    headers: ACTION_HEADERS,
+    headers: {
+      ...ACTION_HEADERS,
+      Origin: new URL(test.info().project.use.baseURL ?? page.url()).origin,
+    },
   });
   expect(
     capability.ok(),
@@ -794,11 +807,16 @@ export class TabSet {
     for (const [page, record] of this.tabs) {
       if (page.isClosed()) continue;
       const state = await page
-        .evaluate((prefix) => {
+        .evaluate((prefixes) => {
           let outbox = 0;
           for (let index = 0; index < localStorage.length; index++) {
             const key = localStorage.key(index);
-            if (key?.startsWith(prefix) && localStorage.getItem(key)) outbox++;
+            if (
+              key &&
+              prefixes.some((prefix) => key.startsWith(prefix)) &&
+              localStorage.getItem(key)
+            )
+              outbox++;
           }
           const pending = (globalThis as { __pendingSaves?: unknown })
             .__pendingSaves;
@@ -806,7 +824,7 @@ export class TabSet {
             pending: typeof pending === "number" ? pending : null,
             outbox,
           };
-        }, OUTBOX_PREFIX)
+        }, COLLAB_OUTBOX_PREFIXES)
         .catch((error: unknown) => String(error).slice(0, 120));
       if (typeof state === "string")
         unsettled.push(`${record.label}: unreadable (${state})`);
@@ -1236,22 +1254,85 @@ export async function outboxEntries(
   documentId: string,
 ): Promise<string[]> {
   return page.evaluate(
-    ({ prefix, doc }) => {
+    ({ prefixes, documentId }) => {
       const keys: string[] = [];
       for (let index = 0; index < localStorage.length; index++) {
         const key = localStorage.key(index);
-        if (
-          key?.startsWith(prefix) &&
-          key.includes(doc) &&
-          localStorage.getItem(key)
-        )
-          keys.push(key);
+        const prefix = prefixes.find((candidate) => key?.startsWith(candidate));
+        if (!key || !prefix || !localStorage.getItem(key)) continue;
+        // A key is the prefix, encodeURIComponent(`${baseUrl}\0${docId}\0${actor}`),
+        // then `:${email}:${owner}`; older clients left out the actor. The
+        // encoding escapes `:`, so the registry key ends at the first one, and
+        // only its doc segment may match: the actor can look like a doc id.
+        // A key whose doc segment cannot be found holds updates nobody can
+        // place, so it fails rather than reading as another page's.
+        const registryKey = key.slice(prefix.length).split(":", 1)[0] ?? "";
+        const formatChanged = () =>
+          new Error(
+            `Outbox key ${key} has no page id where the collab client puts it; the collab client's outbox key format changed.`,
+          );
+        let segments: string[];
+        try {
+          segments = decodeURIComponent(registryKey).split("\0");
+        } catch {
+          throw formatChanged();
+        }
+        const pageId = segments[1];
+        if (!pageId) throw formatChanged();
+        if (pageId === documentId) keys.push(key);
       }
       return keys;
     },
-    // A key names the doc as encodeURIComponent(`${baseUrl}\0${docId}`).
-    { prefix: OUTBOX_PREFIX, doc: `%00${encodeURIComponent(documentId)}:` },
+    { prefixes: COLLAB_OUTBOX_PREFIXES, documentId },
   );
+}
+
+/**
+ * Makes the page's next outbox write throw a quota error, once. The page's
+ * `__outboxSetItemFailed` turns true when that write was attempted, and stays
+ * readable after `restore` puts the original setItem back.
+ */
+export async function failNextOutboxWrite(
+  page: Page,
+): Promise<{ restore: () => Promise<void> }> {
+  await page.evaluate((prefixes) => {
+    const flags = window as unknown as {
+      __outboxOriginalSetItem?: Storage["setItem"];
+      __outboxSetItemFailed?: boolean;
+    };
+    // A second patch would save the first patch as the "original".
+    if (flags.__outboxOriginalSetItem)
+      throw new Error("An outbox write failure is already installed.");
+    const original = Storage.prototype.setItem;
+    flags.__outboxOriginalSetItem = original;
+    flags.__outboxSetItemFailed = false;
+    Storage.prototype.setItem = function (key: string, value: string) {
+      if (
+        !flags.__outboxSetItemFailed &&
+        prefixes.some((prefix) => key.startsWith(prefix))
+      ) {
+        flags.__outboxSetItemFailed = true;
+        throw new DOMException(
+          "Simulated one-time outbox write failure",
+          "QuotaExceededError",
+        );
+      }
+      return original.call(this, key, value);
+    };
+  }, COLLAB_OUTBOX_PREFIXES);
+  return {
+    restore: () =>
+      page.evaluate(() => {
+        const flags = window as unknown as {
+          __outboxOriginalSetItem?: Storage["setItem"];
+        };
+        const original = flags.__outboxOriginalSetItem;
+        if (!original)
+          throw new Error("No outbox write failure is installed to restore.");
+        Storage.prototype.setItem = original;
+        delete flags.__outboxOriginalSetItem;
+      }),
+  };
 }
 
 export function delay(ms: number): Promise<void> {

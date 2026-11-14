@@ -7,13 +7,15 @@ import {
   SqlQueryRefusalError,
   supportsSqlQueryCacheBypass,
   type SqlQueryExecutionMetadata,
+  type BigQueryUsageAccounting,
 } from "@shared/sql-query-contract";
 import {
   MAX_CONCURRENT_FIRST_PARTY_SQL_QUERIES,
   MAX_CONCURRENT_SQL_QUERIES,
 } from "@shared/sql-query-limits";
+import type { TrafficEnvironment } from "@shared/traffic-environment";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef } from "react";
+import { createContext, useContext, useEffect, useRef } from "react";
 
 import type { DataSourceType } from "@/pages/adhoc/sql-dashboard/types";
 
@@ -45,8 +47,16 @@ export interface SqlQueryResult extends Omit<
   bytesRead?: number;
 }
 
+/**
+ * The traffic a dashboard is showing. Its charts, drilldowns and row breakdowns
+ * all read it here, so none of them can show a number from different traffic.
+ */
+export const TrafficEnvironmentContext = createContext<
+  TrafficEnvironment | undefined
+>(undefined);
+
 /** Why a query runs; the server applies the matching billed-byte cap. */
-export type SqlQueryPurpose = "row-breakdown";
+export type SqlQueryPurpose = "row-breakdown" | "panel-drilldown";
 
 type PendingSqlQuerySlot = {
   resolve: (release: () => void) => void;
@@ -193,17 +203,27 @@ function logSqlQueryTiming(timing: {
 }
 
 function responseMetadata(data: DashboardPanelQueryResponse): {
+  usageAccounting?: BigQueryUsageAccounting;
   cached?: boolean;
   providerCacheHit?: boolean;
   truncated?: boolean;
+  partial?: boolean;
   fetchedAt?: string;
 } {
   const metadata: ReturnType<typeof responseMetadata> = {};
+  if (data.usageAccounting !== undefined)
+    metadata.usageAccounting = data.usageAccounting;
   if (typeof data.cached === "boolean") metadata.cached = data.cached;
   if (typeof data.providerCacheHit === "boolean") {
     metadata.providerCacheHit = data.providerCacheHit;
   }
   if (typeof data.truncated === "boolean") metadata.truncated = data.truncated;
+  // Provider warnings can cut results short without setting the row-limit flag.
+  // Use the same incomplete signal so snapshots cannot restore them as complete.
+  if (data.partial === true) {
+    metadata.partial = true;
+    metadata.truncated = true;
+  }
   if (data.fetchedAt !== undefined) {
     if (
       typeof data.fetchedAt === "string" &&
@@ -226,6 +246,7 @@ export async function executeSqlQuery(
     reportScreenshot?: boolean;
     forceRefresh?: boolean;
     purpose?: SqlQueryPurpose;
+    environment?: TrafficEnvironment;
   },
 ): Promise<SqlQueryResult> {
   const startedAt = performance.now();
@@ -254,6 +275,7 @@ export async function executeSqlQuery(
         source,
         ...(forceRefresh ? { forceRefresh: true } : {}),
         ...(options?.purpose ? { purpose: options.purpose } : {}),
+        ...(options?.environment ? { environment: options.environment } : {}),
       },
       {
         signal: deadline.signal,
@@ -314,12 +336,14 @@ export async function executeSqlQuery(
   }
 
   const metadata = responseMetadata(data);
-  recordQueryCost({
-    status: "success",
-    cached: metadata.cached,
-    providerCacheHit: metadata.providerCacheHit,
-    bytesProcessed: data.bytesProcessed,
-  });
+  if (scansBigQuery(source)) {
+    recordQueryCost({
+      status: "success",
+      cached: metadata.cached,
+      providerCacheHit: metadata.providerCacheHit,
+      bytesProcessed: data.bytesProcessed,
+    });
+  }
   // "none" is a claim that both layers missed; a response that does not say
   // so for each layer is unknown, never a miss.
   cacheType = metadata.cached
@@ -384,6 +408,13 @@ export function useSqlQuery(
      * explicit `refreshToken` refresh does. Ignored when `staleTime` is set.
      */
     reuseCompletedOnEnable?: boolean;
+    /**
+     * Treats a `partial` result as stale at once, so mounting or enabling the
+     * query again reruns it. Only for views a user opens on demand: a query
+     * enabled by viewport visibility would rescan a partial panel every time
+     * it scrolls back into view. Ignored when `staleTime` is set.
+     */
+    rerunPartial?: boolean;
     purpose?: SqlQueryPurpose;
     /**
      * Saves each successful result in this tab's session storage and, after a
@@ -404,7 +435,10 @@ export function useSqlQuery(
   const accountScope = sessionReady
     ? dashboardCacheScope(session)
     : DASHBOARD_SESSION_LOADING_SCOPE;
-  const scopedQueryKey = [...queryKey, accountScope];
+  const dashboardTraffic = useContext(TrafficEnvironmentContext);
+  const environment = source === "first-party" ? dashboardTraffic : undefined;
+  const trafficKey = environment ? [environment] : [];
+  const scopedQueryKey = [...queryKey, ...trafficKey, accountScope];
   const retainScope = options?.retainPreviousScope;
   const queryKeyHash = JSON.stringify(scopedQueryKey);
   const lastShown = useRef<{
@@ -456,12 +490,13 @@ export function useSqlQuery(
   }
   const previousRefreshToken = useRef(refreshToken);
   const previousEnabled = useRef(enabled);
-  const snapshotKey = JSON.stringify([queryKey, sql, source]);
+  const snapshotKey = JSON.stringify([queryKey, sql, source, ...trafficKey]);
   const restoredCopy = useRef<{
     id: string;
     result: SqlQueryResult | null;
   } | null>(null);
   const queryClient = useQueryClient();
+  const freshFor = options?.reuseCompletedOnEnable ? Infinity : 5 * 60 * 1000;
   const query = useQuery<SqlQueryResult>({
     queryKey: scopedQueryKey,
     queryFn: async ({ signal }) => {
@@ -476,6 +511,7 @@ export function useSqlQuery(
           reportScreenshot: options?.reportScreenshot,
           forceRefresh,
           ...(options?.purpose ? { purpose: options.purpose } : {}),
+          ...(environment ? { environment } : {}),
         });
       } catch (error) {
         if (isSqlQueryAccessDenied(error)) {
@@ -517,7 +553,17 @@ export function useSqlQuery(
       if (manualRequested && pendingManualRefresh.current === manual) {
         pendingManualRefresh.current = null;
       }
-      if (manual && forceRefresh && !manual.failed && !signal.aborted) {
+      // A background data program answers a forced refresh with its last
+      // rows while the new run goes on, so only its fresh rows say
+      // "Refreshed". (BigQuery marks rows cached when a forced refresh joins
+      // one already running, and those rows are new.)
+      if (
+        manual &&
+        forceRefresh &&
+        !manual.failed &&
+        !signal.aborted &&
+        !(source === "program" && result.cached === true)
+      ) {
         completedManualRefresh.current = {
           token: manual.token,
           queryKeyHash,
@@ -536,7 +582,7 @@ export function useSqlQuery(
     },
     enabled,
     refetchInterval: options?.refetchInterval,
-    refetchOnMount: options?.refetchOnMount ?? false,
+    refetchOnMount: options?.refetchOnMount ?? Boolean(options?.rerunPartial),
     refetchOnReconnect: options?.refetchOnReconnect ?? false,
     refetchOnWindowFocus: options?.refetchOnWindowFocus ?? false,
     retry: (failureCount, error) => {
@@ -546,7 +592,9 @@ export function useSqlQuery(
     },
     staleTime:
       options?.staleTime ??
-      (options?.reuseCompletedOnEnable ? Infinity : 5 * 60 * 1000),
+      (options?.rerunPartial
+        ? (cached) => (cached.state.data?.partial ? 0 : freshFor)
+        : freshFor),
   });
   const refetch = query.refetch;
   const accessDenied = isSqlQueryAccessDenied(query.error);

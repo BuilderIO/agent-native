@@ -1,5 +1,6 @@
 import { useAgentChatGenerating } from "@agent-native/core/client/agent-chat";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   appendSignatureToBody,
   splitAppendedSignature,
@@ -16,6 +17,7 @@ import {
   IconPaperclip,
   IconChevronDown,
   IconDots,
+  IconExternalLink,
   IconLoader2,
   IconTrash,
   IconPlus,
@@ -44,7 +46,10 @@ import {
 } from "@/components/ui/tooltip";
 import { useAccountFilter } from "@/hooks/use-account-filter";
 import { useAliases } from "@/hooks/use-aliases";
-import { FOCUS_COMPOSE_DRAFT_EVENT } from "@/hooks/use-compose-state";
+import {
+  draftRevisionPromptArg,
+  FOCUS_COMPOSE_DRAFT_EVENT,
+} from "@/hooks/use-compose-state";
 import { useUpdateQueuedDraft } from "@/hooks/use-draft-queue";
 import {
   useSendEmail,
@@ -57,6 +62,10 @@ import { useScheduleEmail } from "@/hooks/use-scheduled-jobs";
 import { canUseAgentGenerate } from "@/lib/agent-generate";
 import { expandAliasTokens } from "@/lib/alias-utils";
 import { openFilePicker, uploadFile, uploadFiles } from "@/lib/upload";
+import {
+  toastStorageSetupFailure,
+  toastUploadFailure,
+} from "@/lib/upload-toast";
 import { cn } from "@/lib/utils";
 
 import { AttachmentStrip } from "./AttachmentStrip";
@@ -206,6 +215,9 @@ interface ComposeModalProps {
   onFlush: (id: string) => Promise<unknown> | undefined;
   onRegisterComposeCommands?: (commands: ComposePaletteCommands | null) => void;
   onInitialExpandedConsumed?: () => void;
+  presentation?: "window" | "card";
+  // A card edits the draft and hands it to Mail, which sends it.
+  onSendInMail?: () => void;
 }
 
 function shouldStartComposeExpanded(initialExpanded: boolean) {
@@ -228,10 +240,13 @@ export function ComposeModal({
   onFlush,
   onRegisterComposeCommands,
   onInitialExpandedConsumed,
+  presentation = "window",
+  onSendInMail,
 }: ComposeModalProps) {
   const t = useT();
   const formatters = useFormatters();
   const isMobile = useIsMobile();
+  const isCard = presentation === "card";
   const [minimized, setMinimized] = useState(false);
   const [isExpanded, setIsExpanded] = useState(
     shouldStartComposeExpanded(initialExpanded),
@@ -268,6 +283,7 @@ export function ComposeModal({
 
   const [sidebarRight, setSidebarRight] = useState(16);
   useEffect(() => {
+    if (isCard) return;
     function measure() {
       const panel = document.querySelector(".agent-sidebar-panel");
       const panelWidth = panel ? panel.getBoundingClientRect().width + 6 : 0;
@@ -286,7 +302,7 @@ export function ComposeModal({
       observer.disconnect();
       window.removeEventListener("resize", measure);
     };
-  }, []);
+  }, [isCard]);
 
   const [isGenerating, sendToAgent] = useAgentChatGenerating();
   const sendEmail = useSendEmail();
@@ -340,6 +356,11 @@ export function ComposeModal({
     setShowQuoted(false);
   }, [activeId]);
 
+  // A card is where someone checks an agent's draft before it goes out, so it
+  // shows every recipient the draft already has.
+  const showCc = showCcBcc || (isCard && Boolean(activeDraft?.cc));
+  const showBcc = showCcBcc || (isCard && Boolean(activeDraft?.bcc));
+
   useEffect(() => {
     const currentDraftIds = new Set(drafts.map((draft) => draft.id));
     for (const draft of drafts) {
@@ -362,7 +383,7 @@ export function ComposeModal({
 
   useEffect(() => {
     const draftId = focusNewDraftIdRef.current;
-    if (!draftId || draftId !== activeDraft?.id || minimized) return;
+    if (!draftId || draftId !== activeDraft?.id || minimized || isCard) return;
     focusNewDraftIdRef.current = null;
 
     const focusTimer = setTimeout(() => {
@@ -375,13 +396,16 @@ export function ComposeModal({
     }, 0);
 
     return () => clearTimeout(focusTimer);
-  }, [activeDraft?.id, minimized]);
+  }, [activeDraft?.id, minimized, isCard]);
 
+  // A card in a chat waits for a click; focusing it would scroll the chat or
+  // open the phone keyboard as the card appears.
   useEffect(() => {
+    if (isCard) return;
     if (activeDraft?.mode && activeDraft.mode !== "compose") {
       setTimeout(() => editorRef.current?.getEditor()?.commands.focus(), 100);
     }
-  }, [activeDraft?.mode, activeId]);
+  }, [activeDraft?.mode, activeId, isCard]);
 
   useEffect(() => {
     if (!initialExpanded || !activeDraft) return;
@@ -406,6 +430,10 @@ export function ComposeModal({
     if (sendingIdsRef.current.has(activeId)) return;
     if (hasUncommittedRecipientText()) {
       toast.error(t("mail.toasts.finishRecipientInput"));
+      return;
+    }
+    if (isCard) {
+      onSendInMail?.();
       return;
     }
     if (!activeDraft.to.trim()) {
@@ -496,9 +524,11 @@ export function ComposeModal({
             });
           }
         })
-        .catch(() => {
+        .catch((error) => {
           toast.dismiss(sendingToastId);
-          toast.error(t("mail.toasts.failedToSendEmail"));
+          reportWriteFailure(error, {
+            label: t("mail.toasts.failedToSendEmail"),
+          });
           onRestoreAfterSend(sendingId);
         });
     }, SEND_UNDO_WINDOW_MS);
@@ -530,7 +560,7 @@ export function ComposeModal({
   }, [hasActiveDraft, minimized, onRegisterComposeCommands]);
 
   const handleSendLater = async (runAt: number) => {
-    if (!activeDraft || !activeId || schedulingRef.current) return;
+    if (!activeDraft || !activeId || schedulingRef.current || isCard) return;
     if (hasUncommittedRecipientText()) {
       toast.error(t("mail.toasts.finishRecipientInput"));
       return;
@@ -565,6 +595,8 @@ export function ComposeModal({
       const currentDraft = draftsRef.current.find(
         (draft) => draft.id === schedulingId,
       );
+      // An edit made while scheduling stays open as a draft, so only the
+      // toast says the earlier version is scheduled.
       if (currentDraft && isSameScheduledDraft(currentDraft, draftSnapshot)) {
         onDiscard(schedulingId);
       }
@@ -577,8 +609,10 @@ export function ComposeModal({
         minute: "2-digit",
       });
       toast(t("mail.sendLater.scheduledFor", { date: scheduledDate }));
-    } catch {
-      toast.error(t("mail.toasts.failedToScheduleEmailDraftKeptOpen"));
+    } catch (error) {
+      reportWriteFailure(error, {
+        label: t("mail.toasts.failedToScheduleEmailDraftKeptOpen"),
+      });
     } finally {
       schedulingRef.current = false;
     }
@@ -684,7 +718,7 @@ export function ComposeModal({
       e.preventDefault();
       void handleSend(e.shiftKey);
     }
-    if (e.key === "Escape") {
+    if (e.key === "Escape" && !isCard) {
       e.preventDefault();
       if (activeId) onClose(activeId);
     }
@@ -725,7 +759,7 @@ export function ComposeModal({
     const draftContext = context || "(empty draft)";
     sendToAgent({
       message: generatePrompt.trim(),
-      context: `The user is composing an email in Agent-Native Mail. Use the draft snapshot below as the source of truth, then update the existing draft by calling manage-draft with action "update", id "${activeId}", and the revised Markdown body. Do not only reply with the revised content; the Mail draft must be updated through the tool. Preserve recipients and subject unless the user explicitly asks to change them.\n\nDrafting rules:\n- Use the configured signature exactly when one is present, and do not duplicate it if it is already in the draft.\n- If no configured signature is present, do not invent or derive a sign-off from the user's name or email address.\n- Use Markdown only. Keep the copy natural, specific, and free of generic AI email filler unless the user asks for a formal template.\n\n${draftContext}`,
+      context: `The user is composing an email in Agent-Native Mail. Use the draft snapshot below as the source of truth, then update the existing draft by calling manage-draft with action "update", id "${activeId}"${draftRevisionPromptArg(activeId)}, and the revised Markdown body. Do not only reply with the revised content; the Mail draft must be updated through the tool. Preserve recipients and subject unless the user explicitly asks to change them.\n\nDrafting rules:\n- Use the configured signature exactly when one is present, and do not duplicate it if it is already in the draft.\n- If no configured signature is present, do not invent or derive a sign-off from the user's name or email address.\n- Use Markdown only. Keep the copy natural, specific, and free of generic AI email filler unless the user asks for a formal template.\n\n${draftContext}`,
       submit: true,
     });
 
@@ -750,6 +784,15 @@ export function ComposeModal({
     onUpdate(activeId, partial);
   };
 
+  const storageSetupLabels = {
+    builderRefused: t("mail.toasts.storageBuilderRefused"),
+    storageRefused: t("mail.toasts.storageRefused"),
+    storageNotConfigured: t("mail.toasts.storageNotConfigured"),
+    openStorageSettings: t("mail.toasts.openStorageSettings"),
+    reconnectBuilder: t("mail.toasts.reconnectBuilderStorage"),
+    useOwnStorage: t("mail.toasts.useOwnStorage"),
+  };
+
   const handleAttachFiles = async (files: File[]) => {
     if (!activeId || !activeDraft || files.length === 0) return;
     try {
@@ -757,10 +800,10 @@ export function ComposeModal({
       const existing = activeDraft.attachments ?? [];
       onUpdate(activeId, { attachments: [...existing, ...attachments] });
     } catch (error) {
-      toast.error(
-        error instanceof Error
-          ? error.message
-          : t("mail.toasts.failedToAttachFile"),
+      toastUploadFailure(
+        error,
+        t("mail.toasts.failedToAttachFile"),
+        storageSetupLabels,
       );
     }
   };
@@ -770,7 +813,11 @@ export function ComposeModal({
       const result = await uploadFile(file);
       return result.url;
     } catch (err) {
-      toast.error(t("mail.toasts.failedToUploadImage"));
+      if (!toastStorageSetupFailure(err, storageSetupLabels)) {
+        reportWriteFailure(err, {
+          label: t("mail.toasts.failedToUploadImage"),
+        });
+      }
       throw err;
     }
   };
@@ -821,6 +868,8 @@ export function ComposeModal({
           ? t("mail.compose.forward")
           : t("mail.compose.newMessage")
     : t("mail.compose.newMessage");
+  // The draft card shows the thread's subject above a reply.
+  const showSubject = !(isCard && activeDraft?.mode === "reply");
 
   const composeStyle = {
     right: isMobile ? 0 : sidebarRight,
@@ -831,121 +880,97 @@ export function ComposeModal({
     <div
       ref={composeRef}
       className={cn(
-        "compose-window fixed z-50 flex w-full flex-col bg-card sm:rounded-t-xl",
-        minimized
-          ? "bottom-0 h-11 rounded-t-xl sm:w-[540px]"
-          : isExpanded
-            ? "top-0 bottom-0 h-auto rounded-none sm:top-4 sm:bottom-4 sm:w-[min(960px,calc(100vw-var(--compose-right)-1rem))] sm:rounded-xl"
-            : "bottom-0 h-[100dvh] sm:h-[min(540px,_calc(100dvh_-_2rem))] md:w-[min(490px,_calc(100vw_-_var(--compose-right)_-_1rem))] sm:rounded-xl",
+        isCard
+          ? "flex min-h-0 w-full flex-1 flex-col overflow-hidden rounded-lg bg-card dark:bg-[var(--mail-message-surface)]"
+          : "compose-window fixed z-50 flex w-full flex-col bg-card sm:rounded-t-xl",
+        isCard
+          ? !activeDraft && "hidden"
+          : minimized
+            ? "bottom-0 h-11 rounded-t-xl sm:w-[540px]"
+            : isExpanded
+              ? "top-0 bottom-0 h-auto rounded-none sm:top-4 sm:bottom-4 sm:w-[min(960px,calc(100vw-var(--compose-right)-1rem))] sm:rounded-xl"
+              : "bottom-0 h-[100dvh] sm:h-[min(540px,_calc(100dvh_-_2rem))] md:w-[min(490px,_calc(100vw_-_var(--compose-right)_-_1rem))] sm:rounded-xl",
       )}
       data-mail-compose
-      style={composeStyle}
+      style={isCard ? undefined : composeStyle}
       onKeyDown={handleKeyDown}
-      onDragOverCapture={handleDragOver}
-      onDropCapture={handleDrop}
+      onDragOverCapture={isCard ? undefined : handleDragOver}
+      onDropCapture={isCard ? undefined : handleDrop}
     >
       {/* Title bar with inline tabs */}
-      <div className="flex h-11 shrink-0 items-center sm:rounded-t-xl px-2 gap-0">
-        {/* Left side: tabs (or single title) */}
-        <div className="flex flex-1 items-center min-w-0 overflow-x-auto hide-scrollbar gap-0.5">
-          {drafts.length <= 1 ? (
-            <span
-              data-an-mask
-              className="text-sm font-semibold text-foreground px-2 truncate"
-            >
-              {title}
-            </span>
-          ) : (
-            drafts.map((draft) => {
-              const isActive = draft.id === activeId;
-              const label =
-                draft.subject?.trim() ||
-                (draft.queuedDraftId
-                  ? t("mail.compose.queuedDraft")
-                  : draft.mode === "reply"
-                    ? t("mail.compose.reply")
-                    : draft.mode === "forward"
-                      ? t("mail.compose.forward")
-                      : t("mail.compose.newMessage"));
-              return (
-                <button
-                  key={draft.id}
-                  onClick={() => onSetActiveId(draft.id)}
-                  className={cn(
-                    "group flex items-center gap-1 rounded-md px-2 py-1 text-[12px] max-w-[140px] shrink-0 transition-colors",
-                    isActive
-                      ? "bg-accent/60 text-foreground font-medium"
-                      : "text-muted-foreground hover:text-foreground hover:bg-accent/30",
-                  )}
-                >
-                  <span data-an-mask className="truncate">
-                    {label}
-                  </span>
-                  <span
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      onClose(draft.id);
-                    }}
+      {!isCard && (
+        <div className="flex h-11 shrink-0 items-center sm:rounded-t-xl px-2 gap-0">
+          {/* Left side: tabs (or single title) */}
+          <div className="flex flex-1 items-center min-w-0 overflow-x-auto hide-scrollbar gap-0.5">
+            {drafts.length <= 1 ? (
+              <span
+                data-an-mask
+                className="text-sm font-semibold text-foreground px-2 truncate"
+              >
+                {title}
+              </span>
+            ) : (
+              drafts.map((draft) => {
+                const isActive = draft.id === activeId;
+                const label =
+                  draft.subject.trim() ||
+                  (draft.queuedDraftId
+                    ? t("mail.compose.queuedDraft")
+                    : draft.mode === "reply"
+                      ? t("mail.compose.reply")
+                      : draft.mode === "forward"
+                        ? t("mail.compose.forward")
+                        : t("mail.compose.newMessage"));
+                return (
+                  <button
+                    key={draft.id}
+                    onClick={() => onSetActiveId(draft.id)}
                     className={cn(
-                      "shrink-0 rounded-sm p-0.5 transition-colors",
+                      "group flex items-center gap-1 rounded-md px-2 py-1 text-[12px] max-w-[140px] shrink-0 transition-colors",
                       isActive
-                        ? "hover:bg-foreground/10"
-                        : "opacity-0 group-hover:opacity-100 hover:bg-foreground/10",
+                        ? "bg-accent/60 text-foreground font-medium"
+                        : "text-muted-foreground hover:text-foreground hover:bg-accent/30",
                     )}
                   >
-                    <IconX className="h-2.5 w-2.5" />
-                  </span>
+                    <span data-an-mask className="truncate">
+                      {label}
+                    </span>
+                    <span
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onClose(draft.id);
+                      }}
+                      className={cn(
+                        "shrink-0 rounded-sm p-0.5 transition-colors",
+                        isActive
+                          ? "hover:bg-foreground/10"
+                          : "opacity-0 group-hover:opacity-100 hover:bg-foreground/10",
+                      )}
+                    >
+                      <IconX className="h-2.5 w-2.5" />
+                    </span>
+                  </button>
+                );
+              })
+            )}
+            {/* + button: always visible, right after title/tabs */}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  aria-label={t("mail.compose.newDraft")}
+                  onClick={onNewDraft}
+                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent/30 transition-colors"
+                >
+                  <IconPlus className="h-3 w-3" />
                 </button>
-              );
-            })
-          )}
-          {/* + button: always visible, right after title/tabs */}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                aria-label={t("mail.compose.newDraft")}
-                onClick={onNewDraft}
-                className="flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground/50 hover:text-foreground hover:bg-accent/30 transition-colors"
-              >
-                <IconPlus className="h-3 w-3" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>{t("mail.compose.newDraft")}</TooltipContent>
-          </Tooltip>
-        </div>
+              </TooltipTrigger>
+              <TooltipContent>{t("mail.compose.newDraft")}</TooltipContent>
+            </Tooltip>
+          </div>
 
-        {/* Right side: minimize & close */}
-        <div className="flex items-center gap-1 shrink-0 ml-1">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                aria-label={
-                  minimized
-                    ? t("mail.compose.restoreCompose")
-                    : t("mail.compose.minimizeCompose")
-                }
-                onClick={() => {
-                  animateComposeLayout(() => {
-                    setIsExpanded(false);
-                    if (!minimized) setScheduleOpen(false);
-                    setMinimized(!minimized);
-                  });
-                }}
-              >
-                <IconMinus className="h-3.5 w-3.5" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>
-              {minimized
-                ? t("mail.compose.restore")
-                : t("mail.compose.minimize")}
-            </TooltipContent>
-          </Tooltip>
-          {!minimized && (
+          {/* Right side: minimize & close */}
+          <div className="flex items-center gap-1 shrink-0 ml-1">
             <Tooltip>
               <TooltipTrigger asChild>
                 <Button
@@ -953,44 +978,74 @@ export function ComposeModal({
                   size="icon"
                   className="h-7 w-7 text-muted-foreground hover:text-foreground"
                   aria-label={
-                    isExpanded
-                      ? t("mail.compose.restoreComposeSize")
-                      : t("mail.compose.fullScreenCompose")
+                    minimized
+                      ? t("mail.compose.restoreCompose")
+                      : t("mail.compose.minimizeCompose")
                   }
-                  aria-pressed={isExpanded}
                   onClick={() => {
                     animateComposeLayout(() => {
-                      setMinimized(false);
-                      setIsExpanded((value) => !value);
+                      setIsExpanded(false);
+                      if (!minimized) setScheduleOpen(false);
+                      setMinimized(!minimized);
                     });
                   }}
                 >
-                  {isExpanded ? (
-                    <IconArrowsMinimize className="h-3.5 w-3.5" />
-                  ) : (
-                    <IconArrowsMaximize className="h-3.5 w-3.5" />
-                  )}
+                  <IconMinus className="h-3.5 w-3.5" />
                 </Button>
               </TooltipTrigger>
               <TooltipContent>
-                {isExpanded
-                  ? t("mail.compose.restoreSize")
-                  : t("mail.compose.fullScreen")}
+                {minimized
+                  ? t("mail.compose.restore")
+                  : t("mail.compose.minimize")}
               </TooltipContent>
             </Tooltip>
-          )}
-          <Button
-            variant="ghost"
-            size="icon"
-            type="button"
-            className="h-7 w-7 text-muted-foreground hover:text-foreground"
-            onClick={onCloseAll}
-            aria-label={t("mail.compose.closeAllDrafts")}
-          >
-            <IconX className="h-3.5 w-3.5" />
-          </Button>
+            {!minimized && (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                    aria-label={
+                      isExpanded
+                        ? t("mail.compose.restoreComposeSize")
+                        : t("mail.compose.fullScreenCompose")
+                    }
+                    aria-pressed={isExpanded}
+                    onClick={() => {
+                      animateComposeLayout(() => {
+                        setMinimized(false);
+                        setIsExpanded((value) => !value);
+                      });
+                    }}
+                  >
+                    {isExpanded ? (
+                      <IconArrowsMinimize className="h-3.5 w-3.5" />
+                    ) : (
+                      <IconArrowsMaximize className="h-3.5 w-3.5" />
+                    )}
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {isExpanded
+                    ? t("mail.compose.restoreSize")
+                    : t("mail.compose.fullScreen")}
+                </TooltipContent>
+              </Tooltip>
+            )}
+            <Button
+              variant="ghost"
+              size="icon"
+              type="button"
+              className="h-7 w-7 text-muted-foreground hover:text-foreground"
+              onClick={onCloseAll}
+              aria-label={t("mail.compose.closeAllDrafts")}
+            >
+              <IconX className="h-3.5 w-3.5" />
+            </Button>
+          </div>
         </div>
-      </div>
+      )}
 
       {activeDraft && !minimized && (
         <>
@@ -1035,47 +1090,57 @@ export function ComposeModal({
               <RecipientInput
                 value={activeDraft.to}
                 onChange={(val) => onUpdate(activeId!, { to: val })}
-                autoFocus={activeDraft.mode === "compose"}
+                autoFocus={!isCard && activeDraft.mode === "compose"}
                 ariaLabel={t("mail.compose.toRecipients")}
                 field="to"
                 onMoveRecipient={moveRecipient}
+                offerSaveAlias={!isCard}
               />
             </ComposeFieldRow>
 
-            {showCcBcc && (
-              <>
-                <ComposeFieldRow label={t("mail.compose.cc")}>
-                  <RecipientInput
-                    value={activeDraft.cc ?? ""}
-                    onChange={(val) => onUpdate(activeId!, { cc: val })}
-                    ariaLabel={t("mail.compose.ccRecipients")}
-                    field="cc"
-                    onMoveRecipient={moveRecipient}
-                  />
-                </ComposeFieldRow>
-                <ComposeFieldRow label={t("mail.compose.bcc")}>
-                  <RecipientInput
-                    value={activeDraft.bcc ?? ""}
-                    onChange={(val) => onUpdate(activeId!, { bcc: val })}
-                    ariaLabel={t("mail.compose.bccRecipients")}
-                    field="bcc"
-                    onMoveRecipient={moveRecipient}
-                  />
-                </ComposeFieldRow>
-              </>
+            {showCc && (
+              <ComposeFieldRow label={t("mail.compose.cc")}>
+                <RecipientInput
+                  value={activeDraft.cc ?? ""}
+                  onChange={(val) => {
+                    if (activeId) onUpdate(activeId, { cc: val });
+                  }}
+                  ariaLabel={t("mail.compose.ccRecipients")}
+                  field="cc"
+                  onMoveRecipient={moveRecipient}
+                  offerSaveAlias={!isCard}
+                />
+              </ComposeFieldRow>
+            )}
+            {showBcc && (
+              <ComposeFieldRow label={t("mail.compose.bcc")}>
+                <RecipientInput
+                  value={activeDraft.bcc ?? ""}
+                  onChange={(val) => {
+                    if (activeId) onUpdate(activeId, { bcc: val });
+                  }}
+                  ariaLabel={t("mail.compose.bccRecipients")}
+                  field="bcc"
+                  onMoveRecipient={moveRecipient}
+                  offerSaveAlias={!isCard}
+                />
+              </ComposeFieldRow>
             )}
 
-            <div className="flex items-center px-4">
-              <input
-                type="text"
-                value={activeDraft.subject}
-                onChange={(e) =>
-                  onUpdate(activeId!, { subject: e.target.value })
-                }
-                placeholder={t("mail.compose.subject")}
-                className="flex-1 bg-transparent py-2 text-sm outline-none placeholder:text-muted-foreground"
-              />
-            </div>
+            {showSubject && (
+              <div className="flex items-center px-4">
+                <input
+                  type="text"
+                  value={activeDraft.subject}
+                  onChange={(e) => {
+                    if (activeId)
+                      onUpdate(activeId, { subject: e.target.value });
+                  }}
+                  placeholder={t("mail.compose.subject")}
+                  className="flex-1 bg-transparent py-2 text-sm outline-none placeholder:text-muted-foreground"
+                />
+              </div>
+            )}
           </div>
 
           {/* Body */}
@@ -1101,7 +1166,7 @@ export function ComposeModal({
           {activeDraft.attachments && activeDraft.attachments.length > 0 && (
             <AttachmentStrip
               attachments={activeDraft.attachments}
-              onRemove={handleRemoveAttachment}
+              onRemove={isCard ? undefined : handleRemoveAttachment}
             />
           )}
 
@@ -1153,25 +1218,30 @@ export function ComposeModal({
                 </TooltipTrigger>
                 <TooltipContent>{t("mail.compose.insertLink")}</TooltipContent>
               </Tooltip>
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    type="button"
-                    aria-label={t("mail.compose.attachFile")}
-                    className="h-7 w-7 text-muted-foreground hover:text-foreground"
-                    onClick={() => void handleAttach()}
-                  >
-                    <IconPaperclip className="h-3.5 w-3.5" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>{t("mail.compose.attachFile")}</TooltipContent>
-              </Tooltip>
+              {!isCard && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      type="button"
+                      aria-label={t("mail.compose.attachFile")}
+                      className="h-7 w-7 text-muted-foreground hover:text-foreground"
+                      onClick={() => void handleAttach()}
+                    >
+                      <IconPaperclip className="h-3.5 w-3.5" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {t("mail.compose.attachFile")}
+                  </TooltipContent>
+                </Tooltip>
+              )}
 
-              <div className="mx-1 h-4 w-px bg-border" />
+              {/* The card has no in-app agent chat to generate with. */}
+              {!isCard && <div className="mx-1 h-4 w-px bg-border" />}
 
-              {isGenerating ? (
+              {isCard ? null : isGenerating ? (
                 <div className="flex items-center gap-1.5 px-2 text-xs text-muted-foreground">
                   <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
                   <span>{t("mail.compose.generating")}</span>
@@ -1230,29 +1300,38 @@ export function ComposeModal({
               )}
             </div>
 
-            <div className="flex items-center gap-2">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    aria-label={t("mail.compose.deleteDraft")}
-                    onClick={() => activeId && onDiscard(activeId)}
-                    className="flex h-8 w-8 items-center justify-center rounded text-muted-foreground/40 hover:text-red-400 hover:bg-red-400/10 transition-colors"
-                  >
-                    <IconTrash className="h-4 w-4" />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent>{t("mail.compose.deleteDraft")}</TooltipContent>
-              </Tooltip>
-              <SendLaterButton
-                onSend={handleSend}
-                onSendLater={handleSendLater}
-                open={scheduleOpen}
-                onOpenChange={setScheduleOpen}
-                isSending={sendEmail.isPending}
-                isScheduling={scheduleEmail.isPending}
-              />
-            </div>
+            {isCard ? (
+              <Button size="sm" type="button" onClick={() => void handleSend()}>
+                {t("mail.draftCard.sendInMail")}
+                <IconExternalLink className="h-3.5 w-3.5 rtl:-scale-x-100" />
+              </Button>
+            ) : (
+              <div className="flex items-center gap-2">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <button
+                      type="button"
+                      aria-label={t("mail.compose.deleteDraft")}
+                      onClick={() => activeId && onDiscard(activeId)}
+                      className="flex h-8 w-8 items-center justify-center rounded text-muted-foreground/40 hover:text-destructive hover:bg-destructive/10 transition-colors"
+                    >
+                      <IconTrash className="h-4 w-4" />
+                    </button>
+                  </TooltipTrigger>
+                  <TooltipContent>
+                    {t("mail.compose.deleteDraft")}
+                  </TooltipContent>
+                </Tooltip>
+                <SendLaterButton
+                  onSend={() => void handleSend()}
+                  onSendLater={(runAt) => void handleSendLater(runAt)}
+                  open={scheduleOpen}
+                  onOpenChange={setScheduleOpen}
+                  isSending={sendEmail.isPending}
+                  isScheduling={scheduleEmail.isPending}
+                />
+              </div>
+            )}
           </div>
         </>
       )}

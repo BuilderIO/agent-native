@@ -2,10 +2,10 @@ import type {
   AgentCapabilities,
   AgentEvent,
   AgentMessage,
+  AgentRunStartResult,
   AgentRunSnapshot,
   AgentThreadSnapshot,
   AgentTransport,
-  StartRunResult,
 } from "../protocol/index.js";
 import {
   AGENTKIT_PROTOCOL_VERSION,
@@ -664,15 +664,21 @@ async function startScenarioRun(input: {
   scenario: AgentKitConformanceScenario;
   threadId: string;
   messages?: AgentMessage[];
-}): Promise<StartRunResult> {
+}): Promise<AgentRunStartResult> {
   const started = await input.transport.startRun({
     threadId: input.threadId,
     messages: conformanceMessages(input.scenario, input.messages),
     metadata: { "x-agentkit-conformance-scenario": input.scenario },
   });
+  if (!started.runId) {
+    throw new AgentKitConformanceError("startRun must return a stable runId.");
+  }
   assert(started.runId.length > 0, "startRun must return a stable runId.");
   if (started.capabilities) parseAgentCapabilities(started.capabilities);
-  return started;
+  return {
+    runId: started.runId,
+    ...(started.capabilities ? { capabilities: started.capabilities } : {}),
+  };
 }
 
 async function assertRunSnapshot(
@@ -1295,6 +1301,9 @@ async function assertQueueIdentity(input: {
 
   if (promoted && "alreadyRemoved" in promoted) {
     throw new Error("Queue item was removed before promotion completed.");
+  }
+  if (promoted && "delivery" in promoted) {
+    throw new Error("An idle thread must promote the queue item directly.");
   }
 
   if (promoted) {

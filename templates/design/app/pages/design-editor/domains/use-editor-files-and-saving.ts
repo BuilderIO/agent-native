@@ -6,6 +6,7 @@ import {
   readClientAppState,
 } from "@agent-native/core/client/hooks";
 import { withShareLinkAttribution } from "@agent-native/core/client/sharing";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import {
   parseCreativeContexts,
@@ -35,15 +36,30 @@ import { useDesignSystemWorkflows } from "@/hooks/use-design-system-workflows";
 import { useDesignSystems } from "@/hooks/use-design-systems";
 import { useEditorPreferences } from "@/hooks/use-editor-preferences";
 import { isHostedInProcess } from "@/host/design-host-channel";
+import { recordSaveReplayOutcomes } from "@/lib/canvas-outcome-tracking";
 import {
   acknowledgeDesignSaveOutboxEntry,
   createDesignSaveOutboxEntry,
   discardDesignSaveOutboxEntry,
   drainDesignSaveOutbox,
   journalDesignSaveOutboxEntry,
+  listDesignSaveOutboxEntries,
+  stuckDesignSaveOutboxEntries,
+  withVerifiedBaseContent,
   type DesignSaveOutboxEntry,
 } from "@/lib/design-save-outbox";
+import {
+  createOutboxRetryScheduler,
+  MAX_DRAIN_FAILURE_RETRIES,
+  OUTBOX_BUSY_RETRY_MS,
+} from "@/lib/design-save-outbox-retry";
+import {
+  holdDesignSaveWriter,
+  liveDesignSaveWriterSources,
+  waitForDesignSaveWriterRelease,
+} from "@/lib/design-save-outbox-writers";
 import { isDesignSystemUsableForGeneration } from "@/lib/design-system-data";
+import { createLatestReadGate } from "@/lib/latest-read-gate";
 
 import type {
   LiveScreenSnapshot,
@@ -54,6 +70,7 @@ import type {
 import { runPublishCanonicalContent } from "../commands/publish-canonical-content";
 import { runClearVisualEditSnapshotPublications } from "../commands/publish-visual-edit-snapshot";
 import {
+  knownSaveContentForHash,
   runFileContentSaveKeepalive,
   runQueueFileContentSave,
   runSaveFileContent,
@@ -80,6 +97,7 @@ import {
   nextLocalhostScreenPosition,
   parseDesignDataJson,
 } from "../design-data-geometry-utils";
+import { designMetadataQueryKey } from "../design-query-key";
 import { createEditorSaveOperationSource } from "../editor-session";
 import {
   type FileContentSaveRequest,
@@ -101,12 +119,20 @@ import {
   designSaveErrorMessage,
   reportDesignSaveFailure,
 } from "../save-failure";
+import { SOURCE_HYDRATION_MAX_BYTES } from "../source-hydration";
 import {
   designFileCodeLayerSource,
   forgetPreparedSourcesExcept,
   prepareCanonicalSourceContent,
 } from "../source-publication";
+import {
+  buildById,
+  reuseIdenticalList,
+  type IdentityCache,
+} from "../stable-file-identity";
+import { mergeReplayedEdit } from "../three-way-merge";
 import { shouldAskOnNewDesignArrival } from "../tool-state";
+import type { DesignFile, DesignFileMetadata } from "../types";
 import type { EditorCore } from "./use-editor-core";
 import type { EditorGenerationAndAccess } from "./use-editor-generation-and-access";
 import type { EditorHistory } from "./use-editor-history";
@@ -173,6 +199,11 @@ export function useEditorFilesAndSaving({
   const {
     setRetryablePrompt,
     design,
+    sourceMetadata,
+    sourceLoader,
+    sourceRevision,
+    dependencyStatusByRoot,
+    leaseSources,
     pendingNodeRewriteStateVersion,
     canShareDesign,
     canEditDesign,
@@ -294,6 +325,16 @@ export function useEditorFilesAndSaving({
     [],
   );
 
+  const [unsavedChangeCount, setUnsavedChangeCount] = useState(0);
+  const unsavedChangeCountRef = useRef(0);
+  const refreshUnsavedChangeCountRef = useRef<() => Promise<void>>(
+    async () => {},
+  );
+  const applyUnsavedChangeCount = useCallback((count: number) => {
+    unsavedChangeCountRef.current = count;
+    setUnsavedChangeCount(count);
+  }, []);
+
   const acknowledgeOutboxEntry = useCallback(
     async (entry: DesignSaveOutboxEntry) => {
       try {
@@ -304,30 +345,161 @@ export function useEditorFilesAndSaving({
         // a later replay idempotent.
         // coercion-ok: the server mutation already succeeded; cleanup is best effort.
       }
+      // A settled save may have been the last stuck one, and the chip must not
+      // outlive it until the next retry.
+      if (unsavedChangeCountRef.current > 0) {
+        void refreshUnsavedChangeCountRef.current();
+      }
     },
     [],
   );
 
+  const readLiveFileContent = useCallback(
+    async (fileId: string) =>
+      (
+        await callAction<{ content: string }>(
+          "read-source-file",
+          { designId: id, fileId },
+          { method: "GET" },
+        )
+      ).content,
+    [id],
+  );
+
+  const [unsavedCountReads] = useState(createLatestReadGate);
+  const refreshUnsavedChangeCount = useCallback(async () => {
+    if (!id) return;
+    const isLatestRead = unsavedCountReads.begin();
+    try {
+      const [entries, liveWriterSources] = await Promise.all([
+        listDesignSaveOutboxEntries(id, designSaveActorScope),
+        liveDesignSaveWriterSources(),
+      ]);
+      // A read that finishes after a newer one began holds an older outbox
+      // than that read saw, and must not bring back a count it already cleared.
+      if (!isLatestRead()) return;
+      applyUnsavedChangeCount(
+        stuckDesignSaveOutboxEntries(entries, {
+          ownOperationSource: designSaveOperationSourceRef.current,
+          liveWriterSources,
+          sendingResourceIds: new Set([
+            ...Object.keys(fileSaveChainsRef.current),
+            ...Object.keys(pendingFileSavesRef.current),
+          ]),
+        }).length,
+      );
+    } catch {
+      // coercion-ok: an unreadable outbox says nothing about what is stuck, so the chip keeps what it showed.
+    }
+  }, [applyUnsavedChangeCount, designSaveActorScope, id, unsavedCountReads]);
+  useEffect(() => {
+    refreshUnsavedChangeCountRef.current = refreshUnsavedChangeCount;
+  }, [refreshUnsavedChangeCount]);
+
+  const writerWaitControllerRef = useRef<AbortController | null>(null);
+  const awaitedWriterSourcesRef = useRef(new Set<string>());
+  // A copy left to another open tab has nothing to wake this one when that tab
+  // closes, so this tab asks to be told: the writer's lock is granted to it then.
+  const resumeWhenWriterCloses = useCallback((operationSource: string) => {
+    const controller = writerWaitControllerRef.current;
+    const awaited = awaitedWriterSourcesRef.current;
+    if (!controller || awaited.has(operationSource)) return;
+    const wait = waitForDesignSaveWriterRelease(
+      operationSource,
+      controller.signal,
+    );
+    if (!wait) return;
+    awaited.add(operationSource);
+    void wait.then(
+      () => {
+        awaited.delete(operationSource);
+        void retryDesignSaveOutboxRef.current();
+      },
+      (error: unknown) => {
+        awaited.delete(operationSource);
+        if (!controller.signal.aborted) {
+          console.warn(
+            "Could not wait for a design save writer to close",
+            error,
+          );
+        }
+      },
+    );
+  }, []);
+
+  const drainFailureCountRef = useRef(0);
+  const retryDesignSaveOutboxRef = useRef<() => Promise<void>>(async () => {});
+  const [outboxRetryScheduler] = useState(() =>
+    createOutboxRetryScheduler(() => void retryDesignSaveOutboxRef.current()),
+  );
+  const scheduleOutboxRetry = outboxRetryScheduler.schedule;
+  // A save that did not land leaves its journal entry for the replay to settle.
+  // Every kind of save (file content, frame geometry, tweaks) reports that here,
+  // so the replay clock starts and the indicator recounts instead of both
+  // waiting for a page event.
+  const noteSaveLeftQueued = useCallback(() => {
+    scheduleOutboxRetry();
+    void refreshUnsavedChangeCount();
+  }, [refreshUnsavedChangeCount, scheduleOutboxRetry]);
+
   const retryDesignSaveOutbox = useCallback(async () => {
     if (!id) return;
+    // Replaying an entry a live save is still sending would send it twice.
+    if (
+      Object.keys(fileSaveChainsRef.current).length > 0 ||
+      Object.keys(pendingFileSavesRef.current).length > 0
+    ) {
+      scheduleOutboxRetry(OUTBOX_BUSY_RETRY_MS);
+      return;
+    }
     try {
       const result = await drainDesignSaveOutbox({
         designId: id,
         actorScope: designSaveActorScope,
+        merge: { readLiveFileContent, mergeContent: mergeReplayedEdit },
+        ownOperationSource: designSaveOperationSourceRef.current,
       });
-      if (result.rebased.length > 0) {
+      recordSaveReplayOutcomes(result, id);
+      if (
+        result.rebased.some(({ entry }) => entry.actionName !== "apply-tweaks")
+      ) {
         toast.error(t("designEditor.toasts.saveConflict"), {
           id: "design-save-conflict:outbox",
         });
-        for (const { entry } of result.rebased) {
-          const content = entry.payload.content;
-          if (typeof content === "string") {
-            rollbackPendingLocalFileContent(entry.resourceId, content);
-          }
+      }
+      if (
+        result.rebased.some(({ entry }) => entry.actionName === "apply-tweaks")
+      ) {
+        toast.error(t("designEditor.toasts.tweakConflict"), {
+          id: "design-tweak-conflict:outbox",
+        });
+      }
+      for (const { entry } of result.rebased) {
+        const content = entry.payload.content;
+        if (typeof content === "string") {
+          rollbackPendingLocalFileContent(entry.resourceId, content);
+        }
+      }
+      // The server now holds the merge of this edit and the newer content, so
+      // the editor drops its unmerged copy and reloads the merged file.
+      for (const entry of result.merged) {
+        const content = entry.payload.content;
+        if (typeof content === "string") {
+          rollbackPendingLocalFileContent(entry.resourceId, content);
+        }
+      }
+      // The server took this save earlier and others have changed the file
+      // since; nothing was lost, so the editor reloads without a warning.
+      for (const entry of result.alreadyApplied) {
+        const content = entry.payload.content;
+        if (typeof content === "string") {
+          rollbackPendingLocalFileContent(entry.resourceId, content);
         }
       }
       for (const entry of [
         ...result.saved,
+        ...result.merged,
+        ...result.alreadyApplied,
         ...result.rebased.map(({ entry }) => entry),
         ...result.dropped.map(({ entry }) => entry),
       ]) {
@@ -350,7 +522,12 @@ export function useEditorFilesAndSaving({
           delete latestFileSaveForUnloadRef.current[entry.resourceId];
         }
       }
-      if (result.saved.length > 0 || result.rebased.length > 0) {
+      if (
+        result.saved.length > 0 ||
+        result.merged.length > 0 ||
+        result.alreadyApplied.length > 0 ||
+        result.rebased.length > 0
+      ) {
         void queryClient.invalidateQueries({
           queryKey: ["action", "get-design"],
         });
@@ -361,20 +538,50 @@ export function useEditorFilesAndSaving({
       if (result.dropped.length > 0) {
         warnChangesDiscarded();
       }
+      drainFailureCountRef.current = 0;
+      // Recounted from the outbox, not taken from this drain: a save may have
+      // settled an entry after the drain looked at it.
+      await refreshUnsavedChangeCount();
+      for (const { operationSource } of result.deferred) {
+        resumeWhenWriterCloses(operationSource);
+      }
+      if (result.failed.length > 0) scheduleOutboxRetry();
+      else outboxRetryScheduler.resetBackoff();
     } catch (error) {
       if (classifyDesignSaveFailure(error, navigator.onLine) === "offline") {
         warnChangesWillRetry();
+      }
+      // The drain threw before settling any entry (browser storage or lock
+      // trouble). A few retries cover a passing fault; blocked storage then
+      // waits for the next page event instead of retrying forever.
+      if (drainFailureCountRef.current < MAX_DRAIN_FAILURE_RETRIES) {
+        drainFailureCountRef.current += 1;
+        scheduleOutboxRetry();
       }
     }
   }, [
     designSaveActorScope,
     id,
+    outboxRetryScheduler,
+    refreshUnsavedChangeCount,
+    resumeWhenWriterCloses,
+    readLiveFileContent,
     rollbackPendingLocalFileContent,
     queryClient,
+    scheduleOutboxRetry,
     t,
     warnChangesWillRetry,
     warnChangesDiscarded,
   ]);
+
+  useEffect(() => {
+    retryDesignSaveOutboxRef.current = retryDesignSaveOutbox;
+  }, [retryDesignSaveOutbox]);
+
+  const retryUnsavedChanges = useCallback(() => {
+    outboxRetryScheduler.cancel();
+    void retryDesignSaveOutbox();
+  }, [outboxRetryScheduler, retryDesignSaveOutbox]);
 
   useEffect(() => {
     const handleRetryOpportunity = () => void retryDesignSaveOutbox();
@@ -387,10 +594,32 @@ export function useEditorFilesAndSaving({
     };
   }, [retryDesignSaveOutbox, sessionResolved]);
 
+  // A save that finishes after the editor closed must not restart the clock.
+  useEffect(() => {
+    outboxRetryScheduler.activate();
+    return outboxRetryScheduler.dispose;
+  }, [outboxRetryScheduler]);
+
+  // Other tabs leave this editor's unsent saves to it while it stays open, and
+  // stop waiting on other tabs' writers when this editor closes.
+  useEffect(() => {
+    const controller = new AbortController();
+    writerWaitControllerRef.current = controller;
+    const releaseWriter = holdDesignSaveWriter(
+      designSaveOperationSourceRef.current,
+    );
+    return () => {
+      controller.abort();
+      writerWaitControllerRef.current = null;
+      awaitedWriterSourcesRef.current.clear();
+      releaseWriter();
+    };
+  }, []);
+
   const createFileSaveOutboxEntry = useCallback(
     (pending: FileContentSaveRequest) => {
       if (!id || shellMode) return null;
-      return createDesignSaveOutboxEntry({
+      const entry = createDesignSaveOutboxEntry({
         designId: id ?? "",
         actorScope: designSaveActorScope,
         actionName: "update-file",
@@ -410,8 +639,16 @@ export function useEditorFilesAndSaving({
             : {}),
         },
       });
+      const expectedVersionHash = entry.payload.expectedVersionHash;
+      return withVerifiedBaseContent(
+        entry,
+        (typeof expectedVersionHash === "string"
+          ? knownSaveContentForHash(pending.id, expectedVersionHash)
+          : undefined) ??
+          pendingLocalFileContentsRef.current.get(pending.id)?.baseContent,
+      );
     },
-    [designSaveActorScope, id, shellMode],
+    [designSaveActorScope, id, pendingLocalFileContentsRef, shellMode],
   );
 
   const cancelQueuedFileContentSave = useCallback(
@@ -435,12 +672,12 @@ export function useEditorFilesAndSaving({
   );
 
   const saveFileContent = useCallback(
-    (
+    async (
       pending: FileContentSaveRequest,
       outboxJournalPromise?: Promise<boolean>,
       onPersistedContent?: (acceptedContent: string) => void,
-    ) =>
-      runSaveFileContent(
+    ) => {
+      const completion = await runSaveFileContent(
         {
           acknowledgeOutboxEntry,
           canEditDesignRef,
@@ -454,16 +691,7 @@ export function useEditorFilesAndSaving({
           markPendingLocalFileContent,
           getPendingBaseContent: (fileId) =>
             pendingLocalFileContentsRef.current.get(fileId)?.baseContent,
-          readLiveFileContent: id
-            ? async (fileId) =>
-                (
-                  await callAction<{ content: string }>(
-                    "read-source-file",
-                    { designId: id, fileId },
-                    { method: "GET" },
-                  )
-                ).content
-            : undefined,
+          readLiveFileContent: id ? readLiveFileContent : undefined,
           queryClient,
           setPatchProof,
           t,
@@ -473,12 +701,19 @@ export function useEditorFilesAndSaving({
         pending,
         outboxJournalPromise,
         onPersistedContent,
-      ),
+      );
+      if (completion === "retryable" || completion === "failed") {
+        noteSaveLeftQueued();
+      }
+      return completion;
+    },
     [
       acknowledgeOutboxEntry,
       createFileSaveOutboxEntry,
       id,
       journalOutboxEntry,
+      noteSaveLeftQueued,
+      readLiveFileContent,
       rollbackPendingLocalFileContent,
       markPendingLocalFileContent,
       queryClient,
@@ -654,6 +889,7 @@ export function useEditorFilesAndSaving({
     designSaveActorScope,
     designSaveOperationSourceRef,
     id,
+    noteSaveLeftQueued,
     queryClient,
     t,
     warnChangesWillRetry,
@@ -691,9 +927,11 @@ export function useEditorFilesAndSaving({
         const nextSearch = postAuthIntent === "share" ? "?intent=share" : "";
         void navigate(`/design/${result.id}${nextSearch}`, { replace: true });
       })
-      .catch(() => {
+      .catch((error) => {
         postAuthSaveRef.current = null;
-        toast.error(t("designEditor.toasts.saveCopyError"));
+        reportWriteFailure(error, {
+          label: t("designEditor.toasts.saveCopyError"),
+        });
       });
   }, [
     canEditDesign,
@@ -732,7 +970,9 @@ export function useEditorFilesAndSaving({
           pinnedPackId: null,
         })
         .catch((error) => {
-          toast.error(t("creativeContext.stateSaveFailed"));
+          reportWriteFailure(error, {
+            label: t("creativeContext.stateSaveFailed"),
+          });
           throw error;
         });
     },
@@ -814,30 +1054,34 @@ export function useEditorFilesAndSaving({
     const next = titleDraft.trim();
     if (!next || next === design?.title) return;
 
-    const designQueryKey = ["action", "get-design", { id }];
+    const designQueryKey = designMetadataQueryKey(id);
     const previousDesign = queryClient.getQueryData(designQueryKey);
     const previousListDesignsQueries = queryClient.getQueriesData({
       queryKey: ["action", "list-designs"],
     });
-    queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
-      if (!old || typeof old !== "object") return old;
-      return { ...old, title: next };
-    });
+    queryClient.setQueryData(
+      designMetadataQueryKey(id),
+      (old: Record<string, unknown> | undefined) => {
+        if (!old || typeof old !== "object") return old;
+        return { ...old, title: next };
+      },
+    );
     queryClient.setQueriesData(
       { queryKey: ["action", "list-designs"] },
-      (old: any) => {
+      (old: Record<string, unknown> | undefined) => {
         if (!old) return old;
         return {
           ...old,
-          designs: (old.designs ?? []).map((d: any) =>
-            d.id === id ? { ...d, title: next } : d,
+          designs: (Array.isArray(old.designs) ? old.designs : []).map(
+            (d: { id: string }) => (d.id === id ? { ...d, title: next } : d),
           ),
         };
       },
     );
 
     updateDesignMutation.mutate({ id, title: next } as any, {
-      onError: () => {
+      onError: (error) => {
+        reportWriteFailure(error);
         queryClient.setQueryData(designQueryKey, previousDesign);
         for (const [queryKey, data] of previousListDesignsQueries) {
           queryClient.setQueryData(queryKey, data);
@@ -886,8 +1130,12 @@ export function useEditorFilesAndSaving({
     serverFiles.map((file) => [file.id, file]),
   );
   useEffect(() => {
-    forgetPreparedSourcesExcept(new Set(serverFiles.map((file) => file.id)));
-  }, [serverFiles]);
+    forgetPreparedSourcesExcept(
+      new Set(
+        (shellMode ? serverFiles : sourceMetadata).map((file) => file.id),
+      ),
+    );
+  }, [serverFiles, shellMode, sourceMetadata]);
   useEffect(() => {
     if (pendingLocalFileContentsRef.current.size === 0) return;
     let changed = false;
@@ -900,41 +1148,79 @@ export function useEditorFilesAndSaving({
     if (changed) {
       setPendingLocalFileContentsRevision((revision) => revision + 1);
     }
-  }, [serverFiles]);
-  const files = useMemo(
-    () =>
-      serverFiles.map((file) => {
-        const pending = pendingLocalFileContentsSnapshot.get(file.id);
-        const sourceContent =
-          (pending?.deferCollabReconcile ? undefined : pending?.content) ??
-          file.content ??
-          "";
-        const prepared = prepareCanonicalSourceContent(sourceContent, {
-          fileId: file.id,
-          fileType: file.fileType,
-          source: codeLayerSourceForDesignFile({
-            designData: designDataJson,
-            designId: id,
-            fileId: file.id,
-            filename: file.filename,
-          }),
-        });
-        return prepared.content === file.content
-          ? file
-          : { ...file, content: prepared.content };
-      }),
-    [designDataJson, id, pendingLocalFileContentsSnapshot, serverFiles],
-  );
-  const getComponentExpectedFiles = useCallback(
-    () =>
-      files
+  }, [serverFiles, shellMode, sourceMetadata]);
+  const preparedFilesCacheRef = useRef<IdentityCache<DesignFile>>(new Map());
+  const preparedFilesRef = useRef<DesignFile[] | undefined>(undefined);
+  const files = useMemo(() => {
+    const sourceContentOf = (file: DesignFile) => {
+      const pending = pendingLocalFileContentsSnapshot.get(file.id);
+      return (
+        (pending?.deferCollabReconcile ? undefined : pending?.content) ??
+        file.content
+      );
+    };
+    const next = reuseIdenticalList(
+      preparedFilesRef.current,
+      buildById(
+        preparedFilesCacheRef.current,
+        serverFiles,
+        (file) => [file, sourceContentOf(file), designDataJson, id],
+        (file) => {
+          const prepared = prepareCanonicalSourceContent(
+            sourceContentOf(file),
+            {
+              fileId: file.id,
+              fileType: file.fileType,
+              source: codeLayerSourceForDesignFile({
+                designData: designDataJson,
+                designId: id,
+                fileId: file.id,
+                filename: file.filename,
+              }),
+            },
+          );
+          return prepared.content === file.content
+            ? file
+            : { ...file, content: prepared.content };
+        },
+      ),
+    );
+    preparedFilesRef.current = next;
+    return next;
+  }, [designDataJson, id, pendingLocalFileContentsSnapshot, serverFiles]);
+  const getComponentExpectedFiles = useCallback(async () => {
+    const hashes = (list: readonly (typeof files)[number][]) =>
+      list
         .filter((file) => file.fileType === "html")
         .map((file) => ({
           fileId: file.id,
           versionHash: sourceContentHash(file.content),
-        })),
-    [files],
-  );
+        }));
+    if (shellMode) return hashes(files);
+    const htmlFiles = sourceMetadata.filter((file) => file.fileType === "html");
+    const estimatedBytes = htmlFiles.reduce(
+      (total, file) => total + (file.contentBytes ?? 0),
+      0,
+    );
+    if (estimatedBytes > SOURCE_HYDRATION_MAX_BYTES)
+      throw new Error(t("common.linkedSourceSizeLimit"));
+    const ids = htmlFiles.map((file) => file.id);
+    const release = await leaseSources(ids).catch((error: unknown) => {
+      throw Object.assign(new Error(t("designEditor.sourceLoadFailed")), {
+        cause: error,
+      });
+    });
+    try {
+      const current = historyFilesRef.current.filter((file) =>
+        ids.includes(file.id),
+      );
+      if (current.length !== ids.length)
+        throw new Error(t("common.genericError"));
+      return hashes(current);
+    } finally {
+      release();
+    }
+  }, [files, historyFilesRef, leaseSources, shellMode, sourceMetadata, t]);
   historyFilesRef.current = files;
 
   const codeLayerSourceForScreen = useCallback(
@@ -953,7 +1239,9 @@ export function useEditorFilesAndSaving({
   );
   const [pendingNodeRewriteProposals, setPendingNodeRewriteProposals] =
     useState<NodeRewriteProposal[]>([]);
-  const proposalFileIdsKey = files.map((file) => file.id).join("\u0000");
+  const proposalFileIdsKey = (shellMode ? files : sourceMetadata)
+    .map((file) => file.id)
+    .join("\u0000");
   const proposalFileIds = useMemo(
     () => (proposalFileIdsKey ? proposalFileIdsKey.split("\u0000") : []),
     [proposalFileIdsKey],
@@ -1044,7 +1332,9 @@ export function useEditorFilesAndSaving({
     runtimeLayerSnapshotsByIdRef.current = runtimeLayerSnapshotsById;
   }, [runtimeLayerSnapshotsById]);
   useEffect(() => {
-    const liveFileIds = new Set(serverFiles.map((file) => file.id));
+    const liveFileIds = new Set(
+      (shellMode ? serverFiles : sourceMetadata).map((file) => file.id),
+    );
     setLiveScreenSnapshotsById((current) => {
       let changed = false;
       const next: Record<string, LiveScreenSnapshot> = {};
@@ -1092,7 +1382,7 @@ export function useEditorFilesAndSaving({
         screenRootStyleCallbacksRef.current.delete(key);
       }
     }
-  }, [serverFiles]);
+  }, [serverFiles, shellMode, sourceMetadata]);
   const designSourceType = useMemo(
     () =>
       normalizeDesignSourceType(designDataJson.sourceType as unknown) ??
@@ -1211,7 +1501,7 @@ export function useEditorFilesAndSaving({
     migrateBoardObjectsMutation.mutate({ designId: id } as any, {
       onSuccess: () => {
         void queryClient.invalidateQueries({
-          queryKey: ["action", "get-design", { id }],
+          queryKey: designMetadataQueryKey(id),
         });
       },
     });
@@ -1264,12 +1554,48 @@ export function useEditorFilesAndSaving({
   const overviewScreensRef = useRef<
     (OverviewScreen & { codeLayerSource: CodeLayerSource })[]
   >([]);
+  const overviewFilesCacheRef = useRef<IdentityCache<DesignFile>>(new Map());
+  const overviewFilesRef = useRef<DesignFile[] | undefined>(undefined);
+  const overviewFiles = useMemo(() => {
+    if (shellMode) return files;
+    const readyById = new Map(files.map((file) => [file.id, file]));
+    const placeholderState = (metadata: DesignFileMetadata) =>
+      dependencyStatusByRoot.get(metadata.id) === "deferred"
+        ? ("deferred" as const)
+        : (sourceLoader?.get(metadata.id).status ?? ("unloaded" as const));
+    const next = reuseIdenticalList(
+      overviewFilesRef.current,
+      buildById(
+        overviewFilesCacheRef.current,
+        sourceMetadata,
+        (metadata) => {
+          const ready = readyById.get(metadata.id);
+          return ready ? [ready] : [metadata, placeholderState(metadata)];
+        },
+        (metadata) =>
+          readyById.get(metadata.id) ?? {
+            ...metadata,
+            content: "",
+            sourceState: placeholderState(metadata),
+          },
+      ),
+    );
+    overviewFilesRef.current = next;
+    return next;
+  }, [
+    files,
+    shellMode,
+    sourceMetadata,
+    sourceLoader,
+    sourceRevision,
+    dependencyStatusByRoot,
+  ]);
   const overviewScreens = useMemo(() => {
     const next = reuseUnchangedOverviewScreens(
       overviewScreensRef.current,
       deriveOverviewScreens({
         designDataJson,
-        files,
+        files: overviewFiles,
         activeBreakpointWidthState,
         breakpointFramesHidden,
         locallyPinnedHeightIds: locallyPinnedHeightIdsRef.current,
@@ -1282,7 +1608,7 @@ export function useEditorFilesAndSaving({
     return next;
   }, [
     designDataJson,
-    files,
+    overviewFiles,
     codeLayerSourceForScreen,
     activeBreakpointWidthState,
     boardFileId,
@@ -1567,40 +1893,43 @@ export function useEditorFilesAndSaving({
         ...prev,
         ...resolvedCssVars,
       }));
-      queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
-        if (!old || typeof old !== "object") return old;
-        let currentData: Record<string, unknown> = {};
-        if (typeof old.data === "string" && old.data) {
-          try {
-            const parsed = JSON.parse(old.data);
-            if (
-              parsed &&
-              typeof parsed === "object" &&
-              !Array.isArray(parsed)
-            ) {
-              currentData = parsed;
+      queryClient.setQueryData(
+        designMetadataQueryKey(id),
+        (old: Record<string, unknown> | undefined) => {
+          if (!old || typeof old !== "object") return old;
+          let currentData: Record<string, unknown> = {};
+          if (typeof old.data === "string" && old.data) {
+            try {
+              const parsed = JSON.parse(old.data);
+              if (
+                parsed &&
+                typeof parsed === "object" &&
+                !Array.isArray(parsed)
+              ) {
+                currentData = parsed;
+              }
+            } catch {
+              currentData = {};
             }
-          } catch {
-            currentData = {};
           }
-        }
-        const currentSelections =
-          currentData.tweakSelections &&
-          typeof currentData.tweakSelections === "object" &&
-          !Array.isArray(currentData.tweakSelections)
-            ? currentData.tweakSelections
-            : {};
-        return {
-          ...old,
-          data: JSON.stringify({
-            ...currentData,
-            tweakSelections: {
-              ...currentSelections,
-              ...resolvedCssVars,
-            },
-          }),
-        };
-      });
+          const currentSelections =
+            currentData.tweakSelections &&
+            typeof currentData.tweakSelections === "object" &&
+            !Array.isArray(currentData.tweakSelections)
+              ? currentData.tweakSelections
+              : {};
+          return {
+            ...old,
+            data: JSON.stringify({
+              ...currentData,
+              tweakSelections: {
+                ...currentSelections,
+                ...resolvedCssVars,
+              },
+            }),
+          };
+        },
+      );
     },
     [canEditDesign, id, queryClient],
   );
@@ -1638,6 +1967,7 @@ export function useEditorFilesAndSaving({
     journalOutboxEntry,
     acknowledgeOutboxEntry,
     retryDesignSaveOutbox,
+    noteSaveLeftQueued,
     cancelQueuedFileContentSave,
     queueFileContentSave,
     publishCanonicalContent,
@@ -1664,6 +1994,7 @@ export function useEditorFilesAndSaving({
     handleTitleInputKeyDown,
     serverFiles,
     files,
+    overviewFiles,
     getComponentExpectedFiles,
     codeLayerSourceForScreen,
     pendingNodeRewriteProposals,
@@ -1700,6 +2031,8 @@ export function useEditorFilesAndSaving({
     updateLiveScreenSnapshotContent,
     addLocalhostScreenPosition,
     handleTokensApplied,
+    unsavedChangeCount: readOnlyWidget ? 0 : unsavedChangeCount,
+    retryUnsavedChanges,
   };
 }
 

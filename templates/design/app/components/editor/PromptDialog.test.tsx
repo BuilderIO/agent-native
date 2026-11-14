@@ -36,6 +36,7 @@ interface ComposerStubProps {
   requireAgentEngine?: boolean;
   composerRef?: React.Ref<{ focus: () => void }>;
   layoutVariant?: string;
+  voiceEnabled?: boolean;
   onTextChange?: (text: string) => void;
   onAttachmentsChange?: (files: File[]) => void;
   onSubmit: (
@@ -53,6 +54,7 @@ const mockComposer = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/client/api-path", () => ({
   agentNativePath: (path: string) => path,
+  appApiPath: (path: string) => path,
   appBasePath: () => "",
 }));
 
@@ -331,6 +333,17 @@ describe("PromptPopover lazy editor composer", () => {
 });
 
 describe("PromptPopover inline home", () => {
+  it("renders the large home composer with dictation", async () => {
+    await renderPopover({ inline: true });
+    expect(mockComposer.current?.layoutVariant).toBe("hero");
+    expect(mockComposer.current?.voiceEnabled).toBe(true);
+    expect(
+      container
+        ?.querySelector("[data-design-inline-prompt]")
+        ?.getAttribute("data-agentkit-composer-size"),
+    ).toBe("large");
+  });
+
   it("keeps the composer calm while its submit preflight runs", async () => {
     let resolvePreflight!: (result: boolean) => void;
     const preflight = new Promise<boolean>((resolve) => {

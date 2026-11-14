@@ -63,6 +63,8 @@ interface ProviderStatus {
   googleRealtime?: boolean;
   browser: true;
   native?: true;
+  /** Providers whose flag is false because their credentials could not be read. */
+  credentialLookupFailed?: string[];
 }
 
 function transcriptionPrefsUrl(): string {
@@ -158,6 +160,9 @@ export function VoiceTranscriptionSection({
   const [googleRealtimeConfigured, setGoogleRealtimeConfigured] = useState<
     boolean | null
   >(null);
+  const [builderVoiceReady, setBuilderVoiceReady] = useState<boolean | null>(
+    null,
+  );
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
   // The picker must not present the Batch default as the saved choice when
@@ -185,9 +190,10 @@ export function VoiceTranscriptionSection({
       void refetchBuilderStatus();
     },
   });
+  // The voice status asks the resolver the realtime routes use, so an OAuth
+  // sign-in counts; a stored key pair is only one of the ways to connect.
   const builderRealtimeReady =
-    !!builderStatus?.privateKeyConfigured &&
-    !!builderStatus?.publicKeyConfigured;
+    builderVoiceReady ?? builderStatus?.configured === true;
   const builderStatusLoadFailed = !!builderStatusError && !builderStatus;
   const googleRealtimeReady =
     !!googleRealtimeConfigured && builderRealtimeReady;
@@ -305,11 +311,17 @@ export function VoiceTranscriptionSection({
       .then((status: ProviderStatus | null) => {
         if (cancelled) return;
         if (status) {
-          setOpenAiConfigured(status.openai);
-          setGeminiConfigured(status.gemini);
-          setGroqConfigured(status.groq);
-          setGoogleRealtimeConfigured(!!status.googleRealtime);
-          setProviderStatusLoadFailed(false);
+          const unreadable = new Set(status.credentialLookupFailed ?? []);
+          const known = (provider: string, configured: boolean) =>
+            unreadable.has(provider) ? null : configured;
+          setOpenAiConfigured(known("openai", status.openai));
+          setGeminiConfigured(known("gemini", status.gemini));
+          setGroqConfigured(known("groq", status.groq));
+          setGoogleRealtimeConfigured(
+            known("googleRealtime", !!status.googleRealtime),
+          );
+          setBuilderVoiceReady(known("builder", status.builder === true));
+          setProviderStatusLoadFailed(unreadable.size > 0);
           return;
         }
         return fetchResolvedPath(secretsUrl)
@@ -336,6 +348,7 @@ export function VoiceTranscriptionSection({
           setGeminiConfigured(null);
           setGroqConfigured(null);
           setGoogleRealtimeConfigured(null);
+          setBuilderVoiceReady(null);
           setProviderStatusLoadFailed(true);
         }
       });
@@ -400,6 +413,7 @@ export function VoiceTranscriptionSection({
     setGeminiConfigured(null);
     setGroqConfigured(null);
     setGoogleRealtimeConfigured(null);
+    setBuilderVoiceReady(null);
     setProviderStatusRequest((request) => request + 1);
   };
 

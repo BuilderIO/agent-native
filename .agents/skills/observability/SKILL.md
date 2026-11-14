@@ -103,7 +103,8 @@ true, so nobody has to ask the reporter for an example:
   event, its events, trace spans (failed tools carry a signature, see above),
   feedback and checkpoints; `list-agent-run-failures` finds candidates. Both are
   owner-scoped. Without Dispatch, `GET /_agent-native/observability/traces/:runId`
-  returns the same spans for the caller's own runs.
+  returns the same spans for the caller's own runs. To debug another user's run
+  from a run id, email, or object link, use the `debug-runs` skill.
 - **Alerts name examples.** The chat-health Slack alert lists the latest failed
   turns as `threadUrl (run id, code)`; if they cannot be read it says so.
 
@@ -264,6 +265,21 @@ await updateExperiment(exp.id, { status: "running" });
 The agent loop reads active experiments via `resolveActiveExperimentConfig()` and applies the variant's `model` override automatically. Assignment uses consistent hashing — same user always gets the same variant.
 
 Compute results with `POST /_agent-native/observability/experiments/:id/results`.
+
+#### Hosted default-model experiment (code-level)
+
+`observability/hosted-model-experiment.ts` runs one cross-app A/B on first-party
+hosted domains with no DB row: users on the default Builder model at default
+effort are split by a stable hash of their email. Each run carries the arm in
+`experiment_ids` / `experiment_variants`, and in `hosted_model_experiment_variant`
+regardless of other experiments on the turn. The singular `experiment_id` /
+`experiment_variant` tags keep naming only the other experiment, as they did
+before the hosted test. The DB
+path above skips requests that pin a model; this one does not, because chat
+clients always send the default model, so it keys off the resolved default.
+Other model or effort choices are left alone. The kill switch is the declared
+`observability.hostedModelExperiment` config (`auto` | `on` | `off`), env alias
+`AGENT_NATIVE_HOSTED_MODEL_EXPERIMENT`.
 
 In production, experiment management routes require the caller's email in the
 comma-separated `AGENT_NATIVE_EXPERIMENT_ADMIN_EMAILS` allowlist. This gate is

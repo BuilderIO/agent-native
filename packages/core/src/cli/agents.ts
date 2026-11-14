@@ -4,8 +4,25 @@ import {
   loadAllCapabilities,
   loadCapabilities,
   MAX_APPS,
+  purposeOf,
+  type PeerCapabilities,
 } from "../server/agent-capabilities.js";
 import { discoverAgents, findAgent } from "../server/agent-discovery.js";
+
+function toCapabilityJson(peer: PeerCapabilities) {
+  return {
+    id: peer.agent.id,
+    name: peer.agent.name,
+    url: peer.agent.url,
+    purpose: purposeOf(peer),
+    skills: peer.skills,
+    ...(peer.error ? { error: peer.error } : {}),
+  };
+}
+
+function callHint(appId: string): string {
+  return `Call one with call-agent (agent: "${appId}", action + input), or delegate with a natural-language message.`;
+}
 
 export interface ParsedAgentsArgs {
   command: "list" | "help";
@@ -185,6 +202,8 @@ export function formatAgentsUsage(): string {
     "",
     "Options:",
     "  --self-app-id <id>          Exclude the current app from results",
+    "  --capabilities              Show what each agent can do",
+    "  --app <id>                  Show one agent's callable actions",
     "  --json                      Print machine-readable output",
   ].join("\n");
 }

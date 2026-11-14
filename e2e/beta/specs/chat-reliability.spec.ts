@@ -7,6 +7,7 @@ import {
   RELIABILITY_TAG,
 } from "../lib/chat-reliability-core";
 import {
+  busyPostWithReferenceAttachment,
   multiTurnPersists,
   refreshMidRun,
   secondMessageWhileRunning,
@@ -22,9 +23,9 @@ import { chatSites, type BetaSite } from "../lib/fleet";
  * asserts one thing a user can see, on a thread of its own, and names the
  * thread and the server's view of it when it fails.
  *
- * Cost per run, in luna turns: refresh mid-run 1, second message 2, Stop 2,
- * multi-turn 2, tool call 1. Apps outside FULL_RELIABILITY_APPS run only the
- * first.
+ * Cost per run, in luna turns: refresh mid-run 1, queued UI plus direct API
+ * messages 3, Stop 2, multi-turn 2, tool call 1. Apps outside
+ * FULL_RELIABILITY_APPS run only the first.
  */
 skipUnlessAuthed();
 
@@ -60,10 +61,10 @@ for (const site of chatSites()) {
 
     if (!full) return;
 
-    test(`${RELIABILITY_TAG} a second message during a run gets no error and both are answered`, async ({
+    test(`${RELIABILITY_TAG} UI and direct API messages during a run are queued and answered`, async ({
       browser,
     }) => {
-      test.setTimeout(360_000);
+      test.setTimeout(450_000);
       await withSession(
         browser,
         site,
@@ -71,6 +72,20 @@ for (const site of chatSites()) {
         secondMessageWhileRunning,
       );
     });
+
+    if (process.env.BETA_E2E_DISPOSABLE_CHAT_ORIGIN) {
+      test(`${RELIABILITY_TAG} a direct busy POST retains its reference attachment across reload`, async ({
+        browser,
+      }) => {
+        test.setTimeout(450_000);
+        await withSession(
+          browser,
+          site,
+          "busy POST with reference attachment",
+          busyPostWithReferenceAttachment,
+        );
+      });
+    }
 
     test(`${RELIABILITY_TAG} Stop returns the composer to idle and the thread still works`, async ({
       browser,

@@ -1,6 +1,6 @@
 name: Clips Desktop Release
 run-name: >-
-  ${{ github.event.inputs.coordinator_run_id && format('{0} [release:{1}]', github.workflow, github.event.inputs.coordinator_run_id) || '' }}
+  ${{ github.event.inputs.coordinator_run_id && format('{0} ({1}) [release:{2}]', github.workflow, github.event.inputs.mode, github.event.inputs.coordinator_run_id) || '' }}
 
 on:
   push:
@@ -26,6 +26,15 @@ on:
         description: "Exact source commit to build for a coordinated release"
         required: false
         type: string
+      mode:
+        description: "release builds and publishes; stage builds into the draft release without publishing it; publish publishes a draft that a stage run built"
+        required: false
+        default: release
+        type: choice
+        options:
+          - release
+          - stage
+          - publish
       coordinator_run_id:
         description: Release coordinator ID used to reconcile a transient dispatch failure
         required: false
@@ -42,6 +51,7 @@ concurrency:
 env:
   TAURI_APP_PATH: templates/clips/desktop
   RELEASE_CHANNEL: ${{ github.event_name == 'push' && 'nightly' || inputs.channel || 'production' }}
+  RELEASE_MODE: ${{ inputs.mode || 'release' }}
   RELEASE_TAG_PREFIX: ${{ (github.event_name == 'push' || inputs.channel == 'nightly') && 'clips-nightly-v' || 'clips-v' }}
   RELEASE_POINTER_TAG: ${{ (github.event_name == 'push' || inputs.channel == 'nightly') && 'clips-nightly-latest' || 'clips-latest' }}
   RELEASE_MANIFEST_NAME: ${{ (github.event_name == 'push' || inputs.channel == 'nightly') && 'clips-nightly-latest.json' || 'clips-latest.json' }}
@@ -66,61 +76,162 @@ jobs:
           SOURCE_REF="${RELEASE_SOURCE_REF_INPUT:-$GITHUB_SHA}"
           echo "source_ref=${SOURCE_REF,,}" >> "$GITHUB_OUTPUT"
 
-  build-tauri:
+  prepare-release:
     needs: resolve-source-ref
-    strategy:
-      fail-fast: false
-      # Serialize so platform jobs can't race to create the draft release at
-      # the same time — when both call tauri-action concurrently, one job's
-      # bundles + latest.json get orphaned (clips-v0.1.74 lost its macOS
-      # assets this way, leaving the manifest Windows-only and breaking the
-      # Tauri updater on macOS clients).
-      max-parallel: 1
-      matrix:
-        include:
-          - os: macos-latest
-            rust-targets: "aarch64-apple-darwin,x86_64-apple-darwin"
-            args: "--target universal-apple-darwin"
-          - os: windows-latest
-            rust-targets: ""
-            args: ""
-          - os: ubuntu-22.04
-            rust-targets: ""
-            args: "--bundles appimage,deb,rpm"
-    runs-on: ${{ matrix.os }}
-    env:
-      MACOSX_DEPLOYMENT_TARGET: ${{ matrix.os == 'macos-latest' && '13.0' || '' }}
-      GGML_METAL_MACOSX_VERSION_MIN: ${{ matrix.os == 'macos-latest' && '13.0' || '' }}
+    runs-on: ubuntu-latest
     outputs:
-      app-version: ${{ steps.resolve-version.outputs.version }}
-      source_ref: ${{ needs.resolve-source-ref.outputs.source_ref }}
+      version: ${{ steps.version.outputs.version }}
+      release_id: ${{ steps.release.outputs.release_id }}
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
           ref: ${{ needs.resolve-source-ref.outputs.source_ref }}
+          sparse-checkout: ${{ env.TAURI_APP_PATH }}
 
-      - uses: pnpm/action-setup@ea17c68df8912ef543352723c149a84f56e3d413 # v6.1.0
-
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - name: Install Linux dependencies
-        if: runner.os == 'Linux'
+      - name: Resolve version
+        id: version
+        working-directory: ${{ env.TAURI_APP_PATH }}
+        shell: bash
+        env:
+          RELEASE_VERSION_INPUT: ${{ inputs.version }}
         run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            libwebkit2gtk-4.1-dev \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            patchelf \
-            libfuse2 \
-            gstreamer1.0-plugins-base \
-            gstreamer1.0-plugins-good \
-            gstreamer1.0-plugins-bad \
-            gstreamer1.0-libav \
-            gstreamer1.0-pipewire
+          if [ "$RELEASE_CHANNEL" = "production" ]; then
+            if [ -z "$RELEASE_VERSION_INPUT" ]; then
+              echo "::error::Production releases require an explicit stable version input."
+              exit 1
+            fi
+            if [[ ! "$RELEASE_VERSION_INPUT" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              echo "::error::Production versions must be an exact stable major.minor.patch version."
+              exit 1
+            fi
+            RELEASE_VERSION="$RELEASE_VERSION_INPUT"
+          else
+            # Tauri's Windows MSI target only accepts numeric prerelease
+            # identifiers no greater than 65535. Keep Nightly identity in the
+            # app name, identifier, tag, and updater endpoint instead.
+            if [ "$GITHUB_RUN_NUMBER" -gt 65535 ]; then
+              echo "::error::The Nightly run number is too large for a Windows MSI version."
+              exit 1
+            fi
+            if [ -z "$RELEASE_VERSION_INPUT" ]; then
+              CURRENT=$(node -p "require('./package.json').version")
+              RELEASE_VERSION=$(node -e 'const [ma, mi] = process.argv[1].split("."); console.log(ma + "." + mi + "." + process.argv[2] + "-0")' "$CURRENT" "$GITHUB_RUN_NUMBER")
+            elif [[ "$RELEASE_VERSION_INPUT" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+              RELEASE_VERSION="${RELEASE_VERSION_INPUT}-${GITHUB_RUN_NUMBER}"
+            elif [[ "$RELEASE_VERSION_INPUT" =~ ^[0-9]+\.[0-9]+\.[0-9]+-nightly\.[0-9]+$ ]]; then
+              RELEASE_VERSION="${RELEASE_VERSION_INPUT%-nightly.*}-${GITHUB_RUN_NUMBER}"
+            else
+              echo "::error::Nightly versions must be semver or include the -nightly prerelease marker."
+              exit 1
+            fi
+          fi
+          echo "version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
+
+      # The platform builds run at the same time, so the release has to exist
+      # before any of them uploads: two builds creating it at once orphaned
+      # clips-v0.1.74's macOS bundles.
+      - name: Create the draft release the builds upload to
+        id: release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          RELEASE_SOURCE_REF: ${{ needs.resolve-source-ref.outputs.source_ref }}
+        run: |
+          TAG="${RELEASE_TAG_PREFIX}${RELEASE_VERSION}"
+          get_tag_sha() {
+            local ref_json object_type object_sha
+            if ! ref_json=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/$1"); then
+              return 1
+            fi
+            object_type=$(printf '%s' "$ref_json" | jq -r '.object.type')
+            object_sha=$(printf '%s' "$ref_json" | jq -r '.object.sha')
+            if [ "$object_type" = "tag" ]; then
+              gh api "repos/${GITHUB_REPOSITORY}/git/tags/$object_sha" --jq '.object.sha'
+            else
+              printf '%s\n' "$object_sha"
+            fi
+          }
+          RELEASE_ERROR=$(mktemp)
+          TAG_ERROR=$(mktemp)
+          if RELEASE_JSON=$(gh release view "$TAG" --json isDraft,targetCommitish 2>"$RELEASE_ERROR"); then
+            # Rebuilding would replace bundles people may already have
+            # downloaded. A run that failed after publishing resumes with
+            # "Re-run failed jobs", which does not rerun this job.
+            if [ "$(jq -r '.isDraft' <<< "$RELEASE_JSON")" != "true" ]; then
+              echo "::error::Release $TAG is already published. To finish publishing it, use \"Re-run failed jobs\" on the run that published it; to rebuild, release a new version."
+              exit 1
+            fi
+            # A draft gets its tag only when it publishes, unless one was
+            # reserved first, so fall back to the commit it targets.
+            if TAG_SHA=$(get_tag_sha "$TAG" 2>"$TAG_ERROR"); then
+              :
+            elif grep -q 'HTTP 404' "$TAG_ERROR"; then
+              TAG_SHA=$(jq -r '.targetCommitish' <<< "$RELEASE_JSON")
+            else
+              cat "$TAG_ERROR"
+              exit 1
+            fi
+            if [ "$TAG_SHA" != "$RELEASE_SOURCE_REF" ]; then
+              echo "::error::Draft release $TAG points to $TAG_SHA, expected $RELEASE_SOURCE_REF."
+              exit 1
+            fi
+            echo "Draft release $TAG already points to $RELEASE_SOURCE_REF; the builds will upload to it."
+          elif grep -q 'release not found' "$RELEASE_ERROR"; then
+            if [ "$RELEASE_MODE" = "publish" ]; then
+              echo "::error::There is no draft release $TAG to publish. Build it first with mode stage."
+              exit 1
+            fi
+            if TAG_SHA=$(get_tag_sha "$TAG" 2>"$TAG_ERROR"); then
+              if [ "$TAG_SHA" != "$RELEASE_SOURCE_REF" ]; then
+                echo "::error::Existing tag $TAG points to $TAG_SHA, expected $RELEASE_SOURCE_REF."
+                exit 1
+              fi
+            elif ! grep -q 'HTTP 404' "$TAG_ERROR"; then
+              cat "$TAG_ERROR"
+              exit 1
+            fi
+            PRERELEASE=()
+            if [ "$RELEASE_CHANNEL" = "nightly" ]; then
+              PRERELEASE=(--prerelease)
+            fi
+            RELEASE_BODY=$(printf '%s\n' \
+              "Auto-updating ${RELEASE_CHANNEL} build of the Clips menu-bar app." \
+              "" \
+              "The in-app updater fetches its manifest from the \`${RELEASE_POINTER_TAG}\`" \
+              "release — this versioned release is the immutable source of the" \
+              "signed bundles it downloads.")
+            gh release create "$TAG" --draft "${PRERELEASE[@]}" --latest=false \
+              --target "$RELEASE_SOURCE_REF" \
+              --title "${RELEASE_NAME_PREFIX} v${RELEASE_VERSION}" \
+              --notes "$RELEASE_BODY"
+          else
+            cat "$RELEASE_ERROR"
+            exit 1
+          fi
+          RELEASE_ID=$(gh release view "$TAG" --json databaseId --jq '.databaseId')
+          if [[ ! "$RELEASE_ID" =~ ^[0-9]+$ ]]; then
+            echo "::error::Could not read the id of release $TAG (got '$RELEASE_ID')."
+            exit 1
+          fi
+          echo "release_id=$RELEASE_ID" >> "$GITHUB_OUTPUT"
+
+  build-tauri:
+    needs: [resolve-source-ref, prepare-release]
+    if: ${{ inputs.mode != 'publish' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            args: ""
+          - os: ubuntu-22.04
+            args: "--bundles appimage,deb,rpm"
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ needs.resolve-source-ref.outputs.source_ref }}
 
       - name: Guard — refuse to release with placeholder updater pubkey
         shell: bash
@@ -132,264 +243,111 @@ jobs:
             exit 1
           fi
 
-      - name: Install Rust
-        uses: dtolnay/rust-toolchain@29eef336d9b2848a0b548edc03f92a220660cdb8 # stable
+      - uses: ./.github/actions/setup-clips-desktop
+
+      - uses: ./.github/actions/stamp-clips-release
         with:
-          targets: ${{ matrix.rust-targets }}
+          version: ${{ needs.prepare-release.outputs.version }}
+          channel: ${{ env.RELEASE_CHANNEL }}
 
-      - name: Link Apple compiler runtime for Rust
-        if: runner.os == 'macOS'
-        shell: bash
-        run: |
-          # Xcode emits __isPlatformVersionAtLeast for whisper-rs-sys's
-          # availability checks. Rust's final link does not add compiler-rt.
-          CLANG_RUNTIME="$(xcrun --sdk macosx clang -print-libgcc-file-name)"
-          echo "RUSTFLAGS=${RUSTFLAGS:-} -C link-arg=${CLANG_RUNTIME}" >> "$GITHUB_ENV"
-
-      - name: Rust cache
-        uses: swatinem/rust-cache@f0d9c3887740aee45f6153b24b3a6b815192ec16 # v2
-        with:
-          workspaces: ${{ env.TAURI_APP_PATH }}/src-tauri
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Require production version
-        if: env.RELEASE_CHANNEL == 'production' && inputs.version == ''
-        shell: bash
-        run: |
-          echo "::error::Production releases require an explicit stable version input."
-          exit 1
-
-      - name: Auto-bump Nightly version
-        if: env.RELEASE_CHANNEL == 'nightly' && (github.event_name == 'push' || inputs.version == '')
-        working-directory: ${{ env.TAURI_APP_PATH }}
-        shell: bash
-        run: |
-          CURRENT=$(node -p "require('./package.json').version")
-          # Tauri's Windows MSI target only accepts numeric prerelease
-          # identifiers no greater than 65535. Keep Nightly identity in the
-          # app name, identifier, tag, and updater endpoint instead.
-          if [ "$GITHUB_RUN_NUMBER" -gt 65535 ]; then
-            echo "::error::The Nightly run number is too large for a Windows MSI version."
-            exit 1
-          fi
-          NEXT=$(node -e 'const [ma, mi] = process.argv[1].split("."); console.log(ma + "." + mi + "." + process.argv[2] + "-0")' "$CURRENT" "$GITHUB_RUN_NUMBER")
-          npm version "$NEXT" --no-git-tag-version
-          node -e "
-            const fs = require('fs');
-            const tc = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json','utf8'));
-            tc.version = '$NEXT';
-            fs.writeFileSync('src-tauri/tauri.conf.json', JSON.stringify(tc, null, 2) + '\n');
-            const cargo = fs.readFileSync('src-tauri/Cargo.toml','utf8');
-            fs.writeFileSync('src-tauri/Cargo.toml', cargo.replace(/^version = \".*\"/m, 'version = \"$NEXT\"'));
-          "
-          echo "Auto-bumped version: $CURRENT → $NEXT"
-
-      - name: Bump version (manual)
-        if: inputs.version != ''
-        working-directory: ${{ env.TAURI_APP_PATH }}
-        shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_VERSION_INPUT: ${{ inputs.version }}
-          RELEASE_SOURCE_REF: ${{ needs.resolve-source-ref.outputs.source_ref }}
-        run: |
-          if [ "$RELEASE_CHANNEL" = "nightly" ]; then
-            if [ "$GITHUB_RUN_NUMBER" -gt 65535 ]; then
-              echo "::error::The Nightly run number is too large for a Windows MSI version."
-              exit 1
-            fi
-            if [[ "$RELEASE_VERSION_INPUT" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-              BASE_VERSION="$RELEASE_VERSION_INPUT"
-            elif [[ "$RELEASE_VERSION_INPUT" =~ ^[0-9]+\.[0-9]+\.[0-9]+-nightly\.[0-9]+$ ]]; then
-              BASE_VERSION="${RELEASE_VERSION_INPUT%-nightly.*}"
-            else
-              echo "::error::Nightly versions must be semver or include the -nightly prerelease marker."
-              exit 1
-            fi
-            RELEASE_VERSION="${BASE_VERSION}-${GITHUB_RUN_NUMBER}"
-          else
-            if [[ ! "$RELEASE_VERSION_INPUT" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-              echo "::error::Production versions must be an exact stable major.minor.patch version."
-              exit 1
-            fi
-            RELEASE_VERSION="$RELEASE_VERSION_INPUT"
-
-            TAG="${RELEASE_TAG_PREFIX}${RELEASE_VERSION}"
-            get_tag_sha() {
-              local ref_json object_type object_sha
-              if ! ref_json=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/tags/$1"); then
-                return 1
-              fi
-              object_type=$(printf '%s' "$ref_json" | jq -r '.object.type')
-              object_sha=$(printf '%s' "$ref_json" | jq -r '.object.sha')
-              if [ "$object_type" = "tag" ]; then
-                gh api "repos/${GITHUB_REPOSITORY}/git/tags/$object_sha" --jq '.object.sha'
-              else
-                printf '%s\n' "$object_sha"
-              fi
-            }
-            RELEASE_ERROR=$(mktemp)
-            if RELEASE_JSON=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${TAG}" 2>"$RELEASE_ERROR"); then
-              IS_DRAFT=$(printf '%s' "$RELEASE_JSON" | jq -r '.draft')
-              if [ "$IS_DRAFT" != "true" ]; then
-                echo "::error::Production release $TAG is already published. Choose a new version instead of rebuilding it."
-                rm -f "$RELEASE_ERROR"
-                exit 1
-              fi
-              EXISTING_TAG_SHA=$(get_tag_sha "$TAG")
-              if [ "$EXISTING_TAG_SHA" != "$RELEASE_SOURCE_REF" ]; then
-                echo "::error::Existing release $TAG points to $EXISTING_TAG_SHA, expected $RELEASE_SOURCE_REF."
-                rm -f "$RELEASE_ERROR"
-                exit 1
-              fi
-              echo "Existing production release $TAG is still a draft; resuming it."
-            elif grep -q 'HTTP 404' "$RELEASE_ERROR"; then
-              TAG_ERROR=$(mktemp)
-              if TAG_SHA=$(get_tag_sha "$TAG" 2>"$TAG_ERROR"); then
-                if [ "$TAG_SHA" != "$RELEASE_SOURCE_REF" ]; then
-                  echo "::error::Existing tag $TAG points to $TAG_SHA, expected $RELEASE_SOURCE_REF."
-                  rm -f "$RELEASE_ERROR" "$TAG_ERROR"
-                  exit 1
-                fi
-                echo "Existing tag $TAG already points to the coordinated source; creating its release."
-              elif grep -q 'HTTP 404' "$TAG_ERROR"; then
-                echo "No existing production release or tag found for $TAG; creating it."
-              else
-                cat "$TAG_ERROR"
-                rm -f "$RELEASE_ERROR" "$TAG_ERROR"
-                exit 1
-              fi
-              rm -f "$TAG_ERROR"
-            else
-              cat "$RELEASE_ERROR"
-              rm -f "$RELEASE_ERROR"
-              exit 1
-            fi
-            rm -f "$RELEASE_ERROR"
-          fi
-          if [ "$RELEASE_CHANNEL" = "production" ]; then
-            npm version "$RELEASE_VERSION" --no-git-tag-version --allow-same-version
-          else
-            npm version "$RELEASE_VERSION" --no-git-tag-version
-          fi
-          node -e "
-            const fs = require('fs');
-            const tc = JSON.parse(fs.readFileSync('src-tauri/tauri.conf.json','utf8'));
-            tc.version = '$RELEASE_VERSION';
-            fs.writeFileSync('src-tauri/tauri.conf.json', JSON.stringify(tc, null, 2) + '\n');
-            const cargo = fs.readFileSync('src-tauri/Cargo.toml','utf8');
-            fs.writeFileSync('src-tauri/Cargo.toml', cargo.replace(/^version = \".*\"/m, 'version = \"$RELEASE_VERSION\"'));
-          "
-
-      - name: Resolve version
-        id: resolve-version
-        shell: bash
-        run: |
-          V=$(node -p "require('./${{ env.TAURI_APP_PATH }}/package.json').version")
-          echo "version=$V" >> "$GITHUB_OUTPUT"
-
-      - name: Configure release channel
-        working-directory: ${{ env.TAURI_APP_PATH }}
-        shell: bash
-        env:
-          RELEASE_CHANNEL: ${{ env.RELEASE_CHANNEL }}
-        run: |
-          node <<'NODE'
-          const fs = require("node:fs");
-          const channel = process.env.RELEASE_CHANNEL;
-          const configPath = "src-tauri/tauri.conf.json";
-          const config = JSON.parse(fs.readFileSync(configPath, "utf8"));
-          const nightly = channel === "nightly";
-          const binaryName = nightly ? "Clips-Nightly" : "Clips";
-          config.productName = nightly ? "Clips Nightly" : "Clips";
-          config.mainBinaryName = binaryName;
-          config.identifier = nightly ? "com.clips.tray.nightly" : "com.clips.tray";
-          config.plugins ??= {};
-          config.plugins["deep-link"] ??= {};
-          config.plugins["deep-link"].desktop ??= {};
-          config.plugins["deep-link"].desktop.schemes = [
-            nightly ? "clips-nightly" : "clips",
-          ];
-          config.plugins.updater ??= {};
-          config.plugins.updater.endpoints = [
-            nightly
-              ? "https://clips.agent-native.com/api/clips-updater.json?channel=nightly"
-              : "https://clips.agent-native.com/api/clips-updater.json",
-          ];
-          fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
-          const cargoPath = "src-tauri/Cargo.toml";
-          const cargo = fs.readFileSync(cargoPath, "utf8");
-          if (!/^name = "Clips"$/m.test(cargo)) {
-            throw new Error("Could not find the Clips Cargo binary target.");
-          }
-          const updatedCargo = cargo.replace(
-            /^name = "Clips"$/m,
-            `name = "${binaryName}"`,
-          );
-          fs.writeFileSync(cargoPath, updatedCargo);
-          NODE
-
-      - name: Install NASM for x86_64 ffmpeg sidecar
-        if: runner.os == 'macOS'
-        shell: bash
-        run: if ! command -v nasm >/dev/null 2>&1; then brew install nasm; fi
-
-      - name: Prepare macOS ffmpeg sidecars
-        if: runner.os == 'macOS'
-        working-directory: ${{ env.TAURI_APP_PATH }}
-        shell: bash
-        run: |
-          CLIPS_FFMPEG_TARGET_TRIPLE=aarch64-apple-darwin pnpm run prepare:ffmpeg
-          CLIPS_FFMPEG_TARGET_TRIPLE=x86_64-apple-darwin pnpm run prepare:ffmpeg
-
-      - name: Create universal macOS ffmpeg sidecar
-        if: runner.os == 'macOS'
-        working-directory: ${{ env.TAURI_APP_PATH }}/src-tauri
-        shell: bash
-        run: |
-          lipo -create \
-            binaries/ffmpeg-aarch64-apple-darwin \
-            binaries/ffmpeg-x86_64-apple-darwin \
-            -output binaries/ffmpeg-universal-apple-darwin
-          chmod +x binaries/ffmpeg-universal-apple-darwin
-          lipo binaries/ffmpeg-universal-apple-darwin -verify_arch arm64 x86_64
-
+      # clips-desktop-build-check.yml runs this step without the secrets or
+      # releaseId; keep the two in step.
       - name: Build and release (tauri-action)
         uses: tauri-apps/tauri-action@1deb371b0cd8bd54025b384f1cd735e725c4060f # v1.0.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.CLIPS_TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.CLIPS_TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
-          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
-          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
-          APPLE_ID: ${{ secrets.APPLE_ID }}
-          APPLE_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
-          APPLE_TEAM_ID: W3PMF2T3MW
           CLIPS_DESKTOP_SENTRY_DSN: ${{ secrets.CLIPS_DESKTOP_SENTRY_DSN || secrets.SENTRY_CLIENT_DSN || secrets.SENTRY_DSN }}
           CLIPS_DESKTOP_SENTRY_CLIENT_KEY: ${{ secrets.CLIPS_DESKTOP_SENTRY_CLIENT_KEY || secrets.SENTRY_CLIENT_KEY }}
           CLIPS_DESKTOP_SENTRY_PROJECT_ID: ${{ secrets.CLIPS_DESKTOP_SENTRY_PROJECT_ID || secrets.SENTRY_PROJECT_ID }}
           CLIPS_DESKTOP_SENTRY_INGEST_HOST: ${{ secrets.CLIPS_DESKTOP_SENTRY_INGEST_HOST || secrets.SENTRY_INGEST_HOST }}
           CLIPS_DESKTOP_SENTRY_ENVIRONMENT: ${{ env.RELEASE_CHANNEL }}
+          VITE_CLIPS_DEFAULT_SERVER_URL: ${{ env.RELEASE_CHANNEL == 'nightly' && 'https://beta.clips.agent-native.com' || '' }}
         with:
           projectPath: ${{ env.TAURI_APP_PATH }}
-          tagName: ${{ env.RELEASE_TAG_PREFIX }}__VERSION__
-          releaseName: "${{ env.RELEASE_NAME_PREFIX }} v__VERSION__"
-          releaseBody: |
-            Auto-updating ${{ env.RELEASE_CHANNEL }} build of the Clips menu-bar app.
-
-            The in-app updater fetches its manifest from the `${{ env.RELEASE_POINTER_TAG }}`
-            release — this versioned release is the immutable source of the
-            signed bundles it downloads.
-          releaseDraft: true
-          prerelease: ${{ env.RELEASE_CHANNEL == 'nightly' }}
-          releaseCommitish: ${{ needs.resolve-source-ref.outputs.source_ref }}
+          releaseId: ${{ needs.prepare-release.outputs.release_id }}
+          # Each build would read, merge and re-upload latest.json, and builds
+          # running at the same time drop each other's platforms. publish-release
+          # writes it once from every build's .sig files.
+          uploadUpdaterJson: false
           args: ${{ matrix.args }}
 
+  # The universal macOS app compiles each architecture on its own runner at
+  # the same time; bundle-macos merges, signs and uploads them.
+  build-macos:
+    needs: [resolve-source-ref, prepare-release]
+    if: ${{ inputs.mode != 'publish' }}
+    strategy:
+      matrix:
+        target: [aarch64-apple-darwin, x86_64-apple-darwin]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ needs.resolve-source-ref.outputs.source_ref }}
+
+      - name: Guard — refuse to release with placeholder updater pubkey
+        shell: bash
+        run: |
+          if grep -q 'REPLACE_WITH_TAURI_UPDATER_PUBKEY' "$TAURI_APP_PATH/src-tauri/tauri.conf.json"; then
+            echo "::error::tauri.conf.json still has the placeholder updater pubkey."
+            echo "::error::Generate a keypair with 'pnpm exec tauri signer generate' and commit the public key."
+            echo "::error::See templates/clips/desktop/README.md for the full setup."
+            exit 1
+          fi
+
+      - uses: ./.github/actions/setup-clips-desktop
+        with:
+          target: ${{ matrix.target }}
+
+      - uses: ./.github/actions/stamp-clips-release
+        with:
+          version: ${{ needs.prepare-release.outputs.version }}
+          channel: ${{ env.RELEASE_CHANNEL }}
+
+      # clips-desktop-build-check.yml runs this step without the Sentry
+      # settings; keep the two in step.
+      - uses: ./.github/actions/build-clips-macos-arch
+        env:
+          CLIPS_DESKTOP_SENTRY_DSN: ${{ secrets.CLIPS_DESKTOP_SENTRY_DSN || secrets.SENTRY_CLIENT_DSN || secrets.SENTRY_DSN }}
+          CLIPS_DESKTOP_SENTRY_CLIENT_KEY: ${{ secrets.CLIPS_DESKTOP_SENTRY_CLIENT_KEY || secrets.SENTRY_CLIENT_KEY }}
+          CLIPS_DESKTOP_SENTRY_PROJECT_ID: ${{ secrets.CLIPS_DESKTOP_SENTRY_PROJECT_ID || secrets.SENTRY_PROJECT_ID }}
+          CLIPS_DESKTOP_SENTRY_INGEST_HOST: ${{ secrets.CLIPS_DESKTOP_SENTRY_INGEST_HOST || secrets.SENTRY_INGEST_HOST }}
+          CLIPS_DESKTOP_SENTRY_ENVIRONMENT: ${{ env.RELEASE_CHANNEL }}
+          VITE_CLIPS_DEFAULT_SERVER_URL: ${{ env.RELEASE_CHANNEL == 'nightly' && 'https://beta.clips.agent-native.com' || '' }}
+        with:
+          target: ${{ matrix.target }}
+
+  bundle-macos:
+    needs: [resolve-source-ref, prepare-release, build-macos]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+        with:
+          ref: ${{ needs.resolve-source-ref.outputs.source_ref }}
+
+      - uses: ./.github/actions/stamp-clips-release
+        with:
+          version: ${{ needs.prepare-release.outputs.version }}
+          channel: ${{ env.RELEASE_CHANNEL }}
+
+      # clips-desktop-build-check.yml runs this step unsigned; keep the two in
+      # step.
+      - id: bundle
+        uses: ./.github/actions/bundle-clips-macos
+        with:
+          sign: "true"
+          apple-certificate: ${{ secrets.APPLE_CERTIFICATE }}
+          apple-certificate-password: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          apple-signing-identity: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          apple-id: ${{ secrets.APPLE_ID }}
+          apple-password: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          apple-team-id: W3PMF2T3MW
+          updater-private-key: ${{ secrets.CLIPS_TAURI_SIGNING_PRIVATE_KEY }}
+          updater-private-key-password: ${{ secrets.CLIPS_TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+
       - name: Verify macOS permission metadata
-        if: runner.os == 'macOS'
         shell: bash
         run: |
           set -euo pipefail
@@ -425,17 +383,108 @@ jobs:
           grep -q '<key>com.apple.security.device.audio-input</key>' <<< "$ENTITLEMENTS"
           codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 
+      # The names tauri-action gives these bundles. The updater manifest and
+      # the download page find the macOS build by them.
+      - name: Upload the macOS bundles to the draft release
+        working-directory: ${{ steps.bundle.outputs.bundle-dir }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ needs.prepare-release.outputs.version }}
+        run: |
+          retry() {
+            local attempts="$1"
+            shift
+            local delay=2
+            local n=1
+            until "$@"; do
+              if [ "$n" -ge "$attempts" ]; then
+                return 1
+              fi
+              echo "Attempt $n failed; retrying in ${delay}s..."
+              sleep "$delay"
+              n=$((n + 1))
+              delay=$((delay * 2))
+            done
+          }
+
+          PRODUCT_NAME=$(node -p 'require(process.argv[1]).productName' "$GITHUB_WORKSPACE/$TAURI_APP_PATH/src-tauri/tauri.conf.json")
+          PREFIX="${PRODUCT_NAME}_${RELEASE_VERSION}_universal"
+          ASSETS="$RUNNER_TEMP/clips-macos-assets"
+          mkdir -p "$ASSETS"
+          cp "dmg/$PREFIX.dmg" "$ASSETS/"
+          cp "macos/$PRODUCT_NAME.app.tar.gz" "$ASSETS/$PREFIX.app.tar.gz"
+          cp "macos/$PRODUCT_NAME.app.tar.gz.sig" "$ASSETS/$PREFIX.app.tar.gz.sig"
+          for asset in "$ASSETS"/*; do
+            # GitHub turns the space in "Clips Nightly" into a dot in the
+            # asset name; the label keeps it, as tauri-action's uploads do.
+            retry 5 gh release upload "${RELEASE_TAG_PREFIX}${RELEASE_VERSION}" "$asset#$(basename "$asset")" --clobber
+          done
+
   publish-release:
-    needs: build-tauri
+    needs: [prepare-release, build-tauri, bundle-macos]
+    # A publish run skips the builds, so the default success() check would skip
+    # this job too.
+    if: >-
+      ${{ !cancelled() && inputs.mode != 'stage' &&
+      needs.prepare-release.result == 'success' &&
+      (inputs.mode == 'publish' ||
+      (needs.build-tauri.result == 'success' && needs.bundle-macos.result == 'success')) }}
     runs-on: ubuntu-latest
     steps:
+      # The manifest script comes from this workflow's revision, not the
+      # release's source commit, which may predate it.
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
         with:
-          ref: ${{ needs.build-tauri.outputs.source_ref }}
+          sparse-checkout: scripts
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
 
       - name: Resolve version
         id: v
-        run: echo "version=${{ needs.build-tauri.outputs.app-version }}" >> "$GITHUB_OUTPUT"
+        run: echo "version=${{ needs.prepare-release.outputs.version }}" >> "$GITHUB_OUTPUT"
+
+      - name: Write the updater manifest from every build's signatures
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_VERSION: ${{ needs.prepare-release.outputs.version }}
+        shell: bash
+        run: |
+          RELEASE_TAG="${RELEASE_TAG_PREFIX}${RELEASE_VERSION}"
+          # Not manifest/: the pointer step downloads latest.json there and
+          # fails when the file already exists.
+          mkdir -p updater/signatures
+          gh release view "$RELEASE_TAG" --json assets,body > updater/release.json
+          # The DMG is the macOS download and has no signature, so the
+          # manifest script below never checks for it.
+          if ! jq -e 'any(.assets[].name; endswith(".dmg"))' updater/release.json > /dev/null; then
+            echo "::error::$RELEASE_TAG has no .dmg, so the macOS build did not finish."
+            exit 1
+          fi
+          SIGNATURES=$(jq '[.assets[].name | select(endswith(".sig"))] | length' updater/release.json)
+          if [ "$SIGNATURES" -eq 0 ]; then
+            # A publish run never saw the builds, so a draft without signatures
+            # may hold no builds at all.
+            if [ "$RELEASE_MODE" = "publish" ]; then
+              echo "::error::$RELEASE_TAG has no .sig files, so no build reached it. Build it again with mode stage before publishing."
+              exit 1
+            fi
+            echo "⚠️ No .sig files in $RELEASE_TAG — TAURI_SIGNING_PRIVATE_KEY may not be configured; writing no updater manifest."
+            exit 0
+          fi
+          gh release download "$RELEASE_TAG" --pattern '*.sig' --dir updater/signatures
+          # One key per bundle the build-tauri matrix makes; each also implies
+          # its plain {os}-{arch} key. Tauri's updater reads the installer's
+          # own key first, so a .deb install without one gets the AppImage.
+          node --experimental-strip-types scripts/clips-updater-manifest.ts \
+            --release updater/release.json \
+            --signatures updater/signatures \
+            --version "$RELEASE_VERSION" \
+            --require darwin-universal-app,windows-x86_64-msi,linux-x86_64-appimage,linux-x86_64-deb,linux-x86_64-rpm \
+            > updater/latest.json
+          gh release upload "$RELEASE_TAG" updater/latest.json --clobber
 
       - name: Mark versioned release as published
         env:

@@ -1,0 +1,43 @@
+name: Windows install check
+
+# The desktop releases are the only other place this repo installs on Windows,
+# so an install script that breaks there used to surface only mid-release.
+# This job runs the same setup-pnpm action as their Windows builds. The
+# postinstall builds the workspace packages through scripts/lib/pnpm-command.ts.
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - "package.json"
+      - "pnpm-lock.yaml"
+      - "pnpm-workspace.yaml"
+      - "scripts/prebuild-workspace-packages.ts"
+      - "scripts/lib/pnpm-command.ts"
+      - "scripts/lib/pnpm-command.test.ts"
+      - "packages/*/package.json"
+      - "packages/*/scripts/**"
+      - ".github/actions/setup-pnpm/**"
+      - ".github/workflows/windows-install-check.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: windows-install-check-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    name: Install (windows-latest)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
+
+      - uses: ./.github/actions/setup-pnpm
+
+      # Its Windows-only tests start pnpm through cmd.exe, as a script that
+      # pnpm didn't start would, which no Linux job can check.
+      - name: Test the pnpm helper on Windows
+        run: node --experimental-strip-types --test scripts/lib/pnpm-command.test.ts

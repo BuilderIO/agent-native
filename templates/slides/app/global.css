@@ -102,11 +102,6 @@
   padding: 0;
 }
 
-[data-slides-home-composer] {
-  --agent-kit-composer-min-height: 9rem;
-  --agent-kit-composer-editor-min-height: 5.125rem;
-}
-
 .agent-composer-root [data-agent-composer-slot="editor-input"] {
   color: hsl(var(--foreground));
 }
@@ -132,6 +127,8 @@ button[title="Open agent sidebar"] {
 :root {
   --background: 0 0% 13%;
   --foreground: 0 0% 93%;
+  /* Generation previews draft in the canvas selection blue, not the gray primary. */
+  --agent-native-generating-accent: #609ff8;
 
   --card: 0 0% 15%;
   --card-foreground: 0 0% 93%;

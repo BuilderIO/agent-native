@@ -49,6 +49,58 @@ describe("configure-content-collection", () => {
     mocks.status.mockResolvedValue({ configured: true });
   });
 
+  it("sets a collection property and keeps it when only toggling GA4", async () => {
+    const saved = contentCollectionConfigSchema.parse({
+      ga4: { enabled: true, propertyId: "123456789" },
+    });
+    mocks.read.mockResolvedValue({ config: saved });
+    await configure.run(
+      configure.schema!.parse({ enabled: true, ga4: false }),
+      {} as any,
+    );
+    expect(mocks.write).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        config: expect.objectContaining({
+          ga4: { enabled: false, propertyId: "123456789" },
+        }),
+      }),
+    );
+
+    await configure.run(
+      configure.schema!.parse({ enabled: true, ga4PropertyId: "987654321" }),
+      {} as any,
+    );
+    expect(mocks.write).toHaveBeenLastCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        config: expect.objectContaining({
+          ga4: { enabled: true, propertyId: "987654321" },
+        }),
+      }),
+    );
+  });
+
+  it("clears the collection property only when null is explicit", async () => {
+    mocks.read.mockResolvedValue({
+      config: contentCollectionConfigSchema.parse({
+        ga4: { enabled: true, propertyId: "123456789" },
+      }),
+    });
+    await configure.run(
+      configure.schema!.parse({ enabled: false, ga4PropertyId: null }),
+      {} as any,
+    );
+    expect(mocks.write).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        config: expect.objectContaining({
+          ga4: { enabled: true, propertyId: null },
+        }),
+      }),
+    );
+  });
+
   it("disables collection while preserving saved legacy properties", async () => {
     const args = configure.schema!.parse({
       enabled: true,

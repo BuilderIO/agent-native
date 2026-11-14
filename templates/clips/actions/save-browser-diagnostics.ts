@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import { nanoid } from "../server/lib/recordings.js";
 import {
   BROWSER_DIAGNOSTIC_LOOKBACK_MS,
@@ -203,7 +204,9 @@ export default defineAction({
       .default([]),
   }),
   run: async (args) => {
-    const access = await assertAccess("recording", args.recordingId, "editor");
+    const access = assertRecordingNotExpired(
+      await assertAccess("recording", args.recordingId, "editor"),
+    );
     const rec = access.resource as any;
     const db = getDb();
     const now = new Date().toISOString();

@@ -1,3 +1,4 @@
+export { parseAgentChatReferences } from "./agent-chat-references.js";
 export {
   agentChat,
   type AgentChatMessage,
@@ -10,6 +11,17 @@ export {
   stripAgentChatContextFromMessage,
   type AgentChatMessageParts,
 } from "./agent-chat-context.js";
+export {
+  AGENT_SELECTION_CONTEXT_KEY_PREFIX,
+  AGENT_SELECTION_STATE_KEY,
+  agentSelectionContextKey,
+  formatAgentSelectionPreamble,
+  isAgentSelectionContextKey,
+  parseAgentSelectionContextKey,
+  type AgentSelectionReference,
+  type AgentSelectionState,
+  type AgentSelectionStateItem,
+} from "./agent-selection.js";
 export { agentEnv, type EnvVar } from "./agent-env.js";
 export {
   ACTION_BROWSER_PERSIST_ALLOW,
@@ -47,6 +59,7 @@ export {
   composerSourceListSchema,
   composerSourceReferenceSchema,
   composerSourceResultSchema,
+  composerWebsiteUrlSchema,
   type ComposerSourceRequest,
   type ComposerSourceResult,
 } from "./composer-source.js";
@@ -71,12 +84,22 @@ export {
   type ParsedDataUrl,
 } from "./data-url.js";
 export { stripInlineAttachmentPayloads } from "./attachments.js";
+export {
+  assignFirstRunBuilderCreditsV2,
+  FIRST_RUN_BUILDER_CREDITS_V2_EXPERIMENT_ID,
+  FIRST_RUN_BUILDER_CREDITS_V2_FLAG_KEY,
+  FIRST_RUN_BUILDER_CREDITS_V2_VARIANTS,
+  type FirstRunBuilderCreditsV2Assignment,
+  type FirstRunBuilderCreditsV2RequestAssignment,
+  type FirstRunBuilderCreditsV2Variant,
+} from "./first-run-builder-credits-experiment.js";
 export { stripInlineBytes, type InlineBytesPolicy } from "./inline-bytes.js";
 export {
   DEFAULT_REASONING_EFFORT,
   REASONING_EFFORTS,
   getReasoningEffortOptionsForModel,
   isReasoningEffort,
+  isUnsetReasoningEffort,
   reasoningEffortLabel,
   resolveReasoningEffortSelection,
   type ReasoningEffort,
@@ -117,6 +140,7 @@ export {
 } from "./environment-lanes.js";
 export {
   SSR_HTML_CONTENT_TYPE,
+  SSR_MAX_AGE_HEADER,
   SSR_QUERY_CACHE_KEY_HEADER,
   type SsrHtmlContentTypeOptions,
   withSsrHtmlContentType,

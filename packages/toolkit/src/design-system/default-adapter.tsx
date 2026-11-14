@@ -85,6 +85,11 @@ function buttonVariant(
   return "secondary" as const;
 }
 
+// Plain destructive text sits under 4.5:1 on the outline surface in both
+// themes; pulling it toward the foreground keeps it red and readable.
+const DANGER_OUTLINE_TEXT_CLASS =
+  "text-[color:color-mix(in_oklab,hsl(var(--destructive))_60%,hsl(var(--foreground)))]";
+
 function buttonSize(size: "compact" | "default" | "large" = "default") {
   if (size === "compact") return "sm" as const;
   if (size === "large") return "lg" as const;
@@ -105,12 +110,18 @@ const DefaultActionButton: DesignSystemComponents["ActionButton"] = ({
   onPress,
   onClick,
   elementRef,
+  className,
   ...props
 }) => (
   <ButtonBase
     {...props}
     ref={elementRef}
     type={type}
+    className={cn(
+      buttonVariant(intent, emphasis, inset) === "outline-destructive" &&
+        DANGER_OUTLINE_TEXT_CLASS,
+      className,
+    )}
     variant={buttonVariant(intent, emphasis, inset)}
     size={buttonSize(size)}
     disabled={disabled || pending}

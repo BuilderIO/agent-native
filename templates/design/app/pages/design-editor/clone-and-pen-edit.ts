@@ -5,6 +5,7 @@ import {
   type CodeLayerNode,
   type CodeLayerSource,
 } from "@shared/code-layer";
+import { parseCssColorExtended } from "@shared/color-utils";
 import {
   analyzeComponentLinks,
   componentSubtreeForProjection,
@@ -654,12 +655,115 @@ export function cloneHtmlLayerAtPosition(
 function clearRootLayerPosition(element: Element) {
   const host = styleHost(element);
   if (!host) return;
-  host.style.removeProperty("inset");
-  host.style.position = "";
-  host.style.left = "";
-  host.style.top = "";
-  host.style.right = "";
-  host.style.bottom = "";
+  // An unoffset relative root is still the containing block its absolutely
+  // placed children are laid out in; only out-of-flow placement is stripped.
+  const keepsContainingBlock = /^(?:relative|sticky)$/.test(
+    host.style.position,
+  );
+  patchElementInlineStyle(
+    host,
+    [
+      "inset",
+      ...(keepsContainingBlock ? [] : ["position"]),
+      "left",
+      "top",
+      "right",
+      "bottom",
+    ].map((property) => ({ property, value: null })),
+  );
+}
+
+function declaredStyles(style: string, doc: Document): Map<string, string> {
+  const probe = doc.createElement("div");
+  probe.setAttribute("style", style);
+  const declarations = new Map<string, string>();
+  for (let index = 0; index < probe.style.length; index += 1) {
+    const property = probe.style[index]!;
+    declarations.set(
+      property,
+      `${probe.style.getPropertyValue(property)}${probe.style.getPropertyPriority(property) ? " !important" : ""}`,
+    );
+  }
+  return declarations;
+}
+
+function sameDeclaredValue(a: string | undefined, b: string | undefined) {
+  if (a === b) return true;
+  if (a === undefined || b === undefined) return false;
+  const colorA = parseCssColorExtended(a);
+  const colorB = parseCssColorExtended(b);
+  return Boolean(
+    colorA &&
+    colorB &&
+    colorA.r === colorB.r &&
+    colorA.g === colorB.g &&
+    colorA.b === colorB.b &&
+    colorA.a === colorB.a,
+  );
+}
+
+function sameDeclarations(a: Map<string, string>, b: Map<string, string>) {
+  return [...new Set([...a.keys(), ...b.keys()])].every((property) =>
+    sameDeclaredValue(a.get(property), b.get(property)),
+  );
+}
+
+/**
+ * A clone taken from the rendered screen carries the browser's serialization
+ * of every inline style, with colors converted and declarations re-spaced. The
+ * source's text is kept, with only the declarations the clone really changed
+ * written over it; a clone the authored text cannot reproduce keeps its own.
+ */
+function restoreAuthoredStyleText(authored: Element, clone: Element) {
+  const authoredStyle = authored.getAttribute("style");
+  const cloneStyle = clone.getAttribute("style");
+  const host = styleHost(clone);
+  if (!host || cloneStyle === null || authoredStyle === cloneStyle) return;
+  const doc = clone.ownerDocument;
+  const before = declaredStyles(authoredStyle ?? "", doc);
+  const after = declaredStyles(cloneStyle, doc);
+  const changes = [...new Set([...before.keys(), ...after.keys()])]
+    .filter(
+      (property) =>
+        !sameDeclaredValue(before.get(property), after.get(property)),
+    )
+    .map((property) => ({
+      property,
+      value: host.style.getPropertyValue(property) || null,
+    }));
+  host.setAttribute("style", authoredStyle ?? "");
+  patchElementInlineStyle(host, changes);
+  const restored = host.getAttribute("style");
+  if (!sameDeclarations(declaredStyles(restored ?? "", doc), after)) {
+    host.setAttribute("style", cloneStyle);
+  } else if (authoredStyle === null && restored === "") {
+    host.removeAttribute("style");
+  }
+}
+
+function restoreAuthoredCloneStyles(source: Element, clone: Element) {
+  const sourceElements = [source, ...Array.from(source.querySelectorAll("*"))];
+  const cloneElements = [clone, ...Array.from(clone.querySelectorAll("*"))];
+  if (
+    sourceElements.length !== cloneElements.length ||
+    sourceElements.some(
+      (element, index) => element.localName !== cloneElements[index]?.localName,
+    )
+  ) {
+    return;
+  }
+  sourceElements.forEach((element, index) =>
+    restoreAuthoredStyleText(element, cloneElements[index]!),
+  );
+}
+
+/** `card` copies as `card-2`, `card-2` as `card-3`: the next suffix nothing uses. */
+function nextAuthoredId(previousId: string, isUsed: (id: string) => boolean) {
+  const base = previousId.replace(/-\d+$/, "") || previousId;
+  for (let suffix = 2; ; suffix += 1) {
+    const candidate = `${base}-${suffix}`;
+    if (!isUsed(candidate)) return candidate;
+  }
 }
 
 const UNRENDERED_TAGS = new Set(["script", "style", "template"]);
@@ -829,19 +933,38 @@ function setRootLayerPosition(
 ): boolean {
   const host = styleHost(element);
   if (!host) return false;
-  const offset =
+  let offset =
     position.space === "visual"
       ? (position.visualOffset ?? transformedBoundsOffset(host))
       : { x: 0, y: 0 };
+  // An auto, % or em leading margin cannot be resolved without layout; zero
+  // it so left/top alone place the box where the paste asked.
+  if (
+    offset === null &&
+    (inlineMarginLength(host.style.marginLeft) === null ||
+      inlineMarginLength(host.style.marginTop) === null)
+  ) {
+    patchElementInlineStyle(host, [
+      { property: "margin-top", value: "0px" },
+      { property: "margin-left", value: "0px" },
+    ]);
+    offset = transformedBoundsOffset(host);
+  }
   if (!offset || !Number.isFinite(offset.x) || !Number.isFinite(offset.y)) {
     return false;
   }
+  // A measured transformed box keeps its sub-pixel offset so the box itself,
+  // which is what the canvas shows, lands on whole pixels.
   const measuredVisualOffset =
     position.space === "visual" && position.visualOffset !== undefined;
-  const preserveFractional =
-    measuredVisualOffset || position.positionMode === "relative";
-  const left = formatClonePosition(position.x - offset.x, preserveFractional);
-  const top = formatClonePosition(position.y - offset.y, preserveFractional);
+  const left = formatClonePosition(
+    Math.round(position.x) - offset.x,
+    measuredVisualOffset,
+  );
+  const top = formatClonePosition(
+    Math.round(position.y) - offset.y,
+    measuredVisualOffset,
+  );
   if (position.positionMode === "relative") {
     // A logical inset written after left/top overrides them, so left/top are
     // removed here and appended after the insets below.
@@ -1292,6 +1415,14 @@ export function prepareClonedHtmlLayer(
   ) {
     clone.setAttribute("data-agent-native-group-wrapper", "true");
   }
+  // The clone marker only tells the bridge a live node has no source yet;
+  // this copy is about to become source like any other layer.
+  for (const marked of [
+    clone,
+    ...Array.from(clone.querySelectorAll("[data-agent-native-clone-root]")),
+  ]) {
+    marked.removeAttribute("data-agent-native-clone-root");
+  }
   const isSvgRoot = source.localName.toLowerCase() === "svg";
   const sourceHasLayerName = Boolean(
     resolveLayerNameAttribute((attribute) => clone.getAttribute(attribute)),
@@ -1302,7 +1433,6 @@ export function prepareClonedHtmlLayer(
       : null;
   if (styleSnapshot) {
     clone.setAttribute("data-agent-native-preserve-styles", "true");
-    clone.setAttribute("data-agent-native-clone-root", "true");
     styleSnapshot.nodes.forEach((node) => {
       const target = elementAtPortableStylePath(clone, node);
       if (target) applyPortableStyles(target, node.styles);
@@ -1379,9 +1509,22 @@ export function prepareClonedHtmlLayer(
         }
       }
     }
+    const cloneAuthoredIds = new Set(
+      [clone, ...Array.from(clone.querySelectorAll("[id]"))].map(
+        (element) => element.id,
+      ),
+    );
     reassignClonedAuthoredIds(
       clone,
-      () => uniqueLayerId("copy-id"),
+      (previousId) => {
+        if (!takenAuthoredIds) return uniqueLayerId("copy-id");
+        const nextId = nextAuthoredId(
+          previousId,
+          (id) => takenAuthoredIds.has(id) || cloneAuthoredIds.has(id),
+        );
+        cloneAuthoredIds.add(nextId);
+        return nextId;
+      },
       takenAuthoredIds && ((id) => takenAuthoredIds.has(id)),
     );
     reassignClonedSourceIdentity(clone, () => uniqueLayerId("copy-child"));
@@ -1774,6 +1917,13 @@ export function insertClonedHtmlLayers(
         takenAuthoredIds,
       );
       if (!prepared) return;
+      if (
+        options.preserveIncomingNodeIds &&
+        target &&
+        layerHtmls.length === 1
+      ) {
+        restoreAuthoredCloneStyles(target, prepared.element);
+      }
       const sourceContent =
         componentContext?.documents.find(
           (document) =>
@@ -1807,11 +1957,11 @@ export function insertClonedHtmlLayers(
         if (!setRootLayerPosition(prepared.element, position)) return;
       } else if (options.stripRootPosition) {
         clearRootLayerPosition(prepared.element);
-        if (keepRootAbsolute) {
-          styleHost(prepared.element)?.style.setProperty(
-            "position",
-            "absolute",
-          );
+        const host = styleHost(prepared.element);
+        if (keepRootAbsolute && host) {
+          patchElementInlineStyle(host, [
+            { property: "position", value: "absolute" },
+          ]);
         }
       }
       rootNodeIds.push(prepared.rootNodeId);

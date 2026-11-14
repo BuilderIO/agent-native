@@ -97,7 +97,10 @@ const NFM_SIGNALS = [
   /^\t*<(?:callout|columns|column|synced_block|synced_block_reference|table_of_contents|page|database)\b/m,
   /<mention-[a-z-]+\b/,
   /\{(?:color|toggle)="[^"]*"\}\s*$/m,
+  // An image copied from Assets keeps its asset id, beside any color.
+  /\{(?:color="[^"]*"\s+)?asset="[^"]*"(?:\s+color="[^"]*")?\}\s*$/m,
   /^\t*<table\s+header-(?:row|column)=/m,
+  /^\t*<details\s[^>]*\bmarkdown="1"/m,
 ];
 
 const GITHUB_ALERTS: Record<string, { icon: string; color: string }> = {
@@ -1762,9 +1765,8 @@ const NFM_CONTAINER_OPEN_RE =
 const MAX_REPAIRED_NESTING = 16;
 
 /**
- * NFM nests a container's body one tab deeper than its tags, and the parser
- * drops an untabbed body. Hand-written and agent-written NFM often omits the
- * tab, so indent such a body before parsing instead of losing it.
+ * NFM nests a container's body one tab deeper than its tags. Hand-written and
+ * agent-written NFM often omits the tab, so indent such a body before parsing.
  */
 function indentContainerBodies(nfm: string, notes: ImportNoteBag): string {
   // `base` is the tabs added to the container's own tags; `shift` is the

@@ -3,6 +3,20 @@ export type LocalhostWriteConsentRequestOutcome =
   | "missing-connection"
   | "not-editable";
 
+// Carries only the server request ID through sign-in. It selects which
+// pending request to reopen; the grant still checks the signed-in account.
+export const LOCALHOST_CONSENT_RETURN_PARAM = "localhostConsent";
+
+export function localhostConsentReturnPath(
+  pathname: string,
+  requestId: string,
+): string {
+  const search = new URLSearchParams({
+    [LOCALHOST_CONSENT_RETURN_PARAM]: requestId,
+  });
+  return `${pathname}?${search}`;
+}
+
 export function isLocalhostWriteConsentError(error: unknown): boolean {
   return (
     error instanceof Error &&
@@ -20,8 +34,8 @@ export function localhostConsentRequestDisposition({
   requestKey: string;
   lastHandledKey: string | null;
   failedClearKey: string | null;
-}): "show-and-clear" | "retry-clear" | "ignore" {
-  if (lastHandledKey !== requestKey) return "show-and-clear";
+}): "show" | "retry-clear" | "ignore" {
+  if (lastHandledKey !== requestKey) return "show";
   return failedClearKey === requestKey ? "retry-clear" : "ignore";
 }
 

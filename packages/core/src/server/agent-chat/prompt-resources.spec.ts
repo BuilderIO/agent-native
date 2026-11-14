@@ -132,6 +132,20 @@ describe("selectPromptSectionsWithinBudget", () => {
       { label: "workspace-index (test)", chars: sections[0]!.content.length },
     ]);
   });
+
+  it("reports delegated budget omissions without advertising unavailable resource readers", () => {
+    const result = selectPromptSectionsWithinBudget(
+      [section("AGENTS.md", 900, "required"), section("optional", 900)],
+      1_000,
+      false,
+    );
+    expect(result.skipped).toEqual([{ label: "optional (test)", chars: 900 }]);
+    const note = result.sections.at(-1)!;
+    expect(note).toContain("<context-budget-note>");
+    expect(note).toContain("unread");
+    expect(note).not.toContain("`resources`");
+    expect(note).not.toContain("`docs-search`");
+  });
 });
 
 describe("resourceScopeForOwner", () => {

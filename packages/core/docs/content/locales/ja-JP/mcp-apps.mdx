@@ -257,11 +257,17 @@ ngrok を通じて Claude をテストする場合は、実稼働ビルド (`pnp
 
 ## クライアントのサポートとキャッシュ {#client-support}
 
-現在の公式 MCP アプリ クライアント リストには、Claude、Claude デスクトップ、VS Code GitHub Copilot、Goose、Postman、MCPJam、ChatGPT、および Cursor が含まれています。ホストのサポートはプラン、リリース チャネル、クライアントのバージョンによって異なるため、[MCP extension support matrix](https://modelcontextprotocol.io/extensions/client-matrix) を確認してください。 ChatGPT カスタム MCP アプリは、ChatGPT Web 上の Business および Enterprise/Edu ワークスペースの開発者モードを通じて利用できます。 OpenAI の [developer mode and MCP apps](https://help.openai.com/en/articles/12584461-developer-mode-and-full-mcp-apps-in-chatgpt-beta) メモを参照してください。
+MCP Apps をインライン表示するホストには、Web・デスクトップ・モバイルの Claude チャットと Claude Desktop の [Code](https://github.com/anthropics/claude-code/issues/103809) タブが含まれます。その他の対応ホスト: ChatGPT; VS Code GitHub Copilot (1.109+); Microsoft 365 Copilot; Cursor (2.6+); Goose; Postman; MCPJam; Codex Desktop (26.616+); T3 Code (Codex). 対応状況はプラン、リリースチャネル、クライアントのバージョンによって異なります。参照：[MCP extension support matrix](https://modelcontextprotocol.io/extensions/client-matrix) を確認してください。 ChatGPT カスタム MCP アプリは、ChatGPT Web 上の Business および Enterprise/Edu ワークスペースの開発者モードを通じて利用できます。 OpenAI の [developer mode and MCP apps](https://help.openai.com/en/articles/12584461-developer-mode-and-full-mcp-apps-in-chatgpt-beta) メモを参照してください。
 
-Claude コード、Codex、およびその他の CLI/コードエディター クライアントは、MCP アプリをサポートする場合でも同じリソースとメタデータを受け取りますが、その正確なサーフェスでのインライン iframe レンダリングを検証していない限り、それらをリンクアウト ホストとして扱います。ホストが iframe をレンダリングしないことを選択した場合でも、ディープ リンクは信頼性の高いフォールバックとして残ります。実際には、すべてのエージェント ネイティブ アプリは、対応ホストでのインライン レビュー/編集用の MCP アプリと、完全なアプリへのユニバーサル ラウンドトリップ用の `link` の両方を使用して作成する必要があります。
+Claude Code のターミナル、Cowork、claude.ai の Web 版 Code、Codex CLI では、代わりにディープリンクを使用してください。[Cowork はまだ MCP Apps への対応を宣言しておらず、同じコネクタで使用すると、コネクタを再接続するまで Chat のインラインアプリが表示されなくなることがあります。](https://github.com/anthropics/claude-code/issues/103924) ホストが iframe をレンダリングしないことを選択した場合でも、ディープ リンクは信頼性の高いフォールバックとして残ります。実際には、すべてのエージェント ネイティブ アプリは、対応ホストでのインライン レビュー/編集用の MCP アプリと、完全なアプリへのユニバーサル ラウンドトリップ用の `link` の両方を使用して作成する必要があります。
 
 Claude および ChatGPT は、既存のカスタム コネクタのツールとリソースのメタデータをキャッシュできます。 MCP アプリのメタデータを変更した後、新しいツール呼び出しで検証します。ホストがまだ古い記述子を使用している場合は、Claude コネクタを再接続するか、ChatGPT コネクタを再スキャン/レビューして、カタログを更新します。デプロイ後に Claude がツール記述子に存在する `_meta.ui.csp` または `_meta.ui.permissions` に関する警告をログに記録する場合、そのコネクタは古いメタデータを使用しています。Claude コネクタを削除または再接続し、新しいチャットを開始してください。
+
+## カードを受け取るユーザー {#who-gets-cards}
+
+接続されたチャットアプリが MCP App のカード（`_meta.ui` ツールメタデータとその `ui://` リソース）を受け取るのは、そのアプリがサインインしているユーザーが 設定 → ラボ で **チャットアプリでのアプリカード** ラボをオンにしている場合だけです。このラボは既定でオフで、各ユーザーの選択はそのユーザー自身の接続にだけ適用されます。変更したら、チャットアプリでアプリを再接続してツール一覧を読み込み直してください。ラボがオフのとき、ツールは `link` ディープリンク付きのシンプルな結果を返します。人としてサインインしていない接続も、シンプルな結果を受け取ります。たとえば、`AGENT_NATIVE_OWNER_EMAIL` のない共有 `ACCESS_TOKEN`、サービスプリンシパル、スタンドアロンの stdio サーバーです。
+
+ChatGPT アプリディレクトリのカタログ（`/mcp/directory`）と、`x-agent-native-mcp-inline-apps` ヘッダーを送る Agent-Native 自身のファーストパーティクライアントは、ラボの設定にかかわらずカードを受け取ります。環境変数 `AGENT_NATIVE_MCP_APPS_INLINE` と `AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS` は読み取られなくなりました。どちらかが設定されている場合、サーバーは警告を 1 回ログに記録します。
 
 ## テスト {#testing}
 

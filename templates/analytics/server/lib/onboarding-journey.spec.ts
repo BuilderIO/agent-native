@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import { lexAgentSql } from "@agent-native/core/agent-sql";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -39,6 +41,7 @@ import {
   onboardingJourneyEventDateRange,
   type OnboardingJourneyEventsFilters,
 } from "./first-party-metric-catalog";
+import type { JourneyEventRow } from "./journey-steps";
 import {
   formatJourneyOutline,
   getOnboardingJourney,
@@ -48,6 +51,7 @@ import {
   ONBOARDING_EVENT_READ_DEADLINE_MS,
   parseJourneyEventRow,
   parseJourneyTimestampMs,
+  partitionOnboardingJourneyCohorts,
   type JourneySummary,
   type JourneyTree,
   type OnboardingJourneyArgs,
@@ -98,6 +102,21 @@ function eventRow(
     action: null,
     ...extra,
   };
+}
+
+function cohortEvent(
+  sessionId: string | null,
+  eventName: string,
+  offsetSeconds: number,
+  extra: Record<string, unknown> = {},
+): JourneyEventRow {
+  const raw = eventRow(sessionId ?? "sessionless", eventName, offsetSeconds, {
+    ...extra,
+    ...(sessionId === null ? { session_id: null } : {}),
+  });
+  const parsed = parseJourneyEventRow(raw);
+  if (!parsed) throw new Error("The cohort event fixture must be valid.");
+  return parsed;
 }
 
 function journeyRows() {
@@ -266,7 +285,166 @@ describe("parseJourneyEventRow", () => {
   });
 });
 
+describe("partitionOnboardingJourneyCohorts", () => {
+  it.each([
+    ["first_run_builder_credits", "credits", ["both-ids", "legacy-only"]],
+    ["first_run_builder_credits_v2", "control", ["both-ids", "v2-only"]],
+  ] as const)(
+    "matches only the requested experiment ID %s",
+    (experimentId, expectedArm, expectedSessions) => {
+      const rows = [
+        cohortEvent("legacy-only", "onboarding_experiment_exposed", 1, {
+          experiment_id: "first_run_builder_credits",
+          experiment_variant: "credits",
+        }),
+        cohortEvent("v2-only", "onboarding_experiment_exposed", 1, {
+          experiment_id: "first_run_builder_credits_v2",
+          experiment_variant: "control",
+        }),
+        cohortEvent("both-ids", "onboarding_experiment_exposed", 1, {
+          experiment_id: "first_run_builder_credits",
+          experiment_variant: "credits",
+        }),
+        cohortEvent("both-ids", "onboarding_experiment_exposed", 2, {
+          experiment_id: "first_run_builder_credits_v2",
+          experiment_variant: "control",
+        }),
+      ];
+
+      const partition = partitionOnboardingJourneyCohorts(rows, {
+        experimentId,
+      });
+
+      expect(partition.experiment).toMatchObject({
+        assignedSessions: 2,
+        exposureSessions: 2,
+        unassignedSessions: 1,
+        conflictingSessions: 0,
+      });
+      expect([...partition.experiment!.arms[expectedArm]].sort()).toEqual(
+        expectedSessions,
+      );
+      const otherArm = expectedArm === "control" ? "credits" : "control";
+      expect([...partition.experiment!.arms[otherArm]]).toEqual([]);
+    },
+  );
+
+  it("assigns only exposure events and crosses Design first-touch trees with each arm", () => {
+    const rows = [
+      cohortEvent("web-control", "signup", 0, {
+        first_touch_path: "/signup",
+      }),
+      cohortEvent("web-control", "onboarding_experiment_exposed", 1, {
+        experiment_id: "first_run_builder_credits",
+        experiment_variant: "control",
+      }),
+      cohortEvent("oauth-credits", "signup", 0, {
+        first_touch_path: "/mcp/oauth/callback",
+      }),
+      cohortEvent("oauth-credits", "onboarding_experiment_exposed", 1, {
+        experiment_id: "first_run_builder_credits",
+        experiment_variant: "credits",
+      }),
+      cohortEvent("conflicting-path-control", "signup", 0, {
+        first_touch_path: "/mcp/oauth/callback",
+      }),
+      cohortEvent("conflicting-path-control", "signup", 1, {
+        first_touch_path: "/signup",
+      }),
+      cohortEvent(
+        "conflicting-path-control",
+        "onboarding_experiment_exposed",
+        2,
+        {
+          experiment_id: "first_run_builder_credits",
+          experiment_variant: "control",
+        },
+      ),
+      cohortEvent("conflicting-arm", "signup", 0, {
+        first_touch_path: "/signup",
+      }),
+      cohortEvent("conflicting-arm", "onboarding_experiment_exposed", 1, {
+        experiment_id: "first_run_builder_credits",
+        experiment_variant: "control",
+      }),
+      cohortEvent("conflicting-arm", "onboarding_experiment_exposed", 2, {
+        experiment_id: "first_run_builder_credits",
+        experiment_variant: "credits",
+      }),
+      cohortEvent("unexposed", "signup", 0, {
+        first_touch_path: "/signup",
+        experiment_id: "first_run_builder_credits",
+        experiment_variant: "credits",
+      }),
+      cohortEvent("unexposed", "onboarding_step_viewed", 1, {
+        experiment_id: "first_run_builder_credits",
+        experiment_variant: "credits",
+      }),
+      cohortEvent("invalid-exposure", "signup", 0),
+      cohortEvent("invalid-exposure", "onboarding_experiment_exposed", 1, {
+        experiment_id: "first_run_builder_credits",
+        experiment_variant: "other",
+      }),
+      cohortEvent(null, "signup", 0, {
+        first_touch_path: "/mcp/oauth/callback",
+      }),
+    ];
+
+    const partition = partitionOnboardingJourneyCohorts(rows, {
+      experimentId: "first_run_builder_credits",
+      splitDesignFirstTouch: true,
+    });
+
+    expect(partition.experiment).toMatchObject({
+      assignedSessions: 3,
+      exposureSessions: 5,
+      unassignedSessions: 2,
+      conflictingSessions: 1,
+    });
+    expect([...partition.experiment!.arms.control].sort()).toEqual([
+      "conflicting-path-control",
+      "web-control",
+    ]);
+    expect([...partition.experiment!.arms.credits]).toEqual(["oauth-credits"]);
+    expect(partition.designFirstTouch!.cohorts.web.has("unexposed")).toBe(true);
+    expect(
+      partition.designFirstTouch!.cohorts["mcp-oauth"].has("oauth-credits"),
+    ).toBe(true);
+    expect(
+      partition.experiment!.designFirstTouch!.control.cohorts.unknown.has(
+        "conflicting-path-control",
+      ),
+    ).toBe(true);
+    expect(
+      partition.experiment!.designFirstTouch!.control.conflictingSessions,
+    ).toBe(1);
+    expect(partition.sessionlessMcpOauthSignupEvents).toBe(1);
+  });
+});
+
 describe("getOnboardingJourney", () => {
+  it.each([
+    [
+      "experiment arms",
+      { app: "clips", experimentId: "first_run_builder_credits" },
+    ],
+    ["Design first touch", { app: "design", splitDesignFirstTouch: true }],
+  ] as const)(
+    "rejects person follow-up with %s before reading events",
+    async (_label, cohort) => {
+      await expect(
+        getOnboardingJourney(scope, {
+          ...ARGS,
+          ...cohort,
+          followUpMode: "person",
+        }),
+      ).rejects.toThrow(
+        "Person follow-up is not available with cohort splits.",
+      );
+      expect(mocks.queryFirstPartyAnalytics).not.toHaveBeenCalled();
+    },
+  );
+
   it("returns exactly the JourneyTree contract", async () => {
     mocks.queryFirstPartyAnalytics.mockResolvedValue({
       rows: journeyRows(),
@@ -637,6 +815,118 @@ describe("getOnboardingJourney", () => {
     now.mockRestore();
   });
 
+  it("joins sessions into one person by email or sign-in ID and reports how each matched", async () => {
+    const now = vi
+      .spyOn(Date, "now")
+      .mockReturnValue(Date.parse("2026-11-05T00:00:56.789Z"));
+    const hash = (email: string) =>
+      createHash("md5").update(email).digest("hex");
+    const grace = { session_email_hash: hash("grace@example.com") };
+    const rows = [
+      eventRow("s1", "signup", 0, grace),
+      eventRow("s1", "onboarding_step_viewed", 5, {
+        ...grace,
+        step_id: "role",
+      }),
+      eventRow("s2", "signup", 0, { auth_user_id: "person-g" }),
+      eventRow("s3", "signup", 0, { ...grace, auth_user_id: "person-g" }),
+      eventRow("s4", "signup", 0),
+      eventRow("s5", "signup", 0, {
+        session_email_hash: hash("heidi@example.com"),
+      }),
+    ];
+    const personRow = (
+      stepKey: string,
+      counts: Record<string, number>,
+    ): Record<string, unknown> => ({
+      terminal_step_key: stepKey,
+      canonical_people: 0,
+      identity_unavailable_sessions: 0,
+      later_activity_in_selected_session: 0,
+      later_activity_outside_selected_session_or_app: 0,
+      later_activity_in_both_selected_and_outside: 0,
+      later_activity_observed_anywhere: 0,
+      no_activity_observed_within_horizon: 0,
+      right_censored_horizon: 0,
+      fully_observed_canonical_people: 0,
+      identity_unavailable_with_selected_session_activity: 0,
+      identity_unavailable_with_outside_session_or_app_activity: 0,
+      ...counts,
+    });
+    mocks.queryFirstPartyAnalytics.mockImplementation(async (sql: string) => {
+      if (sql.includes("terminal_members AS (")) {
+        return {
+          rows: [
+            personRow("signup", {
+              canonical_people: 1,
+              identity_unavailable_sessions: 1,
+              later_activity_outside_selected_session_or_app: 1,
+              later_activity_observed_anywhere: 1,
+              fully_observed_canonical_people: 1,
+            }),
+            personRow("step:role", {
+              canonical_people: 1,
+              no_activity_observed_within_horizon: 1,
+              fully_observed_canonical_people: 1,
+            }),
+          ],
+          schema: [],
+        };
+      }
+      if (sql.includes("terminal_steps AS (")) {
+        return { rows: [], schema: [] };
+      }
+      return { rows, schema: [] };
+    });
+
+    const tree = (await getOnboardingJourney(scope, {
+      ...ARGS,
+      followUpMode: "person",
+    })) as JourneyTree;
+
+    expect(tree.personFollowUp).toMatchObject({
+      status: "complete",
+      coverage: {
+        identityJoin: {
+          status: "partial",
+          terminalSessions: 5,
+          sessionsWithCanonicalIdentity: 4,
+          sessionsIdentifiedByEmail: 3,
+          sessionsIdentifiedBySignInIdOnly: 1,
+          sessionsWithoutCanonicalIdentity: 1,
+          uniqueCanonicalPeople: 2,
+        },
+      },
+      total: {
+        canonicalPeople: 2,
+        identityUnavailableSessions: 1,
+      },
+    });
+    const personSql = mocks.queryFirstPartyAnalytics.mock.calls
+      .map(([sql]) => sql as string)
+      .find((sql) => sql.includes("terminal_members AS ("))!;
+    // Grace's latest session has only her email; her sign-in ID comes from
+    // the sessions that share it.
+    expect(personSql).toContain(
+      `"sessionId":"s1","stepKey":"step:role","app":"clips","timestamp":"2026-10-01T12:00:05.000Z","authUserId":"person-g","emailHash":"${hash("grace@example.com")}"`,
+    );
+    expect(personSql).toContain(
+      `"authUserId":null,"emailHash":"${hash("heidi@example.com")}"`,
+    );
+    // Later activity matches every email and sign-in ID Grace's sessions carried.
+    expect(personSql).toContain(
+      '{"sessionId":"s1","authUserId":"person-g","emailHash":null}',
+    );
+    expect(personSql).toContain(
+      `{"sessionId":"s1","authUserId":null,"emailHash":"${hash("grace@example.com")}"}`,
+    );
+    expect(personSql).not.toContain('"sessionId":"s2"');
+    expect(personSql).not.toContain('"sessionId":"s3"');
+    expect(JSON.stringify(tree)).not.toContain("@example.com");
+    expect(JSON.stringify(tree)).not.toContain("person-g");
+    now.mockRestore();
+  });
+
   it("uses a typed session-follow-up stage for unclassified query errors", async () => {
     const providerDetail = "private SQL policy detail";
     mocks.queryFirstPartyAnalytics
@@ -993,15 +1283,121 @@ describe("getOnboardingJourney", () => {
     ).toEqual({ startDate: "2026-10-08", endDate: "2026-10-09" });
   });
 
-  it("marks multi-page offset reads incomplete while preserving the tree", async () => {
-    const firstPage = Array.from({ length: 4000 }, (_, index) =>
-      eventRow(`page-${String(index).padStart(4, "0")}`, "signup", index),
+  it.each([
+    {
+      name: "an event arrives between pages",
+      firstTotals: { journey_total_rows: 4001, journey_rows_fingerprint: 7 },
+      lastTotals: { journey_total_rows: 4002, journey_rows_fingerprint: 9 },
+    },
+    {
+      // A late duplicate can drop one event and settle another's link.
+      name: "pages count the same total over different rows",
+      firstTotals: { journey_total_rows: 4002, journey_rows_fingerprint: 7 },
+      lastTotals: { journey_total_rows: 4002, journey_rows_fingerprint: 9 },
+    },
+  ])(
+    "marks multi-page reads incomplete when $name",
+    async ({ firstTotals, lastTotals }) => {
+      const firstPage = Array.from({ length: 4000 }, (_, index) =>
+        eventRow(
+          `page-${String(index).padStart(4, "0")}`,
+          "signup",
+          index,
+          firstTotals,
+        ),
+      );
+      const pageQueue = [
+        firstPage,
+        [
+          eventRow("last-page", "signup", 4000, lastTotals),
+          eventRow("late-arrival", "signup", 4001, lastTotals),
+        ],
+      ];
+      const querySql: string[] = [];
+      const now = vi
+        .spyOn(Date, "now")
+        .mockReturnValue(Date.parse("2026-10-09T12:00:00.000Z"));
+      mocks.queryFirstPartyAnalytics.mockImplementation(async (sql: string) => {
+        querySql.push(sql);
+        if (sql.includes("terminal_steps AS (")) {
+          return {
+            rows: [
+              {
+                terminal_step_key: "signup",
+                cohort_sessions: 0,
+                later_recorded_activity: 0,
+              },
+            ],
+            schema: [],
+          };
+        }
+        return { rows: pageQueue.shift() ?? [], schema: [] };
+      });
+      mocks.listJourneyRecordings.mockResolvedValue({
+        recordings: [],
+        complete: true,
+      });
+
+      const tree = (await getOnboardingJourney(scope, {
+        ...ARGS,
+        maxEventRows: 5000,
+      })) as JourneyTree;
+      const cutoff = "2026-10-03T00:00:00.000Z";
+      const eventSql = querySql.filter(
+        (sql) => !sql.includes("terminal_steps AS ("),
+      );
+      const followupSql = querySql.filter((sql) =>
+        sql.includes("terminal_steps AS ("),
+      );
+
+      expect(now).toHaveBeenCalledTimes(1);
+      expect(eventSql).toHaveLength(2);
+      expect(followupSql).toHaveLength(0);
+      expect(querySql.every((sql) => sql.includes(cutoff))).toBe(true);
+      expect(tree.notes?.join(" ")).toMatch(
+        /2 OFFSET pages.*late-arriving events.*in any window.*incomplete/,
+      );
+      expect(tree.followUp).toMatchObject({
+        status: "incomplete",
+        observationCutoff: cutoff,
+        rightCensoredAtWindowEnd: true,
+        coverage: {
+          journeyEventRead: {
+            rows: 4002,
+            pages: 2,
+            truncated: false,
+            paginationConsistency: "may_have_shifted",
+          },
+          followupAggregateRead: { rows: null, queries: 0, truncated: false },
+          cohortSessions: null,
+        },
+        laterRecordedActivityWithinWindow: {
+          total: null,
+          byTerminalStepKey: null,
+        },
+        noLaterRecordedActivityWithinWindow: {
+          total: null,
+          byTerminalStepKey: null,
+        },
+        observationFollowupDurationMs: null,
+      });
+      now.mockRestore();
+    },
+  );
+
+  it("runs follow-up on a multi-page read whose pages counted the same rows", async () => {
+    // 1,001 sessions of four signup events each: two pages, under the
+    // follow-up terminal cap.
+    const allRows = Array.from({ length: 4004 }, (_, index) =>
+      eventRow(
+        `cohort-${String(Math.floor(index / 4)).padStart(4, "0")}`,
+        "signup",
+        index,
+        { journey_total_rows: 4004, journey_rows_fingerprint: 7 },
+      ),
     );
-    const pageQueue = [firstPage, [eventRow("last-page", "signup", 4000)]];
+    const pageQueue = [allRows.slice(0, 4000), allRows.slice(4000)];
     const querySql: string[] = [];
-    const now = vi
-      .spyOn(Date, "now")
-      .mockReturnValue(Date.parse("2026-10-09T12:00:00.000Z"));
     mocks.queryFirstPartyAnalytics.mockImplementation(async (sql: string) => {
       querySql.push(sql);
       if (sql.includes("terminal_steps AS (")) {
@@ -1009,7 +1405,7 @@ describe("getOnboardingJourney", () => {
           rows: [
             {
               terminal_step_key: "signup",
-              cohort_sessions: 0,
+              cohort_sessions: 1001,
               later_recorded_activity: 0,
             },
           ],
@@ -1027,46 +1423,23 @@ describe("getOnboardingJourney", () => {
       ...ARGS,
       maxEventRows: 5000,
     })) as JourneyTree;
-    const cutoff = "2026-10-03T00:00:00.000Z";
-    const eventSql = querySql.filter(
-      (sql) => !sql.includes("terminal_steps AS ("),
-    );
-    const followupSql = querySql.filter((sql) =>
-      sql.includes("terminal_steps AS ("),
-    );
 
-    expect(now).toHaveBeenCalledTimes(1);
-    expect(eventSql).toHaveLength(2);
-    expect(followupSql).toHaveLength(0);
-    expect(querySql.every((sql) => sql.includes(cutoff))).toBe(true);
-    expect(tree.notes?.join(" ")).toMatch(
-      /2 OFFSET pages.*late-arriving events.*in any window.*incomplete/,
-    );
+    expect(
+      querySql.filter((sql) => sql.includes("terminal_steps AS (")),
+    ).toHaveLength(1);
+    expect(tree.notes?.join(" ") ?? "").not.toMatch(/OFFSET pages/);
     expect(tree.followUp).toMatchObject({
-      status: "incomplete",
-      observationCutoff: cutoff,
-      rightCensoredAtWindowEnd: true,
+      status: "complete",
       coverage: {
         journeyEventRead: {
-          rows: 4001,
+          rows: 4004,
           pages: 2,
           truncated: false,
-          paginationConsistency: "may_have_shifted",
+          paginationConsistency: "stable",
         },
-        followupAggregateRead: { rows: null, queries: 0, truncated: false },
-        cohortSessions: null,
+        cohortSessions: 1001,
       },
-      laterRecordedActivityWithinWindow: {
-        total: null,
-        byTerminalStepKey: null,
-      },
-      noLaterRecordedActivityWithinWindow: {
-        total: null,
-        byTerminalStepKey: null,
-      },
-      observationFollowupDurationMs: null,
     });
-    now.mockRestore();
   });
 
   it("aggregates a complete one-page cohort in one follow-up query", async () => {

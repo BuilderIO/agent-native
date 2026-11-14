@@ -46,6 +46,24 @@ describe("theme-family client helpers", () => {
     expect(document.documentElement.className).toBe("dark");
   });
 
+  it("switches families without changing the page DOM", () => {
+    document.body.innerHTML =
+      '<main><h1>Settings</h1><button type="button">Save</button></main>';
+    const bodyMarkup = document.body.innerHTML;
+
+    expect(applyThemeFamily("agent-native").family).toBe("agent-native");
+    expect(document.body.innerHTML).toBe(bodyMarkup);
+    expect(document.documentElement.getAttribute(THEME_FAMILY_ATTRIBUTE)).toBe(
+      "agent-native",
+    );
+
+    expect(applyThemeFamily("original").family).toBe("original");
+    expect(document.body.innerHTML).toBe(bodyMarkup);
+    expect(document.documentElement.getAttribute(THEME_FAMILY_ATTRIBUTE)).toBe(
+      "original",
+    );
+  });
+
   it("reports unreadable storage instead of coercing it to the default", () => {
     const storageDescriptor = Object.getOwnPropertyDescriptor(
       window,

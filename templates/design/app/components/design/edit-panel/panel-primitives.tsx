@@ -1,5 +1,12 @@
 import { parseCssColor, withCssColorOpacity } from "@shared/color-utils";
-import { Children, useEffect, useRef, useState, type ReactNode } from "react";
+import {
+  Children,
+  useEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -788,18 +795,22 @@ export function PanelSection({
   children,
   onEmptyTitleClick,
   emptyTitleActionLabel,
+  compactHeader = false,
+  titleClassName,
 }: {
   title: string;
   actions?: ReactNode;
   children?: ReactNode;
   onEmptyTitleClick?: () => void;
   emptyTitleActionLabel?: string;
+  compactHeader?: boolean;
+  titleClassName?: string;
 }) {
   const hasContent = Children.toArray(children).length > 0;
   const heading = (
     <h3
       aria-label={title}
-      className="design-sidebar-section-title min-w-0 flex-1 truncate text-foreground"
+      className={`design-sidebar-section-title min-w-0 flex-1 truncate text-foreground ${titleClassName ?? ""}`}
     >
       {onEmptyTitleClick && !hasContent ? (
         <Button
@@ -821,6 +832,11 @@ export function PanelSection({
     <section
       data-design-inspector-section
       className="design-sidebar-section shrink-0"
+      style={
+        compactHeader
+          ? ({ "--design-section-height": "24px" } as CSSProperties)
+          : undefined
+      }
     >
       <div data-design-inspector-section-header className="px-2">
         <InspectorGrid

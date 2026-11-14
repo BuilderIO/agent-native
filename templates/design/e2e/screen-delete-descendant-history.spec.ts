@@ -277,7 +277,7 @@ test("deleted Screen recreation remaps nested text history and duplicate target"
   await expect(sizeInput).toBeVisible();
   await sizeInput.fill("30");
   await sizeInput.press("Enter");
-  await expect(sizeInput).toHaveValue("30px");
+  await expect(sizeInput).toHaveValue("30");
   await expect
     .poll(async () =>
       sourceStyle(
@@ -340,7 +340,8 @@ test("deleted Screen recreation remaps nested text history and duplicate target"
     betaSourceBefore,
   );
 
-  await page.keyboard.press(MOD + "+z");
+  // Selection is not an undo step: the next Undo after the recreate takes back
+  // the Size edit, remapped onto the recreated Screen's node.
   const restoredSource = fileById(
     await readDesign(page, designId),
     restoredAlphaId,
@@ -365,19 +366,6 @@ test("deleted Screen recreation remaps nested text history and duplicate target"
         .evaluate((node) => getComputedStyle(node).fontSize),
     )
     .toBe("30px");
-  await expect
-    .poll(async () => {
-      const selection = await selectedElementState(page);
-      return {
-        exactTarget:
-          selection?.sourceId === SHARED_NODE_ID &&
-          selection?.sourceLayerIdentity?.screenId === restoredAlphaId &&
-          selection?.sourceLayerIdentity?.nodeId === restoredTargetId &&
-          (await selectedLayerNodeId(page)) === restoredTargetId,
-      };
-    })
-    .toEqual({ exactTarget: true });
-
   await page.keyboard.press(MOD + "+z");
   await expect
     .poll(async () =>
@@ -627,21 +615,14 @@ test("sequential Screen deletion Undo preserves surviving variant order", async 
     .toBe(true);
   if (!restoredCId) throw new Error("Undo did not restore C");
   await expect.poll(memberIds).toEqual([ids.b, restoredCId]);
-
-  await page.keyboard.press(MOD + "+z");
+  // Selection is not an undo step: one Undo brings back C alone, and the next
+  // one brings back A.
   await expect(page.locator("[data-screen-shell]")).toHaveCount(2);
-  await expect.poll(memberIds).toEqual([ids.b, restoredCId]);
-  const afterSelectionUndo = await readDesign(page, designId);
-  expect(afterSelectionUndo.files?.some((file) => file.id === ids.a)).toBe(
-    false,
-  );
-  expect(
-    afterSelectionUndo.files?.some((file) => file.id === restoredCId),
-  ).toBe(true);
-  expect(designData(afterSelectionUndo).screenMetadata?.[ids.b]).toEqual(
-    metadata.b,
-  );
-  expect(designData(afterSelectionUndo).screenMetadata?.[restoredCId]).toEqual(
+  const afterCUndo = await readDesign(page, designId);
+  expect(afterCUndo.files?.some((file) => file.id === ids.a)).toBe(false);
+  expect(afterCUndo.files?.some((file) => file.id === restoredCId)).toBe(true);
+  expect(designData(afterCUndo).screenMetadata?.[ids.b]).toEqual(metadata.b);
+  expect(designData(afterCUndo).screenMetadata?.[restoredCId]).toEqual(
     metadata.c,
   );
 

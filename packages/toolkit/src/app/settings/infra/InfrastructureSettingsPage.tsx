@@ -291,6 +291,8 @@ function InfrastructurePageContent({
   const builderUnknown = hasOrg && flow.grants === null;
   const tags = infra.data?.setupTags;
   const storageSourceStatus = storage.data ? storageSource(storage.data) : null;
+  const storageProviderStatusUnknown =
+    storage.data?.activeProviderUnavailable === true;
   const storageBuilderGrantMissing =
     storageSourceStatus?.kind === "none" &&
     builderConnected &&
@@ -494,20 +496,24 @@ function InfrastructurePageContent({
         ? fileStorageProviderPreset(source.provider)
         : null;
     const text =
-      source.kind === "bucket"
-        ? t(`${K}storageBucket`, {
-            provider:
-              preset?.name ?? t("agentChat.settings.storage.providerOther"),
-            bucket: source.bucket,
-          })
-        : source.kind === "builder"
-          ? BUILDER_LABEL
-          : t(`${K}notSetUp`);
-    const description = storageBuilderGrantMissing
-      ? t(`${K}storageBuilderGrantMissing`)
-      : storageBuilderStatusUnknown
-        ? t(`${K}storageBuilderStatusUnknown`)
-        : rowDescription(text, t(`${K}useUploads`));
+      source.kind === "unknown"
+        ? t("agentChat.settings.storage.unreadable")
+        : source.kind === "bucket"
+          ? t(`${K}storageBucket`, {
+              provider:
+                preset?.name ?? t("agentChat.settings.storage.providerOther"),
+              bucket: source.bucket,
+            })
+          : source.kind === "builder"
+            ? BUILDER_LABEL
+            : t(`${K}notSetUp`);
+    const description = storageProviderStatusUnknown
+      ? t("agentChat.settings.storage.unreadable")
+      : storageBuilderGrantMissing
+        ? t(`${K}storageBuilderGrantMissing`)
+        : storageBuilderStatusUnknown
+          ? t(`${K}storageBuilderStatusUnknown`)
+          : rowDescription(text, t(`${K}useUploads`));
     const Icon = preset?.icon;
     return {
       icon:
@@ -520,20 +526,21 @@ function InfrastructurePageContent({
         ),
       status: source.kind === "none" ? tag(tags?.storage) : undefined,
       description,
-      control: storageBuilderStatusUnknown ? (
-        <div className="flex flex-wrap gap-2">
-          <RowButton onClick={() => void storage.refetch()}>
-            {t(`${K}retry`)}
-          </RowButton>
+      control:
+        storageBuilderStatusUnknown || storageProviderStatusUnknown ? (
+          <div className="flex flex-wrap gap-2">
+            <RowButton onClick={() => void storage.refetch()}>
+              {t(`${K}retry`)}
+            </RowButton>
+            <RowButton onClick={() => setStorageOpen(true)}>
+              {source.kind === "none" ? t(`${K}setUp`) : t(`${K}manage`)}
+            </RowButton>
+          </div>
+        ) : (
           <RowButton onClick={() => setStorageOpen(true)}>
-            {t(`${K}setUp`)}
+            {source.kind === "none" ? t(`${K}setUp`) : t(`${K}manage`)}
           </RowButton>
-        </div>
-      ) : (
-        <RowButton onClick={() => setStorageOpen(true)}>
-          {source.kind === "none" ? t(`${K}setUp`) : t(`${K}manage`)}
-        </RowButton>
-      ),
+        ),
     };
   })();
 
@@ -720,9 +727,11 @@ function InfrastructurePageContent({
                 {t(
                   storageBuilderGrantMissing
                     ? `${K}storageBuilderGrantMissing`
-                    : storageBuilderStatusUnknown
-                      ? `${K}storageBuilderStatusUnknown`
-                      : `${K}storageIntro`,
+                    : storageProviderStatusUnknown
+                      ? "agentChat.settings.storage.unreadable"
+                      : storageBuilderStatusUnknown
+                        ? `${K}storageBuilderStatusUnknown`
+                        : `${K}storageIntro`,
                 )}
               </DialogDescription>
             </DialogHeader>
@@ -765,7 +774,7 @@ function InfrastructurePageContent({
                 ) : null}
               </div>
             ) : null}
-            {storageBuilderStatusUnknown ? (
+            {storageBuilderStatusUnknown || storageProviderStatusUnknown ? (
               <Button
                 type="button"
                 variant="secondary"

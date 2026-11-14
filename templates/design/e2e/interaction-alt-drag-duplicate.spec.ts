@@ -302,9 +302,7 @@ async function openOverview(page: Page, designId: string, screens: number) {
   await page.goto(appPath(`/design/${designId}?view=overview`), {
     waitUntil: "domcontentloaded",
   });
-  await expect(page.locator("[data-screen-shell]")).toHaveCount(screens, {
-    timeout: 30_000,
-  });
+  await expect(page.locator("[data-screen-shell]")).toHaveCount(screens);
   const firstCard = page.locator("[data-screen-card]").first();
   await expect(firstCard).toBeVisible();
   let lastBox: { x: number; y: number } | null = null;
@@ -661,9 +659,7 @@ async function expectBoardCopyAfterReload(
   copyId: string,
 ) {
   await page.reload({ waitUntil: "domcontentloaded" });
-  await expect(page.locator("[data-screen-shell]")).toHaveCount(1, {
-    timeout: 30_000,
-  });
+  await expect(page.locator("[data-screen-shell]")).toHaveCount(1);
   const boardFrame = page
     .locator("[data-board-surface-layer] iframe")
     .first()
@@ -821,8 +817,8 @@ test.describe("alt-drag duplicate (single-screen editor)", () => {
     const designId = await openSingleScreen(app, UNNAMED_HTML);
     const centre = await app.pagePoint(200, 160);
     await app.page.mouse.click(centre.x, centre.y);
+    await expect.poll(async () => (await layerNames(app.page)).length).toBe(1);
     const namesBefore = await layerNames(app.page);
-    expect(namesBefore).toHaveLength(1);
     const before = await app.savedNodes(designId);
 
     await altDragDesign(app, { x: 200, y: 160 }, { x: 400, y: 310 });
@@ -1461,10 +1457,13 @@ test.describe("absolute child exit from a plain frame", () => {
     );
     const childCentre = await app.pagePoint(200, 176);
     const grab = await app.pagePoint(295, 176);
+    // Cmd+click reaches a nested layer; a plain click takes the top-level one.
+    await app.page.keyboard.down("ControlOrMeta");
     await app.page.mouse.click(childCentre.x, childCentre.y);
     await app.page.keyboard.down("Shift");
     await app.page.mouse.click(grab.x, grab.y);
     await app.page.keyboard.up("Shift");
+    await app.page.keyboard.up("ControlOrMeta");
     await expect
       .poll(() => app.selectedLayers())
       .toEqual(["Absolute peer", "Absolute child"]);

@@ -1,4 +1,5 @@
 import type {
+  CallToolResult,
   InputRequiredResult,
   ServerContext,
 } from "@modelcontextprotocol/server";
@@ -21,15 +22,18 @@ import { extractAgentImagesFromActionResult } from "../agent/tool-result-images.
 import { writeActionChangeMarker } from "../server/action-change-marker-write.js";
 import { captureError } from "../server/capture-error.js";
 import {
+  getRequestContext,
   getRequestOrgId,
   getRequestUserEmail,
 } from "../server/request-context.js";
 import { describeMcpError } from "./analytics.js";
 import {
   actionApprovalError,
+  actionApprovalReviewResult,
   buildLinkArtifacts,
   conciseMcpAppToolText,
   conciseToolResultText,
+  getMcpDirectoryWidgetResourceUri,
   hasVerifiedMcpUserIdentity,
   MCP_ACTION_APPROVAL_INPUT_KEY,
   type MCPActionEntry,
@@ -57,7 +61,14 @@ import {
   withServerMintedMcpAppEmbedStart,
 } from "./build-server.js";
 import { mcpCallAttribution } from "./call-attribution.js";
-import { describeThrownForLog, redactEmbedText } from "./embed-redaction.js";
+import {
+  databaseFailureMessage,
+  describeThrownForLog,
+  HIDDEN_EMBED_URL,
+  isDatabaseQueryFailure,
+  isEmbedStartUrl,
+  redactEmbedText,
+} from "./embed-redaction.js";
 import {
   embedCredentialSources,
   type EmbedCredentialGuard,
@@ -69,6 +80,7 @@ import {
   UnreadableResultError,
   type McpActionApprovalState,
   type McpActionCallContext,
+  type McpApprovalReview,
 } from "./execute-action-call.js";
 import { mcpResponseOutputCheck } from "./output-contract.js";
 
@@ -96,11 +108,12 @@ export interface DirectActionCallScope {
   effectiveIdentity: MCPCallerIdentity | undefined;
   actionCallContext: McpActionCallContext;
   acceptedContent: (typeof import("@modelcontextprotocol/server"))["acceptedContent"];
+  inputResponse: (typeof import("@modelcontextprotocol/server"))["inputResponse"];
   requestMcpActionApproval: (
     approvalState: McpActionApprovalState,
-    name: string,
+    review: McpApprovalReview,
     ctx: ServerContext,
-  ) => Promise<InputRequiredResult>;
+  ) => Promise<InputRequiredResult | CallToolResult>;
 }
 
 /** The analytics record of a call that failed. */
@@ -122,6 +135,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
     effectiveIdentity,
     actionCallContext,
     acceptedContent,
+    inputResponse,
     requestMcpActionApproval,
   } = scope;
 
@@ -173,6 +187,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       : callableActions[name]?.mcpOutputContract;
 
     const errorText = (err: any) => {
+      if (isDatabaseQueryFailure(err)) return databaseFailureMessage(err);
       const projectedError =
         directoryCatalog && config.directoryProfile?.projectResult
           ? config.directoryProfile.projectResult(name, err.message)
@@ -258,6 +273,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
         request,
         envelope: ctx.mcpReq.envelope,
         oauthClientId: effectiveIdentity?.oauthClientId,
+        userAgent: requestMeta?.clientName,
       }),
       approval: {
         state: () =>
@@ -269,6 +285,17 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
               MCP_ACTION_APPROVAL_INPUT_KEY,
             ) as Record<string, unknown> | undefined
           )?.decision,
+        accepted: () =>
+          inputResponse(
+            ctx.mcpReq.inputResponses,
+            MCP_ACTION_APPROVAL_INPUT_KEY,
+          ).kind === "elicit" &&
+          (
+            inputResponse(
+              ctx.mcpReq.inputResponses,
+              MCP_ACTION_APPROVAL_INPUT_KEY,
+            ) as { action?: unknown }
+          ).action === "accept",
       },
     });
     if (outcome.status === "unknown-tool") {
@@ -313,8 +340,24 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
     }
     if (outcome.status === "approval-required") {
       try {
-        return await requestMcpActionApproval(outcome.approval, name, ctx);
-      } catch (err: any) {
+        return await requestMcpActionApproval(
+          outcome.approval,
+          outcome.review,
+          ctx,
+        );
+      } catch (err) {
+        return actionError(err);
+      }
+    }
+    if (outcome.status === "approval-pending") {
+      try {
+        return await actionApprovalReviewResult(
+          outcome.review,
+          outcome.reason,
+          requestMeta,
+          effectiveIdentity?.userEmail,
+        );
+      } catch (err) {
         return actionError(err);
       }
     }
@@ -392,43 +435,58 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
         mcpAppWidgetsEnabledForIdentity(config, effectiveIdentity)
           ? await resolveMcpAppResourceSafely(config, name, entry, requestMeta)
           : null;
-      let directoryLinkUrl: string | undefined;
-      if (config.catalogMode === "directory" && entry.link) {
-        const linked = entry.link({
-          args: callArgs(),
-          result: rawResult,
-        });
-        directoryLinkUrl = linked?.url ?? undefined;
-        produced(directoryLinkUrl);
-      }
       const trustedCredentialIssuedAtMs =
         effectiveIdentity?.mcpCredentialIssuedAtMs;
-      const directoryWidget =
-        directoryCatalog &&
+      let directoryWidget: Awaited<
+        ReturnType<typeof mcpDirectoryWidgetCapabilityForTool>
+      >;
+      if (
+        !mcpResultIsError &&
         mcpAppResourceCandidate &&
+        getRequestContext()?.requestOrigin &&
+        hasVerifiedMcpUserIdentity(effectiveIdentity) &&
         typeof trustedCredentialIssuedAtMs === "number" &&
         Number.isSafeInteger(trustedCredentialIssuedAtMs)
-          ? await mcpDirectoryWidgetCapabilityForTool(
-              config,
-              mcpAppResourceCandidate,
-              name,
-              (args as Record<string, unknown>) ?? {},
-              projectedRawResult,
-              visibleActions,
-              effectiveIdentity,
-            )
-          : undefined;
-      const missingDirectoryWidgetCapability =
-        directoryCatalog &&
-        config.directoryProfile !== undefined &&
-        mcpAppResourceCandidate !== null &&
+      ) {
+        try {
+          directoryWidget = await mcpDirectoryWidgetCapabilityForTool(
+            config,
+            directoryCatalog
+              ? mcpAppResourceCandidate
+              : {
+                  ...mcpAppResourceCandidate,
+                  uri: getMcpDirectoryWidgetResourceUri(
+                    config.appId ?? config.name,
+                  ),
+                },
+            name,
+            callArgs(),
+            projectedRawResult,
+            visibleActions,
+            effectiveIdentity,
+          );
+        } catch (error) {
+          if (directoryCatalog) throw error;
+          console.warn(
+            `[mcp] ${name} returned no scoped widget capability; using a full-app link: ${describeThrownForLog(error)}`,
+          );
+        }
+      }
+      const requiresEmbedSession =
+        directoryCatalog ||
+        entry.mcpApp?.resource?.requiresEmbedSession === true;
+      const missingWidgetCapability =
+        requiresEmbedSession &&
+        entry.mcpApp?.resource !== undefined &&
         directoryWidget === undefined;
       const suppressDirectoryWidget =
         directoryCatalog && !hasVerifiedMcpUserIdentity(effectiveIdentity);
       // The host mounts a widget for this tool from its descriptor, with or
       // without a ticket in the result, so a withheld ticket must be visible.
       if (
-        missingDirectoryWidgetCapability &&
+        directoryCatalog &&
+        mcpAppResourceCandidate &&
+        missingWidgetCapability &&
         !suppressDirectoryWidget &&
         !mcpResultIsError
       ) {
@@ -441,13 +499,13 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
         );
       }
       const rawResultForClient =
-        missingDirectoryWidgetCapability || suppressDirectoryWidget
+        entry.mcpApp?.resource !== undefined &&
+        (!directoryWidget || suppressDirectoryWidget)
           ? withoutMcpAppEmbedTicket(projectedRawResult)
           : mcpAppResourceCandidate
             ? await withServerMintedMcpAppEmbedStart(
                 projectedRawResult,
                 requestMeta,
-                directoryLinkUrl,
                 directoryWidget,
               )
             : projectedRawResult;
@@ -469,13 +527,19 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
         resultImages.length > 0 || mcpResultHasContent(actionResultForClient);
       const mcpAppResource =
         mcpAppResourceCandidate &&
-        !missingDirectoryWidgetCapability &&
+        (!requiresEmbedSession ||
+          (directoryWidget &&
+            typeof metadataObject(actionResultForClient).embedStartUrl ===
+              "string")) &&
         !mcpResultIsError &&
         embedHasContent
           ? mcpAppResourceCandidate
           : null;
       const embedProducedNothing =
-        !!mcpAppResourceCandidate && !mcpResultIsError && !embedHasContent;
+        !!mcpAppResourceCandidate &&
+        !missingWidgetCapability &&
+        !mcpResultIsError &&
+        !embedHasContent;
       const mcpAppOpenLinkMeta = mcpAppResource
         ? mcpAppEmbedOpenLinkMeta(
             actionResultForClient,
@@ -484,7 +548,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
           )
         : {};
       const toolUiMeta = metadataObject((entry.tool as any)._meta?.ui);
-      const toolVisibility = toolUiMeta.visibility;
+      const toolVisibility = entry.mcpApp?.visibility ?? toolUiMeta.visibility;
       const isAppOnlyVisibility =
         Array.isArray(toolVisibility) &&
         toolVisibility.length > 0 &&
@@ -492,7 +556,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       // Built before the first redaction, which throws on a result it
       // cannot read.
       handoffMeta = {
-        ...(directoryCatalog && mcpAppResource
+        ...(directoryWidget && mcpAppResource
           ? mcpDirectoryWidgetSourceMeta(name, mcpAppOpenLinkMeta)
           : {}),
         ...mcpAppOpenLinkMeta,
@@ -505,8 +569,42 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       };
       // The link is built from the result as the action returned it, and
       // checked with the rest of the response.
+      const useFullAppLink =
+        (!directoryCatalog || !getRequestContext()?.requestOrigin) &&
+        requiresEmbedSession &&
+        !!entry.mcpApp?.resource &&
+        !mcpAppResource;
+      const linkEntry: ActionEntry = useFullAppLink
+        ? {
+            ...entry,
+            link: ({ args, result }) => {
+              const record = metadataObject(result);
+              const linked = entry.link?.({
+                args,
+                result: { ...record, embed: false },
+              });
+              if (
+                linked?.url &&
+                linked.url !== HIDDEN_EMBED_URL &&
+                !isEmbedStartUrl(linked.url)
+              )
+                return linked;
+              const url = [record.deepLinkUrl, record.url, record.path].find(
+                (value): value is string =>
+                  typeof value === "string" &&
+                  value.trim().length > 0 &&
+                  value !== HIDDEN_EMBED_URL &&
+                  !isEmbedStartUrl(value),
+              );
+              return {
+                url: url ?? `${requestMeta?.basePath ?? ""}/`,
+                label: `Open ${config.title ?? config.appId ?? config.name}`,
+              };
+            },
+          }
+        : entry;
       const { block, _meta } = buildLinkArtifacts(
-        entry,
+        linkEntry,
         callArgs(),
         actionResultForClient,
         requestMeta,
@@ -519,16 +617,15 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
       // Text and `structuredContent` read `visible`, the result without its
       // images, redacted against the whole call. Images are checked whole
       // with the rest of the response. Only the embed start in `_meta` comes
-      // from the unredacted result. An opted-in action's contract may require
-      // a field that held an embed URL, so it keeps that field, masked.
-      const visible = redactEmbedCredentials(actionResultForClient, guard, {
-        maskUrlFields: outputContract !== undefined,
-      });
+      // from the unredacted result. A field that held an embed URL stays,
+      // masked, which an opted-in action's contract may require.
+      const visible = redactEmbedCredentials(actionResultForClient, guard);
       const textResultForClient =
         returned.text !== undefined ? projectedResultForClient : visible;
       const wantsStructuredResult =
         (returnsQueryPayload(entry) ||
-          entry.mcpApp?.structuredContent === true) &&
+          entry.mcpApp?.structuredContent === true ||
+          (!mcpResultIsError && entry.mcpApp?.resource !== undefined)) &&
         visible &&
         typeof visible === "object";
       const contracted = () =>

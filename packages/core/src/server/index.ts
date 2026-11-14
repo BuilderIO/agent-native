@@ -16,13 +16,16 @@ export {
   resolveAppHomePath,
   resetAppConfigForTests,
   resolveClipsHostedStorageConfig,
+  resolveContentClipsPeerSecret,
+  resolveHostedStorageConfig,
   appConfigSchema,
   type AppConfig,
   type AppConfigInput,
+  type ClipsConfig,
   type ClipsHostedStorageConfig,
   type ResolvedClipsHostedStorageConfig,
 } from "../app-config/index.js";
-export { platformWaitUntil } from "./background-work.js";
+export { platformWaitUntil, runInBackground } from "./background-work.js";
 export { resolveDeployEnvironment } from "./deploy-environment.js";
 export { isTestIdentity, testIdentitySql } from "./test-identity.js";
 export {
@@ -97,7 +100,9 @@ export {
   mountAuthMiddleware,
   autoMountAuth,
   registerAuthPublicPaths,
+  recordBuilderSignupBinding,
   getSession,
+  getBrowserCookieSession,
   isSessionResolutionUnavailable,
   getMcpOAuthBearerSession,
   logout,
@@ -121,6 +126,8 @@ export {
   type AuthSession,
   type AuthOptions,
 } from "./auth.js";
+export { hasSameOriginBrowserEvidence } from "./request-origin.js";
+export { getEmbedSessionOrigin } from "./embed-request-origin.js";
 export {
   handleIdentitySso,
   ensureIdentityUser,
@@ -210,6 +217,22 @@ export {
   requestJevThroughBuilder,
   type JevResponse,
 } from "../agent/jev-tool-prefetch.js";
+export { decide, getDecisionsStatus } from "../decisions/decide.js";
+export { JEV_DECISIONS_MODEL } from "../decisions/decide.js";
+export { OPENAI_DECISIONS_MODEL } from "../decisions/providers/openai.js";
+export type {
+  DecideOptions,
+  DecideResult,
+  DecisionAnswer,
+  DecisionFailureReason,
+  DecisionInput,
+  DecisionInputPart,
+  DecisionProvider,
+  DecisionQuestionFailureReason,
+  DecisionQuestion,
+  DecisionResult,
+  DecisionsStatus,
+} from "../decisions/types.js";
 export {
   getCurrentTurnRunEventsForThread,
   getCurrentTurnRunIdsForThread,
@@ -218,7 +241,10 @@ export {
   type CurrentTurnRunEvent,
 } from "../agent/run-store.js";
 export { callerHasThreadAccess } from "../agent/run-ownership.js";
-export { getActiveRunForThreadAsync } from "../agent/run-manager.js";
+export {
+  abortTurnByRefDurably,
+  getActiveRunForThreadAsync,
+} from "../agent/run-manager.js";
 export {
   mountRealtimeVoiceRoutes,
   realtimeVoiceSafetyIdentifier,
@@ -228,6 +254,7 @@ export {
   REALTIME_VOICE_SESSION_PATH,
   REALTIME_VOICE_TOOL_PATH,
   type MountRealtimeVoiceRoutesOptions,
+  type RealtimeVoiceIntelligence,
   type RealtimeVoiceRequestContext,
   type RealtimeVoiceToolExecutionRequest,
   type RealtimeVoiceToolExecutionResult,
@@ -236,6 +263,10 @@ export {
   getStoredModelForEngine,
   resolveEngine,
 } from "../agent/engine/index.js";
+export {
+  resolveChatModelAvailability,
+  type ChatModelAvailability,
+} from "../agent/engine/chat-model-availability.js";
 export {
   completeText,
   type CompleteTextMessage,
@@ -251,12 +282,27 @@ export {
   prepareTransactionalChange,
   getVersion,
   getChangesSince,
+  getCurrentPollBaseline,
   getPollEmitter,
   canSeeChangeForUser,
   POLL_CHANGE_EVENT,
   type TransactionalChange,
 } from "./poll.js";
 export { createPollEventsHandler } from "./poll-events.js";
+export {
+  GOOGLE_FONTS_CATALOG_URL,
+  GOOGLE_FONTS_CSS_ORIGIN,
+  GOOGLE_FONTS_FILE_ORIGIN,
+  GoogleFontError,
+  assertGoogleFontsUrl,
+  filterGoogleFontCatalog,
+  isGoogleFontFamilyName,
+  parseGoogleFontVariant,
+  readBoundedGoogleFontsBody,
+  readGoogleFontCatalog,
+  type GoogleFontCatalogFamily,
+  type GoogleFontsRuntime,
+} from "./google-fonts.js";
 export { createAuthPlugin, defaultAuthPlugin } from "./auth-plugin.js";
 export {
   BETTER_AUTH_MIGRATIONS,
@@ -303,6 +349,11 @@ export {
 } from "./google-auth-plugin.js";
 export type { GoogleAuthMode } from "./google-auth-mode.js";
 export {
+  discoverAgentContextAgents,
+  registerAgentContextAgentFilter,
+  type AgentContextAgentFilter,
+} from "./agent-context-agents.js";
+export {
   createAgentChatPlugin,
   defaultAgentChatPlugin,
   loadResourcesForPrompt,
@@ -348,6 +399,7 @@ export {
   createThread,
   getThread,
   listThreads,
+  searchThreads,
   updateThreadData,
   deleteThread,
   setThreadArchived,
@@ -548,6 +600,11 @@ export {
   type RequestContext,
   type RequestRunContext,
 } from "./request-context.js";
+export {
+  loadFirstRunBuilderCreditsV2Assignment,
+  resolveFirstRunBuilderCreditsV2Assignment,
+  recordFirstRunBuilderCreditsV2Exposure,
+} from "../onboarding/first-run-builder-credits-experiment.js";
 export { formatDateInTimezone, todayInTimezone } from "./date-utils.js";
 
 export {
@@ -652,6 +709,7 @@ export {
 
 export {
   CredentialStoreUnavailableError,
+  CredentialStoreLookupError,
   FeatureNotConfiguredError,
   hasBuilderPrivateKey,
   isBuilderEnvManaged,
@@ -747,8 +805,13 @@ export {
 } from "./fusion-agent-feed.js";
 export {
   BUILDER_ASSETS_WRITE_SCOPE,
+  BUILDER_CONTENT_READ_SCOPE,
+  BUILDER_CONTENT_WRITE_SCOPE,
+  BUILDER_OAUTH_RESOURCE,
   BUILDER_OAUTH_SCOPE,
+  resolveBuilderOAuthRequestAccessState,
   type BuilderOAuthPermissionScope,
+  type BuilderOAuthRequestAccessState,
 } from "./builder-oauth.js";
 export {
   assertBuilderDesignSystemCodeIndexingAllowed,
@@ -799,12 +862,16 @@ export {
 export {
   cdnSafeOriginStatus,
   createBuilderProject,
+  getBuilderWorkspaceProjectId,
+  getBuilderWorkspaceUrl,
   ensureBuilderProject,
   findBuilderProjectForRepo,
   getBuilderBranchProjectId,
   isBuilderBranchingEnabled,
+  registerBuilderBranchProject,
   requestBuilderBrowserConnection,
   resolveBuilderBranchProjectId,
+  resolveBuilderHandoffProjectId,
   resolveIsBuilderBranchingEnabled,
   normalizeBuilderAgentAttachments,
   runBuilderAgent,
@@ -830,7 +897,13 @@ export {
   type SendBuilderBranchMessageResult,
 } from "./builder-branch.js";
 export {
+  BuilderBranchFilesError,
+  readBuilderBranchBackupStatus,
+  readBuilderBranchFiles,
+} from "./builder-branch-files.js";
+export {
   ensureFusionContainer,
+  isFusionDevServerServing,
   sendFusionBranchMessage,
   pushFusionBranch,
   reserveFusionHostingSlug,
@@ -931,6 +1004,7 @@ export {
   signShortLivedToken,
   verifyShortLivedToken,
   type ShortLivedTokenClaims,
+  type ShortLivedTokenKeyOptions,
   type VerifyResult as ShortLivedTokenVerifyResult,
 } from "./short-lived-token.js";
 export {

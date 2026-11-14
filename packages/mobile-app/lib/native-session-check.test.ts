@@ -25,6 +25,7 @@ vi.stubGlobal("fetch", fetchMock);
 import {
   clearNativeSessionCheckCache,
   inspectNativeSessionShared,
+  NATIVE_SESSION_CHECK_TIMEOUT_MS,
 } from "./native-auth";
 
 const BASE = "https://dispatch.example.com";
@@ -98,5 +99,77 @@ describe("inspectNativeSessionShared", () => {
     );
 
     expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("aborts a stalled parent-session check and reports it unavailable", async () => {
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const requestSignals: AbortSignal[] = [];
+    fetchMock.mockImplementation(
+      (_url: string, options: RequestInit) =>
+        new Promise((_resolve, reject) => {
+          const signal = options.signal;
+          if (signal) {
+            requestSignals.push(signal);
+            signal.addEventListener(
+              "abort",
+              () => reject(new Error("aborted")),
+              { once: true },
+            );
+          }
+        }),
+    );
+
+    try {
+      const checking = inspectNativeSessionShared("token-a", BASE);
+      await vi.advanceTimersByTimeAsync(NATIVE_SESSION_CHECK_TIMEOUT_MS);
+
+      await expect(checking).resolves.toEqual({
+        reason: "network",
+        status: "unavailable",
+      });
+      expect(requestSignals[0]?.aborted).toBe(true);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the timeout active until the parent-session body is read", async () => {
+    vi.useFakeTimers();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const requestSignals: AbortSignal[] = [];
+    fetchMock.mockImplementation((_url: string, options: RequestInit) => {
+      const signal = options.signal;
+      if (signal) requestSignals.push(signal);
+      return Promise.resolve({
+        json: () =>
+          new Promise((_resolve, reject) => {
+            signal?.addEventListener(
+              "abort",
+              () => reject(new Error("aborted")),
+              { once: true },
+            );
+          }),
+        ok: true,
+        status: 200,
+      } as unknown as Response);
+    });
+
+    try {
+      const checking = inspectNativeSessionShared("token-a", BASE);
+      await vi.advanceTimersByTimeAsync(NATIVE_SESSION_CHECK_TIMEOUT_MS);
+
+      await expect(checking).resolves.toEqual({
+        reason: "network",
+        status: "unavailable",
+      });
+      expect(requestSignals[0]?.aborted).toBe(true);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    } finally {
+      warn.mockRestore();
+      vi.useRealTimers();
+    }
   });
 });

@@ -29,6 +29,7 @@ import {
   shouldRequestStorageSetup,
   shouldRedirectToStorageSetupHome,
   shouldShowFirstRunStorageSetup,
+  storageSetupReason,
 } from "./record";
 
 function stubDocumentCapturePolicy(
@@ -190,6 +191,7 @@ describe("record route lifecycle shell", () => {
       shouldRedirectToStorageSetupHome({
         storageSetupRequested: true,
         storageConfigured: true,
+        hostedStorage: false,
         hasPendingUpload: true,
         uiState: "idle",
       }),
@@ -203,6 +205,7 @@ describe("record route lifecycle shell", () => {
         shouldRedirectToStorageSetupHome({
           storageSetupRequested: true,
           storageConfigured: true,
+          hostedStorage: false,
           hasPendingUpload: false,
           uiState,
         }),
@@ -215,10 +218,34 @@ describe("record route lifecycle shell", () => {
       shouldRedirectToStorageSetupHome({
         storageSetupRequested: true,
         storageConfigured: true,
+        hostedStorage: false,
         hasPendingUpload: false,
         uiState: "idle",
       }),
     ).toBe(true);
+  });
+
+  it("keeps a free hosted account on the storage setup card", () => {
+    expect(
+      shouldRedirectToStorageSetupHome({
+        storageSetupRequested: true,
+        storageConfigured: true,
+        hostedStorage: true,
+        hasPendingUpload: false,
+        uiState: "idle",
+      }),
+    ).toBe(false);
+  });
+
+  it("names why the storage card is showing", () => {
+    expect(storageSetupReason(undefined)).toBe("status_unavailable");
+    expect(storageSetupReason({})).toBe("storage_required");
+    expect(storageSetupReason({ denyReason: "disabled" })).toBe(
+      "storage_required",
+    );
+    expect(storageSetupReason({ denyReason: "exhausted" })).toBe(
+      "hosted_exhausted",
+    );
   });
 
   it("offers storage setup on the first unconfigured recorder visit", () => {

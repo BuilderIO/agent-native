@@ -1,5 +1,5 @@
 import { AddLocalhostScreenDialog } from "@/components/design/AddLocalhostScreenDialog";
-import { LocalhostWriteConsentDialog } from "@/components/design/LocalhostWriteConsentDialog";
+import { LocalhostWriteConsentSurface } from "@/components/design/LocalhostWriteConsentDialog";
 import { NodeRewriteProposal as NodeRewriteProposalPanel } from "@/components/visual-editor/NodeRewriteProposal";
 
 import type { NodeRewriteProposal } from "../../../../shared/node-rewrite";
@@ -12,7 +12,6 @@ export function renderNodeRewriteAndLocalhostDialogs({
   editorFilesAndSaving,
   editorActiveScreenAndGeometry,
   editorLayerActions,
-  editorSourceAndSync,
   id,
   activeNodeRewriteProposal,
   addLocalhostScreenConnectionId,
@@ -26,19 +25,12 @@ export function renderNodeRewriteAndLocalhostDialogs({
   addLocalhostScreenConnectionId: string | undefined;
 }) {
   const { addLocalhostScreenPosition } = editorFilesAndSaving;
-  const {
-    localhostConsentConnectionId,
-    localhostWriteConsentOpen,
-    localhostWriteConsentPayload,
-    setLocalhostWriteConsentPayload,
-    setLocalhostWriteConsentOpen,
-  } = editorActiveScreenAndGeometry;
+  const { localhostWriteConsent } = editorActiveScreenAndGeometry;
   const {
     addLocalhostScreenOpen,
     setAddLocalhostScreenOpen,
     addLocalhostScreenFallbackPaths,
   } = editorLayerActions;
-  const { activeLocalhostConnectionId } = editorSourceAndSync;
 
   return (
     <>
@@ -52,23 +44,14 @@ export function renderNodeRewriteAndLocalhostDialogs({
       ) : null}
 
       {/* Localhost write-consent dialog: shown when the agent or editor wants to
-          persist an edit to a local HTML/CSS source file and no valid grant
-          exists for the active connection yet. */}
-      {id && (activeLocalhostConnectionId || localhostConsentConnectionId) && (
-        <LocalhostWriteConsentDialog
-          open={localhostWriteConsentOpen}
-          onOpenChange={(next) => {
-            if (!next) {
-              localhostWriteConsentPayload?.onCancel();
-              setLocalhostWriteConsentPayload(null);
-            }
-            setLocalhostWriteConsentOpen(next);
-          }}
+          persist an edit to a local source file and no valid grant exists for
+          that connection yet. */}
+      {id ? (
+        <LocalhostWriteConsentSurface
           designId={id}
-          connectionId={localhostConsentConnectionId}
-          payload={localhostWriteConsentPayload}
+          consent={localhostWriteConsent}
         />
-      )}
+      ) : null}
       {id ? (
         <AddLocalhostScreenDialog
           open={addLocalhostScreenOpen}

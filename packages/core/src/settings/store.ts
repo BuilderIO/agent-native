@@ -141,16 +141,30 @@ export async function getSettings(
   keys: readonly string[],
   options?: StoreReadOptions,
 ): Promise<Map<string, Record<string, unknown> | null>> {
-  const uniqueKeys = [...new Set(keys)];
+  const raw = await getSettingsRaw(keys, options);
   const result = new Map<string, Record<string, unknown> | null>();
+  for (const [key, value] of raw)
+    result.set(key, value == null ? null : parseSettingValue(key, value));
+  return result;
+}
+
+/**
+ * Like `getSettings`, but returns each stored value unparsed, so a caller can
+ * tell a row that isn't JSON from a missing one.
+ */
+export async function getSettingsRaw(
+  keys: readonly string[],
+  options?: StoreReadOptions,
+): Promise<Map<string, string | null>> {
+  const uniqueKeys = [...new Set(keys)];
+  const result = new Map<string, string | null>();
   if (uniqueKeys.length === 0) return result;
 
   const cache = options?.transaction ? null : requestSettingsCache();
   const misses: string[] = [];
   for (const key of uniqueKeys) {
     if (!options?.bypassCache && cache?.has(key)) {
-      const cached = cache.get(key);
-      result.set(key, cached == null ? null : parseSettingValue(key, cached));
+      result.set(key, cache.get(key) ?? null);
     } else {
       misses.push(key);
     }
@@ -175,13 +189,18 @@ export async function getSettings(
   for (const key of misses) {
     const raw = rawByKey.get(key) ?? null;
     if (!options?.bypassCache) cache?.set(key, raw);
-    result.set(key, raw == null ? null : parseSettingValue(key, raw));
+    result.set(key, raw);
   }
   return result;
 }
 
 export interface StoreWriteOptions {
   requestSource?: string;
+}
+
+export interface StoreMutationOptions extends StoreWriteOptions {
+  /** Initialize the settings store before the transaction and publish the change only after commit. */
+  transaction?: DbExec;
 }
 
 const SETTINGS_MUTATION_ATTEMPTS = 25;
@@ -191,10 +210,10 @@ export async function mutateSetting(
   updater: (
     current: Record<string, unknown> | null,
   ) => Record<string, unknown> | Promise<Record<string, unknown>>,
-  options?: StoreWriteOptions,
+  options?: StoreMutationOptions,
 ): Promise<Record<string, unknown>> {
-  await ensureTable();
-  const client = getDbExec();
+  if (!options?.transaction) await ensureTable();
+  const client = options?.transaction ?? getDbExec();
   const table = settingsTable();
   for (let attempt = 0; attempt < SETTINGS_MUTATION_ATTEMPTS; attempt += 1) {
     const snapshot = await client.execute({
@@ -222,16 +241,35 @@ export async function mutateSetting(
             args: [nextRaw, timestamp, key, raw],
           });
     if (result.rowsAffected === 0) continue;
-    requestSettingsCache()?.set(key, nextRaw);
-    settingsEmitter().emit("settings", {
-      source: "settings",
-      type: "change",
-      key,
-      ...(options?.requestSource && { requestSource: options.requestSource }),
-    });
+    if (!options?.transaction) {
+      requestSettingsCache()?.set(key, nextRaw);
+      settingsEmitter().emit("settings", {
+        source: "settings",
+        type: "change",
+        key,
+        ...(options?.requestSource && { requestSource: options.requestSource }),
+      });
+    }
     return JSON.parse(nextRaw);
   }
   throw new Error(`Setting ${key} changed too many times; retry the mutation.`);
+}
+
+export function publishSettingChange(
+  key: string,
+  options?: StoreWriteOptions,
+): void {
+  requestSettingsCache()?.delete(key);
+  settingsEmitter().emit("settings", {
+    source: "settings",
+    type: "change",
+    key,
+    ...(options?.requestSource && { requestSource: options.requestSource }),
+  });
+}
+
+export function invalidateSettingRequestCache(key: string): void {
+  requestSettingsCache()?.delete(key);
 }
 
 export async function putSetting(
@@ -284,10 +322,10 @@ export async function deleteSetting(
 export async function deleteSettingIfValue(
   key: string,
   expected: Record<string, unknown>,
-  options?: StoreWriteOptions,
+  options?: StoreMutationOptions,
 ): Promise<boolean> {
-  await ensureTable();
-  const client = getDbExec();
+  if (!options?.transaction) await ensureTable();
+  const client = options?.transaction ?? getDbExec();
   const table = settingsTable();
   const result = await client.execute({
     sql: `DELETE FROM ${table} WHERE key = ? AND value = ?`,
@@ -295,13 +333,15 @@ export async function deleteSettingIfValue(
   });
   if (result.rowsAffected === 0) return false;
 
-  requestSettingsCache()?.set(key, null);
-  settingsEmitter().emit("settings", {
-    source: "settings",
-    type: "delete",
-    key,
-    ...(options?.requestSource && { requestSource: options.requestSource }),
-  });
+  if (!options?.transaction) {
+    requestSettingsCache()?.set(key, null);
+    settingsEmitter().emit("settings", {
+      source: "settings",
+      type: "delete",
+      key,
+      ...(options?.requestSource && { requestSource: options.requestSource }),
+    });
+  }
   return true;
 }
 

@@ -173,6 +173,115 @@ describe("DesignCanvas authenticated localhost source hydration", () => {
     );
   });
 
+  it("keeps a keyed frame's bridge key out of routes and still replays edits recorded there", async () => {
+    const onRoutePathChange = vi.fn();
+    const renderCanvas = (
+      props: Pick<
+        Parameters<typeof DesignCanvas>[0],
+        "pendingStylePreviewPatches" | "runtimeLayerRenameRequest"
+      > = {},
+    ) => (
+      <DesignCanvas
+        content="<main>Inline preview</main>"
+        contentKey="keyed-route-path"
+        screenId="keyed-route-path"
+        sourceType="inline"
+        onRoutePathChange={onRoutePathChange}
+        zoom={100}
+        deviceFrame="none"
+        editMode
+        interactMode={false}
+        onElementSelect={() => {}}
+        onElementHover={() => {}}
+        tweakValues={{}}
+        {...props}
+      />
+    );
+
+    await act(async () => {
+      root.render(renderCanvas());
+    });
+    const iframe = container.querySelector<HTMLIFrameElement>(
+      "iframe[data-design-preview-iframe]",
+    );
+    const frameWindow = iframe?.contentWindow;
+    if (!frameWindow) throw new Error("The preview iframe has no window");
+    const postMessage = vi.spyOn(frameWindow, "postMessage");
+    const reportRoute = async (
+      type: "agent-native:editor-chrome-ready" | "agent-native:live-route-path",
+      routePath: string,
+    ) => {
+      await act(async () => {
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            data: { type, routePath },
+            origin: window.location.origin,
+            source: frameWindow,
+          }),
+        );
+      });
+    };
+
+    await reportRoute(
+      "agent-native:editor-chrome-ready",
+      "/docs?tab=a&agentNativeBridgeKey=123%3A456",
+    );
+    expect(onRoutePathChange).toHaveBeenLastCalledWith(
+      "keyed-route-path",
+      "/docs?tab=a",
+    );
+    await reportRoute(
+      "agent-native:live-route-path",
+      "/pricing?agentNativeBridgeKey=123%3A456#plans",
+    );
+    expect(onRoutePathChange).toHaveBeenLastCalledWith(
+      "keyed-route-path",
+      "/pricing#plans",
+    );
+    expect(JSON.stringify(onRoutePathChange.mock.calls)).not.toContain(
+      "agentNativeBridgeKey",
+    );
+
+    postMessage.mockClear();
+    await act(async () => {
+      root.render(
+        renderCanvas({
+          pendingStylePreviewPatches: [
+            {
+              screenId: "keyed-route-path",
+              selector: "#hero",
+              routePath: "/pricing#plans",
+              styles: { color: "red" },
+            },
+          ],
+          runtimeLayerRenameRequest: {
+            requestId: 1,
+            selector: "#hero",
+            routePath: "/pricing#plans",
+            name: "Hero",
+          },
+        }),
+      );
+    });
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "style-change",
+        selector: "#hero",
+        property: "color",
+        value: "red",
+      }),
+      "*",
+    );
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "runtime-layer-rename",
+        requestId: 1,
+        name: "Hero",
+      }),
+      "*",
+    );
+  });
+
   it("keeps Chrome settings help available when the prompt is gone", async () => {
     await act(async () => {
       root.render(

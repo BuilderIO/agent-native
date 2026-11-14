@@ -1925,7 +1925,7 @@ describe("plan MDX round-trip fidelity per block type", () => {
     expect(block.data.questions[0]?.options?.[0]?.wireframe?.html).toBe(
       "<main><h1>Desktop</h1></main>",
     );
-    expect(block.data.questions[0]?.options?.[1]?.diagram?.nodes[0]?.id).toBe(
+    expect(block.data.questions[0]?.options?.[1]?.diagram?.nodes?.[0]?.id).toBe(
       "start",
     );
     expect(block.data.questions[1]?.mode).toBe("freeform");
@@ -2345,7 +2345,9 @@ version: 2
   });
 
   it("reuses unchanged bare markdown IDs from previous content without plan state", async () => {
-    const makeFolder = (intro: string) => ({
+    const makeFolder = (
+      intro: string,
+    ): { "plan.mdx": string; ".plan-state.json"?: string } => ({
       "plan.mdx": [
         "---",
         'title: "Markdown without state"',

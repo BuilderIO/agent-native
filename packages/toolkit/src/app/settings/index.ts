@@ -73,6 +73,7 @@ export {
   type SettingsGroupProps,
   type SettingsRowProps,
 } from "./SettingsRow.js";
+export { ThemeFamilySettings } from "./account/ThemeFamilySettings.js";
 export {
   SettingsSection,
   SettingsSurfaceProvider,

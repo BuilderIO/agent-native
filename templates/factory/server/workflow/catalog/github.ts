@@ -7,8 +7,15 @@ const repo = {
   label: "Repository (owner/name)",
 } as const;
 
-// The merge lands on this repository and pull request, so a model never picks them.
-const mergeRepo = { ...repo, target: true } as const;
+// A write lands on this repository and number, so a model never picks them.
+const targetRepo = { ...repo, target: true } as const;
+const targetNumber = {
+  name: "number",
+  type: "number",
+  required: true,
+  target: true,
+  label: "Issue or pull request",
+} as const;
 
 export const githubOperations: OperationDefinitionInput[] = [
   {
@@ -82,17 +89,36 @@ export const githubOperations: OperationDefinitionInput[] = [
         "extras.ecosystem": "dependency.package.ecosystem",
         "extras.manifestPath": "dependency.manifest_path",
         "extras.ghsaId": "security_advisory.ghsa_id",
+        // Left out of the item when the alert has no patched version yet.
+        "extras.fixedVersion":
+          "security_vulnerability.first_patched_version.identifier",
       },
       dedupeKey: "number",
     },
     credential: { provider: "github" },
   },
   {
+    // A search hit is 3 KB to 5 KB with its user, urls and description, so 30
+    // are about 120 KB. The kept paths are what a cause is named from, about
+    // 300 characters a pull request, so all 30 fit with room for long titles.
     id: "github.mergedPullRequests",
     provider: "github",
     label: "GitHub: pull requests merged since a time",
     nodeKinds: ["lookup"],
     effect: "read",
+    answerBudgetChars: 12_000,
+    answerFields: [
+      "total_count",
+      "incomplete_results",
+      "items.number",
+      "items.title",
+      "items.html_url",
+      "items.state",
+      "items.user.login",
+      "items.created_at",
+      "items.closed_at",
+      "items.pull_request.merged_at",
+    ],
     fields: [
       repo,
       { name: "since", type: "string", required: true, label: "Merged since" },
@@ -127,6 +153,50 @@ export const githubOperations: OperationDefinitionInput[] = [
       action: "get-factory-pull-request",
       argMap: { repo: "repo", number: "number" },
     },
+    outputs: [
+      { name: "ok", type: "boolean" },
+      { name: "repo", type: "string" },
+      { name: "number", type: "number" },
+      { name: "url", type: "string" },
+      { name: "title", type: "string" },
+      { name: "state", type: "string", description: "open, closed or merged." },
+      { name: "draft", type: "boolean" },
+      { name: "merged", type: "boolean" },
+      { name: "mergedAt", type: "string", nullable: true },
+      { name: "mergeCommitSha", type: "string", nullable: true },
+      { name: "headSha", type: "string" },
+      { name: "headRef", type: "string" },
+      { name: "baseRef", type: "string" },
+      {
+        name: "author",
+        type: "object",
+        description: "login, kind and builderAuthored.",
+      },
+      { name: "mergeable", type: "boolean", nullable: true },
+      { name: "mergeableState", type: "string", nullable: true },
+      { name: "additions", type: "number" },
+      { name: "deletions", type: "number" },
+      { name: "changedFiles", type: "number" },
+      {
+        name: "checks",
+        type: "object",
+        description:
+          "coverage, total, passed, failed (real failures only), pending, cancelled (not a failure and not green: it needs a rerun), informational (skipped or neutral; blocks nothing), allPassing (at least one passed and none failed, cancelled or pending), notPassing (failed, then cancelled, then pending) and notPassingTruncated.",
+      },
+      {
+        name: "reviewThreads",
+        type: "object",
+        description:
+          "complete, total, unresolved, unresolvedThreads and unresolvedThreadsTruncated.",
+      },
+      { name: "reviews", type: "object", description: "complete and total." },
+      {
+        name: "verification",
+        type: "object",
+        description:
+          "What the description says about how the change was checked, under its `### Verified` heading: present (the heading has text or a screenshot or recording under it; false when there is no description), hasMedia (an image, video or recording link is there) and excerpt (the start of that section, at most 1,500 characters, HTML and URLs removed). The description itself is not returned.",
+      },
+    ],
     credential: { provider: "github" },
   },
   {
@@ -135,13 +205,15 @@ export const githubOperations: OperationDefinitionInput[] = [
     // approving review of the head commit from a person (not a bot or Builder
     // account) who is an owner, member or collaborator other than the author, so
     // a green Builder pull request nobody has looked at is held for a person.
+    // It also holds a code change with no test change and a description with no
+    // `### Verified` section.
     id: "github.mergePullRequest",
     provider: "github",
     label: "GitHub: merge a pull request",
     nodeKinds: ["action"],
     effect: "write",
     fields: [
-      mergeRepo,
+      targetRepo,
       {
         name: "number",
         type: "number",
@@ -166,15 +238,107 @@ export const githubOperations: OperationDefinitionInput[] = [
         mergeMethod: "mergeMethod",
       },
     },
+    outputs: [
+      { name: "ok", type: "boolean" },
+      { name: "merged", type: "boolean" },
+      { name: "repo", type: "string" },
+      { name: "number", type: "number" },
+      {
+        name: "sha",
+        type: "string",
+        description: "The merge commit; the same value is externalRef.",
+      },
+      { name: "headSha", type: "string" },
+      { name: "mergeMethod", type: "string", nullable: true },
+      { name: "alreadyMerged", type: "boolean" },
+      { name: "reconciled", type: "boolean" },
+    ],
     receipt: { externalRef: "sha", url: "url" },
     credential: { provider: "github" },
   },
   {
+    id: "github.addLabels",
+    provider: "github",
+    label: "GitHub: add labels",
+    description:
+      "Adds 1 to 5 labels to an issue or pull request in the factory's own repository; each is text of up to 50 characters with no comma. One it already has stays, so a repeat changes nothing; a name the repository lacks is created.",
+    nodeKinds: ["action"],
+    effect: "write",
+    fields: [
+      targetRepo,
+      targetNumber,
+      {
+        name: "labels",
+        type: "json",
+        required: true,
+        // A label can trigger automation in the repository, so a person or a
+        // fixed route picks it and an AI step's answer cannot.
+        target: true,
+        label: "Labels",
+        description: 'A list of label names, such as ["bug", "triage"].',
+      },
+    ],
+    implementation: {
+      type: "action",
+      action: "add-github-labels",
+      argMap: { repo: "repo", number: "number", labels: "labels" },
+    },
+    outputs: [
+      { name: "ok", type: "boolean" },
+      {
+        name: "labels",
+        type: "list",
+        description: "Every label the item has now.",
+      },
+    ],
+    receipt: { externalRef: "externalRef" },
+    credential: { provider: "github" },
+  },
+  {
+    id: "github.removeLabel",
+    provider: "github",
+    label: "GitHub: remove a label",
+    description:
+      "Removes one label from an issue or pull request in the factory's own repository. An item without it is a success with alreadyAbsent true; a missing issue or repository fails.",
+    nodeKinds: ["action"],
+    effect: "write",
+    fields: [
+      targetRepo,
+      targetNumber,
+      {
+        name: "label",
+        type: "string",
+        required: true,
+        target: true,
+        label: "Label",
+      },
+    ],
+    implementation: {
+      type: "action",
+      action: "remove-github-label",
+      argMap: { repo: "repo", number: "number", label: "label" },
+    },
+    outputs: [
+      { name: "ok", type: "boolean" },
+      {
+        name: "alreadyAbsent",
+        type: "boolean",
+        description: "True when the item did not have the label.",
+      },
+    ],
+    receipt: { externalRef: "externalRef" },
+    credential: { provider: "github" },
+  },
+  {
+    // The contents API answers a file of up to 1 MB as base64 beside about
+    // 600 characters of links, so the cut clips `content` and says how much it
+    // kept. 12,000 is about 8 KB of file; five reads fit in a step.
     id: "github.readFile",
     provider: "github",
     label: "GitHub: read a file",
     nodeKinds: ["lookup"],
     effect: "read",
+    answerBudgetChars: 12_000,
     fields: [
       repo,
       { name: "path", type: "string", required: true, label: "File path" },
@@ -189,11 +353,22 @@ export const githubOperations: OperationDefinitionInput[] = [
     credential: { provider: "github" },
   },
   {
+    // Each of 20 hits embeds the whole repository object, about 5 KB, so the
+    // answer is about 100 KB. A hit's name, path and link are about 200
+    // characters, so all 20 fit.
     id: "github.searchCode",
     provider: "github",
     label: "GitHub: search code",
     nodeKinds: ["lookup"],
     effect: "read",
+    answerBudgetChars: 8_000,
+    answerFields: [
+      "total_count",
+      "incomplete_results",
+      "items.name",
+      "items.path",
+      "items.html_url",
+    ],
     fields: [
       repo,
       { name: "query", type: "string", required: true, label: "Search for" },

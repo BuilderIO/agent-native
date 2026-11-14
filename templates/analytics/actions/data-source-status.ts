@@ -175,7 +175,7 @@ async function listWorkspaceConnectionsForStatus(): Promise<{
 
 export default defineAction({
   description:
-    "Report Analytics source status without secrets. `ready` indicates a configured query path because required local credentials are present or an Analytics workspace connection is marked connected; it is not a live health check. `credentialsConfigured` reports required local credential presence and `connectionHealth` reports workspace connection state. A null `configured` or `hasConnectedExternalDataSources` value means status is unknown; report it as unknown, not disconnected. For dbt, `dbtReadiness` names the missing step; only `ready` means the Semantic Layer can answer. First-party Analytics events are built in; use `query-agent-native-analytics` to query them. Each provider includes a setup link; key accepts a credential name or provider alias.",
+    "Report Analytics source status without secrets. `ready` indicates a configured query path because required local credentials are present or an Analytics workspace connection is marked connected; it is not a live health check. `credentialsConfigured` reports required local credential presence and `connectionHealth` reports workspace connection state. A null `configured` or `hasConnectedExternalDataSources` value means status is unknown; report it as unknown, not disconnected. For dbt, `dbtReadiness` names the missing step; only `ready` or `connection_selection_required` means the Semantic Layer can answer. First-party Analytics events are built in; use `query-agent-native-analytics` to query them. Each provider includes a setup link; key accepts a credential name or provider alias.",
   schema: z.object({
     key: z
       .string()

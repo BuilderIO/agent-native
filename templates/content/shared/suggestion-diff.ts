@@ -374,6 +374,51 @@ function diffParts(
   beforeSource: string,
   afterSource: string,
 ): DiffPart[] | null {
+  if (beforeSource === afterSource)
+    return beforeSource ? [{ type: "equal", text: beforeSource }] : [];
+  if (beforeSource.length + afterSource.length <= MAX_DOCUMENT_LENGTH)
+    return boundedDiffParts(beforeSource, afterSource);
+
+  let prefix = 0;
+  const sharedLength = Math.min(beforeSource.length, afterSource.length);
+  while (prefix < sharedLength && beforeSource[prefix] === afterSource[prefix])
+    prefix += 1;
+  let suffix = 0;
+  while (
+    suffix < sharedLength - prefix &&
+    beforeSource[beforeSource.length - suffix - 1] ===
+      afterSource[afterSource.length - suffix - 1]
+  )
+    suffix += 1;
+
+  // Keep the changed lines intact: character cuts can split Unicode, words,
+  // or hard-break tokens and change the existing diff's alignment choices.
+  const from = Math.max(0, beforeSource.lastIndexOf("\n", prefix - 1));
+  const suffixStart = beforeSource.length - suffix;
+  const newline = beforeSource.indexOf("\n", suffixStart);
+  const to =
+    suffixStart === 0 || beforeSource[suffixStart - 1] === "\n"
+      ? suffixStart
+      : newline === -1
+        ? beforeSource.length
+        : newline + 1;
+  const afterTo = afterSource.length - (beforeSource.length - to);
+  const parts = boundedDiffParts(
+    beforeSource.slice(from, to),
+    afterSource.slice(from, afterTo),
+  );
+  if (!parts) return null;
+  return coalesce([
+    { type: "equal", text: beforeSource.slice(0, from) },
+    ...parts,
+    { type: "equal", text: beforeSource.slice(to) },
+  ]);
+}
+
+function boundedDiffParts(
+  beforeSource: string,
+  afterSource: string,
+): DiffPart[] | null {
   if (beforeSource.length + afterSource.length > MAX_DOCUMENT_LENGTH)
     return null;
 
@@ -483,6 +528,9 @@ function diffTokens(text: string): string[] {
 // is no longer than either, as diff-match-patch's semantic cleanup does.
 // Equalities between replacements stay, so separate word swaps remain
 // separately reviewable, and a line never folds, so blocks stay separate.
+// The exception is a line the merged run begins or ends with: that is one
+// insertion (text plus a new paragraph) Myers aligned across the existing
+// separator, and it would otherwise split whenever another hunk exists.
 type ChangeRun = {
   deleted: string;
   inserted: string;
@@ -518,12 +566,17 @@ function foldShortEqualities(parts: DiffPart[]): DiffPart[] {
     const right = segments[index + 1];
     if (typeof equality !== "string" || typeof left !== "object") continue;
     if (typeof right !== "object") continue;
+    const insertions = left.ownDeleted === 0 && right.ownDeleted === 0;
     const oneSided =
-      (left.ownDeleted === 0 && right.ownDeleted === 0) ||
-      (left.ownInserted === 0 && right.ownInserted === 0);
+      insertions || (left.ownInserted === 0 && right.ownInserted === 0);
+    const merged = insertions
+      ? left.inserted + equality + right.inserted
+      : left.deleted + equality + right.deleted;
     if (
       !oneSided ||
-      equality.includes("\n") ||
+      (equality.includes("\n") &&
+        !merged.startsWith(equality) &&
+        !merged.endsWith(equality)) ||
       equality.length > Math.max(left.ownDeleted, left.ownInserted) ||
       equality.length > Math.max(right.ownDeleted, right.ownInserted)
     )
@@ -814,16 +867,24 @@ function wholeWordReplacements(
     const removed = operation.before.changedText;
     const inserted = operation.after.changedText;
     const lexicalChange = /[\p{L}\p{M}\p{N}]/u.test(removed + inserted);
+    // An edge that is a line break, as when a whole paragraph is deleted,
+    // sits beside the neighboring block's word without splitting it.
+    const lineEdge = (edge: (text: string) => boolean) =>
+      edge(removed) && (!inserted || edge(inserted));
+    const widensBefore =
+      isWordBefore(before, from) && !lineEdge((text) => text.startsWith("\n"));
+    const widensAfter =
+      isWordAt(before, to) && !lineEdge((text) => text.endsWith("\n"));
     let group = { from, to, members: [operation] };
     if (
       lexicalChange &&
       !/<br\/?\s*>/u.test(removed + inserted) &&
       (removed || !/\s/u.test(inserted)) &&
-      (isWordBefore(before, from) || isWordAt(before, to))
+      (widensBefore || widensAfter)
     ) {
-      while (isWordBefore(before, group.from))
+      while (widensBefore && isWordBefore(before, group.from))
         group.from -= characterBefore(before, group.from).length;
-      while (isWordAt(before, group.to))
+      while (widensAfter && isWordAt(before, group.to))
         group.to += characterAt(before, group.to).length;
     }
     // Two edits inside one word are one review decision.
@@ -918,6 +979,120 @@ export function markdownSuggestionOperation(
   );
 }
 
+const MAX_REWRITE_WORDS = 2_000;
+
+function visibleWords(markdown: string): string[] {
+  return (
+    markdown
+      .replace(/\]\([^)]*\)/gu, "]")
+      .replace(/<[^>]*>/gu, " ")
+      .match(/[\p{L}\p{M}\p{N}]+/gu) ?? []
+  );
+}
+
+function commonWordCount(left: string[], right: string[]): number {
+  const cells = right.map((word) => ({ word, kept: 0 }));
+  let kept = 0;
+  for (const word of left) {
+    let diagonal = 0;
+    kept = 0;
+    for (const cell of cells) {
+      const above = cell.kept;
+      cell.kept = cell.word === word ? diagonal + 1 : Math.max(above, kept);
+      diagonal = above;
+      kept = cell.kept;
+    }
+  }
+  return kept;
+}
+
+/**
+ * Whether a change strikes and inserts more words than it keeps. Diffed word
+ * by word, such a change strikes and inserts every few words, so neither
+ * version can be read; it reads as the old text struck and the new inserted.
+ */
+export function mostlyRewritten(before: string, after: string): boolean {
+  const words = visibleWords(before);
+  const rewritten = visibleWords(after);
+  if (words.length + rewritten.length > MAX_REWRITE_WORDS) return false;
+  const kept = commonWordCount(words, rewritten);
+  return words.length + rewritten.length - 2 * kept > kept;
+}
+
+/**
+ * One operation for the paragraph a line's word-sized operations mostly
+ * rewrite, or null when they leave most of it as it was.
+ */
+function rewrittenParagraph(
+  before: string,
+  group: MarkdownSuggestionOperation[],
+): MarkdownSuggestionOperation | null {
+  if (group.length < 2) return null;
+  const from = Math.min(...group.map(({ anchor }) => anchor.from));
+  const to = Math.max(...group.map(({ anchor }) => anchor.to));
+  const inserted = group.reduceRight(
+    (text, operation) =>
+      text.slice(0, operation.anchor.from - from) +
+      operation.after.changedText +
+      text.slice(operation.anchor.to - from),
+    before.slice(from, to),
+  );
+  const lineStart = before.lastIndexOf("\n", from - 1) + 1;
+  const lineStop = before.indexOf("\n", to);
+  const lineTo = lineStop < 0 ? before.length : lineStop;
+  if (
+    !mostlyRewritten(
+      before.slice(lineStart, lineTo),
+      before.slice(lineStart, from) + inserted + before.slice(to, lineTo),
+    )
+  )
+    return null;
+  return operationForChange(before, from, to, inserted, 0);
+}
+
+/**
+ * Joins the word-sized operations of each paragraph they mostly rewrite into
+ * one. A light edit keeps its word-sized operations, so "fix this throughout"
+ * stays one decision per occurrence.
+ */
+export function joinRewrittenParagraphs(
+  before: string,
+  operations: MarkdownSuggestionOperation[],
+): MarkdownSuggestionOperation[] {
+  const groups: MarkdownSuggestionOperation[][] = [];
+  let group: MarkdownSuggestionOperation[] | null = null;
+  let lineEnd = -1;
+  for (const operation of operations) {
+    const inLine =
+      operation.kind !== "set_inline_mark" &&
+      !operation.before.changedText.includes("\n") &&
+      !operation.after.changedText.includes("\n");
+    if (inLine && group && operation.anchor.from < lineEnd) {
+      group.push(operation);
+      continue;
+    }
+    group = [operation];
+    groups.push(group);
+    const end = before.indexOf("\n", operation.anchor.to);
+    lineEnd = inLine ? (end < 0 ? before.length : end) : -1;
+  }
+  const result: MarkdownSuggestionOperation[] = [];
+  let joined = false;
+  for (const line of groups) {
+    const rewrite = rewrittenParagraph(before, line);
+    if (rewrite) {
+      result.push(rewrite);
+      joined = true;
+    } else {
+      result.push(...line);
+    }
+  }
+  if (!joined) return operations;
+  return isolateSiblingAnchorContexts(
+    result.map((operation, ordinal) => ({ ...operation, ordinal })),
+  );
+}
+
 export function markdownSuggestionOperationsForFindReplace(input: {
   before: string;
   find: string;
@@ -948,29 +1123,53 @@ export function markdownSuggestionOperationsForFindReplace(input: {
   ) {
     return [operationForChange(before, start, start + find.length, replace, 0)];
   }
-  return operations;
+  return joinRewrittenParagraphs(before, operations);
 }
 
 /**
  * Splits several non-overlapping find/replace edits against one source the
- * way one edit is split. Each operation's anchor context stops at its
- * neighbors, so accepting one never rewrites the text another is found by.
+ * way one edit is split, and joins a paragraph they rewrite between them.
+ * Each operation's anchor context stops at its neighbors, so accepting one
+ * never rewrites the text another is found by. Also says which edit each piece
+ * came from: edits can touch, so a piece's position alone can't.
  */
-export function markdownSuggestionOperationsForFindReplaceEdits(input: {
+export function findReplaceEditPieces(input: {
   before: string;
   edits: ReadonlyArray<{ find: string; replace: string; start: number }>;
-}): MarkdownSuggestionOperation[] {
-  return isolateSiblingAnchorContexts(
-    input.edits
-      .flatMap((edit) =>
-        markdownSuggestionOperationsForFindReplace({
-          before: input.before,
-          ...edit,
-        }),
-      )
-      .sort((left, right) => left.anchor.from - right.anchor.from)
-      .map((operation, ordinal) => ({ ...operation, ordinal })),
+}): { operations: MarkdownSuggestionOperation[]; editOfPiece: number[] } {
+  const pieces = input.edits
+    .flatMap((edit, editIndex) =>
+      markdownSuggestionOperationsForFindReplace({
+        before: input.before,
+        ...edit,
+      }).map((operation) => ({ operation, editIndex })),
+    )
+    .sort(
+      (left, right) => left.operation.anchor.from - right.operation.anchor.from,
+    );
+  const operations = isolateSiblingAnchorContexts(
+    joinRewrittenParagraphs(
+      input.before,
+      pieces.map(({ operation }) => operation),
+    ).map((operation, ordinal) => ({ ...operation, ordinal })),
   );
+  const unclaimed = [...pieces];
+  return {
+    operations,
+    // A joined piece counts as the edit its first change came from. Two edits
+    // can insert at one point, so each piece takes the next change, not any.
+    editOfPiece: operations.map(({ anchor }) => {
+      while ((unclaimed[0]?.operation.anchor.from ?? anchor.from) < anchor.from)
+        unclaimed.shift();
+      return unclaimed.shift()?.editIndex ?? 0;
+    }),
+  };
+}
+
+export function markdownSuggestionOperationsForFindReplaceEdits(
+  input: Parameters<typeof findReplaceEditPieces>[0],
+): MarkdownSuggestionOperation[] {
+  return findReplaceEditPieces(input).operations;
 }
 
 /**
@@ -1022,6 +1221,7 @@ export function markdownSuggestionOperationsForReplacements(input: {
     const [{ from, to }] = replacements;
     if (
       operations.length > 1 &&
+      !before.slice(from, to).includes("\n") &&
       operations.every(
         (operation) =>
           operation.anchor.from >= from && operation.anchor.to <= to,

@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { storeLedgerResult } from "../db/store-ledger.test-helpers.js";
 import { stripInlineBytes } from "../shared/inline-bytes.js";
 import {
+  getCompletedAgentExecutionSteps,
   getCurrentTurnEventsForThread,
   getCurrentTurnRunEventsForThread,
   getCurrentTurnRunIdsForThread,
@@ -17,6 +18,7 @@ const mocks = vi.hoisted(() => ({
   events: [] as unknown[],
   latest: [] as unknown[],
   runs: [] as unknown[],
+  executionSteps: [] as unknown[],
   execute: vi.fn(),
 }));
 
@@ -26,6 +28,7 @@ vi.mock("../db/client.js", () => ({
 vi.mock("../db/ddl-guard.js", () => ({
   ensureColumnExists: vi.fn().mockResolvedValue(undefined),
   ensureTableExists: vi.fn().mockResolvedValue(undefined),
+  ensureIndexExists: vi.fn().mockResolvedValue(undefined),
 }));
 vi.mock("../server/capture-error.js", () => ({ captureError: vi.fn() }));
 
@@ -53,11 +56,18 @@ beforeEach(() => {
   mocks.events = [];
   mocks.latest = [];
   mocks.runs = [];
+  mocks.executionSteps = [];
   mocks.execute.mockReset();
   mocks.execute.mockImplementation(async (statement) => {
     const sql = typeof statement === "string" ? statement : statement.sql;
     if (sql.includes("SELECT e.run_id AS run_id"))
       return { rows: mocks.events, rowsAffected: 0 };
+    if (
+      sql.includes(
+        "SELECT step_id, operation_id, tool_name, input_json, result_json",
+      )
+    )
+      return { rows: mocks.executionSteps, rowsAffected: 0 };
     if (sql.includes("SELECT id FROM agent_runs"))
       return { rows: mocks.runs, rowsAffected: 0 };
     if (sql.includes("SELECT id, turn_id FROM agent_runs"))
@@ -66,22 +76,71 @@ beforeEach(() => {
   });
 });
 
+describe("completed execution-step journal reader", () => {
+  const completeStep = {
+    step_id: "step-a",
+    operation_id: "operation-a",
+    tool_name: "send-message",
+    input_json: "{}",
+    result_json: '{"sent":true}',
+  };
+
+  it.each([
+    ["null row", null],
+    ["array row", []],
+    ["missing step id", { ...completeStep, step_id: undefined }],
+    ["unrequested step id", { ...completeStep, step_id: "step-other" }],
+    ["missing operation id", { ...completeStep, operation_id: null }],
+    ["empty operation id", { ...completeStep, operation_id: " " }],
+    ["missing tool name", { ...completeStep, tool_name: null }],
+    ["empty tool name", { ...completeStep, tool_name: " " }],
+    ["missing intent", { ...completeStep, input_json: null }],
+    ["missing result", { ...completeStep, result_json: null }],
+  ])("classifies a %s as unreadable persisted data", async (_label, row) => {
+    mocks.executionSteps = [row];
+
+    await expect(
+      getCompletedAgentExecutionSteps("thread", "turn", ["step-a"]),
+    ).rejects.toMatchObject({
+      name: "AgentRunJournalUnreadableError",
+      errorCode: "tool_call_journal_unreadable",
+      reason: "invalid_execution_step",
+      threadId: "thread",
+      turnId: "turn",
+      rowIndex: 0,
+    });
+  });
+
+  it("leaves completed-step query failures retryable", async () => {
+    const storageError = new Error("database unavailable");
+    mocks.execute.mockImplementation(async (statement) => {
+      const sql = typeof statement === "string" ? statement : statement.sql;
+      if (sql.includes("FROM agent_execution_steps")) throw storageError;
+      return { rows: [], rowsAffected: 0 };
+    });
+
+    await expect(
+      getCompletedAgentExecutionSteps("thread", "turn", ["step-a"]),
+    ).rejects.toBe(storageError);
+  });
+});
+
 function recordPersistedEvents() {
   mocks.execute.mockImplementation(async (statement) => {
-    const ledger = storeLedgerResult(
-      typeof statement === "string" ? statement : statement.sql,
-    );
+    const sql = typeof statement === "string" ? statement : statement.sql;
+    const args = typeof statement === "string" ? [] : (statement.args ?? []);
+    const ledger = storeLedgerResult(sql);
     if (ledger) return ledger;
-    if (statement.sql.includes("INSERT INTO agent_run_events"))
+    if (sql.includes("INSERT INTO agent_run_events"))
       mocks.events.push({
-        run_id: statement.args[0],
-        seq: statement.args[1],
-        event_data: statement.args[3],
+        run_id: args[0],
+        seq: args[1],
+        event_data: args[3],
       });
     return {
-      rows: statement.sql.includes("SELECT e.run_id AS run_id")
+      rows: sql.includes("SELECT e.run_id AS run_id")
         ? mocks.events
-        : statement.sql.includes("SELECT id FROM agent_runs")
+        : sql.includes("SELECT id FROM agent_runs")
           ? mocks.runs
           : [],
       rowsAffected: 0,
@@ -529,21 +588,19 @@ it.each([
       },
     ];
     mocks.execute.mockImplementation(async (statement) => {
-      const ledger = storeLedgerResult(
-        typeof statement === "string" ? statement : statement.sql,
-      );
+      const sql = typeof statement === "string" ? statement : statement.sql;
+      const args = typeof statement === "string" ? [] : (statement.args ?? []);
+      const ledger = storeLedgerResult(sql);
       if (ledger) return ledger;
-      if (statement.sql.includes("INSERT INTO agent_run_events")) {
+      if (sql.includes("INSERT INTO agent_run_events")) {
         mocks.events.push({
-          run_id: statement.args[0],
-          seq: statement.args[1],
-          event_data: statement.args[3],
+          run_id: args[0],
+          seq: args[1],
+          event_data: args[3],
         });
       }
       return {
-        rows: statement.sql.includes("SELECT e.run_id AS run_id")
-          ? mocks.events
-          : [],
+        rows: sql.includes("SELECT e.run_id AS run_id") ? mocks.events : [],
         rowsAffected: 0,
       };
     });

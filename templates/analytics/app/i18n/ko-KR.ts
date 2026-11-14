@@ -1,4 +1,13 @@
 export default {
+  composerSources: {
+    uploadFailed: "선택한 파일을 업로드할 수 없습니다.",
+    reference: "대시보드 참조…",
+    group: "대시보드",
+    authentication: "참조를 추가하려면 로그인하세요.",
+    invalid: "전송하기 전에 유효한 참조를 선택하세요.",
+    unavailable:
+      "선택한 참조를 더 이상 사용할 수 없습니다. 제거하거나 다시 선택하세요.",
+  },
   root: {
     whatsNew: "새로운 기능",
   },
@@ -1344,6 +1353,8 @@ export default {
     resetFilters: "필터 초기화",
     collapseFilters: "필터 접기",
     expandFilters: "필터 확장",
+    collapseDescription: "설명 접기",
+    expandDescription: "설명 펼치기",
     drilldownChartPoints: "차트 데이터 포인트",
     drilldownPreviousPage: "차트 데이터 포인트 이전 페이지",
     drilldownNextPage: "차트 데이터 포인트 다음 페이지",
@@ -1353,6 +1364,10 @@ export default {
     drilldownHideSql: "SQL 숨기기",
     drilldownDownloadCsv: "CSV 다운로드",
     drilldownShowing: "{{total}}개 레코드 중 {{shown}}개 표시",
+    drilldownShowingLoaded:
+      "불러온 {{loaded}}개 레코드 중 {{shown}}개 표시; 전체 개수는 알 수 없습니다.",
+    drilldownCsvTruncatedUnknownTotal:
+      "내보내기가 완전한지 알 수 없습니다. 이 파일에는 로드된 {{loaded}}개 레코드 중 필터링 후 {{exported}}개가 포함됩니다.",
     drilldownCsvTruncated:
       "불완전한 내보내기: 쿼리 결과 {{total}}개 중 처음 {{loaded}}개만 불러왔으며, 이 파일에는 필터 적용 후 {{exported}}개가 포함되어 있습니다.",
     drilldownCountMismatch:
@@ -1360,13 +1375,24 @@ export default {
     drilldownAggregateOnly:
       "이 패널에는 집계된 행만 있습니다. 클릭한 지점과 일치하는 행이 강조 표시됩니다.",
     drilldownNoRecords: "일치하는 레코드가 없습니다",
+    drilldownNoRecordsIncomplete:
+      "불러온 레코드가 없습니다. 결과가 불완전하므로 일치하는 레코드가 있을 수 있습니다.",
+    drilldownNoLoadedMatches:
+      "불러온 레코드 중 일치하는 항목이 없지만, 전체 결과에는 불러오지 않은 레코드가 포함될 수 있습니다.",
     drilldownLoadFailed: "레코드를 불러오지 못했습니다",
+    drilldownOverByteCap:
+      "이 레코드는 {{gib}}GiB를 넘게 읽게 되어 불러오지 않았습니다. 대시보드 필터나 기간을 좁힌 뒤 다시 시도하세요.",
     filterSeries: "Filter",
+    noXValue: "값 없음",
     chartTimeRangeOverride: "이 차트의 기간 재정의",
     chartTimeRangeInherit: "대시보드 기간",
     hide: "Hide",
     show: "Show",
     saveAsView: "보기로 저장",
+    unknownTraffic: "알 수 없음 {{count}}",
+    unknownTrafficUnavailable: "알 수 없음 개수를 불러올 수 없음",
+    unknownTrafficTip:
+      "최근 {{days}}일 이벤트 중 호스트가 없고 인식된 환경도 없는 이벤트입니다. 프로덕션으로 집계됩니다.",
     viewNameRecentPlaceholder: "View name (e.g. 'Recent articles only')",
     to: "to",
     on: "On",
@@ -1429,12 +1455,25 @@ export default {
     columnFormatCurrency: "통화",
     columnFormatPercent: "백분율",
     columnFormatDate: "날짜",
+    columnFormatDuration: "소요 시간(초)",
     columnRename: "열 이름 바꾸기",
     columnHide: "열 숨기기",
     columnShow: '"{{name}}" 표시',
     columnShowHidden: "숨긴 열 표시",
     columnName: "열 이름",
     columnResize: "열 크기 조절",
+    metricComparisonVs: "{{period}} 대비",
+    metricComparisonPreviousPeriod: "이전 기간",
+    metricComparisonNoChange: "변화 없음",
+    metricComparisonPoints: "{{value}}%p",
+    metricComparisonUp: "{{period}} {{previous}} 대비 {{change}} 증가",
+    metricComparisonDown: "{{period}} {{previous}} 대비 {{change}} 감소",
+    metricComparisonFlat: "{{period}} {{previous}} 대비 변화 없음",
+    metricComparisonBetter: "{{comparison}}(개선)",
+    metricComparisonWorse: "{{comparison}}(악화)",
+    calloutSeverityCritical: "심각",
+    calloutSeverityWarning: "경고",
+    calloutSeverityInfo: "정보",
     rowBreakdownBy: "세부 기준",
     rowBreakdownAll: "전체",
     rowBreakdownOther: "기타",
@@ -1638,6 +1677,10 @@ export default {
     hideEmptySessions: "빈 세션 숨기기",
     networkErrors: "네트워크 오류",
     rageClicksFilter: "반복 클릭",
+    traffic: "트래픽",
+    allTraffic: "모든 트래픽",
+    productionTraffic: "프로덕션",
+    betaTraffic: "베타",
     visitors: "방문자",
     allVisitors: "모든 방문자",
     internalVisitors: "내부",
@@ -1697,6 +1740,10 @@ export default {
     catalogOpenSessions: "{{event}}이(가) 있는 세션 보기",
     catalogAutomatic: "자동",
     catalogStoppedFiring: "수신 중단",
+    catalogMadeIt: "만듦",
+    catalogUsedIt: "사용함",
+    catalogNoUsedIt:
+      "“사용함” 이벤트가 정의되어 있지 않아 “만들었지만 사용 안 함”으로 {{apps}}의 결과물을 확인할 수 없습니다.",
     catalogPropertyKeys: "속성 키",
     catalogMoreKeys: "+{{count}}개 더",
     catalogTruncated: "가장 최근에 수신한 이벤트 {{count}}개만 표시합니다.",
@@ -1710,6 +1757,29 @@ export default {
     speedCoverageStarting: "속도는 지금부터의 페이지뷰에서 측정됩니다.",
     speedFilterNeedsLab:
       "이 링크에는 속도 필터가 있습니다. 적용하려면 설정에서 세션 분류 Lab을 켜세요.",
+    unusedOutputs: "만들었지만 사용 안 함",
+    anyOutcome: "모든 세션",
+    unusedSlidesDecks: "사용하지 않은 Slides 덱",
+    unusedSlidesRule:
+      "{{days}}일 이상 전에 만들어졌고 {{days}}일 안에 첫 슬라이드를 넘겨 {{seconds}}초 이상 발표되거나 내보내지지 않은 덱입니다. 덱을 여는 것만으로는 사용으로 치지 않습니다.",
+    unusedFilterNeedsLab:
+      "이 링크에는 “만들었지만 사용 안 함” 필터가 있습니다. 적용하려면 설정에서 세션 분류 Lab을 켜세요.",
+    outputCoverageSince:
+      "{{date}}부터 결과물을 추적합니다. 사용하지 않은 결과물은 만든 지 {{days}}일 후에 표시됩니다.",
+    outputCoverageStarting:
+      "결과물은 지금부터 추적됩니다. 사용하지 않은 결과물은 만든 지 {{days}}일 후에 표시됩니다.",
+    openDeck: "덱 열기",
+    moreOutputs: "+{{count}}개 더",
+    deckCount: "덱 {{count}}개",
+    deckCountSingular: "덱 {{count}}개",
+    deckMadeOn: "{{date}}에 만든 덱",
+    outputPresentedOn: "{{date}}에 발표함",
+    outputExportedOn: "{{date}}에 내보냄",
+    outputUsedOn: "{{date}}에 사용함",
+    outputUnused: "{{days}}일 안에 사용하지 않음",
+    outputOpen: "아직 사용하지 않음. {{date}} 이후 사용 안 함으로 계산",
+    outputUnmeasured: "측정 안 됨: 일부 이벤트를 저장하지 못했습니다",
+    outputsUnavailable: "결과물을 불러오지 못했습니다.",
     slowRequestCount: "느린 요청 {{count}}개",
     slowRequestCountSingular: "느린 요청 {{count}}개",
     speedIncomplete: "속도 데이터가 불완전함",

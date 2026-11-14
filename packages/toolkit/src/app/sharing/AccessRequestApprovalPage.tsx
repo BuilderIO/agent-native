@@ -15,6 +15,7 @@ import {
 import { cn } from "@agent-native/toolkit/utils";
 import { useEffect, useId, useRef, useState, type ReactNode } from "react";
 import { Link, useParams } from "react-router";
+import { toast } from "sonner";
 
 import { ResourceAccessScreen } from "./ResourceAccessScreen.js";
 
@@ -79,7 +80,14 @@ export function AccessRequestApprovalPage({
             "It may have been withdrawn, or this account can't manage access.",
         })}
         signedInEmail={session?.email ?? null}
-        onSwitchAccount={onSwitchAccount ?? (() => void signOut())}
+        onSwitchAccount={
+          onSwitchAccount ??
+          (() => {
+            void signOut().catch(() =>
+              toast.error(t("agentChat.auth.logOutFailed")),
+            );
+          })
+        }
         header={header}
         landmark={landmark}
         className={className}

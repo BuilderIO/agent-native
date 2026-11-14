@@ -6,16 +6,20 @@ import { useOnboardingPreviewMode } from "@agent-native/core/client/onboarding/u
 import { useSessionPreloading } from "@agent-native/core/client/use-session";
 import { FIRST_RUN_ONBOARDING_COOKIE } from "@agent-native/core/shared/first-run-onboarding";
 import { Button } from "@agent-native/toolkit/ui/button";
-import React, {
-  Suspense,
-  createContext,
-  lazy,
-  useContext,
-  useEffect,
-  useState,
-} from "react";
+import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
+import React, { Suspense, lazy, useEffect, useState } from "react";
 
-import { AppShellSkeleton } from "../shared/AppShellSkeleton.js";
+import { clearFirstRunFirstPaint } from "./first-run-first-paint.js";
+import {
+  FirstRunOnboardingGateContext,
+  StartupInteractionContext,
+  useStartupInteractionBlocked,
+} from "./first-run-startup-gate-context.js";
+
+export {
+  useFirstRunOnboardingGateOwnsSurface,
+  useStartupInteractionBlocked,
+} from "./first-run-startup-gate-context.js";
 
 const FirstRunOnboarding = lazy(() =>
   import("./FirstRunOnboarding.js").then((module) => ({
@@ -29,8 +33,11 @@ type FirstRunCookieState = "present" | "absent" | "unreadable";
 const FIRST_RUN_STATUS_MAX_ATTEMPTS = 2;
 const FIRST_RUN_STATUS_RETRY_DELAY_MS = 500;
 
-const FirstRunOnboardingGateContext = createContext(false);
-
+// A standalone app's Vite dev server pre-bundles `app/chat` (the sidebar and
+// panel) but serves `app/providers` (this gate) unbundled, so this module can
+// load twice. One context per copy left the sidebar reading `false` and
+// mounting a second questionnaire behind the gate, revealed at step 1 once
+// the gate stepped aside. Every copy shares one context through globalThis.
 function readFirstRunOnboardingCookieState(): FirstRunCookieState {
   if (typeof document === "undefined") return "present";
   const prefix = `${FIRST_RUN_ONBOARDING_COOKIE}=`;
@@ -48,20 +55,30 @@ function readFirstRunOnboardingCookieState(): FirstRunCookieState {
   }
 }
 
-export function useFirstRunOnboardingGateOwnsSurface(): boolean {
-  return useContext(FirstRunOnboardingGateContext);
+function DefaultStartupCover() {
+  return (
+    <div className="flex h-full gap-4 p-4">
+      <Skeleton className="h-full w-60" />
+      <Skeleton className="h-full flex-1" />
+    </div>
+  );
 }
 
 export function FirstRunOnboardingStartupGate({
   children,
-  fallback = <AppShellSkeleton />,
   suppressSurface = false,
+  deferSurface = false,
+  cover = <DefaultStartupCover />,
 }: {
   children: React.ReactNode;
-  fallback?: React.ReactNode;
   suppressSurface?: boolean;
+  /** Another startup operation owns onboarding until it settles. */
+  deferSurface?: boolean;
+  /** Fills the screen while first run is possible but not yet on screen. */
+  cover?: React.ReactNode;
 }) {
   const t = useT();
+  const inheritedInteractionBlock = useStartupInteractionBlocked();
   const previewMode = useOnboardingPreviewMode();
   const preloading = useSessionPreloading();
   const [firstRunCookieState] = useState(readFirstRunOnboardingCookieState);
@@ -135,73 +152,82 @@ export function FirstRunOnboardingStartupGate({
     };
   }, [retryNumber, shouldResolve, preloading]);
 
-  const ownsSurface = !suppressSurface && decision === "eligible";
-  const gateOwnsSurface = !suppressSurface && decision !== "ineligible";
-  const hideApp = gateOwnsSurface;
-  const app = shouldResolve ? (
+  useEffect(() => {
+    if (decision === "ineligible") clearFirstRunFirstPaint();
+  }, [decision]);
+
+  // A deferral that starts once onboarding is on screen must not unmount it:
+  // that drops the user's answers and shows the app between two dialogs.
+  const [surfaceShown, setSurfaceShown] = useState(false);
+  const ownsSurface =
+    !suppressSurface &&
+    decision === "eligible" &&
+    (!deferSurface || surfaceShown);
+  useEffect(() => {
+    if (ownsSurface) setSurfaceShown(true);
+  }, [ownsSurface]);
+  const gateOwnsSurface =
+    deferSurface || (!suppressSurface && decision !== "ineligible");
+  // Until first run is ruled out, the app must not paint: a frame of it
+  // before (or between) onboarding screens reads as a flash of the home.
+  const coversApp =
+    !suppressSurface &&
+    !ownsSurface &&
+    (decision === "pending" || decision === "eligible");
+
+  // Deferral alone does not block the app: an ineligible user keeps using it
+  // while another startup operation settles.
+  const appIsInert =
+    coversApp || ownsSurface || (gateOwnsSurface && !deferSurface);
+  const coverElement = (
     <div
-      aria-hidden={hideApp ? "true" : undefined}
-      data-first-run-app-hidden={hideApp ? "true" : undefined}
-      style={{
-        display: "contents",
-        ...(hideApp ? { visibility: "hidden" } : {}),
-      }}
+      aria-busy="true"
+      data-first-run-cover="true"
+      className="fixed inset-0 z-[100] bg-background"
     >
-      {children}
+      {cover}
     </div>
-  ) : (
-    children
   );
 
   return (
     <FirstRunOnboardingGateContext.Provider value={gateOwnsSurface}>
-      {app}
-      {!suppressSurface && decision === "pending" && (
-        <FirstRunOnboardingStartupLoading fallback={fallback} />
-      )}
-      {!suppressSurface && decision === "unavailable" && (
+      <StartupInteractionContext.Provider
+        value={inheritedInteractionBlock || appIsInert}
+      >
         <div
-          role="alert"
-          data-first-run-status-error="true"
-          className="fixed inset-0 z-[110] flex flex-col items-center justify-center gap-2 bg-background px-6 text-center"
+          aria-hidden={appIsInert ? "true" : undefined}
+          data-first-run-app-inert={appIsInert ? "true" : undefined}
+          inert={appIsInert}
+          style={{ display: "contents" }}
         >
-          <span className="text-sm text-muted-foreground">
-            {t("agentChat.common.chunkLoadFailed")}
-          </span>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setRetryNumber((current) => current + 1)}
-          >
-            {t("agentChat.common.retry")}
-          </Button>
+          {children}
         </div>
-      )}
-      {ownsSurface && (
-        <Suspense
-          fallback={<FirstRunOnboardingStartupLoading fallback={fallback} />}
-        >
-          <FirstRunOnboarding initialFirstRun />
-        </Suspense>
-      )}
+        {!suppressSurface && !deferSurface && decision === "unavailable" && (
+          <div
+            role="alert"
+            data-first-run-status-error="true"
+            className="fixed inset-x-4 bottom-4 z-[110] mx-auto flex max-w-md items-center justify-between gap-3 rounded-lg border border-border bg-background px-4 py-3 text-start shadow-lg"
+          >
+            <span className="text-sm text-muted-foreground">
+              {t("agentChat.common.chunkLoadFailed")}
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setRetryNumber((current) => current + 1)}
+            >
+              {t("agentChat.common.retry")}
+            </Button>
+          </div>
+        )}
+        {coversApp && coverElement}
+        {ownsSurface && (
+          <Suspense fallback={coverElement}>
+            <FirstRunOnboarding initialFirstRun />
+          </Suspense>
+        )}
+      </StartupInteractionContext.Provider>
     </FirstRunOnboardingGateContext.Provider>
-  );
-}
-
-function FirstRunOnboardingStartupLoading({
-  fallback,
-}: {
-  fallback: React.ReactNode;
-}) {
-  return (
-    <div
-      role="status"
-      aria-label="Loading application"
-      data-first-run-startup-loading="true"
-      className="fixed inset-0 z-[110] bg-background"
-    >
-      <div inert>{fallback}</div>
-    </div>
   );
 }

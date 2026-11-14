@@ -16,7 +16,10 @@ import {
   renumberDatabaseRows,
   resolveDatabaseRowsForBatch,
 } from "./_database-row-batch.js";
-import { getContentDatabaseResponse } from "./_database-utils.js";
+import {
+  contentDatabaseResponseForCaller,
+  getContentDatabaseResponse,
+} from "./_database-utils.js";
 import {
   databaseItemsPositionScope,
   withPositionLock,
@@ -47,7 +50,7 @@ export default defineAction({
   description:
     "Remove one or more page memberships from a content collection in one atomic batch without deleting the pages. Use this once for two or more selected or named rows instead of looping page operations.",
   schema: databaseRowBatchSchema,
-  run: async (args) => {
+  run: async (args, context) => {
     const db = getDb();
     const { database, rows } = await resolveDatabaseRowsForBatch(args, {
       includeTrashed: true,
@@ -75,10 +78,13 @@ export default defineAction({
       );
       await writeAppState("refresh-signal", { ts: Date.now() });
       return {
-        ...(await getContentDatabaseResponse(database.id, {
-          limit: 100,
-          offset: 0,
-        })),
+        ...contentDatabaseResponseForCaller(
+          await getContentDatabaseResponse(database.id, {
+            limit: 100,
+            offset: 0,
+          }),
+          context,
+        ),
         removedItemIds,
         removedDocumentIds,
         removedCount: removedItemIds.length,
@@ -226,10 +232,13 @@ export default defineAction({
     await writeAppState("refresh-signal", { ts: Date.now() });
 
     return {
-      ...(await getContentDatabaseResponse(database.id, {
-        limit: 100,
-        offset: 0,
-      })),
+      ...contentDatabaseResponseForCaller(
+        await getContentDatabaseResponse(database.id, {
+          limit: 100,
+          offset: 0,
+        }),
+        context,
+      ),
       removedItemIds,
       removedDocumentIds,
       removedCount: removedItemIds.length,

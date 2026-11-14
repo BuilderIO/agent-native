@@ -8,7 +8,7 @@ import {
   QueryClientProvider,
   useQuery,
 } from "@tanstack/react-query";
-import { act, createElement } from "react";
+import { act, createElement, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -63,6 +63,10 @@ vi.mock("@agent-native/core/client/mcp-app-host", async (importOriginal) => {
 vi.mock("@agent-native/core/client/hooks", () => {
   const callAction = (name: string, params: unknown) => {
     server.calls.push({ name, params });
+    // The page-open read answers with get-document's page.
+    if (name === "get-page-open-read") {
+      return Promise.resolve({ document: server.documentResponse });
+    }
     return Promise.resolve(
       name === "get-preview-document-draft"
         ? server.draftResponse
@@ -72,6 +76,9 @@ vi.mock("@agent-native/core/client/hooks", () => {
   return {
     callAction,
     getBrowserTabId: () => "tab-1",
+    // The page asks for the UI write capability early; the mocked session
+    // has nothing to mint.
+    prepareUiActionCapability: vi.fn(),
     useDbSync: vi.fn(),
     useSession: () => ({ session: server.session }),
     setClientAppState: vi.fn(() => Promise.resolve()),
@@ -139,6 +146,7 @@ const page = {
   content: "Saved body",
   updatedAt: "v2",
   revision: "saved-body-revision",
+  contentHash: "sha256:saved-body",
   canEdit: true,
 } as Document;
 
@@ -172,7 +180,7 @@ describe("Page draft recovery on a page open", () => {
   let root: Root;
   let originalWindowStorage = new Map<string, PropertyDescriptor | undefined>();
 
-  const render = async () => {
+  const render = async (loading?: ReactNode) => {
     await act(async () => {
       root.render(
         createElement(
@@ -180,6 +188,7 @@ describe("Page draft recovery on a page open", () => {
           { client: queryClient },
           createElement(PageDraftRecovery, {
             document: page,
+            loading,
             children: createElement("textarea", {
               defaultValue: "Live editor",
             }),
@@ -274,6 +283,20 @@ describe("Page draft recovery on a page open", () => {
     expect(draftReads()).toBe(1);
   });
 
+  it("draws its host's loading view instead of the page skeleton during the check", async () => {
+    server.draftResponse = new Promise(() => {});
+
+    await render(createElement("div", { "data-testid": "host-loading" }));
+
+    expect(
+      container.querySelector('[data-testid="host-loading"]'),
+    ).not.toBeNull();
+    expect(
+      container.querySelector('[data-testid="editor-skeleton"]'),
+    ).toBeNull();
+    expect(container.querySelector("textarea")).toBeNull();
+  });
+
   it("does not release the editor when the reader can no longer edit", async () => {
     server.draftResponse = { editable: false, draft: null };
     startPageOpenDocumentReads(queryClient, "page");
@@ -297,6 +320,7 @@ describe("Page draft recovery on a page open", () => {
         title: "Saved",
         content: "Unsaved words",
         baseDocumentUpdatedAt: "v2",
+        baseContentHash: "sha256:saved-body",
         loadedContentWasEmpty: 0,
         deferredReason: "conflict",
         editorSessionId: "tab:other",

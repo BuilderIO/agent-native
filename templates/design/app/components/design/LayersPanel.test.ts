@@ -16,7 +16,6 @@ import {
   dropPlacementForEvent,
   findNodeWithAncestors,
   flattenRows,
-  getContextMenuTargetIds,
   getDraggedLayerIdsForRows,
   getLayerSelectionAnchorFromExternalSelection,
   getTreeOrderedLayerIds,
@@ -24,6 +23,7 @@ import {
   mapPanelPlacementToDomPlacement,
   nextAutoExpandedIds,
   nextExpandedIdsForSubtree,
+  reuseUnchangedRows,
   shouldResyncLayerSelectionAnchor,
   shapeLayerUsesLayoutGlyph,
   type FlatLayerRow,
@@ -855,41 +855,22 @@ describe("LayersPanel alt-click expand/collapse subtree (nextExpandedIdsForSubtr
   });
 });
 
-describe("LayersPanel row context-menu target resolution (getContextMenuTargetIds)", () => {
-  const rows = [
-    row("parent"),
-    row("first", ["parent"]),
-    row("second", ["parent"]),
-    row("third", ["parent"]),
-  ];
+describe("reuseUnchangedRows", () => {
+  it("keeps the row object of every layer whose node did not change", () => {
+    const kept: LayersPanelNode = { id: "kept", name: "Kept" };
+    const changed: LayersPanelNode = { id: "changed", name: "Before" };
+    const first = flattenRows([kept, changed], new Set(), false);
+    const previous = new Map(first.map((entry) => [entry.rowKey, entry]));
 
-  it("operates on just the right-clicked row when it is NOT part of the current selection", () => {
-    expect(
-      getContextMenuTargetIds({
-        selectedIds: ["first"],
-        nodeId: "second",
-        visibleRows: rows,
-      }),
-    ).toEqual(["second"]);
-  });
+    const next = reuseUnchangedRows(
+      previous,
+      flattenRows([kept, { ...changed, name: "After" }], new Set(), false),
+    );
 
-  it("operates on the whole current selection when the right-clicked row IS part of it", () => {
-    expect(
-      getContextMenuTargetIds({
-        selectedIds: ["third", "first"],
-        nodeId: "first",
-        visibleRows: rows,
-      }),
-    ).toEqual(["first", "third"]);
-  });
-
-  it("normalizes the returned selection to visible tree order", () => {
-    expect(
-      getContextMenuTargetIds({
-        selectedIds: ["third", "second", "first"],
-        nodeId: "third",
-        visibleRows: rows,
-      }),
-    ).toEqual(["first", "second", "third"]);
+    const byId = (rows: FlatLayerRow[], id: string) =>
+      rows.find((entry) => entry.node.id === id);
+    expect(byId(next, "kept")).toBe(byId(first, "kept"));
+    expect(byId(next, "changed")).not.toBe(byId(first, "changed"));
+    expect(byId(next, "changed")?.node.name).toBe("After");
   });
 });

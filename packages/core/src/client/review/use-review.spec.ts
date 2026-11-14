@@ -5,7 +5,10 @@ import type { ResourceSuggestion } from "../../review/suggestions/types.js";
 import type { ReviewComment } from "../../review/types.js";
 import {
   ReviewOptimisticCache,
+  addOptimisticComment,
+  addOptimisticReply,
   insertOptimisticComment,
+  markCommentDeleted,
   proposalDecisionOverlay,
   reconcileSuggestionAmendment,
   replaceOptimisticSuggestion,
@@ -554,3 +557,116 @@ function updateSuggestion(
     suggestions: current.suggestions.map((item) => ({ ...item, ...changes })),
   };
 }
+
+describe("markCommentDeleted", () => {
+  const root = comment("root", "Root");
+  const reply = {
+    ...comment("reply", "Reply"),
+    threadId: root.id,
+    parentCommentId: root.id,
+  };
+  const other = comment("other", "Other thread");
+  const statusById = (comments: ReviewComment[]) =>
+    Object.fromEntries(comments.map((item) => [item.id, item.status]));
+
+  it("deletes the replies with a thread's first comment", () => {
+    expect(
+      statusById(markCommentDeleted([root, reply, other], "root")),
+    ).toEqual({ root: "deleted", reply: "deleted", other: "open" });
+  });
+
+  it("deletes only the reply when a reply is deleted", () => {
+    expect(
+      statusById(markCommentDeleted([root, reply, other], "reply")),
+    ).toEqual({ root: "open", reply: "deleted", other: "open" });
+  });
+});
+
+describe("addOptimisticReply", () => {
+  it("adds a reply only to the last page, beside its parent", () => {
+    const reply = (parent: ReviewComment) => ({
+      ...comment("r", "R"),
+      threadId: parent.threadId,
+      parentCommentId: parent.id,
+    });
+    const first = {
+      ...commentsResult([comment("a", "A")]),
+      nextCursor: "c1~x~a",
+    };
+    const last = { ...commentsResult([comment("a", "A")]), nextCursor: null };
+
+    expect(addOptimisticReply(first, resource, "a", reply)).toBe(first);
+    expect(
+      (
+        addOptimisticReply(
+          last,
+          resource,
+          "a",
+          reply,
+        ) as ListReviewCommentsResult
+      ).comments.map((item) => [item.id, item.parentCommentId]),
+    ).toEqual([
+      ["a", null],
+      ["r", "a"],
+    ]);
+    // A page without the parent, or a query the reply doesn't match, is left alone.
+    expect(
+      (
+        addOptimisticReply(
+          last,
+          resource,
+          "z",
+          reply,
+        ) as ListReviewCommentsResult
+      ).comments,
+    ).toHaveLength(1);
+    expect(
+      (
+        addOptimisticReply(
+          last,
+          { ...resource, surfaceId: "other" },
+          "a",
+          reply,
+        ) as ListReviewCommentsResult
+      ).comments,
+    ).toHaveLength(1);
+  });
+});
+
+describe("addOptimisticComment", () => {
+  it("adds a new comment only to the last page of a paged list", () => {
+    const first = {
+      ...commentsResult([comment("a", "A")]),
+      nextCursor: "c1~x~a",
+    };
+    const last = { ...commentsResult([comment("b", "B")]), nextCursor: null };
+    const created = comment("c", "C");
+
+    expect(addOptimisticComment(first, resource, created)).toBe(first);
+    expect(
+      (
+        addOptimisticComment(
+          last,
+          { ...resource, cursor: "c1~x~a" },
+          created,
+        ) as ListReviewCommentsResult
+      ).comments.map((item) => item.id),
+    ).toEqual(["b", "c"]);
+    expect(
+      (
+        addOptimisticComment(
+          commentsResult([]),
+          resource,
+          created,
+        ) as ListReviewCommentsResult
+      ).comments.map((item) => item.id),
+    ).toEqual(["c"]);
+    expect(
+      addOptimisticComment(
+        last,
+        { ...resource, targetId: "elsewhere" },
+        created,
+      ),
+    ).toBe(last);
+  });
+});

@@ -69,11 +69,45 @@ export const clipsHostedStorageConfig = z.object({
 
 export const clipsConfig = z.object({
   hostedStorage: clipsHostedStorageConfig.prefault({}),
+  contentPeerSecret: z.string().optional().meta({
+    env: "CONTENT_CLIPS_PEER_SECRET",
+    doc: "Secret only the Content and Clips deployments hold. Content signs its server-to-server requests about Clips in its documents with it, and Clips accepts no other credential on those routes. Must differ from A2A_SECRET.",
+  }),
 });
+
+export type ClipsConfig = z.output<typeof clipsConfig>;
 
 export type ClipsHostedStorageConfig = z.output<
   typeof clipsHostedStorageConfig
 >;
+
+const MIN_CONTENT_CLIPS_PEER_SECRET_CHARS = 32;
+
+/**
+ * The secret Content and Clips sign and verify Content's Clip requests with,
+ * or null when it is not set. Read it through this on both sides: a value
+ * equal to the deployment `A2A_SECRET` is one every app holds, so it would
+ * not show that a request came from Content, and it is refused rather than
+ * used.
+ */
+export function resolveContentClipsPeerSecret(
+  config: ClipsConfig,
+  deploymentA2ASecret: string | undefined,
+): string | null {
+  const secret = config.contentPeerSecret?.trim();
+  if (!secret) return null;
+  if (secret.length < MIN_CONTENT_CLIPS_PEER_SECRET_CHARS) {
+    throw new AppConfigurationError(
+      `CONTENT_CLIPS_PEER_SECRET must be at least ${MIN_CONTENT_CLIPS_PEER_SECRET_CHARS} characters.`,
+    );
+  }
+  if (secret === deploymentA2ASecret?.trim()) {
+    throw new AppConfigurationError(
+      "CONTENT_CLIPS_PEER_SECRET must differ from A2A_SECRET.",
+    );
+  }
+  return secret;
+}
 
 export type ResolvedClipsHostedStorageConfig = ClipsHostedStorageConfig & {
   enabled: true;

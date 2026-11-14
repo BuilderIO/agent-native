@@ -1,12 +1,13 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   BookingLinkCreateDialog,
   CustomFieldsEditor as SharedCustomFieldsEditor,
   SlugEditor,
 } from "@agent-native/scheduling/react/components";
 import { ShareButton } from "@agent-native/toolkit/app/sharing";
-import { VisibilityBadge } from "@agent-native/toolkit/sharing";
+import { VisibilityBadge } from "@agent-native/toolkit/app/sharing/VisibilityBadge";
 import type {
   AvailabilityConfig,
   BookingHost,
@@ -1178,8 +1179,10 @@ export default function BookingLinksPage({
       setDraft(nextDraft);
       setSavedDraftSignature(getDraftSignature(nextDraft));
       toast.success(t("bookingLinks.bookingLinkUpdated"));
-    } catch {
-      toast.error(t("bookingLinks.bookingLinkUpdateFailed"));
+    } catch (error) {
+      reportWriteFailure(error, {
+        label: t("bookingLinks.bookingLinkUpdateFailed"),
+      });
     }
   }
 
@@ -1189,8 +1192,10 @@ export default function BookingLinksPage({
       await deleteBookingLink.mutateAsync({ id: draft.id });
       void navigate("/booking-links");
       toast.success(t("bookingLinks.bookingLinkDeleted"));
-    } catch {
-      toast.error(t("bookingLinks.bookingLinkDeleteFailed"));
+    } catch (error) {
+      reportWriteFailure(error, {
+        label: t("bookingLinks.bookingLinkDeleteFailed"),
+      });
     }
   }
 

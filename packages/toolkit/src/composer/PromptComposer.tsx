@@ -16,7 +16,7 @@ import {
   CompositeAttachmentAdapter,
   SimpleImageAttachmentAdapter,
 } from "@assistant-ui/react";
-import { IconX } from "@tabler/icons-react";
+import { IconAlertTriangle, IconX } from "@tabler/icons-react";
 import {
   useCallback,
   useEffect,
@@ -28,6 +28,15 @@ import {
   type ReactNode,
 } from "react";
 
+import { useFirstRunOnboardingGateOwnsSurface } from "../app/onboarding/first-run-startup-gate-context.js";
+import { Button } from "../ui/button.js";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogTitle,
+  DialogTrigger,
+} from "../ui/dialog.js";
 import { TooltipProvider } from "../ui/tooltip.js";
 import { cn } from "../utils.js";
 import { AgentComposerFrame } from "./AgentComposerFrame.js";
@@ -37,17 +46,25 @@ import {
   PROMPT_DOCUMENT_ATTACHMENT_ACCEPT,
   TextAttachmentAdapter,
 } from "./attachment-accept.js";
+import { ComposerNotice } from "./composer-notice.js";
 import type { ComposerContextMenuItem } from "./ComposerContextMenu.js";
 import type { ComposerTerminalModeControl } from "./ComposerPlusMenu.js";
 import type { ComposerContextSnapshot } from "./context-items.js";
 import { isPastedTextAttachmentName } from "./pasted-text.js";
 import { PastedTextChip } from "./PastedTextChip.js";
-import { escapePromptAttachmentAttribute } from "./prompt-attachments.js";
 import {
+  escapePromptAttachmentAttribute,
+  getUnshrinkableImageError,
+  probeAgentPromptAttachment,
+  type AgentPromptAttachmentReadError,
+} from "./prompt-attachments.js";
+import {
+  type ComposerTranslate,
   type EngineModelGroup,
   type ComposerAgentEngineState,
   type AgentChatContextItem,
   type ReasoningEffort,
+  fallbackTranslate,
   useComposerRuntimeAdapters,
 } from "./runtime-adapters.js";
 import {
@@ -61,6 +78,7 @@ import {
   type ComposerSubmitIntent,
   type ComposerDraftSnapshot,
   type TiptapComposerHandle,
+  type TiptapComposerProps,
   type TiptapComposerSubmitOptions,
   sameComposerDraft,
 } from "./TiptapComposer.js";
@@ -82,6 +100,7 @@ const MAX_INLINE_TEXT_FILE_CHARS = 60_000;
 export type PromptComposerFile = File;
 
 export interface PromptComposerSubmitOptions {
+  references?: Reference[];
   intent?: ComposerSubmitIntent;
   steer?: boolean;
   /** Clear the submitted draft once the host owns the message and its failure recovery. */
@@ -93,6 +112,10 @@ export interface PromptComposerSubmitOptions {
   contextItems?: ComposerContextSnapshot;
   /** Mode instructions; hosts append these after preparing provider-owned context. */
   composerModeContext?: string;
+  /** Id `onSubmitStart` returned, so the sent message can be matched to its placeholder. */
+  submissionId?: string;
+  /** Set when `/plan` asked for this one message to be a read-only plan turn. */
+  requestMode?: "plan";
 }
 
 export interface PromptComposerProps {
@@ -100,6 +123,11 @@ export interface PromptComposerProps {
   onRemoveContextItem?: (key: string) => void;
   onInspectContextItem?: (key: string) => void;
   onRetryContextItem?: (key: string) => void;
+  /**
+   * Claims a paste as app context before the composer handles it. Return true
+   * when the paste was taken, so nothing is inserted or attached.
+   */
+  onPasteContext?: (clipboard: DataTransfer) => boolean;
   /** When provided, + opens this shared Add menu; a typed @ also suggests its context sources. */
   contextMenuItems?: readonly ComposerContextMenuItem[];
   /** Called when the user submits the composer. */
@@ -116,6 +144,11 @@ export interface PromptComposerProps {
     draft?: ComposerDraftSnapshot,
   ) => boolean | Promise<boolean>;
   onSubmissionPendingChange?: (pending: boolean) => void;
+  /**
+   * Called synchronously when a submit takes its draft, before any preflight
+   * awaits. Return a handle to show an optimistic message until it settles.
+   */
+  onSubmitStart?: TiptapComposerProps["onSubmitStart"];
   /** Scope where a failed submission should be recovered after the host forks. */
   getSubmitFailureDraftScope?: () => string | null;
   /** Handle file paste/drop errors in the host chat surface. */
@@ -123,6 +156,10 @@ export interface PromptComposerProps {
   /** Delegate app-scaffolding prompts to the enclosing Builder chat. */
   interceptBuildRequestsForBuilder?: boolean;
   placeholder?: string;
+  /** Placeholder once the thread has messages; see TiptapComposer. */
+  replyPlaceholder?: string;
+  /** The thread already has messages, so the composer reads as a reply. */
+  conversationStarted?: boolean;
   /** Accessible name forwarded to the rich text editor. */
   ariaLabel?: string;
   disabled?: boolean;
@@ -133,14 +170,29 @@ export interface PromptComposerProps {
   requireAgentEngine?: boolean;
   /** Hide the local setup card when the host shows the same card beside the composer. */
   showMissingApiKeySetup?: boolean;
+  /**
+   * The host shows a provider setup card beside this composer, so the model
+   * control hides instead of repeating its connect choices. Defaults to
+   * whether this composer shows its own setup card.
+   */
+  setupCardVisible?: boolean;
+  /**
+   * Reports whether the loaded model list offers only connect paths, so a
+   * host that owns the setup card can show it before readiness answers.
+   */
+  onModelConnectionRequiredChange?: (required: boolean) => void;
   /** Disable only the send control while the submission is being accepted. */
   sendButtonDisabled?: boolean;
   /** Prevent submission while preserving editor focus and draft entry. */
   submitting?: boolean;
   /** Present the primary action as queueing instead of immediate send. */
   willQueue?: boolean;
+  /** See `TiptapComposerProps.queuesBehindSubmission`. */
+  queuesBehindSubmission?: boolean;
   /** Called when a host-gated composer is clicked while it is disabled. */
   onDisabledClick?: () => void;
+  /** Called when the composer is clicked while the host shows its setup card. */
+  onSetupCardClick?: () => void;
   /** Override the generic document attachment cap for a multipart host. */
   maxDocumentAttachmentBytes?: number;
   /** Label used in the visible document attachment limit error. */
@@ -164,6 +216,10 @@ export interface PromptComposerProps {
   showAutoModelOption?: boolean;
   /** Show the voice dictation button. Defaults to DEFAULT_VOICE_DICTATION_ENABLED. */
   voiceEnabled?: boolean;
+  /** Let an empty draft turn Send into the voice-chat button (default: true). Dictation is unaffected. */
+  voiceChatEnabled?: boolean;
+  /** Starts voice chat from the empty Send slot in place of the provider's default start. */
+  onVoiceChatStart?: () => void;
   /** Show file upload controls and pass submitted files to onSubmit (default: true). */
   attachmentsEnabled?: boolean;
   /** Opens host-owned storage setup when the user chooses an upload action. */
@@ -186,23 +242,34 @@ export interface PromptComposerProps {
    */
   extensionTools?: boolean;
   /** Programmatically seed the composer with plain text. */
-  initialText?: string;
+  initialText?: string | undefined;
   /** Stable key used to re-apply `initialText` when the host picks a preset. */
-  initialTextKey?: string | number;
+  initialTextKey?: string | number | undefined;
+  /** Let an explicit host handoff replace a saved draft. */
+  initialTextOverridesSavedDraft?: boolean;
+  /** Skip onTextChange notifications caused only by initial draft setup. */
+  suppressInitialTextChange?: boolean;
   /** Chips placed into `initialText`, as the composer handle's `setText` takes them. */
   initialReferences?: readonly ComposerTextReference[];
   /** Optional host-owned control rendered directly after the "+" button. */
   modeControl?: ReactNode;
-  /** Current agent execution mode shown in the shared composer toolbar. */
-  execMode?: "build" | "plan";
-  /** Called when the user switches between acting and read-only planning. */
-  onExecModeChange?: (mode: "build" | "plan") => void;
-  /** Disable Plan mode while leaving Act mode available. */
-  planModeDisabled?: boolean;
-  /** Explanation shown next to the disabled Plan option. */
-  planModeDisabledReason?: string;
+  /**
+   * Offer `/plan`, which sends only the next message as a read-only plan turn
+   * through `requestMode` in the submit options. Opt in only when `onSubmit`
+   * honors `requestMode`.
+   */
+  planCommand?: boolean;
   /** Explicit host-owned toolbar slot rendered directly after the "+" button. */
   toolbarSlot?: ReactNode;
+  /** Context usage control rendered just before the model chip. */
+  contextUsageSlot?: ReactNode;
+  /** Host-owned row rendered inside the frame, above the editor. */
+  headerSlot?: ReactNode;
+  /**
+   * Show the surrounding ComposerNoticeScope's notices above this input. Only
+   * the chat's main composer sets it.
+   */
+  noticeOutlet?: boolean;
   /** Custom attachment button to render instead of the default "+" affordance. */
   attachButton?: ReactNode;
   /** Custom action button to render instead of the default send button. */
@@ -254,6 +321,8 @@ export interface PromptComposerProps {
   includeDefaultMentionSearch?: boolean;
   onReferencesChange?: (references: Reference[]) => void;
   onEscape?: () => void;
+  /** ArrowUp in an empty composer; return true when the last message was recalled. */
+  onRecallLastMessage?: () => boolean;
   onFocus?: () => void;
   onBlur?: () => void;
   onSelectionChange?: (selection: ComposerTextSelection) => void;
@@ -319,9 +388,20 @@ class BinaryDocumentAttachmentAdapter implements AttachmentAdapter {
 }
 
 class RasterImageAttachmentAdapter extends SimpleImageAttachmentAdapter {
-  public accept = IMAGE_ATTACHMENT_ACCEPT;
+  public override accept = IMAGE_ATTACHMENT_ACCEPT;
+  private readonly translate: ComposerTranslate;
 
-  public async add(state: { file: File }): Promise<PendingAttachment> {
+  constructor(translate: ComposerTranslate) {
+    super();
+    this.translate = translate;
+  }
+
+  public override async add(state: { file: File }): Promise<PendingAttachment> {
+    const limitError = await getUnshrinkableImageError(
+      state.file,
+      this.translate,
+    );
+    if (limitError) throw new Error(limitError);
     return { ...(await super.add(state)), id: crypto.randomUUID() };
   }
 }
@@ -329,12 +409,14 @@ class RasterImageAttachmentAdapter extends SimpleImageAttachmentAdapter {
 // SVGs never match the raster adapter, so agent chat stages them as reference
 // documents rather than images a model would try to read as pixels.
 class ChatDocumentAttachmentAdapter extends BinaryDocumentAttachmentAdapter {
-  public accept = CHAT_DOCUMENT_ATTACHMENT_ACCEPT;
+  public override accept = CHAT_DOCUMENT_ATTACHMENT_ACCEPT;
 }
 
-export function createChatAttachmentAdapter(): AttachmentAdapter {
+export function createChatAttachmentAdapter(
+  translate: ComposerTranslate = fallbackTranslate,
+): AttachmentAdapter {
   return new CompositeAttachmentAdapter([
-    new RasterImageAttachmentAdapter(),
+    new RasterImageAttachmentAdapter(translate),
     new ChatDocumentAttachmentAdapter(),
     new TextAttachmentAdapter(),
   ]);
@@ -452,132 +534,206 @@ export async function buildPromptComposerSubmission(options: {
   };
 }
 
-function getImageSrc(attachment: Attachment): string | null {
+function getAttachmentImageFile(attachment: Attachment): File | null {
   if (attachment.type !== "image") return null;
-  if ("file" in attachment && attachment.file) {
-    return URL.createObjectURL(attachment.file);
-  }
+  return "file" in attachment && attachment.file ? attachment.file : null;
+}
+
+function getAttachmentContentImageSrc(attachment: Attachment): string | null {
+  if (attachment.type !== "image") return null;
   const imagePart = attachment.content?.find((part) => part.type === "image");
   return imagePart && "image" in imagePart ? imagePart.image : null;
+}
+
+/**
+ * The object URL is created and revoked by the same effect run. Creating it
+ * during render and revoking it in a cleanup breaks under StrictMode, which
+ * runs the cleanup once and leaves the image pointing at a revoked URL.
+ */
+function useAttachmentImageSrc(attachment: Attachment): string | null {
+  const file = getAttachmentImageFile(attachment);
+  const [blobSrc, setBlobSrc] = useState<string | null>(null);
+  useEffect(() => {
+    if (!file) {
+      setBlobSrc(null);
+      return;
+    }
+    const url = URL.createObjectURL(file);
+    setBlobSrc(url);
+    return () => URL.revokeObjectURL(url);
+  }, [file]);
+  return file ? blobSrc : getAttachmentContentImageSrc(attachment);
 }
 
 function ImagePreviewLightbox({
   src,
   alt,
-  onClose,
+  children,
 }: {
-  src: string;
+  src: string | null;
   alt: string;
-  onClose: () => void;
+  children: ReactNode;
 }) {
   const t = useComposerRuntimeAdapters().translate!;
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    document.addEventListener("keydown", handler);
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.removeEventListener("keydown", handler);
-      document.body.style.overflow = "";
-    };
-  }, [onClose]);
-
   return (
-    <div
-      role="dialog"
-      aria-label={t("agentChat.composer.imagePreview", {
-        defaultValue: "Image preview",
-      })}
-      onClick={onClose}
-      className="fixed inset-0 z-[300] flex items-center justify-center bg-black/80 p-6 cursor-zoom-out"
-    >
-      <img
-        src={src}
-        alt={alt}
-        onClick={(e) => e.stopPropagation()}
-        className="max-h-full max-w-full object-contain rounded-md shadow-2xl cursor-default"
-      />
-      <button
-        type="button"
-        onClick={onClose}
-        aria-label={t("agentChat.composer.closePreview", {
-          defaultValue: "Close preview",
-        })}
-        className="absolute end-4 top-4 flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border border-white/30 bg-black/40 text-white hover:bg-black/60"
+    <Dialog>
+      {/* The trigger is what the dialog hands focus back to on close. */}
+      <DialogTrigger asChild disabled={!src}>
+        {children}
+      </DialogTrigger>
+      <DialogContent
+        hideClose
+        aria-describedby={undefined}
+        className="min-h-24 w-auto min-w-24 max-w-[calc(100vw-3rem)] place-items-center gap-0 overflow-hidden p-0"
       >
-        <IconX className="h-4 w-4" />
-      </button>
-    </div>
+        <DialogTitle className="sr-only">
+          {t("agentChat.composer.imagePreview", {
+            defaultValue: "Image preview",
+          })}
+        </DialogTitle>
+        {src ? (
+          <img
+            src={src}
+            alt={alt}
+            className="max-h-[calc(100vh-6rem)] max-w-full object-contain"
+          />
+        ) : null}
+        <DialogClose asChild>
+          <Button
+            type="button"
+            variant="secondary"
+            size="icon-xs"
+            aria-label={t("agentChat.composer.closePreview", {
+              defaultValue: "Close preview",
+            })}
+            className="absolute end-2 top-2 [&_svg]:size-4"
+          >
+            <IconX aria-hidden="true" />
+          </Button>
+        </DialogClose>
+      </DialogContent>
+    </Dialog>
   );
 }
 
-function AttachmentChip({
+function useAttachmentReadError(
+  attachment: Attachment,
+): AgentPromptAttachmentReadError | null {
+  const file = "file" in attachment ? attachment.file : undefined;
+  const [readError, setReadError] =
+    useState<AgentPromptAttachmentReadError | null>(null);
+  useEffect(() => {
+    setReadError(null);
+    if (!file) return;
+    let active = true;
+    void probeAgentPromptAttachment(file).then((error) => {
+      if (active) setReadError(error);
+    });
+    return () => {
+      active = false;
+    };
+  }, [file]);
+  return readError;
+}
+
+/** @internal exported for unit tests only */
+export function AttachmentChip({
   attachment,
   onRemove,
 }: {
   attachment: Attachment;
   onRemove: (id: string) => void;
 }) {
-  const src = useMemo(() => getImageSrc(attachment), [attachment]);
-  const [previewOpen, setPreviewOpen] = useState(false);
+  const src = useAttachmentImageSrc(attachment);
+  const isImage =
+    getAttachmentImageFile(attachment) !== null ||
+    getAttachmentContentImageSrc(attachment) !== null;
+  const readError = useAttachmentReadError(attachment);
   const t = useComposerRuntimeAdapters().translate!;
-  useEffect(
-    () => () => {
-      if (src?.startsWith("blob:")) URL.revokeObjectURL(src);
-    },
-    [src],
-  );
+
+  if (readError) {
+    const message =
+      readError === "too-large"
+        ? t("agentChat.composer.attachmentTooLarge", {
+            defaultValue: "File is over 8 MB",
+          })
+        : readError === "not-utf8"
+          ? t("agentChat.composer.attachmentNotUtf8", {
+              defaultValue: "File isn't UTF-8 text",
+            })
+          : t("agentChat.composer.attachmentReadFailed", {
+              defaultValue: "Couldn't read this file",
+            });
+    return (
+      <div
+        role="status"
+        title={message}
+        className="agent-composer-attachment-chip group relative inline-flex max-w-[240px] items-center gap-2 rounded-[var(--agent-kit-radius-sm,0.5rem)] border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-xs"
+      >
+        <IconAlertTriangle className="h-4 w-4 shrink-0 text-amber-500" />
+        <span className="flex min-w-0 flex-col">
+          <span className="truncate font-medium">{attachment.name}</span>
+          <span className="truncate text-muted-foreground">{message}</span>
+        </span>
+        <button
+          type="button"
+          onClick={() => onRemove(attachment.id)}
+          aria-label={t("agentChat.composer.removeAttachment", {
+            name: attachment.name,
+            defaultValue: `Remove ${attachment.name}`,
+          })}
+          className="relative flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded-[var(--agent-kit-radius-xs,0.25rem)] text-muted-foreground hover:text-foreground after:absolute after:-inset-0.5 after:content-['']"
+        >
+          <IconX className="h-3 w-3" />
+        </button>
+      </div>
+    );
+  }
 
   if (isPastedTextAttachmentName(attachment.name)) {
     return <PastedTextChip attachment={attachment} onRemove={onRemove} />;
   }
 
-  if (src) {
+  if (isImage) {
     return (
-      <>
-        <div className="relative inline-flex">
+      <div className="relative inline-flex">
+        <ImagePreviewLightbox src={src} alt={attachment.name}>
           <button
             type="button"
-            onClick={() => setPreviewOpen(true)}
             aria-label={t("agentChat.composer.previewAttachment", {
               name: attachment.name,
               defaultValue: `Preview ${attachment.name}`,
             })}
-            className="agent-composer-attachment-image group flex h-16 min-w-16 max-w-28 cursor-zoom-in items-center justify-center overflow-hidden rounded-lg border border-border/70 bg-muted/50"
+            className="agent-composer-attachment-image group flex h-16 min-w-16 max-w-28 cursor-zoom-in items-center justify-center overflow-hidden rounded-[var(--agent-kit-radius-sm,0.5rem)] border border-border bg-muted/50"
           >
-            <img
-              src={src}
-              alt={attachment.name}
-              className="max-h-full max-w-full object-contain p-1"
-            />
+            {src ? (
+              <img
+                src={src}
+                alt={attachment.name}
+                className="max-h-full max-w-full object-contain p-1"
+              />
+            ) : null}
           </button>
-          <button
-            type="button"
-            onClick={() => onRemove(attachment.id)}
-            aria-label={t("agentChat.composer.removeAttachment", {
-              name: attachment.name,
-              defaultValue: `Remove ${attachment.name}`,
-            })}
-            className="absolute end-1 top-1 flex h-5 w-5 cursor-pointer items-center justify-center rounded-full border border-border/60 bg-background/90 text-muted-foreground hover:text-foreground"
-          >
-            <IconX className="h-3 w-3" />
-          </button>
-        </div>
-        {previewOpen ? (
-          <ImagePreviewLightbox
-            src={src}
-            alt={attachment.name}
-            onClose={() => setPreviewOpen(false)}
-          />
-        ) : null}
-      </>
+        </ImagePreviewLightbox>
+        <button
+          type="button"
+          onClick={() => onRemove(attachment.id)}
+          aria-label={t("agentChat.composer.removeAttachment", {
+            name: attachment.name,
+            defaultValue: `Remove ${attachment.name}`,
+          })}
+          data-agent-composer-slot="attachment-remove"
+          className="absolute end-1 top-1 flex h-5 w-5 cursor-pointer items-center justify-center rounded-[var(--agent-kit-radius-xs,0.25rem)] border border-border bg-background/90 text-muted-foreground hover:text-foreground after:absolute after:-inset-0.5 after:content-['']"
+        >
+          <IconX className="h-3 w-3" />
+        </button>
+      </div>
     );
   }
 
   return (
-    <div className="agent-composer-attachment-chip group relative inline-flex max-w-[200px] items-center gap-2 rounded-md border border-border/70 bg-muted/50 px-2 py-1.5 text-xs">
-      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-background text-[9px] font-semibold uppercase text-muted-foreground">
+    <div className="agent-composer-attachment-chip group relative inline-flex max-w-[200px] items-center gap-2 rounded-[var(--agent-kit-radius-sm,0.5rem)] border border-border bg-muted/50 px-2 py-1.5 text-xs">
+      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[var(--agent-kit-radius-xs,0.25rem)] bg-background agent-kit-micro-copy font-semibold uppercase text-muted-foreground">
         {attachment.name.split(".").pop() ||
           t("agentChat.composer.file", { defaultValue: "file" })}
       </div>
@@ -589,7 +745,8 @@ function AttachmentChip({
           name: attachment.name,
           defaultValue: `Remove ${attachment.name}`,
         })}
-        className="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground hover:text-foreground"
+        data-agent-composer-slot="attachment-remove"
+        className="relative flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded-[var(--agent-kit-radius-xs,0.25rem)] text-muted-foreground hover:text-foreground after:absolute after:-inset-0.5 after:content-['']"
       >
         <IconX className="h-3 w-3" />
       </button>
@@ -597,20 +754,33 @@ function AttachmentChip({
   );
 }
 
-function PromptAttachmentStrip() {
-  const attachments = useComposer((state) => state.attachments);
+const NO_HIDDEN_ATTACHMENTS: readonly string[] = [];
+
+function PromptAttachmentStrip({
+  hiddenIds = NO_HIDDEN_ATTACHMENTS,
+  onRemoved,
+}: {
+  hiddenIds?: readonly string[];
+  /** Runs after a chip is removed, so focus has somewhere to land. */
+  onRemoved?: () => void;
+}) {
+  const allAttachments = useComposer((state) => state.attachments);
+  const attachments = hiddenIds.length
+    ? allAttachments.filter((attachment) => !hiddenIds.includes(attachment.id))
+    : allAttachments;
   const aui = useAui();
 
   const handleRemove = useCallback(
     (id: string) => {
       void aui.composer().attachment({ id }).remove();
+      onRemoved?.();
     },
-    [aui],
+    [aui, onRemoved],
   );
 
   if (attachments.length === 0) return null;
   return (
-    <div className="agent-composer-attachment-strip max-h-24 overflow-y-auto overscroll-contain flex flex-wrap gap-2 px-2 pt-2">
+    <div className="agent-composer-attachment-strip max-h-24 overflow-y-auto overscroll-contain flex flex-wrap gap-2 px-[var(--agentkit-composer-inset,0.75rem)] pt-2">
       {attachments.map((attachment) => (
         <AttachmentChip
           key={attachment.id}
@@ -629,17 +799,24 @@ function PromptComposerInner({
   onRemoveContextItem,
   onInspectContextItem,
   onRetryContextItem,
+  onPasteContext,
   contextMenuItems,
   placeholder,
+  replyPlaceholder,
+  conversationStarted,
   ariaLabel,
   disabled,
   isReferenceTarget,
   submissionDisabled,
   showMissingApiKeySetup = true,
+  setupCardVisible: hostSetupCardVisible,
+  onModelConnectionRequiredChange,
   sendButtonDisabled,
   submitting,
   willQueue = false,
+  queuesBehindSubmission,
   onDisabledClick,
+  onSetupCardClick,
   maxDocumentAttachmentBytes,
   documentAttachmentLimitLabel,
   autoFocus,
@@ -654,6 +831,8 @@ function PromptComposerInner({
   modelSelectorOpen,
   showAutoModelOption = true,
   voiceEnabled = DEFAULT_VOICE_DICTATION_ENABLED,
+  voiceChatEnabled = true,
+  onVoiceChatStart,
   attachmentsEnabled = true,
   onAttachmentRequest,
   contextButtonTooltipDisabled = false,
@@ -663,14 +842,16 @@ function PromptComposerInner({
   extensionTools = false,
   initialText,
   initialTextKey,
+  initialTextOverridesSavedDraft = false,
+  suppressInitialTextChange = false,
   initialReferences,
   modeControl,
   requireAgentEngine = false,
-  execMode,
-  onExecModeChange,
-  planModeDisabled,
-  planModeDisabledReason,
+  planCommand,
   toolbarSlot,
+  contextUsageSlot,
+  headerSlot,
+  noticeOutlet,
   attachButton,
   actionButton,
   extraActionButton,
@@ -702,6 +883,7 @@ function PromptComposerInner({
   includeDefaultMentionSearch,
   onReferencesChange,
   onEscape,
+  onRecallLastMessage,
   onFocus,
   onBlur,
   onSelectionChange,
@@ -713,6 +895,7 @@ function PromptComposerInner({
   composerRef,
   onBeforeSubmit,
   onSubmissionPendingChange,
+  onSubmitStart,
   getSubmitFailureDraftScope,
   onAttachmentError,
   interceptBuildRequestsForBuilder,
@@ -797,8 +980,7 @@ function PromptComposerInner({
     : undefined;
   const composerModelListLoading =
     showModelSelector &&
-    (modelListLoading ??
-      (availableModels ? availableModels.length === 0 : models.isLoading));
+    (modelListLoading ?? (availableModels ? false : models.isLoading));
   const handleModelChange = showModelSelector
     ? (onModelChange ?? models.onModelChange)
     : undefined;
@@ -814,7 +996,21 @@ function PromptComposerInner({
   const engineState = engineStatusChecksEnabled
     ? agentEngineConfigured.state
     : "configured";
-  const missingApiKey = engineStatusChecksEnabled && engineState === "missing";
+  const [modelListNeedsConnection, setModelListNeedsConnection] =
+    useState(false);
+  const handleModelConnectionRequiredChange = useCallback(
+    (required: boolean) => {
+      setModelListNeedsConnection(required);
+      onModelConnectionRequiredChange?.(required);
+    },
+    [onModelConnectionRequiredChange],
+  );
+  // The model list knows nothing is connected well before the readiness
+  // check answers; an answer of "configured" still wins.
+  const missingApiKey =
+    engineStatusChecksEnabled &&
+    (engineState === "missing" ||
+      (engineState !== "configured" && modelListNeedsConnection));
   const [setupBouncePulse, setSetupBouncePulse] = useState(0);
   const [providerCheckPending, setProviderCheckPending] = useState(false);
   const heldProviderDraftRef = useRef<ComposerDraftSnapshot | null>(null);
@@ -825,11 +1021,23 @@ function PromptComposerInner({
     }
   }, []);
   const engineSubmissionBlocked = shouldGateComposerForEngine(engineState);
-  const composerDisabled = Boolean(disabled || missingApiKey);
+  const ownSetupCardVisible = Boolean(
+    missingApiKey && showMissingApiKeySetup && BuilderSetupCard,
+  );
+  const setupCardVisible = hostSetupCardVisible ?? ownSetupCardVisible;
+  // With nothing connected the prompt is closed to typing and a click on it
+  // points at the setup card; without a card on screen it stays open, since a
+  // closed prompt with nothing to explain it is a dead end.
+  const composerDisabled = Boolean(
+    disabled || (missingApiKey && setupCardVisible),
+  );
   const handleDisabledComposerClick = useCallback(() => {
-    if (missingApiKey) setSetupBouncePulse((pulse) => pulse + 1);
-    onDisabledClick?.();
-  }, [missingApiKey, onDisabledClick]);
+    if (setupCardVisible) {
+      setSetupBouncePulse((pulse) => pulse + 1);
+      onSetupCardClick?.();
+    }
+    if (composerDisabled) onDisabledClick?.();
+  }, [composerDisabled, setupCardVisible, onDisabledClick, onSetupCardClick]);
   const validateEngineBeforeSubmit = useCallback(async () => {
     if (!engineStatusChecksEnabled) return "configured" as const;
     try {
@@ -855,9 +1063,13 @@ function PromptComposerInner({
       try {
         const state = await validateEngineBeforeSubmit();
         if (state !== "configured") {
-          if (state === "missing" && draft) {
-            heldProviderDraftRef.current = draft;
-            setHeldProviderDraftRevision((revision) => revision + 1);
+          if (state === "missing") {
+            if (draft) {
+              heldProviderDraftRef.current = draft;
+              setHeldProviderDraftRevision((revision) => revision + 1);
+            }
+            setSetupBouncePulse((pulse) => pulse + 1);
+            onDisabledClick?.();
           }
           return false;
         }
@@ -867,7 +1079,7 @@ function PromptComposerInner({
         setProviderCheckPending(false);
       }
     },
-    [onBeforeSubmit, validateEngineBeforeSubmit],
+    [onBeforeSubmit, onDisabledClick, validateEngineBeforeSubmit],
   );
   useEffect(() => {
     const held = heldProviderDraftRef.current;
@@ -880,16 +1092,25 @@ function PromptComposerInner({
     }
   }, [engineState, heldProviderDraftRevision]);
   const useInlineMissingKeySetup = layoutVariant === "compact";
+  const [optimisticAttachmentIds, setOptimisticAttachmentIds] = useState<
+    readonly string[]
+  >(NO_HIDDEN_ATTACHMENTS);
+  const [engineNoticeDismissed, setEngineNoticeDismissed] = useState(false);
+  useEffect(() => {
+    if (engineState !== "unavailable") setEngineNoticeDismissed(false);
+  }, [engineState]);
   const retryEngineStatus = useCallback(() => {
     if (typeof window !== "undefined") {
       window.dispatchEvent(new Event("agent-engine:configured-changed"));
     }
   }, []);
+  const focusComposer = useCallback(() => localRef.current?.focus(), []);
+  const firstRunOwnsSurface = useFirstRunOnboardingGateOwnsSurface();
   useEffect(() => {
-    if (!autoFocus || composerDisabled) return;
+    if (!autoFocus || composerDisabled || firstRunOwnsSurface) return;
     const id = window.setTimeout(() => localRef.current?.focus(), 50);
     return () => window.clearTimeout(id);
-  }, [autoFocus, composerDisabled]);
+  }, [autoFocus, composerDisabled, firstRunOwnsSurface]);
 
   const handleSubmit = useCallback(
     async (
@@ -910,9 +1131,13 @@ function PromptComposerInner({
         inlineTextAttachments,
       });
       await onSubmit(finalText, files, references, {
+        references,
         intent: submitOptions?.intent ?? "immediate",
         ...(submitOptions?.steer ? { steer: true } : {}),
         onLocalSubmit: submitOptions?.onLocalSubmit,
+        ...(submitOptions?.submissionId
+          ? { submissionId: submitOptions.submissionId }
+          : {}),
         model: composerModel,
         engine: composerEngine,
         effort: composerEffort,
@@ -923,6 +1148,9 @@ function PromptComposerInner({
         ...(submitOptions?.contextItems === undefined
           ? {}
           : { contextItems: submitOptions.contextItems }),
+        ...(submitOptions?.requestMode
+          ? { requestMode: submitOptions.requestMode }
+          : {}),
       });
     },
     [
@@ -936,7 +1164,7 @@ function PromptComposerInner({
 
   return (
     <>
-      {missingApiKey && showMissingApiKeySetup && BuilderSetupCard ? (
+      {ownSetupCardVisible && BuilderSetupCard ? (
         <BuilderSetupCard
           onConnected={handleBuilderConnected}
           bouncePulse={setupBouncePulse}
@@ -945,40 +1173,59 @@ function PromptComposerInner({
           layout={useInlineMissingKeySetup ? "sidebar" : "default"}
         />
       ) : null}
-      {engineState === "unavailable" ? (
-        <div
-          className="mb-2 flex items-center justify-between gap-3 rounded-md border border-border bg-muted/50 px-3 py-2 text-sm text-muted-foreground"
-          role="status"
-        >
-          <span>{t("agentChat.setup.providerStatusUnavailable")}</span>
-          <button
-            type="button"
-            className="shrink-0 font-medium text-foreground underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            onClick={retryEngineStatus}
-          >
-            {t("agentChat.common.retry")}
-          </button>
-        </div>
-      ) : null}
       <AgentComposerFrame
         className={cn(
           "text-start",
-          composerDisabled && "agent-composer-area--attached-above",
+          setupCardVisible && "agent-composer-setup-gated",
+          (composerDisabled ||
+            (engineStatusChecksEnabled && engineState === "missing") ||
+            (missingApiKey && setupCardVisible)) &&
+            "agent-composer-area--attached-above",
           className,
         )}
         rootClassName={rootClassName}
         style={style}
         rootStyle={rootStyle}
         layoutVariant={layoutVariant}
-        onClick={composerDisabled ? handleDisabledComposerClick : undefined}
+        noticeOutlet={noticeOutlet}
+        onClickCapture={
+          setupCardVisible || composerDisabled
+            ? handleDisabledComposerClick
+            : undefined
+        }
       >
-        <PromptAttachmentStrip />
+        {engineState === "unavailable" &&
+        !setupCardVisible &&
+        !engineNoticeDismissed ? (
+          <ComposerNotice
+            noticeId="provider-status-unavailable"
+            actions={
+              <Button
+                type="button"
+                variant="outline"
+                size="xs"
+                onClick={retryEngineStatus}
+              >
+                {t("agentChat.common.retry")}
+              </Button>
+            }
+            onDismiss={() => setEngineNoticeDismissed(true)}
+            dismissLabel={t("agentChat.common.dismiss")}
+          >
+            {t("agentChat.setup.providerStatusUnavailable")}
+          </ComposerNotice>
+        ) : null}
+        <PromptAttachmentStrip
+          hiddenIds={optimisticAttachmentIds}
+          onRemoved={focusComposer}
+        />
         <TiptapComposer
           contextItems={contextItems}
           contextMenuItems={contextMenuItems}
           onRemoveContextItem={onRemoveContextItem}
           onInspectContextItem={onInspectContextItem}
           onRetryContextItem={onRetryContextItem}
+          onPasteContext={onPasteContext}
           attachmentsEnabled={attachmentsEnabled}
           onAttachmentRequest={onAttachmentRequest}
           contextButtonTooltipDisabled={contextButtonTooltipDisabled}
@@ -987,21 +1234,28 @@ function PromptComposerInner({
           disabled={composerDisabled}
           isReferenceTarget={isReferenceTarget}
           contextControlsDisabled={engineSubmissionBlocked}
-          submissionDisabled={submissionDisabled || engineSubmissionBlocked}
+          submissionDisabled={submissionDisabled}
           sendButtonDisabled={sendButtonDisabled || providerCheckPending}
           sendButtonBusy={submitting || providerCheckPending}
           submitting={submitting}
           willQueue={willQueue}
+          queuesBehindSubmission={queuesBehindSubmission}
           maxDocumentAttachmentBytes={maxDocumentAttachmentBytes}
           documentAttachmentLimitLabel={documentAttachmentLimitLabel}
           placeholder={placeholder}
+          replyPlaceholder={replyPlaceholder}
+          conversationStarted={conversationStarted}
           initialText={initialText}
           initialTextKey={initialTextKey}
+          initialTextOverridesSavedDraft={initialTextOverridesSavedDraft}
+          suppressInitialTextChange={suppressInitialTextChange}
           initialReferences={initialReferences}
           onSubmit={handleSubmit}
           onEmptySubmit={onEmptySubmit}
           onBeforeSubmit={beforeSubmit}
           onSubmissionPendingChange={onSubmissionPendingChange}
+          onSubmitStart={onSubmitStart}
+          onOptimisticAttachmentsChange={setOptimisticAttachmentIds}
           getSubmitFailureDraftScope={getSubmitFailureDraftScope}
           onAttachmentError={onAttachmentError}
           interceptBuildRequestsForBuilder={interceptBuildRequestsForBuilder}
@@ -1017,11 +1271,10 @@ function PromptComposerInner({
           extensionTools={extensionTools}
           attachButton={attachmentsEnabled ? attachButton : null}
           modeControl={modeControl}
-          execMode={execMode}
-          onExecModeChange={onExecModeChange}
-          planModeDisabled={planModeDisabled}
-          planModeDisabledReason={planModeDisabledReason}
+          planCommand={planCommand}
           toolbarSlot={toolbarSlot}
+          contextUsageSlot={contextUsageSlot}
+          headerSlot={headerSlot}
           actionButton={actionButton}
           extraActionButton={extraActionButton}
           stopButton={stopButton}
@@ -1032,6 +1285,8 @@ function PromptComposerInner({
           includeDefaultSlashSkills={includeDefaultSlashSkills}
           onSlashCommand={onSlashCommand}
           voiceEnabled={voiceEnabled}
+          voiceChatEnabled={voiceChatEnabled}
+          onVoiceChatStart={onVoiceChatStart}
           onTextChange={onTextChange}
           mentionItems={mentionItems}
           mentionItemsError={mentionItemsError}
@@ -1040,6 +1295,7 @@ function PromptComposerInner({
           includeDefaultMentionSearch={includeDefaultMentionSearch}
           onReferencesChange={onReferencesChange}
           onEscape={onEscape}
+          onRecallLastMessage={onRecallLastMessage}
           onFocus={onFocus}
           onBlur={onBlur}
           onSelectionChange={onSelectionChange}
@@ -1062,6 +1318,8 @@ function PromptComposerInner({
           onConnectProvider={onConnectProvider}
           onConnectLocalRuntime={onConnectLocalRuntime}
           imageModelMenu={imageModelMenu}
+          setupCardVisible={setupCardVisible}
+          onModelConnectionRequiredChange={handleModelConnectionRequiredChange}
         />
       </AgentComposerFrame>
     </>
@@ -1080,17 +1338,17 @@ function PromptComposerInner({
  * without needing the outer chat to be mounted.
  */
 function PromptComposerRuntime(props: PromptComposerProps) {
-  const StaleIndexBoundary =
-    useComposerRuntimeAdapters().agentChat!.StaleIndexBoundary!;
+  const adapters = useComposerRuntimeAdapters();
+  const StaleIndexBoundary = adapters.agentChat.StaleIndexBoundary;
   const attachmentAdapter = useMemo(
     () =>
       props.attachmentAdapter ??
       new CompositeAttachmentAdapter([
-        new RasterImageAttachmentAdapter(),
+        new RasterImageAttachmentAdapter(adapters.translate),
         new BinaryDocumentAttachmentAdapter(),
         new TextAttachmentAdapter(),
       ]),
-    [props.attachmentAdapter],
+    [props.attachmentAdapter, adapters.translate],
   );
   const runtime = useLocalRuntime(NOOP_ADAPTER, {
     adapters: { attachments: attachmentAdapter },

@@ -68,23 +68,28 @@ function parsedForm(content: string): string | null {
   }
 }
 
+function blockCounts(blocks: readonly string[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  for (const block of blocks) {
+    counts.set(block, (counts.get(block) ?? 0) + 1);
+  }
+  return counts;
+}
+
 function hasAmbiguousIdentity(
   base: readonly string[],
   candidate: readonly string[],
   current: readonly string[],
   changed: readonly number[],
 ): boolean {
-  for (const index of changed) {
-    const block = base[index];
-    if (
-      base.indexOf(block) !== base.lastIndexOf(block) ||
-      candidate.indexOf(block) !== candidate.lastIndexOf(block) ||
-      current.indexOf(block) !== current.lastIndexOf(block)
-    ) {
-      return true;
-    }
-  }
-  return false;
+  // Counted once: a long page can have tens of thousands of changed blocks.
+  const counts = [base, candidate, current].map(blockCounts);
+  const changedIndexes = new Set(changed);
+  return base.some(
+    (block, index) =>
+      changedIndexes.has(index) &&
+      counts.some((count) => (count.get(block) ?? 0) > 1),
+  );
 }
 
 type TextHunk = { from: number; to: number; insert: string };
@@ -518,6 +523,18 @@ function mergePlainParagraph(
   };
 }
 
+/** The blocks `after` changed from `before`; none when the structure changed. */
+export function changedBlocksBetween(before: string, after: string): number[] {
+  if (before === after) return [];
+  const base = nfmToDoc(before).content;
+  const candidate = nfmToDoc(after).content;
+  return base.length === candidate.length
+    ? base.flatMap((block, index) =>
+        stableBlock(block) !== stableBlock(candidate[index]) ? [index] : [],
+      )
+    : [];
+}
+
 export function mergeDocumentBodyIntents(args: {
   authoredBaseContent: string;
   authoredCandidateContent: string;
@@ -530,18 +547,13 @@ export function mergeDocumentBodyIntents(args: {
     args.currentRevision === args.incoming.authoredBaseRevision &&
     args.currentContent === args.authoredBaseContent
   ) {
-    const base = nfmToDoc(args.authoredBaseContent).content;
-    const candidate = nfmToDoc(args.authoredCandidateContent).content;
-    const changedBlockIndexes =
-      base.length === candidate.length
-        ? base.flatMap((block, index) =>
-            stableBlock(block) !== stableBlock(candidate[index]) ? [index] : [],
-          )
-        : [];
     return {
       status: "resolved",
       content: args.authoredCandidateContent,
-      changedBlockIndexes,
+      changedBlockIndexes: changedBlocksBetween(
+        args.authoredBaseContent,
+        args.authoredCandidateContent,
+      ),
       displaced: false,
     };
   }
@@ -554,6 +566,28 @@ export function mergeDocumentBodyIntents(args: {
   const candidate = parseStableBlocks(args.authoredCandidateContent);
   const current = parseStableBlocks(args.currentContent);
   if (baseContent === null || !base || !candidate || !current) {
+    // A current body stored as an agent's blank-line Markdown can't lend its
+    // blocks to a merge, but when it already holds the candidate's changes,
+    // such as a suggestion accepted while the editor saved the same text, it
+    // stays as stored with nothing lost.
+    const currentForm = current ? null : parsedForm(args.currentContent);
+    if (
+      base &&
+      candidate &&
+      currentForm !== null &&
+      bodyHoldsChanges(
+        args.authoredBaseContent,
+        currentForm,
+        args.authoredCandidateContent,
+      )
+    ) {
+      return {
+        status: "resolved",
+        content: args.currentContent,
+        changedBlockIndexes: [],
+        displaced: false,
+      };
+    }
     return { status: "preservation-required", reason: "structure" };
   }
   const baseKeys = base.map(stableBlock);

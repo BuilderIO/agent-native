@@ -125,10 +125,12 @@ export default defineAction({
   http: { method: "GET" },
   run: async (args) => {
     const catalogProviders = listWorkspaceConnectionProviders({
-      capability: args.capability as WorkspaceConnectionCapability | undefined,
-      templateUse: args.templateUse as
-        | WorkspaceConnectionTemplateUse
-        | undefined,
+      ...(args.capability === undefined
+        ? {}
+        : { capability: args.capability as WorkspaceConnectionCapability }),
+      ...(args.templateUse === undefined
+        ? {}
+        : { templateUse: args.templateUse as WorkspaceConnectionTemplateUse }),
     });
     let googleOAuthAvailability: GoogleOAuthAvailability;
     try {
@@ -148,8 +150,8 @@ export default defineAction({
         (googleOAuthConfigured || !isGoogleWorkspaceOAuthProvider(provider.id)),
     );
     const allConnections = await listWorkspaceConnectionsForUser({
-      provider: args.provider,
-      appId: args.appId,
+      ...(args.provider === undefined ? {} : { provider: args.provider }),
+      ...(args.appId === undefined ? {} : { appId: args.appId }),
       includeDisabled: args.includeDisabled,
     });
     const connections = allConnections.filter(
@@ -158,8 +160,8 @@ export default defineAction({
         !isGoogleWorkspaceOAuthProvider(connection.provider),
     );
     const allExplicitGrants = await listWorkspaceConnectionGrants({
-      provider: args.provider,
-      appId: args.appId,
+      ...(args.provider === undefined ? {} : { provider: args.provider }),
+      ...(args.appId === undefined ? {} : { appId: args.appId }),
     });
     const visibleConnectionIds = new Set(
       connections.map((connection) => connection.id),
@@ -256,7 +258,7 @@ export default defineAction({
           provider,
           connections,
           grants: explicitGrants,
-          appId: args.appId,
+          ...(args.appId === undefined ? {} : { appId: args.appId }),
           includeConnections: "all",
         }),
         rawProviderApi: providerApi

@@ -44,6 +44,7 @@ import {
   mapAcceptedSelectionNode,
   projectAcceptedSource,
 } from "./selection-publication";
+import { textCommitSelectionMovedOn } from "./text-content-change";
 
 export interface ScreenTextContentChangeArgs {
   activeFile: DesignFile;
@@ -317,8 +318,23 @@ export function runScreenTextContentChange(
         nextNodeCandidate,
       )
     : nextNodeCandidate;
-  if (nextNode) setSelectedLayerIdsState([nextNode.id]);
+  const followsSelection = !finalizedCreation.isCreationCommit;
+  if (nextNode) {
+    const nextLayerId = nextNode.id;
+    setSelectedLayerIdsState((current) =>
+      followsSelection &&
+      textCommitSelectionMovedOn(projection, targetNode, { layerIds: current })
+        ? current
+        : [nextLayerId],
+    );
+  }
   setSelectedElement((previous) => {
+    if (
+      followsSelection &&
+      textCommitSelectionMovedOn(projection, targetNode, { element: previous })
+    ) {
+      return previous;
+    }
     const base =
       elementInfo ?? (previous?.selector === selector ? previous : undefined);
     return base

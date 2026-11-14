@@ -64,6 +64,7 @@ import {
   ensureBuilderProject,
   findBuilderProjectForRepo,
   getBuilderBranchProjectId,
+  getBuilderWorkspaceUrl,
   getBuilderCliAuthCallbackOriginForEvent,
   getBuilderBrowserConnectUrl,
   getBuilderBrowserConnectUrlForOwner,
@@ -83,7 +84,9 @@ import {
   resolveBuilderConnectCallbackState,
   resolveBuilderPreviewRelayParentOrigin,
   resolveBuilderPreviewRelayTargetOrigin,
+  registerBuilderBranchProject,
   resolveBuilderBranchProjectId,
+  resolveBuilderHandoffProjectId,
   runBuilderAgent,
   removeBuilderConnectStateCookie,
   provisionBuilderAccount,
@@ -214,6 +217,53 @@ describe("Builder account provisioning", () => {
     });
   });
 
+  it("signs the new-account-only mode without downgrading when older servers reject it", async () => {
+    const secret = "test-builder-sso-secret-with-at-least-32-chars";
+    vi.stubEnv(BUILDER_ACCOUNT_PROVISIONING_SECRET_ENV, secret);
+    const fetchSpy = vi.fn(
+      async () =>
+        new Response(
+          JSON.stringify({ message: "Invalid Agent-Native account request." }),
+          { status: 401 },
+        ),
+    );
+    vi.stubGlobal("fetch", fetchSpy);
+    await expect(
+      provisionBuilderAccount({
+        email: "owner@example.com",
+        name: "Owner",
+        agentNativeApp: "design",
+        agentNativeTemplate: "design",
+        newAccountOnly: true,
+      }),
+    ).rejects.toThrow();
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const init = fetchSpy.mock.calls[0]?.[1] as RequestInit;
+    const headers = init.headers as Record<string, string>;
+    expect(headers["x-agent-native-account-version"]).toBe(
+      "agent-native-account-v3",
+    );
+    expect(headers["x-agent-native-account-signature"]).toBe(
+      createHmac("sha256", secret)
+        .update(
+          [
+            "agent-native-account-v3",
+            headers["x-agent-native-account-timestamp"],
+            headers["x-agent-native-account-request-id"],
+            "owner@example.com",
+            "Owner",
+            "design",
+            "design",
+            "new-account-only",
+          ].join("\n"),
+        )
+        .digest("base64url"),
+    );
+    expect(JSON.parse(String(init.body))).toMatchObject({
+      newAccountOnly: true,
+    });
+  });
+
   it("only advertises account provisioning for a valid deploy secret", () => {
     expect(isBuilderAccountProvisioningEnabled()).toBe(false);
 
@@ -253,6 +303,95 @@ describe("Builder account provisioning", () => {
       message: "An account already exists for this email.",
       code: "account_incomplete",
     });
+  });
+
+  it("redacts compound secrets and full Basic authorization values in diagnostics", async () => {
+    vi.stubEnv(
+      BUILDER_ACCOUNT_PROVISIONING_SECRET_ENV,
+      "test-builder-sso-secret-with-at-least-32-chars",
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(
+            JSON.stringify({
+              code: "upstream_failure",
+              message: "sessionToken=private-session-value",
+              detail:
+                "webhookSecret: private-webhook-value; signing_secret=private-signing-value, accessKey: private access key value, sessionKey=private session key value, signingKey: private signing key value, jwt: private jwt payload",
+              error: "Authorization: Basic private-basic-credential",
+            }),
+            { status: 502, headers: { "Content-Type": "application/json" } },
+          ),
+      ),
+    );
+
+    let provisioningError: unknown;
+    try {
+      await provisionBuilderAccount({ email: "owner@example.com" });
+    } catch (error) {
+      provisioningError = error;
+    }
+
+    expect(provisioningError).toMatchObject({ upstreamStatus: 502 });
+    const diagnostic = (provisioningError as BuilderAccountProvisioningError)
+      .upstreamErrorBody;
+    expect(diagnostic).toContain('"message":"sessionToken=[redacted]"');
+    expect(diagnostic).toContain("webhookSecret: [redacted]");
+    expect(diagnostic).toContain("signing_secret=[redacted]");
+    expect(diagnostic).toContain("Authorization: [redacted]");
+    expect(diagnostic).toContain("accessKey: [redacted]");
+    expect(diagnostic).toContain("sessionKey=[redacted]");
+    expect(diagnostic).toContain("signingKey: [redacted]");
+    expect(diagnostic).toContain("jwt: [redacted]");
+    expect(diagnostic).not.toContain("private-session-value");
+    expect(diagnostic).not.toContain("private-webhook-value");
+    expect(diagnostic).not.toContain("private-signing-value");
+    expect(diagnostic).not.toContain("private-basic-credential");
+    expect(diagnostic).not.toContain("private access key value");
+    expect(diagnostic).not.toContain("private session key value");
+    expect(diagnostic).not.toContain("private signing key value");
+    expect(diagnostic).not.toContain("private jwt payload");
+  });
+
+  it("redacts bare tokens inside multiply escaped upstream diagnostics", async () => {
+    vi.stubEnv(
+      BUILDER_ACCOUNT_PROVISIONING_SECRET_ENV,
+      "test-builder-sso-secret-with-at-least-32-chars",
+    );
+    const githubToken = `ghp_${"G".repeat(36)}`;
+    const jwt = [
+      "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9",
+      "eyJ1c2VySWQiOiIxMjM0NTY3ODkwIn0",
+      "signature-segment-value-1234567890",
+    ].join(".");
+    const nestedMessage = JSON.stringify(
+      JSON.stringify({ detail: `${githubToken} ${jwt}` }),
+    );
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        async () =>
+          new Response(JSON.stringify({ message: nestedMessage }), {
+            status: 502,
+            headers: { "Content-Type": "application/json" },
+          }),
+      ),
+    );
+
+    let provisioningError: unknown;
+    try {
+      await provisionBuilderAccount({ email: "owner@example.com" });
+    } catch (error) {
+      provisioningError = error;
+    }
+
+    const diagnostic = (provisioningError as BuilderAccountProvisioningError)
+      .upstreamErrorBody;
+    expect(diagnostic).toContain("[redacted-token]");
+    expect(diagnostic).not.toContain(githubToken);
+    expect(diagnostic).not.toContain(jwt);
   });
 
   it("classifies existing-account errors across runtime boundaries", () => {
@@ -1562,6 +1701,51 @@ describe("Builder callback CSRF state", () => {
       expect(resolverMocks.resolveSecret).not.toHaveBeenCalled();
     });
 
+    describe("host-bound project", () => {
+      afterEach(() => registerBuilderBranchProject(null));
+
+      it("takes the project the host names over Dispatch and env settings", async () => {
+        resolverMocks.getRequestOrgId.mockReturnValue("org-123");
+        resolverMocks.getSetting.mockResolvedValue({
+          builderProjectId: "dispatch-project",
+        });
+        process.env.BUILDER_BRANCH_PROJECT_ID = "env-project";
+        registerBuilderBranchProject(async () => " host-project ");
+
+        await expect(resolveBuilderHandoffProjectId()).resolves.toBe(
+          "host-project",
+        );
+        expect(resolverMocks.getSetting).not.toHaveBeenCalled();
+      });
+
+      it("leaves the deployment's project for everything but the handoff", async () => {
+        process.env.BUILDER_BRANCH_PROJECT_ID = "env-project";
+        registerBuilderBranchProject(async () => "host-project");
+
+        await expect(resolveBuilderBranchProjectId()).resolves.toBe(
+          "env-project",
+        );
+      });
+
+      it("falls back to the usual lookups when the host names none", async () => {
+        process.env.BUILDER_BRANCH_PROJECT_ID = "env-project";
+        registerBuilderBranchProject(() => undefined);
+
+        await expect(resolveBuilderHandoffProjectId()).resolves.toBe(
+          "env-project",
+        );
+      });
+
+      it("fails closed when the host cannot name a project", async () => {
+        process.env.BUILDER_BRANCH_PROJECT_ID = "env-project";
+        registerBuilderBranchProject(async () => {
+          throw new Error("no access");
+        });
+
+        await expect(resolveBuilderHandoffProjectId()).resolves.toBe("");
+      });
+    });
+
     it("keeps legacy fallbacks when no scoped Dispatch row exists", async () => {
       resolverMocks.getRequestOrgId.mockReturnValue("org-123");
       resolverMocks.resolveSecret.mockImplementation(async (key: string) =>
@@ -2255,5 +2439,19 @@ describe("Builder callback CSRF state", () => {
         name: "Agent-Native Workspace",
       });
     });
+  });
+});
+
+describe("getBuilderWorkspaceUrl", () => {
+  it("links a Builder-linked workspace to its page in Builder", () => {
+    vi.stubEnv("BUILDER_APP_HOST", "https://builder.io/");
+    expect(
+      getBuilderWorkspaceUrl({ BUILDER_WORKSPACE_PROJECT_ID: " ws 1 " }),
+    ).toBe("https://builder.io/app/workspaces/ws%201");
+    vi.unstubAllEnvs();
+  });
+
+  it("is null when the workspace is not linked to Builder", () => {
+    expect(getBuilderWorkspaceUrl({})).toBeNull();
   });
 });

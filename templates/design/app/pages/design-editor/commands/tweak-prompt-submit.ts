@@ -17,7 +17,7 @@ import {
 import type { DesignData, DesignFile } from "@/pages/design-editor/types";
 
 export interface TweakPromptSubmitArgs {
-  activeFile: DesignFile;
+  activeFile: DesignFile | undefined;
   canEditDesign: boolean;
   design: DesignData | null;
   handleTweakPromptOpenChange: (open: boolean) => void;

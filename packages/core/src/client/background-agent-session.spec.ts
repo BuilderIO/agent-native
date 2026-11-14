@@ -21,6 +21,7 @@ vi.mock("./api-path.js", () => ({
 import {
   cancelBackgroundAgentSession,
   getBackgroundAgentSessionStatus,
+  retryAgentRunThreadProjection,
   startBackgroundAgentSession,
 } from "./background-agent-session.js";
 
@@ -227,6 +228,42 @@ describe("background agent sessions", () => {
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
       "/_agent-native/agent-chat/runs/turn/operation-4/abort",
     ]);
+  });
+
+  it("retries quarantined run projection through the shared route", async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockResolvedValueOnce(
+      Response.json({ ok: true, state: "projected" }),
+    );
+
+    await expect(retryAgentRunThreadProjection("run / 5")).resolves.toEqual({
+      state: "projected",
+    });
+
+    expect(fetchMock.mock.calls).toEqual([
+      [
+        "/_agent-native/agent-chat/runs/run%20%2F%205/retry-projection",
+        { method: "POST", credentials: "same-origin" },
+      ],
+    ]);
+  });
+
+  it("preserves the response error when projection data remains unreadable", async () => {
+    vi.mocked(fetch).mockResolvedValueOnce(
+      Response.json(
+        {
+          ok: false,
+          error: "Projection source remains unreadable",
+          threadProjectionErrorCode: "tool_call_journal_unreadable",
+        },
+        { status: 422 },
+      ),
+    );
+
+    await expect(retryAgentRunThreadProjection("run-6")).rejects.toMatchObject({
+      status: 422,
+      message: expect.stringContaining("Projection source remains unreadable"),
+    });
   });
 
   it("cancels a newly created thread without waiting for route acceptance", async () => {

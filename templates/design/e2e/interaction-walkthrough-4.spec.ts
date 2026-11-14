@@ -211,10 +211,9 @@ test("a Shift-drawn board square dragged into the screen lands centred on the re
   const { style: _screenStyle, ...screenAttrs } = moved!.attrs;
   expect(
     screenAttrs,
-    "a cross-file move marks the layer as a style-preserving clone root",
+    "a cross-file move marks the layer as style-preserving",
   ).toEqual({
     ...boardAttrs,
-    "data-agent-native-clone-root": "true",
     "data-agent-native-preserve-styles": "true",
   });
   const landed = styleOf(moved);

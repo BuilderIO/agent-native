@@ -93,6 +93,9 @@ interface LinkedComponentSaveGates {
 export interface LinkedComponentMutationQueueArgs {
   designId: string;
   fileIds: () => string[];
+  prepareSources?: (fileIds: string[]) => Promise<() => void>;
+  canProject?: (fileIds: string[]) => boolean;
+  sourceSetChangedMessage: string;
   getContent: (fileId: string) => string;
   getSourceBaseContent: (fileId: string) => string;
   projectEdit?: (
@@ -600,22 +603,49 @@ export function createLinkedComponentMutationQueue(
       throw new Error(
         "No HTML source files are available for this linked component.",
       );
-    await args.waitForHostWrites(fileIds);
-    args.flushPendingSaves();
-    await Promise.all(
-      fileIds.map((fileId) => args.fileSaveChainsRef.current[fileId]),
-    );
-    if (fileIds.some(args.hasPendingSave)) {
+    let releaseSources: (() => void) | undefined;
+    try {
+      const currentFileIds = [...new Set(args.fileIds())].sort();
+      if (
+        currentFileIds.length !== fileIds.length ||
+        currentFileIds.some((id, index) => id !== fileIds[index])
+      ) {
+        throw new Error(args.sourceSetChangedMessage);
+      }
+      await args.waitForHostWrites(fileIds);
       args.flushPendingSaves();
       await Promise.all(
         fileIds.map((fileId) => args.fileSaveChainsRef.current[fileId]),
       );
-    }
-    const gates = acquireSaveGates(fileIds, args.fileSaveChainsRef);
-    try {
-      return createBatch(args, fileIds, gates);
+      if (fileIds.some(args.hasPendingSave)) {
+        args.flushPendingSaves();
+        await Promise.all(
+          fileIds.map((fileId) => args.fileSaveChainsRef.current[fileId]),
+        );
+      }
+      releaseSources = await args.prepareSources?.(fileIds);
+      const preparedFileIds = [...new Set(args.fileIds())].sort();
+      if (
+        preparedFileIds.length !== fileIds.length ||
+        preparedFileIds.some((id, index) => id !== fileIds[index])
+      ) {
+        throw new Error(args.sourceSetChangedMessage);
+      }
+      const gates = acquireSaveGates(fileIds, args.fileSaveChainsRef);
+      try {
+        const result = createBatch(args, fileIds, gates);
+        const releaseGates = gates.release;
+        gates.release = () => {
+          releaseGates();
+          releaseSources?.();
+        };
+        return result;
+      } catch (error) {
+        gates.release();
+        throw error;
+      }
     } catch (error) {
-      gates.release();
+      releaseSources?.();
       throw error;
     }
   };
@@ -828,7 +858,7 @@ export function createLinkedComponentMutationQueue(
       const selectionAtEnqueue = selectionBefore ?? args.getCurrentSelection();
       const fileIds = [...new Set(args.fileIds())].sort();
       const projected =
-        unprojected > 0
+        unprojected > 0 || args.canProject?.(fileIds) === false
           ? null
           : args.projectEdit?.(
               fileId,
@@ -977,13 +1007,6 @@ export function createLinkedComponentMutationQueue(
           request.onApplied,
         ),
       );
-    },
-    deferHistoryChange: (run: () => void): boolean => {
-      if (barriers === 0) return false;
-      void schedule(async () => run()).catch((error) =>
-        args.reportFailure(String(error)),
-      );
-      return true;
     },
     dispatchHistory: (run: () => void): void | Promise<void> => {
       if (queued === 0 && !failure) {

@@ -165,7 +165,10 @@ async function registerUser(
 async function shareAsEditor(page: Page, planId: string, email: string) {
   // Sharing outside the organization needs approval, which over HTTP only the
   // signed-in app UI gives: a frontend call holding the UI capability.
-  await page.request.get("/_agent-native/ui-capability");
+  const origin = new URL(test.info().project.use.baseURL ?? page.url()).origin;
+  await page.request.get("/_agent-native/ui-capability", {
+    headers: { Origin: origin },
+  });
   const res = await page.request.post("/_agent-native/actions/share-resource", {
     data: {
       resourceType: "plan",
@@ -174,7 +177,7 @@ async function shareAsEditor(page: Page, planId: string, email: string) {
       principalId: email,
       role: "editor",
     },
-    headers: { "X-Agent-Native-Frontend": "1" },
+    headers: { "X-Agent-Native-Frontend": "1", Origin: origin },
   });
   expect(res.ok(), `share-resource: ${await res.text()}`).toBeTruthy();
 }
@@ -329,6 +332,13 @@ test("concurrent edits to different blocks both reach SQL and survive reload", a
   }
 });
 
+// Typing together in one block is what the live document is for, so saves that
+// race there never ask anyone anything.
+async function expectNoPrompt(pair: Pair) {
+  await expect(pair.pageA.getByRole("alertdialog")).toHaveCount(0);
+  await expect(pair.pageB.getByRole("alertdialog")).toHaveCount(0);
+}
+
 test("concurrent edits to the same block keep both users' text", async ({
   browser,
 }) => {
@@ -343,6 +353,7 @@ test("concurrent edits to the same block keep both users' text", async ({
       typeAtEndOf(pageB, "Alpha block seed.", tokenB),
     ]);
     await expectEveryViewHas(pair, [tokenA.trim(), tokenB.trim()]);
+    await expectNoPrompt(pair);
   } finally {
     await closePair(pair);
   }
@@ -428,6 +439,694 @@ test("an edit another writer saves to a different block while someone types is k
       }),
     ]);
     await expectEveryViewHas(pair, [typed.trim(), saved]);
+  } finally {
+    await closePair(pair);
+  }
+});
+
+// Types in a block while a write that doesn't go through the live document, as an
+// agent's doesn't, changes the same block, so the prompt comes up.
+async function overlapOnFirstBlock(
+  page: Page,
+  planId: string,
+  {
+    mine = ` MINE${Date.now() % 100000}`,
+    theirs = `THEIRS${Date.now() % 100000}`,
+  }: { mine?: string; theirs?: string } = {},
+) {
+  const seed = "Alpha block seed.";
+  const otherWrite = page.request.post(
+    "/_agent-native/actions/update-visual-plan",
+    {
+      data: {
+        planId,
+        contentPatches: [
+          {
+            op: "update-rich-text",
+            blockId: TWO_BLOCKS[0].id,
+            markdown: `${seed} ${theirs}`,
+          },
+        ],
+      },
+    },
+  );
+  await Promise.all([
+    typeAtEndOf(page, seed, mine),
+    otherWrite.then(async (res) => {
+      expect(res.ok(), `update-rich-text: ${await res.text()}`).toBeTruthy();
+    }),
+  ]);
+  const prompt = page.getByRole("alertdialog");
+  await expect(prompt).toContainText("Someone else changed this too", {
+    timeout: 20_000,
+  });
+  return { mine: mine.trim(), theirs, prompt };
+}
+
+async function expectPersisted(
+  page: Page,
+  planId: string,
+  { has, lacks }: { has: string; lacks: string },
+) {
+  await expect
+    .poll(() => persistedText(page, planId), { timeout: 20_000 })
+    .toContain(has);
+  // The editor must not bring the version given up back with a later save.
+  await page.waitForTimeout(2_500); // e2e-harness-ignore: it's a save that never comes that this rules out
+  const text = await persistedText(page, planId);
+  expect(text).toContain(has);
+  expect(text).not.toContain(lacks);
+  await expect(surface(page)).toContainText(has);
+  await expect(surface(page)).not.toContainText(lacks);
+}
+
+test("choosing their version of a block both writers changed replaces mine, and stays", async ({
+  page,
+}) => {
+  const planId = await createPlan(page, TWO_BLOCKS);
+  await openEditable(page, planId, "Alpha block seed.");
+  const { mine, theirs, prompt } = await overlapOnFirstBlock(page, planId);
+  await prompt.getByRole("button", { name: "Use theirs" }).click();
+  await expectPersisted(page, planId, { has: theirs, lacks: mine });
+  await page.reload();
+  await expect(surface(page)).toContainText(theirs, { timeout: 25_000 });
+  await expect(surface(page)).not.toContainText(mine);
+});
+
+test("keeping my version of a block both writers changed saves it, and the other comes back on request", async ({
+  page,
+}) => {
+  const planId = await createPlan(page, TWO_BLOCKS);
+  await openEditable(page, planId, "Alpha block seed.");
+  const { mine, theirs, prompt } = await overlapOnFirstBlock(page, planId);
+  await prompt.getByRole("button", { name: "Keep mine" }).click();
+  await expectPersisted(page, planId, { has: mine, lacks: theirs });
+  await page
+    .getByRole("button", { name: "Get the other version back" })
+    .click();
+  await expectPersisted(page, planId, { has: theirs, lacks: mine });
+});
+
+async function expectSaved(page: Page) {
+  await expect(page.getByText("Couldn't save")).toHaveCount(0);
+}
+
+// The grip for a whole block shows at its edge. Further in, it's for the text
+// inside a callout.
+async function deleteBlockWithItsGrip(page: Page, blockId: string) {
+  const box = await surface(page)
+    .locator(`.plan-block-node[data-block-id="${blockId}"]`)
+    .boundingBox();
+  expect(box).not.toBeNull();
+  await page.mouse.move(box!.x + box!.width / 2, box!.y + 2);
+  await page.locator(".drag-handle:visible").click();
+  await page
+    .locator(".an-rich-md-drag-menu__item")
+    .filter({ hasText: /^Delete$/ })
+    .click();
+}
+
+test("emptying a text block saves, and so does what's typed after it", async ({
+  page,
+}) => {
+  const planId = await createPlan(page, TWO_BLOCKS);
+  await openEditable(page, planId, "Bravo block seed.");
+  await surface(page).getByText("Bravo block seed.").click({ clickCount: 3 });
+  await page.keyboard.press("Backspace");
+  await expect
+    .poll(
+      async () =>
+        (await persistedBlocks(page, planId)).map((block) => block.id),
+      { timeout: 20_000 },
+    )
+    .toEqual([ALPHA, "divider"]);
+  await expectSaved(page);
+
+  const after = ` AFTER${Date.now() % 100000}`;
+  await typeAtEndOf(page, "Alpha block seed.", after);
+  await expect
+    .poll(() => persistedText(page, planId), { timeout: 20_000 })
+    .toContain(after.trim());
+  await expectSaved(page);
+});
+
+test("deleting a block saves, and it stays deleted after a reload", async ({
+  page,
+}) => {
+  const planId = await createPlan(page, TWO_BLOCKS);
+  await openEditable(page, planId, "Separator callout.");
+  await deleteBlockWithItsGrip(page, "divider");
+  await expect(surface(page)).not.toContainText("Separator callout.");
+  await expect
+    .poll(
+      async () =>
+        (await persistedBlocks(page, planId)).map((block) => block.id),
+      { timeout: 20_000 },
+    )
+    .not.toContain("divider");
+  await expect(surface(page)).not.toContainText("Separator callout.");
+  await expectSaved(page);
+  await page.reload();
+  await expect(surface(page)).toContainText("Alpha block seed.", {
+    timeout: 25_000,
+  });
+  await expect(surface(page)).not.toContainText("Separator callout.");
+});
+
+test("undoing a deletion after it saved brings the block back with its content, and that saves", async ({
+  page,
+}) => {
+  const planId = await createPlan(page, TWO_BLOCKS);
+  await openEditable(page, planId, "Separator callout.");
+  const deletionSaved = page.waitForResponse(
+    (res) => res.url().includes("update-visual-plan") && res.ok(),
+    { timeout: 30_000 },
+  );
+  await deleteBlockWithItsGrip(page, "divider");
+  await deletionSaved;
+  await expect
+    .poll(
+      async () =>
+        (await persistedBlocks(page, planId)).map((block) => block.id),
+      { timeout: 20_000 },
+    )
+    .not.toContain("divider");
+  // The save's revision reaches the editor just after its response.
+  await page.waitForTimeout(500);
+
+  await surface(page).getByText("Alpha block seed.").click();
+  await page.keyboard.press("ControlOrMeta+z");
+  await expect(surface(page)).toContainText("Separator callout.");
+  await expect
+    .poll(
+      async () =>
+        (await persistedBlocks(page, planId)).find(
+          (block) => block.id === "divider",
+        )?.markdown,
+      { timeout: 20_000 },
+    )
+    .toBe("Separator callout.");
+  await expectSaved(page);
+  await page.reload();
+  await expect(surface(page)).toContainText("Separator callout.", {
+    timeout: 25_000,
+  });
+});
+
+// Plans can hold text blocks in a row, as an agent can write them. The document
+// fuses them, so the first save carries one block in place of the two.
+const TEXT_BLOCKS_IN_A_ROW: SeedBlock[] = [
+  { id: ALPHA, markdown: "Alpha block seed." },
+  { id: BRAVO, markdown: "Bravo block seed." },
+];
+
+test("typing in a plan with text blocks in a row saves, keeping all the text", async ({
+  page,
+}) => {
+  const planId = await createPlan(page, TEXT_BLOCKS_IN_A_ROW);
+  await openEditable(page, planId, "Bravo block seed.");
+  const typed = ` TYPED${Date.now() % 100000}`;
+  await typeAtEndOf(page, "Alpha block seed.", typed);
+  await expect
+    .poll(() => persistedText(page, planId), { timeout: 20_000 })
+    .toContain(typed.trim());
+  const text = await persistedText(page, planId);
+  expect(text).toContain("Alpha block seed.");
+  expect(text).toContain("Bravo block seed.");
+  await expectSaved(page);
+});
+
+test("keeping mine in a plan with text blocks in a row saves it, and keeps it in the editor", async ({
+  page,
+}) => {
+  const planId = await createPlan(page, TEXT_BLOCKS_IN_A_ROW);
+  await openEditable(page, planId, "Bravo block seed.");
+  const { mine, theirs, prompt } = await overlapOnFirstBlock(page, planId);
+  await prompt.getByRole("button", { name: "Keep mine" }).click();
+  await expectPersisted(page, planId, { has: mine, lacks: theirs });
+  expect(await persistedText(page, planId)).toContain("Bravo block seed.");
+  await expectSaved(page);
+});
+
+test("deleting a block someone else just changed asks, and either answer saves", async ({
+  page,
+}) => {
+  const planId = await createPlan(page, TWO_BLOCKS);
+  await openEditable(page, planId, "Separator callout.");
+  // This tab hasn't heard about the other write when the block goes.
+  const refetches = "**/_agent-native/actions/get-visual-plan*";
+  await page.route(refetches, (route) => route.abort());
+  const theirs = `THEIRS${Date.now() % 100000}`;
+  const res = await page.request.post(
+    "/_agent-native/actions/update-visual-plan",
+    {
+      data: {
+        planId,
+        contentPatches: [
+          {
+            op: "update-block",
+            blockId: "divider",
+            patch: { data: { tone: "info", body: `Callout ${theirs}` } },
+          },
+        ],
+      },
+    },
+  );
+  expect(res.ok(), `update-block: ${await res.text()}`).toBeTruthy();
+  await deleteBlockWithItsGrip(page, "divider");
+
+  const prompt = page.getByRole("alertdialog");
+  await expect(prompt).toContainText("Someone else changed this too", {
+    timeout: 20_000,
+  });
+  await page.unroute(refetches);
+  await prompt.getByRole("button", { name: "Keep mine" }).click();
+  await expect
+    .poll(
+      async () =>
+        (await persistedBlocks(page, planId)).map((block) => block.id),
+      { timeout: 20_000 },
+    )
+    .not.toContain("divider");
+  await expectSaved(page);
+
+  await page
+    .getByRole("button", { name: "Get the other version back" })
+    .click();
+  await expect
+    .poll(() => persistedText(page, planId), { timeout: 20_000 })
+    .toContain(theirs);
+  await expectSaved(page);
+});
+
+test("deleting what a merged save brought in stays deleted", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const planId = await createPlan(page, TWO_BLOCKS);
+  await openEditable(page, planId, "Alpha block seed.");
+  const stamp = Date.now() % 100000;
+  const mine = `MINE${stamp}`;
+  const theirs = `THEIRS${stamp}`;
+  let heldSaves = 0;
+  let releaseMySave = () => {};
+  const mySaveReleased = new Promise<void>((resolve) => {
+    releaseMySave = resolve;
+  });
+  // My save waits for the other write, so it merges with what that brought in.
+  await page.route(
+    "**/_agent-native/actions/update-visual-plan",
+    async (route) => {
+      heldSaves += 1;
+      await mySaveReleased;
+      await route.continue().catch(() => {});
+    },
+  );
+  await typeAtEndOf(page, "Alpha block seed.", ` ${mine}`);
+  await expect.poll(() => heldSaves, { timeout: 20_000 }).toBeGreaterThan(0);
+  const otherWrite = await page.request.post(
+    "/_agent-native/actions/update-visual-plan",
+    {
+      data: {
+        planId,
+        contentPatches: [
+          {
+            op: "update-rich-text",
+            blockId: BRAVO,
+            markdown: `Bravo block seed. ${theirs}`,
+          },
+        ],
+      },
+    },
+  );
+  expect(otherWrite.ok(), await otherWrite.text()).toBeTruthy();
+  releaseMySave();
+  await expect
+    .poll(() => persistedText(page, planId), { timeout: 20_000 })
+    .toContain(mine);
+  await expect(surface(page)).toContainText(theirs, { timeout: 20_000 });
+  await page.waitForTimeout(2_000); // e2e-harness-ignore: nothing marks the document taking the merged save in
+  await surface(page).getByText(theirs).click();
+  await page.keyboard.press("End");
+  for (let i = 0; i <= theirs.length; i += 1) {
+    await page.keyboard.press("Backspace");
+  }
+  await expectPersisted(page, planId, { has: mine, lacks: theirs });
+});
+
+test("typing over what a merged save brought in asks instead of overwriting it", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const planId = await createPlan(page, TWO_BLOCKS);
+  await openEditable(page, planId, "Alpha block seed.");
+  const stamp = Date.now() % 100000;
+  const mine = `MINE${stamp}`;
+  const theirs = `THEIRS${stamp}`;
+  const more = `MORE${stamp}`;
+  let releaseReads = () => {};
+  const readsReleased = new Promise<void>((resolve) => {
+    releaseReads = resolve;
+  });
+  let heldSaves = 0;
+  let releaseSaves = () => {};
+  const savesReleased = new Promise<void>((resolve) => {
+    releaseSaves = resolve;
+  });
+  // The document can't see the other write until my save has merged with it.
+  await page.route(`**${GET_ACTION}*`, async (route) => {
+    const response = await route.fetch();
+    await readsReleased;
+    await route.fulfill({ response }).catch(() => {});
+  });
+  await page.route(
+    "**/_agent-native/actions/update-visual-plan",
+    async (route) => {
+      heldSaves += 1;
+      await savesReleased;
+      await route.continue().catch(() => {});
+    },
+  );
+  await typeAtEndOf(page, "Alpha block seed.", ` ${mine}`);
+  await expect.poll(() => heldSaves, { timeout: 20_000 }).toBeGreaterThan(0);
+  const otherWrite = await page.request.post(
+    "/_agent-native/actions/update-visual-plan",
+    {
+      data: {
+        planId,
+        contentPatches: [
+          {
+            op: "update-rich-text",
+            blockId: BRAVO,
+            markdown: `Bravo block seed. ${theirs}`,
+          },
+        ],
+      },
+    },
+  );
+  expect(otherWrite.ok(), await otherWrite.text()).toBeTruthy();
+  await typeAtEndOf(page, "Bravo block seed.", ` ${more}`);
+  releaseSaves();
+  const prompt = page.getByRole("alertdialog");
+  await expect(prompt).toContainText("Someone else changed this too", {
+    timeout: 20_000,
+  });
+  releaseReads();
+  await prompt.getByRole("button", { name: "Use theirs" }).click();
+  await expectPersisted(page, planId, { has: theirs, lacks: more });
+  expect(await persistedText(page, planId)).toContain(mine);
+});
+
+test("saving twice more before the document has what a merged save brought in keeps it", async ({
+  page,
+}) => {
+  test.setTimeout(120_000);
+  const planId = await createPlan(page, TWO_BLOCKS);
+  await openEditable(page, planId, "Alpha block seed.");
+  const stamp = Date.now() % 100000;
+  const mine = `MINE${stamp}`;
+  const theirs = `THEIRS${stamp}`;
+  const second = `SECOND${stamp}`;
+  const third = `THIRD${stamp}`;
+  let releaseReads = () => {};
+  const readsReleased = new Promise<void>((resolve) => {
+    releaseReads = resolve;
+  });
+  let heldSaves = 0;
+  let releaseSaves = () => {};
+  const savesReleased = new Promise<void>((resolve) => {
+    releaseSaves = resolve;
+  });
+  await page.evaluate(() => {
+    window.addEventListener("agent-native:write-failure", () => {
+      document.documentElement.dataset.writeFailed = "true";
+    });
+  });
+  // The document can't see the other write through any of these saves.
+  await page.route(`**${GET_ACTION}*`, async (route) => {
+    const response = await route.fetch();
+    await readsReleased;
+    await route.fulfill({ response }).catch(() => {});
+  });
+  await page.route(
+    "**/_agent-native/actions/update-visual-plan",
+    async (route) => {
+      heldSaves += 1;
+      await savesReleased;
+      await route.continue().catch(() => {});
+    },
+  );
+  await typeAtEndOf(page, "Alpha block seed.", ` ${mine}`);
+  await expect.poll(() => heldSaves, { timeout: 20_000 }).toBeGreaterThan(0);
+  const otherWrite = await page.request.post(
+    "/_agent-native/actions/update-visual-plan",
+    {
+      data: {
+        planId,
+        contentPatches: [
+          {
+            op: "update-rich-text",
+            blockId: BRAVO,
+            markdown: `Bravo block seed. ${theirs}`,
+          },
+        ],
+      },
+    },
+  );
+  expect(otherWrite.ok(), await otherWrite.text()).toBeTruthy();
+  releaseSaves();
+  await expect
+    .poll(() => persistedText(page, planId), { timeout: 20_000 })
+    .toContain(mine);
+  await typeAtEndOf(page, mine, ` ${second}`);
+  await expect
+    .poll(() => persistedText(page, planId), { timeout: 20_000 })
+    .toContain(second);
+  await typeAtEndOf(page, second, ` ${third}`);
+  await expect
+    .poll(() => persistedText(page, planId), { timeout: 20_000 })
+    .toContain(third);
+  expect(await persistedText(page, planId)).toContain(theirs);
+  // The first save's conflict merged by itself, so nothing reported a failure.
+  expect(
+    await page.evaluate(() => document.documentElement.dataset.writeFailed),
+  ).toBeUndefined();
+  releaseReads();
+  await expect(surface(page)).toContainText(theirs, { timeout: 20_000 });
+  await expect(surface(page)).toContainText(third);
+  // A read can still be on its way when the test ends.
+  await page.unrouteAll({ behavior: "ignoreErrors" });
+});
+
+test("the other version arriving just after I keep mine doesn't replace my choice", async ({
+  page,
+}) => {
+  const planId = await createPlan(page, TWO_BLOCKS);
+  await openEditable(page, planId, "Alpha block seed.");
+  let releaseReads = () => {};
+  const readsReleased = new Promise<void>((resolve) => {
+    releaseReads = resolve;
+  });
+  let releaseSaves = () => {};
+  const savesReleased = new Promise<void>((resolve) => {
+    releaseSaves = resolve;
+  });
+  let holdSaves = false;
+  // A read that left before the choice answers after it, with the other version.
+  await page.route(`**${GET_ACTION}*`, async (route) => {
+    const response = await route.fetch();
+    await readsReleased;
+    await route.fulfill({ response }).catch(() => {});
+  });
+  await page.route(
+    "**/_agent-native/actions/update-visual-plan",
+    async (route) => {
+      if (holdSaves) await savesReleased;
+      await route.continue().catch(() => {});
+    },
+  );
+  const { mine, theirs, prompt } = await overlapOnFirstBlock(page, planId);
+  holdSaves = true;
+  await prompt.getByRole("button", { name: "Keep mine" }).click();
+  await expect(prompt).toHaveCount(0);
+  releaseReads();
+  await page.waitForTimeout(3_000); // e2e-harness-ignore: nothing marks a read that changes nothing as taken in
+  await expect(surface(page)).toContainText(mine);
+  await expect(surface(page)).not.toContainText(theirs);
+  releaseSaves();
+  await expectPersisted(page, planId, { has: mine, lacks: theirs });
+});
+
+test("getting my version back after choosing theirs saves mine", async ({
+  page,
+}) => {
+  const planId = await createPlan(page, TWO_BLOCKS);
+  await openEditable(page, planId, "Alpha block seed.");
+  const { mine, theirs, prompt } = await overlapOnFirstBlock(page, planId);
+  await prompt.getByRole("button", { name: "Use theirs" }).click();
+  await expectPersisted(page, planId, { has: theirs, lacks: mine });
+  await page
+    .getByRole("button", { name: "Get the other version back" })
+    .click();
+  await expectPersisted(page, planId, { has: mine, lacks: theirs });
+});
+
+test("someone idle in the plan doesn't silence another writer's change to the same block", async ({
+  browser,
+}) => {
+  test.setTimeout(120_000);
+  let pair: Pair | undefined;
+  try {
+    pair = await openPair(browser, TWO_BLOCKS, "Bravo block seed.");
+    const { pageA, planId } = pair;
+    const { mine, theirs, prompt } = await overlapOnFirstBlock(pageA, planId);
+    await prompt.getByRole("button", { name: "Use theirs" }).click();
+    await expectPersisted(pageA, planId, { has: theirs, lacks: mine });
+  } finally {
+    await closePair(pair);
+  }
+});
+
+test("someone idle in the plan doesn't silence an edit that what I typed happens to contain", async ({
+  browser,
+}) => {
+  test.setTimeout(120_000);
+  let pair: Pair | undefined;
+  try {
+    pair = await openPair(browser, TWO_BLOCKS, "Bravo block seed.");
+    const { pageA, planId } = pair;
+    const stamp = Date.now() % 100000;
+    const { mine, theirs, prompt } = await overlapOnFirstBlock(pageA, planId, {
+      mine: ` notebook${stamp}`,
+      theirs: `note${stamp}`,
+    });
+    await prompt.getByRole("button", { name: "Use theirs" }).click();
+    await expectPersisted(pageA, planId, { has: theirs, lacks: mine });
+  } finally {
+    await closePair(pair);
+  }
+});
+
+test("someone typing in the plan doesn't silence another writer's change to the same block", async ({
+  browser,
+}) => {
+  test.setTimeout(120_000);
+  let pair: Pair | undefined;
+  try {
+    pair = await openPair(browser, TWO_BLOCKS, "Bravo block seed.");
+    const { pageA, pageB, planId } = pair;
+    const peer = `PEER${Date.now() % 100000}`;
+    await typeAtEndOf(pageB, "Bravo block seed.", ` ${peer}`);
+    await expect(surface(pageA)).toContainText(peer, { timeout: 20_000 });
+    const { mine, theirs, prompt } = await overlapOnFirstBlock(pageA, planId);
+    await prompt.getByRole("button", { name: "Use theirs" }).click();
+    await expectPersisted(pageA, planId, { has: theirs, lacks: mine });
+  } finally {
+    await closePair(pair);
+  }
+});
+
+test("typing in another block while someone answers a prompt is kept", async ({
+  browser,
+}) => {
+  test.setTimeout(120_000);
+  let pair: Pair | undefined;
+  try {
+    pair = await openPair(browser, TWO_BLOCKS, "Bravo block seed.");
+    const { pageA, pageB, planId } = pair;
+    const { mine, theirs, prompt } = await overlapOnFirstBlock(pageA, planId);
+    const peer = `PEER${Date.now() % 100000}`;
+    await typeAtEndOf(pageB, "Bravo block seed.", ` ${peer}`);
+    await expect(surface(pageA)).toContainText(peer, { timeout: 20_000 });
+    await prompt.getByRole("button", { name: "Use theirs" }).click();
+    await expect
+      .poll(
+        async () => {
+          const text = await persistedText(pageA, planId);
+          return [theirs, peer].filter((token) => text.includes(token));
+        },
+        { timeout: 30_000 },
+      )
+      .toEqual([theirs, peer]);
+    expect(await persistedText(pageA, planId)).not.toContain(mine);
+    await expect(surface(pageA)).toContainText(theirs);
+    await expect(surface(pageA)).toContainText(peer);
+    await expect(surface(pageA)).not.toContainText(mine);
+    await expect(surface(pageB)).toContainText(peer);
+  } finally {
+    await closePair(pair);
+  }
+});
+
+// Holds my save back until a collaborator's save of the same block has landed,
+// so mine is the one that overlaps, with their typing already in my document.
+async function collaboratorSavesFirst(pair: Pair) {
+  const { pageA, pageB, planId } = pair;
+  const stamp = Date.now() % 100000;
+  const mine = `MINE${stamp}`;
+  const peer = `PEER${stamp}`;
+  let heldSaves = 0;
+  let releaseMySave = () => {};
+  const mySaveReleased = new Promise<void>((resolve) => {
+    releaseMySave = resolve;
+  });
+  await pageA.route(
+    "**/_agent-native/actions/update-visual-plan",
+    async (route) => {
+      heldSaves += 1;
+      await mySaveReleased;
+      await route.continue().catch(() => {});
+    },
+  );
+  await typeAtEndOf(pageA, "Alpha block seed.", ` ${mine}`);
+  await expect.poll(() => heldSaves, { timeout: 20_000 }).toBeGreaterThan(0);
+  await expect(surface(pageB)).toContainText(mine, { timeout: 20_000 });
+  await typeAtEndOf(pageB, "Alpha block seed.", ` ${peer}`);
+  await expect(surface(pageA)).toContainText(peer, { timeout: 20_000 });
+  await expect
+    .poll(() => persistedText(pageB, planId), { timeout: 20_000 })
+    .toContain(peer);
+  return { mine, peer, releaseMySave };
+}
+
+test("a save that overlaps a collaborator's settles itself once the document has both", async ({
+  browser,
+}) => {
+  test.setTimeout(120_000);
+  let pair: Pair | undefined;
+  try {
+    pair = await openPair(browser, TWO_BLOCKS, "Bravo block seed.");
+    const { mine, peer, releaseMySave } = await collaboratorSavesFirst(pair);
+    const mySave = pair.pageA.waitForResponse(
+      (res) => res.url().includes("update-visual-plan") && res.ok(),
+      { timeout: 30_000 },
+    );
+    releaseMySave();
+    await mySave;
+    await expectNoPrompt(pair);
+    await expectEveryViewHas(pair, [mine, peer]);
+  } finally {
+    await closePair(pair);
+  }
+});
+
+test("a document that can't catch up asks about an overlap instead of settling it", async ({
+  browser,
+}) => {
+  test.setTimeout(120_000);
+  let pair: Pair | undefined;
+  try {
+    pair = await openPair(browser, TWO_BLOCKS, "Bravo block seed.");
+    const { pageA } = pair;
+    const { releaseMySave } = await collaboratorSavesFirst(pair);
+    await pageA.route("**/_agent-native/collab/**/state*", (route) =>
+      route.fulfill({ status: 503, body: "unavailable" }),
+    );
+    releaseMySave();
+    await expect(pageA.getByRole("alertdialog")).toContainText(
+      "Someone else changed this too",
+      { timeout: 20_000 },
+    );
   } finally {
     await closePair(pair);
   }

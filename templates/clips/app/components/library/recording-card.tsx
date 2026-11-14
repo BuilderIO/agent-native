@@ -12,12 +12,6 @@ import {
   IconUsersGroup,
   IconPhoto,
   IconPlayerPlay,
-  IconShare,
-  IconFolder,
-  IconFolderPlus,
-  IconArchive,
-  IconTrash,
-  IconCheck,
   IconAlertTriangle,
   IconExternalLink,
   IconRefresh,
@@ -86,9 +80,13 @@ const CONTEXT_FOLDER_PARTS: FolderMenuParts = {
 
 function formatDuration(ms: number): string {
   const totalSeconds = Math.max(0, Math.floor(ms / 1000));
-  const m = Math.floor(totalSeconds / 60);
+  const h = Math.floor(totalSeconds / 3600);
+  const m = Math.floor(totalSeconds / 60) % 60;
   const s = totalSeconds % 60;
-  return `${m}:${s.toString().padStart(2, "0")}`;
+  const seconds = s.toString().padStart(2, "0");
+  return h > 0
+    ? `${h}:${m.toString().padStart(2, "0")}:${seconds}`
+    : `${m}:${seconds}`;
 }
 
 function PrivacyIcon({
@@ -162,6 +160,7 @@ export function RecordingCard({
   const [recoveryCheckFailed, setRecoveryCheckFailed] = useState(false);
   const [isRetrying, setIsRetrying] = useState(false);
   const pendingTrashRef = useRef(false);
+  const pendingShareRef = useRef(false);
 
   const duration = useMemo(
     () => formatDuration(recording.effectiveDurationMs),
@@ -578,6 +577,12 @@ export function RecordingCard({
                     align="end"
                     onClick={(e) => e.stopPropagation()}
                     onCloseAutoFocus={(event) => {
+                      if (pendingShareRef.current) {
+                        event.preventDefault();
+                        pendingShareRef.current = false;
+                        setTimeout(() => onShare?.(recording), 0);
+                        return;
+                      }
                       if (!pendingTrashRef.current) return;
                       event.preventDefault();
                       pendingTrashRef.current = false;
@@ -585,15 +590,19 @@ export function RecordingCard({
                     }}
                   >
                     {onShare && (
-                      <DropdownMenuItem onSelect={() => onShare(recording)}>
-                        <IconShare className="h-4 w-4 me-2" />{" "}
+                      <DropdownMenuItem
+                        onSelect={(event) => {
+                          event.preventDefault();
+                          pendingShareRef.current = true;
+                          setMenuOpen(false);
+                        }}
+                      >
                         {t("recordingPage.share")}
                       </DropdownMenuItem>
                     )}
                     {canMove ? (
                       <DropdownMenuSub>
                         <DropdownMenuSubTrigger>
-                          <IconFolder className="h-4 w-4 me-2" />{" "}
                           {t("clipsFinalRaw.moveToFolder")}
                         </DropdownMenuSubTrigger>
                         <DropdownMenuSubContent className="w-64">
@@ -603,7 +612,6 @@ export function RecordingCard({
                               setTimeout(() => onCreateFolder?.(), 0);
                             }}
                           >
-                            <IconFolderPlus className="h-4 w-4 me-2" />
                             {t("navigation.newFolder")}
                           </DropdownMenuItem>
                           <DropdownMenuSeparator />
@@ -620,12 +628,10 @@ export function RecordingCard({
                     {onArchive &&
                       (recording.archivedAt ? (
                         <DropdownMenuItem onSelect={() => onArchive(recording)}>
-                          <IconCheck className="h-4 w-4 me-2" />{" "}
                           {t("clipsFinalRaw.unarchive")}
                         </DropdownMenuItem>
                       ) : (
                         <DropdownMenuItem onSelect={() => onArchive(recording)}>
-                          <IconArchive className="h-4 w-4 me-2" />{" "}
                           {t("libraryGrid.archiveAction")}
                         </DropdownMenuItem>
                       ))}
@@ -637,7 +643,6 @@ export function RecordingCard({
                         }}
                         className="text-destructive focus:text-destructive"
                       >
-                        <IconTrash className="h-4 w-4 me-2" />{" "}
                         {t("libraryGrid.moveToTrashAction")}
                       </DropdownMenuItem>
                     )}
@@ -703,6 +708,18 @@ export function RecordingCard({
               </div>
             </div>
 
+            {recording.contentPageUrl ? (
+              <a
+                href={recording.contentPageUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="pointer-events-auto relative z-10 inline-flex w-fit items-center gap-1.5 text-xs text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+              >
+                <IconExternalLink className="h-3.5 w-3.5" />
+                {t("clipsFinalRaw.openContentPage")}
+              </a>
+            ) : null}
+
             {recording.tags.length > 0 && (
               <div className="flex items-center gap-1 truncate">
                 {recording.tags.slice(0, 2).map((t) => (
@@ -723,23 +740,40 @@ export function RecordingCard({
           </div>
         </div>
       </ContextMenuTrigger>
-      <ContextMenuContent>
+      <ContextMenuContent
+        onCloseAutoFocus={(event) => {
+          if (!pendingShareRef.current) return;
+          event.preventDefault();
+          pendingShareRef.current = false;
+          setTimeout(() => onShare?.(recording), 0);
+        }}
+      >
         <ContextMenuItem asChild>
-          <Link to={recordingPath}>
-            <IconPlayerPlay className="h-4 w-4 me-2" />
-            {t("clipsFinalRaw.view")}
-          </Link>
+          <Link to={recordingPath}>{t("clipsFinalRaw.view")}</Link>
         </ContextMenuItem>
+        {recording.contentPageUrl ? (
+          <ContextMenuItem asChild>
+            <a
+              href={recording.contentPageUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {t("clipsFinalRaw.openContentPage")}
+            </a>
+          </ContextMenuItem>
+        ) : null}
         {onShare && (
-          <ContextMenuItem onSelect={() => onShare(recording)}>
-            <IconShare className="h-4 w-4 me-2" />
+          <ContextMenuItem
+            onSelect={() => {
+              pendingShareRef.current = true;
+            }}
+          >
             {t("recordingPage.share")}
           </ContextMenuItem>
         )}
         {canMove ? (
           <ContextMenuSub>
             <ContextMenuSubTrigger>
-              <IconFolder className="h-4 w-4 me-2" />
               {t("clipsFinalRaw.moveToFolder")}
             </ContextMenuSubTrigger>
             <ContextMenuSubContent className="w-64">
@@ -749,7 +783,6 @@ export function RecordingCard({
                   setTimeout(() => onCreateFolder?.(), 0);
                 }}
               >
-                <IconFolderPlus className="h-4 w-4 me-2" />
                 {t("navigation.newFolder")}
               </ContextMenuItem>
               <ContextMenuSeparator />
@@ -766,12 +799,10 @@ export function RecordingCard({
         {onArchive &&
           (recording.archivedAt ? (
             <ContextMenuItem onSelect={() => onArchive(recording)}>
-              <IconCheck className="h-4 w-4 me-2" />
               {t("clipsFinalRaw.unarchive")}
             </ContextMenuItem>
           ) : (
             <ContextMenuItem onSelect={() => onArchive(recording)}>
-              <IconArchive className="h-4 w-4 me-2" />
               {t("libraryGrid.archiveAction")}
             </ContextMenuItem>
           ))}
@@ -782,7 +813,6 @@ export function RecordingCard({
             }}
             className="text-destructive focus:text-destructive"
           >
-            <IconTrash className="h-4 w-4 me-2" />
             {t("libraryGrid.moveToTrashAction")}
           </ContextMenuItem>
         )}

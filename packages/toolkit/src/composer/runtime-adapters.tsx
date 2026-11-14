@@ -8,6 +8,7 @@ import {
   type ReactNode,
 } from "react";
 
+import type { ComposerContextMenuItem } from "./ComposerContextMenu.js";
 import type { MentionItemMedia } from "./types.js";
 
 const referenceEventTargets = new WeakMap<Event, HTMLElement>();
@@ -54,6 +55,44 @@ export interface EngineModelGroup {
   isSubscription?: boolean;
 }
 
+/** How the active engine pays for a request. */
+export type ComposerModelBilling =
+  | { kind: "builder-credits" }
+  | { kind: "provider-key"; provider: string }
+  | { kind: "subscription"; plan: string };
+
+/**
+ * What the host knows about one model on one engine. `known: false` is a model
+ * with no catalog entry (a custom id, a newly listed plan model): it carries
+ * engine facts only, never a guessed name, rating, or description.
+ */
+export interface ComposerModelDescription {
+  modelId: string;
+  engine?: string;
+  known: boolean;
+  /** Catalog id, which keys per-model copy such as the description. */
+  catalogId?: string;
+  name?: string;
+  shortName?: string;
+  /** Stable id for the descriptor's translation. */
+  descriptorId?: string;
+  descriptor?: string;
+  description?: string;
+  provider?: string;
+  ratings?: { cost: number; reasoning: number; speed: number };
+  recommended: boolean;
+  recommendedRank?: number;
+  /** Position in the picker's root list; undefined for the rest. */
+  rootRank?: number;
+  contextWindow?: number;
+  efforts: ReasoningEffort[];
+  billing?: ComposerModelBilling;
+  /** The level the provider applies when no effort is sent, when documented. */
+  providerDefaultEffort?: ReasoningEffort;
+  /** Whether efforts and the window came from the provider's own model list. */
+  source?: "provider" | "catalog";
+}
+
 export interface ComposerModelState {
   selectedModel: string;
   selectedEngine: string;
@@ -85,6 +124,7 @@ export interface ComposerBuilderConnectPopoverProps {
   }>;
   onConnect?: (provisionAccount: boolean) => void;
   onTriggerClick?: MouseEventHandler<HTMLElement>;
+  keepOpenOnFocusOutside?: boolean;
 }
 
 export interface AgentChatContextItem {
@@ -149,6 +189,20 @@ export interface VoiceContextPack {
   terms?: Array<{ term: string; replacement?: string }>;
 }
 
+export interface WorkspaceComposerMenuOptions {
+  enabled: boolean;
+  onRestoreFocus?: () => void;
+  onSelectIntegration: (reference: AgentComposerReference) => void;
+}
+export interface WorkspaceComposerMenuContribution {
+  scopeKey?: string;
+  items: readonly ComposerContextMenuItem[];
+  loading?: boolean;
+  error?: string;
+  onRetry?: () => void | Promise<unknown>;
+  overlays?: ReactNode;
+}
+
 export interface ComposerRuntimeAdapters {
   resolvePath?: (path: string) => string;
   translate?: ComposerTranslate;
@@ -165,6 +219,17 @@ export interface ComposerRuntimeAdapters {
     ) => Promise<ComposerAgentEngineState>;
     BuilderSetupCard?: ComponentType<any>;
     BuilderSetupContent?: ComponentType<any>;
+    /** Catalog facts for the picker rows, hover card, and effort control. */
+    describe?: (model: string, engine?: string) => ComposerModelDescription;
+    /**
+     * `describe` with live provider facts merged in for the listed engines.
+     * A hook, so a host can read a provider's model list for the open picker.
+     */
+    useDescribeModel?: (
+      engines: readonly string[],
+    ) =>
+      | ((model: string, engine?: string) => ComposerModelDescription)
+      | undefined;
     reasoning?: {
       defaultEffort?: ReasoningEffort;
       getOptionsForModel?: (model?: string) => ReasoningEffort[];
@@ -192,6 +257,9 @@ export interface ComposerRuntimeAdapters {
     isTrustedBuilderMessage?: (event: MessageEvent) => boolean;
   };
   resources?: {
+    useWorkspaceMenu?: (
+      options: WorkspaceComposerMenuOptions,
+    ) => WorkspaceComposerMenuContribution;
     useOrg?: () => {
       data?: { orgId?: string | null; role?: string | null } | null;
     };
@@ -218,11 +286,13 @@ export interface ComposerRuntimeAdapters {
       text: string,
       context: VoiceContextPack | undefined,
     ) => string;
+    /** Sends a voice analytics event; properties never carry transcript text. */
+    trackEvent?: (name: string, properties: Record<string, unknown>) => void;
   };
 }
 
 const identityPath = (path: string) => path;
-const fallbackTranslate: ComposerTranslate = (key, options) => {
+export const fallbackTranslate: ComposerTranslate = (key, options) => {
   const template =
     typeof options?.defaultValue === "string" ? options.defaultValue : key;
 
@@ -272,8 +342,43 @@ const fallbackBuilderFlow = {
   retry: () => false,
 };
 
-const fallbackAdapters: Required<Pick<ComposerRuntimeAdapters, "resolvePath">> &
-  ComposerRuntimeAdapters = {
+type AdapterGroup<K extends keyof ComposerRuntimeAdapters> = NonNullable<
+  ComposerRuntimeAdapters[K]
+>;
+
+/** What the context always carries: the fallbacks fill these in. */
+type ResolvedComposerRuntimeAdapters = ComposerRuntimeAdapters &
+  Required<
+    Pick<ComposerRuntimeAdapters, "resolvePath" | "translate" | "formatNumber">
+  > & {
+    agentChat: AdapterGroup<"agentChat"> & // i18n-ignore -- type intersection, not UI text
+      Required<
+        Pick<
+          AdapterGroup<"agentChat">,
+          | "sendToAgentChat"
+          | "setContextItem"
+          | "requestThreadOpen"
+          | "formatContextItems"
+          | "normalizeReference"
+          | "StaleIndexBoundary"
+        >
+      >;
+    voice: AdapterGroup<"voice"> & // i18n-ignore -- type intersection, not UI text
+      Required<
+        Pick<
+          AdapterGroup<"voice">,
+          | "useProviderStatus"
+          | "getBrowserTabId"
+          | "readAppState"
+          | "setAppState"
+          | "subscribeSidebarState"
+          | "applyContextReplacements"
+          | "trackEvent"
+        >
+      >;
+  };
+
+const fallbackAdapters: ResolvedComposerRuntimeAdapters = {
   resolvePath: identityPath,
   translate: fallbackTranslate,
   formatNumber: (value, options) =>
@@ -311,11 +416,12 @@ const fallbackAdapters: Required<Pick<ComposerRuntimeAdapters, "resolvePath">> &
     setAppState: () => {},
     subscribeSidebarState: () => () => {},
     applyContextReplacements: applyVoiceContextReplacements,
+    trackEvent: () => {},
   },
 };
 
 const ComposerRuntimeAdaptersContext =
-  createContext<ComposerRuntimeAdapters>(fallbackAdapters);
+  createContext<ResolvedComposerRuntimeAdapters>(fallbackAdapters);
 
 export function ComposerRuntimeAdaptersProvider({
   adapters,
@@ -347,7 +453,8 @@ export function useComposerRuntimeAdapters() {
   return useContext(ComposerRuntimeAdaptersContext);
 }
 
-export const DEFAULT_REASONING_EFFORT: ReasoningEffort = "high";
+/** Unset: requests carry no effort and the provider's default applies. */
+export const DEFAULT_REASONING_EFFORT: ReasoningEffort = "auto";
 export function getReasoningEffortOptionsForModel(
   _model?: string,
 ): ReasoningEffort[] {

@@ -65,6 +65,7 @@ export async function queryMetrics(sql: string): Promise<QueryMetricsResult> {
   }
 
   let data: {
+    error?: unknown;
     rows?: Record<string, unknown>[];
     schema?: { name: string; type: string }[];
     totalRows?: unknown;
@@ -85,6 +86,10 @@ export async function queryMetrics(sql: string): Promise<QueryMetricsResult> {
           : "error",
     });
     throw error;
+  }
+
+  if (typeof data.error === "string") {
+    return { rows: [], error: data.error };
   }
 
   recordQueryCost({

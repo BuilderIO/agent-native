@@ -9,7 +9,6 @@ import type { ElementInfo } from "@/components/design/types";
 
 import type { DesignDataOperation } from "./data-operations";
 import { captureHistorySelectionSources } from "./history-identity";
-import { selectionHistorySnapshotsEqual } from "./selection-state";
 
 export const MAX_DESIGN_UNDO_STACK = 50;
 
@@ -214,11 +213,6 @@ export function remapFileCreationHistoryEntryIds(
   };
 }
 
-export interface SelectionHistoryEntry {
-  before: GeometryHistorySelection;
-  after: GeometryHistorySelection;
-}
-
 export interface FileCreationHistoryEntry {
   filename: string;
   content: string;
@@ -389,73 +383,6 @@ export function remapFileDeletionHistoryEntryIds(
         }
       : {}),
   };
-}
-
-export function remapSelectionHistoryStackIds(
-  stack: readonly SelectionHistoryEntry[],
-  idMap: ReadonlyMap<string, string>,
-): SelectionHistoryEntry[] {
-  if (idMap.size === 0) return [...stack];
-  const remapSelection = (
-    selection: GeometryHistorySelection,
-  ): GeometryHistorySelection => {
-    const remapId = (fileId: string) => idMap.get(fileId) ?? fileId;
-    return {
-      overviewSelectedScreenIds:
-        selection.overviewSelectedScreenIds.map(remapId),
-      ...(selection.explicitOverviewScreenIds !== undefined
-        ? {
-            explicitOverviewScreenIds:
-              selection.explicitOverviewScreenIds.map(remapId),
-          }
-        : {}),
-      selectedLayerIds: selection.selectedLayerIds.map(remapId),
-      activeFileId: selection.activeFileId
-        ? remapId(selection.activeFileId)
-        : selection.activeFileId,
-    };
-  };
-  return stack.map((entry) => ({
-    before: remapSelection(entry.before),
-    after: remapSelection(entry.after),
-  }));
-}
-
-export function pruneSelectionHistoryStackIds(
-  stack: readonly SelectionHistoryEntry[],
-  deletedIds: ReadonlySet<string>,
-): SelectionHistoryEntry[] {
-  if (deletedIds.size === 0) return [...stack];
-  const pruneSelection = (
-    selection: GeometryHistorySelection,
-  ): GeometryHistorySelection => {
-    const activeFileDeleted =
-      !!selection.activeFileId && deletedIds.has(selection.activeFileId);
-    return {
-      overviewSelectedScreenIds: selection.overviewSelectedScreenIds.filter(
-        (fileId) => !deletedIds.has(fileId),
-      ),
-      ...(selection.explicitOverviewScreenIds !== undefined
-        ? {
-            explicitOverviewScreenIds:
-              selection.explicitOverviewScreenIds.filter(
-                (fileId) => !deletedIds.has(fileId),
-              ),
-          }
-        : {}),
-      selectedLayerIds: activeFileDeleted
-        ? []
-        : selection.selectedLayerIds.filter((id) => !deletedIds.has(id)),
-      activeFileId: activeFileDeleted ? null : selection.activeFileId,
-    };
-  };
-  return stack.flatMap((entry) => {
-    const before = pruneSelection(entry.before);
-    const after = pruneSelection(entry.after);
-    return selectionHistorySnapshotsEqual(before, after)
-      ? []
-      : [{ before, after }];
-  });
 }
 
 export function pruneFileCreationHistoryStack(

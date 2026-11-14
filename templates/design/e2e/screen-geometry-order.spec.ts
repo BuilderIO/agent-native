@@ -99,8 +99,8 @@ test("new Screen W/H commits keep frame and metadata geometry in sync", async ({
     width: 360,
     height: 315,
   });
-  await expect(width).toHaveValue("360px");
-  await expect(height).toHaveValue("315px");
+  await expect(width).toHaveValue("360");
+  await expect(height).toHaveValue("315");
   const card = app.page.locator(
     `[data-screen-shell][data-frame-id="${screenId}"] [data-screen-card]`,
   );

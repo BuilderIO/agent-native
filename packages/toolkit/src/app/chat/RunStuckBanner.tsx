@@ -5,9 +5,11 @@ import {
 } from "@agent-native/core/client/agent-chat";
 import { trackEvent } from "@agent-native/core/client/analytics";
 import { useT } from "@agent-native/core/client/i18n";
-import { cn } from "@agent-native/toolkit/utils";
-import { IconAlertTriangle, IconLoader2 } from "@tabler/icons-react";
 import { useEffect, useRef, useState } from "react";
+
+import { ComposerNotice } from "../../composer/composer-notice.js";
+import { Button } from "../../ui/button.js";
+import { Spinner } from "../../ui/spinner.js";
 
 export interface RunStuckBannerProps {
   threadId: string | null | undefined;
@@ -25,7 +27,7 @@ export interface RunStuckBannerProps {
    */
   onServerSettled?: () => Promise<RunReconcileOutcome>;
   autoRetry?: boolean;
-  autoRetryOwnerId?: string;
+  autoRetryOwnerId?: string | undefined;
   className?: string;
 }
 
@@ -188,6 +190,10 @@ export function RunStuckBanner({
   const abortRun = useAbortRun(apiUrl);
   const [busy, setBusy] = useState<BusyState>({ type: "none" });
   const [autoRetriedRunId, setAutoRetriedRunId] = useState<string | null>(null);
+  // Dismissing hides one notice for one run; a new run or thread shows again.
+  const [dismissedNoticeKey, setDismissedNoticeKey] = useState<string | null>(
+    null,
+  );
   const autoRetriedRunIdsRef = useRef<Set<string>>(new Set());
   // A run the user already acted on is never auto-retried: a failed Cancel frees
   // `busy` again, and an auto-retry gated on other state must not then resume it.
@@ -363,31 +369,28 @@ export function RunStuckBanner({
           ? "agentChat.recovery.statusUnreadable"
           : null;
     if (!notice) return null;
+    const noticeKey = `${threadId ?? ""}:${state.runId ?? ""}:${notice}`;
+    if (dismissedNoticeKey === noticeKey) return null;
     return (
-      <div
-        role="status"
-        aria-live="polite"
-        className={cn(
-          "mx-3 mt-2 flex items-center gap-2.5 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-xs text-foreground",
-          className,
-        )}
+      <ComposerNotice
+        noticeId="run-status"
+        {...(className === undefined ? {} : { className })}
+        actions={
+          reconcile === "unsettled" ? (
+            <Button
+              type="button"
+              size="xs"
+              onClick={() => window.location.reload()}
+            >
+              {t("agentChat.recovery.reload")}
+            </Button>
+          ) : undefined
+        }
+        onDismiss={() => setDismissedNoticeKey(noticeKey)}
+        dismissLabel={t("agentChat.common.dismiss")}
       >
-        <IconAlertTriangle
-          size={16}
-          className="shrink-0 text-amber-500"
-          aria-hidden="true"
-        />
-        <span className="min-w-0 flex-1 leading-snug">{t(notice)}</span>
-        {reconcile === "unsettled" ? (
-          <button
-            type="button"
-            onClick={() => window.location.reload()}
-            className="inline-flex h-7 shrink-0 cursor-pointer items-center rounded-md bg-foreground px-2.5 text-[11px] font-medium text-background transition-colors hover:bg-foreground/90"
-          >
-            {t("agentChat.recovery.reload")}
-          </button>
-        ) : null}
-      </div>
+        {t(notice)}
+      </ComposerNotice>
     );
   }
 
@@ -436,71 +439,55 @@ export function RunStuckBanner({
 
   const stuckSeconds =
     state.stuckSinceMs != null ? Math.floor(state.stuckSinceMs / 1000) : null;
+  const stuckNoticeKey = `${threadId ?? ""}:${state.runId}:stuck`;
+  if (dismissedNoticeKey === stuckNoticeKey) return null;
 
   return (
-    <div
-      role="status"
-      aria-live="polite"
-      className={cn(
-        "mx-3 mt-2 flex items-start gap-2.5 rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2.5 text-xs text-foreground",
-        className,
-      )}
-    >
-      <IconAlertTriangle
-        size={16}
-        className="mt-0.5 shrink-0 text-amber-500"
-        aria-hidden="true"
-      />
-      <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-        <div className="leading-snug">
-          <span className="font-medium">
-            {t("agentChat.recovery.stuckTitle")}
-          </span>{" "}
-          <span className="text-muted-foreground">
-            {t(
-              stuckSeconds != null
-                ? "agentChat.recovery.stuckWithDuration"
-                : "agentChat.recovery.stuckNoProgress",
-              stuckSeconds != null ? { seconds: stuckSeconds } : undefined,
-            )}
-            {autoRetry && autoRetriedRunId === state.runId
-              ? ` ${t("agentChat.recovery.stuckRetrying")}`
-              : ""}
-          </span>
-        </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <button
+    <ComposerNotice
+      noticeId="run-stuck"
+      {...(className === undefined ? {} : { className })}
+      title={t("agentChat.recovery.stuckTitle")}
+      actions={
+        <>
+          <Button
             type="button"
+            size="xs"
             onClick={handleRetry}
             disabled={busyType !== "none"}
-            className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md bg-foreground px-2.5 text-[11px] font-medium text-background transition-colors hover:bg-foreground/90 disabled:cursor-not-allowed disabled:opacity-60"
+            aria-busy={busyType === "retry" || undefined}
           >
             {busyType === "retry" ? (
-              <IconLoader2
-                size={12}
-                className="animate-spin"
-                aria-hidden="true"
-              />
+              <Spinner className="size-4" aria-hidden="true" />
             ) : null}
             {t("agentChat.common.retry")}
-          </button>
-          <button
+          </Button>
+          <Button
             type="button"
+            size="xs"
+            variant="outline"
             onClick={handleCancel}
             disabled={busyType !== "none"}
-            className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-[11px] font-medium text-foreground transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+            aria-busy={busyType === "cancel" || undefined}
           >
             {busyType === "cancel" ? (
-              <IconLoader2
-                size={12}
-                className="animate-spin"
-                aria-hidden="true"
-              />
+              <Spinner className="size-4" aria-hidden="true" />
             ) : null}
             {t("agentChat.common.cancel")}
-          </button>
-        </div>
-      </div>
-    </div>
+          </Button>
+        </>
+      }
+      onDismiss={() => setDismissedNoticeKey(stuckNoticeKey)}
+      dismissLabel={t("agentChat.common.dismiss")}
+    >
+      {t(
+        stuckSeconds != null
+          ? "agentChat.recovery.stuckWithDuration"
+          : "agentChat.recovery.stuckNoProgress",
+        stuckSeconds != null ? { seconds: stuckSeconds } : undefined,
+      )}
+      {autoRetry && autoRetriedRunId === state.runId
+        ? ` ${t("agentChat.recovery.stuckRetrying")}`
+        : ""}
+    </ComposerNotice>
   );
 }

@@ -18,6 +18,7 @@ on:
       - Desktop SSO Canary
       - Publish MCP Registry servers
       - Nightly full fast-test suite
+      - Slides authoring nightly
     types: [completed]
 
 permissions:

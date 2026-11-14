@@ -15,9 +15,11 @@ import { getDb, schema } from "../server/db/index.js";
 import { withReservedHostedClipAllowance } from "../server/lib/hosted-clip-allowance.js";
 import { trackRecordingCreated } from "../server/lib/recording-created.js";
 import {
+  builderGatewayFailure,
   hostedStorageAuthFailure,
   normalizeRecordingFailureCode,
   trackRecordingFailure,
+  type BuilderGatewayFailure,
   type RecordingFailureCode,
 } from "../server/lib/recording-failures.js";
 import { snapshotUploadRecoveryPolicy } from "../server/lib/recording-policy.js";
@@ -35,6 +37,7 @@ import {
 } from "../server/lib/resumable-session.js";
 import { abortResumableUploadSession } from "../server/lib/resumable-upload-cleanup.js";
 import { S3MultipartStartError } from "../server/lib/s3-upload-provider.js";
+import { findUploadedSourceRecording } from "../server/lib/source-fingerprint.js";
 import { shouldEnableStreamingUpload } from "../server/lib/streaming-upload-mode.js";
 import { uploadLeaseExpiry } from "../server/lib/upload-lease.js";
 import {
@@ -60,11 +63,13 @@ export function classifyInitialUploadFailure(
   failureCode: RecordingFailureCode;
   failureStage?: "multipart_start" | "chunk_upload" | "reset_chunks";
   httpStatus?: number;
+  gateway?: BuilderGatewayFailure;
 } {
   const details =
     error && typeof error === "object"
       ? (error as Record<string, unknown>)
       : {};
+  const gateway = builderGatewayFailure(error);
   const message =
     error instanceof Error
       ? error.message
@@ -73,9 +78,9 @@ export function classifyInitialUploadFailure(
         : typeof error === "string"
           ? error
           : "";
-  const isSignedUrlFailure = /builder\.io signed-url request failed/i.test(
-    message,
-  );
+  const isSignedUrlFailure =
+    gateway?.step === "signed_url" ||
+    /builder\.io signed-url request failed/i.test(message);
   const messageStatus = /\b(?:failed|failure|error)\s*\((\d{3})\)/i.exec(
     message,
   )?.[1];
@@ -101,6 +106,7 @@ export function classifyInitialUploadFailure(
       ...(hostedAuthFailure.status
         ? { httpStatus: hostedAuthFailure.status }
         : {}),
+      ...(gateway ? { gateway } : {}),
     };
   }
   // A nested signed-URL response does not mean the account needs reauthorization.
@@ -118,6 +124,7 @@ export function classifyInitialUploadFailure(
       failureCode: "storage_setup_required",
       failureStage,
       ...(httpStatus ? { httpStatus } : {}),
+      ...(gateway ? { gateway } : {}),
     };
   }
 
@@ -126,6 +133,7 @@ export function classifyInitialUploadFailure(
       failureCode === "unknown" ? "multipart_start_failed" : failureCode,
     failureStage,
     ...(httpStatus ? { httpStatus } : {}),
+    ...(gateway ? { gateway } : {}),
   };
 }
 
@@ -153,10 +161,18 @@ export default defineAction({
           statusCode: 409,
         });
       }
-
       const { organizationId } = await requireOrganizationAccess(
         args.organizationId,
       );
+      const uploaded = args.sourceHeadSha256
+        ? await findUploadedSourceRecording(
+            ownerEmail,
+            organizationId,
+            args.sourceHeadSha256,
+          )
+        : null;
+      if (uploaded) return { uploaded } as const;
+
       const visibility = await getDefaultRecordingVisibility(
         organizationId,
         actionContext?.userEmail ?? ownerEmail,
@@ -181,6 +197,7 @@ export default defineAction({
       await snapshotUploadRecoveryPolicy(ownerEmail, organizationId, id);
 
       return {
+        uploaded: null,
         db,
         ownerEmail,
         organizationId,
@@ -212,6 +229,14 @@ export default defineAction({
         details: { retryable: true, cleanupConfirmed: true },
       });
     });
+    if (prepared.uploaded !== null) {
+      return {
+        id: prepared.uploaded.id,
+        organizationId: prepared.uploaded.organizationId,
+        status: prepared.uploaded.status,
+        existingRecording: true as const,
+      };
+    }
     const {
       db,
       ownerEmail,
@@ -262,6 +287,7 @@ export default defineAction({
               await releaseHostedClipRecording({
                 recordingId: id,
                 userId: authUserId,
+                reason: "create_failed",
               });
               cleanupConfirmed = true;
             }
@@ -304,6 +330,7 @@ export default defineAction({
       await releaseHostedClipRecording({
         recordingId: id,
         userId: hostedUserId,
+        reason: "create_failed",
       });
     };
     const maxUploadBytes =
@@ -602,6 +629,7 @@ export default defineAction({
             ...session.meta,
             stableUrl: true,
             recordAsset: false,
+            clipsHiddenUpload: true,
           },
           bytesUploaded: 0,
           lastCommittedIndex: -1,

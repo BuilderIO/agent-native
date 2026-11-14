@@ -1,11 +1,14 @@
 import { defineAction } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
+import { resolveChatModelAvailability } from "@agent-native/core/server";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
-import { assertAccess } from "@agent-native/core/sharing";
-import { eq } from "drizzle-orm";
+import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { readEarlierAudioRemovedAt } from "../server/lib/earlier-audio-removal.js";
+import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import { isBuilderCreditsExhaustedMessage } from "../shared/builder-credits.js";
 import { withFullVideoAiInstructions } from "../shared/clips-ai-prefs.js";
 import {
@@ -15,6 +18,7 @@ import {
 import cleanupTranscript from "./cleanup-transcript.js";
 import { loadAgentsMdContext } from "./lib/agents-md-context.js";
 import {
+  assertAiModelAvailable,
   queueAiRequest,
   withAiRequestStatusInstructions,
 } from "./lib/ai-request-status.js";
@@ -76,7 +80,7 @@ export async function queueTitleRegenerationRequest({
   transcriptText: string;
   transcriptStatus?: string;
   segmentsJson?: string | null;
-  ownerEmail?: string | null;
+  ownerEmail?: string | null | undefined;
   includeFullVideoInAi?: boolean;
   includeSummary?: boolean;
 }) {
@@ -94,7 +98,7 @@ export async function queueTitleRegenerationRequest({
     `Read the native transcript and AGENTS.md context in this request's context, summarize the actual subject instead of quoting the opening words, and call ` +
     `\`update-recording --id=${recordingId} --title="..."\`${summaryInstruction} ` +
     `Current title: "${currentTitle ?? ""}". Current description: "${currentDescription ?? ""}". ` +
-    "Do not prompt the user.";
+    "Write the title and description in the language of the transcript unless the user has requested another language. Do not prompt the user.";
   const kind = includeSummary
     ? ("generate-metadata" as const)
     : ("regenerate-title" as const);
@@ -128,6 +132,23 @@ export async function queueTitleRegenerationRequest({
   return request;
 }
 
+type ModelRefusal = "ai_model_unavailable" | "ai_model_lookup_unavailable";
+
+function modelRefusalCode(error: unknown): ModelRefusal | null {
+  const code = (error as { errorCode?: unknown } | null)?.errorCode;
+  return code === "ai_model_unavailable" ||
+    code === "ai_model_lookup_unavailable"
+    ? code
+    : null;
+}
+
+const queueRefusedResult = (recordingId: string, reason: string | null) => ({
+  updated: false,
+  skipped: true,
+  reason: reason ?? "ai_model_unavailable",
+  recordingId,
+});
+
 export default defineAction({
   description:
     "Regenerate this recording's title from its transcript using the configured cleanup/title path, falling back to a local transcript title when unavailable. When the user has enabled Include full video, delegates to the agent so it can watch the recording.",
@@ -146,22 +167,72 @@ export default defineAction({
       .describe(
         "Also queue an automatic recording description after the transcript-backed title. Used by the post-transcription pipeline.",
       ),
+    automatic: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe(
+        "Whether this request is automatic; manual titles are preserved.",
+      ),
   }),
   run: async (args) => {
-    await assertAccess("recording", args.recordingId, "editor");
+    assertRecordingNotExpired(
+      await assertAccess("recording", args.recordingId, "editor"),
+    );
+
+    // A manual request cannot succeed without a model, and the local fallback
+    // below writes a title: refuse before that write, not after it.
+    if (!args.automatic) await assertAiModelAvailable();
 
     const db = getDb();
+    // Read before anything the model sees: a removal after this read fails the
+    // checks below, and one before it has already reset what is read next.
+    const earlierAudioRemovedAt = await readEarlierAudioRemovedAt(
+      db,
+      args.recordingId,
+    );
+    const earlierAudioRemovedSinceRead = async () =>
+      (await readEarlierAudioRemovedAt(db, args.recordingId)) !==
+      earlierAudioRemovedAt;
+    // The queue refuses when no model can run or the check could not be made.
+    // An automatic request keeps the local title and reports why nothing was
+    // queued; a manual one fails loudly so the caller sees it.
+    let queueRefusal: ModelRefusal | null = null;
+    const queueTitle = async (
+      input: Parameters<typeof queueTitleRegenerationRequest>[0],
+    ) => {
+      try {
+        return await queueTitleRegenerationRequest(input);
+      } catch (error) {
+        const code = modelRefusalCode(error);
+        if (args.automatic && code) {
+          queueRefusal = code;
+          return null;
+        }
+        throw error;
+      }
+    };
     const [rec] = await db
       .select({
         id: schema.recordings.id,
         title: schema.recordings.title,
         titleSource: schema.recordings.titleSource,
+        updatedAt: schema.recordings.updatedAt,
         description: schema.recordings.description,
       })
       .from(schema.recordings)
       .where(eq(schema.recordings.id, args.recordingId))
       .limit(1);
     if (!rec) throw new Error(`Recording not found: ${args.recordingId}`);
+
+    if (args.automatic && rec.titleSource === "manual") {
+      return {
+        updated: false,
+        skipped: true,
+        reason: "Recording title is manual",
+        recordingId: args.recordingId,
+      };
+    }
 
     const [transcript] = await db
       .select()
@@ -174,10 +245,22 @@ export default defineAction({
       transcript?.fullText?.trim() ||
       transcriptTextFromSegments(transcript?.segmentsJson);
 
+    // The full-video request is agent work and the queue refuses it unless a
+    // chat model is confirmed; an automatic request then takes the local title.
+    const chatModelAvailable =
+      (await resolveChatModelAvailability()) === "available";
     const includeFullVideoInAi = await readIncludeFullVideoInAi();
 
-    if (includeFullVideoInAi) {
-      const queuedRequest = await queueTitleRegenerationRequest({
+    if (includeFullVideoInAi && chatModelAvailable) {
+      if (await earlierAudioRemovedSinceRead()) {
+        return {
+          updated: false,
+          skipped: true,
+          reason: "title_changed",
+          recordingId: args.recordingId,
+        };
+      }
+      const queuedRequest = await queueTitle({
         recordingId: args.recordingId,
         currentTitle: rec.title,
         currentDescription: rec.description,
@@ -188,6 +271,8 @@ export default defineAction({
         includeFullVideoInAi: true,
         includeSummary: args.includeSummary,
       });
+      if (!queuedRequest)
+        return queueRefusedResult(args.recordingId, queueRefusal);
       console.log(
         `Delegation queued: regenerate-title (full video) for ${args.recordingId}`,
       );
@@ -213,11 +298,49 @@ export default defineAction({
       };
     }
 
+    let builderCreditsPaused = false;
+
+    const writeTitleIfUnchanged = async (
+      fresh: Pick<
+        typeof schema.recordings.$inferSelect,
+        "title" | "titleSource" | "updatedAt"
+      >,
+      title: string,
+      titleSource: "context" | "ai",
+    ) => {
+      // `fresh` was read first and a removal also changes `updatedAt`, so one
+      // that lands after this read fails the compare below.
+      if (await earlierAudioRemovedSinceRead()) return false;
+      const rows = await db
+        .update(schema.recordings)
+        .set({ title, titleSource, updatedAt: new Date().toISOString() })
+        .where(
+          and(
+            eq(schema.recordings.id, args.recordingId),
+            eq(schema.recordings.title, fresh.title),
+            eq(schema.recordings.titleSource, fresh.titleSource),
+            eq(schema.recordings.updatedAt, fresh.updatedAt),
+          ),
+        )
+        .returning({ id: schema.recordings.id });
+      return rows.length > 0;
+    };
+    const canWriteTitle = (
+      fresh: Pick<
+        typeof schema.recordings.$inferSelect,
+        "title" | "titleSource" | "updatedAt"
+      >,
+    ) =>
+      (!args.automatic || fresh.titleSource !== "manual") &&
+      (isAutoTitleReplaceable(fresh.title, fresh.titleSource) ||
+        (fresh.title === rec.title &&
+          fresh.titleSource === rec.titleSource &&
+          fresh.updatedAt === rec.updatedAt));
+
     const agentsContext = await loadAgentsMdContext({
       ownerEmail: getRequestUserEmail() ?? transcript?.ownerEmail,
       purpose: "title",
     });
-    let builderCreditsPaused = false;
 
     try {
       const result = await cleanupTranscript.run({
@@ -235,6 +358,7 @@ export default defineAction({
           .select({
             title: schema.recordings.title,
             titleSource: schema.recordings.titleSource,
+            updatedAt: schema.recordings.updatedAt,
           })
           .from(schema.recordings)
           .where(eq(schema.recordings.id, args.recordingId))
@@ -246,29 +370,41 @@ export default defineAction({
           fresh.title?.trim().toLocaleLowerCase() ===
           generatedTitle.trim().toLocaleLowerCase();
 
-        if (
-          !titleMatchesCurrent &&
-          (isAutoTitleReplaceable(fresh.title, fresh.titleSource) ||
-            fresh.title === rec.title)
-        ) {
-          await db
-            .update(schema.recordings)
-            .set({
-              title: generatedTitle,
-              titleSource: "ai",
-              updatedAt: new Date().toISOString(),
-            })
-            .where(eq(schema.recordings.id, args.recordingId));
+        if (!titleMatchesCurrent && canWriteTitle(fresh)) {
+          assertRecordingNotExpired(
+            await assertAccess("recording", args.recordingId, "editor"),
+          );
+          if (!(await writeTitleIfUnchanged(fresh, generatedTitle, "ai"))) {
+            return {
+              updated: false,
+              skipped: true,
+              reason: "title_changed",
+              recordingId: args.recordingId,
+            };
+          }
           await writeAppState("refresh-signal", { ts: Date.now() });
           if (result.provider === "builder") {
             await clearBuilderCreditsExhausted();
           }
-          const summaryResult =
-            args.includeSummary && !rec.description?.trim()
-              ? await regenerateSummary.run({
-                  recordingId: args.recordingId,
-                })
-              : null;
+          // The title is saved; a summary that cannot be queued without a
+          // model must not turn that into a title failure.
+          let summaryResult: Awaited<
+            ReturnType<typeof regenerateSummary.run>
+          > | null = null;
+          let summarySkippedReason: ModelRefusal | null = null;
+          if (args.includeSummary && !rec.description.trim()) {
+            try {
+              summaryResult = await regenerateSummary.run({
+                recordingId: args.recordingId,
+              });
+            } catch (error) {
+              summarySkippedReason = modelRefusalCode(error);
+              if (!summarySkippedReason) throw error;
+              console.warn(
+                `[clips] summary not queued for ${args.recordingId}: ${summarySkippedReason}`,
+              );
+            }
+          }
 
           console.log(
             `Regenerated title for ${args.recordingId} via ${result.provider}: ${generatedTitle}`,
@@ -279,6 +415,7 @@ export default defineAction({
             title: generatedTitle,
             provider: result.provider,
             summaryQueued: summaryResult?.queued === true,
+            ...(summarySkippedReason ? { summarySkippedReason } : {}),
           };
         }
 
@@ -286,7 +423,7 @@ export default defineAction({
           return {
             updated: false,
             skipped: true,
-            reason: "Recording title changed before generation completed",
+            reason: "title_changed",
             recordingId: args.recordingId,
           };
         }
@@ -296,6 +433,7 @@ export default defineAction({
         );
       }
     } catch (err) {
+      if (err instanceof ForbiddenError) throw err;
       builderCreditsPaused = isBuilderCreditsExhaustedMessage(
         (err as Error)?.message ?? String(err),
       );
@@ -311,6 +449,7 @@ export default defineAction({
         .select({
           title: schema.recordings.title,
           titleSource: schema.recordings.titleSource,
+          updatedAt: schema.recordings.updatedAt,
         })
         .from(schema.recordings)
         .where(eq(schema.recordings.id, args.recordingId))
@@ -318,25 +457,33 @@ export default defineAction({
 
       if (!fresh) throw new Error(`Recording not found: ${args.recordingId}`);
 
+      if (!canWriteTitle(fresh)) {
+        return {
+          updated: false,
+          skipped: true,
+          reason: "title_changed",
+          recordingId: args.recordingId,
+        };
+      }
+
       const titleMatchesCurrent =
         fresh.title?.trim().toLocaleLowerCase() ===
         fallbackTitle.trim().toLocaleLowerCase();
 
-      if (
-        !titleMatchesCurrent &&
-        (isAutoTitleReplaceable(fresh.title, fresh.titleSource) ||
-          fresh.title === rec.title)
-      ) {
-        await db
-          .update(schema.recordings)
-          .set({
-            title: fallbackTitle,
-            titleSource: "context",
-            updatedAt: new Date().toISOString(),
-          })
-          .where(eq(schema.recordings.id, args.recordingId));
+      if (!titleMatchesCurrent) {
+        assertRecordingNotExpired(
+          await assertAccess("recording", args.recordingId, "editor"),
+        );
+        if (!(await writeTitleIfUnchanged(fresh, fallbackTitle, "context"))) {
+          return {
+            updated: false,
+            skipped: true,
+            reason: "title_changed",
+            recordingId: args.recordingId,
+          };
+        }
         await writeAppState("refresh-signal", { ts: Date.now() });
-        const queuedRequest = await queueTitleRegenerationRequest({
+        const queuedRequest = await queueTitle({
           recordingId: args.recordingId,
           currentTitle: fallbackTitle,
           currentDescription: rec.description,
@@ -347,6 +494,16 @@ export default defineAction({
           includeFullVideoInAi: false,
           includeSummary: args.includeSummary,
         });
+        if (!queuedRequest) {
+          return {
+            updated: true,
+            queued: false,
+            recordingId: args.recordingId,
+            title: fallbackTitle,
+            provider: "local",
+            queueSkippedReason: queueRefusal,
+          };
+        }
 
         console.log(
           `Set temporary title for ${args.recordingId} via local fallback and queued transcript-backed refinement: ${fallbackTitle}`,
@@ -373,7 +530,16 @@ export default defineAction({
       };
     }
 
-    const queuedRequest = await queueTitleRegenerationRequest({
+    if (await earlierAudioRemovedSinceRead()) {
+      return {
+        updated: false,
+        skipped: true,
+        reason: "title_changed",
+        recordingId: args.recordingId,
+      };
+    }
+
+    const queuedRequest = await queueTitle({
       recordingId: args.recordingId,
       currentTitle: rec.title,
       currentDescription: rec.description,
@@ -384,6 +550,8 @@ export default defineAction({
       includeFullVideoInAi: false,
       includeSummary: args.includeSummary,
     });
+    if (!queuedRequest)
+      return queueRefusedResult(args.recordingId, queueRefusal);
 
     console.log(`Delegation queued: regenerate-title for ${args.recordingId}`);
     return {

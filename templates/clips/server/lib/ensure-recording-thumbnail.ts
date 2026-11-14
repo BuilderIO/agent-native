@@ -9,6 +9,7 @@ import {
 import { and, eq, isNull, ne, or } from "drizzle-orm";
 
 import { parseEdits } from "../../app/lib/timestamp-mapping.js";
+import { RECORDING_THUMBNAIL_AT_MS } from "../../shared/agent-context.js";
 import { recordingEmbedProvider } from "../../shared/embed-provider.js";
 import { getDb, schema } from "../db/index.js";
 import {
@@ -25,7 +26,7 @@ import { ownerEmailMatches } from "./recordings.js";
 import { uploadRecordingMedia } from "./upload-recording-media.js";
 import { extractJpegFrame, VideoFrameExtractionError } from "./video-frame.js";
 
-export const RECORDING_THUMBNAIL_AT_MS = 350;
+export { RECORDING_THUMBNAIL_AT_MS };
 
 export type EnsureRecordingThumbnailStatus =
   | "generated"

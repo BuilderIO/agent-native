@@ -29,6 +29,32 @@ describe("MCP integration catalog", () => {
     vi.unstubAllGlobals();
   });
 
+  it("adds the popup return when OAuth starts on a separate server", () => {
+    const popup = { opener: {} } as unknown as Window;
+    const open = vi.fn(() => popup);
+    vi.stubGlobal("window", {
+      open,
+      location: {
+        href: "https://app.example.test/settings",
+        origin: "https://app.example.test",
+        pathname: "/settings",
+      },
+      __AGENT_NATIVE_CONFIG__: { apiBaseUrl: "https://api.example.test" },
+    });
+
+    expect(
+      navigateToMcpOAuthStart(
+        "https://api.example.test/_agent-native/mcp/servers/oauth/start",
+      ),
+    ).toBe(true);
+
+    const popupUrl = new URL(open.mock.calls[0]![0] as string);
+    expect(popupUrl.origin).toBe("https://api.example.test");
+    expect(popupUrl.searchParams.get("return")).toBe(
+      "/_agent-native/oauth/popup?complete=workspace-connection",
+    );
+  });
+
   it("opens OAuth setup without replacing the current app", () => {
     const popup = {
       opener: {},
@@ -38,6 +64,7 @@ describe("MCP integration catalog", () => {
       open,
       location: {
         href: "https://content.example.test/settings",
+        origin: "https://content.example.test",
         pathname: "/settings",
       },
     });
@@ -46,8 +73,12 @@ describe("MCP integration catalog", () => {
       navigateToMcpOAuthStart("/_agent-native/mcp/servers/oauth/start"),
     ).toBe(true);
 
+    const popupUrl = new URL(open.mock.calls[0]![0] as string);
+    expect(popupUrl.href).toBe(
+      "https://content.example.test/_agent-native/mcp/servers/oauth/start?return=%2F_agent-native%2Foauth%2Fpopup%3Fcomplete%3Dworkspace-connection",
+    );
     expect(open).toHaveBeenCalledWith(
-      "https://content.example.test/_agent-native/mcp/servers/oauth/start",
+      popupUrl.href,
       "_blank",
       "width=640,height=760",
     );
@@ -64,6 +95,29 @@ describe("MCP integration catalog", () => {
     expect(
       navigateToMcpOAuthStart("/_agent-native/mcp/servers/oauth/start"),
     ).toBe(false);
+  });
+
+  it("keeps an existing MCP OAuth completion return URL for agent resume", () => {
+    const popup = {} as Window;
+    const open = vi.fn(() => popup);
+    vi.stubGlobal("window", {
+      open,
+      location: {
+        href: "https://content.example.test/settings",
+        origin: "https://content.example.test",
+      },
+    });
+
+    const startUrl = new URL(
+      "/_agent-native/mcp/servers/oauth/start?return=%2F_agent-native%2Foauth%2Fpopup%3Fcomplete%3Dworkspace-connection%26resume%3D8d1bd7cf-419e-4ff0-8545-19dedb819154",
+      "https://content.example.test",
+    );
+    expect(navigateToMcpOAuthStart(startUrl.href)).toBe(true);
+    expect(
+      new URL(open.mock.calls[0]![0] as string).searchParams.get("return"),
+    ).toBe(
+      "/_agent-native/oauth/popup?complete=workspace-connection&resume=8d1bd7cf-419e-4ff0-8545-19dedb819154",
+    );
   });
 
   it("includes direct-connect defaults that do not need headers", () => {

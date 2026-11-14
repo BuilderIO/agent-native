@@ -84,6 +84,9 @@
   --color-database-blue-foreground: #fff;
   --color-database-chip: var(--database-chip);
   --color-database-chip-foreground: var(--database-chip-foreground);
+  /* The Clip player stays dark in both themes, like Clips' own player. */
+  --color-player-control: hsl(0 0% 0%);
+  --color-player-control-foreground: hsl(0 0% 100%);
   /* Comment cards: resting in the margin, floating as a popover, and the
      lifted state for the hovered, focused, or selected thread. */
   --shadow-comment-card:
@@ -397,6 +400,13 @@
   min-height: 0;
 }
 
+/* A public page's sub-pages and sign-up card follow its body, so the body
+   takes only the room its blocks need. */
+.content-public-reader-body .visual-editor-wrapper,
+.content-public-reader-body .visual-editor-wrapper .content-editor {
+  min-height: 0;
+}
+
 .content-reference-preview .content-editor {
   font-size: 0.875rem;
 }
@@ -629,10 +639,11 @@
   content: counter(content-list-counter, lower-roman) ".";
 }
 
-.content-editor ul:not(.content-task-list) > li > ul,
-.content-editor ul:not(.content-task-list) > li > ol,
-.content-editor ol > li > ul,
-.content-editor ol > li > ol {
+/* Every block in an item goes in the text column, not only nested lists. A
+   second paragraph or a code block left to auto-placement lands under the
+   marker, and the marker's auto track widens to fit it, squeezing the text. */
+.content-editor ul:not(.content-task-list) > li > *,
+.content-editor ol > li > * {
   grid-column: 2;
 }
 
@@ -920,6 +931,138 @@
   border: 1px solid hsl(var(--border));
 }
 
+/* A table nobody has resized sizes its columns to their content (see
+   table-sizing.ts): the browser's layout until it has been measured, and its
+   natural width while it is. */
+.content-editor table[data-column-sizing="content"] {
+  table-layout: auto;
+}
+
+.content-editor table[data-column-sizing="measuring"] {
+  table-layout: auto;
+  width: max-content !important;
+  min-width: 0 !important;
+}
+
+/* The page lets any word break anywhere, which tells the browser every column
+   can shrink to a letter, so short columns would be squeezed. Words, links and
+   code here break only when they can't fit a line of their own. */
+.content-editor
+  table[data-column-sizing]
+  :is(td, th, p, span, li, h1, h2, h3, h4, h5, h6, label, a, code) {
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+/* A shadow at each edge the table can still scroll toward. The covers move
+   with the table and hide a shadow once its edge is reached. */
+.content-editor .tableWrapper[data-table-scrolls] {
+  background:
+    linear-gradient(
+        to right,
+        hsl(var(--background)) 30%,
+        hsl(var(--background) / 0)
+      )
+      left center / 40px 100% no-repeat local,
+    linear-gradient(
+        to left,
+        hsl(var(--background)) 30%,
+        hsl(var(--background) / 0)
+      )
+      right center / 40px 100% no-repeat local,
+    radial-gradient(
+        farthest-side at 0 50%,
+        hsl(var(--foreground) / 0.16),
+        transparent
+      )
+      left center / 14px 100% no-repeat scroll,
+    radial-gradient(
+        farthest-side at 100% 50%,
+        hsl(var(--foreground) / 0.16),
+        transparent
+      )
+      right center / 14px 100% no-repeat scroll;
+}
+
+/* On a phone, a table too wide to read that holds sentences shows each row as
+   a card: its first cell as the title, then each value under its header. */
+.content-editor table[data-column-sizing="cards"] {
+  display: block;
+  width: auto !important;
+  min-width: 0 !important;
+}
+
+.content-editor
+  table[data-column-sizing="cards"]
+  :is(colgroup, .column-resize-handle) {
+  display: none;
+}
+
+.content-editor table[data-column-sizing="cards"] :is(tbody, tr) {
+  display: block;
+}
+
+.content-editor table[data-column-sizing="cards"] tr {
+  padding: 10px 12px;
+  border-bottom: 1px solid hsl(var(--border));
+}
+
+.content-editor table[data-column-sizing="cards"] tr:last-child {
+  border-bottom: none;
+}
+
+.content-editor table[data-column-sizing="cards"] :is(td, th) {
+  display: block;
+  padding: 0;
+  border: none;
+  text-align: left;
+}
+
+.content-editor table[data-column-sizing="cards"] :is(td, th) + :is(td, th) {
+  margin-top: 6px;
+}
+
+.content-editor table[data-column-sizing="cards"] tr > :first-child {
+  font-weight: 600;
+}
+
+.content-editor table[data-column-sizing="cards"] [data-label]::before {
+  content: attr(data-label);
+  display: block;
+  font-size: 0.75rem;
+  font-weight: 500;
+  line-height: 1.5;
+  color: hsl(var(--muted-foreground));
+}
+
+.content-editor
+  table[data-column-sizing="cards"]
+  tr
+  > [data-label]:first-child::before {
+  display: none;
+}
+
+/* The header row's labels are on every card. While editing it stays, as a
+   card of its own, so its cells can still be edited. */
+.content-editor
+  table[data-column-sizing="cards"]
+  tr:first-child:not(:has(> td))
+  > :is(td, th) {
+  background-color: transparent;
+}
+
+.content-editor
+  table[data-column-sizing="cards"]
+  tr:first-child:not(:has(> td)) {
+  background-color: hsl(var(--muted) / 0.45);
+}
+
+.content-editor:not([contenteditable="true"])
+  table[data-column-sizing="cards"]
+  :is(tr:first-child:not(:has(> td)), td[data-empty]) {
+  display: none;
+}
+
 .content-editor table td,
 .content-editor table th {
   border-right: 1px solid hsl(var(--border));
@@ -943,12 +1086,25 @@
 .content-editor table th {
   font-weight: inherit;
   text-align: left;
-  background-color: transparent;
 }
 
 .content-editor table .content-table-header-cell {
-  background-color: hsl(var(--muted) / 0.45);
   font-weight: 500;
+}
+
+/* Kept as weak as the colour classes below, which come later and so win. */
+.content-editor :where(table .content-table-header-cell) {
+  background-color: hsl(var(--muted) / 0.45);
+}
+
+.content-editor :where(table tr.content-block-bg > .content-table-header-cell) {
+  background-color: transparent;
+}
+
+/* Rows and cells take block colours, but stay rows and cells. */
+.content-editor table :is(tr, td, th).content-block-bg {
+  display: revert;
+  border-radius: 0;
 }
 
 .content-editor table .selectedCell:after {
@@ -1139,6 +1295,46 @@
   margin-top: 0;
 }
 
+/* A titled Toggle's title is the first block of its content, beside the
+   chevron, and a closed Toggle hides the blocks after it. */
+.content-toggle--titled {
+  position: relative;
+  padding-left: calc(1rem + 0.5em);
+}
+
+.content-toggle--titled > .content-toggle__chevron {
+  position: absolute;
+  top: 0;
+  left: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+
+.content-toggle__title {
+  font-weight: 500;
+}
+
+.content-toggle--titled:not(.content-toggle--open)
+  > .content-toggle__content
+  > [data-node-view-content-react]
+  > :not(.content-toggle__title) {
+  display: none;
+}
+
+.content-editor .content-toggle__title.is-empty::before,
+.content-toggle--title-empty
+  > .content-toggle__content
+  > [data-node-view-content-react]
+  > .content-toggle__title::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: hsl(var(--muted-foreground));
+  pointer-events: none;
+  height: 0;
+}
+
 div[data-notion-callout] {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr);
@@ -1165,15 +1361,19 @@ div[data-notion-callout-content] > :last-child {
   margin-bottom: 0;
 }
 
+/* Columns share the row by their ratio (each column's flex-grow), or equally
+   without one. A row too narrow for every column's minimum wraps, and a phone
+   stacks them. */
 div[data-notion-columns] {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  display: flex;
+  flex-wrap: wrap;
   gap: 1rem;
   margin: 1rem 0;
 }
 
 div[data-notion-column] {
-  min-width: 0;
+  flex: 1 1 0%;
+  min-width: min(100%, 8rem);
   border: 1px solid hsl(var(--border));
   border-radius: 12px;
   padding: 0.85rem 0.95rem;
@@ -1186,6 +1386,12 @@ div[data-notion-column] > :first-child {
 
 div[data-notion-column] > :last-child {
   margin-bottom: 0;
+}
+
+@media (max-width: 640px) {
+  div[data-notion-column] {
+    flex-basis: 100%;
+  }
 }
 
 .content-atom {
@@ -1518,6 +1724,65 @@ div[data-notion-column] > :last-child {
   width: 100%;
 }
 
+/* An image this tab is uploading, drawn from the picked file meanwhile. */
+.media-block__staged-upload {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.media-block__upload-status {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: 999px;
+  background: hsl(0 0% 10% / 0.7);
+  backdrop-filter: blur(8px);
+  color: hsl(0 0% 95%);
+  pointer-events: none;
+}
+
+.media-block--upload[data-failed] .media-block__content {
+  opacity: 0.45;
+}
+
+.media-block__upload-failure {
+  position: absolute;
+  right: 8px;
+  bottom: 8px;
+  left: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  line-height: 1.4;
+}
+
+.media-block__upload-failure-text {
+  padding: 5px 10px;
+  border-radius: 6px;
+  background: hsl(0 0% 10% / 0.75);
+  backdrop-filter: blur(8px);
+  color: hsl(0 0% 95%);
+  font-size: 12px;
+  font-weight: 500;
+}
+
+.media-block__upload-failure-actions {
+  display: flex;
+  gap: 4px;
+}
+
 .media-block__broken {
   display: flex;
   align-items: center;
@@ -1531,6 +1796,10 @@ div[data-notion-column] > :last-child {
   color: hsl(var(--muted-foreground));
   padding: 1.25rem;
   line-height: 1.4;
+}
+
+.media-block__broken--fill {
+  width: 100%;
 }
 
 .media-block__broken-icon {
@@ -1986,10 +2255,13 @@ audio.media-block__content {
   background: hsl(0 0% 0% / 0.68);
 }
 
+/* The toolkit's dialog overlay sits at z-index 270, so the lightbox goes where
+   the toolkit puts a dialog's content, above it. Under it, the overlay dims
+   the media and takes its clicks. */
 .media-lightbox {
   position: fixed;
   inset: 0;
-  z-index: 251;
+  z-index: 280;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -2386,10 +2658,12 @@ audio.media-block__content {
 
   [data-document-print-root] {
     position: absolute !important;
-    inset: 0 !important;
+    inset: 0 0 auto !important;
     display: block !important;
     width: 100% !important;
+    height: auto !important;
     min-height: auto !important;
+    overflow: visible !important;
     background: #fff !important;
     color: #111 !important;
   }
@@ -2474,6 +2748,20 @@ audio.media-block__content {
   --comment-highlight-fill: hsl(210 100% 52% / 0.2);
   --comment-highlight-line: hsl(210 100% 52% / 0.55);
   cursor: default;
+}
+/* A thread on a whole block, such as a video, rings it: a fill would cover
+   the video. */
+.content-editor .comment-highlight.comment-highlight--block {
+  background: none;
+  padding: 0;
+  margin-inline: 0;
+  border-radius: 6px;
+  cursor: default;
+  box-shadow: 0 0 0 2px var(--comment-highlight-line);
+}
+.content-editor .comment-highlight--block.comment-highlight--hovered,
+.content-editor .comment-highlight--block.comment-highlight--active {
+  box-shadow: 0 0 0 3px var(--comment-highlight-line);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -2572,13 +2860,15 @@ audio.media-block__content {
   text-decoration: line-through;
   text-decoration-color: hsl(var(--muted-foreground) / 0.8);
 }
+/* Removed text stays struck through while it's pointed at or selected, so it
+   never reads as the text that replaces it. */
 .content-editor .suggestion-delete:hover,
 .content-editor .suggestion-delete:focus-visible,
 .content-editor .suggestion-delete-widget:hover,
 .content-editor .suggestion-delete-widget:focus-visible {
   background: hsl(var(--muted));
   color: hsl(var(--foreground));
-  text-decoration: none;
+  text-decoration-color: hsl(var(--foreground) / 0.7);
 }
 
 .content-editor .suggestion-change {
@@ -2587,12 +2877,51 @@ audio.media-block__content {
   color: hsl(var(--suggestion));
 }
 
+/* A line break has no ink of its own to highlight. */
+.content-editor .suggestion-line-break::before {
+  content: "↵";
+}
+
 .content-editor .suggestion-insert[data-suggestion-widget],
 .content-editor .suggestion-add-block[data-suggestion-widget] {
   border-radius: 0.2em;
   background: hsl(var(--suggestion) / 0.12);
   box-shadow: inset 0 -2px hsl(var(--suggestion) / 0.55);
   color: hsl(var(--suggestion));
+}
+
+/* New words after the struck words they replace start a little apart, so the
+   two runs don't read as one word. */
+.content-editor
+  .suggestion-inline-widget.suggestion-insert--spaced[data-suggestion-widget] {
+  margin-inline-start: 0.3em;
+}
+
+/* A whole suggested line is drawn as the block it adds or removes, marked by
+   a bar at its edge rather than an underline across it. */
+.content-editor .suggestion-block-widget[data-suggestion-widget] {
+  border-radius: 0.2em;
+  box-shadow: inset 2px 0 hsl(var(--suggestion) / 0.55);
+}
+/* A list item keeps its list's layout, which places the marker. */
+.content-editor .suggestion-block-widget[data-suggestion-widget]:not(li) {
+  display: block;
+}
+.content-editor
+  .suggestion-block-widget.suggestion-highlight--active[data-suggestion-widget] {
+  box-shadow: inset 3px 0 hsl(var(--suggestion));
+}
+.content-editor .suggestion-block-widget[data-suggestion-widget] > * {
+  color: inherit;
+}
+.content-editor
+  .suggestion-delete-widget.suggestion-block-widget[data-suggestion-widget],
+.content-editor .suggestion-delete-block {
+  box-shadow: inset 2px 0 hsl(var(--muted-foreground) / 0.5);
+}
+.content-editor .suggestion-delete-block {
+  border-radius: 0.2em;
+  background: hsl(var(--muted) / 0.7);
 }
 
 .content-editor .suggestion-highlight--active {
@@ -2606,7 +2935,14 @@ audio.media-block__content {
 .content-editor .suggestion-delete.suggestion-highlight--active,
 .content-editor .suggestion-delete-widget.suggestion-highlight--active {
   background: hsl(var(--muted));
+  box-shadow: none;
   color: hsl(var(--foreground));
+  text-decoration: line-through;
+  text-decoration-color: hsl(var(--foreground) / 0.7);
+  text-decoration-thickness: auto;
+}
+.content-editor .suggestion-delete-block.suggestion-highlight--active {
+  background: hsl(var(--muted));
   text-decoration: none;
 }
 
@@ -2644,6 +2980,13 @@ audio.media-block__content {
   gap: 2px;
   border-top: 1px solid hsl(var(--border) / 0.8);
   padding: 6px 8px 6px 6px;
+}
+/* A send button whose label doesn't fit beside the tools, such as Suggest in
+   a margin card, moves to its own line instead of spilling past the border. */
+[data-comment-composer][data-state="expanded"]
+  [data-agent-composer-slot="toolbar"] {
+  flex-wrap: wrap;
+  row-gap: 4px;
 }
 [data-comment-composer][data-state="resting"] .comment-composer-root {
   flex-direction: row;
@@ -2710,22 +3053,42 @@ audio.media-block__content {
   height: 12px;
 }
 
-/* A thread AI resolved folds into this mark, which holds briefly and fades. */
-@keyframes comment-ai-resolved-mark-fade {
-  0%,
-  80% {
-    opacity: 1;
+/* A folded stack's new front comes up out of the sheets, over the card it
+   replaces; that card is drawn first, so it stays underneath as it sinks back. */
+@keyframes comment-stack-front-in {
+  from {
+    transform: translateY(14px) scale(0.95);
   }
-  100% {
+}
+@keyframes comment-stack-front-out {
+  to {
+    opacity: 0;
+    transform: translateY(6px) scale(0.97);
+  }
+}
+@keyframes comment-stack-front-fade-in {
+  from {
     opacity: 0;
   }
 }
-.comment-ai-resolved-mark {
-  animation: comment-ai-resolved-mark-fade 8s ease-in forwards;
+@keyframes comment-stack-front-fade-out {
+  to {
+    opacity: 0;
+  }
 }
-.comment-ai-resolved-mark:hover,
-.comment-ai-resolved-mark:focus-visible {
-  animation-play-state: paused;
+.comment-stack-front-enter {
+  animation: comment-stack-front-in 220ms var(--ease-drawer);
+}
+.comment-stack-front-leave {
+  animation: comment-stack-front-out 220ms var(--ease-drawer) forwards;
+}
+@media (prefers-reduced-motion: reduce) {
+  .comment-stack-front-enter {
+    animation: comment-stack-front-fade-in 120ms linear;
+  }
+  .comment-stack-front-leave {
+    animation: comment-stack-front-fade-out 120ms linear forwards;
+  }
 }
 
 .slash-command-menu {
@@ -2766,14 +3129,19 @@ audio.media-block__content {
   background: hsl(var(--accent));
 }
 
+/* A collaborator's selection: a tint in their colour, as strong as a local
+   selection, behind text left at full strength. */
 .content-editor .collaboration-carets__selection,
 .content-editor .collaboration-cursor__selection,
 .content-editor .ProseMirror-yjs-selection {
-  background-color: currentColor !important;
+  background-color: color-mix(
+    in srgb,
+    var(--collaboration-color, currentColor) 20%,
+    transparent
+  ) !important;
   border-radius: 2px;
   box-decoration-break: clone;
   -webkit-box-decoration-break: clone;
-  opacity: 0.16;
 }
 
 .content-editor .collaboration-carets__selection,

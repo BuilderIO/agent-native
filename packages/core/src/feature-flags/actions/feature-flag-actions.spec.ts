@@ -2,7 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const chain = () => {
   const value: Record<string, unknown> = {};
-  for (const method of ["min", "max", "email", "int", "optional"]) {
+  for (const method of ["min", "max", "email", "int", "optional", "describe"]) {
     value[method] = () => value;
   }
   return value;
@@ -33,9 +33,12 @@ vi.mock("../registry.js", () => ({
 }));
 
 const requireFeatureFlagManagerMock = vi.fn();
+const getFeatureFlagManagerAccessMock = vi.fn();
 vi.mock("../permissions.js", () => ({
   requireFeatureFlagManager: (...args: any[]) =>
     requireFeatureFlagManagerMock(...args),
+  getFeatureFlagManagerAccess: (...args: any[]) =>
+    getFeatureFlagManagerAccessMock(...args),
 }));
 
 const getOrgDomainMock = vi.fn();
@@ -45,6 +48,13 @@ vi.mock("../../org/context.js", () => ({
 
 const defaultFeatureFlagRulesMock = vi.fn();
 const getFeatureFlagRulesMock = vi.fn();
+const readFeatureFlagRuleLayersMock = vi.fn(
+  async (key: string, scope: unknown) => ({
+    inEffect: "global",
+    global: { state: "set", rules: await getFeatureFlagRulesMock(key, scope) },
+    org: null,
+  }),
+);
 const evaluateFeatureFlagRulesMock = vi.fn();
 const normalizeFeatureFlagRulesMock = vi.fn((value) => value);
 const mutateFeatureFlagRulesMock = vi.fn(
@@ -54,13 +64,37 @@ const mutateFeatureFlagRulesMock = vi.fn(
     updater: (current: Record<string, unknown>) => Record<string, unknown>,
   ) => updater(await getFeatureFlagRulesMock(key, scope)),
 );
+const replaceFeatureFlagRulesMock = vi.fn(
+  async (_key: string, _scope: unknown, rules: Record<string, unknown>) =>
+    rules,
+);
 vi.mock("../store.js", () => ({
+  FeatureFlagRulesError: class extends Error {},
   defaultFeatureFlagRules: () => defaultFeatureFlagRulesMock(),
   getFeatureFlagRules: (...args: any[]) => getFeatureFlagRulesMock(...args),
+  readFeatureFlagRuleLayersForKeys: async (
+    keys: readonly string[],
+    scope: unknown,
+  ) =>
+    new Map(
+      await Promise.all(
+        keys.map(
+          async (key) =>
+            [key, await readFeatureFlagRuleLayersMock(key, scope)] as const,
+        ),
+      ),
+    ),
+  featureFlagRuleInEffect: (layers: any) =>
+    layers.inEffect === "org" && layers.org ? layers.org : layers.global,
+  evaluateStoredFeatureFlagRule: (key: string, stored: any, scope: unknown) =>
+    stored.state === "set" &&
+    evaluateFeatureFlagRulesMock(key, stored.rules, scope),
   evaluateFeatureFlagRules: (...args: any[]) =>
     evaluateFeatureFlagRulesMock(...args),
   mutateFeatureFlagRules: (...args: any[]) =>
     mutateFeatureFlagRulesMock(...args),
+  replaceFeatureFlagRules: (...args: any[]) =>
+    replaceFeatureFlagRulesMock(...args),
   normalizeFeatureFlagRules: (...args: any[]) =>
     normalizeFeatureFlagRulesMock(...args),
 }));
@@ -79,6 +113,13 @@ beforeEach(() => {
   requireFeatureFlagManagerMock.mockResolvedValue({
     email: "admin@example.com",
     orgId: "org-1",
+    scope: "org",
+  });
+  getFeatureFlagManagerAccessMock.mockResolvedValue({
+    email: "admin@example.com",
+    orgId: "org-1",
+    canManageOrg: true,
+    canManageGlobal: false,
   });
   getOrgDomainMock.mockResolvedValue("builder.io");
   defaultFeatureFlagRulesMock.mockReturnValue({
@@ -104,9 +145,12 @@ beforeEach(() => {
 
 describe("feature flag action contracts", () => {
   it("does not leak operator rules to a non-manager", async () => {
-    requireFeatureFlagManagerMock.mockRejectedValue(
-      Object.assign(new Error("forbidden"), { statusCode: 403 }),
-    );
+    getFeatureFlagManagerAccessMock.mockResolvedValue({
+      email: "member@example.com",
+      orgId: "org-1",
+      canManageOrg: false,
+      canManageGlobal: false,
+    });
 
     await expect(listAction.run({}, { caller: "frontend" })).resolves.toEqual({
       contractVersion: 1,
@@ -115,7 +159,7 @@ describe("feature flag action contracts", () => {
       flags: [],
       canManage: false,
     });
-    expect(getFeatureFlagRulesMock).not.toHaveBeenCalled();
+    expect(readFeatureFlagRuleLayersMock).not.toHaveBeenCalled();
   });
 
   it("reports no definitions only after authorizing the manager", async () => {
@@ -133,7 +177,7 @@ describe("feature flag action contracts", () => {
       flags: [],
       canManage: true,
     });
-    expect(requireFeatureFlagManagerMock).toHaveBeenCalledOnce();
+    expect(getFeatureFlagManagerAccessMock).toHaveBeenCalledOnce();
   });
 
   it("reports whether the delegated operator currently has each flag", async () => {
@@ -182,6 +226,7 @@ describe("feature flag action contracts", () => {
       ),
     ).rejects.toThrow("managed in Labs");
     expect(mutateFeatureFlagRulesMock).not.toHaveBeenCalled();
+    expect(replaceFeatureFlagRulesMock).not.toHaveBeenCalled();
   });
 
   it("keeps administrative mutation out of extensions and returns persisted rules", async () => {
@@ -198,10 +243,10 @@ describe("feature flag action contracts", () => {
         summary: expect.any(Function),
       }),
     );
-    expect(mutateFeatureFlagRulesMock).toHaveBeenCalledWith(
+    expect(replaceFeatureFlagRulesMock).toHaveBeenCalledWith(
       "new-editor",
-      { email: "admin@example.com", orgId: "org-1" },
-      expect.any(Function),
+      { orgId: "org-1" },
+      expect.objectContaining({ mode: "off", updatedBy: "admin@example.com" }),
     );
     expect(result).toEqual({
       contractVersion: 2,
@@ -211,7 +256,7 @@ describe("feature flag action contracts", () => {
         updatedAt: expect.any(Number),
         updatedBy: "admin@example.com",
       }),
-      scope: { orgId: "org-1", orgDomain: "builder.io" },
+      scope: { kind: "org", orgId: "org-1", orgDomain: "builder.io" },
     });
   });
 
@@ -225,6 +270,7 @@ describe("feature flag action contracts", () => {
       ),
     ).rejects.toThrow("organization domain is unavailable");
     expect(mutateFeatureFlagRulesMock).not.toHaveBeenCalled();
+    expect(replaceFeatureFlagRulesMock).not.toHaveBeenCalled();
   });
 
   it("keeps local mutations available when the organization has no domain", async () => {
@@ -237,10 +283,10 @@ describe("feature flag action contracts", () => {
       ),
     ).resolves.toEqual(
       expect.objectContaining({
-        scope: { orgId: "org-1", orgDomain: null },
+        scope: { kind: "org", orgId: "org-1", orgDomain: null },
       }),
     );
-    expect(mutateFeatureFlagRulesMock).toHaveBeenCalledOnce();
+    expect(replaceFeatureFlagRulesMock).toHaveBeenCalledOnce();
   });
 
   it("does not narrow a globally-on flag when enabling the current user", async () => {
@@ -264,7 +310,7 @@ describe("feature flag action contracts", () => {
     );
   });
 
-  it("derives replacement rules inside the atomic mutation", async () => {
+  it("writes replacement rules whole, without reading the stored rule", async () => {
     await setAction.run(
       {
         operation: "replace-rules",
@@ -274,8 +320,10 @@ describe("feature flag action contracts", () => {
       { caller: "tool", userEmail: "admin@example.com", orgId: "org-1" },
     );
 
-    expect(mutateFeatureFlagRulesMock).toHaveBeenCalledOnce();
-    expect(normalizeFeatureFlagRulesMock).toHaveBeenCalledWith(
+    expect(mutateFeatureFlagRulesMock).not.toHaveBeenCalled();
+    expect(replaceFeatureFlagRulesMock).toHaveBeenCalledWith(
+      "new-editor",
+      { orgId: "org-1" },
       expect.objectContaining({ mode: "rules", percentage: 50 }),
     );
   });

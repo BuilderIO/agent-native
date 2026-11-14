@@ -29,6 +29,7 @@ import { deflateRawSync, inflateRawSync } from "node:zlib";
 
 import {
   decryptSecretValue,
+  decryptWithSecretKeys,
   getSecretEncryptionKey,
 } from "../secrets/crypto.js";
 import {
@@ -243,17 +244,12 @@ function sealDescriptor(plaintext: string): string {
 function unsealDescriptor(sealed: string): string {
   const raw = Buffer.from(sealed, "base64url");
   if (raw.length <= 28) throw new Error("sealed descriptor is too short");
-  const decipher = createDecipheriv(
-    "aes-256-gcm",
-    getSecretEncryptionKey(),
-    raw.subarray(0, 12),
-  );
-  decipher.setAuthTag(raw.subarray(12, 28));
-  // The auth tag is verified in `final()`, before anything is inflated.
-  const deflated = Buffer.concat([
-    decipher.update(raw.subarray(28)),
-    decipher.final(),
-  ]);
+  const deflated = decryptWithSecretKeys((key) => {
+    const decipher = createDecipheriv("aes-256-gcm", key, raw.subarray(0, 12));
+    decipher.setAuthTag(raw.subarray(12, 28));
+    // The auth tag is verified in `final()`, before anything is inflated.
+    return Buffer.concat([decipher.update(raw.subarray(28)), decipher.final()]);
+  });
   return inflateRawSync(deflated).toString("utf8");
 }
 

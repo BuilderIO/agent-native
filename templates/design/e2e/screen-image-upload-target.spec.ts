@@ -14,7 +14,7 @@ const SCREEN_A_HTML = `<!doctype html><html lang="en"><head><meta charset="utf-8
 const SCREEN_B_HTML = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Screen B</title></head><body data-agent-native-layer-name="Screen B" style="margin:0;background-color:#805500"><main>Screen B source</main></body></html>`;
 
 type DesignRecord = {
-  files?: Array<{ id: string; filename: string; content: string }>;
+  files?: Array<{ id: string; filename: string; content?: string }>;
 };
 
 async function postAction(
@@ -215,10 +215,10 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
           ms: Date.now() - timelineStart,
           sequence,
           event: "browser-get-design-response",
-          screenAHasConcurrentMarker: file.content.includes(
-            "Screen A source updated during upload",
-          ),
-          screenAContentLength: file.content.length,
+          screenAHasConcurrentMarker:
+            file.content?.includes("Screen A source updated during upload") ??
+            null,
+          screenAContentLength: file.content?.length ?? null,
           screenAUpdatedAt: (file as { updatedAt?: string }).updatedAt ?? null,
         });
       })
@@ -317,7 +317,7 @@ test("delayed Screen-root image upload stays with its original Screen", async ({
         const design = JSON.parse(body) as DesignRecord;
         const file = design.files?.find((entry) => entry.id === screenAId);
         screenAHasConcurrentMarker =
-          file?.content.includes("Screen A source updated during upload") ??
+          file?.content?.includes("Screen A source updated during upload") ??
           null;
       } catch {
         screenAHasConcurrentMarker = null;
@@ -734,6 +734,7 @@ test("active Screen upload conflict preserves SQL and live-collaboration source"
   });
   const uploadRoute = "**/_agent-native/actions/upload-image";
   const designReadRoute = "**/_agent-native/actions/get-design*";
+  const batchedReadRoute = "**/_agent-native/actions/get-actions-batch*";
   const pollRoute = "**/_agent-native/poll?*";
   const eventsRoute = "**/_agent-native/events*";
   const timelineStart = Date.now();
@@ -837,10 +838,22 @@ test("active Screen upload conflict preserves SQL and live-collaboration source"
       timeline.push({
         ms: Date.now() - timelineStart,
         event: "held-active-browser-design-read",
-        hasMarker: source?.content.includes(marker) ?? false,
+        hasMarker: source?.content?.includes(marker) ?? null,
       });
       await waitForGate(browserReadGate, "active browser get-design release");
       await route.fulfill({ response, body });
+    });
+    await page.route(batchedReadRoute, async (route) => {
+      const readsDesign = (route.request().postData() ?? "").includes(
+        '"action":"get-design"',
+      );
+      if (holdBrowserReads && readsDesign) {
+        await waitForGate(
+          browserReadGate,
+          "active browser batched get-design release",
+        );
+      }
+      await route.continue();
     });
 
     const collabStateResponsePromise = page.waitForResponse(
@@ -1386,7 +1399,7 @@ test("accepted Screen-root image upload persists and renders its source", async 
     await page.reload();
     await expect(
       page.getByRole("button", { name: "Move", exact: true }),
-    ).toBeVisible({ timeout: 30_000 });
+    ).toBeVisible();
     await app.zoomToFit();
     await expect
       .poll(async () => readScreenHtml(page, designId, screenAId))

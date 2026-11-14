@@ -29,6 +29,24 @@ gh workflow run beta-e2e.yml --ref main -f apps=design -f lane=authed
 
 The `public` lane needs no secrets, so it works today with no setup.
 
+### Disposable Netlify durability proofs
+
+Every local-source `Deploy hosts` run seeds an AgentHarness follow-up with a
+short claim lease after the first scheduler health check. It waits for a later
+signed Netlify scheduler tick, then verifies that recovery clears the claim,
+advances the session generation, and journals `not_dispatched` in that run's
+disposable database.
+
+The `Deploy hosts` workflow can opt into `exercise_chat_durability` for the
+`local` Netlify slot. It signs up a temporary `+autoz` account in that run's
+disposable database, installs the limited test key at that user's scope, and
+runs focused Chat reliability specs for busy POST attachment persistence, Stop,
+and mid-run reload against the dedicated
+`an-deploy-ci-netlify-local` test site before dropping the database. It does
+not use the Beta fleet or a shared database. The attachment case uses a
+reference-only URL to verify queued receipt and thread persistence; it does not
+exercise object-storage upload.
+
 It is sharded one host per runner. A page load against a beta host costs 1-2s
 from a laptop and 20-40s from a GitHub runner, because the fleet sits behind one
 CDN that throttles bursty datacenter traffic — on a single runner the sweep took
@@ -47,17 +65,17 @@ shards (at most 8 at a time), `fleet`, and `advisory` start as soon as
 5 at a time). The authenticated lane is one job per slot, 12 in all, so a hang
 or failure in one place is isolated and named:
 
-| Slot                                       | Project                | Tests                                                                   | Job limit / `globalTimeout` |
-| ------------------------------------------ | ---------------------- | ----------------------------------------------------------------------- | --------------------------- |
-| `chat-slides`                              | `chat` (slides)        | chat, A2A, realtime (10 idle minutes), reliability                      | 30 / 27 min                 |
-| `chat-analytics`, `chat-chat`              | `chat` (that app)      | chat, reliability (5 scenarios, ~8 turns)                               | 30 / 25 min                 |
-| `chat-content`, `chat-dispatch`            | `chat` (that app)      | chat, reliability (1 scenario)                                          | 20 / 15 min                 |
-| `journeys-session-1`, `journeys-session-2` | `journeys-session`     | `[journey] [session]`, 13 tests split by `--shard=1/2`, `2/2`           | 30 / 25 min                 |
-| `journeys-credentials`                     | `journeys-credentials` | `[credentials]` (12) and `[settings-keys]` (3)                          | 30 / 25 min                 |
-| `journeys-flows`                           | `journeys-flows`       | `[slides-import]`, `[forms]`, `[design-systems]`, `[dispatch-apps]` (7) | 30 / 25 min                 |
-| `journeys-core`                            | `journeys-core`        | the original 38 journeys                                                | 20 / 15 min                 |
-| `design`                                   | `design`               | editor interactions and culling                                         | 15 / 11 min                 |
-| `registry`                                 | `registry`             | per-app registry checks                                                 | 10 / 7 min                  |
+| Slot                                       | Project                | Tests                                                                                            | Job limit / `globalTimeout` |
+| ------------------------------------------ | ---------------------- | ------------------------------------------------------------------------------------------------ | --------------------------- |
+| `chat-slides`                              | `chat` (slides)        | chat, A2A, realtime (10 idle minutes), reliability                                               | 30 / 27 min                 |
+| `chat-analytics`, `chat-chat`              | `chat` (that app)      | chat, reliability (5 scenarios, ~8 turns)                                                        | 30 / 25 min                 |
+| `chat-content`, `chat-dispatch`            | `chat` (that app)      | chat, reliability (1 scenario)                                                                   | 20 / 15 min                 |
+| `journeys-session-1`, `journeys-session-2` | `journeys-session`     | `[journey] [session]`, 13 tests split by `--shard=1/2`, `2/2`                                    | 30 / 25 min                 |
+| `journeys-credentials`                     | `journeys-credentials` | `[credentials]` (12) and `[settings-keys]` (3)                                                   | 30 / 25 min                 |
+| `journeys-flows`                           | `journeys-flows`       | `[slides-import]`, `[forms]`, `[design-systems]`, `[dispatch-apps]` (7), `[content-review]` (16) | 30 / 25 min                 |
+| `journeys-core`                            | `journeys-core`        | the original 38 journeys                                                                         | 20 / 15 min                 |
+| `design`                                   | `design`               | editor interactions and culling                                                                  | 15 / 11 min                 |
+| `registry`                                 | `registry`             | per-app registry checks                                                                          | 10 / 7 min                  |
 
 The journeys used to be one slot of ~75 serial tests with a 15 minute limit. A
 spec file belongs to exactly one project (`journeys-core` takes every file under
@@ -202,7 +220,10 @@ A browser opens per app. Sign in with the account this suite should run as —
 prefer a dedicated e2e account over a personal one. The command prints the
 values for `BETA_E2E_EMAIL` and `BETA_E2E_SESSION_TOKENS`. These are live
 sessions for that account: treat them as credentials, and re-run the command
-every 30 days when they expire.
+every 30 days when they expire. For an app using a different dedicated QA identity,
+set its exact email in `BETA_E2E_EMAILS` and replace only that app’s entry in the
+full session-token map. Preserve other apps’ identities and tokens. Every selected
+app needs either its own identity override or the fallback.
 
 **2. An OpenAI key.** Two options, and the run says out loud which one it used.
 
@@ -225,14 +246,15 @@ change the default for everyone in the org.
 
 ### Repository secrets
 
-| Secret                        | Purpose                                                                                                |
-| ----------------------------- | ------------------------------------------------------------------------------------------------------ |
-| `BETA_E2E_EMAIL`              | The dedicated `+autoz` identity every authenticated spec asserts it is running as                      |
-| `BETA_E2E_SESSION_TOKENS`     | Per-app map from `e2e:beta:capture`, e.g. `{"slides": "…", "chat": "…"}`                               |
-| `BETA_E2E_SESSION_TOKEN_CRM`  | Optional beta CRM override when its isolated database needs a fresh session                            |
-| `BETA_E2E_SESSION_TOKEN_CHAT` | Optional beta Chat override when its isolated database needs a fresh session                           |
-| `BETA_E2E_OPENAI_API_KEY`     | Dedicated, separately-limited key for agent turns. Omit only if you dispatch with `key_source=shared`. |
-| `QA_SLACK_BOT_TOKEN`          | Slack bot token (`chat:write`) the scheduled reporter posts to `#qa-agent-native` with. See below.     |
+| Secret                        | Purpose                                                                                                                              |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `BETA_E2E_EMAIL`              | Fallback dedicated `+autoz` identity for apps without a `BETA_E2E_EMAILS` override                                                   |
+| `BETA_E2E_EMAILS`             | Optional per-app dedicated `+autoz` identity map. Only listed apps override the default; session tokens must match those identities. |
+| `BETA_E2E_SESSION_TOKENS`     | Per-app map from `e2e:beta:capture`, e.g. `{"slides": "…", "chat": "…"}`                                                             |
+| `BETA_E2E_SESSION_TOKEN_CRM`  | Optional beta CRM override when its isolated database needs a fresh session                                                          |
+| `BETA_E2E_SESSION_TOKEN_CHAT` | Optional beta Chat override when its isolated database needs a fresh session                                                         |
+| `BETA_E2E_OPENAI_API_KEY`     | Dedicated, separately-limited key for agent turns. Omit only if you dispatch with `key_source=shared`.                               |
+| `QA_SLACK_BOT_TOKEN`          | Slack bot token (`chat:write`) the scheduled reporter posts to `#qa-agent-native` with. See below.                                   |
 
 The CRM and Chat overrides take precedence over their entries in the map, so
 refreshing an isolated host does not require replacing the other live sessions.
@@ -338,15 +360,17 @@ gap stays visible until someone uses Builder.io storage for the account. A statu
 cannot be read, or one that says ready while the upload is then refused, still
 fails.
 
-If `BETA_E2E_EMAIL` is not the dedicated `+autoz` identity, keep the run
-failed. The existing recovery command for the fleet run is:
+If the resolved identity (`BETA_E2E_EMAILS` entry, or the `BETA_E2E_EMAIL`
+fallback) is not the dedicated `+autoz` identity for that app, keep the run failed. The existing recovery command for the fleet run is:
 
 ```bash
 pnpm e2e:beta:capture
 ```
 
 Replace the `BETA_E2E_EMAIL` and `BETA_E2E_SESSION_TOKENS` repository secrets
-with the command's output, then rerun the authenticated lane. A targeted
+with the command's output for a full-fleet refresh, then rerun the authenticated lane.
+For an overridden app, update its `BETA_E2E_EMAILS` entry and matching token
+without replacing unrelated entries; changing the fallback does not change an override. A targeted
 `pnpm e2e:beta:capture design` refresh is valid only for a Design-only
 dispatch; it must not replace the fleet token map used by scheduled runs. Do
 not weaken the `+autoz` validation.

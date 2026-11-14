@@ -1,4 +1,13 @@
 export default {
+  composerSources: {
+    uploadFailed: "Não foi possível fazer upload do arquivo selecionado.",
+    reference: "Referenciar um painel…",
+    group: "Painéis",
+    authentication: "Entre para adicionar uma referência.",
+    invalid: "Escolha uma referência válida antes de enviar.",
+    unavailable:
+      "Uma referência selecionada não está mais disponível. Remova-a ou selecione-a novamente.",
+  },
   root: {
     whatsNew: "Novidades",
   },
@@ -1383,6 +1392,8 @@ export default {
     resetFilters: "Redefinir filtros",
     collapseFilters: "Recolher filtros",
     expandFilters: "Expandir filtros",
+    collapseDescription: "Recolher descrição",
+    expandDescription: "Expandir descrição",
     drilldownChartPoints: "Pontos do gráfico",
     drilldownPreviousPage: "Página anterior dos pontos do gráfico",
     drilldownNextPage: "Página seguinte dos pontos do gráfico",
@@ -1392,6 +1403,10 @@ export default {
     drilldownHideSql: "Ocultar SQL",
     drilldownDownloadCsv: "Baixar CSV",
     drilldownShowing: "Mostrando {{shown}} de {{total}} registros",
+    drilldownShowingLoaded:
+      "Mostrando {{shown}} de {{loaded}} registros carregados; total desconhecido.",
+    drilldownCsvTruncatedUnknownTotal:
+      "Não se sabe se a exportação está completa; este arquivo inclui {{exported}} de {{loaded}} registros carregados após a filtragem.",
     drilldownCsvTruncated:
       "Exportação incompleta: a consulta encontrou {{total}} registros, mas apenas os primeiros {{loaded}} foram carregados; este arquivo inclui {{exported}} após a filtragem.",
     drilldownCountMismatch:
@@ -1399,13 +1414,24 @@ export default {
     drilldownAggregateOnly:
       "Este painel tem apenas linhas agregadas. As linhas do ponto clicado estão destacadas.",
     drilldownNoRecords: "Nenhum registro correspondente",
+    drilldownNoRecordsIncomplete:
+      "Nenhum registro foi carregado. O resultado está incompleto, então ainda pode haver registros correspondentes.",
+    drilldownNoLoadedMatches:
+      "Nenhum registro carregado corresponde, mas o resultado completo pode incluir registros que não foram carregados.",
     drilldownLoadFailed: "Não foi possível carregar os registros",
+    drilldownOverByteCap:
+      "Estes registros leriam mais de {{gib}} GiB, então não foram carregados. Restrinja os filtros ou o período do painel e tente de novo.",
     filterSeries: "Filter",
+    noXValue: "Sem valor",
     chartTimeRangeOverride: "Substituir o intervalo de tempo deste gráfico",
     chartTimeRangeInherit: "Intervalo do painel",
     hide: "Hide",
     show: "Show",
     saveAsView: "Salvar como visualização",
+    unknownTraffic: "Desconhecido {{count}}",
+    unknownTrafficUnavailable: "Contagem de desconhecidos indisponível",
+    unknownTrafficTip:
+      "Eventos dos últimos {{days}} dias sem host nem ambiente reconhecido. Contam como produção.",
     viewNameRecentPlaceholder: "View name (e.g. 'Recent articles only')",
     to: "to",
     on: "On",
@@ -1471,12 +1497,27 @@ export default {
     columnFormatCurrency: "Moeda",
     columnFormatPercent: "Porcentagem",
     columnFormatDate: "Data",
+    columnFormatDuration: "Duração (segundos)",
     columnRename: "Renomear coluna",
     columnHide: "Ocultar coluna",
     columnShow: 'Mostrar "{{name}}"',
     columnShowHidden: "Mostrar colunas ocultas",
     columnName: "Nome da coluna",
     columnResize: "Redimensionar coluna",
+    metricComparisonVs: "em relação a {{period}}",
+    metricComparisonPreviousPeriod: "o período anterior",
+    metricComparisonNoChange: "Sem alteração",
+    metricComparisonPoints: "{{value}} p.p.",
+    metricComparisonUp:
+      "Alta de {{change}} em relação a {{previous}}, {{period}}",
+    metricComparisonDown:
+      "Queda de {{change}} em relação a {{previous}}, {{period}}",
+    metricComparisonFlat: "Sem alteração em relação a {{previous}}, {{period}}",
+    metricComparisonBetter: "{{comparison}} (melhor)",
+    metricComparisonWorse: "{{comparison}} (pior)",
+    calloutSeverityCritical: "Crítico",
+    calloutSeverityWarning: "Aviso",
+    calloutSeverityInfo: "Informação",
     rowBreakdownBy: "Detalhar por",
     rowBreakdownAll: "Todos",
     rowBreakdownOther: "Outros",
@@ -1682,6 +1723,10 @@ export default {
     hideEmptySessions: "Ocultar sessões vazias",
     networkErrors: "Erros de rede",
     rageClicksFilter: "Cliques de raiva",
+    traffic: "Tráfego",
+    allTraffic: "Todo o tráfego",
+    productionTraffic: "Produção",
+    betaTraffic: "Beta",
     visitors: "Visitantes",
     allVisitors: "Todos os visitantes",
     internalVisitors: "Internos",
@@ -1744,6 +1789,10 @@ export default {
     catalogOpenSessions: "Mostrar sessões com {{event}}",
     catalogAutomatic: "Automático",
     catalogStoppedFiring: "Parou de ser enviado",
+    catalogMadeIt: "Criou",
+    catalogUsedIt: "Usou",
+    catalogNoUsedIt:
+      "“Criou, não usou” não consegue verificar o que é criado em {{apps}} porque nenhum evento de “usou” está definido.",
     catalogPropertyKeys: "Chaves de propriedades",
     catalogMoreKeys: "+{{count}} mais",
     catalogTruncated:
@@ -1759,6 +1808,29 @@ export default {
       "A velocidade é medida nas visualizações de página a partir de agora.",
     speedFilterNeedsLab:
       "Este link tem um filtro de velocidade. Ative o Lab Triagem de sessões em Configurações para aplicá-lo.",
+    unusedOutputs: "Criou, não usou",
+    anyOutcome: "Qualquer sessão",
+    unusedSlidesDecks: "Decks do Slides não usados",
+    unusedSlidesRule:
+      "Decks criados há pelo menos {{days}} dias que, em {{days}} dias, não foram apresentados além do primeiro slide por {{seconds}} s ou mais nem exportados. Abrir um deck não conta.",
+    unusedFilterNeedsLab:
+      "Este link tem um filtro “Criou, não usou”. Ative o Lab Triagem de sessões em Configurações para aplicá-lo.",
+    outputCoverageSince:
+      "Resultados rastreados desde {{date}}; os não usados aparecem {{days}} dias depois de criados.",
+    outputCoverageStarting:
+      "Os resultados são rastreados a partir de agora; os não usados aparecem {{days}} dias depois de criados.",
+    openDeck: "Abrir deck",
+    moreOutputs: "+{{count}} mais",
+    deckCount: "{{count}} decks",
+    deckCountSingular: "{{count}} deck",
+    deckMadeOn: "Deck criado em {{date}}",
+    outputPresentedOn: "Apresentado em {{date}}",
+    outputExportedOn: "Exportado em {{date}}",
+    outputUsedOn: "Usado em {{date}}",
+    outputUnused: "Não usado em {{days}} dias",
+    outputOpen: "Ainda não usado; conta como não usado depois de {{date}}",
+    outputUnmeasured: "Não medido: alguns eventos não puderam ser salvos",
+    outputsUnavailable: "Não foi possível carregar os resultados.",
     slowRequestCount: "{{count}} requisições lentas",
     slowRequestCountSingular: "{{count}} requisição lenta",
     speedIncomplete: "Dados de velocidade incompletos",

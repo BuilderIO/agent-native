@@ -56,6 +56,7 @@ vi.mock("../org/service-principal-guard.js", async (importActual) => ({
 const {
   McpIdentityVerificationUnavailableError,
   McpIdentityVerificationRefusedError,
+  hasVerifiedMcpUserIdentity,
   resolveMcpIdentityOrgId,
   verifyAuth,
 } = await import("./build-server.js");
@@ -95,10 +96,12 @@ describe("verifyAuth — connect-token revoke check", () => {
     delete process.env.BETTER_AUTH_SECRET;
     delete process.env.ACCESS_TOKEN;
     delete process.env.ACCESS_TOKENS;
+    delete process.env.AGENT_NATIVE_OWNER_EMAIL;
   });
   afterEach(() => {
     delete process.env.A2A_SECRET;
     delete process.env.BETTER_AUTH_SECRET;
+    delete process.env.AGENT_NATIVE_OWNER_EMAIL;
   });
 
   it("does NOT query the revoke store for an ordinary A2A JWT (hot path untouched)", async () => {
@@ -359,22 +362,40 @@ describe("verifyAuth — connect-token revoke check", () => {
     expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
   });
 
-  it("preserves unavailable organization credential lookup instead of returning invalid auth", async () => {
-    process.env.A2A_SECRET = "different-global-secret";
-    resolveA2AOrganizationCredentialsByDomainMock.mockRejectedValue(
-      new Error("database unavailable"),
-    );
-    const token = await sign(
-      { sub: "alice@acme", org_domain: "evil.example" },
-      "org-evil-secret",
-    );
+  it.each([
+    "57014",
+    "ECONNREFUSED",
+    "EAI_AGAIN",
+    "CONNECT_TIMEOUT",
+    "ETIMEDOUT",
+    "42501",
+  ])(
+    "preserves unavailable organization credential lookup instead of returning invalid auth: %s",
+    async (code) => {
+      process.env.A2A_SECRET = "different-global-secret";
+      resolveA2AOrganizationCredentialsByDomainMock.mockRejectedValue(
+        Object.assign(new Error("private database failure"), { code }),
+      );
+      const token = await sign(
+        { sub: "alice@acme", org_domain: "evil.example" },
+        "org-evil-secret",
+      );
 
-    await expect(verifyAuth(`Bearer ${token}`, "alice@acme")).resolves.toEqual({
-      authed: false,
-      unavailable: true,
-    });
-    expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
-  });
+      const result = verifyAuth(`Bearer ${token}`, "alice@acme");
+      if (code !== "42501")
+        await expect(result).resolves.toEqual({
+          authed: false,
+          unavailable: true,
+        });
+      else
+        await expect(result).rejects.toMatchObject({
+          statusCode: 500,
+          retryable: false,
+          cause: expect.objectContaining({ code }),
+        });
+      expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
+    },
+  );
 
   it("rejects identity-scoped SSO JWTs on the MCP endpoint", async () => {
     const token = await sign({
@@ -967,7 +988,8 @@ describe("verifyAuth — connect-token revoke check", () => {
       "an-earlier-signing-key",
     );
     process.env.ACCESS_TOKEN = staticToken;
-    const res = await verifyAuth(`Bearer ${staticToken}`, "owner@example.com");
+    process.env.AGENT_NATIVE_OWNER_EMAIL = "owner@example.com";
+    const res = await verifyAuth(`Bearer ${staticToken}`);
     expect(res).toMatchObject({
       authed: true,
       identity: { userEmail: "owner@example.com" },
@@ -996,12 +1018,14 @@ describe("verifyAuth — fullSurface (real-caller → full MCP surface)", () => 
     delete process.env.BETTER_AUTH_SECRET;
     delete process.env.ACCESS_TOKEN;
     delete process.env.ACCESS_TOKENS;
+    delete process.env.AGENT_NATIVE_OWNER_EMAIL;
   });
   afterEach(() => {
     delete process.env.A2A_SECRET;
     delete process.env.BETTER_AUTH_SECRET;
     delete process.env.ACCESS_TOKEN;
     delete process.env.ACCESS_TOKENS;
+    delete process.env.AGENT_NATIVE_OWNER_EMAIL;
   });
 
   it("connect-minted JWT → fullSurface true", async () => {
@@ -1032,7 +1056,8 @@ describe("verifyAuth — fullSurface (real-caller → full MCP surface)", () => 
 
   it("matching ACCESS_TOKEN → fullSurface true", async () => {
     process.env.ACCESS_TOKEN = "static-tok";
-    const res = await verifyAuth("Bearer static-tok", "owner@example.com");
+    process.env.AGENT_NATIVE_OWNER_EMAIL = "owner@example.com";
+    const res = await verifyAuth("Bearer static-tok");
     expect(res.authed).toBe(true);
     expect(res.fullSurface).toBe(true);
     expect(res.identity?.userEmail).toBe("owner@example.com");
@@ -1040,16 +1065,16 @@ describe("verifyAuth — fullSurface (real-caller → full MCP surface)", () => 
 
   it("accepts bearer auth scheme case-insensitively with flexible spacing", async () => {
     process.env.ACCESS_TOKEN = "static-tok";
-    const res = await verifyAuth(
-      "  bearer   static-tok  ",
-      "owner@example.com",
-    );
+    process.env.AGENT_NATIVE_OWNER_EMAIL = "owner@example.com";
+    const res = await verifyAuth("  bearer   static-tok  ");
     expect(res.authed).toBe(true);
     expect(res.identity?.userEmail).toBe("owner@example.com");
   });
 
-  it("no auth configured + forwarded owner header (mcp install) → authed, fullSurface true", async () => {
-    const res = await verifyAuth(undefined, "owner@example.com");
+  it("no auth configured + trusted local owner hint (mcp install) → authed, fullSurface true", async () => {
+    const res = await verifyAuth(undefined, "owner@example.com", {
+      allowLocalOwnerHint: true,
+    });
     expect(res.authed).toBe(true);
     expect(res.fullSurface).toBe(true);
   });
@@ -1443,22 +1468,40 @@ describe("verifyAuth — the token's organization must still be the user's", () 
     expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
   });
 
-  it("keeps global org identity unavailable when local metadata cannot be read", async () => {
-    resolveA2AOrganizationMetadataByDomainMock.mockRejectedValueOnce(
-      new Error("database unavailable"),
-    );
-    const token = await sign({
-      sub: "a@example.com",
-      org_domain: "builder.io",
-      org_id: "org_123",
-    });
+  it.each([
+    "57014",
+    "ECONNREFUSED",
+    "EAI_AGAIN",
+    "CONNECT_TIMEOUT",
+    "ETIMEDOUT",
+    "42501",
+  ])(
+    "keeps global org identity unavailable when local metadata cannot be read: %s",
+    async (code) => {
+      resolveA2AOrganizationMetadataByDomainMock.mockRejectedValueOnce(
+        Object.assign(new Error("private database failure"), { code }),
+      );
+      const token = await sign({
+        sub: "a@example.com",
+        org_domain: "builder.io",
+        org_id: "org_123",
+      });
 
-    await expect(verifyAuth(`Bearer ${token}`)).resolves.toEqual({
-      authed: false,
-      unavailable: true,
-    });
-    expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
-  });
+      const result = verifyAuth(`Bearer ${token}`);
+      if (code !== "42501")
+        await expect(result).resolves.toEqual({
+          authed: false,
+          unavailable: true,
+        });
+      else
+        await expect(result).rejects.toMatchObject({
+          statusCode: 500,
+          retryable: false,
+          cause: expect.objectContaining({ code }),
+        });
+      expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
+    },
+  );
 
   it("accepts a domain-only A2A claim for a user absent from receiver membership", async () => {
     resolveA2AOrganizationMetadataByDomainMock.mockResolvedValue({
@@ -1517,6 +1560,7 @@ describe("verifyAuth — the token's organization must still be the user's", () 
   });
 
   it("binds a domain-only first-party token to the receiver's local organization", async () => {
+    evaluateServicePrincipalMock.mockResolvedValue({ status: "not-service" });
     resolveA2AOrganizationMetadataByDomainMock.mockResolvedValue({
       orgId: "recipient-org-by-domain",
       orgDomain: "builder.io",
@@ -1551,6 +1595,26 @@ describe("verifyAuth — the token's organization must still be the user's", () 
     expect(checkCredentialOrgMembershipMock).not.toHaveBeenCalled();
   });
 
+  it("keeps an unclaimed first-party token Personal without requiring connect scope", async () => {
+    resolveOrgIdForEmailMock.mockResolvedValue("org-email-must-not-be-granted");
+    const token = await sign(
+      { sub: "member@example.test", agent_native_first_party_mcp: true },
+      SECRET,
+      { audience: "https://assets.example.com/_agent-native/mcp" },
+    );
+    const result = await verifyAuth(`Bearer ${token}`, undefined, {
+      resourceUrl: "https://assets.example.com/_agent-native/mcp",
+    });
+    expect(result).toMatchObject({
+      authed: true,
+      identity: { orgId: null, firstPartyMcp: true },
+    });
+    await expect(
+      resolveMcpIdentityOrgId(result.identity),
+    ).resolves.toBeUndefined();
+    expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();
+  });
+
   it("preserves Personal scope for an unclaimed first-party token without org claims", async () => {
     const token = await sign(
       {
@@ -1575,6 +1639,212 @@ describe("verifyAuth — the token's organization must still be the user's", () 
     expect(lookupConnectTokenOrgMock).not.toHaveBeenCalled();
     expect(lookupConnectTokenOrgMock).not.toHaveBeenCalled();
     expect(checkCredentialOrgMembershipMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("verifyAuth — organization-member delegation for MCP", () => {
+  const resource = "https://workspace.example.test/dispatch/mcp";
+  const orgSecret = "delegation-org-secret";
+  const event = {
+    node: {
+      req: {
+        headers: {
+          host: "workspace.example.test",
+          "x-forwarded-proto": "https",
+        },
+      },
+    },
+    context: {},
+  };
+
+  async function delegatedToken(
+    secret = orgSecret,
+    audience = resource,
+    additionalClaims: Record<string, unknown> = {},
+  ): Promise<string> {
+    return new jose.SignJWT({
+      typ: "agent-native-org-member-delegation",
+      sub: "member@example.test",
+      org_domain: "example.test",
+      ...additionalClaims,
+    })
+      .setProtectedHeader({ alg: "HS256" })
+      .setIssuedAt()
+      .setJti("delegation-jti")
+      .setExpirationTime("5m")
+      .setAudience(audience)
+      .sign(new TextEncoder().encode(secret));
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    evaluateServicePrincipalMock.mockResolvedValue({ status: "not-service" });
+    process.env.A2A_SECRET = SECRET;
+    delete process.env.ACCESS_TOKEN;
+    delete process.env.ACCESS_TOKENS;
+    resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue({
+      orgId: "receiver-org",
+      orgDomain: "example.test",
+      secret: orgSecret,
+      a2aMemberDelegationEnabled: true,
+    });
+    isOrgMemberForA2AMock.mockResolvedValue(true);
+  });
+
+  afterEach(() => {
+    delete process.env.A2A_SECRET;
+  });
+
+  it("accepts the exact MCP audience only after org opt-in and current membership", async () => {
+    const res = await verifyAuth(
+      `Bearer ${await delegatedToken()}`,
+      undefined,
+      {
+        resourceUrl: resource,
+        requestOrigin: "https://workspace.example.test",
+        event,
+      },
+    );
+
+    expect(res).toMatchObject({
+      authed: true,
+      identity: {
+        userEmail: "member@example.test",
+        identityAssurance: "org-member",
+        orgId: "receiver-org",
+        orgDomain: "example.test",
+      },
+    });
+    expect(isOrgMemberForA2AMock).toHaveBeenCalledWith(
+      "receiver-org",
+      "member@example.test",
+      event,
+    );
+    expect(hasVerifiedMcpUserIdentity(res.identity)).toBe(false);
+  });
+
+  it("does not grant MCP caller flags from org-member token claims", async () => {
+    const res = await verifyAuth(
+      `Bearer ${await delegatedToken(orgSecret, resource, {
+        agent_native_first_party_mcp: true,
+        catalog_scope: "full",
+      })}`,
+      undefined,
+      { resourceUrl: resource, event },
+    );
+
+    expect(res).toMatchObject({
+      authed: true,
+      identity: {
+        userEmail: "member@example.test",
+        identityAssurance: "org-member",
+        orgId: "receiver-org",
+        orgDomain: "example.test",
+      },
+      fullSurface: true,
+      fullCatalog: false,
+    });
+    expect(res.identity).not.toHaveProperty("firstPartyMcp");
+  });
+
+  it.each([
+    ["member delegation disabled", { a2aMemberDelegationEnabled: false }],
+    ["sender is no longer a member", { member: false }],
+  ])("rejects when %s", async (_label, condition) => {
+    if ("a2aMemberDelegationEnabled" in condition) {
+      resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue({
+        orgId: "receiver-org",
+        orgDomain: "example.test",
+        secret: orgSecret,
+        a2aMemberDelegationEnabled: false,
+      });
+    } else {
+      isOrgMemberForA2AMock.mockResolvedValue(false);
+    }
+
+    const res = await verifyAuth(
+      `Bearer ${await delegatedToken()}`,
+      undefined,
+      {
+        resourceUrl: resource,
+        event,
+      },
+    );
+
+    expect(res).toEqual({ authed: false, refusal: "invalid" });
+  });
+
+  it("rejects a delegation minted for a different MCP audience", async () => {
+    const res = await verifyAuth(
+      `Bearer ${await delegatedToken(orgSecret, "https://other.example.test/mcp")}`,
+      undefined,
+      { resourceUrl: resource, event },
+    );
+
+    expect(res).toEqual({ authed: false, refusal: "invalid" });
+    expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects a delegation minted for the same host without the mounted path", async () => {
+    const res = await verifyAuth(
+      `Bearer ${await delegatedToken(
+        orgSecret,
+        "https://workspace.example.test/mcp",
+      )}`,
+      undefined,
+      { resourceUrl: resource, event },
+    );
+
+    expect(res).toEqual({ authed: false, refusal: "invalid" });
+    expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
+  });
+
+  it("does not reclassify a rejected delegation as a static access token", async () => {
+    const token = await delegatedToken(
+      orgSecret,
+      "https://other.example.test/mcp",
+      { scope: "mcp-connect" },
+    );
+    process.env.ACCESS_TOKEN = token;
+
+    const res = await verifyAuth(`Bearer ${token}`, "owner@example.test", {
+      resourceUrl: resource,
+      event,
+    });
+
+    expect(res).toEqual({ authed: false, refusal: "invalid" });
+    expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
+  });
+
+  it("rejects an org secret that equals the receiver deployment secret", async () => {
+    resolveA2AOrganizationCredentialsByDomainMock.mockResolvedValue({
+      orgId: "receiver-org",
+      orgDomain: "example.test",
+      secret: SECRET,
+      a2aMemberDelegationEnabled: true,
+    });
+    const res = await verifyAuth(
+      `Bearer ${await delegatedToken(SECRET)}`,
+      undefined,
+      { resourceUrl: resource, event },
+    );
+
+    expect(res).toEqual({ authed: false, refusal: "invalid" });
+    expect(isOrgMemberForA2AMock).not.toHaveBeenCalled();
+  });
+
+  it("surfaces an unavailable membership lookup as retryable", async () => {
+    isOrgMemberForA2AMock.mockRejectedValue(new Error("database unavailable"));
+    const res = await verifyAuth(
+      `Bearer ${await delegatedToken()}`,
+      undefined,
+      {
+        resourceUrl: resource,
+        event,
+      },
+    );
+
+    expect(res).toEqual({ authed: false, unavailable: true });
   });
 });
 
@@ -1668,6 +1938,8 @@ describe("verifyAuth — a credential for an address an email change retired", (
 });
 
 describe("resolveMcpIdentityOrgId", () => {
+  afterEach(() => vi.restoreAllMocks());
+
   beforeEach(() => {
     vi.clearAllMocks();
     lookupOrgByDomainMock.mockResolvedValue({ status: "not-found" });
@@ -1741,19 +2013,45 @@ describe("resolveMcpIdentityOrgId", () => {
     },
   );
 
-  it("keeps domain lookup failures on the retryable identity path", async () => {
-    const databaseError = new Error("database connection failed");
-    lookupOrgByDomainMock.mockRejectedValue(databaseError);
+  it.each(["ECONNREFUSED", "EAI_AGAIN", "CONNECT_TIMEOUT", "ETIMEDOUT"])(
+    "keeps domain transport %s retryable",
+    async (code) => {
+      const databaseError = Object.assign(
+        new Error("database connection failed"),
+        { code },
+      );
+      lookupOrgByDomainMock.mockRejectedValue(databaseError);
 
-    const error = await resolveMcpIdentityOrgId({
-      userEmail: "alice@example.com",
-      orgDomain: "example.com",
-    }).catch((cause: unknown) => cause);
+      const error = await resolveMcpIdentityOrgId({
+        userEmail: "alice@example.com",
+        orgDomain: "example.com",
+      }).catch((cause: unknown) => cause);
 
-    expect(error).toBeInstanceOf(McpIdentityVerificationUnavailableError);
-    expect(error).toMatchObject({ cause: databaseError });
-    expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();
-  });
+      expect(error).toBeInstanceOf(McpIdentityVerificationUnavailableError);
+      expect(error).toMatchObject({
+        cause: databaseError,
+        statusCode: 503,
+        retryable: true,
+      });
+      expect(resolveOrgIdForEmailMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["ECONNREFUSED", "EAI_AGAIN", "CONNECT_TIMEOUT", "ETIMEDOUT"])(
+    "keeps email membership transport %s retryable",
+    async (code) => {
+      const cause = Object.assign(
+        new Error("Fake private network diagnostics"),
+        { code },
+      );
+      resolveOrgIdForEmailMock.mockRejectedValue(cause);
+      const error = await resolveMcpIdentityOrgId({
+        userEmail: "member@example.test",
+      }).catch((error: unknown) => error);
+      expect(error).toMatchObject({ statusCode: 503, retryable: true, cause });
+      expect(lookupOrgByDomainMock).not.toHaveBeenCalled();
+    },
+  );
 
   it("falls back to the verified user email when a token has no org claim", async () => {
     resolveOrgIdForEmailMock.mockResolvedValue("org-email");
@@ -1766,5 +2064,46 @@ describe("resolveMcpIdentityOrgId", () => {
     ).resolves.toBe("org-email");
 
     expect(resolveOrgIdForEmailMock).toHaveBeenCalledWith("alice@example.com");
+  });
+
+  it.each([
+    ['relation "org_members" does not exist', "42P01"],
+    ["permission denied for table org_members", "42501"],
+    ["membership lookup failed", undefined],
+  ] as const)(
+    "keeps real email membership failures unavailable: %s",
+    async (message, code) => {
+      const org =
+        await vi.importActual<typeof import("../org/context.js")>(
+          "../org/context.js",
+        );
+      resolveOrgIdForEmailMock.mockImplementation(org.resolveOrgIdForEmail);
+      const db = await import("../db/client.js");
+      const execute = vi
+        .fn()
+        .mockRejectedValue(Object.assign(new Error(message), { code }));
+      vi.spyOn(db, "getDbExec").mockReturnValue({ execute } as any);
+
+      await expect(
+        resolveMcpIdentityOrgId({ userEmail: "alice@example.test" }),
+      ).rejects.toBeInstanceOf(McpIdentityVerificationUnavailableError);
+      expect(execute).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("preserves Personal after a successful real membership read without rows", async () => {
+    const org =
+      await vi.importActual<typeof import("../org/context.js")>(
+        "../org/context.js",
+      );
+    resolveOrgIdForEmailMock.mockImplementation(org.resolveOrgIdForEmail);
+    const db = await import("../db/client.js");
+    const execute = vi.fn().mockResolvedValue({ rows: [] });
+    vi.spyOn(db, "getDbExec").mockReturnValue({ execute } as any);
+
+    await expect(
+      resolveMcpIdentityOrgId({ userEmail: "alice@example.test" }),
+    ).resolves.toBeUndefined();
+    expect(execute).toHaveBeenCalledOnce();
   });
 });

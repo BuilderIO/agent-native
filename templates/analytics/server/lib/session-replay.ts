@@ -42,6 +42,10 @@ import {
   type AnyColumn,
 } from "drizzle-orm";
 
+import type {
+  OutputUseApp,
+  SessionRecordingOutputs,
+} from "../../shared/output-use.js";
 import { isScreenshotSize } from "../../shared/png.js";
 import {
   isSessionFrictionSort,
@@ -59,6 +63,7 @@ import {
   SESSION_REPLAY_CONSOLE_EVENT_TAG,
   SESSION_REPLAY_NETWORK_EVENT_TAG,
 } from "../../shared/session-replay-diagnostics.js";
+import type { TrafficEnvironment } from "../../shared/traffic-environment.js";
 import { getDb, schema } from "../db/index.js";
 import {
   resolveAnalyticsEventDimensions,
@@ -66,7 +71,16 @@ import {
 } from "./first-party-analytics.js";
 import { MAX_SESSION_ID_LENGTH } from "./indexed-text.js";
 import type { JourneyRecording, RecordingViewport } from "./journey-tree.js";
+import {
+  getSessionRecordingOutputs,
+  pruneOutputOutcomes,
+  unusedOutputConditions,
+} from "./output-outcomes.js";
 import { canonicalReplayLinkTimestamp } from "./replay-link-timestamp.js";
+import {
+  normalizeReplayOrigin,
+  parseAllowedReplayOrigins,
+} from "./replay-origins.js";
 import { parseIngestBody } from "./request-errors.js";
 import {
   pruneSessionEventIndex,
@@ -89,6 +103,7 @@ import {
   slowSessionConditions,
 } from "./session-performance.js";
 import { sessionRecordingAssociationsReady } from "./session-recording-associations.js";
+import { trafficEnvironmentCondition } from "./traffic-environment.js";
 
 export type ReplayRange = "24h" | "7d" | "30d" | "90d" | "all";
 
@@ -141,6 +156,8 @@ export interface SessionReplayListFilters {
   hideInternal?: boolean;
   visitorType?: "internal" | "work" | "personal" | "anonymous";
   emailDomain?: string;
+  /** Production or beta traffic, by the recording's host. Omitted means all. */
+  environment?: TrafficEnvironment;
   sort?:
     | "newest"
     | "longest"
@@ -161,6 +178,8 @@ export interface SessionReplayListFilters {
   includePerformance?: boolean;
   /** Measured sessions that showed every one of these friction signals. */
   frictionSignals?: SessionFrictionSignal[];
+  /** Sessions that made an output of this app and never used it in time. */
+  unused?: OutputUseApp;
 }
 
 export interface SessionReplayEventReadOptions {
@@ -405,34 +424,6 @@ function replayInteger(value: unknown): number | null {
     return Number(value);
   }
   return null;
-}
-
-function normalizeReplayOrigin(
-  value: string | null | undefined,
-): string | null {
-  if (!value) return null;
-  try {
-    return new URL(value).origin;
-  } catch {
-    return null;
-  }
-}
-
-function parseAllowedReplayOrigins(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value
-      .map((item) => normalizeReplayOrigin(replayString(item)))
-      .filter((item): item is string => Boolean(item));
-  }
-  if (typeof value !== "string" || !value.trim()) return [];
-  try {
-    return parseAllowedReplayOrigins(JSON.parse(value));
-  } catch {
-    return value
-      .split(/[\n,]/)
-      .map((item) => normalizeReplayOrigin(item.trim()))
-      .filter((item): item is string => Boolean(item));
-  }
 }
 
 function positiveReplayLimit(value: unknown, fallback: number): number {
@@ -1520,23 +1511,64 @@ function isVisibleSessionRecording(row: any): boolean {
   );
 }
 
+/** Where an upload's chunks fall among the ones its recording already has. */
+export interface ReplayUploadOrder {
+  /** The recording had no chunks before this upload. */
+  first: boolean;
+  /** This upload holds a chunk later than every one stored before it. */
+  newest: boolean;
+}
+
+/**
+ * A recording carries on across a reload, so it can span a deploy. It stays
+ * named for the commit its first upload reported, with the newest one kept
+ * beside it. Uploads can arrive late, so only a newer one moves the latest,
+ * and a start the first upload didn't report stays unknown.
+ */
+function mergedReplayCommits(
+  existing: Record<string, unknown>,
+  incoming: unknown,
+  upload: ReplayUploadOrder,
+): Record<string, unknown> {
+  const started = upload.first ? incoming : existing.commit_sha;
+  const stored = existing.commit_sha_latest ?? existing.commit_sha;
+  const latest =
+    upload.newest && typeof incoming === "string" ? incoming : stored;
+  return {
+    ...(typeof started === "string" ? { commit_sha: started } : {}),
+    ...(typeof latest === "string" &&
+    (latest !== started || existing.commit_sha_latest !== undefined)
+      ? { commit_sha_latest: latest }
+      : {}),
+  };
+}
+
 export function mergeReplayMetadata(
   existing: Record<string, unknown>,
   incoming: Record<string, unknown>,
   viewport: RecordedReplayViewport | null = null,
+  upload: ReplayUploadOrder = { first: false, newest: true },
 ): Record<string, unknown> {
   const {
     viewport: stored,
     capture_context: _existingCaptureContext,
     pre_auth_base_path: _existingPreAuthBasePath,
+    commit_sha: _existingCommit,
+    commit_sha_latest: _existingLatestCommit,
     ...existingMetadata
   } = existing;
   const {
     capture_context: _incomingCaptureContext,
     pre_auth_base_path: _incomingPreAuthBasePath,
+    commit_sha: incomingCommit,
+    commit_sha_latest: _incomingLatestCommit,
     ...incomingMetadata
   } = incoming;
-  const merged = { ...existingMetadata, ...incomingMetadata };
+  const merged = {
+    ...existingMetadata,
+    ...incomingMetadata,
+    ...mergedReplayCommits(existing, incomingCommit, upload),
+  };
   assertReplayMetadataCap(merged);
   // The cap bounds caller metadata; the server-owned viewport is a few bytes.
   const next = mergeReplayViewport(stored, viewport);
@@ -1759,7 +1791,15 @@ export async function recordSessionReplayChunks(
         template: clampedInput.template,
         status: clampedInput.status,
         metadata: JSON.stringify(
-          mergeReplayMetadata({}, clampedInput.metadata, clampedInput.viewport),
+          mergeReplayMetadata(
+            {},
+            clampedInput.metadata,
+            clampedInput.viewport,
+            {
+              first: true,
+              newest: true,
+            },
+          ),
         ),
         lastIngestedAt: ingestedAt,
         ownerEmail: key.ownerEmail,
@@ -1958,11 +1998,6 @@ export async function recordSessionReplayChunks(
     (endedAt
       ? Math.max(0, Date.parse(endedAt) - Date.parse(startedAt))
       : (recording.durationMs ?? null));
-  const metadata = mergeReplayMetadata(
-    parseRecordingMetadata(recording),
-    clampedInput.metadata,
-    clampedInput.viewport,
-  );
   const signalOverrides = clampedInput.signalOverrides ?? {};
   let errorCount =
     signalOverrides.errorCount === undefined
@@ -2020,12 +2055,25 @@ export async function recordSessionReplayChunks(
     app: clampedInput.app ?? recording.app ?? null,
     template: clampedInput.template ?? recording.template ?? null,
     status: recordingEnded ? "completed" : "active",
-    metadata: JSON.stringify(metadata),
     updatedAt: ingestedAt,
     lastIngestedAt: ingestedAt,
   };
   try {
     await db.transaction(async (tx: any) => {
+      // Uploads from a reload overlap, and the order they commit in is not the
+      // order they were recorded in. Under the row lock, the stored chunks
+      // place this upload by sequence. A session association share-locks the
+      // recording through its foreign key, so the lock comes first and is no
+      // stronger than the update needs: FOR UPDATE taken after that insert
+      // deadlocks two uploads against each other's share locks.
+      const [locked] = await tx
+        .select({ metadata: schema.sessionRecordings.metadata })
+        .from(schema.sessionRecordings)
+        .where(eq(schema.sessionRecordings.id, recording.id))
+        .for("no key update");
+      if (!locked) {
+        throw new Error("Replay recording disappeared during ingest");
+      }
       if (rowsToInsert.length) {
         await tx.insert(schema.sessionReplayChunks).values(rowsToInsert);
       }
@@ -2061,9 +2109,38 @@ export async function recordSessionReplayChunks(
           )
           .onConflictDoNothing();
       }
+      const [stored] = rowsToInsert.length
+        ? await tx
+            .select({
+              earliest: sql<unknown>`min(${schema.sessionReplayChunks.seq})`,
+              latest: sql<unknown>`max(${schema.sessionReplayChunks.seq})`,
+            })
+            .from(schema.sessionReplayChunks)
+            .where(
+              and(
+                eq(schema.sessionReplayChunks.recordingId, recording.id),
+                not(inArray(schema.sessionReplayChunks.seq, [...insertedSeqs])),
+              ),
+            )
+        : [null];
+      const metadata = mergeReplayMetadata(
+        parseRecordingMetadata(locked),
+        clampedInput.metadata,
+        clampedInput.viewport,
+        {
+          first:
+            stored !== null &&
+            (stored.earliest === null ||
+              rowsToInsert.some((row) => row.seq < Number(stored.earliest))),
+          newest:
+            stored !== null &&
+            (stored.latest === null ||
+              rowsToInsert.some((row) => row.seq > Number(stored.latest))),
+        },
+      );
       const [updatedRecording] = await tx
         .update(schema.sessionRecordings)
-        .set(recordingUpdate)
+        .set({ ...recordingUpdate, metadata: JSON.stringify(metadata) })
         .where(eq(schema.sessionRecordings.id, recording.id))
         .returning({
           errorCount: schema.sessionRecordings.errorCount,
@@ -2149,6 +2226,7 @@ export async function listSessionRecordings(
     filters.hideInternal ||
     filters.visitorType ||
     filters.emailDomain ||
+    filters.environment ||
     filters.sort ||
     filters.offset ||
     filters.didEvents?.length ||
@@ -2488,6 +2566,13 @@ export interface SessionRecordingPage {
    * performance aggregates began, or null when they have not.
    */
   performanceCoverageStartedAt?: string | null;
+  /**
+   * With an unused-output filter: each row's outputs by recording id, and
+   * when the viewer's output tracking began, or null before it has.
+   */
+  outputs?: SessionRecordingOutputs["outputs"];
+  omittedOutputs?: SessionRecordingOutputs["omittedOutputs"];
+  outputCoverageStartedAt?: string | null;
 }
 
 const personalEmailDomains = [...FREE_EMAIL_PROVIDER_DOMAINS];
@@ -2659,6 +2744,13 @@ export async function listSessionRecordingsPage(
     conditions.push(gte(schema.sessionRecordings.rageClickCount, 1));
   if (filters.status)
     conditions.push(eq(schema.sessionRecordings.status, filters.status));
+  if (filters.environment) {
+    conditions.push(
+      trafficEnvironmentCondition(filters.environment, {
+        host: schema.sessionRecordings.hostname,
+      }),
+    );
+  }
   if (filters.emailDomain && filters.visitorType === "anonymous") {
     conditions.push(sql`false`);
   } else if (filters.emailDomain) {
@@ -2700,6 +2792,7 @@ export async function listSessionRecordingsPage(
       didNotEvents: filters.didNotEvents,
     })),
     ...(await slowSessionConditions(scope, filters.slow)),
+    ...(await unusedOutputConditions(scope, filters.unused)),
     ...(await sessionFrictionFilterConditions(scope, filters.frictionSignals)),
   );
   const appConditions = [...conditions];
@@ -2724,10 +2817,14 @@ export async function listSessionRecordingsPage(
           }[sort],
         );
   const [totalRows, appRows, frictionCoverageStartedAt] = await Promise.all([
-    db
-      .select({ count: sql<number>`count(*)` })
-      .from(schema.sessionRecordings)
-      .where(and(...conditions)),
+    // Without an app filter both read the same rows, and under an event filter
+    // each read walks every recording, so the app counts supply the total.
+    filters.app
+      ? db
+          .select({ count: sql<number>`count(*)` })
+          .from(schema.sessionRecordings)
+          .where(and(...conditions))
+      : undefined,
     db
       .select({
         app: schema.sessionRecordings.app,
@@ -2744,15 +2841,18 @@ export async function listSessionRecordingsPage(
         })
       : undefined,
   ]);
-  if (totalRows.length !== 1) {
+  if (totalRows && totalRows.length !== 1) {
     throw new Error("Session recording total query returned no count");
   }
-  const count = totalRows[0].count;
-  const total =
-    typeof count === "number" ||
-    (typeof count === "string" && /^\d+$/.test(count))
-      ? Number(count)
-      : NaN;
+  const total: number = (totalRows ?? appRows).reduce(
+    (sum: number, { count }: { count: unknown }) =>
+      sum +
+      (typeof count === "number" ||
+      (typeof count === "string" && /^\d+$/.test(count))
+        ? Number(count)
+        : NaN),
+    0,
+  );
   if (!Number.isSafeInteger(total) || total < 0) {
     throw new Error("Session recording total query returned an invalid count");
   }
@@ -2778,17 +2878,31 @@ export async function listSessionRecordingsPage(
   const recordings: SessionRecordingSummary[] = rows.map((row: any) =>
     rowToSessionRecordingSummary(row),
   );
-  const performance =
+  const [performance, outputs] = await Promise.all([
     filters.slow || filters.includePerformance
-      ? await sessionRecordingPerformance(scope, recordings, {
+      ? sessionRecordingPerformance(scope, recordings, {
           summaries: filters.includePerformance === true,
         })
-      : null;
+      : null,
+    filters.unused
+      ? getSessionRecordingOutputs(
+          scope,
+          recordings.map((recording) => recording.id),
+        )
+      : null,
+  ]);
   return {
     recordings,
     total,
     ...(performance
       ? { performanceCoverageStartedAt: performance.coverageStartedAt }
+      : {}),
+    ...(outputs
+      ? {
+          outputs: outputs.outputs,
+          omittedOutputs: outputs.omittedOutputs,
+          outputCoverageStartedAt: outputs.coverageStartedAt,
+        }
       : {}),
     appCounts: appRows
       .filter((row: { app: string | null }) => row.app)
@@ -3654,6 +3768,11 @@ export async function runSessionReplayRetentionSweep(
     await prunePerformanceAggregates(replayRetentionDays(), now);
   } catch (err) {
     console.warn("[session-replay] Performance aggregate pruning failed:", err);
+  }
+  try {
+    await pruneOutputOutcomes(replayRetentionDays(), now);
+  } catch (err) {
+    console.warn("[session-replay] Output outcome pruning failed:", err);
   }
   return {
     finalized: finalized.finalized,

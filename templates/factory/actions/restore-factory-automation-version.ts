@@ -1,3 +1,4 @@
+import { isOutsideAgentCall } from "@agent-native/core";
 import { defineAction } from "@agent-native/core/action";
 import { z } from "zod";
 
@@ -18,6 +19,7 @@ export default defineAction({
     automationId: z.string().trim().min(1),
     versionId: z.string().trim().min(1).max(240),
   }),
+  needsApproval: (_input, ctx) => isOutsideAgentCall(ctx),
   run: async ({ automationId, versionId }, context) => {
     const { userEmail, orgId } = await requireWorkspaceMember(
       workspaceMemberIdentityFromContext(context),
@@ -37,16 +39,19 @@ export default defineAction({
       throw new Error("Factory automation version not found.");
     }
 
-    const result = await restoreFactoryAutomationVersion({
-      resource: resolved.resource,
-      automationId,
-      automationName: resolved.name,
-      factoryId: resolved.factoryId,
-      historicalContent: row.rawContent,
-      userEmail,
-      orgId,
-      summary: `Before restoring version ${row.version}`,
-    });
+    const result = await restoreFactoryAutomationVersion(
+      {
+        resource: resolved.resource,
+        automationId,
+        automationName: resolved.name,
+        factoryId: resolved.factoryId,
+        historicalContent: row.rawContent,
+        userEmail,
+        orgId,
+        summary: `Before restoring version ${row.version}`,
+      },
+      context,
+    );
 
     return {
       ok: true as const,

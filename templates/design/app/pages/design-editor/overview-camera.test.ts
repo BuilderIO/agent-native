@@ -4,6 +4,8 @@ import {
   autoHeightScreenIds,
   getAllScreenFrameEntries,
   getOverviewCanvasZoomForFrame,
+  getOverviewScreenZoomBasis,
+  getOverviewZoomScale,
   pinnedHeightScreenIds,
   withMeasuredFrameHeights,
 } from "./overview-camera";
@@ -29,6 +31,43 @@ describe("getOverviewCanvasZoomForFrame", () => {
     expect(targetBasisZoom).toBeCloseTo(100 / (390 / 1280));
     expect(targetBasisZoom).not.toBeCloseTo(activeBasisZoom);
     expect(targetBasisZoom * (390 / 1280)).toBeCloseTo(100);
+  });
+});
+
+describe("getOverviewScreenZoomBasis", () => {
+  const blankScreen = { id: "s", filename: "screen-2.html", content: "" };
+  const scaleFor = (
+    screen: Parameters<typeof getOverviewScreenZoomBasis>[0]["screen"],
+    frameGeometry: { width: number; height: number },
+  ) => {
+    const basis = getOverviewScreenZoomBasis({ screen, frameGeometry });
+    if (!basis) throw new Error("expected a zoom basis");
+    return getOverviewZoomScale(basis);
+  };
+
+  it("reads a screen without viewport metadata at its own frame width", () => {
+    // The Screens "+" frame: persisted 320x640, laid out by its iframe at 320px.
+    expect(scaleFor(blankScreen, { width: 320, height: 640 })).toBe(1);
+    // A create-file screen: 1440px frame, 1440px iframe viewport.
+    expect(scaleFor(blankScreen, { width: 1440, height: 1024 })).toBe(1);
+  });
+
+  it("keeps the scaled basis when the frame previews a larger source viewport", () => {
+    expect(
+      scaleFor(
+        { ...blankScreen, width: 1280, height: 2560, heightMode: "fixed" },
+        { width: 320, height: 640 },
+      ),
+    ).toBe(0.25);
+  });
+
+  it("has no basis before the screen has frame geometry", () => {
+    expect(
+      getOverviewScreenZoomBasis({
+        screen: blankScreen,
+        frameGeometry: undefined,
+      }),
+    ).toBeNull();
   });
 });
 

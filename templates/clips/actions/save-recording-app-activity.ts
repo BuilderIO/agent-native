@@ -10,6 +10,8 @@ import {
   APP_ACTIVITY_BLOB_PURPOSE,
   deleteAppActivityBlob,
 } from "../server/lib/app-activity.js";
+import { withRecordingPrivateBlobProduction } from "../server/lib/recording-media-lifecycle.js";
+import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import {
   MAX_APP_ACTIVITY_BYTES,
   MAX_APP_ACTIVITY_COVERAGE_WINDOWS,
@@ -41,7 +43,9 @@ export default defineAction({
     pending: z.array(z.unknown()).max(MAX_APP_ACTIVITY_PENDING),
   }),
   run: async ({ recordingId, ...input }) => {
-    const access = await assertAccess("recording", recordingId, "editor");
+    const access = assertRecordingNotExpired(
+      await assertAccess("recording", recordingId, "editor"),
+    );
     const rec = access.resource as { ownerEmail: string };
     const db = getDb();
     const [row] = await db
@@ -62,13 +66,17 @@ export default defineAction({
     }
 
     const activity = sanitizeAppActivity(input);
-    const handle = await putPrivateBlob({
-      data: new TextEncoder().encode(JSON.stringify(activity)),
-      filename: `${recordingId}-app-activity.json`,
-      mimeType: "application/json",
-      ownerEmail: rec.ownerEmail,
-      metadata: { purpose: APP_ACTIVITY_BLOB_PURPOSE, recordingId },
-    });
+    const handle = await withRecordingPrivateBlobProduction(
+      { recordingId, ownerEmail: rec.ownerEmail },
+      () =>
+        putPrivateBlob({
+          data: new TextEncoder().encode(JSON.stringify(activity)),
+          filename: `${recordingId}-app-activity.json`,
+          mimeType: "application/json",
+          ownerEmail: rec.ownerEmail,
+          metadata: { purpose: APP_ACTIVITY_BLOB_PURPOSE, recordingId },
+        }),
+    );
     if (!handle) {
       fail(
         "No object storage is connected, so the app activity was not saved. Use Builder.io (free) or configure S3-compatible storage in Settings → File uploads.",

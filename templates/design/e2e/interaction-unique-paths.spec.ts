@@ -60,7 +60,10 @@ async function centerOf(app: App, nodeId: string) {
 
 async function clickNode(app: App, nodeId: string, name: string) {
   const point = await centerOf(app, nodeId);
+  // Cmd+click reaches a nested layer; a plain click takes the top-level one.
+  await app.page.keyboard.down("ControlOrMeta");
   await app.page.mouse.click(point.x, point.y);
+  await app.page.keyboard.up("ControlOrMeta");
   await expect.poll(() => app.selectedLayers()).toStrictEqual([name]);
 }
 
@@ -91,9 +94,9 @@ function layerRowButton(page: Page, name: string): Locator {
 
 async function searchLayers(page: Page, query: string) {
   await page
-    .getByRole("button", { name: "Search layers...", exact: true })
+    .getByRole("button", { name: "Search layers", exact: true })
     .click();
-  const input = page.getByPlaceholder("Search layers...");
+  const input = page.getByPlaceholder("Search layers");
   await input.fill(query);
   await expect(layerRowButton(page, "Alpha Button")).toBeVisible();
 }

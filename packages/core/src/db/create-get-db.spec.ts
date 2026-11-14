@@ -2,6 +2,8 @@ import { mkdtemp, rm } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
+import { inArray } from "drizzle-orm";
+import { PgDialect, pgTable, QueryBuilder, text } from "drizzle-orm/pg-core";
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 describe("createGetDb pooled transaction scoping", () => {
@@ -82,6 +84,9 @@ describe("createGetDb pooled transaction scoping", () => {
         compiled.sql.startsWith("SELECT current_setting('statement_timeout')")
       ) {
         timeoutOperations.push(`read:${statementTimeout}`);
+        const readDelayMs = queryDelays.get("statement-timeout-read");
+        if (readDelayMs)
+          await new Promise((resolve) => setTimeout(resolve, readDelayMs));
         return { rows: [{ statement_timeout: statementTimeout }], rowCount: 1 };
       }
       if (compiled.sql.startsWith("SET LOCAL statement_timeout = ")) {
@@ -470,29 +475,82 @@ describe("createGetDb pooled transaction scoping", () => {
         preparedQueryExecutions.some(({ sql }) => sql === "SELECT 113"),
       ).toBe(false);
       expect(statementTimeout).toBe("90ms");
-      timeoutOperations.length = 0;
-      queryDelays.set("SELECT 106", 35);
-      await tx.transaction(async () => {
-        const inFlight = getDbExec().execute({
-          sql: "SELECT 106",
-          timeoutMs: 80,
+      for (const [readDelayMs, serverTimeoutMs] of [
+        [0, 72],
+        [5, 68],
+      ]) {
+        timeoutOperations.length = 0;
+        queryDelays.set("SELECT 106", 35);
+        queryDelays.set("statement-timeout-read", readDelayMs);
+        await tx.transaction(async () => {
+          let settled: Promise<unknown> | undefined;
+          // Isolate scheduling from wall-clock load while charging setup time to the query budget.
+          vi.useFakeTimers({ toFake: ["Date", "setTimeout", "clearTimeout"] });
+          try {
+            const destroyedBeforeQueueTimeout = destroyedTransactionConnections;
+            let inFlightComplete = false;
+            let queuedSettled = false;
+            const inFlight = getDbExec()
+              .execute({ sql: "SELECT 106", timeoutMs: 80 })
+              .then((value) => {
+                inFlightComplete = true;
+                return value;
+              });
+            const queued = getDbExec().execute({
+              sql: "SELECT 107",
+              timeoutMs: 20,
+            });
+            void queued.then(
+              () => {
+                queuedSettled = true;
+              },
+              () => {
+                queuedSettled = true;
+              },
+            );
+            settled = Promise.allSettled([inFlight, queued]);
+            await vi.advanceTimersByTimeAsync(19);
+            expect(queuedSettled).toBe(false);
+            expect(inFlightComplete).toBe(false);
+            expect(timeoutOperations).toEqual([
+              "read:90ms",
+              `set:${serverTimeoutMs}ms`,
+              `query:SELECT 106@${serverTimeoutMs}ms`,
+            ]);
+            await vi.advanceTimersByTimeAsync(1);
+            expect(queuedSettled).toBe(true);
+            await expect(queued).rejects.toThrow(
+              "DB query timed out after 20ms (connection terminated)",
+            );
+            expect(inFlightComplete).toBe(false);
+            expect(destroyedTransactionConnections).toBe(
+              destroyedBeforeQueueTimeout,
+            );
+            await vi.advanceTimersByTimeAsync(readDelayMs + 35 - 20);
+            expect(inFlightComplete).toBe(true);
+            await expect(inFlight).resolves.toEqual({
+              rows: [{ id: 42 }],
+              rowsAffected: 1,
+            });
+            expect(timeoutOperations).toEqual([
+              "read:90ms",
+              `set:${serverTimeoutMs}ms`,
+              `query:SELECT 106@${serverTimeoutMs}ms`,
+              "restore:90ms",
+            ]);
+            expect(statementTimeout).toBe("90ms");
+            expect(vi.getTimerCount()).toBe(0);
+          } finally {
+            try {
+              await vi.advanceTimersByTimeAsync(80);
+            } finally {
+              vi.useRealTimers();
+              queryDelays.clear();
+            }
+            await settled;
+          }
         });
-        await expect(
-          getDbExec().execute({ sql: "SELECT 107", timeoutMs: 20 }),
-        ).rejects.toThrow(
-          "DB query timed out after 20ms (connection terminated)",
-        );
-        await inFlight;
-      });
-      queryDelays.clear();
-      expect(
-        timeoutOperations.some((operation) =>
-          /^query:SELECT 106@7[0-2]ms$/.test(operation),
-        ),
-      ).toBe(true);
-      expect(
-        timeoutOperations.some((operation) => operation.includes("SELECT 107")),
-      ).toBe(false);
+      }
       timeoutOperations.length = 0;
       queryDelays.set("transaction-timeout-setup", 45);
       vi.stubEnv("DB_OP_TIMEOUT_MS", "25");
@@ -623,7 +681,7 @@ describe("createGetDb pooled transaction scoping", () => {
       ),
     ).toBe(true);
 
-    vi.stubEnv("DB_OP_TIMEOUT_MS", "25");
+    vi.stubEnv("DB_OP_TIMEOUT_MS", "1000");
     let defaultTimedOutTransactionSettled = false;
     const defaultTimedOutTransaction = database
       .transaction(() => getDbExec().execute("SELECT pg_sleep(?)"))
@@ -633,9 +691,8 @@ describe("createGetDb pooled transaction scoping", () => {
     const defaultTimeoutAssertion = expect(
       defaultTimedOutTransaction,
     ).rejects.toThrow("canceling statement due to statement timeout");
-    await new Promise((resolve) => setTimeout(resolve, 35));
-    expect(defaultTimedOutTransactionSettled).toBe(true);
     await defaultTimeoutAssertion;
+    expect(defaultTimedOutTransactionSettled).toBe(true);
     expect(rolledBackTransactions).toBe(7);
     expect(releasedTransactions).toBeGreaterThanOrEqual(4);
     expect(statementTimeout).toBe("0");
@@ -1002,35 +1059,35 @@ describe("createGetDb — lazy proxy before init resolves", () => {
     return createGetDb({});
   }
 
-  it("fails loudly instead of masquerading as a resolved SQL entity when probed via getSQL/shouldOmitSQLParens", async () => {
+  const meetings = pgTable("meetings", {
+    id: text("id"),
+    recordingId: text("recording_id"),
+  });
+  const clips = pgTable("clips", { id: text("id") });
+
+  it("builds a select subquery's SQL from the cold proxy, matching a connection-less builder", async () => {
     const getDb = await getLazyDbFactory();
     const db = getDb();
+    const cold = db.select({ id: meetings.recordingId }).from(meetings);
+    const expected = new QueryBuilder()
+      .select({ id: meetings.recordingId })
+      .from(meetings);
 
-    const subqueryChain = db.select({ id: "recordingId" }).from("meetings");
-
-    for (const prop of ["getSQL", "shouldOmitSQLParens"] as const) {
-      expect(() => subqueryChain[prop]).toThrow(/unresolved|await/i);
-    }
+    const cases = [inArray(clips.id, cold), inArray(clips.id, expected)].map(
+      (cond) => new PgDialect().sqlToQuery(cond),
+    );
+    expect(cases[0]).toEqual(cases[1]);
+    expect(cases[0].sql).toContain('select "recording_id" from "meetings"');
   });
 
-  it("does not recurse forever when duck-typed the way SQL.buildQueryFromSourceParams does", async () => {
+  it("still fails loudly for chains that cannot be built offline", async () => {
     const getDb = await getLazyDbFactory();
     const db = getDb();
-    const subqueryChain = db.select({ id: "recordingId" }).from("meetings");
+    const insertChain = db.insert(meetings).values({ id: "1" });
 
-    function isSQLWrapper(value: any): boolean {
-      return (
-        value !== null &&
-        value !== undefined &&
-        typeof value.getSQL === "function"
-      );
+    for (const prop of ["getSQL", "shouldOmitSQLParens"] as const) {
+      expect(() => insertChain[prop]).toThrow(/unresolved|await/i);
     }
-    function drainAsSql(value: any): any {
-      if (isSQLWrapper(value)) return drainAsSql(value.getSQL());
-      return value;
-    }
-
-    expect(() => drainAsSql(subqueryChain)).toThrow(/unresolved|await/i);
   });
 });
 

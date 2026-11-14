@@ -1,6 +1,7 @@
+import { fail, isActionContractError } from "@agent-native/core/action";
 import {
+  BUILDER_CONTENT_READ_SCOPE,
   BUILDER_PUBLISH_MCP_RESOURCE,
-  resolveBuilderCredential,
   resolveBuilderRequestAuthorization,
   type BuilderRequestAuthorization,
 } from "@agent-native/core/server";
@@ -9,6 +10,7 @@ import type {
   BuilderCmsModelFieldSummary,
   BuilderCmsModelSummary,
   BuilderCmsModelsResponse,
+  DocumentPropertyValue,
 } from "../shared/api.js";
 import {
   builderBlocksHash,
@@ -16,6 +18,8 @@ import {
   type BuilderContentEntry,
 } from "../shared/builder-mdx.js";
 import {
+  builderCmsReferenceIdSourceValues,
+  builderEntryHasAutosaves,
   normalizeBuilderCmsApiEntry,
   type BuilderCmsSourceEntry,
 } from "./_builder-cms-source-adapter.js";
@@ -35,10 +39,14 @@ export interface BuilderCmsReadProgress {
   pageSize: number;
   startOffset: number;
   nextOffset: number;
+  nextCursor?: string;
   fetchedEntryCount: number;
   hasMore: boolean;
   partial: boolean;
   readMode: "builder-api" | "mcp" | "none";
+  sourceSpacePublicKey?: string;
+  sourceConnectionId?: string;
+  observedCollectionCount?: number;
 }
 
 export interface BuilderCmsEntryLiveState {
@@ -47,6 +55,9 @@ export interface BuilderCmsEntryLiveState {
   lastUpdated: number | string | null;
   blocksHash: string | null;
   id: string | null;
+  /** The entry's source values, normalized as a refresh stores them. */
+  values?: Record<string, DocumentPropertyValue> | null;
+  hasAutosaves?: boolean | null;
 }
 
 export interface BuilderCmsEntryFidelitySummary {
@@ -166,7 +177,7 @@ export type BuilderCmsContentEntryReadResult =
       state: "not_found";
       entry: null;
       providerStatus:
-        | "http_404"
+        | "http_200_not_found"
         | "http_200_unexpected_entry"
         | "mcp_not_found";
     };
@@ -177,6 +188,7 @@ export class BuilderCmsContentEntryReadError extends Error {
     readonly reason:
       | "auth_failed"
       | "access_denied"
+      | "not_found"
       | "transient_read_failure"
       | "malformed_body",
     readonly providerStatus: string,
@@ -196,10 +208,18 @@ type BuilderMcpToolResult = {
   content?: BuilderMcpContentPart[];
 };
 
+export const RETRYABLE_BUILDER_SOURCE_BINDING_ERRORS = new Set([
+  "builder_connection_required",
+  "builder_oauth_reauthorization_required",
+  "builder_source_binding_invalid",
+  "builder_source_binding_required",
+  "builder_source_connection_mismatch",
+  "builder_source_space_mismatch",
+]);
+
 const BUILDER_CMS_DEFAULT_READ_LIMIT = 500;
 const BUILDER_CMS_MAX_READ_LIMIT = 10_000;
 const BUILDER_CMS_PAGE_SIZE = 100;
-const BUILDER_CMS_PROJECTED_READ_CONCURRENCY = 8;
 const BUILDER_CMS_READ_RETRIES = 2;
 const BUILDER_CMS_METADATA_ENTRY_FIELD_PATHS = [
   "id",
@@ -207,6 +227,7 @@ const BUILDER_CMS_METADATA_ENTRY_FIELD_PATHS = [
   "published",
   "lastUpdated",
   "createdDate",
+  "meta.hasAutosaves",
   "data.title",
   "data.handle",
   "data.url",
@@ -229,10 +250,6 @@ const BUILDER_CMS_HEAVY_BODY_FIELD_PATHS = [
 const BUILDER_CMS_FIELD_PATH_PATTERN =
   /^[A-Za-z0-9_$-]+(?:\.[A-Za-z0-9_$-]+)*$/;
 
-type BuilderCmsContentPageResult =
-  | { pageLimit: number; pageEntries: BuilderCmsSourceEntry[] }
-  | { pageLimit: number; error: string };
-
 function normalizeBuilderCmsListFieldPath(fieldPath: string) {
   const trimmed = fieldPath.trim();
   if (!trimmed || !BUILDER_CMS_FIELD_PATH_PATTERN.test(trimmed)) return null;
@@ -252,7 +269,8 @@ function normalizeBuilderCmsListFieldPath(fieldPath: string) {
   }
   if (
     normalized.includes(".") &&
-    !normalized.toLowerCase().startsWith("data.")
+    !lower.startsWith("data.") &&
+    !BUILDER_CMS_TOP_LEVEL_METADATA_FIELDS.has(lower)
   ) {
     return null;
   }
@@ -302,31 +320,37 @@ export function builderCmsListEntryFields(fieldPaths: readonly string[] = []) {
   return Array.from(fields.values()).join(",");
 }
 
-const BUILDER_CMS_METADATA_ENTRY_FIELDS = builderCmsListEntryFields();
-const BUILDER_CMS_BODY_ENTRY_FIELDS = `${BUILDER_CMS_METADATA_ENTRY_FIELDS},${BUILDER_CMS_HEAVY_BODY_FIELD_PATHS.join(",")}`;
+// The general read routes (/api/v1/models, /api/v1/query-data) carry the
+// user's OAuth bearer, and Builder serves them on this host (api.builder.io
+// answers them with 404). It is a constant on purpose: no host override may
+// redirect the bearer.
+const BUILDER_OAUTH_READ_HOST = "https://cdn.builder.io";
 
-function applyBuilderCmsBodyEntryReadParams(url: URL, publicKey: string) {
-  url.searchParams.set("apiKey", publicKey);
-  url.searchParams.set("includeUnpublished", "true");
-  url.searchParams.set("enrich", "true");
-  url.searchParams.set("noCache", "true");
-  url.searchParams.set("cachebust", String(Date.now()));
-  url.searchParams.set("fields", BUILDER_CMS_BODY_ENTRY_FIELDS);
-}
-
-function builderContentApiHost() {
-  return (
-    process.env.BUILDER_CONTENT_API_HOST ??
-    process.env.BUILDER_CMS_API_HOST ??
-    "https://cdn.builder.io"
-  ).replace(/\/+$/, "");
-}
-
-function entryArrayFromResponse(value: unknown) {
-  if (Array.isArray(value)) return value;
-  if (!value || typeof value !== "object") return [];
+function parseBuilderGeneralQueryDataResponse(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    fail("Builder query-data returned a malformed response.", {
+      errorCode: "builder_response_invalid",
+      statusCode: 424,
+    });
+  }
   const record = value as Record<string, unknown>;
-  return Array.isArray(record.results) ? record.results : [];
+  if (!Array.isArray(record.results)) {
+    fail("Builder query-data did not return a results array.", {
+      errorCode: "builder_response_invalid",
+      statusCode: 424,
+    });
+  }
+  if (
+    typeof record.totalCount !== "number" ||
+    !Number.isInteger(record.totalCount) ||
+    record.totalCount < 0
+  ) {
+    fail("Builder query-data read did not return a valid totalCount.", {
+      errorCode: "builder_response_invalid",
+      statusCode: 424,
+    });
+  }
+  return { results: record.results, totalCount: record.totalCount };
 }
 
 function stringFromUnknown(value: unknown) {
@@ -338,10 +362,20 @@ function stringOrNumberFromUnknown(value: unknown) {
   return stringFromUnknown(value);
 }
 
-function liveStateFromBuilderEntry(value: unknown): BuilderCmsEntryLiveState {
+function liveSourceValues(record: Record<string, unknown>, model: string) {
+  const sourceValues = normalizeBuilderCmsApiEntry(record, model)?.sourceValues;
+  return sourceValues
+    ? { ...sourceValues, ...builderCmsReferenceIdSourceValues(record.data) }
+    : null;
+}
+
+function liveStateFromBuilderEntry(
+  value: unknown,
+  model: string,
+): BuilderCmsEntryLiveState {
   if (Array.isArray(value)) {
     return value.length > 0
-      ? liveStateFromBuilderEntry(value[0])
+      ? liveStateFromBuilderEntry(value[0], model)
       : {
           exists: false,
           published: null,
@@ -362,7 +396,7 @@ function liveStateFromBuilderEntry(value: unknown): BuilderCmsEntryLiveState {
 
   const record = value as Record<string, unknown>;
   if (Array.isArray(record.results)) {
-    return liveStateFromBuilderEntry(record.results);
+    return liveStateFromBuilderEntry(record.results, model);
   }
   if (Object.keys(record).length === 0) {
     return {
@@ -406,6 +440,8 @@ function liveStateFromBuilderEntry(value: unknown): BuilderCmsEntryLiveState {
       stringOrNumberFromUnknown(data.updatedAt),
     blocksHash: blocks.length > 0 ? builderBlocksHash(blocks) : null,
     id,
+    values: liveSourceValues(record, model),
+    hasAutosaves: builderEntryHasAutosaves(record),
   };
 }
 
@@ -435,14 +471,24 @@ function sleep(ms: number) {
 async function fetchBuilderContentPage(args: {
   fetchImpl: FetchLike;
   url: URL;
-  privateKey?: string;
+  accessToken?: string;
+  signal?: AbortSignal;
 }): Promise<Response> {
   let lastError: unknown = null;
   for (let attempt = 0; attempt <= BUILDER_CMS_READ_RETRIES; attempt += 1) {
+    if (args.signal?.aborted) {
+      throw args.signal.reason instanceof Error
+        ? args.signal.reason
+        : new Error("Builder request was aborted.");
+    }
     try {
       const headers: Record<string, string> = { accept: "application/json" };
-      if (args.privateKey) headers.authorization = `Bearer ${args.privateKey}`;
-      const response = await args.fetchImpl(args.url, { headers });
+      if (args.accessToken)
+        headers.authorization = `Bearer ${args.accessToken}`;
+      const response = await args.fetchImpl(args.url, {
+        headers,
+        ...(args.signal ? { signal: args.signal } : {}),
+      });
       if (
         !retryableBuilderReadStatus(response.status) ||
         attempt === BUILDER_CMS_READ_RETRIES
@@ -451,7 +497,7 @@ async function fetchBuilderContentPage(args: {
       }
     } catch (error) {
       lastError = error;
-      if (attempt === BUILDER_CMS_READ_RETRIES) {
+      if (args.signal?.aborted || attempt === BUILDER_CMS_READ_RETRIES) {
         throw error;
       }
     }
@@ -477,20 +523,222 @@ function appendUniqueBuilderEntries(
   return appended;
 }
 
-function builderMcpEndpoint(
-  source: BuilderRequestAuthorization["source"] | undefined,
-) {
-  if (source === "oauth") return BUILDER_PUBLISH_MCP_RESOURCE;
+function isBuilderOAuthReauthorizationRequired(error: unknown) {
   return (
-    process.env.BUILDER_CMS_MCP_ENDPOINT ?? BUILDER_PUBLISH_MCP_RESOURCE
-  ).replace(/\/+$/, "");
+    isActionContractError(error) &&
+    error.errorCode === "builder_oauth_reauthorization_required"
+  );
 }
 
-async function readBuilderCmsAuthorization() {
-  return resolveBuilderRequestAuthorization({
-    oauthResource: "publish",
-    legacyCredentialKeys: ["BUILDER_PRIVATE_KEY", "BUILDER_CMS_PRIVATE_KEY"],
+function isBuilderReadSourceBound(
+  expectedSourceSpace?: string | null,
+  expectedSourceConnectionId?: string | null,
+) {
+  const hasSourceSpace = Boolean(expectedSourceSpace?.trim());
+  const hasSourceConnectionId = Boolean(expectedSourceConnectionId?.trim());
+  if (hasSourceSpace !== hasSourceConnectionId) {
+    fail(
+      "Builder source binding must include both its space and connection. Reconnect the source before reading.",
+      { errorCode: "builder_source_binding_invalid", statusCode: 412 },
+    );
+  }
+  return hasSourceSpace;
+}
+
+async function readGeneralBuilderContentAuthorization(sourceBound: boolean) {
+  try {
+    return {
+      authorization: await resolveBuilderRequestAuthorization({
+        oauthResource: "general",
+        requiredScope: BUILDER_CONTENT_READ_SCOPE,
+        legacyCredentialKeys: [],
+      }),
+      reauthorization: null,
+    };
+  } catch (error) {
+    // The shared resolver throws instead of returning null when a grant
+    // predates builder:content:read. Only an unbound source may fall back to
+    // the Builder.io Publish connection until the user re-authorizes.
+    if (sourceBound || !isBuilderOAuthReauthorizationRequired(error)) {
+      throw error;
+    }
+    return { authorization: null, reauthorization: error };
+  }
+}
+
+async function readBuilderCmsAuthorization(sourceBound = false) {
+  const general = await readGeneralBuilderContentAuthorization(sourceBound);
+  if (general.authorization) return general.authorization;
+  try {
+    // Sources read through Builder.io OAuth only; deploy keys never apply.
+    const publish = await resolveBuilderRequestAuthorization({
+      oauthResource: "publish",
+      legacyCredentialKeys: [],
+    });
+    if (publish || !general.reauthorization) return publish;
+  } catch (error) {
+    if (!general.reauthorization) throw error;
+  }
+  throw general.reauthorization;
+}
+
+function isGeneralBuilderOAuth(
+  authorization: BuilderRequestAuthorization | null,
+): authorization is BuilderRequestAuthorization & {
+  source: "oauth";
+  oauthResource: "general";
+} {
+  return (
+    authorization?.source === "oauth" &&
+    authorization.oauthResource === "general"
+  );
+}
+
+function assertBuilderReadSourceAuthorization(
+  authorization: BuilderRequestAuthorization | null,
+  expectedSourceSpace?: string | null,
+  expectedSourceConnectionId?: string | null,
+) {
+  if (
+    isBuilderReadSourceBound(expectedSourceSpace, expectedSourceConnectionId) &&
+    !isGeneralBuilderOAuth(authorization)
+  ) {
+    fail(
+      "This Builder source's OAuth connection is unavailable. Reconnect the source before reading.",
+      { errorCode: "builder_connection_required", statusCode: 412 },
+    );
+  }
+}
+
+function requireBuilderOAuthPublicKey(
+  authorization: BuilderRequestAuthorization,
+  expectedSourceSpace?: string | null,
+  expectedSourceConnectionId?: string | null,
+) {
+  const selected = authorization.oauthSelectedPublicKey;
+  if (!selected) {
+    fail(
+      "Builder OAuth access did not identify its selected space. Reconnect Builder.io in Settings.",
+      { errorCode: "builder_connection_required", statusCode: 412 },
+    );
+  }
+  if (expectedSourceSpace && selected !== expectedSourceSpace) {
+    fail(
+      "The connected Builder space does not match this Content source. Reconnect the source's Builder space before continuing.",
+      { errorCode: "builder_source_space_mismatch", statusCode: 409 },
+    );
+  }
+  if (
+    expectedSourceConnectionId &&
+    authorization.oauthConnectionId !== expectedSourceConnectionId
+  ) {
+    fail(
+      "The connected Builder credential does not match this Content source. Reconnect the source before continuing.",
+      { errorCode: "builder_source_connection_mismatch", statusCode: 409 },
+    );
+  }
+  return selected;
+}
+
+async function readBuilderCmsGeneralModels(args: {
+  authorization: BuilderRequestAuthorization;
+  expectedSourceSpace?: string | null;
+  expectedSourceConnectionId?: string | null;
+  fetchImpl: FetchLike;
+  signal?: AbortSignal;
+}) {
+  const publicKey = requireBuilderOAuthPublicKey(
+    args.authorization,
+    args.expectedSourceSpace,
+    args.expectedSourceConnectionId,
+  );
+  const url = new URL("/api/v1/models", BUILDER_OAUTH_READ_HOST);
+  url.searchParams.set("apiKey", publicKey);
+  const response = await fetchBuilderContentPage({
+    fetchImpl: args.fetchImpl,
+    url,
+    accessToken: args.authorization.token,
+    signal: args.signal,
   });
+  if (response.status === 401) {
+    fail(
+      "Builder rejected this Builder.io connection. Reconnect Builder.io in Settings.",
+      { errorCode: "builder_connection_required", statusCode: 412 },
+    );
+  }
+  if (!response.ok) {
+    fail(`Builder model discovery failed with HTTP ${response.status}.`, {
+      errorCode: "builder_upstream_failed",
+      statusCode: 424,
+      details: { httpStatus: response.status },
+    });
+  }
+  return builderMcpModelsFromToolResponse((await response.json()) as unknown);
+}
+
+// Body hydration reads entries one at a time and each read needs the model id.
+// Rediscovering it per entry costs a request per row, so a large source floods
+// Builder.
+const BUILDER_MODEL_ID_TTL_MS = 60_000;
+const builderModelIdCache = new WeakMap<
+  FetchLike,
+  Map<string, { expiresAt: number; modelId: string }>
+>();
+
+async function resolveBuilderCmsGeneralModelId(args: {
+  model: string;
+  authorization: BuilderRequestAuthorization;
+  expectedSourceSpace?: string | null;
+  expectedSourceConnectionId?: string | null;
+  fetchImpl: FetchLike;
+  signal?: AbortSignal;
+}) {
+  const publicKey = requireBuilderOAuthPublicKey(
+    args.authorization,
+    args.expectedSourceSpace,
+    args.expectedSourceConnectionId,
+  );
+  const key = [
+    publicKey,
+    args.authorization.oauthConnectionId ?? "",
+    args.model.trim().toLowerCase(),
+  ].join("\u0000");
+  const entries = builderModelIdCache.get(args.fetchImpl) ?? new Map();
+  builderModelIdCache.set(args.fetchImpl, entries);
+  const cached = entries.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.modelId;
+  const modelId = await discoverBuilderCmsGeneralModelId(args);
+  entries.set(key, {
+    expiresAt: Date.now() + BUILDER_MODEL_ID_TTL_MS,
+    modelId,
+  });
+  return modelId;
+}
+
+async function discoverBuilderCmsGeneralModelId(args: {
+  model: string;
+  authorization: BuilderRequestAuthorization;
+  expectedSourceSpace?: string | null;
+  expectedSourceConnectionId?: string | null;
+  fetchImpl: FetchLike;
+  signal?: AbortSignal;
+}) {
+  const requestedModel = args.model.trim().toLowerCase();
+  const models = await readBuilderCmsGeneralModels(args);
+  const idMatch = models.find(
+    (candidate) => candidate.id.trim().toLowerCase() === requestedModel,
+  );
+  const nameMatches = models.filter(
+    (candidate) => candidate.name.trim().toLowerCase() === requestedModel,
+  );
+  const model = nameMatches.length === 1 ? nameMatches[0] : idMatch;
+  if (!model) {
+    fail(`Builder model ${args.model} was not found.`, {
+      errorCode: "builder_model_not_found",
+      statusCode: 404,
+    });
+  }
+  return model.id;
 }
 
 function parseBuilderMcpToolJson(value: unknown) {
@@ -516,7 +764,7 @@ function builderMcpTotalCount(value: unknown) {
 
 async function postBuilderMcp(args: {
   endpoint: string;
-  privateKey: string;
+  accessToken: string;
   payload: Record<string, unknown>;
   connection?: BuilderMcpConnection;
   modernClientName?: string;
@@ -534,7 +782,7 @@ async function postBuilderMcp(args: {
     : args.payload;
   const headers: Record<string, string> = {
     accept: "application/json, text/event-stream",
-    authorization: `Bearer ${args.privateKey}`,
+    authorization: `Bearer ${args.accessToken}`,
     "content-type": "application/json",
   };
   if (args.connection?.sessionId) {
@@ -760,28 +1008,51 @@ function stringOptionsFromUnknown(value: unknown): string[] | undefined {
 function builderMcpModelsFromToolResponse(
   response: unknown,
 ): BuilderCmsModelSummary[] {
-  if (!response || typeof response !== "object") return [];
-  const record = response as Record<string, unknown>;
-  const models = Array.isArray(record.models) ? record.models : [];
-  return models
-    .map((model) => normalizeBuilderCmsModel(model))
-    .filter((model): model is BuilderCmsModelSummary => Boolean(model))
-    .sort((a, b) => {
-      if (a.name === "agent-native-blog-article-test") return -1;
-      if (b.name === "agent-native-blog-article-test") return 1;
-      return a.displayName.localeCompare(b.displayName);
+  if (!response || typeof response !== "object" || Array.isArray(response)) {
+    fail("Builder model discovery returned a malformed response.", {
+      errorCode: "builder_response_invalid",
+      statusCode: 424,
     });
+  }
+  const record = response as Record<string, unknown>;
+  if (!Array.isArray(record.models)) {
+    fail("Builder model discovery did not return a models array.", {
+      errorCode: "builder_response_invalid",
+      statusCode: 424,
+    });
+  }
+  // /api/v1/models also lists archived models, which Builder's own model list
+  // hides; without this the source picker offers them.
+  const models = record.models
+    .filter(
+      (model) =>
+        !model ||
+        typeof model !== "object" ||
+        (model as Record<string, unknown>).archived !== true,
+    )
+    .map((model) => normalizeBuilderCmsModel(model));
+  if (models.some((model) => !model)) {
+    fail("Builder model discovery returned a malformed model.", {
+      errorCode: "builder_response_invalid",
+      statusCode: 424,
+    });
+  }
+  return (models as BuilderCmsModelSummary[]).sort((a, b) => {
+    if (a.name === "agent-native-blog-article-test") return -1;
+    if (b.name === "agent-native-blog-article-test") return 1;
+    return a.displayName.localeCompare(b.displayName);
+  });
 }
 
 async function initializeBuilderMcp(args: {
   endpoint: string;
-  privateKey: string;
+  accessToken: string;
   fetchImpl: FetchLike;
 }) {
   try {
     const discovered = await postBuilderMcp({
       endpoint: args.endpoint,
-      privateKey: args.privateKey,
+      accessToken: args.accessToken,
       fetchImpl: args.fetchImpl,
       payload: {
         jsonrpc: "2.0",
@@ -821,7 +1092,7 @@ async function initializeBuilderMcp(args: {
   ) => {
     const initialized = await postBuilderMcp({
       endpoint: args.endpoint,
-      privateKey: args.privateKey,
+      accessToken: args.accessToken,
       fetchImpl: args.fetchImpl,
       payload: {
         jsonrpc: "2.0",
@@ -846,7 +1117,7 @@ async function initializeBuilderMcp(args: {
     if (sessionId) {
       await postBuilderMcp({
         endpoint: args.endpoint,
-        privateKey: args.privateKey,
+        accessToken: args.accessToken,
         fetchImpl: args.fetchImpl,
         connection: { protocolVersion, sessionId },
         payload: {
@@ -876,27 +1147,29 @@ async function initializeBuilderMcp(args: {
 
 async function readBuilderCmsContentEntriesViaMcp(args: {
   model: string;
-  fieldPaths?: readonly string[];
-  includeBodies?: boolean;
-  rawData?: boolean;
-  limit?: number;
-  maxPages?: number;
-  offset?: number;
+  fieldPaths?: readonly string[] | undefined;
+  includeBodies?: boolean | undefined;
+  rawData?: boolean | undefined;
+  limit?: number | undefined;
+  maxPages?: number | undefined;
+  offset?: number | undefined;
+  startingFetchedEntryCount?: number | undefined;
+  expectedCollectionCount?: number | undefined;
   fetchImpl: FetchLike;
-  privateKey: string;
-  endpoint: string;
-  source: BuilderRequestAuthorization["source"];
+  accessToken: string;
 }): Promise<BuilderCmsReadResult> {
   const fetchedAt = new Date().toISOString();
-  const endpoint = args.endpoint;
+  const endpoint = BUILDER_PUBLISH_MCP_RESOURCE;
   const requestedLimit = readLimit(args.limit);
   const startOffset =
     typeof args.offset === "number" && Number.isFinite(args.offset)
       ? Math.max(0, Math.floor(args.offset))
       : 0;
+  const startingFetchedEntryCount =
+    args.startingFetchedEntryCount ?? startOffset;
   const connection = await initializeBuilderMcp({
     endpoint,
-    privateKey: args.privateKey,
+    accessToken: args.accessToken,
     fetchImpl: args.fetchImpl,
   });
   const fields = args.rawData
@@ -909,6 +1182,7 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
   let pagesRead = 0;
   let hasMore = false;
   let offset = startOffset;
+  let observedCollectionCount: number | null = null;
   while (contentEntries.length < requestedLimit) {
     const pageLimit = Math.min(
       BUILDER_CMS_PAGE_SIZE,
@@ -916,7 +1190,7 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
     );
     const contentResult = await postBuilderMcp({
       endpoint,
-      privateKey: args.privateKey,
+      accessToken: args.accessToken,
       fetchImpl: args.fetchImpl,
       connection,
       payload: {
@@ -924,17 +1198,11 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
         id: `content-${offset}`,
         method: "tools/call",
         params: {
-          name:
-            args.source === "oauth"
-              ? "browse_model_content"
-              : "get_builder_content",
+          name: "browse_model_content",
           arguments: {
             modelName: args.model,
             limit: pageLimit,
             ...(offset > 0 ? { offset } : {}),
-            ...(args.source === "legacy"
-              ? { enrich: args.rawData !== true }
-              : {}),
             ...(fields ? { fields } : {}),
           },
         },
@@ -955,8 +1223,35 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
       pageEntries,
     );
     pagesRead += 1;
-    offset += pageLimit;
+    offset += providerEntryCount;
     const totalCount = builderMcpTotalCount(contentJson);
+    if (observedCollectionCount === null && totalCount !== null) {
+      observedCollectionCount = totalCount;
+      if (
+        args.expectedCollectionCount !== undefined &&
+        totalCount !== args.expectedCollectionCount
+      ) {
+        fail(
+          "Builder MCP collection changed between refresh pages; restart the source refresh before mutating the snapshot.",
+          { errorCode: "builder_source_changed", statusCode: 409 },
+        );
+      }
+    } else if (
+      totalCount !== null &&
+      observedCollectionCount !== null &&
+      totalCount !== observedCollectionCount
+    ) {
+      fail(
+        "Builder MCP collection changed during pagination; refresh the source to restart the observed collection read.",
+        { errorCode: "builder_source_changed", statusCode: 409 },
+      );
+    }
+    if (startOffset > 0 && observedCollectionCount === null) {
+      fail(
+        "Builder MCP continuation has no saved collection count. Start a full refresh before continuing.",
+        { errorCode: "builder_source_continuation_mismatch", statusCode: 409 },
+      );
+    }
     hasMore =
       totalCount !== null
         ? offset < totalCount
@@ -979,157 +1274,176 @@ async function readBuilderCmsContentEntriesViaMcp(args: {
       pageSize: BUILDER_CMS_PAGE_SIZE,
       startOffset,
       nextOffset: offset,
-      fetchedEntryCount: startOffset + contentEntries.length,
+      fetchedEntryCount: startingFetchedEntryCount + contentEntries.length,
       hasMore,
       partial: hasMore,
       readMode: "mcp",
+      observedCollectionCount: observedCollectionCount ?? undefined,
     },
   };
 }
 
-async function readBuilderCmsContentEntriesViaContentApi(args: {
+async function readBuilderCmsContentEntriesViaGeneralApi(args: {
   model: string;
-  fieldPaths?: readonly string[];
-  includeBodies?: boolean;
-  allowCached?: boolean;
-  rawData?: boolean;
   limit?: number;
   maxPages?: number;
   offset?: number;
+  afterId?: string;
   fetchImpl: FetchLike;
-  publicKey: string;
-  privateKey?: string;
+  authorization: BuilderRequestAuthorization;
+  expectedSourceSpace?: string | null;
+  expectedSourceConnectionId?: string | null;
+  expectedCollectionCount?: number;
 }): Promise<BuilderCmsReadResult> {
   const fetchedAt = new Date().toISOString();
-  const url = new URL(
-    `/api/v3/content/${encodeURIComponent(args.model)}`,
-    builderContentApiHost(),
-  );
-  url.searchParams.set("apiKey", args.publicKey);
-  url.searchParams.set("enrich", args.rawData === true ? "false" : "true");
-  if (args.allowCached !== true || args.rawData === true) {
-    url.searchParams.set("noCache", "true");
-    url.searchParams.set(
-      "cachebust",
-      args.rawData === true ? String(Date.now()) : "true",
-    );
-  }
-  url.searchParams.set("includeUnpublished", "true");
-  if (args.rawData !== true) {
-    url.searchParams.set(
-      "fields",
-      args.includeBodies
-        ? `${builderCmsListEntryFields(args.fieldPaths)},${BUILDER_CMS_HEAVY_BODY_FIELD_PATHS.join(",")}`
-        : builderCmsListEntryFields(args.fieldPaths),
-    );
-  }
-
-  const limit = readLimit(args.limit);
+  const requestedLimit = readLimit(args.limit);
   const startOffset =
     typeof args.offset === "number" && Number.isFinite(args.offset)
       ? Math.max(0, Math.floor(args.offset))
       : 0;
+  const startAfterId = args.afterId?.trim() || null;
+  if (startOffset > 0 && !startAfterId) {
+    fail(
+      "Builder query-data continuation needs a stable entry cursor. Restart the source refresh to establish one.",
+      { errorCode: "builder_source_continuation_mismatch", statusCode: 409 },
+    );
+  }
+  const publicKey = requireBuilderOAuthPublicKey(
+    args.authorization,
+    args.expectedSourceSpace,
+    args.expectedSourceConnectionId,
+  );
+  const modelId = await resolveBuilderCmsGeneralModelId(args);
   const entries: BuilderCmsSourceEntry[] = [];
   const seenIds = new Set<string>();
+  let offset = startOffset;
+  let cursor = startAfterId;
   let pagesRead = 0;
+  let observedCollectionCount: number | null = null;
   let hasMore = false;
-  const concurrency =
-    args.rawData === true ? 1 : BUILDER_CMS_PROJECTED_READ_CONCURRENCY;
-  const errorResult = (message: string): BuilderCmsReadResult => ({
-    state: "error",
-    entries: [],
-    fetchedAt,
-    message,
-    progress: {
-      requestedLimit: limit,
-      pageSize: BUILDER_CMS_PAGE_SIZE,
-      startOffset,
-      nextOffset: startOffset + entries.length,
-      fetchedEntryCount: startOffset + entries.length,
-      hasMore,
-      partial: Boolean(args.maxPages) && hasMore,
-      readMode: "builder-api",
-    },
-  });
 
-  while (entries.length < limit) {
-    const pagesRemaining = args.maxPages
-      ? args.maxPages - pagesRead
-      : Number.POSITIVE_INFINITY;
-    if (pagesRemaining <= 0) break;
-    const pageCount = Math.min(
-      pagesRead === 0 ? 1 : concurrency,
-      pagesRemaining,
-      Math.ceil((limit - entries.length) / BUILDER_CMS_PAGE_SIZE),
-    );
-    const pageRequests = Array.from({ length: pageCount }, (_, index) => {
-      const pageUrl = new URL(url);
-      const pageLimit = readPageLimit(
-        limit - entries.length - index * BUILDER_CMS_PAGE_SIZE,
-      );
-      pageUrl.searchParams.set("limit", String(pageLimit));
-      pageUrl.searchParams.set(
-        "offset",
-        String(startOffset + (pagesRead + index) * BUILDER_CMS_PAGE_SIZE),
-      );
-      return { pageLimit, pageUrl };
+  while (entries.length < requestedLimit) {
+    if (args.maxPages && pagesRead >= args.maxPages) break;
+    const pageLimit = readPageLimit(requestedLimit - entries.length);
+    // Each page re-reads the previous page's last entry so a count-preserving
+    // edit before the offset (delete + append) cannot silently skip a row.
+    const anchored = offset > 0 && Boolean(cursor);
+    const url = new URL("/api/v1/query-data", BUILDER_OAUTH_READ_HOST);
+    url.searchParams.set("apiKey", publicKey);
+    url.searchParams.set("query.modelId", modelId);
+    url.searchParams.set("sort.id", "1");
+    url.searchParams.set("offset", String(anchored ? offset - 1 : offset));
+    url.searchParams.set("limit", String(anchored ? pageLimit + 1 : pageLimit));
+    url.searchParams.set("fetchTotalCount", "true");
+    url.searchParams.set("noCache", "true");
+    url.searchParams.set("cachebust", String(Date.now() + pagesRead));
+    const response = await fetchBuilderContentPage({
+      fetchImpl: args.fetchImpl,
+      url,
+      accessToken: args.authorization.token,
     });
-    const pageResults = await Promise.all(
-      pageRequests.map(
-        async ({
-          pageLimit,
-          pageUrl,
-        }): Promise<BuilderCmsContentPageResult> => {
-          try {
-            const response = await fetchBuilderContentPage({
-              fetchImpl: args.fetchImpl,
-              url: pageUrl,
-              privateKey: args.privateKey,
-            });
-            if (!response.ok) {
-              return {
-                pageLimit,
-                error: `Builder CMS read failed with HTTP ${response.status}.`,
-              };
-            }
-            const json = (await response.json()) as unknown;
-            const pageEntries = entryArrayFromResponse(json)
-              .map((entry) => normalizeBuilderCmsApiEntry(entry, args.model))
-              .filter((entry): entry is BuilderCmsSourceEntry =>
-                Boolean(entry),
-              );
-            return { pageLimit, pageEntries };
-          } catch (error) {
-            return {
-              pageLimit,
-              error:
-                error instanceof Error
-                  ? `Builder CMS read failed: ${error.message}`
-                  : "Builder CMS read failed.",
-            };
-          }
+    if (!response.ok) {
+      return {
+        state: "error",
+        entries: [],
+        fetchedAt,
+        message: `Builder CMS read failed with HTTP ${response.status}.`,
+        progress: {
+          requestedLimit,
+          pageSize: BUILDER_CMS_PAGE_SIZE,
+          startOffset,
+          nextOffset: offset,
+          nextCursor: cursor ?? undefined,
+          fetchedEntryCount: startOffset + entries.length,
+          hasMore: false,
+          partial: entries.length > 0,
+          readMode: "builder-api",
         },
-      ),
-    );
-
-    let stoppedOnShortPage = false;
-    for (const pageResult of pageResults) {
-      if ("error" in pageResult) return errorResult(pageResult.error);
-      const appended = appendUniqueBuilderEntries(
-        entries,
-        seenIds,
-        pageResult.pageEntries,
-      );
-      pagesRead += 1;
-      hasMore =
-        pageResult.pageEntries.length >= pageResult.pageLimit && appended > 0;
-      if (args.maxPages && pagesRead >= args.maxPages) break;
-      if (!hasMore) {
-        stoppedOnShortPage = true;
-        break;
+      };
+    }
+    const json = (await response.json()) as unknown;
+    const { results: rawPageEntries, totalCount } =
+      parseBuilderGeneralQueryDataResponse(json);
+    const pageCollectionCount = totalCount;
+    if (observedCollectionCount === null) {
+      observedCollectionCount = pageCollectionCount;
+      if (startOffset > 0 && args.expectedCollectionCount === undefined) {
+        fail(
+          "Builder source continuation has no saved collection count. Start a full refresh before continuing.",
+          {
+            errorCode: "builder_source_continuation_mismatch",
+            statusCode: 409,
+          },
+        );
+      }
+      if (
+        args.expectedCollectionCount !== undefined &&
+        pageCollectionCount !== args.expectedCollectionCount
+      ) {
+        fail(
+          "Builder query-data collection changed between refresh pages; restart the source refresh before mutating the snapshot.",
+          { errorCode: "builder_source_changed", statusCode: 409 },
+        );
       }
     }
-    if (stoppedOnShortPage || !hasMore) break;
+    if (
+      observedCollectionCount !== null &&
+      pageCollectionCount !== observedCollectionCount
+    ) {
+      fail(
+        "Builder query-data collection changed during cursor pagination; refresh the source to restart the observed collection read.",
+        { errorCode: "builder_source_changed", statusCode: 409 },
+      );
+    }
+    const normalizedEntries = rawPageEntries
+      .map((entry) => normalizeBuilderCmsApiEntry(entry, args.model))
+      .filter((entry): entry is BuilderCmsSourceEntry => Boolean(entry));
+    if (normalizedEntries.length !== rawPageEntries.length) {
+      fail(
+        "Builder query-data returned a malformed entry before the observed collection was complete.",
+        { errorCode: "builder_response_invalid", statusCode: 424 },
+      );
+    }
+    if (anchored && normalizedEntries[0]?.id !== cursor) {
+      fail(
+        "Builder query-data collection changed before the saved cursor; restart the source refresh.",
+        { errorCode: "builder_source_changed", statusCode: 409 },
+      );
+    }
+    const pageEntries = anchored
+      ? normalizedEntries.slice(1)
+      : normalizedEntries;
+    const priorCursor = cursor;
+    if (priorCursor && pageEntries.some((entry) => entry.id <= priorCursor)) {
+      fail(
+        "Builder query-data cursor pagination repeated or reordered an entry.",
+        { errorCode: "builder_response_invalid", statusCode: 424 },
+      );
+    }
+    const appended = appendUniqueBuilderEntries(entries, seenIds, pageEntries);
+    if (appended !== pageEntries.length) {
+      fail(
+        "Builder query-data returned duplicate entries before the observed collection was complete.",
+        { errorCode: "builder_response_invalid", statusCode: 424 },
+      );
+    }
+    if (offset + pageEntries.length > totalCount) {
+      fail(
+        "Builder query-data returned more entries than its reported totalCount.",
+        { errorCode: "builder_response_invalid", statusCode: 424 },
+      );
+    }
+    pagesRead += 1;
+    offset += pageEntries.length;
+    cursor = pageEntries[pageEntries.length - 1]?.id ?? cursor;
+    hasMore = offset < totalCount;
+    if (hasMore && (pageEntries.length === 0 || appended === 0)) {
+      fail(
+        "Builder query-data pagination returned no new entries before the observed collection was complete.",
+        { errorCode: "builder_response_invalid", statusCode: 424 },
+      );
+    }
+    if (!hasMore) break;
   }
 
   return {
@@ -1138,64 +1452,177 @@ async function readBuilderCmsContentEntriesViaContentApi(args: {
     fetchedAt,
     message: null,
     progress: {
-      requestedLimit: limit,
+      requestedLimit,
       pageSize: BUILDER_CMS_PAGE_SIZE,
       startOffset,
-      nextOffset: startOffset + entries.length,
-      fetchedEntryCount: startOffset + entries.length,
+      nextOffset: offset,
+      nextCursor: cursor ?? undefined,
+      fetchedEntryCount: offset,
       hasMore,
       partial: hasMore,
       readMode: "builder-api",
+      sourceSpacePublicKey: publicKey,
+      sourceConnectionId: args.authorization.oauthConnectionId,
+      observedCollectionCount: observedCollectionCount ?? undefined,
     },
   };
+}
+
+async function readBuilderCmsGeneralApiEntry(args: {
+  model: string;
+  entryId: string;
+  authorization: BuilderRequestAuthorization;
+  expectedSourceSpace?: string | null | undefined;
+  expectedSourceConnectionId?: string | null | undefined;
+  fetchImpl: FetchLike;
+  signal?: AbortSignal | undefined;
+}) {
+  const publicKey = requireBuilderOAuthPublicKey(
+    args.authorization,
+    args.expectedSourceSpace,
+    args.expectedSourceConnectionId,
+  );
+  const modelId = await resolveBuilderCmsGeneralModelId(args);
+  const url = new URL("/api/v1/query-data", BUILDER_OAUTH_READ_HOST);
+  url.searchParams.set("apiKey", publicKey);
+  url.searchParams.set("query.modelId", modelId);
+  url.searchParams.set("query.id", args.entryId);
+  url.searchParams.set("sort.id", "1");
+  url.searchParams.set("offset", "0");
+  url.searchParams.set("limit", "1");
+  url.searchParams.set("fetchTotalCount", "true");
+  // This read decides whether a write may overwrite the entry, and the host is
+  // a CDN that may serve a cached copy (including stale-if-error), so each
+  // request gets its own cache key.
+  url.searchParams.set("noCache", "true");
+  url.searchParams.set("cachebust", String(Date.now()));
+  return fetchBuilderContentPage({
+    fetchImpl: args.fetchImpl,
+    url,
+    accessToken: args.authorization.token,
+    signal: args.signal,
+  });
+}
+
+function builderGeneralEntryHttpFailure(message: string, status: number) {
+  const reason =
+    status === 401
+      ? "auth_failed"
+      : status === 403
+        ? "access_denied"
+        : status === 429 || status >= 500
+          ? "transient_read_failure"
+          : "malformed_body";
+  return new BuilderCmsContentEntryReadError(
+    message,
+    reason,
+    `http_${status}`,
+    reason === "transient_read_failure",
+  );
+}
+
+function builderGeneralEntryRequestFailure(error: unknown) {
+  if (!isActionContractError(error)) {
+    const message = error instanceof Error ? error.message : String(error);
+    return new BuilderCmsContentEntryReadError(
+      `Builder CMS entry read failed before a response was received: ${message}`,
+      "transient_read_failure",
+      "network_error",
+      true,
+    );
+  }
+  const httpStatus = error.details?.httpStatus;
+  if (typeof httpStatus === "number") {
+    return builderGeneralEntryHttpFailure(error.message, httpStatus);
+  }
+  const reason =
+    error.statusCode === 404
+      ? "not_found"
+      : error.statusCode === 424
+        ? "malformed_body"
+        : "access_denied";
+  return new BuilderCmsContentEntryReadError(
+    error.message,
+    reason,
+    error.errorCode,
+    RETRYABLE_BUILDER_SOURCE_BINDING_ERRORS.has(error.errorCode),
+  );
 }
 
 export async function readBuilderCmsEntryLiveState(args: {
   model: string;
   entryId: string;
+  expectedSourceSpace?: string | null;
+  expectedSourceConnectionId?: string | null;
+  requireBoundOAuth?: boolean;
   fetchImpl?: FetchLike;
+  signal?: AbortSignal;
 }): Promise<BuilderCmsEntryLiveState> {
-  const publicKey = await resolveBuilderCredential("BUILDER_PUBLIC_KEY");
-  if (!publicKey) {
-    throw new Error(
-      "Builder CMS live entry read skipped because BUILDER_PUBLIC_KEY is not configured.",
+  const { authorization: generalAuthorization } =
+    await readGeneralBuilderContentAuthorization(
+      isBuilderReadSourceBound(
+        args.expectedSourceSpace,
+        args.expectedSourceConnectionId,
+      ),
     );
-  }
-
-  const url = new URL(
-    `/api/v3/content/${encodeURIComponent(args.model)}/${encodeURIComponent(
-      args.entryId,
-    )}`,
-    builderContentApiHost(),
+  assertBuilderReadSourceAuthorization(
+    generalAuthorization,
+    args.expectedSourceSpace,
+    args.expectedSourceConnectionId,
   );
-  applyBuilderCmsBodyEntryReadParams(url, publicKey);
-
-  const response = await fetchBuilderContentPage({
-    fetchImpl: args.fetchImpl ?? fetch,
-    url,
-  });
-  if (response.status === 404) {
-    return {
-      exists: false,
-      published: null,
-      lastUpdated: null,
-      blocksHash: null,
-      id: null,
-    };
-  }
-  if (!response.ok) {
-    throw new Error(
-      `Builder CMS live entry read failed with HTTP ${response.status}.`,
+  if (
+    args.requireBoundOAuth === true &&
+    isGeneralBuilderOAuth(generalAuthorization) &&
+    !isBuilderReadSourceBound(
+      args.expectedSourceSpace,
+      args.expectedSourceConnectionId,
+    )
+  ) {
+    fail(
+      "Builder OAuth reads require a saved space and connection binding. Reattach the source with mode replace to bind the current Builder connection before reading.",
+      { errorCode: "builder_source_binding_required", statusCode: 409 },
     );
   }
-
+  if (!isGeneralBuilderOAuth(generalAuthorization)) {
+    fail(
+      "Builder.io is not connected. Connect Builder.io in Settings before reading this source.",
+      { errorCode: "builder_connection_required", statusCode: 412 },
+    );
+  }
+  const response = await readBuilderCmsGeneralApiEntry({
+    model: args.model,
+    entryId: args.entryId,
+    authorization: generalAuthorization,
+    expectedSourceSpace: args.expectedSourceSpace,
+    expectedSourceConnectionId: args.expectedSourceConnectionId,
+    fetchImpl: args.fetchImpl ?? fetch,
+    signal: args.signal,
+  });
+  if (!response.ok) {
+    fail(`Builder CMS live entry read failed with HTTP ${response.status}.`, {
+      errorCode: "builder_upstream_failed",
+      statusCode: 424,
+    });
+  }
   const json = (await response.json()) as unknown;
-  return liveStateFromBuilderEntry(json);
+  const { results } = parseBuilderGeneralQueryDataResponse(json);
+  if (results.length === 0) return liveStateFromBuilderEntry([], args.model);
+  const entry = normalizeBuilderCmsApiEntry(results[0], args.model);
+  if (!entry || entry.id !== args.entryId) {
+    fail("Builder CMS live entry read returned an unexpected entry payload.", {
+      errorCode: "builder_response_invalid",
+      statusCode: 424,
+    });
+  }
+  return liveStateFromBuilderEntry(entry.rawEntry, args.model);
 }
 
 export async function readBuilderCmsContentEntry(args: {
   model: string;
   entryId: string;
+  expectedSourceSpace?: string | null;
+  expectedSourceConnectionId?: string | null;
+  requireBoundOAuth?: boolean;
   fetchImpl?: FetchLike;
 }): Promise<BuilderCmsSourceEntry | null> {
   const result = await readBuilderCmsContentEntryResult({
@@ -1208,13 +1635,37 @@ export async function readBuilderCmsContentEntry(args: {
 export async function readBuilderCmsContentEntryResult(args: {
   model: string;
   entryId: string;
+  expectedSourceSpace?: string | null;
+  expectedSourceConnectionId?: string | null;
+  requireBoundOAuth?: boolean;
   fetchImpl?: FetchLike;
   strictEntryIdentity?: boolean;
 }): Promise<BuilderCmsContentEntryReadResult> {
-  const authorization = await readBuilderCmsAuthorization();
-  const privateKey = authorization?.token ?? null;
-  const publicKey = await resolveBuilderCredential("BUILDER_PUBLIC_KEY");
-  if (!publicKey && !privateKey) {
+  const authorization = await readBuilderCmsAuthorization(
+    isBuilderReadSourceBound(
+      args.expectedSourceSpace,
+      args.expectedSourceConnectionId,
+    ),
+  );
+  assertBuilderReadSourceAuthorization(
+    authorization,
+    args.expectedSourceSpace,
+    args.expectedSourceConnectionId,
+  );
+  if (
+    args.requireBoundOAuth === true &&
+    isGeneralBuilderOAuth(authorization) &&
+    !isBuilderReadSourceBound(
+      args.expectedSourceSpace,
+      args.expectedSourceConnectionId,
+    )
+  ) {
+    fail(
+      "Builder OAuth reads require a saved space and connection binding. Reattach the source with mode replace to bind the current Builder connection before reading.",
+      { errorCode: "builder_source_binding_required", statusCode: 409 },
+    );
+  }
+  if (!authorization) {
     throw new BuilderCmsContentEntryReadError(
       "Builder CMS entry read skipped because Builder is not connected.",
       "auth_failed",
@@ -1223,186 +1674,182 @@ export async function readBuilderCmsContentEntryResult(args: {
     );
   }
 
-  if (privateKey && (authorization?.source === "oauth" || !publicKey)) {
-    const endpoint = builderMcpEndpoint(authorization?.source);
+  if (isGeneralBuilderOAuth(authorization)) {
+    let response: Response;
     try {
-      const connection = await initializeBuilderMcp({
-        endpoint,
-        privateKey,
+      response = await readBuilderCmsGeneralApiEntry({
+        model: args.model,
+        entryId: args.entryId,
+        authorization,
+        expectedSourceSpace: args.expectedSourceSpace,
+        expectedSourceConnectionId: args.expectedSourceConnectionId,
         fetchImpl: args.fetchImpl ?? fetch,
       });
-      let offset = 0;
-      while (offset < BUILDER_CMS_MAX_READ_LIMIT) {
-        const entryResult = await postBuilderMcp({
-          endpoint,
-          privateKey,
-          fetchImpl: args.fetchImpl ?? fetch,
-          connection,
-          payload: {
-            jsonrpc: "2.0",
-            id: `entry-${args.entryId}-${offset}`,
-            method: "tools/call",
-            params: {
-              name:
-                authorization?.source === "oauth"
-                  ? "browse_model_content"
-                  : "get_builder_content",
-              arguments: {
-                modelName: args.model,
-                limit: BUILDER_CMS_PAGE_SIZE,
-                ...(offset > 0 ? { offset } : {}),
-                ...(authorization?.source === "legacy" ? { enrich: true } : {}),
-                fields: `${builderCmsListEntryFields()},${BUILDER_CMS_HEAVY_BODY_FIELD_PATHS.join(",")}`,
-              },
-            },
-          },
-        });
-        const entryJson = parseBuilderMcpToolJson(entryResult.json.result);
-        if (!entryJson) {
-          throw new BuilderCmsContentEntryReadError(
-            "Builder MCP entry read returned malformed tool content.",
-            "malformed_body",
-            "mcp_malformed_response",
-            false,
-          );
-        }
-        const entries = builderMcpEntriesFromToolResponse(
-          entryJson,
-          args.model,
-        );
-        const providerEntryCount = builderMcpProviderEntryCount(entryJson);
-        const entry = entries.find(
-          (candidate) => candidate.id === args.entryId,
-        );
-        if (entry) {
-          return { state: "found", entry, providerStatus: "mcp_200" };
-        }
-        const totalCount = builderMcpTotalCount(entryJson);
-        const nextOffset = offset + BUILDER_CMS_PAGE_SIZE;
-        const hasMore =
-          totalCount !== null
-            ? nextOffset < totalCount
-            : providerEntryCount >= BUILDER_CMS_PAGE_SIZE;
-        if (!hasMore) {
-          return {
-            state: "not_found",
-            entry: null,
-            providerStatus: "mcp_not_found",
-          };
-        }
-        offset = nextOffset;
-      }
-      throw new BuilderCmsContentEntryReadError(
-        "Builder MCP entry lookup exceeded the bounded read limit before the requested entry could be confirmed present or missing.",
-        "transient_read_failure",
-        "mcp_partial_lookup",
-        true,
-      );
     } catch (error) {
-      if (error instanceof BuilderCmsContentEntryReadError) throw error;
-      const message = error instanceof Error ? error.message : String(error);
-      const denied = /HTTP (?:401|403)\./.test(message);
-      throw new BuilderCmsContentEntryReadError(
-        `Builder MCP entry read failed: ${message}`,
-        denied ? "access_denied" : "transient_read_failure",
-        denied ? "mcp_access_denied" : "mcp_transient_failure",
-        !denied,
+      throw builderGeneralEntryRequestFailure(error);
+    }
+    if (!response.ok) {
+      throw builderGeneralEntryHttpFailure(
+        `Builder CMS entry read failed with HTTP ${response.status}.`,
+        response.status,
       );
     }
-  }
-
-  const url = new URL(
-    `/api/v3/content/${encodeURIComponent(args.model)}/${encodeURIComponent(
-      args.entryId,
-    )}`,
-    builderContentApiHost(),
-  );
-  applyBuilderCmsBodyEntryReadParams(url, publicKey!);
-
-  let response: Response;
-  try {
-    response = await fetchBuilderContentPage({
-      fetchImpl: args.fetchImpl ?? fetch,
-      url,
-    });
-  } catch (error) {
-    if (error instanceof BuilderCmsContentEntryReadError) throw error;
-    throw new BuilderCmsContentEntryReadError(
-      `Builder CMS entry read failed before a response was received: ${
-        error instanceof Error ? error.message : String(error)
-      }`,
-      "transient_read_failure",
-      "network_error",
-      true,
-    );
-  }
-  if (response.status === 404) {
-    return {
-      state: "not_found",
-      entry: null,
-      providerStatus: "http_404",
-    };
-  }
-  if (!response.ok) {
-    const reason =
-      response.status === 401
-        ? "auth_failed"
-        : response.status === 403
-          ? "access_denied"
-          : response.status === 429 || response.status >= 500
-            ? "transient_read_failure"
-            : "malformed_body";
-    throw new BuilderCmsContentEntryReadError(
-      `Builder CMS entry read failed with HTTP ${response.status}.`,
-      reason,
-      `http_${response.status}`,
-      reason === "transient_read_failure",
-    );
-  }
-
-  let json: unknown;
-  try {
-    json = (await response.json()) as unknown;
-  } catch {
-    throw new BuilderCmsContentEntryReadError(
-      "Builder CMS entry read returned malformed JSON.",
-      "malformed_body",
-      "http_200_invalid_json",
-      false,
-    );
-  }
-  const rawEntry = Array.isArray(json)
-    ? json[0]
-    : (entryArrayFromResponse(json)[0] ?? json);
-  const entry = normalizeBuilderCmsApiEntry(rawEntry, args.model);
-  if (!entry || entry.id !== args.entryId) {
-    if (args.strictEntryIdentity === false) {
+    let json: unknown;
+    try {
+      json = (await response.json()) as unknown;
+    } catch {
+      throw new BuilderCmsContentEntryReadError(
+        "Builder CMS entry read returned malformed JSON.",
+        "malformed_body",
+        "http_200_invalid_json",
+        false,
+      );
+    }
+    let entries: unknown[];
+    try {
+      entries = parseBuilderGeneralQueryDataResponse(json).results;
+    } catch (error) {
+      throw new BuilderCmsContentEntryReadError(
+        error instanceof Error
+          ? error.message
+          : "Builder query-data returned a malformed response.",
+        "malformed_body",
+        "http_200_malformed_body",
+        false,
+      );
+    }
+    if (entries.length === 0) {
       return {
         state: "not_found",
         entry: null,
-        providerStatus: "http_200_unexpected_entry",
+        providerStatus: "http_200_not_found",
       };
     }
+    const rawEntry = entries[0];
+    const entry = normalizeBuilderCmsApiEntry(rawEntry, args.model);
+    if (!entry) {
+      throw new BuilderCmsContentEntryReadError(
+        "Builder CMS entry read returned a malformed entry payload.",
+        "malformed_body",
+        "http_200_invalid_entry",
+        false,
+      );
+    }
+    if (entry.id !== args.entryId) {
+      if (args.strictEntryIdentity === false) {
+        return {
+          state: "not_found",
+          entry: null,
+          providerStatus: "http_200_unexpected_entry",
+        };
+      }
+      throw new BuilderCmsContentEntryReadError(
+        "Builder CMS entry read returned an unexpected entry payload.",
+        "malformed_body",
+        "http_200_unexpected_entry",
+        false,
+      );
+    }
+    return { state: "found", entry, providerStatus: "http_200" };
+  }
+
+  // Without a general Builder.io connection, an unbound source reads through
+  // the Builder.io Publish connection.
+  const endpoint = BUILDER_PUBLISH_MCP_RESOURCE;
+  try {
+    const connection = await initializeBuilderMcp({
+      endpoint,
+      accessToken: authorization.token,
+      fetchImpl: args.fetchImpl ?? fetch,
+    });
+    let offset = 0;
+    while (offset < BUILDER_CMS_MAX_READ_LIMIT) {
+      const entryResult = await postBuilderMcp({
+        endpoint,
+        accessToken: authorization.token,
+        fetchImpl: args.fetchImpl ?? fetch,
+        connection,
+        payload: {
+          jsonrpc: "2.0",
+          id: `entry-${args.entryId}-${offset}`,
+          method: "tools/call",
+          params: {
+            name: "browse_model_content",
+            arguments: {
+              modelName: args.model,
+              limit: BUILDER_CMS_PAGE_SIZE,
+              ...(offset > 0 ? { offset } : {}),
+              fields: `${builderCmsListEntryFields()},${BUILDER_CMS_HEAVY_BODY_FIELD_PATHS.join(",")}`,
+            },
+          },
+        },
+      });
+      const entryJson = parseBuilderMcpToolJson(entryResult.json.result);
+      if (!entryJson) {
+        throw new BuilderCmsContentEntryReadError(
+          "Builder MCP entry read returned malformed tool content.",
+          "malformed_body",
+          "mcp_malformed_response",
+          false,
+        );
+      }
+      const entries = builderMcpEntriesFromToolResponse(entryJson, args.model);
+      const providerEntryCount = builderMcpProviderEntryCount(entryJson);
+      const entry = entries.find((candidate) => candidate.id === args.entryId);
+      if (entry) {
+        return { state: "found", entry, providerStatus: "mcp_200" };
+      }
+      const totalCount = builderMcpTotalCount(entryJson);
+      const nextOffset = offset + BUILDER_CMS_PAGE_SIZE;
+      const hasMore =
+        totalCount !== null
+          ? nextOffset < totalCount
+          : providerEntryCount >= BUILDER_CMS_PAGE_SIZE;
+      if (!hasMore) {
+        return {
+          state: "not_found",
+          entry: null,
+          providerStatus: "mcp_not_found",
+        };
+      }
+      offset = nextOffset;
+    }
     throw new BuilderCmsContentEntryReadError(
-      "Builder CMS entry read returned an unexpected entry payload.",
-      "malformed_body",
-      "http_200_unexpected_entry",
-      false,
+      "Builder MCP entry lookup exceeded the bounded read limit before the requested entry could be confirmed present or missing.",
+      "transient_read_failure",
+      "mcp_partial_lookup",
+      true,
+    );
+  } catch (error) {
+    if (error instanceof BuilderCmsContentEntryReadError) throw error;
+    const message = error instanceof Error ? error.message : String(error);
+    const denied = /HTTP (?:401|403)\./.test(message);
+    throw new BuilderCmsContentEntryReadError(
+      `Builder MCP entry read failed: ${message}`,
+      denied ? "access_denied" : "transient_read_failure",
+      denied ? "mcp_access_denied" : "mcp_transient_failure",
+      !denied,
     );
   }
-  return { state: "found", entry, providerStatus: "http_200" };
 }
 
 export async function listBuilderCmsModels(
   args: {
     fetchImpl?: FetchLike;
+    expectedSourceSpace?: string | null;
+    expectedSourceConnectionId?: string | null;
   } = {},
 ): Promise<BuilderCmsModelsResponse> {
   const fetchedAt = new Date().toISOString();
   const fetchImpl = args.fetchImpl ?? fetch;
   let authorization: BuilderRequestAuthorization | null;
   try {
-    authorization = await readBuilderCmsAuthorization();
+    authorization = await readBuilderCmsAuthorization(
+      isBuilderReadSourceBound(
+        args.expectedSourceSpace,
+        args.expectedSourceConnectionId,
+      ),
+    );
   } catch (error) {
     return {
       state: "error",
@@ -1414,27 +1861,46 @@ export async function listBuilderCmsModels(
           : "Builder authorization could not be resolved.",
     };
   }
-  const privateKey = authorization?.token ?? null;
-  if (!privateKey) {
+  const accessToken = authorization?.token ?? null;
+  assertBuilderReadSourceAuthorization(
+    authorization,
+    args.expectedSourceSpace,
+    args.expectedSourceConnectionId,
+  );
+  if (!accessToken) {
     return {
       state: "unconfigured",
       models: [],
       fetchedAt,
       message:
-        "Builder CMS model discovery skipped because BUILDER_PRIVATE_KEY is not configured.",
+        "Builder CMS model discovery skipped because Builder.io is not connected.",
     };
   }
 
   try {
-    const endpoint = builderMcpEndpoint(authorization?.source);
+    if (isGeneralBuilderOAuth(authorization)) {
+      const models = await readBuilderCmsGeneralModels({
+        authorization,
+        fetchImpl,
+        expectedSourceSpace: args.expectedSourceSpace,
+        expectedSourceConnectionId: args.expectedSourceConnectionId,
+      });
+      return {
+        state: "live",
+        models,
+        fetchedAt,
+        message: null,
+      };
+    }
+    const endpoint = BUILDER_PUBLISH_MCP_RESOURCE;
     const connection = await initializeBuilderMcp({
       endpoint,
-      privateKey,
+      accessToken,
       fetchImpl,
     });
     const modelsResult = await postBuilderMcp({
       endpoint,
-      privateKey,
+      accessToken,
       fetchImpl,
       connection,
       payload: {
@@ -1475,8 +1941,14 @@ export async function listBuilderCmsModels(
 export async function readBuilderCmsModelFields(args: {
   model: string;
   fetchImpl?: FetchLike;
+  expectedSourceSpace?: string | null;
+  expectedSourceConnectionId?: string | null;
 }): Promise<BuilderCmsModelFieldSummary[]> {
-  const models = await listBuilderCmsModels({ fetchImpl: args.fetchImpl });
+  const models = await listBuilderCmsModels({
+    fetchImpl: args.fetchImpl,
+    expectedSourceSpace: args.expectedSourceSpace,
+    expectedSourceConnectionId: args.expectedSourceConnectionId,
+  });
   if (models.state === "unconfigured") return [];
   if (models.state === "error") {
     throw new Error(models.message ?? "Builder CMS model discovery failed.");
@@ -1495,21 +1967,30 @@ export async function readBuilderCmsModelFields(args: {
 
 export async function readBuilderCmsContentEntries(args: {
   model: string;
+  expectedSourceSpace?: string | null;
+  expectedSourceConnectionId?: string | null;
   fieldPaths?: readonly string[];
   includeBodies?: boolean;
-  allowCached?: boolean;
   rawData?: boolean;
-  requirePrivateKey?: boolean;
   limit?: number;
   maxPages?: number;
   offset?: number;
+  afterId?: string;
+  startingFetchedEntryCount?: number;
+  expectedCollectionCount?: number;
+  requireBoundOAuth?: boolean;
   fetchImpl?: FetchLike;
 }): Promise<BuilderCmsReadResult> {
   const fetchedAt = new Date().toISOString();
   const fetchImpl = args.fetchImpl ?? fetch;
   let authorization: BuilderRequestAuthorization | null;
   try {
-    authorization = await readBuilderCmsAuthorization();
+    authorization = await readBuilderCmsAuthorization(
+      isBuilderReadSourceBound(
+        args.expectedSourceSpace,
+        args.expectedSourceConnectionId,
+      ),
+    );
   } catch (error) {
     return {
       state: "error",
@@ -1531,15 +2012,17 @@ export async function readBuilderCmsContentEntries(args: {
       },
     };
   }
-  const privateKey = authorization?.token ?? null;
-  const publicKey = await resolveBuilderCredential("BUILDER_PUBLIC_KEY");
-  if (args.requirePrivateKey === true && !privateKey) {
+  assertBuilderReadSourceAuthorization(
+    authorization,
+    args.expectedSourceSpace,
+    args.expectedSourceConnectionId,
+  );
+  if (!authorization) {
     return {
       state: "unconfigured",
       entries: [],
       fetchedAt,
-      message:
-        "Builder CMS authenticated read skipped because BUILDER_PRIVATE_KEY is not configured.",
+      message: "Builder CMS read skipped because Builder.io is not connected.",
       progress: {
         requestedLimit: readLimit(args.limit),
         pageSize: BUILDER_CMS_PAGE_SIZE,
@@ -1552,45 +2035,32 @@ export async function readBuilderCmsContentEntries(args: {
       },
     };
   }
-  if (publicKey && authorization?.source !== "oauth") {
-    const contentApiRead = await readBuilderCmsContentEntriesViaContentApi({
-      model: args.model,
-      fieldPaths: args.fieldPaths,
-      includeBodies: args.includeBodies,
-      allowCached: args.allowCached,
-      rawData: args.rawData,
-      limit: args.limit,
-      maxPages: args.maxPages,
-      offset: args.offset,
-      fetchImpl,
-      publicKey,
-      privateKey: privateKey ?? undefined,
-    });
-    if (contentApiRead.state === "live") {
-      return preserveProjectedBuilderFieldAbsence(
-        contentApiRead,
-        args.fieldPaths,
-        args.rawData,
-      );
-    }
-    if (!privateKey) return contentApiRead;
-  }
-
-  if (privateKey) {
+  if (isGeneralBuilderOAuth(authorization)) {
     try {
+      if (
+        args.requireBoundOAuth === true &&
+        !isBuilderReadSourceBound(
+          args.expectedSourceSpace,
+          args.expectedSourceConnectionId,
+        )
+      ) {
+        fail(
+          "Builder OAuth refresh requires a saved space and connection binding. Reattach this source with mode replace to bind the current Builder connection before refreshing.",
+          { errorCode: "builder_source_binding_required", statusCode: 409 },
+        );
+      }
       return preserveProjectedBuilderFieldAbsence(
-        await readBuilderCmsContentEntriesViaMcp({
+        await readBuilderCmsContentEntriesViaGeneralApi({
           model: args.model,
-          fieldPaths: args.fieldPaths,
-          includeBodies: args.includeBodies,
-          rawData: args.rawData,
           limit: args.limit,
           maxPages: args.maxPages,
           offset: args.offset,
+          afterId: args.afterId,
+          expectedCollectionCount: args.expectedCollectionCount,
           fetchImpl,
-          privateKey,
-          endpoint: builderMcpEndpoint(authorization?.source),
-          source: authorization?.source ?? "legacy",
+          authorization,
+          expectedSourceSpace: args.expectedSourceSpace,
+          expectedSourceConnectionId: args.expectedSourceConnectionId,
         }),
         args.fieldPaths,
         args.rawData,
@@ -1603,28 +2073,48 @@ export async function readBuilderCmsContentEntries(args: {
         message:
           error instanceof Error
             ? error.message
-            : "Builder CMS MCP read failed.",
+            : "Builder CMS authenticated read failed.",
         progress: {
           requestedLimit: readLimit(args.limit),
           pageSize: BUILDER_CMS_PAGE_SIZE,
-          startOffset: 0,
-          nextOffset: 0,
-          fetchedEntryCount: 0,
+          startOffset: args.offset ?? 0,
+          nextOffset: args.offset ?? 0,
+          nextCursor: args.afterId,
+          fetchedEntryCount: args.offset ?? 0,
           hasMore: false,
           partial: false,
-          readMode: "mcp",
+          readMode: "builder-api",
         },
       };
     }
   }
-
-  if (!publicKey) {
+  // Without a general Builder.io connection, an unbound source reads through
+  // the Builder.io Publish connection.
+  try {
+    return preserveProjectedBuilderFieldAbsence(
+      await readBuilderCmsContentEntriesViaMcp({
+        model: args.model,
+        fieldPaths: args.fieldPaths,
+        includeBodies: args.includeBodies,
+        rawData: args.rawData,
+        limit: args.limit,
+        maxPages: args.maxPages,
+        offset: args.offset,
+        startingFetchedEntryCount: args.startingFetchedEntryCount,
+        expectedCollectionCount: args.expectedCollectionCount,
+        fetchImpl,
+        accessToken: authorization.token,
+      }),
+      args.fieldPaths,
+      args.rawData,
+    );
+  } catch (error) {
     return {
-      state: "unconfigured",
+      state: "error",
       entries: [],
       fetchedAt,
       message:
-        "Builder CMS read skipped because BUILDER_PUBLIC_KEY is not configured.",
+        error instanceof Error ? error.message : "Builder CMS MCP read failed.",
       progress: {
         requestedLimit: readLimit(args.limit),
         pageSize: BUILDER_CMS_PAGE_SIZE,
@@ -1633,25 +2123,8 @@ export async function readBuilderCmsContentEntries(args: {
         fetchedEntryCount: 0,
         hasMore: false,
         partial: false,
-        readMode: "none",
+        readMode: "mcp",
       },
     };
   }
-
-  return {
-    state: "error",
-    entries: [],
-    fetchedAt,
-    message: "Builder CMS read returned no entries.",
-    progress: {
-      requestedLimit: readLimit(args.limit),
-      pageSize: BUILDER_CMS_PAGE_SIZE,
-      startOffset: 0,
-      nextOffset: 0,
-      fetchedEntryCount: 0,
-      hasMore: false,
-      partial: false,
-      readMode: "none",
-    },
-  };
 }

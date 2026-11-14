@@ -258,7 +258,7 @@ function createFakeServer(runs: readonly ServerRun[], chaos: Chaos) {
     );
   };
 
-  return { fetch, clock, requests, outcomeAt };
+  return { fetch, clock, requests, postedTurnIds, outcomeAt };
 }
 
 type Observed = { event: AgentEvent; atMs: number };
@@ -805,6 +805,8 @@ describe("run outcome telemetry: one report per run, saying how the outcome was 
     vi.useRealTimers();
   });
 
+  let postedTurnIds: string[] = [];
+
   async function reportsFor(
     finalOutcome: keyof typeof FINALS,
     sever: number,
@@ -814,6 +816,7 @@ describe("run outcome telemetry: one report per run, saying how the outcome was 
       singleRunScript(finalOutcome, chaos),
       chaos,
     );
+    postedTurnIds = server.postedTurnIds;
     const reports: RunOutcomeReport[] = [];
     const { transport, runId } = await startTurn(server, {
       onRunOutcome: (report) => reports.push(report),
@@ -833,6 +836,7 @@ describe("run outcome telemetry: one report per run, saying how the outcome was 
       {
         runId: "run-1",
         threadId: THREAD,
+        turnId: postedTurnIds[0],
         outcome: "failed",
         code: "provider_auth_failed",
         message: "The provider rejected the API key.",
@@ -854,6 +858,8 @@ describe("run outcome telemetry: one report per run, saying how the outcome was 
       code: "stale_run",
       retryable: true,
       verifiedAfterPipeClosed: true,
+      // A re-read stream is the same turn the page sent.
+      turnId: postedTurnIds[0],
     });
     // Either the server's own terminal event arrived on a re-read stream, or
     // the record alone ended it; never the browser's own guess.

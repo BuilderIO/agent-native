@@ -1,11 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
-import {
-  IconChevronDown,
-  IconPointer,
-  IconFocus2,
-  IconHandClick,
-  IconBan,
-} from "@tabler/icons-react";
+import { IconChevronDown } from "@tabler/icons-react";
 import { Fragment, useCallback, useRef } from "react";
 
 import {
@@ -44,14 +38,6 @@ export interface InteractionStatePanelProps {
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
 }
-
-const STATE_ICONS: Record<InteractionState, typeof IconPointer> = {
-  hover: IconPointer,
-  focus: IconFocus2,
-  "focus-visible": IconFocus2,
-  active: IconHandClick,
-  disabled: IconBan,
-};
 
 function stateLabel(
   t: ReturnType<typeof useT>,
@@ -181,7 +167,6 @@ export function InteractionStatePanel({
             {selectionDot(activeState === null)}
           </DropdownMenuItem>
           {orderedAvailableStates.map((state) => {
-            const Icon = STATE_ICONS[state];
             const hasOverride = statesWithOverrides?.has(state) ?? false;
             const selected = activeState === state;
             return (
@@ -197,7 +182,6 @@ export function InteractionStatePanel({
                 data-interaction-state-option={state}
                 data-has-override={hasOverride || undefined}
               >
-                <Icon className="mr-2 size-3.5 shrink-0" />
                 <span className="flex-1">{stateLabel(t, state)}</span>
                 {selectionDot(selected, hasOverride)}
               </DropdownMenuItem>

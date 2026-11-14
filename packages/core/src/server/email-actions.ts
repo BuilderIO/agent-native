@@ -1,3 +1,4 @@
+import type { ActionEntry } from "../agent/production-agent.js";
 /**
  * Framework-level agent action for sending transactional/notification emails
  * via the configured core email transport (Resend or SendGrid).
@@ -14,8 +15,7 @@
  * when both would be present under the same key. To avoid any ambiguity this
  * action is keyed "core-send-email" which is distinct from the template name.
  */
-
-import type { ActionEntry } from "../agent/production-agent.js";
+import { frameworkMcpTools } from "../mcp/framework-tools.js";
 import {
   markdownToHtml,
   markdownToText,
@@ -27,7 +27,7 @@ export function createCoreEmailActionEntries(options?: {
   unattended?: boolean;
 }): Record<string, ActionEntry> {
   const unattended = options?.unattended === true;
-  return {
+  return frameworkMcpTools({
     "core-send-email": {
       tool: {
         description: [
@@ -140,5 +140,5 @@ export function createCoreEmailActionEntries(options?: {
         }
       },
     },
-  };
+  });
 }

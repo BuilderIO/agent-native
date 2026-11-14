@@ -25,8 +25,6 @@ import {
   canSubmitComposerContent,
   canRemoveVoicePreview,
   compactComposerModelName,
-  compactComposerReasoningEffortLabel,
-  composerModelCostTier,
   createTiptapComposerExtensions,
   focusComposerEditorWhenVisible,
   displayableComposerModeMessage,
@@ -44,9 +42,9 @@ import {
   hasConfiguredCloudProvider,
   MODEL_SELECTOR_POPOVER_STYLE,
   mentionItemMatchesQuery,
+  mentionItemsForQuery,
   modelProviderGroupLabel,
   resolveContextChipBackspaceAction,
-  resolveComposerPrimaryAction,
   shouldRenderModelSelector,
   shouldShowOnlyConnectPath,
   TiptapComposer,
@@ -254,20 +252,12 @@ describe("createTiptapComposerExtensions", () => {
       "GLM 5.3 Flash",
     );
     expect(compactComposerModelName("codex-cli")).toBe("Codex");
-    expect(compactComposerReasoningEffortLabel("medium")).toBe("Med");
-    expect(compactComposerReasoningEffortLabel("minimal")).toBe("Min");
-    expect(compactComposerReasoningEffortLabel("xhigh")).toBe("XHigh");
 
     const translate = (key: string, options?: Record<string, unknown>) =>
       key === "agentChat.composer.defaultModel"
         ? "Standardmodell"
-        : key === "agentChat.composer.reasoningMediumShort"
-          ? "Mittel"
-          : String(options?.defaultValue ?? key);
+        : String(options?.defaultValue ?? key);
     expect(compactComposerModelName("auto", translate)).toBe("Standardmodell");
-    expect(compactComposerReasoningEffortLabel("medium", translate)).toBe(
-      "Mittel",
-    );
   });
 
   it("limits Codex to OpenAI model providers", () => {
@@ -467,7 +457,7 @@ describe("createTiptapComposerExtensions", () => {
     });
     act(() => {
       Array.from(document.querySelectorAll<HTMLElement>('[role="menuitem"]'))
-        .find((button) => button.textContent?.trim() === "Add context")
+        .find((button) => button.textContent?.trim() === "Commands")
         ?.dispatchEvent(
           new KeyboardEvent("keydown", {
             key: "ArrowRight",
@@ -503,6 +493,78 @@ describe("createTiptapComposerExtensions", () => {
     expect(
       container.querySelector('[data-agent-composer-slot="mode-row"]'),
     ).toBeNull();
+  });
+
+  it("lets a first-paint handoff override a saved prompt when requested", async () => {
+    const scope = "draft-recovery:first-paint";
+    localStorage.setItem(getComposerDraftKey(scope), "<p>Saved prompt</p>");
+    const focusRef = React.createRef<TiptapComposerHandle>();
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            draftScope: scope,
+            initialText: "Typed before hydration",
+            initialTextKey: "first-paint",
+            initialTextOverridesSavedDraft: true,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(
+      container.querySelector(".agent-composer-prosemirror")?.textContent,
+    ).toBe("Typed before hydration");
+  });
+
+  it("can suppress only initial text notifications for the first-paint shell", async () => {
+    const onTextChange = vi.fn();
+    const focusRef = React.createRef<TiptapComposerHandle>();
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            draftScope: "first-paint-notification",
+            initialTextOverridesSavedDraft: true,
+            suppressInitialTextChange: true,
+            includeDefaultSlashSkills: false,
+            onTextChange,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(onTextChange).not.toHaveBeenCalled();
+
+    act(() => focusRef.current?.setText("Typed while loading"));
+    expect(onTextChange).toHaveBeenCalledWith("Typed while loading");
   });
 
   it("does not restore a stale draft after the composer is cleared", async () => {
@@ -553,6 +615,142 @@ describe("createTiptapComposerExtensions", () => {
     expect(
       container.querySelector(".agent-composer-prosemirror")?.textContent,
     ).toBe("");
+  });
+
+  it("applies handle calls a host makes from its mount effects", async () => {
+    const focusRef = React.createRef<TiptapComposerHandle>();
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      React.useLayoutEffect(() => {
+        focusRef.current?.setText("Prefilled from the host");
+      }, []);
+      React.useEffect(() => {
+        focusRef.current?.focus();
+        focusRef.current?.insertReference({
+          label: "Handoff file",
+          refType: "file",
+          refPath: "/tmp/handoff.txt",
+        });
+      }, []);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    const prosemirror = container.querySelector<HTMLElement>(
+      ".agent-composer-prosemirror[contenteditable]",
+    );
+    expect(prosemirror?.textContent).toContain("Prefilled from the host");
+    expect(prosemirror?.textContent).toContain("Handoff file");
+    expect(prosemirror?.contains(document.activeElement)).toBe(true);
+  });
+
+  it("keeps a call made as the editor arrives behind the queued calls", async () => {
+    let referenceInserted = false;
+    let latestHandle: TiptapComposerHandle | null = null;
+    // A callback ref runs as the usable handle is published, before the
+    // queued calls replay.
+    const focusRef = (handle: TiptapComposerHandle | null) => {
+      latestHandle = handle;
+      if (!handle || referenceInserted || handle.getSelection() === null) {
+        return;
+      }
+      referenceInserted = true;
+      handle.insertReference({
+        label: "Arriving file",
+        refType: "file",
+        refPath: "/tmp/arriving.txt",
+      });
+    };
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      React.useLayoutEffect(() => {
+        latestHandle?.setText("Queued prompt");
+      }, []);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    await act(async () => {
+      root.render(React.createElement(Harness));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(referenceInserted).toBe(true);
+    const prosemirror = container.querySelector<HTMLElement>(
+      ".agent-composer-prosemirror[contenteditable]",
+    );
+    expect(prosemirror?.textContent).toContain("Queued prompt");
+    expect(prosemirror?.textContent).toContain("Arriving file");
+  });
+
+  it("drops queued handle calls when the composer unmounts first", async () => {
+    const focusRef = React.createRef<TiptapComposerHandle>();
+    const onTextChange = vi.fn();
+    const localContainer = document.createElement("div");
+    document.body.appendChild(localContainer);
+    const localRoot = createRoot(localContainer);
+
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      React.useLayoutEffect(() => {
+        focusRef.current?.setText("Queued before unmount");
+      }, []);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            onTextChange,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    act(() => localRoot.render(React.createElement(Harness)));
+    act(() => localRoot.unmount());
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    localContainer.remove();
+
+    expect(onTextChange).not.toHaveBeenCalledWith("Queued before unmount");
   });
 
   it("moves focus outside Home when its hidden context picker closes", async () => {
@@ -622,10 +820,6 @@ describe("createTiptapComposerExtensions", () => {
       );
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    const addContextItem = Array.from(
-      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-    ).find((item) => item.textContent?.trim() === "Add context");
-    await act(async () => addContextItem?.click());
     const clickMenuItem = async (label: string) => {
       const item = Array.from(
         document.querySelectorAll<HTMLElement>('[role^="menuitem"]'),
@@ -2262,25 +2456,88 @@ describe("createTiptapComposerExtensions", () => {
     ).toBe(false);
   });
 
-  it("uses one primary action while a response is running", () => {
+  it("shows one primary control: Stop while empty, Send once a draft exists", async () => {
+    const stop = vi.fn();
+    const focusRef: React.MutableRefObject<TiptapComposerHandle | null> = {
+      current: null,
+    };
+    function Harness({ running }: { running: boolean }) {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+            willQueue: running,
+            stopButton: running
+              ? React.createElement(
+                  "button",
+                  {
+                    type: "button",
+                    "data-agent-composer-slot": "stop-button",
+                    onClick: stop,
+                  },
+                  "Stop",
+                )
+              : undefined,
+          }),
+        ),
+      );
+    }
+    const send = () =>
+      container.querySelector<HTMLButtonElement>(
+        '[data-agent-composer-slot="send-button"]',
+      );
+    const stopButton = () =>
+      container.querySelector<HTMLButtonElement>(
+        '[data-agent-composer-slot="stop-slot"] [data-agent-composer-slot="stop-button"]',
+      );
+    const pressEscape = () =>
+      act(async () => {
+        container
+          .querySelector<HTMLElement>(".agent-composer-prosemirror")!
+          .dispatchEvent(
+            new KeyboardEvent("keydown", {
+              key: "Escape",
+              bubbles: true,
+              cancelable: true,
+            }),
+          );
+      });
+
+    act(() => root.render(React.createElement(Harness, { running: true })));
+    expect(stopButton()).not.toBeNull();
+    expect(send()).toBeNull();
+
+    // oracle-change: a draft now swaps Stop for Send, so there is no Stop-before-Send order to check.
+    act(() => focusRef.current?.setText("Follow-up while it runs"));
     expect(
-      resolveComposerPrimaryAction({
-        canSubmit: false,
-        hasStopButton: true,
-      }),
-    ).toBe("stop");
+      container.querySelector<HTMLElement>(
+        '[data-agent-composer-slot="stop-slot"]',
+      )?.hidden,
+    ).toBe(true);
+    expect(send()?.disabled).toBe(false);
+    expect(send()?.getAttribute("aria-label")).toBe("Queue message");
+
+    await pressEscape();
+    expect(stop).toHaveBeenCalledOnce();
     expect(
-      resolveComposerPrimaryAction({
-        canSubmit: true,
-        hasStopButton: true,
-      }),
-    ).toBe("send");
+      container.querySelector(".agent-composer-prosemirror")?.textContent,
+    ).toBe("Follow-up while it runs");
+
+    act(() => root.render(React.createElement(Harness, { running: false })));
     expect(
-      resolveComposerPrimaryAction({
-        canSubmit: false,
-        hasStopButton: false,
-      }),
-    ).toBe("send");
+      container.querySelector('[data-agent-composer-slot="stop-slot"]'),
+    ).toBeNull();
+    expect(send()?.getAttribute("aria-label")).toBe("Send message");
+    await pressEscape();
+    expect(stop).toHaveBeenCalledOnce();
   });
 
   it("uses the queue tooltip when the submit will wait", () => {
@@ -2687,9 +2944,8 @@ describe("createTiptapComposerExtensions", () => {
 
   it("caps the model picker height without forcing empty vertical space", () => {
     expect(MODEL_SELECTOR_POPOVER_STYLE).toMatchObject({
-      fontSize: 13,
       maxHeight:
-        "min(500px, var(--radix-popover-content-available-height, 500px))",
+        "min(500px, var(--radix-dropdown-menu-content-available-height, 500px))",
     });
     expect(MODEL_SELECTOR_POPOVER_STYLE).not.toHaveProperty("height");
   });
@@ -2774,18 +3030,20 @@ describe("createTiptapComposerExtensions", () => {
     const modelButton = container.querySelector<HTMLButtonElement>(
       '[data-agent-composer-slot="model-button"]',
     );
-    expect(modelButton?.textContent).toContain("Connect keys");
+    expect(modelButton?.textContent).toContain("Connect agent");
     expect(modelButton?.textContent).not.toContain("GPT-5.6 Luna");
-    expect(modelButton?.getAttribute("aria-label")).toContain("Connect keys");
+    expect(modelButton?.getAttribute("aria-label")).toContain("Connect agent");
     expect(modelButton?.getAttribute("aria-label")).not.toContain(
       "GPT-5.6 Luna",
     );
 
     act(() => modelButton?.click());
-    const modelTab = Array.from(document.querySelectorAll('[role="tab"]')).find(
-      (tab) => tab.textContent?.includes("Connect keys"),
-    );
-    expect(modelTab?.textContent).toContain("Connect keys");
+    // With nothing connected the menu lists the connect choices directly.
+    const connectMenu = document.querySelector('[role="menu"]');
+    expect(connectMenu?.textContent).toContain("Add your own keys");
+    expect(
+      connectMenu?.querySelector("[data-agent-composer-model-section]"),
+    ).toBeNull();
     act(() => modelButton?.click());
 
     act(() => root.render(React.createElement(Harness, { configured: true })));
@@ -2809,15 +3067,108 @@ describe("createTiptapComposerExtensions", () => {
     const picker = document.querySelector(
       '[data-agent-native-composer-popover="true"]',
     );
-    expect(picker?.textContent).toContain("GPT-5.6 Luna");
+    const row = picker?.querySelector(
+      '[data-agent-composer-model-row="gpt-5.6-luna"]',
+    );
+    expect(row?.getAttribute("role")).toBe("menuitemradio");
+    expect(row?.getAttribute("aria-checked")).toBe("true");
+    expect(row?.textContent).toContain("GPT-5.6 Luna");
     expect(
-      Array.from(picker?.querySelectorAll('[role="tab"]') ?? []).some((tab) =>
-        tab.textContent?.includes("Model"),
-      ),
-    ).toBe(true);
+      picker?.querySelector('[data-agent-composer-model-section="more"]'),
+    ).toBe(null);
   });
 
-  it("shows current Builder model versions in the picker", () => {
+  it("has no Agent/Plan mode picker", async () => {
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            planCommand: true,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+    act(() => root.render(React.createElement(Harness)));
+    expect(
+      container.querySelector('[data-agent-composer-slot="mode-button"]'),
+    ).toBeNull();
+  });
+
+  it("closes More models, then the picker, one Escape at a time", async () => {
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            availableModels: [
+              {
+                engine: "openai",
+                label: "OpenAI",
+                models: [
+                  "gpt-5.6-luna",
+                  "gpt-6-luna",
+                  "gpt-5.5",
+                  "gpt-5.4",
+                  "gpt-5.4-mini",
+                ],
+                configured: true,
+              },
+            ],
+            selectedModel: "gpt-5.6-luna",
+            selectedEngine: "openai",
+            onModelChange: vi.fn(),
+            agentOnly: false,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            providerConnectStatusEnabled: false,
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+    const pressEscape = () =>
+      act(async () => {
+        document.activeElement?.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Escape",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+      });
+    const popovers = () =>
+      document.querySelectorAll('[data-agent-native-composer-popover="true"]');
+
+    act(() => root.render(React.createElement(Harness)));
+    const trigger = container.querySelector<HTMLButtonElement>(
+      '[data-agent-composer-slot="model-button"]',
+    )!;
+    await act(async () => trigger.click());
+    const moreSection = document.querySelector<HTMLElement>(
+      '[data-agent-composer-model-section="more"]',
+    )!;
+    await act(async () => moreSection.click());
+    expect(popovers()).toHaveLength(2);
+
+    await pressEscape();
+    expect(popovers()).toHaveLength(1);
+    await pressEscape();
+    expect(popovers()).toHaveLength(0);
+  });
+
+  it("lists every connected model across the short list and More models", () => {
     const models = [
       "gpt-6-sol",
       "gpt-6-luna",
@@ -2874,27 +3225,27 @@ describe("createTiptapComposerExtensions", () => {
     expect(modelButton?.getAttribute("aria-label")).not.toContain("OpenAI");
 
     act(() => modelButton?.click());
-    const modelTab = Array.from(document.querySelectorAll('[role="tab"]')).find(
-      (tab) => tab.textContent?.includes("Model"),
+    act(() =>
+      document
+        .querySelector<HTMLElement>(
+          '[data-agent-composer-model-section="more"]',
+        )
+        ?.click(),
     );
-    act(() => (modelTab as HTMLElement | undefined)?.click());
-    const picker = document.querySelector(
-      '[role="tabpanel"][aria-label="model"]',
+    const listed = Array.from(
+      document.querySelectorAll("[data-agent-composer-model-row]"),
+    ).map((row) => row.getAttribute("data-agent-composer-model-row"));
+    expect(listed.sort()).toEqual([...models, "claude-haiku-4-5"].sort());
+    const menuText = Array.from(document.querySelectorAll('[role="menu"]'))
+      .map((menu) => menu.textContent)
+      .join(" ");
+    expect(menuText).not.toContain("Builder.io");
+    expect(document.querySelector('[role="menu"] [role="group"] > div')).toBe(
+      null,
     );
-    expect(picker?.textContent).toContain("GPT-6 Sol");
-    expect(picker?.textContent).toContain("GPT-6 Luna");
-    expect(picker?.textContent).toContain("GPT-5.5");
-    expect(picker?.textContent).toContain("GPT-5.4 Mini");
-    expect(picker?.textContent).toContain("GPT-5.1 Codex Mini");
-    expect(picker?.textContent).toContain("Claude Opus 5.5");
-    expect(picker?.textContent).toContain("Gemini 3.8 Flash");
-    expect(picker?.textContent).toContain("Gemini 3.1 Flash-Lite");
-    expect(picker?.textContent).toContain("OpenAI");
-    expect(picker?.textContent).toContain("Claude");
-    expect(picker?.textContent).not.toContain("Builder.io");
   });
 
-  it("keeps the selected model visible when the picker hides older versions", () => {
+  it("lists older versions beside current ones", () => {
     function Harness() {
       const runtime = useLocalRuntime(emptyChatModelAdapter);
       return React.createElement(
@@ -2929,15 +3280,12 @@ describe("createTiptapComposerExtensions", () => {
       '[data-agent-composer-slot="model-button"]',
     );
     act(() => modelButton?.click());
-    const modelTab = Array.from(document.querySelectorAll('[role="tab"]')).find(
-      (tab) => tab.textContent?.includes("Model"),
-    );
-    act(() => (modelTab as HTMLElement | undefined)?.click());
-    const picker = document.querySelector(
-      '[role="tabpanel"][aria-label="model"]',
-    );
+    const picker = document.querySelector('[role="menu"]');
     expect(picker?.textContent).toContain("GPT-5.6 Luna");
     expect(picker?.textContent).toContain("GPT-6 Luna");
+    expect(
+      picker?.querySelector('[data-agent-composer-model-section="more"]'),
+    ).toBe(null);
   });
 
   it("disambiguates the selected model when providers expose the same model", () => {
@@ -2988,69 +3336,6 @@ describe("createTiptapComposerExtensions", () => {
     expect(modelButton?.getAttribute("aria-label")).not.toContain("Builder");
   });
 
-  it("chooses the newest tier version regardless of catalog order", () => {
-    const models = [
-      "openai/gpt-5.6-sol",
-      "openai/gpt-6-sol",
-      "anthropic/claude-opus-4.8",
-      "anthropic/claude-opus-5.5",
-      "anthropic/claude-sonnet-5.5",
-      "google/gemini-2.5-flash",
-      "google/gemini-3.8-flash",
-    ];
-    function Harness() {
-      const runtime = useLocalRuntime(emptyChatModelAdapter);
-      return React.createElement(
-        AssistantRuntimeProvider,
-        { runtime },
-        React.createElement(
-          TooltipProvider,
-          null,
-          React.createElement(TiptapComposer, {
-            availableModels: [
-              {
-                engine: "ai-sdk:openrouter",
-                label: "OpenRouter",
-                models,
-                configured: true,
-              },
-            ],
-            selectedModel: "google/gemini-3.8-flash",
-            selectedEngine: "ai-sdk:openrouter",
-            onModelChange: vi.fn(),
-            includeDefaultSlashSkills: false,
-            plusMenuMode: "hidden",
-            providerConnectStatusEnabled: false,
-            voiceEnabled: false,
-          }),
-        ),
-      );
-    }
-
-    act(() => root.render(React.createElement(Harness)));
-    const modelButton = container.querySelector<HTMLButtonElement>(
-      '[data-agent-composer-slot="model-button"]',
-    );
-    expect(modelButton?.textContent).toContain("Gemini 3.8 Flash");
-    expect(modelButton?.textContent).not.toContain("OpenRouter");
-
-    act(() => modelButton?.click());
-    const modelTab = Array.from(document.querySelectorAll('[role="tab"]')).find(
-      (tab) => tab.textContent?.includes("Model"),
-    );
-    act(() => (modelTab as HTMLElement | undefined)?.click());
-    const picker = document.querySelector(
-      '[role="tabpanel"][aria-label="model"]',
-    );
-    expect(picker?.textContent).toContain("GPT-6 Sol");
-    expect(picker?.textContent).toContain("Claude Sonnet 5.5");
-    expect(picker?.textContent).toContain("Claude Opus 5.5");
-    expect(picker?.textContent).toContain("Gemini 3.8 Flash");
-    expect(picker?.textContent).not.toContain("GPT-5.6 Sol");
-    expect(picker?.textContent).not.toContain("Claude Opus 4.8");
-    expect(picker?.textContent).not.toContain("Gemini 2.5 Flash");
-  });
-
   it("resets a hidden model when switching to Claude Code", async () => {
     const onModelChange = vi.fn();
 
@@ -3098,7 +3383,7 @@ describe("createTiptapComposerExtensions", () => {
 });
 
 describe("TiptapComposer storage gate", () => {
-  it("opens storage setup from Upload File without exposing a file picker", async () => {
+  it("opens storage setup from Files and images without exposing a file picker", async () => {
     const onAttachmentRequest = vi.fn();
 
     function Harness() {
@@ -3143,14 +3428,75 @@ describe("TiptapComposer storage gate", () => {
     const uploadItem = Array.from(
       document.querySelectorAll<HTMLElement>("[role=menuitem]"),
     ).at(0);
-    expect(uploadItem).toBeDefined();
+    expect(uploadItem?.textContent).toBe("Files and images");
     await act(async () => uploadItem?.click());
-    expect(onAttachmentRequest).toHaveBeenCalledOnce();
+    await act(async () =>
+      vi.waitFor(() => expect(onAttachmentRequest).toHaveBeenCalledOnce()),
+    );
     expect(container.querySelector('input[type="file"]')).toBeNull();
   });
 });
 
 describe("TiptapComposer paste handling", () => {
+  it.each([
+    [true, ""],
+    [false, "Pasted words"],
+  ])(
+    "lets the app claim a paste as context (claimed: %s)",
+    async (claimed, expectedText) => {
+      const onPasteContext = vi.fn(() => claimed);
+
+      function Harness() {
+        const runtime = useLocalRuntime(emptyChatModelAdapter);
+        return React.createElement(
+          AssistantRuntimeProvider,
+          { runtime },
+          React.createElement(
+            TooltipProvider,
+            null,
+            React.createElement(TiptapComposer, {
+              attachmentsEnabled: false,
+              includeDefaultSlashSkills: false,
+              plusMenuMode: "hidden",
+              providerConnectStatusEnabled: false,
+              voiceEnabled: false,
+              onPasteContext,
+            }),
+          ),
+        );
+      }
+
+      await act(async () => {
+        root.render(React.createElement(Harness));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      const editor = container.querySelector<HTMLElement>(
+        ".agent-composer-prosemirror",
+      );
+      const clipboardData = {
+        files: [],
+        getData: (type: string) =>
+          type === "text/plain" ? "Pasted words" : "",
+      };
+      const pasteEvent = new Event("paste", {
+        bubbles: true,
+        cancelable: true,
+      });
+      Object.defineProperty(pasteEvent, "clipboardData", {
+        value: clipboardData,
+      });
+
+      await act(async () => {
+        editor?.dispatchEvent(pasteEvent);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(onPasteContext).toHaveBeenCalledWith(clipboardData);
+      expect(editor?.textContent).toBe(expectedText);
+    },
+  );
+
   it("keeps text from a mixed text and image paste when uploads are disabled", async () => {
     const pastedText = "Keep this text";
 
@@ -3465,6 +3811,38 @@ describe("TiptapComposer slash commands", () => {
     expect(sendButton?.querySelector(".tabler-icon-arrow-up")).not.toBeNull();
   });
 
+  it("shows the placeholder while the composer is disabled", () => {
+    function Harness() {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            disabled: true,
+            placeholder: "Connect AI to start chatting...",
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+          }),
+        ),
+      );
+    }
+
+    act(() => root.render(React.createElement(Harness)));
+    const editor = container.querySelector<HTMLElement>(
+      ".agent-composer-prosemirror",
+    )!;
+    expect(editor.getAttribute("contenteditable")).toBe("false");
+    expect(
+      editor
+        .querySelector("p.is-editor-empty")
+        ?.getAttribute("data-placeholder"),
+    ).toBe("Connect AI to start chatting...");
+  });
+
   it("keeps the editor focused after a successful submission", async () => {
     const onSubmit = vi.fn(async () => undefined);
     const focusRef = React.createRef<TiptapComposerHandle>();
@@ -3514,13 +3892,12 @@ describe("TiptapComposer slash commands", () => {
     expect(emptyParagraph?.getAttribute("data-placeholder")).toBe(
       "Ask the agent...",
     );
-    expect(
-      Array.from(container.querySelectorAll("style")).some((style) =>
-        style.textContent?.includes(
-          "p.is-empty:first-child:last-child::before",
-        ),
-      ),
-    ).toBe(true);
+    // The placeholder is drawn by the editor's own classes, not a <style>
+    // element injected on every render.
+    expect(editor.className).toContain(
+      "[&>p.is-editor-empty:first-child]:before:content-[attr(data-placeholder)]",
+    );
+    expect(container.querySelector("style")).toBeNull();
   });
 
   it("submits a slash-prefixed prompt when no command handler is provided", async () => {
@@ -4893,7 +5270,7 @@ describe("TiptapComposer slash commands", () => {
     }
 
     act(() => root.render(React.createElement(Harness)));
-    act(() => focusRef.current?.setText("/act"));
+    act(() => focusRef.current?.setText("/help"));
 
     const editor = container.querySelector(
       ".agent-composer-prosemirror",
@@ -4908,14 +5285,277 @@ describe("TiptapComposer slash commands", () => {
       );
     });
 
-    expect(onSlashCommand).toHaveBeenCalledWith("act");
+    expect(onSlashCommand).toHaveBeenCalledWith("help");
     expect(toast.success).toHaveBeenCalledWith(
-      "/act",
+      "/help",
       expect.objectContaining({
-        description: "Switch back to acting",
+        description: "Show available commands",
         duration: 1800,
       }),
     );
+  });
+
+  describe("/plan", () => {
+    const focusRef = React.createRef<TiptapComposerHandle>();
+    function Harness(props: Record<string, unknown>) {
+      const runtime = useLocalRuntime(emptyChatModelAdapter);
+      return React.createElement(
+        AssistantRuntimeProvider,
+        { runtime },
+        React.createElement(
+          TooltipProvider,
+          null,
+          React.createElement(TiptapComposer, {
+            focusRef,
+            includeDefaultSlashSkills: false,
+            plusMenuMode: "hidden",
+            voiceEnabled: false,
+            ...props,
+          }),
+        ),
+      );
+    }
+    const editor = () =>
+      container.querySelector(".agent-composer-prosemirror") as HTMLElement;
+    const pressEnter = () =>
+      act(async () => {
+        editor().dispatchEvent(
+          new KeyboardEvent("keydown", {
+            bubbles: true,
+            cancelable: true,
+            key: "Enter",
+          }),
+        );
+      });
+    const type = async (text: string) => {
+      act(() => focusRef.current?.setText(text));
+      await pressEnter();
+    };
+    const chip = () =>
+      container.querySelector<HTMLElement>(
+        '[data-agent-composer-slot="plan-chip"]',
+      );
+
+    it("plans only the next message, then the composer acts again", async () => {
+      const onSubmit = vi.fn();
+      const onSlashCommand = vi.fn();
+      act(() =>
+        root.render(
+          React.createElement(Harness, {
+            planCommand: true,
+            onSubmit,
+            onSlashCommand,
+          }),
+        ),
+      );
+
+      await type("/plan");
+      expect(onSubmit).not.toHaveBeenCalled();
+      expect(onSlashCommand).not.toHaveBeenCalled();
+      expect(chip()?.textContent).toBe("Plan");
+      expect(chip()?.className).toContain("h-6");
+
+      await type("Outline the migration");
+      expect(onSubmit).toHaveBeenLastCalledWith(
+        "Outline the migration",
+        [],
+        [],
+        expect.objectContaining({ requestMode: "plan" }),
+      );
+      expect(chip()).toBeNull();
+
+      await type("Now run it");
+      expect(onSubmit).toHaveBeenCalledTimes(2);
+      expect(onSubmit.mock.calls[1]![3]).not.toHaveProperty("requestMode");
+    });
+
+    it("removes the whole typed token when /plan is picked from the menu", async () => {
+      act(() =>
+        root.render(
+          React.createElement(Harness, {
+            planCommand: true,
+            onSubmit: vi.fn(),
+          }),
+        ),
+      );
+      const dom = editor();
+      const tiptap = (dom as HTMLElement & { editor: Editor }).editor;
+      dom.focus();
+      // Fast typing lands every key before the menu's deferred open.
+      act(() => {
+        for (const key of ["/", "p", "l"]) {
+          dom.dispatchEvent(
+            new KeyboardEvent("keydown", {
+              bubbles: true,
+              cancelable: true,
+              key,
+            }),
+          );
+          tiptap.commands.insertContent(key);
+        }
+      });
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(
+        document.body.querySelector('[data-mention-index="0"]')?.textContent,
+      ).toContain("/plan");
+
+      await pressEnter();
+
+      expect(tiptap.getText()).toBe("");
+      expect(chip()?.textContent).toBe("Plan");
+    });
+
+    it("removes the whole typed token when a skill is picked from the menu", async () => {
+      vi.stubGlobal(
+        "fetch",
+        vi.fn().mockResolvedValue({
+          ok: true,
+          json: async () => ({
+            skills: [
+              {
+                name: "design-systems",
+                description: "Create design systems",
+                path: ".agents/skills/design-systems/SKILL.md",
+                source: "codebase",
+              },
+            ],
+          }),
+        }),
+      );
+      act(() =>
+        root.render(
+          React.createElement(Harness, {
+            onSubmit: vi.fn(),
+            includeDefaultSlashSkills: true,
+          }),
+        ),
+      );
+      const dom = editor();
+      const tiptap = (dom as HTMLElement & { editor: Editor }).editor;
+      dom.focus();
+      act(() => {
+        for (const key of ["/", "d", "e"]) {
+          dom.dispatchEvent(
+            new KeyboardEvent("keydown", {
+              bubbles: true,
+              cancelable: true,
+              key,
+            }),
+          );
+          tiptap.commands.insertContent(key);
+        }
+      });
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      const skill = Array.from(
+        document.body.querySelectorAll<HTMLButtonElement>(
+          "[data-mention-index]",
+        ),
+      ).find((row) => row.textContent?.includes("design-systems"));
+      expect(skill).toBeDefined();
+
+      act(() => skill?.click());
+
+      expect(tiptap.getText().trim()).toBe("");
+      expect(tiptap.getJSON().content?.[0]?.content?.[0]).toMatchObject({
+        type: "skillReference",
+        attrs: { name: "design-systems" },
+      });
+    });
+
+    it("removes the whole typed token when an @ mention is picked", async () => {
+      act(() =>
+        root.render(
+          React.createElement(Harness, {
+            onSubmit: vi.fn(),
+            includeDefaultMentionSearch: false,
+            mentionItems: [
+              {
+                id: "person:alice",
+                label: "Alice",
+                source: "people",
+                refType: "person",
+              },
+            ],
+          }),
+        ),
+      );
+      const dom = editor();
+      const tiptap = (dom as HTMLElement & { editor: Editor }).editor;
+      dom.focus();
+      act(() => {
+        for (const key of ["@", "a", "l"]) {
+          dom.dispatchEvent(
+            new KeyboardEvent("keydown", {
+              bubbles: true,
+              cancelable: true,
+              key,
+            }),
+          );
+          tiptap.commands.insertContent(key);
+        }
+      });
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      const row = Array.from(
+        document.body.querySelectorAll<HTMLButtonElement>(
+          "[data-mention-index]",
+        ),
+      ).find((candidate) => candidate.textContent?.includes("Alice"));
+      expect(row).toBeDefined();
+
+      act(() => row?.click());
+
+      const [first, ...rest] = tiptap.getJSON().content?.[0]?.content ?? [];
+      expect(first).toMatchObject({ type: "mentionReference" });
+      expect(rest).toEqual([{ type: "text", text: " " }]);
+    });
+
+    it("drops the chip from its remove button", async () => {
+      const onSubmit = vi.fn();
+      act(() =>
+        root.render(
+          React.createElement(Harness, { planCommand: true, onSubmit }),
+        ),
+      );
+      await type("/plan");
+      const remove = chip()?.querySelector<HTMLButtonElement>(
+        'button[aria-label="Remove plan"]',
+      );
+      act(() => remove?.click());
+      expect(chip()).toBeNull();
+
+      await type("Ship it");
+      expect(onSubmit.mock.calls[0]![3]).not.toHaveProperty("requestMode");
+    });
+
+    it("is not a command unless the host opts in", async () => {
+      const onSubmit = vi.fn();
+      act(() =>
+        root.render(
+          React.createElement(Harness, {
+            onSubmit,
+            onSlashCommand: vi.fn(),
+            clearOnSubmit: false,
+          }),
+        ),
+      );
+      await type("/plan");
+      expect(chip()).toBeNull();
+      expect(onSubmit).toHaveBeenCalledWith(
+        "/plan",
+        [],
+        [],
+        expect.not.objectContaining({ requestMode: "plan" }),
+      );
+    });
   });
 
   it("loads and attaches a runtime skill from the slash menu by default", async () => {
@@ -4968,6 +5608,10 @@ describe("TiptapComposer slash commands", () => {
           key: "/",
         }),
       );
+      // happy-dom has no default key action, so the "/" is inserted here.
+      (
+        editor as HTMLElement & { editor: Editor }
+      ).editor.commands.insertContent("/");
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
     await act(async () => {
@@ -5018,29 +5662,34 @@ describe("mentionItemMatchesQuery", () => {
   });
 });
 
-describe("composerModelCostTier", () => {
-  it("tiers each provider's entry, mid, and flagship models", () => {
-    expect(composerModelCostTier("gpt-5-6-luna")).toBe(1);
-    expect(composerModelCostTier("gpt-5.6-terra")).toBe(2);
-    expect(composerModelCostTier("openai/gpt-5.6-sol")).toBe(3);
-    expect(composerModelCostTier("gpt-6-luna")).toBe(1);
-    expect(composerModelCostTier("openai/gpt-6-sol")).toBe(3);
-    expect(composerModelCostTier("claude-haiku-4-5")).toBe(1);
-    expect(composerModelCostTier("claude-sonnet-5")).toBe(2);
-    expect(composerModelCostTier("anthropic/claude-opus-4.8")).toBe(3);
-    expect(composerModelCostTier("claude-opus-5-5")).toBe(3);
-    expect(composerModelCostTier("claude-fable-5")).toBe(3);
-    expect(composerModelCostTier("gemini-3-1-flash-lite")).toBe(1);
-    expect(composerModelCostTier("gemini-3-1-pro")).toBe(3);
-    expect(composerModelCostTier("deepseek-v4-1-flash")).toBe(1);
-    expect(composerModelCostTier("z-ai-glm-5-3-flash")).toBe(1);
+describe("mentionItemsForQuery", () => {
+  const person = {
+    id: "member:sam@gmail.example",
+    label: "Sam Lee",
+    description: "sam@gmail.example",
+    source: "content",
+    refType: "content-comment-member",
+  };
+  const agent = {
+    id: "ai:anthropic:claude-sonnet-5",
+    label: "Claude Sonnet 5",
+    description: "Anthropic",
+    aliases: ["Sonnet", "AI"],
+    source: "content",
+    refType: "content-comment-ai-recipient",
+  };
+
+  it("keeps the given order when nothing is named exactly", () => {
+    expect(mentionItemsForQuery([person, agent], "")).toEqual([person, agent]);
+    expect(mentionItemsForQuery([person, agent], "s")).toEqual([person, agent]);
   });
 
-  it("returns undefined for unmapped models so no cost label renders", () => {
-    expect(composerModelCostTier("auto")).toBeUndefined();
-    expect(composerModelCostTier("z-ai/glm-5.2")).toBeUndefined();
-    expect(composerModelCostTier("kimi-k2-5")).toBeUndefined();
-    expect(composerModelCostTier("")).toBeUndefined();
+  it("puts the item a whole name or alias names ahead of partial matches", () => {
+    expect(mentionItemsForQuery([person, agent], "ai")).toEqual([
+      agent,
+      person,
+    ]);
+    expect(mentionItemsForQuery([person, agent], "Sam Lee")).toEqual([person]);
   });
 });
 
@@ -5099,4 +5748,86 @@ describe("voice composer insertion", () => {
       }),
     ).toBe(false);
   });
+});
+
+describe("TiptapComposer editor updates", () => {
+  it.each(["draft scope switch", "insertText"])(
+    "reports an identical inline reference after a silent clear via %s",
+    async (clearMethod) => {
+      const onReferencesChange = vi.fn();
+      const onTextChange = vi.fn();
+      const focusRef = React.createRef<TiptapComposerHandle>();
+      const reference = {
+        label: "Document",
+        refType: "file",
+        refId: "one",
+      };
+
+      function Harness({ scope }: { scope: string }) {
+        const runtime = useLocalRuntime(emptyChatModelAdapter);
+        return React.createElement(
+          AssistantRuntimeProvider,
+          { runtime },
+          React.createElement(
+            TooltipProvider,
+            null,
+            React.createElement(TiptapComposer, {
+              focusRef,
+              draftScope: scope,
+              onReferencesChange,
+              onTextChange,
+              includeDefaultSlashSkills: false,
+              plusMenuMode: "hidden",
+              voiceEnabled: false,
+            }),
+          ),
+        );
+      }
+
+      await act(async () => {
+        root.render(React.createElement(Harness, { scope: "scope-a" }));
+      });
+      await act(async () => focusRef.current?.insertReference(reference));
+      expect(onReferencesChange).toHaveBeenLastCalledWith([
+        expect.objectContaining({ name: "Document", refId: "one" }),
+      ]);
+      onReferencesChange.mockClear();
+      onTextChange.mockClear();
+
+      if (clearMethod === "draft scope switch") {
+        await act(async () => {
+          root.render(React.createElement(Harness, { scope: "scope-b" }));
+        });
+        expect(onTextChange).toHaveBeenLastCalledWith("");
+      } else {
+        const execCommand = Object.getOwnPropertyDescriptor(
+          document,
+          "execCommand",
+        );
+        Object.defineProperty(document, "execCommand", {
+          configurable: true,
+          value: vi.fn(() => false),
+        });
+        try {
+          await act(async () => focusRef.current?.insertText("Replacement"));
+        } finally {
+          if (execCommand)
+            Object.defineProperty(document, "execCommand", execCommand);
+          else Reflect.deleteProperty(document, "execCommand");
+        }
+        expect(onTextChange).toHaveBeenLastCalledWith("Replacement");
+      }
+      expect(focusRef.current?.getDraftSnapshot?.().referenceKeys).toEqual([]);
+      const afterClear = [...onReferencesChange.mock.calls];
+      await act(async () => focusRef.current?.insertReference(reference));
+
+      expect(afterClear).toEqual([[[]]]);
+      expect(onReferencesChange).toHaveBeenLastCalledWith([
+        expect.objectContaining({ name: "Document", refId: "one" }),
+      ]);
+      expect(onReferencesChange).toHaveBeenCalledTimes(2);
+      await act(async () => focusRef.current?.setSelection(1));
+      expect(onReferencesChange).toHaveBeenCalledTimes(2);
+    },
+  );
 });

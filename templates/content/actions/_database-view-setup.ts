@@ -15,18 +15,23 @@ import {
 import {
   CONTENT_DATABASE_ITEM_LAYOUT_PRESET_IDS,
   CONTENT_DATABASE_ITEM_LEADING_KINDS,
+  CONTENT_DATABASE_ITEM_LINE2_SOURCES,
   CONTENT_DATABASE_ITEM_TITLE_WEIGHTS,
   MAX_ITEM_LAYOUT_META_PROPERTIES,
   contentDatabaseItemLayoutPresets,
   contentDatabaseItemLayoutReferenceErrors,
   dropDeletedContentDatabaseItemLayoutReferences,
   itemLayoutLeadingCandidates,
+  itemLayoutLine2Candidates,
   normalizeContentDatabaseItemLayout,
   pruneContentDatabaseItemLayout,
   savableContentDatabaseItemLayout,
   startingContentDatabaseItemLayout,
 } from "../shared/database-item-layout.js";
-import { contentDatabaseFilterOperatorsForType } from "../shared/database-query.js";
+import {
+  contentDatabaseChangedDateFilterValueError,
+  contentDatabaseFilterOperatorsForType,
+} from "../shared/database-query.js";
 import {
   normalizePropertyVisibility,
   parsePropertyOptions,
@@ -51,7 +56,12 @@ const filterSchema = z
   .object({
     key: z.string().trim().min(1).max(200),
     label: z.string().max(500),
-    operator: z.enum(CONTENT_DATABASE_FILTER_OPERATORS),
+    operator: z
+      .enum(CONTENT_DATABASE_FILTER_OPERATORS)
+      .describe(
+        `Operators depend on the property's type. For multi_select use ${contentDatabaseFilterOperatorsForType("multi_select").join(", ")}. ` +
+          'To exclude several options, use one does_not_equal condition per option and explicitly set filterMode to "and" (patch.filterMode alongside patch.filters for update). does_not_contain applies to text.',
+      ),
     value: z.string(),
     filterGroupId: z.string().max(200).optional(),
     parentFilterGroupId: z.string().max(200).optional(),
@@ -63,7 +73,12 @@ const filterSchema = z
 const tablePatchFields = {
   sorts: z.array(sortSchema).max(100).optional(),
   filters: z.array(filterSchema).max(100).optional(),
-  filterMode: z.enum(["and", "or"]).optional(),
+  filterMode: z
+    .enum(["and", "or"])
+    .optional()
+    .describe(
+      'How to combine filters. A sparse update preserves the saved mode when omitted; explicitly set "and" when replacing filters with multiple exclusions.',
+    ),
   columnWidths: z
     .record(
       z.string().trim().min(1).max(200),
@@ -118,6 +133,7 @@ export const contentDatabaseItemLayoutSchema = z
     titleWeight: z.enum(CONTENT_DATABASE_ITEM_TITLE_WEIGHTS),
     line2: z
       .object({
+        source: z.enum(CONTENT_DATABASE_ITEM_LINE2_SOURCES).optional(),
         propertyId: itemLayoutPropertyIdSchema.nullable(),
         lines: itemLayoutLinesSchema,
       })
@@ -139,6 +155,7 @@ const itemLayoutPatchSchema = z
     titleWeight: z.enum(CONTENT_DATABASE_ITEM_TITLE_WEIGHTS).optional(),
     line2: z
       .object({
+        source: z.enum(CONTENT_DATABASE_ITEM_LINE2_SOURCES).optional(),
         propertyId: itemLayoutPropertyIdSchema.nullable().optional(),
         lines: itemLayoutLinesSchema.optional(),
       })
@@ -149,7 +166,7 @@ const itemLayoutPatchSchema = z
   })
   .strict()
   .describe(
-    "List views only. Slots to change in each row; omitted slots keep their saved value. leading.kind checkbox or status uses the first property of that type unless propertyId names one. line2 shows a text, URL, or Blocks property; line3 and trailing list property IDs in order. Trailing values move under the title on narrow screens. Pass null to restore the default rows.",
+    "List views only. Slots to change in each row; omitted slots keep their saved value. leading.kind checkbox or status uses the first property of that type unless propertyId names one. line2 shows a text, URL, or Blocks property, or with source page the first lines of each row's page; line3 and trailing list property IDs in order. Trailing values move under the title on narrow screens. Pass null to restore the default rows.",
   );
 
 const listPatchFields = {
@@ -221,6 +238,35 @@ export const updateContentDatabaseViewAgentSchema = z.discriminatedUnion(
         patch: updateViewPatchSchema,
       })
       .strict(),
+    setupGuardSchema
+      .extend({
+        expectedConfigurationRevision: z.string().min(1),
+        operation: z.literal("copy-settings"),
+        sourceViewId: z
+          .string()
+          .trim()
+          .min(1)
+          .max(200)
+          .describe("Saved table view whose settings to copy"),
+        viewId: z
+          .string()
+          .trim()
+          .min(1)
+          .max(200)
+          .describe("Target table view; its name and icon stay unchanged"),
+        filters: z
+          .array(filterSchema)
+          .max(100)
+          .describe(
+            "Complete replacement filters, including any source filters to retain",
+          ),
+        filterMode: z
+          .enum(["and", "or"])
+          .describe(
+            "How to combine the replacement filters. Use and for multiple exclusions. To retain source or filters while adding constraints, give those filters the same filterGroupId and filterGroupMode: or, then combine that group with the new filters using filterMode: and.",
+          ),
+      })
+      .strict(),
   ],
 );
 
@@ -243,6 +289,7 @@ function validateTablePatch(
     | z.infer<typeof updateViewPatchSchema>
     | z.infer<typeof boundedTablePatchSchema>,
   definitions: readonly (typeof schema.documentPropertyDefinitions.$inferSelect)[],
+  savedFilters: readonly ContentDatabaseFilter[] = [],
 ) {
   const typeById = new Map(
     definitions.map((definition) => [
@@ -309,12 +356,11 @@ function validateTablePatch(
   }
   for (const filter of patch.filters ?? []) {
     const type = filter.key === "name" ? "text" : typeById.get(filter.key)!;
-    if (
-      !contentDatabaseFilterOperatorsForType(type).includes(filter.operator)
-    ) {
+    const allowedOperators = contentDatabaseFilterOperatorsForType(type);
+    if (!allowedOperators.includes(filter.operator)) {
       setupError(
         "INVALID_VIEW_REFERENCE",
-        `Filter operator \"${filter.operator}\" is not valid for property \"${filter.key}\".`,
+        `Filter operator \"${filter.operator}\" is not valid for property \"${filter.key}\" (${type}). Allowed operators: ${allowedOperators.join(", ")}.`,
         400,
       );
     }
@@ -333,6 +379,12 @@ function validateTablePatch(
       );
     }
   }
+  const dateError = contentDatabaseChangedDateFilterValueError(
+    patch.filters ?? [],
+    savedFilters,
+    (key) => typeById.get(key),
+  );
+  if (dateError) setupError("INVALID_VIEW_REFERENCE", dateError, 400);
 }
 
 type PropertyDefinitionRow =
@@ -467,6 +519,17 @@ function nextListItemLayout(
     const ids = itemLayout[slot];
     if (ids) uniqueReferences(ids, slot);
   }
+  if (itemLayout.line2?.source === "page" && itemLayout.line2.propertyId) {
+    setupError(
+      "INVALID_VIEW_REFERENCE",
+      "line2.propertyId must be null or left out when line2.source is page.",
+      400,
+    );
+  }
+  // Naming a property switches line 2 back from page text.
+  const line2Source =
+    itemLayout.line2?.source ??
+    (itemLayout.line2?.propertyId !== undefined ? "property" : undefined);
   const leading = itemLayout.leading && {
     kind: itemLayout.leading.kind,
     propertyId:
@@ -480,10 +543,14 @@ function nextListItemLayout(
       leading: leading ?? from.leading,
       titleWeight: itemLayout.titleWeight ?? from.titleWeight,
       line2: {
+        source: line2Source ?? from.line2.source,
         propertyId:
           itemLayout.line2?.propertyId !== undefined
             ? itemLayout.line2.propertyId
-            : from.line2.propertyId,
+            : line2Source === "property" && from.line2.source === "page"
+              ? (itemLayoutLine2Candidates(properties)[0]?.definition.id ??
+                null)
+              : from.line2.propertyId,
         lines: itemLayout.line2?.lines ?? from.line2.lines,
       },
       line3: itemLayout.line3 ?? from.line3,
@@ -609,11 +676,19 @@ export async function runUpdateContentDatabaseView(
     payload:
       input.operation === "create"
         ? { operation: input.operation, view: input.view }
-        : {
-            operation: input.operation,
-            viewId: input.viewId,
-            patch: input.patch,
-          },
+        : input.operation === "copy-settings"
+          ? {
+              operation: input.operation,
+              sourceViewId: input.sourceViewId,
+              viewId: input.viewId,
+              filters: input.filters,
+              filterMode: input.filterMode,
+            }
+          : {
+              operation: input.operation,
+              viewId: input.viewId,
+              patch: input.patch,
+            },
     apply: async (tx, context) => {
       const rawConfig = parseRawConfig(context.database.viewConfigJson);
       const normalized = parseDatabaseViewConfig(
@@ -626,7 +701,12 @@ export async function runUpdateContentDatabaseView(
       let nextViews: unknown[];
 
       if (input.operation === "create") {
-        validateTablePatch(input.view.config ?? {}, context.definitions);
+        // A new view may copy any saved view's filters, as a full save allows.
+        validateTablePatch(
+          input.view.config ?? {},
+          context.definitions,
+          normalized.views.flatMap((view) => view.filters),
+        );
         viewId = nanoid();
         nextViews = [
           ...rawViews,
@@ -648,8 +728,36 @@ export async function runUpdateContentDatabaseView(
             404,
           );
         }
-        const patchKeys = Object.keys(input.patch);
-        let patch: Record<string, unknown> = input.patch;
+        let inputPatch: z.infer<typeof updateViewPatchSchema>;
+        if (input.operation === "copy-settings") {
+          const source = normalized.views.find(
+            (view) => view.id === input.sourceViewId,
+          );
+          if (source?.type !== "table" || existing.type !== "table") {
+            setupError(
+              "INVALID_VIEW_REFERENCE",
+              "Copy settings requires an available source and target table view.",
+              400,
+            );
+          }
+          const {
+            id: _id,
+            name: _name,
+            icon: _icon,
+            type: _type,
+            itemLayout: _itemLayout,
+            ...settings
+          } = source;
+          inputPatch = {
+            ...settings,
+            filters: input.filters,
+            filterMode: input.filterMode,
+          };
+        } else {
+          inputPatch = input.patch;
+        }
+        const patchKeys = Object.keys(inputPatch);
+        let patch: Record<string, unknown> = inputPatch;
         if (existing.type === "list") {
           const unsupported = patchKeys.find(
             (key) => !LIST_VIEW_PATCH_KEYS.has(key),
@@ -661,9 +769,9 @@ export async function runUpdateContentDatabaseView(
               400,
             );
           }
-          const { itemLayoutPreset: _preset, ...rest } = input.patch;
+          const { itemLayoutPreset: _preset, ...rest } = inputPatch;
           const itemLayout = nextListItemLayout(
-            input.patch,
+            inputPatch,
             existing,
             context.definitions,
           );
@@ -677,7 +785,7 @@ export async function runUpdateContentDatabaseView(
               400,
             );
           }
-          validateTablePatch(input.patch, context.definitions);
+          validateTablePatch(inputPatch, context.definitions, existing.filters);
         } else {
           setupError(
             "UNSUPPORTED_SCHEMA_CHANGE",
@@ -777,6 +885,12 @@ export async function runReplaceContentDatabaseViews(input: {
         ? rawConfig.views
         : [];
       const desired = parseDatabaseViewConfig(JSON.stringify(input.viewConfig));
+      const dateError = viewConfigDateFilterError(
+        desired,
+        parseDatabaseViewConfig(context.database.viewConfigJson),
+        context.definitions,
+      );
+      if (dateError) setupError("INVALID_VIEW_REFERENCE", dateError, 400);
       const views = desired.views.map((view) => {
         const saved = currentRawViews.find(
           (candidate) =>
@@ -833,6 +947,37 @@ export async function runReplaceContentDatabaseViews(input: {
       };
     },
   });
+}
+
+/**
+ * The first unreadable date among the filters `next` adds or changes from
+ * `saved`. Each view is compared with its own saved filters, and a new view
+ * with every saved view's, since "Duplicate view" copies another view's
+ * filters. The config's own filters are the active view's, so the views cover
+ * them.
+ */
+export function viewConfigDateFilterError(
+  next: ContentDatabaseViewConfig,
+  saved: ContentDatabaseViewConfig,
+  definitions: readonly { id: string; type: string }[],
+) {
+  const typeById = new Map(
+    definitions.map((definition) => [
+      definition.id,
+      definition.type as DocumentPropertyType,
+    ]),
+  );
+  const savedById = new Map(saved.views.map((view) => [view.id, view.filters]));
+  const everySaved = saved.views.flatMap((view) => view.filters);
+  for (const view of next.views) {
+    const error = contentDatabaseChangedDateFilterValueError(
+      view.filters,
+      savedById.get(view.id) ?? everySaved,
+      (key) => typeById.get(key),
+    );
+    if (error) return error;
+  }
+  return null;
 }
 
 export function filterIsCompatible(

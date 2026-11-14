@@ -1,3 +1,7 @@
+import {
+  BUILDER_OAUTH_RESOURCE,
+  type BuilderRequestAuthorization,
+} from "@agent-native/core/server";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
@@ -16,10 +20,37 @@ import {
   type ExecuteBuilderSourceExecutionDeps,
 } from "./execute-builder-source-execution";
 
+// Sources read and write only through a Builder.io OAuth connection. Set
+// BUILDER_LIVE_OAUTH_TOKEN to a general Builder.io access token with
+// builder:content:read and builder:content:write, and
+// BUILDER_LIVE_SPACE_PUBLIC_KEY to the public key of the space it selected.
 const LIVE_BUILDER_ENABLED =
   process.env.BUILDER_LIVE_E2E === "1" &&
-  !!process.env.BUILDER_PRIVATE_KEY &&
-  !!process.env.BUILDER_PUBLIC_KEY;
+  !!process.env.BUILDER_LIVE_OAUTH_TOKEN &&
+  !!process.env.BUILDER_LIVE_SPACE_PUBLIC_KEY;
+const LIVE_CONNECTION_ID = "builder-live-connection";
+
+// A test process has no signed-in user, so the Source clients get the
+// connection named in the environment, bound to the Source below.
+vi.mock("@agent-native/core/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/server")>()),
+  resolveBuilderRequestAuthorization: vi.fn(
+    async (input?: {
+      oauthResource?: "general" | "publish";
+    }): Promise<BuilderRequestAuthorization | null> => {
+      if (input?.oauthResource !== "general") return null;
+      const token = requireEnv("BUILDER_LIVE_OAUTH_TOKEN");
+      return {
+        token,
+        authorization: `Bearer ${token}`,
+        source: "oauth",
+        oauthResource: "general",
+        oauthSelectedPublicKey: requireEnv("BUILDER_LIVE_SPACE_PUBLIC_KEY"),
+        oauthConnectionId: LIVE_CONNECTION_ID,
+      };
+    },
+  ),
+}));
 
 const NOW = "2026-06-15T12:00:00.000Z";
 const DATABASE_ID = "database-live";
@@ -77,10 +108,33 @@ function randomSuffix() {
   return crypto.randomUUID().slice(0, 8);
 }
 
-function requireEnv(name: "BUILDER_PRIVATE_KEY" | "BUILDER_PUBLIC_KEY") {
+function requireEnv(
+  name: "BUILDER_LIVE_OAUTH_TOKEN" | "BUILDER_LIVE_SPACE_PUBLIC_KEY",
+) {
   const value = process.env[name];
   if (!value) throw new Error(`${name} is required for live Builder tests.`);
   return value;
+}
+
+function liveSourceBinding() {
+  return {
+    expectedSourceSpace: requireEnv("BUILDER_LIVE_SPACE_PUBLIC_KEY"),
+    expectedSourceConnectionId: LIVE_CONNECTION_ID,
+  };
+}
+
+async function deleteLiveBuilderEntry(entryId: string) {
+  await fetch(
+    `${BUILDER_OAUTH_RESOURCE}/api/v1/write/${encodeURIComponent(
+      BUILDER_CMS_SAFE_WRITE_MODEL,
+    )}/${encodeURIComponent(entryId)}`,
+    {
+      method: "DELETE",
+      headers: {
+        authorization: `Bearer ${requireEnv("BUILDER_LIVE_OAUTH_TOKEN")}`,
+      },
+    },
+  );
 }
 
 function recordFromJson(value: unknown): Record<string, unknown> {
@@ -123,6 +177,8 @@ function buildSource(args: {
       naturalKeyField: "/blog/[slug]",
       pushMode: "autosave",
       allowedWriteModes: ["autosave"],
+      builderSpacePublicKey: requireEnv("BUILDER_LIVE_SPACE_PUBLIC_KEY"),
+      connectionId: LIVE_CONNECTION_ID,
     },
     fields: [],
     rows: [
@@ -190,16 +246,20 @@ function buildDeps(args: {
     now: vi.fn(() => NOW),
     resolveDatabase: vi.fn(async () => DATABASE),
     assertEditor: vi.fn(async () => {}),
+    assertPageEditor: vi.fn(async () => {}),
     getSourceSnapshot: vi.fn(async () => args.source),
     getExecution: vi.fn(async () => args.execution),
     updateExecutionState: vi.fn(async () => {}),
     claimExecution: vi.fn(async () => true),
+    renewExecutionClaim: vi.fn(async () => true),
+    markResponseCheckpointFailed: vi.fn(async () => true),
     markExecutionSucceeded: vi.fn(async (call) => {
       args.onSucceeded(call);
     }),
     markExecutionFailed: vi.fn(async (call) => {
       args.onFailed(call);
     }),
+    releaseExecutionClaim: vi.fn(async () => {}),
     executeWrite: vi.fn((call) => executeBuilderCmsWrite(call)),
     readLiveEntry: vi.fn(async () => ({
       exists: true,
@@ -221,7 +281,7 @@ async function fetchLiveBuilderEntry(entryId: string) {
       BUILDER_CMS_SAFE_WRITE_MODEL,
     )}/${encodeURIComponent(entryId)}`,
   );
-  url.searchParams.set("apiKey", requireEnv("BUILDER_PUBLIC_KEY"));
+  url.searchParams.set("apiKey", requireEnv("BUILDER_LIVE_SPACE_PUBLIC_KEY"));
   url.searchParams.set("includeUnpublished", "true");
   url.searchParams.set("cachebust", randomSuffix());
 
@@ -248,6 +308,7 @@ describe.skipIf(!LIVE_BUILDER_ENABLED)(
             },
           },
         },
+        ...liveSourceBinding(),
       });
 
       expect(result.ok).toBe(true);
@@ -261,17 +322,7 @@ describe.skipIf(!LIVE_BUILDER_ENABLED)(
     afterAll(async () => {
       if (!entryId) return;
       try {
-        await fetch(
-          `https://builder.io/api/v1/write/${encodeURIComponent(
-            BUILDER_CMS_SAFE_WRITE_MODEL,
-          )}/${encodeURIComponent(entryId)}`,
-          {
-            method: "DELETE",
-            headers: {
-              authorization: `Bearer ${requireEnv("BUILDER_PRIVATE_KEY")}`,
-            },
-          },
-        );
+        await deleteLiveBuilderEntry(entryId);
       } catch {
         // Best-effort cleanup only; the assertion path above owns test failure.
       }
@@ -374,12 +425,14 @@ describe.skipIf(!LIVE_BUILDER_ENABLED)(
             data: { marker },
           },
         },
+        ...liveSourceBinding(),
       });
       if (!created.entryId) throw new Error("Failed to seed live entry.");
       seededIds.push(created.entryId);
       const live = await readBuilderCmsEntryLiveState({
         model: BUILDER_CMS_SAFE_WRITE_MODEL,
         entryId: created.entryId,
+        ...liveSourceBinding(),
       });
       const baselineLastUpdated =
         live.lastUpdated === null || live.lastUpdated === undefined
@@ -390,17 +443,7 @@ describe.skipIf(!LIVE_BUILDER_ENABLED)(
 
     afterAll(async () => {
       for (const id of seededIds) {
-        await fetch(
-          `https://builder.io/api/v1/write/${encodeURIComponent(
-            BUILDER_CMS_SAFE_WRITE_MODEL,
-          )}/${encodeURIComponent(id)}`,
-          {
-            method: "DELETE",
-            headers: {
-              authorization: `Bearer ${requireEnv("BUILDER_PRIVATE_KEY")}`,
-            },
-          },
-        ).catch(() => {});
+        await deleteLiveBuilderEntry(id).catch(() => {});
       }
     });
 

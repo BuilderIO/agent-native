@@ -13,6 +13,7 @@ import {
   type RunRecord,
   type RenameWorkflowInput,
   type RunRequest,
+  type SaveWorkflowDraftInput,
   type SaveWorkflowGraphInput,
   type StartRunInput,
   type WorkflowScope,
@@ -566,6 +567,7 @@ const saveWorkflowSchema = z.object({
   source: versionSourceSchema,
   summary: z.string().max(1000),
   createdBy: emailSchema,
+  discardDraftOf: emailSchema.optional(),
 });
 
 export function prepareSaveWorkflowGraph(
@@ -577,6 +579,55 @@ export function prepareSaveWorkflowGraph(
 
 export function assertVersion(version: number, label: string): number {
   return parseInput(versionSchema, version, label);
+}
+
+const draftGraphSchema = z.looseObject({
+  nodes: z.array(z.unknown()),
+  edges: z.array(z.unknown()),
+});
+
+/**
+ * Why a text cannot be a draft: too big, not JSON, or not an object with
+ * `nodes` and `edges` arrays. Nothing deeper is checked, because a draft is
+ * the graph before it is valid.
+ */
+export function draftGraphProblem(text: string): string | undefined {
+  const bytes = utf8ByteLength(text);
+  if (bytes > WORKFLOW_STORE_LIMITS.graphJsonBytes) {
+    return `The draft is ${bytes} bytes; at most ${WORKFLOW_STORE_LIMITS.graphJsonBytes} fit.`;
+  }
+  let value: unknown;
+  try {
+    value = JSON.parse(text);
+  } catch (error) {
+    return `The draft is not valid JSON (${error instanceof Error ? error.message : "it did not parse"}).`;
+  }
+  if (!draftGraphSchema.safeParse(value).success) {
+    return "The draft is not a graph object with nodes and edges arrays.";
+  }
+  return undefined;
+}
+
+export function prepareDraft(input: SaveWorkflowDraftInput): {
+  workflowId: string;
+  ownerEmail: string;
+  baseVersion: number;
+  graphJson: string;
+} {
+  const problem = draftGraphProblem(input.graphJson);
+  if (problem) throw invalidRecord(problem);
+  return {
+    workflowId: assertId(input.workflowId, "workflow id"),
+    ownerEmail: assertEmail(input.ownerEmail, "Draft owner"),
+    baseVersion: assertVersion(input.baseVersion, "Draft base version"),
+    graphJson: input.graphJson,
+  };
+}
+
+/** A stored draft read back; text that is no longer a graph object is `corrupt_record`. */
+export function readDraftGraphJson(raw: unknown, what: string): string {
+  parseStoredJson(raw, draftGraphSchema, what);
+  return raw as string;
 }
 
 const MODE_TRIGGER_KINDS: Readonly<Record<RunMode, readonly RunTriggerKind[]>> =

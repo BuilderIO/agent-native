@@ -6,16 +6,33 @@ const mockReadAppSecret = vi.fn();
 const mockGetRequestOrgId = vi.fn();
 const mockSsrfSafeFetch = vi.fn();
 const mockIsBlockedExtensionUrlWithDns = vi.fn();
+let hostedEndpoint = "https://hosted-s3.example.com";
+let lookupFailure: Error | undefined;
 
 vi.mock("@agent-native/core/server", () => ({
   getRequestOrgId: (...args: any[]) => mockGetRequestOrgId(...args),
   prefetchSecrets: (...args: any[]) => mockPrefetchSecrets(...args),
   resolveSecret: (...args: any[]) => mockResolveSecret(...args),
+  // A value that matches the deployment's env came from env; any other value
+  // was saved by the workspace.
+  resolveSecretDetailed: async (key: string) => {
+    const value = await mockResolveSecret(key);
+    // A self-hosted runtime answers a failed lookup with the env value.
+    if (lookupFailure) {
+      return value
+        ? { value, lookupFailed: true, cause: lookupFailure, source: "env" }
+        : { value: null, lookupFailed: true, cause: lookupFailure };
+    }
+    if (!value) return { value: null, lookupFailed: false };
+    return process.env[key] === value
+      ? { value, lookupFailed: false, source: "env" }
+      : { value, lookupFailed: false, source: "workspace", scopeId: "org-1" };
+  },
   getAppConfig: () => ({
     clips: {
       hostedStorage: {
         enabled: false,
-        endpoint: "https://hosted-s3.example.com",
+        endpoint: hostedEndpoint,
         bucket: "hosted-clips",
         accessKeyId: "hosted-access",
         secretAccessKey: "hosted-secret",
@@ -36,10 +53,17 @@ vi.mock("@agent-native/core/extensions/url-safety", () => ({
 }));
 
 import {
+  withMediaUploadCheckpoint,
+  type ProducedMediaReference,
+} from "./recording-media-production-context.js";
+import {
   clipsOrganizationLogoPrivateBlobProvider,
   deleteS3ObjectByUrl,
+  deleteS3MediaForCleanup,
+  s3MediaCleanupFingerprint,
   fetchS3OrganizationLogoByLegacyUrl,
   fetchS3ObjectByUrl,
+  openS3Recording,
   isS3ObjectUrlBoundToRecording,
   s3FileUploadProvider,
   s3ObjectSizeBytesByUrl,
@@ -47,6 +71,172 @@ import {
 
 describe("s3FileUploadProvider", () => {
   const originalEnv = { ...process.env };
+  it.each([false, true])(
+    "checkpoints a resumable upload's original bucket and refuses a changed bucket (%s)",
+    async (changed) => {
+      const values: Record<string, string> = {
+        S3_BUCKET: "bucket-a",
+        S3_ACCESS_KEY_ID: "fake-access",
+        S3_SECRET_ACCESS_KEY: "fake-secret",
+        S3_ENDPOINT: "https://s3.example.test",
+        S3_PUBLIC_BASE_URL: "https://cdn.example.test/media",
+      };
+      mockResolveSecret.mockImplementation(
+        async (key: string) => values[key] ?? null,
+      );
+      const journal: ProducedMediaReference[] = [];
+      mockSsrfSafeFetch.mockImplementation(
+        async (url: string, init: RequestInit) => {
+          if (url.includes("?uploads="))
+            return new Response(
+              "<InitiateMultipartUploadResult><UploadId>fake-upload</UploadId></InitiateMultipartUploadResult>",
+            );
+          if (init.method === "POST")
+            expect(journal[0]).toMatchObject({
+              storageFingerprint: session.meta.storageFingerprint,
+              uploadConfirmed: false,
+            });
+          return new Response(null, { status: 200 });
+        },
+      );
+      const resumable = s3FileUploadProvider.resumable;
+      if (!resumable) throw new Error("Missing resumable provider");
+      const session = await resumable.startSession(
+        "rec_1.webm",
+        "video/webm",
+        100,
+      );
+      session.meta.parts = [{ partNumber: 1, etag: "fake-part", sizeBytes: 1 }];
+      if (changed) values.S3_BUCKET = "bucket-b";
+      const completion = withMediaUploadCheckpoint(
+        async (output) => {
+          journal.push(output);
+        },
+        () => resumable.completeSession(session, "rec_1.webm"),
+      );
+      if (changed) await expect(completion).rejects.toThrow(/binding|bucket/i);
+      else {
+        await expect(completion).resolves.toBe(
+          "https://cdn.example.test/media/clips/rec_1.webm",
+        );
+        expect(journal[1]).toMatchObject({
+          storageFingerprint: expect.any(String),
+          uploadConfirmed: true,
+        });
+      }
+    },
+  );
+  it("pins an actual buffered upload to its bucket before PUT and refuses a changed bucket behind the same public URL", async () => {
+    const values: Record<string, string> = {
+      S3_BUCKET: "bucket-a",
+      S3_ACCESS_KEY_ID: "fake-access",
+      S3_SECRET_ACCESS_KEY: "fake-secret",
+      S3_ENDPOINT: "https://s3.example.com",
+      S3_PUBLIC_BASE_URL: "https://cdn.example.com/media",
+    };
+    mockResolveSecret.mockImplementation(
+      async (key: string) => values[key] ?? null,
+    );
+    const journal: ProducedMediaReference[] = [];
+    mockSsrfSafeFetch.mockImplementation(async () => {
+      expect(journal[0]).toMatchObject({
+        uploadConfirmed: false,
+        storageFingerprint: expect.any(String),
+      });
+      return new Response(null, { status: 200 });
+    });
+    const output = await withMediaUploadCheckpoint(
+      async (reference) => {
+        journal.push(reference);
+      },
+      () =>
+        s3FileUploadProvider.upload({
+          data: new Uint8Array([1]),
+          filename: "rec_1.mp4",
+        }),
+    );
+    expect(journal[1]).toMatchObject({
+      url: output.url,
+      uploadConfirmed: true,
+    });
+    expect(output.url).toMatch(/\/rec_1\/\d+-[0-9a-f-]{36}\.mp4$/);
+    expect(await s3MediaCleanupFingerprint(output.url, "own")).toBe(
+      journal[0]?.storageFingerprint,
+    );
+    values.S3_BUCKET = "bucket-b";
+    const calls = mockSsrfSafeFetch.mock.calls.length;
+    expect(
+      await deleteS3MediaForCleanup(
+        output.url,
+        {
+          recordingId: "rec_1",
+          storageMode: "own",
+          objectKey:
+            "s3:" + new URL(output.url).pathname.slice("/media/".length),
+          fingerprint:
+            journal.find((entry) => entry.uploadConfirmed === false)
+              ?.storageFingerprint ?? null,
+        },
+        vi.fn(),
+      ),
+    ).toMatchObject({ phase: "blocked", reason: "credential_space_mismatch" });
+    expect(mockSsrfSafeFetch).toHaveBeenCalledTimes(calls);
+    expect(await s3MediaCleanupFingerprint(output.url, "own")).not.toBe(
+      journal[0]?.storageFingerprint,
+    );
+  });
+
+  it("keeps a successful DELETE unconfirmed when bytes still exist or versions cannot be excluded", async () => {
+    const values: Record<string, string> = {
+      S3_BUCKET: "clips",
+      S3_ACCESS_KEY_ID: "fake-access",
+      S3_SECRET_ACCESS_KEY: "fake-secret",
+      S3_ENDPOINT: "https://s3.example.com",
+    };
+    mockResolveSecret.mockImplementation(
+      async (key: string) => values[key] ?? null,
+    );
+    const url = "https://s3.example.com/clips/clips/rec_1/clip.mp4";
+    const binding = {
+      recordingId: "rec_1",
+      storageMode: "own" as const,
+      objectKey: "s3:clips/rec_1/clip.mp4",
+      fingerprint: await s3MediaCleanupFingerprint(url, "own"),
+    };
+    mockSsrfSafeFetch.mockImplementation(
+      async (_url: string, init: RequestInit) =>
+        new Response(null, { status: init.method === "DELETE" ? 204 : 200 }),
+    );
+    expect(await deleteS3MediaForCleanup(url, binding, vi.fn())).toMatchObject({
+      phase: "pending",
+      reason: "still_stored",
+    });
+    mockSsrfSafeFetch.mockImplementation(
+      async (_url: string, init: RequestInit) =>
+        new Response(null, {
+          status:
+            init.method === "DELETE" ? 204 : init.method === "HEAD" ? 404 : 403,
+        }),
+    );
+    expect(await deleteS3MediaForCleanup(url, binding, vi.fn())).toMatchObject({
+      phase: "blocked",
+      reason: "versioning_unconfirmed",
+    });
+    mockSsrfSafeFetch.mockImplementation(
+      async (_url: string, init: RequestInit) =>
+        init.method === "GET"
+          ? new Response(
+              "<VersioningConfiguration></VersioningConfiguration>",
+              { status: 200 },
+            )
+          : new Response(null, {
+              status: init.method === "DELETE" ? 204 : 404,
+            }),
+    );
+    expect(await deleteS3MediaForCleanup(url, binding, vi.fn())).toMatchObject({
+      phase: "complete",
+    });
+  });
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -54,6 +244,8 @@ describe("s3FileUploadProvider", () => {
     mockReadAppSecret.mockReset().mockResolvedValue(null);
     mockIsBlockedExtensionUrlWithDns.mockReset().mockResolvedValue(false);
     mockGetRequestOrgId.mockReset().mockReturnValue("org-1");
+    hostedEndpoint = "https://hosted-s3.example.com";
+    lookupFailure = undefined;
     mockSsrfSafeFetch.mockImplementation((url: string, init: RequestInit) =>
       fetch(url, init),
     );
@@ -75,6 +267,148 @@ describe("s3FileUploadProvider", () => {
     ]) {
       delete process.env[key];
     }
+  });
+
+  it("binds a range reader to one recording and one resolved storage configuration", async () => {
+    const values: Record<string, string> = {
+      S3_BUCKET: "clips",
+      S3_ACCESS_KEY_ID: "fake-access",
+      S3_SECRET_ACCESS_KEY: "fake-secret",
+      S3_ENDPOINT: "https://s3.example.test",
+    };
+    mockResolveSecret.mockImplementation(
+      async (key: string) => values[key] ?? null,
+    );
+    mockSsrfSafeFetch.mockImplementation(
+      async () => new Response("x", { status: 206 }),
+    );
+    const url = "https://s3.example.test/clips/clips/rec-1/video.mp4";
+    expect(
+      await openS3Recording(url, { recordingId: "other", storageMode: "own" }),
+    ).toBeNull();
+    const reader = await openS3Recording(url, {
+      recordingId: "rec-1",
+      storageMode: "own",
+    });
+    expect(reader).not.toBeNull();
+    values.S3_ENDPOINT = "https://different.example.test";
+    mockPrefetchSecrets.mockClear();
+    if (!reader) throw new Error("missing scoped reader");
+    await (await reader("bytes=0-0", 1000)).body?.cancel();
+    await (await reader("bytes=2-2", 1000)).body?.cancel();
+    expect(mockPrefetchSecrets).not.toHaveBeenCalled();
+    expect(mockSsrfSafeFetch).toHaveBeenCalledTimes(2);
+    for (const [requestUrl] of mockSsrfSafeFetch.mock.calls) {
+      expect(requestUrl).toBe(
+        "https://s3.example.test/clips/clips/rec-1/video.mp4",
+      );
+    }
+  });
+
+  it("forwards recording range cancellation to the storage request", async () => {
+    const values: Record<string, string> = {
+      S3_BUCKET: "clips",
+      S3_ACCESS_KEY_ID: "fake-access",
+      S3_SECRET_ACCESS_KEY: "fake-secret",
+      S3_ENDPOINT: "https://s3.example.test",
+    };
+    mockResolveSecret.mockImplementation(
+      async (key: string) => values[key] ?? null,
+    );
+    let started!: () => void;
+    const fetchStarted = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    let upstreamSignal: AbortSignal | null | undefined;
+    mockSsrfSafeFetch.mockImplementation((_url: string, init: RequestInit) => {
+      upstreamSignal = init.signal;
+      started();
+      return new Promise((_resolve, reject) =>
+        init.signal?.addEventListener(
+          "abort",
+          () => reject(init.signal?.reason),
+          { once: true },
+        ),
+      );
+    });
+    const reader = await openS3Recording(
+      "https://s3.example.test/clips/clips/rec-1/video.mp4",
+      { recordingId: "rec-1", storageMode: "own" },
+    );
+    if (!reader) throw new Error("missing scoped reader");
+    const controller = new AbortController();
+    const request = reader("bytes=0-0", 5_000, controller.signal);
+    const rejected = expect(request).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    await fetchStarted;
+    controller.abort();
+    await rejected;
+    expect(upstreamSignal?.aborted).toBe(true);
+  });
+
+  it("does not start credential lookups after a stalled prefetch passes the deadline", async () => {
+    vi.useFakeTimers();
+    try {
+      let finish!: () => void;
+      mockPrefetchSecrets.mockReturnValueOnce(
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+      );
+      const request = openS3Recording(
+        "https://s3.example.test/clips/clips/rec-1/video.mp4",
+        {
+          recordingId: "rec-1",
+          storageMode: "own",
+          deadline: Date.now() + 100,
+        },
+      );
+      const rejected = expect(request).rejects.toMatchObject({
+        name: "TimeoutError",
+      });
+      await vi.advanceTimersByTimeAsync(101);
+      finish();
+      await rejected;
+      expect(mockResolveSecret).not.toHaveBeenCalled();
+      expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("waits for all deadline-bound credential lookups even when one fails", async () => {
+    let finish!: () => void;
+    const stalled = new Promise<void>((resolve) => {
+      finish = resolve;
+    });
+    mockResolveSecret.mockImplementation(async (key: string) => {
+      if (key === "S3_BUCKET") throw new Error("lookup failed");
+      if (key === "S3_ACCESS_KEY_ID") await stalled;
+      return null;
+    });
+    let settled = false;
+    const request = openS3Recording(
+      "https://s3.example.test/clips/clips/rec-1/video.mp4",
+      {
+        recordingId: "rec-1",
+        storageMode: "own",
+        deadline: Date.now() + 10_000,
+      },
+    );
+    const result = request.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      },
+    );
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(settled).toBe(false);
+    finish();
+    await result;
+    await expect(request).rejects.toThrow("lookup failed");
   });
 
   it("prefetches the S3 and R2 request secrets before resolving them", async () => {
@@ -110,6 +444,72 @@ describe("s3FileUploadProvider", () => {
     expect(mockPrefetchSecrets.mock.invocationCallOrder[0]).toBeLessThan(
       mockResolveSecret.mock.invocationCallOrder[0]!,
     );
+  });
+
+  it("never mixes a workspace's saved storage with the deployment's", async () => {
+    const deployment: Record<string, string | undefined> = {
+      S3_BUCKET: "deploy-bucket",
+      S3_ACCESS_KEY_ID: "deploy-access",
+      S3_SECRET_ACCESS_KEY: "deploy-secret",
+      S3_ENDPOINT: "https://deploy-s3.example.com",
+    };
+    Object.assign(process.env, deployment);
+    let saved: Record<string, string | undefined> = {};
+    mockResolveSecret.mockImplementation(
+      async (key: string) => saved[key] ?? deployment[key] ?? null,
+    );
+    mockSsrfSafeFetch.mockReset();
+    const upload = () =>
+      s3FileUploadProvider.upload({
+        data: new Uint8Array([1]),
+        filename: "recording.webm",
+        mimeType: "video/webm",
+      });
+
+    // Only an endpoint saved: the deployment's keys must not go there.
+    saved = { S3_ENDPOINT: "https://workspace-s3.example.com" };
+    await expect(s3FileUploadProvider.isConfiguredForRequest?.()).resolves.toBe(
+      false,
+    );
+    await expect(upload()).rejects.toThrow();
+    expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
+
+    // Nothing saved: the deployment's own settings, all together.
+    saved = {};
+    mockSsrfSafeFetch.mockResolvedValue(new Response(null, { status: 200 }));
+    await upload();
+    expect(mockSsrfSafeFetch).toHaveBeenCalledWith(
+      expect.stringContaining("https://deploy-s3.example.com/deploy-bucket/"),
+      expect.objectContaining({ method: "PUT" }),
+      expect.anything(),
+    );
+  });
+
+  it("fails instead of using env values a failed lookup fell back to", async () => {
+    Object.assign(process.env, {
+      S3_BUCKET: "deploy-bucket",
+      S3_ACCESS_KEY_ID: "deploy-access",
+      S3_SECRET_ACCESS_KEY: "deploy-secret",
+      S3_ENDPOINT: "https://deploy-s3.example.com",
+      S3_REGION: "auto",
+      S3_PUBLIC_BASE_URL: "https://files.example.com",
+    });
+    // Every setting has an env value under both names, so no lookup comes
+    // back empty.
+    mockResolveSecret.mockImplementation(
+      async (key: string) => process.env[key.replace(/^R2_/, "S3_")] ?? null,
+    );
+    lookupFailure = new Error("database unavailable");
+    mockSsrfSafeFetch.mockReset();
+
+    await expect(
+      s3FileUploadProvider.upload({
+        data: new Uint8Array([1]),
+        filename: "recording.webm",
+        mimeType: "video/webm",
+      }),
+    ).rejects.toBe(lookupFailure);
+    expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
   });
 
   it("reports configured from request-scoped DB secrets", async () => {
@@ -193,6 +593,30 @@ describe("s3FileUploadProvider", () => {
     expect(mockResolveSecret).not.toHaveBeenCalled();
   });
 
+  it("claims only organization logo uploads", () => {
+    const { handles } = clipsOrganizationLogoPrivateBlobProvider;
+    if (!handles) throw new Error("The logo provider should filter puts");
+
+    expect(
+      handles({
+        mimeType: "image/png",
+        metadata: {
+          organizationId: "org-1",
+          purpose: "organization-brand-logo",
+        },
+      }),
+    ).toBe(true);
+    // App-activity captures are general private blobs, so the logo
+    // provider must not take them even when S3 is configured.
+    expect(
+      handles({
+        mimeType: "application/json",
+        metadata: { purpose: "clips-app-activity", recordingId: "rec-1" },
+      }),
+    ).toBe(false);
+    expect(handles({ mimeType: "image/png" })).toBe(false);
+  });
+
   it("does not configure organization-logo storage from user-only credentials", async () => {
     const requestValues: Record<string, string> = {
       S3_BUCKET: "user-bucket",
@@ -218,6 +642,102 @@ describe("s3FileUploadProvider", () => {
       }),
     ).rejects.toMatchObject({ statusCode: 503 });
     expect(mockResolveSecret).not.toHaveBeenCalled();
+    expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
+  });
+
+  it("never mixes a workspace's saved logo storage with the deployment's", async () => {
+    Object.assign(process.env, {
+      S3_BUCKET: "deploy-bucket",
+      S3_ACCESS_KEY_ID: "deploy-access",
+      S3_SECRET_ACCESS_KEY: "deploy-secret",
+      S3_ENDPOINT: "https://deploy-s3.example.com",
+    });
+    let saved: Record<string, string | undefined> = {
+      S3_ENDPOINT: "https://workspace-s3.example.com",
+    };
+    mockReadAppSecret.mockImplementation(
+      async ({
+        key,
+        scope,
+        scopeId,
+      }: {
+        key: string;
+        scope: string;
+        scopeId: string;
+      }) => {
+        const value = saved[key];
+        return scope === "workspace" && scopeId === "org-1" && value
+          ? { value }
+          : null;
+      },
+    );
+    const logo = () =>
+      clipsOrganizationLogoPrivateBlobProvider.put({
+        data: new TextEncoder().encode("logo-bytes"),
+        mimeType: "image/png",
+        metadata: {
+          organizationId: "org-1",
+          purpose: "organization-brand-logo",
+        },
+      });
+
+    // Only an endpoint saved: the deployment's keys must not go there.
+    await expect(
+      clipsOrganizationLogoPrivateBlobProvider.isConfiguredForRequest?.(),
+    ).resolves.toBe(false);
+    await expect(logo()).rejects.toMatchObject({ statusCode: 503 });
+    expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
+
+    // Nothing saved: the deployment's own settings, all together.
+    saved = {};
+    mockSsrfSafeFetch.mockResolvedValue(new Response(null, { status: 200 }));
+    await expect(logo()).resolves.toMatchObject({
+      provider: "clips-s3-organization-logos",
+    });
+    expect(mockSsrfSafeFetch).toHaveBeenCalledWith(
+      expect.stringContaining("https://deploy-s3.example.com/deploy-bucket/"),
+      expect.objectContaining({ method: "PUT" }),
+      expect.anything(),
+    );
+  });
+
+  it("doesn't take unreadable logo settings for unsaved ones", async () => {
+    Object.assign(process.env, {
+      S3_BUCKET: "deploy-bucket",
+      S3_ACCESS_KEY_ID: "deploy-access",
+      S3_SECRET_ACCESS_KEY: "deploy-secret",
+      S3_ENDPOINT: "https://deploy-s3.example.com",
+    });
+    // The workspace saved a bucket this process can't decrypt.
+    mockReadAppSecret.mockImplementation(
+      async ({ key, scope, scopeId }: Record<string, string>) => {
+        if (
+          key === "S3_BUCKET" &&
+          scope === "workspace" &&
+          scopeId === "org-1"
+        ) {
+          throw Object.assign(new Error("unreadable"), {
+            errorCode: "app_secret_unreadable",
+          });
+        }
+        return null;
+      },
+    );
+    mockSsrfSafeFetch.mockReset();
+
+    await expect(
+      clipsOrganizationLogoPrivateBlobProvider.isConfiguredForRequest?.(),
+    ).resolves.toBe(false);
+    await expect(
+      clipsOrganizationLogoPrivateBlobProvider.put({
+        data: new TextEncoder().encode("logo-bytes"),
+        mimeType: "image/png",
+        metadata: {
+          organizationId: "org-1",
+          purpose: "organization-brand-logo",
+        },
+      }),
+    ).rejects.toMatchObject({ statusCode: 503 });
     expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
   });
 
@@ -290,7 +810,7 @@ describe("s3FileUploadProvider", () => {
       S3_BUCKET: "current-bucket",
       S3_ACCESS_KEY_ID: "access",
       S3_SECRET_ACCESS_KEY: "secret",
-      S3_ENDPOINT: "http://10.0.0.12:9000/minio/",
+      S3_ENDPOINT: "https://10.0.0.12:9000/minio/",
       S3_REGION: "us-east-1",
     };
     mockReadAppSecret.mockImplementation(
@@ -344,12 +864,12 @@ describe("s3FileUploadProvider", () => {
 
   it("rejects workspace private endpoints outside the deployment endpoint path", async () => {
     mockIsBlockedExtensionUrlWithDns.mockResolvedValue(true);
-    process.env.S3_ENDPOINT = "http://10.0.0.12:9000/minio/";
+    process.env.S3_ENDPOINT = "https://10.0.0.12:9000/minio/";
     const workspaceValues: Record<string, string> = {
       S3_BUCKET: "workspace-bucket",
       S3_ACCESS_KEY_ID: "workspace-access",
       S3_SECRET_ACCESS_KEY: "workspace-secret",
-      S3_ENDPOINT: "http://10.0.0.12:9000/other-service",
+      S3_ENDPOINT: "https://10.0.0.12:9000/other-service",
       S3_REGION: "us-east-1",
     };
     mockReadAppSecret.mockImplementation(
@@ -374,8 +894,49 @@ describe("s3FileUploadProvider", () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 
+  it("refuses plain HTTP endpoints saved in workspace settings", async () => {
+    const values: Record<string, string> = {
+      S3_BUCKET: "clips-bucket",
+      S3_ACCESS_KEY_ID: "access",
+      S3_SECRET_ACCESS_KEY: "secret",
+      S3_ENDPOINT: "http://s3.example.com",
+    };
+    mockResolveSecret.mockImplementation(async (key: string) => {
+      return values[key] ?? null;
+    });
+
+    await expect(
+      s3FileUploadProvider.upload({
+        data: new Uint8Array([1]),
+        filename: "recording.webm",
+        mimeType: "video/webm",
+      }),
+    ).rejects.toThrow("Storage endpoints saved in settings must use HTTPS");
+    expect(mockSsrfSafeFetch).not.toHaveBeenCalled();
+  });
+
+  it("lets the hosted bucket use the deployment's private HTTP endpoint", async () => {
+    mockIsBlockedExtensionUrlWithDns.mockResolvedValue(true);
+    hostedEndpoint = "http://10.0.0.20:9000";
+    mockSsrfSafeFetch.mockResolvedValue(new Response(null, { status: 204 }));
+    const url = "http://10.0.0.20:9000/hosted-clips/clips/rec_1/clip.mp4";
+
+    await expect(
+      deleteS3ObjectByUrl(url, {
+        storageMode: "hosted",
+        recordingId: "rec_1",
+      }),
+    ).resolves.toBe(true);
+    expect(mockSsrfSafeFetch).toHaveBeenCalledWith(
+      url,
+      expect.objectContaining({ method: "DELETE" }),
+      expect.objectContaining({
+        allowedPrivateOrigins: ["http://10.0.0.20:9000"],
+      }),
+    );
+  });
+
   it("rejects bucket dot segments before using a trusted private endpoint", async () => {
-    process.env.S3_ENDPOINT = "http://10.0.0.12:9000/minio/";
     const values: Record<string, string> = {
       S3_BUCKET: "..",
       S3_ACCESS_KEY_ID: "access",
@@ -383,6 +944,8 @@ describe("s3FileUploadProvider", () => {
       S3_ENDPOINT: "http://10.0.0.12:9000/minio/",
       S3_PUBLIC_BASE_URL: "https://clips.example.com/media",
     };
+    // The deployment's own settings, so plain HTTP is allowed.
+    Object.assign(process.env, values);
     mockResolveSecret.mockImplementation(async (key: string) => {
       return values[key] ?? null;
     });

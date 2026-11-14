@@ -218,10 +218,10 @@ test("Screen root min/max styles constrain inspector edits and frame resizing", 
   expect(iframeRootBounds).toEqual(bounds);
   const sized = (await readGeometry(page, designId, screenId))!;
   for (const [label, value] of [
-    ["Min width", "200px"],
-    ["Max width", "400px"],
-    ["Min height", "240px"],
-    ["Max height", "320px"],
+    ["Min width", "200"],
+    ["Max width", "400"],
+    ["Min height", "240"],
+    ["Max height", "320"],
   ]) {
     await expect(
       page.getByRole("textbox", { name: label, exact: true }),

@@ -335,7 +335,13 @@ export function reorderAnchorFor(intent: {
 }
 
 export type ElementNudgeIntent =
-  | { kind: "translate"; dx: number; dy: number }
+  | {
+      kind: "translate";
+      dx: number;
+      dy: number;
+      /** The layer's inline px left/top in the source, when it has both. */
+      sourcePosition?: { left: number; top: number };
+    }
   | {
       kind: "reorder";
       content: string;
@@ -369,6 +375,18 @@ function hasRenderedGridPlacement(
       return trimmed !== "auto" && !/^span(?:\s|$)/.test(trimmed);
     });
   });
+}
+
+const PX_VALUE = /^(-?(?:\d+\.?\d*|\.\d+))px$/;
+
+function inlinePxPosition(
+  style: Partial<Record<string, string>>,
+): { left: number; top: number } | undefined {
+  const left = PX_VALUE.exec(style.left?.trim() ?? "")?.[1];
+  const top = PX_VALUE.exec(style.top?.trim() ?? "")?.[1];
+  return left !== undefined && top !== undefined
+    ? { left: Number(left), top: Number(top) }
+    : undefined;
 }
 
 export interface ResolveElementNudgeIntentArgs {
@@ -519,6 +537,10 @@ export function resolveElementNudgeIntent(
     siblingCount: siblingIds.length,
   });
 
+  if (intent.kind === "translate") {
+    const sourcePosition = inlinePxPosition(node.style);
+    return sourcePosition ? { ...intent, sourcePosition } : intent;
+  }
   if (intent.kind !== "reorder") return intent;
   const anchor = reorderAnchorFor(intent);
   const anchorNodeId = siblingIds[anchor.anchorIndex];

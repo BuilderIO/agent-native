@@ -1,6 +1,7 @@
 import {
   isActionContractError,
   isAgentActionStopError,
+  isNoWriteError,
 } from "@agent-native/core";
 import { describe, expect, it, vi, beforeEach } from "vitest";
 
@@ -1313,6 +1314,60 @@ describe("animation target validation", () => {
   });
 });
 
+describe("silent success: reorder and agent field schema", () => {
+  it("rejects reorder-slides ids that name no slide", () => {
+    const deck = {
+      slides: [
+        { id: "s1", content: "1" },
+        { id: "s2", content: "2" },
+      ],
+    };
+    expect(() =>
+      applyOperation(
+        deck,
+        { op: "reorder-slides", orderedIds: ["s2", "ghost"] },
+        { strictReorder: true },
+      ),
+    ).toThrow(/ghost/);
+    expect(deck.slides.map((s: { id: string }) => s.id)).toEqual(["s1", "s2"]);
+  });
+
+  it("ignores stale reorder-slides ids for non-agent callers", () => {
+    const deck = {
+      slides: [
+        { id: "s1", content: "1" },
+        { id: "s2", content: "2" },
+      ],
+    };
+    applyOperation(deck, {
+      op: "reorder-slides",
+      orderedIds: ["s2", "ghost", "s1"],
+    });
+    expect(deck.slides.map((s: { id: string }) => s.id)).toEqual(["s2", "s1"]);
+  });
+
+  it("agent patch-deck-fields schema does not accept visibility", () => {
+    const parameters = patchDeckAction.tool.parameters as {
+      properties: {
+        operations: {
+          items: {
+            anyOf: Array<{
+              properties?: {
+                op?: { const?: string };
+                fields?: { additionalProperties?: boolean };
+              };
+            }>;
+          };
+        };
+      };
+    };
+    const deckFields = parameters.properties.operations.items.anyOf.find(
+      (operation) => operation.properties?.op?.const === "patch-deck-fields",
+    );
+    expect(deckFields?.properties?.fields?.additionalProperties).toBe(false);
+  });
+});
+
 describe("isAgentPatchCaller", () => {
   it("treats tool, mcp, a2a, and webmcp callers as agent callers", () => {
     expect(isAgentPatchCaller("tool")).toBe(true);
@@ -2045,6 +2100,34 @@ describe("run() — asynchronous layout fit metadata", () => {
     expect(
       JSON.parse(String(mockDeckRow?.data)).slides[0].layoutWarningDismissed,
     ).toBe(true);
+  });
+
+  it("names the slides another writer deleted instead of failing untyped", async () => {
+    const data = JSON.stringify({
+      title: "Deck",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      slides: [{ id: "slide-1", content: "<div>One</div>" }],
+    });
+    mockDeckRow = { ...mockDeckRow, data };
+
+    const error = await runPatchDeckAction({
+      deckId: "deck-1",
+      operations: [
+        {
+          op: "patch-slide",
+          slideId: "slide-gone",
+          fields: { skipped: true },
+          baseFields: { skipped: { present: false } },
+        },
+      ],
+    }).catch((caught: unknown) => caught);
+
+    expect(error).toMatchObject({
+      errorCode: "slide_not_found",
+      statusCode: 404,
+      details: { slideIds: ["slide-gone"] },
+    });
+    expect(mockDeckRow).toMatchObject({ data });
   });
 
   it("rejects extra widget operation metadata", () => {
@@ -3055,6 +3138,7 @@ describe("run() — asynchronous layout fit metadata", () => {
         expect(result).toMatchObject({
           message: expect.stringContaining("Nothing was written"),
         });
+        expect(isNoWriteError(result)).toBe(true);
       } else {
         expect(result).toMatchObject({
           ok: true,
@@ -3772,26 +3856,127 @@ describe("run() — reveals through an agent content patch", () => {
     expect(lastUpdatedDeckData).toBeUndefined();
   });
 
-  it("refuses a content patch that inserts a sibling before a stored reveal's target, with a typed error and no write", async () => {
-    mockDeckRow!.data = JSON.stringify({
+  it("saves a shape appended at the slide end under a click-reveal on an earlier paragraph", async () => {
+    const row = mockDeckRow;
+    if (!row) throw new Error("mockDeckRow is not set");
+    row.data = JSON.stringify({
       title: "Deck",
       updatedAt: "2026-01-01T00:00:00.000Z",
       slides: [
         {
           id: "slide-1",
           content:
-            '<div class="fmd-slide"><h1>Title</h1><div class="text-box"><p>One</p><p>Two</p></div></div>',
+            '<div class="fmd-slide"><h1>Heading</h1><p>First</p><p>Second</p></div>',
           animations: [
             {
-              id: "reveal-two",
+              id: "reveal-first",
               elementIndex: 1,
-              elementPath: [1, 1],
+              elementPath: [1],
               type: "fade",
             },
           ],
         },
       ],
     });
+    await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: {
+              content:
+                '<div class="fmd-slide"><h1>Heading</h1><p>First</p><p>Second</p><div class="fmd-shape fmd-shape-rectangle" data-slide-shape="rectangle" style="position: absolute; left: 10px; top: 10px; width: 100px; height: 60px"></div></div>',
+            },
+          },
+        ],
+      },
+      { caller: "tool" },
+    );
+    expect(lastUpdatedDeckData).toBeDefined();
+  });
+
+  it("moves a kept reveal with its target when a content patch inserts a sibling before it, and reports the move", async () => {
+    mockDeckRow = {
+      ...mockDeckRow,
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [
+          {
+            id: "slide-1",
+            content:
+              '<div class="fmd-slide"><h1>Title</h1><div class="text-box"><p>One</p><p>Two</p></div></div>',
+            animations: [
+              {
+                id: "reveal-two",
+                elementIndex: 1,
+                elementPath: [1, 1],
+                type: "fade",
+              },
+            ],
+          },
+        ],
+      }),
+    };
+    const result = await runPatchDeckAction(
+      {
+        deckId: "deck-1",
+        operations: [
+          {
+            op: "patch-slide",
+            slideId: "slide-1",
+            fields: {
+              content:
+                '<div class="fmd-slide"><h1>Title</h1><div class="text-box"><p>New</p><p>One</p><p>Two</p></div></div>',
+            },
+          },
+        ],
+      },
+      { caller: "tool" },
+    );
+    expect(result).toMatchObject({
+      repointedReveals: [
+        {
+          slideId: "slide-1",
+          animationIndex: 0,
+          animationId: "reveal-two",
+          fromPath: [1, 1],
+          toPath: [1, 2],
+        },
+      ],
+    });
+    expect(
+      JSON.parse(String(lastUpdatedDeckData)).slides[0].animations,
+    ).toEqual([
+      { id: "reveal-two", elementIndex: 2, elementPath: [1, 2], type: "fade" },
+    ]);
+  });
+
+  it("refuses a content patch whose kept reveal's target cannot be told apart after the edit, with a typed error and no write", async () => {
+    mockDeckRow = {
+      ...mockDeckRow,
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [
+          {
+            id: "slide-1",
+            content:
+              '<div class="fmd-slide"><h1>Title</h1><div class="text-box"><p>One</p><p>Two</p></div></div>',
+            animations: [
+              {
+                id: "reveal-two",
+                elementIndex: 1,
+                elementPath: [1, 1],
+                type: "fade",
+              },
+            ],
+          },
+        ],
+      }),
+    };
     await expect(
       runPatchDeckAction(
         {
@@ -3802,7 +3987,7 @@ describe("run() — reveals through an agent content patch", () => {
               slideId: "slide-1",
               fields: {
                 content:
-                  '<div class="fmd-slide"><h1>Title</h1><div class="text-box"><p>New</p><p>One</p><p>Two</p></div></div>',
+                  '<div class="fmd-slide"><h1>Title</h1><div class="text-box"><p>One</p><p>New</p><p>Rewritten</p></div></div>',
               },
             },
           ],
@@ -3820,6 +4005,76 @@ describe("run() — reveals through an agent content patch", () => {
       },
     });
     expect(lastUpdatedDeckData).toBeUndefined();
+  });
+
+  describe("several content patches to one slide in one request", () => {
+    const box = (...paragraphs: string[]) =>
+      `<div class="fmd-slide"><h1>Title</h1><div class="text-box">${paragraphs.join("")}</div></div>`;
+    const two = {
+      id: "reveal-two",
+      elementIndex: 1,
+      elementPath: [1, 1],
+      type: "fade",
+    };
+    const storeSlide = (content: string) => {
+      mockDeckRow = {
+        ...mockDeckRow,
+        data: JSON.stringify({
+          title: "Deck",
+          updatedAt: "2026-01-01T00:00:00.000Z",
+          slides: [{ id: "slide-1", content, animations: [two] }],
+        }),
+      };
+    };
+    const patch = (content: string, animations?: unknown[]) => ({
+      op: "patch-slide" as const,
+      slideId: "slide-1",
+      fields: { content, ...(animations ? { animations } : {}) },
+    });
+    const savedAnimations = () =>
+      JSON.parse(String(lastUpdatedDeckData)).slides[0].animations;
+
+    it("saves the editor's batch of typing in a revealed paragraph and then inserting a shape", async () => {
+      storeSlide(box("<p>One</p><p>Two</p>"));
+      const typed = box("<p>One</p><p>Two!</p>");
+      await runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          operations: [
+            patch(typed, [two]),
+            patch(`${typed.slice(0, -6)}<div class="fmd-shape"></div></div>`, [
+              two,
+            ]),
+          ],
+        },
+        { caller: "tool" },
+      );
+
+      expect(savedAnimations()).toEqual([two]);
+    });
+
+    it("pairs each patch on its own, so a rewrite followed by an insert before it carries the reveal along", async () => {
+      storeSlide(box("<p>One</p><p>Two</p>"));
+      const result = await runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          operations: [
+            patch(box("<p>One</p><p>Second</p>")),
+            patch(box("<p>One</p><p>New</p><p>Second</p>")),
+          ],
+        },
+        { caller: "tool" },
+      );
+
+      expect(savedAnimations()).toEqual([
+        { ...two, elementIndex: 2, elementPath: [1, 2] },
+      ]);
+      expect(result).toMatchObject({
+        repointedReveals: [
+          { animationId: "reveal-two", fromPath: [1, 1], toPath: [1, 2] },
+        ],
+      });
+    });
   });
 
   it("clears the stored reveals when the patch sends animations: []", async () => {
@@ -5243,6 +5498,11 @@ describe("run() — client write ordering", () => {
     ).rejects.toMatchObject({
       errorCode: "slide_content_stale",
       statusCode: 409,
+      details: {
+        slideId: "slide-1",
+        currentContent: "remote edit",
+        currentContentHash: hashSlideContent("remote edit"),
+      },
     });
 
     expect(JSON.parse(mockDeckRow!.data as string).slides[0].content).toBe(
@@ -5650,6 +5910,116 @@ describe("run() — patch-slide edits", () => {
     ]);
   });
 
+  it("rejects an edit that matches nothing before writing", async () => {
+    const error = await patchDeckAction
+      .run(
+        {
+          deckId: "deck-1",
+          operations: [
+            OperationSchema.parse({
+              op: "patch-slide",
+              slideId: "slide-1",
+              edits: [{ find: "#000000", replace: "#111111" }],
+            }),
+          ],
+        },
+        { caller: "tool" },
+      )
+      .catch((thrown: unknown) => thrown);
+
+    expect(isNoWriteError(error)).toBe(true);
+    expect(error).toMatchObject({
+      errorCode: "slide_content_edit_failed",
+      message: expect.stringContaining("found no matches"),
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
+    expect(mockCreateDeckVersionSnapshot).not.toHaveBeenCalled();
+  });
+
+  it("lets the agent run a corrected edit after one that matched nothing", async () => {
+    const { runAgentLoop } = await import("@agent-native/core/server");
+    const calls = ["#000000", "#a85f43"].map((find) => ({
+      deckId: "deck-1",
+      operations: [
+        {
+          op: "patch-slide",
+          slideId: "slide-1",
+          edits: [{ find, replace: "#8a4a33" }],
+        },
+      ],
+    }));
+    let turn = 0;
+    const events: Array<Record<string, unknown>> = [];
+    await runAgentLoop({
+      engine: {
+        name: "test",
+        label: "Test",
+        defaultModel: "test-model",
+        supportedModels: ["test-model"],
+        capabilities: {
+          thinking: false,
+          promptCaching: false,
+          vision: false,
+          computerUse: false,
+          parallelToolCalls: false,
+        },
+        async *stream() {
+          const input = calls[turn];
+          turn++;
+          if (input) {
+            yield {
+              type: "assistant-content" as const,
+              parts: [
+                {
+                  type: "tool-call" as const,
+                  id: `call-${turn}`,
+                  name: "patch-deck",
+                  input,
+                },
+              ],
+            };
+            yield { type: "stop" as const, reason: "tool_use" as const };
+            return;
+          }
+          yield {
+            type: "assistant-content" as const,
+            parts: [{ type: "text" as const, text: "Done." }],
+          };
+          yield { type: "stop" as const, reason: "end_turn" as const };
+        },
+      },
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "Darken it." }] },
+      ],
+      actions: { "patch-deck": patchDeckAction as never },
+      send: (event) => {
+        events.push(event as unknown as Record<string, unknown>);
+      },
+      signal: new AbortController().signal,
+    });
+
+    const done = events.filter((event) => event.type === "tool_done");
+    expect(done[0]).toMatchObject({
+      isError: true,
+      completedSideEffect: false,
+      errorClass: "rejected",
+    });
+    expect(done[1]).toMatchObject({ completedSideEffect: true });
+    expect(events.some((event) => event.outcomeUnknown === true)).toBe(false);
+    expect(
+      events.some(
+        (event) =>
+          event.type === "error" &&
+          event.errorCode === "write_tool_outcome_unknown",
+      ),
+    ).toBe(false);
+    const saved = JSON.parse(String(lastUpdatedDeckData));
+    expect(saved.slides[0].content).toBe(eyebrow("#8a4a33"));
+  });
+
   it("applies several edit ops on the same slide in order", async () => {
     await patchDeckAction.run(
       {
@@ -5687,5 +6057,101 @@ describe("run() — patch-slide edits", () => {
         edits: [{ find: "#a85f43", replace: "#000000" }],
       }).success,
     ).toBe(false);
+  });
+});
+
+describe("run() — a patch to a deleted slide is a typed 404 with no write", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    lastUpdatedDeckData = undefined;
+    mockDeckRow = {
+      id: "deck-1",
+      title: "Deck",
+      designSystemId: null,
+      updatedAt: "2026-01-01T00:00:00.000Z",
+      data: JSON.stringify({
+        title: "Deck",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+        slides: [{ id: "slide-1", content: "<div>One</div>" }],
+      }),
+    };
+  });
+
+  it("names the slide the client is still editing and writes nothing", async () => {
+    await expect(
+      runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          requireAllSourceSlides: false,
+          operations: [
+            {
+              op: "patch-slide",
+              slideId: "slide-2",
+              fields: { content: "<div>Edited</div>" },
+            },
+          ],
+        },
+        { caller: "tool" },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "slide_not_found",
+      statusCode: 404,
+      details: { slideIds: ["slide-2"] },
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
+  });
+
+  it("rejects a patch to a slide deleted earlier in the same batch", async () => {
+    await expect(
+      runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          requireAllSourceSlides: false,
+          operations: [
+            {
+              op: "add-slide",
+              slideId: "slide-2",
+              fields: { content: "<div>Two</div>" },
+            },
+            { op: "delete-slide", slideId: "slide-1" },
+            {
+              op: "patch-slide",
+              slideId: "slide-1",
+              fields: { notes: "late" },
+            },
+          ],
+        },
+        { caller: "tool" },
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "slide_not_found",
+      details: { slideIds: ["slide-1"] },
+    });
+    expect(lastUpdatedDeckData).toBeUndefined();
+  });
+
+  it("accepts a patch to a slide added earlier in the same batch", async () => {
+    await expect(
+      runPatchDeckAction(
+        {
+          deckId: "deck-1",
+          requireAllSourceSlides: false,
+          operations: [
+            {
+              op: "add-slide",
+              slideId: "slide-2",
+              afterSlideId: "slide-1",
+              fields: { content: "<div>Two</div>" },
+            },
+            {
+              op: "patch-slide",
+              slideId: "slide-2",
+              fields: { notes: "Typed right after adding" },
+            },
+          ],
+        },
+        { caller: "tool" },
+      ),
+    ).resolves.toMatchObject({ ok: true });
   });
 });

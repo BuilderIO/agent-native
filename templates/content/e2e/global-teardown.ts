@@ -22,7 +22,7 @@ async function globalTeardown(config: FullConfig) {
     // cleanup touches that server's flags or connectors.
     await expectRunServer(page.request, baseURL);
     try {
-      await leaveGateArm(page);
+      await leaveGateArm(page, baseURL);
     } finally {
       await AgentClient.revokeShared(page);
     }

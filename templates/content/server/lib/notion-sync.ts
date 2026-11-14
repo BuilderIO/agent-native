@@ -2,6 +2,7 @@
 // in pnpm's node_modules. Logic is correct; types just don't unify across instances.
 import crypto from "node:crypto";
 
+import { ActionContractError } from "@agent-native/core";
 import {
   parseIconValue,
   serializeIconValue,
@@ -11,14 +12,24 @@ import { and, eq, inArray, isNull, lt, or } from "drizzle-orm";
 import type { InferSelectModel } from "drizzle-orm";
 
 import { ensureDocumentFilesMembership } from "../../actions/_content-files.js";
+import {
+  assertAgentsMayEditPagesText,
+  type CallProvenance,
+  isAgentTextLockRefusal,
+} from "../../actions/_document-agent-lock.js";
 import type { DocumentSyncStatus } from "../../shared/api.js";
+import { keepVideoBlockIds } from "../../shared/comment-block-anchor.js";
 import {
   canonicalizeNotionNfm,
   nfmToDoc,
   type PMNode,
 } from "../../shared/nfm.js";
 import { getDb, schema } from "../db/index.js";
-import { bodyRevisionForContent } from "./document-body-revision.js";
+import {
+  assertLegacyBodyWriter,
+  isUnsupportedBodyWriter,
+  lockLegacyBodyWrites,
+} from "./document-body-revision.js";
 import { nextDocumentUpdatedAt } from "./document-updated-at.js";
 import { getCurrentOwnerEmail } from "./documents.js";
 import {
@@ -33,7 +44,7 @@ import {
   readNotionPageAsDocument,
 } from "./notion.js";
 import {
-  syncPrivateCalloutReferences,
+  syncPrivateBodyReferences,
   syncPrivateIconReference,
 } from "./private-icon-references.js";
 
@@ -72,15 +83,27 @@ async function replaceDocumentFromExternal(args: {
   content: string;
   icon: string | null;
   updatedAt: string;
+  ctx?: CallProvenance | undefined;
 }): Promise<boolean> {
   const db = getDb();
   return db.transaction(async (tx) => {
+    const legacy = await lockLegacyBodyWrites(tx, [args.document.id], {
+      operation: "Notion sync",
+      content: args.content,
+    });
+    // Under the row lock, which a person's switch has to wait for. A sync with
+    // no caller runs on its own, for the person who connected the source.
+    await assertAgentsMayEditPagesText(
+      tx as unknown as ReturnType<typeof getDb>,
+      [args.document.id],
+      args.ctx,
+    );
     const applied = await tx
       .update(schema.documents)
       .set({
         title: args.title,
         content: args.content,
-        bodyRevision: bodyRevisionForContent(args.content),
+        bodyRevision: legacy.bodyRevision(args.content),
         icon: args.icon,
         updatedAt: args.updatedAt,
       })
@@ -108,7 +131,7 @@ async function replaceDocumentFromExternal(args: {
       );
     }
     if (args.content !== args.document.content) {
-      await syncPrivateCalloutReferences(
+      await syncPrivateBodyReferences(
         tx as unknown as ReturnType<typeof getDb>,
         {
           documentId: args.document.id,
@@ -393,7 +416,7 @@ async function claimSyncLinkWithRetry(
   return false;
 }
 
-async function upsertSyncLink(args: {
+interface SyncLinkArgs {
   owner: string;
   documentId: string;
   remotePageId: string;
@@ -406,9 +429,10 @@ async function upsertSyncLink(args: {
   lastError?: string | null;
   warnings?: string[];
   hasConflict?: boolean;
-}) {
-  const db = getDb();
-  const values = {
+}
+
+function syncLinkValues(args: SyncLinkArgs) {
+  return {
     documentId: args.documentId,
     ownerEmail: args.owner,
     provider: "notion",
@@ -424,6 +448,10 @@ async function upsertSyncLink(args: {
     hasConflict: args.hasConflict ? 1 : 0,
     updatedAt: nowIso(),
   };
+}
+
+async function upsertSyncLink(args: SyncLinkArgs, db = getDb()) {
+  const values = syncLinkValues(args);
   await db
     .insert(schema.documentSyncLinks)
     .values({ ...values, createdAt: nowIso() })
@@ -431,6 +459,23 @@ async function upsertSyncLink(args: {
       target: schema.documentSyncLinks.documentId,
       set: values,
     });
+  return values;
+}
+
+/**
+ * Links an existing page to a Notion page under the page's row lock. A
+ * switch to the live copy rechecks the page's links under that lock, so it
+ * either sees this link and refuses, or switched first and this refuses with
+ * LIVE_BODY_WRITER_UNSUPPORTED.
+ */
+async function installSyncLink(args: SyncLinkArgs) {
+  return getDb().transaction(async (tx) => {
+    await lockLegacyBodyWrites(tx, [args.documentId], {
+      operation: "Notion link",
+      content: null,
+    });
+    return upsertSyncLink(args, tx);
+  });
 }
 
 async function loadRemotePageDocumentLookup(
@@ -611,6 +656,7 @@ async function syncChildPagesFromPulledContent(args: {
   depth: number;
   seenRemotePageIds: Set<string>;
   remotePageDocumentIdByPageId: RemotePageDocumentLookup;
+  ctx?: CallProvenance | undefined;
 }) {
   if (args.depth >= MAX_CHILD_PAGE_SYNC_DEPTH) return;
 
@@ -707,6 +753,7 @@ async function syncChildPagesFromPulledContent(args: {
       await pullDocumentFromNotion(args.owner, childId, args.force, {
         depth: args.depth + 1,
         seenRemotePageIds: args.seenRemotePageIds,
+        ctx: args.ctx,
       });
     } catch (error) {
       if (createdPlaceholder) {
@@ -836,15 +883,21 @@ export async function linkDocumentToNotionPage(
   owner: string,
   documentId: string,
   pageIdOrUrl: string,
+  ctx?: CallProvenance,
 ): Promise<DocumentSyncStatus> {
+  // Linking ends in a pull that writes Notion's text to the page.
+  await assertAgentsMayEditPagesText(getDb(), [documentId], ctx);
   const connection = await requireNotionConnectionForOwner(
     owner,
     "linking a page",
   );
   await getDocument(documentId, owner);
+  // Linking ends in a pull that writes Notion's body to the page.
+  await assertLegacyBodyWriter(documentId, { operation: "Notion link" });
   const pageId = normalizeNotionPageId(pageIdOrUrl);
   const page = await fetchNotionPage(connection.accessToken, pageId);
-  await upsertSyncLink({
+  const previousLink = await getSyncLink(documentId, owner);
+  const installed = await installSyncLink({
     owner,
     documentId,
     remotePageId: page.id,
@@ -853,7 +906,56 @@ export async function linkDocumentToNotionPage(
     warnings: [],
     hasConflict: false,
   });
-  return pullDocumentFromNotion(owner, documentId, true);
+  try {
+    return await pullDocumentFromNotion(owner, documentId, true, { ctx });
+  } catch (error) {
+    // The page took its live copy, or a person locked it, after the checks
+    // above. Linking changed nothing at Notion, so the page keeps the link it
+    // had, if any.
+    if (isUnsupportedBodyWriter(error) || isAgentTextLockRefusal(error)) {
+      await restoreSyncLink(previousLink, installed);
+    }
+    throw error;
+  }
+}
+
+/**
+ * Puts back `link` (or no link) in place of the one a link attempt
+ * `installed`. A link that another operation wrote since then stays.
+ */
+async function restoreSyncLink(
+  link: LinkRow | null,
+  installed: ReturnType<typeof syncLinkValues>,
+) {
+  const stillInstalled = and(
+    eq(schema.documentSyncLinks.documentId, installed.documentId),
+    eq(schema.documentSyncLinks.ownerEmail, installed.ownerEmail),
+    eq(schema.documentSyncLinks.remotePageId, installed.remotePageId),
+    eq(schema.documentSyncLinks.updatedAt, installed.updatedAt),
+  );
+  if (link) {
+    await getDb()
+      .update(schema.documentSyncLinks)
+      .set(
+        syncLinkValues({
+          owner: installed.ownerEmail,
+          documentId: installed.documentId,
+          remotePageId: link.remotePageId,
+          state: link.state,
+          lastSyncedAt: link.lastSyncedAt,
+          lastPulledRemoteUpdatedAt: link.lastPulledRemoteUpdatedAt,
+          lastPushedLocalUpdatedAt: link.lastPushedLocalUpdatedAt,
+          lastKnownRemoteUpdatedAt: link.lastKnownRemoteUpdatedAt,
+          lastSyncedContentHash: link.lastSyncedContentHash,
+          lastError: link.lastError,
+          warnings: parseWarnings(link),
+          hasConflict: Boolean(link.hasConflict),
+        }),
+      )
+      .where(stillInstalled);
+    return;
+  }
+  await getDb().delete(schema.documentSyncLinks).where(stillInstalled);
 }
 
 /**
@@ -878,6 +980,7 @@ export async function pullDocumentFromNotion(
     seenRemotePageIds?: Set<string>;
     remotePageDocumentIdByPageId?: RemotePageDocumentLookup;
     skipClaim?: boolean;
+    ctx?: CallProvenance | undefined;
   } = {},
 ): Promise<DocumentSyncStatus> {
   if (childSync.skipClaim) {
@@ -906,8 +1009,10 @@ async function pullDocumentFromNotionInner(
     depth?: number;
     seenRemotePageIds?: Set<string>;
     remotePageDocumentIdByPageId?: RemotePageDocumentLookup;
+    ctx?: CallProvenance | undefined;
   },
 ): Promise<DocumentSyncStatus> {
+  await assertAgentsMayEditPagesText(getDb(), [documentId], childSync.ctx);
   const link = await getSyncLink(documentId, owner);
   if (!link) throw new Error("Document is not linked to a Notion page.");
   const connection = await requireNotionConnectionForOwner(owner, "pulling");
@@ -990,7 +1095,10 @@ async function pullDocumentFromNotionInner(
   }
 
   const newTitle = pageContent.title || freshDocument.title;
-  const newContent = pageContent.content ?? freshDocument.content;
+  const newContent = keepVideoBlockIds(
+    freshDocument.content,
+    pageContent.content,
+  );
   const newIcon = iconAfterNotionSync(freshDocument.icon, pageContent.icon);
   const contentChanged =
     newTitle !== freshDocument.title ||
@@ -1008,6 +1116,7 @@ async function pullDocumentFromNotionInner(
       content: newContent,
       icon: newIcon,
       updatedAt,
+      ctx: childSync.ctx,
     });
 
     if (!applied) {
@@ -1076,6 +1185,7 @@ async function pullDocumentFromNotionInner(
     },
     content: newContent,
     force,
+    ctx: childSync.ctx,
     depth: childSync.depth ?? 0,
     seenRemotePageIds,
     remotePageDocumentIdByPageId,
@@ -1107,16 +1217,26 @@ export async function pushDocumentToNotion(
   owner: string,
   documentId: string,
   force = false,
-  internalOptions?: { skipClaim?: boolean },
+  internalOptions?: { skipClaim?: boolean; ctx?: CallProvenance | undefined },
 ): Promise<DocumentSyncStatus> {
   if (internalOptions?.skipClaim) {
-    return pushDocumentToNotionInner(owner, documentId, force);
+    return pushDocumentToNotionInner(
+      owner,
+      documentId,
+      force,
+      internalOptions.ctx,
+    );
   }
   if (!(await claimSyncLinkWithRetry(documentId, owner))) {
     return getDocumentSyncStatus(owner, documentId);
   }
   try {
-    return await pushDocumentToNotionInner(owner, documentId, force);
+    return await pushDocumentToNotionInner(
+      owner,
+      documentId,
+      force,
+      internalOptions?.ctx,
+    );
   } finally {
     await releaseSyncLink(documentId, owner);
   }
@@ -1126,6 +1246,7 @@ async function pushDocumentToNotionInner(
   owner: string,
   documentId: string,
   force: boolean,
+  ctx?: CallProvenance,
 ): Promise<DocumentSyncStatus> {
   const document = await getDocument(documentId, owner);
   const link = await getSyncLink(documentId, owner);
@@ -1216,6 +1337,8 @@ async function pushDocumentToNotionInner(
     });
   }
 
+  // A push writes Notion's copy of the body back to the page.
+  await assertLegacyBodyWriter(documentId, { operation: "Notion push" });
   const remote = await pushDocumentToNotionPage({
     accessToken: connection.accessToken,
     pageId: link.remotePageId,
@@ -1225,7 +1348,7 @@ async function pushDocumentToNotionInner(
   });
 
   const freshDocument = await getDocument(documentId, owner);
-  const newContent = remote.content ?? document.content;
+  const newContent = keepVideoBlockIds(document.content, remote.content);
   const newTitle = remote.title || document.title;
   const newIcon = iconAfterNotionSync(freshDocument.icon, remote.icon);
   const contentChanged =
@@ -1236,6 +1359,7 @@ async function pushDocumentToNotionInner(
     ? nextDocumentUpdatedAt(freshDocument.updatedAt)
     : freshDocument.updatedAt;
   let baselineContent = document.content;
+  let pulledRemoteUpdatedAt = remote.lastEditedTime;
   if (contentChanged) {
     const applied = await replaceDocumentFromExternal({
       document: freshDocument,
@@ -1244,6 +1368,19 @@ async function pushDocumentToNotionInner(
       content: newContent,
       icon: newIcon,
       updatedAt: pushedAt,
+      ctx,
+    }).catch((error: unknown) => {
+      if (!isUnsupportedBodyWriter(error) && !isAgentTextLockRefusal(error)) {
+        throw error;
+      }
+      // The page took its live copy, or is locked against the agent pushing it,
+      // while Notion took the push, which has landed, so it keeps its body, as
+      // in the lost race below. When Notion changed the pushed body, its copy
+      // stays unpulled, or the status would read clean while the two differ.
+      if (newContent !== document.content) {
+        pulledRemoteUpdatedAt = link.lastPulledRemoteUpdatedAt;
+      }
+      return false;
     });
 
     if (applied) {
@@ -1264,7 +1401,7 @@ async function pushDocumentToNotionInner(
     remotePageId: link.remotePageId,
     state: "linked",
     lastSyncedAt: nowIso(),
-    lastPulledRemoteUpdatedAt: remote.lastEditedTime,
+    lastPulledRemoteUpdatedAt: pulledRemoteUpdatedAt,
     lastPushedLocalUpdatedAt: pushedAt,
     lastKnownRemoteUpdatedAt: remote.lastEditedTime,
     lastSyncedContentHash: hashContent(baselineContent),
@@ -1292,7 +1429,7 @@ const REFRESH_THROTTLE_AUTO_SYNC_MS = 2_000;
 export async function refreshDocumentSyncStatus(
   owner: string,
   documentId: string,
-  options?: { autoSync?: boolean },
+  options?: { autoSync?: boolean; ctx?: CallProvenance | undefined },
 ): Promise<DocumentSyncStatus> {
   const throttleMs = options?.autoSync
     ? REFRESH_THROTTLE_AUTO_SYNC_MS
@@ -1320,6 +1457,7 @@ export async function refreshDocumentSyncStatus(
         try {
           return await pullDocumentFromNotion(owner, documentId, false, {
             skipClaim: true,
+            ctx: options.ctx,
           });
         } finally {
           await releaseSyncLink(documentId, owner);
@@ -1332,6 +1470,7 @@ export async function refreshDocumentSyncStatus(
         try {
           return await pushDocumentToNotion(owner, documentId, false, {
             skipClaim: true,
+            ctx: options.ctx,
           });
         } finally {
           await releaseSyncLink(documentId, owner);
@@ -1424,11 +1563,13 @@ export async function refreshDocumentSyncStatus(
               if (options?.autoSync && localHashChanged) {
                 return pushDocumentToNotion(owner, documentId, false, {
                   skipClaim: true,
+                  ctx: options.ctx,
                 });
               }
               if (options?.autoSync && remoteHashChanged) {
                 return pullDocumentFromNotion(owner, documentId, false, {
                   skipClaim: true,
+                  ctx: options.ctx,
                 });
               }
               return {
@@ -1475,32 +1616,41 @@ export async function resolveDocumentSyncConflict(
   owner: string,
   documentId: string,
   direction: "pull" | "push",
+  ctx?: CallProvenance,
 ) {
   if (direction !== "pull" && direction !== "push") {
     throw new Error('direction must be "pull" or "push"');
   }
   if (direction === "pull") {
-    return pullDocumentFromNotion(owner, documentId, true);
+    return pullDocumentFromNotion(owner, documentId, true, { ctx });
   }
-  return pushDocumentToNotion(owner, documentId, true);
+  return pushDocumentToNotion(owner, documentId, true, { ctx });
 }
 
 export async function createAndLinkNotionPage(
   owner: string,
   documentId: string,
   parentPageIdOrUrl?: string,
+  ctx?: CallProvenance,
 ): Promise<DocumentSyncStatus> {
+  // Linking ends in a pull that writes Notion's text to the page.
+  await assertAgentsMayEditPagesText(getDb(), [documentId], ctx);
   const connection = await requireNotionConnectionForOwner(
     owner,
     "creating a page",
   );
   const document = await getDocument(documentId, owner);
+  // Linking ends in a pull that writes Notion's body to the page.
+  await assertLegacyBodyWriter(documentId, { operation: "Notion link" });
 
   const existingLink = await getSyncLink(documentId, owner);
   if (existingLink) {
     try {
-      return await pullDocumentFromNotion(owner, documentId, true);
-    } catch {
+      return await pullDocumentFromNotion(owner, documentId, true, { ctx });
+    } catch (error) {
+      if (isUnsupportedBodyWriter(error) || isAgentTextLockRefusal(error)) {
+        throw error;
+      }
       return buildStatus({
         connected: true,
         documentId,
@@ -1550,6 +1700,8 @@ export async function createAndLinkNotionPage(
     icon: document.icon,
   });
 
+  // Not installSyncLink: Notion has the new page now, so the link goes in
+  // even if the page switched meanwhile.
   await upsertSyncLink({
     owner,
     documentId,
@@ -1562,8 +1714,27 @@ export async function createAndLinkNotionPage(
   });
 
   try {
-    return await pullDocumentFromNotion(owner, documentId, true);
+    return await pullDocumentFromNotion(owner, documentId, true, { ctx });
   } catch (error) {
+    const lockRefused = isAgentTextLockRefusal(error);
+    if (lockRefused || isUnsupportedBodyWriter(error)) {
+      // The page took its lock or live copy after the check above, once Notion
+      // had the new page. The link to it stays, so a retry doesn't make another.
+      throw new ActionContractError(
+        lockRefused
+          ? `Created Notion page ${newPage.id} from page ${documentId} and linked it, but a person has since locked the page's text against agents, so it keeps its own body.`
+          : `Created Notion page ${newPage.id} from page ${documentId} and linked it, but the page now takes body writes through its live copy, so it can't take Notion's copy of its body yet.`,
+        {
+          errorCode: error.errorCode,
+          statusCode: lockRefused ? 403 : 409,
+          details: {
+            documentId,
+            operation: "Notion link",
+            remotePageId: newPage.id,
+          },
+        },
+      );
+    }
     const link = await getSyncLink(documentId, owner);
     return buildStatus({
       connected: true,

@@ -118,13 +118,12 @@ description: "مشاركة مألوفة ومتسقة مدمجة في إطار ا
 
 يحصل كل مورد قابل للمشاركة على زر مشاركة في رأسه. يؤدي النقر عليه إلى فتح نافذة منبثقة مرتبطة بالزر (وليس مشروطًا) مع:
 
-- محدد الرؤية (`Private` / `Organization` / `Public link`).
-- الإكمال التلقائي "إضافة أشخاص أو فرق" — ابحث عن المستخدمين في المؤسسة أو الصق بريدًا إلكترونيًا.
-- مربع اختيار `إشعار الأشخاص` لمنح البريد الإلكتروني الفردية.
-- قائمة المنح الحالية مع منتقي الأدوار وعنصر تحكم الإزالة.
-- زر نسخ الارتباط الذي يحترم الرؤية الحالية.
+- حقل دعوة واحد للأشخاص ومجموعات المؤسسة ووكلاء المؤسسة، مع أداة اختيار الدور وزر الدعوة. ويظهر للبريد الإلكتروني المكتوب أيضًا مربع الاختيار `Notify people`.
+- الأشخاص الذين لديهم صلاحية الوصول: المالك والأشخاص والمجموعات والوكلاء في قائمة واحدة. الأدوار هي: يمكنه العرض، ويمكنه التعليق، ويمكنه التعديل، ويمكنه إدارة الوصول. ويظهر «إزالة الوصول» كآخر عنصر في قائمة الدور لكل صف.
+- الوصول العام: المدعوون فقط / أي شخص في المؤسسة / أي شخص لديه الرابط. يتوفر لخيار «أي شخص في المؤسسة» أداة اختيار الدور (يمكنه العرض، ويمكنه التعليق، ويمكنه التعديل)، وكذلك لخيار «أي شخص لديه الرابط» (يمكنه العرض، ويمكنه التعليق).
+- نسخ الرابط، وقائمة «إرسال إلى»: الفتح في Claude أو Claude Code أو Codex، ونسخ موجّه الوكيل، ونسخ رابط الوكيل، وإعدادات خادم MCP، وأي وجهات يضيفها التطبيق.
 
-يطلب نقل مورد من `Private` إلى `Organization` تأكيدًا أولًا. لا يتغير شيء حتى يؤكد المستخدم. يحافظ الإلغاء أو Escape على الوصول الحالي. إذا فشل الحفظ، يعرض مربع الحوار الخطأ ويمكن للمستخدم المحاولة مجددًا. تُحفظ تغييرات الرؤية الأخرى فورًا. التأكيد موجود في واجهة المشاركة فقط. لا يتغير `set-resource-visibility`، لذلك يواصل الوكيل وأي مستدعٍ آخر تغيير الرؤية مباشرة، وتظل سياسة مشاركة المورد هي التي تحدد المسموح به.
+تُحفظ تغييرات الرؤية فورًا. يمكن لنوع مورد يسهل إغفال محتواه أن يطلب التأكيد أولًا: تضبط المحادثات `confirmOrgVisibility: true` في تسجيلها، لذلك ينتظر نقل محادثة من `Private` إلى `Organization` حتى يؤكد المستخدم. يحافظ الإلغاء أو Escape على الوصول الحالي. إذا فشل الحفظ، يعرض مربع الحوار الخطأ ويمكن للمستخدم المحاولة مجددًا. التأكيد موجود في واجهة المشاركة فقط، لذلك يواصل الوكيل وأي مستدعٍ آخر تغيير الرؤية مباشرة عبر `set-resource-visibility`، وتظل سياسة مشاركة المورد هي التي تحدد المسموح به.
 
 زر المشاركة عبارة عن استيراد واحد:
 
@@ -136,6 +135,8 @@ import { ShareButton } from "@agent-native/toolkit/app/sharing";
   resourceTitle={deck.title}
 />;
 ```
+
+يظهر الوكلاء في حقل الدعوة عندما تمتلك المؤسسة وكلاء خدمة (هويات `svc-<name>@service.<orgId>` من رموز خدمة المؤسسة). تتم مشاركتهم كمستخدمين عاديين ولا تُرسل إليهم رسائل بريد إلكتروني. أما الوكلاء الذين يتصلون عبر MCP أو OAuth فيعملون بصفة الشخص الذي وصّلهم، لذا لا يظهر لهم صف. سلّمهم المورد من «إرسال إلى».
 
 بالنسبة للقوائم، قم بإسقاط `<VisibilityBadge visibility={row.visibility} />` بجوار كل صف حتى يتمكن المستخدمون من رؤية ما هو خاص مقابل ما هو مشترك.
 
@@ -173,17 +174,19 @@ const shared = useChatThreadList({ ownership: "shared", pageSize: 50 });
 
 يؤدي الطلب الفاشل إلى ضبط `error` مع الاحتفاظ بالصفوف المحمّلة سابقًا. ولا يبدو أبدًا كقائمة فارغة. يقوم `<ShareButton>` و`<ShareDialog>` بتحديث قوائم الدردشة المعروضة بعد الحفظ. وإذا غيّرت مشاركة دردشة بطريقة أخرى، فاستدعِ `notifyChatThreadsUpdated()` لتعيد القوائم المعروضة التحميل.
 
+التثبيت شخصي: تمثل `pinnedAt` تثبيت المستدعي حتى في المحادثات المشتركة، وتُرتب القوائم والبحث حسبها. تبقى `useChatThreads().pinThread(id, pinned)` كما هي. توفر كلتا الدالتين `hideThread(id, hidden)` للمحادثات المشتركة. تُستبعد المخفية إلا عند `includeHidden: true`، وتتضمن القوائم والقراءة الفردية قيمة `hiddenAt` الخاصة بالمستدعي. يظل الفتح بالمعرّف أو الرابط ممكنًا. لا يمكن للمالك إخفاء محادثته بل يؤرشفها؛ إعادة التسمية والأرشفة للمالك فقط. يرمي الإخفاء `ChatThreadMutationError` عند الرفض (`status`: ‏403 للمالك، ‏404 دون صلاحية)، ويعيد `true` عند النجاح. واجهة HTTP هي `POST /_agent-native/agent-chat/threads/:id/hide` مع `{ hidden: boolean }`، وللقوائم والبحث `includeHidden=1`. تدعم أداة `chat-history` العمليات `pin` و`unpin` و`hide` و`unhide` والبحث مع `includeHidden: true`. عند سحب الوصول لا تظهر الحالة المحفوظة، وعند حذف المحادثة تُحذف الحالة.
+
 ## نفس الطراز والوكيل وUI {#agent-and-ui}
 
 يقوم إطار العمل بتثبيت actions تلقائيًا في كل قالب - يستدعيها الوكيل كأدوات، ويستدعيها UI من خلال `useActionQuery` / `useActionMutation`:
 
-| الإجراء                      | ماذا يفعل                                                                                          |
-| ---------------------------- | -------------------------------------------------------------------------------------------------- |
-| `share-resource`             | منح مستخدم أو مؤسسة حق الوصول إلى دور محدد. يتحكم `notify` الاختياري في إشعارات البريد الإلكتروني. |
-| `unshare-resource`           | إبطال الوصول لمستخدم أو مؤسسة.                                                                     |
-| `list-resource-shares`       | إظهار الرؤية الحالية بالإضافة إلى جميع المنح الصريحة.                                              |
-| `set-resource-visibility`    | قم بالتغيير إلى `private`، أو `org`، أو `public`.                                                  |
-| `create-agent-resource-link` | Mint a temporary read-only `agent_access` URL for a registered agent-readable resource.            |
+| الإجراء                      | ماذا يفعل                                                                                                                                                       |
+| ---------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `share-resource`             | منح مستخدم أو مؤسسة حق الوصول إلى دور محدد. يتحكم `notify` الاختياري في إشعارات البريد الإلكتروني.                                                              |
+| `unshare-resource`           | إبطال الوصول لمستخدم أو مؤسسة.                                                                                                                                  |
+| `list-resource-shares`       | إظهار الرؤية الحالية بالإضافة إلى جميع المنح الصريحة.                                                                                                           |
+| `set-resource-visibility`    | قم بالتغيير إلى `private`، أو `org`، أو `public`. يحدد `role` الاختياري ما يمكن للمؤسسة فعله (العرض، التعليق، التعديل) أو لأي شخص لديه الرابط (العرض، التعليق). |
+| `create-agent-resource-link` | Mint a temporary read-only `agent_access` URL for a registered agent-readable resource.                                                                         |
 
 أخبر الوكيل "بمشاركة هذا التصميم مع فريق التسويق كمحررين" وسيقوم باستدعاء `share-resource` مقابل نفس نقطة النهاية التي يستخدمها UI. تظهر النتيجة في مربع حوار المشاركة في العرض التالي.
 
@@ -191,7 +194,7 @@ const shared = useChatThreadList({ ownership: "shared", pageSize: 50 });
 
 Human share links should also work for agents when the resource is a document-like artifact: plans, documents, decks, designs, analytics dashboards, saved analyses, clips, and similar "things you would send to a person." Public links expose a small SSR discovery script that points at structured JSON. Private resources use a short-lived `agent_access` token scoped to exactly one resource.
 
-Register the resource with `agentReadable`, add a read-only JSON context endpoint, inject the SSR discovery script with `renderAgentReadableResourceDiscoveryScript()`, and let agents call `create-agent-resource-link` when they need a temporary private URL. The endpoint must return data only when the row is `public` or `verifyScopedAgentAccessToken()` accepts the token for that exact `resourceKind` and `resourceId`.
+Register the resource with `agentReadable`, add a read-only JSON context endpoint, inject the SSR discovery script with `renderAgentReadableResourceDiscoveryScript()`, and let agents call `create-agent-resource-link` when they need a temporary private URL. The endpoint must return data only when the row is `public` or `verifyScopedAgentAccessToken()` accepts the token for that exact `resourceKind` and `resourceId`. Declare `agentRead: { actions: ["get-<thing>"] }` (and `idParam` when the tool's id argument is not `id`) so the share panel's Send to menu offers Open in Claude, Claude Code, and Codex with a prompt that calls that MCP tool with the person's own permissions.
 
 ## إنشاءه في قالب جديد {#building}
 
@@ -361,3 +364,9 @@ For resources that execute code or carry elevated trust (like extensions), set `
 - [**المصادقة**](/docs/authentication) — الجلسات والمؤسسات وكيف تتدفق الهوية إلى سياق الطلب
 - [**الإضافات**](/docs/extensions#sharing) — المشاركة في سطح التطبيقات المصغرة المعزول
 - [**إنشاء القوالب**](/docs/creating-templates) — توصيل `ownableColumns` بمخطط قالب جديد
+
+## سجل المحادثات المشتركة
+
+يوفر `@agent-native/toolkit/app/chat/ownership-history` المكوّن `useOwnershipChatHistory()` و`OwnershipChatHistoryRail` لشريط محادثات يعرض محادثاتك والمحادثات المشتركة كلٌ على حدة. يعرض صفوف المالك وأساس الوصول، ويقسّم الصفحات لكل قسم، ويُبقي الصفوف والتغييرات المحلية عند فشل التحديث.
+
+تظل المسودة النشطة الفارغة قابلة للتحديد والتشغيل أثناء انتظار حفظها لأول مرة. إلى أن يتأكد حفظها، أخفِ إجراءات التثبيت وإعادة التسمية والأرشفة، كما يرفض المحوّل استدعاءات هذه الدوال قسرًا. يوفّر `ownDraftRows` معلومات مصدر الحفظ للمسودات المملوكة، بينما تحتفظ الصفوف المملوكة المؤكدة من قائمة الخادم بإجراءاتها المعتادة. عند إنشاء قيم `OwnDraftRow` مخصصة، اضبط الحقل الاختياري `persisted?: boolean` على `true` فقط لصف محفوظ على الخادم ومؤكد الملكية للمستخدم الحالي. لا تستنتج الحفظ من عدد الرسائل أو المعرّف النشط. يظل الدور والخصوصية وحالة فراغ المسودة النشطة أمورًا مستقلة.

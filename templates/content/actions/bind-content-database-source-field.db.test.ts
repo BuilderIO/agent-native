@@ -58,7 +58,7 @@ afterAll(() => {
 
 let counter = 0;
 async function asOwner<T>(fn: () => Promise<T>): Promise<T> {
-  return runWithRequestContext({ userEmail: OWNER }, fn);
+  return runWithRequestContext({ userEmail: OWNER, orgScope: "personal" }, fn);
 }
 
 async function seedRowUnion() {
@@ -829,6 +829,21 @@ describe("add-content-database-source-field-property Builder refresh", () => {
 
   it("refreshes a stale Builder snapshot before creating and populating a Topics property", async () => {
     const f = await seedStaleBuilderTopicsSnapshot();
+    const db = getDb();
+    const [source] = await db
+      .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
+      .from(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.id, f.sourceId));
+    await db
+      .update(schema.contentDatabaseSources)
+      .set({
+        metadataJson: JSON.stringify({
+          ...JSON.parse(source.metadataJson),
+          builderSpacePublicKey: "source-space",
+          connectionId: "source-connection",
+        }),
+      })
+      .where(eq(schema.contentDatabaseSources.id, f.sourceId));
     const readBuilderEntries = vi
       .spyOn(
         await import("./_builder-cms-read-client.js"),
@@ -878,9 +893,12 @@ describe("add-content-database-source-field-property Builder refresh", () => {
     expect(readBuilderEntries).toHaveBeenCalledOnce();
     expect(readBuilderEntries).toHaveBeenCalledWith({
       model: "blog-article",
+      expectedSourceSpace: "source-space",
+      expectedSourceConnectionId: "source-connection",
       fieldPaths: ["data.topics"],
       limit: 500,
       offset: 0,
+      requireBoundOAuth: true,
     });
     expect(result.itemValues).toEqual([
       {
@@ -895,7 +913,6 @@ describe("add-content-database-source-field-property Builder refresh", () => {
       },
     ]);
 
-    const db = getDb();
     const sourceRows = await db
       .select()
       .from(schema.contentDatabaseSourceRows)
@@ -961,8 +978,35 @@ describe("add-content-database-source-field-property Builder refresh", () => {
       }),
     );
 
+    const [source] = await db
+      .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
+      .from(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.id, f.sourceId));
+    await db
+      .update(schema.contentDatabaseSources)
+      .set({
+        metadataJson: JSON.stringify({
+          ...JSON.parse(source.metadataJson),
+          builderSpacePublicKey: "source-space",
+          connectionId: "source-connection",
+        }),
+      })
+      .where(eq(schema.contentDatabaseSources.id, f.sourceId));
+    vi.spyOn(
+      await import("@agent-native/core/server"),
+      "resolveBuilderRequestAuthorization",
+    ).mockResolvedValue({
+      token: "general-oauth-token",
+      authorization: "Bearer general-oauth-token",
+      source: "oauth",
+      oauthResource: "general",
+      oauthSelectedPublicKey: "source-space",
+      oauthConnectionId: "source-connection",
+    });
+
     const remoteEntries = f.rows.map((row, index) => ({
       id: row.entryId,
+      modelId: "model-uuid",
       data: {
         title: `Remote ${row.title}`,
         tags: [`remote-tag-${index + 1}`],
@@ -970,101 +1014,85 @@ describe("add-content-database-source-field-property Builder refresh", () => {
       },
     }));
     const requests: Array<{ limit: number; offset: number }> = [];
-    const previousPublicKey = process.env.BUILDER_PUBLIC_KEY;
-    const previousPrivateKey = process.env.BUILDER_PRIVATE_KEY;
-    const previousCmsPrivateKey = process.env.BUILDER_CMS_PRIVATE_KEY;
-    const previousContentApiHost = process.env.BUILDER_CONTENT_API_HOST;
-    process.env.BUILDER_PUBLIC_KEY = "test-public-key";
-    delete process.env.BUILDER_PRIVATE_KEY;
-    delete process.env.BUILDER_CMS_PRIVATE_KEY;
-    process.env.BUILDER_CONTENT_API_HOST = "https://cdn.test.builder.io";
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
       const url =
         input instanceof URL
           ? input
           : new URL(typeof input === "string" ? input : input.url);
+      if (url.pathname === "/api/v1/models") {
+        return new Response(
+          JSON.stringify({
+            models: [{ id: "model-uuid", name: "blog-article", fields: [] }],
+          }),
+          { status: 200 },
+        );
+      }
       const limit = Number(url.searchParams.get("limit"));
       const offset = Number(url.searchParams.get("offset"));
       requests.push({ limit, offset });
       return new Response(
         JSON.stringify({
           results: remoteEntries.slice(offset, offset + limit),
+          totalCount: remoteEntries.length,
         }),
         { status: 200 },
       );
     });
 
-    try {
-      const result = await asOwner(() =>
-        addSourceFieldPropertyAction.run({
-          documentId: f.databaseDocId,
-          sourceFieldId: f.fieldId,
-        }),
-      );
+    const result = await asOwner(() =>
+      addSourceFieldPropertyAction.run({
+        documentId: f.databaseDocId,
+        sourceFieldId: f.fieldId,
+      }),
+    );
 
-      expect(requests).toEqual([
-        { limit: 100, offset: 0 },
-        { limit: 100, offset: 100 },
-        { limit: 100, offset: 200 },
-        { limit: 100, offset: 300 },
-        { limit: 100, offset: 400 },
-        { limit: 97, offset: 500 },
-      ]);
-      expect(requests.filter((request) => request.offset === 0)).toHaveLength(
-        1,
-      );
-      expect(result.itemValues).toHaveLength(597);
+    expect(requests).toEqual([
+      { limit: 100, offset: 0 },
+      { limit: 101, offset: 99 },
+      { limit: 101, offset: 199 },
+      { limit: 101, offset: 299 },
+      { limit: 101, offset: 399 },
+      { limit: 98, offset: 499 },
+    ]);
+    expect(requests.filter((request) => request.offset === 0)).toHaveLength(1);
+    expect(result.itemValues).toHaveLength(597);
 
-      const sourceRowsAfter = await db
-        .select()
-        .from(schema.contentDatabaseSourceRows)
-        .where(eq(schema.contentDatabaseSourceRows.sourceId, f.sourceId));
-      expect(sourceRowsAfter).toHaveLength(597);
-      const valuesBySourceRowId = new Map(
-        sourceRowsAfter.map((row) => [
-          row.sourceRowId,
-          JSON.parse(row.sourceValuesJson) as Record<string, unknown>,
-        ]),
-      );
-      for (const [index, row] of f.rows.entries()) {
-        expect(valuesBySourceRowId.get(row.entryId)).toEqual({
-          "data.title": row.title,
-          "data.tags": [`stored-tag-${index + 1}`],
-          "data.topics": [
-            index % 2 === 0 ? "Agent-Native" : "Developer Experience",
-          ],
-        });
-      }
-
-      const items = await db
-        .select({ id: schema.contentDatabaseItems.id })
-        .from(schema.contentDatabaseItems)
-        .where(eq(schema.contentDatabaseItems.databaseId, f.databaseId));
-      const propertyValues = await db
-        .select()
-        .from(schema.documentPropertyValues)
-        .where(
-          eq(
-            schema.documentPropertyValues.propertyId,
-            result.property.definition.id,
-          ),
-        );
-      expect(items).toHaveLength(597);
-      expect(propertyValues).toHaveLength(597);
-    } finally {
-      if (previousPublicKey === undefined)
-        delete process.env.BUILDER_PUBLIC_KEY;
-      else process.env.BUILDER_PUBLIC_KEY = previousPublicKey;
-      if (previousPrivateKey === undefined)
-        delete process.env.BUILDER_PRIVATE_KEY;
-      else process.env.BUILDER_PRIVATE_KEY = previousPrivateKey;
-      if (previousCmsPrivateKey === undefined)
-        delete process.env.BUILDER_CMS_PRIVATE_KEY;
-      else process.env.BUILDER_CMS_PRIVATE_KEY = previousCmsPrivateKey;
-      if (previousContentApiHost === undefined)
-        delete process.env.BUILDER_CONTENT_API_HOST;
-      else process.env.BUILDER_CONTENT_API_HOST = previousContentApiHost;
+    const sourceRowsAfter = await db
+      .select()
+      .from(schema.contentDatabaseSourceRows)
+      .where(eq(schema.contentDatabaseSourceRows.sourceId, f.sourceId));
+    expect(sourceRowsAfter).toHaveLength(597);
+    const valuesBySourceRowId = new Map(
+      sourceRowsAfter.map((row) => [
+        row.sourceRowId,
+        JSON.parse(row.sourceValuesJson) as Record<string, unknown>,
+      ]),
+    );
+    for (const [index, row] of f.rows.entries()) {
+      expect(valuesBySourceRowId.get(row.entryId)).toEqual({
+        "data.title": row.title,
+        "data.tags": [`stored-tag-${index + 1}`],
+        "data.topics": [
+          index % 2 === 0 ? "Agent-Native" : "Developer Experience",
+        ],
+      });
     }
+
+    const items = await db
+      .select({ id: schema.contentDatabaseItems.id })
+      .from(schema.contentDatabaseItems)
+      .where(eq(schema.contentDatabaseItems.databaseId, f.databaseId));
+    const propertyValues = await db
+      .select()
+      .from(schema.documentPropertyValues)
+      .where(
+        eq(
+          schema.documentPropertyValues.propertyId,
+          result.property.definition.id,
+        ),
+      );
+    expect(items).toHaveLength(597);
+    expect(propertyValues).toHaveLength(597);
   });
 
   it("preserves a concurrent source field update while refreshing Topics", async () => {

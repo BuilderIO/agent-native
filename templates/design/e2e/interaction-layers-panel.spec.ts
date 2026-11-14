@@ -496,7 +496,10 @@ test.describe("interaction: layers panel", () => {
       LOOSE_CARD.x + LOOSE_CARD.width / 2,
       LOOSE_CARD.y + LOOSE_CARD.height / 2,
     );
+    // Cmd+click reaches a nested layer; a plain click takes the top-level one.
+    await page.keyboard.down(MOD);
     await page.mouse.click(center.x, center.y);
+    await page.keyboard.up(MOD);
     await expect.poll(() => app.selectedLayers()).toEqual(["Loose Card"]);
 
     await page.keyboard.press(`${MOD}+r`);

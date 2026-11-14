@@ -70,9 +70,10 @@ export function routeLocaleFromPathname(
   return undefined;
 }
 
-// Campaign pages have English sources only; their locale-prefixed URLs 301 to
-// the English path, so nothing may offer a switch to them.
-export function isCampaignPathname(pathname: string) {
+// Use-case pages and articles are English unless one has a translation; any
+// other locale-prefixed URL 301s to the English path, so nothing may offer a
+// switch to it (see usePageLocales for the translated ones).
+export function isSiteContentPathname(pathname: string) {
   const segments = pathSegments(pathname);
   const root = docsLocaleFromSegment(segments[0]) ? segments[1] : segments[0];
   return root === "articles" || root === "use-cases";

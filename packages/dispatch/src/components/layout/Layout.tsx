@@ -5,7 +5,6 @@ import {
   emitChatFirstSessionWatch,
   getChatFirstSurfaceTabsStore,
   navigateWithAgentChatViewTransition,
-  readChatFirstAppLayout,
   readChatFirstMode,
   resolveChatFirstBrowserTarget,
   resolveChatFirstAppTarget,
@@ -27,7 +26,6 @@ import {
   useAgentChatHomeHandoff,
   useAgentChatHomeHandoffLinks,
   useChatThreads,
-  type ChatThreadSummary,
 } from "@agent-native/core/client/agent-chat";
 import { appBasePath, appPath } from "@agent-native/core/client/api-path";
 import {
@@ -52,9 +50,15 @@ import type { ChatFirstPrimaryTab } from "@agent-native/toolkit/app/chat/chat-fi
 import type {
   ChatFirstAgentActivity,
   ChatFirstAppItem,
+  ChatFirstAppRailSection,
   ChatFirstCopy,
   ChatFirstEmbedTarget,
 } from "@agent-native/toolkit/app/chat/chat-first/types";
+import {
+  OwnershipChatHistoryRail,
+  ownDraftRows,
+  useOwnershipChatHistory,
+} from "@agent-native/toolkit/app/chat/ownership-history";
 import { FeedbackButton } from "@agent-native/toolkit/app/feedback";
 import { InvitationBanner, OrgSwitcher } from "@agent-native/toolkit/app/org";
 import { RunsTray } from "@agent-native/toolkit/app/progress";
@@ -64,17 +68,12 @@ import {
   AppSidebarHeader,
   openCommandMenu,
 } from "@agent-native/toolkit/app/shared";
-import {
-  ChatHistoryRail,
-  type ChatHistoryItem,
-} from "@agent-native/toolkit/chat-history";
+import { ChatHistoryMenuItem } from "@agent-native/toolkit/chat-history";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
 import {
   IconApps,
   IconBrandSlack,
   IconBrandTelegram,
-  IconCopy,
-  IconEye,
   IconHierarchy2,
   IconMessageQuestion,
   IconBroadcast,
@@ -108,7 +107,12 @@ import {
   type ConnectedAppSummary,
 } from "../../lib/other-apps";
 import { cn } from "../../lib/utils";
-import { normalizeWorkspaceAppLayout } from "../../lib/workspace-app-layout";
+import {
+  tierWorkspaceApps,
+  useWorkspaceAppLayout,
+  appListsStatus,
+  type WorkspaceAppsStatus,
+} from "../../lib/workspace-app-layout";
 import {
   isDispatchWorkspaceAppId,
   isPathMountedWorkspaceApp,
@@ -118,6 +122,7 @@ import {
   navigateToWorkspaceApp,
   shouldOpenWorkspaceAppInTopWindow,
   workspaceAppIdFromRoute,
+  workspaceAppInitialPathFromPathname,
   workspaceAppDirectHref,
   workspaceAppDirectLaunchHref,
   workspaceAppRoute,
@@ -143,7 +148,6 @@ import {
 } from "../deferred-chat-components.js";
 import { Button } from "../ui/button";
 import { Sheet, SheetContent, SheetDescription, SheetTitle } from "../ui/sheet";
-import { Skeleton } from "../ui/skeleton";
 import {
   Tooltip,
   TooltipContent,
@@ -155,6 +159,10 @@ import {
   WorkspaceAppFrame,
   WorkspaceAppKeepAlive,
 } from "../workspace-app-host";
+import {
+  AppNotice,
+  WorkspaceAppLayoutNotice,
+} from "../workspace-app-layout-notice";
 import { Header } from "./Header";
 import {
   HeaderActionsProvider,
@@ -250,9 +258,9 @@ export interface DispatchNavContentProps extends DispatchSidebarBrandProps {
   collapsible?: boolean;
   onCollapsedChange?: (collapsed: boolean) => void;
   chatFirstAppLayout?: ChatFirstAppLayoutPreference;
-  onChatFirstAppLayoutChange?: (layout: ChatFirstAppLayoutPreference) => void;
+  onChatFirstTogglePinned?: (appId: string) => void;
   chatFirstApps?: readonly ChatFirstAppItem[];
-  chatFirstAppsLoading?: boolean;
+  chatFirstAppsStatus?: WorkspaceAppsStatus;
   chatFirstAppsError?: string | null;
   chatFirstActiveAppId?: string;
   chatFirstActivePrimaryTab?: ChatFirstPrimaryTab;
@@ -265,13 +273,32 @@ export interface DispatchLayoutProps extends DispatchSidebarBrandProps {
   children: ReactNode;
   extensions?: DispatchExtensionConfig;
   agentPageHref?: string;
+  notice?: ReactNode;
 }
 
 const CHROMELESS_PATHS = ["/approval", "/browser-chat", "/browser-connect"];
+// With nothing pinned, the sidebar suggests this many apps; All apps has the rest.
+const CHAT_FIRST_RAIL_SUGGESTED_APPS = 3;
+const NO_CHAT_FIRST_APPS: ChatFirstAppItem[] = [];
 const SIDEBAR_COLLAPSE_KEY = "dispatch.sidebar.collapsed";
 const CHAT_HISTORY_SOURCE_KEY = "dispatch.chat-history.source";
 export const CHAT_FIRST_SURFACE_PANEL_TOGGLE_CLASS_NAME =
   "absolute right-3 top-2 z-20";
+
+function appIds(apps: readonly ChatFirstAppItem[]): string[] {
+  return apps.map((app) => app.id);
+}
+
+function renderChatFirstRailIcon(app: ChatFirstAppItem) {
+  return (
+    <AppIcon
+      id={app.id}
+      name={app.name}
+      size="sm"
+      className="size-7 rounded-lg"
+    />
+  );
+}
 
 interface DispatchChatFirstPane {
   appId: string;
@@ -296,8 +323,11 @@ const DispatchExtensionsContext = createContext<
   DispatchExtensionConfig | undefined
 >(undefined);
 interface DispatchWorkspaceAppLauncher {
+  /** Empty until `workspaceAppsStatus` is "ready". */
   workspaceApps: readonly WorkspaceAppSummary[];
-  isLoading: boolean;
+  // Waits for the hosted list too, which is only queried on chat routes and in
+  // chat-first mode; elsewhere it stays "loading".
+  workspaceAppsStatus: WorkspaceAppsStatus;
   error?: unknown;
   errorQueryName?: "list-workspace-apps" | "list-connected-agents";
   openApp: (app: ChatFirstAppItem) => void;
@@ -448,11 +478,8 @@ const DISPATCH_CHAT_FIRST_COPY_KEYS: Record<string, string> = {
   noWorkspaceApps: "chatFirstNoWorkspaceApps",
   createApp: "chatFirstCreateApp",
   retry: "chatFirstRetry",
-  dismiss: "chatFirstDismiss",
-  unpinApp: "chatFirstUnpinApp",
-  pinApp: "chatFirstPinApp",
-  removePinned: "chatFirstRemovePinned",
-  pinTop: "chatFirstPinTop",
+  unpinApp: "unpinApp",
+  pinApp: "pinApp",
   openSideSurfaces: "chatFirstOpenSideSurfaces",
   closeTab: "chatFirstCloseTab",
   close: "chatFirstClose",
@@ -470,30 +497,11 @@ const DISPATCH_CHAT_FIRST_COPY_KEYS: Record<string, string> = {
   browserClose: "chatFirstBrowserClose",
   browserPage: "chatFirstBrowserPage",
   browserInvalidUrl: "chatFirstBrowserInvalidUrl",
-  browserPreviewStarting: "chatFirstBrowserPreviewStarting",
-  browserPreviewError: "chatFirstBrowserPreviewError",
   appUnavailable: "chatFirstAppUnavailable",
   appLoading: "chatFirstLoadingApp",
-  agentActivityEyebrow: "chatFirstAgentActivityEyebrow",
-  agentActivityTitle: "chatFirstAgentActivityTitle",
-  agentActivityDescription: "chatFirstAgentActivityDescription",
-  refreshAgentActivity: "chatFirstRefreshAgentActivity",
-  noAgentSessions: "chatFirstNoAgentSessions",
-  startAgentSession: "chatFirstStartAgentSession",
   watchSession: "chatFirstWatchSession",
   copySessionId: "chatFirstCopySessionId",
-  copySessionIdFor: "chatFirstCopySessionIdFor",
   sessionIdCopied: "chatFirstSessionIdCopied",
-  sessionIdShort: "chatFirstSessionIdShort",
-  copied: "chatFirstCopied",
-  agentActivityStatusQueued: "chatFirstAgentActivityStatusQueued",
-  agentActivityStatusRunning: "chatFirstAgentActivityStatusRunning",
-  agentActivityStatusPaused: "chatFirstAgentActivityStatusPaused",
-  agentActivityStatusNeedsApproval: "chatFirstAgentActivityStatusNeedsApproval",
-  agentActivityStatusCompleted: "chatFirstAgentActivityStatusCompleted",
-  agentActivityStatusErrored: "chatFirstAgentActivityStatusErrored",
-  agentActivityStatusRecent: "chatFirstAgentActivityStatusRecent",
-  agentActivityStatusUnknown: "chatFirstAgentActivityStatusUnknown",
   watchingSession: "chatFirstWatchingSession",
   session: "chatFirstSession",
   stopWatchingSession: "chatFirstStopWatchingSession",
@@ -551,7 +559,12 @@ function createDispatchChatFirstCopy(
       }
     }
     const translationKey = DISPATCH_CHAT_FIRST_COPY_KEYS[key];
-    if (!translationKey) return defaultChatFirstCopy(key, values);
+    if (!translationKey) {
+      return t(`agentChat.chatFirst.${key}`, {
+        ...(values ?? {}),
+        defaultValue: defaultChatFirstCopy(key, values),
+      });
+    }
     return t(`dispatch.pages.${translationKey}`, {
       ...(values ?? {}),
       defaultValue: defaultChatFirstCopy(key, values),
@@ -588,23 +601,6 @@ function threadIdFromPath(pathname: string): string | null {
   }
 }
 
-export function formatThreadAge(updatedAt: number, now = Date.now()) {
-  const diffMs = Math.max(0, now - updatedAt);
-  const minutes = Math.floor(diffMs / 60_000);
-  if (minutes < 1) return "now";
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  if (hours < 24) return `${hours}h`;
-  const days = Math.floor(hours / 24);
-  if (days < 14) return `${days}d`;
-  if (days < 365) return `${Math.floor(days / 7)}w`;
-  return `${Math.floor(days / 365)}y`;
-}
-
-function threadTitle(thread: ChatThreadSummary, fallback: string) {
-  return thread.title || thread.preview || fallback;
-}
-
 function threadSourceIcon(platform: string | undefined): ReactNode {
   const normalized = platform?.trim().toLowerCase();
   if (!normalized) return null;
@@ -627,18 +623,10 @@ function readChatHistoryIncludesExternal(): boolean {
   }
 }
 
-function threadUpdatedAt(thread: ChatThreadSummary) {
-  return Number.isFinite(thread.updatedAt)
-    ? thread.updatedAt
-    : Number.isFinite(thread.createdAt)
-      ? thread.createdAt
-      : 0;
-}
-
 function DispatchChatsSection({
   onNavigate,
   showNewChat = false,
-  prelude,
+  appsRail,
   chatFirstMode = false,
   chatFirstEmbedded = false,
   collapsed = false,
@@ -646,7 +634,7 @@ function DispatchChatsSection({
 }: {
   onNavigate?: () => void;
   showNewChat?: boolean;
-  prelude?: ReactNode;
+  appsRail?: ReactNode;
   chatFirstMode?: boolean;
   chatFirstEmbedded?: boolean;
   collapsed?: boolean;
@@ -663,78 +651,74 @@ function DispatchChatsSection({
   const location = useLocation();
   const [includeExternal, setIncludeExternal] = useState(false);
   const [historyPreferenceReady, setHistoryPreferenceReady] = useState(false);
-  const historyModeRef = useRef(includeExternal);
   const {
     threads,
     activeThreadId,
-    isLoading: chatsLoading,
-    threadsLoadError,
     createThread,
     switchThread,
     renameThread,
-    refreshThreads,
+    pinThread,
+    archiveThread,
+    isNewThread,
   } = useChatThreads(undefined, "dispatch", undefined, {
     autoCreate: false,
     includeExternal,
   });
 
-  const visibleThreads = useMemo(
-    () =>
-      threads
-        .filter(
-          (thread) => thread.messageCount > 0 || thread.id === activeThreadId,
-        )
-        .sort((a, b) => threadUpdatedAt(b) - threadUpdatedAt(a))
-        .slice(0, 8),
-    [activeThreadId, threads],
-  );
   const localPathname = localDispatchPath(location.pathname);
   const displayedActiveThreadId =
     threadIdFromPath(localPathname) ??
     (localPathname === "/chat" ? null : activeThreadId);
-  const chatItems: ChatHistoryItem[] = visibleThreads.map((thread) => {
-    const title = threadTitle(thread, t("dispatch.sidebar.newChat"));
-    const sourceIcon = threadSourceIcon(thread.source?.platform);
-    const sourceLabel = thread.source?.platform
-      ? thread.source.platform[0].toUpperCase() +
-        thread.source.platform.slice(1)
-      : null;
-    return {
-      id: thread.id,
-      title: (
-        <span
-          className="flex min-w-0 items-center gap-1"
-          title={sourceLabel ? `${sourceLabel}: ${title}` : title}
-        >
-          {sourceIcon ? (
-            <span
-              className="shrink-0 text-sidebar-foreground/55"
-              aria-label={sourceLabel ?? "Connected source"}
-            >
-              {sourceIcon}
-            </span>
-          ) : null}
-          <span className="truncate">{title}</span>
-        </span>
-      ),
-      titleText: title,
-      timestamp:
-        thread.id === displayedActiveThreadId
-          ? ""
-          : formatThreadAge(threadUpdatedAt(thread)),
-    };
+  const history = useOwnershipChatHistory({
+    getThreadUrl: (threadId) => appPath(chatThreadPath(threadId)),
+    includeExternal,
+    activeId: displayedActiveThreadId,
+    localMineRows: ownDraftRows({
+      threads,
+      isNewThread,
+      activeId: activeThreadId,
+    }),
+    mutations: { pin: pinThread, rename: renameThread, archive: archiveThread },
+    onMutationFailed: () =>
+      toast.error(t("dispatch.integrations.failedToSave")),
+    decorateItem: (item, row) => {
+      const source = "source" in row ? row.source : undefined;
+      const sourceLabel = source?.platform
+        ? source.platform[0].toUpperCase() + source.platform.slice(1)
+        : undefined;
+      const sourceIcon = threadSourceIcon(source?.platform);
+      return {
+        ...item,
+        title: (
+          <span
+            className="flex min-w-0 items-center gap-1"
+            title={
+              sourceLabel ? `${sourceLabel}: ${item.titleText}` : item.titleText
+            }
+          >
+            {sourceIcon ? (
+              <span
+                className="shrink-0 text-sidebar-foreground/55"
+                aria-label={sourceLabel}
+              >
+                {sourceIcon}
+              </span>
+            ) : null}
+            <span className="truncate">{item.title}</span>
+          </span>
+        ),
+      };
+    },
   });
-  const chatHistoryError = threadsLoadError ? (
-    <button
-      type="button"
-      onClick={() => refreshThreads()}
-      className="flex w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-xs text-sidebar-foreground/65 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-    >
-      <span>Could not load chats</span>
-      <span className="font-medium">Retry</span>
-    </button>
-  ) : undefined;
-
+  const listProps = {
+    ...history.listProps,
+    onDelete: async (threadId: string) => {
+      const archived = await history.listProps.onDelete?.(threadId);
+      if (archived && threadId === displayedActiveThreadId)
+        await handleNewChat();
+      return archived === true;
+    },
+  };
   useEffect(() => {
     setIncludeExternal(readChatHistoryIncludesExternal());
     setHistoryPreferenceReady(true);
@@ -748,30 +732,7 @@ function DispatchChatsSection({
         includeExternal ? "all" : "local",
       );
     } catch {} // coercion-ok: localStorage is optional browser persistence.
-    if (historyModeRef.current !== includeExternal) {
-      historyModeRef.current = includeExternal;
-      refreshThreads();
-    }
-  }, [historyPreferenceReady, includeExternal, refreshThreads]);
-
-  useEffect(() => {
-    const refresh = () => refreshThreads();
-    const handleRunning = (event: Event) => {
-      const detail = (event as CustomEvent).detail as
-        | { isRunning?: unknown }
-        | undefined;
-      if (detail?.isRunning === false) refreshThreads();
-    };
-
-    window.addEventListener("agent-chat:threads-updated", refresh);
-    window.addEventListener("agentNative.chatRunning", handleRunning);
-    window.addEventListener("focus", refresh);
-    return () => {
-      window.removeEventListener("agent-chat:threads-updated", refresh);
-      window.removeEventListener("agentNative.chatRunning", handleRunning);
-      window.removeEventListener("focus", refresh);
-    };
-  }, [refreshThreads]);
+  }, [historyPreferenceReady, includeExternal]);
 
   function openThread(threadId: string, options?: { isNew?: boolean }) {
     switchThread(threadId);
@@ -796,13 +757,64 @@ function DispatchChatsSection({
     if (threadId) openThread(threadId, { isNew: true });
   }
 
+  const sourceToggle = (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          data-dispatch-chat-source-toggle
+          aria-pressed={includeExternal}
+          aria-label={
+            includeExternal
+              ? t("dispatch.sidebar.showLocalChats")
+              : t("dispatch.sidebar.showAllChats")
+          }
+          onClick={() => setIncludeExternal((current) => !current)}
+          className="flex size-6 items-center justify-center rounded-md text-sidebar-foreground/55 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
+        >
+          {includeExternal ? (
+            <IconWorld size={14} aria-hidden="true" />
+          ) : (
+            <IconDeviceDesktop size={14} aria-hidden="true" />
+          )}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right">
+        {includeExternal
+          ? t("dispatch.sidebar.showLocalChats")
+          : t("dispatch.sidebar.showAllChats")}
+      </TooltipContent>
+    </Tooltip>
+  );
+
   const collapsedChatFirst = collapsed && chatFirstMode;
+  const showChatFirstHistory =
+    !collapsedChatFirst &&
+    chatFirstMode &&
+    (history.loading ||
+      history.sections.some(
+        (section) => section.items.length > 0 || section.error != null,
+      ));
+  // The source toggle filters every section, so it sits in the first header.
+  const chatFirstHistorySections = history.sections.map((section, index) =>
+    index === 0
+      ? {
+          ...section,
+          label: (
+            <div className="flex flex-1 items-center justify-between gap-2">
+              <span>{section.label}</span>
+              {sourceToggle}
+            </div>
+          ),
+        }
+      : section,
+  );
 
   return (
     <div
       className={cn(
-        "min-w-0 space-y-0.5",
-        showNewChat && "dispatch-chat-first-chats",
+        "min-w-0",
+        showNewChat ? "dispatch-chat-first-chats" : "space-y-0.5",
       )}
     >
       {showNewChat && chatFirstNavigation ? (
@@ -821,81 +833,21 @@ function DispatchChatsSection({
           />
         </nav>
       ) : null}
-      {prelude}
-      {!collapsedChatFirst && !chatFirstMode ? (
-        <div className="flex justify-end px-2 pt-0.5">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                data-dispatch-chat-source-toggle
-                aria-pressed={includeExternal}
-                aria-label={
-                  includeExternal
-                    ? t("dispatch.sidebar.showLocalChats", {
-                        defaultValue: "Show local chats",
-                      })
-                    : t("dispatch.sidebar.showAllChats", {
-                        defaultValue: "Show all chats",
-                      })
-                }
-                onClick={() => setIncludeExternal((current) => !current)}
-                className="flex size-6 items-center justify-center rounded-md text-sidebar-foreground/55 transition-colors hover:bg-sidebar-accent hover:text-sidebar-accent-foreground"
-              >
-                {includeExternal ? (
-                  <IconWorld size={14} aria-hidden="true" />
-                ) : (
-                  <IconDeviceDesktop size={14} aria-hidden="true" />
-                )}
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              {includeExternal
-                ? t("dispatch.sidebar.showLocalChats", {
-                    defaultValue: "Show local chats",
-                  })
-                : t("dispatch.sidebar.showAllChats", {
-                    defaultValue: "Show all chats",
-                  })}
-            </TooltipContent>
-          </Tooltip>
-        </div>
+      {!collapsedChatFirst && !showChatFirstHistory ? (
+        <div className="flex justify-end px-2 pt-0.5">{sourceToggle}</div>
       ) : null}
-      {!collapsedChatFirst &&
-        !chatFirstMode &&
-        chatsLoading &&
-        visibleThreads.length === 0 &&
-        Array.from({ length: 3 }).map((_, index) => (
-          <div
-            key={`chat-skeleton-${index}`}
-            className="flex items-center gap-2 px-3 py-1"
-          >
-            <Skeleton className="size-3.5 shrink-0 rounded-sm" />
-            <Skeleton className="h-3 w-3/4 rounded" />
-          </div>
-        ))}
-      {!collapsedChatFirst &&
-      chatFirstMode &&
-      (chatsLoading || visibleThreads.length > 0) ? (
+      {showChatFirstHistory ? (
         <ChatFirstChatHistory
-          items={chatItems}
+          sections={chatFirstHistorySections}
+          {...history.listProps}
+          onDelete={listProps.onDelete}
+          onNewChat={() => void handleNewChat()}
+          showNewChat={false}
+          railLabels={history.railLabels}
           activeId={displayedActiveThreadId}
-          loading={chatsLoading && visibleThreads.length === 0}
-          loadingLabel={
-            <div className="space-y-1 px-2 py-1">
-              {[0, 1, 2].map((index) => (
-                <div key={index} className="flex items-center gap-2 px-1 py-1">
-                  <Skeleton className="size-3.5 shrink-0 rounded-sm" />
-                  <Skeleton className="h-3 w-3/4 rounded" />
-                </div>
-              ))}
-            </div>
-          }
-          label={t("dispatch.sidebar.chats", { defaultValue: "Chats" })}
-          error={chatHistoryError}
+          label={t("dispatch.sidebar.chats")}
           onSelect={(threadId) => openThread(threadId)}
           renameMaxLength={160}
-          onRename={(threadId, title) => void renameThread(threadId, title)}
           labels={{
             options: (item) =>
               t("dispatch.sidebar.chatOptions", {
@@ -906,34 +858,28 @@ function DispatchChatsSection({
                 title: item.titleText ?? "",
               }),
             rename: t("dispatch.sidebar.renameChat"),
+            pin: t("agentChat.contextXray.pin"),
+            unpin: t("agentChat.contextXray.unpin"),
+            delete: t("extensions.delete"),
           }}
-          renderAdditionalRowActions={(item, closeMenu) => (
+          renderAdditionalRowActions={(item) => (
             <>
-              <button
-                type="button"
-                role="menuitem"
-                className="an-chat-history-row__menu-item"
-                onClick={() => {
-                  closeMenu();
+              <ChatHistoryMenuItem
+                onSelect={() => {
                   void writeClipboardText(item.id).then((copied) => {
                     toast[copied ? "success" : "error"](
                       copied
-                        ? "Session ID copied"
-                        : "Could not copy the session ID",
+                        ? chatFirstCopy("sessionIdCopied")
+                        : t("agentChat.recovery.copyFailed"),
                     );
                   });
                 }}
               >
-                <IconCopy size={13} strokeWidth={1.8} />
-                <span>Copy session ID</span>
-              </button>
+                {chatFirstCopy("copySessionId")}
+              </ChatHistoryMenuItem>
               {!chatFirstEmbedded ? (
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="an-chat-history-row__menu-item"
-                  onClick={() => {
-                    closeMenu();
+                <ChatHistoryMenuItem
+                  onSelect={() => {
                     emitChatFirstSessionWatch({
                       sessionId: item.id,
                       title: item.titleText,
@@ -942,28 +888,24 @@ function DispatchChatsSection({
                     });
                   }}
                 >
-                  <IconEye size={13} strokeWidth={1.8} />
-                  <span>Watch and message session</span>
-                </button>
+                  {chatFirstCopy("watchSession")}
+                </ChatHistoryMenuItem>
               ) : null}
             </>
           )}
           className="min-w-0 px-2"
         />
-      ) : !collapsedChatFirst ? (
-        <ChatHistoryRail
-          items={chatItems}
+      ) : !collapsedChatFirst && !chatFirstMode ? (
+        <OwnershipChatHistoryRail
+          sections={history.sections}
+          listProps={listProps}
           activeId={displayedActiveThreadId}
           onSelect={(threadId) => openThread(threadId)}
           onNewChat={() => void handleNewChat()}
           railLabels={{
             newChat: t("dispatch.sidebar.newChat"),
-            showMore: t("dispatch.sidebar.chats"),
-            showLess: t("dispatch.sidebar.chats"),
           }}
-          error={chatHistoryError}
           renameMaxLength={160}
-          onRename={(threadId, title) => void renameThread(threadId, title)}
           labels={{
             options: (item) =>
               t("dispatch.sidebar.chatOptions", {
@@ -974,34 +916,28 @@ function DispatchChatsSection({
                 title: item.titleText ?? "",
               }),
             rename: t("dispatch.sidebar.renameChat"),
+            pin: t("agentChat.contextXray.pin"),
+            unpin: t("agentChat.contextXray.unpin"),
+            delete: t("extensions.delete"),
           }}
-          renderAdditionalRowActions={(item, closeMenu) => (
+          renderAdditionalRowActions={(item) => (
             <>
-              <button
-                type="button"
-                role="menuitem"
-                className="an-chat-history-row__menu-item"
-                onClick={() => {
-                  closeMenu();
+              <ChatHistoryMenuItem
+                onSelect={() => {
                   void writeClipboardText(item.id).then((copied) => {
                     toast[copied ? "success" : "error"](
                       copied
-                        ? "Session ID copied"
-                        : "Could not copy the session ID",
+                        ? chatFirstCopy("sessionIdCopied")
+                        : t("agentChat.recovery.copyFailed"),
                     );
                   });
                 }}
               >
-                <IconCopy size={13} strokeWidth={1.8} />
-                <span>Copy session ID</span>
-              </button>
+                {chatFirstCopy("copySessionId")}
+              </ChatHistoryMenuItem>
               {chatFirstMode && !chatFirstEmbedded ? (
-                <button
-                  type="button"
-                  role="menuitem"
-                  className="an-chat-history-row__menu-item"
-                  onClick={() => {
-                    closeMenu();
+                <ChatHistoryMenuItem
+                  onSelect={() => {
                     emitChatFirstSessionWatch({
                       sessionId: item.id,
                       title: item.titleText,
@@ -1010,15 +946,15 @@ function DispatchChatsSection({
                     });
                   }}
                 >
-                  <IconEye size={13} strokeWidth={1.8} />
-                  <span>Watch and message session</span>
-                </button>
+                  {chatFirstCopy("watchSession")}
+                </ChatHistoryMenuItem>
               ) : null}
             </>
           )}
           className="min-w-0 px-2"
         />
       ) : null}
+      {appsRail}
     </div>
   );
 }
@@ -1034,9 +970,9 @@ export function NavContent({
   collapsible = false,
   onCollapsedChange,
   chatFirstAppLayout,
-  onChatFirstAppLayoutChange,
-  chatFirstApps = [],
-  chatFirstAppsLoading = false,
+  onChatFirstTogglePinned,
+  chatFirstApps = NO_CHAT_FIRST_APPS,
+  chatFirstAppsStatus = "ready",
   chatFirstAppsError,
   chatFirstActiveAppId,
   chatFirstActivePrimaryTab,
@@ -1092,51 +1028,105 @@ export function NavContent({
   const feedbackButton = (
     <FeedbackButton variant={collapsed ? "icon" : "sidebar"} side="right" />
   );
-  const chatFirstCreateAppTrigger = (
-    <CreateAppPopover
-      align="start"
-      trigger={
-        <button
-          type="button"
-          className="flex size-6 items-center justify-center rounded text-sidebar-foreground/55 hover:bg-sidebar-accent hover:text-sidebar-foreground"
-          aria-label={chatFirstCopy("createWorkspaceApp")}
-          title={chatFirstCopy("createWorkspaceApp")}
-        >
-          <IconPlus size={14} aria-hidden="true" />
-        </button>
-      }
-    />
+  const chatFirstCreateAppTrigger = useMemo(
+    () => (
+      <CreateAppPopover
+        align="start"
+        trigger={
+          <button
+            type="button"
+            className="flex size-6 items-center justify-center rounded text-sidebar-foreground/55 hover:bg-sidebar-accent hover:text-sidebar-foreground"
+            aria-label={chatFirstCopy("createWorkspaceApp")}
+            title={chatFirstCopy("createWorkspaceApp")}
+          >
+            <IconPlus size={14} aria-hidden="true" />
+          </button>
+        }
+      />
+    ),
+    [chatFirstCopy],
   );
+
+  const chatFirstAppTiers = useMemo(
+    () =>
+      tierWorkspaceApps(
+        chatFirstApps,
+        chatFirstAppLayout ?? { pinnedIds: [], orderedIds: [] },
+      ),
+    [chatFirstAppLayout, chatFirstApps],
+  );
+  // One section: the user's pins, or until they pin something, a few apps
+  // (workspace apps first, else hosted ones). The open app always shows.
+  const chatFirstAppSections = useMemo<ChatFirstAppRailSection[]>(() => {
+    const { pinned, apps, hosted } = chatFirstAppTiers;
+    const ids = appIds(
+      pinned.length > 0
+        ? pinned
+        : (apps.length > 0 ? apps : hosted).slice(
+            0,
+            CHAT_FIRST_RAIL_SUGGESTED_APPS,
+          ),
+    );
+    if (
+      chatFirstActiveAppId &&
+      !ids.includes(chatFirstActiveAppId) &&
+      chatFirstApps.some((app) => app.id === chatFirstActiveAppId)
+    ) {
+      ids.push(chatFirstActiveAppId);
+    }
+    return [
+      {
+        id: pinned.length > 0 ? "pinned" : "apps",
+        label:
+          pinned.length > 0
+            ? t("dispatch.pages.pinnedApps")
+            : t("dispatch.nav.apps"),
+        appIds: ids,
+        action: chatFirstCreateAppTrigger,
+        ...(chatFirstAppsStatus === "ready" && ids.length === 0
+          ? { emptyLabel: chatFirstCopy("noWorkspaceApps") }
+          : {}),
+      },
+    ];
+  }, [
+    chatFirstActiveAppId,
+    chatFirstAppTiers,
+    chatFirstApps,
+    chatFirstAppsStatus,
+    chatFirstCopy,
+    chatFirstCreateAppTrigger,
+    t,
+  ]);
+
+  const openChatFirstRailApp = useCallback(
+    (app: ChatFirstAppItem) => {
+      onChatFirstAppOpen?.(app);
+      onNavigate?.();
+    },
+    [onChatFirstAppOpen, onNavigate],
+  );
+  const openChatFirstAllApps = useCallback(() => {
+    void navigate(dispatchNavLinkTarget("/apps"));
+    onNavigate?.();
+  }, [navigate, onNavigate]);
 
   const chatFirstAppsRail = (
     <ChatFirstAppsRail
       apps={chatFirstApps}
+      sections={chatFirstAppSections}
       activeAppId={chatFirstActiveAppId}
       activeTab={chatFirstActivePrimaryTab}
       collapsed={collapsed}
       grayscaleInactiveIcons={false}
-      loading={chatFirstAppsLoading}
+      loading={chatFirstAppsStatus === "loading"}
       error={chatFirstAppsError}
       layout={chatFirstAppLayout}
-      onLayoutChange={onChatFirstAppLayoutChange}
+      onTogglePinned={onChatFirstTogglePinned}
       onRetry={onChatFirstAppsRetry}
-      onOpenApp={(app) => {
-        onChatFirstAppOpen?.(app);
-        onNavigate?.();
-      }}
-      onOpenAllApps={() => {
-        void navigate(dispatchNavLinkTarget("/apps"));
-        onNavigate?.();
-      }}
+      onOpenApp={openChatFirstRailApp}
+      onOpenAllApps={openChatFirstAllApps}
       createAppTrigger={chatFirstCreateAppTrigger}
-      renderIcon={(app) => (
-        <AppIcon
-          id={app.id}
-          name={app.name}
-          size="sm"
-          className="size-7 rounded-lg"
-        />
-      )}
+      renderIcon={renderChatFirstRailIcon}
       copy={chatFirstCopy}
     />
   );
@@ -1279,7 +1269,7 @@ export function NavContent({
                 onNavigate?.();
               },
             }}
-            prelude={chatFirstAppsRail}
+            appsRail={chatFirstAppsRail}
           />
         </div>
       ) : null}
@@ -1388,6 +1378,7 @@ function DispatchLayout({
   children,
   extensions,
   agentPageHref,
+  notice,
   brandName,
   brandIcon,
 }: DispatchLayoutProps) {
@@ -1450,11 +1441,10 @@ function DispatchLayout({
       `${url.pathname}${url.search}${url.hash}`,
     );
   }, [electronEmbedded, location.pathname, location.search]);
-  const [chatFirstAppLayout, setChatFirstAppLayout] =
-    useState<ChatFirstAppLayoutPreference>(() =>
-      normalizeWorkspaceAppLayout(readChatFirstAppLayout()),
-    );
-  const chatFirstAppLayoutHydratedRef = useRef(false);
+  const { layout: chatFirstAppLayout, togglePinned: toggleChatFirstAppPinned } =
+    useWorkspaceAppLayout({
+      hydrate: chatFirstMode,
+    });
   const chatFirstAppsQuery = useActionQuery<WorkspaceAppSummary[]>(
     "list-workspace-apps",
     { includeAgentCards: false, includeArchived: true },
@@ -1474,6 +1464,7 @@ function DispatchLayout({
       filterBuiltInApps(
         chatFirstConnectedAppsQuery.data ?? [],
         chatFirstAppsQuery.data ?? [],
+        { includeHiddenFromLaunchers: true },
       ),
     [chatFirstAppsQuery.data, chatFirstConnectedAppsQuery.data],
   );
@@ -1483,8 +1474,6 @@ function DispatchLayout({
   );
   const chatFirstWorkspaceAppsLoading = chatFirstAppsQuery.isLoading;
   const chatFirstConnectedAppsLoading = chatFirstConnectedAppsQuery.isLoading;
-  const chatFirstAppsLoading =
-    chatFirstWorkspaceAppsLoading || chatFirstConnectedAppsLoading;
   const chatFirstAppsFailed = chatFirstAppsQuery.isError;
   const chatFirstAppsError =
     chatFirstAppsQuery.error ?? chatFirstConnectedAppsQuery.error;
@@ -1494,6 +1483,10 @@ function DispatchLayout({
       : chatFirstConnectedAppsQuery.error != null
         ? "list-connected-agents"
         : undefined;
+  const chatFirstWorkspaceAppsStatus = appListsStatus(
+    chatFirstAppsQuery,
+    chatFirstConnectedAppsQuery,
+  );
   const chatFirstResolvableApps = useMemo(
     () =>
       mergeChatFirstWorkspaceApps(
@@ -1505,6 +1498,7 @@ function DispatchLayout({
           description: app.description,
           url: app.homeUrl?.trim() || app.url,
           source: "builtin" as const,
+          hiddenFromLaunchers: app.hiddenFromLaunchers,
         })),
       ).filter((app) => app.status !== "pending" && app.archived !== true),
     [
@@ -1515,8 +1509,12 @@ function DispatchLayout({
   );
   const chatFirstWorkspaceApps = useMemo(
     () =>
-      chatFirstResolvableApps.filter(isWorkspaceAppVisibleInDefaultLaunchers),
-    [chatFirstResolvableApps],
+      chatFirstWorkspaceAppsStatus === "ready"
+        ? chatFirstResolvableApps.filter(
+            isWorkspaceAppVisibleInDefaultLaunchers,
+          )
+        : [],
+    [chatFirstResolvableApps, chatFirstWorkspaceAppsStatus],
   );
   const chatFirstAppRegistrations = useMemo<ChatFirstAppRegistration[]>(() => {
     return chatFirstResolvableApps.map((app) => ({
@@ -1579,7 +1577,7 @@ function DispatchLayout({
   const chatHomeAppLauncher = useMemo<DispatchWorkspaceAppLauncher>(
     () => ({
       workspaceApps: chatFirstWorkspaceApps,
-      isLoading: chatFirstAppsLoading,
+      workspaceAppsStatus: chatFirstWorkspaceAppsStatus,
       error: chatFirstAppsError,
       errorQueryName: chatFirstAppsErrorQueryName,
       openApp: openChatFirstApp,
@@ -1591,10 +1589,10 @@ function DispatchLayout({
     [
       chatFirstAppsError,
       chatFirstAppsErrorQueryName,
-      chatFirstAppsLoading,
       chatFirstAppsQuery.refetch,
       chatFirstConnectedAppsQuery.refetch,
       chatFirstWorkspaceApps,
+      chatFirstWorkspaceAppsStatus,
       openChatFirstApp,
     ],
   );
@@ -1879,40 +1877,6 @@ function DispatchLayout({
         handleModeChange,
       );
   }, []);
-
-  useEffect(() => {
-    if (
-      !chatFirstMode ||
-      !isChatRoute ||
-      chatFirstAppLayoutHydratedRef.current
-    ) {
-      return;
-    }
-    chatFirstAppLayoutHydratedRef.current = true;
-    void readClientAppState<unknown>("chat-first-app-layout")
-      .then((value) => {
-        if (!value || typeof value !== "object") return;
-        setChatFirstAppLayout(normalizeWorkspaceAppLayout(value));
-      })
-      .catch(() => {
-        // Device-local layout remains the fallback when workspace state is unavailable.
-      });
-  }, [chatFirstMode, isChatRoute]);
-
-  const persistChatFirstAppLayout = useCallback(
-    (layout: ChatFirstAppLayoutPreference) => {
-      const normalizedLayout = normalizeWorkspaceAppLayout(layout);
-      setChatFirstAppLayout(normalizedLayout);
-      void writeClientAppState("chat-first-app-layout", normalizedLayout).catch(
-        () => {
-          setChatFirstNotice(
-            "App order changed locally, but workspace state could not be synced.",
-          );
-        },
-      );
-    },
-    [],
-  );
 
   useEffect(() => {
     if (!chatFirstMode) {
@@ -2405,6 +2369,8 @@ function DispatchLayout({
             >
               <div className="relative flex min-w-0 flex-1 flex-col overflow-hidden">
                 <Header showAgentToggle={false} />
+                {notice}
+                <WorkspaceAppLayoutNotice />
                 <InvitationBanner />
                 <main className="relative flex min-h-0 flex-1 overflow-hidden">
                   <div className="min-w-0 flex-1 overflow-y-auto">
@@ -2485,22 +2451,13 @@ function DispatchLayout({
   ];
   const appContent = (
     <div className="relative flex h-full min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+      {notice}
+      <WorkspaceAppLayoutNotice />
       <InvitationBanner />
       {isChatRoute && chatFirstMode && chatFirstNotice ? (
-        <div
-          className="dispatch-chat-first-notice"
-          role="status"
-          aria-live="polite"
-        >
-          <span>{chatFirstNotice}</span>
-          <button
-            type="button"
-            onClick={() => setChatFirstNotice(null)}
-            aria-label="Dismiss app notice"
-          >
-            Dismiss
-          </button>
-        </div>
+        <AppNotice onDismiss={() => setChatFirstNotice(null)}>
+          {chatFirstNotice}
+        </AppNotice>
       ) : null}
       <main
         className={cn(
@@ -2552,6 +2509,16 @@ function DispatchLayout({
         (app) => app.id.toLowerCase() === workspaceAppId.toLowerCase(),
       )
     : undefined;
+  // Layout, not the app route component, is what renders the kept-alive pane,
+  // so the deep path a URL carries has to be handed to it here or every app URL
+  // opens the app's home.
+  const workspaceAppDeepPath = workspaceAppRouteActive
+    ? workspaceAppInitialPathFromPathname(
+        localPathname,
+        location.search,
+        location.hash,
+      )
+    : undefined;
   const workspaceAppContent =
     workspaceAppRouteActive && workspaceAppId ? (
       workspaceAppChatRegistration ? (
@@ -2561,10 +2528,20 @@ function DispatchLayout({
           agentPageHref={agentPageHref}
           onFullscreenRequest={openAskAgentFullscreen}
         >
-          <WorkspaceAppKeepAlive activeAppId={workspaceAppId} />
+          <WorkspaceAppKeepAlive
+            activeAppId={workspaceAppId}
+            {...(workspaceAppDeepPath
+              ? { initialPath: workspaceAppDeepPath }
+              : {})}
+          />
         </WorkspaceAppChatRail>
       ) : (
-        <WorkspaceAppKeepAlive activeAppId={workspaceAppId} />
+        <WorkspaceAppKeepAlive
+          activeAppId={workspaceAppId}
+          {...(workspaceAppDeepPath
+            ? { initialPath: workspaceAppDeepPath }
+            : {})}
+        />
       )
     ) : (
       <WorkspaceAppKeepAlive
@@ -2642,9 +2619,9 @@ function DispatchLayout({
                   chatFirstEmbedded={chatFirstEmbedded}
                   collapsed={sidebarCollapsed}
                   chatFirstAppLayout={chatFirstAppLayout}
-                  onChatFirstAppLayoutChange={persistChatFirstAppLayout}
+                  onChatFirstTogglePinned={toggleChatFirstAppPinned}
                   chatFirstApps={chatFirstAppItems}
-                  chatFirstAppsLoading={chatFirstAppsLoading}
+                  chatFirstAppsStatus={chatFirstWorkspaceAppsStatus}
                   chatFirstAppsError={
                     chatFirstAppsError ? chatFirstCopy("appsLoadError") : null
                   }
@@ -2690,9 +2667,9 @@ function DispatchLayout({
                     chatFirstEmbedded={chatFirstEmbedded}
                     collapsed={false}
                     chatFirstAppLayout={chatFirstAppLayout}
-                    onChatFirstAppLayoutChange={persistChatFirstAppLayout}
+                    onChatFirstTogglePinned={toggleChatFirstAppPinned}
                     chatFirstApps={chatFirstAppItems}
-                    chatFirstAppsLoading={chatFirstAppsLoading}
+                    chatFirstAppsStatus={chatFirstWorkspaceAppsStatus}
                     chatFirstAppsError={
                       chatFirstAppsError ? chatFirstCopy("appsLoadError") : null
                     }

@@ -139,7 +139,7 @@ export interface MigrationContext {
   ir: ProjectIR;
   tasks: MigrationTask[];
   artifacts: MigrationArtifacts;
-  logger?: (message: string) => void;
+  logger?: ((message: string) => void) | undefined;
 }
 
 export interface MigrationArtifacts {
@@ -156,7 +156,7 @@ export interface SourceAdapter {
   id: string;
   label: string;
   kind?: "deterministic" | "agent";
-  inputKinds?: Array<MigrationInputKind | (string & {})>;
+  inputKinds?: Array<MigrationInputKind | (string & {})> | undefined;
   detect(sourceRoot: string): Promise<boolean>;
   introspect(sourceRoot: string): Promise<ProjectIR>;
 }
@@ -210,7 +210,7 @@ export interface VerifierResult {
   severity: "info" | "warning" | "error";
   summary: string;
   artifactPaths: string[];
-  suggestedNextTask?: string;
+  suggestedNextTask?: string | undefined;
 }
 
 export interface AemSourceMode {

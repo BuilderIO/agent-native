@@ -20,7 +20,11 @@ description: >-
 1. **Resolve the starting point.** When the user mentions a template, past
    design, or prior work, call both `list-design-templates` and `list-designs`
    before generating. Match the requested name or id; ask only when multiple
-   plausible results remain.
+   plausible results remain. To look through a template before using it, call
+   `get-design-template --templateId="<id>"` (read-only); in the UI a template
+   card opens the same read-only preview, and its "Use template" button is the
+   copy step. Built-in starters include app screens (analytics dashboard,
+   messaging app, project tasks, design studio) beside ads, posters and pages.
 2. **Save a reusable template.** Call `save-design-as-template` with the source
    `designId`. The action snapshots inline screens, canvas dimensions,
    defaults, linked design system, and locked layers.

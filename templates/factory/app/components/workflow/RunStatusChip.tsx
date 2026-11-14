@@ -1,4 +1,5 @@
 import {
+  IconAlertTriangle,
   IconCircleCheck,
   IconCircleX,
   IconLoader2,
@@ -12,6 +13,7 @@ import type {
   RunStatus,
   RunTriggerKind,
 } from "../../../server/workflow/contract.js";
+import { useItemsStrings } from "./items-strings";
 import { useWorkflowStrings } from "./workflow-strings";
 
 const ICONS: Record<RunStatus, Icon> = {
@@ -32,21 +34,26 @@ const STYLES: Record<RunStatus, string> = {
 export function RunStatusChip({
   status,
   triggerKind,
+  itemFailures = 0,
   className,
 }: {
   status: RunStatus;
   /** Shown before the status for any run the schedule did not start, so a test never reads as the real thing. */
   triggerKind?: RunTriggerKind;
+  /** Items a run that succeeded still lost (`succeededItemFailures`): the chip names them and takes the failed color. */
+  itemFailures?: number;
   className?: string;
 }) {
   const ws = useWorkflowStrings();
+  const items = useItemsStrings();
 
-  const StatusIcon = ICONS[status];
+  const lostItems = itemFailures > 0;
+  const StatusIcon = lostItems ? IconAlertTriangle : ICONS[status];
   return (
     <span
       className={cn(
         "inline-flex h-5 shrink-0 items-center gap-1 rounded-md px-1.5 text-xs font-medium leading-none",
-        STYLES[status],
+        lostItems ? STYLES.failed : STYLES[status],
         className,
       )}
     >
@@ -61,6 +68,9 @@ export function RunStatusChip({
         ? `${ws.runKind[triggerKind]} · `
         : null}
       {ws.runStatus[status]}
+      {lostItems
+        ? ` · ${items.activity.runCounts.itemFailures(itemFailures)}`
+        : null}
     </span>
   );
 }

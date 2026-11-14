@@ -31,7 +31,7 @@ writing the query is always faster than debugging a wrong result.
 
 Before writing SQL, use the highest-confidence source available:
 
-0. `query-dbt-semantic-metric` for an exact owner-defined dbt metric. Its definition outranks any table; if it is not ready, check `get-dbt-connection`.
+0. Owner-defined dbt metric question, even unnamed: follow the dbt path in `data-querying/SKILL.md`, including its status rules, retry, and warehouse conditions. Its definition outranks any table. Only a successful `get-dbt-connection` result with `readiness: "not_connected"` and an empty `connections[]` permits normal source selection. If any row is ready, keep dbt as the source even when top-level readiness is null. If rows exist but none is ready, report or resolve their readiness and stop. Treat `connected: false`, null readiness, and failed or unreadable lookups as unknown, not disconnected. A warehouse figure for this metric needs an explicit user request.
 1. `find-data` with a focused metric or entity question.
 2. Existing dashboard SQL or saved analyses that already answer the same metric.
 3. `search-bigquery-schema` metadata for exact datasets, tables, and columns.
@@ -42,7 +42,7 @@ table; `BIGQUERY_PROJECT_ID` is only the default project.
 
 ## Warehouse Table Priority (CRITICAL)
 
-**Always prefer dbt-built warehouse tables before raw source tables.** They are warehouse data, not owner-approved Semantic Layer definitions; for an owner-defined metric, use step 0 of the source order first.
+**Always prefer dbt-built warehouse tables before raw source tables.** They are warehouse data, not owner-approved Semantic Layer definitions; for an owner-defined metric, use the dbt step (step 0 of the source order) first.
 
 1. `dbt_mart.*` — dbt-built, first choice for business-level data (deals, contracts, subscriptions, customers, companies).
 2. `dbt_analytics.*` — dbt-built, first choice for reporting views and aggregated metrics.
@@ -81,7 +81,14 @@ Never label a current partial-month snapshot as last month's completed usage.
 | `estimate-query-cost --sql "<sql>"`                       | Free dry run: bytes, $ per run, and $ per month for scheduled runs.  |
 | `bigquery --sql "<sql>"`                                  | Run a real warehouse query after table/column names are known.       |
 | `query-dbt-semantic-metric --metricName <exact dbt name>` | Run an owner-defined dbt Semantic Layer metric before warehouse SQL. |
-| `get-dbt-connection`                                      | Check dbt readiness (`readiness`) and the missing setup step.        |
+| `get-dbt-connection`                                      | Check each `connections[].readiness` and its missing setup step.        |
+
+## Saved Dashboard Cost Estimates
+
+External connectors can call `estimate-dashboard-cost` with a saved dashboard ID,
+an optional panel ID, and filter values. It uses the existing free dry-run path
+and requires read access to the saved dashboard. It cannot accept raw SQL or
+change a saved query. Partial and unpriced results are not zero-cost results.
 
 ## Check Cost Before Big Queries
 
@@ -197,3 +204,10 @@ WHERE col IS NOT NULL
 -- CORRECT: single WHERE with AND
 WHERE col IS NOT NULL AND date BETWEEN '...' AND '...'
 ```
+
+
+## Warehouse usage receipts
+
+BigQuery query responses may include a usageAccounting receipt for the original warehouse job. A recorded status means an observation was persisted; only usageStatus complete confirms that the provider supplied both processed and billed bytes plus cache provenance. Pending and unavailable statuses mean accounting is incomplete, never zero cost.
+
+App-cache responses do not launch another job. Any retained receipt describes the original result, not new spend. The ledger covers read jobs launched through the common Analytics runner; external jobs and delivery/backfill writes are outside it. Billed bytes are provider metadata, not invoice dollars or measured savings. Budget enforcement and recurring reconciliation are separate decisions.

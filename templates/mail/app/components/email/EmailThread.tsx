@@ -1,5 +1,6 @@
 import { appApiPath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { AI_FILTER_LABEL } from "@shared/ai-filter";
 import {
   findPlainTextLinkRanges,
@@ -46,6 +47,10 @@ import {
 import { useNavigate, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
+import {
+  ActionTooltip,
+  MAIL_ACTION_KEYS,
+} from "@/components/email/ActionTooltip";
 import {
   AiFilterDialog,
   type AiFilterDialogTarget,
@@ -330,8 +335,8 @@ export function EmailThread({
               ),
           },
         });
-      } catch {
-        toast.error(t("mail.aiFilter.actionFailed"));
+      } catch (error) {
+        reportWriteFailure(error, { label: t("mail.aiFilter.actionFailed") });
       }
     },
     [email, navigate, priorityFeedback, t],
@@ -1064,6 +1069,15 @@ export function EmailThread({
     handleForwardMsg(email);
   }, [email, handleForwardMsg]);
 
+  const replyAllToFocused = () =>
+    handleReplyAll(focusedIndex >= 0 ? messages[focusedIndex] : undefined);
+
+  const scrollThreadByPage = (direction: 1 | -1) => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    container.scrollTop += direction * container.clientHeight * 0.9;
+  };
+
   useKeyboardShortcuts(
     [
       {
@@ -1078,18 +1092,18 @@ export function EmailThread({
         },
       },
       { key: "j", handler: () => goToSibling(1) },
+      { key: "ArrowDown", handler: () => goToSibling(1) },
       { key: "k", handler: () => goToSibling(-1) },
+      { key: "ArrowUp", handler: () => goToSibling(-1) },
+      { key: " ", handler: () => scrollThreadByPage(1) },
+      { key: " ", shift: true, handler: () => scrollThreadByPage(-1) },
       { key: "j", shift: true, handler: () => extendSelection(1) },
       { key: "k", shift: true, handler: () => extendSelection(-1) },
       { key: "ArrowDown", shift: true, handler: () => extendSelection(1) },
       { key: "ArrowUp", shift: true, handler: () => extendSelection(-1) },
       { key: "n", handler: () => focusMessage(1) },
       { key: "p", handler: () => focusMessage(-1) },
-      { key: "Enter", handler: toggleFocused },
-      {
-        key: "o",
-        handler: toggleFocused,
-      },
+      { key: "o", handler: toggleFocused },
       {
         key: "o",
         meta: true,
@@ -1110,14 +1124,8 @@ export function EmailThread({
           handleReply(focused);
         },
       },
-      {
-        key: "a",
-        handler: () => {
-          const focused =
-            focusedIndex >= 0 ? messages[focusedIndex] : undefined;
-          handleReplyAll(focused);
-        },
-      },
+      { key: "Enter", handler: replyAllToFocused },
+      { key: "a", handler: replyAllToFocused },
       { key: "f", handler: handleForward },
       {
         key: "f",
@@ -1135,16 +1143,6 @@ export function EmailThread({
       {
         key: "u",
         handler: () => email && setCurrentEmailReadState(!email.isRead),
-      },
-      {
-        key: "I",
-        shift: true,
-        handler: () => setCurrentEmailReadState(true),
-      },
-      {
-        key: "U",
-        shift: true,
-        handler: () => setCurrentEmailReadState(false),
       },
     ],
     !!threadId,
@@ -1280,9 +1278,13 @@ export function EmailThread({
           toast.error(t("mail.toasts.couldNotUnsubscribe"));
         }
       }
-    } catch {
+    } catch (error) {
       if (unsubscribeInfo.url) {
         window.open(unsubscribeInfo.url, "_blank", "noopener,noreferrer");
+      } else {
+        reportWriteFailure(error, {
+          label: t("mail.toasts.couldNotUnsubscribe"),
+        });
       }
     } finally {
       setUnsubscribing(false);
@@ -1373,19 +1375,19 @@ export function EmailThread({
       {/* Thread header */}
       <div className="shrink-0 px-3 sm:px-5 pt-4 sm:pt-5 pb-3 max-h-[40%]">
         <div className="flex items-start gap-2 sm:gap-3">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={goBack}
-                aria-label={t("mail.thread.back")}
-                className="mt-0.5 flex h-9 w-9 sm:h-7 sm:w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-              >
-                <IconArrowLeft className="h-[14px] w-[14px] rtl:-scale-x-100" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>{t("mail.thread.back")} (Esc)</TooltipContent>
-          </Tooltip>
+          <ActionTooltip
+            label={t("mail.thread.back")}
+            keys={MAIL_ACTION_KEYS.back}
+          >
+            <button
+              type="button"
+              onClick={goBack}
+              aria-label={t("mail.thread.back")}
+              className="mt-0.5 flex h-9 w-9 sm:h-7 sm:w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+            >
+              <IconArrowLeft className="h-[14px] w-[14px] rtl:-scale-x-100" />
+            </button>
+          </ActionTooltip>
 
           <div className="flex-1 min-w-0">
             <div className="flex items-start gap-2 flex-wrap">
@@ -1418,76 +1420,71 @@ export function EmailThread({
               })}
               {/* Action bar */}
               <div className="hidden sm:flex items-center gap-0.5 ml-auto shrink-0">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      onClick={() =>
-                        openAiFilterDialog(isAiFiltered ? "keep" : "filter")
-                      }
-                      aria-label={
-                        isAiFiltered
-                          ? t("mail.aiFilter.keepButton")
-                          : t("mail.aiFilter.filterButton")
-                      }
-                      className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-                    >
-                      {isAiFiltered ? (
-                        <IconInbox className="h-4 w-4" />
-                      ) : (
-                        <IconFilter className="h-4 w-4" />
-                      )}
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {isAiFiltered
+                <ActionTooltip
+                  label={
+                    isAiFiltered
                       ? t("mail.aiFilter.keepButton")
-                      : t("mail.aiFilter.filterButton")}
-                  </TooltipContent>
-                </Tooltip>
+                      : t("mail.aiFilter.filterButton")
+                  }
+                >
+                  <button
+                    onClick={() =>
+                      openAiFilterDialog(isAiFiltered ? "keep" : "filter")
+                    }
+                    aria-label={
+                      isAiFiltered
+                        ? t("mail.aiFilter.keepButton")
+                        : t("mail.aiFilter.filterButton")
+                    }
+                    className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                  >
+                    {isAiFiltered ? (
+                      <IconInbox className="h-4 w-4" />
+                    ) : (
+                      <IconFilter className="h-4 w-4" />
+                    )}
+                  </button>
+                </ActionTooltip>
                 {email && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        onClick={() => setCurrentEmailReadState(!email.isRead)}
-                        className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
-                        aria-label={t(
-                          email.isRead
-                            ? "mail.actions.markUnread"
-                            : "mail.actions.markRead",
-                        )}
-                      >
-                        {email.isRead ? (
-                          <IconMail className="h-4 w-4" />
-                        ) : (
-                          <IconMailOpened className="h-4 w-4" />
-                        )}
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {t(
+                  <ActionTooltip
+                    label={t(
+                      email.isRead
+                        ? "mail.actions.markUnread"
+                        : "mail.actions.markRead",
+                    )}
+                    keys={MAIL_ACTION_KEYS.toggleRead}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => setCurrentEmailReadState(!email.isRead)}
+                      className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+                      aria-label={t(
                         email.isRead
                           ? "mail.actions.markUnread"
                           : "mail.actions.markRead",
                       )}
-                    </TooltipContent>
-                  </Tooltip>
-                )}
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      onClick={handleArchive}
-                      aria-label={t("mail.actions.archive")}
-                      className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
                     >
-                      <IconArchive className="h-4 w-4" />
+                      {email.isRead ? (
+                        <IconMail className="h-4 w-4" />
+                      ) : (
+                        <IconMailOpened className="h-4 w-4" />
+                      )}
                     </button>
-                  </TooltipTrigger>
-                  <TooltipContent>
-                    {t("mail.actions.archive")} (E)
-                  </TooltipContent>
-                </Tooltip>
+                  </ActionTooltip>
+                )}
+                <ActionTooltip
+                  label={t("mail.actions.archive")}
+                  keys={MAIL_ACTION_KEYS.archive}
+                >
+                  <button
+                    type="button"
+                    onClick={handleArchive}
+                    aria-label={t("mail.actions.archive")}
+                    className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                  >
+                    <IconArchive className="h-4 w-4" />
+                  </button>
+                </ActionTooltip>
                 {email && (view === "inbox" || isAiFiltered) && (
                   <ImportanceFeedbackMenu
                     onFeedback={(decision) =>
@@ -1497,100 +1494,94 @@ export function EmailThread({
                   />
                 )}
                 {email && view !== "inbox" && view !== "trash" && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        onClick={handleTrash}
-                        aria-label={t("mail.actions.moveToTrash")}
-                        className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                      >
-                        <IconTrash className="h-4 w-4" />
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {t("mail.actions.moveToTrash")} (D / #)
-                    </TooltipContent>
-                  </Tooltip>
+                  <ActionTooltip
+                    label={t("mail.actions.moveToTrash")}
+                    keys={MAIL_ACTION_KEYS.trash}
+                  >
+                    <button
+                      type="button"
+                      onClick={handleTrash}
+                      aria-label={t("mail.actions.moveToTrash")}
+                      className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
+                    >
+                      <IconTrash className="h-4 w-4" />
+                    </button>
+                  </ActionTooltip>
                 )}
-                <button
-                  type="button"
-                  onClick={() => goToSibling(-1)}
-                  aria-label={t("mail.thread.previousConversation")}
-                  className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ms-1"
+                <ActionTooltip
+                  label={t("mail.thread.previousConversation")}
+                  keys={MAIL_ACTION_KEYS.previousConversation}
                 >
-                  <IconChevronUp className="h-3.5 w-3.5" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => goToSibling(1)}
-                  aria-label={t("mail.thread.nextConversation")}
-                  className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                  <button
+                    type="button"
+                    onClick={() => goToSibling(-1)}
+                    aria-label={t("mail.thread.previousConversation")}
+                    className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ms-1"
+                  >
+                    <IconChevronUp className="h-3.5 w-3.5" />
+                  </button>
+                </ActionTooltip>
+                <ActionTooltip
+                  label={t("mail.thread.nextConversation")}
+                  keys={MAIL_ACTION_KEYS.nextConversation}
                 >
-                  <IconChevronDown className="h-3.5 w-3.5" />
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => goToSibling(1)}
+                    aria-label={t("mail.thread.nextConversation")}
+                    className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+                  >
+                    <IconChevronDown className="h-3.5 w-3.5" />
+                  </button>
+                </ActionTooltip>
                 {onToggleMaximize && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        onClick={onToggleMaximize}
-                        aria-label={t(
-                          isMaximized
-                            ? "mail.thread.minimize"
-                            : "mail.thread.maximize",
-                        )}
-                        className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ms-1"
-                        aria-pressed={isMaximized}
-                      >
-                        {isMaximized ? (
-                          <IconArrowsMinimize className="h-3.5 w-3.5" />
-                        ) : (
-                          <IconArrowsMaximize className="h-3.5 w-3.5" />
-                        )}
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent>
-                      {t(
+                  <ActionTooltip
+                    label={t(
+                      isMaximized
+                        ? "mail.thread.minimize"
+                        : "mail.thread.maximize",
+                    )}
+                  >
+                    <button
+                      type="button"
+                      onClick={onToggleMaximize}
+                      aria-label={t(
                         isMaximized
                           ? "mail.thread.minimize"
                           : "mail.thread.maximize",
                       )}
-                    </TooltipContent>
-                  </Tooltip>
+                      className="flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ms-1"
+                      aria-pressed={isMaximized}
+                    >
+                      {isMaximized ? (
+                        <IconArrowsMinimize className="h-3.5 w-3.5" />
+                      ) : (
+                        <IconArrowsMaximize className="h-3.5 w-3.5" />
+                      )}
+                    </button>
+                  </ActionTooltip>
                 )}
               </div>
             </div>
             {(githubPrUrl || unsubscribeInfo) && (
               <div className="mt-1.5 flex items-center gap-3">
                 {githubPrUrl && (
-                  <Tooltip>
-                    <TooltipTrigger asChild>
-                      <a
-                        data-an-block
-                        href={githubPrUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground/50 hover:text-muted-foreground transition-colors"
-                      >
-                        <IconExternalLink className="h-3 w-3" />
-                        {t("mail.thread.viewPullRequest")}
-                      </a>
-                    </TooltipTrigger>
-                    <TooltipContent
-                      side="bottom"
-                      align="start"
-                      className="flex items-center gap-1.5 text-[12px] font-medium"
+                  <ActionTooltip
+                    label={t("mail.thread.viewPullRequest")}
+                    keys={[formatShortcut("cmd"), "O"]}
+                    side="bottom"
+                  >
+                    <a
+                      data-an-block
+                      href={githubPrUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 text-[12px] text-muted-foreground/50 hover:text-muted-foreground transition-colors"
                     >
+                      <IconExternalLink className="h-3 w-3" />
                       {t("mail.thread.viewPullRequest")}
-                      <kbd className="flex items-center justify-center rounded border border-border/60 bg-muted px-1 text-[10px] text-muted-foreground">
-                        {formatShortcut("cmd")}
-                      </kbd>
-                      <kbd className="flex items-center justify-center rounded border border-border/60 bg-muted px-1.5 text-[10px] text-muted-foreground">
-                        O
-                      </kbd>
-                    </TooltipContent>
-                  </Tooltip>
+                    </a>
+                  </ActionTooltip>
                 )}
                 {unsubscribeInfo && (
                   <Tooltip>
@@ -1801,19 +1792,19 @@ function ThreadLoadingState({
     <div className="flex flex-1 flex-col overflow-hidden">
       <div className="shrink-0 px-3 sm:px-5 pt-4 sm:pt-5 pb-3 max-h-[40%]">
         <div className="flex items-start gap-2 sm:gap-3">
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={onBack}
-                aria-label={t("mail.thread.back")}
-                className="mt-0.5 flex h-9 w-9 sm:h-7 sm:w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
-              >
-                <IconArrowLeft className="h-[14px] w-[14px] rtl:-scale-x-100" />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent>{t("mail.thread.back")} (Esc)</TooltipContent>
-          </Tooltip>
+          <ActionTooltip
+            label={t("mail.thread.back")}
+            keys={MAIL_ACTION_KEYS.back}
+          >
+            <button
+              type="button"
+              onClick={onBack}
+              aria-label={t("mail.thread.back")}
+              className="mt-0.5 flex h-9 w-9 sm:h-7 sm:w-7 shrink-0 items-center justify-center rounded-full text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+            >
+              <IconArrowLeft className="h-[14px] w-[14px] rtl:-scale-x-100" />
+            </button>
+          </ActionTooltip>
 
           <div className="flex-1 min-w-0">
             {preview ? (
@@ -1927,7 +1918,7 @@ function BodySkeleton() {
   );
 }
 
-const CollapsedMessageRow = forwardRef<
+export const CollapsedMessageRow = forwardRef<
   HTMLDivElement,
   {
     email: EmailMessage;
@@ -1962,20 +1953,23 @@ const CollapsedMessageRow = forwardRef<
   );
 });
 
-const ExpandedMessageCard = forwardRef<
+export const ExpandedMessageCard = forwardRef<
   HTMLDivElement,
   {
     email: EmailMessage;
     isFocused?: boolean;
     isFromMe?: boolean;
     onCollapse: () => void;
-    onReply: () => void;
-    onReplyAll: () => void;
-    onForward: () => void;
+    // Leave these out to hide the reply and forward buttons.
+    onReply?: () => void;
+    onReplyAll?: () => void;
+    onForward?: () => void;
     onFocus?: () => void;
     onContactSelect?: (email: string) => void;
     searchTerm?: string;
     activeLocalIdx?: number | null;
+    // Lists attachments without links, for a session that can't fetch them.
+    attachmentNamesOnly?: boolean;
   }
 >(function ExpandedMessageCard(
   {
@@ -1990,6 +1984,7 @@ const ExpandedMessageCard = forwardRef<
     onContactSelect,
     searchTerm,
     activeLocalIdx,
+    attachmentNamesOnly,
   },
   ref,
 ) {
@@ -2122,9 +2117,12 @@ const ExpandedMessageCard = forwardRef<
           </div>
 
           {/* Reply / Reply All / Forward buttons */}
-          <div className="flex items-center gap-1 sm:gap-0.5 shrink-0">
-            <Tooltip>
-              <TooltipTrigger asChild>
+          {onReply && onReplyAll && onForward && (
+            <div className="flex items-center gap-1 sm:gap-0.5 shrink-0">
+              <ActionTooltip
+                label={t("mail.compose.reply")}
+                keys={MAIL_ACTION_KEYS.reply}
+              >
                 <button
                   type="button"
                   onMouseEnter={() => void preloadInlineReplyComposer()}
@@ -2138,11 +2136,11 @@ const ExpandedMessageCard = forwardRef<
                 >
                   <IconArrowBackUp className="h-4 w-4 sm:h-[14px] sm:w-[14px] rtl:-scale-x-100" />
                 </button>
-              </TooltipTrigger>
-              <TooltipContent>{t("mail.compose.reply")}</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
+              </ActionTooltip>
+              <ActionTooltip
+                label={t("mail.mobileActions.replyAll")}
+                keys={MAIL_ACTION_KEYS.replyAll}
+              >
                 <button
                   type="button"
                   onMouseEnter={() => void preloadInlineReplyComposer()}
@@ -2156,13 +2154,11 @@ const ExpandedMessageCard = forwardRef<
                 >
                   <IconArrowBackUpDouble className="h-4 w-4 sm:h-[14px] sm:w-[14px] rtl:-scale-x-100" />
                 </button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {t("mail.mobileActions.replyAll")}
-              </TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
+              </ActionTooltip>
+              <ActionTooltip
+                label={t("mail.compose.forward")}
+                keys={MAIL_ACTION_KEYS.forward}
+              >
                 <button
                   type="button"
                   onMouseEnter={() => void preloadInlineReplyComposer()}
@@ -2176,10 +2172,9 @@ const ExpandedMessageCard = forwardRef<
                 >
                   <IconArrowForwardUp className="h-4 w-4 sm:h-[14px] sm:w-[14px] rtl:-scale-x-100" />
                 </button>
-              </TooltipTrigger>
-              <TooltipContent>{t("mail.compose.forward")}</TooltipContent>
-            </Tooltip>
-          </div>
+              </ActionTooltip>
+            </div>
+          )}
 
           <span className="shrink-0 text-[12px] text-muted-foreground/50 tabular-nums">
             {formatEmailDate(email.date)}
@@ -2215,95 +2210,116 @@ const ExpandedMessageCard = forwardRef<
       </div>
 
       {/* Attachments */}
-      {email.attachments && email.attachments.length > 0 && (
-        <div data-an-block className="px-3 sm:px-4 pb-4">
-          {/* Image thumbnails */}
-          {email.attachments.some((a) => a.mimeType.startsWith("image/")) && (
-            <div className="flex flex-wrap gap-2 mb-2">
-              {email.attachments
-                .filter((a) => a.mimeType.startsWith("image/"))
-                .map((att) => {
-                  const url = att.url
-                    ? appApiPath(att.url)
-                    : appApiPath(
-                        `/api/attachments?messageId=${email.id}&id=${encodeURIComponent(att.id)}&mimeType=${encodeURIComponent(att.mimeType)}`,
-                      );
-                  return (
-                    <Tooltip key={att.id}>
-                      <TooltipTrigger asChild>
-                        <a
-                          href={url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="block rounded-lg overflow-hidden border border-border/40 hover:border-border bg-accent/30 hover:bg-accent/50"
-                        >
-                          <img
-                            src={url}
-                            alt={att.filename}
-                            className="h-32 max-w-[200px] object-cover"
-                            loading="lazy"
-                          />
-                        </a>
-                      </TooltipTrigger>
-                      <TooltipContent data-an-block>
-                        {att.filename}
-                      </TooltipContent>
-                    </Tooltip>
-                  );
-                })}
-            </div>
-          )}
-          {/* Non-image files + download all */}
-          <div className="flex flex-wrap items-center gap-2">
-            {email.attachments
-              .filter((a) => !a.mimeType.startsWith("image/"))
-              .map((att) => (
-                <a
-                  key={att.id}
-                  href={
-                    att.url
+      {attachmentNamesOnly && email.attachments?.length ? (
+        <ul data-an-block className="flex flex-wrap gap-2 px-3 sm:px-4 pb-4">
+          {email.attachments.map((att) => (
+            <li
+              key={att.id}
+              className="flex items-center gap-2 rounded-lg bg-accent/60 px-3 py-2 text-xs"
+            >
+              <IconPaperclip className="h-3 w-3 text-muted-foreground shrink-0" />
+              <span className="text-foreground/80 truncate max-w-[180px]">
+                {att.filename}
+              </span>
+              <span className="text-muted-foreground">
+                {formatFileSize(att.size)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      ) : null}
+
+      {!attachmentNamesOnly &&
+        email.attachments &&
+        email.attachments.length > 0 && (
+          <div data-an-block className="px-3 sm:px-4 pb-4">
+            {/* Image thumbnails */}
+            {email.attachments.some((a) => a.mimeType.startsWith("image/")) && (
+              <div className="flex flex-wrap gap-2 mb-2">
+                {email.attachments
+                  .filter((a) => a.mimeType.startsWith("image/"))
+                  .map((att) => {
+                    const url = att.url
                       ? appApiPath(att.url)
                       : appApiPath(
-                          `/api/attachments?messageId=${email.id}&id=${encodeURIComponent(att.id)}`,
-                        )
-                  }
-                  download={att.filename}
-                  className="flex items-center gap-2 rounded-lg bg-accent/60 px-3 py-2 text-xs hover:bg-accent cursor-pointer"
-                >
-                  <IconPaperclip className="h-3 w-3 text-muted-foreground shrink-0" />
-                  <span className="text-foreground/80 truncate max-w-[180px]">
-                    {att.filename}
-                  </span>
-                  <span className="text-muted-foreground">
-                    {formatFileSize(att.size)}
-                  </span>
-                </a>
-              ))}
-            {email.attachments.length > 1 && (
-              <button
-                type="button"
-                aria-label={t("mail.thread.downloadAll")}
-                onClick={() => {
-                  for (const att of email.attachments!) {
-                    const a = document.createElement("a");
-                    a.href = att.url
-                      ? appApiPath(att.url)
-                      : appApiPath(
-                          `/api/attachments?messageId=${email.id}&id=${encodeURIComponent(att.id)}`,
+                          `/api/attachments?messageId=${email.id}&id=${encodeURIComponent(att.id)}&mimeType=${encodeURIComponent(att.mimeType)}`,
                         );
-                    a.download = att.filename;
-                    a.click();
-                  }
-                }}
-                className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
-              >
-                <IconDownload className="h-3 w-3" />
-                {t("mail.thread.downloadAll")}
-              </button>
+                    return (
+                      <Tooltip key={att.id}>
+                        <TooltipTrigger asChild>
+                          <a
+                            href={url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="block rounded-lg overflow-hidden border border-border/40 hover:border-border bg-accent/30 hover:bg-accent/50"
+                          >
+                            <img
+                              src={url}
+                              alt={att.filename}
+                              className="h-32 max-w-[200px] object-cover"
+                              loading="lazy"
+                            />
+                          </a>
+                        </TooltipTrigger>
+                        <TooltipContent data-an-block>
+                          {att.filename}
+                        </TooltipContent>
+                      </Tooltip>
+                    );
+                  })}
+              </div>
             )}
+            {/* Non-image files + download all */}
+            <div className="flex flex-wrap items-center gap-2">
+              {email.attachments
+                .filter((a) => !a.mimeType.startsWith("image/"))
+                .map((att) => (
+                  <a
+                    key={att.id}
+                    href={
+                      att.url
+                        ? appApiPath(att.url)
+                        : appApiPath(
+                            `/api/attachments?messageId=${email.id}&id=${encodeURIComponent(att.id)}`,
+                          )
+                    }
+                    download={att.filename}
+                    className="flex items-center gap-2 rounded-lg bg-accent/60 px-3 py-2 text-xs hover:bg-accent cursor-pointer"
+                  >
+                    <IconPaperclip className="h-3 w-3 text-muted-foreground shrink-0" />
+                    <span className="text-foreground/80 truncate max-w-[180px]">
+                      {att.filename}
+                    </span>
+                    <span className="text-muted-foreground">
+                      {formatFileSize(att.size)}
+                    </span>
+                  </a>
+                ))}
+              {email.attachments.length > 1 && (
+                <button
+                  type="button"
+                  aria-label={t("mail.thread.downloadAll")}
+                  onClick={() => {
+                    for (const att of email.attachments ?? []) {
+                      const a = document.createElement("a");
+                      a.href = att.url
+                        ? appApiPath(att.url)
+                        : appApiPath(
+                            `/api/attachments?messageId=${email.id}&id=${encodeURIComponent(att.id)}`,
+                          );
+                      a.download = att.filename;
+                      a.click();
+                    }
+                  }}
+                  className="flex items-center gap-1.5 text-xs text-muted-foreground hover:text-foreground"
+                >
+                  <IconDownload className="h-3 w-3" />
+                  {t("mail.thread.downloadAll")}
+                </button>
+              )}
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
       {isFromMe && <TrackingFooter messageId={email.id} />}
     </div>
@@ -3799,49 +3815,41 @@ function ThreadSearchBar({
         </span>
       )}
       <div className="flex items-center gap-0.5 shrink-0">
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={onPrev}
-              aria-label={t("mail.thread.previousMatch")}
-              disabled={totalMatches === 0}
-              className="flex h-8 w-8 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-            >
-              <IconChevronUp className="h-3.5 w-3.5 sm:h-3 sm:w-3" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>
-            {t("mail.thread.previousMatch")} (Shift+Enter)
-          </TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={onNext}
-              aria-label={t("mail.thread.nextMatch")}
-              disabled={totalMatches === 0}
-              className="flex h-8 w-8 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-            >
-              <IconChevronDown className="h-3.5 w-3.5 sm:h-3 sm:w-3" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{t("mail.thread.nextMatch")} (Enter)</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label={t("mail.thread.closeSearch")}
-              className="flex h-8 w-8 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ms-1"
-            >
-              <IconX className="h-3.5 w-3.5 sm:h-3 sm:w-3" />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent>{t("mail.thread.closeSearch")} (Esc)</TooltipContent>
-        </Tooltip>
+        <ActionTooltip
+          label={t("mail.thread.previousMatch")}
+          keys={["Shift", "Enter"]}
+        >
+          <button
+            type="button"
+            onClick={onPrev}
+            aria-label={t("mail.thread.previousMatch")}
+            disabled={totalMatches === 0}
+            className="flex h-8 w-8 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            <IconChevronUp className="h-3.5 w-3.5 sm:h-3 sm:w-3" />
+          </button>
+        </ActionTooltip>
+        <ActionTooltip label={t("mail.thread.nextMatch")} keys={["Enter"]}>
+          <button
+            type="button"
+            onClick={onNext}
+            aria-label={t("mail.thread.nextMatch")}
+            disabled={totalMatches === 0}
+            className="flex h-8 w-8 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+          >
+            <IconChevronDown className="h-3.5 w-3.5 sm:h-3 sm:w-3" />
+          </button>
+        </ActionTooltip>
+        <ActionTooltip label={t("mail.thread.closeSearch")} keys={["Esc"]}>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label={t("mail.thread.closeSearch")}
+            className="flex h-8 w-8 sm:h-6 sm:w-6 items-center justify-center rounded text-muted-foreground hover:text-foreground hover:bg-accent transition-colors ms-1"
+          >
+            <IconX className="h-3.5 w-3.5 sm:h-3 sm:w-3" />
+          </button>
+        </ActionTooltip>
       </div>
     </div>
   );

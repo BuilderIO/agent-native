@@ -8,13 +8,13 @@ class PreviewBoundary extends Component<
   { children: ReactNode; className?: string; label: string },
   { error: Error | null }
 > {
-  state: { error: Error | null } = { error: null };
+  override state: { error: Error | null } = { error: null };
 
   static getDerivedStateFromError(error: unknown) {
     return { error: error instanceof Error ? error : new Error(String(error)) };
   }
 
-  render() {
+  override render() {
     const error = this.state.error;
     if (!error) return this.props.children;
     const code =

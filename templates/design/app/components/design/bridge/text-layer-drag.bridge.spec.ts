@@ -99,6 +99,13 @@ const parentId = (page: Page, nodeId: string) =>
     nodeId,
   );
 
+// A plain click selects the screen's top-level layer; Cmd+click reaches a run.
+async function deepSelectAt(page: Page, point: { x: number; y: number }) {
+  await page.keyboard.down("Meta");
+  await page.mouse.click(point.x, point.y);
+  await page.keyboard.up("Meta");
+}
+
 async function withPage(run: (page: Page) => Promise<void>) {
   const browser = await chromium.launch({ headless: true });
   try {
@@ -112,7 +119,7 @@ describe("dragging an inline text run on the canvas", () => {
   async function clickThenDragRight(page: Page, nodeId: string, dx: number) {
     const box = await boxOf(page, nodeId);
     const center = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-    await page.mouse.click(center.x, center.y);
+    await deepSelectAt(page, center);
     await page.waitForTimeout(400);
     const selectedBeforeDrag = await lastSelectedId(page);
     await drag(page, center, { x: center.x + dx, y: center.y });
@@ -165,7 +172,7 @@ describe("dragging a layer of its own inside a text-bearing parent", () => {
     const box = await boxOf(page, nodeId);
     const tail = await boxOf(page, "tail");
     const center = { x: box.x + box.width / 2, y: box.y + box.height / 2 };
-    await page.mouse.click(center.x, center.y);
+    await deepSelectAt(page, center);
     await page.waitForTimeout(400);
     await drag(page, center, { x: tail.x + 8, y: tail.y + tail.height + 4 });
   }

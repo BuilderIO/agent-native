@@ -1,4 +1,11 @@
-import { resolveBuilderCredential } from "@agent-native/core/server";
+import { fail } from "@agent-native/core/action";
+import {
+  BUILDER_CONTENT_WRITE_SCOPE,
+  BUILDER_OAUTH_RESOURCE,
+  resolveBuilderLegacyRequestAuthorization,
+  resolveBuilderRequestAuthorization,
+  type BuilderRequestAuthorization,
+} from "@agent-native/core/server";
 
 export interface BuilderCmsWriteRequest {
   method: "POST" | "PATCH";
@@ -20,7 +27,10 @@ export const DEFAULT_BUILDER_CMS_WRITE_TIMEOUT_MS = 30_000;
 
 type FetchLike = typeof fetch;
 
-function builderWriteApiHost() {
+function builderWriteApiHost(source: BuilderRequestAuthorization["source"]) {
+  // An OAuth bearer goes only to the Builder API resource it was issued for;
+  // the host overrides apply to private keys alone.
+  if (source === "oauth") return BUILDER_OAUTH_RESOURCE;
   return (
     process.env.BUILDER_CONTENT_API_HOST ??
     process.env.BUILDER_CMS_API_HOST ??
@@ -28,11 +38,48 @@ function builderWriteApiHost() {
   ).replace(/\/+$/, "");
 }
 
-async function readBuilderPrivateKey() {
-  return (
-    (await resolveBuilderCredential("BUILDER_PRIVATE_KEY")) ??
-    (await resolveBuilderCredential("BUILDER_CMS_PRIVATE_KEY"))
-  );
+// Only the Builder docs sync still writes with deploy keys; Sources write
+// through their bound Builder.io OAuth connection alone.
+const BUILDER_DOCS_LEGACY_CREDENTIAL_KEYS = [
+  "BUILDER_PRIVATE_KEY",
+  "BUILDER_CMS_PRIVATE_KEY",
+] as const;
+
+function assertBuilderWriteSourceBinding(
+  authorization: BuilderRequestAuthorization,
+  expectedSourceSpace: string | null | undefined,
+  expectedSourceConnectionId: string | null | undefined,
+): asserts authorization is BuilderRequestAuthorization & {
+  source: "oauth";
+  oauthResource: "general";
+} {
+  if (
+    authorization.source !== "oauth" ||
+    authorization.oauthResource !== "general"
+  ) {
+    fail(
+      "This Builder source's OAuth connection is unavailable. Reconnect the source before writing.",
+      { errorCode: "builder_connection_required", statusCode: 412 },
+    );
+  }
+  if (!expectedSourceSpace || !expectedSourceConnectionId) {
+    fail(
+      "This Builder source is not bound to its connected space. Refresh the source before writing.",
+      { errorCode: "builder_source_unbound", statusCode: 409 },
+    );
+  }
+  if (authorization.oauthSelectedPublicKey !== expectedSourceSpace) {
+    fail(
+      "The connected Builder space does not match this Content source. Reconnect the source's Builder space before writing.",
+      { errorCode: "builder_source_space_mismatch", statusCode: 409 },
+    );
+  }
+  if (authorization.oauthConnectionId !== expectedSourceConnectionId) {
+    fail(
+      "The connected Builder credential does not match this Content source. Reconnect the source before writing.",
+      { errorCode: "builder_source_connection_mismatch", statusCode: 409 },
+    );
+  }
 }
 
 function parseResponseBody(text: string): unknown {
@@ -136,22 +183,44 @@ function buildWriteResult(args: {
 
 export async function executeBuilderCmsWrite(args: {
   request: BuilderCmsWriteRequest;
+  expectedSourceSpace?: string | null;
+  expectedSourceConnectionId?: string | null;
+  /** The Builder docs sync's deploy-key write; Sources never set it. */
+  legacyOnly?: boolean;
   fetchImpl?: FetchLike;
   /** @deprecated Never used: retrying another transport after dispatch is unsafe. */
   nodeRequestImpl?: unknown;
   timeoutMs?: number;
 }): Promise<BuilderCmsWriteResult> {
-  const privateKey = await readBuilderPrivateKey();
-  if (!privateKey) {
+  const authorization = args.legacyOnly
+    ? await resolveBuilderLegacyRequestAuthorization(
+        BUILDER_DOCS_LEGACY_CREDENTIAL_KEYS,
+      )
+    : await resolveBuilderRequestAuthorization({
+        oauthResource: "general",
+        requiredScope: BUILDER_CONTENT_WRITE_SCOPE,
+        legacyCredentialKeys: [],
+      });
+  if (!authorization) {
     return {
       ok: false,
       status: 0,
       responseBody: null,
-      error: "Builder private key is not configured.",
+      error: "Builder write access is not connected.",
     };
   }
+  if (!args.legacyOnly) {
+    assertBuilderWriteSourceBinding(
+      authorization,
+      args.expectedSourceSpace,
+      args.expectedSourceConnectionId,
+    );
+  }
 
-  const url = new URL(args.request.path, builderWriteApiHost());
+  const url = new URL(
+    args.request.path,
+    builderWriteApiHost(authorization.source),
+  );
   for (const [key, value] of Object.entries(args.request.query ?? {})) {
     url.searchParams.set(key, value);
   }
@@ -159,7 +228,7 @@ export async function executeBuilderCmsWrite(args: {
   const body = JSON.stringify(args.request.body);
   const headers = {
     accept: "application/json",
-    authorization: `Bearer ${privateKey}`,
+    authorization: authorization.authorization,
     "content-type": "application/json",
   };
 

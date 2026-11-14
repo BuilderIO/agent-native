@@ -1,7 +1,12 @@
 import type { AgentApprovalRequest } from "@agent-native/agentkit/protocol";
 import { useT } from "@agent-native/core/client/i18n";
-import { IconShieldCheck } from "@tabler/icons-react";
+import { useState } from "react";
 
+import {
+  ApprovalCard,
+  approvalRequestKind,
+  type ApprovalCardAction,
+} from "../../agentkit/react/approval-card.js";
 import { AgentApprovalPrompt } from "../../agentkit/react/components.js";
 import {
   useAgentKit,
@@ -10,9 +15,6 @@ import {
   useAgentThread,
   type AgentKitRenderProps,
 } from "../../agentkit/react/context.js";
-import { ActionCard } from "../chat/widgets/ActionCard.js";
-import { compactOutlineButtonClassName } from "../components/ui/button-classes.js";
-import { SESSION_REPLAY_MASK_PROPS } from "../session-replay-privacy.js";
 
 type ApprovalSlotProps = AgentKitRenderProps<AgentApprovalRequest> & {
   runId: string;
@@ -112,63 +114,53 @@ function SimpleToolApproval({
     t("agentChat.approval.question", {
       tool: toolName ?? t("agentChat.approval.action"),
     });
-  const resolve = (decision: "approve" | "deny", requestRevision = false) =>
+  const [pressedId, setPressedId] = useState<string>();
+  const resolve = (
+    actionId: string,
+    decision: "approve" | "deny",
+    requestRevision = false,
+  ) => {
+    setPressedId(actionId);
     void resolution
       .execute({ decision, requestRevision })
       .catch(() => undefined)
       .finally(() => requestComposerFocus(threadId));
+  };
+
+  const actions = (
+    [
+      {
+        id: "approve",
+        label: t("agentChat.approval.approve"),
+        intent: "primary",
+        onPress: () => resolve("approve", "approve"),
+      },
+      {
+        id: "deny",
+        label: t("agentChat.approval.deny"),
+        onPress: () => resolve("deny", "deny"),
+      },
+      {
+        id: "edit",
+        label: t("agentChat.approval.edit"),
+        onPress: () => resolve("edit", "deny", true),
+      },
+    ] satisfies ApprovalCardAction[]
+  ).map(
+    (action): ApprovalCardAction => ({
+      ...action,
+      pending: resolution.pending && pressedId === action.id,
+    }),
+  );
 
   return (
-    <div
-      className="agentkit-approval"
-      role="group"
-      aria-label={question}
-      aria-busy={resolution.pending}
-    >
-      <ActionCard
-        icon={<IconShieldCheck aria-hidden="true" className="size-4" />}
-        title={question}
-        status={t("agentChat.approval.pending")}
-        className="border-0 bg-transparent shadow-none"
-        action={
-          <div className="flex shrink-0 items-center gap-2">
-            <button
-              type="button"
-              disabled={resolution.pending}
-              onClick={() => resolve("approve")}
-              className="inline-flex h-8 shrink-0 items-center justify-center rounded-md bg-foreground px-2.5 text-xs font-medium text-background hover:bg-foreground/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-60"
-            >
-              {t("agentChat.approval.approve")}
-            </button>
-            <button
-              type="button"
-              disabled={resolution.pending}
-              onClick={() => resolve("deny")}
-              className={compactOutlineButtonClassName}
-            >
-              {t("agentChat.approval.deny")}
-            </button>
-            <button
-              type="button"
-              disabled={resolution.pending}
-              onClick={() => resolve("deny", true)}
-              className={compactOutlineButtonClassName}
-            >
-              {t("agentChat.approval.edit")}
-            </button>
-          </div>
-        }
-      />
-      {resolution.error ? (
-        <p
-          {...SESSION_REPLAY_MASK_PROPS}
-          role="alert"
-          className="agentkit-command-error block px-3 pb-3 text-xs"
-        >
-          {resolution.error.message}
-        </p>
-      ) : null}
-    </div>
+    <ApprovalCard
+      title={question}
+      status={t("agentChat.approval.pending")}
+      actions={actions}
+      busy={resolution.pending}
+      error={resolution.error?.message}
+    />
   );
 }
 
@@ -176,7 +168,7 @@ export function CoreAgentKitApproval(props: ApprovalSlotProps) {
   const { value: request, runId } = props;
   const toolName = safeToolName(request);
   const simpleToolApproval =
-    (request.kind === undefined || request.kind === "approval") &&
+    approvalRequestKind(request) === "approval" &&
     !request.input &&
     (!request.options || request.options.length === 0);
 

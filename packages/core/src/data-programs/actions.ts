@@ -1,3 +1,4 @@
+import { z } from "zod";
 /**
  * Actions exposed for the data-programs primitive: save/preview/run/list/get/
  * delete. Mirrors the repo's `defineAction` conventions (see
@@ -11,16 +12,16 @@
  * access-scoped through the sharing helpers.
  */
 
-import { z } from "zod";
-
 import { defineAction } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { SandboxCodeEvaluator } from "../coding-tools/run-code.js";
+import { frameworkMcpTools } from "../mcp/framework-tools.js";
 import { hashDataProgramParams, runDataProgram } from "./execute.js";
 import {
   archiveDataProgram,
   getDataProgram,
-  getLatestRun,
+  getLatestFinishedRun,
+  getLatestSuccessfulRun,
   listDataPrograms,
   upsertDataProgram,
   MIN_REFRESH_TTL_MS,
@@ -248,7 +249,7 @@ export function createDataProgramActions(
 
   const getDataProgramAction = defineAction({
     description:
-      "Get one data program's metadata, code, and last-run summary. Set includeRows to include the last run's cached rows.",
+      "Get one data program's metadata, code, and last finished run. When that run failed, lastGoodRun is the newest successful one. Set includeRows to include their cached rows.",
     schema: z.object({
       programId: z.string().min(1),
       includeRows: z.boolean().optional(),
@@ -277,7 +278,14 @@ export function createDataProgramActions(
         ctx?.userEmail,
         ctx?.orgId ?? null,
       );
-      const lastRun = await getLatestRun(program.id, hash);
+      // A background program records its next run as soon as it queues it,
+      // so read the newest finished run, plus the newest success when that
+      // run failed, rather than an empty queued row.
+      const lastRun = await getLatestFinishedRun(program.id, hash);
+      const lastGoodRun =
+        lastRun && lastRun.status !== "succeeded"
+          ? await getLatestSuccessfulRun(program.id, hash)
+          : null;
 
       return {
         id: program.id,
@@ -307,6 +315,18 @@ export function createDataProgramActions(
                 : {}),
             }
           : null,
+        ...(lastGoodRun
+          ? {
+              lastGoodRun: {
+                rowCount: lastGoodRun.rowCount,
+                truncated: lastGoodRun.truncated,
+                finishedAt: lastGoodRun.finishedAt,
+                ...(args.includeRows && lastGoodRun.rowsJson
+                  ? { rows: JSON.parse(lastGoodRun.rowsJson) }
+                  : {}),
+              },
+            }
+          : {}),
       };
     },
   });
@@ -332,12 +352,12 @@ export function createDataProgramActions(
     },
   });
 
-  return {
+  return frameworkMcpTools({
     "save-data-program": saveDataProgram as unknown as ActionEntry,
     "preview-data-program": previewDataProgram as unknown as ActionEntry,
     "run-data-program": runDataProgramAction as unknown as ActionEntry,
     "list-data-programs": listDataProgramsAction as unknown as ActionEntry,
     "get-data-program": getDataProgramAction as unknown as ActionEntry,
     "delete-data-program": deleteDataProgramAction as unknown as ActionEntry,
-  };
+  });
 }

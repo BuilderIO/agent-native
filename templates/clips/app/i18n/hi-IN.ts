@@ -1,4 +1,11 @@
 const messages = {
+  composerSources: {
+    reference: "रिकॉर्डिंग का संदर्भ दें…",
+    group: "रिकॉर्डिंग",
+    authentication: "संदर्भ जोड़ने के लिए साइन इन करें।",
+    invalid: "भेजने से पहले एक मान्य संदर्भ चुनें।",
+    unavailable: "चुना गया संदर्भ अब उपलब्ध नहीं है। उसे हटाएँ या फिर से चुनें।",
+  },
   meetingAsk: { resizeOrDismissAnswers: "जवाबों का आकार बदलें या बंद करें" },
   meetingBrowserConfirmation:
     "Clips इस ब्राउज़र में माइक्रोफ़ोन गतिविधि देखता है, लेकिन यह नहीं पहचान सकता कि मीटिंग किस टैब में है।",
@@ -217,6 +224,7 @@ const messages = {
     spaces: "स्पेस",
     meetings: "मीटिंग्स",
     dictate: "डिक्टेट",
+    fromContent: "Content से",
     archive: "आर्काइव",
     trash: "ट्रैश",
     agent: "एजेंट",
@@ -272,6 +280,10 @@ const messages = {
       title: "कोई आर्काइव की गई रिकॉर्डिंग नहीं",
       body: "आर्काइव किए गए Clips यहाँ तब तक रहते हैं जब तक आप उन्हें वापस लाना न चाहें।",
     },
+    fromContent: {
+      title: "Content से अभी तक कोई अपलोड नहीं",
+      body: "Content पेज पर अपलोड किए गए वीडियो यहाँ Clips के रूप में सहेजे जाते हैं।",
+    },
     trash: {
       title: "ट्रैश खाली है",
       body: "हटाए गए Clips स्थायी रूप से हटने से पहले 30 दिनों तक यहाँ रहते हैं।",
@@ -301,6 +313,46 @@ const messages = {
     clipsRestoreFailed: "{{count}} क्लिप पुनर्स्थापित नहीं की जा सकीं",
     clipsPermanentlyDeleted: "{{count}} क्लिप स्थायी रूप से हटा दी गईं",
     clipsDeleteFailed: "{{count}} क्लिप हटाई नहीं जा सकीं",
+    deletedMediaPending: "वीडियो Clips से हटा दिया गया। हटाने की जाँच चल रही है।",
+    deletedMediaBlocked:
+      "वीडियो Clips से हटा दिया गया। फ़ाइलें हटाए जाने की पुष्टि नहीं हो सकी।",
+    deletedMediaRetained:
+      "रिकॉर्डिंग हटा दी गई। जिन मीडिया फ़ाइलों का अन्य रिकॉर्डिंग अब भी उपयोग करती हैं, उन्हें रखा गया।",
+    clipsDeletedMediaPending:
+      "Clips से हटाए गए वीडियो: {{count}}। हटाने की जाँच चल रही है।",
+    clipsDeletedMediaBlocked:
+      "Clips से हटाए गए वीडियो: {{count}}। फ़ाइलें हटाए जाने की पुष्टि नहीं हो सकी।",
+    clipsDeletedMediaRetained:
+      "हटाई गई रिकॉर्डिंग: {{count}}। जिन मीडिया फ़ाइलों का अन्य रिकॉर्डिंग अब भी उपयोग करती हैं, उन्हें रखा गया।",
+    deletedMediaFinalizing:
+      "वीडियो Clips से हटा दिया गया। स्टोरेज उपयोग का अपडेट दोबारा आज़माना होगा।",
+    clipsDeletedMediaFinalizing:
+      "Clips से हटाए गए वीडियो: {{count}}। स्टोरेज उपयोग का अपडेट दोबारा आज़माना होगा।",
+    mediaCleanupFinalizing: "स्टोरेज उपयोग का अपडेट दोबारा आज़माना होगा",
+    mediaCleanupFinalizingHelp:
+      "फ़ाइलें हटाने की जाँच पूरी हो गई है, लेकिन यह वीडियो अभी भी आपकी स्टोरेज सीमा में गिना जा सकता है। अपना कुल स्टोरेज अपडेट करने के लिए उपयोग अपडेट करने का फिर से प्रयास करें।",
+    mediaCleanupListLabel: "मीडिया हटाना",
+    mediaCleanupPending: "हटाने की जाँच जारी है",
+    mediaCleanupPendingHelp:
+      "Clips बैकग्राउंड में जाँच जारी रखता है। आप यह पेज छोड़ सकते हैं और अपडेट के लिए ट्रैश देख सकते हैं।",
+    mediaCleanupBlocked: "वीडियो फ़ाइलें हटाए जाने की पुष्टि नहीं हो सकी",
+    mediaCleanupBlockedHelp:
+      "स्टोर की गई वीडियो फ़ाइलें अभी भी मौजूद हो सकती हैं। हटाने का फिर से प्रयास करने पर एक और कोशिश शुरू होती है। आप यह पेज छोड़ सकते हैं और परिणाम के लिए ट्रैश देख सकते हैं।",
+    mediaCleanupReconnect:
+      "हटाई गई रिकॉर्डिंग की मीडिया फ़ाइलें हटाने के लिए स्टोरेज फिर से कनेक्ट करें",
+    mediaCleanupRetained:
+      "हटाई गई रिकॉर्डिंग की साझा मीडिया फ़ाइलें तब तक रखी जाती हैं जब तक अन्य रिकॉर्डिंग उनका उपयोग करती हैं",
+    mediaCleanupHelp: "अधिक जानकारी",
+    mediaCleanupRetryFiles: "हटाने की दोबारा कोशिश करें",
+    mediaCleanupRetryingFiles: "वीडियो फ़ाइलें हटाने की दोबारा कोशिश हो रही है",
+    mediaCleanupRetryUsage: "उपयोग अपडेट की दोबारा कोशिश करें",
+    mediaCleanupRetryingUsage: "स्टोरेज उपयोग अपडेट की दोबारा कोशिश हो रही है",
+    mediaCleanupRemoved: "मीडिया फ़ाइलें हटा दी गईं",
+    mediaCleanupUsageUpdated: "स्टोरेज उपयोग अपडेट हो गया",
+    mediaCleanupStillBlocked: "वीडियो फ़ाइलें हटाए जाने की पुष्टि अब भी नहीं हो सकी",
+    mediaCleanupStillFinalizing: "स्टोरेज उपयोग का अपडेट अब भी दोबारा आज़माना होगा",
+    mediaCleanupRetryFailed: "दोबारा कोशिश शुरू नहीं हो सकी। फिर से कोशिश करें।",
+    mediaCleanupLoadFailed: "मीडिया हटाने की स्थिति लोड नहीं हो सकी",
   },
   recordingRoute: {
     pageTitle: "क्लिप रिकॉर्डिंग · Clips",
@@ -336,6 +388,8 @@ const messages = {
     fillerCompleted: "भराव शब्द हटाना पूरा हुआ",
     workflowReady: "वर्कफ़्लो तैयार है",
     workflowFailed: "वर्कफ़्लो बनाना विफल रहा",
+    workflowCancelled: "वर्कफ़्लो बनाना रद्द किया गया",
+    workflowTimedOut: "वर्कफ़्लो बनाने का समय समाप्त हो गया",
     transcriptionCompleted: "प्रतिलेखन पूरा हुआ",
     transcriptNotReady: "प्रतिलेख अभी तैयार नहीं है",
     tryAfterTranscription: "प्रतिलेखन समाप्त होने के बाद पुनः प्रयास करें।",
@@ -349,6 +403,8 @@ const messages = {
     fillerQueued: "भराव शब्द हटाए जा रहे हैं…",
     silenceQueued: "मौन हटाया जा रहा है…",
     workflowQueued: "वर्कफ़्लो बनाया जा रहा है…",
+    workflowStillGenerating: "वर्कफ़्लो अभी भी बनाया जा रहा है…",
+    workflowTakingLonger: "इसमें सामान्य से अधिक समय लग रहा है…",
     pageTitle: "क्लिप रिकॉर्डिंग · Clips",
     loomMissingUrl: "इस Loom रिकॉर्डिंग में इसका स्रोत URL गायब है।",
     finalizeFailed: "अंतिम रूप देना विफल ({{status}})",
@@ -550,6 +606,8 @@ const messages = {
     them: "उन्हें",
     me: "मुझे",
     regeneratingNotes: "सारांश पुन: उत्पन्न कर रहे हैं",
+    notesAlreadyGenerating:
+      "सारांश पहले से बनाया जा रहा है। तैयार होने पर यह यहाँ दिखेगा।",
     meetingRemoved: "मीटिंग हटा दी गई",
     couldNotRemoveMeeting: "मीटिंग को हटाया नहीं जा सका",
     couldNotLoadMeeting: "इस मीटिंग को लोड नहीं किया जा सका.",
@@ -575,6 +633,13 @@ const messages = {
     desktopHint:
       "नोट्स शुरू करने के लिए, मेनू बार से Clips Desktop खोलें और Start Meeting Notes चुनें, या रिमाइंडर आने पर Start notes पर क्लिक करें। Clips माइक्रोफ़ोन और सिस्टम ऑडियो कैप्चर करके यहां ट्रांसक्रिप्ट लिखता है।",
     getDesktopApp: "डेस्कटॉप ऐप प्राप्त करें",
+    earlierAudioAdded_one: "आपके शुरू करने से पहले का {{count}} मिनट जोड़ा गया",
+    earlierAudioAdded_other: "आपके शुरू करने से पहले के {{count}} मिनट जोड़े गए",
+    earlierAudioUnreadable: "इस ट्रांसक्रिप्ट में पहले के ऑडियो की जाँच नहीं हो सकी",
+    removeEarlierAudioTitle: "पहले का ऑडियो हटाएँ?",
+    removeEarlierAudioDescription:
+      "इससे यह ट्रांसक्रिप्ट से हट जाएगा और सारांश, एक्शन आइटम और क्लिप का विवरण फिर से बनेंगे, भले ही वह विवरण आपने खुद लिखा हो। जनरेट किया गया शीर्षक भी फिर से बनेगा; आपका चुना हुआ शीर्षक बना रहेगा। सभी अध्याय भी हटा दिए जाएँगे।",
+    couldNotRemoveEarlierAudio: "पहले का ऑडियो नहीं हटाया जा सका",
     generateNotesFailed: "सारांश जनरेट नहीं किया जा सका. पुनः प्रयास करें।",
     attendee_one: "{{count}} सहभागी",
     attendee_other: "{{count}} उपस्थितगण",
@@ -625,6 +690,10 @@ const messages = {
     noMatches: "कोई मेल नहीं।",
     noTranscript: "अभी तक कोई प्रतिलेख नहीं.",
     noTranscriptCaptured: "कोई प्रतिलेख कैप्चर नहीं किया गया.",
+    unreadableDescription:
+      "सहेजा गया प्रतिलेख खराब हो गया है। इसे फिर से बनाने पर क्लिप के ऑडियो से नया प्रतिलेख बनता है।",
+    partialTranscript:
+      "आंशिक प्रतिलेख: रिकॉर्डिंग कट गई थी, इसलिए कुछ हिस्सा गायब हो सकता है।",
     backupFailed:
       "कोई भी भाषण स्थानीय रूप से कैप्चर नहीं किया गया, और बैकअप ट्रांसक्रिप्शन समाप्त नहीं हुआ। पुनः प्रयास करें या माइक्रोफ़ोन और वाक् अनुमतियाँ जाँचें।",
     backupNotSetup:
@@ -704,6 +773,10 @@ const messages = {
     saveThumbnail: "थंबनेल सेव करें",
   },
   shareDialog: {
+    enterPassword: "पासवर्ड दर्ज करें",
+    showPassword: "पासवर्ड दिखाएं",
+    hidePassword: "पासवर्ड छिपाएं",
+    copyPassword: "पासवर्ड कॉपी करें",
     redactionsPendingTitle: "शेयर करने से पहले छिपाए गए हिस्सों को लागू करें",
     redactionsPendingBody:
       "लंबित छिपाए गए हिस्से: {{count}}. शेयर करने से पहले इन्हें एडिटर में लागू करें; वीडियो में अभी भी मूल सामग्री मौजूद है।",
@@ -729,7 +802,7 @@ const messages = {
     openInCodex: "Codex में खोलें",
     copyAgentPrompt: "एजेंट प्रॉम्प्ट कॉपी करें",
     agentPrompt:
-      "यह Clips एजेंट संदर्भ URL पढ़ें: {{agentContextUrl}}। apis.transcript से पूरा ट्रांसक्रिप्ट पढ़ें और recommendedFrames[].url (या atMs के साथ apis.frame.urlTemplate) को इमेज के रूप में प्राप्त करें। id और agent_access को जैसा दिया गया है वैसा ही रखें। हर त्रुटि पर JSON उत्तर में failureKind, error और nextStep देखें। यदि failureKind=access है, बताएं कि लिंक से पहुंच नहीं मिलती; निजी क्लिप के लिए मालिक से Clips Share मेनू में {{shareWithAgents}} चुनकर बनाया गया लिंक भेजने को कहें। यदि failureKind=media है और ट्रांसक्रिप्ट काम कर रहा है, बताएं कि सहेजा गया मीडिया प्राप्त नहीं हो सका; नया लिंक इसे ठीक नहीं करेगा। यदि failureKind=processing है, तो nextStep का पालन करें; इसका अर्थ यह नहीं कि क्लिप गायब है या लिंक अमान्य है। यदि failureKind=expired है, मालिक से Share मेनू में क्लिप की expiry बढ़ाने या हटाने, बदलाव सहेजने, फिर {{shareWithAgents}} चुनकर नया लिंक भेजने को कहें। बग रिपोर्ट में उपलब्ध होने पर browserDiagnostics भी देखें।",
+      "यह Clips एजेंट संदर्भ URL पढ़ें: {{agentContextUrl}}। apis.transcript से पूरा ट्रांसक्रिप्ट पढ़ें और recommendedFrames[].url (या atMs के साथ apis.frame.urlTemplate) को इमेज के रूप में प्राप्त करें। id और agent_access को जैसा दिया गया है वैसा ही रखें। हर त्रुटि पर JSON उत्तर में failureKind, error और nextStep देखें। यदि failureKind=access है, बताएं कि लिंक से पहुंच नहीं मिलती; निजी क्लिप के लिए मालिक से Clips Share मेनू में {{shareWithAgents}} चुनकर बनाया गया लिंक भेजने को कहें। यदि failureKind=media है और ट्रांसक्रिप्ट काम कर रहा है, बताएं कि सहेजा गया मीडिया प्राप्त नहीं हो सका; नया लिंक इसे ठीक नहीं करेगा। यदि failureKind=processing है, तो nextStep का पालन करें; इसका अर्थ यह नहीं कि क्लिप गायब है या लिंक अमान्य है। यदि failureKind=expired है, मालिक से Share मेनू में क्लिप की expiry बढ़ाने या हटाने, बदलाव सहेजने, फिर {{shareWithAgents}} चुनकर नया लिंक भेजने को कहें। बग रिपोर्ट में उपलब्ध होने पर browserDiagnostics भी देखें। यदि आप फ़्रेम URL को इमेज के रूप में नहीं खोल सकते, तो उपलब्ध होने पर इसी संदर्भ URL की रिकॉर्डिंग ID के साथ Clips का get-recording-frames टूल कॉल करें। यदि उपलब्ध नहीं है, तो उपयोगकर्ता को बताएं कि {{connectUrl}} पर Clips को कनेक्ट करने से आप फ़्रेम देख सकेंगे।",
     agentTokenDescription:
       "यह क्लिप सार्वजनिक नहीं है, इसलिए एजेंटों के लिए अस्थायी रीड-ओनली लिंक। 2 घंटे में समाप्त।",
     agentPublicDescription:
@@ -744,12 +817,16 @@ const messages = {
     chooseFile: "फ़ाइल चुनें",
     remove: "हटाएं",
     downloadMp4: "MP4 डाउनलोड करें",
-    embedsNeedPublic: "एंबेड को एक सार्वजनिक क्लिप की आवश्यकता है",
-    embedPublicDescription:
-      "यह क्लिप वर्तमान में {{visibility}} है। एंबेडेड आईफ्रेम गुमनाम रूप से लोड होते हैं, इसलिए दर्शकों के देखने के लिए क्लिप सार्वजनिक होनी चाहिए।",
-    makingPublic: "सार्वजनिक किया जा रहा है...",
-    makePublic: "सार्वजनिक करो",
     askOwnerPublic: "मालिक से इसे सार्वजनिक करने के लिए कहें.",
+    advanced: "उन्नत",
+    passwordSet: "पासवर्ड सेट है",
+    noPassword: "कोई पासवर्ड नहीं",
+    linkExpires: "लिंक की समाप्ति",
+    expiresOn: "{{date}} को समाप्त होगा",
+    neverExpires: "कभी समाप्त नहीं होता",
+    embedNeedsLinkAccess:
+      "एम्बेड किए गए प्लेयर बिना साइन इन के लोड होते हैं, इसलिए वे तभी चलते हैं जब लिंक वाला कोई भी व्यक्ति देख सकता है।",
+    changeGeneralAccess: "सामान्य एक्सेस बदलें",
     responsive: "प्रतिक्रियाशील (16:9)",
     fixedSize: "निश्चित आकार",
     embedIframeTitle: "Clips वीडियो",
@@ -1325,12 +1402,13 @@ const messages = {
     actionItems: "कार्य आइटम",
     sharedContent: "साझा की गई सामग्री",
     summaryIncluded: "सारांश, मुख्य बिंदु और कार्य आइटम",
-    includeTranscript: "पूरी ट्रांसक्रिप्ट शामिल करें",
-    includeTranscriptDescription:
-      "इस मीटिंग का एक्सेस रखने वाला कोई भी व्यक्ति पूरी ट्रांसक्रिप्ट पढ़ सकता है।",
     transcriptUnavailable: "ट्रांसक्रिप्ट अभी तैयार नहीं है।",
-    agentLinkDescription:
-      "यह अस्थायी लिंक एजेंट को इन मीटिंग नोट्स को सार्वजनिक किए बिना पढ़ने देता है। यह दो घंटे बाद समाप्त हो जाता है।",
+    transcriptOnShareLink: "शेयर लिंक पर ट्रांसक्रिप्ट",
+    transcriptOnShareLinkDescription:
+      "आपके आमंत्रित लोग Clips में हमेशा ट्रांसक्रिप्ट देखते हैं।",
+    linkShowsTranscript: "लिंक में ट्रांसक्रिप्ट शामिल है",
+    linkShowsNotesOnly: "लिंक केवल नोट्स दिखाता है",
+    copyAgentLink: "एजेंट लिंक कॉपी करें",
     transcript: "ट्रांसक्रिप्ट",
     copyTranscript: "ट्रांसक्रिप्ट कॉपी करें",
     transcriptCopied: "ट्रांसक्रिप्ट कॉपी हो गई",
@@ -1452,6 +1530,7 @@ const messages = {
   transcriptBubbles: {
     listening: "सुन रहा है…",
     noTranscript: "अभी कोई ट्रांसक्रिप्ट नहीं।",
+    unreadable: "यह ट्रांसक्रिप्ट पढ़ी नहीं जा सकी।",
     liveTranscriptDescription: "नोट्स शुरू होने पर लाइव ट्रांसक्रिप्ट यहां दिखाई देगी।",
     me: "मैं",
     them: "वे",
@@ -1650,10 +1729,10 @@ const messages = {
     openDesktopApp: "Open desktop app (स्थानीयकृत)",
   },
   editableTitle: {
-    untitled: "Untitled Clip (स्थानीयकृत)",
+    untitled: "शीर्षक रहित क्लिप",
     renameFailed: "Failed to rename clip (स्थानीयकृत)",
     emptyTitle: "Title cannot be empty (स्थानीयकृत)",
-    generatingTitle: "Generating title (स्थानीयकृत)",
+    generatingTitle: "शीर्षक उत्पन्न करना",
     placeholder: "Clip title (स्थानीयकृत)",
     editLabel: "Edit clip title (स्थानीयकृत)",
   },
@@ -1933,6 +2012,7 @@ const messages = {
   recordRoute: {
     freeClipsLeft_one: "{{count}} मुफ़्त क्लिप बाकी",
     freeClipsLeft_other: "{{count}} मुफ़्त क्लिप बाकी",
+    activateBuilder: "Builder.io सक्रिय करें",
     hostedClipsExhaustedTitle:
       "रिकॉर्डिंग जारी रखने के लिए Builder.io को मुफ़्त में कनेक्ट करें",
     hostedClipsExhaustedDescription:
@@ -2139,6 +2219,12 @@ const messages = {
     flowOriginalTranscript: "मूल ट्रांसक्रिप्ट दिखाएँ",
     flowCleanupSkipped: "टेक्स्ट की सफ़ाई छोड़ी गई; मूल टेक्स्ट रखा गया",
     flowBacktrackSkipped: "टेक्स्ट संपादन छोड़ा गया; पहचाना गया टेक्स्ट रखा गया",
+    flowAppleSpeechParakeetMissing: "Apple Speech · Parakeet डाउनलोड नहीं हुआ",
+    flowAppleSpeechParakeetDownloading:
+      "Apple Speech · Parakeet डाउनलोड हो रहा है",
+    flowAppleSpeechParakeetLoading: "Apple Speech · Parakeet लोड हो रहा है",
+    flowAppleSpeechParakeetBusy: "Apple Speech · Parakeet व्यस्त है",
+    flowAppleSpeechParakeetFailed: "Apple Speech · Parakeet लोड नहीं हो सका",
     flowCancelDictation: "डिक्टेशन रद्द करें",
     flowCopying: "ट्रांसक्रिप्ट कॉपी हो रहा है…",
     aiProcessed: "AI द्वारा प्रोसेस किया गया",
@@ -2273,6 +2359,8 @@ const messages = {
     goHome: "होम पर जाएं",
     testMic: "माइक टेस्ट करें",
     archivePageTitle: "आर्काइव · Clips",
+    fromContentPageTitle: "Content से · Clips",
+    openContentPage: "पेज खोलें",
     insightsPageTitle: "इनसाइट्स · Clips",
     folderPageTitle: "फ़ोल्डर · Clips",
     spacePageTitle: "स्पेस · Clips",

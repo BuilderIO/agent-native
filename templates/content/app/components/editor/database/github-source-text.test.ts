@@ -76,6 +76,7 @@ describe("Link-time errors", () => {
     expect(githubProblemStopsUpdates("connection")).toBe(true);
     expect(githubProblemStopsUpdates("rate_limited")).toBe(false);
     expect(githubProblemStopsUpdates("storage_unavailable")).toBe(false);
+    expect(githubProblemStopsUpdates("storage_failed")).toBe(false);
   });
 });
 

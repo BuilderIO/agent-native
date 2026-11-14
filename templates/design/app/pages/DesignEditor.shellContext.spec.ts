@@ -8,9 +8,7 @@ describe("DesignEditor shell context changes", () => {
   const source = readDesignEditorSource();
   const handler = source.slice(
     source.indexOf('if (data.type === "design:init")'),
-    source.indexOf(
-      "const selectionUndoStackRef = useRef<SelectionHistoryEntry[]>([]);",
-    ),
+    source.indexOf("const clearRedoStacks = useCallback(() => {"),
   );
 
   it("discards pending edits when the host repoints the shell", () => {

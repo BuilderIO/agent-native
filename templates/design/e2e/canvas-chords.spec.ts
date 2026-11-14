@@ -302,7 +302,10 @@ async function clickFirstVisibleTextFragment(
     };
   });
   const point = await app.pagePoint(position.x, position.y);
+  // Cmd+click reaches the phrase; a plain click takes the top-level layer.
+  await app.page.keyboard.down(MOD);
   await app.page.mouse.click(point.x, point.y);
+  await app.page.keyboard.up(MOD);
 }
 
 async function replaceFlowTextTarget(
@@ -545,10 +548,10 @@ function layerTree(page: Page) {
 }
 
 async function selectLayerRow(page: Page, name: string): Promise<void> {
-  const input = page.getByPlaceholder("Search layers...");
+  const input = page.getByPlaceholder("Search layers");
   if (!(await input.isVisible().catch(() => false))) {
     await page
-      .getByRole("button", { name: "Search layers...", exact: true })
+      .getByRole("button", { name: "Search layers", exact: true })
       .click();
     await expect(input).toBeVisible();
   }
@@ -614,6 +617,90 @@ async function writeLegacyMarginClipboard(
     },
     { fileId, margins },
   );
+}
+
+const BOARD_FRAME =
+  "[data-board-surface-layer] iframe[data-design-preview-iframe]";
+
+/** The page-space centre of the canvas the side panels leave visible. */
+async function visibleCanvasCenter(page: Page) {
+  return page.locator("[data-design-canvas-container]").evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    const inset = (side: string) =>
+      Number(element.getAttribute(`data-an-native-preview-inset-${side}`) ?? 0);
+    return {
+      x: (rect.left + inset("left") + rect.right - inset("right")) / 2,
+      y: (rect.top + rect.bottom) / 2,
+    };
+  });
+}
+
+/** Each pasted legacy layer on the board: its saved placement and where it renders. */
+async function boardLegacyCopies(page: Page, names: string[]) {
+  const frame = page.locator(BOARD_FRAME);
+  const iframeBox = (await frame.boundingBox())!;
+  return frame
+    .contentFrame()
+    .locator("body")
+    .evaluate(
+      (body, { names, iframeBox }) => {
+        const offset = body.ownerDocument.querySelector(
+          "style[data-agent-native-content-offset]",
+        );
+        const readOffset = (attribute: string) => {
+          if (!offset) return 0;
+          const value = offset.getAttribute(attribute);
+          if (!value?.trim()) throw new Error("Missing board content offset");
+          return Number(value);
+        };
+        const offsetX = readOffset("data-agent-native-content-offset-x");
+        const offsetY = readOffset("data-agent-native-content-offset-y");
+        const scale =
+          iframeBox.width / body.ownerDocument.documentElement.clientWidth;
+        return names.map((name) => {
+          const element = body.ownerDocument.querySelector<HTMLElement>(
+            `[data-agent-native-layer-name="${name}"]`,
+          );
+          if (!element) throw new Error(`No pasted layer named ${name}`);
+          const rect = element.getBoundingClientRect();
+          return {
+            inBody: element.parentElement === body,
+            position: element.style.position,
+            left: element.style.left,
+            top: element.style.top,
+            margin: [
+              element.style.marginTop,
+              element.style.marginRight,
+              element.style.marginBottom,
+              element.style.marginLeft,
+            ],
+            x: rect.left - offsetX,
+            y: rect.top - offsetY,
+            page: {
+              left: iframeBox.x + rect.left * scale,
+              top: iframeBox.y + rect.top * scale,
+              right: iframeBox.x + rect.right * scale,
+              bottom: iframeBox.y + rect.bottom * scale,
+            },
+          };
+        });
+      },
+      { names, iframeBox },
+    );
+}
+
+function expectCenteredOn(
+  copies: Array<{
+    page: { left: number; top: number; right: number; bottom: number };
+  }>,
+  center: { x: number; y: number },
+) {
+  const left = Math.min(...copies.map((copy) => copy.page.left));
+  const right = Math.max(...copies.map((copy) => copy.page.right));
+  const top = Math.min(...copies.map((copy) => copy.page.top));
+  const bottom = Math.max(...copies.map((copy) => copy.page.bottom));
+  expect(Math.abs((left + right) / 2 - center.x)).toBeLessThanOrEqual(1);
+  expect(Math.abs((top + bottom) / 2 - center.y)).toBeLessThanOrEqual(1);
 }
 
 test.describe("canvas chords", () => {
@@ -1125,7 +1212,7 @@ test.describe("canvas chords", () => {
     );
   });
 
-  test("Keyboard paste preserves non-pixel margins at exact visual coordinates", async ({
+  test("Keyboard paste with nothing selected starts a board and centres legacy layers on the view", async ({
     app,
     context,
   }) => {
@@ -1134,6 +1221,7 @@ test.describe("canvas chords", () => {
       '<!doctype html><html><body style="margin:0;position:relative;width:1000px;height:800px"></body></html>',
     );
     const margins = ["0px auto", "10%", "2em"];
+    const names = margins.map((_, index) => `Legacy margin ${index}`);
     const fileId = await app.page
       .locator("iframe[data-design-preview-iframe]")
       .first()
@@ -1146,33 +1234,46 @@ test.describe("canvas chords", () => {
     await expect
       .poll(
         async () =>
-          [...(await app.savedNodes(id)).values()].filter((node) =>
-            node.attrs["data-agent-native-layer-name"]?.startsWith(
-              "Legacy margin ",
-            ),
+          [...(await app.savedNodes(id, "__board__.html")).values()].filter(
+            (node) =>
+              node.attrs["data-agent-native-layer-name"]?.startsWith(
+                "Legacy margin ",
+              ),
           ).length,
       )
       .toBe(3);
     await app.settled();
-    const nodes = [...(await app.savedNodes(id)).values()];
-    for (const [index, margin] of margins.entries()) {
-      const copy = nodes.find(
-        (node) =>
-          node.attrs["data-agent-native-layer-name"] ===
-          `Legacy margin ${index}`,
-      )!;
-      expect(copy).toBeDefined();
-      const geometry = await renderedBounds(app, copy.id);
-      expect({ x: geometry.x, y: geometry.y }).toEqual({
-        x: 24 + index * 16,
-        y: 24 + index * 16,
+    expect(
+      [...(await app.savedNodes(id)).values()].filter((node) =>
+        node.attrs["data-agent-native-layer-name"]?.startsWith(
+          "Legacy margin ",
+        ),
+      ),
+    ).toEqual([]);
+    await expect(app.page.locator(BOARD_FRAME)).toBeVisible();
+    const copies = await boardLegacyCopies(app.page, names);
+    const [first] = copies;
+    // No board had rendered, so a leading margin cannot be measured: it is
+    // zeroed and left/top alone place each copy.
+    const keptMargins = [
+      ["0px", "auto", "0px", "0px"],
+      ["0px", "10%", "10%", "0px"],
+      ["0px", "2em", "2em", "0px"],
+    ];
+    for (const [index, copy] of copies.entries()) {
+      expect(copy).toMatchObject({
+        inBody: true,
+        position: "absolute",
+        left: `${Number.parseInt(first!.left) + index * 16}px`,
+        top: `${Number.parseInt(first!.top) + index * 16}px`,
+        margin: keptMargins[index],
+        x: Number.parseInt(first!.left) + index * 16,
+        y: Number.parseInt(first!.top) + index * 16,
       });
-      expect(
-        await app
-          .node(copy.id)
-          .evaluate((element) => (element as HTMLElement).style.margin),
-      ).toBe(margin);
+      expect(copy.left).toMatch(/^-?\d+px$/);
+      expect(copy.top).toMatch(/^-?\d+px$/);
     }
+    expectCenteredOn(copies, await visibleCanvasCenter(app.page));
   });
 
   test("Keyboard repeat paste preserves mixed positioned and flow roots", async ({
@@ -1477,7 +1578,7 @@ test.describe("canvas chords", () => {
         node.dataAttributes["data-agent-native-node-id"] === firstCopy.id,
     );
     expect(firstCopyLayer).toBeDefined();
-    const layerSearch = app.page.getByPlaceholder("Search layers...");
+    const layerSearch = app.page.getByPlaceholder("Search layers");
     await expect(layerSearch).toBeVisible();
     await layerSearch.fill("RTL relative source");
     const firstCopyButton = app.page
@@ -1510,8 +1611,10 @@ test.describe("canvas chords", () => {
     const secondCopyPosition = await savedInlinePositionStyle(app, secondCopy);
     expect(secondCopyPosition.position).toBe("relative");
     const secondBounds = await renderedBounds(app, secondCopy.id);
-    expect(secondBounds.x).toBe(firstMovedBounds.x + 16);
-    expect(secondBounds.y).toBe(firstMovedBounds.y + 16);
+    // The paste lands on whole pixels: the copied 24.25px/44.5px offset
+    // becomes 24px/45px.
+    expect(secondBounds.x).toBe(firstMovedBounds.x + 16 - 0.25);
+    expect(secondBounds.y).toBe(firstMovedBounds.y + 16 + 0.5);
     expect(styleOf(afterRepeat.get("rtl-source"))).toEqual(
       styleOf(before.get("rtl-source")),
     );
@@ -1519,14 +1622,14 @@ test.describe("canvas chords", () => {
     expectOnlyChanged(before, afterRepeat, [firstCopy.id, secondCopy.id]);
     expect(secondCopyPosition).toEqual({
       position: "relative",
-      left: "24.25px",
-      top: "44.5px",
+      left: "24px",
+      top: "45px",
       right: "auto",
       bottom: "auto",
     });
   });
 
-  test("Keyboard paste preserves relative roots without an anchor across screens", async ({
+  test("Keyboard paste into another selected screen places a relative root without an anchor at its old offset", async ({
     app,
     context,
   }) => {
@@ -1603,7 +1706,10 @@ test.describe("canvas chords", () => {
       sourceBounds.y + sourceBounds.height / 2,
       "index.html",
     );
+    // Cmd+click reaches the nested root; a plain click takes its top-level parent.
+    await app.page.keyboard.down(MOD);
     await app.page.mouse.click(sourcePoint.x, sourcePoint.y);
+    await app.page.keyboard.up(MOD);
     await expect
       .poll(() => app.selectedLayers())
       .toEqual(["Relative no anchor"]);
@@ -1614,11 +1720,9 @@ test.describe("canvas chords", () => {
     await expect
       .poll(() => new URL(app.page.url()).searchParams.get("screen"))
       .toBe(destinationFileId);
-    await app.page.keyboard.press("Escape");
-    await expect.poll(() => app.selectedLayers()).toEqual([]);
-    await expect
-      .poll(() => new URL(app.page.url()).searchParams.get("screen"))
-      .toBe(destinationFileId);
+    // With the destination screen selected the copy goes inside it; with
+    // nothing selected it would land free on the board.
+    await expect.poll(() => app.selectedLayers()).toEqual(["Screen b"]);
     await expect(
       app.page.locator(
         `iframe[data-design-preview-iframe][data-screen-iframe-id="${destinationFileId}"]`,
@@ -1649,12 +1753,14 @@ test.describe("canvas chords", () => {
     expect(pasted!.parent).toBe(
       [...destinationNodes.values()].find((node) => node.tag === "body")?.id,
     );
+    // A paste into a frame places the copy free at its old offset, on whole
+    // pixels.
     expect(await savedInlinePositionStyle(app, pasted)).toMatchObject({
-      position: "relative",
-      left: "40.25px",
-      right: "7.75px",
-      top: "12.5px",
-      bottom: "9.25px",
+      position: "absolute",
+      left: "40px",
+      right: "",
+      top: "13px",
+      bottom: "",
     });
     expect(
       await app.node(pasted!.id, "screen-b.html").evaluate((element) => {
@@ -1668,9 +1774,9 @@ test.describe("canvas chords", () => {
         };
       }),
     ).toEqual({
-      position: "relative",
-      x: 40.25,
-      y: 12.5,
+      position: "absolute",
+      x: 40,
+      y: 13,
       width: 60,
       height: 30,
     });
@@ -1678,7 +1784,7 @@ test.describe("canvas chords", () => {
     expectOnlyChanged(destinationBefore, destinationNodes, [pasted!.id]);
   });
 
-  test("Keyboard paste and replacement measure the active breakpoint preview", async ({
+  test("Keyboard paste into a selected screen and replacement measure the active breakpoint preview", async ({
     app,
     context,
   }) => {
@@ -1752,8 +1858,7 @@ test.describe("canvas chords", () => {
       breakpointTitle,
       "active breakpoint title",
     );
-    await breakpointTitle.click({ modifiers: ["Shift"] });
-    await expect.poll(() => app.selectedLayers()).toEqual([]);
+    await expect.poll(() => app.selectedLayers()).toEqual(["Home"]);
     await expect
       .poll(async () => {
         const response = await app.page.request.get(
@@ -1797,7 +1902,21 @@ test.describe("canvas chords", () => {
             margin: (element as HTMLElement).style.margin,
           };
         });
-    expect(await geometry(copy.id)).toEqual({ x: 24, y: 24, margin: "10%" });
+    // A selected screen takes the copy at its top level, at the corner it
+    // fits in; the 10% margin resolves against the 480px preview it shows in.
+    expect(copy.parent).toBe(before.get("breakpoint-target")!.parent);
+    expect(
+      await preview
+        .contentFrame()
+        .locator(`[data-agent-native-node-id="${copy.id}"]`)
+        .evaluate((element) => [
+          element.parentElement === element.ownerDocument.body,
+          (element as HTMLElement).style.position,
+          (element as HTMLElement).style.left,
+          (element as HTMLElement).style.top,
+        ]),
+    ).toEqual([true, "absolute", "0px", "0px"]);
+    expect(await geometry(copy.id)).toEqual({ x: 48, y: 48, margin: "10%" });
     await selectLayerRow(app.page, "Legacy margin 0");
     await pressEditorKey(app.page, "ControlOrMeta+C");
     await selectLayerRow(app.page, "Breakpoint target");
@@ -1825,7 +1944,7 @@ test.describe("canvas chords", () => {
     expect(after.get(copy.id)).toEqual(copy);
   });
 
-  test("Keyboard paste and replacement preserve board-layer geometry", async ({
+  test("Keyboard paste centres legacy layers on a rendered board and replacement keeps board geometry", async ({
     app,
     context,
   }) => {
@@ -1908,6 +2027,12 @@ test.describe("canvas chords", () => {
           };
         });
     };
+    const copies = await boardLegacyCopies(
+      app.page,
+      margins.map((_, index) => `Legacy margin ${index}`),
+    );
+    // The board is rendered, so each copy's margins are measured and kept and
+    // its visible box lands on whole pixels, 16px apart.
     for (const [index, margin] of margins.entries()) {
       const copy = nodes.find(
         (node) =>
@@ -1915,13 +2040,22 @@ test.describe("canvas chords", () => {
           `Legacy margin ${index}`,
       )!;
       expect(copy).toBeDefined();
-      const geometry = await readBoardGeometry(copy.id);
-      expect(geometry).toEqual({
-        x: 24 + index * 16,
-        y: 24 + index * 16,
-        margin,
+      expect(copy.parent).toBe(
+        nodes.find((node) => node.id === "board-anchor")!.parent,
+      );
+      expect(copies[index]).toMatchObject({
+        inBody: true,
+        position: "absolute",
+        x: copies[0]!.x + index * 16,
+        y: copies[0]!.y + index * 16,
       });
+      expect(Number.isInteger(copies[index]!.x)).toBe(true);
+      expect(Number.isInteger(copies[index]!.y)).toBe(true);
+      expect(copies[index]!.left).toMatch(/^-?\d+px$/);
+      expect(copies[index]!.top).toMatch(/^-?\d+px$/);
+      expect((await readBoardGeometry(copy.id)).margin).toBe(margin);
     }
+    expectCenteredOn(copies, await visibleCanvasCenter(app.page));
     const beforeReplacement = await app.savedNodes(id, "__board__.html");
     await selectLayerRow(app.page, "Legacy margin 0");
     await pressEditorKey(app.page, "ControlOrMeta+C");

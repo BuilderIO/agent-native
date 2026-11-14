@@ -9,26 +9,10 @@ import {
 import type { H3Event } from "h3";
 import * as Y from "yjs";
 
-import { readBody } from "../server/h3-helpers.js";
+import { readCollabBody } from "./payload.js";
 import { uint8ArrayToBase64, base64ToUint8Array } from "./storage.js";
 import * as manager from "./ydoc-manager.js";
 import { searchAndReplace as doSearchAndReplace } from "./ydoc-manager.js";
-
-const DEFAULT_MAX_BYTES = 2 * 1024 * 1024;
-
-function getMaxPayloadBytes(event: H3Event): number {
-  return (event.context as any)?._collabMaxPayloadBytes ?? DEFAULT_MAX_BYTES;
-}
-
-function enforcePayloadLimit(event: H3Event, body: unknown): boolean {
-  const maxBytes = getMaxPayloadBytes(event);
-  const encoded = typeof body === "string" ? body : JSON.stringify(body ?? "");
-  if (encoded.length > maxBytes) {
-    setResponseStatus(event, 413);
-    return false;
-  }
-  return true;
-}
 
 /**
  * The client's state vector, or null when it is not one. A vector is a flat
@@ -73,19 +57,26 @@ export const getCollabState = defineEventHandler(async (event: H3Event) => {
     }
   }
   let state: Uint8Array;
+  // Sent with a diff, so the client can check this doc holds all it has.
+  let serverStateVector: Uint8Array | null = null;
   if (encodedStateVector !== null) {
     const stateVector = readStateVector(encodedStateVector);
     if (!stateVector) {
       setResponseStatus(event, 400);
       return { error: "stateVector must be a base64-encoded Yjs state vector" };
     }
-    state = await manager.getIncUpdate(docId, stateVector);
+    const diff = await manager.getIncUpdateWithStateVector(docId, stateVector);
+    state = diff.update;
+    serverStateVector = diff.stateVector;
   } else {
     state = await manager.getState(docId);
   }
   return {
     docId,
     state: uint8ArrayToBase64(state),
+    ...(serverStateVector
+      ? { stateVector: uint8ArrayToBase64(serverStateVector) }
+      : {}),
     ...(activityBaseline ? { activityBaseline } : {}),
   };
 });
@@ -97,10 +88,7 @@ export const postCollabUpdate = defineEventHandler(async (event: H3Event) => {
     return { error: "docId required" };
   }
 
-  const rawBody = await readBody(event);
-  if (!enforcePayloadLimit(event, rawBody)) {
-    return { error: "Payload too large" };
-  }
+  const rawBody = await readCollabBody(event);
   const { update, requestSource } = rawBody as {
     update?: string;
     requestSource?: string;
@@ -124,10 +112,7 @@ export const postCollabText = defineEventHandler(async (event: H3Event) => {
     return { error: "docId required" };
   }
 
-  const rawBody = await readBody(event);
-  if (!enforcePayloadLimit(event, rawBody)) {
-    return { error: "Payload too large" };
-  }
+  const rawBody = await readCollabBody(event);
   const { text, fieldName, requestSource } = rawBody as {
     text?: string;
     fieldName?: string;
@@ -157,10 +142,7 @@ export const postCollabSearchReplace = defineEventHandler(
       return { error: "docId required" };
     }
 
-    const rawBody = await readBody(event);
-    if (!enforcePayloadLimit(event, rawBody)) {
-      return { error: "Payload too large" };
-    }
+    const rawBody = await readCollabBody(event);
     const { find, replace, requestSource } = rawBody as {
       find?: string;
       replace?: string;

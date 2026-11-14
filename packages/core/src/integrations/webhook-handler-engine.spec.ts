@@ -30,12 +30,16 @@ const listIntegrationUsageBudgetsMock = vi.hoisted(() => vi.fn());
 const reserveIntegrationUsageBudgetMock = vi.hoisted(() => vi.fn());
 const releaseIntegrationUsageBudgetMock = vi.hoisted(() => vi.fn());
 const settleIntegrationUsageBudgetMock = vi.hoisted(() => vi.fn());
+const recordUsageMock = vi.hoisted(() => vi.fn());
 const insertAuditEventMock = vi.hoisted(() =>
   vi.fn<typeof import("../audit/store.js").insertAuditEvent>(),
 );
 const setIntegrationAwaitingInputMock = vi.hoisted(() => vi.fn());
 const clearIntegrationAwaitingInputMock = vi.hoisted(() => vi.fn());
 const startRunMock = vi.hoisted(() => vi.fn());
+const flushRunEventsMock = vi.hoisted(() => vi.fn(async () => {}));
+const captureRunControlMock = vi.hoisted(() => vi.fn());
+const captureDirectRunnerControlMock = vi.hoisted(() => vi.fn());
 const stageTaskDeliveryPayloadMock = vi.hoisted(() => vi.fn());
 const createIntegrationCampaignMock = vi.hoisted(() => vi.fn());
 const claimIntegrationCampaignMock = vi.hoisted(() => vi.fn());
@@ -83,7 +87,15 @@ vi.mock("../agent/durable-background.js", () => ({
 
 vi.mock("../agent/run-loop-with-resume.js", () => ({
   appendDurableContinuationContext: appendDurableContinuationContextMock,
-  runAgentLoopDirectWithSoftTimeout: (opts: unknown) => runAgentLoopMock(opts),
+  runAgentLoopDirectWithSoftTimeout: (
+    opts: unknown,
+    _softTimeoutMs: unknown,
+    _timeoutOptions: unknown,
+    control: unknown,
+  ) => {
+    captureDirectRunnerControlMock(control);
+    return runAgentLoopMock(opts);
+  },
 }));
 
 vi.mock("../server/agent-chat/prompt-resources.js", () => ({
@@ -193,7 +205,7 @@ vi.mock("./awaiting-input-store.js", () => ({
 
 vi.mock("../usage/store.js", () => ({
   calculateCost: vi.fn(() => 25),
-  recordUsage: vi.fn(),
+  recordUsage: recordUsageMock,
 }));
 
 vi.mock("../audit/store.js", () => ({
@@ -207,6 +219,16 @@ vi.mock("../agent/run-manager.js", async () => ({
   startRun: startRunMock.mockImplementation(
     (runId, threadId, runFn, onComplete) => {
       const events: any[] = [];
+      const controller = new AbortController();
+      const control = {
+        turnSignal: controller.signal,
+        chunkSignal: controller.signal,
+        chunkBoundaryReason: () => null,
+        beginChunk: () => controller.signal,
+        flushEvents: flushRunEventsMock,
+      };
+      captureRunControlMock.mockReturnValue(control);
+      captureRunControlMock(control);
       const send = (event: any) => {
         events.push({
           id: `event-${events.length + 1}`,
@@ -215,7 +237,7 @@ vi.mock("../agent/run-manager.js", async () => ({
           createdAt: Date.now(),
         });
       };
-      Promise.resolve(runFn(send, new AbortController().signal))
+      Promise.resolve(runFn(send, controller.signal, control))
         .then(() =>
           onComplete?.({
             runId,
@@ -319,6 +341,8 @@ function pendingTask(
 describe("integration webhook handler engine resolution", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    flushRunEventsMock.mockReset();
+    flushRunEventsMock.mockResolvedValue(undefined);
     insertAuditEventMock.mockResolvedValue(undefined);
     preloadJevContextWithStatusMock.mockResolvedValue({
       context: "",
@@ -396,6 +420,7 @@ describe("integration webhook handler engine resolution", () => {
     settleIntegrationUsageBudgetMock.mockResolvedValue({
       status: "settled",
     });
+    recordUsageMock.mockResolvedValue(undefined);
     setIntegrationAwaitingInputMock.mockResolvedValue(undefined);
     clearIntegrationAwaitingInputMock.mockResolvedValue(undefined);
     getStoredModelForEngineMock.mockResolvedValue(undefined);
@@ -509,6 +534,111 @@ describe("integration webhook handler engine resolution", () => {
         }),
         expect.anything(),
       );
+    },
+  );
+
+  it(
+    "records and settles usage carried by an incomplete agent run error",
+    { timeout: 15_000 },
+    async () => {
+      const { IncompleteAgentRunError } =
+        await import("../agent/run-errors.js");
+      const { processIntegrationTask } = await import("./webhook-handler.js");
+      listIntegrationUsageBudgetsMock.mockResolvedValue([
+        {
+          id: "budget-org",
+          subjectType: "org",
+          subjectId: "org-qa",
+        },
+      ]);
+      const usage = {
+        inputTokens: 1,
+        outputTokens: 1,
+        cacheReadTokens: 0,
+        cacheWriteTokens: 0,
+        model: "test-model",
+      };
+      runAgentLoopMock.mockRejectedValueOnce(
+        new IncompleteAgentRunError(
+          {
+            code: "run_budget_exhausted",
+            message: "The agent run ended before the response was complete.",
+          },
+          usage,
+        ),
+      );
+
+      await processIntegrationTask(pendingTask(), {
+        adapter: createAdapter(),
+        systemPrompt: "system",
+        actions: {},
+        apiKey: "test-key",
+        ownerEmail: "dispatch+qa@integration.local",
+        orgId: "org-qa",
+        principalType: "service",
+      });
+
+      expect(recordUsageMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          inputTokens: 1,
+          outputTokens: 1,
+          model: "test-model",
+        }),
+      );
+      expect(settleIntegrationUsageBudgetMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          budgetId: "budget-org",
+          actualCostMicros: 2_500,
+        }),
+        expect.anything(),
+      );
+      expect(releaseIntegrationUsageBudgetMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it(
+    "flushes events before writes and shares run control with the recoverable driver",
+    { timeout: 15_000 },
+    async () => {
+      const { processIntegrationTask } = await import("./webhook-handler.js");
+      const order: string[] = [];
+      flushRunEventsMock.mockImplementationOnce(async () => {
+        order.push("flush");
+      });
+      runAgentLoopMock.mockImplementationOnce(async (opts) => {
+        await opts.beforeWrite();
+        order.push("write");
+        opts.send({ type: "text", text: "done" });
+      });
+
+      await processIntegrationTask(pendingTask(), {
+        adapter: createAdapter(),
+        systemPrompt: "system",
+        actions: {},
+        apiKey: "test-key",
+        ownerEmail: "dispatch+qa@integration.local",
+        orgId: "org-qa",
+        principalType: "service",
+      });
+
+      const control = captureRunControlMock.mock.results.at(-1)?.value;
+      expect(control).toBeDefined();
+      expect(runAgentLoopMock.mock.calls[0]?.[0].beforeWrite).toBe(
+        control.flushEvents,
+      );
+      expect(captureDirectRunnerControlMock.mock.calls[0]?.[0]).toBe(control);
+      expect(startRunMock).toHaveBeenLastCalledWith(
+        expect.any(String),
+        expect.any(String),
+        expect.any(Function),
+        expect.any(Function),
+        expect.objectContaining({
+          executionLease: true,
+          recoverChunkBoundaries: true,
+        }),
+      );
+      expect(order).toEqual(["flush", "write"]);
+      expect(flushRunEventsMock).toHaveBeenCalledOnce();
     },
   );
 
@@ -715,7 +845,8 @@ describe("integration webhook handler engine resolution", () => {
       };
       getJevContextCredentialsMock.mockResolvedValueOnce({
         apiKey: "owner-jev-key",
-        personalApiKey: "owner-jev-key",
+        personalApiKey: undefined,
+        directApiKey: "owner-jev-key",
         builderAuth: null,
       });
 
@@ -753,7 +884,7 @@ describe("integration webhook handler engine resolution", () => {
           engine: expect.objectContaining({ name: "builder" }),
           model: "claude-sonnet-4-6",
           maxOutputTokens: 64_000,
-          reasoningEffort: "high",
+          reasoningEffort: undefined,
           systemPrompt: expect.stringContaining("QR profile"),
         }),
       );
@@ -765,7 +896,8 @@ describe("integration webhook handler engine resolution", () => {
           orgId: "org-qa",
           workspaceAppsEnabled: true,
           apiKey: "owner-jev-key",
-          personalApiKey: "owner-jev-key",
+          personalApiKey: undefined,
+          directApiKey: "owner-jev-key",
           builderAuth: null,
         }),
       );
@@ -2739,6 +2871,76 @@ describe("integration webhook handler engine resolution", () => {
       requesterId: "U123",
     });
     expect(clearIntegrationAwaitingInputMock).not.toHaveBeenCalled();
+  });
+
+  it("lists every question of a multi-question Slack ask", async () => {
+    const { processIntegrationTask } = await import("./webhook-handler.js");
+    const sendResponse = vi.fn(async () => ({ status: "delivered" as const }));
+    const slackIncoming = {
+      platform: "slack",
+      externalThreadId: "A123:T123:C123:111.333",
+      text: "Plan the launch",
+      senderId: "U123",
+      tenantId: "T123",
+      platformContext: {
+        apiAppId: "A123",
+        teamId: "T123",
+        channelId: "C123",
+        threadTs: "111.333",
+      },
+      timestamp: 1,
+    };
+    runAgentLoopMock.mockImplementationOnce(async ({ send }) => {
+      send({
+        type: "tool_start",
+        tool: "ask-question",
+        input: {
+          questions: JSON.stringify([
+            {
+              header: "Audience",
+              question: "Who is the launch page for?",
+              options: [
+                { label: "Existing customers" },
+                { label: "Prospects" },
+              ],
+            },
+            {
+              question: "When does it ship?",
+              options: JSON.stringify([{ label: "This week" }]),
+              allowFreeText: false,
+            },
+          ]),
+        },
+      });
+      send({
+        type: "tool_done",
+        tool: "ask-question",
+        result:
+          "Asked the user a clarifying question and rendered it in the chat. This turn is over — their answer arrives as a new message.",
+      });
+    });
+    const task = pendingTask({
+      platform: "slack",
+      externalThreadId: slackIncoming.externalThreadId,
+      payload: JSON.stringify({ incoming: slackIncoming }),
+    });
+
+    await processIntegrationTask(task, {
+      adapter: createAdapter(sendResponse),
+      systemPrompt: "system",
+      actions: {},
+      model: "test-model",
+      apiKey: "",
+      ownerEmail: task.ownerEmail,
+    });
+
+    const text = String(sendResponse.mock.calls[0]?.[0].text);
+    expect(text).toContain("*Audience*\nWho is the launch page for?");
+    expect(text).toContain("1. Existing customers");
+    expect(text).toContain("When does it ship?\n\n1. This week");
+    expect(text).toContain(
+      "Reply in this thread with your choices or a short answer.",
+    );
   });
 
   it("clears a Slack reply window after a terminal response", async () => {

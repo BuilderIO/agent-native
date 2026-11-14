@@ -2,9 +2,15 @@ import { parseIconValue } from "@agent-native/core/icons";
 import { assertAccess, resolveAccess } from "@agent-native/core/sharing";
 import { and, asc, eq, isNull } from "drizzle-orm";
 
-import { nfmToDoc } from "../../shared/nfm.js";
+import { docToNfm, nfmToDoc } from "../../shared/nfm.js";
 import { getDb, schema } from "../db/index.js";
-import { assertPrivateIconOwner } from "./private-icon-authority.js";
+import { firstRow } from "./first-row.js";
+import {
+  assertPrivateIconOwner,
+  assertPrivateIconId,
+  ownsPrivateIcon,
+} from "./private-icon-authority.js";
+import { syncPrivateMediaReferences } from "./private-media-references.js";
 
 type Database = ReturnType<typeof getDb>;
 type ElementType = "document" | "property" | "view" | "callout";
@@ -154,7 +160,7 @@ export async function syncPrivateCalloutReferences(
     return;
   const before = calloutPrivateIconAssetIds(input.before);
   const after = calloutPrivateIconAssetIds(input.after);
-  let authorizedSourceAssets: Set<string> | undefined;
+  let sourceAssets: Set<string> | undefined;
   if (input.source) {
     const [source] =
       input.source.kind === "document"
@@ -194,7 +200,9 @@ export async function syncPrivateCalloutReferences(
       !source ||
       source.ownerEmail !== input.ownerEmail ||
       source.orgId !== input.orgId ||
-      source.content !== input.after
+      // A switched page stores the canonical form of the body it copies.
+      (source.content !== input.after &&
+        docToNfm(nfmToDoc(source.content)) !== input.after)
     ) {
       throw new Error("Private icon is unavailable to this user.");
     }
@@ -203,15 +211,19 @@ export async function syncPrivateCalloutReferences(
     } else {
       await assertAccess("document", input.documentId, "editor");
     }
-    authorizedSourceAssets = calloutPrivateIconAssetIds(source.content);
+    sourceAssets = calloutPrivateIconAssetIds(source.content);
   }
   for (const assetId of after) {
     if (before.has(assetId)) continue;
-    if (authorizedSourceAssets) {
-      if (!authorizedSourceAssets.has(assetId))
+    if (sourceAssets) {
+      if (!sourceAssets.has(assetId))
         throw new Error("Private icon is unavailable to this user.");
-      if (input.source?.kind === "document") {
-        const [reference] = await db
+      const sourceDocumentId =
+        input.source?.kind === "document"
+          ? input.source.documentId
+          : input.documentId;
+      const reference = firstRow(
+        await db
           .select({ assetId: schema.privateIconReferences.assetId })
           .from(schema.privateIconReferences)
           .where(
@@ -219,12 +231,9 @@ export async function syncPrivateCalloutReferences(
               eq(schema.privateIconReferences.elementType, "callout"),
               eq(
                 schema.privateIconReferences.elementId,
-                `${input.source.documentId}:${assetId}`,
+                `${sourceDocumentId}:${assetId}`,
               ),
-              eq(
-                schema.privateIconReferences.documentId,
-                input.source.documentId,
-              ),
+              eq(schema.privateIconReferences.documentId, sourceDocumentId),
               eq(schema.privateIconReferences.assetId, assetId),
               eq(schema.privateIconReferences.ownerEmail, input.ownerEmail),
               input.orgId === null
@@ -232,9 +241,26 @@ export async function syncPrivateCalloutReferences(
                 : eq(schema.privateIconReferences.orgId, input.orgId),
             ),
           )
-          .limit(1);
-        if (!reference)
+          .limit(1),
+      );
+      if (!reference) {
+        if (input.source?.kind === "document")
           throw new Error("Private icon is unavailable to this user.");
+        // History may contain unchecked recovery drafts; it does not authorize images.
+        try {
+          assertPrivateIconId(assetId);
+        } catch {
+          // Malformed historical IDs are unproved too; their text remains restorable.
+          continue;
+        }
+        if (
+          !(await ownsPrivateIcon({
+            assetId,
+            ownerEmail: input.userEmail,
+            orgId: input.orgId,
+          }))
+        )
+          continue;
       }
     } else {
       await assertPrivateIconOwner({
@@ -269,6 +295,22 @@ export async function syncPrivateCalloutReferences(
         ),
       );
   }
+}
+
+/**
+ * Every private asset a body write can add to a page: callout icons and
+ * images. Call this, not the callout check alone, wherever a body is saved.
+ */
+export async function syncPrivateBodyReferences(
+  db: Database,
+  input: Parameters<typeof syncPrivateCalloutReferences>[1],
+): Promise<void> {
+  await syncPrivateMediaReferences(db, {
+    documentId: input.documentId,
+    after: input.after,
+    userEmail: input.userEmail,
+  });
+  await syncPrivateCalloutReferences(db, input);
 }
 
 export async function registerPrivateCalloutIcon(input: {

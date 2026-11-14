@@ -1,4 +1,3 @@
-import { useFocusEffect } from "@react-navigation/native";
 import {
   IconCheck,
   IconCopy,
@@ -15,6 +14,7 @@ import {
   IconX,
 } from "@tabler/icons-react-native";
 import * as Clipboard from "expo-clipboard";
+import { useFocusEffect } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   ActivityIndicator,

@@ -47,8 +47,20 @@ vi.mock("@agent-native/core/server", async (importOriginal) => {
  * requires (AGENTS.md routing bullets and the dbt readiness guidance line, plus
  * the query-dbt-semantic-metric, bigquery, find-data, and data-source-status
  * descriptions that route to it), ~440t. Trimming it would remove the fix.
+ *
+ * 18,750 -> 18,850: the readiness and resume rules the review fixes made explicit
+ * (unknown is not disconnected, lookup recovery only under the same metric name,
+ * truncated warehouse reads still checked, cursor resumes for each recoverable
+ * status). Trimming the AGENTS routing bullet and the BigQuery and get-dbt-connection
+ * descriptions, which repeated data-querying, leaves ~55t over the last ratchet.
+ *
+ * 18,925 -> 18,955: the `environment` field on query-agent-native-analytics
+ * (~70t), so a usage read filters production or beta by the dashboards' own
+ * host rule instead of rebuilding it in SQL. Moving that rule's detail into
+ * data-querying and dropping the backend field's repeat of the health-check
+ * rule paid back ~40t.
  */
-const BASELINE_BUDGET_TOKENS = 18_750;
+const BASELINE_BUDGET_TOKENS = 18_950;
 
 /** An estimate: real tokenizers differ by model, and JSON runs 3 to 3.5. */
 const CHARS_PER_TOKEN = 3.5;

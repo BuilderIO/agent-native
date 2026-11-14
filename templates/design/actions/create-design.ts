@@ -15,6 +15,7 @@ import {
   resolveDesignSystemIdByTitle,
 } from "../server/lib/design-system-defaults.js";
 import { DESIGN_CREATION_METHODS } from "../server/lib/design-tracking.js";
+import { designBriefsSchema } from "../shared/design-briefs.js";
 import {
   defaultCreationMethod,
   trackDesignCreated,
@@ -79,6 +80,11 @@ export default defineAction({
       .describe(
         "Internal: set by the Design UI and import flows to record how the project was started. Agents should omit this.",
       ),
+    briefs: designBriefsSchema
+      .optional()
+      .describe(
+        "Content pages this design is built from, each with its id and http(s) link. The Design UI sets this when a Content page is attached to the prompt; agents may pass a page they read as the brief.",
+      ),
   }),
   mcpApp: {
     compactCatalog: true,
@@ -104,6 +110,7 @@ export default defineAction({
       designSystemId,
       designSystem,
       creationMethod,
+      briefs,
     },
     ctx,
   ) => {
@@ -132,7 +139,7 @@ export default defineAction({
       description: description ?? null,
       projectType: projectType ?? "prototype",
       designSystemId: resolvedDesignSystemId ?? null,
-      data: "{}",
+      data: briefs?.length ? JSON.stringify({ briefs }) : "{}",
       ownerEmail,
       orgId,
       visibility: orgId ? "org" : "private",
@@ -140,7 +147,7 @@ export default defineAction({
       updatedAt: now,
     });
 
-    trackDesignCreated(
+    await trackDesignCreated(
       id,
       {
         creationMethod: creationMethod ?? defaultCreationMethod(ctx),

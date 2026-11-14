@@ -173,7 +173,7 @@ Auto-mounted on every app. Speaks the standard MCP handshake (`initialize` → `
 
 </Endpoint>
 
-如果操作聲明 `mcpApp`，伺服器還會通告官方 MCP 應用擴充功能 (`io.modelcontextprotocol/ui`)，並支援應用資源的 `resources/list`、`resources/templates/list` 和 `resources/read`。渲染 MCP 應用程式的主機可以行內顯示 UI；不這樣做的主機仍然可以呼叫該工具並使用深層連結後備。產品 UI 應使用 `embedApp()`，因此行內表面是真正的 React 應用程式路由，或者呈現共用 React 元件（例如 Analytics 圖表）的集中路由，而不是單獨的普通 HTML 實現。伺服器發出標準 MCP 應用中繼資料和 ChatGPT 應用 SDK 相容性中繼資料，以便支援應用程式的主機可以找到相同的 `ui://` 資源。目前官方擴充功能矩陣包括 Claude、Claude Desktop、VS Code GitHub Copilot、Goose、Postman、MCPJam、ChatGPT、Cursor；主機支援因版本和計畫而異，因此請使用 [External Agents MCP Apps notes](/docs/external-agents#mcp-apps-compatibility) 來取得面向使用者的指導。
+如果操作聲明 `mcpApp`，伺服器還會通告官方 MCP 應用擴充功能 (`io.modelcontextprotocol/ui`)，並支援應用資源的 `resources/list`、`resources/templates/list` 和 `resources/read`。渲染 MCP 應用程式的主機可以行內顯示 UI；不這樣做的主機仍然可以呼叫該工具並使用深層連結後備。產品 UI 應使用 `embedApp()`，因此行內表面是真正的 React 應用程式路由，或者呈現共用 React 元件（例如 Analytics 圖表）的集中路由，而不是單獨的普通 HTML 實現。伺服器發出標準 MCP 應用中繼資料和 ChatGPT 應用 SDK 相容性中繼資料，以便支援應用程式的主機可以找到相同的 `ui://` 資源。有關支援渲染的主機和使用連結備援方案的用戶端，請參閱 [MCP Apps](/docs/mcp-apps#client-support)。
 
 ### MCP 應用嵌入橋 {#mcp-app-embed-bridge}
 

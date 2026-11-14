@@ -11,6 +11,12 @@
     "strict": true,
     "noUnusedLocals": true,
     "noUnusedParameters": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    // Opted out until the existing errors are fixed; guard:compiler-strictness
+    // fails new ones on added lines, and these may only be removed.
+    "noUncheckedIndexedAccess": false,
+    "exactOptionalPropertyTypes": false,
     "esModuleInterop": true,
     "allowSyntheticDefaultImports": true,
     "skipLibCheck": true,
@@ -30,13 +36,11 @@
     "src/**/*.spec.tsx",
     "src/**/*.harness.ts",
     "src/**/*.e2e-host.tsx",
-    // TODO: fenced concurrent-agent work — flip strict after in-flight PRs land
-    // recap.ts, skills.ts, workspace-dev.ts have strict errors but are fenced.
-    // Excluding all of src/cli prevents dynamic imports from re-pulling them in.
+    "src/**/*.test-d.ts",
+    // src/cli and testing.ts (which re-exports CLI symbols for "./testing")
+    // build and typecheck through tsconfig.cli.json; including them here too
+    // would compile them twice.
     "src/cli/**",
-    // testing.ts re-exports src/cli/** symbols (design-connect, plan-local) for
-    // the "./testing" export subpath; it compiles via tsconfig.cli.json instead
-    // so those fenced strict errors don't leak back into the main build.
     "src/testing.ts"
   ]
 }

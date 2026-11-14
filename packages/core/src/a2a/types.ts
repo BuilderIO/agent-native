@@ -183,6 +183,7 @@ export interface A2ACorrelationMetadata {
 
 export interface A2AHandlerContext {
   taskId: string;
+  processingAttemptId?: string;
   contextId?: string;
   metadata?: Record<string, unknown>;
   event?: unknown;

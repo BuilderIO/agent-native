@@ -1,7 +1,7 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, eq, inArray, or } from "drizzle-orm";
+import { and, eq, inArray, isNull, like, or } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -16,6 +16,14 @@ import type {
   PrepareBuilderSourceReviewRequest,
   PrepareBuilderSourceReviewResponse,
 } from "../shared/api.js";
+import { isBuilderCmsWriteEffect } from "../shared/api.js";
+import {
+  builderExecutionPayloadReference,
+  cleanupBuilderPrivatePayload,
+  enqueueBuilderPrivatePayloadCleanup,
+  readBuilderExecutionPayload,
+  storeBuilderExecutionPayload,
+} from "./_builder-cms-blob-custody.js";
 import {
   buildBuilderCmsExecutionPlan,
   resolveBuilderCmsWriteEffect,
@@ -25,14 +33,13 @@ import { claimBuilderSourceExecutionGate } from "./_builder-source-execution-cla
 import { shouldPreserveBuilderExecution } from "./_builder-source-execution-preservation.js";
 import { createBuilderSourceTiming } from "./_builder-source-timings.js";
 import {
-  canRefreshLocallyBlockedBuilderReview,
   findOpenSourceChangeSet,
   getContentDatabaseSourceSnapshotForReview,
   getContentDatabaseSourceSnapshotForWrite,
-  reviewedBuilderChangeSetRevisionId,
   resolveDatabaseForSourceMutation,
   serializeSourceRowRecord,
   sourceChangeSetKey,
+  unusedBuilderChangeSetRevisionId,
 } from "./_database-source-utils.js";
 
 export const BUILDER_SOURCE_REVIEW_PREPARE_LIMIT = 100;
@@ -140,17 +147,6 @@ export function reviewPreparePriority(
   return statePriority + effectPriority;
 }
 
-function parsePayload(value: string) {
-  try {
-    const parsed = JSON.parse(value) as unknown;
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as Record<string, unknown>)
-      : {};
-  } catch {
-    return {};
-  }
-}
-
 function dryRunStatus(execution: ContentDatabaseSourceExecution | null) {
   const dryRun =
     execution?.payload.dryRun &&
@@ -188,10 +184,13 @@ export function buildBuilderSourceReviewPayload(args: {
     const changedTitle =
       changeSet.fieldChanges.find((field) => field.localFieldKey === "title")
         ?.proposedValue ?? null;
-    const effect = resolveBuilderCmsWriteEffect({
-      source: args.source,
-      changeSet,
-    });
+    const plannedEffect = latestExecution?.payload.effect;
+    const effect = isBuilderCmsWriteEffect(plannedEffect)
+      ? plannedEffect
+      : resolveBuilderCmsWriteEffect({
+          source: args.source,
+          changeSet,
+        });
 
     return {
       changeSetId: changeSet.id,
@@ -208,6 +207,7 @@ export function buildBuilderSourceReviewPayload(args: {
       riskLevel: changeSet.riskLevel,
       riskReasons: changeSet.riskReasons,
       conflictState: changeSet.conflictState,
+      stagedPublicationTransition: changeSet.stagedPublicationTransition,
       effect,
       execution: latestExecution,
     };
@@ -221,9 +221,10 @@ export function buildBuilderSourceReviewPayload(args: {
     .filter(Boolean);
   const hasExecutionEvidence =
     statuses.length > 0 || executionStates.length > 0;
-  const resultStatus =
-    executionStates.length > 0 &&
-    executionStates.every((state) => state === "succeeded")
+  const resultStatus = rows.some((row) => row.execution?.payloadUnavailable)
+    ? "blocked"
+    : executionStates.length > 0 &&
+        executionStates.every((state) => state === "succeeded")
       ? "succeeded"
       : executionStates.includes("reconciliation_required") ||
           executionStates.includes("response_received")
@@ -275,7 +276,9 @@ export function buildBuilderSourceReviewPayload(args: {
                     : "Ready to send to Builder."
                   : "Push checked successfully. Nothing was sent to Builder."
                 : resultStatus === "blocked"
-                  ? "Push needs attention before anything can be sent to Builder."
+                  ? rows.some((row) => row.execution?.payloadUnavailable)
+                    ? "A prepared Builder payload is unavailable. Retry loading the review before anything can be sent."
+                    : "Push needs attention before anything can be sent to Builder."
                   : resultStatus === "stale"
                     ? "Push needs a fresh review because the plan changed."
                     : "Builder writes are off in this local build. Push will check the update only.",
@@ -344,49 +347,36 @@ async function approveChangeSetForReview(args: {
       (args.changeSet.bodyChange
         ? JSON.stringify(args.changeSet.bodyChange)
         : null);
+  const approvedFromRow = (
+    row: typeof schema.contentDatabaseSourceChangeSets.$inferSelect,
+  ) => ({
+    id: row.id,
+    state: "approved" as const,
+    changeSet: {
+      ...approvedChangeSet(row.id),
+      summary: row.summary,
+      fieldChanges: JSON.parse(
+        row.fieldChangesJson,
+      ) as ContentDatabaseSourceChangeSet["fieldChanges"],
+      bodyChange: row.bodyChangeJson
+        ? (JSON.parse(
+            row.bodyChangeJson,
+          ) as ContentDatabaseSourceChangeSet["bodyChange"])
+        : null,
+      updatedAt: row.updatedAt,
+    },
+  });
 
   if (existing) {
-    const existingExecutions = await db
-      .select({
-        state: schema.contentDatabaseSourceExecutions.state,
-        payloadJson: schema.contentDatabaseSourceExecutions.payloadJson,
-        attemptToken: schema.contentDatabaseSourceExecutions.attemptToken,
-      })
-      .from(schema.contentDatabaseSourceExecutions)
-      .where(
-        and(
-          eq(schema.contentDatabaseSourceExecutions.sourceId, args.sourceId),
-          eq(schema.contentDatabaseSourceExecutions.changeSetId, existing.id),
-        ),
-      );
-    const mayRefreshApprovedPayload =
-      canRefreshLocallyBlockedBuilderReview(existingExecutions);
-
-    if (existing.state === "approved" && !mayRefreshApprovedPayload) {
-      if (existingPayloadMatches(existing)) {
-        return {
-          id: existing.id,
-          state: "approved" as const,
-          changeSet: {
-            ...approvedChangeSet(existing.id),
-            summary: existing.summary,
-            fieldChanges: JSON.parse(
-              existing.fieldChangesJson,
-            ) as ContentDatabaseSourceChangeSet["fieldChanges"],
-            bodyChange: existing.bodyChangeJson
-              ? (JSON.parse(
-                  existing.bodyChangeJson,
-                ) as ContentDatabaseSourceChangeSet["bodyChange"])
-              : null,
-            updatedAt: existing.updatedAt,
-          },
-        };
-      }
-      // A failed, dispatched, or otherwise non-refreshable gate owns its exact
-      // approved payload forever. A materially different local edit must fall
-      // through to a new revision identity instead of aliasing that evidence.
+    // An approved payload is immutable execution evidence. Even a locally
+    // blocked gate can be claimed after this read, so a materially changed
+    // proposal always receives a new revision identity instead of rewriting
+    // the proposal beneath an in-flight execution.
+    if (existing.state === "approved") {
+      if (existingPayloadMatches(existing)) return approvedFromRow(existing);
+      // Fall through to a revision-bound change-set ID below.
     } else {
-      await db
+      const [updated] = await db
         .update(schema.contentDatabaseSourceChangeSets)
         .set({
           direction: "outbound",
@@ -400,7 +390,29 @@ async function approveChangeSetForReview(args: {
             : null,
           updatedAt: args.now,
         })
-        .where(eq(schema.contentDatabaseSourceChangeSets.id, existing.id));
+        .where(
+          and(
+            eq(schema.contentDatabaseSourceChangeSets.id, existing.id),
+            eq(schema.contentDatabaseSourceChangeSets.state, existing.state),
+            eq(
+              schema.contentDatabaseSourceChangeSets.fieldChangesJson,
+              existing.fieldChangesJson,
+            ),
+            existing.bodyChangeJson === null
+              ? isNull(schema.contentDatabaseSourceChangeSets.bodyChangeJson)
+              : eq(
+                  schema.contentDatabaseSourceChangeSets.bodyChangeJson,
+                  existing.bodyChangeJson,
+                ),
+          ),
+        )
+        .returning({ id: schema.contentDatabaseSourceChangeSets.id });
+      if (!updated) {
+        fail("Builder change set changed during approval.", {
+          errorCode: "builder_change_set_changed",
+          statusCode: 409,
+        });
+      }
       if (existing.state !== "approved") {
         await db.insert(schema.contentDatabaseSourceChangeReviews).values({
           id: crypto.randomUUID(),
@@ -424,27 +436,77 @@ async function approveChangeSetForReview(args: {
   }
 
   const changeSetId = selectedExisting
-    ? reviewedBuilderChangeSetRevisionId(args.changeSet)
+    ? unusedBuilderChangeSetRevisionId(
+        args.changeSet,
+        new Set(
+          (
+            await db
+              .select({ id: schema.contentDatabaseSourceChangeSets.id })
+              .from(schema.contentDatabaseSourceChangeSets)
+              .where(
+                and(
+                  eq(
+                    schema.contentDatabaseSourceChangeSets.sourceId,
+                    args.sourceId,
+                  ),
+                  like(
+                    schema.contentDatabaseSourceChangeSets.id,
+                    `${args.changeSet.id}-revision-%`,
+                  ),
+                ),
+              )
+          ).map((row) => row.id),
+        ),
+      )
     : args.changeSet.id;
-  await db.insert(schema.contentDatabaseSourceChangeSets).values({
-    id: changeSetId,
-    ownerEmail: args.ownerEmail,
-    sourceId: args.sourceId,
-    databaseItemId: args.changeSet.databaseItemId,
-    documentId: args.changeSet.documentId,
-    kind: args.changeSet.kind,
-    direction: "outbound",
-    state: "approved",
-    pushMode: args.changeSet.pushMode ?? "autosave",
-    localOnly: 1,
-    summary,
-    fieldChangesJson: JSON.stringify(args.changeSet.fieldChanges),
-    bodyChangeJson: args.changeSet.bodyChange
-      ? JSON.stringify(args.changeSet.bodyChange)
-      : null,
-    createdAt: args.now,
-    updatedAt: args.now,
-  });
+  const [inserted = null] = await db
+    .insert(schema.contentDatabaseSourceChangeSets)
+    .values({
+      id: changeSetId,
+      ownerEmail: args.ownerEmail,
+      sourceId: args.sourceId,
+      databaseItemId: args.changeSet.databaseItemId,
+      documentId: args.changeSet.documentId,
+      kind: args.changeSet.kind,
+      direction: "outbound",
+      state: "approved",
+      pushMode: args.changeSet.pushMode ?? "autosave",
+      localOnly: 1,
+      summary,
+      fieldChangesJson: JSON.stringify(args.changeSet.fieldChanges),
+      bodyChangeJson: args.changeSet.bodyChange
+        ? JSON.stringify(args.changeSet.bodyChange)
+        : null,
+      createdAt: args.now,
+      updatedAt: args.now,
+    })
+    .onConflictDoNothing()
+    .returning({ id: schema.contentDatabaseSourceChangeSets.id });
+  if (!inserted) {
+    // A review prepared at the same time for the same payload picks the same
+    // id, so its approval stands for this one.
+    const [concurrent = null] = await db
+      .select()
+      .from(schema.contentDatabaseSourceChangeSets)
+      .where(
+        and(
+          eq(schema.contentDatabaseSourceChangeSets.sourceId, args.sourceId),
+          eq(schema.contentDatabaseSourceChangeSets.id, changeSetId),
+        ),
+      )
+      .limit(1);
+    if (
+      concurrent?.state === "approved" &&
+      concurrent.pushMode === (args.changeSet.pushMode ?? "autosave") &&
+      existingPayloadMatches(concurrent)
+    ) {
+      return approvedFromRow(concurrent);
+    }
+    fail("Builder change set changed during approval.", {
+      errorCode: "builder_change_set_changed",
+      statusCode: 409,
+    });
+  }
   await db.insert(schema.contentDatabaseSourceChangeReviews).values({
     id: crypto.randomUUID(),
     ownerEmail: args.ownerEmail,
@@ -504,18 +566,114 @@ async function upsertExecutionGate(args: {
     return;
   }
   if (existing) {
-    await db
-      .update(schema.contentDatabaseSourceExecutions)
-      .set({
-        state: plan.state,
-        summary: plan.summary,
-        payloadJson: JSON.stringify(plan.payload),
-        lastError: plan.lastError,
-        updatedAt: args.now,
-      })
-      .where(eq(schema.contentDatabaseSourceExecutions.id, existing.id));
-  } else {
+    const payloadJson = await storeBuilderExecutionPayload({
+      payload: plan.payload as unknown as Record<string, unknown>,
+      binding: {
+        ownerEmail: args.ownerEmail,
+        sourceId: args.source.id,
+        changeSetId: args.changeSet.id,
+        executionId: existing.id,
+        idempotencyKey: plan.idempotencyKey,
+      },
+    });
+    const nextReference = builderExecutionPayloadReference(payloadJson);
+    const previousReference = builderExecutionPayloadReference(
+      existing.payloadJson,
+    );
     try {
+      const updatedRows = await db.transaction(async (tx) => {
+        const updated = await tx
+          .update(schema.contentDatabaseSourceExecutions)
+          .set({
+            state: plan.state,
+            summary: plan.summary,
+            payloadJson,
+            lastError: plan.lastError,
+            updatedAt: args.now,
+          })
+          .where(
+            and(
+              eq(schema.contentDatabaseSourceExecutions.id, existing.id),
+              eq(
+                schema.contentDatabaseSourceExecutions.payloadJson,
+                existing.payloadJson,
+              ),
+              eq(schema.contentDatabaseSourceExecutions.state, existing.state),
+              existing.attemptToken
+                ? eq(
+                    schema.contentDatabaseSourceExecutions.attemptToken,
+                    existing.attemptToken,
+                  )
+                : isNull(schema.contentDatabaseSourceExecutions.attemptToken),
+            ),
+          )
+          .returning({ id: schema.contentDatabaseSourceExecutions.id });
+        if (
+          updated[0] &&
+          previousReference &&
+          previousReference !== nextReference
+        ) {
+          await enqueueBuilderPrivatePayloadCleanup(
+            tx as unknown as ReturnType<typeof getDb>,
+            previousReference,
+          );
+        }
+        return updated;
+      });
+      const [updated] = updatedRows;
+      if (!updated)
+        fail("Builder execution changed during prepare.", {
+          errorCode: "builder_execution_changed",
+          statusCode: 409,
+        });
+    } catch (error) {
+      let currentPayloadJson: string | null | undefined;
+      try {
+        const [current] = await db
+          .select({
+            payloadJson: schema.contentDatabaseSourceExecutions.payloadJson,
+          })
+          .from(schema.contentDatabaseSourceExecutions)
+          .where(eq(schema.contentDatabaseSourceExecutions.id, existing.id))
+          .limit(1);
+        currentPayloadJson = current?.payloadJson;
+      } catch {
+        // Inconclusive readback retains both refs.
+      }
+      if (currentPayloadJson === payloadJson) {
+        // The replacement committed despite an ambiguous acknowledgement.
+      } else {
+        if (currentPayloadJson !== undefined && nextReference) {
+          await cleanupBuilderPrivatePayload(
+            nextReference,
+            "uncommitted prepared execution",
+          );
+        }
+        throw error;
+      }
+    }
+    if (previousReference && previousReference !== nextReference) {
+      await cleanupBuilderPrivatePayload(
+        previousReference,
+        "superseded prepared execution",
+      );
+    }
+  } else {
+    let insertedReference: string | null = null;
+    let insertedPayloadJson: string | null = null;
+    try {
+      const payloadJson = await storeBuilderExecutionPayload({
+        payload: plan.payload as unknown as Record<string, unknown>,
+        binding: {
+          ownerEmail: args.ownerEmail,
+          sourceId: args.source.id,
+          changeSetId: args.changeSet.id,
+          executionId,
+          idempotencyKey: plan.idempotencyKey,
+        },
+      });
+      insertedReference = builderExecutionPayloadReference(payloadJson);
+      insertedPayloadJson = payloadJson;
       await db.insert(schema.contentDatabaseSourceExecutions).values({
         id: executionId,
         ownerEmail: args.ownerEmail,
@@ -526,18 +684,44 @@ async function upsertExecutionGate(args: {
         state: plan.state,
         idempotencyKey: plan.idempotencyKey,
         summary: plan.summary,
-        payloadJson: JSON.stringify(plan.payload),
+        payloadJson,
         lastError: plan.lastError,
         createdAt: args.now,
         updatedAt: args.now,
       });
     } catch (error) {
-      const [winner] = await db
-        .select()
-        .from(schema.contentDatabaseSourceExecutions)
-        .where(eq(schema.contentDatabaseSourceExecutions.id, executionId))
-        .limit(1);
-      if (!winner) throw error;
+      let winner:
+        | typeof schema.contentDatabaseSourceExecutions.$inferSelect
+        | null
+        | undefined;
+      let readbackCompleted = false;
+      try {
+        [winner] = await db
+          .select()
+          .from(schema.contentDatabaseSourceExecutions)
+          .where(eq(schema.contentDatabaseSourceExecutions.id, executionId))
+          .limit(1);
+        readbackCompleted = true;
+      } catch {
+        // Inconclusive readback retains the new ref.
+      }
+      if (!winner) {
+        if (readbackCompleted && insertedReference) {
+          await cleanupBuilderPrivatePayload(
+            insertedReference,
+            "uncommitted prepared execution",
+          );
+        }
+        throw error;
+      }
+      if (winner.payloadJson === insertedPayloadJson) {
+        // The insert committed despite an ambiguous acknowledgement.
+      } else if (insertedReference) {
+        await cleanupBuilderPrivatePayload(
+          insertedReference,
+          "uncommitted prepared execution",
+        );
+      }
       if (
         shouldPreserveBuilderExecution({
           state: winner.state,
@@ -558,8 +742,18 @@ async function upsertExecutionGate(args: {
     .where(eq(schema.contentDatabaseSourceExecutions.id, executionId));
   if (!execution) return;
 
+  const storedPayload = await readBuilderExecutionPayload({
+    payloadJson: execution.payloadJson,
+    binding: {
+      ownerEmail: execution.ownerEmail,
+      sourceId: execution.sourceId,
+      changeSetId: execution.changeSetId,
+      executionId: execution.id,
+      idempotencyKey: execution.idempotencyKey,
+    },
+  });
   const payload = validateBuilderCmsExecutionDryRun({
-    storedPayload: parsePayload(execution.payloadJson),
+    storedPayload,
     plan,
     now: args.now,
   });
@@ -571,17 +765,97 @@ async function upsertExecutionGate(args: {
         ? `${plan.summary} Dry run validated blockers locally.`
         : `${plan.summary} Dry run found a stale execution gate.`;
 
-  await db
-    .update(schema.contentDatabaseSourceExecutions)
-    .set({
-      state: dryRun?.status === "stale" ? "blocked" : plan.state,
-      summary,
-      payloadJson: JSON.stringify(payload),
-      lastError:
-        dryRun?.status === "stale" ? dryRun.mismatches[0] : plan.lastError,
-      updatedAt: args.now,
-    })
-    .where(eq(schema.contentDatabaseSourceExecutions.id, executionId));
+  const payloadJson = await storeBuilderExecutionPayload({
+    payload,
+    binding: {
+      ownerEmail: execution.ownerEmail,
+      sourceId: execution.sourceId,
+      changeSetId: execution.changeSetId,
+      executionId: execution.id,
+      idempotencyKey: execution.idempotencyKey,
+    },
+  });
+  const nextReference = builderExecutionPayloadReference(payloadJson);
+  const previousReference = builderExecutionPayloadReference(
+    execution.payloadJson,
+  );
+  try {
+    const updatedRows = await db.transaction(async (tx) => {
+      const updated = await tx
+        .update(schema.contentDatabaseSourceExecutions)
+        .set({
+          state: dryRun?.status === "stale" ? "blocked" : plan.state,
+          summary,
+          payloadJson,
+          lastError:
+            dryRun?.status === "stale" ? dryRun.mismatches[0] : plan.lastError,
+          updatedAt: args.now,
+        })
+        .where(
+          and(
+            eq(schema.contentDatabaseSourceExecutions.id, executionId),
+            eq(
+              schema.contentDatabaseSourceExecutions.payloadJson,
+              execution.payloadJson,
+            ),
+            eq(schema.contentDatabaseSourceExecutions.state, execution.state),
+            execution.attemptToken
+              ? eq(
+                  schema.contentDatabaseSourceExecutions.attemptToken,
+                  execution.attemptToken,
+                )
+              : isNull(schema.contentDatabaseSourceExecutions.attemptToken),
+          ),
+        )
+        .returning({ id: schema.contentDatabaseSourceExecutions.id });
+      if (
+        updated[0] &&
+        previousReference &&
+        previousReference !== nextReference
+      ) {
+        await enqueueBuilderPrivatePayloadCleanup(
+          tx as unknown as ReturnType<typeof getDb>,
+          previousReference,
+        );
+      }
+      return updated;
+    });
+    const [updated] = updatedRows;
+    if (!updated)
+      fail("Builder execution changed during validation.", {
+        errorCode: "builder_execution_changed",
+        statusCode: 409,
+      });
+  } catch (error) {
+    let currentPayloadJson: string | null | undefined;
+    try {
+      const [current] = await db
+        .select({
+          payloadJson: schema.contentDatabaseSourceExecutions.payloadJson,
+        })
+        .from(schema.contentDatabaseSourceExecutions)
+        .where(eq(schema.contentDatabaseSourceExecutions.id, executionId))
+        .limit(1);
+      currentPayloadJson = current?.payloadJson;
+    } catch {
+      // Inconclusive readback retains both refs.
+    }
+    if (currentPayloadJson !== payloadJson) {
+      if (currentPayloadJson !== undefined && nextReference) {
+        await cleanupBuilderPrivatePayload(
+          nextReference,
+          "uncommitted validated execution",
+        );
+      }
+      throw error;
+    }
+  }
+  if (previousReference && previousReference !== nextReference) {
+    await cleanupBuilderPrivatePayload(
+      previousReference,
+      "superseded validated execution",
+    );
+  }
 }
 
 export default defineAction({
@@ -704,6 +978,16 @@ export default defineAction({
             reviewPreparePriority(b, snapshot),
         )
         .slice(0, BUILDER_SOURCE_REVIEW_PREPARE_LIMIT);
+      // Publishing or unpublishing an entry needs edit access to its page, so
+      // one the caller can only view refuses the review before any approval.
+      for (const changeSet of reviewableChanges) {
+        const transition =
+          args.transitions?.[changeSet.id]?.publicationTransition ??
+          args.publicationTransition;
+        if (transition && changeSet.documentId) {
+          await assertAccess("document", changeSet.documentId, "editor");
+        }
+      }
       const authoritativeSnapshot = await withAuthoritativeBuilderTargetRows({
         source: snapshot,
         changeSets: reviewableChanges,

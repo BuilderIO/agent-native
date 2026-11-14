@@ -1,14 +1,16 @@
 name: Setup pnpm
 description: >-
-  Install pnpm and Node with the shared pnpm store cache, then run the standard
+  Install pnpm and Node, then run the standard
   frozen-lockfile install. Wraps the pnpm/action-setup + actions/setup-node +
   install trio duplicated across ~20 CI jobs so the action pins, Node version,
-  and cache strategy only need to change in one place. Requires
+  and install strategy only need to change in one place. Requires
   actions/checkout to have already run.
 
   Deliberately does NOT cache node_modules: the installed tree is 3.5 GB here,
   so restoring it is slower than the 14-55s `pnpm install` it would replace.
-  The pnpm store cache from setup-node is the one that pays for itself.
+  Do not restore the pnpm store here: a stalled cache download cannot be
+  bounded by a step timeout inside a composite action. A cold install keeps
+  cache service failures from blocking every dependent job.
 
 inputs:
   node-version:
@@ -22,6 +24,12 @@ inputs:
       package build chain.
     required: false
     default: full
+  filter:
+    description: >-
+      A workspace project to install alone (`pnpm install --filter`), for jobs
+      that only run that project's own tools. Empty installs the workspace.
+    required: false
+    default: ""
   restore-dist-cache:
     description: >-
       Restore packages/*/dist and tsbuildinfo before installing. Must happen
@@ -30,6 +38,14 @@ inputs:
       rather than in the calling workflow.
     required: false
     default: "false"
+
+  native-canvas-deps:
+    description: >-
+      `true` installs the cairo/pango build libraries the `canvas` npm module
+      compiles against. Jobs that never load `canvas` can pass `false` and skip
+      the apt-get (~3 min on a slow mirror).
+    required: false
+    default: "true"
 
 runs:
   using: composite
@@ -50,7 +66,6 @@ runs:
     - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
       with:
         node-version: ${{ inputs.node-version }}
-        cache: pnpm
 
     - name: Restore dist + tsBuildInfo cache
       if: inputs.restore-dist-cache == 'true'
@@ -62,7 +77,7 @@ runs:
         key: dist-${{ hashFiles('packages/*/src/**', 'packages/*/package.json', 'scripts/prebuild-workspace-packages.ts', 'pnpm-lock.yaml') }}
 
     - name: Install native canvas build dependencies
-      if: runner.os == 'Linux' && inputs.install == 'full'
+      if: runner.os == 'Linux' && inputs.install == 'full' && inputs.native-canvas-deps == 'true'
       shell: bash
       run: |
         sudo apt-get update
@@ -78,8 +93,12 @@ runs:
     - name: Install dependencies
       shell: bash
       run: |
+        filter=()
+        if [ -n "${{ inputs.filter }}" ]; then
+          filter=(--filter "${{ inputs.filter }}")
+        fi
         if [ "${{ inputs.install }}" = "no-scripts" ]; then
-          pnpm install --frozen-lockfile --ignore-scripts
+          pnpm install --frozen-lockfile --ignore-scripts "${filter[@]}"
         else
-          pnpm install --frozen-lockfile
+          pnpm install --frozen-lockfile "${filter[@]}"
         fi

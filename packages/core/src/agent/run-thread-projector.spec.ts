@@ -12,7 +12,10 @@ import {
   CHECKPOINT_TERMINAL_EVENT_SEQ,
   getCurrentTurnRunEventsForThread,
 } from "./run-store.js";
-import { buildAssistantMessageFromRunJournal } from "./run-thread-projector.js";
+import {
+  buildAssistantMessageFromRunJournal,
+  buildAssistantTurnFromRunJournal,
+} from "./run-thread-projector.js";
 import type { RunEvent } from "./types.js";
 
 describe("buildAssistantMessageFromRunJournal", () => {
@@ -217,5 +220,74 @@ describe("buildAssistantMessageFromRunJournal", () => {
       runId: "run-journal",
       missingSequences: [4],
     });
+  });
+});
+
+describe("buildAssistantTurnFromRunJournal with messages sent into the turn", () => {
+  const delivered = (runId: string, seq: number) => ({
+    runId,
+    seq,
+    event: {
+      type: "user_message" as const,
+      message: {
+        id: "queued-1",
+        text: "Use the blue theme",
+        createdAt: "2026-10-24T10:00:05.000Z",
+      },
+      continuationMessageId: `server-${runId}:after:queued-1`,
+    },
+  });
+
+  beforeEach(() => {
+    vi.mocked(getCurrentTurnRunEventsForThread).mockReset();
+  });
+
+  it("returns this run's reply before the message and the segments after it", async () => {
+    vi.mocked(getCurrentTurnRunEventsForThread).mockResolvedValue([
+      { runId: "run-1", seq: 0, event: { type: "text", text: "Checking." } },
+      delivered("run-1", 1),
+      { runId: "run-1", seq: 2, event: { type: "text", text: "Blue it is." } },
+    ]);
+
+    const turn = await buildAssistantTurnFromRunJournal({
+      threadId: "thread-1",
+      turnId: "turn-1",
+      runId: "run-1",
+      runEvents: [{ seq: 3, event: { type: "done" } }],
+    });
+
+    expect(turn.assistant?.content).toEqual([
+      { type: "text", text: "Checking." },
+    ]);
+    expect(
+      turn.steered.map(({ user, assistant }) => [user.id, assistant?.id]),
+    ).toEqual([["queued-1", "server-run-1:after:queued-1"]]);
+    expect(turn.parentId).toBeUndefined();
+  });
+
+  it("continues an earlier run's reply below the message it delivered", async () => {
+    vi.mocked(getCurrentTurnRunEventsForThread).mockResolvedValue([
+      { runId: "run-1", seq: 0, event: { type: "text", text: "Checking." } },
+      delivered("run-1", 1),
+      { runId: "run-1", seq: 2, event: { type: "text", text: "Blue " } },
+      { runId: "run-2", seq: 0, event: { type: "text", text: "it is." } },
+    ]);
+
+    const turn = await buildAssistantTurnFromRunJournal({
+      threadId: "thread-1",
+      turnId: "turn-1",
+      runId: "run-2",
+      runEvents: [{ seq: 1, event: { type: "done" } }],
+    });
+
+    expect(turn.parentId).toBe("queued-1");
+    expect(turn.steered).toEqual([]);
+    expect(turn.assistant?.id).toBe("server-run-1:after:queued-1");
+    expect(JSON.stringify(turn.assistant?.content)).not.toContain("Checking.");
+    expect(
+      turn.assistant?.content
+        .flatMap((part) => (part.type === "text" ? [part.text] : []))
+        .join(""),
+    ).toContain("it is.");
   });
 });

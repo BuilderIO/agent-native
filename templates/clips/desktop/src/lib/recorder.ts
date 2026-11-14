@@ -40,6 +40,7 @@ import { reconcileProcessingBackup } from "./processing-backup-recovery";
 import {
   classifyRecordFirstOpenFailure,
   RecordFirstHandoffResetError,
+  recordFirstSourceHeadSha256,
   stageRecordFirstFile,
   type RecordFirstFile,
 } from "./record-first";
@@ -53,7 +54,8 @@ import {
   buildCreateRecordingRequestBody,
   RECORDING_SERVER_UNAVAILABLE,
   RECORDING_SESSION_EXPIRED,
-  isStorageSetupFailureMessage,
+  isStorageSetupDenial,
+  notifyStorageSetupRequired,
   type NativeRecordingRequestOptions,
 } from "./recording-request";
 import {
@@ -1488,7 +1490,7 @@ export async function queueRecordFirstUpload(input: {
     const staged = await getBrowserRecordingBackupMeta(resumed);
     if (staged) return { ...staged, kind: "browser" };
   }
-  const { open, stat } = await import("@tauri-apps/plugin-fs");
+  const { open, SeekMode, stat } = await import("@tauri-apps/plugin-fs");
   let handle: Awaited<ReturnType<typeof open>>;
   try {
     handle = await open(input.file.path, { read: true });
@@ -1518,19 +1520,31 @@ export async function queueRecordFirstUpload(input: {
       );
     }
     if (existing === null) {
-      await createServerRecording(
-        input.serverUrl,
-        input.file.hasCamera,
-        input.file.hasAudio,
-        undefined,
-        {
-          id: recordingId,
-          authToken: input.authToken,
-          mimeType: input.file.mimeType,
-          requestStreaming: true,
-          expectedOwnerEmail: input.ownerEmail,
-        },
-      );
+      const sourceHeadSha256 = await recordFirstSourceHeadSha256({
+        size,
+        read: (buffer) => handle.read(buffer),
+      });
+      await handle.seek(0, SeekMode.Start);
+      try {
+        await createServerRecording(
+          input.serverUrl,
+          input.file.hasCamera,
+          input.file.hasAudio,
+          undefined,
+          {
+            id: recordingId,
+            authToken: input.authToken,
+            mimeType: input.file.mimeType,
+            requestStreaming: true,
+            expectedOwnerEmail: input.ownerEmail,
+            sourceHeadSha256,
+          },
+        );
+      } catch (err) {
+        // This account already has the file as a clip, uploaded some other way.
+        if (err instanceof SourceAlreadyUploadedError) return null;
+        throw err;
+      }
     }
     try {
       // A cut-off earlier staging may have left chunks without metadata.
@@ -1873,14 +1887,24 @@ export async function retryBrowserRecordingBackup(input: {
   }
 }
 
+/** create-recording found this account's clip of the file and made no row. */
+class SourceAlreadyUploadedError extends Error {
+  constructor(recordingId: string) {
+    super(`This file is already uploaded as ${recordingId}.`);
+    this.name = "SourceAlreadyUploadedError";
+  }
+}
+
 async function createServerRecording(
   serverUrl: string,
   hasCamera: boolean,
   hasAudio: boolean,
   titleContext?: CaptureTitleResult,
   options?: NativeRecordingRequestOptions & {
-    authToken?: string;
+    authToken?: string | undefined;
     signal?: AbortSignal;
+    /** Only a start the user is watching may pop the storage banner open. */
+    announceStorageSetup?: boolean;
   },
 ) {
   const url = `${serverUrl.replace(/\/+$/, "")}/_agent-native/actions/create-recording`;
@@ -1933,11 +1957,13 @@ async function createServerRecording(
       if (!res.ok) {
         const body = await res.text();
         console.error("[clips-recorder] bad response:", url, res.status, body);
+        // Checked before the status mapping: the hosted-storage denial is a 403.
+        if (isStorageSetupDenial(body)) {
+          if (options?.announceStorageSetup) notifyStorageSetupRequired();
+          throw new Error(body.slice(0, 200));
+        }
         if (res.status === 401 || res.status === 403) {
           throw new Error(RECORDING_SESSION_EXPIRED);
-        }
-        if (res.status >= 500 && isStorageSetupFailureMessage(body)) {
-          throw new Error(body.slice(0, 200));
         }
         if (res.status >= 500) {
           throw new Error(RECORDING_SERVER_UNAVAILABLE);
@@ -1951,20 +1977,28 @@ async function createServerRecording(
           id: string;
           uploadMode?: string;
           maxClipDurationMs?: number | null;
+          existingRecording?: boolean;
         };
         id?: string;
         uploadMode?: string;
         maxClipDurationMs?: number | null;
+        existingRecording?: boolean;
       };
       const result = data.result ?? data;
       if (!result.id) {
         throw new Error("create-recording did not return an id");
+      }
+      // Only a create that sent a file fingerprint gets this answer.
+      if (result.existingRecording === true) {
+        throw new SourceAlreadyUploadedError(result.id);
       }
       const uploadMode: UploadMode =
         result.uploadMode === "streaming" ? "streaming" : "buffered";
       setTakeClipLimitMs(result.maxClipDurationMs);
       return { id: result.id, uploadMode };
     } catch (err) {
+      // Nothing was created, so there is nothing to abort.
+      if (err instanceof SourceAlreadyUploadedError) throw err;
       await abortCreatedRecording(
         cancellationRequested
           ? "Recording cancelled during startup"
@@ -3223,7 +3257,6 @@ async function tryStartRewindFullscreenRecording(
     const capture = await startTranscriptionCapture(
       { deviceId: params.micId, label: params.micLabel },
       includeSystemAudio,
-      { voiceProcessing: false },
     ).catch((err) => {
       if (params.signal?.aborted) throw err;
       console.warn("[clips-recorder] rewind transcription start failed:", err);
@@ -3262,6 +3295,7 @@ async function tryStartRewindFullscreenRecording(
             requestStreaming: true,
             streamingUploadClient: "desktop-native",
             authToken: params.authToken,
+            announceStorageSetup: true,
             signal: params.signal,
           },
         );
@@ -3741,7 +3775,6 @@ async function startNativeFullscreenRecording(
           label: micDeviceLabel,
         },
         wantsSystemAudio,
-        { voiceProcessing: false },
       ),
       {
         signal: params.signal,
@@ -3892,6 +3925,7 @@ async function startNativeFullscreenRecording(
               requestStreaming: true,
               streamingUploadClient: "desktop-native",
               authToken: params.authToken,
+              announceStorageSetup: true,
               signal: params.signal,
             },
           );
@@ -5352,6 +5386,7 @@ async function startRecordingInner(
         mimeType: mimeType || "video/webm",
         requestStreaming: true,
         authToken: params.authToken,
+        announceStorageSetup: true,
         signal: params.signal,
       },
     ).finally(() => {
@@ -6143,7 +6178,6 @@ async function startRecordingInner(
                 label: params.micLabel,
               },
               wantsSystemAudio,
-              { voiceProcessing: false },
             )
           : null;
       if (stopped || params.signal?.aborted) {

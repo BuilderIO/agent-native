@@ -29,6 +29,8 @@ const state = vi.hoisted(() => ({
   buildDesignSnapshot: vi.fn(),
   assertAccess: vi.fn(),
   hasCollabState: vi.fn(),
+  awarenessRows: [] as Array<Record<string, unknown>>,
+  loadAwarenessRowsStrict: vi.fn(async () => state.awarenessRows),
   seedFromText: vi.fn(),
   writeAppState: vi.fn(),
 }));
@@ -112,7 +114,7 @@ vi.mock("@agent-native/core/collab", () => ({
   applyText: vi.fn(),
   getText: vi.fn(),
   hasCollabState: state.hasCollabState,
-  loadAwarenessRowsStrict: vi.fn(async () => []),
+  loadAwarenessRowsStrict: state.loadAwarenessRowsStrict,
   seedFromText: state.seedFromText,
   withPreparedYDocMutation: async (
     _fileId: string,
@@ -338,6 +340,7 @@ beforeEach(() => {
   state.designSelects = 0;
   state.failFinalDesignConfirmation = false;
   state.failCommitAfterCallback = false;
+  state.awarenessRows = [];
   state.assertAccess.mockResolvedValue({ resource: { ...state.design } });
   state.hasCollabState.mockResolvedValue(true);
   state.buildDesignSnapshot.mockImplementation(async (...args: unknown[]) => {
@@ -347,6 +350,27 @@ beforeEach(() => {
 });
 
 describe("restoreDesignVersion transaction boundary", () => {
+  it("ignores cleared awareness tombstones when checking active collaborators", async () => {
+    state.awarenessRows = [
+      {
+        clientId: 23,
+        state: "",
+        lastSeen: Date.now(),
+        cleared: true,
+        actorEmail: "peer@example.com",
+      },
+    ];
+
+    const result = await restoreDesignVersion({
+      designId: "design-1",
+      versionId: "version-1",
+    });
+
+    expect(result.restoredFileCount).toBe(1);
+    expect(state.files[0]?.content).toBe("<main>restored</main>");
+    expect(state.loadAwarenessRowsStrict).toHaveBeenCalledTimes(4);
+  });
+
   it("captures Before restore on the active transaction before rewriting files", async () => {
     const result = await restoreDesignVersion({
       designId: "design-1",

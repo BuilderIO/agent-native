@@ -289,6 +289,29 @@ describe("GenAI and agent metrics", () => {
     ).toEqual(["_OTHER", "_OTHER"]);
   });
 
+  it("labels model calls with the credential owner when known", () => {
+    const meterProvider = createTestMeterProvider();
+    register({ meterProvider });
+
+    recordGenAiChat({
+      requestModel: "claude-test",
+      supportedModels: ["claude-test"],
+      credentialOwner: "customer",
+      durationMs: 10,
+    });
+    recordGenAiChat({
+      requestModel: "claude-test",
+      supportedModels: ["claude-test"],
+      durationMs: 10,
+    });
+
+    expect(
+      meterProvider.recorded.map(
+        (entry) => entry.attributes?.["agent_native.credential.owner"],
+      ),
+    ).toEqual(["customer", undefined]);
+  });
+
   it("drops the open-ended suffix from terminal reasons", () => {
     const meterProvider = createTestMeterProvider();
     register({ meterProvider });

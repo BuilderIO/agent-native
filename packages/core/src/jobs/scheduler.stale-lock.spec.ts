@@ -263,6 +263,9 @@ describe("stale automation run-lock recovery across trigger types", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.spyOn(runStore, "getCompletedAgentExecutionSteps").mockResolvedValue([]);
+    vi.spyOn(runStore, "retryRunThreadProjection").mockResolvedValue({
+      state: "already_projected",
+    });
     dbExecuteMock.mockResolvedValue({ rows: [{ "1": 1 }], rowsAffected: 1 });
     getDbExecMock.mockReturnValue({
       execute: dbExecuteMock,
@@ -2173,8 +2176,8 @@ describe("stale automation run-lock recovery across trigger types", () => {
   it("keeps a queued dispatch inside its claim lease and closes one past it", async () => {
     resourceListAllOwnersMock.mockResolvedValueOnce([staleHistoryJob()]);
     const finishes = routeHistoryDb([
-      // Started 20 minutes ago, so it lists as `interrupted`, but claimed a
-      // minute ago: the stored claim, not the derived status, must protect it.
+      // Claimed a minute ago: the stored claim, not the derived status, must
+      // protect it even though its queue age is past the liveness ceiling.
       historyRow("run-claimed-recently", Date.now() - 20 * 60 * 1000, {
         dispatchPending: true,
         claimedAt: Date.now() - 60_000,

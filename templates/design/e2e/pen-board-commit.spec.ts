@@ -7,7 +7,7 @@ import {
   type SavedNode,
 } from "./rails";
 
-test.use({ viewport: { width: 1440, height: 1000 } });
+test.use({ viewport: { width: 1480, height: 1000 } });
 
 const SCREEN_HTML = `<!doctype html>
 <html><head><meta charset="utf-8"><title>Screen</title></head>

@@ -30,6 +30,18 @@ export function deviceFlowClients(
   return ids?.every((id) => (CLIENTS as string[]).includes(id)) ? ids : client;
 }
 
+/**
+ * The client key `agent_connected` reports. OAuth funnel events carry the same
+ * key, so a client's starts and finished connections join on it.
+ */
+export function connectionClientKey(name: string): string {
+  return (
+    resolveMcpConnectHostId(name) ??
+    detectVendorClient(name) ??
+    (name.trim().toLowerCase().slice(0, 120) || "unknown")
+  );
+}
+
 export async function trackAgentConnected(input: {
   email: string;
   origin: string;
@@ -51,11 +63,8 @@ export async function trackAgentConnected(input: {
     const app = connectionApp(input.origin, input.appId);
     const raw = input.client;
     const clients = new Set(
-      (typeof raw === "string" ? [raw] : (raw ?? ["unknown"])).map(
-        (name) =>
-          resolveMcpConnectHostId(name) ??
-          detectVendorClient(name) ??
-          (name.trim().toLowerCase().slice(0, 120) || "unknown"),
+      (typeof raw === "string" ? [raw] : (raw ?? ["unknown"])).map((name) =>
+        connectionClientKey(name),
       ),
     );
     let emitted = false;

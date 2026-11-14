@@ -166,6 +166,14 @@ invalid document ID. Verify the link and connected account's access before
 changing permissions. Reinstalling the connector or changing the public share
 link does not resolve a confirmed account permission denial.
 
+Images uploaded into a private document are stored in its body as
+`/api/private-media/<id>` links, which load only with a Content sign-in.
+When an agent reads the document over MCP, `get-document`, and `pull-document`
+in Markdown, also return `privateMediaLinks`: each stored link paired with a
+URL that opens that one image without signing in, for one hour. One read links
+at most 200 images; `omitted` counts the rest. Read the document again for
+fresh links. Keep the stored links when editing the body.
+
 <a id="access-tab"></a>
 
 ### The in-app MCP setting {#mcp-settings}
@@ -309,7 +317,7 @@ need a connector such as `npx @agent-native/core@latest connect https://assets.a
 | `visual-plans` | `agent-native-plans` | visual plans, recaps, and repo-native docs      |
 | `context-xray` | `xray`               | local Codex/Claude Code context usage           |
 
-The default client selection is all supported local clients; add `--client codex`, `--client claude-code`, or another specific target to narrow setup. Inline hosts (ChatGPT, Claude.ai, Claude Desktop main chat) render the picker / variant grid in chat; CLI/link-only hosts (Codex, Claude Code, Claude Desktop "Code" tab) return an "Open in … →" link where the user picks in the browser and pastes a handoff summary back.
+The default client selection is all supported local clients; add `--client codex`, `--client claude-code`, or another specific target to narrow setup. Inline hosts (ChatGPT, Claude chat on web, desktop, and mobile, plus the Claude Desktop Code tab) render the picker / variant grid in chat; CLI/link-only hosts (Codex CLI, Claude Code terminal, Cowork, Code on claude.ai web) return an "Open in … →" link where the user picks in the browser and pastes a handoff summary back. [Cowork doesn't declare MCP Apps yet](https://github.com/anthropics/claude-code/issues/103924), and using it on the same connector can make inline apps disappear in Chat until you reconnect the connector.
 
 When you truly need an isolated app instead of Dispatch's workspace gateway,
 run the same command with that app's host:

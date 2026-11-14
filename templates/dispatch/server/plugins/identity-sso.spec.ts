@@ -142,7 +142,8 @@ vi.mock("@agent-native/core/db", () => ({
       if (/^CREATE TABLE/i.test(sql)) return { rows: [], rowsAffected: 0 };
       if (/^DELETE FROM identity_sso_bootstrap/i.test(sql)) {
         for (let i = bootstrapRows.length - 1; i >= 0; i--) {
-          if (bootstrapRows[i].expires_at < args[0]) bootstrapRows.splice(i, 1);
+          if ((bootstrapRows[i]?.expires_at ?? Infinity) < args[0])
+            bootstrapRows.splice(i, 1);
         }
         return { rows: [], rowsAffected: 0 };
       }

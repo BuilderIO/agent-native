@@ -582,19 +582,22 @@ describe("useSqlQuery saved results", () => {
     });
   });
 
-  it("drops the previous copy instead of keeping it when the new result is truncated", async () => {
-    seed("SELECT 1", { rows: [{ n: "old" }], fetchedAt: minutesAgo(30) });
-    mocks.callAction.mockResolvedValue({
-      rows: [{ n: "partial" }],
-      truncated: true,
-      fetchedAt: minutesAgo(0),
-    });
+  it.each([{ truncated: true }, { partial: true, truncated: false }])(
+    "drops the previous copy when the provider result is incomplete: %j",
+    async (incomplete) => {
+      seed("SELECT 1", { rows: [{ n: "old" }], fetchedAt: minutesAgo(30) });
+      mocks.callAction.mockResolvedValue({
+        rows: [{ n: "partial" }],
+        ...incomplete,
+        fetchedAt: minutesAgo(0),
+      });
 
-    await act(async () => render({ sql: "SELECT 1" }));
+      await act(async () => render({ sql: "SELECT 1" }));
 
-    await vi.waitFor(() => expect(state().rows).toEqual([{ n: "partial" }]));
-    expect(savedFetchedAt("SELECT 1")).toBe("miss");
-  });
+      await vi.waitFor(() => expect(state().rows).toEqual([{ n: "partial" }]));
+      expect(savedFetchedAt("SELECT 1")).toBe("miss");
+    },
+  );
 
   it("sends a manual refresh once with forceRefresh and saves the new fetch time", async () => {
     mocks.callAction.mockResolvedValueOnce({

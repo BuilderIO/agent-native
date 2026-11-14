@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { McpOAuthRefreshUnavailableError } from "../mcp-client/oauth-client.js";
 import { builderFileUploadProvider } from "./builder.js";
 import {
   findFileUploadProviderOwningUrl,
@@ -225,6 +226,32 @@ describe("file-upload registry", () => {
   });
 
   describe("listFileUploadProviderStatusesForRequest", () => {
+    it.each(["sync", "async"])(
+      "isolates a failed %s provider check without reporting it as absent",
+      async (kind) => {
+        const failed = makeProvider("failed", false);
+        if (kind === "sync") {
+          failed.isConfigured = () => {
+            throw new Error("unreadable credential");
+          };
+        } else {
+          failed.isConfiguredForRequest = async () => {
+            throw new Error("unreadable credential");
+          };
+        }
+        const healthy = makeProvider("healthy", true);
+        registerFileUploadProvider(failed);
+        registerFileUploadProvider(healthy);
+
+        await expect(
+          listFileUploadProviderStatusesForRequest(),
+        ).resolves.toEqual([
+          { provider: failed, configured: false, unavailable: true },
+          { provider: healthy, configured: true, unavailable: false },
+        ]);
+      },
+    );
+
     it("detects each provider once, in the order the active lookup walks", async () => {
       const envBacked = {
         ...makeProvider("env-backed", true),
@@ -327,6 +354,20 @@ describe("file-upload registry", () => {
       await expect(uploadFile({ data: new Uint8Array([1]) })).rejects.toThrow(
         "db down",
       );
+    });
+
+    it("keeps transient Builder OAuth refresh failures distinct from missing storage", async () => {
+      canAuthorizeBuilderApiRequestMock.mockRejectedValue(
+        new McpOAuthRefreshUnavailableError(),
+      );
+
+      await expect(
+        uploadFile({ data: new Uint8Array([1]) }),
+      ).rejects.toMatchObject({
+        name: "FileUploadProviderUnavailableError",
+        errorCode: "file_upload_provider_unavailable",
+        statusCode: 503,
+      });
     });
 
     it("does NOT swallow a real upload failure as a fallback", async () => {

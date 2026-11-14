@@ -5,7 +5,7 @@ import { readFileSync } from "node:fs";
 import { docToNfm, nfmToDoc } from "@shared/nfm";
 import { BubbleMenuView } from "@tiptap/extension-bubble-menu";
 import type { Transaction } from "@tiptap/pm/state";
-import { Editor } from "@tiptap/react";
+import { Editor, Node } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { act, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -20,16 +20,18 @@ import {
   shouldShowBubbleToolbar,
   shouldShowReadOnlyCommentBubble,
 } from "./BubbleToolbar";
-import { LOCAL_FILE_USER_EDIT_META } from "./extensions/LocalMdxComponentNode";
 import {
   CompatibleCode,
   NotionInlineAtom,
   NotionSpanMark,
+  NotionToggle,
 } from "./extensions/NotionExtensions";
-import {
-  isUserInitiatedCollaborativeEditorUpdate,
-  shouldPersistCollaborativeEditorUpdate,
-} from "./VisualEditor";
+import { isLocalEditorEdit } from "./VisualEditor";
+
+function defined<T>(value: T | null | undefined): T {
+  if (value === null || value === undefined) throw new Error("Missing value");
+  return value;
+}
 
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
@@ -382,6 +384,111 @@ describe("BubbleToolbar", () => {
     expect(onComment.mock.calls[0]?.[3]).toEqual({ from: 1, to: 8 });
   });
 
+  it("quotes a selection across paragraphs as its anchor text", () => {
+    editorElement = document.createElement("div");
+    toolbarElement = document.createElement("div");
+    document.body.append(editorElement, toolbarElement);
+    editor = new Editor({
+      element: editorElement,
+      extensions: [StarterKit],
+      content: "<p>Alpha ends here.</p><p>Bravo starts</p>",
+    });
+    editor.commands.setTextSelection({ from: 12, to: 24 });
+    const onComment = vi.fn();
+
+    root = createRoot(toolbarElement);
+    act(() =>
+      root!.render(<BubbleToolbar editor={editor!} onComment={onComment} />),
+    );
+    act(() => {
+      editor!.view.dom.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "m",
+          metaKey: true,
+          shiftKey: true,
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+
+    expect(onComment).toHaveBeenCalledOnce();
+    const [quotedText, , anchor, range] = onComment.mock.calls[0]!;
+    // The highlight's text, which the comment card checks the quote against.
+    expect(quotedText).toBe("here.Bravo");
+    expect(anchor.quotedText).toBe(quotedText);
+    expect(range).toEqual({ from: 12, to: 24 });
+  });
+
+  it("comments on a Toggle title's text and doesn't offer to turn the title into another block", () => {
+    editorElement = document.createElement("div");
+    toolbarElement = document.createElement("div");
+    document.body.append(editorElement, toolbarElement);
+    editor = new Editor({
+      element: editorElement,
+      extensions: [StarterKit, NotionToggle],
+      content: {
+        type: "doc",
+        content: [
+          {
+            type: "notionToggle",
+            attrs: { open: false },
+            content: [
+              {
+                type: "notionToggleSummary",
+                content: [{ type: "text", text: "Plan the launch" }],
+              },
+              { type: "paragraph", content: [{ type: "text", text: "Body" }] },
+            ],
+          },
+        ],
+      },
+    });
+    // "launch", in the title.
+    editor.commands.setTextSelection({ from: 11, to: 17 });
+    const onComment = vi.fn();
+
+    const toolbarRoot = createRoot(toolbarElement);
+    root = toolbarRoot;
+    const titledEditor = editor;
+    act(() =>
+      toolbarRoot.render(
+        <BubbleToolbar editor={titledEditor} onComment={onComment} />,
+      ),
+    );
+    expect(
+      toolbarElement.querySelector(
+        'button[aria-label^="editor.slash.turnInto"]',
+      ),
+    ).toBeNull();
+    expect(
+      toolbarElement.querySelector('button[aria-label="editor.bold"]'),
+    ).not.toBeNull();
+    editor.view.focus();
+    const toolbar =
+      toolbarElement.querySelector<HTMLElement>(".bubble-toolbar");
+    const comment = toolbarElement.querySelector<HTMLButtonElement>(
+      'button[aria-label="editor.comment"]',
+    );
+    if (!toolbar || !comment) throw new Error("The toolbar didn't render.");
+    expect(
+      shouldShowBubbleToolbar({
+        editor,
+        element: toolbar,
+        state: editor.state,
+        from: 11,
+        to: 17,
+      }),
+    ).toBe(true);
+
+    act(() => {
+      comment.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    });
+    expect(onComment).toHaveBeenCalledOnce();
+    expect(onComment.mock.calls[0]?.[0]).toBe("launch");
+    expect(onComment.mock.calls[0]?.[3]).toEqual({ from: 11, to: 17 });
+  });
+
   it("offers only Comment for text selected on a read-only page", () => {
     editorElement = document.createElement("div");
     toolbarElement = document.createElement("div");
@@ -516,7 +623,7 @@ describe("BubbleToolbar", () => {
     );
   });
 
-  it("makes an unfocused link removal persistable through exact transaction provenance", () => {
+  it("saves a link removal made while the link input has focus", () => {
     editorElement = document.createElement("div");
     toolbarElement = document.createElement("div");
     document.body.append(editorElement, toolbarElement);
@@ -540,20 +647,10 @@ describe("BubbleToolbar", () => {
     expect(document.activeElement).toBe(input);
 
     let persistenceAllowed = false;
+    let focusedWhenRemoved = true;
     editor.on("update", ({ editor: updatedEditor, transaction }) => {
-      const editorFocused = updatedEditor.isFocused;
-      const userInitiated = isUserInitiatedCollaborativeEditorUpdate({
-        editorFocused,
-        explicitUserEdit:
-          transaction.getMeta(LOCAL_FILE_USER_EDIT_META) === true,
-        recentUserEditIntent: false,
-        transactionUiEvent: transaction.getMeta("uiEvent"),
-      });
-      persistenceAllowed = shouldPersistCollaborativeEditorUpdate({
-        collab: true,
-        editorFocused,
-        userInitiated,
-      });
+      focusedWhenRemoved = updatedEditor.isFocused;
+      persistenceAllowed = isLocalEditorEdit(transaction);
     });
     const removeButton = [...toolbarElement.querySelectorAll("button")].find(
       (button) => button.textContent === "editor.removeLink",
@@ -561,6 +658,7 @@ describe("BubbleToolbar", () => {
     act(() => removeButton.click());
 
     expect(editor.getHTML()).not.toContain("href=");
+    expect(focusedWhenRemoved).toBe(false);
     expect(persistenceAllowed).toBe(true);
   });
 
@@ -1003,6 +1101,42 @@ describe("BubbleToolbar", () => {
     expect(
       editor.state.doc.nodeAt(1)?.marks.map((mark) => mark.type.name),
     ).toEqual(["notionSpan", "code"]);
+  });
+
+  it("stays hidden while a registry block is selected", () => {
+    editorElement = document.createElement("div");
+    toolbarElement = document.createElement("div");
+    document.body.append(editorElement, toolbarElement);
+    const RegistryBlock = Node.create({
+      name: "registryBlock",
+      group: "block",
+      atom: true,
+      selectable: true,
+      parseHTML: () => [{ tag: "div[data-registry-block]" }],
+      renderHTML: () => ["div", { "data-registry-block": "" }],
+    });
+    editor = new Editor({
+      element: editorElement,
+      extensions: [StarterKit, RegistryBlock],
+      content: "<p>Notes</p><div data-registry-block></div>",
+    });
+    const toolbarButton = document.createElement("button");
+    toolbarElement.append(toolbarButton);
+    toolbarButton.focus();
+    const shows = (from: number, to: number) =>
+      shouldShowBubbleToolbar({
+        editor: defined(editor),
+        element: defined(toolbarElement),
+        state: defined(editor).state,
+        from,
+        to,
+      });
+
+    expect(shows(1, 6)).toBe(true);
+    editor.commands.setNodeSelection(7);
+    expect(shows(editor.state.selection.from, editor.state.selection.to)).toBe(
+      false,
+    );
   });
 
   it("hides the color control when a selection contains no text", () => {

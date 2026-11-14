@@ -268,10 +268,10 @@ describe("AgentSuggestionBar overflow", () => {
       /\[data-agent-suggestion-scroller="true"\]:is\(\s*\[data-overflow-start\],\s*\[data-overflow-end\]\s*\) \{[\s\S]*?mask-image: linear-gradient\(/,
     );
     expect(styles).toMatch(
-      /\[data-agent-suggestion-scroller="true"\]\[data-overflow-end\] \{\n  --agent-suggestion-fade-end: 1\.5rem;/,
+      /\[data-agent-suggestion-scroller="true"\]\[data-overflow-end\] \{\n\s+--agent-suggestion-fade-end: 1\.5rem;/,
     );
     expect(styles).toMatch(
-      /\.agentkit-suggestions \[data-agent-suggestion-track="true"\] \{[\s\S]*?flex-wrap: wrap;[\s\S]*?inline-size: var\(--agent-suggestion-track-width\);[\s\S]*?min-inline-size: 100%;/,
+      /\.agentkit-suggestions \{\n\s+--agent-suggestion-gap: 0\.5rem;/,
     );
   });
 });

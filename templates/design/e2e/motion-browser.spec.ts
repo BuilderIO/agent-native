@@ -1,7 +1,11 @@
+import { mkdir } from "node:fs/promises";
+import path from "node:path";
+
 import { expect, test, type APIRequestContext } from "@playwright/test";
 
 import { DESIGN_MOTION_LAB } from "../shared/labs";
 import { MOTION_CODE_METADATA_VERSION } from "../shared/motion-code";
+import { MOTION_CURVE_PRESETS } from "../shared/motion-easing";
 import { motionNativeStylesToTracks } from "../shared/motion-native-style-runtime";
 import { e2eBaseURL } from "./base-url";
 import { FIXTURE_HTML } from "./global-setup";
@@ -84,6 +88,11 @@ test.beforeAll(async ({ request }, workerInfo) => {
 });
 
 test.beforeEach(async ({ page }) => {
+  await page
+    .context()
+    .addCookies([
+      { name: "an_consent", value: "1.p0.t0", url: baseURLForActions },
+    ]);
   restoreMotionLab = await enableLab(page, DESIGN_MOTION_LAB.key);
 });
 
@@ -95,6 +104,186 @@ test.afterEach(async () => {
 test.afterAll(async ({ request }) => {
   if (!designId) return;
   await postAction(request, "delete-design", { id: designId });
+});
+
+test("renders the start jump for step-start easing in the Motion inspector", async ({
+  page,
+  request,
+}) => {
+  await postAction(request, "apply-motion-edit", {
+    designId,
+    fileId,
+    sourceRef: fileId,
+    durationMs: 1000,
+    playbackMode: "once",
+    defaultEase: "linear",
+    tracks: [
+      {
+        targetNodeId: "e2e-alpha-button",
+        property: "translate",
+        keyframes: [
+          { t: 0, value: "0px 0px", ease: "step-start" },
+          { t: 1, value: "10px 0px" },
+        ],
+      },
+    ],
+  });
+
+  await page.setViewportSize({ width: 1728, height: 941 });
+  await gotoEditor(page, designId);
+  await selectByText(page, "Alpha Button", { screenId: fileId });
+  await page.getByRole("button", { name: "Motion dock", exact: true }).click();
+
+  const dock = page.getByRole("region", { name: "Motion dock" }).first();
+  const easingSegment = dock
+    .locator("[data-motion-track-row]")
+    .first()
+    .getByRole("button", { name: /Segment easing:/ })
+    .first();
+  await expect(easingSegment).toBeVisible();
+  await expect(easingSegment).toHaveAccessibleName("Segment easing: Hold");
+  await easingSegment.click();
+
+  const easingInspector = page
+    .locator("[data-design-inspector-section]")
+    .filter({ has: page.locator('h3[aria-label="Easing"]') });
+  await expect(
+    easingInspector.locator("[data-easing-curve] path[data-curve-path]"),
+  ).toHaveAttribute("d", "M 0 100 V 0 H 100");
+});
+
+test("preserves spring bounce decimals until blur commits them", async ({
+  page,
+  request,
+}, testInfo) => {
+  test.setTimeout(120_000);
+  await postAction(request, "apply-motion-edit", {
+    designId,
+    fileId,
+    sourceRef: fileId,
+    durationMs: 1000,
+    playbackMode: "once",
+    defaultEase: "linear",
+    tracks: [
+      {
+        targetNodeId: "e2e-alpha-button",
+        property: "translate",
+        keyframes: [
+          { t: 0, value: "0px 0px", ease: "ease-in" },
+          { t: 1, value: "10px 0px" },
+        ],
+      },
+    ],
+  });
+
+  await page.setViewportSize({ width: 1728, height: 941 });
+  await gotoEditor(page, designId);
+  await selectByText(page, "Alpha Button", { screenId: fileId });
+  await page.getByRole("button", { name: "Motion dock", exact: true }).click();
+
+  const dock = page.getByRole("region", { name: "Motion dock" }).first();
+  const easingSegment = dock
+    .locator("[data-motion-track-row]")
+    .first()
+    .getByRole("button", { name: /Segment easing:/ })
+    .first();
+  await easingSegment.click();
+
+  const easingInspector = page
+    .locator("[data-design-inspector-section]")
+    .filter({ has: page.locator('h3[aria-label="Easing"]') });
+  const springSave = page.waitForResponse(
+    (response) => {
+      if (
+        !response.url().includes("/_agent-native/actions/apply-motion-edit") ||
+        response.request().method() !== "POST"
+      ) {
+        return false;
+      }
+      try {
+        const input = response.request().postDataJSON() as {
+          tracks?: Array<{ keyframes?: Array<{ ease?: unknown }> }>;
+        };
+        return Boolean(
+          input.tracks?.some((track) =>
+            track.keyframes?.some(
+              (keyframe) =>
+                typeof keyframe.ease === "string" &&
+                keyframe.ease.startsWith("spring("),
+            ),
+          ),
+        );
+      } catch {
+        return false;
+      }
+    },
+    { timeout: 20_000 },
+  );
+  await easingInspector.getByRole("tab", { name: "Spring" }).click();
+  const savedSpring = await springSave;
+  expect(savedSpring.ok(), await savedSpring.text()).toBe(true);
+
+  const bounceInput = easingInspector.getByLabel("Bounce");
+  await expect(bounceInput).toHaveValue("0.25");
+  const motionWrites: string[] = [];
+  const countMotionWrites = (request: {
+    method(): string;
+    url(): string;
+    postData(): string | null;
+  }) => {
+    if (
+      request.method() === "POST" &&
+      request.url().includes("/_agent-native/actions/apply-motion-edit")
+    ) {
+      motionWrites.push(request.postData() ?? "");
+    }
+  };
+  page.on("request", countMotionWrites);
+
+  await bounceInput.fill("0.");
+  await expect(bounceInput).toHaveValue("0.");
+  expect(motionWrites).toHaveLength(0);
+  await bounceInput.fill("0.45");
+  await expect(bounceInput).toHaveValue("0.45");
+  expect(motionWrites).toHaveLength(0);
+
+  const bounceSave = page.waitForResponse(
+    (response) => {
+      if (
+        !response.url().includes("/_agent-native/actions/apply-motion-edit") ||
+        response.request().method() !== "POST"
+      ) {
+        return false;
+      }
+      try {
+        const input = response.request().postDataJSON() as {
+          tracks?: Array<{ keyframes?: Array<{ ease?: unknown }> }>;
+        };
+        return Boolean(
+          input.tracks?.some((track) =>
+            track.keyframes?.some(
+              (keyframe) => keyframe.ease === "spring(0.45)",
+            ),
+          ),
+        );
+      } catch {
+        return false;
+      }
+    },
+    { timeout: 20_000 },
+  );
+  await bounceInput.blur();
+  const savedBounce = await bounceSave;
+  page.off("request", countMotionWrites);
+  expect(savedBounce.ok(), await savedBounce.text()).toBe(true);
+  expect(motionWrites).toHaveLength(1);
+  await expect(bounceInput).toHaveValue("0.45");
+  const screenshotPath = path.resolve(
+    import.meta.dirname,
+    "../../../.tmp/drive-codex/design-motion-spring-bounce-decimal.png",
+  );
+  await mkdir(path.dirname(screenshotPath), { recursive: true });
+  await page.screenshot({ path: screenshotPath });
 });
 
 test("Motion dock edits, saves, previews, and restores a CSS timeline", async ({
@@ -125,9 +314,6 @@ test("Motion dock edits, saves, previews, and restores a CSS timeline", async ({
   ).toBeVisible();
   await expect(page.locator('button[aria-label="Add audio"]')).toBeVisible();
   await expect(page.locator("[data-motion-audio-timeline]")).toHaveCount(0);
-  await expect(
-    page.getByText("Pick a property to add the first track.", { exact: false }),
-  ).toBeVisible();
 
   const roundTripTimeline = await postAction(request, "apply-motion-edit", {
     designId,
@@ -194,6 +380,7 @@ test("Motion dock edits, saves, previews, and restores a CSS timeline", async ({
     designId,
     sourceRef: fileId,
   });
+  expect(importedTimeline.timelines?.[0]?.defaultEase).toBe("ease");
   const importedTracks = importedTimeline.timelines?.[0]?.tracks ?? [];
   const importedPosition = importedTracks.find(
     (track: { targetNodeId: string; property: string }) =>
@@ -221,19 +408,19 @@ test("Motion dock edits, saves, previews, and restores a CSS timeline", async ({
     (track: { targetNodeId: string; property: string }) =>
       track.targetNodeId === "e2e-alpha-button" && track.property === "scale",
   );
+  const importedScaleKeyframes = importedScale?.keyframes ?? [];
   expect(
-    importedScale?.keyframes.map(
-      (keyframe: { t: number; value: string; ease?: string }) => [
-        keyframe.t,
-        keyframe.value,
-        keyframe.ease,
-      ],
-    ),
+    importedScaleKeyframes.map((keyframe: { t: number; value: string }) => [
+      keyframe.t,
+      keyframe.value,
+    ]),
   ).toEqual([
-    [0, "0.1", "cubic-bezier(0.5, 0, 0.5, 1)"],
-    // Read back from compiled CSS, a keyframe saved without an ease gets the CSS default.
-    [1, "1", "ease"],
+    [0, "0.1"],
+    [1, "1"],
   ]);
+  expect(importedScaleKeyframes[0]?.ease).toBe("cubic-bezier(0.5, 0, 0.5, 1)");
+  // A keyframe without an authored easing remains inherited from the timeline default.
+  expect(importedScaleKeyframes[1]?.ease).toBeUndefined();
   await gotoEditor(page, designId);
   await selectByText(page, "Alpha Button", { screenId: fileId });
   await page.getByRole("button", { name: "Motion dock", exact: true }).click();
@@ -382,16 +569,57 @@ test("Motion dock edits, saves, previews, and restores a CSS timeline", async ({
     exact: true,
   });
   const addTrack = async (label: string, addControl = addMotion.last()) => {
+    const expectedStyleKey = label;
     const responsePromise = page.waitForResponse(
-      (response) =>
-        response.url().includes("/_agent-native/actions/apply-motion-edit") &&
-        response.request().method() !== "OPTIONS",
+      (response) => {
+        if (
+          !response
+            .url()
+            .includes("/_agent-native/actions/apply-motion-edit") ||
+          response.request().method() !== "POST"
+        ) {
+          return false;
+        }
+        try {
+          const input = response.request().postDataJSON() as {
+            nativeStyles?: Array<{ styleKey?: unknown }>;
+          };
+          return Boolean(
+            input.nativeStyles?.some(
+              (style) => style.styleKey === expectedStyleKey,
+            ),
+          );
+        } catch {
+          return false;
+        }
+      },
       { timeout: 20_000 },
     );
     await addControl.click();
     await page.getByRole("menuitem", { name: label, exact: true }).click();
     const response = await responsePromise;
     const responseText = await response.text();
+    if (!response.ok()) {
+      const input = response.request().postDataJSON() as {
+        currentContent?: unknown;
+        revision?: unknown;
+        nativeStyles?: Array<{ styleKey?: unknown }>;
+      };
+      const liveSource = await getAction(request, "read-source-file", {
+        designId,
+        fileId,
+      });
+      expect(
+        response.ok(),
+        JSON.stringify({
+          error: responseText,
+          submittedRevision: input.revision,
+          liveUpdatedAt: liveSource.updatedAt,
+          workingCopyMatchesLive: input.currentContent === liveSource.content,
+          nativeStyleKeys: input.nativeStyles?.map((style) => style.styleKey),
+        }),
+      ).toBe(true);
+    }
     expect(response.ok(), responseText).toBe(true);
     const saved = JSON.parse(responseText) as { persisted?: boolean };
     expect(saved.persisted).toBe(true);
@@ -480,7 +708,27 @@ test("Motion dock edits, saves, previews, and restores a CSS timeline", async ({
   );
   await dock.getByRole("button", { name: "Play once" }).click();
   const savedLoopMode = await loopModeSave;
-  expect(savedLoopMode.ok(), await savedLoopMode.text()).toBe(true);
+  const savedLoopModeText = await savedLoopMode.text();
+  if (!savedLoopMode.ok()) {
+    const input = savedLoopMode.request().postDataJSON() as {
+      currentContent?: unknown;
+      revision?: unknown;
+    };
+    const liveSource = await getAction(request, "read-source-file", {
+      designId,
+      fileId,
+    });
+    expect(
+      savedLoopMode.ok(),
+      JSON.stringify({
+        error: savedLoopModeText,
+        submittedRevision: input.revision,
+        liveUpdatedAt: liveSource.updatedAt,
+        workingCopyMatchesLive: input.currentContent === liveSource.content,
+      }),
+    ).toBe(true);
+  }
+  expect(savedLoopMode.ok(), savedLoopModeText).toBe(true);
   const savedLoopModeBody = (await savedLoopMode.json()) as {
     playbackMode?: string;
     persisted?: boolean;
@@ -960,9 +1208,40 @@ test("Motion dock edits, saves, previews, and restores a CSS timeline", async ({
     await currentTime.fill(String(timeMs));
     await currentTime.press("Tab");
     const keyframeSave = page.waitForResponse(
-      (response) =>
-        response.url().includes("/_agent-native/actions/apply-motion-edit") &&
-        response.request().method() === "POST",
+      (response) => {
+        if (
+          !response
+            .url()
+            .includes("/_agent-native/actions/apply-motion-edit") ||
+          response.request().method() !== "POST"
+        ) {
+          return false;
+        }
+        try {
+          const input = response.request().postDataJSON() as {
+            tracks?: Array<{
+              targetNodeId?: unknown;
+              property?: unknown;
+              keyframes?: Array<{ t?: unknown }>;
+            }>;
+          };
+          const expectedTime = timeMs / 3601;
+          return Boolean(
+            input.tracks?.some(
+              (track) =>
+                track.targetNodeId === "e2e-alpha-button" &&
+                track.property === "translate" &&
+                track.keyframes?.some(
+                  (keyframe) =>
+                    typeof keyframe.t === "number" &&
+                    Math.abs(keyframe.t - expectedTime) < 0.0001,
+                ),
+            ),
+          );
+        } catch {
+          return false;
+        }
+      },
       { timeout: 20_000 },
     );
     await positionTrack
@@ -1077,15 +1356,36 @@ test("Motion dock edits, saves, previews, and restores a CSS timeline", async ({
     );
   const positionRowBox = await positionTimelineRow.boundingBox();
   if (!positionRowBox) throw new Error("The Position timeline row is missing.");
+  const keyframeBoxes = await positionKeyframes.evaluateAll((keyframes) =>
+    keyframes
+      .map((keyframe) => {
+        const rect = keyframe.getBoundingClientRect();
+        return { left: rect.left, right: rect.right };
+      })
+      .sort((left, right) => left.left - right.left),
+  );
+  const widestKeyframeGap = keyframeBoxes.slice(1).reduce(
+    (widest, current, index) => {
+      const previous = keyframeBoxes[index]!;
+      const gap = { left: previous.right, right: current.left };
+      return gap.right - gap.left > widest.right - widest.left ? gap : widest;
+    },
+    { left: 0, right: 0 },
+  );
+  expect(widestKeyframeGap.right - widestKeyframeGap.left).toBeGreaterThan(20);
+  const insertionPoint = {
+    x:
+      (widestKeyframeGap.left + widestKeyframeGap.right) / 2 - positionRowBox.x,
+    y: 5,
+  };
   const addDoubleClickSave = page.waitForResponse(
     (response) =>
       response.url().includes("/_agent-native/actions/apply-motion-edit") &&
       response.request().method() === "POST",
     { timeout: 20_000 },
   );
-  await positionTimelineRow.dblclick({
-    position: { x: positionRowBox.width * 0.75, y: positionRowBox.height / 2 },
-  });
+  // Easing segments stop double-clicks at the row center.
+  await positionTimelineRow.dblclick({ position: insertionPoint });
   const savedDoubleClick = await addDoubleClickSave;
   expect(savedDoubleClick.ok(), await savedDoubleClick.text()).toBe(true);
   await expect
@@ -1192,27 +1492,91 @@ test("Motion dock edits, saves, previews, and restores a CSS timeline", async ({
     positionTimelineRow.getByLabel("Keyframe at 1500ms"),
   ).toBeVisible();
 
-  const easingSave = page.waitForResponse(
-    (response) =>
-      response.url().includes("/_agent-native/actions/apply-motion-edit") &&
-      response.request().method() === "POST",
-    { timeout: 20_000 },
+  const waitForPositionEaseSave = (matches: (ease: unknown) => boolean) =>
+    page.waitForResponse(
+      (response) => {
+        if (
+          !response
+            .url()
+            .includes("/_agent-native/actions/apply-motion-edit") ||
+          response.request().method() !== "POST"
+        ) {
+          return false;
+        }
+        try {
+          const input = response.request().postDataJSON() as {
+            tracks?: Array<{
+              targetNodeId?: unknown;
+              property?: unknown;
+              keyframes?: Array<{ ease?: unknown }>;
+            }>;
+          };
+          return Boolean(
+            input.tracks?.some(
+              (track) =>
+                track.targetNodeId === "e2e-alpha-button" &&
+                track.property === "translate" &&
+                track.keyframes?.some((keyframe) => matches(keyframe.ease)),
+            ),
+          );
+        } catch {
+          return false;
+        }
+      },
+      { timeout: 20_000 },
+    );
+  const easeInPreset = MOTION_CURVE_PRESETS.find(
+    (preset) => preset.label === "Ease in",
+  );
+  if (!easeInPreset) {
+    throw new Error("The Ease in motion preset is not defined.");
+  }
+  const easingSave = waitForPositionEaseSave(
+    (ease) => ease === easeInPreset.value,
   );
   const segmentEasing = positionTimelineRow
     .getByRole("button", { name: /Segment easing:/ })
-    .first();
+    .nth(1);
   const segmentEasingLabel = await segmentEasing.getAttribute("aria-label");
   if (!segmentEasingLabel) {
     throw new Error("The timeline segment does not expose its easing label.");
   }
   await segmentEasing.click();
-  await page
-    .getByRole("button", {
-      name: segmentEasingLabel.replace(/^Segment easing: /, ""),
-      exact: true,
-    })
+  const easingInspector = page
+    .locator("[data-design-inspector-section]")
+    .filter({
+      has: page.locator('h3[aria-label="Easing"]'),
+    });
+  await expect(easingInspector).toBeVisible();
+  const curveTab = easingInspector.getByRole("tab", { name: "Curve" });
+  const springTab = easingInspector.getByRole("tab", { name: "Spring" });
+  await expect(curveTab).toBeVisible();
+  await expect(springTab).toBeVisible();
+  await expect(easingInspector.locator("[data-easing-curve]")).toBeVisible();
+  const easingPicker = easingInspector.getByRole("button", {
+    name: segmentEasingLabel.replace(/^Segment easing: /, ""),
+    exact: true,
+  });
+  await easingPicker.click();
+  const easingMenu = page
+    .locator("[data-radix-popper-content-wrapper]")
+    .filter({ has: page.locator("button[aria-pressed]") })
+    .last();
+  await expect(easingMenu.locator("button[aria-pressed]")).toHaveCount(9);
+  const pickerBox = await easingPicker.boundingBox();
+  const menuBox = await easingMenu.boundingBox();
+  if (!pickerBox || !menuBox) {
+    throw new Error("The easing inspector menu is not measurable.");
+  }
+  expect(Math.abs(menuBox.width - 232)).toBeLessThanOrEqual(1);
+  expect(Math.abs(menuBox.height - 336)).toBeLessThanOrEqual(2);
+  expect(
+    Math.abs(menuBox.x + menuBox.width + 8 - pickerBox.x),
+  ).toBeLessThanOrEqual(2);
+  expect(Math.abs(menuBox.y - pickerBox.y)).toBeLessThanOrEqual(2);
+  await easingMenu
+    .getByRole("button", { name: "Ease in", exact: true })
     .click();
-  await page.getByRole("button", { name: "Ease in", exact: true }).click();
   const savedEase = await easingSave;
   expect(savedEase.ok(), await savedEase.text()).toBe(true);
   await expect(
@@ -1220,10 +1584,31 @@ test("Motion dock edits, saves, previews, and restores a CSS timeline", async ({
       .getByRole("button", { name: "Segment easing: Ease in" })
       .first(),
   ).toBeVisible();
-  await page.keyboard.press("Escape");
+
+  const springSave = waitForPositionEaseSave(
+    (ease) => typeof ease === "string" && ease.startsWith("spring("),
+  );
+  await springTab.click();
+  const savedSpring = await springSave;
+  expect(savedSpring.ok(), await savedSpring.text()).toBe(true);
   await expect(
-    page.getByRole("button", { name: "Ease in", exact: true }),
-  ).toBeHidden();
+    positionTimelineRow
+      .getByRole("button", { name: "Segment easing: Custom spring" })
+      .first(),
+  ).toBeVisible();
+
+  const curveRestoreSave = waitForPositionEaseSave(
+    (ease) => ease === easeInPreset.value,
+  );
+  await curveTab.click();
+  const restoredCurve = await curveRestoreSave;
+  expect(restoredCurve.ok(), await restoredCurve.text()).toBe(true);
+  await expect(
+    positionTimelineRow
+      .getByRole("button", { name: "Segment easing: Ease in" })
+      .first(),
+  ).toBeVisible();
+  await page.keyboard.press("Escape");
 
   const layerSpan = dock.getByRole("slider", {
     name: "Alpha Button animation span",
@@ -1403,6 +1788,53 @@ test("Motion dock edits, saves, previews, and restores a CSS timeline", async ({
   expect(mobileInspectorBox.y + mobileInspectorBox.height).toBeLessThanOrEqual(
     mobileDockBox.y + 1,
   );
+});
+
+test("canvas selection exits the Motion easing inspector", async ({
+  page,
+  request,
+}) => {
+  await postAction(request, "apply-motion-edit", {
+    designId,
+    fileId,
+    sourceRef: fileId,
+    durationMs: 1000,
+    tracks: [
+      {
+        targetNodeId: "e2e-alpha-button",
+        property: "translate",
+        keyframes: [
+          { t: 0, value: "0px 0px", ease: "linear" },
+          { t: 1, value: "20px 0px", ease: "linear" },
+        ],
+      },
+    ],
+  });
+
+  await page.setViewportSize({ width: 1728, height: 941 });
+  await gotoEditor(page, designId);
+  await selectByText(page, "Alpha Button", { screenId: fileId });
+  await page.getByRole("button", { name: "Motion dock", exact: true }).click();
+
+  const dock = page.getByRole("region", { name: "Motion dock" }).first();
+  const timelineTrack = dock.locator("[data-motion-track-row]").first();
+  const easingSegment = timelineTrack
+    .getByRole("button", { name: /Segment easing:/ })
+    .first();
+  await expect(easingSegment).toBeVisible();
+  await easingSegment.click();
+
+  const easingInspector = page
+    .locator("[data-design-inspector-section]")
+    .filter({ has: page.locator('h3[aria-label="Easing"]') });
+  await expect(easingInspector).toBeVisible();
+
+  await selectByText(page, "Beta Button", { screenId: fileId });
+
+  await expect(easingInspector).toHaveCount(0);
+  await expect(
+    page.locator('[data-design-inspector-section] h3[aria-label="Animations"]'),
+  ).toBeVisible();
 });
 
 test("Motion path edits persist for a single Position track", async ({

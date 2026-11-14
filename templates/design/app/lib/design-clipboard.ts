@@ -1,5 +1,6 @@
 import {
   type DesignClipboardPayload,
+  hasDesignClipboardMarker,
   parseDesignClipboardMarker,
 } from "./design-import";
 import { extractSvgMarkup } from "./svg-paste";
@@ -59,8 +60,40 @@ export interface ReadDesignClipboardPayload {
 export type ReadDesignClipboardPayloadFromSystemResult =
   | { status: "found"; value: ReadDesignClipboardPayload }
   | { status: "empty" }
+  | { status: "untrusted" }
   | { status: "unavailable" }
   | { status: "unreadable"; errors: unknown[] };
+
+/** What refreshing the in-memory clipboard from the system clipboard did. */
+export type DesignClipboardRefreshStatus =
+  | "adopted"
+  | "unchanged"
+  | Exclude<ReadDesignClipboardPayloadFromSystemResult["status"], "found">;
+
+/**
+ * A paste event's Design payload, or why its marker was refused. "untrusted"
+ * means a marker is present but this browser did not write it.
+ */
+export function readDesignClipboardPasteData(
+  clipboardData: Pick<DataTransfer, "getData"> | null | undefined,
+  environment: Pick<
+    DesignClipboardEnvironment,
+    "trustToken"
+  > = browserClipboardEnvironment(),
+):
+  | { status: "found"; value: ReadDesignClipboardPayload }
+  | { status: "untrusted" }
+  | { status: "absent" } {
+  const value = readDesignClipboardPayloadFromDataTransfer(
+    clipboardData,
+    environment,
+  );
+  if (value) return { status: "found", value };
+  const marked =
+    hasDesignClipboardMarker(clipboardData?.getData("text/html")) ||
+    hasDesignClipboardMarker(clipboardData?.getData("text/plain"));
+  return marked ? { status: "untrusted" } : { status: "absent" };
+}
 
 function browserClipboardEnvironment(): DesignClipboardEnvironment {
   return {
@@ -206,6 +239,7 @@ export async function readDesignClipboardPayloadFromSystem(
   if (!clipboard) return { status: "unavailable" };
 
   const errors: unknown[] = [];
+  let untrusted = false;
 
   if (clipboard.read) {
     try {
@@ -227,6 +261,7 @@ export async function readDesignClipboardPayloadFromSystem(
               value: { payload, markerText, plainText },
             };
           }
+          if (hasDesignClipboardMarker(markerText)) untrusted = true;
         }
       }
     } catch (error) {
@@ -237,7 +272,9 @@ export async function readDesignClipboardPayloadFromSystem(
   if (!clipboard.readText) {
     return errors.length > 0
       ? { status: "unreadable", errors }
-      : { status: "empty" };
+      : untrusted
+        ? { status: "untrusted" }
+        : { status: "empty" };
   }
   try {
     const markerText = await clipboard.readText();
@@ -250,7 +287,9 @@ export async function readDesignClipboardPayloadFromSystem(
           status: "found",
           value: { payload, markerText, plainText: markerText },
         }
-      : { status: "empty" };
+      : untrusted || hasDesignClipboardMarker(markerText)
+        ? { status: "untrusted" }
+        : { status: "empty" };
   } catch (error) {
     errors.push(error);
     return { status: "unreadable", errors };

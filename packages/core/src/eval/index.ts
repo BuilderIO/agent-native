@@ -37,6 +37,19 @@ export {
   type RunEvalSuiteOptions,
 } from "./runner.js";
 export { formatReport } from "./report.js";
+export {
+  expectedCalibrationError,
+  scoreClassification,
+  thresholdSweep,
+  type ClassificationConfusionMatrix,
+  type ClassificationLabelMetrics,
+  type ClassificationScore,
+  type ScoreClassificationInput,
+  type ThresholdPoint,
+  type ThresholdSweepInput,
+  type ThresholdSweepResult,
+  type WilsonInterval,
+} from "./decision-classification.js";
 export type {
   Eval,
   EvalInput,

@@ -38,7 +38,58 @@ it("renders an exact fragment using its enclosing source marks", () => {
         context={{ source, from, to }}
       />,
     ),
-  ).toContain("<strong>Upper</strong>↵<strong>Lower</strong>");
+  ).toContain("<strong>Upper</strong><br/><strong>Lower</strong>");
+});
+
+it("breaks a new paragraph's lines and marks the breaks at its edges", () => {
+  const source = "Alpha one. More.\nAlpha two.\nBravo.";
+  const from = "Alpha one.".length;
+  const to = source.indexOf("\nBravo") + 1;
+  expect(
+    renderToStaticMarkup(
+      <SuggestionText
+        content={source.slice(from, to)}
+        context={{ source, from, to }}
+      />,
+    ),
+  ).toBe(
+    '<span class="whitespace-pre-wrap break-words"> More.<br/>Alpha two.↵</span>',
+  );
+  // A paragraph added on its own still says it starts a new line.
+  const added = "Alpha.\nNew.\nBravo.";
+  const addedFrom = "Alpha.".length;
+  const addedTo = addedFrom + "\nNew.".length;
+  expect(
+    renderToStaticMarkup(
+      <SuggestionText
+        content={added.slice(addedFrom, addedTo)}
+        context={{ source: added, from: addedFrom, to: addedTo }}
+      />,
+    ),
+  ).toBe('<span class="whitespace-pre-wrap break-words">↵New.</span>');
+});
+
+it("shows structure-only changes instead of an unavailable preview", () => {
+  const source = "Alpha.\n<empty-block/>\n- Item";
+  const emptyFrom = source.indexOf("\n<empty");
+  const emptyTo = source.indexOf("\n- ");
+  expect(
+    renderToStaticMarkup(
+      <SuggestionText
+        content={source.slice(emptyFrom, emptyTo)}
+        context={{ source, from: emptyFrom, to: emptyTo }}
+      />,
+    ),
+  ).toContain("↵¶");
+  const markerFrom = source.indexOf("- ");
+  const html = renderToStaticMarkup(
+    <SuggestionText
+      content="- "
+      context={{ source, from: markerFrom, to: markerFrom + 2 }}
+    />,
+  );
+  expect(html).not.toContain("Preview unavailable");
+  expect(html).toContain("- ");
 });
 
 it("marks invalid source context unavailable without rendering raw delimiters", () => {

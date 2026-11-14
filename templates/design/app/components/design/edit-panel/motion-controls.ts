@@ -39,25 +39,27 @@ const OPEN_PATH_PRIMITIVE_KINDS = new Set(["path", "line", "arrow"]);
 /**
  * The keyframe-able controls the inspector offers for one layer. Mirrors the
  * inspector's own branching: text swaps the fill, stroke, and corner controls
- * for its own, vectors and groups keep paint on other properties, and every
- * layer keeps move, scale, rotate, and opacity. Unlike a diamond, a control is
- * offered even when the layer lacks the look, because its add button is shown.
+ * for its own, vectors keep paint on other properties, a group is not a box
+ * (no fill, stroke, or corners), and every layer keeps move, scale, rotate,
+ * and opacity. Unlike a diamond, a control is offered even when the layer
+ * lacks the look, because its add button is shown.
  */
 export function motionControlsOffered(
   element: ElementInfo,
 ): MotionMenuProperty[] {
   const text = isTextElement(element);
   const vector = isVectorShapeSelection(element);
+  const group = element.isGroup === true;
   const offered = new Set<MotionMenuProperty>(MOTION_MENU_BASIC_PROPERTIES);
-  if (!isBoxlessText(element)) offered.add("border-radius");
+  if (!group && !isBoxlessText(element)) offered.add("border-radius");
   if (
-    !element.isGroup &&
+    !group &&
     !vector &&
     !shouldUseTextFill(element, element.computedStyles)
   ) {
     offered.add("background-color");
   }
-  if (!text && !vector) {
+  if (!group && !text && !vector) {
     offered.add("border-color");
     offered.add("border-width");
   }

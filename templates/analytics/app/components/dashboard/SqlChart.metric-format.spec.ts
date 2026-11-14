@@ -42,6 +42,20 @@ describe("formatMetricValue", () => {
     expect(formatMetricValue("1234", "number")).toBe("1,234");
   });
 
+  it("formats seconds with the duration formatter", () => {
+    expect(formatMetricValue(57600, "duration")).toBe("16 hours");
+    expect(formatMetricValue("960", "duration")).toBe("16 min");
+  });
+
+  it("shows the duration dash for a missing or invalid duration", () => {
+    expect(formatMetricValue(null, "duration")).toBe("–");
+    expect(formatMetricValue(undefined, "duration")).toBe("–");
+    expect(formatMetricValue("", "duration")).toBe("–");
+    expect(formatMetricValue(Number.NaN, "duration")).toBe("–");
+    expect(formatMetricValue("Infinity", "duration")).toBe("–");
+    expect(formatMetricValue(null, "number")).toBe("-");
+  });
+
   it("honors a valueLabels override before any coercion", () => {
     expect(formatMetricValue("3", "number", { "3": "Tier 3" })).toBe("Tier 3");
   });

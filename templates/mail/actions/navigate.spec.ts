@@ -2,18 +2,18 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const writeAppStateForCurrentTab = vi.hoisted(() => vi.fn());
 const mocks = vi.hoisted(() => ({
-  getJevContextCredentials: vi.fn(),
+  getDecisionsStatus: vi.fn(),
   getRequestUserEmail: vi.fn(),
-  isJevEnabled: vi.fn(),
 }));
 
+vi.mock("@agent-native/core/decisions", () => ({
+  getDecisionsStatus: mocks.getDecisionsStatus,
+}));
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppStateForCurrentTab,
 }));
 vi.mock("@agent-native/core/server", () => ({
-  getJevContextCredentials: mocks.getJevContextCredentials,
   getRequestUserEmail: mocks.getRequestUserEmail,
-  isJevEnabled: mocks.isJevEnabled,
 }));
 
 import action from "./navigate";
@@ -21,7 +21,13 @@ import action from "./navigate";
 describe("Mail navigate", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.isJevEnabled.mockResolvedValue(false);
+    mocks.getRequestUserEmail.mockReturnValue("owner@example.com");
+    mocks.getDecisionsStatus.mockResolvedValue({
+      providers: [
+        { provider: "jev", status: "not_configured" },
+        { provider: "openai", status: "not_configured" },
+      ],
+    });
   });
 
   it("writes the command through the requesting tab's ambient state", async () => {
@@ -67,17 +73,26 @@ describe("Mail navigate", () => {
     ).toBe(false);
   });
 
-  it("rejects Priority navigation without Jev credentials", async () => {
-    mocks.getRequestUserEmail.mockReturnValue("owner@example.com");
-    mocks.getJevContextCredentials.mockResolvedValue({
-      apiKey: undefined,
-      builderAuth: null,
-      personalApiKey: undefined,
-    });
-
+  it("rejects Priority navigation without a configured decision provider", async () => {
     await expect(action.run({ sort: "priority" })).rejects.toThrow(
-      /Priority sort requires Jev/,
+      /Priority sort requires an AI decision provider/,
     );
     expect(writeAppStateForCurrentTab).not.toHaveBeenCalled();
+  });
+
+  it("allows Priority navigation with OpenAI only", async () => {
+    mocks.getDecisionsStatus.mockResolvedValue({
+      providers: [
+        { provider: "jev", status: "not_configured" },
+        { provider: "openai", status: "ready" },
+      ],
+    });
+
+    await action.run({ sort: "priority" });
+
+    expect(writeAppStateForCurrentTab).toHaveBeenCalledWith("navigate", {
+      view: "inbox",
+      sort: "priority",
+    });
   });
 });

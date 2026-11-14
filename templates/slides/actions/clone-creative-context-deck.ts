@@ -15,6 +15,7 @@ import { nanoid } from "nanoid";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { deckDataColumns } from "../server/lib/deck-list-columns.js";
 import { getDeckUrl } from "./_app-url.js";
 import { trackDeckCreated } from "./_deck-tracking.js";
 
@@ -74,7 +75,7 @@ export default defineAction({
       .values({
         id,
         title,
-        data: JSON.stringify(deck),
+        ...deckDataColumns(deck),
         designSystemId: deck.designSystemId ?? null,
         ownerEmail: email,
         orgId: getRequestOrgId() ?? null,
@@ -86,7 +87,7 @@ export default defineAction({
       .from(schema.decks)
       .where(eq(schema.decks.id, id));
     if (!saved) throw new Error("Deck clone did not persist.");
-    trackDeckCreated(
+    await trackDeckCreated(
       saved.id,
       {
         creationMethod: "duplicate",

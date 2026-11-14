@@ -61,22 +61,16 @@ import { cn } from "@agent-native/toolkit/utils";
 import {
   IconArrowUpRight,
   IconBriefcase,
-  IconChartBar,
   IconCheck,
   IconChevronLeft,
   IconChevronRight,
   IconCoin,
-  IconDownload,
   IconExternalLink,
   IconAlertCircle,
   IconKey,
   IconLoader2,
-  IconLogout,
-  IconPlus,
   IconPresentation,
   IconSelector,
-  IconSettings,
-  IconUsersGroup,
 } from "@tabler/icons-react";
 import {
   useEffect,
@@ -87,6 +81,7 @@ import {
   type ReactNode,
 } from "react";
 import { Link, useNavigate } from "react-router";
+import { toast } from "sonner";
 
 export interface OrgSwitcherUtilityLink {
   id: string;
@@ -393,8 +388,7 @@ function isApplePlatform(): boolean {
 
 type MenuView = "main" | "apps";
 
-const ITEM_CLASS = "text-xs";
-const ITEM_ICON_CLASS = "size-3.5 shrink-0 text-muted-foreground";
+const ITEM_ICON_CLASS = "text-muted-foreground";
 
 const TRIGGER_CLASS =
   "flex w-full min-w-0 items-center gap-2 rounded-md border-0 bg-transparent px-1.5 py-1 text-start text-foreground hover:bg-accent/60 focus:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-60 data-[state=open]:bg-accent/60 cursor-pointer";
@@ -476,6 +470,7 @@ export function OrgSwitcher({
   const { enabled: demoModeEnabled } = useDemoModeStatus();
   const t = useT();
   const [open, setOpen] = useState(false);
+  const [compactTooltipOpen, setCompactTooltipOpen] = useState(false);
   const pendingOrgSwitchRef = useRef<
     | { kind: "explicit"; orgId: string; closedEarly: boolean }
     | { kind: "personal-recovery"; orgId: string }
@@ -589,7 +584,13 @@ export function OrgSwitcher({
   const handleSignOut = async () => {
     if (signingOut) return;
     setSigningOut(true);
-    await signOut();
+    try {
+      await signOut();
+    } catch {
+      toast.error(t("agentChat.auth.logOutFailed"));
+    } finally {
+      setSigningOut(false);
+    }
   };
 
   const handleCreateSubmit = (event: FormEvent<HTMLFormElement>) => {
@@ -659,6 +660,7 @@ export function OrgSwitcher({
     shouldOfferWorkspace(window.location.href, org.workspaceUrl)
       ? org.workspaceUrl
       : null;
+  const canCreateOrg = org.access?.orgCreation !== "closed";
   const links = utilityLinks ?? [];
   const menuError = (switchOrg.error ||
     acceptInvitation.error ||
@@ -744,15 +746,13 @@ export function OrgSwitcher({
   const mainItems = (
     <>
       {!demoModeEnabled && org.email ? (
-        <DropdownMenuLabel className="truncate text-xs font-normal text-muted-foreground">
-          {org.email}
-        </DropdownMenuLabel>
+        <DropdownMenuLabel className="truncate">{org.email}</DropdownMenuLabel>
       ) : null}
       {demoModeEnabled && (
         <>
           <div
             role="status"
-            className="mx-1 mb-1 rounded-md border border-primary/20 bg-primary/5 px-2 py-1.5 text-[11px]"
+            className="mb-1 rounded-md border border-primary/20 bg-primary/5 px-2 py-1.5 text-[11px]"
           >
             <div className="flex items-center gap-1.5 font-medium text-primary">
               <IconPresentation
@@ -765,11 +765,7 @@ export function OrgSwitcher({
               {t("agentChat.accountMenu.demoModeDescription")}
             </p>
           </div>
-          <DropdownMenuItem
-            className={ITEM_CLASS}
-            onSelect={() => setBrowserDemoModeEnabled(false)}
-          >
-            <IconPresentation className={ITEM_ICON_CLASS} />
+          <DropdownMenuItem onSelect={() => setBrowserDemoModeEnabled(false)}>
             <span className="flex-1">
               {t("agentChat.accountMenu.turnOffDemoMode")}
             </span>
@@ -783,7 +779,6 @@ export function OrgSwitcher({
           return (
             <DropdownMenuItem
               key={o.orgId}
-              className={ITEM_CLASS}
               disabled={switchOrg.isPending}
               onSelect={(event) => {
                 event.preventDefault();
@@ -792,7 +787,7 @@ export function OrgSwitcher({
             >
               <ResourceIcon
                 value={o.icon}
-                size={14}
+                size={16}
                 resolveImageUrl={(image) =>
                   workspacePrivateIconUrl(o.orgId, image)
                 }
@@ -811,13 +806,13 @@ export function OrgSwitcher({
 
       {pendingInvitations.length > 0 && (
         <DropdownMenuGroup>
-          <DropdownMenuLabel className="pb-0.5 text-[11px] font-normal text-muted-foreground">
+          <DropdownMenuLabel>
             {t("agentChat.accountMenu.invitations")}
           </DropdownMenuLabel>
           {pendingInvitations.map((inv) => (
             <DropdownMenuItem
               key={inv.id}
-              className={cn(ITEM_CLASS, "flex-col items-stretch gap-1")}
+              className="flex-col items-stretch gap-1"
               disabled={acceptInvitation.isPending}
               onSelect={(event) => {
                 event.preventDefault();
@@ -827,7 +822,6 @@ export function OrgSwitcher({
               }}
             >
               <span className="flex items-center gap-2">
-                <IconUsersGroup className={ITEM_ICON_CLASS} />
                 <span className="min-w-0 flex-1 truncate">{inv.orgName}</span>
                 {acceptInvitation.isPending ? (
                   <IconLoader2
@@ -856,7 +850,7 @@ export function OrgSwitcher({
 
       {domainMatches.length > 0 && (
         <DropdownMenuGroup>
-          <DropdownMenuLabel className="pb-0.5 text-[11px] font-normal text-muted-foreground">
+          <DropdownMenuLabel>
             {t("agentChat.accountMenu.joinYourTeam")}
           </DropdownMenuLabel>
           {domainMatches.map((match) => {
@@ -865,7 +859,6 @@ export function OrgSwitcher({
             return (
               <DropdownMenuItem
                 key={match.orgId}
-                className={ITEM_CLASS}
                 disabled={joinByDomain.isPending}
                 onSelect={(event) => {
                   event.preventDefault();
@@ -874,7 +867,6 @@ export function OrgSwitcher({
                   });
                 }}
               >
-                <IconUsersGroup className={ITEM_ICON_CLASS} />
                 <span className="min-w-0 flex-1 truncate">{match.orgName}</span>
                 {isJoining ? (
                   <IconLoader2
@@ -891,63 +883,58 @@ export function OrgSwitcher({
         </DropdownMenuGroup>
       )}
 
-      <DropdownMenuGroup>
-        {workspaceUrl && (
-          <DropdownMenuItem asChild className={ITEM_CLASS}>
-            <a href={workspaceUrl}>
-              <IconExternalLink className={ITEM_ICON_CLASS} />
+      {(workspaceUrl || canCreateOrg) && (
+        <DropdownMenuGroup>
+          {workspaceUrl && (
+            <DropdownMenuItem asChild>
+              <a href={workspaceUrl}>
+                <span className="flex-1">
+                  {t("agentChat.accountMenu.yourWorkspace")}
+                </span>
+              </a>
+            </DropdownMenuItem>
+          )}
+          {canCreateOrg && (
+            <DropdownMenuItem
+              onSelect={() => {
+                // The menu restores focus to its trigger as it closes, which
+                // would pull focus out of the dialog opening in its place.
+                openingDialogRef.current = true;
+                createOrg.reset();
+                setNewName("");
+                setCreateOpen(true);
+              }}
+            >
               <span className="flex-1">
-                {t("agentChat.accountMenu.yourWorkspace")}
+                {t("agentChat.accountMenu.createOrganization")}
               </span>
-            </a>
-          </DropdownMenuItem>
-        )}
-        <DropdownMenuItem
-          className={ITEM_CLASS}
-          onSelect={() => {
-            // The menu restores focus to its trigger as it closes, which
-            // would pull focus out of the dialog opening in its place.
-            openingDialogRef.current = true;
-            createOrg.reset();
-            setNewName("");
-            setCreateOpen(true);
-          }}
-        >
-          <IconPlus className={ITEM_ICON_CLASS} />
-          <span className="flex-1">
-            {t("agentChat.accountMenu.createOrganization")}
-          </span>
-        </DropdownMenuItem>
-      </DropdownMenuGroup>
+            </DropdownMenuItem>
+          )}
+        </DropdownMenuGroup>
+      )}
 
       <DropdownMenuSeparator />
       <DropdownMenuGroup>
         <DropdownMenuItem
-          className={ITEM_CLASS}
           onSelect={() => void navigate(buildSettingsRoute("account"))}
         >
-          <IconSettings className={ITEM_ICON_CLASS} />
           <span className="flex-1">{t("agentChat.common.settings")}</span>
           <DropdownMenuShortcut className="tracking-normal">
             {settingsShortcut}
           </DropdownMenuShortcut>
         </DropdownMenuItem>
         <DropdownMenuItem
-          className={ITEM_CLASS}
           onSelect={() => void navigate(buildSettingsRoute("usage"))}
         >
-          <IconChartBar className={ITEM_ICON_CLASS} />
           <span className="flex-1">{t("agentChat.accountMenu.usage")}</span>
         </DropdownMenuItem>
         {links.length > 0 && (
           <DropdownMenuItem
-            className={ITEM_CLASS}
             onSelect={(event) => {
               event.preventDefault();
               showView("apps");
             }}
           >
-            <IconDownload className={ITEM_ICON_CLASS} />
             <span className="flex-1">{t("agentChat.accountMenu.getApps")}</span>
             <IconChevronRight
               className={cn(ITEM_ICON_CLASS, "rtl:-scale-x-100")}
@@ -958,19 +945,16 @@ export function OrgSwitcher({
 
       <DropdownMenuSeparator />
       <DropdownMenuItem
-        className={ITEM_CLASS}
         disabled={signingOut}
         onSelect={(event) => {
           event.preventDefault();
           void handleSignOut();
         }}
       >
+        <span className="flex-1">{t("agentChat.auth.logOut")}</span>
         {signingOut ? (
           <IconLoader2 className={cn(ITEM_ICON_CLASS, "animate-spin")} />
-        ) : (
-          <IconLogout className={cn(ITEM_ICON_CLASS, "rtl:-scale-x-100")} />
-        )}
-        <span className="flex-1">{t("agentChat.auth.logOut")}</span>
+        ) : null}
       </DropdownMenuItem>
 
       {menuError && (
@@ -987,7 +971,6 @@ export function OrgSwitcher({
   const appItems = (
     <>
       <DropdownMenuItem
-        className={ITEM_CLASS}
         aria-label={t("agentChat.accountMenu.back")}
         onSelect={(event) => {
           event.preventDefault();
@@ -1002,7 +985,7 @@ export function OrgSwitcher({
         {links.map((link) => {
           const content = (
             <>
-              <span className="flex size-3.5 shrink-0 items-center justify-center text-muted-foreground [&_svg]:size-3.5">
+              <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground [&_svg]:size-4">
                 {link.icon ?? <IconExternalLink />}
               </span>
               <span className="flex-1">{link.label}</span>
@@ -1014,7 +997,7 @@ export function OrgSwitcher({
             </>
           );
           return (
-            <DropdownMenuItem key={link.id} asChild className={ITEM_CLASS}>
+            <DropdownMenuItem key={link.id} asChild>
               {link.external ? (
                 <a href={link.href} target="_blank" rel="noopener noreferrer">
                   {content}
@@ -1041,13 +1024,27 @@ export function OrgSwitcher({
         {!hideBuilderCreditNotice && <BuilderCreditNotice compact={compact} />}
         <DropdownMenu open={open} onOpenChange={handleOpenChange}>
           {compact ? (
-            // The menu trigger has to sit directly on the button: both Radix
-            // slots merge their props into the same DOM node, and a provider
-            // between them would swallow the click that opens the menu.
             <TooltipProvider delayDuration={0}>
-              <Tooltip>
+              <Tooltip
+                open={compactTooltipOpen}
+                onOpenChange={setCompactTooltipOpen}
+              >
                 <TooltipTrigger asChild>
-                  <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+                  <span
+                    className="inline-flex"
+                    onFocusCapture={() => setCompactTooltipOpen(true)}
+                    onBlurCapture={(event) => {
+                      if (
+                        !event.currentTarget.contains(
+                          event.relatedTarget as Node | null,
+                        )
+                      ) {
+                        setCompactTooltipOpen(false);
+                      }
+                    }}
+                  >
+                    <DropdownMenuTrigger asChild>{trigger}</DropdownMenuTrigger>
+                  </span>
                 </TooltipTrigger>
                 <TooltipContent side="right">
                   <span className="block font-medium">{displayName}</span>

@@ -2,13 +2,56 @@ import { readFileSync } from "node:fs";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+const secretReads = vi.hoisted(() => ({
+  readAppSecret: vi.fn(),
+  readAppSecrets: vi.fn(),
+}));
+
+vi.mock("../secrets/storage.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../secrets/storage.js")>()),
+  readAppSecret: (...args: any[]) => secretReads.readAppSecret(...args),
+  readAppSecrets: (...args: any[]) => secretReads.readAppSecrets(...args),
+}));
+
+vi.mock("../deploy/route-discovery.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../deploy/route-discovery.js")>()),
+  getMissingDefaultPlugins: vi.fn(async () => []),
+}));
+
+vi.mock("../agent/default-agent-engine.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../agent/default-agent-engine.js")
+  >()),
+  readDefaultAgentEngineSetting: vi.fn(async () => null),
+}));
+
+vi.mock("../agent/app-model-defaults.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../agent/app-model-defaults.js")>()),
+  readAgentAppModelDefaultSettings: vi.fn(async () => null),
+}));
+
+vi.mock("./builder-oauth.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./builder-oauth.js")>()),
+  hasUsableBuilderOAuthSessionForReadiness: vi.fn(async () => false),
+}));
+
+vi.mock("./personal-provider-key-policy.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("./personal-provider-key-policy.js")
+  >()),
+  isPersonalProviderKeyUseRestricted: vi.fn(async () => false),
+}));
+
 import {
   defineAppConfig,
   resetAppConfigForTests,
 } from "../app-config/index.js";
 import { getOrgContext } from "../org/context.js";
+import { AppSecretDecryptionError } from "../secrets/errors.js";
+import { invalidateAgentEngineStatusCache } from "./agent-engine-status-cache.js";
 import { getSession } from "./auth.js";
 import {
+  createCoreRoutesPlugin,
   resolveAgentEngineStatusIdentity,
   resolveAgentEngineStatus,
   type AgentEngineStatusDeps,
@@ -25,6 +68,43 @@ vi.mock("./auth.js", async (importOriginal) => ({
   getSession: vi.fn(),
 }));
 import { runWithRequestContext } from "./request-context.js";
+
+function createNitroApp() {
+  return { h3: { "~middleware": [] as any[] } };
+}
+
+async function dispatch(nitroApp: any, url: string) {
+  const request = new Request(url);
+  const responseHeaders = new Headers();
+  const event = {
+    method: "GET",
+    url: new URL(url),
+    path: new URL(url).pathname,
+    context: {},
+    req: request,
+    headers: request.headers,
+    res: { status: 200, headers: responseHeaders },
+    node: {
+      req: { method: "GET", url: new URL(url).pathname, headers: {} },
+      res: {
+        statusCode: 200,
+        setHeader(name: string, value: string) {
+          responseHeaders.set(name, value);
+        },
+      },
+    },
+  };
+
+  let index = 0;
+  const next = async (): Promise<unknown> => {
+    const middleware = nitroApp.h3["~middleware"][index++];
+    if (!middleware) return { fellThrough: true };
+    return middleware(event, next);
+  };
+
+  const body = await next();
+  return { body, status: event.res.status ?? event.node.res.statusCode };
+}
 
 type TestEntry = {
   name: string;
@@ -70,11 +150,26 @@ function createDeps(
 }
 
 const originalAgentEngine = process.env.AGENT_ENGINE;
+const originalNodeEnv = process.env.NODE_ENV;
+const originalLambdaFunctionName = process.env.AWS_LAMBDA_FUNCTION_NAME;
 
 afterEach(() => {
   resetAppConfigForTests();
   if (originalAgentEngine === undefined) delete process.env.AGENT_ENGINE;
   else process.env.AGENT_ENGINE = originalAgentEngine;
+  if (originalNodeEnv === undefined) delete process.env.NODE_ENV;
+  else process.env.NODE_ENV = originalNodeEnv;
+  if (originalLambdaFunctionName === undefined)
+    delete process.env.AWS_LAMBDA_FUNCTION_NAME;
+  else process.env.AWS_LAMBDA_FUNCTION_NAME = originalLambdaFunctionName;
+  invalidateAgentEngineStatusCache();
+  delete process.env.FUSION_ENVIRONMENT;
+  delete process.env.AGENT_NATIVE_WORKSPACE;
+  delete process.env.BUILDER_GATEWAY_TOKEN;
+  delete process.env.BUILDER_GATEWAY_SPACE_ID;
+  vi.restoreAllMocks();
+  secretReads.readAppSecret.mockReset().mockResolvedValue(null);
+  secretReads.readAppSecrets.mockReset().mockResolvedValue(new Map());
   vi.mocked(getOrgContext).mockReset();
   vi.mocked(getSession).mockReset();
 });
@@ -155,6 +250,113 @@ describe("agent-engine/status route failure handling", () => {
     expect(body).not.toContain("shareAgentEngineStatusLookup");
     expect(body).not.toMatch(
       /catch\s*(\([^)]*\))?\s*\{[^}]*\}\s*return\s*\{\s*configured:\s*false/,
+    );
+  });
+
+  it("returns unavailable when a saved Builder credential cannot be decrypted", async () => {
+    const email = "member@example.test";
+    defineAppConfig({ agent: { engine: "builder" } });
+    process.env.NODE_ENV = "production";
+    process.env.AWS_LAMBDA_FUNCTION_NAME = "agent-engine-status-test";
+    vi.mocked(getSession).mockResolvedValue({
+      email,
+      token: "session-token",
+      emailVerified: true,
+    } as Awaited<ReturnType<typeof getSession>>);
+    vi.mocked(getOrgContext).mockResolvedValue({
+      email,
+      orgId: "org-1",
+      role: "owner",
+    } as Awaited<ReturnType<typeof getOrgContext>>);
+    secretReads.readAppSecrets.mockImplementation(async ({ scope, keys }) => {
+      if (scope === "org" && keys.includes("BUILDER_PRIVATE_KEY")) {
+        throw new AppSecretDecryptionError();
+      }
+      return new Map();
+    });
+
+    const nitroApp = createNitroApp();
+    await createCoreRoutesPlugin()(nitroApp);
+
+    await expect(
+      dispatch(
+        nitroApp,
+        "https://forms.example.test/_agent-native/agent-engine/status",
+      ),
+    ).resolves.toEqual({
+      status: 503,
+      body: { error: "Could not read the agent engine configuration." },
+    });
+    expect(secretReads.readAppSecrets).toHaveBeenCalledWith(
+      expect.objectContaining({
+        scope: "org",
+        scopeId: "org-1",
+        keys: expect.arrayContaining(["BUILDER_PRIVATE_KEY"]),
+      }),
+    );
+  });
+
+  function signInMember() {
+    const email = "member@example.test";
+    secretReads.readAppSecret.mockResolvedValue(null);
+    secretReads.readAppSecrets.mockResolvedValue(new Map());
+    vi.mocked(getSession).mockResolvedValue({
+      email,
+      token: "session-token",
+      emailVerified: true,
+    } as Awaited<ReturnType<typeof getSession>>);
+    vi.mocked(getOrgContext).mockResolvedValue({
+      email,
+      orgId: "org-1",
+      role: "owner",
+    } as Awaited<ReturnType<typeof getOrgContext>>);
+  }
+
+  it("lets a signed-in user chat on the Builder.io credits Fusion injects into the preview", async () => {
+    signInMember();
+    process.env.NODE_ENV = "production";
+    process.env.FUSION_ENVIRONMENT = "cloud-v2";
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-preview-token";
+    process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc";
+
+    const nitroApp = createNitroApp();
+    await createCoreRoutesPlugin()(nitroApp);
+    const response = await dispatch(
+      nitroApp,
+      "https://forms.example.test/_agent-native/agent-engine/status",
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      configured: true,
+      engine: "builder",
+      chatEligible: true,
+    });
+    expect(response.body).not.toHaveProperty("builderCreditsRefused");
+  });
+
+  it("reports a deployed Builder.io credits pair the runtime refuses instead of plain not-configured", async () => {
+    signInMember();
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    process.env.NODE_ENV = "production";
+    process.env.AGENT_NATIVE_WORKSPACE = "1";
+    process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token";
+    process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc";
+
+    const nitroApp = createNitroApp();
+    await createCoreRoutesPlugin()(nitroApp);
+    const response = await dispatch(
+      nitroApp,
+      "https://forms.example.test/_agent-native/agent-engine/status",
+    );
+
+    expect(response.status).toBe(200);
+    expect(response.body).toMatchObject({
+      chatEligible: false,
+      builderCreditsRefused: true,
+    });
+    expect(warn).toHaveBeenCalledWith(
+      expect.stringContaining("BUILDER_GATEWAY_TOKEN"),
     );
   });
 });

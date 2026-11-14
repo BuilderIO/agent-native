@@ -34,7 +34,10 @@ async function waitForAssertion(assertion: () => void): Promise<void> {
 
 function installBrowser(url = "https://design.agent-native.com/editor") {
   const parsed = new URL(url);
-  const sessionStorageMap = new Map<string, string>();
+  // A visitor outside the consent region, already known this session.
+  const sessionStorageMap = new Map<string, string>([
+    ["an_consent_region", "none"],
+  ]);
   const localStorageMap = new Map<string, string>();
   const location = {
     href: parsed.href,
@@ -138,6 +141,7 @@ describe("session replay ingest quota (HTTP 429)", () => {
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
     delete (globalThis as any)[replayStateKey];
+    delete (globalThis as any)[Symbol.for("agent-native.client.consent")];
     delete (globalThis as any)[pageviewStateKey];
   });
 

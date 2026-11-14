@@ -5,6 +5,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import { nanoid } from "../server/lib/recordings.js";
 import { ctaUrlSchema } from "./lib/cta-url.js";
 
@@ -22,7 +23,9 @@ export default defineAction({
   }),
   run: async (args) => {
     const db = getDb();
-    await assertAccess("recording", args.recordingId, "editor");
+    assertRecordingNotExpired(
+      await assertAccess("recording", args.recordingId, "editor"),
+    );
 
     const [recording] = await db
       .select({

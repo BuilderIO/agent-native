@@ -103,6 +103,7 @@ export function renderProjectMenu({
     handleRedo,
     handleViewModeToggle,
     handleShowKeyboardShortcutsFromMenu,
+    handleShowNudgeAmountFromMenu,
   } = editorModes;
   const { handleDownloadZip, handleCopyCodingHandoff, codingHandoffLoading } =
     editorExportAndHandoff;
@@ -169,6 +170,11 @@ export function renderProjectMenu({
               disabled={!canEditDesign}
             >
               {t("designEditor.fileMenu.import")}
+            </DropdownMenuItem>
+            <DropdownMenuItem asChild>
+              <Link to="/visual-edit" target="_blank" rel="noreferrer">
+                {t("designEditor.fileMenu.connectLocalApp")}
+              </Link>
             </DropdownMenuItem>
             <DropdownMenuSub>
               <DropdownMenuSubTrigger>
@@ -284,9 +290,7 @@ export function renderProjectMenu({
                 <ThemeRadioItems t={t} />
               </DropdownMenuSubContent>
             </DropdownMenuSub>
-            <DropdownMenuItem
-              onClick={() => handleShowKeyboardShortcutsFromMenu("search")}
-            >
+            <DropdownMenuItem onClick={handleShowKeyboardShortcutsFromMenu}>
               {t("designEditor.keyboardShortcuts.title")}
               <DropdownMenuShortcut>
                 {/* Control, not Command: ⌘⇧? is the macOS Help-menu shortcut and
@@ -294,9 +298,7 @@ export function renderProjectMenu({
                 {shortcut("ctrl+shift+?")}
               </DropdownMenuShortcut>
             </DropdownMenuItem>
-            <DropdownMenuItem
-              onClick={() => handleShowKeyboardShortcutsFromMenu("nudge")}
-            >
+            <DropdownMenuItem onClick={handleShowNudgeAmountFromMenu}>
               {t("designEditor.appMenu.nudgeAmount")}
             </DropdownMenuItem>
           </DropdownMenuSubContent>

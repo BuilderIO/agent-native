@@ -28,6 +28,8 @@ function toProviderStatus(
 ): PrivateStorageReadinessStatus["provider"] {
   if (!providerId) return "none";
   if (providerId === "s3" || providerId === "builder") return providerId;
+  // The workspace's own bucket, used for private blobs directly.
+  if (providerId === "s3-private") return "s3";
   return "other";
 }
 

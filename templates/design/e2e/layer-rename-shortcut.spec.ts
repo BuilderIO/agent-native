@@ -22,7 +22,10 @@ async function openWithAlphaSelected(app: App) {
     alpha.x + alpha.width / 2,
     alpha.y + alpha.height / 2,
   );
+  // Cmd+click reaches a nested layer; a plain click takes the top-level one.
+  await app.page.keyboard.down("ControlOrMeta");
   await app.page.mouse.click(center.x, center.y);
+  await app.page.keyboard.up("ControlOrMeta");
   await expect.poll(() => app.selectedLayers()).toEqual(["Alpha Button"]);
   return { id, before: await app.savedNodes(id) };
 }
@@ -83,4 +86,21 @@ test("Escape in the Cmd/Ctrl+R rename field discards the typed name and leaves t
   await expect
     .poll(() => layersScroll(app))
     .toEqual({ left: 0, overflows: false });
+});
+
+test("Cmd/Ctrl+R with nothing selected renames nothing", async ({
+  app,
+  page,
+}) => {
+  await openWithAlphaSelected(app);
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+  await expect.poll(() => app.selectedLayers()).toEqual([]);
+
+  await page.keyboard.press("ControlOrMeta+R");
+
+  await expect(page.getByRole("textbox", { name: "Rename layer" })).toHaveCount(
+    0,
+  );
+  await expect(page.locator("input:focus, textarea:focus")).toHaveCount(0);
 });

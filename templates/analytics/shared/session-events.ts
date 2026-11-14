@@ -2,6 +2,10 @@ import { z } from "zod";
 
 /** rrweb custom-event tag the core recorder uses for tracked app events. */
 export const SESSION_REPLAY_ANALYTICS_EVENT_TAG = "agent-native.event";
+/** rrweb custom-event tag the core recorder uses for agent chat lifecycle marks. */
+export const SESSION_REPLAY_AGENT_CHAT_EVENT_TAG = "agent-native.chat";
+/** rrweb custom-event tag the core recorder uses when the page's path changes. */
+export const SESSION_REPLAY_NAVIGATION_EVENT_TAG = "agent-native.navigation";
 
 /** Sessions URL params for did/didn't event conditions (repeatable). */
 export const SESSION_DID_EVENT_PARAM = "event";
@@ -54,6 +58,8 @@ export interface EventCatalogEntry {
   description: string | null;
   automatic: boolean;
   stoppedFiring: boolean;
+  /** Whether "made it, didn't use it" reads this event as making or using its app's output. */
+  outputRole: "made" | "used" | null;
 }
 
 export interface EventCatalogApp {
@@ -61,6 +67,10 @@ export interface EventCatalogApp {
   eventCount: number;
   volume: number;
   onlyAutomaticEvents: boolean;
+  /** The app sent `generation_completed` in range, so it makes outputs. */
+  makesOutputs: boolean;
+  /** Events that count as using this app's output; empty for an app that makes outputs is a catalog gap. */
+  usedItEvents: string[];
 }
 
 export interface EventCatalogResult {

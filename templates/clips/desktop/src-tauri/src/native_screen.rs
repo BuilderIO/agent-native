@@ -88,10 +88,7 @@ const GCS_CHUNK_ALIGN_BYTES: usize = 256 * 1024;
 const UPLOAD_CHUNK_BYTES: usize = 15 * GCS_CHUNK_ALIGN_BYTES; // 3.75 MiB
 const COMPRESSION_ENABLED: bool = true;
 const TRANSCODE_THRESHOLD_BYTES: u64 = 24 * 1024 * 1024;
-const TARGET_UPLOAD_BYTES: u64 = 18 * 1024 * 1024;
 const DEFAULT_MAX_UPLOAD_BYTES: u64 = 2 * 1024 * 1024 * 1024;
-const MIN_TRANSCODE_VIDEO_RATE_KBPS: u32 = 350;
-const TRANSCODE_RATE_LIMIT_OVERHEAD_KBPS: f64 = 64.0;
 const TRANSCODE_FRAME_RATE_LIMIT: u32 = 30;
 const NORMALIZED_AUDIO_BITRATE_KBPS: u32 = 160;
 const AUDIO_LOUDNESS_FILTER: &str = "loudnorm=I=-16:TP=-1.5:LRA=11";
@@ -164,6 +161,11 @@ use live_upload::{
     attach_live_uploader_to_session, cancel_clip_live_upload, finalize_clip_live_upload,
     start_clip_live_uploader, LiveUpload,
 };
+mod upload_sizing;
+use upload_sizing::{
+    avconvert_presets, encode_is_worth_uploading, kept_original_expired, transcode_dimensions,
+    transcode_scale_filter, transcode_video_rate_kbps, TRANSCODE_AUDIO_BITRATE_KBPS, TRANSCODE_CRF,
+};
 const AVCONVERT_PATH: &str = "/usr/bin/avconvert";
 const AVCONVERT_TIMEOUT: Duration = Duration::from_secs(5 * 60);
 const FFMPEG_TIMEOUT: Duration = Duration::from_secs(8 * 60);
@@ -187,6 +189,7 @@ const FFMPEG_CANDIDATE_PATHS: &[&str] = &[
 /// so it is found relative to `current_exe`, not by an absolute path.
 const FFMPEG_SIDECAR_NAME: &str = "ffmpeg";
 const PENDING_UPLOADS_DIR: &str = "pending-recording-uploads";
+const KEPT_UPLOADS_DIR: &str = "uploaded-recordings";
 const CLIP_DRAFTS_DIR: &str = "Drafts";
 const NATIVE_UPLOAD_RESTART_REQUIRED: &str = "native upload requires a one-time restart";
 const NATIVE_UPLOAD_UNFENCED_RESTART_REQUIRED: &str =
@@ -1413,6 +1416,108 @@ async fn present_window_picker(
         .map_err(|_| "The macOS Window picker closed unexpectedly.".to_string())
 }
 
+#[cfg(target_os = "macos")]
+fn window_is_on_screen(window_id: u32) -> bool {
+    use core_foundation::array::CFArray;
+    use core_foundation::base::{CFType, TCFType};
+    use core_foundation::boolean::CFBoolean;
+    use core_foundation::dictionary::CFDictionary;
+    use core_foundation::string::CFString;
+    use core_graphics::window::{kCGWindowListOptionIncludingWindow, CGWindowListCopyWindowInfo};
+
+    unsafe {
+        let raw = CGWindowListCopyWindowInfo(kCGWindowListOptionIncludingWindow, window_id);
+        if raw.is_null() {
+            return false;
+        }
+        let windows: CFArray<CFDictionary<CFString, CFType>> = TCFType::wrap_under_create_rule(raw);
+        let key = CFString::from_static_string("kCGWindowIsOnscreen");
+        windows.get(0).is_some_and(|window| {
+            window
+                .find(&key)
+                .and_then(|value| value.downcast::<CFBoolean>())
+                .is_some_and(bool::from)
+        })
+    }
+}
+
+#[cfg(target_os = "macos")]
+const PICKED_WINDOW_SPACE_SWITCH_TIMEOUT: Duration = Duration::from_millis(1500);
+
+/// Activates the picked window's app so macOS switches to its Space (e.g. a
+/// full-screen app), then waits for the window to be on screen before the
+/// countdown is presented on the active Space.
+#[cfg(target_os = "macos")]
+async fn bring_picked_window_forward(attempt: &WindowPickerAttempt, pid: i32, window_id: u32) {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    queue_window_picker_main(move || {
+        use objc2::runtime::{AnyClass, AnyObject, Bool};
+
+        let activate = || unsafe {
+            let running = AnyClass::get(c"NSRunningApplication")?;
+            let app: *mut AnyObject =
+                objc2::msg_send![running, runningApplicationWithProcessIdentifier: pid];
+            if app.is_null() {
+                return None;
+            }
+            // NSApplicationActivateIgnoringOtherApps
+            let ok: Bool = objc2::msg_send![app, activateWithOptions: 1usize << 1];
+            if ok.as_bool() {
+                return Some("activated");
+            }
+            // macOS 14+ cooperative activation refuses a background app
+            // activating another one; a LaunchServices open is honored and
+            // switches Spaces the way a Dock click does.
+            let bundle_url: *mut AnyObject = objc2::msg_send![app, bundleURL];
+            if bundle_url.is_null() {
+                return None;
+            }
+            let workspace: *mut AnyObject =
+                objc2::msg_send![AnyClass::get(c"NSWorkspace")?, sharedWorkspace];
+            let config: *mut AnyObject = objc2::msg_send![
+                AnyClass::get(c"NSWorkspaceOpenConfiguration")?,
+                configuration
+            ];
+            if workspace.is_null() || config.is_null() {
+                return None;
+            }
+            let _: () = objc2::msg_send![config, setActivates: Bool::YES];
+            let _: () = objc2::msg_send![
+                workspace,
+                openApplicationAtURL: bundle_url,
+                configuration: config,
+                completionHandler: std::ptr::null::<AnyObject>()
+            ];
+            Some("opened")
+        };
+        let _ = tx.send(activate());
+    });
+    match await_window_picker_main(attempt, "activate owner", rx).await {
+        Ok(Some(how)) => attempt.log(&format!("owner pid={pid} {how}")),
+        Ok(None) => {
+            attempt.log(&format!("owner pid={pid} could not be activated"));
+            return;
+        }
+        Err(error) => {
+            attempt.log(&format!("owner activation failed: {error}"));
+            return;
+        }
+    }
+    let deadline = Instant::now() + PICKED_WINDOW_SPACE_SWITCH_TIMEOUT;
+    while !window_is_on_screen(window_id) {
+        if Instant::now() >= deadline {
+            attempt.log(&format!(
+                "window={window_id} still off screen after owner activation"
+            ));
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    attempt.log(&format!(
+        "window={window_id} on screen after owner activation"
+    ));
+}
+
 #[tauri::command]
 pub async fn show_window_picker(
     app: AppHandle,
@@ -1462,7 +1567,7 @@ pub async fn show_window_picker(
             attempt.log("returning Escape cancellation");
             return Ok(None);
         }
-        let selection = match outcome {
+        let (window, (width, height)) = match outcome {
             SCPickerOutcome::Cancelled => {
                 attempt.log("returning picker cancellation");
                 return Ok(None);
@@ -1477,22 +1582,39 @@ pub async fn show_window_picker(
                 let Some(window) = windows.into_iter().last() else {
                     return Err("The selected window is no longer available.".to_string());
                 };
-                let (width, height) = result.pixel_size();
-                if window.window_id() == 0 || width == 0 || height == 0 {
-                    return Err("The selected window has no capturable content.".to_string());
-                }
-                crate::state::RecordingWindowSelection {
-                    window_id: window.window_id(),
-                    width,
-                    height,
-                }
+                (window, result.pixel_size())
             }
         };
+        if window.window_id() == 0 || width == 0 || height == 0 {
+            return Err("The selected window has no capturable content.".to_string());
+        }
+        let selection = crate::state::RecordingWindowSelection {
+            window_id: window.window_id(),
+            width,
+            height,
+        };
+        let owner_pid = window
+            .owning_application()
+            .map(|application| application.process_id());
+        // SCWindow frames are in points, so the point-space lookup uses scale 1.
+        let frame = window.frame();
+        let display_id = cg_display_id_at_physical_point(
+            frame.x + frame.width / 2.0,
+            frame.y + frame.height / 2.0,
+            1.0,
+        );
         attempt.log(&format!(
-            "returning selection window={} width={} height={}",
+            "returning selection window={} width={} height={} owner_pid={owner_pid:?} display={display_id:?}",
             selection.window_id, selection.width, selection.height
         ));
         crate::state::SelectedRecordingWindow::set(&app, Some(selection));
+        // Countdown and pill overlays join every Space and size to this display;
+        // without both steps they render on whatever Space and monitor Clips was
+        // opened from, not where the picked window lives.
+        crate::state::SelectedRecordingDisplay::set(&app, display_id);
+        if let Some(pid) = owner_pid {
+            bring_picked_window_forward(&attempt, pid, selection.window_id).await;
+        }
         Ok(Some(NativeWindowPickerSelection {
             window_id: selection.window_id,
             width: selection.width,
@@ -4614,6 +4736,16 @@ fn take_prefetched_shareable_content(target_display_id: Option<u32>) -> Option<S
 pub async fn native_fullscreen_prefetch_capture_content() -> Result<(), String> {
     #[cfg(target_os = "macos")]
     {
+        // This runs at launch, before anyone asks to record. Without Screen
+        // Recording permission, the shareable-content lookup can make macOS
+        // show its permission prompt, so skip it until permission is granted.
+        // Recording looks up content itself when nothing was prefetched.
+        if !has_screen_capture_permission() {
+            eprintln!(
+                "[clips-tray] shareable-content prefetch skipped: Screen Recording not granted"
+            );
+            return Ok(());
+        }
         let recently_fetched = PREFETCHED_SHAREABLE_CONTENT
             .lock()
             .ok()
@@ -5999,6 +6131,18 @@ fn pending_uploads_dir(app: &AppHandle) -> Result<PathBuf, String> {
     Ok(dir)
 }
 
+/// Where an uploaded recording's original waits out its week on the Mac.
+fn kept_uploads_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_data_dir()
+        .map_err(|e| format!("app data directory unavailable: {e}"))?
+        .join(KEPT_UPLOADS_DIR);
+    std::fs::create_dir_all(&dir)
+        .map_err(|e| format!("uploaded recordings directory unavailable: {e}"))?;
+    Ok(dir)
+}
+
 fn clip_drafts_dir(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app
         .path()
@@ -6445,10 +6589,94 @@ fn clear_saved_recording(app: &AppHandle, saved: &SavedNativeRecording) -> Resul
     remove_saved_file(&path, "pending recording metadata")
 }
 
+/// Moves an uploaded recording's media into the kept-uploads folder instead of
+/// deleting it, so a clip that went wrong can still be sent again. Its week
+/// starts now; `prune_kept_uploads` removes it after that.
+fn keep_uploaded_original(app: &AppHandle, saved: &SavedNativeRecording) -> Result<(), String> {
+    let dir = kept_uploads_dir(app)?;
+    let media = std::iter::once(&saved.file_path).chain(
+        saved
+            .segment_paths
+            .iter()
+            .filter(|path| *path != &saved.file_path),
+    );
+    for path in media {
+        let Some(name) = path.file_name() else {
+            continue;
+        };
+        let kept = dir.join(name);
+        match std::fs::rename(path, &kept) {
+            Ok(()) => {}
+            Err(err) if err.kind() == ErrorKind::NotFound => continue,
+            Err(err) => return Err(format!("keeping {} failed: {err}", path.display())),
+        }
+        // A rename keeps the recording's own timestamp. Restart it so a retried
+        // older recording still gets its full week. The file is kept either
+        // way; if this fails it may just be pruned sooner.
+        if let Err(err) = File::options()
+            .write(true)
+            .open(&kept)
+            .and_then(|file| file.set_modified(std::time::SystemTime::now()))
+        {
+            eprintln!(
+                "[clips-tray] kept {} but could not restart its 7-day timestamp, so it may be removed sooner: {err}",
+                kept.display()
+            );
+        }
+    }
+    Ok(())
+}
+
+/// Removes kept originals more than a week old.
+fn prune_kept_uploads(app: &AppHandle) {
+    let Ok(entries) = kept_uploads_dir(app).and_then(|dir| {
+        std::fs::read_dir(dir).map_err(|e| format!("uploaded recordings lookup failed: {e}"))
+    }) else {
+        return;
+    };
+    let now = std::time::SystemTime::now();
+    for entry in entries.flatten() {
+        let Ok(metadata) = entry.metadata() else {
+            continue;
+        };
+        let Ok(modified) = metadata.modified() else {
+            continue;
+        };
+        let age_secs = now
+            .duration_since(modified)
+            .map(|age| age.as_secs())
+            .unwrap_or(0);
+        if metadata.is_file() && kept_original_expired(age_secs) {
+            if let Err(err) = std::fs::remove_file(entry.path()) {
+                eprintln!(
+                    "[clips-tray] could not remove kept recording {}: {err}",
+                    entry.path().display()
+                );
+            }
+        }
+    }
+}
+
 fn clear_saved_recording_after_success(app: &AppHandle, saved: &SavedNativeRecording) {
+    prune_kept_uploads(app);
+    let kept = match keep_uploaded_original(app, saved) {
+        Ok(()) => true,
+        Err(err) => {
+            eprintln!(
+                "[clips-tray] upload succeeded for {}, but keeping the local recording failed; removing it instead: {err}",
+                saved.recording_id
+            );
+            false
+        }
+    };
     if let Err(err) = clear_saved_recording(app, saved) {
         eprintln!(
             "[clips-tray] upload succeeded for {}, but local pending recording cleanup failed: {err}",
+            saved.recording_id
+        );
+    } else if kept {
+        eprintln!(
+            "[clips-tray] upload succeeded for {}; kept the local recording in {KEPT_UPLOADS_DIR} for 7 days",
             saved.recording_id
         );
     } else {
@@ -6517,7 +6745,19 @@ pub(crate) fn persist_shared_clip_recording(
 pub(crate) fn clear_shared_clip_recording(app: &AppHandle, recording_id: &str, path: &Path) {
     let saved = read_saved_recording_metadata(app, recording_id).ok();
     if let Some(saved) = saved {
-        clear_saved_recording_after_success(app, &saved);
+        // Rewind clips are cut from the rolling screen buffer, so they are still
+        // deleted once uploaded rather than kept for a week.
+        if let Err(err) = clear_saved_recording(app, &saved) {
+            eprintln!(
+                "[clips-tray] upload succeeded for {}, but local pending recording cleanup failed: {err}",
+                saved.recording_id
+            );
+        } else {
+            eprintln!(
+                "[clips-tray] upload succeeded for {}; removed local recording file",
+                saved.recording_id
+            );
+        }
     } else {
         remove_recording_intent(path);
         if let Err(error) = remove_saved_file(path, "shared Clip temporary artifact") {
@@ -9278,137 +9518,46 @@ fn prepare_recording_file(
         return Ok(original);
     }
 
+    let dimensions = transcode_dimensions(width, height);
     if let Some(ffmpeg_path) = ffmpeg_path.as_deref() {
-        let presets = ffmpeg_transcode_presets(width, height, source_bytes, duration_ms);
-        for (index, preset) in presets.iter().enumerate() {
-            emit_native_upload_progress(
-                app,
-                &recording_id,
-                "compressing",
-                "Optimizing clip",
-                None,
-                Some(index as f32 / presets.len() as f32),
-            );
-            let compressed_path = compressed_recording_path(path);
-            let _ = std::fs::remove_file(&compressed_path);
-            match transcode_with_ffmpeg(
-                ffmpeg_path,
-                path,
-                &compressed_path,
-                preset,
-                width,
-                height,
-                duration_ms,
-                has_audio,
-                downmix_audio,
-                denoise_audio,
-                mic_pregain,
-            ) {
-                Ok(()) => {
-                    let compressed_bytes = std::fs::metadata(&compressed_path)
-                        .map_err(|e| format!("compressed recording file missing: {e}"))?
-                        .len();
-                    if compressed_bytes == 0 {
-                        let _ = std::fs::remove_file(&compressed_path);
-                        eprintln!(
-                            "[clips-tray] ffmpeg produced an empty file with {}",
-                            preset.label
-                        );
-                        continue;
-                    }
-                    if has_audio && mp4_has_audio_track(&compressed_path) == Some(false) {
-                        let _ = std::fs::remove_file(&compressed_path);
-                        eprintln!(
-                            "[clips-tray] AUDIO LOST: ffmpeg {} dropped the audio track (source had \
-                             audio, compressed output did not) — rejecting this preset rather than \
-                             uploading a silent smaller file",
-                            preset.label
-                        );
-                        continue;
-                    }
-                    if has_audio {
-                        match verify_prepared_audio_signal(
-                            ffmpeg_path,
-                            &compressed_path,
-                            &original,
-                            path,
-                            preset.label,
-                        ) {
-                            Ok(Some(fallback)) => {
-                                let _ = std::fs::remove_file(&compressed_path);
-                                if fallback.bytes <= max_upload_bytes() {
-                                    return Ok(fallback);
-                                }
-                                eprintln!(
-                                    "[clips-tray] original recording has usable audio but is too large to upload without compression ({}); rejecting silent compressed preset {}",
-                                    format_mb(fallback.bytes),
-                                    preset.label
-                                );
-                                continue;
-                            }
-                            Ok(None) => {}
-                            Err(err) => {
-                                let _ = std::fs::remove_file(&compressed_path);
-                                return Err(err);
-                            }
-                        }
-                    }
-                    smallest_attempt_bytes = Some(
-                        smallest_attempt_bytes
-                            .map(|smallest| smallest.min(compressed_bytes))
-                            .unwrap_or(compressed_bytes),
-                    );
-                    if compressed_bytes >= source_bytes {
-                        let _ = std::fs::remove_file(&compressed_path);
-                        eprintln!(
-                            "[clips-tray] ffmpeg {} did not reduce size ({} >= {})",
-                            preset.label, compressed_bytes, source_bytes
-                        );
-                        continue;
-                    }
-                    if compressed_bytes > max_upload_bytes() {
-                        let _ = std::fs::remove_file(&compressed_path);
-                        eprintln!(
-                            "[clips-tray] ffmpeg {} still above server staging limit ({} bytes)",
-                            preset.label, compressed_bytes
-                        );
-                        continue;
-                    }
-                    if compressed_bytes > TARGET_UPLOAD_BYTES && index + 1 < presets.len() {
-                        let _ = std::fs::remove_file(&compressed_path);
-                        eprintln!(
-                            "[clips-tray] ffmpeg {} still above target ({} bytes); trying smaller preset",
-                            preset.label, compressed_bytes
-                        );
-                        continue;
-                    }
-                    emit_native_upload_progress(
-                        app,
-                        &recording_id,
-                        "compressing",
-                        "Optimizing clip",
-                        None,
-                        Some(1.0),
-                    );
-                    eprintln!(
-                        "[clips-tray] native recording transcoded with ffmpeg {}: {} -> {} bytes",
-                        preset.label, source_bytes, compressed_bytes
-                    );
-                    return Ok(PreparedRecordingFile {
-                        path: compressed_path,
-                        mime_type: MP4_RECORDING_MIME_TYPE.to_string(),
-                        bytes: compressed_bytes,
-                        temporary: true,
-                        locally_transcoded: true,
-                    });
+        emit_native_upload_progress(
+            app,
+            recording_id,
+            "compressing",
+            "Optimizing clip",
+            None,
+            Some(0.0),
+        );
+        let compressed_path = compressed_recording_path(path);
+        let _ = std::fs::remove_file(&compressed_path);
+        match transcode_with_ffmpeg(
+            ffmpeg_path,
+            path,
+            &compressed_path,
+            dimensions,
+            duration_ms,
+            has_audio,
+            downmix_audio,
+            denoise_audio,
+            mic_pregain,
+        ) {
+            Ok(()) => {
+                if let Some(prepared) = accept_transcoded_recording(
+                    app,
+                    recording_id,
+                    "ffmpeg",
+                    compressed_path,
+                    &original,
+                    has_audio,
+                    Some(ffmpeg_path),
+                    &mut smallest_attempt_bytes,
+                )? {
+                    return Ok(prepared);
                 }
-                Err(err) => {
-                    let _ = std::fs::remove_file(&compressed_path);
-                    eprintln!(
-                        "[clips-tray] ffmpeg transcode failed with {}: {err}",
-                        preset.label
-                    );
-                }
+            }
+            Err(err) => {
+                let _ = std::fs::remove_file(&compressed_path);
+                eprintln!("[clips-tray] ffmpeg transcode failed: {err}");
             }
         }
     } else {
@@ -9416,11 +9565,11 @@ fn prepare_recording_file(
     }
 
     if std::path::Path::new(AVCONVERT_PATH).exists() {
-        let presets = native_transcode_presets(width, height, source_bytes);
+        let presets = avconvert_presets(source_bytes, max_upload_bytes());
         for (index, preset) in presets.iter().enumerate() {
             emit_native_upload_progress(
                 app,
-                &recording_id,
+                recording_id,
                 "compressing",
                 "Optimizing clip",
                 None,
@@ -9430,100 +9579,18 @@ fn prepare_recording_file(
             let _ = std::fs::remove_file(&compressed_path);
             match transcode_with_avconvert(path, &compressed_path, preset) {
                 Ok(()) => {
-                    let compressed_bytes = std::fs::metadata(&compressed_path)
-                        .map_err(|e| format!("compressed recording file missing: {e}"))?
-                        .len();
-                    if compressed_bytes == 0 {
-                        let _ = std::fs::remove_file(&compressed_path);
-                        eprintln!("[clips-tray] avconvert produced an empty file with {preset}");
-                        continue;
-                    }
-                    if has_audio && mp4_has_audio_track(&compressed_path) == Some(false) {
-                        let _ = std::fs::remove_file(&compressed_path);
-                        eprintln!(
-                            "[clips-tray] AUDIO LOST: avconvert {preset} dropped the audio track \
-                             (source had audio, compressed output did not) — rejecting this preset \
-                             rather than uploading a silent smaller file"
-                        );
-                        continue;
-                    }
-                    if has_audio {
-                        if let Some(ffmpeg_probe_path) = ffmpeg_path.as_deref() {
-                            match verify_prepared_audio_signal(
-                                ffmpeg_probe_path,
-                                &compressed_path,
-                                &original,
-                                path,
-                                preset,
-                            ) {
-                                Ok(Some(fallback)) => {
-                                    let _ = std::fs::remove_file(&compressed_path);
-                                    if fallback.bytes <= max_upload_bytes() {
-                                        return Ok(fallback);
-                                    }
-                                    eprintln!(
-                                        "[clips-tray] original recording has usable audio but is too large to upload without compression ({}); rejecting silent avconvert preset {}",
-                                        format_mb(fallback.bytes),
-                                        preset
-                                    );
-                                    continue;
-                                }
-                                Ok(None) => {}
-                                Err(err) => {
-                                    let _ = std::fs::remove_file(&compressed_path);
-                                    return Err(err);
-                                }
-                            }
-                        }
-                    }
-                    smallest_attempt_bytes = Some(
-                        smallest_attempt_bytes
-                            .map(|smallest| smallest.min(compressed_bytes))
-                            .unwrap_or(compressed_bytes),
-                    );
-                    if compressed_bytes >= source_bytes {
-                        let _ = std::fs::remove_file(&compressed_path);
-                        eprintln!(
-                            "[clips-tray] avconvert {} did not reduce size ({} >= {})",
-                            preset, compressed_bytes, source_bytes
-                        );
-                        continue;
-                    }
-                    if compressed_bytes > max_upload_bytes() {
-                        let _ = std::fs::remove_file(&compressed_path);
-                        eprintln!(
-                            "[clips-tray] avconvert {} still above server staging limit ({} bytes)",
-                            preset, compressed_bytes
-                        );
-                        continue;
-                    }
-                    if compressed_bytes > TARGET_UPLOAD_BYTES && index + 1 < presets.len() {
-                        let _ = std::fs::remove_file(&compressed_path);
-                        eprintln!(
-                            "[clips-tray] avconvert {} still above target ({} bytes); trying smaller preset",
-                            preset, compressed_bytes
-                        );
-                        continue;
-                    }
-                    emit_native_upload_progress(
+                    if let Some(prepared) = accept_transcoded_recording(
                         app,
-                        &recording_id,
-                        "compressing",
-                        "Optimizing clip",
-                        None,
-                        Some(1.0),
-                    );
-                    eprintln!(
-                        "[clips-tray] native recording transcoded with {}: {} -> {} bytes",
-                        preset, source_bytes, compressed_bytes
-                    );
-                    return Ok(PreparedRecordingFile {
-                        path: compressed_path,
-                        mime_type: MP4_RECORDING_MIME_TYPE.to_string(),
-                        bytes: compressed_bytes,
-                        temporary: true,
-                        locally_transcoded: true,
-                    });
+                        recording_id,
+                        "avconvert",
+                        compressed_path,
+                        &original,
+                        has_audio,
+                        ffmpeg_path.as_deref(),
+                        &mut smallest_attempt_bytes,
+                    )? {
+                        return Ok(prepared);
+                    }
                 }
                 Err(err) => {
                     let _ = std::fs::remove_file(&compressed_path);
@@ -9549,6 +9616,100 @@ fn prepare_recording_file(
     Ok(original)
 }
 
+/// Checks a finished re-encode at `compressed_path` and returns what to upload:
+/// the re-encode, or the original when the re-encode lost a usable audio
+/// signal. `None` means the re-encode wasn't usable and has been removed.
+fn accept_transcoded_recording(
+    app: &AppHandle,
+    recording_id: &str,
+    encoder: &str,
+    compressed_path: PathBuf,
+    original: &PreparedRecordingFile,
+    has_audio: bool,
+    ffmpeg_probe_path: Option<&str>,
+    smallest_attempt_bytes: &mut Option<u64>,
+) -> Result<Option<PreparedRecordingFile>, String> {
+    let compressed_bytes = std::fs::metadata(&compressed_path)
+        .map_err(|e| format!("compressed recording file missing: {e}"))?
+        .len();
+    if compressed_bytes == 0 {
+        let _ = std::fs::remove_file(&compressed_path);
+        eprintln!("[clips-tray] {encoder} produced an empty file");
+        return Ok(None);
+    }
+    if has_audio && mp4_has_audio_track(&compressed_path) == Some(false) {
+        let _ = std::fs::remove_file(&compressed_path);
+        eprintln!(
+            "[clips-tray] AUDIO LOST: {encoder} dropped the audio track (source had audio, \
+             compressed output did not) — rejecting it rather than uploading a silent smaller file"
+        );
+        return Ok(None);
+    }
+    if has_audio {
+        if let Some(ffmpeg_probe_path) = ffmpeg_probe_path {
+            let label = format!("{encoder} re-encode");
+            match verify_prepared_audio_signal(
+                ffmpeg_probe_path,
+                &compressed_path,
+                original,
+                &original.path,
+                &label,
+            ) {
+                Ok(Some(fallback)) => {
+                    let _ = std::fs::remove_file(&compressed_path);
+                    if fallback.bytes <= max_upload_bytes() {
+                        return Ok(Some(fallback));
+                    }
+                    eprintln!(
+                        "[clips-tray] original recording has usable audio but is too large to upload without compression ({}); rejecting silent {label}",
+                        format_mb(fallback.bytes)
+                    );
+                    return Ok(None);
+                }
+                Ok(None) => {}
+                Err(err) => {
+                    let _ = std::fs::remove_file(&compressed_path);
+                    return Err(err);
+                }
+            }
+        }
+    }
+    *smallest_attempt_bytes = Some(
+        smallest_attempt_bytes
+            .map(|smallest| smallest.min(compressed_bytes))
+            .unwrap_or(compressed_bytes),
+    );
+    if !encode_is_worth_uploading(compressed_bytes, original.bytes, max_upload_bytes()) {
+        let _ = std::fs::remove_file(&compressed_path);
+        eprintln!(
+            "[clips-tray] {encoder} re-encode not used: {} from a {} source, upload limit {}",
+            format_mb(compressed_bytes),
+            format_mb(original.bytes),
+            format_mb(max_upload_bytes())
+        );
+        return Ok(None);
+    }
+    emit_native_upload_progress(
+        app,
+        recording_id,
+        "compressing",
+        "Optimizing clip",
+        None,
+        Some(1.0),
+    );
+    eprintln!(
+        "[clips-tray] native recording transcoded with {encoder}: {} -> {} bytes",
+        original.bytes, compressed_bytes
+    );
+    Ok(Some(PreparedRecordingFile {
+        path: compressed_path,
+        mime_type: MP4_RECORDING_MIME_TYPE.to_string(),
+        bytes: compressed_bytes,
+        temporary: true,
+        locally_transcoded: true,
+    }))
+}
+
 fn compressed_recording_path(path: &Path) -> PathBuf {
     let stem = path
         .file_stem()
@@ -9565,17 +9726,6 @@ fn normalized_recording_path(path: &Path) -> PathBuf {
         .filter(|value| !value.is_empty())
         .unwrap_or("recording");
     path.with_file_name(format!("{stem}-normalized.mp4"))
-}
-
-#[derive(Clone, Copy)]
-struct FfmpegTranscodePreset {
-    label: &'static str,
-    max_long_edge: u32,
-    max_short_edge: u32,
-    crf: u8,
-    encoder_preset: &'static str,
-    audio_bitrate_kbps: u32,
-    max_video_rate_kbps: u32,
 }
 
 fn max_upload_bytes() -> u64 {
@@ -9676,91 +9826,6 @@ fn command_available(command: &str) -> bool {
         .unwrap_or(false)
 }
 
-fn duration_video_rate_limit_kbps(
-    duration_ms: Option<u128>,
-    audio_bitrate_kbps: u32,
-) -> Option<f64> {
-    let seconds = duration_ms? as f64 / 1000.0;
-    if seconds < 1.0 {
-        return None;
-    }
-    let total_kbps = (TARGET_UPLOAD_BYTES as f64 * 8.0 / 1000.0) / seconds;
-    let video_kbps = total_kbps - audio_bitrate_kbps as f64 - TRANSCODE_RATE_LIMIT_OVERHEAD_KBPS;
-    if !video_kbps.is_finite() {
-        return None;
-    }
-    Some(video_kbps)
-}
-
-fn ffmpeg_transcode_presets(
-    _width: Option<u32>,
-    _height: Option<u32>,
-    _source_bytes: u64,
-    _duration_ms: Option<u128>,
-) -> Vec<FfmpegTranscodePreset> {
-    vec![
-        FfmpegTranscodePreset {
-            label: "HandBrake Fast 1080p30",
-            max_long_edge: 1920,
-            max_short_edge: 1080,
-            crf: 22,
-            encoder_preset: "fast",
-            audio_bitrate_kbps: 160,
-            max_video_rate_kbps: 6_000,
-        },
-        FfmpegTranscodePreset {
-            label: "1080p compact",
-            max_long_edge: 1920,
-            max_short_edge: 1080,
-            crf: 24,
-            encoder_preset: "fast",
-            audio_bitrate_kbps: 128,
-            max_video_rate_kbps: 4_000,
-        },
-        FfmpegTranscodePreset {
-            label: "720p compact",
-            max_long_edge: 1280,
-            max_short_edge: 720,
-            crf: 26,
-            encoder_preset: "fast",
-            audio_bitrate_kbps: 96,
-            max_video_rate_kbps: 2_200,
-        },
-        FfmpegTranscodePreset {
-            label: "540p small",
-            max_long_edge: 960,
-            max_short_edge: 540,
-            crf: 28,
-            encoder_preset: "fast",
-            audio_bitrate_kbps: 80,
-            max_video_rate_kbps: 1_200,
-        },
-    ]
-}
-
-fn even_ffmpeg_dimension(value: u32) -> u32 {
-    ((value.max(2)) / 2) * 2
-}
-
-fn ffmpeg_scaled_dimensions(
-    width: Option<u32>,
-    height: Option<u32>,
-    max_long_edge: u32,
-    max_short_edge: u32,
-) -> Option<(u32, u32)> {
-    let width = width?;
-    let height = height?;
-    let long_side = width.max(height).max(1);
-    let short_side = width.min(height).max(1);
-    let scale = (max_long_edge as f64 / long_side as f64)
-        .min(max_short_edge as f64 / short_side as f64)
-        .min(1.0);
-    Some((
-        even_ffmpeg_dimension((width as f64 * scale).floor() as u32),
-        even_ffmpeg_dimension((height as f64 * scale).floor() as u32),
-    ))
-}
-
 fn normalize_audio_with_ffmpeg(
     ffmpeg_path: &str,
     source: &Path,
@@ -9814,38 +9879,11 @@ fn normalize_audio_with_ffmpeg(
     wait_for_transcode_child(child, FFMPEG_TIMEOUT, "ffmpeg")
 }
 
-fn native_transcode_presets(
-    width: Option<u32>,
-    height: Option<u32>,
-    source_bytes: u64,
-) -> Vec<&'static str> {
-    let long_side = width.unwrap_or(0).max(height.unwrap_or(0));
-    if source_bytes >= 96 * 1024 * 1024 || long_side > 1920 {
-        vec![
-            "Preset1280x720",
-            "Preset960x540",
-            "Preset640x480",
-            "PresetAppleM4V480pSD",
-            "PresetAppleM4VCellular",
-        ]
-    } else {
-        vec![
-            "Preset1280x720",
-            "Preset960x540",
-            "Preset640x480",
-            "PresetAppleM4V480pSD",
-            "PresetAppleM4VCellular",
-        ]
-    }
-}
-
 fn transcode_with_ffmpeg(
     ffmpeg_path: &str,
     source: &Path,
     output: &Path,
-    preset: &FfmpegTranscodePreset,
-    width: Option<u32>,
-    height: Option<u32>,
+    dimensions: Option<(u32, u32)>,
     duration_ms: Option<u128>,
     normalize_audio: bool,
     downmix_audio: bool,
@@ -9867,13 +9905,7 @@ fn transcode_with_ffmpeg(
 
     command.arg("-map").arg("0:a?");
 
-    if let Some((scaled_w, scaled_h)) =
-        ffmpeg_scaled_dimensions(width, height, preset.max_long_edge, preset.max_short_edge)
-    {
-        command
-            .arg("-vf")
-            .arg(format!("scale={scaled_w}:{scaled_h}:flags=lanczos"));
-    }
+    command.arg("-vf").arg(transcode_scale_filter(dimensions));
 
     if normalize_audio {
         command.arg("-af").arg(audio_filter_chain(
@@ -9883,16 +9915,13 @@ fn transcode_with_ffmpeg(
         ));
     }
 
-    let duration_rate_limit =
-        duration_video_rate_limit_kbps(duration_ms, preset.audio_bitrate_kbps)
-            .unwrap_or(preset.max_video_rate_kbps as f64);
-    let video_rate_limit_kbps = duration_rate_limit.round().clamp(
-        MIN_TRANSCODE_VIDEO_RATE_KBPS as f64,
-        preset.max_video_rate_kbps as f64,
-    ) as u32;
-    let maxrate = format!("{video_rate_limit_kbps}k");
-    let bufsize = format!("{}k", video_rate_limit_kbps * 2);
-    let audio_bitrate = format!("{}k", preset.audio_bitrate_kbps);
+    // Sized by the picture. Only a clip too long to fit under the upload limit
+    // at that rate gets a lower bitrate, never a smaller picture (see
+    // `upload_sizing`).
+    let video_rate_kbps = transcode_video_rate_kbps(dimensions, duration_ms, max_upload_bytes());
+    let maxrate = format!("{video_rate_kbps}k");
+    let bufsize = format!("{}k", video_rate_kbps * 2);
+    let audio_bitrate = format!("{TRANSCODE_AUDIO_BITRATE_KBPS}k");
 
     command
         .arg("-fpsmax")
@@ -9902,9 +9931,9 @@ fn transcode_with_ffmpeg(
     if h264_encoder == "libx264" {
         command
             .arg("-preset")
-            .arg(preset.encoder_preset)
+            .arg("fast")
             .arg("-crf")
-            .arg(preset.crf.to_string());
+            .arg(TRANSCODE_CRF.to_string());
     } else {
         command
             .arg("-allow_sw")

@@ -22,11 +22,12 @@ further, could you tell us a bit about what you're building? which app needs
 this, and what doesn't work for you today?
 ```
 
-## One ask, with the merge condition
+## One ask, with the review condition
 
 ```text
-thanks for this, Till! [specific thing] looks good. one thing before we merge:
-could you [ask] so [outcome]? then it's good to go.
+thanks for this, Till! [specific thing] looks good. one thing before I can
+finish my review: could you [ask] so [outcome]? once that's updated, I'll
+review the new head.
 ```
 
 Good examples: #2811 ("one last piece of feedback ... if you agree would be
@@ -45,21 +46,22 @@ direction before you put more time in. I'll get back to you by [day].
 ## After their update
 
 ```text
-thanks, that covers it! [merging once checks pass / one thing left: ...]
+thanks, that covers it! I'll finish reviewing this head after checks pass and
+update you on the next step / one thing left: ...
 ```
 
 ## After pushing to their branch
 
 ```text
-main moved under this one, so I merged it in and fixed the conflicts in
+GitHub reported a conflict with main, so I merged it in and fixed the conflicts in
 [file]. I also [change] because [reason]. shout if that's not what you meant.
 ```
 
 ## Finishing it after 14 days of quiet
 
 ```text
-hey Sam, I went ahead and finished this off: [what]. your commits are all
-still here, and you'll be the author on the merge. thanks again!
+hey Sam, I made the follow-up changes on your branch: [what]. your commits are
+still part of this PR. thanks again!
 ```
 
 ## Rebuilt on their commits
@@ -113,14 +115,14 @@ a look.
 
 ## What to avoid
 
-| Instead of                                             | Do                                                            |
-| ------------------------------------------------------ | ------------------------------------------------------------- |
-| "ready for internal approval" or "needs owner review"  | Approve and merge, or say "merging once checks pass"          |
-| "please rerun CI" or "resolve the conflicts with main" | Rerun it, or merge main yourself                              |
-| "take a look at the automated review comments"         | Decide which findings are real and ask for those, or fix them |
-| Five asks in one comment                               | One ask, or finish the rest yourself                          |
-| New asks after "final"                                 | Raise only what the new head introduced                       |
-| "Thanks for the update" when nothing changed           | Thank them for the contribution                               |
-| Asking for screenshots on a design doc                 | Ask only for evidence the change needs                        |
-| Merging silently                                       | One line naming what shipped                                  |
-| Greeting by @handle, or @-mentioning Builder people    | Their first name; ask teammates directly                      |
+| Instead of                                             | Do                                                                                                                      |
+| ------------------------------------------------------ | ----------------------------------------------------------------------------------------------------------------------- |
+| "ready for internal approval" or "needs owner review"  | Say a human Builder dev will review the current head and update them after required checks, or name the remaining check |
+| "please rerun CI" or "resolve the conflicts with main" | Rerun it, or merge `origin/main` when GitHub reports `CONFLICTING`                                                      |
+| "take a look at the automated review comments"         | Decide which findings are real and ask for those, or fix them                                                           |
+| Five asks in one comment                               | One ask, or finish the rest yourself                                                                                    |
+| New asks after "final"                                 | Raise only what the new head introduced                                                                                 |
+| "Thanks for the update" when nothing changed           | Thank them for the contribution                                                                                         |
+| Asking for screenshots on a design doc                 | Ask only for evidence the change needs                                                                                  |
+| Merging silently                                       | One line naming what shipped                                                                                            |
+| Greeting by @handle, or @-mentioning Builder people    | Their first name; ask teammates directly                                                                                |

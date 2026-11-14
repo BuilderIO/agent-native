@@ -5,6 +5,7 @@ const currentTurnEventsMock = vi.hoisted(() =>
 );
 
 vi.mock("./run-store.js", () => ({
+  BACKGROUND_PROCESSING_RUN_STALE_MS: 45_000,
   writeLedgerEntry: vi.fn(async () => {}),
   readLedgerEntry: vi.fn(async () => null),
   clearLedgerForThread: vi.fn(async () => {}),
@@ -212,6 +213,7 @@ describe("tool-call journal hard-block", () => {
           },
         ],
         events: ledger,
+        steeredUserContent: (message) => [{ type: "text", text: message.text }],
         journal: classifyToolCallJournal(ledger),
       });
       const checkEmail = {

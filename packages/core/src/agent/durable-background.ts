@@ -158,6 +158,9 @@ export const AGENT_CHAT_DURABLE_BACKGROUND_ENV =
  */
 export const AGENT_CHAT_BACKGROUND_RUN_FIELD = "__backgroundRun";
 
+export const AGENT_CHAT_BACKGROUND_SETUP_CLEANUP_FIELD =
+  "__agentChatBackgroundSetupCleanup";
+
 /** Analytics-only source context captured before the run leaves its browser request. */
 export const AGENT_CHAT_BROWSER_SESSION_ID_FIELD =
   "__agentNativeBrowserSessionId";

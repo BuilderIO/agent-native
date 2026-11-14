@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 
 import type { ActionChatUIConfig } from "../action-ui.js";
+import type { WriteReceipt } from "../action.js";
 import {
   isArtifactReceipt,
   type ArtifactReceipt,
@@ -13,11 +14,14 @@ import type {
   EngineToolResultPart,
 } from "./engine/types.js";
 import { toolCallInputSignature as inputSignature } from "./tool-call-input-signature.js";
+import { isUnknownWriteCause } from "./types.js";
 import type {
   AgentChatEvent,
   AgentFileMutationProof,
   AgentToolInput,
+  UnknownWriteCause,
 } from "./types.js";
+import { readWriteReceipt } from "./write-receipts.js";
 
 export interface ToolCallJournalEntry {
   key: string;
@@ -32,12 +36,17 @@ export interface ToolCallJournalEntry {
   /** The call failed after its side effect completed. */
   isError?: true;
   errorCode?: string;
+  receipt?: WriteReceipt;
+  actionSettled?: true;
+  settledOnCleanToolStop?: true;
   /** The call recorded a completed side effect, its own or a nested call's. */
   committed?: true;
   /** Exact identity of the arguments the call ran with, defaults applied. */
   argumentsHash?: string;
   /** The call settled with an outcome it could not confirm. */
   outcomeUnknown?: true;
+  /** Why such a call's outcome is unknown, when its event recorded it. */
+  unknownCause?: UnknownWriteCause;
   artifacts?: ArtifactReceipt[];
   fileMutation?: AgentFileMutationProof;
   mcpApp?: AgentMcpAppPayload;
@@ -380,6 +389,9 @@ function replayOutcomeIdentity(entry: ToolCallJournalEntry): string {
       entry.result,
       entry.isError,
       entry.errorCode,
+      entry.receipt,
+      entry.actionSettled,
+      entry.settledOnCleanToolStop,
       entry.committed,
       entry.outcomeUnknown,
       entry.artifacts,
@@ -477,6 +489,9 @@ export function classifyToolCallJournal(
       if (entry) {
         if (event.outcomeUnknown === true) {
           entry.outcomeUnknown = true;
+          if (isUnknownWriteCause(event.unknownCause)) {
+            entry.unknownCause = event.unknownCause;
+          }
           if (event.argumentsHash) entry.argumentsHash = event.argumentsHash;
           queue!.push(entry);
           continue;
@@ -487,6 +502,13 @@ export function classifyToolCallJournal(
         entry.result = event.result ?? "";
         if (event.isError === true) entry.isError = true;
         if (event.errorCode) entry.errorCode = event.errorCode;
+        const receipt = readWriteReceipt({ _receipt: event.receipt });
+        if (receipt) entry.receipt = receipt;
+        if (event.actionSettled === true && event.isError !== true) {
+          entry.actionSettled = true;
+          if (event.settledOnCleanToolStop === true)
+            entry.settledOnCleanToolStop = true;
+        }
         if (event.completedSideEffect === true) entry.committed = true;
         if (event.argumentsHash) entry.argumentsHash = event.argumentsHash;
         const artifacts = event.artifacts?.filter(isArtifactReceipt);
@@ -919,8 +941,91 @@ export function findInterruptedJournalEntryForCall(
   input: unknown,
   consumedKeys?: Set<string>,
 ): ToolCallJournalEntry | undefined {
+  const matches = journalStepEntriesForCall(
+    journal.interrupted,
+    toolName,
+    argumentsHash,
+    input,
+    consumedKeys,
+  );
+  const match = matches.length === 1 ? matches[0] : undefined;
+  if (match) consumedKeys?.add(match.key);
+  return match;
+}
+
+/**
+ * The entry with a durable step that this call's identity claims: the
+ * earliest-started unclaimed match among the interrupted entries and the
+ * finished ones the model never saw. A finished entry carries its own result,
+ * so identical calls pair with identical entries in the order they started;
+ * an interrupted one binds only when no other interrupted entry matches.
+ */
+export function findUnresolvedJournalStepForCall(
+  journal: ToolCallJournal,
+  unseenFinished: readonly ToolCallJournalEntry[],
+  toolName: string,
+  argumentsHash: string | undefined,
+  input: unknown,
+  consumedKeys?: Set<string>,
+): ToolCallJournalEntry | undefined {
+  const interrupted = journalStepEntriesForCall(
+    journal.interrupted,
+    toolName,
+    argumentsHash,
+    input,
+    consumedKeys,
+  );
+  const finished = journalStepEntriesForCall(
+    unseenFinished,
+    toolName,
+    argumentsHash,
+    input,
+    consumedKeys,
+  );
+  const earliest = [...interrupted, ...finished].reduce<
+    ToolCallJournalEntry | undefined
+  >(
+    (first, entry) =>
+      first === undefined || entry.order < first.order ? entry : first,
+    undefined,
+  );
+  const match =
+    earliest && (finished.includes(earliest) || interrupted.length === 1)
+      ? earliest
+      : undefined;
+  if (match) consumedKeys?.add(match.key);
+  return match;
+}
+
+/** Whether any interrupted or unseen finished entry could name this call's step. */
+export function hasJournalStepForCall(
+  journal: ToolCallJournal,
+  unseenFinished: readonly ToolCallJournalEntry[],
+  toolName: string,
+  argumentsHash: string | undefined,
+  input: unknown,
+): boolean {
+  return [journal.interrupted, unseenFinished].some(
+    (entries) =>
+      journalStepEntriesForCall(
+        entries,
+        toolName,
+        argumentsHash,
+        input,
+        undefined,
+      ).length > 0,
+  );
+}
+
+function journalStepEntriesForCall(
+  entries: readonly ToolCallJournalEntry[],
+  toolName: string,
+  argumentsHash: string | undefined,
+  input: unknown,
+  consumedKeys: ReadonlySet<string> | undefined,
+): ToolCallJournalEntry[] {
   const inputFingerprint = toolCallInputFingerprint(input);
-  const matches = journal.interrupted.filter((entry) => {
+  return entries.filter((entry) => {
     if (
       entry.tool !== toolName ||
       !entry.executionStepId ||
@@ -939,9 +1044,6 @@ export function findInterruptedJournalEntryForCall(
       inputSignature(entry.input) === inputSignature(input)
     );
   });
-  const match = matches.length === 1 ? matches[0] : undefined;
-  if (match) consumedKeys?.add(match.key);
-  return match;
 }
 
 export function findInterruptedLegacyJournalEntryForCall(

@@ -103,7 +103,10 @@ beforeEach(() => {
   vi.clearAllMocks();
   mockDb.select.mockReset();
   mockDb.update.mockReset();
-  mockAssertAccess.mockResolvedValue(undefined);
+  mockAssertAccess.mockResolvedValue({
+    role: "editor",
+    resource: { expiresAt: null },
+  });
   mockWriteAppState.mockResolvedValue(undefined);
   mockGetCurrentOwnerEmail.mockReturnValue("owner@example.com");
   mockRequireActiveOrganizationId.mockResolvedValue("org_1");

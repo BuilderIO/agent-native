@@ -342,6 +342,8 @@ export default createAuthPlugin({
 });
 ```
 
+Bei benutzerdefinierter Authentifizierung muss auch der optionale Rückruf `AuthOptions.getBrowserSession` für UI-Funktionen und Browserfreigaben konfiguriert werden. Er akzeptiert ein `H3Event` und gibt wie `getSession` `AuthSession | null` zurück, darf aber ausschließlich Browser-Cookies und niemals Bearer-Token, Query-Token oder andere Header lesen. Ohne diesen expliziten Hook geben diese reinen Browseroperationen `401` zurück.
+
 ## Öffentliche Workspace-Apps {#public-workspace-apps}
 
 Workspace-Apps sind standardmäßig intern. Damit anonyme Besucher eine öffentliche laden können
@@ -485,6 +487,20 @@ Das standardmäßig deaktivierte Dispatch-Flag `desktop.workspace-sso` steuert n
 Die Canary-Kennung im User-Agent ist nur ein Verfügbarkeitshinweis und keine Remote-Attestierung; Authentifizierung und Autorisierung vertrauen ihr nicht.
 Kanonische gehostete Apps erkennen Anfragen der paketierten Desktop SSO Canary ohne eine Identity-Hub-Umgebungsvariable pro App. Normale Browser verwenden die übliche Anmeldung pro App. Selbst gehostete Apps benötigen `AGENT_NATIVE_IDENTITY_HUB_URL` nur für den verbleibenden expliziten Desktop- oder serverseitigen Föderationspfad. Stabile Desktop-Builds initialisieren den Broker erst nach einer separat genehmigten späteren Veröffentlichung.
 Die Canary-Version fängt anonyme App-Anmeldungen nicht ab. Benutzer müssen die Workspace-Anmeldung in den Desktop-Einstellungen für die aktive registrierte App ausdrücklich auswählen; die normale App-Anmeldung bleibt der Standardpfad.
+
+## Anmeldeseite anpassen
+
+Das Chat-Template setzt `marketing: false` in `server/plugins/auth.ts`. Ein Marketing-Objekt aktiviert das Panel. Auf Mobilgeräten erscheint es unter dem Formular. `AuthMarketingProps` beschreibt die gerenderten Seiteneigenschaften. Das Plugin akzeptiert die unten gezeigten `marketing`-Felder. `authHeadHtml` fügt vertrauenswürdiges HTML der App nach den integrierten Styles ein. Keine Benutzereingaben übergeben.
+
+```ts filename="server/plugins/auth.ts"
+import { createToolkitAuthPlugin } from "@agent-native/toolkit/app/auth/server";
+
+export default createToolkitAuthPlugin({
+  rootAuth: true,
+  marketing: { appName: "My app", tagline: "Make work easier" },
+  authHeadHtml: "<style>.auth-root { font-family: sans-serif; }</style>",
+});
+```
 
 ## Verwaltete Bereitstellung und Einladungen
 

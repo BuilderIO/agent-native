@@ -13,6 +13,8 @@ import {
   retainLatestFailedTweakSave,
 } from "@/pages/design-editor/tweak-save";
 
+import { designMetadataQueryKey } from "../design-query-key";
+
 export interface PersistTweakSaveArgs {
   acknowledgeOutboxEntry: (entry: DesignSaveOutboxEntry) => Promise<void>;
   applyTweaksAsync: ReturnType<
@@ -25,6 +27,7 @@ export interface PersistTweakSaveArgs {
   ) => DesignSaveOutboxEntry | null;
   id: string | undefined;
   journalTweakOutboxEntry: (entry: DesignSaveOutboxEntry) => Promise<boolean>;
+  noteSaveLeftQueued: () => void;
   pendingTweakSaveRef: RefObject<PendingTweakSave | null>;
   queryClient: QueryClient;
   setTweakSaveActive: Dispatch<SetStateAction<boolean>>;
@@ -44,6 +47,7 @@ export function runPersistTweakSave(
     createTweakSaveOutboxEntry,
     id,
     journalTweakOutboxEntry,
+    noteSaveLeftQueued,
     pendingTweakSaveRef,
     queryClient,
     setTweakSaveActive,
@@ -85,10 +89,11 @@ export function runPersistTweakSave(
         confirmedTweakSelectionsHashRef.current = confirmedHash;
         if (result?.appliedTweaks) {
           queryClient.setQueryData(
-            ["action", "get-design", { id }],
-            (old: any) => {
+            designMetadataQueryKey(id),
+            (old: Record<string, unknown> | undefined) => {
               if (!old || typeof old !== "object") return old;
               let data: Record<string, unknown>;
+              if (old.data != null && typeof old.data !== "string") return old;
               try {
                 const parsed = JSON.parse(old.data ?? "{}");
                 data =
@@ -150,6 +155,13 @@ export function runPersistTweakSave(
           warnChangesWillRetry();
         } else {
           toast.error(t("designEditor.toasts.tweakSaveNotDurable"));
+        }
+        // A conflicting snapshot can never be replayed into a save, and the
+        // user was just told to redo it, so it must not wait in the outbox as
+        // an unsaved change. Any other failure leaves the entry for the replay.
+        if (journaled) {
+          if (failureKind === "conflict") await acknowledgeOutboxEntry(entry);
+          else noteSaveLeftQueued();
         }
       } finally {
         tweakSaveInFlightRef.current = false;

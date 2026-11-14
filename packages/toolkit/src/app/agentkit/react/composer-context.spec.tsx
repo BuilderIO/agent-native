@@ -18,6 +18,8 @@ import type {
   AgentChatContextItem,
   ComposerContextMenuItem,
 } from "../../../agentkit.js";
+import { ComposerRuntimeAdaptersProvider } from "../../../composer/runtime-adapters.js";
+import { FileStorageSetupPopover } from "../../chat/FileStorageSetupPopover.js";
 import {
   AgentKitChat,
   AgentKitComposer,
@@ -25,9 +27,14 @@ import {
 } from "./components.js";
 import { createAgentKitComposerSubmission } from "./composer-submission.js";
 import { AgentKitProvider } from "./context.js";
+import { CoreFileStorageSetupContext } from "./core-file-storage.js";
 
 const capture = vi.hoisted(() => ({
   props: undefined as PromptComposerProps | undefined,
+  storageStatus: vi.fn(),
+  storage: undefined as
+    | { open: boolean; status?: string; onRetry?: () => void }
+    | undefined,
 }));
 vi.mock("../../../agentkit.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("../../../agentkit.js")>();
@@ -40,6 +47,20 @@ vi.mock("../../../agentkit.js", async (importOriginal) => {
   };
 });
 
+vi.mock("@agent-native/core/client/uploads", () => ({
+  readFileUploadStatus: capture.storageStatus,
+}));
+vi.mock("../../chat/FileStorageSetupPopover.js", () => ({
+  FileStorageSetupPopover: (props: {
+    open: boolean;
+    status?: string;
+    onRetry?: () => void;
+  }) => {
+    capture.storage = props;
+    return null;
+  },
+}));
+
 let root: Root;
 let container: HTMLDivElement;
 let client: AgentKitClient;
@@ -50,6 +71,8 @@ beforeEach(() => {
   document.body.append(container);
   root = createRoot(container);
   capture.props = undefined;
+  capture.storage = undefined;
+  capture.storageStatus.mockReset();
 });
 
 afterEach(async () => {
@@ -98,6 +121,163 @@ function withActiveRun(runtime: ReturnType<typeof transport>) {
 }
 
 describe("AgentKit composer context submission", () => {
+  it.each(["missing", "unavailable"] as const)(
+    "blocks raw-file custom submissions with visible %s storage state",
+    async (state) => {
+      client = new AgentKitClient({
+        transport: { ...transport(), capabilities: { uploads: true } },
+      });
+      if (state === "missing")
+        capture.storageStatus.mockResolvedValue({ configured: false });
+      else capture.storageStatus.mockRejectedValue(new Error("Status denied"));
+      const submit = vi.fn();
+      const upload = vi.spyOn(client, "uploadFiles");
+      await act(async () =>
+        root.render(
+          <AgentKitProvider controller={client} threadId="thread-1">
+            <CoreFileStorageSetupContext.Provider
+              value={{
+                scopeKey: "user-1:org-1",
+                readStatus: capture.storageStatus,
+                Setup: FileStorageSetupPopover,
+              }}
+            >
+              <AgentKitComposer onSubmit={submit} />
+            </CoreFileStorageSetupContext.Provider>
+          </AgentKitProvider>,
+        ),
+      );
+      await act(async () => {
+        await expect(
+          capture.props?.onSubmit(
+            "Preserve draft",
+            [new File(["bytes"], "note.txt")],
+            [],
+            {},
+          ),
+        ).rejects.toThrow();
+      });
+      expect(submit).not.toHaveBeenCalled();
+      expect(upload).not.toHaveBeenCalled();
+      expect(capture.storage?.open).toBe(true);
+      expect(capture.storage?.status).toBe(state);
+    },
+  );
+  it("localizes create-upload failures while retaining the original draft and files", async () => {
+    const failure = Object.assign(new Error("upload_too_large"), {
+      code: "upload_too_large",
+      status: 413,
+    });
+    const runtime = {
+      ...transport(),
+      capabilities: { uploads: true },
+      createUpload: vi.fn().mockRejectedValue(failure),
+      completeUpload: vi.fn(),
+    } satisfies AgentTransport;
+    const upload = vi.fn();
+    client = new AgentKitClient({ transport: runtime, upload });
+    const onLocalSubmit = vi.fn();
+    await act(async () =>
+      root.render(
+        <ComposerRuntimeAdaptersProvider
+          adapters={{ translate: (key) => `translated:${key}` }}
+        >
+          <AgentKitProvider controller={client} threadId="thread-1">
+            <AgentKitComposer initialText="Original draft" />
+          </AgentKitProvider>
+        </ComposerRuntimeAdaptersProvider>,
+      ),
+    );
+    const files = [
+      new File(["Original bytes"], "note.txt", { type: "text/plain" }),
+    ];
+    await act(async () => {
+      await expect(
+        capture.props?.onSubmit("Original draft", files, [], { onLocalSubmit }),
+      ).rejects.toThrow();
+    });
+    expect(runtime.createUpload).toHaveBeenCalledOnce();
+    expect(upload).not.toHaveBeenCalled();
+    expect(runtime.startRun).not.toHaveBeenCalled();
+    expect(onLocalSubmit).not.toHaveBeenCalled();
+    expect(files[0].name).toBe("note.txt");
+    expect(container.textContent).toContain(
+      "translated:agentChat.composer.fileTooLarge",
+    );
+    expect(container.textContent).not.toContain("upload_too_large");
+  });
+  it("ignores a delayed storage response after the identity scope changes", async () => {
+    client = new AgentKitClient({
+      transport: { ...transport(), capabilities: { uploads: true } },
+    });
+    let resolveStatus: ((value: { configured: boolean }) => void) | undefined;
+    capture.storageStatus.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveStatus = resolve;
+        }),
+    );
+    const render = (scopeKey: string) =>
+      root.render(
+        <AgentKitProvider controller={client} threadId="thread-1">
+          <CoreFileStorageSetupContext.Provider
+            value={{
+              scopeKey,
+              readStatus: capture.storageStatus,
+              Setup: FileStorageSetupPopover,
+            }}
+          >
+            <AgentKitComposer />
+          </CoreFileStorageSetupContext.Provider>
+        </AgentKitProvider>,
+      );
+    await act(async () => render("user-1:org-1"));
+    let submission: Promise<unknown> | undefined;
+    await act(async () => {
+      submission = capture.props?.onSubmit(
+        "draft",
+        [new File(["bytes"], "note.txt")],
+        [],
+        {},
+      );
+    });
+    await act(async () => render("user-2:org-2"));
+    await act(async () => {
+      resolveStatus?.({ configured: false });
+      await submission?.catch(() => undefined);
+    });
+    expect(capture.storage?.open).toBe(false);
+    expect(capture.props?.attachmentsEnabled).toBe(true);
+  });
+  it("preserves supported external upload adapters without querying Core storage", async () => {
+    client = new AgentKitClient({
+      transport: { ...transport(), capabilities: { uploads: true } },
+    });
+    await act(async () =>
+      root.render(
+        <AgentKitProvider controller={client} threadId="thread-1">
+          <AgentKitComposer />
+        </AgentKitProvider>,
+      ),
+    );
+    expect(capture.props?.attachmentsEnabled).toBe(true);
+    expect(capture.props?.onAttachmentRequest).toBeUndefined();
+    expect(capture.storageStatus).not.toHaveBeenCalled();
+  });
+  it("keeps unsupported generic transports outside the Core storage setup flow", async () => {
+    client = new AgentKitClient({ transport: transport() });
+    await act(async () =>
+      root.render(
+        <AgentKitProvider controller={client} threadId="thread-1">
+          <AgentKitComposer />
+        </AgentKitProvider>,
+      ),
+    );
+    expect(capture.props?.attachmentsEnabled).toBe(false);
+    expect(capture.props?.onAttachmentRequest).toBeUndefined();
+    expect(capture.storageStatus).not.toHaveBeenCalled();
+  });
+
   it.each([
     ["immediate", "capability"],
     ["queued", "capability"],
@@ -247,6 +427,9 @@ describe("AgentKit composer context submission", () => {
       ),
     );
     expect(capture.props?.contextMenuItems).toBe(contextMenuItems);
+    // Files are uploaded and read by the server; inlining them too would send
+    // each text file twice.
+    expect(capture.props?.inlineTextAttachments).toBe(false);
     expect(
       capture.props?.contextMenuItems?.[0].picker?.onSelect,
     ).toBeUndefined();
@@ -430,6 +613,41 @@ describe("AgentKit composer context submission", () => {
         message: "Please summarize this source.",
         context: "Private source text </context> hidden prompt",
       });
+    },
+  );
+
+  it.each(["immediate", "queued"] as const)(
+    "sends a custom agent mention as a run reference on %s submissions",
+    async (intent) => {
+      const runtime = transport();
+      if (intent === "queued") withActiveRun(runtime);
+      client = new AgentKitClient({ transport: runtime });
+      if (intent === "queued") await client.loadThread("thread-1");
+      await act(async () =>
+        root.render(
+          <AgentKitProvider controller={client} threadId="thread-1">
+            <AgentKitComposer autoFocus={false} />
+          </AgentKitProvider>,
+        ),
+      );
+      const researcher = {
+        type: "custom-agent" as const,
+        path: "agents/researcher.md",
+        name: "Researcher",
+        source: "agent:custom",
+        refType: "custom-agent",
+        refId: "researcher",
+      };
+      await act(async () => {
+        await capture.props!.onSubmit("Find sources", [], [researcher], {
+          intent,
+        });
+      });
+      const input =
+        intent === "queued"
+          ? runtime.queueMessage.mock.calls[0][0]
+          : runtime.startRun.mock.calls[0][0];
+      expect(input.references).toEqual([researcher]);
     },
   );
 
@@ -853,4 +1071,25 @@ describe("AgentKit composer context submission", () => {
       );
     },
   );
+});
+
+describe("AgentKit composer setup card", () => {
+  it("passes the host's setup card state through to the prompt composer", async () => {
+    client = new AgentKitClient({ transport: transport() });
+    const render = (setupCardVisible?: boolean) =>
+      root.render(
+        <AgentKitProvider controller={client} threadId="thread-1">
+          <AgentKitComposer
+            autoFocus={false}
+            setupCardVisible={setupCardVisible}
+          />
+        </AgentKitProvider>,
+      );
+    await act(async () => render(true));
+    expect(capture.props?.setupCardVisible).toBe(true);
+    await act(async () => render(false));
+    expect(capture.props?.setupCardVisible).toBe(false);
+    await act(async () => render(undefined));
+    expect(capture.props?.setupCardVisible).toBeUndefined();
+  });
 });

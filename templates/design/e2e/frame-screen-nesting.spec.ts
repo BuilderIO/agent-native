@@ -335,7 +335,6 @@ test("a board frame dragged onto a screen moves into it with its centre at the r
   )!.attrs;
   expect(screenAttrs).toEqual({
     ...boardAttrs,
-    "data-agent-native-clone-root": "true",
     "data-agent-native-preserve-styles": "true",
   });
   expectWithinAPixel(

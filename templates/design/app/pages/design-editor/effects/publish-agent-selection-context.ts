@@ -2,10 +2,19 @@ import {
   getBrowserTabId,
   setClientAppState,
 } from "@agent-native/core/client/hooks";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { stripInlineBytes } from "@agent-native/core/shared";
+import {
+  HUBSPOT_EMAIL_FRAME_TYPE,
+  isHubSpotEmailHtml,
+} from "@shared/hubspot-email";
 import type { LayoutGridById } from "@shared/layout-grid";
 import type { MotionPlaybackMode } from "@shared/motion-timeline";
 import type { InteractThemeMode } from "@shared/preview-color-scheme";
+import {
+  storedScreenFrameType,
+  type ScreenFrameType,
+} from "@shared/screen-frame-type";
 import type { RefObject } from "react";
 
 import type { CodeWorkbenchActiveFile } from "@/components/design/code-workbench/CodeWorkbench";
@@ -56,6 +65,58 @@ const MAX_SUMMARY_CLASSES = 40;
 const MAX_SUMMARY_CLASS_LENGTH = 200;
 const MAX_SUMMARY_TEXT_LENGTH = 200;
 const SELECTION_PUBLISH_RETRY_DELAYS_MS = [1_000, 2_000, 4_000];
+
+export interface AgentSelectionScreen {
+  id: string;
+  filename: string;
+  fileType: string;
+  frameType: ScreenFrameType | null;
+}
+
+export type ScreenFrameTypeCache = Map<
+  string,
+  { content: string; frameType: ScreenFrameType | null }
+>;
+
+// Stored metadata decides. Only a legacy screen with no stored type reads its
+// HTML for the meta marker, cached by id and checked against content rather
+// than file object or updatedAt: file objects are rebuilt on every source
+// change, and an unsaved local edit changes content without moving updatedAt.
+export function summarizeAgentSelectionScreens(
+  files: readonly DesignFile[],
+  designData: unknown,
+  cache: ScreenFrameTypeCache,
+): AgentSelectionScreen[] {
+  const ids = new Set<string>();
+  const screens = files.map((file) => {
+    const stored = storedScreenFrameType(designData, file.id);
+    let frameType: ScreenFrameType | null;
+    if (stored !== undefined) {
+      frameType = stored === HUBSPOT_EMAIL_FRAME_TYPE ? stored : null;
+    } else {
+      ids.add(file.id);
+      const cached = cache.get(file.id);
+      if (cached && cached.content === file.content) {
+        frameType = cached.frameType;
+      } else {
+        frameType = isHubSpotEmailHtml(file.content)
+          ? HUBSPOT_EMAIL_FRAME_TYPE
+          : null;
+        cache.set(file.id, { content: file.content, frameType });
+      }
+    }
+    return {
+      id: file.id,
+      filename: file.filename,
+      fileType: file.fileType,
+      frameType,
+    };
+  });
+  for (const id of cache.keys()) {
+    if (!ids.has(id)) cache.delete(id);
+  }
+  return screens;
+}
 
 // The agent targets an element by these ids; its subtree style snapshot stays
 // in the frame, where copy reads it on demand.
@@ -109,12 +170,13 @@ export interface PublishAgentSelectionContextArgs {
   designDataJson: Record<string, unknown>;
   layoutGrids: LayoutGridById;
   designSelectionOwnerIdRef: RefObject<string>;
-  files: DesignFile[];
   hoveredElement: ElementInfo | null;
   id: string | undefined;
   interactDevice: { name: string; width: number; height: number };
   interactTheme: InteractThemeMode;
   isSignedIn: boolean;
+  /** Already translated: tells the person to select again, since the agent may not see the selection. */
+  selectionPublishFailedLabel: string;
   mode: EditorMode;
   motionAutoKeyframeEnabled: boolean;
   motionDockOpen: boolean;
@@ -132,6 +194,8 @@ export interface PublishAgentSelectionContextArgs {
   persistedSelectionStateRef: RefObject<string | null>;
   persistedSelectionWriteTimerRef: RefObject<number | null>;
   responsiveEditScope: ResponsiveEditScope;
+  reviewThreadId: string | null;
+  screens: readonly AgentSelectionScreen[];
   selectedElement: ElementInfo | null;
   selectedScreenIds: string[];
   selectedStateId: string | null;
@@ -149,12 +213,12 @@ export function runPublishAgentSelectionContext({
   designDataJson,
   layoutGrids,
   designSelectionOwnerIdRef,
-  files,
   hoveredElement,
   id,
   interactDevice,
   interactTheme,
   isSignedIn,
+  selectionPublishFailedLabel,
   mode,
   motionAutoKeyframeEnabled,
   motionDockOpen,
@@ -168,6 +232,8 @@ export function runPublishAgentSelectionContext({
   persistedSelectionStateRef,
   persistedSelectionWriteTimerRef,
   responsiveEditScope,
+  reviewThreadId,
+  screens,
   selectedElement,
   selectedScreenIds,
   selectedStateId,
@@ -180,13 +246,13 @@ export function runPublishAgentSelectionContext({
     designTitle: design?.title ?? null,
     activeFileId: activeFile?.id ?? null,
     activeFilename: activeFile?.filename ?? null,
+    activeFrameType: activeFile
+      ? (screens.find((screen) => screen.id === activeFile.id)?.frameType ??
+        null)
+      : null,
     viewMode,
     zoom,
-    screens: files.map((file) => ({
-      id: file.id,
-      filename: file.filename,
-      fileType: file.fileType,
-    })),
+    screens,
     selectedScreenIds,
     selectedElement,
     hoveredElement,
@@ -200,6 +266,9 @@ export function runPublishAgentSelectionContext({
         ? { device: interactDevice, theme: interactTheme }
         : null,
     leftPanel: activeLeftPanel,
+    // The comment thread open on the canvas or highlighted in the Threads
+    // panel; null when none is, so the agent never reads a closed thread.
+    reviewThreadId,
     codeWorkspace: {
       open: activeLeftPanel === "code",
       backendKind: activeCodeFile?.backendKind ?? "virtual-inline",
@@ -224,6 +293,16 @@ export function runPublishAgentSelectionContext({
           ? motionDockLiveState.selectedKeyframeIds[0]
           : null,
       selectedKeyframeIds: motionDockLiveState.selectedKeyframeIds,
+      selectedEasingSegment: motionDockLiveState.selectedEasingSegment
+        ? {
+            trackId: motionDockLiveState.selectedEasingSegment.trackId,
+            targetNodeId:
+              motionDockLiveState.selectedEasingSegment.targetNodeId,
+            property: motionDockLiveState.selectedEasingSegment.property,
+            fromT: motionDockLiveState.selectedEasingSegment.fromT,
+            toT: motionDockLiveState.selectedEasingSegment.toT,
+          }
+        : null,
     },
     breakpoint: (activeBreakpointWidthState != null
       ? activeBreakpointWidthState < 500
@@ -288,6 +367,7 @@ export function runPublishAgentSelectionContext({
     activeTool: selection.activeTool,
     interact: selection.interact,
     leftPanel: selection.leftPanel,
+    reviewThreadId: selection.reviewThreadId,
     codeWorkspace: selection.codeWorkspace,
     dock: selection.dock,
     motion: selection.motion,
@@ -318,6 +398,7 @@ export function runPublishAgentSelectionContext({
     const keepalive =
       new TextEncoder().encode(pending.key).length * keys.length <=
       KEEPALIVE_ACTION_MAX_BYTES;
+    let failure: DesignSelectionPublishError | undefined;
     void Promise.all(
       keys.map((key) =>
         setClientAppState(key, pending.value, {
@@ -326,7 +407,8 @@ export function runPublishAgentSelectionContext({
         }).then(
           () => true,
           (cause: unknown) => {
-            console.error(new DesignSelectionPublishError(key, cause));
+            failure = new DesignSelectionPublishError(key, cause);
+            console.error(failure);
             return false;
           },
         ),
@@ -340,13 +422,12 @@ export function runPublishAgentSelectionContext({
       }
       persistedSelectionStateRef.current = null;
       persistedSelectionContextRef.current = null;
-      const delay = SELECTION_PUBLISH_RETRY_DELAYS_MS[attempt];
-      if (
-        delay === undefined ||
-        persistedSelectionWriteTimerRef.current !== null
-      ) {
+      if (attempt >= SELECTION_PUBLISH_RETRY_DELAYS_MS.length) {
+        reportWriteFailure(failure, { label: selectionPublishFailedLabel });
         return;
       }
+      if (persistedSelectionWriteTimerRef.current !== null) return;
+      const delay = SELECTION_PUBLISH_RETRY_DELAYS_MS[attempt];
       persistedSelectionWriteTimerRef.current = window.setTimeout(() => {
         persistedSelectionWriteTimerRef.current = null;
         writePersistedSelection(pending, attempt + 1);

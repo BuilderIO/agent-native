@@ -118,13 +118,12 @@ description: "框架内置了熟悉且一致的共享方式。用户创建的每
 
 每个可共享资源的标题中都有一个共享按钮。单击它会打开一个锚定到按钮（不是模式）的弹出窗口，其中包含：
 
-- 可见性选择器（`Private` / `Organization` / `Public link`）。
-- “添加人员或团队”自动完成 - 搜索组织中的用户或粘贴电子邮件。
-- 用于单独电子邮件授权的 `通知人员` 复选框。
-- 包含角色选择器和删除控件的当前授权列表。
-- 尊重当前可见性的复制链接按钮。
+- 一个邀请输入框，可添加人员、组织群组和组织的智能体，并带有角色选择器和“邀请”按钮。输入邮箱后还会显示 `Notify people` 复选框。
+- 拥有访问权限的人员：所有者、人员、群组和智能体显示在同一个列表中。角色为“可查看”“可评论”“可编辑”和“可管理访问权限”。“移除访问权限”是每行角色菜单的最后一项。
+- 常规访问权限：仅受邀人员 / 组织内的任何人 / 知道链接的任何人。“组织内的任何人”带有角色选择器（可查看、可评论、可编辑），“知道链接的任何人”也有（可查看、可评论）。
+- “复制链接”和“发送到”菜单：在 Claude、Claude Code 或 Codex 中打开、复制智能体提示词、复制智能体链接、MCP 服务器设置，以及应用添加的其他目标。
 
-将资源从 `Private` 改为 `Organization` 时会先请求确认。确认之前不会有任何更改。取消或按 Escape 会保留当前访问权限。如果保存失败，对话框会显示错误，用户可以重试。其他可见性更改会立即保存。确认只存在于共享 UI 中。`set-resource-visibility` 保持不变，因此代理和其他调用方仍然直接更改可见性，资源的共享策略仍然决定允许什么。
+可见性更改会立即保存。内容容易被忽略的资源类型可以先请求确认：聊天在注册时设置了 `confirmOrgVisibility: true`，因此将聊天从 `Private` 改为 `Organization` 时，确认之前不会有任何更改。取消或按 Escape 会保留当前访问权限。如果保存失败，对话框会显示错误，用户可以重试。确认只存在于共享 UI 中，因此代理和其他调用方仍然通过 `set-resource-visibility` 直接更改可见性，资源的共享策略仍然决定允许什么。
 
 共享按钮是一次导入：
 
@@ -136,6 +135,8 @@ import { ShareButton } from "@agent-native/toolkit/app/sharing";
   resourceTitle={deck.title}
 />;
 ```
+
+当组织有服务智能体（来自组织服务令牌的 `svc-<name>@service.<orgId>` 身份）时，它们会出现在邀请输入框中。它们以普通用户身份共享，并且不会收到邮件。通过 MCP 或 OAuth 连接的智能体以连接它的人的身份操作，因此没有单独的行。请通过“发送到”把资源交给它们。
 
 对于列表，请在每行旁边放置一个 `<VisibilityBadge visibility={row.visibility} />`，以便用户可以一目了然地了解哪些是私有的，哪些是共享的。
 
@@ -173,17 +174,19 @@ const shared = useChatThreadList({ ownership: "shared", pageSize: 50 });
 
 请求失败会设置 `error`，并保留已加载的行。它不会看起来像空列表。`<ShareButton>` 和 `<ShareDialog>` 会在保存后刷新已挂载的聊天列表。如果你以其他方式更改了聊天的共享，请调用 `notifyChatThreadsUpdated()`，以便已挂载的列表重新获取。
 
+置顶状态按用户分别保存：共享聊天的 `pinnedAt` 也代表调用者自己的置顶，一览和搜索按此值排序。`useChatThreads().pinThread(id, pinned)` 保持不变。两个钩子均提供共享聊天的 `hideThread(id, hidden)`。隐藏聊天默认不出现在列表或搜索中，设置 `includeHidden: true` 可返回它们；列表与单条读取包含调用者的 `hiddenAt`。仍可通过 ID 或链接打开。所有者不能隐藏自己的聊天，应使用归档；重命名和归档仍仅限所有者。隐藏被拒时抛出 `ChatThreadMutationError`（`status`：所有者为403，无权限为404），成功返回 `true`。HTTP：`POST /_agent-native/agent-chat/threads/:id/hide`，请求体为 `{ hidden: boolean }`；列表和搜索用 `includeHidden=1`。`chat-history` 支持 `pin`、`unpin`、`hide`、`unhide` 和带 `includeHidden: true` 的搜索。权限撤销后，保留的个人状态不会显示；删除聊天会删除该状态。
+
 ## 与UI相同型号、代理商 {#agent-and-ui}
 
 框架在每个模板中自动安装这些 actions - 代理将它们称为工具，UI 通过 `useActionQuery` / `useActionMutation` 调用它们：
 
-| 行动                         | 它的作用                                                                                |
-| ---------------------------- | --------------------------------------------------------------------------------------- |
-| `share-resource`             | 授予用户或组织特定角色的访问权限。可选的 `notify` 控制电子邮件通知。                    |
-| `unshare-resource`           | 撤销用户或组织的访问权限。                                                              |
-| `list-resource-shares`       | 显示当前可见性以及所有显式授权。                                                        |
-| `set-resource-visibility`    | 更改为 `private`、`org` 或 `public`。                                                   |
-| `create-agent-resource-link` | Mint a temporary read-only `agent_access` URL for a registered agent-readable resource. |
+| 行动                         | 它的作用                                                                                                                        |
+| ---------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `share-resource`             | 授予用户或组织特定角色的访问权限。可选的 `notify` 控制电子邮件通知。                                                            |
+| `unshare-resource`           | 撤销用户或组织的访问权限。                                                                                                      |
+| `list-resource-shares`       | 显示当前可见性以及所有显式授权。                                                                                                |
+| `set-resource-visibility`    | 更改为 `private`、`org` 或 `public`。可选的 `role` 设置组织（查看、评论、编辑）或知道链接的任何人（查看、评论）可以执行的操作。 |
+| `create-agent-resource-link` | Mint a temporary read-only `agent_access` URL for a registered agent-readable resource.                                         |
 
 告诉代理“与作为编辑的营销团队共享此设计”，它会针对 UI 使用的同一端点调用 `share-resource`。结果将显示在下一次渲染的共享对话框中。
 
@@ -191,7 +194,7 @@ const shared = useChatThreadList({ ownership: "shared", pageSize: 50 });
 
 Human share links should also work for agents when the resource is a document-like artifact: plans, documents, decks, designs, analytics dashboards, saved analyses, clips, and similar "things you would send to a person." Public links expose a small SSR discovery script that points at structured JSON. Private resources use a short-lived `agent_access` token scoped to exactly one resource.
 
-Register the resource with `agentReadable`, add a read-only JSON context endpoint, inject the SSR discovery script with `renderAgentReadableResourceDiscoveryScript()`, and let agents call `create-agent-resource-link` when they need a temporary private URL. The endpoint must return data only when the row is `public` or `verifyScopedAgentAccessToken()` accepts the token for that exact `resourceKind` and `resourceId`.
+Register the resource with `agentReadable`, add a read-only JSON context endpoint, inject the SSR discovery script with `renderAgentReadableResourceDiscoveryScript()`, and let agents call `create-agent-resource-link` when they need a temporary private URL. The endpoint must return data only when the row is `public` or `verifyScopedAgentAccessToken()` accepts the token for that exact `resourceKind` and `resourceId`. Declare `agentRead: { actions: ["get-<thing>"] }` (and `idParam` when the tool's id argument is not `id`) so the share panel's Send to menu offers Open in Claude, Claude Code, and Codex with a prompt that calls that MCP tool with the person's own permissions.
 
 ## 将其构建到新模板中 {#building}
 
@@ -361,3 +364,9 @@ For resources that execute code or carry elevated trust (like extensions), set `
 - [**身份验证**](/docs/authentication) — 会话、组织以及身份如何流入请求上下文
 - [**Extensions**](/docs/extensions#sharing) — 沙盒化迷你应用表面中的共享
 - [**创建模板**](/docs/creating-templates) — 将 `ownableColumns` 接入新模板的架构
+
+## 共享聊天记录
+
+`@agent-native/toolkit/app/chat/ownership-history` 提供 `useOwnershipChatHistory()` 和 `OwnershipChatHistoryRail`，用于分别显示自己的聊天和共享聊天的侧边栏。共享行会显示所有者和访问依据。每个分区独立分页，刷新失败时仍保留已加载的行和本地更改。
+
+活动的空草稿在等待首次保存期间仍可选择和运行。确认已保存之前，应隐藏置顶、重命名和归档操作，适配器也会拒绝强行调用这些回调。`ownDraftRows` 会提供自有草稿的持久化来源信息，服务器列表中已确认归属的行仍保留常规操作。对于自定义 `OwnDraftRow` 值，仅当确认服务器已保存该行且当前用户拥有该行时，才将可选字段 `persisted?: boolean` 设为 `true`。不要根据消息数量或活动 ID 推断是否已保存。角色、隐私以及活动草稿是否为空是彼此独立的信息。

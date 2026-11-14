@@ -7,6 +7,7 @@ import {
   AgentActionStopError,
   AgentConnectionRequiredError,
   defineAction,
+  noteExternalWrite,
   runActionWithExecutionOutcome,
   type ActionRunContext,
 } from "../action.js";
@@ -268,6 +269,7 @@ describe("runAgentLoop — output-contract failures", () => {
       await runOneCall(
         {
           "publish-draft": defaultedPublish(true, async () => {
+            noteExternalWrite("test");
             throw new Error("Publishing stopped halfway.");
           }),
         },
@@ -315,11 +317,27 @@ describe("runAgentLoop — output-contract failures", () => {
 
 describe("runAgentLoop — a thrown value that cannot be classified", () => {
   it.each([
-    { readOnly: true, outcome: { completedSideEffect: false }, markers: 0 },
-    { readOnly: false, outcome: { outcomeUnknown: true }, markers: 1 },
+    {
+      readOnly: true,
+      wrote: false,
+      outcome: { completedSideEffect: false },
+      markers: 0,
+    },
+    {
+      readOnly: false,
+      wrote: false,
+      outcome: { completedSideEffect: false },
+      markers: 1,
+    },
+    {
+      readOnly: false,
+      wrote: true,
+      outcome: { outcomeUnknown: true },
+      markers: 1,
+    },
   ])(
-    "finishes the call as an untyped failure (readOnly: $readOnly)",
-    async ({ readOnly, outcome, markers }) => {
+    "finishes the call as an untyped failure (readOnly: $readOnly, wrote: $wrote)",
+    async ({ readOnly, wrote, outcome, markers }) => {
       notify.mockClear();
       const thrown = Object.defineProperty(
         new Error("Handler failed"),
@@ -335,6 +353,7 @@ describe("runAgentLoop — a thrown value that cannot be classified", () => {
         schema: z.object({}),
         readOnly,
         run: async () => {
+          if (wrote) noteExternalWrite("test");
           throw thrown;
         },
       }) as unknown as ActionEntry;
@@ -806,7 +825,8 @@ describe("runAgentLoop — one prepared invocation", () => {
         return { ok: true };
       },
     }) as unknown as ActionEntry;
-    // Deriving the tool's JSON Schema read the default once.
+    // Deriving the tool's JSON Schema reads the default once.
+    void schedule.tool.parameters;
     stamp = 0;
     const first = await runOneCall({ schedule }, "schedule");
     const approval = first.find(
@@ -960,7 +980,8 @@ describe("runAgentLoop — one prepared invocation", () => {
         return `page ${args.page}`;
       },
     }) as unknown as ActionEntry;
-    // Deriving the tool's JSON Schema read the default once.
+    // Deriving the tool's JSON Schema reads the default once.
+    void read.tool.parameters;
     page = 0;
     await runSequentialCalls({ read }, ["read", "read"]);
     expect(ran).toEqual([1, 2]);
@@ -1032,7 +1053,8 @@ describe("runAgentLoop — one prepared invocation", () => {
         return { ok: true };
       },
     }) as unknown as ActionEntry;
-    // Deriving the tool's JSON Schema read the default once.
+    // Deriving the tool's JSON Schema reads the default once.
+    void publish.tool.parameters;
     parses = 0;
     await runOneCall({ "publish-draft": publish }, "publish-draft", {
       executionMode: "plan",
@@ -1069,6 +1091,8 @@ describe("runAgentLoop — one prepared invocation", () => {
         return { ok: true };
       },
     }) as unknown as ActionEntry;
+    // Deriving the tool's JSON Schema reads the default once.
+    void publish.tool.parameters;
     parses = 0;
     const planned = createPlanModeActionRegistry({ "publish-draft": publish });
     // No context: the registry still runs the call its gate admitted.
@@ -1366,14 +1390,14 @@ describe("runAgentLoop — continued turns follow recorded effects", () => {
     expect(first?.completedSideEffect).toBeUndefined();
     expect(notify).toHaveBeenCalledTimes(1);
     // Neither reused nor run again later in the turn.
-    expect(second?.result).toContain("could not recover its result");
+    expect(second?.result).toContain("could not confirm what it changed");
     expect(runs).toBe(1);
     const done = toolDone(
       await withJournal(prior, () =>
         runOneCall(actions, "read-draft", { internalContinuation: true }),
       ),
     );
-    expect(done?.result).toContain("could not recover its result");
+    expect(done?.result).toContain("could not confirm what it changed");
     expect(runs).toBe(1);
   });
 
@@ -1559,6 +1583,8 @@ describe("runAgentLoop — continued turns follow recorded effects", () => {
         return { ok: true };
       },
     }) as unknown as ActionEntry;
+    // Deriving the tool's JSON Schema reads the default once.
+    void publish.tool.parameters;
     parses = 0;
     const prior = await runOneCall({ publish }, "publish");
     const done = toolDone(
@@ -1581,6 +1607,8 @@ describe("runAgentLoop — continued turns follow recorded effects", () => {
         return { ok: true };
       },
     }) as unknown as ActionEntry;
+    // Deriving the tool's JSON Schema reads the default once.
+    void stampDraft.tool.parameters;
     stamp = 0;
     const prior = await runOneCall({ stampDraft }, "stampDraft");
     expect(toolDone(prior)).toMatchObject({ completedSideEffect: true });
@@ -1646,6 +1674,7 @@ describe("runAgentLoop — continued turns follow recorded effects", () => {
       schema: z.object({}),
       run: async () => {
         saves += 1;
+        noteExternalWrite("test");
         throw new Error("Save lost its connection.");
       },
     });
@@ -1663,7 +1692,9 @@ describe("runAgentLoop — continued turns follow recorded effects", () => {
     ).filter((event) => event.type === "tool_done");
     expect(saves).toBe(1);
     expect(dones[0]).toMatchObject({ outcomeUnknown: true });
-    expect(dones[1]?.result).toContain("could not recover its result");
+    expect(dones[1]?.result).toContain(
+      "without confirming whether it saved changes",
+    );
   });
 
   it("runs a read whose action left an unknown write for other arguments", async () => {
@@ -1732,6 +1763,7 @@ describe("runAgentLoop — continued turns follow recorded effects", () => {
     const first = await runOneCall(
       {
         "publish-draft": defaultedPublish(true, async () => {
+          noteExternalWrite("test");
           throw new Error("Lost connection after entering the write.");
         }),
       },
@@ -1761,12 +1793,13 @@ describe("runAgentLoop — continued turns follow recorded effects", () => {
     expect(reads).toBe(1);
   });
 
-  it("holds back every write of an action whose read left an unknown outcome, and no read of other arguments", async () => {
+  it("declines every write of an action whose read left an unknown outcome, and no read of other arguments", async () => {
     const runs = { check: 0, preview: 0, apply: 0 };
     const save = defineAction({
       description: "Save the draft.",
       schema: z.object({}),
       run: async () => {
+        noteExternalWrite("test");
         throw new Error("Save lost its connection.");
       },
     });
@@ -1791,7 +1824,9 @@ describe("runAgentLoop — continued turns follow recorded effects", () => {
     ).filter((event) => event.type === "tool_done");
     expect(dones[0]).toMatchObject({ outcomeUnknown: true });
     expect(runs).toEqual({ check: 1, preview: 1, apply: 0 });
-    expect(dones[2]?.result).toContain("could not recover its result");
+    expect(dones[2]?.result).toContain(
+      "Not run: an earlier publish-draft call in this turn may have already applied",
+    );
   });
 
   describe("a read that timed out having changed nothing, its stored input no longer valid", () => {

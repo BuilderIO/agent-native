@@ -341,7 +341,7 @@ describe("structured plan content", () => {
       "wireframe",
     ]);
     expect(content.canvas?.frames).toHaveLength(1);
-    expect(content.canvas?.frames[0]?.wireframe?.screen.length ?? 0).toBe(1);
+    expect(content.canvas?.frames[0]?.wireframe?.screen?.length ?? 0).toBe(1);
   });
 
   it("turns questions sections into reusable question-form blocks", () => {
@@ -947,7 +947,7 @@ describe("granular patch ops", () => {
     const wf = patched.blocks.find((block) => block.id === "wf");
     expect(wf?.type).toBe("wireframe");
     if (wf?.type !== "wireframe") return;
-    const row = wf.data.screen.find((node) => node.id === "row-1");
+    const row = wf.data.screen?.find((node) => node.id === "row-1");
     expect(row?.children?.[0]?.text).toBe("Create");
     expect(row?.children?.[0]?.tone).toBe("accent");
 
@@ -961,7 +961,7 @@ describe("granular patch ops", () => {
     const replacedWf = replaced.blocks.find((block) => block.id === "wf");
     if (replacedWf?.type !== "wireframe") return;
     expect(replacedWf.data.screen).toHaveLength(1);
-    expect(replacedWf.data.screen[0]?.id).toBeTruthy();
+    expect(replacedWf.data.screen?.[0]?.id).toBeTruthy();
   });
 
   it("preserves linked canvas wireframes inline when replace-block changes a wireframe to prose", () => {
@@ -1541,7 +1541,7 @@ describe("parsePlanContent per-block salvage", () => {
     ]);
 
     const roundTripped = parsePlanContent(serializePlanContent(result!));
-    expect(roundTripped?.blocks).toMatchObject(result?.blocks);
+    expect(roundTripped?.blocks).toMatchObject(result?.blocks ?? []);
   });
 
   it("does not accept an explicitly invalid legacy field as an omission", () => {

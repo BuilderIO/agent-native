@@ -1,4 +1,13 @@
 export default {
+  composerSources: {
+    uploadFailed: "Die ausgewählte Datei konnte nicht hochgeladen werden.",
+    reference: "Dashboard referenzieren…",
+    group: "Dashboards",
+    authentication: "Melde dich an, um eine Referenz hinzuzufügen.",
+    invalid: "Wähle vor dem Senden eine gültige Referenz.",
+    unavailable:
+      "Eine ausgewählte Referenz ist nicht mehr verfügbar. Entferne sie oder wähle sie erneut.",
+  },
   root: {
     whatsNew: "Neuigkeiten",
   },
@@ -1398,6 +1407,8 @@ export default {
     resetFilters: "Filter zurücksetzen",
     collapseFilters: "Filter ausblenden",
     expandFilters: "Filter erweitern",
+    collapseDescription: "Beschreibung einklappen",
+    expandDescription: "Beschreibung erweitern",
     drilldownChartPoints: "Diagrammpunkte",
     drilldownPreviousPage: "Vorherige Seite der Diagrammpunkte",
     drilldownNextPage: "Nächste Seite der Diagrammpunkte",
@@ -1407,6 +1418,10 @@ export default {
     drilldownHideSql: "SQL ausblenden",
     drilldownDownloadCsv: "CSV herunterladen",
     drilldownShowing: "{{shown}} von {{total}} Datensätzen werden angezeigt",
+    drilldownShowingLoaded:
+      "{{shown}} von {{loaded}} geladenen Datensätzen; Gesamtzahl unbekannt.",
+    drilldownCsvTruncatedUnknownTotal:
+      "Die Vollständigkeit des Exports ist unbekannt; diese Datei enthält nach dem Filtern {{exported}} von {{loaded}} geladenen Datensätzen.",
     drilldownCsvTruncated:
       "Unvollständiger Export: Die Abfrage ergab {{total}} Datensätze, aber nur die ersten {{loaded}} wurden geladen; diese Datei enthält nach dem Filtern {{exported}}.",
     drilldownCountMismatch:
@@ -1414,13 +1429,24 @@ export default {
     drilldownAggregateOnly:
       "Dieses Panel enthält nur aggregierte Zeilen. Zeilen zum angeklickten Punkt sind hervorgehoben.",
     drilldownNoRecords: "Keine passenden Datensätze",
+    drilldownNoRecordsIncomplete:
+      "Keine Datensätze geladen. Das Ergebnis ist unvollständig, daher können trotzdem Datensätze passen.",
+    drilldownNoLoadedMatches:
+      "Keine geladenen Datensätze passen, aber das vollständige Ergebnis kann nicht geladene Datensätze enthalten.",
     drilldownLoadFailed: "Datensätze konnten nicht geladen werden",
+    drilldownOverByteCap:
+      "Diese Datensätze würden mehr als {{gib}} GiB lesen und wurden deshalb nicht geladen. Grenze die Filter oder den Zeitraum des Dashboards ein und versuche es erneut.",
     filterSeries: "Filter",
+    noXValue: "Kein Wert",
     chartTimeRangeOverride: "Zeitraum für dieses Diagramm überschreiben",
     chartTimeRangeInherit: "Dashboard-Zeitraum",
     hide: "Hide",
     show: "Show",
     saveAsView: "Als Ansicht speichern",
+    unknownTraffic: "Unbekannt {{count}}",
+    unknownTrafficUnavailable: "Anzahl Unbekannt nicht verfügbar",
+    unknownTrafficTip:
+      "Ereignisse der letzten {{days}} Tage ohne Host und ohne bekannte Umgebung. Sie zählen als Produktion.",
     viewNameRecentPlaceholder: "View name (e.g. 'Recent articles only')",
     to: "to",
     on: "On",
@@ -1487,12 +1513,26 @@ export default {
     columnFormatCurrency: "Währung",
     columnFormatPercent: "Prozent",
     columnFormatDate: "Datum",
+    columnFormatDuration: "Dauer (Sekunden)",
     columnRename: "Spalte umbenennen",
     columnHide: "Spalte ausblenden",
     columnShow: 'Einblenden: "{{name}}"',
     columnShowHidden: "Ausgeblendete Spalten einblenden",
     columnName: "Spaltenname",
     columnResize: "Spaltenbreite ändern",
+    metricComparisonVs: "ggü. {{period}}",
+    metricComparisonPreviousPeriod: "Vorperiode",
+    metricComparisonNoChange: "Keine Änderung",
+    metricComparisonPoints: "{{value}} Pp.",
+    metricComparisonUp: "Plus {{change}} gegenüber {{previous}} ({{period}})",
+    metricComparisonDown:
+      "Minus {{change}} gegenüber {{previous}} ({{period}})",
+    metricComparisonFlat: "Keine Änderung gegenüber {{previous}} ({{period}})",
+    metricComparisonBetter: "{{comparison}}, besser",
+    metricComparisonWorse: "{{comparison}}, schlechter",
+    calloutSeverityCritical: "Kritisch",
+    calloutSeverityWarning: "Warnung",
+    calloutSeverityInfo: "Hinweis",
     rowBreakdownBy: "Aufschlüsseln nach",
     rowBreakdownAll: "Alle",
     rowBreakdownOther: "Andere",
@@ -1700,6 +1740,10 @@ export default {
     hideEmptySessions: "Leere Sitzungen ausblenden",
     networkErrors: "Netzwerkfehler",
     rageClicksFilter: "Wutklicks",
+    traffic: "Datenverkehr",
+    allTraffic: "Gesamter Datenverkehr",
+    productionTraffic: "Produktion",
+    betaTraffic: "Beta",
     visitors: "Besucher",
     allVisitors: "Alle Besucher",
     internalVisitors: "Intern",
@@ -1761,6 +1805,10 @@ export default {
     catalogOpenSessions: "Sitzungen mit {{event}} anzeigen",
     catalogAutomatic: "Automatisch",
     catalogStoppedFiring: "Nicht mehr gesendet",
+    catalogMadeIt: "Erstellt",
+    catalogUsedIt: "Genutzt",
+    catalogNoUsedIt:
+      "„Erstellt, nicht genutzt“ kann Ergebnisse aus {{apps}} nicht prüfen, weil kein „Genutzt“-Ereignis festgelegt ist.",
     catalogPropertyKeys: "Eigenschaftsschlüssel",
     catalogMoreKeys: "+{{count}} weitere",
     catalogTruncated:
@@ -1776,6 +1824,30 @@ export default {
       "Geschwindigkeit wird ab jetzt für Seitenaufrufe gemessen.",
     speedFilterNeedsLab:
       "Dieser Link enthält einen Geschwindigkeitsfilter. Aktivieren Sie das Lab „Sitzungen prüfen“ in den Einstellungen, um ihn anzuwenden.",
+    unusedOutputs: "Erstellt, nicht genutzt",
+    anyOutcome: "Jede Sitzung",
+    unusedSlidesDecks: "Ungenutzte Slides-Decks",
+    unusedSlidesRule:
+      "Decks, die vor mindestens {{days}} Tagen erstellt und innerhalb von {{days}} Tagen weder über die erste Folie hinaus mindestens {{seconds}} s präsentiert noch exportiert wurden. Ein Deck nur zu öffnen zählt nicht.",
+    unusedFilterNeedsLab:
+      "Dieser Link enthält einen Filter „Erstellt, nicht genutzt“. Aktivieren Sie das Lab „Sitzungen prüfen“ in den Einstellungen, um ihn anzuwenden.",
+    outputCoverageSince:
+      "Ergebnisse werden seit {{date}} erfasst; ungenutzte erscheinen {{days}} Tage nach ihrer Erstellung.",
+    outputCoverageStarting:
+      "Ergebnisse werden ab jetzt erfasst; ungenutzte erscheinen {{days}} Tage nach ihrer Erstellung.",
+    openDeck: "Deck öffnen",
+    moreOutputs: "+{{count}} weitere",
+    deckCount: "{{count}} Decks",
+    deckCountSingular: "{{count}} Deck",
+    deckMadeOn: "Deck erstellt am {{date}}",
+    outputPresentedOn: "Präsentiert am {{date}}",
+    outputExportedOn: "Exportiert am {{date}}",
+    outputUsedOn: "Genutzt am {{date}}",
+    outputUnused: "Innerhalb von {{days}} Tagen nicht genutzt",
+    outputOpen: "Noch nicht genutzt; gilt nach dem {{date}} als ungenutzt",
+    outputUnmeasured:
+      "Nicht gemessen: Einige Ereignisse konnten nicht gespeichert werden",
+    outputsUnavailable: "Ergebnisse konnten nicht geladen werden.",
     slowRequestCount: "{{count}} langsame Anfragen",
     slowRequestCountSingular: "{{count}} langsame Anfrage",
     speedIncomplete: "Geschwindigkeitsdaten unvollständig",

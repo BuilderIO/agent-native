@@ -1,7 +1,7 @@
 import type { LabStates } from "@agent-native/core/client/labs/use-lab";
 import type { CoreSettingsPageId } from "@agent-native/core/navigation/settings-redirects";
 import type { OrgRole } from "@agent-native/core/org/types";
-import type { ComponentType } from "react";
+import type { ComponentType, ReactNode } from "react";
 
 import type { SettingsBridge } from "./bridge.js";
 import type { SettingsPageIcon } from "./types.js";
@@ -83,6 +83,8 @@ export interface SettingsPageDefinition {
   icon: SettingsPageIcon;
   visible?: (context: SettingsPageContext, bridge: SettingsBridge) => boolean;
   component: ComponentType<SettingsPageProps>;
+  /** Optional app-owned content rendered after the page on app settings pages. */
+  widgetSlot?: ReactNode;
   subpages?: readonly SettingsSubpageDefinition[];
   searchEntries?: readonly SettingsPageSearchEntry[];
   /** Rendered at the right of the sticky header. */
@@ -99,6 +101,14 @@ export interface SettingsPageDefinition {
   keywords?: string;
 }
 
+/** An app-owned page shown in the app group without entering the shared registry. */
+export type AppSettingsPageDefinition = Omit<
+  SettingsPageDefinition,
+  "group"
+> & {
+  group?: "app";
+};
+
 const PAGE_ID_PATTERN = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 
 export function defineSettingsPage(
@@ -113,6 +123,28 @@ export function defineSettingsPage(
     throw new Error(`Settings page ${definition.id} needs a labelKey or label`);
   }
   return Object.freeze({ ...definition });
+}
+
+/** Adds instance-owned pages after shared and registered pages. */
+export function mergeAppSettingsPages(
+  pages: readonly SettingsPageDefinition[],
+  appPages: readonly AppSettingsPageDefinition[] = [],
+): SettingsPageDefinition[] {
+  const existingIds = new Set(pages.map((page) => page.id));
+  const appIds = new Set<string>();
+  const additions = appPages.map((page) => {
+    if (existingIds.has(page.id)) {
+      throw new Error(
+        `App settings page id "${page.id}" conflicts with an existing page id.`,
+      );
+    }
+    if (appIds.has(page.id)) {
+      throw new Error(`Duplicate app settings page id "${page.id}".`);
+    }
+    appIds.add(page.id);
+    return defineSettingsPage({ ...page, group: "app" });
+  });
+  return [...pages, ...additions];
 }
 
 const registry = new Map<string, SettingsPageDefinition>();

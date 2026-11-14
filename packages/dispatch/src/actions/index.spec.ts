@@ -15,8 +15,17 @@ describe("dispatch action registry", () => {
     expect(dispatchActions).toHaveProperty("ask_app");
     expect(dispatchActions).toHaveProperty("ask_app_status");
     expect(dispatchActions).toHaveProperty("claim-workspace-app-organization");
+    expect(dispatchActions).toHaveProperty("verify-curated-community-app");
+    expect(dispatchActions["verify-curated-community-app"].readOnly).toBe(true);
+    expect(dispatchActions).toHaveProperty("inspect-community-builder-backup");
+    expect(dispatchActions["inspect-community-builder-backup"].readOnly).toBe(
+      true,
+    );
     expect(dispatchActions).toHaveProperty("open_app");
     expect(dispatchActions).toHaveProperty("create_embed_session");
+    expect(dispatchActions.create_embed_session.mcpApp?.visibility).toEqual([
+      "app",
+    ]);
     expect(dispatchActions).toHaveProperty(
       "create-workspace-app-embed-session",
     );
@@ -27,7 +36,7 @@ describe("dispatch action registry", () => {
       "get-workspace-resource-effective-context",
     );
     expect(dispatchActions).toHaveProperty("grant-workspace-resources-to-app");
-    expect(dispatchActions).toHaveProperty("sync-vault-to-app");
+    // oracle-change: sync-vault-to-app is removed; vault keys are no longer pushed to apps.
 
     expect(dispatchActions).not.toHaveProperty(
       "sync-workspace-resources-to-app",
@@ -93,9 +102,13 @@ describe("dispatch action registry", () => {
     expect(action.tool.description).toContain(
       "workspaceAppCreationsByUserMonth",
     );
-    expect(action.tool.description).toContain("app adoption metrics");
-    expect(action.tool.description).toContain(
-      "do not include customer/account/company usage or product data",
+    const firstSentence = action.tool.description.split(". ")[0];
+    expect(firstSentence).toContain("members of this organization");
+    expect(firstSentence).toContain("does NOT cover");
+    expect(firstSentence).toContain("external customers");
+    expect(firstSentence).toContain("describe-workspace-apps");
+    expect(JSON.stringify(action.tool.parameters)).toContain(
+      "Not for customers or other external accounts",
     );
   });
 });

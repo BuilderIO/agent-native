@@ -36,6 +36,8 @@ import {
 } from "drizzle-orm";
 
 import {
+  COMPANY_CONTEXT_INTAKE_KEY,
+  COMPANY_CONTEXT_SOURCE_ID_PREFIX,
   DEFAULT_BRAIN_SETTINGS,
   type BrainCaptureKind,
   type BrainEvidence,
@@ -66,6 +68,32 @@ import {
 } from "./search-index-contracts.js";
 
 export const BRAIN_SETTINGS_KEY = "brain-settings";
+
+export function isCompanyContextIntakeConfig(configJson: string | null) {
+  return (
+    parseJson<Record<string, unknown>>(configJson, {})[
+      COMPANY_CONTEXT_INTAKE_KEY
+    ] === true
+  );
+}
+
+// One deterministic id per org so concurrent first uploads collide on the
+// primary key instead of creating duplicate intake sources.
+export function companyContextSourceId(orgId: string) {
+  return `${COMPANY_CONTEXT_SOURCE_ID_PREFIX}${orgId}`;
+}
+
+export function isCompanyContextIntakeSource(source: {
+  id: string;
+  orgId: string | null;
+  configJson: string | null;
+}) {
+  return (
+    !!source.orgId &&
+    source.id === companyContextSourceId(source.orgId) &&
+    isCompanyContextIntakeConfig(source.configJson)
+  );
+}
 
 export function nowIso(): string {
   return new Date().toISOString();
@@ -2102,12 +2130,12 @@ export async function writeKnowledgeRecord(input: WriteKnowledgeInput) {
 }
 
 export async function searchKnowledgeRows(args: {
-  query?: string;
-  topic?: string;
-  tag?: string;
-  status?: BrainKnowledgeStatus | "all";
-  includeDrafts?: boolean;
-  limit?: number;
+  query?: string | undefined;
+  topic?: string | undefined;
+  tag?: string | undefined;
+  status?: BrainKnowledgeStatus | "all" | undefined;
+  includeDrafts?: boolean | undefined;
+  limit?: number | undefined;
 }) {
   const db = getDb();
   const audienceIds = await listAccessibleAudienceIds();

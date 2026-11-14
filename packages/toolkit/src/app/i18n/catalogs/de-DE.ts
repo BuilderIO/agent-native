@@ -1,6 +1,22 @@
 import type { ToolkitAgentChatTranslation } from "../types.js";
 
 const messages: ToolkitAgentChatTranslation = {
+  "settingsApiKeys.approvedOrigins": "Genehmigte Ursprünge",
+  "settingsApiKeys.originsHint":
+    "Ein exakter HTTPS-Ursprung pro Zeile. Leer sperrt die Weitergabe. Lokales HTTP ist erlaubt.",
+  "settingsApiKeys.invalidOrigins":
+    "Exakte HTTPS-Ursprünge eingeben, einen pro Zeile.",
+  "settingsApiKeys.editOrigins": "Ursprünge bearbeiten",
+  "settingsApiKeys.originsSaved": "Ursprünge gespeichert",
+  "settingsApiKeys.originsCount_one": "{{count}} genehmigter Ursprung",
+  "settingsApiKeys.originsCount_other": "{{count}} genehmigte Ursprünge",
+  "settingsApiKeys.noApprovedOrigins": "Keine genehmigten Ursprünge",
+  "extensions.cancel": "Abbrechen",
+  "extensions.context": "Kontext",
+  "extensions.confirmAgentMessage":
+    "Nachricht der Erweiterung an den Agenten senden?",
+  "extensions.sendToAgent": "An Agenten senden",
+  "auth.logOutFailed": "Abmelden fehlgeschlagen",
   "block.renderUnavailable": "Dieser Block ist vorübergehend nicht verfügbar.",
   "block.loading": "Block wird geladen.",
   "composer.contextUrlLabel": "URL-Adresse",
@@ -32,10 +48,13 @@ const messages: ToolkitAgentChatTranslation = {
   "activity.groupLabel": "Agentenaktivität",
   "activity.agents": "Zusammenarbeit der Agenten",
   "activity.tasks": "Agentenaufgaben",
+  "activity.tasksProgress": "{{completed}} von {{total}} erledigt",
   "agent.started": "hat die Arbeit begonnen",
   "agent.resumed": "hat die Arbeit wieder aufgenommen",
   "agent.messaged": "hat eine Nachricht gesendet",
   "agent.delegated": "hat Arbeit delegiert",
+  "agent.working": "arbeitet",
+  "agent.workedFor": "hat {{duration}} gearbeitet",
   "agent.paused": "hat die Arbeit pausiert",
   "agent.queued": "wartet",
   "agent.completed": "hat die Arbeit abgeschlossen",
@@ -81,7 +100,6 @@ const messages: ToolkitAgentChatTranslation = {
   "auth.requiredDescription":
     "Du musst dich anmelden, um den Agenten zu verwenden.",
   "auth.requiredTitle": "Anmeldung erforderlich",
-  "commands.act": "Zurück zum Ausführungsmodus wechseln",
   "commands.available": "Verfügbare Befehle",
   "commands.clear": "Neuen Chat starten (aktuellen Chat im Verlauf behalten)",
   "commands.closeHelp": "Hilfe schließen",
@@ -89,7 +107,6 @@ const messages: ToolkitAgentChatTranslation = {
   "commands.history": "Alle Chats durchsuchen",
   "commands.mention": "Dateien, Agenten oder Ressourcen erwähnen",
   "commands.new": "Entspricht /clear",
-  "commands.plan": "Zum schreibgeschützten Planungsmodus wechseln",
   "observability.promoteMustContain": "Antwort muss enthalten …",
   "observability.promoteMustContainOptional":
     "Optionaler Text, nach dem in der Antwort gesucht wird…",
@@ -134,10 +151,15 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.roleMarketing": "Marketing",
   "onboarding.roleSales": "Vertrieb",
   "onboarding.roleOps": "Operations",
+  "onboarding.roleCreator": "Content Creator",
+  "onboarding.roleStudent": "Studierende",
+  "onboarding.roleEducator": "Lehrkraft",
   "onboarding.roleIndividual": "Einzelperson",
   "onboarding.roleOther": "Andere",
   "onboarding.roleOtherInputLabel": "Beschreibe deine Rolle",
   "onboarding.skipForNow": "Vorerst überspringen",
+  "onboarding.builderProvisionFailedDetail":
+    "Dein Builder.io-Konto konnte nicht erstellt werden. Versuche es erneut oder melde dich mit einem bestehenden Konto an.",
   "onboarding.saveRoleError": "Deine Rolle konnte nicht gespeichert werden.",
   "onboarding.builderCreateAccount": "Builder.io verwenden",
   "onboarding.builderSignInWithAccount": "Mit einem Builder.io-Konto anmelden",
@@ -148,7 +170,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderCredits": "In Builder.io-Gratiscredits enthalten",
   "onboarding.builderIncludedFreeWithAccount":
     "Kostenlos mit einem Builder.io-Konto enthalten",
-  "onboarding.builderMonthlyCredits": "60 Agent Credits pro Monat",
+  "onboarding.builderMonthlyCredits":
+    "15 Gratiscredits pro Tag, bis zu 60 im Monat",
   "onboarding.builderIncludedFree": "Kostenlos enthalten",
   "onboarding.builderMoreServices": "+ {{count}} weitere Dienste",
   "onboarding.builderLlmCredits": "LLM-Guthaben",
@@ -183,9 +206,9 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderConsentAnd": "und",
   "onboarding.builderExistingAccount": "Ich habe ein Builder.io-Konto",
   "onboarding.creditsTitle":
-    "Probiere es mit 60 kostenlosen Agent Credits im Monat",
+    "Probiere es mit 15 Gratiscredits pro Tag, bis zu 60 im Monat",
   "onboarding.creditsTitleClips":
-    "Probiere es mit kostenlosem Videospeicher und 60 Agent Credits im Monat",
+    "Probiere es mit kostenlosem Videospeicher und 15 Credits pro Tag, bis zu 60 im Monat",
   "onboarding.creditsActivate": "Kostenlose Credits aktivieren",
   "onboarding.creditsFinePrint":
     "Dies erstellt ein kostenloses Builder.io-Konto. Mit dem Fortfahren akzeptierst du unsere",
@@ -200,6 +223,7 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.creditsSkipGoBack": "Zurück",
   "onboarding.creditsSkipAnyway": "Trotzdem überspringen",
   "onboarding.creditsUseCustomKeys": "Eigene Schlüssel verwenden",
+  "onboarding.creditsUseOwnApiKeys": "Meine eigenen API-Schlüssel verwenden",
   "onboarding.creditsAboutLabel": "Über kostenlose Credits",
   "onboarding.creditsActivating": "Gratis-Credits werden aktiviert",
   "onboarding.creditsActivatingTooltip":
@@ -440,7 +464,11 @@ const messages: ToolkitAgentChatTranslation = {
     "Die abgelegte Datei konnte nicht hinzugefügt werden. Versuche ein anderes Format.",
   "composer.openDesktop": "Öffne Desktop, um diesen Chat zu verwenden.",
   "composer.removeAttachment": "{{name}} entfernen",
+  "composer.attachmentReadFailed": "Datei konnte nicht gelesen werden",
+  "composer.attachmentTooLarge": "Datei ist größer als 8 MB",
+  "composer.attachmentNotUtf8": "Datei ist kein UTF-8-Text",
   "composer.scrollToBottom": "Nach unten scrollen",
+  "composer.skipToMessageBox": "Zum Nachrichtenfeld springen",
   "composer.suggestedPrompts": "Vorgeschlagene Prompts",
   "composer.stopResponse": "Antwort stoppen",
   "composer.subAgentReadOnly":
@@ -480,6 +508,15 @@ const messages: ToolkitAgentChatTranslation = {
   "history.ownedBy": "Eigentümer: {{name}}",
   "history.accessDirect": "Mit dir geteilt",
   "history.accessOrganization": "Mit deiner Organisation geteilt",
+  "history.copyLink": "Link kopieren",
+  "history.linkCopied": "Link kopiert",
+  "history.copyLinkFailed": "Link konnte nicht kopiert werden",
+  "history.onlyYou": "Nur du",
+  "history.hide": "Aus meiner Liste ausblenden",
+  "history.hidden": "Aus deiner Liste ausgeblendet",
+  "history.undo": "Rückgängig",
+  "history.hideFailed": "Chat konnte nicht ausgeblendet werden",
+  "history.unhideFailed": "Chat konnte nicht wiederhergestellt werden",
   "integrations.availableSection": "Verfügbare Integrationen",
   "integrations.connectedSection": "Verbunden",
   "integrations.goToApiKeys": "Zu den API-Schlüsseln",
@@ -883,7 +920,6 @@ const messages: ToolkitAgentChatTranslation = {
   "message.sentAt": "Gesendet {{time}}",
   "plan.act": "Ausführen",
   "plan.implement": "Umsetzen",
-  "plan.mode": "Planungsmodus",
   "plan.ready": "Plan bereit",
   "plan.switchToAct": "Zum Ausführungsmodus wechseln",
   "queue.count": "{{count}} in der Warteschlange",
@@ -894,7 +930,7 @@ const messages: ToolkitAgentChatTranslation = {
   "queue.remove": "Aus Warteschlange entfernen",
   "queue.sendNow": "Jetzt senden",
   "queue.sendNowHint":
-    "Stoppt die aktuelle Antwort und sendet dann diese Nachricht",
+    "Sendet diese Nachricht beim nächsten Schritt des Agenten",
   "queue.sendNext": "Als Nächstes senden",
   "queue.sendNextHint": "Nach Abschluss der aktuellen Antwort senden",
   "queue.moreActions": "Weitere Aktionen",
@@ -999,6 +1035,7 @@ const messages: ToolkitAgentChatTranslation = {
     "Builder.io enthält kostenlose Credits. Alternativ kannst du deinen eigenen API-Schlüssel verwenden.",
   "setup.builderOrOwnKeys":
     "Verwende Builder.io (kostenlose Credits) oder füge eigene Anbieterschlüssel hinzu.",
+  "setup.reconnectBuilder": "Builder.io erneut verbinden",
   "setup.connectAi": "KI verbinden",
   "setup.connectBuilder": "Builder.io verwenden",
   "setup.connectionsDescription":
@@ -1119,8 +1156,6 @@ const messages: ToolkitAgentChatTranslation = {
   "widget.sampled": "Stichprobe",
   "commands.clearShort": "Neuen Chat starten",
   "commands.newShort": "Neuen Chat starten",
-  "composer.actDescription":
-    "Tools verwenden und genehmigte Änderungen vornehmen",
   "composer.activeAppContext": "Aktiver App-Kontext",
   "composer.actMode": "Ausführungsmodus",
   "composer.add": "Hinzufügen...",
@@ -1203,7 +1238,12 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.menu.scheduleTask": "Aufgabe planen",
   "composer.menu.scheduleTaskDescription":
     "Etwas nach einem Zeitplan ausführen",
-  "composer.menu.uploadFile": "Datei hochladen",
+  "composer.menu.uploadFile": "Dateien und Bilder",
+  "composer.menu.searchWorkspace": "Arbeitsbereich durchsuchen…",
+  "composer.menu.references": "Referenzen",
+  "composer.menu.referenceFile": "Datei referenzieren",
+  "composer.menu.attachToMessage": "Kontext hinzufügen",
+  "composer.menu.commands": "Befehle",
   "composer.menu.uploadFileDescription": "Bilder, PDFs, Text/Code, JSON, CSV",
   "composer.messageAgent": "Nachricht an den Agenten...",
   "composer.model": "Modell",
@@ -1214,10 +1254,6 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.pastedTextError":
     "Der eingefügte Text konnte nicht angehängt werden.",
   "composer.plan": "Plan",
-  "composer.planDescription":
-    "Zuerst schreibgeschützte Recherche und Genehmigung",
-  "composer.planDesktopRequired":
-    "Öffne Agent-Native Desktop, um den Planmodus zu verwenden.",
   "composer.previewAttachment": "Vorschau {{name}}",
   "composer.reasoning": "Denkaufwand",
   "composer.reasoningEffort.auto": "Auto",
@@ -1228,9 +1264,6 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.reasoningEffort.minimal": "Minimal",
   "composer.reasoningEffort.none": "Kein",
   "composer.reasoningEffort.xhigh": "Extra hoch",
-  "composer.reasoningExtraHighShort": "XHoch",
-  "composer.reasoningMediumShort": "Mittel",
-  "composer.reasoningMinimalShort": "Min",
   "composer.removeContext": "Kontext {{name}} entfernen",
   "composer.removeReference": "Referenz {{name}} entfernen",
   "composer.route": "Route",
@@ -1238,6 +1271,11 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.scheduleTaskPrefix": "Wiederkehrenden Auftrag erstellen: ",
   "composer.selectedReferences": "Ausgewählte Referenzen",
   "composer.sendMessage": "Nachricht senden",
+  "composer.select": "Auswählen",
+  "composer.selectContextFull":
+    "Der Kontext ist voll. Entferne ein Element, bevor du ein weiteres auswählst.",
+  "composer.selectContextTooLarge":
+    "Dieses Objekt ist zu groß, um es als Kontext hinzuzufügen.",
   "composer.skill.added": "Skill „{{name}}“ hinzugefügt",
   "composer.skill.back": "Zurück",
   "composer.skill.content": "Inhalt",
@@ -1255,6 +1293,10 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.upload": "Hochladen",
   "composer.uploadFailed":
     "Die ausgewählte Datei konnte nicht hochgeladen werden.",
+  "composer.imageTooLargeToAttach":
+    '"{{name}}" ist {{size}} MB groß - Bilder über {{limit}} MB können nicht angehängt werden. Bitte verwende ein kleineres Bild.',
+  "composer.imageTooManyPixelsToAttach":
+    '"{{name}}" hat {{megapixels}} Megapixel - Bilder über {{limit}} Megapixel können nicht angehängt werden. Bitte verwende ein kleineres Bild.',
   "composer.fileTooLarge":
     "Diese Datei ist größer als das Upload-Limit von {{size}} MB.",
   "composer.sessionExpired":
@@ -1291,14 +1333,10 @@ const messages: ToolkitAgentChatTranslation = {
   "pastedText.preview": "Vorschau des eingefügten Texts",
   "pastedText.remove": "Eingefügten Text entfernen",
   "pastedText.title": "Eingefügter Text",
-  "voice.dictation.cancel": "Abbrechen (Esc)",
-  "voice.dictation.cancelRecording": "Aufnahme abbrechen",
   "voice.dictation.start": "Diktieren ({{shortcut}})",
+  "voice.dictation.startPlain": "Diktieren",
   "voice.dictation.stopRecording": "Aufnahme beenden",
   "voice.dictation.transcribing": "Wird transkribiert…",
-  "voiceMode.connectBuilder": "Builder.io verwenden",
-  "voiceMode.end": "Sprachmodus beenden",
-  "voiceMode.entryButtonLabel": "Mikrofon verwenden",
   "voiceMode.errors.channelDisconnected":
     "Der Echtzeit-Sprachsteuerungskanal ist nicht verbunden.",
   "voiceMode.errors.connectionFailed":
@@ -1313,12 +1351,6 @@ const messages: ToolkitAgentChatTranslation = {
     "Bei der Echtzeit-Sprachsitzung ist ein Fehler aufgetreten.",
   "voiceMode.errors.unsupported":
     "Dieser Browser unterstützt keine Echtzeit-Sprachgespräche.",
-  "voiceMode.hideChat": "Chat ausblenden",
-  "voiceMode.keepDictating": "Nachricht diktieren",
-  "voiceMode.promptDescription":
-    "Der Sprachmodus hört weiter zu, während der Agent navigiert und Aktionen ausführt.",
-  "voiceMode.promptTitle": "Benutze deine Stimme",
-  "voiceMode.rememberPreference": "Meine Auswahl merken",
   "voiceMode.settings.autoLanguage": "Auto",
   "voiceMode.settings.defaultMicrophone": "Systemstandard",
   "voiceMode.settings.intelligence": "Intelligenz",
@@ -1352,8 +1384,6 @@ const messages: ToolkitAgentChatTranslation = {
   "voiceMode.settings.voiceDescriptions.shimmer": "Leicht und fröhlich",
   "voiceMode.settings.voiceDescriptions.verse": "Ausdrucksstark und vielseitig",
   "voiceMode.settings.voiceStyle": "Stimmstil",
-  "voiceMode.setupDescription":
-    "Nutze Builder.io für verwaltete Sprache mit kostenlosen Credits oder füge eigene Schlüssel hinzu.",
   "transcription.builderCtaDescription":
     "Nutze Builder.io für hochwertigere Transkription mit kostenlosen Credits und ohne API-Schlüssel.",
   "voiceMode.googleRealtimeDescription":
@@ -1362,17 +1392,13 @@ const messages: ToolkitAgentChatTranslation = {
     "Die JSON-Datei des Dienstkontos ist eingerichtet. Nutze Builder.io (kostenloser Tarif verfügbar), um die verwaltete Echtzeit-WebSocket-Sitzung zu erstellen.",
   "voiceMode.builderGeminiDescription":
     "Nutze Builder.io für Gemini-Flash-Lite-Transkription und Luna-Textkorrektur. Kein Google-Schlüssel erforderlich.",
-  "voiceMode.setupTitle": "Sprachmodus einrichten",
-  "voiceMode.showChat": "Chat anzeigen",
   "voiceMode.start": "Sprachchat starten",
-  "voiceMode.startWithOpenAiKey": "Mit OpenAI-Schlüssel starten",
   "voiceMode.status.connecting": "Verbindung wird hergestellt",
   "voiceMode.status.ending": "Sprachmodus beenden",
   "voiceMode.status.error": "Der Sprachmodus erfordert Aufmerksamkeit",
   "voiceMode.status.listening": "Hört zu",
   "voiceMode.status.speaking": "Spricht",
   "voiceMode.status.working": "Arbeitet",
-  "voiceMode.useOpenAiKey": "Eigene Schlüssel hinzufügen",
   "voiceMode.voiceSettings": "Stimmeinstellungen",
   "duration.hourShort": "h",
   "duration.minuteShort": "min",
@@ -1613,8 +1639,39 @@ const messages: ToolkitAgentChatTranslation = {
     "Alle in deiner Organisation können es ansehen",
   "share.owner": "Eigentümer",
   "share.peopleWithAccess": "Personen mit Zugriff",
-  "share.people": "Personen",
-  "share.agents": "Agenten",
+  "share.canView": "Kann ansehen",
+  "share.canComment": "Kann kommentieren",
+  "share.canEdit": "Kann bearbeiten",
+  "share.canManageAccess": "Kann Zugriff verwalten",
+  "share.onlyPeopleInvited": "Nur eingeladene Personen",
+  "share.anyoneInOrganization": "Alle in Ihrer Organisation",
+  "share.anyoneAtOrganization": "Alle bei {{organization}}",
+  "share.anyoneWithLink": "Alle mit dem Link",
+  "share.invite": "Einladen",
+  "share.addPeopleOrAgents": "Personen oder Agents hinzufügen",
+  "share.you": "Sie",
+  "share.agentBadge": "Agent",
+  "share.removeAccess": "Zugriff entfernen",
+  "share.loadAgentsFailed": "Agents konnten nicht geladen werden.",
+  "share.namesUnavailable":
+    "Namen konnten nicht geladen werden, daher werden E-Mail-Adressen angezeigt.",
+  "share.copyLink": "Link kopieren",
+  "share.copyLinkFailed": "Der Link konnte nicht kopiert werden.",
+  "share.sendTo": "Senden an",
+  "share.openInClaude": "In Claude öffnen",
+  "share.openInClaudeCode": "In Claude Code öffnen",
+  "share.openInCodex": "In Codex öffnen",
+  "share.copyAgentPrompt": "Agent-Prompt kopieren",
+  "share.copyAgentLink": "Agent-Link kopieren",
+  "share.copyAgentLinkFailed": "Der Agent-Link konnte nicht kopiert werden.",
+  "share.copiedAgentLink": "Agent-Link kopiert",
+  "share.retryAgentLinkItem": "Agent-Link erneut versuchen",
+  "share.mcpServerSettings": "MCP-Servereinstellungen",
+  "share.copiedAgentPrompt": "Agent-Prompt kopiert",
+  "share.copyAgentPromptFailed":
+    "Der Agent-Prompt konnte nicht kopiert werden.",
+  "share.agentReadPrompt":
+    'Lies dieses Element ({{label}}): {{url}}\n\nNutze eine verfügbare MCP-Verbindung für {{mcpUrl}}, um {{actions}} mit {{idParam}} "{{id}}" aufzurufen. Verwende die bestehenden Berechtigungen meines Kontos.\n\nWenn diese Verbindung fehlt oder abgemeldet ist, bitte mich, sie zu verbinden und mich anzumelden: {{connectUrl}}. Versuche es nach meiner Bestätigung erneut. Wenn der Zugriff verweigert wird, sag es mir.',
   "share.private": "Privat",
   "share.privateDescription": "Nur Personen mit Zugriff können es ansehen",
   "share.public": "Öffentlich",
@@ -1655,6 +1712,34 @@ const messages: ToolkitAgentChatTranslation = {
   "featureFlags.builderCreditReferrals.name": "Builder-Guthabenempfehlungen",
   "featureFlags.builderCreditReferrals.description":
     "Empfehlungsdetails des verbundenen Builder-Arbeitsbereichs unter „Nutzung“ anzeigen.",
+  "featureFlags.scope.appliesTo": "Gilt für",
+  "featureFlags.scope.org": "Diese Organisation",
+  "featureFlags.scope.global": "Alle Organisationen",
+  "featureFlags.scope.setForOrg": "Für diese Organisation festgelegt",
+  "featureFlags.scope.setForGlobal": "Für alle Organisationen festgelegt",
+  "featureFlags.scope.overridesGlobal":
+    "Ersetzt die Regel für alle Organisationen",
+  "featureFlags.scope.overridesGlobalTooltip":
+    "Die eigene Regel dieser Organisation ersetzt die Regel für alle Organisationen. Diese lautet: {{audience}}.",
+  "featureFlags.scope.unreadable": "Konnte nicht gelesen werden",
+  "featureFlags.scope.enableForMeOrg":
+    "Fügt dich der Regel dieser Organisation hinzu",
+  "featureFlags.scope.enableForMeGlobal":
+    "Fügt dich der Regel für alle Organisationen hinzu",
+  "featureFlags.scope.turnOffOrg": "Für diese Organisation deaktivieren",
+  "featureFlags.scope.turnOffGlobal": "Für alle Organisationen deaktivieren",
+  "featureFlags.scope.turnOffOrgTitle":
+    "{{name}} für diese Organisation deaktivieren?",
+  "featureFlags.scope.turnOffGlobalTitle":
+    "{{name}} für alle Organisationen deaktivieren?",
+  "featureFlags.scope.turnOffOrgDescription":
+    "Damit verlieren alle Personen in dieser Organisation sofort den Zugriff. Du kannst später einen neuen Rollout konfigurieren.",
+  "featureFlags.scope.turnOffGlobalDescription":
+    "Damit wird der Zugriff in jeder Organisation ohne eigene Regel sofort entfernt. Du kannst später einen neuen Rollout konfigurieren.",
+  "featureFlags.scope.summaryOrg": "In dieser Organisation: {{audience}}.",
+  "featureFlags.scope.summaryGlobal": "In allen Organisationen: {{audience}}.",
+  "featureFlags.scope.orgKeepsOwnRule":
+    "Diese Organisation behält ihre eigene Regel.",
   "usage.inviteFriends": "Freunde einladen",
   "usage.inviteCredits":
     "Erhalte {{amount}} Builder-Credits, wenn sich ein Freund anmeldet.",
@@ -2019,6 +2104,13 @@ const messages: ToolkitAgentChatTranslation = {
   "settings.storage.loadFailed":
     "Dateispeicher-Einstellungen konnten nicht geladen werden.",
   "settings.storage.retry": "Erneut versuchen",
+  "settings.storage.unreadable":
+    "Einige gespeicherte Speichereinstellungen konnten nicht geprüft werden. Versuche es erneut oder ersetze unlesbare Pflichtwerte vor dem Speichern.",
+  "settings.storage.unreadableField":
+    "Der gespeicherte Wert kann nicht gelesen werden. Gib ihn erneut ein.",
+  "settings.storage.clearUnreadableField": "Unlesbares Feld {{field}} löschen",
+  "settings.storage.unreadableFieldCleared":
+    "Dieser gespeicherte Wert wird beim Speichern entfernt.",
   "settings.storage.adminOnly":
     "Nur Inhaber und Admins der Organisation können den Dateispeicher ändern.",
   "settings.audit.action": "Aktion",
@@ -2031,6 +2123,12 @@ const messages: ToolkitAgentChatTranslation = {
     "Auf der Prüfseite für Agent-Aktionen genehmigt",
   "settings.audit.approvalMcpClient":
     "Vom MCP-Client akzeptiert (nicht verifiziert)",
+  "settings.audit.approvalMcpReview":
+    "Auf der Prüfseite für MCP-Aktionen genehmigt",
+  "settings.audit.approvalCliPrompt":
+    "In der CLI-Abfrage genehmigt (nicht verifiziert)",
+  "settings.audit.approvalCliFlag":
+    "Mit --approved erneut ausgeführt (nicht verifiziert)",
   "settings.audit.changedBy": "Geändert von",
   "settings.audit.close": "Schließen",
   "settings.audit.empty": "Keine Änderungen in diesem Zeitraum.",
@@ -2321,6 +2419,9 @@ const messages: ToolkitAgentChatTranslation = {
     "{{lab}} konnte nicht geändert werden. Versuche es erneut.",
   "settingsShell.appGroup.mcpAbout":
     "Verbinde {{app}} mit Claude, ChatGPT, Cursor oder einer anderen KI-App, die MCP unterstützt. Diese App kann dann in {{app}} für dich arbeiten. Sie sieht nur, was du sehen kannst.",
+  "settingsShell.appGroup.mcpAppCards": "App-Karten in Chat-Apps",
+  "settingsShell.appGroup.mcpAppCardsDescription":
+    "Tools zeigen interaktive Karten, etwa einen E-Mail-Entwurf, den du bearbeiten und senden kannst, in Chat-Apps, die MCP Apps unterstützen, wie Claude und ChatGPT. Verbinde diese App nach einer Änderung in deiner Chat-App neu.",
   "settingsShell.appGroup.mcpFootnote":
     "Tools, die der Agent selbst verwendet, findest du unter {{integrations}}.",
   "settingsShell.appGroup.newAutomation": "Neue Automatisierung",
@@ -2458,7 +2559,11 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.removeCredentials.aria":
     "{{platform}}-Zugangsdaten entfernen",
   "settingsShell.channels.removeCredentials.body":
-    "Der Agent antwortet für alle nicht mehr in {{platform}}, es sei denn, die Deployment-Umgebung setzt diese Schlüssel ebenfalls.",
+    "Das Entfernen dieser Workspace-Zugangsdaten kann dazu führen, dass der Agent in {{platform}} nicht mehr allen antwortet, es sei denn, die Bereitstellungsumgebung legt diese Schlüssel ebenfalls fest.",
+  "settingsShell.channels.removeCredentials.personalBody":
+    "Dadurch werden nur deine persönlichen Zugangsdaten für {{platform}} entfernt. Die Zugangsdaten anderer Nutzer und des Workspace bleiben unverändert.",
+  "settingsShell.channels.removeCredentials.mixedBody":
+    "Dadurch werden die ausgewählten gespeicherten Zugangsdaten für {{platform}} entfernt. Andere gespeicherte Zugangsdaten bleiben unverändert.",
   "settingsShell.channels.removeCredentials.confirm": "Entfernen",
   "settingsShell.channels.removeCredentials.failed":
     "Die Zugangsdaten konnten nicht entfernt werden.",
@@ -2466,6 +2571,14 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.removeCredentials.title":
     "{{platform}}-Zugangsdaten entfernen?",
   "settingsShell.channels.retry": "Erneut versuchen",
+  "settingsShell.channels.setup.unreadable":
+    "Ein gespeicherter Zugangswert ist nicht lesbar. Gib einen Ersatzwert ein.",
+  "settingsShell.channels.setup.personalCredentialOnly":
+    "Dadurch wird nur dein persönlicher Zugangswert ersetzt; die Zugangsdaten anderer bleiben unverändert.",
+  "settingsShell.channels.setup.repairUnavailable":
+    "Diese Zugangsdaten werden in einem anderen Einstellungsbereich verwaltet. Aktualisiere sie dort, bevor du diesen Kanal einrichtest.",
+  "settingsShell.channels.setup.configurationUnavailable":
+    "Einige gespeicherte Kanalzugangsdaten können nicht gelesen werden. Ersetze sie, bevor du diesen Kanal aktivierst.",
   "settingsShell.channels.setup.addToEnvironment":
     "In der Deployment-Umgebung hinzufügen",
   "settingsShell.channels.setup.body":
@@ -2476,6 +2589,8 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.setup.optional": "Optional",
   "settingsShell.channels.setup.replace": "Ersetzen",
   "settingsShell.channels.setup.replaceAria": "{{key}} ersetzen",
+  "settingsShell.channels.setup.repairInOwnerSettings":
+    "Ersetze diesen gespeicherten Zugangswert in den zugehörigen Integrationseinstellungen.",
   "settingsShell.channels.setup.save": "Speichern",
   "settingsShell.channels.setup.saveAndTurnOn": "Speichern und aktivieren",
   "settingsShell.channels.setup.saving": "Wird gespeichert…",
@@ -2491,6 +2606,7 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.channels.state.notSetUp": "Nicht eingerichtet",
   "settingsShell.channels.state.off": "Aus",
   "settingsShell.channels.state.on": "An",
+  "settingsShell.channels.state.unavailable": "Nicht verfügbar",
   "settingsShell.channels.status": "Status",
   "settingsShell.channels.toggleFailed":
     "{{platform}} konnte nicht aktualisiert werden.",
@@ -2518,6 +2634,9 @@ const messages: ToolkitAgentChatTranslation = {
     "Der Agent nutzt das Zugriffstoken, das du hinzufügst, und sieht daher, was dieses Token sehen kann.",
   "settingsShell.integrationDetail.accessToken": "Zugriffstoken",
   "settingsShell.integrationDetail.addAccessToken": "Zugriffstoken hinzufügen",
+  "settingsShell.integrationDetail.tokenCheckFailed":
+    "Gespeichertes Zugriffstoken konnte nicht geprüft werden.",
+  "settingsShell.integrationDetail.tokenCheckRetry": "Erneut versuchen",
   "settingsShell.integrationDetail.callout.adminNeeded":
     "Ein Admin muss das einrichten",
   "settingsShell.integrationDetail.callout.adminNeededBody":
@@ -2801,6 +2920,8 @@ const messages: ToolkitAgentChatTranslation = {
     "Modellzugriff, Browserautomatisierung, Dateispeicher und Workspace-Identität. Kostenloser Tarif verfügbar.",
   "settingsShell.integrations.builderStatusFailed":
     "Der Verbindungsstatus ist nicht verfügbar. Versuche es erneut, um ihn zu prüfen.",
+  "settingsShell.integrations.builderDetailsUnavailable":
+    "Einige gespeicherte Builder-Kontodaten konnten nicht gelesen werden.",
   "settingsShell.integrations.category.analytics": "Analytics",
   "settingsShell.integrations.category.design": "Design",
   "settingsShell.integrations.category.engineering": "Entwicklung",
@@ -2939,6 +3060,80 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsResources.skills.upload": "Skill-Datei hochladen",
   "settingsResources.skills.describePlaceholder":
     "Ein Skill, der Pull Requests auf Sicherheitsprobleme prüft",
+  "settingsResources.skills.personalHint": "Nur du hast diese.",
+  "settingsResources.skills.orgHint":
+    "Mit allen bei {{org}} geteilt. Deine Schalter gelten nur für dich.",
+  "settingsResources.skills.orgAdminHint":
+    "Mit allen bei {{org}} geteilt. Als Admin legst du fest, wie jeder Skill für andere startet.",
+  "settingsResources.skills.dispatchHint":
+    "In Dispatch bewahrt dein Workspace Skills auf, die alle Apps teilen. Schaltest du hier einen aus, ändert sich nur {{app}}.",
+  "settingsResources.skills.thisApp": "diese App",
+  "settingsResources.skills.forEveryone": "Für alle",
+  "settingsResources.skills.forYou": "Für dich",
+  "settingsResources.skills.markRecommended": "Empfohlen",
+  "settingsResources.skills.markRecommendedHint":
+    "An, bis jemand ihn ausschaltet.",
+  "settingsResources.skills.markOptional": "Optional",
+  "settingsResources.skills.markOptionalHint":
+    "Aus, bis jemand ihn einschaltet.",
+  "settingsResources.skills.markRequired": "Pflicht",
+  "settingsResources.skills.markRequiredHint":
+    "Für alle an. Niemand kann ihn ausschalten oder eine eigene Version nutzen.",
+  "settingsResources.skills.recommendedBy": "Empfohlen von {{org}}",
+  "settingsResources.skills.requiredBy": "Pflicht bei {{org}}",
+  "settingsResources.skills.requiredHidesOwn":
+    "Nicht verwendet: {{org}} verlangt, dass alle die gemeinsame Version nutzen",
+  "settingsResources.skills.optionalOff":
+    "Optional: aus, bis du ihn einschaltest",
+  "settingsResources.skills.optionalOn": "Optional: du hast ihn eingeschaltet",
+  "settingsResources.skills.switchedOffOn": "Am {{date}} von dir ausgeschaltet",
+  "settingsResources.skills.alwaysOn": "Immer an",
+  "settingsResources.skills.requiredLockHint":
+    "Pflicht bei {{org}}, daher immer an",
+  "settingsResources.skills.dispatchClash":
+    "Dispatch hat auch einen Skill {{name}}. Der Agent nutzt diesen und überspringt den aus Dispatch. Benenne einen um, um beide zu nutzen.",
+  "settingsResources.skills.dispatchClashRequired":
+    "Der Skill {{name}} aus Dispatch ist Pflicht, deshalb nutzt der Agent ihn und überspringt diesen. Benenne einen um, um beide zu nutzen.",
+  "settingsResources.skills.choicesLoadFailed":
+    "Es konnte nicht geladen werden, welche Skills für dich aktiv sind, deshalb sind die Schalter ausgeblendet. Lade die Seite neu, um es noch einmal zu versuchen.",
+  "settingsResources.skills.requireChecking":
+    "Es wird geprüft, wen das betrifft…",
+  "settingsResources.skills.requireCountsFailed":
+    "Es konnte nicht geprüft werden, wen das betrifft.",
+  "settingsResources.skills.requireTitle": "{{name}} zur Pflicht machen?",
+  "settingsResources.skills.makeRequired": "Zur Pflicht machen",
+  "settingsResources.skills.switchFailed":
+    "Deine Auswahl für {{name}} konnte nicht gespeichert werden.",
+  "settingsResources.skills.markFailed":
+    "Konnte nicht ändern, wie {{name}} für andere startet.",
+  "settingsResources.skills.addForMe": "Für mich hinzufügen",
+  "settingsResources.skills.addForEveryone": "Für alle hinzufügen",
+  "settingsResources.skills.offFor_one": "Aus für {{off}} von {{count}} Person",
+  "settingsResources.skills.offFor_other":
+    "Aus für {{off}} von {{count}} Personen",
+  "settingsResources.skills.onFor_one": "An für {{on}} von {{count}} Person",
+  "settingsResources.skills.onFor_other":
+    "An für {{on}} von {{count}} Personen",
+  "settingsResources.skills.ownVersions_one":
+    "{{count}} Person hat eine eigene Version",
+  "settingsResources.skills.ownVersions_other":
+    "{{count}} Personen haben eine eigene Version",
+  "settingsResources.skills.requireTurnsBackOn_one":
+    "Er wird für die {{count}} Person wieder eingeschaltet, die ihn ausgeschaltet hat.",
+  "settingsResources.skills.requireTurnsBackOn_other":
+    "Er wird für die {{count}} Personen wieder eingeschaltet, die ihn ausgeschaltet haben.",
+  "settingsResources.skills.requireTurnsOn_one":
+    "Er wird für die {{count}} Person eingeschaltet, die ihn noch nicht eingeschaltet hatte.",
+  "settingsResources.skills.requireTurnsOn_other":
+    "Er wird für die {{count}} Personen eingeschaltet, die ihn noch nicht eingeschaltet hatten.",
+  "settingsResources.skills.requireOwnVersions_one":
+    "Die {{count}} Person mit eigener Version bekommt stattdessen den Text von {{org}}. Ihre Version bleibt erhalten und kommt zurück, wenn du das später änderst.",
+  "settingsResources.skills.requireOwnVersions_other":
+    "Die {{count}} Personen mit eigener Version bekommen stattdessen den Text von {{org}}. Ihre Versionen bleiben erhalten und kommen zurück, wenn du das später änderst.",
+  "settingsResources.skills.requireOwnVersionsDispatch_one":
+    "Die {{count}} Person mit eigener Version bekommt stattdessen den Text von Dispatch. Ihre Version bleibt erhalten und kommt zurück, wenn du das später änderst.",
+  "settingsResources.skills.requireOwnVersionsDispatch_other":
+    "Die {{count}} Personen mit eigener Version bekommen stattdessen den Text von Dispatch. Ihre Versionen bleiben erhalten und kommen zurück, wenn du das später änderst.",
   "settingsResources.files.empty":
     "Füge eine Datei hinzu, um deinem Agenten mehr Kontext zu geben.",
   "settingsResources.files.emptyTitle": "Noch keine Dateien",
@@ -3279,11 +3474,16 @@ const messages: ToolkitAgentChatTranslation = {
     "{{provider}} hat diesen Schlüssel am {{date}} abgelehnt. Bitte einen Inhaber oder Admin, ihn zu ersetzen.",
   "settingsModel.rejectedHeadline":
     "{{provider}} hat diesen Schlüssel abgelehnt",
+  "settingsModel.unreadable":
+    "Die gespeicherte Anbietereinstellung ist nicht lesbar. Ersetze sie, um den Zugriff wiederherzustellen.",
+  "settingsModel.unreadableAskAdmin":
+    "Die gespeicherte Anbietereinstellung ist nicht lesbar. Bitte einen Inhaber oder Admin, sie zu ersetzen.",
   "settingsModel.remove": "Entfernen",
   "settingsModel.removeProvider": "Anbieter entfernen",
   "settingsModel.removeTitle": "{{provider}} entfernen?",
   "settingsModel.removing": "Wird entfernt",
   "settingsModel.replace": "Ersetzen",
+  "settingsModel.replaceEndpoint": "Endpunkt ersetzen",
   "settingsModel.replaceKey": "Schlüssel ersetzen",
   "settingsModel.restrictBody":
     "Mitglieder können nur Anbieter der Organisation nutzen.",
@@ -3388,6 +3588,380 @@ const messages: ToolkitAgentChatTranslation = {
   "unsupportedDevice.copyFailed": "Link konnte nicht kopiert werden",
   "unsupportedDevice.copied": "Link kopiert",
   "unsupportedDevice.emailSubject": "{{app}} auf deinem Computer öffnen",
+  "composer.stop": "Stoppen",
+  "message.copyCode": "Code kopieren",
+  "message.codeCopied": "Kopiert",
+  "message.codeBlock": "Codeblock",
+  "message.codeBlockLanguage": "{{language}}-Code",
+  "message.table": "Tabelle",
+  "message.runStopped": "Gestoppt",
+  "message.responseReady": "Antwort bereit",
+  "message.responseFailed": "Antwort fehlgeschlagen",
+  "message.waitingForApproval": "Wartet auf Freigabe",
+  "message.waitingForInput": "Wartet auf Eingabe",
+  "message.workSummaryFailedCount": "{{summary}}, {{count}} fehlgeschlagen",
+  "message.taskStatusPending": "Ausstehend",
+  "message.taskStatusRunning": "Läuft",
+  "message.taskStatusCompleted": "Erledigt",
+  "message.taskStatusFailed": "Fehlgeschlagen",
+  "message.taskStatusAwaitingInput": "Eingabe nötig",
+  "message.untitledTask": "Unbenannte Aufgabe",
+  "message.connectProvider": "{{provider}} verbinden",
+  "message.connectionDeclined": "{{provider}} nicht verbunden",
+  "message.connectionAdminRequiredTitle": "{{provider}} benötigt einen Admin",
+  "message.branchPositionLabel": "Antwort {{index}} von {{count}}",
+  "message.taskListChecked": "Erledigt",
+  "message.taskListUnchecked": "Nicht erledigt",
+  "message.threadLoadFailed": "Dieser Chat konnte nicht geladen werden.",
+  "common.reconnect": "Erneut verbinden",
+  "message.closeTabFailed":
+    "Dieser Tab konnte nicht geschlossen werden. Versuche es erneut.",
+  "message.restoreInProgress":
+    "Eine Wiederherstellung des Chatverlaufs läuft bereits.",
+  "message.restoreUnavailable": "Ein Chat-Lauf ist bereits aktiv.",
+  "message.restoreSubmissionInProgress":
+    "Eine Chat-Nachricht wird bereits gesendet.",
+  "composer.agentSection": "Agent",
+  "composer.modelSection": "Modell",
+  "composer.effortSection": "Aufwand",
+  "composer.modelButtonWithAgent": "{{model}}. Agent: {{agent}}",
+  "guided.title": "Bevor ich generiere",
+  "guided.description":
+    "Nutze „Andere“ für eigene Angaben oder lass den Agenten entscheiden.",
+  "guided.skip": "Überspringen",
+  "guided.continue": "Weiter",
+  "guided.exploreLabel": "Ein paar Optionen erkunden",
+  "guided.exploreDescription":
+    "Zeig mir zuerst ein paar unterschiedliche Richtungen, bevor du dich festlegst.",
+  "guided.decideLabel": "Den Agenten entscheiden lassen",
+  "guided.decideDescription":
+    "Entscheide nach eigenem Ermessen und mach weiter.",
+  "guided.other": "Andere…",
+  "guided.otherDescription": "Sag dem Agenten genau, was du meinst.",
+  "guided.recommended": "Empfohlen",
+  "guided.question": "Frage",
+  "guided.questionProgress": "{{current}}/{{total}}",
+  "guided.questionProgressLabel": "{{current}} von {{total}}",
+  "guided.ownResponse": "Oder eigene Antwort schreiben",
+  "guided.next": "Weiter",
+  "guided.send": "Senden",
+  "guided.dismiss": "Fragen schließen",
+  "guided.chooseFiles": "Dateien auswählen…",
+  "guided.typeAnswer": "Antwort eingeben…",
+  "guided.typeCustomAnswer": "Eigene Antwort eingeben…",
+  "guided.dropFiles": "Dateien hierher ziehen oder",
+  "guided.browseFiles": "durchsuchen",
+  "guided.removeFile": "{{name}} entfernen",
+  "guided.submitMessage": "Hier sind meine Antworten. Leg los.",
+  "guided.skipMessage":
+    "Überspringe die Fragen und lass den Agenten entscheiden.",
+  "agentPanel.terminalTab": "Terminal {{index}}",
+  "agentPanel.mainThread": "Hauptchat",
+  "agentPanel.chatTabs": "Chats",
+  "agentPanel.clisLoadFailed": "CLIs konnten nicht geladen werden.",
+  "agentPanel.terminalTabs": "Terminals",
+  "agentPanel.subAgentTabs": "Sub-Agenten",
+  "agentPanel.resizePanel": "Größe des Agent-Bereichs ändern",
+  "keepTabOpen.title": "Lass diesen Tab geöffnet.",
+  "keepTabOpen.body":
+    "Diese Aufgabe läuft über deinen Browser weiter. Wenn du diesen Tab schließt oder verlässt, wird sie pausiert, bis du zurückkommst.",
+  "conversation.empty": "Noch keine Nachrichten",
+  "conversation.loading": "Sitzung wird geladen",
+  "conversation.open": "Öffnen",
+  "conversation.toolInput": "Eingabe",
+  "conversation.toolResult": "Ergebnis",
+  "mcpApps.loading": "App wird geladen",
+  "mcpApps.resourceUnavailable":
+    "Die Ressource der MCP-App war nicht verfügbar.",
+  "mcpApps.openInNewTab": "In neuem Tab öffnen",
+  "mcpApps.initFailed": "Die MCP-App konnte nicht initialisiert werden.",
+  "mcpApps.readOnly": "Diese gespeicherte MCP-App ist schreibgeschützt.",
+  "iframeEmbed.blocked": "Einbettung blockiert",
+  "iframeEmbed.missingSrc": "Quelle fehlt",
+  "iframeEmbed.crossOrigin": "Ursprungsübergreifende URL nicht erlaubt",
+  "iframeEmbed.embeddedContent": "Eingebetteter Inhalt",
+  "codeAgent.working": "Der Code-Agent arbeitet an deiner Anfrage…",
+  "codeAgent.applied": "Codeänderungen übernommen",
+  "toolCells.showEarlierLines": "{{count}} frühere Zeilen anzeigen",
+  "toolCells.showMoreLines": "{{count}} weitere Zeilen anzeigen",
+  "toolCells.partial": "Teilweise",
+  "toolCells.timedOut": "Zeitüberschreitung",
+  "toolCells.exitCode": "Exit-Code {{code}}",
+  "toolCells.copyOutput": "Ausgabe kopieren",
+  "toolCells.lineAdded": "Hinzugefügt",
+  "toolCells.lineRemoved": "Entfernt",
+  "codeRequired.requestFailed": "Anfrage fehlgeschlagen ({{status}})",
+  "chatFirst.chats": "Chats",
+  "chatFirst.noChats": "Noch keine Chats.",
+  "chatFirst.newTab": "Neuer Tab",
+  "chatFirst.agentNavigation": "Agent-Navigation",
+  "chatFirst.primaryNavigation": "Hauptnavigation",
+  "chatFirst.newChat": "Neuer Chat",
+  "chatFirst.search": "Suchen",
+  "chatFirst.workspaceApps": "Apps",
+  "chatFirst.allApps": "Alle Apps",
+  "chatFirst.integrations": "Integrationen",
+  "chatFirst.scheduled": "Geplant",
+  "chatFirst.createWorkspaceApp": "App erstellen",
+  "chatFirst.openApp": "{{name}} öffnen",
+  "chatFirst.appLabel": "App {{name}}",
+  "chatFirst.appsLoadError": "Apps konnten nicht geladen werden",
+  "chatFirst.noWorkspaceApps": "Noch keine Apps",
+  "chatFirst.createApp": "App erstellen",
+  "chatFirst.retry": "Erneut versuchen",
+  "chatFirst.dismiss": "Schließen",
+  "chatFirst.unpinApp": "Diese App lösen",
+  "chatFirst.pinApp": "Diese App anheften",
+  "chatFirst.reloadApp": "App neu laden",
+  "chatFirst.removePinned": "Aus angehefteten Apps entfernen",
+  "chatFirst.pinTop": "App oben anheften",
+  "chatFirst.moveUp": "Nach oben",
+  "chatFirst.moveDown": "Nach unten",
+  "chatFirst.removeApp": "App aus dem Workspace entfernen",
+  "chatFirst.showMore": "Mehr anzeigen",
+  "chatFirst.showLess": "Weniger anzeigen",
+  "chatFirst.showMoreCount": "{{count}} weitere anzeigen",
+  "chatFirst.appOrderUnavailable":
+    "Die App-Reihenfolge konnte auf diesem Gerät nicht gespeichert werden.",
+  "chatFirst.openSideSurfaces": "Seitenbereiche öffnen",
+  "chatFirst.sideSurfaces": "Seitenbereiche",
+  "chatFirst.resizeSideSurface": "Größe des Seitenbereichs ändern",
+  "chatFirst.closeTab": "{{name}} schließen",
+  "chatFirst.close": "Schließen",
+  "chatFirst.closeOthers": "Andere schließen",
+  "chatFirst.closeToRight": "Rechts davon schließen",
+  "chatFirst.closeAll": "Alle schließen",
+  "chatFirst.deferred": "Zurückgestellt",
+  "chatFirst.openActivity": "Aktivität öffnen",
+  "chatFirst.unavailable": "Dieser Bereich ist hier nicht verfügbar.",
+  "chatFirst.browserBack": "Zurück",
+  "chatFirst.browserForward": "Vorwärts",
+  "chatFirst.browserReload": "Seite neu laden",
+  "chatFirst.browserAddress": "Browseradresse",
+  "chatFirst.browserOpenExternal": "In externem Browser öffnen",
+  "chatFirst.browserClose": "Browser schließen",
+  "chatFirst.browserPage": "Browserseite",
+  "chatFirst.browserInvalidUrl":
+    "Gib eine vollständige http(s)-URL ein, um sie aufzurufen.",
+  "chatFirst.browserPreviewStarting": "Vorschau wird gestartet…",
+  "chatFirst.browserPreviewError": "Vorschau nicht verfügbar",
+  "chatFirst.appUnavailable": "Diese Workspace-App ist nicht mehr verfügbar.",
+  "chatFirst.appLoadError": "Diese App konnte nicht geladen werden",
+  "chatFirst.appLoading": "App wird geladen",
+  "chatFirst.agentActivityEyebrow": "Workspace",
+  "chatFirst.agentActivityTitle": "Agent-Aktivität",
+  "chatFirst.agentActivityDescription":
+    "Verfolge Läufe und öffne eine zweite Sitzung neben diesem Chat.",
+  "chatFirst.refreshAgentActivity": "Agent-Aktivität aktualisieren",
+  "chatFirst.noAgentSessions": "Noch keine Agent-Sitzungen",
+  "chatFirst.startAgentSession":
+    "Starte einen Agent-Lauf, dann erscheint er hier.",
+  "chatFirst.watchSession": "Ansehen",
+  "chatFirst.copySessionId": "Sitzungs-ID kopieren",
+  "chatFirst.copySessionIdFor": "Sitzungs-ID für {{name}} kopieren",
+  "chatFirst.sessionIdCopied": "Sitzungs-ID kopiert",
+  "chatFirst.sessionIdShort": "ID",
+  "chatFirst.copied": "Kopiert",
+  "chatFirst.agentActivityStatusQueued": "In Warteschlange",
+  "chatFirst.agentActivityStatusRunning": "Läuft",
+  "chatFirst.agentActivityStatusPaused": "Pausiert",
+  "chatFirst.agentActivityStatusNeedsApproval": "Freigabe nötig",
+  "chatFirst.agentActivityStatusCompleted": "Abgeschlossen",
+  "chatFirst.agentActivityStatusErrored": "Benötigt Aufmerksamkeit",
+  "chatFirst.agentActivityStatusRecent": "Kürzlich",
+  "chatFirst.agentActivityStatusUnknown": "Unbekannt",
+  "chatFirst.watchingSession": "{{name}} wird angesehen",
+  "chatFirst.session": "Sitzung",
+  "chatFirst.stopWatchingSession": "Sitzung nicht mehr ansehen",
+  "chatFirst.stopWatching": "Nicht mehr ansehen",
+  "chatFirst.watchedSession": "Angesehene Sitzung",
+  "chatFirst.agentsTitle": "Unteragenten",
+  "guided.submitProgress": "{{label}} ({{answered}} von {{total}})",
+  "approval.answerPending": "Antwort erforderlich",
+  "feedback.label": "Feedback",
+  "feedback.goodResponse": "Gute Antwort",
+  "feedback.badResponse": "Schlechte Antwort",
+  "feedback.note": "Notiz hinzufügen (optional)",
+  "message.moreActions": "Weitere Aktionen",
+  "message.fewerActions": "Weniger Aktionen",
+  "activity.showMore": "{{count}} weitere anzeigen",
+  "message.editing": "Nachricht wird bearbeitet",
+  "message.editingHint":
+    "Beim Senden wird der Chat ab dieser Nachricht abgezweigt.",
+  "history.refreshFailed": "Chats konnten nicht aktualisiert werden",
+  "message.forkFromHere": "Ab hier abzweigen",
+  "feedback.rate": "Antwort bewerten",
+  "composer.suggestedActions": "Vorgeschlagene Aktionen",
+  "message.runDetails": "Ausführungsdetails",
+  "message.creditsUsed": "Verbrauchte Credits",
+  "message.cost": "Kosten",
+  "message.toolCalls": "Toolaufrufe",
+  "message.modelUsed": "Verwendetes Modell",
+  "message.detailUnavailable": "Nicht verfügbar",
+  "message.notRecorded": "Nicht erfasst",
+  "message.incomplete": "Unvollständig",
+  "message.estimatedAmount": "{{amount}} geschätzt",
+  "message.mixedAmount": "{{amount}} gemeldet und geschätzt",
+  "composer.newChatPlaceholder": "Frag mich etwas",
+  "composer.replyPlaceholder": "Antworten…",
+  "mentions.noCommands": "Keine Befehle",
+  "mentions.noMatches": "Keine Treffer",
+  "queue.dragToReorder": "Zum Neuordnen ziehen",
+  "queue.attachedImage": "Angehängtes Bild",
+  "queue.moveUp": "Nach oben",
+  "queue.moveDown": "Nach unten",
+  "queue.movedToPosition": "An Position {{position}} von {{count}} verschoben",
+  "queue.reorderFailed":
+    "Die Warteschlange konnte nicht neu geordnet werden. Versuche es erneut.",
+  "composer.effort": "Aufwand",
+  "composer.moreModels": "Weitere Modelle",
+  "composer.modelCost": "Kosten",
+  "composer.modelReasoning": "Schlussfolgern",
+  "composer.modelSpeed": "Geschwindigkeit",
+  "composer.modelRatingAria": "{{label}} {{value}} von 5",
+  "composer.contextWindow": "Kontextfenster",
+  "composer.tokenCount": "{{count}} Token",
+  "composer.billingBuilderCredits": "Verwendet Builder-Guthaben",
+  "composer.billingProviderKey":
+    "Wird über deinen {{provider}}-Schlüssel abgerechnet",
+  "composer.billingSubscription": "Verwendet deinen {{plan}}-Tarif",
+  "composer.modelDescription.auto": "Verwendet das Standardmodell",
+  "composer.modelDescription.claude-opus-5-5":
+    "Leistungsstärkstes Claude-Modell für komplexe Aufgaben",
+  "composer.modelDescription.gpt-6-1-sol":
+    "Leistungsstärkstes GPT-Modell für komplexes Schlussfolgern",
+  "composer.modelDescription.gemini-3-1-pro":
+    "Leistungsstärkstes Gemini-Modell für komplexe Aufgaben",
+  "composer.modelDescription.claude-sonnet-5-5":
+    "Ausgewogene Geschwindigkeit und Leistung für den Alltag",
+  "composer.modelDescription.gpt-5-6-terra":
+    "GPT-Modell der Mittelklasse mit ausgewogenen Kosten und Leistung",
+  "composer.modelDescription.claude-haiku-5-5":
+    "Schnellstes Claude-Modell für kurze Aufgaben",
+  "composer.modelDescription.gpt-6-luna":
+    "Schnelles, günstigeres GPT-Modell für alltägliche Aufgaben",
+  "composer.modelDescription.gemini-3-8-flash":
+    "Schnelles Gemini-Modell für alltägliche Aufgaben",
+  "composer.modelDescription.gpt-5-4-mini": "Kleines, günstiges GPT-Modell",
+  "composer.modelDescription.gpt-5-1-codex-mini":
+    "Kleines, auf Code abgestimmtes GPT-Modell",
+  "composer.modelDescription.gemini-3-5-flash-lite":
+    "Günstigstes Gemini-Modell für einfache Aufgaben in großer Zahl",
+  "composer.modelDescription.grok-code-fast": "Schnelles Code-Modell von xAI",
+  "composer.modelDescription.qwen3-coder": "Open-Weight-Code-Modell von Qwen",
+  "contextRing.usedLabel": "Kontext zu {{percent}} % genutzt",
+  "contextRing.untilAutoCompact":
+    "Noch {{tokens}} bis zur automatischen Verdichtung",
+  "contextRing.compactNow": "Jetzt verdichten",
+  "contextRing.system": "System",
+  "contextRing.nothingToCompact":
+    "In diesem Thread ist bereits alles verdichtet.",
+  "contextRing.compacted": "Verdichtet. Gilt ab der nächsten Nachricht.",
+  "contextRing.compactFailed": "Dieser Thread konnte nicht verdichtet werden.",
+  "workSteps.showMoreOne": "1 weiteren Schritt anzeigen",
+  "workSteps.showMoreOther": "{{count}} weitere Schritte anzeigen",
+  "workSteps.moreGroups": "+{{count}} weitere",
+  "workSteps.moreObjects": "+{{count}}",
+  "workSteps.searchedOne": "1 Suchanfrage durchsucht",
+  "workSteps.searchedOther": "{{count}} Suchanfragen durchsucht",
+  "workSteps.readPagesOne": "1 Seite gelesen",
+  "workSteps.readPagesOther": "{{count}} Seiten gelesen",
+  "workSteps.fetchedOne": "1 URL abgerufen",
+  "workSteps.fetchedOther": "{{count}} URLs abgerufen",
+  "workSteps.sourcesOne": "1 Quelle verwendet",
+  "workSteps.sourcesOther": "{{count}} Quellen verwendet",
+  "workSteps.frameworkFrames": "{{count}} Framework-Frames",
+  "workSteps.copyStackTrace": "Stacktrace kopieren",
+  "workSteps.readFilesOne": "1 Datei gelesen",
+  "workSteps.readFilesOther": "{{count}} Dateien gelesen",
+  "workSteps.editedOne": "1 Datei bearbeitet",
+  "workSteps.editedOther": "{{count}} Dateien bearbeitet",
+  "workSteps.ranCommandsOne": "1 Befehl ausgeführt",
+  "workSteps.ranCommandsOther": "{{count}} Befehle ausgeführt",
+  "workSteps.ranActionsOne": "1 Aktion ausgeführt",
+  "workSteps.ranActionsOther": "{{count}} Aktionen ausgeführt",
+  "workSteps.usedTool": "{{tool}} verwendet",
+  "workSteps.failedCount": "{{count}} fehlgeschlagen",
+  "workSteps.searching": "Suche",
+  "workSteps.readingPages": "Seiten lesen",
+  "workSteps.fetching": "URLs abrufen",
+  "workSteps.readingFiles": "Dateien lesen",
+  "workSteps.editing": "Dateien bearbeiten",
+  "workSteps.runningCommands": "Befehle ausführen",
+  "workSteps.runningActions": "Aktionen ausführen",
+  "composer.effortDefaultBadge": "Empfohlen",
+  "queue.itemBusy": "Diese Nachricht wird nach dieser Antwort gesendet.",
+  "queue.itemBlocked":
+    "Diese Nachricht konnte nicht gesendet werden. Entferne sie und sende sie erneut.",
+  "queue.orderStale":
+    "Die Warteschlange hat sich geändert. Versuche es erneut.",
+  "tabs.moreTabs": "{{count}} weitere",
+  "tabs.openChats": "Geöffnete Chats",
+  "queue.stopAndSend": "Stoppen und senden",
+  "queue.stopAndSendHint":
+    "Stoppt die aktuelle Antwort und sendet dann diese Nachricht",
+  "queue.sending": "Wird gesendet…",
+  "queue.sendsAfterReply": "Wird nach dieser Antwort gesendet",
+  "commands.planNext": "Nächste Nachricht planen",
+  "composer.removePlan": "Plan entfernen",
+  "contextRing.title": "Kontextfenster",
+  "contextRing.usage": "{{used}} / {{window}} ({{percent}} %)",
+  "contextRing.breakdown": "Aufschlüsselung",
+  "contextRing.freeSpace": "Freier Platz",
+  "history.unread": "Ungelesen",
+  "documentTitle.running": "Arbeitet · {{title}}",
+  "documentTitle.replyReady": "Antwort bereit · {{title}}",
+  "voice.dictation.recording": "Diktat läuft",
+  "voice.dictation.errors.permissionsPolicy":
+    "Diese App blockiert den Mikrofonzugriff über ihre Browser-Berechtigungsrichtlinie. Lade die App neu oder öffne sie direkt in einem Browser-Tab.",
+  "voice.dictation.errors.microphoneBlocked":
+    "Der Mikrofonzugriff ist blockiert. Klicke in der Adressleiste auf das Symbol für die Website-Einstellungen, erlaube das Mikrofon für diese App und versuche es erneut.",
+  "voice.dictation.errors.microphoneBlockedBySystem":
+    "Dein Computer blockiert den Mikrofonzugriff für diesen Browser. Erlaube ihn in den Datenschutzeinstellungen des Systems und versuche es erneut.",
+  "voice.dictation.errors.noMicrophone":
+    "Kein Mikrofon gefunden. Schließe eines an oder wähle einen anderen Eingang und versuche es erneut.",
+  "voice.dictation.errors.microphoneBusy":
+    "Dein Mikrofon wird von einer anderen App verwendet. Schließe die andere App oder wähle einen anderen Eingang und versuche es erneut.",
+  "voice.dictation.errors.startFailed":
+    "Diktat konnte nicht gestartet werden. Versuche es erneut.",
+  "voice.dictation.errors.speechServiceUnreachable":
+    "Die Spracherkennung konnte ihren Dienst nicht erreichen. Prüfe deine Verbindung oder wähle unter Sprachtranskription in den Einstellungen eine andere Quelle.",
+  "voice.dictation.errors.noAudioCaptured":
+    "Das Diktat wurde beendet, bevor Audio aufgenommen wurde. Eine andere App oder ein anderer Tab verwendet möglicherweise das Mikrofon. Schließe sie oder wähle unter Sprachtranskription in den Einstellungen eine andere Quelle.",
+  "voice.dictation.errors.speechRecognitionFailed":
+    "Spracherkennung fehlgeschlagen: {{error}}",
+  "voice.dictation.errors.recordingUnsupported":
+    "Dein Browser unterstützt keine Audioaufnahme. Wähle unter Sprachtranskription in den Einstellungen die Browser-Option.",
+  "voice.dictation.errors.transcriptionFailedStatus":
+    "Transkription fehlgeschlagen ({{status}}). Versuche es erneut.",
+  "voice.dictation.errors.transcriptionFailed":
+    "Transkription fehlgeschlagen. Prüfe deinen Anbieter unter Sprachtranskription in den Einstellungen.",
+  "voice.dictation.errors.speechRecognitionUnsupported":
+    "Dein Browser unterstützt keine Spracherkennung. Füge in den Einstellungen einen OpenAI-API-Schlüssel hinzu, um die Whisper-Transkription zu nutzen.",
+  "voice.dictation.errors.googleRealtimeStartFailed":
+    "Google-Echtzeittranskription konnte nicht gestartet werden ({{status}}).",
+  "voice.dictation.errors.googleRealtimeUploadFailed":
+    "Echtzeit-Audio-Upload fehlgeschlagen.",
+  "voice.dictation.errors.googleRealtimeFailed":
+    "Google-Echtzeittranskription fehlgeschlagen.",
+  "voice.dictation.errors.googleRealtimeConnectionFailed":
+    "Die Google-Echtzeittranskription hat die Verbindung verloren.",
+  "voice.dictation.errors.googleRealtimeStreamFailed":
+    "Der Echtzeit-Stream konnte nicht gestartet werden.",
+  "voice.dictation.errors.googleRealtimeRecordingUnsupported":
+    "Dein Browser unterstützt keine Audioaufnahme, daher kann die Google-Echtzeittranskription nicht starten.",
+  "voiceMode.endVoiceChat": "Sprachchat beenden",
+  "voiceMode.placeholder": "Hört zu…",
+  "voiceMode.muteMicrophone": "Mikrofon stummschalten",
+  "voiceMode.unmuteMicrophone": "Mikrofon einschalten",
+  "voiceMode.muteSpeaker": "Lautsprecher stummschalten",
+  "voiceMode.unmuteSpeaker": "Lautsprecher einschalten",
+  "settingsShell.account.voiceChat": "Sprachchat",
+  "settingsShell.account.voiceChatLoadError":
+    "Deine Sprachchat-Einstellungen konnten nicht geladen werden.",
+  "settingsShell.account.voiceChatSaveError":
+    "Deine Sprachchat-Einstellungen konnten nicht gespeichert werden.",
+  "voice.dictation.cancelTranscription": "Transkription abbrechen",
 };
 
 export default messages;

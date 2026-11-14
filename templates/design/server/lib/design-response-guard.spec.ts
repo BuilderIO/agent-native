@@ -422,6 +422,31 @@ describe("Design final response guard", () => {
     ).toBe(true);
   });
 
+  it.each([
+    "Please finish checking the existing welcome-email.html for HubSpot, including missing, normal and long first names and the button's fallback and populated destination. Check desktop and phone previews, including a narrow phone, then give me a concise, accurate handoff. Keep the real personalization tokens and Brand reference unchanged, and keep working on this email rather than creating another one.",
+    "Review this card; do not create another design.",
+    "Check the screen without changing its layout.",
+    "Inspect this email instead of editing the design.",
+    "Review the layout and fix it only if needed.",
+    "If the preview reveals an issue, fix the layout.",
+    "Check the screen and adjust its layout as needed.",
+    "Make sure this email aligns with HubSpot email requirements.",
+  ])("allows verification without an unconditional mutation: %s", (request) => {
+    expect(designFinalResponseGuard(guardContext(request))).toBeNull();
+  });
+
+  it.each([
+    "Do not create another frame; edit the existing screen.",
+    "Never remove the footer, but update the button.",
+    "Check this screen, then fix the footer.",
+    "If needed, fix the footer; create a new design.",
+    "Make sure to add the required tokens to this design.",
+  ])("still requires independent affirmative mutations: %s", (request) => {
+    expect(designFinalResponseGuard(guardContext(request))).toMatchObject({
+      expandToolSurface: true,
+    });
+  });
+
   it("retries prose-only completion for a design mutation", () => {
     const result = designFinalResponseGuard(
       guardContext("can you create another version of this"),
@@ -432,6 +457,39 @@ describe("Design final response guard", () => {
       expandToolSurface: true,
       retryMessage: expect.stringContaining("generate-design"),
     });
+  });
+
+  it("accepts a Design output action whose verified receipt shows a change", () => {
+    const placed = {
+      tool: "place-figma-frames",
+      verified: true as const,
+      summary: "Design output: 24 files saved.",
+      subject: "design-1",
+    };
+    const request = "Make this Figma design. Skip questions.";
+
+    expect(
+      designFinalResponseGuard(
+        guardContext(request, {
+          toolResults: [toolResult("place-figma-frames", { placedFrames: 24 })],
+          receipts: [{ ...placed, changed: true }],
+        }),
+      ),
+    ).toBeNull();
+    expect(
+      designFinalResponseGuard(
+        guardContext(request, { receipts: [{ ...placed, changed: false }] }),
+      ),
+    ).not.toBeNull();
+    // A verified write by something other than a Design output action is not
+    // proof that the design was made.
+    expect(
+      designFinalResponseGuard(
+        guardContext(request, {
+          receipts: [{ ...placed, tool: "save-memory", changed: true }],
+        }),
+      ),
+    ).not.toBeNull();
   });
 
   it("does not accept the empty project shell as a completed design", () => {
@@ -619,6 +677,44 @@ describe("Design final response guard", () => {
     );
 
     expect(result).not.toBeNull();
+  });
+
+  it("accepts a moved element only when the move was persisted", () => {
+    expect(
+      designFinalResponseGuard(
+        guardContext("move the card to the second screen", {
+          toolResults: [
+            toolResult("move-design-element", {
+              designId: "design-1",
+              moved: true,
+              movedNodeId: "node-1",
+            }),
+          ],
+        }),
+      ),
+    ).toBeNull();
+
+    for (const toolResults of [
+      [
+        toolResult("move-design-element", {
+          designId: "design-1",
+          moved: false,
+        }),
+      ],
+      [
+        toolResult(
+          "move-design-element",
+          { designId: "design-1", moved: true },
+          true,
+        ),
+      ],
+    ]) {
+      expect(
+        designFinalResponseGuard(
+          guardContext("move the card to the second screen", { toolResults }),
+        ),
+      ).not.toBeNull();
+    }
   });
 
   it("judges the user's words, not the context the app attached to them", () => {

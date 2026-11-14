@@ -19,15 +19,14 @@ import {
 } from "@/components/ui/sheet";
 import { APP_TITLE } from "@/lib/app-config";
 
+// Not lazy() like Header: the inspector wraps the page, so a Suspense fallback
+// would mount the page once before its chunk loads and again after.
+// AgentSidebar already lazy-loads its own panel.
+import { AgentInspector } from "./AgentInspector";
 import { Sidebar } from "./Sidebar";
 
 const Header = lazy(() =>
   import("./Header").then((module) => ({ default: module.Header })),
-);
-const AgentInspector = lazy(() =>
-  import("./AgentInspector").then((module) => ({
-    default: module.AgentInspector,
-  })),
 );
 
 interface LayoutProps {
@@ -176,14 +175,12 @@ export function Layout({ children }: LayoutProps) {
             {contentFrame}
           </div>
         ) : (
-          <Suspense fallback={contentFrame}>
-            <AgentInspector
-              chatHomeHandoffActive={chatHomeHandoffActive}
-              chatHomeHandoffPending={chatHomeHandoffPending}
-            >
-              {contentFrame}
-            </AgentInspector>
-          </Suspense>
+          <AgentInspector
+            chatHomeHandoffActive={chatHomeHandoffActive}
+            chatHomeHandoffPending={chatHomeHandoffPending}
+          >
+            {contentFrame}
+          </AgentInspector>
         )}
       </div>
     </HeaderActionsProvider>

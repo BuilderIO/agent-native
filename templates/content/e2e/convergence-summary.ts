@@ -1,6 +1,11 @@
 // Renders the two-tab convergence report as a job summary:
-//   node --experimental-strip-types e2e/convergence-summary.ts <report.jsonl> [playwright-report.json...]
-// Each Playwright report is one group, headed by its file name.
+//   node --experimental-strip-types e2e/convergence-summary.ts <report.jsonl> [[--required] playwright-report.json...]
+// Each Playwright report is one group, headed by its file name. A report after
+// --required must exist, read as a Playwright report whose every spec lists
+// its tests and every test has a known status, have at least one spec that
+// passed, and have no failed spec (ok false, or an unexpected test), or the
+// summary exits 1. Any other report that is missing or unreadable is listed
+// and never changes the exit status.
 import { existsSync, readFileSync } from "node:fs";
 import { basename } from "node:path";
 
@@ -24,7 +29,27 @@ type PlaywrightSuite = {
 
 const KNOWN_LOSS = "known-loss";
 
-const [reportPath, ...playwrightReportPaths] = process.argv.slice(2);
+const [reportPath, ...reportArgs] = process.argv.slice(2);
+const playwrightReportPaths: string[] = [];
+const requiredReportPaths: string[] = [];
+for (let index = 0; index < reportArgs.length; index += 1) {
+  const arg = reportArgs[index];
+  if (arg !== "--required") {
+    playwrightReportPaths.push(arg);
+    continue;
+  }
+  index += 1;
+  const required = reportArgs.at(index);
+  if (required === undefined || required === "--required") {
+    // A dropped report name would otherwise turn a required report optional.
+    console.error(
+      "Usage: convergence-summary.ts <report.jsonl> [[--required] playwright-report.json...]\n--required must be followed by a report path.",
+    );
+    process.exit(1);
+  }
+  playwrightReportPaths.push(required);
+  requiredReportPaths.push(required);
+}
 if (!reportPath || !existsSync(reportPath)) {
   // A missing report means the lane did not run, not that it found nothing.
   console.log(
@@ -33,10 +58,22 @@ if (!reportPath || !existsSync(reportPath)) {
   process.exit(1);
 }
 
-const records = readFileSync(reportPath, "utf8")
+// The report concatenates every group's records, so a line a known-loss run
+// cut short is listed as unreadable rather than failing the summary.
+const records: ScenarioRecord[] = [];
+const unreadableRecords: string[] = [];
+readFileSync(reportPath, "utf8")
   .split("\n")
-  .filter(Boolean)
-  .map((line) => JSON.parse(line) as ScenarioRecord);
+  .forEach((line, index) => {
+    if (!line) return;
+    try {
+      records.push(JSON.parse(line) as ScenarioRecord);
+    } catch (error) {
+      unreadableRecords.push(
+        `- line ${index + 1}: ${(error as Error).message}`,
+      );
+    }
+  });
 
 const sum = (tabs: TabRecord[], pick: (tab: TabRecord) => number) =>
   tabs.reduce((total, tab) => total + pick(tab), 0);
@@ -140,48 +177,115 @@ if (notes.length)
     ),
   );
 
-const missing = playwrightReportPaths.filter((file) => !existsSync(file));
-const reports = playwrightReportPaths.filter(existsSync).map((file) => {
-  const report = JSON.parse(readFileSync(file, "utf8")) as {
-    suites: PlaywrightSuite[];
-  };
+if (unreadableRecords.length)
+  lines.push(
+    "",
+    "### Unreadable convergence records, not counted",
+    "",
+    ...unreadableRecords,
+  );
+
+const TEST_STATUSES: readonly unknown[] = [
+  "expected",
+  "unexpected",
+  "flaky",
+  "skipped",
+];
+const isTest = (test: unknown): test is PlaywrightTest =>
+  typeof test === "object" &&
+  test !== null &&
+  TEST_STATUSES.includes((test as PlaywrightTest).status);
+// A required spec must list its tests: one without them could hide a failure
+// the gate never sees.
+const isSpec = (spec: unknown, required: boolean): spec is PlaywrightSpec => {
+  if (typeof spec !== "object" || spec === null) return false;
+  const { title, ok, tags, tests } = spec as PlaywrightSpec;
+  return (
+    typeof title === "string" &&
+    typeof ok === "boolean" &&
+    Array.isArray(tags) &&
+    (tests === undefined
+      ? !required
+      : Array.isArray(tests) && tests.every(isTest))
+  );
+};
+// Returns the report's specs, or why it could not be read.
+const readReport = (
+  file: string,
+  required: boolean,
+): PlaywrightSpec[] | string => {
+  let report: unknown;
+  try {
+    report = JSON.parse(readFileSync(file, "utf8"));
+  } catch (error) {
+    return `not JSON: ${(error as Error).message}`;
+  }
   const specs: PlaywrightSpec[] = [];
-  const walk = (suite: PlaywrightSuite) => {
-    specs.push(...(suite.specs ?? []));
-    for (const child of suite.suites ?? []) walk(child);
+  const walk = (suite: unknown): boolean => {
+    if (typeof suite !== "object" || suite === null) return false;
+    const { specs: suiteSpecs = [], suites = [] } = suite as PlaywrightSuite;
+    if (!Array.isArray(suiteSpecs) || !Array.isArray(suites)) return false;
+    if (!suiteSpecs.every((spec) => isSpec(spec, required))) return false;
+    specs.push(...suiteSpecs);
+    return suites.every(walk);
   };
-  for (const suite of report.suites) walk(suite);
-  return { label: basename(file, ".json"), specs };
+  const suites = (report as { suites?: unknown } | null)?.suites;
+  if (!Array.isArray(suites) || !suites.every(walk))
+    return "not a Playwright JSON report";
+  return specs;
+};
+
+// The rendered counts and the required gate both read this, so a summary can't
+// list a failure, or no pass, that the exit status ignores. A flaky test passed
+// on retry; a spec whose every test was skipped checked nothing.
+const outcome = (spec: PlaywrightSpec): "failed" | "skipped" | "passed" => {
+  const tests = spec.tests ?? [];
+  if (!spec.ok || tests.some((test) => test.status === "unexpected"))
+    return "failed";
+  return tests.every((test) => test.status === "skipped")
+    ? "skipped"
+    : "passed";
+};
+
+const missing = playwrightReportPaths.filter((file) => !existsSync(file));
+const unreadable: string[] = [];
+const requiredProblems = requiredReportPaths
+  .filter((file) => !existsSync(file))
+  .map((file) => `- \`${file}\`: missing, so its tests did not run`);
+const reports = playwrightReportPaths.filter(existsSync).flatMap((file) => {
+  const required = requiredReportPaths.includes(file);
+  const specs = readReport(file, required);
+  if (typeof specs === "string") {
+    if (required) requiredProblems.push(`- \`${file}\`: ${specs}`);
+    else unreadable.push(`- \`${file}\`: ${specs}`);
+    return [];
+  }
+  if (required) {
+    if (!specs.some((spec) => outcome(spec) === "passed"))
+      requiredProblems.push(`- \`${file}\`: reports no test that passed`);
+    const failedTitles = specs
+      .filter((spec) => outcome(spec) === "failed")
+      .map((spec) => spec.title);
+    if (failedTitles.length)
+      requiredProblems.push(
+        `- \`${file}\`: ${failedTitles.length} failed: ${failedTitles.join("; ")}`,
+      );
+  }
+  // A heading says required only when the gate checks that report.
+  const heading = `${basename(file, ".json")}: ${required ? "required" : "not blocking"}`;
+  return [{ heading, specs }];
 });
 const specs = reports.flatMap((report) => report.specs);
-// The JSON report strips the `@` from tags.
-const groups = reports
-  .flatMap(
-    ({ label, specs }) =>
-      [
-        [
-          `${label}: required`,
-          specs.filter((spec) => !spec.tags.includes(KNOWN_LOSS)),
-        ],
-        [
-          `${label}: known loss, not blocking`,
-          specs.filter((spec) => spec.tags.includes(KNOWN_LOSS)),
-        ],
-      ] as const,
-  )
-  .filter(([, group]) => group.length > 0);
-// A skipped test reports ok, so it is counted apart: it checked nothing.
 const skipReason = (spec: PlaywrightSpec) =>
-  spec.tests?.every((test) => test.status === "skipped")
-    ? (spec.tests
-        .flatMap((test) => test.annotations ?? [])
-        .find((annotation) => annotation.type === "skip")?.description ??
-      "no reason given")
-    : null;
+  (spec.tests ?? [])
+    .flatMap((test) => test.annotations ?? [])
+    .find((annotation) => annotation.type === "skip")?.description ??
+  "no reason given";
 if (reports.length) {
-  for (const [heading, group] of groups) {
-    const skipped = group.filter((spec) => skipReason(spec) !== null);
-    const failed = group.filter((spec) => !spec.ok);
+  for (const { heading, specs: group } of reports) {
+    if (!group.length) continue;
+    const failed = group.filter((spec) => outcome(spec) === "failed");
+    const skipped = group.filter((spec) => outcome(spec) === "skipped");
     lines.push(
       "",
       `### ${heading}: ${group.length - failed.length - skipped.length} passed, ${failed.length} failed, ${skipped.length} skipped`,
@@ -209,4 +313,16 @@ if (!playwrightReportPaths.length || missing.length)
     `No Playwright report${missing.length ? ` at ${missing.map((file) => `\`${file}\``).join(", ")}` : ""}, so the recorded scenarios may not be every test.`,
   );
 
+if (unreadable.length)
+  lines.push("", "### Unreadable reports, not blocking", "", ...unreadable);
+
+if (requiredProblems.length)
+  lines.push(
+    "",
+    "### Required reports that fail the check",
+    "",
+    ...requiredProblems,
+  );
+
 console.log(`${lines.join("\n")}\n`);
+if (requiredProblems.length) process.exit(1);

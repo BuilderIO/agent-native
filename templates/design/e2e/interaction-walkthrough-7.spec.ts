@@ -375,7 +375,7 @@ test.describe("card and container interactions", () => {
     await page.goto(appPath(`/design/${designId}?view=overview&zoom=30`), {
       waitUntil: "domcontentloaded",
     });
-    await expect(page.locator(LIVE_SCREEN)).toBeVisible({ timeout: 30_000 });
+    await expect(page.locator(LIVE_SCREEN)).toBeVisible();
     await expect(
       page
         .frameLocator(LIVE_SCREEN)

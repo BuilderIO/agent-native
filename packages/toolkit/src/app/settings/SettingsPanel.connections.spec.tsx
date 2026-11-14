@@ -178,6 +178,78 @@ describe("ConnectionsSettingsContent", () => {
     act(() => root.unmount());
   });
 
+  it("shows a retry action when saved Builder account details are unreadable", async () => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    const builderStatusRequests: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/_agent-native/connection-status/builder")) {
+          builderStatusRequests.push(url);
+          return new Response(
+            JSON.stringify({
+              configured: true,
+              builderEnabled: false,
+              envManaged: false,
+              orgName: null,
+              connectUrl: "/_agent-native/builder/connect?_an_connect=test",
+              appHost: "https://builder.io",
+              apiHost: "https://api.builder.io",
+              publicKeyConfigured: true,
+              privateKeyConfigured: true,
+              optionalMetadataLookupFailure: "unreadable",
+            }),
+            { headers: { "Content-Type": "application/json" } },
+          );
+        }
+        return new Response(JSON.stringify([]), {
+          headers: { "Content-Type": "application/json" },
+        });
+      }),
+    );
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const root = createRoot(container);
+    const queryClient = new QueryClient();
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter>
+          <QueryClientProvider client={queryClient}>
+            <AgentSettingsContent sections={["auth"]} />
+          </QueryClientProvider>
+        </MemoryRouter>,
+      );
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await flushLazyImport(
+      () =>
+        container.textContent?.includes(
+          "Some saved Builder account details could not be read.",
+        ) === true,
+    );
+    expect(container.querySelector('[role="status"]')?.textContent).toContain(
+      "Retry",
+    );
+    const initialRequestCount = builderStatusRequests.length;
+    expect(initialRequestCount).toBeGreaterThan(0);
+
+    await act(async () => {
+      [...container.querySelectorAll("button")]
+        .find((button) => button.textContent?.trim() === "Retry")
+        ?.click();
+    });
+    await flushLazyImport(
+      () => builderStatusRequests.length > initialRequestCount,
+    );
+
+    act(() => root.unmount());
+  });
+
   it("keeps Builder account connection available without a branch project", async () => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.stubGlobal(

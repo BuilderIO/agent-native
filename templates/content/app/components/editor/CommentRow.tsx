@@ -1,5 +1,5 @@
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
-import { InlineMarkdown } from "@agent-native/toolkit/app/review";
+import { CommentBody } from "@agent-native/toolkit/app/review";
 import {
   findCommentMentions,
   type CommentMention,
@@ -29,13 +29,17 @@ export { CommentAvatar } from "./CommentAvatar";
  */
 
 /**
- * Render a comment body. Each `@name` that matches one of the comment's
- * stored mentions becomes a pill for that person or agent; text that only
- * looks like a mention stays text. Raw HTML is never interpreted.
+ * Render a comment body with the toolkit's `CommentBody`. Each `@name` that
+ * matches one of the comment's stored mentions becomes a pill for that person
+ * or agent; text that only looks like a mention stays text. Links to other
+ * pages open in the app.
+ *
+ * `compact` flattens the body to one run of text for clamped previews.
  */
 export function renderCommentBody(
   content: string,
   mentions: readonly CommentMention[],
+  { compact = false }: { compact?: boolean } = {},
 ) {
   const mentionAt = new Map(
     findCommentMentions(content, mentions).map(({ start, mention }) => [
@@ -44,22 +48,21 @@ export function renderCommentBody(
     ]),
   );
   return (
-    <InlineMarkdown
-      content={content}
-      inline
-      protectedSpans={[...mentionAt].map(([at, mention]) => ({
-        source: `@${mention.name}`,
-        label: `@${mention.name}`,
+    <CommentBody
+      body={content}
+      compact={compact}
+      mentions={[...mentionAt].map(([at, mention]) => ({
+        label: mention.name,
         at,
+        kind: mention.kind,
       }))}
-      renderProtectedSpan={(span, children) => {
+      // A mention written as `@[Name](mailto:…)`, as agents and other apps
+      // write them, has no stored entry, so its email makes it a person.
+      renderMention={({ at, label, email }) => {
         const mention =
-          span.at === undefined ? undefined : mentionAt.get(span.at);
-        return mention ? (
-          <CommentMentionPill mention={mention} />
-        ) : (
-          <span>{children}</span>
-        );
+          (at === undefined ? undefined : mentionAt.get(at)) ??
+          (email ? { kind: "person" as const, email, name: label } : null);
+        return mention ? <CommentMentionPill mention={mention} /> : null;
       }}
       renderLink={(href, children, className) =>
         href.startsWith("/page/") ? (
@@ -144,16 +147,20 @@ export function useCommentTimestamp() {
 }
 
 /**
- * The outlined "Agent" pill beside an author name. Its tooltip carries the
- * accountable person and the submission channel, because an agent comment is
- * posted on someone's behalf rather than by an independent account.
+ * The outlined "Agent" pill beside an author name, or the agent's name when
+ * it is known. Its tooltip carries the accountable person and the submission
+ * channel, because an agent comment is posted on someone's behalf rather
+ * than by an independent account.
  */
 export function CommentAgentBadge({
   details,
   ariaLabel,
+  label,
 }: {
   details: ReactNode;
   ariaLabel: string;
+  /** The agent's name, such as "Claude Code", in place of "Agent". */
+  label?: string | undefined;
 }) {
   const t = useT();
   const [open, setOpen] = useState(false);
@@ -171,7 +178,7 @@ export function CommentAgentBadge({
           className="pointer-events-auto inline-flex h-5 shrink-0 items-center rounded-md border border-border bg-background px-1.5 text-xs font-medium leading-none text-foreground/80 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           data-comment-agent-badge
         >
-          {t("comments.agentBadge")}
+          {label ?? t("comments.agentBadge")}
         </button>
       </TooltipTrigger>
       <TooltipContent side="top" align="start" sideOffset={6}>

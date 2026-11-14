@@ -44,10 +44,61 @@ vi.mock("../server/lib/google-calendar.js", () => ({
   isConnected: isConnectedMock,
 }));
 
+import {
+  actionCallIntent,
+  preparedCallArguments,
+} from "@agent-native/core/action";
 import { buildDeepLink } from "@agent-native/core/server";
 
-import { dateKeyInTimezone } from "../shared/timezone.js";
 import createEventAction from "./create-event";
+
+describe("create-event approval gate", () => {
+  async function gate(args: Record<string, unknown>) {
+    const needsApproval = createEventAction.needsApproval;
+    if (typeof needsApproval !== "function")
+      throw new Error("expected a predicate");
+    const intent = await actionCallIntent(createEventAction, {
+      title: "Focus time",
+      start: "2026-10-21T16:00:00.000Z",
+      end: "2026-10-21T17:00:00.000Z",
+      ...args,
+    });
+    if (!intent.valid) throw intent.error;
+    return needsApproval(preparedCallArguments(intent) as never);
+  }
+
+  it.each([undefined, "all", "externalOnly", "none"])(
+    "does not request approval with no attendees and sendUpdates=%s",
+    async (sendUpdates) => {
+      for (const attendees of [undefined, [], "", "not-an-address"]) {
+        expect(await gate({ attendees, sendUpdates })).toBe(false);
+      }
+    },
+  );
+
+  it.each([undefined, "all", "externalOnly", "none"])(
+    "requires approval only when guests may be notified with sendUpdates=%s",
+    async (sendUpdates) => {
+      for (const attendees of [
+        "guest@example.com",
+        [{ email: "guest@example.com" }],
+      ]) {
+        expect(await gate({ attendees, sendUpdates })).toBe(
+          sendUpdates !== "none",
+        );
+      }
+    },
+  );
+
+  it("still gates out-of-office auto-declines without attendees", async () => {
+    expect(await gate({ eventType: "outOfOffice", sendUpdates: "none" })).toBe(
+      true,
+    );
+    expect(
+      await gate({ eventType: "outOfOffice", autoDeclineMode: "declineNone" }),
+    ).toBe(false);
+  });
+});
 
 describe("create-event recurrence", () => {
   beforeEach(() => {
@@ -203,16 +254,103 @@ describe("create-event recurrence", () => {
       start: "2026-10-03T06:30:00.000",
       end: "2026-10-03T06:50:00.000",
     });
-    const expectedDate = dateKeyInTimezone(
-      new Date("2026-10-03T06:30:00.000"),
-      "America/Los_Angeles",
-    );
-
     expect(result.change.detail).toContain("PT");
     expect(result.change.url).toBe(
-      `https://calendar.example.test/event?date=${expectedDate}`,
+      "https://calendar.example.test/event?date=2026-10-03",
     );
   });
+
+  it.each(["explicit", "saved"])(
+    "preserves all-day calendar dates with a %s positive-offset timezone",
+    async (source) => {
+      getUserSettingMock.mockImplementation((_email: string, key: string) =>
+        key === "calendar-settings" ? { timezone: "Asia/Kolkata" } : undefined,
+      );
+
+      const result = await createEventAction.run({
+        title: "Holiday",
+        allDay: true,
+        start: "2026-11-04T00:00:00",
+        end: "2026-11-06T00:00:00",
+        ...(source === "explicit" ? { startTimeZone: "Asia/Kolkata" } : {}),
+      });
+
+      expect(createEventMock).toHaveBeenCalledWith(
+        expect.objectContaining({
+          allDay: true,
+          start: "2026-11-04",
+          end: "2026-11-06",
+        }),
+        expect.anything(),
+      );
+      expect(result.change.detail).toBe("Nov 4, 2026–Nov 5, 2026");
+    },
+  );
+
+  it("rejects an all-day range without a later exclusive end date", async () => {
+    await expect(
+      createEventAction.run({
+        title: "Holiday",
+        allDay: true,
+        start: "2026-11-04",
+        end: "2026-11-04T23:00:00",
+        startTimeZone: "Asia/Kolkata",
+      }),
+    ).rejects.toThrow("Event end must be after its start.");
+    expect(createEventMock).not.toHaveBeenCalled();
+  });
+
+  it("saves a zoneless wall-clock time at that time in the saved Calendar timezone", async () => {
+    getUserSettingMock.mockImplementation((_email: string, key: string) =>
+      key === "calendar-settings" ? { timezone: "Asia/Kolkata" } : undefined,
+    );
+
+    await createEventAction.run({
+      title: "QA team meeting",
+      start: "2026-11-04T10:00:00",
+      end: "2026-11-04T11:00:00",
+    });
+    await createEventAction.run({
+      title: "Weekly sync",
+      start: "2026-11-09T09:30:00",
+      end: "2026-11-09T10:00:00",
+      recurrence: "RRULE:FREQ=WEEKLY;BYDAY=MO;COUNT=13",
+    });
+
+    expect(createEventMock.mock.calls[0][0]).toMatchObject({
+      start: "2026-11-04T04:30:00.000Z",
+      end: "2026-11-04T05:30:00.000Z",
+      startTimeZone: "Asia/Kolkata",
+      endTimeZone: "Asia/Kolkata",
+    });
+    expect(createEventMock.mock.calls[1][0]).toMatchObject({
+      start: "2026-11-09T04:00:00.000Z",
+      startTimeZone: "Asia/Kolkata",
+      recurrence: ["RRULE:FREQ=WEEKLY;BYDAY=MO;COUNT=13"],
+    });
+  });
+
+  it.each(["", "   "])(
+    "uses the saved timezone when startTimeZone is blank: %j",
+    async (timezone) => {
+      getUserSettingMock.mockImplementation((_email: string, key: string) =>
+        key === "calendar-settings" ? { timezone: "Asia/Kolkata" } : undefined,
+      );
+      await createEventAction.run({
+        title: "Meeting",
+        start: "2026-11-04T10:00:00",
+        end: "2026-11-04T11:00:00",
+        startTimeZone: timezone,
+        endTimeZone: timezone,
+      });
+      expect(createEventMock.mock.calls[0][0]).toMatchObject({
+        start: "2026-11-04T04:30:00.000Z",
+        end: "2026-11-04T05:30:00.000Z",
+        startTimeZone: "Asia/Kolkata",
+        endTimeZone: "Asia/Kolkata",
+      });
+    },
+  );
 
   it("formats event timing using the saved interface locale", async () => {
     getUserSettingMock.mockResolvedValue({ locale: "de-DE" });

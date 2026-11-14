@@ -1,5 +1,6 @@
 import type { ResourceSuggestion } from "@agent-native/core/review";
 import type { DocumentProperty } from "@shared/api";
+import { suggestionBlocksFieldId } from "@shared/blocks-field-suggestions";
 import { isBlocksPropertyType, isPrimaryBlocksField } from "@shared/properties";
 
 import type { CommentThread } from "@/hooks/use-comments";
@@ -14,6 +15,21 @@ export function commentThreadFieldId(
   thread: Pick<CommentThread, "field">,
 ): string | null {
   return thread.field?.fieldId ?? null;
+}
+
+/**
+ * The threads the margin shows with one tab open: that tab's and the
+ * Property threads. A page without tabs shows them all.
+ */
+export function commentRailThreads<
+  T extends Pick<CommentThread, "field" | "property">,
+>(threads: readonly T[], openFieldId: string | null): T[] {
+  if (openFieldId === null && !threads.some((thread) => thread.field)) {
+    return threads as T[];
+  }
+  return threads.filter(
+    (thread) => thread.property || commentThreadFieldId(thread) === openFieldId,
+  );
 }
 
 /** A key for a tab that a Map or a filter can hold: "" is the page body. */
@@ -133,10 +149,11 @@ export function showsCommentTabs(
 export type BlockFieldOpenCounts = ReadonlyMap<string | null, number>;
 
 /**
- * Open review per tab, as the margin shows it: unresolved threads, and on the
- * body also pending suggestions with their text on the page (a proposal of
- * several edits counts once) and unsaved draft suggestions. Property threads
- * belong to no tab.
+ * Open review per tab, as the margin shows it: unresolved threads, pending
+ * suggestions (on the body, only those with their text on the page; a
+ * proposal of several edits counts once) and unsaved draft suggestions, each
+ * in the tab it edits. Property threads and comments on the whole page belong
+ * to no tab.
  */
 export function openReviewCountsByField({
   threads,
@@ -146,14 +163,22 @@ export function openReviewCountsByField({
 }: {
   threads: readonly CommentThread[] | undefined;
   suggestions: readonly ResourceSuggestion[];
-  draftSuggestions: readonly unknown[];
+  draftSuggestions: ReadonlyArray<{
+    operations: ReadonlyArray<{ targetId?: unknown }>;
+  }>;
+  /** The body's suggestions its editor shows; tabs' aren't listed. */
   anchoredSuggestionIds: readonly string[] | null | undefined;
 }): Map<string | null, number> {
   const counts = new Map<string | null, number>();
   const add = (fieldId: string | null, count = 1) =>
     counts.set(fieldId, (counts.get(fieldId) ?? 0) + count);
   for (const thread of threads ?? []) {
-    if (thread.resolved || thread.property) continue;
+    if (
+      thread.resolved ||
+      thread.property ||
+      !(thread.block || thread.quotedText?.trim())
+    )
+      continue;
     add(commentThreadFieldId(thread));
   }
   const embedded = new Set(
@@ -174,15 +199,20 @@ export function openReviewCountsByField({
     if (suggestion.status !== "pending" || embedded.has(suggestion.id)) {
       continue;
     }
-    if (anchoredSuggestionIds && !anchoredSuggestionIds.includes(suggestion.id))
+    const fieldId = suggestionBlocksFieldId(suggestion);
+    if (
+      fieldId === null &&
+      anchoredSuggestionIds &&
+      !anchoredSuggestionIds.includes(suggestion.id)
+    )
       continue;
     const proposalId = suggestion.proposalId;
     if (proposalId && (proposalSizes.get(proposalId) ?? 0) >= 2) {
       if (countedProposals.has(proposalId)) continue;
       countedProposals.add(proposalId);
     }
-    add(null);
+    add(fieldId);
   }
-  if (draftSuggestions.length > 0) add(null, draftSuggestions.length);
+  for (const draft of draftSuggestions) add(suggestionBlocksFieldId(draft));
   return counts;
 }

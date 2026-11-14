@@ -1,3 +1,5 @@
+import { defineAction } from "@agent-native/core/action";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 /**
  * Search meetings by title, AI summary, user notes, attendee, or the linked
  * recording's transcript.
@@ -10,14 +12,18 @@
  * in the query itself, so a transcript match can never surface a meeting the
  * caller cannot already open.
  */
-
-import { defineAction } from "@agent-native/core/action";
 import { accessFilter } from "@agent-native/core/sharing";
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { meetingRecordingTranscriptFilter } from "../server/lib/meeting-recording-access.js";
 import { booleanParam } from "./lib/cli-params.js";
+import {
+  AGENT_MEETINGS_PER_CALL,
+  isAgentMeetingCaller,
+  meetingRowForAgent,
+} from "./lib/meeting-content.js";
 import { buildCaseInsensitiveSearchPattern } from "./search-recordings-utils.js";
 
 const SNIPPET_RADIUS = 90;
@@ -34,6 +40,7 @@ const MEETING_COLUMNS = {
   transcriptStatus: schema.meetings.transcriptStatus,
   summaryMd: schema.meetings.summaryMd,
   userNotesMd: schema.meetings.userNotesMd,
+  actionItemsJson: schema.meetings.actionItemsJson,
   source: schema.meetings.source,
   platform: schema.meetings.platform,
   trashedAt: schema.meetings.trashedAt,
@@ -76,18 +83,25 @@ function buildSnippet(
 
 export default defineAction({
   description:
-    "Search meetings by title, AI summary, user notes, attendee name/email, or the transcript of the linked recording. Returns each match with a snippet showing why it matched. Use this to find an older call by what was said in it — list-meetings only filters by date.",
+    "Search meetings by title, AI summary, user notes, attendee name/email, or the transcript of the linked recording. Returns each match with a snippet showing why it matched. Use this to find an older call by what was said in it — list-meetings only filters by date. Agent calls get at most 25 matches, each with summaryPreview and hasNotes in place of its whole summary and notes; get-meeting has those and the transcript. hasMore=true means more meetings match than came back; narrow the query to reach them.",
   schema: z.object({
-    query: z.string().min(1).describe("Search text"),
+    query: z.string().min(1).max(200).describe("Search text"),
     limit: z.coerce.number().int().min(1).max(100).default(30),
     includeTrashed: booleanParam
       .default(false)
       .describe("Include meetings that have been moved to trash."),
   }),
+  mcpApp: { compactCatalog: true },
   http: { method: "GET" },
-  run: async (args) => {
+  run: async (args, ctx) => {
     const db = getDb();
     const pattern = buildCaseInsensitiveSearchPattern(args.query);
+    const forAgent = isAgentMeetingCaller(ctx?.caller);
+    // Each transcript match loads its whole transcript for the snippet, so
+    // agents, who search often, load fewer.
+    const limit = forAgent
+      ? Math.min(args.limit, AGENT_MEETINGS_PER_CALL)
+      : args.limit;
 
     const visible = () => {
       const clauses = [accessFilter(schema.meetings, schema.meetingShares)];
@@ -111,7 +125,7 @@ export default defineAction({
           ),
         )
         .orderBy(recencyOrder)
-        .limit(args.limit),
+        .limit(limit + 1),
       db
         .selectDistinct({
           meetingId: schema.meetingParticipants.meetingId,
@@ -129,13 +143,17 @@ export default defineAction({
           ),
         )
         .orderBy(recencyOrder)
-        .limit(args.limit),
+        .limit(limit + 1),
       db
         .select({
           ...MEETING_COLUMNS,
           fullText: schema.recordingTranscripts.fullText,
         })
         .from(schema.meetings)
+        .innerJoin(
+          schema.recordings,
+          eq(schema.recordings.id, schema.meetings.recordingId),
+        )
         .innerJoin(
           schema.recordingTranscripts,
           eq(
@@ -146,11 +164,12 @@ export default defineAction({
         .where(
           and(
             visible(),
+            meetingRecordingTranscriptFilter(getRequestUserEmail()),
             sql`lower(${schema.recordingTranscripts.fullText}) LIKE ${pattern} ESCAPE '\\'`,
           ),
         )
         .orderBy(recencyOrder)
-        .limit(args.limit),
+        .limit(limit + 1),
     ]);
 
     const participantMeetingIdList = participantMeetingIds.map(
@@ -252,8 +271,13 @@ export default defineAction({
           (Number.isNaN(aStart) ? 0 : aStart)
         );
       })
-      .slice(0, args.limit);
+      .slice(0, limit);
 
-    return { meetings, query: args.query };
+    return {
+      meetings: forAgent ? meetings.map(meetingRowForAgent) : meetings,
+      // Each source reads one past the page, so a match left out shows here.
+      hasMore: merged.size > limit,
+      query: args.query,
+    };
   },
 });

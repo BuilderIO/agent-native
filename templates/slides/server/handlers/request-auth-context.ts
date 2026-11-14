@@ -5,6 +5,7 @@ import {
   isCredentialMembershipUnavailable,
   runWithRequestContext,
 } from "@agent-native/core/server";
+import { assertAccess, ForbiddenError } from "@agent-native/core/sharing";
 import type { H3Event } from "h3";
 
 export interface SlidesRequestAuthContext {
@@ -26,7 +27,7 @@ export interface SlidesRequestAuthContext {
  */
 export class SlidesSessionLookupError extends Error {
   readonly statusCode = 503;
-  readonly cause: unknown;
+  override readonly cause: unknown;
   constructor(cause: unknown) {
     super("Could not verify your session. Please try again.");
     this.name = "SlidesSessionLookupError";
@@ -104,5 +105,34 @@ export async function withSlidesRequestContext<T>(
     preResolvedContext ?? (await resolveSlidesRequestAuthContext(event));
   return runWithRequestContext({ userEmail: ctx.email, orgId: ctx.orgId }, () =>
     fn(ctx),
+  );
+}
+
+/**
+ * Upload routes have no deck in their path, so a deck the caller cannot edit is
+ * refused before any bytes are stored: a refusal after the upload orphans the file.
+ */
+export async function assertDeckEditableForUpload(
+  event: H3Event,
+  ctx: SlidesRequestAuthContext,
+  deckId: string | undefined,
+): Promise<void> {
+  if (!deckId) return;
+  await withSlidesRequestContext(
+    event,
+    async () => {
+      try {
+        await assertAccess("deck", deckId, "editor");
+      } catch (error) {
+        if (error instanceof ForbiddenError) {
+          throw Object.assign(
+            new Error("You don't have permission to edit this deck."),
+            { statusCode: 403 },
+          );
+        }
+        throw error;
+      }
+    },
+    ctx,
   );
 }

@@ -64,7 +64,6 @@ import type {
   FileDeletionHistorySnapshot,
   GeometryHistoryEntry,
   GeometryHistorySelection,
-  SelectionHistoryEntry,
 } from "@/pages/design-editor/history";
 import {
   applyDuplicateStackHistoryChange,
@@ -107,6 +106,8 @@ import { pendingEditTargetsSelectedElement } from "@/pages/design-editor/selecti
 import { prepareCanonicalSourceContent } from "@/pages/design-editor/source-publication";
 import type { DesignFile } from "@/pages/design-editor/types";
 
+import { designMetadataQueryKey } from "../design-query-key";
+
 function duplicateStackZOperations(
   before: CanvasFrameGeometryById,
   after: CanvasFrameGeometryById,
@@ -143,7 +144,12 @@ function currentFrameGeometry(
 
 export interface RedoArgs {
   activeEditorDragRef: RefObject<boolean>;
-  activeFile: DesignFile;
+  activeFile: DesignFile | undefined;
+  cancelPendingPastedMediaForHistoryReplay?: (
+    screenId: string,
+    previousContent: string,
+    replayedContent: string,
+  ) => void;
   applyFileContentUpdate: (
     fileId: string,
     nextContent: string,
@@ -230,7 +236,7 @@ export interface RedoArgs {
   geometryUndoStackRef: RefObject<GeometryHistoryEntry[]>;
   getFreshActiveContent: () => string;
   getScreenContent: (screenId: string) => string;
-  historyOrderRef: RefObject<(UndoRedoOrderKind | "selection")[]>;
+  historyOrderRef: RefObject<UndoRedoOrderKind[]>;
   id: string | undefined;
   isSynced: boolean;
   lastLocalContentRef: RefObject<string | null>;
@@ -313,7 +319,7 @@ export interface RedoArgs {
   recordLocalContentHistoryChangeFallback: (
     change: ContentHistoryChange,
   ) => void;
-  redoOrderRef: RefObject<(UndoRedoOrderKind | "selection")[]>;
+  redoOrderRef: RefObject<UndoRedoOrderKind[]>;
   replacePreviewContent: (
     nextContent: string,
     selector?: string | null,
@@ -324,8 +330,6 @@ export interface RedoArgs {
   ) => void;
   runtimeStructureInsertRevisionRef: RefObject<number>;
   runtimeStructureMoveRevisionRef: RefObject<number>;
-  selectionRedoStackRef: RefObject<SelectionHistoryEntry[]>;
-  selectionUndoStackRef: RefObject<SelectionHistoryEntry[]>;
   setContentRenderRevision: Dispatch<SetStateAction<number>>;
   setHoveredElement: Dispatch<SetStateAction<ElementInfo | null>>;
   setPendingLayerNameReplayRequest: Dispatch<
@@ -421,6 +425,7 @@ export interface RedoArgs {
 export function runRedo({
   activeEditorDragRef,
   activeFile,
+  cancelPendingPastedMediaForHistoryReplay,
   applyFileContentUpdate,
   applyDesignDataHistoryChanges,
   applyGeometryHistoryContentChanges,
@@ -486,8 +491,6 @@ export function runRedo({
   restoreSelectionSnapshot,
   runtimeStructureInsertRevisionRef,
   runtimeStructureMoveRevisionRef,
-  selectionRedoStackRef,
-  selectionUndoStackRef,
   setContentRenderRevision,
   setHoveredElement,
   setPendingLayerNameReplayRequest,
@@ -984,84 +987,85 @@ export function runRedo({
   let prunedRedoHistory = 0;
   let contentReplayRefused = false;
   const redoContent = (scope: "any" | "local" | "global" = "any") => {
-    if (scope !== "global" && um?.canRedo()) {
-      const beforeRedoContent = ydoc?.getText("content").toJSON();
+    if (scope !== "global" && activeFile && ydoc && um?.canRedo()) {
+      const beforeRedoContent = ydoc.getText("content").toJSON();
       const redoneItem = um.redo();
       const restoredAfterSelection = readYjsRedoSelection(redoneItem);
-      if (ydoc && activeFile && beforeRedoContent !== undefined) {
-        const ytext = ydoc.getText("content");
-        const rawNext = ytext.toJSON();
-        let next = rawNext;
-        try {
-          next = prepareCanonicalSourceContent(rawNext, {
-            fileId: activeFile.id,
-            fileType: activeFile.fileType,
-          }).content;
-        } catch {
-          toast.error(t("common.genericError"), {
-            id: `design-source-identity:${activeFile.id}`,
-          });
-          return false;
-        }
-        if (next !== rawNext) writeCollabText(ydoc, ytext, next, TAB_ID);
-        markPendingLocalFileContent(activeFile.id, next, activeFile.updatedAt);
-        lastLocalContentRef.current = next;
-        queueFileContentSave(activeFile.id, next, {
-          expectedVersionHash: sourceContentHash(beforeRedoContent),
-          syncCollab: !(ydoc && isSynced),
+      const ytext = ydoc.getText("content");
+      const rawNext = ytext.toJSON();
+      let next = rawNext;
+      try {
+        next = prepareCanonicalSourceContent(rawNext, {
+          fileId: activeFile.id,
+          fileType: activeFile.fileType,
+        }).content;
+      } catch {
+        toast.error(t("common.genericError"), {
+          id: `design-source-identity:${activeFile.id}`,
         });
-        if (
-          previewContentReplaceNeedsRenderFallback(
-            replacePreviewContent(next, null, {
-              forceFullDocument: true,
-              allowSourceNodeSwap: true,
-            }),
-          )
-        ) {
-          setContentRenderRevision((revision) => revision + 1);
-        }
-        setSelectedElement((prev) => {
-          if (restoredAfterSelection)
-            return resolveLocalHistorySelection(
+        return false;
+      }
+      if (next !== rawNext) writeCollabText(ydoc, ytext, next, TAB_ID);
+      markPendingLocalFileContent(activeFile.id, next, activeFile.updatedAt);
+      lastLocalContentRef.current = next;
+      queueFileContentSave(activeFile.id, next, {
+        expectedVersionHash: sourceContentHash(beforeRedoContent),
+        syncCollab: !isSynced,
+      });
+      if (redoneItem)
+        cancelPendingPastedMediaForHistoryReplay?.(
+          activeFile.id,
+          beforeRedoContent,
+          next,
+        );
+      if (
+        previewContentReplaceNeedsRenderFallback(
+          replacePreviewContent(next, null, {
+            forceFullDocument: true,
+            allowSourceNodeSwap: true,
+          }),
+        )
+      ) {
+        setContentRenderRevision((revision) => revision + 1);
+      }
+      setSelectedElement((prev) => {
+        if (restoredAfterSelection)
+          return resolveLocalHistorySelection(
+            restoredAfterSelection,
+            activeFile.id,
+            next,
+          ).selectedElement;
+        if (!prev) return prev;
+        return refreshElementInfoFromContent(next, prev, {
+          kind: "design-file",
+          fileId: activeFile.id,
+        });
+      });
+      setHoveredElement((prev) => {
+        if (!prev) return prev;
+        return refreshElementInfoFromContent(next, prev, {
+          kind: "design-file",
+          fileId: activeFile.id,
+        });
+      });
+      setSelectedLayerIdsState((prev) =>
+        restoredAfterSelection
+          ? resolveLocalHistorySelection(
               restoredAfterSelection,
               activeFile.id,
               next,
-            ).selectedElement;
-          if (!prev) return prev;
-          return refreshElementInfoFromContent(next, prev, {
-            kind: "design-file",
-            fileId: activeFile.id,
-          });
+            ).selectedLayerIds
+          : refreshSelectedLayerIdsFromContent(next, prev, {
+              kind: "design-file",
+              fileId: activeFile.id,
+            }),
+      );
+      if (typeof beforeRedoContent === "string" && beforeRedoContent !== next) {
+        recordLocalContentHistoryChangeFallback({
+          fileId: activeFile.id,
+          before: beforeRedoContent,
+          after: next,
         });
-        setHoveredElement((prev) => {
-          if (!prev) return prev;
-          return refreshElementInfoFromContent(next, prev, {
-            kind: "design-file",
-            fileId: activeFile.id,
-          });
-        });
-        setSelectedLayerIdsState((prev) =>
-          restoredAfterSelection
-            ? resolveLocalHistorySelection(
-                restoredAfterSelection,
-                activeFile.id,
-                next,
-              ).selectedLayerIds
-            : refreshSelectedLayerIdsFromContent(next, prev, {
-                kind: "design-file",
-                fileId: activeFile.id,
-              }),
-        );
-        if (
-          typeof beforeRedoContent === "string" &&
-          beforeRedoContent !== next
-        ) {
-          recordLocalContentHistoryChangeFallback({
-            fileId: activeFile.id,
-            before: beforeRedoContent,
-            after: next,
-          });
-        }
       }
       historyOrderRef.current = [
         ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
@@ -1361,21 +1365,6 @@ export function runRedo({
         ]),
       ),
     );
-    return true;
-  };
-  const redoSelection = () => {
-    if (!canUseOverviewHistory) return false;
-    const entry = selectionRedoStackRef.current.pop();
-    if (!entry) return false;
-    selectionUndoStackRef.current = [
-      ...selectionUndoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
-      entry,
-    ];
-    historyOrderRef.current = [
-      ...historyOrderRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
-      "selection",
-    ];
-    restoreHistorySelection(entry.after);
     return true;
   };
   const redoFileCreation = () => {
@@ -1709,8 +1698,8 @@ export function runRedo({
           appliedDuplicateStackChanges.push(duplicateStack);
         }
         queryClient.setQueryData(
-          ["action", "get-design", { id }],
-          (old: any) => {
+          designMetadataQueryKey(id),
+          (old: Record<string, unknown> | undefined) => {
             if (!old || typeof old !== "object") return old;
             return { ...old, data: JSON.stringify(nextData) };
           },
@@ -1814,7 +1803,9 @@ export function runRedo({
       ...entry,
       files: entry.files.map((file) => ({
         ...file,
-        content: getScreenContent(file.id),
+        content: files.some((readyFile) => readyFile.id === file.id)
+          ? getScreenContent(file.id)
+          : file.content,
       })),
     };
     performDeleteFiles(currentEntry.files, {
@@ -1871,11 +1862,8 @@ export function runRedo({
     }
     return false;
   };
-  const redoByOrder = (preferred?: UndoRedoOrderKind | "selection") => {
+  const redoByOrder = (preferred?: UndoRedoOrderKind) => {
     if (preferred === "clipboard-paste") return redoClipboardPaste();
-    if (preferred === "selection") {
-      return tryRedoActions(redoSelection, redoContent, redoGeometry);
-    }
     if (preferred === "file-deleted") {
       return tryRedoActions(
         redoFileDeletion,
@@ -1930,18 +1918,7 @@ export function runRedo({
           redoOrderRef.current.push(preferred);
         break;
       }
-      if (didRedo) {
-        if (preferred !== "selection") {
-          while (
-            redoOrderRef.current[redoOrderRef.current.length - 1] ===
-            "selection"
-          ) {
-            redoOrderRef.current.pop();
-            selectionRedoStackRef.current.pop();
-          }
-        }
-        break;
-      }
+      if (didRedo) break;
       if (preferred === "clipboard-paste" || preferred === undefined) break;
     }
   } else {

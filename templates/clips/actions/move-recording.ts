@@ -5,6 +5,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { assertRecordingNotExpired } from "../server/lib/recording-read-access.js";
 import {
   getCurrentOwnerEmail,
   parseSpaceIds,
@@ -44,7 +45,7 @@ export default defineAction({
     if (!primaryId) throw new Error("Provide either id or ids.");
 
     for (const id of ids) {
-      await assertAccess("recording", id, "editor");
+      assertRecordingNotExpired(await assertAccess("recording", id, "editor"));
     }
 
     const db = getDb();

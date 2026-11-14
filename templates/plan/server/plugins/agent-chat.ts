@@ -1,6 +1,7 @@
 import { registerEvent } from "@agent-native/core/event-bus";
 import { getOrgContext } from "@agent-native/core/org";
 import {
+  type AgentChatPluginOptions,
   createAgentChatPlugin,
   loadActionsFromStaticRegistry,
 } from "@agent-native/core/server";
@@ -216,6 +217,6 @@ const planAgentChatOptions = {
   },
   durableBackgroundRuns: true,
   runSoftTimeoutMs: PLAN_BACKGROUND_RUN_SOFT_TIMEOUT_MS,
-};
+} satisfies AgentChatPluginOptions;
 
 export default createAgentChatPlugin(planAgentChatOptions);

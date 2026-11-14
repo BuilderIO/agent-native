@@ -280,7 +280,7 @@ import { PromptComposer } from "@agent-native/toolkit/app/chat/composer";
 
 ### 暂存的输入框上下文 {#composer-context}
 
-`PromptComposer` 和 `TiptapComposer` 的 `submissionDisabled` 仅阻止提交，仍允许编辑草稿、添加文件和准备上下文。未配置提供商不会阻止准备工作。`disabled` 仍会禁用整个输入框。
+`PromptComposer` 和 `TiptapComposer` 的 `submissionDisabled` 仅阻止提交，仍允许编辑草稿、添加文件和准备上下文。使用 `requireAgentEngine` 时，未配置提供商且设置卡片显示在屏幕上时，`PromptComposer` 无法输入，点击它会指向该卡片。屏幕上没有卡片时，只阻止提交。`disabled` 仍会禁用整个输入框。
 
 `PromptComposer`、`TiptapComposer` 和 `AgentKitComposer` 接受 `contextItems` 与 `contextMenuItems`。应用负责读取来源和提供本地化菜单标签。
 
@@ -303,7 +303,11 @@ import { PromptComposer } from "@agent-native/toolkit/app/chat/composer";
 />
 ```
 
-上下文源通过 `ComposerContextMenuItem` 上的 `picker` 注册。`ComposerContextMenu` 管理相互连接的 shadcn/Radix 级联子菜单，而不是替换当前面板：根菜单先提供文件上传，再提供添加上下文 → 宿主分类 → 源选择器。没有宿主条目时，不显示添加上下文。方向键和 Escape 用于遍历菜单层级。链接选择器中的返回操作仅在同一个子菜单内从结果返回链接输入。共享选择器负责搜索、列表行、加载、空列表和错误状态、重试、分页及链接输入。应用提供已授权数据和选择回调，而不是自行渲染选择器 JSX。
+上下文源在 `ComposerContextMenuItem` 上注册有明确名称的直接操作。共享菜单将添加上下文、集成和命令分别呈现为可访问分组。选择一次菜单操作即可打开源选择对话框。工作区集成位于独立分组，命令包含不常用的任务模式。源数据在对话框中加载，根菜单条目保持稳定。菜单支持方向键、键入查找和 Escape。对话框负责搜索、分组结果、加载、空结果、错误、重试和焦点恢复。
+
+贡献条目使用 `section: "context" | "integrations" | "commands"` 和升序 `order`，同序时按标签和 id 排序。`renderLink(children)` 保留原生链接导航。具有受范围限制的提及提供程序的应用可注册 `referencePicker: { source, referenceType }`，选择后插入标准编辑器引用。`referenceType` 从共享搜索工作区对话框中排除应用专属资源类型，避免重复。工作区通过 `resources.useWorkspaceMenu({ enabled, onSelectIntegration })` 注册。身份变化时，其 `scopeKey` 会重置选择器并中止请求。提供程序失败仍为错误，不会显示为空结果。
+
+Figma 等源在检查访问权限时保持可见。其对话框显示加载状态或可重试的错误，未连接时显示真实的连接链接，已连接时显示已授权的 URL 选择器。创建技能会直接选择技能模式。上传技能文件在原生文件选择器后打开审核和保存对话框。
 
 选择器配置支持：
 
@@ -326,6 +330,7 @@ const contextMenuItems: ComposerContextMenuItem[] = [
     label: labels.references,
     picker: {
       searchPlaceholder: labels.searchReferences,
+      presentation: { type: "dialog", mode: "single" },
       items: authorizedReferences,
       selectedIds,
       onSelect: stageReference,
@@ -399,7 +404,7 @@ const websiteContextItem: ComposerContextMenuItem = {
 
 可选的 `footerAction` 始终保留在结果下方，包括加载中、错误或列表为空时。它接受本地化的 `label`、可选的 `icon` 和 `disabled`，以及 `onSelect()` 或 `renderLink(children)` 二者之一。模态框等有状态流程使用回调：`false` 保持菜单打开，`true` 或 `void` 关闭菜单，Promise 拒绝时显示错误和重试操作。纯导航应由 `renderLink` 返回真正的 React Router `Link` 或 HTML 链接；共享菜单通过 `asChild` 提供菜单行，保留其 `href` 和浏览器原生导航行为。应接入已有且经过授权的流程，不要添加占位操作。
 
-向 `ComposerContextMenu` 传入 `addAttachment` 会将标准上传操作放在首位，并保留宿主的文件处理回调。
+向 `ComposerContextMenu` 传入 `addAttachment` 会在附件区域添加“文件和图像”，并保留宿主的文件处理回调。
 
 `PromptComposer` 和 `AgentKitComposer` 接受 `attachmentAdapter`，使用 `@assistant-ui/react` 的公开类型 `AttachmentAdapter`。通过该适配器提供宿主的文件类型接收、大小校验和附件暂存策略；省略时保留默认适配器。上传控件、文件选择器、上下文选择器和附件标签仍由共享编辑器管理。不要为了定制文件暂存行为而替换这些控件。
 
@@ -718,3 +723,7 @@ export default defineAction({
 - [**Actions**](/docs/actions-overview) — `defineAction()`、模式以及这些组件调用的操作表面
 - [**Real-Time Collaboration**](/docs/real-time-collaboration) — 深入了解协作钩子和在线状态组件
 - [**Sharing**](/docs/sharing) — 为可拥有资源连接 `<ShareButton>` 和 `<ShareDialog>`
+
+## 自己的聊天记录
+
+聊天侧边栏可以使用 `@agent-native/toolkit/app/chat/ownership-history` 中的 `useOwnershipChatHistory()` 和 `OwnershipChatHistoryRail`。自己的聊天和共享聊天会显示在不同分区。

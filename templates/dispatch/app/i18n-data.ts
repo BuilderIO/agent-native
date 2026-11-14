@@ -5,6 +5,8 @@ import zhTW from "./i18n/zh-TW";
 
 const enUS = {
   root: {
+    builderWorkspaceNotice: "Builder team apps are in the Builder workspace.",
+    openBuilderWorkspace: "Open Builder workspace",
     commandActions: "Actions",
     commandSearch: "Search",
     commandAppearance: "Appearance",
@@ -312,6 +314,10 @@ const enUS = {
     },
   },
   dispatch: {
+    sidebar: {
+      showLocalChats: "Show local chats",
+      showAllChats: "Show all chats",
+    },
     nav: {
       admin: "Admin",
       automations: "Automations",
@@ -324,6 +330,9 @@ const enUS = {
       agent: "Agent",
     },
     pages: {
+      chatFirstCopySessionId: "Copy session ID",
+      chatFirstSessionIdCopied: "Session ID copied",
+      chatFirstWatchSession: "Watch",
       adminDescription: "Workspace controls and operations",
       simpleAgentsDescription:
         "Create reusable agents in minutes, or import a setup you already made in Claude or another agent tool.",
@@ -456,7 +465,6 @@ const enUS = {
       threadDebugNoThreads: "No threads found.",
       threadDebugSelectPrompt: "Select a failed run or thread to inspect.",
       chatFirstWorkspaceApps: "Workspace apps",
-      chatFirstNewApp: "New",
       chatFirstOpenInNewTab: "Open in new tab",
       chatFirstDefaultDescriptionCalendar:
         "Agent-Native Google Calendar — manage events, sync, and public booking",
@@ -508,20 +516,30 @@ const enUS = {
         "This app has not opted into one-click identity connect yet.",
       connectAppsPrivacy:
         "No shared cookie or app secret is used. The identity hub sends a signed, one-time handoff.",
-      pinApp: "Pin this app",
-      unpinApp: "Unpin this app",
+      pinApp: "Pin {{name}}",
+      unpinApp: "Unpin {{name}}",
+      hostedApps: "Agent-Native.com hosted apps",
+      pinnedApps: "Pinned apps",
+      workspaceApps: "Workspace apps",
+      newApp: "New app",
+      viewAllApps: "View all",
+      manageHostedApps: "Manage",
+      manageHostedAppsAdminOnly:
+        "Only organization admins can change Agent-Native.com hosted apps.",
+      showHostedApps: "Show Agent-Native.com hosted apps",
+      hostedAppsSaveFailed:
+        "The Agent-Native.com hosted apps setting could not be saved.",
+      hostedAppsSettingInvalid:
+        "The stored Agent-Native.com hosted apps setting is invalid. Saving a value replaces it.",
       appPinSaveFailed: "App pins could not be saved.",
-      appPinSavedLocally: "App pins are saved on this device only.",
+      appPinSavedToWorkspaceOnly:
+        "App pins are saved to your workspace but not on this device.",
       chatFirstCreateWorkspaceApp: "Create workspace app",
       chatFirstOpenApp: "Open {{name}}",
       chatFirstAppsLoadError: "Workspace apps could not be loaded",
       chatFirstNoWorkspaceApps: "No workspace apps yet.",
       chatFirstCreateApp: "Create app",
       chatFirstRetry: "Retry",
-      chatFirstUnpinApp: "Unpin this app",
-      chatFirstPinApp: "Pin this app",
-      chatFirstRemovePinned: "Remove from pinned apps",
-      chatFirstPinTop: "Pin app to the top",
       chatFirstOpenSideSurfaces: "Open side surfaces",
       chatFirstCloseTab: "Close {{name}}",
       chatFirstClose: "Close",
@@ -595,6 +613,7 @@ type PartialMessages = {
       } & Record<string, unknown>
     : K extends "dispatch"
       ? {
+          sidebar?: Partial<Messages["dispatch"]["sidebar"]>;
           nav?: Partial<Messages["dispatch"]["nav"]> & Record<string, unknown>;
           pages?: Partial<Messages["dispatch"]["pages"]> &
             Record<string, unknown>;
@@ -1251,6 +1270,10 @@ function mergeMessages(
     dispatch: {
       ...enUS.dispatch,
       ...overrides.dispatch,
+      sidebar: {
+        ...enUS.dispatch.sidebar,
+        ...overrides.dispatch?.sidebar,
+      },
       nav: {
         ...enUS.dispatch.nav,
         ...(overrides.dispatch as { nav?: Record<string, string> } | undefined)
@@ -1280,6 +1303,9 @@ export const messagesByLocale = {
         settings: "设置 - Dispatch",
       },
       root: {
+        builderWorkspaceNotice:
+          "Builder \u56e2\u961f\u5e94\u7528\u4f4d\u4e8e Builder \u5de5\u4f5c\u533a\u3002",
+        openBuilderWorkspace: "\u6253\u5f00 Builder \u5de5\u4f5c\u533a",
         commandActions: "操作",
         commandSearch: "搜索",
         commandAppearance: "外观",
@@ -1537,6 +1563,10 @@ export const messagesByLocale = {
       },
 
       dispatch: {
+        sidebar: {
+          showLocalChats: "显示本地聊天",
+          showAllChats: "显示所有聊天",
+        },
         nav: {
           admin: "管理",
           automations: "自动化",
@@ -1549,7 +1579,24 @@ export const messagesByLocale = {
           agent: "代理",
         },
         pages: {
+          chatFirstCopySessionId: "复制会话 ID",
+          chatFirstSessionIdCopied: "会话 ID 已复制",
+          chatFirstWatchSession: "观看",
           ...chatFirstPageTranslations["zh-CN"],
+          pinApp: "固定 {{name}}",
+          unpinApp: "取消固定 {{name}}",
+          hostedApps: "Agent-Native.com 托管应用",
+          pinnedApps: "已固定的应用",
+          workspaceApps: "工作区应用",
+          newApp: "新建应用",
+          viewAllApps: "查看全部",
+          manageHostedApps: "管理",
+          manageHostedAppsAdminOnly:
+            "只有组织管理员可以更改 Agent-Native.com 托管应用。",
+          showHostedApps: "显示 Agent-Native.com 托管应用",
+          hostedAppsSaveFailed: "无法保存 Agent-Native.com 托管应用设置。",
+          hostedAppsSettingInvalid:
+            "存储的 Agent-Native.com 托管应用设置无效。保存一个值即可替换它。",
           adminDescription: "工作区控制与运营",
           connectApps: "连接应用",
           availableApps: "可用应用",
@@ -1704,6 +1751,9 @@ export const messagesByLocale = {
         settings: "Ajustes - Dispatch",
       },
       root: {
+        builderWorkspaceNotice:
+          "Las aplicaciones del equipo de Builder est\u00e1n en el espacio de trabajo de Builder.",
+        openBuilderWorkspace: "Abrir espacio de trabajo de Builder",
         commandActions: "Acciones",
         commandSearch: "Buscar",
         commandAppearance: "Apariencia",
@@ -1989,6 +2039,10 @@ export const messagesByLocale = {
       },
 
       dispatch: {
+        sidebar: {
+          showLocalChats: "Mostrar chats locales",
+          showAllChats: "Mostrar todos los chats",
+        },
         nav: {
           admin: "Administración",
           automations: "Automatizaciones",
@@ -2001,7 +2055,25 @@ export const messagesByLocale = {
           agent: "Agente",
         },
         pages: {
+          chatFirstCopySessionId: "Copiar ID de sesión",
+          chatFirstSessionIdCopied: "ID de sesión copiado",
+          chatFirstWatchSession: "Observar",
           ...chatFirstPageTranslations["es-ES"],
+          pinApp: "Fijar {{name}}",
+          unpinApp: "Desfijar {{name}}",
+          hostedApps: "Apps alojadas en Agent-Native.com",
+          pinnedApps: "Apps fijadas",
+          workspaceApps: "Apps del espacio de trabajo",
+          newApp: "Nueva app",
+          viewAllApps: "Ver todo",
+          manageHostedApps: "Gestionar",
+          manageHostedAppsAdminOnly:
+            "Solo los administradores de la organización pueden cambiar las apps alojadas en Agent-Native.com.",
+          showHostedApps: "Mostrar apps alojadas en Agent-Native.com",
+          hostedAppsSaveFailed:
+            "No se pudo guardar la configuración de apps alojadas en Agent-Native.com.",
+          hostedAppsSettingInvalid:
+            "La configuración guardada de apps alojadas en Agent-Native.com no es válida. Al guardar un valor se reemplaza.",
           adminDescription: "Controles y operaciones del espacio de trabajo",
           connectApps: "Conectar apps",
           availableApps: "Apps disponibles",
@@ -2171,6 +2243,9 @@ export const messagesByLocale = {
         settings: "Paramètres - Dispatch",
       },
       root: {
+        builderWorkspaceNotice:
+          "Les applications de l\u2019\u00e9quipe Builder se trouvent dans son espace de travail.",
+        openBuilderWorkspace: "Ouvrir l\u2019espace de travail Builder",
         commandActions: "Actions",
         commandSearch: "Rechercher",
         commandAppearance: "Apparence",
@@ -2455,6 +2530,10 @@ export const messagesByLocale = {
       },
 
       dispatch: {
+        sidebar: {
+          showLocalChats: "Afficher les conversations locales",
+          showAllChats: "Afficher toutes les conversations",
+        },
         nav: {
           admin: "Administration",
           automations: "Automatisations",
@@ -2467,7 +2546,26 @@ export const messagesByLocale = {
           agent: "Agent",
         },
         pages: {
+          chatFirstCopySessionId: "Copier l’identifiant de session",
+          chatFirstSessionIdCopied: "Identifiant de session copié",
+          chatFirstWatchSession: "Observer",
           ...chatFirstPageTranslations["fr-FR"],
+          pinApp: "Épingler {{name}}",
+          unpinApp: "Désépingler {{name}}",
+          hostedApps: "Applications hébergées sur Agent-Native.com",
+          pinnedApps: "Applications épinglées",
+          workspaceApps: "Applications de l’espace de travail",
+          newApp: "Nouvelle app",
+          viewAllApps: "Tout afficher",
+          manageHostedApps: "Gérer",
+          manageHostedAppsAdminOnly:
+            "Seuls les administrateurs de l’organisation peuvent modifier les applications hébergées sur Agent-Native.com.",
+          showHostedApps:
+            "Afficher les applications hébergées sur Agent-Native.com",
+          hostedAppsSaveFailed:
+            "Impossible d’enregistrer le paramètre des applications hébergées sur Agent-Native.com.",
+          hostedAppsSettingInvalid:
+            "Le paramètre enregistré des applications hébergées sur Agent-Native.com n’est pas valide. Enregistrer une valeur le remplace.",
           adminDescription: "Contrôles et opérations de l’espace de travail",
           connectApps: "Connecter des apps",
           availableApps: "Applications disponibles",
@@ -2639,6 +2737,9 @@ export const messagesByLocale = {
         settings: "Einstellungen - Dispatch",
       },
       root: {
+        builderWorkspaceNotice:
+          "Die Apps des Builder-Teams befinden sich im Builder-Arbeitsbereich.",
+        openBuilderWorkspace: "Builder-Arbeitsbereich \u00f6ffnen",
         commandActions: "Aktionen",
         commandSearch: "Suchen",
         commandAppearance: "Darstellung",
@@ -2912,6 +3013,10 @@ export const messagesByLocale = {
       },
 
       dispatch: {
+        sidebar: {
+          showLocalChats: "Lokale Chats anzeigen",
+          showAllChats: "Alle Chats anzeigen",
+        },
         nav: {
           admin: "Administration",
           automations: "Automatisierungen",
@@ -2924,7 +3029,25 @@ export const messagesByLocale = {
           agent: "Agent",
         },
         pages: {
+          chatFirstCopySessionId: "Sitzungs-ID kopieren",
+          chatFirstSessionIdCopied: "Sitzungs-ID kopiert",
+          chatFirstWatchSession: "Beobachten",
           ...chatFirstPageTranslations["de-DE"],
+          pinApp: "{{name}} anheften",
+          unpinApp: "{{name}} loslösen",
+          hostedApps: "Auf Agent-Native.com gehostete Apps",
+          pinnedApps: "Angeheftete Apps",
+          workspaceApps: "Workspace-Apps",
+          newApp: "Neue App",
+          viewAllApps: "Alle anzeigen",
+          manageHostedApps: "Verwalten",
+          manageHostedAppsAdminOnly:
+            "Nur Organisationsadmins können auf Agent-Native.com gehostete Apps ändern.",
+          showHostedApps: "Auf Agent-Native.com gehostete Apps anzeigen",
+          hostedAppsSaveFailed:
+            "Die Einstellung für auf Agent-Native.com gehostete Apps konnte nicht gespeichert werden.",
+          hostedAppsSettingInvalid:
+            "Die gespeicherte Einstellung für auf Agent-Native.com gehostete Apps ist ungültig. Durch Speichern eines Werts wird sie ersetzt.",
           adminDescription: "Arbeitsbereichssteuerung und -betrieb",
           connectApps: "Apps verbinden",
           availableApps: "Verfügbare Apps",
@@ -3092,6 +3215,10 @@ export const messagesByLocale = {
         settings: "設定 - Dispatch",
       },
       root: {
+        builderWorkspaceNotice:
+          "Builder \u30c1\u30fc\u30e0\u306e\u30a2\u30d7\u30ea\u306f Builder \u30ef\u30fc\u30af\u30b9\u30da\u30fc\u30b9\u306b\u3042\u308a\u307e\u3059\u3002",
+        openBuilderWorkspace:
+          "Builder \u30ef\u30fc\u30af\u30b9\u30da\u30fc\u30b9\u3092\u958b\u304f",
         commandActions: "操作",
         commandSearch: "検索",
         commandAppearance: "外観",
@@ -3363,6 +3490,10 @@ export const messagesByLocale = {
       },
 
       dispatch: {
+        sidebar: {
+          showLocalChats: "ローカルのチャットを表示",
+          showAllChats: "すべてのチャットを表示",
+        },
         nav: {
           admin: "管理",
           automations: "自動化",
@@ -3375,7 +3506,25 @@ export const messagesByLocale = {
           agent: "エージェント",
         },
         pages: {
+          chatFirstCopySessionId: "セッション ID をコピー",
+          chatFirstSessionIdCopied: "セッション ID をコピーしました",
+          chatFirstWatchSession: "ウォッチ",
           ...chatFirstPageTranslations["ja-JP"],
+          pinApp: "{{name}} を固定",
+          unpinApp: "{{name}} の固定を解除",
+          hostedApps: "Agent-Native.com のホスト型アプリ",
+          pinnedApps: "固定したアプリ",
+          workspaceApps: "ワークスペースのアプリ",
+          newApp: "新しいアプリ",
+          viewAllApps: "すべて表示",
+          manageHostedApps: "管理",
+          manageHostedAppsAdminOnly:
+            "Agent-Native.com のホスト型アプリを変更できるのは組織の管理者だけです。",
+          showHostedApps: "Agent-Native.com のホスト型アプリを表示",
+          hostedAppsSaveFailed:
+            "Agent-Native.com のホスト型アプリの設定を保存できませんでした。",
+          hostedAppsSettingInvalid:
+            "保存されている Agent-Native.com のホスト型アプリの設定が無効です。値を保存すると置き換えられます。",
           adminDescription: "ワークスペースの管理と運用",
           connectApps: "アプリを接続",
           availableApps: "利用可能なアプリ",
@@ -3540,6 +3689,10 @@ export const messagesByLocale = {
         settings: "설정 - Dispatch",
       },
       root: {
+        builderWorkspaceNotice:
+          "Builder \ud300 \uc571\uc740 Builder \uc6cc\ud06c\uc2a4\ud398\uc774\uc2a4\uc5d0 \uc788\uc2b5\ub2c8\ub2e4.",
+        openBuilderWorkspace:
+          "Builder \uc6cc\ud06c\uc2a4\ud398\uc774\uc2a4 \uc5f4\uae30",
         commandActions: "작업",
         commandSearch: "검색",
         commandAppearance: "모양",
@@ -3808,6 +3961,10 @@ export const messagesByLocale = {
       },
 
       dispatch: {
+        sidebar: {
+          showLocalChats: "로컬 채팅 표시",
+          showAllChats: "모든 채팅 표시",
+        },
         nav: {
           admin: "관리",
           automations: "자동화",
@@ -3820,7 +3977,25 @@ export const messagesByLocale = {
           agent: "에이전트",
         },
         pages: {
+          chatFirstCopySessionId: "세션 ID 복사",
+          chatFirstSessionIdCopied: "세션 ID가 복사되었습니다",
+          chatFirstWatchSession: "지켜보기",
           ...chatFirstPageTranslations["ko-KR"],
+          pinApp: "{{name}} 고정",
+          unpinApp: "{{name}} 고정 해제",
+          hostedApps: "Agent-Native.com 호스팅 앱",
+          pinnedApps: "고정된 앱",
+          workspaceApps: "워크스페이스 앱",
+          newApp: "새 앱",
+          viewAllApps: "모두 보기",
+          manageHostedApps: "관리",
+          manageHostedAppsAdminOnly:
+            "조직 관리자만 Agent-Native.com 호스팅 앱을 변경할 수 있습니다.",
+          showHostedApps: "Agent-Native.com 호스팅 앱 표시",
+          hostedAppsSaveFailed:
+            "Agent-Native.com 호스팅 앱 설정을 저장하지 못했습니다.",
+          hostedAppsSettingInvalid:
+            "저장된 Agent-Native.com 호스팅 앱 설정이 올바르지 않습니다. 값을 저장하면 대체됩니다.",
           adminDescription: "워크스페이스 제어 및 운영",
           connectApps: "앱 연결",
           availableApps: "사용 가능한 앱",
@@ -3981,6 +4156,9 @@ export const messagesByLocale = {
         settings: "Configurações - Dispatch",
       },
       root: {
+        builderWorkspaceNotice:
+          "Os aplicativos da equipe Builder est\u00e3o no espa\u00e7o de trabalho Builder.",
+        openBuilderWorkspace: "Abrir espa\u00e7o de trabalho Builder",
         commandActions: "Ações",
         commandSearch: "Buscar",
         commandAppearance: "Aparência",
@@ -4261,6 +4439,10 @@ export const messagesByLocale = {
       },
 
       dispatch: {
+        sidebar: {
+          showLocalChats: "Mostrar conversas locais",
+          showAllChats: "Mostrar todas as conversas",
+        },
         nav: {
           admin: "Administração",
           automations: "Automações",
@@ -4273,7 +4455,25 @@ export const messagesByLocale = {
           agent: "Agente",
         },
         pages: {
+          chatFirstCopySessionId: "Copiar ID da sessão",
+          chatFirstSessionIdCopied: "ID da sessão copiado",
+          chatFirstWatchSession: "Observar",
           ...chatFirstPageTranslations["pt-BR"],
+          pinApp: "Fixar {{name}}",
+          unpinApp: "Desafixar {{name}}",
+          hostedApps: "Apps hospedados no Agent-Native.com",
+          pinnedApps: "Apps fixados",
+          workspaceApps: "Apps do espaço de trabalho",
+          newApp: "Novo app",
+          viewAllApps: "Ver tudo",
+          manageHostedApps: "Gerenciar",
+          manageHostedAppsAdminOnly:
+            "Somente administradores da organização podem alterar os apps hospedados no Agent-Native.com.",
+          showHostedApps: "Mostrar apps hospedados no Agent-Native.com",
+          hostedAppsSaveFailed:
+            "Não foi possível salvar a configuração de apps hospedados no Agent-Native.com.",
+          hostedAppsSettingInvalid:
+            "A configuração salva de apps hospedados no Agent-Native.com é inválida. Salvar um valor a substitui.",
           adminDescription: "Controles e operações do espaço de trabalho",
           connectApps: "Conectar apps",
           availableApps: "Apps disponíveis",
@@ -4443,6 +4643,10 @@ export const messagesByLocale = {
         settings: "सेटिंग्स - Dispatch",
       },
       root: {
+        builderWorkspaceNotice:
+          "Builder \u091f\u0940\u092e \u0915\u0947 \u0910\u092a\u094d\u0938 Builder \u0915\u093e\u0930\u094d\u092f\u0938\u094d\u0925\u093e\u0928 \u092e\u0947\u0902 \u0939\u0948\u0902\u0964",
+        openBuilderWorkspace:
+          "Builder \u0915\u093e\u0930\u094d\u092f\u0938\u094d\u0925\u093e\u0928 \u0916\u094b\u0932\u0947\u0902",
         commandActions: "क्रियाएं",
         commandSearch: "खोजें",
         commandAppearance: "रूप",
@@ -4707,6 +4911,10 @@ export const messagesByLocale = {
       },
 
       dispatch: {
+        sidebar: {
+          showLocalChats: "स्थानीय चैट दिखाएँ",
+          showAllChats: "सभी चैट दिखाएँ",
+        },
         nav: {
           admin: "व्यवस्थापक",
           automations: "ऑटोमेशन",
@@ -4719,7 +4927,25 @@ export const messagesByLocale = {
           agent: "एजेंट",
         },
         pages: {
+          chatFirstCopySessionId: "सत्र ID कॉपी करें",
+          chatFirstSessionIdCopied: "सत्र ID कॉपी किया गया",
+          chatFirstWatchSession: "देखें",
           ...chatFirstPageTranslations["hi-IN"],
+          pinApp: "{{name}} को पिन करें",
+          unpinApp: "{{name}} से पिन हटाएं",
+          hostedApps: "Agent-Native.com पर होस्ट किए गए ऐप",
+          pinnedApps: "पिन किए गए ऐप",
+          workspaceApps: "वर्कस्पेस ऐप",
+          newApp: "नया ऐप",
+          viewAllApps: "सभी देखें",
+          manageHostedApps: "प्रबंधित करें",
+          manageHostedAppsAdminOnly:
+            "केवल संगठन के एडमिन ही Agent-Native.com पर होस्ट किए गए ऐप बदल सकते हैं।",
+          showHostedApps: "Agent-Native.com पर होस्ट किए गए ऐप दिखाएं",
+          hostedAppsSaveFailed:
+            "Agent-Native.com पर होस्ट किए गए ऐप की सेटिंग सहेजी नहीं जा सकी।",
+          hostedAppsSettingInvalid:
+            "सहेजी गई Agent-Native.com पर होस्ट किए गए ऐप की सेटिंग अमान्य है। कोई मान सहेजने पर यह बदल जाएगी।",
           adminDescription: "वर्कस्पेस नियंत्रण और संचालन",
           connectApps: "ऐप कनेक्ट करें",
           availableApps: "उपलब्ध ऐप्स",
@@ -4877,6 +5103,10 @@ export const messagesByLocale = {
         settings: "الإعدادات - Dispatch",
       },
       root: {
+        builderWorkspaceNotice:
+          "\u062a\u0648\u062c\u062f \u062a\u0637\u0628\u064a\u0642\u0627\u062a \u0641\u0631\u064a\u0642 Builder \u0641\u064a \u0645\u0633\u0627\u062d\u0629 \u0639\u0645\u0644 Builder.",
+        openBuilderWorkspace:
+          "\u0641\u062a\u062d \u0645\u0633\u0627\u062d\u0629 \u0639\u0645\u0644 Builder",
         commandActions: "الإجراءات",
         commandSearch: "بحث",
         commandAppearance: "المظهر",
@@ -5181,6 +5411,10 @@ export const messagesByLocale = {
       },
 
       dispatch: {
+        sidebar: {
+          showLocalChats: "إظهار المحادثات المحلية",
+          showAllChats: "إظهار جميع المحادثات",
+        },
         nav: {
           admin: "الإدارة",
           automations: "الأتمتة",
@@ -5193,7 +5427,25 @@ export const messagesByLocale = {
           agent: "الوكيل",
         },
         pages: {
+          chatFirstCopySessionId: "نسخ معرّف الجلسة",
+          chatFirstSessionIdCopied: "تم نسخ معرّف الجلسة",
+          chatFirstWatchSession: "مشاهدة",
           ...chatFirstPageTranslations["ar-SA"],
+          pinApp: "تثبيت {{name}}",
+          unpinApp: "إلغاء تثبيت {{name}}",
+          hostedApps: "التطبيقات المستضافة على Agent-Native.com",
+          pinnedApps: "التطبيقات المثبتة",
+          workspaceApps: "تطبيقات مساحة العمل",
+          newApp: "تطبيق جديد",
+          viewAllApps: "عرض الكل",
+          manageHostedApps: "إدارة",
+          manageHostedAppsAdminOnly:
+            "يمكن لمسؤولي المؤسسة فقط تغيير التطبيقات المستضافة على Agent-Native.com.",
+          showHostedApps: "إظهار التطبيقات المستضافة على Agent-Native.com",
+          hostedAppsSaveFailed:
+            "تعذّر حفظ إعداد التطبيقات المستضافة على Agent-Native.com.",
+          hostedAppsSettingInvalid:
+            "إعداد التطبيقات المستضافة على Agent-Native.com المحفوظ غير صالح. يؤدي حفظ قيمة إلى استبداله.",
           adminDescription: "عناصر التحكم في مساحة العمل وعملياتها",
           connectApps: "توصيل التطبيقات",
           availableApps: "التطبيقات المتاحة",

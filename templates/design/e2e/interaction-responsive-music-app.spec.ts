@@ -996,13 +996,15 @@ const WRAPPING_CARDS = `<!doctype html><html><head><meta charset="utf-8"></head>
   </div>
 </body></html>`;
 
-async function clickCenter(app: App, nodeId: string) {
+async function clickCenter(app: App, nodeId: string, modifiers: string[] = []) {
   const rect = await app.designRect(nodeId);
   const point = await app.pagePoint(
     rect.x + rect.width / 2,
     rect.y + rect.height / 2,
   );
+  for (const key of modifiers) await app.page.keyboard.down(key);
   await app.page.mouse.click(point.x, point.y);
+  for (const key of modifiers) await app.page.keyboard.up(key);
 }
 
 // Screens made in the editor are not seeded, so the rails screen lookups cannot name them.
@@ -1082,7 +1084,8 @@ test("Fill container on a horizontal auto-layout child takes the width its fixed
     width: 400,
     height: 300,
   });
-  await clickCenter(app, "main");
+  // Cmd+click reaches Main Content; a plain click takes Workspace.
+  await clickCenter(app, "main", ["ControlOrMeta"]);
   await expect.poll(() => app.selectedLayers()).toEqual(["Main Content"]);
   const before = await app.savedNodes(id);
 
@@ -1121,7 +1124,8 @@ test("reordering flow cards in the Layers panel saves, undoes and redoes in plac
   const id = await app.seed(PODCAST_ROW);
   await app.open(id);
   await app.zoomToFit();
-  await clickCenter(app, "card-b");
+  // Cmd+click reaches the card; a plain click takes Podcast row.
+  await clickCenter(app, "card-b", ["ControlOrMeta"]);
   await expect.poll(() => app.selectedLayers()).toEqual(["Podcast card B"]);
   const before = await app.savedNodes(id);
   expect(childrenOf(before, "podcast-row")).toEqual(["card-a", "card-b"]);

@@ -15,6 +15,8 @@ export const AGENT_APP_ACTIVITY_ENDPOINT = "/api/agent-app-activity.json";
 export const CLIP_AGENT_ACCESS_TOKEN_PREFIX = "clip-agent-context";
 export const CLIPS_AGENT_ACCESS_PARAM = AGENT_ACCESS_PARAM || "agent_access";
 export const CLIPS_WEBMCP_MAX_TRANSCRIPT_SEGMENTS = 50;
+// Frame 0 of a recording is often black, before the first screen paint.
+export const RECORDING_THUMBNAIL_AT_MS = 350;
 // A contact sheet is one JPEG grid of consecutive frames. 36 cells covers just
 // over a second at 30 fps and stays legible after vision models downscale it.
 export const MAX_AGENT_FRAME_SHEET_FRAMES = 36;
@@ -493,6 +495,8 @@ function isNearExisting(
   return frames.some((frame) => Math.abs(frame.atMs - atMs) < minGapMs);
 }
 
+const MARK_RATIOS = [0.25, 0.5, 0.75];
+
 function addFrame(
   frames: AgentFrameSuggestion[],
   atMs: number,
@@ -523,16 +527,35 @@ export function buildRecommendedFrames({
   const duration = safeMs(durationMs ?? 0);
   const minGapMs = duration > 0 ? Math.max(3000, duration / 40) : 3000;
 
-  addFrame(frames, 0, "opening frame", minGapMs);
+  addFrame(frames, RECORDING_THUMBNAIL_AT_MS, "opening frame", minGapMs);
+
+  // Chapters stop short of these slots, so a clip with many early chapters
+  // still gets frames from its middle and end.
+  const reservedMarks =
+    duration > 0 ? Math.min(MARK_RATIOS.length, Math.max(0, maxFrames - 1)) : 0;
 
   for (const chapter of chapters ?? []) {
-    if (frames.length >= maxFrames) break;
+    if (frames.length >= maxFrames - reservedMarks) break;
     addFrame(
       frames,
       chapter.startMs,
       `chapter: ${chapter.title.slice(0, 80)}`,
       minGapMs,
     );
+  }
+
+  // Before transcript lines: a long clip's dense transcript would otherwise
+  // fill every slot in its first minutes.
+  if (duration > 0) {
+    for (const ratio of MARK_RATIOS) {
+      if (frames.length >= maxFrames) break;
+      addFrame(
+        frames,
+        duration * ratio,
+        `${Math.round(ratio * 100)}% mark`,
+        minGapMs,
+      );
+    }
   }
 
   for (const segment of segments ?? []) {
@@ -543,18 +566,6 @@ export function buildRecommendedFrames({
       `transcript: ${segment.text.slice(0, 80)}`,
       minGapMs,
     );
-  }
-
-  if (duration > 0) {
-    for (const ratio of [0.25, 0.5, 0.75]) {
-      if (frames.length >= maxFrames) break;
-      addFrame(
-        frames,
-        duration * ratio,
-        `${Math.round(ratio * 100)}% mark`,
-        minGapMs,
-      );
-    }
   }
 
   return frames

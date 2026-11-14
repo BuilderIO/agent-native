@@ -39,6 +39,7 @@ const INITIAL_TOOL_NAMES = [
 
 export default createAgentChatPlugin({
   appId: "brain",
+  mcp: { appApprovalPage: true },
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INITIAL_TOOL_NAMES,
   finalResponseGuard: brainFinalResponseGuard,

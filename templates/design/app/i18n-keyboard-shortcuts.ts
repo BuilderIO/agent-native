@@ -509,6 +509,7 @@ interface KeyboardMessagesSource {
     close: string;
     componentInstances: { detach: string };
   };
+  canvasMenu: { removeAutoLayout: string };
   layersPanel: {
     title: string;
     screens: string;
@@ -649,6 +650,7 @@ export function attachLocalizedKeyboardShortcuts<
           ungroup: layers.ungroup,
           frameSelection: layers.frameSelection,
           autoLayout: edit.sections.autoLayout,
+          removeAutoLayout: messages.canvasMenu.removeAutoLayout,
         },
       },
     },

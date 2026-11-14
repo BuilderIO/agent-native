@@ -9,6 +9,7 @@ import {
   type Reference,
   type TiptapComposerHandle,
 } from "@agent-native/toolkit/composer";
+import { useFocusWithinThroughPress } from "@agent-native/toolkit/hooks/use-focus-within-through-press";
 import {
   commentMentionKey,
   findCommentMentions,
@@ -60,6 +61,7 @@ import {
   type CommentAiMode,
   type CommentAiSelection,
 } from "./CommentAiRecipient";
+import { CommentConfirmDialog } from "./CommentConfirmDialog";
 import { agentMentionMedia, personMentionMedia } from "./CommentIdentity";
 import { EmojiPickerPanel } from "./EmojiPicker";
 
@@ -90,6 +92,9 @@ export interface CommentAiDraft {
   mode: CommentAiMode;
 }
 
+/** What Escape would throw away, which picks the confirmation's wording. */
+export type CommentDiscardKind = "comment" | "reply" | "edit";
+
 interface CommentComposerProps {
   value: string;
   onChange: (value: string) => void;
@@ -102,7 +107,18 @@ interface CommentComposerProps {
   aiDraft?: CommentAiDraft | null;
   onAiDraftChange?: (draft: CommentAiDraft | null) => void;
   aiModelStorageKey?: string;
+  /**
+   * The AI can reply or suggest changes but not apply them, as in a Blocks
+   * field tab, whose changes are always suggested.
+   */
+  aiSuggestOnly?: boolean;
+  /** Cancels the draft. Open menus close first. */
   onEscape?: () => void;
+  /**
+   * Set while cancelling would lose unsent text: Escape then asks before
+   * calling `onEscape`, worded for this kind of draft.
+   */
+  confirmEscape?: CommentDiscardKind | false;
   onBlur?: () => void;
   onFocus?: () => void;
   onSelectionChange?: (selection: ComposerTextSelection) => void;
@@ -137,6 +153,14 @@ function providerMedia(selection: CommentAiSelection) {
     selection.engine,
     selection.provider,
   );
+}
+
+/**
+ * A draft can carry its mode over from text the AI could apply changes to;
+ * where it can only suggest, that mode lets the AI choose instead.
+ */
+function sendableAiMode(mode: CommentAiMode, suggestOnly = false) {
+  return suggestOnly && mode === "apply-resolve" ? "auto" : mode;
 }
 
 function aiReference(draft: CommentAiDraft) {
@@ -282,7 +306,9 @@ export const CommentComposer = forwardRef<
     aiDraft = null,
     onAiDraftChange,
     aiModelStorageKey,
+    aiSuggestOnly,
     onEscape,
+    confirmEscape = false,
     onBlur,
     onFocus,
     onSelectionChange,
@@ -331,9 +357,34 @@ export const CommentComposer = forwardRef<
   onMentionsChangeRef.current = onMentionsChange;
   onModelChangeRef.current = models.onModelChange;
 
-  const [focused, setFocused] = useState(false);
+  // Escape cancels the draft, asking first while it holds unsent text.
+  const [confirmingDiscard, setConfirmingDiscard] =
+    useState<CommentDiscardKind | null>(null);
+  const discardedRef = useRef(false);
+  // Keep editing puts the cursor back where it was, not at the end.
+  const keptSelectionRef =
+    useRef<ReturnType<TiptapComposerHandle["getSelection"]>>(null);
+  const escapeRef = useRef<() => void>(() => {});
+  escapeRef.current = () => {
+    if (!confirmEscape) {
+      onEscape?.();
+      return;
+    }
+    keptSelectionRef.current = composerRef.current?.getSelection() ?? null;
+    setConfirmingDiscard(confirmEscape);
+  };
+  const escape = useCallback(() => escapeRef.current(), []);
+  const discard = () => {
+    discardedRef.current = true;
+    setConfirmingDiscard(null);
+    onEscape?.();
+  };
+
+  const { focused, focusWithinProps } = useFocusWithinThroughPress(wrapperRef);
   const [emojiOpen, setEmojiOpen] = useState(false);
   const [modelMenuRect, setModelMenuRect] = useState<DOMRect | null>(null);
+  // The Escape that closes the model menu; it must not cancel the draft too.
+  const modelMenuEscapeRef = useRef<KeyboardEvent | null>(null);
   const [avatarUrls, setAvatarUrls] = useState<Record<string, string | null>>(
     {},
   );
@@ -424,23 +475,14 @@ export const CommentComposer = forwardRef<
             candidate.engine === models.selectedEngine,
         )
       : undefined;
+    const selectedKey = selected ? commentAiSelectionKey(selected) : null;
+    // "@ai" finds the selected model under its own name, so it is listed once.
     return [
-      ...(selected
-        ? [
-            {
-              ...aiItems.find(
-                (item) => item.refId === commentAiSelectionKey(selected),
-              )!,
-              id: "ai",
-              label: "AI",
-              referenceLabel: modelDisplayName(selected.model),
-              aliases: ["AI"],
-              description: modelDisplayName(selected.model),
-            },
-          ]
-        : []),
-      ...aiItems,
       ...memberItems,
+      ...aiItems
+        .filter((item) => item.refId === selectedKey)
+        .map((item) => ({ ...item, aliases: [...item.aliases, "AI"] })),
+      ...aiItems.filter((item) => item.refId !== selectedKey),
     ];
   }, [
     aiEnabled,
@@ -570,7 +612,7 @@ export const CommentComposer = forwardRef<
     if (!aiDraft || !onAiSubmit || !canSend || !models.selectionReady) return;
     onAiSubmit({
       ...aiDraft.selection,
-      intent: aiDraft.mode,
+      intent: sendableAiMode(aiDraft.mode, aiSuggestOnly),
       effort: models.selectedEffort,
     });
   };
@@ -624,8 +666,9 @@ export const CommentComposer = forwardRef<
 
   const sendControl = aiDraft ? (
     <CommentAiSendControl
-      mode={aiDraft.mode}
+      mode={sendableAiMode(aiDraft.mode, aiSuggestOnly)}
       disabled={!canSend || !models.selectionReady}
+      suggestOnly={aiSuggestOnly}
       onModeChange={(mode) => onAiDraftChange?.({ ...aiDraft, mode })}
       onSubmit={submitAi}
     />
@@ -657,12 +700,7 @@ export const CommentComposer = forwardRef<
         aiDraft && connectedModels.length > 1 ? "" : undefined
       }
       className={cn("relative min-w-0", className)}
-      onFocusCapture={() => setFocused(true)}
-      onBlurCapture={(event) => {
-        const next = event.relatedTarget as Node | null;
-        if (next && wrapperRef.current?.contains(next)) return;
-        setFocused(false);
-      }}
+      {...focusWithinProps}
       onClickCapture={(event) => {
         if (!aiDraft || connectedModels.length < 2) return;
         const pill = (event.target as HTMLElement).closest<HTMLElement>(
@@ -674,6 +712,8 @@ export const CommentComposer = forwardRef<
       }}
       onKeyDownCapture={(event) => {
         if (event.key !== "Escape" || !event.defaultPrevented) return;
+        // The discard dialog's own Escape reaches here through its portal.
+        if (!wrapperRef.current?.contains(event.target as Node)) return;
         if (
           event.nativeEvent.isComposing ||
           event.nativeEvent.keyCode === 229
@@ -681,7 +721,13 @@ export const CommentComposer = forwardRef<
           event.stopPropagation();
           return;
         }
-        if (!composerRef.current?.dismissPopover()) onEscape?.();
+        // The model menu keeps focus in the editor and closes on this
+        // Escape before it reaches here.
+        if (event.nativeEvent === modelMenuEscapeRef.current) {
+          event.stopPropagation();
+          return;
+        }
+        if (!composerRef.current?.dismissPopover()) escape();
         event.stopPropagation();
       }}
     >
@@ -706,7 +752,7 @@ export const CommentComposer = forwardRef<
         mentionPopoverDensity="stacked"
         includeDefaultMentionSearch={false}
         onReferencesChange={handleReferencesChange}
-        onEscape={onEscape}
+        onEscape={onEscape ? escape : undefined}
         onFocus={onFocus}
         onBlur={onBlur}
         onSelectionChange={onSelectionChange}
@@ -723,7 +769,7 @@ export const CommentComposer = forwardRef<
         layoutVariant="compact"
         toolbarSlot={toolbar}
         actionButton={
-          <div className="flex shrink-0 items-center gap-1">
+          <div className="ms-auto flex shrink-0 items-center gap-1">
             {onCancel && expanded ? (
               <button
                 type="button"
@@ -774,6 +820,9 @@ export const CommentComposer = forwardRef<
           sideOffset={6}
           className="w-64 p-1"
           onOpenAutoFocus={(event) => event.preventDefault()}
+          onEscapeKeyDown={(event) => {
+            modelMenuEscapeRef.current = event;
+          }}
         >
           <CommentAiModelList
             models={connectedModels}
@@ -782,6 +831,43 @@ export const CommentComposer = forwardRef<
           />
         </PopoverContent>
       </Popover>
+      {/* Escape then Enter discards; a second Escape keeps the draft. */}
+      <CommentConfirmDialog
+        open={confirmingDiscard !== null}
+        onCancel={() => setConfirmingDiscard(null)}
+        title={
+          confirmingDiscard === "edit"
+            ? t("comments.discardEditQuestion")
+            : confirmingDiscard === "reply"
+              ? t("comments.discardReplyQuestion")
+              : t("comments.discardCommentQuestion")
+        }
+        description={
+          confirmingDiscard === "edit"
+            ? t("comments.discardEditDescription")
+            : t("comments.discardDescription")
+        }
+        cancelLabel={t("comments.keepEditing")}
+        confirmLabel={t("comments.discard")}
+        onConfirm={discard}
+        onClosed={() => {
+          // After a discard the caller decides where focus goes.
+          if (discardedRef.current) {
+            discardedRef.current = false;
+            return;
+          }
+          const selection = keptSelectionRef.current;
+          if (selection) {
+            composerRef.current?.setSelection(
+              selection.start,
+              selection.end,
+              selection.direction,
+            );
+          } else {
+            composerRef.current?.focus();
+          }
+        }}
+      />
     </div>
   );
 });

@@ -93,7 +93,7 @@ async function runWithPlaywright(
   routes: string[],
   artifactPath: string,
   playwright: PlaywrightLike,
-  options: { baseUrl: string; timeoutMs?: number },
+  options: { baseUrl: string; timeoutMs?: number | undefined },
 ): Promise<VerifierResult> {
   const checks: BrowserCheck[] = [];
   const browser = await playwright.chromium?.launch({ headless: true });
@@ -146,8 +146,8 @@ async function runWithFetchFallback(
   artifactPath: string,
   options: {
     baseUrl: string;
-    timeoutMs?: number;
-    fetchImpl?: typeof fetch;
+    timeoutMs?: number | undefined;
+    fetchImpl?: typeof fetch | undefined;
   },
 ): Promise<VerifierResult> {
   const fetchImpl = options.fetchImpl ?? globalThis.fetch;

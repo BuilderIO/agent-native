@@ -16,12 +16,17 @@ import { FOCUS_COMPOSE_DRAFT_EVENT } from "@/hooks/use-compose-state";
 const mockScheduleEmail = vi.hoisted(() => vi.fn());
 const mockSendEmailAsync = vi.hoisted(() => vi.fn());
 const mockArchiveEmail = vi.hoisted(() => vi.fn());
+const mockReportWriteFailure = vi.hoisted(() => vi.fn());
 const mockSettings = vi.hoisted(() => ({ sendAndArchive: false }));
 const mockAccounts = vi.hoisted(
   () => [] as Array<{ email: string; displayName?: string }>,
 );
+// Like sonner's, the mock returns the id of the toast it shows.
 const mockToast = vi.hoisted(() =>
-  Object.assign(vi.fn(), { error: vi.fn(), dismiss: vi.fn() }),
+  Object.assign(vi.fn().mockReturnValue("toast-id"), {
+    error: vi.fn(),
+    dismiss: vi.fn(),
+  }),
 );
 
 vi.mock("@agent-native/core/client/agent-chat", () => ({
@@ -36,6 +41,13 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 
 vi.mock("sonner", () => ({ toast: mockToast }));
+
+vi.mock("@agent-native/core/client/write-failure", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/write-failure")
+  >()),
+  reportWriteFailure: mockReportWriteFailure,
+}));
 
 vi.mock("@/components/ui/button", () => ({
   Button: ({ children, ...props }: any) => (
@@ -198,6 +210,7 @@ describe("ComposeModal scheduling", () => {
     mockScheduleEmail.mockReset();
     mockSendEmailAsync.mockReset();
     mockArchiveEmail.mockReset();
+    mockReportWriteFailure.mockReset();
     mockSettings.sendAndArchive = false;
     mockToast.mockClear();
     mockToast.error.mockClear();
@@ -1266,6 +1279,7 @@ describe("ComposeModal scheduling", () => {
     expect(mockToast.error).not.toHaveBeenCalledWith(
       "mail.toasts.failedToSendEmail",
     );
+    expect(mockReportWriteFailure).not.toHaveBeenCalled();
   });
 
   it("applies the saved preference to ordinary reply sends", async () => {
@@ -1372,8 +1386,9 @@ describe("ComposeModal scheduling", () => {
     });
 
     expect(mockToast.dismiss).toHaveBeenCalled();
-    expect(mockToast.error).toHaveBeenCalledWith(
-      "mail.toasts.failedToSendEmail",
+    expect(mockReportWriteFailure).toHaveBeenCalledWith(
+      new Error("Provider rejected send"),
+      { label: "mail.toasts.failedToSendEmail" },
     );
     expect(mockArchiveEmail).not.toHaveBeenCalled();
     expect(onDiscard).not.toHaveBeenCalled();
@@ -1464,8 +1479,9 @@ describe("ComposeModal scheduling", () => {
     });
 
     expect(mockSendEmailAsync).toHaveBeenCalledOnce();
-    expect(mockToast.error).toHaveBeenCalledWith(
-      "mail.toasts.failedToSendEmail",
+    expect(mockReportWriteFailure).toHaveBeenCalledWith(
+      new Error("Provider rejected send"),
+      { label: "mail.toasts.failedToSendEmail" },
     );
     expect(
       mockToast.mock.calls.some(
@@ -1548,5 +1564,216 @@ describe("ComposeModal scheduling", () => {
     expect(onStageForSend).toHaveBeenCalledWith(draft.id);
     expect(onDiscard).not.toHaveBeenCalled();
     expect(onRestoreAfterSend).toHaveBeenCalledWith(draft.id);
+  });
+
+  it("hands a card's draft to Mail instead of sending or deleting it", () => {
+    const onSendInMail = vi.fn();
+    const onStageForSend = vi.fn();
+    const onDiscard = vi.fn();
+    const { getByRole, queryByLabelText, queryByPlaceholderText, queryByRole } =
+      render(
+        <ComposeModal
+          presentation="card"
+          drafts={[replyDraft]}
+          activeId={replyDraft.id}
+          activeDraft={replyDraft}
+          onSetActiveId={vi.fn()}
+          onUpdate={vi.fn()}
+          onClose={vi.fn()}
+          onCloseAll={vi.fn()}
+          onDiscard={onDiscard}
+          onStageForSend={onStageForSend}
+          onRestoreAfterSend={vi.fn()}
+          onNewDraft={vi.fn()}
+          onFlush={vi.fn()}
+          onSendInMail={onSendInMail}
+        />,
+      );
+
+    // The card has no window controls, and a reply's subject sits in its header.
+    expect(queryByLabelText("mail.compose.closeAllDrafts")).toBeNull();
+    expect(queryByPlaceholderText("mail.compose.subject")).toBeNull();
+    // Its session can't send, schedule, delete or upload.
+    expect(queryByRole("button", { name: "mail.compose.send" })).toBeNull();
+    expect(queryByRole("button", { name: "Schedule send" })).toBeNull();
+    expect(queryByLabelText("mail.compose.deleteDraft")).toBeNull();
+    expect(queryByLabelText("mail.compose.attachFile")).toBeNull();
+
+    const sendInMail = getByRole("button", {
+      name: "mail.draftCard.sendInMail",
+    });
+    fireEvent.click(sendInMail);
+    expect(onSendInMail).toHaveBeenCalledTimes(1);
+
+    fireEvent.keyDown(sendInMail, { key: "Enter", metaKey: true });
+    expect(onSendInMail).toHaveBeenCalledTimes(2);
+
+    expect(onStageForSend).not.toHaveBeenCalled();
+    expect(onDiscard).not.toHaveBeenCalled();
+    expect(mockSendEmailAsync).not.toHaveBeenCalled();
+    expect(mockScheduleEmail).not.toHaveBeenCalled();
+  });
+
+  it("holds the hand-off while a card has an unfinished recipient", () => {
+    const onSendInMail = vi.fn();
+    const { container, getByRole } = render(
+      <ComposeModal
+        presentation="card"
+        drafts={[replyDraft]}
+        activeId={replyDraft.id}
+        activeDraft={replyDraft}
+        onSetActiveId={vi.fn()}
+        onUpdate={vi.fn()}
+        onClose={vi.fn()}
+        onCloseAll={vi.fn()}
+        onDiscard={vi.fn()}
+        onStageForSend={vi.fn()}
+        onRestoreAfterSend={vi.fn()}
+        onNewDraft={vi.fn()}
+        onFlush={vi.fn()}
+        onSendInMail={onSendInMail}
+      />,
+    );
+
+    const recipient = container.querySelector<HTMLInputElement>(
+      "input[data-mail-recipient-input]",
+    );
+    if (!recipient) throw new Error("The recipient input hasn't rendered.");
+    fireEvent.change(recipient, { target: { value: "half-typed" } });
+    fireEvent.click(getByRole("button", { name: "mail.draftCard.sendInMail" }));
+
+    expect(onSendInMail).not.toHaveBeenCalled();
+    expect(mockToast.error).toHaveBeenCalledWith(
+      "mail.toasts.finishRecipientInput",
+    );
+  });
+
+  it("shows a card draft's copied recipients without a click", () => {
+    const copied = { ...replyDraft, cc: "theo@example.com" };
+    const { container } = render(
+      <ComposeModal
+        presentation="card"
+        drafts={[copied]}
+        activeId={copied.id}
+        activeDraft={copied}
+        onSetActiveId={vi.fn()}
+        onUpdate={vi.fn()}
+        onClose={vi.fn()}
+        onCloseAll={vi.fn()}
+        onDiscard={vi.fn()}
+        onStageForSend={vi.fn()}
+        onRestoreAfterSend={vi.fn()}
+        onNewDraft={vi.fn()}
+        onFlush={vi.fn()}
+      />,
+    );
+
+    const cc = container.querySelector<HTMLInputElement>(
+      'input[data-recipient-field="cc"]:not([data-mail-recipient-input])',
+    );
+    expect(cc?.value).toBe("theo@example.com");
+    // An empty Bcc row would only take room from the message.
+    expect(
+      container.querySelector('input[data-recipient-field="bcc"]'),
+    ).toBeNull();
+  });
+
+  it("leaves a draft edited while scheduling open and says so in a toast", async () => {
+    let resolveSchedule!: (value: unknown) => void;
+    mockScheduleEmail.mockReturnValue(
+      new Promise((resolve) => {
+        resolveSchedule = resolve;
+      }),
+    );
+    const onDiscard = vi.fn();
+    const props = {
+      onSetActiveId: vi.fn(),
+      onUpdate: vi.fn(),
+      onClose: vi.fn(),
+      onCloseAll: vi.fn(),
+      onDiscard,
+      onStageForSend: vi.fn(),
+      onRestoreAfterSend: vi.fn(),
+      onNewDraft: vi.fn(),
+      onFlush: vi.fn(),
+    };
+    const { getByRole, rerender } = render(
+      <ComposeModal
+        {...props}
+        drafts={[replyDraft]}
+        activeId={replyDraft.id}
+        activeDraft={replyDraft}
+      />,
+    );
+
+    fireEvent.click(getByRole("button", { name: "Schedule send" }));
+    fireEvent.click(getByRole("button", { name: "Schedule later" }));
+    const edited = { ...replyDraft, body: "One more thing." };
+    rerender(
+      <ComposeModal
+        {...props}
+        drafts={[edited]}
+        activeId={edited.id}
+        activeDraft={edited}
+      />,
+    );
+    resolveSchedule({});
+
+    await vi.waitFor(() =>
+      expect(mockToast).toHaveBeenCalledWith("mail.sendLater.scheduledFor"),
+    );
+    expect(onDiscard).not.toHaveBeenCalled();
+  });
+
+  it("leaves a draft retargeted to another thread while scheduling open", async () => {
+    let resolveSchedule!: (value: unknown) => void;
+    mockScheduleEmail.mockReturnValue(
+      new Promise((resolve) => {
+        resolveSchedule = resolve;
+      }),
+    );
+    const onDiscard = vi.fn();
+    const props = {
+      onSetActiveId: vi.fn(),
+      onUpdate: vi.fn(),
+      onClose: vi.fn(),
+      onCloseAll: vi.fn(),
+      onDiscard,
+      onStageForSend: vi.fn(),
+      onRestoreAfterSend: vi.fn(),
+      onNewDraft: vi.fn(),
+      onFlush: vi.fn(),
+    };
+    const { getByRole, rerender } = render(
+      <ComposeModal
+        {...props}
+        drafts={[replyDraft]}
+        activeId={replyDraft.id}
+        activeDraft={replyDraft}
+      />,
+    );
+
+    fireEvent.click(getByRole("button", { name: "Schedule send" }));
+    fireEvent.click(getByRole("button", { name: "Schedule later" }));
+    // An agent moves the draft to another thread while the schedule is in
+    // flight, so the scheduled copy isn't the draft anymore.
+    const retargeted = { ...replyDraft, replyToThreadId: "other-thread" };
+    rerender(
+      <ComposeModal
+        {...props}
+        drafts={[retargeted]}
+        activeId={retargeted.id}
+        activeDraft={retargeted}
+      />,
+    );
+    resolveSchedule({});
+
+    await vi.waitFor(() =>
+      expect(mockToast).toHaveBeenCalledWith("mail.sendLater.scheduledFor"),
+    );
+    expect(mockScheduleEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ threadId: "source-thread" }),
+    );
+    expect(onDiscard).not.toHaveBeenCalled();
   });
 });

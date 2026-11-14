@@ -10,6 +10,7 @@ import {
   authorizedTrashDocumentIds,
   hashTrashScopeToken,
 } from "../server/lib/content-trash-purge.js";
+import { cleanupBuilderPrivatePayload } from "./_builder-cms-blob-custody.js";
 import {
   deleteTrashedDocumentSubtree,
   PermanentDeleteScopeChangedError,
@@ -72,6 +73,7 @@ export default defineAction({
         "Permanent deletion requires a current reviewed exact plan for this Trash item",
         { errorCode: "stale_scope", statusCode: 409 },
       );
+    const deletedBlobReferences = new Set<string>();
     let deleted: string[];
     try {
       deleted = await db.transaction(async (tx) => {
@@ -86,6 +88,7 @@ export default defineAction({
           transactionDb,
           id,
           access.resource.ownerEmail as string,
+          deletedBlobReferences,
           items.map((item) => ({
             documentId: item.documentId,
             expectedTrashedAt: item.expectedTrashedAt,
@@ -113,6 +116,9 @@ export default defineAction({
           statusCode: 409,
         });
       throw error;
+    }
+    for (const reference of deletedBlobReferences) {
+      await cleanupBuilderPrivatePayload(reference, "deleted document source");
     }
     await writeAppState("refresh-signal", { ts: Date.now() });
     return {

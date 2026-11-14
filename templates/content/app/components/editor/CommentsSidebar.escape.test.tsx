@@ -1,8 +1,5 @@
 // @vitest-environment happy-dom
 
-import { readFileSync } from "node:fs";
-import { URL as NodeURL } from "node:url";
-
 import type { ResourceSuggestion } from "@agent-native/core/review";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, useEffect, useState } from "react";
@@ -34,9 +31,10 @@ import type { CommentThread } from "@/hooks/use-comments";
 import { CommentComposer } from "./CommentComposer";
 import {
   CommentsSidebar,
-  preserveCommentReplyEscape,
+  preserveCommentComposerEscape,
   useCommentReplyDrafts,
 } from "./CommentsSidebar";
+import { usePagePanelEscape } from "./document-page-panel-state";
 
 vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
   ...(await importOriginal<
@@ -165,19 +163,20 @@ describe("saved reply Escape inside the real Comments Sheet", () => {
   let container: HTMLDivElement;
   let root: Root;
   let drafts!: ReturnType<typeof useCommentReplyDrafts>;
-  let reopen!: () => void;
   const dismiss = vi.fn();
+  const cancelStandalone = vi.fn();
   function Owner({
     kind = "proposal",
     standalone = false,
+    confirm = false,
   }: {
     kind?: "proposal" | "ordinary";
     standalone?: boolean;
+    confirm?: boolean;
   }) {
     const [open, setOpen] = useState(true);
     const [text, setText] = useState("New pending comment");
     drafts = useCommentReplyDrafts("document-one");
-    reopen = () => setOpen(true);
     return (
       <TooltipProvider>
         <Sheet
@@ -189,7 +188,7 @@ describe("saved reply Escape inside the real Comments Sheet", () => {
         >
           <SheetContent
             aria-describedby={undefined}
-            onEscapeKeyDown={preserveCommentReplyEscape}
+            onEscapeKeyDown={preserveCommentComposerEscape}
           >
             <SheetTitle>Comments</SheetTitle>
             <button data-sheet-background>Background</button>
@@ -200,7 +199,8 @@ describe("saved reply Escape inside the real Comments Sheet", () => {
                 mentions={[]}
                 onMentionsChange={() => {}}
                 onSubmit={() => {}}
-                onEscape={() => {}}
+                onEscape={cancelStandalone}
+                confirmEscape={confirm ? "comment" : false}
               />
             ) : (
               <CommentsSidebar
@@ -222,6 +222,7 @@ describe("saved reply Escape inside the real Comments Sheet", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     dismiss.mockReset();
+    cancelStandalone.mockReset();
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -235,7 +236,12 @@ describe("saved reply Escape inside the real Comments Sheet", () => {
     act(async () => {
       await new Promise((resolve) => setTimeout(resolve, 75));
     });
-  const input = () => document.querySelector<HTMLElement>(".ProseMirror")!;
+  // The reply's composer; the Discussion panel's composer for the page stays.
+  const replyInput = () =>
+    [...document.querySelectorAll<HTMLElement>(".ProseMirror")].find(
+      (editor) => !editor.closest("[data-discussion-composer]"),
+    ) ?? null;
+  const input = () => replyInput()!;
   const show = async (kind: "proposal" | "ordinary" = "proposal") => {
     await act(async () => root.render(<Owner kind={kind} />));
     await settle();
@@ -303,8 +309,15 @@ describe("saved reply Escape inside the real Comments Sheet", () => {
     });
   };
 
+  const confirmation = () =>
+    document.querySelector<HTMLElement>('[role="alertdialog"]');
+  const discardButton = () =>
+    [...(confirmation()?.querySelectorAll("button") ?? [])].find(
+      (button) => button.textContent === "comments.discard",
+    )!;
+
   it.each(["proposal", "ordinary"] as const)(
-    "collapses only the %s reply and keeps its multiline draft",
+    "asks before discarding the %s reply, and a second Escape keeps its multiline draft",
     async (kind) => {
       await show(kind);
       await type("First line\nSecond line");
@@ -312,9 +325,34 @@ describe("saved reply Escape inside the real Comments Sheet", () => {
       await escape(input());
       await settle();
       expect(dismiss).not.toHaveBeenCalled();
-      expect(document.querySelector('[role="dialog"]')).not.toBeNull();
-      expect(document.querySelector(".ProseMirror")).toBeNull();
+      expect(confirmation()?.textContent).toContain(
+        "comments.discardReplyQuestion",
+      );
+      expect(document.activeElement).toBe(discardButton());
+      await escape(discardButton());
+      await settle();
+      expect(confirmation()).toBeNull();
+      expect(dismiss).not.toHaveBeenCalled();
+      expect(input().innerText).toBe("First line\nSecond line");
+      expect(document.activeElement).toBe(input());
       expect(drafts.get(`${kind}-thread`).text).toBe("First line\nSecond line");
+    },
+  );
+
+  it.each(["proposal", "ordinary"] as const)(
+    "discards the %s reply once confirmed and leaves the Sheet open",
+    async (kind) => {
+      await show(kind);
+      await type("First line\nSecond line");
+      await escape(input());
+      await settle();
+      await act(async () => discardButton().click());
+      await settle();
+      expect(confirmation()).toBeNull();
+      expect(dismiss).not.toHaveBeenCalled();
+      expect(document.querySelector('[role="dialog"]')).not.toBeNull();
+      expect(replyInput()).toBeNull();
+      expect(drafts.get(`${kind}-thread`).text).toBe("");
       await act(async () =>
         drafts.setOpenReply(
           `${kind}-thread`,
@@ -322,8 +360,7 @@ describe("saved reply Escape inside the real Comments Sheet", () => {
         ),
       );
       await settle();
-      expect(input().innerText).toBe("First line\nSecond line");
-      expect(document.activeElement).toBe(input());
+      expect(input().textContent).toBe("");
       const background = document.querySelector<HTMLButtonElement>(
         "[data-sheet-background]",
       )!;
@@ -333,6 +370,15 @@ describe("saved reply Escape inside the real Comments Sheet", () => {
       expect(dismiss).toHaveBeenCalledTimes(1);
     },
   );
+
+  it("collapses an empty reply on Escape without asking", async () => {
+    await show("ordinary");
+    await escape(input());
+    await settle();
+    expect(confirmation()).toBeNull();
+    expect(dismiss).not.toHaveBeenCalled();
+    expect(replyInput()).toBeNull();
+  });
 
   it.each([{ isComposing: true }, { keyCode: 229 }])(
     "leaves reply and Sheet open for composition Escape %j",
@@ -413,16 +459,30 @@ describe("saved reply Escape inside the real Comments Sheet", () => {
     },
   );
 
-  it("does not intercept Escape in a non-reply composer", async () => {
+  it("hands a new comment's Escape to the comment, not the Sheet", async () => {
     await act(async () => root.render(<Owner standalone />));
     await settle();
     input().focus();
     await escape(input());
     await settle();
-    expect(dismiss).toHaveBeenCalledTimes(1);
-    await act(async () => reopen());
+    expect(cancelStandalone).toHaveBeenCalledTimes(1);
+    expect(dismiss).not.toHaveBeenCalled();
+  });
+
+  it("asks before a new comment's Escape discards its text", async () => {
+    await act(async () => root.render(<Owner standalone confirm />));
     await settle();
-    expect(input().textContent).toBe("New pending comment");
+    input().focus();
+    await escape(input());
+    await settle();
+    expect(confirmation()?.textContent).toContain(
+      "comments.discardCommentQuestion",
+    );
+    expect(cancelStandalone).not.toHaveBeenCalled();
+    await act(async () => discardButton().click());
+    await settle();
+    expect(cancelStandalone).toHaveBeenCalledTimes(1);
+    expect(dismiss).not.toHaveBeenCalled();
   });
 
   it("does not treat an unfocused rich reply editor as the active Escape layer", async () => {
@@ -435,40 +495,81 @@ describe("saved reply Escape inside the real Comments Sheet", () => {
     await settle();
     expect(dismiss).toHaveBeenCalledTimes(1);
   });
+});
 
-  it("wires the capture boundary on the production document Sheet", () => {
-    const source = readFileSync(
-      new NodeURL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
+// oracle-change: the page's Escape now runs through the one panel's hook, so
+// these press the key on the page instead of reading DocumentEditor's source.
+// Focus coming back after the panel closes is tested in document-page-panel-state.
+describe("the page panel's Escape with a comment composer", () => {
+  let host: HTMLDivElement;
+  let root: Root;
+  const onClose = vi.fn();
+  const onDismiss = vi.fn();
+
+  function Page() {
+    usePagePanelEscape({
+      belongs: () => true,
+      closes: () => true,
+      keeps: preserveCommentComposerEscape,
+      onDismiss,
+      onClose,
+    });
+    return (
+      <>
+        <button type="button" data-page-button />
+        <div data-comment-composer>
+          <textarea data-composer />
+        </div>
+      </>
     );
-    expect(source).toMatch(
-      /<SheetContent\s+ref=\{setUtilityPanelSheetContainer\}[\s\S]*?onEscapeKeyDown=\{\(event\) => \{\s+preserveCommentReplyEscape\(event\);\s+if \(event\.defaultPrevented\) return;\s+const target = event\.target;\s+const nestedPopper =/,
-    );
+  }
+
+  const pressEscape = (selector: string) => {
+    const target = host.querySelector<HTMLElement>(selector);
+    target?.focus();
+    act(() => {
+      target?.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Escape",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+  };
+
+  beforeEach(() => {
+    host = document.createElement("div");
+    document.body.append(host);
+    root = createReactRoot(host);
+    act(() => root.render(<Page />));
   });
 
-  it("keeps keyboard focus inside the mobile comments Sheet and restores its trigger", () => {
-    const source = readFileSync(
-      new NodeURL("./DocumentEditor.tsx", import.meta.url),
-      "utf8",
-    );
-    expect(source).toContain(
-      "ref={inSheet ? utilityPanelSheetCloseRef : undefined}",
-    );
-    expect(source).toMatch(
-      /onOpenAutoFocus=\{\(event\) => \{[\s\S]*?event\.preventDefault\(\);[\s\S]*?\(focusedReply \?\? utilityPanelSheetCloseRef\.current\)\?\.focus\(\);/,
-    );
-    expect(source).toContain(
-      "const restoreTarget = utilityPanelSheetTriggerRef.current;",
-    );
-    expect(source).toContain("utilityPanelFocusFallbackRef.current");
-    expect(source).toContain("utilityPanelRegionWasOpenRef.current");
-    expect(source).toContain(
-      "utilityPanelFocusFallbackRef={utilityPanelFocusFallbackRef}",
-    );
-    expect(source).toContain(
-      "utilityPanelFocusGenerationRef.current !== focusGeneration",
-    );
-    expect(source).toContain("restoreTarget?.isConnected");
-    expect(source).toContain(": fallbackTarget");
+  afterEach(() => {
+    act(() => root.unmount());
+    host.remove();
+    vi.clearAllMocks();
+  });
+
+  it("lets the comment composer take Escape before the page panel closes", () => {
+    pressEscape("[data-composer]");
+
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it("closes the page panel on Escape from anywhere else on the page", () => {
+    pressEscape("[data-page-button]");
+
+    expect(onDismiss).toHaveBeenCalledTimes(1);
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("lets a nested menu use Escape before comment focus is dismissed", () => {
+    host.addEventListener("keydown", (event) => event.preventDefault());
+    pressEscape("[data-page-button]");
+
+    expect(onDismiss).not.toHaveBeenCalled();
+    expect(onClose).not.toHaveBeenCalled();
   });
 });

@@ -12,6 +12,8 @@ import {
   type NodeVariant,
 } from "@/lib/workflow-editor";
 
+import { pickerForInboxPoller } from "../../../workflow/pickers/picker-kinds";
+import { ProviderOptionCombobox } from "../../../workflow/pickers/ProviderOptionCombobox";
 import { providerName } from "../../node-kinds";
 import { useWorkflowCanvasStrings } from "../../strings";
 import {
@@ -203,10 +205,11 @@ function InboxScope({
   const invalid = text !== "" && isInvalidInboxScope(settings.poller, text);
   return (
     <Field label={copy.label} htmlFor={`${id}-scope`}>
-      <TextInput
+      <ProviderOptionCombobox
         id={`${id}-scope`}
+        kind={pickerForInboxPoller(settings.poller)}
         value={text}
-        placeholder={copy.example}
+        example={copy.example}
         invalid={invalid}
         onChange={(next) => {
           const scope = next.trim();

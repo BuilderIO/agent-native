@@ -36,9 +36,11 @@ import {
   parseAgentEvent,
   parseGetRunInput,
   parseAgentQueuedMessages,
+  parseNullableAgentQueuedSubmissionStatus,
   parseAgentThread,
   parseAgentUploadTarget,
   parseAgentProtocolEnvelope,
+  parseAgentRunStartResult,
   parseFilePart,
   parseInvokeActionInput,
   parseListThreadsInput,
@@ -46,6 +48,7 @@ import {
   parseQueueMessageResult,
   parseResolveApprovalInput,
   parseResumeRunInput,
+  parseReorderQueuedMessagesInput,
   parseResolveConnectionRequestInput,
   parseStartRunInput,
   parseStartRunResult,
@@ -498,6 +501,14 @@ export function createAgentKitHttpTransport(
         context,
       );
     },
+    getQueuedSubmissionStatus(input, context) {
+      return request(
+        `/threads/${encodeURIComponent(input.threadId)}/queue/${encodeURIComponent(input.messageId)}/receipt`,
+        parseNullableAgentQueuedSubmissionStatus,
+        {},
+        context,
+      );
+    },
     queueMessage(input, context) {
       return request(
         `/threads/${encodeURIComponent(input.threadId)}/queue`,
@@ -533,6 +544,17 @@ export function createAgentKitHttpTransport(
         `/threads/${encodeURIComponent(input.threadId)}/queue/${encodeURIComponent(input.messageId)}/move-to-top`,
         parseVoidResponse,
         { method: "POST" },
+        context,
+      );
+    },
+    async reorderQueuedMessages(input, context) {
+      await request(
+        `/threads/${encodeURIComponent(input.threadId)}/queue`,
+        parseVoidResponse,
+        {
+          method: "PUT",
+          body: JSON.stringify(createAgentProtocolEnvelope("request", input)),
+        },
         context,
       );
     },
@@ -599,7 +621,7 @@ export function createAgentKitHttpTransport(
     resumeRun(input, context) {
       return request(
         `/runs/${encodeURIComponent(input.runId)}/resume`,
-        parseStartRunResult,
+        parseAgentRunStartResult,
         {
           method: "POST",
           body: JSON.stringify(createAgentProtocolEnvelope("request", input)),
@@ -1110,13 +1132,37 @@ export function createAgentKitHttpHandler<TTrustedContext = never>(
         );
       }
       const queueItemMatch = path.match(
-        /^\/threads\/([^/]+)\/queue\/([^/]+)(?:\/(steer|move-to-top))?$/,
+        /^\/threads\/([^/]+)\/queue\/([^/]+)(?:\/(steer|move-to-top|receipt))?$/,
       );
       if (queueItemMatch?.[1] && queueItemMatch[2]) {
         const routeInput = {
           threadId: decodeURIComponent(queueItemMatch[1]),
           messageId: decodeURIComponent(queueItemMatch[2]),
         };
+        if (request.method === "GET" && queueItemMatch[3] === "receipt") {
+          const getQueuedSubmissionStatus = transport.getQueuedSubmissionStatus;
+          if (!getQueuedSubmissionStatus)
+            return notSupported(
+              "getQueuedSubmissionStatus",
+              "Queued submission status is not supported.",
+            );
+          const input = parseThreadMessageInput(routeInput);
+          assertRouteIdentifier(
+            routeInput.threadId,
+            input.threadId,
+            "threadId",
+          );
+          assertRouteIdentifier(
+            routeInput.messageId,
+            input.messageId,
+            "messageId",
+          );
+          return respond(
+            await invoke((context) =>
+              getQueuedSubmissionStatus(input, context),
+            ),
+          );
+        }
         if (request.method === "POST" && queueItemMatch[3] === "steer") {
           const steerQueuedMessage = transport.steerQueuedMessage;
           if (!steerQueuedMessage)
@@ -1191,6 +1237,18 @@ export function createAgentKitHttpHandler<TTrustedContext = never>(
             await invoke((context) => queueMessage(input, context)),
             201,
           );
+        }
+        if (request.method === "PUT") {
+          const reorderQueuedMessages = transport.reorderQueuedMessages;
+          if (!reorderQueuedMessages)
+            return notSupported(
+              "reorderQueuedMessages",
+              "Queue reordering is not supported.",
+            );
+          const input = await readPayload(parseReorderQueuedMessagesInput);
+          assertRouteIdentifier(threadId, input.threadId, "threadId");
+          await invoke((context) => reorderQueuedMessages(input, context));
+          return respond(undefined);
         }
       }
       const threadMatch = path.match(/^\/threads\/([^/]+)$/);

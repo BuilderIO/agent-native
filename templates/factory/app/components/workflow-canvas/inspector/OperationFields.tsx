@@ -17,6 +17,7 @@ import {
   type OperationDefinition,
 } from "@/lib/workflow-editor";
 
+import { pickerForOperationField } from "../../workflow/pickers/picker-kinds";
 import { providerName } from "../node-kinds";
 import { useWorkflowCanvasStrings } from "../strings";
 import { BindingField } from "./BindingField";
@@ -122,6 +123,7 @@ export function OperationFields({
             key={field.name}
             field={field}
             binding={args[field.name]}
+            picker={pickerForOperationField(def.id, field.name)}
             context={context}
             onChange={(binding) => {
               const next = { ...args };

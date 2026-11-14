@@ -1,10 +1,12 @@
 import type { ActionChatUIConfig } from "../../action-ui.js";
+import type { WriteReceipt } from "../../action.js";
 import {
   isArtifactReceipt,
   type ArtifactReceipt,
 } from "../../artifacts/detect.js";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import {
+  AgentRunJournalUnreadableError,
   getCompletedAgentExecutionSteps,
   getCurrentTurnEventsForThread,
 } from "../run-store.js";
@@ -15,6 +17,7 @@ import {
   type ToolCallJournal,
 } from "../tool-call-journal.js";
 import type { AgentChatEvent, AgentFileMutationProof } from "../types.js";
+import { readWriteReceipt } from "../write-receipts.js";
 
 export interface PriorTurnToolCallSummary {
   name: string;
@@ -31,6 +34,8 @@ export type PriorTurnToolCallSequenceEntry =
       isError: boolean;
       completedSideEffect?: boolean;
       replayed?: true;
+      approvalPause?: true;
+      notExecuted?: true;
       matchedStart: boolean;
     };
 
@@ -40,6 +45,7 @@ export interface PriorTurnToolResultSummary {
   content: string;
   isError: boolean;
   artifacts?: ArtifactReceipt[];
+  receipt?: WriteReceipt;
 }
 
 export type PriorTurnToolCallJournalRead =
@@ -51,7 +57,11 @@ export type PriorTurnToolCallJournalRead =
       priorToolResults: PriorTurnToolResultSummary[];
       priorToolCallSequence: PriorTurnToolCallSequenceEntry[];
     }
-  | { status: "unreadable"; error: string };
+  | {
+      status: "unreadable";
+      error: string;
+      code?: "private_history_unrecoverable";
+    };
 
 export interface PriorTurnToolCallJournalOptions {
   /** Recover outcomes committed before a reaper successor could persist tool_done. */
@@ -112,6 +122,7 @@ function durableStepToolDone(
     inputJson: string;
     resultJson: string;
   },
+  unreadable: (message: string, cause?: unknown) => never,
 ): Extract<AgentChatEvent, { type: "tool_done" }> {
   const executionStepId = event.executionStepId ?? event.id;
   if (
@@ -119,12 +130,12 @@ function durableStepToolDone(
     executionStepId !== row.stepId ||
     row.operationId !== row.stepId
   ) {
-    throw new Error(
+    return unreadable(
       `Completed execution step ${row.stepId} does not match its ledger identity`,
     );
   }
   if (event.tool !== row.toolName) {
-    throw new Error(
+    return unreadable(
       `Completed execution step ${row.stepId} does not match ledger tool ${event.tool}`,
     );
   }
@@ -135,9 +146,9 @@ function durableStepToolDone(
     input = JSON.parse(row.inputJson);
     outcome = JSON.parse(row.resultJson);
   } catch (error) {
-    throw new Error(
+    return unreadable(
       `Completed execution step ${row.stepId} has unreadable stored intent or result`,
-      { cause: error },
+      error,
     );
   }
   if (
@@ -150,7 +161,7 @@ function durableStepToolDone(
     typeof outcome.isError !== "boolean" ||
     typeof outcome.completedSideEffect !== "boolean"
   ) {
-    throw new Error(
+    return unreadable(
       `Completed execution step ${row.stepId} is missing replay identity or outcome fields`,
     );
   }
@@ -158,7 +169,7 @@ function durableStepToolDone(
     outcome.errorCode !== undefined &&
     typeof outcome.errorCode !== "string"
   ) {
-    throw new Error(
+    return unreadable(
       `Completed execution step ${row.stepId} has an invalid error code`,
     );
   }
@@ -169,6 +180,7 @@ function durableStepToolDone(
   const mcpApp = durableStepMcpApp(outcome.mcpApp);
   const chatUI = durableStepChatUI(outcome.chatUI);
   const fileMutation = durableStepFileMutation(outcome.fileMutation);
+  const receipt = readWriteReceipt({ _receipt: outcome.receipt });
   return {
     type: "tool_done",
     tool: event.tool,
@@ -189,6 +201,17 @@ function durableStepToolDone(
       ? { errorCode: outcome.errorCode }
       : {}),
     completedSideEffect: outcome.completedSideEffect,
+    ...(outcome.hasAgentWarnings === true
+      ? { hasAgentWarnings: true as const }
+      : {}),
+    ...(receipt ? { receipt } : {}),
+    ...(!outcome.isError &&
+    outcome.actionSettled === true &&
+    outcome.settledOnCleanToolStop === true &&
+    outcome.replayTruncated !== true
+      ? { actionSettled: true as const, settledOnCleanToolStop: true as const }
+      : {}),
+    ...(outcome.replayed === true ? { replayed: true } : {}),
     argumentsHash: input.argumentsHash,
     ...(artifacts.length > 0 ? { artifacts } : {}),
     ...(mcpApp ? { mcpApp } : {}),
@@ -243,25 +266,38 @@ export async function overlayCompletedExecutionStepOutcomes(
   const replacedIndexes = new Set<number>();
   const replacementsAt = new Map<number, AgentChatEvent>();
   const replacementsAfter = new Map<number, AgentChatEvent>();
-  for (const row of rows) {
+  for (const [rowIndex, row] of rows.entries()) {
+    const unreadable = (message: string, cause?: unknown): never => {
+      const detail = new Error(
+        message,
+        cause === undefined ? undefined : { cause },
+      );
+      throw new AgentRunJournalUnreadableError(
+        threadId,
+        turnId,
+        rowIndex,
+        "invalid_execution_step",
+        { cause: detail },
+      );
+    };
     if (!candidateIds.includes(row.stepId)) {
-      throw new Error(
+      return unreadable(
         `Completed execution step ${row.stepId} was not requested by the ledger`,
       );
     }
     if (rowsById.has(row.stepId)) {
-      throw new Error(
+      return unreadable(
         `Completed execution step ${row.stepId} has ambiguous stored rows`,
       );
     }
     const starts = startsById.get(row.stepId);
     if (!starts || starts.length === 0) {
-      throw new Error(
+      return unreadable(
         `Completed execution step ${row.stepId} has no matching ledger call`,
       );
     }
     const canonicalStart = starts[0]!.event;
-    const canonicalDone = durableStepToolDone(canonicalStart, row);
+    const canonicalDone = durableStepToolDone(canonicalStart, row, unreadable);
     if (
       !isConsistentToolCallInputFingerprint(
         canonicalStart.input,
@@ -269,7 +305,7 @@ export async function overlayCompletedExecutionStepOutcomes(
         canonicalStart.inputStoredFingerprint,
       )
     ) {
-      throw new Error(
+      return unreadable(
         `Completed execution step ${row.stepId} has unreadable ledger call identity`,
       );
     }
@@ -284,7 +320,7 @@ export async function overlayCompletedExecutionStepOutcomes(
         ) ||
         getToolCallEventFingerprint(event) !== canonicalFingerprint
       ) {
-        throw new Error(
+        return unreadable(
           `Completed execution step ${row.stepId} has conflicting ledger call identities`,
         );
       }
@@ -300,7 +336,7 @@ export async function overlayCompletedExecutionStepOutcomes(
           event.inputStoredFingerprint,
         )
       ) {
-        throw new Error(
+        return unreadable(
           `Completed execution step ${row.stepId} conflicts with its tool_done identity`,
         );
       }
@@ -310,7 +346,7 @@ export async function overlayCompletedExecutionStepOutcomes(
         doneFingerprint !== undefined &&
         doneFingerprint !== canonicalFingerprint
       ) {
-        throw new Error(
+        return unreadable(
           `Completed execution step ${row.stepId} conflicts with its tool_done input`,
         );
       }
@@ -318,7 +354,7 @@ export async function overlayCompletedExecutionStepOutcomes(
         event.argumentsHash !== undefined &&
         event.argumentsHash !== canonicalDone.argumentsHash
       ) {
-        throw new Error(
+        return unreadable(
           `Completed execution step ${row.stepId} conflicts with its tool_done arguments`,
         );
       }
@@ -326,12 +362,12 @@ export async function overlayCompletedExecutionStepOutcomes(
         event.completedSideEffect !== undefined &&
         event.completedSideEffect !== canonicalDone.completedSideEffect
       ) {
-        throw new Error(
+        return unreadable(
           `Completed execution step ${row.stepId} conflicts with its tool_done side-effect outcome`,
         );
       }
       if (event.isError === true && canonicalDone.isError !== true) {
-        throw new Error(
+        return unreadable(
           `Completed execution step ${row.stepId} conflicts with its tool_done error outcome`,
         );
       }
@@ -339,7 +375,7 @@ export async function overlayCompletedExecutionStepOutcomes(
         event.errorCode !== undefined &&
         event.errorCode !== canonicalDone.errorCode
       ) {
-        throw new Error(
+        return unreadable(
           `Completed execution step ${row.stepId} conflicts with its tool_done error code`,
         );
       }
@@ -434,6 +470,50 @@ export async function loadPriorTurnToolCallJournal(
     );
     return { status: "unreadable", error };
   }
+  const privateStarts = new Map<string, string>();
+  const privatePauses = new Set<string>();
+  for (const event of priorEvents) {
+    if (event.omitFromPersistedHistory !== true) continue;
+    if (event.type === "tool_start") {
+      if (
+        !event.id ||
+        privateStarts.has(event.id) ||
+        privatePauses.has(event.id)
+      ) {
+        return {
+          status: "unreadable",
+          code: "private_history_unrecoverable",
+          error:
+            "Private tool history cannot be safely resumed. Start a new turn.",
+        };
+      }
+      privateStarts.set(event.id, event.tool);
+    } else if (event.type === "tool_done") {
+      if (
+        !event.id ||
+        privateStarts.get(event.id) !== event.tool ||
+        privatePauses.has(event.id) ||
+        event.approvalPause !== true ||
+        event.completedSideEffect !== false
+      ) {
+        return {
+          status: "unreadable",
+          code: "private_history_unrecoverable",
+          error:
+            "Private tool history cannot be safely resumed. Start a new turn.",
+        };
+      }
+      privateStarts.delete(event.id);
+      privatePauses.add(event.id);
+    }
+  }
+  if (privateStarts.size > 0) {
+    return {
+      status: "unreadable",
+      code: "private_history_unrecoverable",
+      error: "Private tool history cannot be safely resumed. Start a new turn.",
+    };
+  }
   if (options.recoverCompletedExecutionSteps) {
     try {
       priorEvents = await overlayCompletedExecutionStepOutcomes(
@@ -481,14 +561,18 @@ export async function loadPriorTurnToolCallJournal(
           ? { completedSideEffect: true }
           : {}),
         ...(event.replayed === true ? { replayed: true } : {}),
+        ...(event.approvalPause === true ? { approvalPause: true } : {}),
+        ...(event.notExecuted === true ? { notExecuted: true } : {}),
         matchedStart: call !== undefined,
       });
       const artifacts = event.artifacts?.filter(isArtifactReceipt);
+      const receipt = readWriteReceipt({ _receipt: event.receipt });
       priorToolResults.push({
         name: event.tool,
         input: event.input ?? call?.input,
         content: event.result,
         isError: event.isError === true,
+        ...(receipt ? { receipt } : {}),
         ...(artifacts && artifacts.length > 0 ? { artifacts } : {}),
       });
     }
@@ -659,12 +743,16 @@ export function seedRepeatedToolErrorCountsFromJournal(
   normalizeError: (error: string) => string,
 ): {
   sameArguments: Map<string, number>;
-  sameTool: Map<string, number>;
+  sameTool: Map<string, Map<string, number>>;
+  failureStreaks: Map<string, number>;
 } {
   const sameArguments = new Map<string, number>();
-  const sameTool = new Map<string, number>();
+  const sameTool = new Map<string, Map<string, number>>();
+  const failureStreaks = new Map<string, number>();
   for (const call of calls) {
     if (call.event === "start") continue;
+
+    if (call.approvalPause || call.notExecuted) continue;
 
     if (call.replayed) {
       if (call.completedSideEffect === true) {
@@ -675,18 +763,25 @@ export function seedRepeatedToolErrorCountsFromJournal(
           }
         }
         for (const key of sameTool.keys()) {
-          if (!key.startsWith(`${call.name}:`)) sameTool.delete(key);
+          if (key !== call.name) sameTool.delete(key);
         }
       }
       continue;
     }
 
     if (call.isError) {
+      failureStreaks.set(call.name, (failureStreaks.get(call.name) ?? 0) + 1);
       const error = normalizeError(call.result);
-      const toolKey = `${call.name}:${error}`;
-      sameTool.set(toolKey, (sameTool.get(toolKey) ?? 0) + 1);
+      let toolErrors = sameTool.get(call.name);
+      if (!toolErrors) {
+        toolErrors = new Map<string, number>();
+        sameTool.set(call.name, toolErrors);
+      }
+      toolErrors.set(error, (toolErrors.get(error) ?? 0) + 1);
       const callKey = `${keyForCall(call.name, call.input)}:${error}`;
       sameArguments.set(callKey, (sameArguments.get(callKey) ?? 0) + 1);
+    } else {
+      failureStreaks.delete(call.name);
     }
 
     if (call.completedSideEffect !== true) continue;
@@ -695,8 +790,8 @@ export function seedRepeatedToolErrorCountsFromJournal(
       if (!key.startsWith(`${successfulWriteKey}:`)) sameArguments.delete(key);
     }
     for (const key of sameTool.keys()) {
-      if (!key.startsWith(`${call.name}:`)) sameTool.delete(key);
+      if (key !== call.name) sameTool.delete(key);
     }
   }
-  return { sameArguments, sameTool };
+  return { sameArguments, sameTool, failureStreaks };
 }

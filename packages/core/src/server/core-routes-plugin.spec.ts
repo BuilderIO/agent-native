@@ -114,6 +114,23 @@ describe("OpenAI plugin domain challenge", () => {
     expect(await response.text()).toBe("challenge-token");
   });
 
+  it("localizes the OAuth popup completion page from the request language", async () => {
+    const app = createApp();
+    app.use("/_agent-native/oauth/popup", createOAuthPopupWaitingHandler());
+
+    const response = await app.fetch(
+      new Request(
+        "http://example.test/_agent-native/oauth/popup?complete=workspace-connection",
+        { headers: { "Accept-Language": "es-ES" } },
+      ),
+    );
+    const html = await response.text();
+
+    expect(response.headers.get("content-language")).toBe("es-ES");
+    expect(html).toContain('<html lang="es-ES" dir="ltr">');
+    expect(html).toContain("<h1>Conexión completada</h1>");
+  });
+
   it("does not expose a challenge until a token is configured", async () => {
     const app = createApp();
     app.use(
@@ -164,7 +181,9 @@ describe("OAuth popup waiting route", () => {
     expect(response.headers.get("cross-origin-opener-policy")).toBe(
       "unsafe-none",
     );
-    expect(await response.text()).not.toContain("script");
+    const html = await response.text();
+    expect(html).not.toContain("script");
+    expect(html).not.toContain("style");
   });
 
   it("notifies the same-origin opener after a workspace OAuth return", async () => {
@@ -178,11 +197,18 @@ describe("OAuth popup waiting route", () => {
     );
 
     expect(response.headers.get("cache-control")).toBe("no-store");
+    expect(response.headers.get("content-language")).toBe("en-US");
     expect(response.headers.get("content-security-policy")).toBe(
-      "default-src 'none'; script-src 'unsafe-inline'; frame-ancestors 'none'",
+      "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; frame-ancestors 'none'",
     );
-    expect(await response.text()).toContain(
-      'postMessage({type:"agent-native:workspace-connection-complete"},window.location.origin)',
+    const html = await response.text();
+    expect(html).toContain("<title>Connection done</title>");
+    expect(html).toContain('<svg viewBox="0 0 24 24"');
+    expect(html).toContain("<h1>Connection done</h1>");
+    expect(html).toContain("width: 80px; height: 80px; color: #22c55e;");
+    expect(html).toContain("setTimeout(() => window.close(), 2000)");
+    expect(html).toContain(
+      'postMessage({type:"agent-native:workspace-connection-complete"}, window.location.origin)',
     );
   });
 
@@ -202,11 +228,34 @@ describe("OAuth popup waiting route", () => {
       `localStorage.setItem("agent-native:mcp-connection-completion:${completionId}","1")`,
     );
     expect(html).toContain(
-      `postMessage({type:"agent-native:workspace-connection-complete",completionId:"${completionId}"},window.location.origin)`,
+      `postMessage({type:"agent-native:workspace-connection-complete",completionId:"${completionId}"}, window.location.origin)`,
     );
     expect(html.indexOf("localStorage.setItem")).toBeLessThan(
       html.indexOf("postMessage"),
     );
+  });
+
+  it("also notifies an opener on a listed UI origin", async () => {
+    vi.stubEnv("CORS_ALLOWED_ORIGINS", "app.example.test");
+    const app = createApp();
+    app.use("/_agent-native/oauth/popup", createOAuthPopupWaitingHandler());
+    const completionId = "8d1bd7cf-419e-4ff0-8545-19dedb819154";
+
+    const html = await (
+      await app.fetch(
+        new Request(
+          `http://example.test/_agent-native/oauth/popup?complete=workspace-connection&resume=${completionId}`,
+        ),
+      )
+    ).text();
+
+    expect(html).toContain(
+      `postMessage({type:"agent-native:workspace-connection-complete",completionId:"${completionId}"}, window.location.origin)`,
+    );
+    expect(html).toContain(
+      `for (const origin of ["https://app.example.test"]) window.opener?.postMessage({type:"agent-native:workspace-connection-complete",completionId:"${completionId}"}, origin);`,
+    );
+    vi.unstubAllEnvs();
   });
 
   it("stays reachable from the framework pages that open it", async () => {
@@ -243,6 +292,7 @@ describe("OAuth popup waiting route", () => {
       const token = signEmbedSessionToken({
         ownerEmail: "owner@example.com",
         targetPath: "/_agent-native/oauth/popup",
+        audienceHost: "http://example.test",
         ttlSeconds: 60,
       });
       const app = createApp();

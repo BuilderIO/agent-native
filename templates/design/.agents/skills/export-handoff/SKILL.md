@@ -2,7 +2,7 @@
 name: export-handoff
 description: >-
   Export Design work and produce developer handoff materials. Use when the user
-  wants HTML, PNG, SVG, ZIP/code exports, implementation notes, or a coding
+  wants HubSpot email HTML, PNG, SVG, ZIP/code exports, implementation notes, or a coding
   handoff for a selected design.
 ---
 
@@ -61,6 +61,17 @@ How to export designs and generate handoff documentation for developers converti
   publishing goes through the Builder Visual Editor's Publish flow.
 
 ## Export Formats
+
+### HubSpot email HTML
+
+`export-hubspot-html` validates any HTML frame and returns `{ html, filename,
+imageCount }` for manual import; no special frame type is required and saved
+source is unchanged. It inlines supported CSS and validates email markup,
+HubL, visible footer text and public images. For target resolution, authoring,
+conversion and completion checks, read `hubspot-email`; it is the single email
+workflow owner. An `invalid_hubspot_email` result identifies content to repair,
+not a missing frame category. Validation and sample browser previews do not
+prove HubSpot compilation or inbox rendering.
 
 ### HTML Export
 

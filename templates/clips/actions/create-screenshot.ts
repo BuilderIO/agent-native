@@ -25,6 +25,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { IMAGE_EXTENSION_BY_MIME } from "../server/lib/image-signature.js";
 import { resolvePlayerThumbnailUrl } from "../server/lib/player-thumbnail-url.js";
+import { withRecordingMediaProduction } from "../server/lib/recording-media-lifecycle.js";
 import {
   getCurrentOwnerEmail,
   getDefaultRecordingVisibility,
@@ -135,13 +136,22 @@ export default defineAction({
 
     // Named for the recording alone: storage keys the object by this name,
     // and the media routes only serve keys under the recording's own id.
-    const uploaded = await uploadFile({
-      data: bytes,
-      mimeType,
-      filename: `${id}${IMAGE_EXTENSION_BY_MIME[mimeType]}`,
-      ownerEmail,
-      recordAsset: false,
-    });
+    const uploaded = await withRecordingMediaProduction(
+      {
+        recordingId: id,
+        ownerEmail,
+        recordAsset: false,
+        newRecording: true,
+      },
+      () =>
+        uploadFile({
+          data: bytes,
+          mimeType,
+          filename: `${id}${IMAGE_EXTENSION_BY_MIME[mimeType]}`,
+          ownerEmail,
+          recordAsset: false,
+        }),
+    );
     // Fail closed. There is deliberately no "store the data URL instead"
     // fallback: image bytes never belong in an app table, so a deployment
     // without file storage cannot take screenshots at all.

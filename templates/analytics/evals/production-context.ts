@@ -24,7 +24,7 @@ import { retrieveAnalyticsPromptReferences } from "../server/lib/analytics-agent
 import {
   INITIAL_TOOL_NAMES,
   analyticsExtraContext,
-  realDataFinalGuard,
+  dbtFinalResponseGuard,
 } from "../server/plugins/agent-chat.js";
 
 const REQUIRED_ANALYTICS_QUERY_ACTIONS = [
@@ -159,7 +159,7 @@ async function runAnalyticsProductionPath(args: {
   let eventIndex = 0;
   let guardApplied = false;
   let usage: Awaited<ReturnType<typeof runAgentLoop>> | undefined;
-  const originalGuard = realDataFinalGuard as AgentLoopFinalResponseGuard;
+  const originalGuard = dbtFinalResponseGuard as AgentLoopFinalResponseGuard;
   const finalResponseGuard: AgentLoopFinalResponseGuard = async (context) => {
     guardApplied = true;
     return originalGuard(context);
@@ -194,7 +194,7 @@ async function runAnalyticsProductionPath(args: {
     productionAgentLoopInvoked: false,
     requestPreparationInvoked: true,
     systemPromptBuilt: Boolean(prompt.trim()),
-    finalResponseGuardInstalled: typeof realDataFinalGuard === "function",
+    finalResponseGuardInstalled: typeof dbtFinalResponseGuard === "function",
     finalResponseGuardApplied: false,
     usageCaptured: false,
     prefetchStatus: references.prefetchStatus,
@@ -309,7 +309,7 @@ export function resolveProductionEvalContext(
   return {
     actions,
     systemPrompt,
-    finalResponseGuard: realDataFinalGuard,
+    finalResponseGuard: dbtFinalResponseGuard,
     ownerEmail,
     orgId,
     appId: "analytics",

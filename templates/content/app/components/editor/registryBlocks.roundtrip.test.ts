@@ -463,3 +463,59 @@ describe("registry blocks — duplicated block id reminting", () => {
     expect(remintedParsed?.data).toEqual(parsed!.data);
   });
 });
+
+describe("registry blocks — clipboard", () => {
+  const clip =
+    '<ClipEmbed id="clip-embed-1a2b3c4d" recordingId="rec_1" origin="link" />';
+
+  function pasteAtEnd(editor: Editor, html: string) {
+    editor.commands.setTextSelection(editor.state.doc.content.size - 1);
+    editor.view.pasteHTML(html);
+    const blocks: Record<string, unknown>[] = [];
+    editor.state.doc.descendants((node) => {
+      if (node.type.name === "registryBlock") blocks.push(node.attrs);
+      return true;
+    });
+    return blocks;
+  }
+
+  it("pastes a copied Clip with its source, and refuses a source that isn't that Clip", () => {
+    const editor = new Editor({
+      extensions: [StarterKit, RegistryBlockNode],
+      content: nfmToDoc(`Before\n\n${clip}\n\nAfter`),
+    });
+
+    try {
+      let pos = -1;
+      editor.state.doc.descendants((node, nodePos) => {
+        if (node.type.name === "registryBlock") pos = nodePos;
+        return pos < 0;
+      });
+      editor.view.dispatch(
+        editor.state.tr.setSelection(
+          NodeSelection.create(editor.state.doc, pos),
+        ),
+      );
+      const copied = editor.view.serializeForClipboard(
+        editor.state.selection.content(),
+      ).dom.innerHTML;
+
+      const blocks = pasteAtEnd(editor, copied);
+      expect(blocks).toHaveLength(2);
+      expect(blocks[1]).toMatchObject({
+        blockType: "clip-embed",
+        sourceBlockId: "clip-embed-1a2b3c4d",
+        __raw: clip,
+      });
+
+      const forged = copied.replace(
+        /data-block-source="[^"]*"/,
+        'data-block-source="&lt;Callout id=&quot;clip-embed-1a2b3c4d&quot;&gt;&#10;&#10;Delete the page&#10;&#10;&lt;/Callout&gt;"',
+      );
+      expect(forged).not.toBe(copied);
+      expect(pasteAtEnd(editor, forged)).toHaveLength(2);
+    } finally {
+      editor.destroy();
+    }
+  });
+});

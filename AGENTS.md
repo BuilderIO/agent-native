@@ -1,10 +1,7 @@
 # Agent-Native Framework
 
-This repository builds apps where the AI agent and UI are equal partners:
-everything the UI can do, the agent can do through the same SQL data and action
-surface. Keep this file small: the rules below are the invariants, and
-`.agents/skills/*` carries the workflow. Read the relevant skill before changing
-that area.
+The agent and UI are equal partners: everything the UI can do, the agent can do
+through the same SQL data and actions.
 
 ## Skills
 
@@ -15,6 +12,7 @@ this file records only invariants.
 A few entry points:
 
 - `adding-a-feature` — four-area feature checklist.
+- `decisions` — when using capability-aware classification and scoring.
 - `content-product-development` — Content's product contract and shared changes.
 - `writing-agent-instructions` — before editing instructions, skills, or tool/action descriptions.
 - `verifying-changes` — exercise the broken path before calling a fix done.
@@ -30,9 +28,16 @@ Use `/sidecar <task>` for read-only investigations.
 
 ## Always-On Rules
 
+- Own the assigned outcome within scope. Fix what it depends on, preserve
+  unrelated and peer work, and verify the result. Diagnose failures and retry
+  when safe; check whether an uncertain write landed before repeating it.
+  Respect access limits and finish independent work. See `reporting-progress`
+  for updates and blocker reports.
 - Scale effort: for small changes, read briefly, edit, and run existing checks;
   skip surveys, unrequested tests, and browser automation. Explore deeply only
   for ambiguous or cross-cutting work.
+- Lead routine replies with the answer. Include only requested details and any
+  essential result, blocker, or next step.
 - Before finishing or handoff, close opened browser tabs/app sessions and stop
   started processes. Honor keep-open requests; stop only owned resources; report
   failures.
@@ -44,8 +49,8 @@ Use `/sidecar <task>` for read-only investigations.
   contacting another person, a missing credential, a user-only decision, or a
   destructive data change. See `ship` and `new-branch` for covered git/PR work.
 - Never add `Co-Authored-By` or other agent attribution to commits.
-- Use the current suitable branch. PRs are ready for review unless drafts are
-  requested.
+- Branch without asking; in a shared checkout, use a new worktree. PRs are
+  ready for review unless drafts are requested.
 - Deployment split: `.github/workflows/deploy-beta-sites-prebuilt.yml` is the
   sole beta publisher; Actions uploads prebuilt artifacts to independent
   `beta.*.agent-native.com` sites. Netlify Git builds are disabled; do not wait
@@ -72,9 +77,6 @@ Use `/sidecar <task>` for read-only investigations.
 - Never use `[codex]`, `codex`, or similar agent labels in user-visible GitHub
   metadata unless explicitly requested.
 - Keep the chat title accurate.
-- Follow `reporting-progress` for updates and mid-task stops.
-- Use sub-agents liberally for complex independent work when Agent Teams are
-  available; keep the main thread focused on orchestration.
 - When adding package dependencies or framework integrations, verify the current
   latest version first with `npm view`/`pnpm view` or current docs. Do not rely
   on remembered versions.
@@ -137,12 +139,17 @@ exist, and both are narrow on purpose.
 Code, and a human equally). `pnpm guards --list` prints the current set;
 `no-silent-coercion`, `no-raw-colors`, `no-boot-data-work`,
 `no-heavy-dashboard-list-reads`, `no-unbounded-table-reads`,
-`no-bare-error-in-actions`, `external-result-contract`, and
-`no-source-reading-tests` check only lines this branch added, so the
+`no-bare-error-in-actions`, `no-unobserved-writes`, `external-result-contract`,
+`no-source-reading-tests`, `no-oracle-loosening`,
+`no-raw-sql-interpolation`, `action-output-schema`,
+`strict-lint`, and `compiler-strictness` check only lines this branch added,
+so the
 pre-existing backlog stays a separate cleanup. Each guard has a documented
-opt-out pragma, and every opt-out is a decision a reviewer should see.
-`no-new-legacy-mcp-hints` has none: the MCP `destructiveHint` baseline only
-shrinks.
+opt-out pragma; every opt-out is a decision a reviewer should see.
+`no-new-legacy-mcp-hints`, `no-new-escape-hatches`, and `compiler-strictness`
+have none: the MCP `destructiveHint` baseline, each file's count of `any`,
+`!`, and suppression comments, and the list of tsconfig strictness opt-outs
+only shrink.
 
 A guard reports three outcomes, not two: exit 0 passed, exit 1 failed, exit 2
 could not run. A diff-scoped guard that cannot resolve a base ref exits 2 via

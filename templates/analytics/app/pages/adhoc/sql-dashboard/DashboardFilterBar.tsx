@@ -18,6 +18,7 @@ import {
   useRef,
   useState,
   type ComponentPropsWithoutRef,
+  type ReactNode,
   type RefObject,
 } from "react";
 import { toast } from "sonner";
@@ -165,20 +166,26 @@ export function extractFilterParams(
 
 interface DashboardFilterBarProps {
   filters: DashboardFilter[];
+  /** Rendered after the filters, inside the part of the bar that collapses. */
+  trailing?: ReactNode;
   loadedDashboardId?: string | null;
   // null while the saved views load or after they fail: Reset cannot know its target, so it stays hidden.
   views?: readonly DashboardSavedView[] | null;
   // While a cached list refetches it can still hold a deleted view, so Reset is
   // disabled rather than put that view's id back in the URL.
   viewsRefreshing?: boolean;
-  onSaveView?: (
-    name: string,
-    filters: Record<string, string>,
-    isDefault: boolean,
-  ) => void | Promise<void>;
+  onSaveView?:
+    | ((
+        name: string,
+        filters: Record<string, string>,
+        isDefault: boolean,
+      ) => void | Promise<void>)
+    | undefined;
   // Passed only in edit mode: a preset changes the dashboard for everyone who
   // can see it, so view mode never offers to add, rename or delete one.
-  onEditPreset?: (filterId: string, edit: FilterPresetEdit) => void;
+  onEditPreset?:
+    | ((filterId: string, edit: FilterPresetEdit) => void)
+    | undefined;
   shared?: boolean;
 }
 
@@ -194,7 +201,7 @@ class BusyFocusBoundary extends Component<
   unknown,
   boolean
 > {
-  getSnapshotBeforeUpdate(previous: BusyFocusBoundaryProps) {
+  override getSnapshotBeforeUpdate(previous: BusyFocusBoundaryProps) {
     const bar = this.props.barRef.current;
     // Chromium can blur a disabled native control during DOM mutation, before
     // layout effects can inspect which element owned focus.
@@ -205,7 +212,7 @@ class BusyFocusBoundary extends Component<
     );
   }
 
-  componentDidUpdate(
+  override componentDidUpdate(
     _previous: BusyFocusBoundaryProps,
     _state: unknown,
     ownedFocus: boolean,
@@ -219,7 +226,7 @@ class BusyFocusBoundary extends Component<
     }
   }
 
-  render() {
+  override render() {
     const { busy: _busy, barRef, ...props } = this.props;
     return <Collapsible {...props} ref={barRef} />;
   }
@@ -235,6 +242,7 @@ export function DashboardFilterBar(props: DashboardFilterBarProps) {
 
 function DashboardFilterBarContent({
   filters,
+  trailing,
   loadedDashboardId,
   views = NO_VIEWS,
   viewsRefreshing = false,
@@ -410,6 +418,7 @@ function DashboardFilterBarContent({
                   shared={shared}
                 />
               ))}
+              {trailing}
             </div>
           </CollapsibleContent>
           <div className="flex shrink-0 items-center gap-1 self-center">

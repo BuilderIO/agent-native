@@ -37,6 +37,9 @@ export function ExportMenuItems({
   const { activeFile } = editorActiveScreenAndGeometry;
   const {
     handleDownloadHtml,
+    handleDownloadHubspotHtml,
+    hubspotHtmlExporting,
+    canExportHubspotHtml,
     handleDownloadPng,
     pngExporting,
     handleDownloadSvg,
@@ -70,6 +73,14 @@ export function ExportMenuItems({
         }
       >
         {t("designEditor.downloadHtml")}
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        onClick={() => void handleDownloadHubspotHtml()}
+        disabled={
+          !canExportHubspotHtml || exportsUnavailable || hubspotHtmlExporting
+        }
+      >
+        {t("designEditor.exportHubspotHtml")}
       </DropdownMenuItem>
       <DropdownMenuItem
         onClick={() => void handleDownloadPng()}

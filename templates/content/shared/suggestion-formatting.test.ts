@@ -138,9 +138,48 @@ describe("formatting source ranges", () => {
     },
   );
 
-  it("does not admit heading syntax as a nonempty slice or map inline markup gaps", () => {
-    expect(suggestionFormattingSourceSlice("# Heading", 0, 2)).toBeNull();
+  it("shows whole block syntax as written but does not map inline markup gaps", () => {
+    expect(suggestionFormattingSourceSlice("# Heading", 0, 2)).toEqual([
+      { type: "block", text: "# " },
+    ]);
+    expect(suggestionFormattingSourceSlice("# Heading", 0, 1)).toBeNull();
     expect(suggestionFormattingSourceRange("**Bold**", 1, 1)).toBeNull();
+  });
+
+  it.each([
+    ["Before\n- Item", "- "],
+    ["Before\n1. Item", "1. "],
+    ["Before\n- [ ] Task", "- [ ] "],
+    ["Before\n> Quote", "> "],
+    ["Before\n## Heading", "## "],
+  ])("slices a new line's block syntax in %j", (source, marker) => {
+    const from = "Before".length;
+    const text = source.slice(from + 1 + marker.length);
+    expect(
+      suggestionFormattingSourceSlice(source, from, source.length),
+    ).toEqual([
+      { type: "break", text: "↵" },
+      { type: "block", text: marker },
+      { type: "text", text, marks: [] },
+    ]);
+    // The text offsets join blocks without separators.
+    expect(
+      suggestionFormattingSourceRange(source, from, source.length),
+    ).toMatchObject({ from, to: from + text.length });
+  });
+
+  it("slices and maps a span that ends in empty paragraphs", () => {
+    const source = "Alpha. More.\n<empty-block/>\n<empty-block/>\nBravo.";
+    const from = "Alpha.".length;
+    const to = source.indexOf("\nBravo");
+    expect(suggestionFormattingSourceSlice(source, from, to)).toEqual([
+      { type: "text", text: " More.", marks: [] },
+      { type: "break", text: "↵" },
+      { type: "block", text: "¶" },
+      { type: "break", text: "↵" },
+      { type: "block", text: "¶" },
+    ]);
+    expect(suggestionFormattingSourceSlice(source, from, to - 2)).toBeNull();
   });
 
   it.each([

@@ -239,3 +239,143 @@ describe("PositionLayoutProperties interactions", () => {
     container.remove();
   });
 });
+
+describe("PositionLayoutProperties X/Y on in-flow layers", () => {
+  function flowChild(overrides: Partial<ElementInfo> = {}): ElementInfo {
+    return {
+      tagName: "div",
+      classes: [],
+      computedStyles: { display: "block", position: "static" },
+      boundingRect: { x: 40, y: 142, width: 120, height: 40 },
+      parentBoundingRect: { x: 0, y: 0, width: 400, height: 600 },
+      isFlexChild: false,
+      isFlexContainer: false,
+      parentDisplay: "block",
+      sourceId: "flow-child",
+      ...overrides,
+    } as ElementInfo;
+  }
+
+  async function renderPosition(element: ElementInfo) {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const onStyleChange = vi.fn();
+    const onStylesChange = vi.fn();
+    await act(async () => {
+      root.render(
+        <PositionLayoutProperties
+          element={element}
+          onStyleChange={onStyleChange}
+          onStylesChange={onStylesChange}
+        />,
+      );
+    });
+    const input = (axis: "X" | "Y") =>
+      container.querySelector<HTMLInputElement>(
+        `input[aria-label="${axis}-position"]`,
+      )!;
+    const type = async (axis: "X" | "Y", text: string) => {
+      const field = input(axis);
+      await act(async () => {
+        field.focus();
+        Object.getOwnPropertyDescriptor(
+          HTMLInputElement.prototype,
+          "value",
+        )!.set!.call(field, text);
+        field.dispatchEvent(new Event("input", { bubbles: true }));
+        field.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+        );
+      });
+    };
+    const cleanup = async () => {
+      await act(async () => root.unmount());
+      container.remove();
+    };
+    return { input, type, onStyleChange, onStylesChange, cleanup };
+  }
+
+  it("moves a block-flow child to the typed Y with a relative offset, leaving it in flow", async () => {
+    const view = await renderPosition(flowChild());
+    expect(view.input("Y").value).toBe("142");
+    await view.type("Y", "150");
+    expect(view.onStylesChange).toHaveBeenCalledTimes(1);
+    const [patch] = view.onStylesChange.mock.calls[0]!;
+    expect(patch).toEqual({ position: "relative", top: "8px" });
+    await view.cleanup();
+  });
+
+  it("offsets an already-relative child from its current inset", async () => {
+    const view = await renderPosition(
+      flowChild({
+        computedStyles: {
+          display: "block",
+          position: "relative",
+          left: "10px",
+          top: "0px",
+        },
+        boundingRect: { x: 50, y: 142, width: 120, height: 40 },
+      }),
+    );
+    await view.type("X", "80");
+    const [patch] = view.onStylesChange.mock.calls[0]!;
+    expect(patch).toEqual({ left: "40px" });
+    await view.cleanup();
+  });
+
+  it("keeps X/Y read-only when a relative offset would re-anchor absolute children", async () => {
+    const view = await renderPosition(
+      flowChild({
+        childElementCount: 1,
+        childLayouts: {
+          complete: true,
+          looseText: false,
+          children: [
+            {
+              tagName: "div",
+              position: "absolute",
+              rect: { x: 0, y: 0, width: 10, height: 10 },
+            },
+          ],
+        } as ElementInfo["childLayouts"],
+      }),
+    );
+    expect(view.input("Y").disabled).toBe(true);
+    await view.cleanup();
+  });
+
+  it("shows X/Y read-only for an in-flow auto layout child", async () => {
+    const view = await renderPosition(
+      flowChild({
+        isFlexChild: true,
+        parentDisplay: "flex",
+        parentLayout: { display: "flex", flexDirection: "row" },
+      }),
+    );
+    expect(view.input("X").disabled).toBe(true);
+    expect(view.input("Y").disabled).toBe(true);
+    expect(view.input("Y").value).toBe("142");
+    await view.cleanup();
+  });
+
+  it("keeps X/Y editable for an absolute child of an auto layout parent", async () => {
+    const view = await renderPosition(
+      flowChild({
+        isFlexChild: true,
+        parentDisplay: "flex",
+        computedStyles: {
+          display: "block",
+          position: "absolute",
+          left: "40px",
+          top: "142px",
+        },
+      }),
+    );
+    expect(view.input("Y").disabled).toBe(false);
+    await view.type("Y", "150");
+    const [patch] = view.onStylesChange.mock.calls[0]!;
+    expect(patch).toEqual({ top: "150px" });
+    await view.cleanup();
+  });
+});

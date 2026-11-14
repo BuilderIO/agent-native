@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   body: { source: "clay" } as { source?: string },
   ctx: { userEmail: "user@example.test", orgId: "org-example" },
+  setResponseStatus: vi.fn(),
   executeProviderApiRequest: vi.fn(),
   runQuery: vi.fn(),
   assertCredentialCanReachEndpoint: vi.fn(),
@@ -10,10 +11,19 @@ const mocks = vi.hoisted(() => ({
   resolveCredentialDetailed: vi.fn(),
   resolveAnalyticsGongCredentials: vi.fn(),
   resolveAnalyticsProviderCredential: vi.fn(),
+  ssrfSafeFetch: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/extensions/url-safety", () => ({
+  ssrfSafeFetch: mocks.ssrfSafeFetch,
 }));
 
 vi.mock("@agent-native/core/server", () => ({
   readBody: vi.fn(async () => mocks.body),
+}));
+vi.mock("h3", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("h3")>()),
+  setResponseStatus: mocks.setResponseStatus,
 }));
 
 vi.mock("../../lib/credentials", () => ({
@@ -53,6 +63,8 @@ describe("test-connection", () => {
     mocks.resolveCredentialDetailed.mockReset();
     mocks.resolveAnalyticsGongCredentials.mockReset();
     mocks.resolveAnalyticsProviderCredential.mockReset();
+    mocks.setResponseStatus.mockReset();
+    mocks.ssrfSafeFetch.mockReset();
     vi.stubGlobal("fetch", vi.fn());
   });
 
@@ -126,6 +138,24 @@ describe("test-connection", () => {
     );
   });
 
+  it("preserves retryable workspace credential lookup status for HubSpot", async () => {
+    mocks.body = { source: "hubspot" };
+    const event = {};
+    mocks.resolveAnalyticsProviderCredential.mockRejectedValue(
+      Object.assign(new Error("HubSpot workspace credential lookup failed"), {
+        statusCode: 503,
+      }),
+    );
+
+    await expect(handler(event as never)).resolves.toEqual({
+      ok: false,
+      error: "HubSpot workspace credential lookup failed",
+    });
+
+    expect(mocks.setResponseStatus).toHaveBeenCalledWith(event, 503);
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
   it("does not call HubSpot without an OAuth or legacy credential", async () => {
     mocks.body = { source: "hubspot" };
     mocks.resolveAnalyticsProviderCredential.mockResolvedValue(null);
@@ -134,6 +164,26 @@ describe("test-connection", () => {
       ok: false,
       error: "Missing HubSpot token",
     });
+    expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it("routes a user-owned Grafana endpoint through SSRF protection", async () => {
+    mocks.body = { source: "grafana" };
+    mocks.resolveCredentialDetailed.mockImplementation(async (key: string) => ({
+      value:
+        key === "GRAFANA_URL" ? "https://grafana.example.test" : "fake-token",
+      scope: "user",
+      scopeId: "user@example.test",
+    }));
+    mocks.ssrfSafeFetch.mockRejectedValue(
+      new Error("SSRF blocked: private address"),
+    );
+
+    await expect(handler({} as never)).resolves.toEqual({
+      ok: false,
+      error: "SSRF blocked: private address",
+    });
+    expect(mocks.ssrfSafeFetch).toHaveBeenCalledTimes(1);
     expect(fetch).not.toHaveBeenCalled();
   });
 

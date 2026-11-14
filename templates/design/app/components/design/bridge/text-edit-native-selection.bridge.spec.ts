@@ -67,6 +67,32 @@ const selectionText = (page: Page) =>
 
 describe("text edit mode native pointer selection", () => {
   it(
+    "selects all text when the host enters edit mode (Enter on a selected text layer)",
+    { timeout: 30_000 },
+    async () => {
+      const browser = await chromium.launch({ headless: true });
+      try {
+        const page = await browser.newPage();
+        await page.setContent(content);
+        await page.addScriptTag({
+          content: hydratedEditorChromeBridgeScript(1),
+        });
+        await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+        await page.evaluate(() =>
+          window.postMessage(
+            { type: "begin-text-edit", nodeId: "tx", force: true },
+            "*",
+          ),
+        );
+        await page.waitForSelector("[data-agent-native-text-editing]");
+        expect(await selectionText(page)).toBe("AI work");
+      } finally {
+        await browser.close();
+      }
+    },
+  );
+
+  it(
     "selects all text on the double-click that enters edit mode",
     { timeout: 30_000 },
     async () => {

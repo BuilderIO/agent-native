@@ -1,8 +1,12 @@
+import { createHash, randomUUID } from "node:crypto";
+
 import {
-  isBlockedExtensionUrlWithDns,
-  ssrfSafeFetch,
-} from "@agent-native/core/extensions/url-safety";
-import type { FileUploadProvider } from "@agent-native/core/file-upload";
+  cancelS3ResponseBody,
+  rfc3986,
+  signedS3Request,
+  type FileUploadProvider,
+  type SignedS3RequestOptions,
+} from "@agent-native/core/file-upload";
 import {
   type PrivateBlobHandle,
   type PrivateBlobProvider,
@@ -13,13 +17,15 @@ import {
   getRequestOrgId,
   prefetchSecrets,
   resolveClipsHostedStorageConfig,
-  resolveSecret,
+  resolveSecretDetailed,
+  type ResolvedSecretDetail,
 } from "@agent-native/core/server";
 
 import {
   legacyOrganizationLogoObjectKey,
   ORGANIZATION_LOGO_PURPOSE,
 } from "../../shared/organization-logo.js";
+import { checkpointMediaUpload } from "./recording-media-production-context.js";
 
 interface S3Config {
   region: string;
@@ -28,6 +34,8 @@ interface S3Config {
   secretAccessKey: string;
   endpoint: string;
   publicBaseUrl: string | null;
+  /** The deployment's hosted bucket, not one a workspace saved. */
+  hosted?: true;
 }
 
 function cleanValue(value: string | null | undefined): string | undefined {
@@ -54,176 +62,6 @@ export class S3StorageError extends Error {
     super(message);
     this.name = "S3StorageError";
   }
-}
-
-async function fetchWithTimeout(
-  url: string,
-  init: RequestInit,
-  timeoutMs: number,
-  trustedPrivateOrigin?: string,
-): Promise<Response> {
-  const controller = new AbortController();
-  let timeout: ReturnType<typeof setTimeout> | undefined;
-  const createTimeoutError = () => {
-    const error = new Error(
-      `S3 request timed out after ${timeoutMs}ms: ${init.method ?? "GET"} ${url}`,
-    );
-    error.name = "TimeoutError";
-    return error;
-  };
-  const clearTimeoutIfRunning = () => {
-    if (timeout) {
-      clearTimeout(timeout);
-      timeout = undefined;
-    }
-  };
-  const timeoutPromise = new Promise<never>((_, reject) => {
-    timeout = setTimeout(() => {
-      const timeoutError = createTimeoutError();
-      controller.abort(timeoutError);
-      reject(timeoutError);
-    }, timeoutMs);
-  });
-
-  try {
-    const request = (async () => {
-      const isPrivateDestination = await isBlockedExtensionUrlWithDns(url);
-      if (controller.signal.aborted) throw controller.signal.reason;
-      const allowedPrivateOrigins =
-        isPrivateDestination &&
-        trustedPrivateOrigin === new URL(url).origin &&
-        trustedPrivateOrigin
-          ? [trustedPrivateOrigin]
-          : [];
-      if (isPrivateDestination && allowedPrivateOrigins.length === 0) {
-        throw new Error(
-          `SSRF blocked: refusing to fetch private/internal S3 endpoint (${url})`,
-        );
-      }
-      return ssrfSafeFetch(
-        url,
-        {
-          ...init,
-          signal: controller.signal,
-        },
-        {
-          followRedirects: false,
-          requireDispatcher: true,
-          allowedPrivateOrigins,
-        },
-      );
-    })();
-    const response = await Promise.race([request, timeoutPromise]);
-    clearTimeoutIfRunning();
-    if (!response.body) {
-      return response;
-    }
-
-    const reader = response.body.getReader();
-    let idleTimeout: ReturnType<typeof setTimeout> | undefined;
-    let bodyController: ReadableStreamDefaultController<Uint8Array> | undefined;
-    let bodySettled = false;
-    const clearIdleTimeout = () => {
-      if (idleTimeout) {
-        clearTimeout(idleTimeout);
-        idleTimeout = undefined;
-      }
-    };
-    const timeOutBody = () => {
-      if (bodySettled) return;
-      const timeoutError = createTimeoutError();
-      bodySettled = true;
-      clearIdleTimeout();
-      controller.abort(timeoutError);
-      bodyController?.error(timeoutError);
-    };
-    const resetIdleTimeout = () => {
-      clearIdleTimeout();
-      idleTimeout = setTimeout(timeOutBody, timeoutMs);
-      if (idleTimeout.unref) idleTimeout.unref();
-    };
-    const body = new ReadableStream<Uint8Array>(
-      {
-        start(streamController) {
-          bodyController = streamController;
-          resetIdleTimeout();
-        },
-        async pull(streamController) {
-          try {
-            if (controller.signal.aborted) throw controller.signal.reason;
-            const { done, value } = await reader.read();
-            if (bodySettled) return;
-            if (controller.signal.aborted) throw controller.signal.reason;
-            if (done) {
-              bodySettled = true;
-              clearIdleTimeout();
-              streamController.close();
-            } else {
-              streamController.enqueue(value);
-              resetIdleTimeout();
-            }
-          } catch (error) {
-            if (bodySettled) return;
-            bodySettled = true;
-            clearIdleTimeout();
-            streamController.error(
-              controller.signal.aborted ? controller.signal.reason : error,
-            );
-          }
-        },
-        async cancel(reason) {
-          bodySettled = true;
-          clearIdleTimeout();
-          await reader.cancel(reason);
-        },
-      },
-      { highWaterMark: 0 },
-    );
-    return new Response(body, {
-      status: response.status,
-      statusText: response.statusText,
-      headers: response.headers,
-    });
-  } catch (err) {
-    clearTimeoutIfRunning();
-    if (err instanceof Error && err.name === "TimeoutError") {
-      throw createTimeoutError();
-    }
-    if (err instanceof Error && err.name === "AbortError") {
-      const abortError = new Error(
-        `S3 request aborted (timeout ${timeoutMs}ms): ${init.method ?? "GET"} ${url}`,
-      );
-      abortError.name = "AbortError";
-      throw abortError;
-    }
-    throw err;
-  }
-}
-
-async function cancelS3ResponseBody(response: Response): Promise<void> {
-  await response.body?.cancel().catch(() => undefined);
-}
-
-function trustedDeploymentS3Origin(endpoint: string): string | undefined {
-  const configuredEndpoint = readS3EnvSecret("S3_ENDPOINT", "R2_ENDPOINT");
-  if (!configuredEndpoint) return undefined;
-  if (!URL.canParse(endpoint) || !URL.canParse(configuredEndpoint)) {
-    return undefined;
-  }
-  const endpointUrl = new URL(endpoint);
-  const configuredUrl = new URL(configuredEndpoint);
-  const normalizePath = (path: string) => path.replace(/\/+$/, "") || "/";
-  if (
-    endpointUrl.origin !== configuredUrl.origin ||
-    normalizePath(endpointUrl.pathname) !==
-      normalizePath(configuredUrl.pathname) ||
-    endpointUrl.search !== configuredUrl.search ||
-    endpointUrl.username !== configuredUrl.username ||
-    endpointUrl.password !== configuredUrl.password
-  ) {
-    return undefined;
-  }
-  return endpointUrl.origin;
 }
 
 function buildS3Config(values: {
@@ -271,13 +109,6 @@ function readS3EnvSecret(
   return cleanValue(process.env[primary]) ?? cleanValue(process.env[fallback]);
 }
 
-async function resolveS3Secret(primary: string, fallback: string) {
-  return (
-    cleanValue(await resolveSecret(primary)) ??
-    cleanValue(await resolveSecret(fallback))
-  );
-}
-
 const S3_SECRET_KEYS = [
   "S3_BUCKET",
   "R2_BUCKET",
@@ -293,21 +124,72 @@ const S3_SECRET_KEYS = [
   "R2_PUBLIC_BASE_URL",
 ] as const;
 
-async function readS3Config(): Promise<S3Config | null> {
+/**
+ * Storage settings come from one place: the user, org or workspace that saved
+ * the bucket, else the deployment's env. Mixing places field by field could
+ * send the deployment's keys to an endpoint a workspace saved, so a setting
+ * saved anywhere else leaves storage unconfigured.
+ */
+function assertS3ReadDeadline(deadline?: number): void {
+  if (deadline !== undefined && Date.now() >= deadline) {
+    const error = new Error("Recording storage setup timed out.");
+    error.name = "TimeoutError";
+    throw error;
+  }
+}
+
+async function readS3Config(deadline?: number): Promise<S3Config | null> {
+  assertS3ReadDeadline(deadline);
   await prefetchSecrets(S3_SECRET_KEYS);
+  assertS3ReadDeadline(deadline);
+  const found = new Map<string, ResolvedSecretDetail>();
+  const lookups = S3_SECRET_KEYS.map(async (key) => {
+    const detail = await resolveSecretDetailed(key);
+    // A self-hosted runtime answers a failed lookup with the env value,
+    // which could stand in for a bucket the workspace saved.
+    if (detail.lookupFailed) {
+      throw detail.cause instanceof Error
+        ? detail.cause
+        : new Error(`Unable to read configured ${key}`);
+    }
+    if (cleanValue(detail.value)) found.set(key, detail);
+  });
+  if (deadline === undefined) {
+    await Promise.all(lookups);
+  } else {
+    const results = await Promise.allSettled(lookups);
+    const failed = results.find((result) => result.status === "rejected");
+    if (failed?.status === "rejected") throw failed.reason;
+    assertS3ReadDeadline(deadline);
+  }
+  const saved = (detail: ResolvedSecretDetail | undefined) =>
+    detail !== undefined && detail.source !== "env";
+  const bucket =
+    [found.get("S3_BUCKET"), found.get("R2_BUCKET")].find(saved) ??
+    found.get("S3_BUCKET") ??
+    found.get("R2_BUCKET");
+  if (!bucket) return null;
+  const fromBucketPlace = (detail: ResolvedSecretDetail | undefined) =>
+    detail !== undefined &&
+    detail.source === bucket.source &&
+    detail.scopeId === bucket.scopeId;
+  if (
+    [...found.values()].some(
+      (detail) => saved(detail) && !fromBucketPlace(detail),
+    )
+  ) {
+    return null;
+  }
+  const read = (primary: string, fallback: string) =>
+    [found.get(primary), found.get(fallback)].find(fromBucketPlace)?.value ??
+    undefined;
   return buildS3Config({
-    bucket: await resolveS3Secret("S3_BUCKET", "R2_BUCKET"),
-    accessKeyId: await resolveS3Secret("S3_ACCESS_KEY_ID", "R2_ACCESS_KEY_ID"),
-    secretAccessKey: await resolveS3Secret(
-      "S3_SECRET_ACCESS_KEY",
-      "R2_SECRET_ACCESS_KEY",
-    ),
-    endpoint: await resolveS3Secret("S3_ENDPOINT", "R2_ENDPOINT"),
-    region: await resolveS3Secret("S3_REGION", "R2_REGION"),
-    publicBaseUrl: await resolveS3Secret(
-      "S3_PUBLIC_BASE_URL",
-      "R2_PUBLIC_BASE_URL",
-    ),
+    bucket: read("S3_BUCKET", "R2_BUCKET"),
+    accessKeyId: read("S3_ACCESS_KEY_ID", "R2_ACCESS_KEY_ID"),
+    secretAccessKey: read("S3_SECRET_ACCESS_KEY", "R2_SECRET_ACCESS_KEY"),
+    endpoint: read("S3_ENDPOINT", "R2_ENDPOINT"),
+    region: read("S3_REGION", "R2_REGION"),
+    publicBaseUrl: read("S3_PUBLIC_BASE_URL", "R2_PUBLIC_BASE_URL"),
   });
 }
 
@@ -320,146 +202,194 @@ function readHostedClipS3Config(): S3Config | null {
     enabled: true,
   });
   if (!config) return null;
-  return buildS3Config({
+  const s3Config = buildS3Config({
     bucket: config.bucket,
     accessKeyId: config.accessKeyId,
     secretAccessKey: config.secretAccessKey,
     endpoint: config.endpoint,
     region: config.region,
   });
+  return s3Config ? { ...s3Config, hosted: true } : null;
 }
 
 type ClipsS3StorageMode = "own" | "hosted";
 
-function readS3ConfigForMode(
-  mode: ClipsS3StorageMode,
-): Promise<S3Config | null> | S3Config | null {
-  return mode === "hosted" ? readHostedClipS3Config() : readS3Config();
+function cleanupStorageFingerprint(cfg: S3Config): string {
+  return createHash("sha256")
+    .update(`${cfg.endpoint}\n${cfg.bucket}`)
+    .digest("hex");
 }
 
-async function resolveOrganizationLogoS3Secret(
-  organizationId: string,
-  primary: string,
-  fallback: string,
-) {
+export async function s3MediaCleanupFingerprint(
+  url: string,
+  mode: ClipsS3StorageMode,
+): Promise<string | null> {
+  const cfg = await readS3ConfigForMode(mode);
+  return cfg && objectKeyFromUrl(cfg, url)
+    ? cleanupStorageFingerprint(cfg)
+    : null;
+}
+
+export async function deleteS3MediaForCleanup(
+  url: string,
+  options: {
+    storageMode: ClipsS3StorageMode;
+    recordingId: string;
+    objectKey: string;
+    fingerprint?: string | null;
+  },
+  checkpoint: (fingerprint: string) => Promise<void>,
+): Promise<{
+  phase: "complete" | "pending" | "blocked";
+  reason?: string;
+  httpStatus?: number;
+}> {
+  const cfg = await readS3ConfigForMode(options.storageMode);
+  if (!cfg) return { phase: "blocked", reason: "credential_unavailable" };
+  if (!options.fingerprint)
+    return { phase: "blocked", reason: "storage_binding_unavailable" };
+  const key = objectKeyFromUrl(cfg, url);
+  if (
+    !key ||
+    options.objectKey !== `s3:${key}` ||
+    !/^clips\/[^/]+(?:\/[^/]+)?$/.test(key) ||
+    !isCompletedClipObjectKey(key) ||
+    !isRecordingObjectKey(key, options.recordingId)
+  )
+    return { phase: "blocked", reason: "object_identity_mismatch" };
+  const fingerprint = cleanupStorageFingerprint(cfg);
+  if (fingerprint !== options.fingerprint)
+    return { phase: "blocked", reason: "credential_space_mismatch" };
+  await checkpoint(fingerprint);
+  const removed = await s3Request(cfg, key, {
+    method: "DELETE",
+    timeoutMs: S3_DELETE_TIMEOUT_MS,
+  });
+  await cancelS3ResponseBody(removed);
+  if (!removed.ok && removed.status !== 404)
+    return {
+      phase:
+        removed.status === 401 || removed.status === 403
+          ? "blocked"
+          : "pending",
+      reason: "delete_unconfirmed",
+      httpStatus: removed.status,
+    };
+  const head = await s3Request(cfg, key, {
+    method: "HEAD",
+    timeoutMs: S3_DELETE_TIMEOUT_MS,
+  });
+  await cancelS3ResponseBody(head);
+  if (head.status !== 404)
+    return {
+      phase: "pending",
+      reason: head.ok ? "still_stored" : "storage_state_unavailable",
+      httpStatus: head.status,
+    };
+  const endpoint = new URL(cfg.endpoint);
+  // R2 has neither object versions nor a GetBucketVersioning operation.
+  if (
+    endpoint.protocol === "https:" &&
+    endpoint.hostname.endsWith(".r2.cloudflarestorage.com")
+  )
+    return { phase: "complete", httpStatus: head.status };
+  const versions = await s3Request(cfg, "", {
+    method: "GET",
+    query: { versioning: "" },
+    timeoutMs: S3_DELETE_TIMEOUT_MS,
+  });
+  if (!versions.ok) {
+    await cancelS3ResponseBody(versions);
+    return {
+      phase: "blocked",
+      reason: "versioning_unconfirmed",
+      httpStatus: versions.status,
+    };
+  }
+  const xml = await versions.text();
+  if (/<(?:[A-Za-z0-9_]+:)?Status>\s*(Enabled|Suspended)\s*</.test(xml))
+    return { phase: "blocked", reason: "retained_versions" };
+  if (
+    !/^<(?:[A-Za-z0-9_]+:)?VersioningConfiguration(?:\s[^>]*)?(?:\s*\/>|>\s*<\/(?:[A-Za-z0-9_]+:)?VersioningConfiguration>)$/.test(
+      xml.trim().replace(/^<\?xml[^>]*\?>\s*/, ""),
+    )
+  )
+    return { phase: "blocked", reason: "versioning_unconfirmed" };
+  return { phase: "complete", httpStatus: head.status };
+}
+
+function readS3ConfigForMode(
+  mode: ClipsS3StorageMode,
+  deadline?: number,
+): Promise<S3Config | null> | S3Config | null {
+  return mode === "hosted" ? readHostedClipS3Config() : readS3Config(deadline);
+}
+
+/** Core's error for a saved secret this process can't decrypt. */
+function isUnreadableSecretError(error: unknown): boolean {
   return (
-    cleanValue(
-      (
-        await readAppSecret({
-          key: primary,
-          scope: "workspace",
-          scopeId: organizationId,
-        })
-      )?.value,
-    ) ??
-    cleanValue(
-      (
-        await readAppSecret({
-          key: fallback,
-          scope: "workspace",
-          scopeId: organizationId,
-        })
-      )?.value,
-    ) ??
-    readS3EnvSecret(primary, fallback)
+    typeof error === "object" &&
+    error !== null &&
+    (error as { errorCode?: unknown }).errorCode === "app_secret_unreadable"
   );
 }
 
+/**
+ * A workspace's logo storage comes from one place: the settings it saved,
+ * when it saved any, else the deployment's env. Mixing them field by field
+ * could send the deployment's keys to an endpoint the workspace chose. A
+ * saved setting that can't be decrypted (its encryption key changed, for
+ * example) leaves no logo storage, rather than passing for unsaved.
+ */
 async function readOrganizationLogoS3Config(
   organizationId: string,
 ): Promise<S3Config | null> {
+  const saved = new Map<string, string>();
+  const unreadable: string[] = [];
+  await Promise.all(
+    S3_SECRET_KEYS.map(async (key) => {
+      try {
+        const secret = await readAppSecret({
+          key,
+          scope: "workspace",
+          scopeId: organizationId,
+        });
+        const value = cleanValue(secret?.value);
+        if (value) saved.set(key, value);
+      } catch (error) {
+        if (!isUnreadableSecretError(error)) throw error;
+        unreadable.push(key);
+      }
+    }),
+  );
+  if (unreadable.length > 0) return null;
+  if (saved.size === 0) return readS3EnvConfig();
+  const read = (primary: string, fallback: string) =>
+    saved.get(primary) ?? saved.get(fallback);
   return buildS3Config({
-    bucket: await resolveOrganizationLogoS3Secret(
-      organizationId,
-      "S3_BUCKET",
-      "R2_BUCKET",
-    ),
-    accessKeyId: await resolveOrganizationLogoS3Secret(
-      organizationId,
-      "S3_ACCESS_KEY_ID",
-      "R2_ACCESS_KEY_ID",
-    ),
-    secretAccessKey: await resolveOrganizationLogoS3Secret(
-      organizationId,
-      "S3_SECRET_ACCESS_KEY",
-      "R2_SECRET_ACCESS_KEY",
-    ),
-    endpoint: await resolveOrganizationLogoS3Secret(
-      organizationId,
-      "S3_ENDPOINT",
-      "R2_ENDPOINT",
-    ),
-    region: await resolveOrganizationLogoS3Secret(
-      organizationId,
-      "S3_REGION",
-      "R2_REGION",
-    ),
-    publicBaseUrl: await resolveOrganizationLogoS3Secret(
-      organizationId,
-      "S3_PUBLIC_BASE_URL",
-      "R2_PUBLIC_BASE_URL",
-    ),
+    bucket: read("S3_BUCKET", "R2_BUCKET"),
+    accessKeyId: read("S3_ACCESS_KEY_ID", "R2_ACCESS_KEY_ID"),
+    secretAccessKey: read("S3_SECRET_ACCESS_KEY", "R2_SECRET_ACCESS_KEY"),
+    endpoint: read("S3_ENDPOINT", "R2_ENDPOINT"),
+    region: read("S3_REGION", "R2_REGION"),
+    publicBaseUrl: read("S3_PUBLIC_BASE_URL", "R2_PUBLIC_BASE_URL"),
   });
 }
 
-async function hmac(key: ArrayBuffer, msg: string): Promise<ArrayBuffer> {
-  const k = await crypto.subtle.importKey(
-    "raw",
-    key,
-    { name: "HMAC", hash: "SHA-256" },
-    false,
-    ["sign"],
-  );
-  return crypto.subtle.sign("HMAC", k, new TextEncoder().encode(msg));
-}
-
-async function sha256(data: Uint8Array): Promise<string> {
-  const ab = new ArrayBuffer(data.byteLength);
-  new Uint8Array(ab).set(data);
-  const buf = await crypto.subtle.digest("SHA-256", ab);
-  return toHex(buf);
-}
-
-function toHex(buf: ArrayBuffer): string {
-  const bytes = new Uint8Array(buf);
-  let out = "";
-  for (let i = 0; i < bytes.length; i++) {
-    out += bytes[i].toString(16).padStart(2, "0");
-  }
-  return out;
-}
-
-async function deriveSigningKey(
-  secret: string,
-  dateStamp: string,
-  region: string,
-): Promise<ArrayBuffer> {
-  const kSecret = new TextEncoder().encode(`AWS4${secret}`);
-  const kDate = await hmac(kSecret.buffer as ArrayBuffer, dateStamp);
-  const kRegion = await hmac(kDate, region);
-  const kService = await hmac(kRegion, "s3");
-  return hmac(kService, "aws4_request");
-}
-
-function rfc3986(str: string): string {
-  return encodeURIComponent(str).replace(
-    /[!'()*]/g,
-    (c) => "%" + c.charCodeAt(0).toString(16).toUpperCase(),
-  );
-}
-
-function objectUri(cfg: S3Config, key: string): string {
-  const keySegments = key.split("/");
-  if (
-    cfg.bucket.includes("/") ||
-    cfg.bucket.includes("\\") ||
-    cfg.bucket === "." ||
-    cfg.bucket === ".." ||
-    keySegments.some((segment) => segment === "." || segment === "..")
-  ) {
-    throw new Error("S3 object path contains an unsafe URL path segment");
-  }
-  return `/${rfc3986(cfg.bucket)}/${keySegments.map(rfc3986).join("/")}`;
+/**
+ * Sends a signed request. The hosted bucket's endpoint is the deployment's
+ * own, so like an env endpoint it may use plain HTTP or a private network;
+ * endpoints a workspace saved may not.
+ */
+function s3Request(
+  cfg: S3Config,
+  key: string,
+  options: Omit<SignedS3RequestOptions, "trustedEndpoint">,
+): Promise<Response> {
+  return signedS3Request(cfg, key, {
+    ...options,
+    trustedEndpoint: cfg.hosted === true,
+  });
 }
 
 export class S3MultipartStartError extends Error {
@@ -469,113 +399,13 @@ export class S3MultipartStartError extends Error {
   }
 }
 
-function canonicalQueryString(query: Record<string, string>): string {
-  return Object.entries(query)
-    .map(([key, value]) => [rfc3986(key), rfc3986(value)] as const)
-    .sort(([leftKey, leftValue], [rightKey, rightValue]) => {
-      const left = leftKey === rightKey ? leftValue : leftKey;
-      const right = leftKey === rightKey ? rightValue : rightKey;
-      return left < right ? -1 : left > right ? 1 : 0;
-    })
-    .map(([key, value]) => `${key}=${value}`)
-    .join("&");
-}
-
-async function signedS3Request(
-  cfg: S3Config,
-  key: string,
-  options: {
-    method: "DELETE" | "GET" | "HEAD" | "POST" | "PUT";
-    query?: Record<string, string>;
-    body?: Uint8Array;
-    contentType?: string;
-    range?: string;
-    timeoutMs: number;
-  },
-): Promise<Response> {
-  const now = new Date();
-  const amzDate =
-    now
-      .toISOString()
-      .replace(/[:-]|\.\d{3}/g, "")
-      .slice(0, 15) + "Z";
-  const dateStamp = amzDate.slice(0, 8);
-  const credentialScope = `${dateStamp}/${cfg.region}/s3/aws4_request`;
-  const host = new URL(cfg.endpoint).host;
-  const canonicalUri = objectUri(cfg, key);
-  const canonicalQuery = canonicalQueryString(options.query ?? {});
-  const body = options.body ?? new Uint8Array(0);
-  const payloadHash = await sha256(body);
-
-  const headers: Record<string, string> = {
-    host,
-    "x-amz-content-sha256": payloadHash,
-    "x-amz-date": amzDate,
-  };
-  if (options.contentType) headers["content-type"] = options.contentType;
-  if (options.range?.startsWith("bytes=")) headers.range = options.range;
-
-  const signedHeaderKeys = Object.keys(headers).sort();
-  const signedHeaders = signedHeaderKeys.join(";");
-  const canonicalHeaders =
-    signedHeaderKeys
-      .map((header) => `${header}:${headers[header]}`)
-      .join("\n") + "\n";
-  const canonicalRequest = [
-    options.method,
-    canonicalUri,
-    canonicalQuery,
-    canonicalHeaders,
-    signedHeaders,
-    payloadHash,
-  ].join("\n");
-  const crHash = await sha256(new TextEncoder().encode(canonicalRequest));
-  const stringToSign = [
-    "AWS4-HMAC-SHA256",
-    amzDate,
-    credentialScope,
-    crHash,
-  ].join("\n");
-  const signingKey = await deriveSigningKey(
-    cfg.secretAccessKey,
-    dateStamp,
-    cfg.region,
-  );
-  const signature = toHex(await hmac(signingKey, stringToSign));
-  const authorization =
-    `AWS4-HMAC-SHA256 Credential=${cfg.accessKeyId}/${credentialScope}, ` +
-    `SignedHeaders=${signedHeaders}, Signature=${signature}`;
-
-  const url = `${cfg.endpoint}${canonicalUri}${canonicalQuery ? `?${canonicalQuery}` : ""}`;
-  return fetchWithTimeout(
-    url,
-    {
-      method: options.method,
-      headers: {
-        ...headers,
-        Authorization: authorization,
-      },
-      ...(options.body
-        ? {
-            body: options.body.buffer.slice(
-              options.body.byteOffset,
-              options.body.byteOffset + options.body.byteLength,
-            ) as BodyInit,
-          }
-        : {}),
-    },
-    options.timeoutMs,
-    trustedDeploymentS3Origin(cfg.endpoint),
-  );
-}
-
 async function putObject(
   cfg: S3Config,
   key: string,
   body: Uint8Array,
   contentType: string,
 ): Promise<string> {
-  const res = await signedS3Request(cfg, key, {
+  const res = await s3Request(cfg, key, {
     method: "PUT",
     body,
     contentType,
@@ -671,7 +501,7 @@ function isLegacyUnscopedObjectKey(key: string): boolean {
 }
 
 async function deleteObject(cfg: S3Config, key: string): Promise<void> {
-  const res = await signedS3Request(cfg, key, {
+  const res = await s3Request(cfg, key, {
     method: "DELETE",
     timeoutMs: S3_DELETE_TIMEOUT_MS,
   });
@@ -686,7 +516,7 @@ async function deleteObject(cfg: S3Config, key: string): Promise<void> {
 }
 
 async function getObject(cfg: S3Config, key: string): Promise<Uint8Array> {
-  const res = await signedS3Request(cfg, key, {
+  const res = await s3Request(cfg, key, {
     method: "GET",
     timeoutMs: S3_PUT_TIMEOUT_MS,
   });
@@ -732,6 +562,9 @@ const PRIVATE_LOGO_EXTENSIONS: Record<string, string> = {
 export const clipsOrganizationLogoPrivateBlobProvider: PrivateBlobProvider = {
   id: S3_ORGANIZATION_LOGO_PROVIDER_ID,
   name: "Clips organization logo storage",
+  // Only logo uploads land here; every other private blob goes to the
+  // general provider.
+  handles: (request) => request.metadata?.purpose === ORGANIZATION_LOGO_PURPOSE,
   isConfigured: () => readS3EnvConfig() !== null,
   isConfiguredForRequest: async () => {
     const organizationId = getRequestOrgId();
@@ -813,7 +646,7 @@ export async function fetchS3OrganizationLogoByLegacyUrl(
   if (!cfg) {
     throw new S3StorageError("S3 credentials are not configured", 503);
   }
-  return signedS3Request(cfg, key, {
+  return s3Request(cfg, key, {
     method: "GET",
     timeoutMs: S3_PUT_TIMEOUT_MS,
   });
@@ -846,6 +679,7 @@ interface S3MultipartPart {
 }
 
 interface S3MultipartMeta {
+  storageFingerprint?: string;
   objectKey: string;
   stagingKey: string;
   mimeType: string;
@@ -895,7 +729,36 @@ function readMultipartMeta(meta: Record<string, unknown>): S3MultipartMeta {
   ) {
     throw new Error("S3 resumable upload session metadata is invalid");
   }
-  return { objectKey, stagingKey, mimeType, maxBytes, pendingBytes, parts };
+  if (
+    meta.storageFingerprint !== undefined &&
+    (typeof meta.storageFingerprint !== "string" ||
+      !/^[a-f0-9]{64}$/.test(meta.storageFingerprint))
+  )
+    throw new Error("S3 resumable storage binding is invalid");
+  return {
+    objectKey,
+    stagingKey,
+    mimeType,
+    maxBytes,
+    pendingBytes,
+    parts,
+    ...(typeof meta.storageFingerprint === "string"
+      ? { storageFingerprint: meta.storageFingerprint }
+      : {}),
+  };
+}
+
+function readBoundMultipartMeta(
+  cfg: S3Config,
+  raw: Record<string, unknown>,
+): S3MultipartMeta {
+  const meta = readMultipartMeta(raw);
+  if (
+    meta.storageFingerprint &&
+    meta.storageFingerprint !== cleanupStorageFingerprint(cfg)
+  )
+    throw new Error("S3 resumable storage bucket binding changed");
+  return meta;
 }
 
 function contentRangeEndExclusive(contentRange: string): number | null {
@@ -936,7 +799,7 @@ async function uploadMultipartPart(
   if (partNumber > S3_MULTIPART_MAX_PARTS) {
     throw new Error("S3 multipart upload exceeds the 10,000 part limit");
   }
-  const res = await signedS3Request(cfg, meta.objectKey, {
+  const res = await s3Request(cfg, meta.objectKey, {
     method: "PUT",
     query: { partNumber: String(partNumber), uploadId },
     body: bytes,
@@ -964,7 +827,7 @@ async function verifyCompletedMultipartObject(
   cfg: S3Config,
   meta: S3MultipartMeta,
 ): Promise<boolean> {
-  const res = await signedS3Request(cfg, meta.objectKey, {
+  const res = await s3Request(cfg, meta.objectKey, {
     method: "HEAD",
     timeoutMs: S3_DELETE_TIMEOUT_MS,
   });
@@ -1043,6 +906,37 @@ export async function isS3ObjectUrlBoundToRecording(
   );
 }
 
+export async function openS3Recording(
+  url: string,
+  options: {
+    recordingId: string;
+    storageMode: ClipsS3StorageMode;
+    deadline?: number;
+  },
+): Promise<
+  | ((
+      range: string,
+      timeoutMs: number,
+      signal?: AbortSignal,
+    ) => Promise<Response>)
+  | null
+> {
+  assertS3ReadDeadline(options.deadline);
+  const cfg = await readS3ConfigForMode(options.storageMode, options.deadline);
+  assertS3ReadDeadline(options.deadline);
+  if (!cfg) return null;
+  const key = objectKeyFromUrl(cfg, url);
+  if (
+    !key ||
+    !options.recordingId ||
+    !isCompletedClipObjectKey(key) ||
+    !isRecordingObjectKey(key, options.recordingId)
+  )
+    return null;
+  return (range, timeoutMs, signal) =>
+    s3Request(cfg, key, { method: "GET", range, timeoutMs, signal });
+}
+
 export async function fetchS3ObjectByUrl(
   url: string,
   options: {
@@ -1065,7 +959,7 @@ export async function fetchS3ObjectByUrl(
   ) {
     return null;
   }
-  return signedS3Request(cfg, key, {
+  return s3Request(cfg, key, {
     method: "GET",
     range: options.range,
     timeoutMs: options.timeoutMs ?? S3_PUT_TIMEOUT_MS,
@@ -1122,8 +1016,7 @@ function createS3FileUploadProvider(
       const basename = filename?.slice(0, -(ext.length + 1)) || "file";
       const safeBasename = safeClipFilename(basename);
       const stamp = Date.now();
-      const rand = Math.random().toString(36).slice(2, 10);
-      const objectKey = `clips/${safeBasename}/${stamp}-${rand}.${ext}`;
+      const objectKey = `clips/${safeBasename}/${stamp}-${randomUUID()}.${ext}`;
       const contentType = mimeType || "application/octet-stream";
 
       const bytes =
@@ -1131,7 +1024,14 @@ function createS3FileUploadProvider(
           ? data
           : new Uint8Array(data as unknown as ArrayBuffer);
 
+      const reference = {
+        url: publicObjectUrl(cfg, objectKey),
+        provider: id,
+        storageFingerprint: cleanupStorageFingerprint(cfg),
+      };
+      await checkpointMediaUpload({ ...reference, uploadConfirmed: false });
       const publicUrl = await putObject(cfg, objectKey, bytes, contentType);
+      await checkpointMediaUpload({ ...reference, uploadConfirmed: true });
       return { url: publicUrl, provider: id };
     },
     resumable: {
@@ -1145,7 +1045,7 @@ function createS3FileUploadProvider(
         }
         const objectKey = `clips/${safeFilename}`;
         const stagingKey = `clips/.multipart/${safeFilename}.pending`;
-        const res = await signedS3Request(cfg, objectKey, {
+        const res = await s3Request(cfg, objectKey, {
           method: "POST",
           query: { uploads: "" },
           contentType: mimeType,
@@ -1164,6 +1064,7 @@ function createS3FileUploadProvider(
         return {
           sessionId: uploadId,
           meta: {
+            storageFingerprint: cleanupStorageFingerprint(cfg),
             objectKey,
             stagingKey,
             mimeType,
@@ -1177,7 +1078,7 @@ function createS3FileUploadProvider(
       async relayChunk(session, contentRange, bytes) {
         const cfg = await readS3ConfigForMode(storageMode);
         if (!cfg) throw new Error("S3 credentials are not configured");
-        const meta = readMultipartMeta(session.meta);
+        const meta = readBoundMultipartMeta(cfg, session.meta);
         const isFinal = !contentRange.endsWith("/*");
         const rangeEnd = contentRangeEndExclusive(contentRange);
         if (rangeEnd === null) {
@@ -1234,7 +1135,18 @@ function createS3FileUploadProvider(
       async completeSession(session) {
         const cfg = await readS3ConfigForMode(storageMode);
         if (!cfg) throw new Error("S3 credentials are not configured");
-        const meta = readMultipartMeta(session.meta);
+        const meta = readBoundMultipartMeta(cfg, session.meta);
+        const reference = {
+          url: publicObjectUrl(cfg, meta.objectKey),
+          provider: id,
+          ...(meta.storageFingerprint
+            ? { storageFingerprint: meta.storageFingerprint }
+            : {}),
+        };
+        const completed = async () => {
+          await checkpointMediaUpload({ ...reference, uploadConfirmed: true });
+          return reference.url;
+        };
         if (meta.pendingBytes > 0) {
           throw new Error(
             "S3 multipart upload still has an uncommitted final part",
@@ -1252,12 +1164,13 @@ function createS3FileUploadProvider(
             )
             .join("") +
           "</CompleteMultipartUpload>";
+        await checkpointMediaUpload({ ...reference, uploadConfirmed: false });
         // CompleteMultipartUpload is not idempotent; retries verify the deterministic object instead.
         // A lost response body is as ambiguous as a failed request: S3 may have completed.
         let res: Response;
         let body: string;
         try {
-          res = await signedS3Request(cfg, meta.objectKey, {
+          res = await s3Request(cfg, meta.objectKey, {
             method: "POST",
             query: { uploadId: session.sessionId },
             body: new TextEncoder().encode(manifest),
@@ -1276,7 +1189,7 @@ function createS3FileUploadProvider(
                     : String(cleanupError),
                 );
               });
-              return publicObjectUrl(cfg, meta.objectKey);
+              return completed();
             }
           } catch (verificationError) {
             console.warn(
@@ -1299,7 +1212,7 @@ function createS3FileUploadProvider(
                 err instanceof Error ? err.message : String(err),
               );
             });
-            return publicObjectUrl(cfg, meta.objectKey);
+            return completed();
           }
           throw new Error(
             `S3 CompleteMultipartUpload failed (${res.status}): ${body || res.statusText}`,
@@ -1311,14 +1224,14 @@ function createS3FileUploadProvider(
             err instanceof Error ? err.message : String(err),
           );
         });
-        return publicObjectUrl(cfg, meta.objectKey);
+        return completed();
       },
 
       async abortSession(session) {
         const cfg = await readS3ConfigForMode(storageMode);
         if (!cfg) throw new Error("S3 credentials are not configured");
-        const meta = readMultipartMeta(session.meta);
-        const abortRes = await signedS3Request(cfg, meta.objectKey, {
+        const meta = readBoundMultipartMeta(cfg, session.meta);
+        const abortRes = await s3Request(cfg, meta.objectKey, {
           method: "DELETE",
           query: { uploadId: session.sessionId },
           timeoutMs: S3_DELETE_TIMEOUT_MS,

@@ -200,65 +200,48 @@ describe("agent discovery", () => {
     }
   });
 
-  it("falls back from a mounted directory path only after a missing route", async () => {
-    process.env.AGENT_NATIVE_ORG_DIRECTORY_URL =
-      "https://dispatch.example.test/dispatch";
+  it("preserves a missing-route result returned by the shared directory client", async () => {
     const directory = await import("../mcp/org-directory.js");
     const fetchSpy = vi
       .spyOn(directory, "fetchOrgAppsResult")
-      .mockResolvedValueOnce({ status: "unavailable", reason: "missing-route" })
-      .mockResolvedValueOnce({ status: "available", apps: [] });
+      .mockResolvedValue({ status: "unavailable", reason: "missing-route" });
 
     try {
       const result = await discoverAgentsWithDirectoryStatus("analytics");
 
-      expect(result.directory).toEqual({ status: "available" });
-      expect(fetchSpy.mock.calls).toEqual([
-        [{ selfId: "analytics" }],
-        [
-          {
-            directoryBaseUrl: "https://dispatch.example.test",
-            selfId: "analytics",
-          },
-        ],
-      ]);
+      expect(result.directory).toEqual({
+        status: "unavailable",
+        reason: "missing-route",
+      });
+      expect(fetchSpy).toHaveBeenCalledOnce();
+      expect(fetchSpy).toHaveBeenCalledWith({ selfId: "analytics" });
     } finally {
       fetchSpy.mockRestore();
     }
   });
 
-  it("uses the selected org workspace URL at the Dispatch mount when no URL is configured", async () => {
+  it("reports setup-required when an org has no bound or configured directory", async () => {
     const directory = await import("../mcp/org-directory.js");
-    const context = await import("../org/context.js");
     const fetchSpy = vi
       .spyOn(directory, "fetchOrgAppsResult")
-      .mockResolvedValueOnce({
+      .mockResolvedValue({
         status: "unavailable",
         reason: "not-configured",
-      })
-      .mockResolvedValueOnce({ status: "available", apps: [] });
-    const workspaceUrlSpy = vi
-      .spyOn(context, "getOrgWorkspaceUrl")
-      .mockResolvedValue("https://workspace.example.test");
+      });
 
     try {
       const result = await runWithRequestContext({ orgId: "org-123" }, () =>
         discoverAgentsWithDirectoryStatus("analytics"),
       );
 
-      expect(result.directory).toEqual({ status: "available" });
-      expect(fetchSpy.mock.calls).toEqual([
-        [{ selfId: "analytics" }],
-        [
-          {
-            directoryBaseUrl: "https://workspace.example.test/dispatch",
-            selfId: "analytics",
-          },
-        ],
-      ]);
+      expect(result.directory).toEqual({
+        status: "setup-required",
+        reason: "workspace-url-not-set",
+      });
+      expect(fetchSpy).toHaveBeenCalledOnce();
+      expect(fetchSpy).toHaveBeenCalledWith({ selfId: "analytics" });
     } finally {
       fetchSpy.mockRestore();
-      workspaceUrlSpy.mockRestore();
     }
   });
 
@@ -382,6 +365,27 @@ describe("agent discovery", () => {
     ).rejects.toThrow("Unable to read connected agent resources");
     await expect(discoverAgents("dispatch")).resolves.toEqual(
       getBuiltinAgents("dispatch"),
+    );
+  });
+
+  it("keeps remote resources best-effort when using a workspace manifest snapshot", async () => {
+    resourceListMock.mockRejectedValueOnce(new Error("resource store offline"));
+    process.env.AGENT_NATIVE_WORKSPACE_APPS_JSON = "{invalid";
+    await expect(
+      discoverAgents("sender", {
+        workspaceAppsManifest: [
+          {
+            id: "sibling",
+            name: "Sibling",
+            description: "",
+            path: "/sibling",
+            homePath: "/home",
+            url: "https://workspace.example.test/sibling",
+          },
+        ],
+      }),
+    ).resolves.toContainEqual(
+      expect.objectContaining({ id: "sibling", source: "workspace" }),
     );
   });
 
@@ -2104,6 +2108,42 @@ describe("agent discovery", () => {
         reason: "workspace-metadata",
       });
     });
+  });
+
+  it("skips non-app workspace directories but rejects invalid package files", async () => {
+    const workspaceRoot = fs.mkdtempSync(
+      path.join(os.tmpdir(), "agent-discovery-workspace-"),
+    );
+    const cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(workspaceRoot);
+    try {
+      fs.writeFileSync(
+        path.join(workspaceRoot, "package.json"),
+        JSON.stringify({
+          name: "test-workspace",
+          "agent-native": { workspaceCore: "workspace-core" },
+        }),
+      );
+      const appsDir = path.join(workspaceRoot, "apps");
+      fs.mkdirSync(path.join(appsDir, "notes"), { recursive: true });
+      fs.mkdirSync(path.join(appsDir, "healthy"));
+      fs.writeFileSync(
+        path.join(appsDir, "healthy", "package.json"),
+        JSON.stringify({ name: "healthy" }),
+      );
+      await expect(loadWorkspaceAppsManifest(true)).resolves.toEqual([
+        expect.objectContaining({ id: "healthy" }),
+      ]);
+      fs.writeFileSync(
+        path.join(appsDir, "notes", "package.json"),
+        "{bad json",
+      );
+      await expect(loadWorkspaceAppsManifest(true)).rejects.toThrow(
+        "Invalid workspace package: notes",
+      );
+    } finally {
+      cwdSpy.mockRestore();
+      fs.rmSync(workspaceRoot, { recursive: true, force: true });
+    }
   });
 
   it("skips filesystem apps with unreadable route trees in best-effort discovery", async () => {

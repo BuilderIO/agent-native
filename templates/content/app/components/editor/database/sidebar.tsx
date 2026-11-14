@@ -15,7 +15,6 @@ import type {
 import {
   IconChevronDown,
   IconChevronRight,
-  IconDatabase,
   IconFileText,
   IconFolder,
   IconFolderOpen,
@@ -66,6 +65,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { usePendingTrash } from "@/hooks/use-pending-trash";
 import {
   filesNavigationPageParams,
   useFilesNavigationPage,
@@ -110,6 +110,12 @@ export interface ContentFilesSidebarRenderReorder {
   controls: ReturnType<typeof useSidebarReorderItem>;
   labels: SidebarReorderLabels;
 }
+
+/**
+ * A page on the open page's path. The Files tree draws it before its own
+ * page of rows loads, so it carries whether it has children.
+ */
+export type ActivePathDocument = Document & { hasChildren?: boolean };
 
 export function navigationItemAsDatabaseItem(
   item: ContentDatabaseNavigationItem,
@@ -165,7 +171,7 @@ export function PagedContentFilesSidebarView({
   expandedDocumentIds: ReadonlySet<string>;
   onDocumentExpandedChange: (documentId: string, expanded: boolean) => void;
   documentMetadata: ReadonlyMap<string, Document>;
-  activePathDocuments?: readonly Document[];
+  activePathDocuments?: readonly ActivePathDocument[];
   onOpenItem?: (item: ContentDatabaseItem) => boolean;
   onCreateChildPage?: (item: ContentDatabaseItem) => void;
   onCreateChildDatabase?: (item: ContentDatabaseItem) => void;
@@ -244,7 +250,7 @@ function PagedContentFilesBranch({
   expandedDocumentIds: ReadonlySet<string>;
   onDocumentExpandedChange: (documentId: string, expanded: boolean) => void;
   documentMetadata: ReadonlyMap<string, Document>;
-  activePathDocuments: readonly Document[];
+  activePathDocuments: readonly ActivePathDocument[];
   onOpenItem?: (item: ContentDatabaseItem) => boolean;
   onCreateChildPage?: (item: ContentDatabaseItem) => void;
   onCreateChildDatabase?: (item: ContentDatabaseItem) => void;
@@ -258,6 +264,7 @@ function PagedContentFilesBranch({
   const [continuationGeneration, setContinuationGeneration] = useState(0);
   const lastAutomaticReload = useRef(Number.NEGATIVE_INFINITY);
   const [reloadRefused, setReloadRefused] = useState(false);
+  const pendingTrash = usePendingTrash();
   const query = useFilesNavigationPage(
     filesNavigationPageParams({
       databaseId: props.databaseId,
@@ -409,9 +416,11 @@ function PagedContentFilesBranch({
       title: document.title,
       icon: serializeIconValue(parseIconValue(document.icon)),
       type: document.database ? ("database" as const) : ("page" as const),
-      hasChildren: props.activePathDocuments.some(
-        (candidate) => candidate.parentId === document.id,
-      ),
+      hasChildren:
+        document.hasChildren === true ||
+        props.activePathDocuments.some(
+          (candidate) => candidate.parentId === document.id,
+        ),
       spaceId: null,
       sourceKind: document.source?.kind ?? null,
       isFavorite: document.isFavorite,
@@ -420,7 +429,10 @@ function PagedContentFilesBranch({
       createdAt: document.createdAt,
       updatedAt: document.updatedAt,
     }));
-  const items = [...pageItems, ...revealedItems];
+  // A page on its way to Trash leaves the tree with the click.
+  const items = [...pageItems, ...revealedItems].filter(
+    (item) => !pendingTrash.documentIds.has(item.documentId),
+  );
   const composedDocumentIds = new Set([
     ...pageDocumentIds,
     ...revealedItems.map((item) => item.documentId),
@@ -1374,14 +1386,12 @@ function DatabaseSidebarRow({
                 </Tooltip>
                 <DropdownMenuContent align="start" className="w-44">
                   <DropdownMenuItem onSelect={() => onCreateChildPage?.(item)}>
-                    <IconFileText className="me-2 size-4" />
                     {t("sidebar.page")}
                   </DropdownMenuItem>
                   {onCreateChildDatabase ? (
                     <DropdownMenuItem
                       onSelect={() => onCreateChildDatabase(item)}
                     >
-                      <IconDatabase className="me-2 size-4" />
                       {t("sidebar.database")}
                     </DropdownMenuItem>
                   ) : null}

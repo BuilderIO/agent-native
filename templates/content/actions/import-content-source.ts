@@ -9,10 +9,14 @@ import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
 import {
-  syncPrivateCalloutReferences,
+  assertLocalFileLinkable,
+  isLocalFileLinkRefused,
+} from "../server/lib/live-body-writer.js";
+import {
+  syncPrivateBodyReferences,
   syncPrivateIconReference,
   verifyPrivateIconAssignment,
 } from "../server/lib/private-icon-references.js";
@@ -36,6 +40,7 @@ import {
   provisionContentSpaces,
 } from "./_content-spaces.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
+import { isAgentCall } from "./_document-agent-lock.js";
 import { lockDocumentRows, lockOwnerPageTree } from "./_row-lock-order.js";
 
 const MAX_SOURCE_FILES = 500;
@@ -206,7 +211,7 @@ export default defineAction({
     description:
       "Import local Markdown/MDX source files into editable Content documents.",
   },
-  run: async ({ files, dryRun }) => {
+  run: async ({ files, dryRun }, ctx) => {
     const builderPaths = Object.keys(files).filter((filePath) =>
       isBuilderMdxSourcePath(filePath),
     );
@@ -417,6 +422,34 @@ export default defineAction({
           continue;
         }
 
+        // A page switched to its live copy refuses the link to its file, and a
+        // membership added while it locked refuses the file. Earlier files have
+        // committed; none of this one lands, and the rest of the import still
+        // does.
+        const refuseFile = (error: unknown) => {
+          if (
+            !isLocalFileLinkRefused(error) &&
+            !(
+              error instanceof ActionContractError &&
+              error.errorCode === "DATABASE_MEMBERSHIPS_CHANGED"
+            )
+          ) {
+            throw error;
+          }
+          errors.push({ path: file.path, reason: error.message });
+          desiredParentById.delete(id);
+          desiredPositionById.delete(id);
+          return null;
+        };
+        if (sourceChanged) {
+          try {
+            await assertLocalFileLinkable(id);
+          } catch (error) {
+            refuseFile(error);
+            continue;
+          }
+        }
+
         if (dryRun) {
           updated.push({ id, path: file.path, title: file.title });
           continue;
@@ -460,6 +493,7 @@ export default defineAction({
               trashed: true,
             };
           }
+          await assertLocalFileLinkable(id, { transaction: tx });
 
           const lockedTitleChanged = file.title !== locked.title;
           const lockedContentChanged = file.content !== locked.content;
@@ -506,6 +540,20 @@ export default defineAction({
           if (!lockedAnyChange) {
             return { changed: false, visibilityForbidden: false };
           }
+          if (
+            (lockedTitleChanged ||
+              lockedContentChanged ||
+              lockedDescriptionChanged ||
+              lockedSourceChanged) &&
+            locked.agentTextLocked === 1 &&
+            isAgentCall(ctx)
+          ) {
+            return {
+              changed: false,
+              visibilityForbidden: false,
+              agentTextLocked: true,
+            };
+          }
 
           const updatedAt = nextDocumentUpdatedAt(locked.updatedAt);
           if (lockedTitleChanged || lockedContentChanged) {
@@ -522,8 +570,12 @@ export default defineAction({
           if (lockedSpaceChanged) updates.spaceId = existingSpaceId;
           if (lockedTitleChanged) updates.title = file.title;
           if (lockedContentChanged) {
+            const legacy = await lockLegacyBodyWrites(tx, [id], {
+              operation: "import-content-source",
+              content: file.content,
+            });
             updates.content = file.content;
-            updates.bodyRevision = bodyRevisionForContent(file.content);
+            updates.bodyRevision = legacy.bodyRevision(file.content);
           }
           if (lockedDescriptionChanged) updates.description = file.description;
           if (lockedIconChanged) updates.icon = file.icon ?? null;
@@ -566,7 +618,7 @@ export default defineAction({
             );
           }
           if (lockedContentChanged) {
-            await syncPrivateCalloutReferences(
+            await syncPrivateBodyReferences(
               tx as unknown as ReturnType<typeof getDb>,
               {
                 documentId: id,
@@ -600,25 +652,20 @@ export default defineAction({
           }
           return { changed: true, visibilityForbidden: false };
         };
-        let mutation: Awaited<ReturnType<typeof applyUpdate>>;
-        try {
-          mutation = await db.transaction(applyUpdate);
-        } catch (err) {
-          // Earlier files have committed; one file's conflict fails only it.
-          if (
-            !(err instanceof ActionContractError) ||
-            err.errorCode !== "DATABASE_MEMBERSHIPS_CHANGED"
-          ) {
-            throw err;
-          }
-          errors.push({ path: file.path, reason: err.message });
+        const mutation = await db.transaction(applyUpdate).catch(refuseFile);
+
+        if (!mutation) continue;
+        if (mutation.trashed) {
+          skipped.push({ path: file.path, reason: TRASHED_PAGE_SKIP });
           desiredParentById.delete(id);
           desiredPositionById.delete(id);
           continue;
         }
-
-        if (mutation.trashed) {
-          skipped.push({ path: file.path, reason: TRASHED_PAGE_SKIP });
+        if (mutation.agentTextLocked) {
+          skipped.push({
+            path: file.path,
+            reason: `A person has locked the text of document "${id}" against agents.`,
+          });
           desiredParentById.delete(id);
           desiredPositionById.delete(id);
           continue;
@@ -675,7 +722,7 @@ export default defineAction({
                 orgId: currentOrgId,
               },
             );
-            await syncPrivateCalloutReferences(
+            await syncPrivateBodyReferences(
               tx as unknown as ReturnType<typeof getDb>,
               {
                 documentId: id,

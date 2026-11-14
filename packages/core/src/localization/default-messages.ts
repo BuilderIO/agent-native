@@ -1,6 +1,9 @@
 import { PASSWORD_MIN_LENGTH_MESSAGE } from "../shared/password-policy.js";
 import { environmentBadgeMessages } from "./core-messages/supplemental/en-US.js";
 import { ICON_PICKER_MESSAGES } from "./icon-picker-messages.js";
+import { CONSENT_BANNER_MESSAGES } from "./privacy-choice-messages.js";
+import { SAVE_CONFLICT_MESSAGES } from "./save-conflict-messages.js";
+import { WRITE_FAILURE_MESSAGES } from "./write-failure-messages.js";
 
 const messages = {
   iconPicker: ICON_PICKER_MESSAGES["en-US"],
@@ -35,6 +38,11 @@ const messages = {
     composer: {
       chatgptManageUsage: "Manage usage",
       chatgptPlanUsing: "Using ChatGPT plan",
+      newChatPlaceholder: "Ask anything",
+    },
+    setup: {
+      connectBuilder: "Connect Builder.io",
+      connectPlaceholder: "Connect AI to start chatting...",
     },
     error: {
       chatgptPlanUsageLimit: "Your ChatGPT plan usage limit has been reached.",
@@ -42,7 +50,10 @@ const messages = {
         "OpenAI couldn’t check this ChatGPT plan’s usage limit. Check ChatGPT usage or try another model.",
     },
   },
+  consentBanner: CONSENT_BANNER_MESSAGES["en-US"],
   environmentBadge: environmentBadgeMessages,
+  saveConflict: SAVE_CONFLICT_MESSAGES["en-US"],
+  writeFailure: WRITE_FAILURE_MESSAGES["en-US"],
   workspaceFile: {
     download: "Download",
   },
@@ -84,6 +95,9 @@ const messages = {
     roleMarketing: "Marketing",
     roleSales: "Sales",
     roleOps: "Ops",
+    roleCreator: "Content creator",
+    roleStudent: "Student",
+    roleEducator: "Educator",
     roleIndividual: "Individual",
     roleOther: "Other",
     roleOtherInputLabel: "Describe your role",
@@ -141,6 +155,45 @@ const messages = {
     mcpClientSetupDescription:
       "Choose a host for step-by-step setup, or paste the URL into any MCP-compatible client.",
     mcpChooseAssistant: "Choose your AI assistant",
+    mcpCopyAndOpen: "Copy URL and open {{host}}",
+    mcpManualSetup: "Manual setup",
+    mcpTryPrompt: "Try it in {{host}}",
+    mcpHelpConnecting: "Need help connecting?",
+    mcpLocalAddressHint:
+      "Local address: {{host}} needs a publicly reachable HTTPS server URL.",
+    mcpAuthentication: "Authentication",
+    mcpTestPrompt: "What tools are available from the {{app}} connector?",
+    mcpSetupIntro:
+      "Use Claude, ChatGPT, or another AI app to read and update data in {{app}}.",
+    mcpStageOpen: "Open {{host}}",
+    mcpStageAdd: "Add a custom connector",
+    mcpStageDetails: "Enter connection details",
+    mcpStageAuthorize: "Authorize and test in {{host}}",
+    mcpStageEnable: "Enable and test in {{host}}",
+    mcpNameLabel: "Name",
+    mcpHostBenefit: "Use your Agent-Native tools directly in {{host}}.",
+    mcpManualBenefit: "Use your Agent-Native tools in any MCP-compatible app.",
+    mcpStageOpenSettings: "Open connector settings",
+
+    mcpReadyToTry: "Test the connection",
+    mcpTestUnavailable: "Available once connected.",
+    mcpCopyTestPrompt: "Copy prompt",
+    mcpConnectionDocs: "Setup guide",
+    mcpServerUrl: "Server URL",
+    mcpCopyUrl: "Copy URL",
+    mcpStageAddServer: "Add the MCP server",
+    mcpSetupSteps: "Setup",
+    mcpOpensNewTab: "Opens in a new tab",
+    mcpOpensDesktopApp: "Opens the desktop app",
+    mcpConnected: "Connected",
+    mcpNotConnected: "Not connected",
+    mcpConnectionUnavailable: "Status unavailable",
+    mcpStatusCheckFailed: "Couldn't check MCP connections.",
+    mcpLastUsedLabel: "Last used",
+    mcpLastUsed: "Last used {{time}}",
+    mcpNoActivity: "No activity recorded",
+    mcpLegacyStatusUnknown:
+      "Older credentials do not include enough information to verify their current status.",
     mcpCommand: "Command",
     mcpConfig: "MCP config",
     mcpCopy: "Copy",
@@ -335,10 +388,6 @@ const messages = {
     youDoNotHaveAccess: "You don't have access",
     currentUserUnknown: "Your access couldn't be evaluated",
     moreActions: "More actions for {{name}}",
-    disableForEveryone: "Disable for everyone",
-    disableForEveryoneTitle: "Disable {{name}} for everyone?",
-    disableForEveryoneDescription:
-      "This immediately removes access for every targeted person and organization. You can configure a new rollout later.",
     editTargeting: "Edit targeting",
     editTargetingFor: "Edit targeting for {{name}}",
     targetingTitle: "Edit targeting — {{name}}",
@@ -354,7 +403,6 @@ const messages = {
     percentageLabel: "Percentage of users",
     targetingRuleHelp:
       "A person gets access if they match any email, organization, or percentage rule.",
-    targetingSummary: "Currently enabled for: {{audience}}.",
     saveRules: "Save changes",
     cancel: "Cancel",
     inherited: "No matching targets",
@@ -807,22 +855,13 @@ const messages = {
       elapsed: "{{duration}} elapsed",
     },
     voiceMode: {
-      entryButtonLabel: "Use microphone",
-      promptTitle: "Use your voice",
-      promptDescription:
-        "Voice mode keeps listening while the agent navigates and takes actions.",
-      setupTitle: "Set up voice mode",
-      setupDescription:
-        "Use Builder.io for managed voice with free credits, or add your own keys.",
-      connectBuilder: "Use Builder.io",
-      useOpenAiKey: "Custom keys",
-      startWithOpenAiKey: "Start with OpenAI key",
       start: "Start voice chat",
-      keepDictating: "Dictate a message",
-      rememberPreference: "Remember my preference",
-      showChat: "Show chat",
-      hideChat: "Hide chat",
-      end: "End voice mode",
+      endVoiceChat: "End voice chat",
+      placeholder: "Listening…",
+      muteMicrophone: "Mute microphone",
+      unmuteMicrophone: "Unmute microphone",
+      muteSpeaker: "Mute speaker",
+      unmuteSpeaker: "Unmute speaker",
       voiceSettings: "Voice settings",
       settings: {
         microphone: "Microphone",

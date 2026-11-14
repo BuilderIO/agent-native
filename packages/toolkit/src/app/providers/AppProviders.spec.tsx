@@ -42,8 +42,11 @@ vi.mock("@agent-native/toolkit/ui/sonner", () => ({
   ),
 }));
 
+import { useLocale } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { encodeContinuation } from "@agent-native/core/shared/sign-in-journey";
 import { SsrSessionBootstrapContext } from "@agent-native/core/shared/ssr-session-bootstrap-slot";
+import { toast } from "sonner";
 
 import { AppProviders } from "./AppProviders.js";
 
@@ -226,7 +229,118 @@ const SIGNED_IN_SESSION = {
   status: "authenticated" as const,
 };
 
+function LocaleToaster() {
+  const { locale } = useLocale();
+  return <div data-testid="locale-toaster">{locale}</div>;
+}
+
+function LocaleControl() {
+  const { locale, setPreference } = useLocale();
+  return <button onClick={() => void setPreference("es-ES")}>{locale}</button>;
+}
+
 describe("AppProviders session gate", () => {
+  it("shares the app locale with the custom toaster", async () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+    await act(async () => {
+      root.render(
+        <AppProviders
+          queryClient={new QueryClient()}
+          isPublicPath
+          disableWebMcp
+          i18n={{ persistPreference: false, initialLocale: "en-US" }}
+          toaster={<LocaleToaster />}
+        >
+          <LocaleControl />
+        </AppProviders>,
+      );
+    });
+    expect(
+      container.querySelector('[data-testid="locale-toaster"]')?.textContent,
+    ).toBe("en-US");
+    await act(async () => container.querySelector("button")?.click());
+    await vi.waitFor(() => {
+      expect(container.querySelector("button")?.textContent).toBe("es-ES");
+      expect(
+        container.querySelector('[data-testid="locale-toaster"]')?.textContent,
+      ).toBe("es-ES");
+    });
+    expect(
+      container.querySelectorAll('[data-testid="locale-toaster"]'),
+    ).toHaveLength(1);
+  });
+
+  it.each([true, false])(
+    "keeps the custom toaster visible when signed out with i18n enabled: %s",
+    async (localized) => {
+      useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+      await act(async () => {
+        root.render(
+          <AppProviders
+            queryClient={new QueryClient()}
+            disableWebMcp
+            i18n={
+              localized
+                ? { persistPreference: false, initialLocale: "en-US" }
+                : false
+            }
+            toaster={
+              localized ? (
+                <LocaleToaster />
+              ) : (
+                <div data-testid="locale-toaster">plain</div>
+              )
+            }
+          >
+            <div data-testid="app-content">content</div>
+          </AppProviders>,
+        );
+      });
+      expect(container.querySelector('[data-testid="app-content"]')).toBeNull();
+      expect(
+        container.querySelectorAll('[data-testid="locale-toaster"]'),
+      ).toHaveLength(1);
+      expect(
+        container.querySelector('[data-testid="locale-toaster"]')?.textContent,
+      ).toBe(localized ? "en-US" : "plain");
+    },
+  );
+  it("keeps the toaster outside the first-run onboarding cover", async () => {
+    useSessionMock.mockReturnValue(SIGNED_IN_SESSION);
+    vi.stubEnv("VITE_AGENT_NATIVE_FIRST_RUN_ONBOARDING", "1");
+    document.cookie = "agent-native-first-run=1; path=/";
+    Object.defineProperty(window, "fetch", {
+      configurable: true,
+      value: vi.fn(() => new Promise(() => {})),
+    });
+    try {
+      await act(async () => {
+        root.render(
+          <AppProviders
+            queryClient={new QueryClient()}
+            disableWebMcp
+            i18n={{ persistPreference: false, initialLocale: "en-US" }}
+            toaster={<LocaleToaster />}
+          >
+            <div data-testid="app-content">content</div>
+          </AppProviders>,
+        );
+      });
+      expect(container.querySelector("[data-first-run-cover]")).not.toBeNull();
+      expect(
+        container
+          .querySelector('[data-testid="app-content"]')
+          ?.closest("[inert]"),
+      ).not.toBeNull();
+      const toaster = container.querySelector('[data-testid="locale-toaster"]');
+      expect(toaster?.textContent).toBe("en-US");
+      expect(toaster?.closest("[inert]")).toBeNull();
+    } finally {
+      document.cookie = "agent-native-first-run=; Max-Age=0; path=/";
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("mounts theme-family sync by default in an authenticated app shell", async () => {
     useSessionMock.mockReturnValue(SIGNED_IN_SESSION);
 
@@ -236,6 +350,44 @@ describe("AppProviders session gate", () => {
     });
 
     expect(useThemeFamilyMock).toHaveBeenCalledOnce();
+  });
+
+  it("renders next-themes' script as a data block inside the client-only shell", async () => {
+    useSessionMock.mockReturnValue(SIGNED_IN_SESSION);
+
+    renderProviders({ skipFirstRunOnboarding: true });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    // React 19 logs "Encountered a script tag" for any executable <script> it
+    // creates on the client; the early head script already applies the theme.
+    const themeScripts = [...container.querySelectorAll("script")].filter(
+      (script) => script.textContent?.includes("prefers-color-scheme"),
+    );
+    expect(themeScripts.length).toBeGreaterThan(0);
+    for (const script of themeScripts) {
+      expect(script.getAttribute("type")).toBe("application/json");
+    }
+  });
+
+  it("keeps next-themes' executable script on public routes", () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+
+    const html = renderToStaticMarkup(
+      <AppProviders
+        queryClient={new QueryClient()}
+        i18n={false}
+        toaster={null}
+        isPublicPath
+      >
+        <div />
+      </AppProviders>,
+    );
+
+    expect(html).toMatch(
+      /<script(?![^>]*type=)[^>]*>[^<]*prefers-color-scheme/,
+    );
   });
 
   it("allows an authenticated app shell to disable theme-family sync", () => {
@@ -274,6 +426,55 @@ describe("AppProviders session gate", () => {
     expect(toaster?.getAttribute("data-mobile-offset")).toBe(
       JSON.stringify({ bottom: 44, left: 16 }),
     );
+  });
+
+  it.each([
+    ["without the i18n provider", false],
+    ["inside the i18n provider", undefined],
+  ] as const)(
+    "shows a reported write failure %s when a toaster is present",
+    (_label, i18n) => {
+      useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+      const error = vi.spyOn(toast, "error").mockImplementation(() => "");
+
+      act(() => {
+        root.render(
+          <AppProviders
+            queryClient={new QueryClient()}
+            i18n={i18n}
+            isPublicPath
+          >
+            <div>content</div>
+          </AppProviders>,
+        );
+      });
+      act(() => reportWriteFailure(new Error("boom")));
+
+      expect(error).toHaveBeenCalledTimes(1);
+      error.mockRestore();
+    },
+  );
+
+  it("still reports a write failure when the app renders its own toaster", () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+    const error = vi.spyOn(toast, "error").mockImplementation(() => "");
+
+    act(() => {
+      root.render(
+        <AppProviders
+          queryClient={new QueryClient()}
+          i18n={false}
+          isPublicPath
+          toaster={null}
+        >
+          <div>content</div>
+        </AppProviders>,
+      );
+    });
+    act(() => reportWriteFailure(new Error("boom")));
+
+    expect(error).toHaveBeenCalledTimes(1);
+    error.mockRestore();
   });
 
   it("preserves a custom toaster without adding default offsets", () => {
@@ -406,6 +607,32 @@ describe("AppProviders session gate", () => {
       "html[data-agent-native-mcp-widget] [data-agent-native-app-skeleton] > :not(style)",
     );
     expect(publicMarkup).not.toContain("data-agent-native-mcp-widget-boot");
+  });
+
+  it("defers workspace widget storage-key resolution until the browser can read its mount", () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubGlobal("window", undefined);
+    let markup: string;
+    try {
+      markup = renderToStaticMarkup(
+        <AppProviders queryClient={new QueryClient()} i18n={false}>
+          <div>content</div>
+        </AppProviders>,
+      );
+    } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    }
+
+    const bootScript = markup.match(
+      /<script data-agent-native-mcp-widget-boot="1">([\s\S]*?)<\/script>/,
+    )?.[1];
+    expect(bootScript).toContain(
+      'resolveMcpAppEmbedBasePath("workspace-path", w.location.pathname, workspaceOptions)',
+    );
+    expect(bootScript).not.toContain("agent-native:embed-auth-token:/");
+    expect(bootScript).not.toContain("agent-native:mcp-chat-bridge:/");
   });
 
   it("defaults public-path i18n to the non-persisting runtime so localization never resolves the session", () => {
@@ -733,5 +960,114 @@ describe("AppProviders session gate", () => {
     });
 
     await vi.waitFor(() => expect(document.title).toBe("Manage agent"));
+  });
+});
+
+describe("AppProviders MCP approval review", () => {
+  const ID = "0b7f4c1e-2f4a-4d1c-9a43-5f1e8f0d2c6b";
+
+  beforeEach(() => {
+    (window.location as { hash: string }).hash = `#mcpApproval=${ID}`;
+  });
+
+  function reviewShown() {
+    return vi
+      .mocked(window.fetch)
+      .mock.calls.some(([url]) => url === `/_agent-native/mcp/approvals/${ID}`);
+  }
+
+  it("shows the review the URL names in place of the app", () => {
+    useSessionMock.mockReturnValue(SIGNED_IN_SESSION);
+
+    renderProviders({ disableWebMcp: true });
+
+    expect(reviewShown()).toBe(true);
+    expect(container.querySelector('[data-testid="app-content"]')).toBeNull();
+  });
+
+  it("sends a signed-out reader to sign in and back to the same review", () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+
+    renderProviders({});
+
+    expect(replaceMock).toHaveBeenCalledWith(
+      `/sign-in?c=${encodeContinuation(`/inbox#mcpApproval=${ID}`)}`,
+    );
+  });
+
+  it("lets a phone decide, where the app itself hands off to a larger screen", () => {
+    useSessionMock.mockReturnValue(SIGNED_IN_SESSION);
+    const matchMedia = window.matchMedia;
+    const screen = Object.getOwnPropertyDescriptors(window.screen);
+    window.matchMedia = ((query: string) => ({
+      matches: true,
+      media: query,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+    })) as unknown as typeof window.matchMedia;
+    Object.defineProperty(window.screen, "width", {
+      value: 390,
+      configurable: true,
+    });
+    Object.defineProperty(window.screen, "height", {
+      value: 844,
+      configurable: true,
+    });
+    try {
+      act(() => {
+        root.render(
+          <AppProviders
+            queryClient={new QueryClient()}
+            i18n={false}
+            toaster={null}
+            disableWebMcp
+            unsupportedDevice={{ appName: "Slides" }}
+          >
+            <div data-testid="app-content">content</div>
+          </AppProviders>,
+        );
+      });
+
+      expect(reviewShown()).toBe(true);
+    } finally {
+      window.matchMedia = matchMedia;
+      for (const key of ["width", "height"] as const) {
+        if (screen[key]) Object.defineProperty(window.screen, key, screen[key]);
+        else delete (window.screen as unknown as Record<string, unknown>)[key];
+      }
+    }
+  });
+
+  it("stays out of the server render, which has no window to read the review from", () => {
+    useSessionMock.mockReturnValue(SIGNED_IN_SESSION);
+    vi.stubGlobal("window", undefined);
+    let markup: string;
+    try {
+      markup = renderToStaticMarkup(
+        <AppProviders queryClient={new QueryClient()} i18n={false}>
+          <div>content</div>
+        </AppProviders>,
+      );
+    } finally {
+      vi.unstubAllGlobals();
+    }
+
+    expect(markup).toContain('data-agent-native-app-skeleton="true"');
+  });
+
+  it.each([
+    ["a token-authenticated surface", { sessionBypass: true }],
+    ["a public page", { isPublicPath: true }],
+  ])("never shows a review on %s", (_label, props) => {
+    useSessionMock.mockReturnValue(SIGNED_IN_SESSION);
+
+    renderProviders({ ...props, disableWebMcp: true });
+
+    expect(reviewShown()).toBe(false);
+    expect(
+      container.querySelector('[data-testid="app-content"]'),
+    ).not.toBeNull();
   });
 });

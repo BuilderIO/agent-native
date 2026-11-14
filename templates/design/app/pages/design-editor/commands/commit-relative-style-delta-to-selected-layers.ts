@@ -1,4 +1,5 @@
 import type { ScrubRelativeExpression } from "@agent-native/toolkit/design-tweaks";
+import { roundGeometryStylesPx } from "@shared/canvas-math";
 import { buildCodeLayerProjection } from "@shared/code-layer";
 import { linkedComponentRootForNode } from "@shared/component-links";
 import type { Dispatch, RefObject, SetStateAction } from "react";
@@ -193,7 +194,10 @@ export function runCommitRelativeStyleDeltaToSelectedLayers(
       styles[writeProperty] = nextValue;
       if (mirroredProperty) styles[mirroredProperty] = nextValue;
     }
-    return styles;
+    return roundGeometryStylesPx(styles, {
+      containingBlockTransform:
+        target.elementInfo.positionContainingBlockTransform,
+    });
   };
 
   const styleTargets: Array<{

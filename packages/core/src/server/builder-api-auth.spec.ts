@@ -1,14 +1,48 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ActionContractError } from "../action.js";
+import { AppSecretDecryptionError } from "../secrets/errors.js";
 import {
   canAuthorizeBuilderApiRequest,
   hasBuilderApiCredentialCustody,
+  hasStoredBuilderApiOAuthGrant,
+  isBuilderReauthorizationRequired,
   resolveBuilderApiAuthorization,
   resolveBuilderRequestAuthorization,
 } from "./builder-api-auth.js";
 
+describe("Builder status reauthorization", () => {
+  it.each([
+    [new AppSecretDecryptionError(), true],
+    [
+      new CredentialStoreUnavailableErrorMock(new AppSecretDecryptionError()),
+      true,
+    ],
+    [
+      new CredentialStoreUnavailableErrorMock(
+        new Error("database unavailable"),
+      ),
+      false,
+    ],
+    [new Error("unexpected failure"), false],
+    [
+      new ActionContractError("Example expired grant", {
+        errorCode: "builder_oauth_reauthorization_required",
+        statusCode: 400,
+      }),
+      true,
+    ],
+  ])(
+    "classifies %s without treating store outages as expired grants",
+    (error, expected) => {
+      expect(isBuilderReauthorizationRequired(error)).toBe(expected);
+    },
+  );
+});
+
 const getBuilderOAuthSessionMock = vi.hoisted(() => vi.fn());
 const hasBuilderOAuthSessionMock = vi.hoisted(() => vi.fn());
+const hasStoredBuilderOAuthGrantForUseMock = vi.hoisted(() => vi.fn());
 const resolveBuilderCredentialMock = vi.hoisted(() => vi.fn());
 const resolveBuilderCredentialsMock = vi.hoisted(() => vi.fn());
 const listRemoteServersMock = vi.hoisted(() => vi.fn());
@@ -33,6 +67,7 @@ const getRequestBuilderStorageCredentialOrgIdMock = vi.hoisted(() => vi.fn());
 vi.mock("./builder-oauth.js", () => ({
   getBuilderOAuthSession: getBuilderOAuthSessionMock,
   hasBuilderOAuthSession: hasBuilderOAuthSessionMock,
+  hasStoredBuilderOAuthGrantForUse: hasStoredBuilderOAuthGrantForUseMock,
 }));
 vi.mock("./credential-provider.js", () => ({
   CredentialStoreUnavailableError: CredentialStoreUnavailableErrorMock,
@@ -55,6 +90,10 @@ vi.mock("./request-context.js", () => ({
 
 const ASSETS_WRITE = "builder:assets:write";
 const PUBLISH_ISSUER = "https://mcp.builder.io";
+
+function accessToken(claims: Record<string, unknown>) {
+  return `header.${Buffer.from(JSON.stringify(claims)).toString("base64url")}.signature`;
+}
 
 function publishCredentials(issuer = PUBLISH_ISSUER) {
   return {
@@ -82,6 +121,7 @@ beforeEach(() => {
   getRequestOrgIdMock.mockReturnValue(undefined);
   getRequestBuilderStorageCredentialOrgIdMock.mockReturnValue(undefined);
   hasBuilderOAuthSessionMock.mockResolvedValue(false);
+  hasStoredBuilderOAuthGrantForUseMock.mockResolvedValue(false);
   getBuilderOAuthSessionMock.mockResolvedValue(null);
   resolveBuilderCredentialMock.mockResolvedValue(null);
   resolveBuilderCredentialsMock.mockResolvedValue({
@@ -149,6 +189,7 @@ describe("resolveBuilderApiAuthorization", () => {
       message:
         "Builder.io access needs re-authorizing to grant builder:assets:write. Open Settings and authorize Builder.io again.",
       statusCode: 400,
+      details: { reason: "missing_scope", scope: ASSETS_WRITE },
     });
     expect(resolveBuilderCredentialMock).not.toHaveBeenCalled();
   });
@@ -173,6 +214,24 @@ describe("resolveBuilderApiAuthorization", () => {
       resolveBuilderApiAuthorization(ASSETS_WRITE),
     ).rejects.toBeInstanceOf(CredentialStoreUnavailableErrorMock);
   });
+
+  it.each(["ECONNREFUSED", "EAI_AGAIN", "CONNECT_TIMEOUT", "ETIMEDOUT"])(
+    "classifies stored custody transport %s without reclassifying provider refresh",
+    async (code) => {
+      const cause = Object.assign(new Error("Fake transport failure"), {
+        code,
+      });
+      hasBuilderOAuthSessionMock.mockRejectedValue(cause);
+      await expect(
+        resolveBuilderApiAuthorization(ASSETS_WRITE),
+      ).rejects.toBeInstanceOf(CredentialStoreUnavailableErrorMock);
+      hasBuilderOAuthSessionMock.mockResolvedValue(true);
+      getBuilderOAuthSessionMock.mockRejectedValue(cause);
+      await expect(resolveBuilderApiAuthorization(ASSETS_WRITE)).rejects.toBe(
+        cause,
+      );
+    },
+  );
 
   it("reports a retryable error when the OAuth custody read is unavailable", async () => {
     hasBuilderOAuthSessionMock.mockRejectedValue({
@@ -271,6 +330,7 @@ describe("resolveBuilderRequestAuthorization", () => {
       authorization: "Bearer publish-oauth-token",
       source: "oauth",
       oauthScope: "org",
+      oauthResource: "publish",
     });
     expect(hasBuilderOAuthSessionMock).not.toHaveBeenCalled();
     expect(resolveBuilderCredentialMock).not.toHaveBeenCalled();
@@ -398,12 +458,14 @@ describe("resolveBuilderRequestAuthorization", () => {
     expect(resolveBuilderCredentialMock).not.toHaveBeenCalled();
   });
 
-  it("returns OAuth provenance for Settings and authenticated provider reads", async () => {
+  it("returns general OAuth provenance and its token-selected space", async () => {
+    const token = accessToken({ org: "space-public-key" });
     hasBuilderOAuthSessionMock.mockResolvedValue(true);
     getBuilderOAuthSessionMock.mockResolvedValue({
-      accessToken: "<OAUTH_TOKEN_EXAMPLE>",
+      accessToken: token,
       scopes: ["builder:ai:invoke"],
       scope: "user",
+      connectionId: "builder-general-resource-v1:u:opaque",
     });
 
     await expect(
@@ -415,12 +477,30 @@ describe("resolveBuilderRequestAuthorization", () => {
         ],
       }),
     ).resolves.toEqual({
-      token: "<OAUTH_TOKEN_EXAMPLE>",
-      authorization: "Bearer <OAUTH_TOKEN_EXAMPLE>",
+      token,
+      authorization: `Bearer ${token}`,
       source: "oauth",
       oauthScope: "user",
+      oauthResource: "general",
+      oauthConnectionId: "builder-general-resource-v1:u:opaque",
+      oauthSelectedPublicKey: "space-public-key",
     });
     expect(resolveBuilderCredentialMock).not.toHaveBeenCalled();
+  });
+
+  it("does not invent a selected space for an opaque general access token", async () => {
+    hasBuilderOAuthSessionMock.mockResolvedValue(true);
+    getBuilderOAuthSessionMock.mockResolvedValue({
+      accessToken: "opaque-access-token",
+      scopes: ["builder:ai:invoke"],
+      scope: "user",
+    });
+
+    await expect(resolveBuilderRequestAuthorization()).resolves.toMatchObject({
+      source: "oauth",
+      oauthResource: "general",
+      oauthSelectedPublicKey: undefined,
+    });
   });
 
   it("returns the legacy public key and user ID", async () => {
@@ -596,5 +676,38 @@ describe("hasBuilderApiCredentialCustody", () => {
 
   it("is false when nothing is connected", async () => {
     await expect(hasBuilderApiCredentialCustody()).resolves.toBe(false);
+  });
+});
+
+describe("hasStoredBuilderApiOAuthGrant", () => {
+  it("looks for the grant in the same scope custody reads", async () => {
+    hasStoredBuilderOAuthGrantForUseMock.mockResolvedValue(true);
+
+    await expect(hasStoredBuilderApiOAuthGrant()).resolves.toBe(true);
+    expect(hasStoredBuilderOAuthGrantForUseMock).toHaveBeenCalledWith(
+      "user@example.com",
+      null,
+    );
+  });
+
+  it("looks only at the storage grant org for storage-only requests", async () => {
+    getRequestBuilderStorageCredentialOrgIdMock.mockReturnValue("storage-org");
+
+    await expect(hasStoredBuilderApiOAuthGrant()).resolves.toBe(false);
+    expect(hasStoredBuilderOAuthGrantForUseMock).toHaveBeenCalledWith(
+      "user@example.com",
+      "storage-org",
+      { orgOnly: true },
+    );
+  });
+
+  it("reports a store outage instead of no grant", async () => {
+    hasStoredBuilderOAuthGrantForUseMock.mockRejectedValue(
+      Object.assign(new Error("connection failure"), { code: "08006" }),
+    );
+
+    await expect(hasStoredBuilderApiOAuthGrant()).rejects.toBeInstanceOf(
+      CredentialStoreUnavailableErrorMock,
+    );
   });
 });

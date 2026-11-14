@@ -142,6 +142,17 @@ describe("hasMinimalInspectorSelection", () => {
     ).toBe(false);
   });
 
+  it("shows the inspector for an active Motion easing selection", () => {
+    expect(
+      hasMinimalInspectorSelection({
+        selectedElement: null,
+        selectedLayerIds: [],
+        selectedScreenGeometry: null,
+        motionEasingSegmentSelected: true,
+      }),
+    ).toBe(true);
+  });
+
   it("is true for an element selection", () => {
     expect(
       hasMinimalInspectorSelection({

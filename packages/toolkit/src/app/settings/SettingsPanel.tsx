@@ -30,6 +30,10 @@ import { callAction } from "@agent-native/core/client/hooks";
 import { useOptionalLocale, useT } from "@agent-native/core/client/i18n";
 import { useOrg } from "@agent-native/core/client/org";
 import {
+  reportWriteFailure,
+  writeFailureFromResponse,
+} from "@agent-native/core/client/write-failure";
+import {
   buildSettingsRoute,
   STANDARD_APP_ROUTES,
 } from "@agent-native/core/navigation";
@@ -2641,7 +2645,11 @@ export function EmailSectionInner({
         setSendgridKey("");
         setFromAddr("");
         setTimeout(() => setSaved(false), 2000);
+      } else {
+        reportWriteFailure(writeFailureFromResponse(res));
       }
+    } catch (error) {
+      reportWriteFailure(error);
     } finally {
       setSaving(false);
     }
@@ -3394,6 +3402,7 @@ function SettingsPanelContent({
     status: builder,
     loading: builderLoading,
     stale: builderStatusStale,
+    refetch: refetchBuilderStatus,
   } = useBuilderStatus({
     enabled: !builderConnectionOwnedExternally,
   });
@@ -3461,6 +3470,37 @@ function SettingsPanelContent({
             onOpenLlm={() => openSettingsSection("llm", true)}
           />
         )}
+
+        {builderStatusAvailable &&
+        (builder?.keyLookupFailed || builder?.optionalMetadataLookupFailure) ? (
+          <div
+            className="flex items-center justify-between gap-3 rounded-md border border-border px-3 py-2"
+            role="status"
+          >
+            <div className="flex min-w-0 items-start gap-2 text-sm text-muted-foreground">
+              <IconAlertCircle
+                aria-hidden="true"
+                className="mt-0.5 shrink-0"
+                size={16}
+              />
+              <p>
+                {t(
+                  "agentChat.settingsShell.integrations.builderDetailsUnavailable",
+                )}
+              </p>
+            </div>
+            <ToolkitButton
+              type="button"
+              variant="ghost"
+              intent="neutral"
+              emphasis="outline"
+              className="shrink-0"
+              onClick={() => void refetchBuilderStatus()}
+            >
+              {t("agentChat.settingsShell.channels.retry")}
+            </ToolkitButton>
+          </div>
+        ) : null}
 
         {isPage &&
           ["llm", "app-models", "limits", "voice"].some((section) =>

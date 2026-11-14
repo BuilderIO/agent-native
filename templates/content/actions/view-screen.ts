@@ -24,12 +24,20 @@ import type {
   ContentDatabaseViewType,
   DocumentProperty,
 } from "../shared/api.js";
+import {
+  CLIP_EMBED_BLOCK_TYPE,
+  isClipRecordingId,
+} from "../shared/clip-embed-block.js";
 import { normalizeContentDatabaseItemLayout } from "../shared/database-item-layout.js";
 import {
   databaseColumnWraps,
   databaseFrozenColumnIds,
   databaseTableColumnIds,
 } from "../shared/database-table-columns.js";
+import {
+  isRegistryBlockId,
+  registryBlockSpecByType,
+} from "../shared/nfm-registry.js";
 import {
   documentPropertyDateKey,
   formulaValueText,
@@ -239,10 +247,32 @@ export function documentContentPreview(content: string) {
 interface ContentSelectionAppState {
   documentId?: unknown;
   collapsed?: unknown;
+  selectedBlock?: unknown;
   selectedText?: unknown;
   textTruncated?: unknown;
   blockText?: unknown;
   heading?: unknown;
+}
+
+function readSelectedBlock(value: unknown) {
+  if (!value || typeof value !== "object") return null;
+  const { blockType, blockId, recordingId } = value as Record<string, unknown>;
+  // The browser writes this state and the hint quotes it, so only values
+  // Content itself would write get through.
+  if (
+    typeof blockType !== "string" ||
+    !registryBlockSpecByType(blockType) ||
+    !isRegistryBlockId(blockId)
+  ) {
+    return null;
+  }
+  return {
+    blockType,
+    blockId,
+    ...(blockType === CLIP_EMBED_BLOCK_TYPE && isClipRecordingId(recordingId)
+      ? { recordingId }
+      : {}),
+  };
 }
 
 export function buildSelectionScreenSection(
@@ -261,6 +291,21 @@ export function buildSelectionScreenSection(
 
   const heading = typeof state.heading === "string" ? state.heading : null;
   const blockText = typeof state.blockText === "string" ? state.blockText : "";
+
+  const selectedBlock = readSelectedBlock(state.selectedBlock);
+  if (selectedBlock) {
+    return {
+      documentId: state.documentId,
+      collapsed: false,
+      selectedBlock,
+      heading,
+      hint:
+        `The user selected a whole ${selectedBlock.blockType} block. It is the tag with id="${selectedBlock.blockId}" in get-document's body` +
+        (selectedBlock.recordingId
+          ? `; it plays Clips recording ${selectedBlock.recordingId}.`
+          : "."),
+    };
+  }
 
   if (state.collapsed === true || typeof state.selectedText !== "string") {
     return {
@@ -832,10 +877,14 @@ export default defineAction({
     const contentSpaceState = await readAppState("content-space");
     const selectionState = await readAppStateForCurrentTab("content-selection");
     const importState = await readAppStateForCurrentTab("content-import");
+    const clipUploadsState = await readAppStateForCurrentTab(
+      "content-clip-uploads",
+    );
 
     const screen: Record<string, unknown> = {};
     if (navigation) screen.navigation = navigation;
     if (importState) screen.contentImport = importState;
+    if (clipUploadsState) screen.clipUploads = clipUploadsState;
     if (suggestionMode) screen.suggestionMode = suggestionMode;
     if (contentSpaceState) screen.contentSpace = contentSpaceState;
 

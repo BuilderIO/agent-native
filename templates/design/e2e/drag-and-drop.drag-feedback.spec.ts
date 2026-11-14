@@ -1,19 +1,9 @@
 import { type Page } from "@playwright/test";
 
-import {
-  FIXTURE,
-  layerRow,
-  openEditor,
-  setBaseURL,
-  toolbar,
-} from "./drag-and-drop.shared";
+import { FIXTURE, layerRow, openEditor, toolbar } from "./drag-and-drop.shared";
 import { expect, expectOnlyChanged, styleOf, test, type App } from "./rails";
 
 test.use({ viewport: { width: 1600, height: 1000 } });
-
-test.beforeEach(async ({}, testInfo) => {
-  setBaseURL(testInfo);
-});
 
 const SNAP_HTML = `<!doctype html><html><body style="margin:0;position:relative;width:1000px;height:780px;background:#0f1115">
   <div data-agent-native-node-id="box-a" data-agent-native-layer-name="Box A" style="position:absolute;left:100px;top:100px;width:120px;height:80px;background:#3b82f6"></div>

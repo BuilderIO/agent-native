@@ -362,7 +362,6 @@ function planAdd(
   }
   const changes: Change[] = [
     textChange(
-      targetRoot,
       packageJsonPath,
       `${JSON.stringify(pkg, null, 2)}\n`,
       "dependency",
@@ -393,7 +392,7 @@ function planAdd(
     const next = current.includes(contribution)
       ? current
       : `${current.trimEnd()}\n\n${contribution}\n`;
-    changes.push(textChange(targetRoot, schemaPath, next, "schema"));
+    changes.push(textChange(schemaPath, next, "schema"));
   }
 
   const ownedPaths: string[] = [];
@@ -440,7 +439,6 @@ function planAdd(
   };
   changes.push(
     textChange(
-      targetRoot,
       provenancePath,
       `${JSON.stringify(provenance, null, 2)}\n`,
       "provenance",
@@ -536,7 +534,6 @@ function planEject(
   consumer.dependencies[loaded.manifest.name] = "workspace:*";
   changes.push(
     textChange(
-      workspaceRoot,
       consumerPackageJson,
       `${JSON.stringify(consumer, null, 2)}\n`,
       "dependency",
@@ -626,7 +623,6 @@ function collisionCheckedBuffer(
 }
 
 function textChange(
-  root: string,
   target: string,
   content: string,
   kind: Change["kind"],

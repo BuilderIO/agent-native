@@ -35,6 +35,9 @@ import { cn } from "@agent-native/toolkit/utils";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { FeedbackButton } from "../feedback/FeedbackButton.js";
+import { isBuilderIoEmployee } from "./is-builder-io-employee.js";
+
+export { isBuilderIoEmployee };
 
 export {
   BETA_FORCE_QUERY_PARAM,
@@ -50,10 +53,6 @@ export {
   resolveEnvironmentTargets,
   type EnvironmentBadgeTargets,
 } from "@agent-native/core/shared/environment-lanes";
-
-export function isBuilderIoEmployee(email: string | null | undefined): boolean {
-  return email?.trim().toLowerCase().endsWith("@builder.io") ?? false;
-}
 
 export function isAgentNativeDesktopUserAgent(
   userAgent: string | undefined,

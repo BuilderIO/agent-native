@@ -33,8 +33,87 @@ import {
 import {
   motionSourcePreviewProofForTargets,
   motionTimelineFingerprint,
+  type MotionTimelineQueryResult,
+  type MotionTimelineRow,
 } from "@/pages/design-editor/motion-state";
 import type { DesignFile } from "@/pages/design-editor/types";
+
+function cacheSavedMotionTimeline(args: {
+  queryClient: QueryClient;
+  designId: string;
+  sourceRef: string;
+  timelineId: string | null;
+  filePath: string | null;
+  tracks: unknown;
+  animationStyles: MotionAnimationStyleDefinition[];
+  nativeStyles: MotionNativeStyleInstance[];
+  audioClips: MotionAudioClip[];
+  easingVariables: MotionEasingVariable[];
+  textDocument: MotionTextDocument | null;
+  durationMs: number;
+  playbackMode: MotionPlaybackMode;
+  defaultEase: string;
+  compiledHash: string | null;
+  sourceVersionHash: string | null;
+  contentPatched: boolean;
+  updatedAt: string | null;
+}) {
+  const queryKey = [
+    "action",
+    "get-motion-timeline",
+    {
+      designId: args.designId,
+      sourceRef: args.sourceRef,
+      passiveRead: true,
+    },
+  ] as const;
+
+  args.queryClient.setQueryData<MotionTimelineQueryResult>(
+    queryKey,
+    (current) => {
+      const timelines = current?.timelines ?? [];
+      const existingIndex = timelines.findIndex(
+        (timeline) =>
+          (args.timelineId && timeline.id === args.timelineId) ||
+          timeline.sourceRef === args.sourceRef,
+      );
+      const existing =
+        existingIndex >= 0 ? timelines[existingIndex] : undefined;
+      const timeline: MotionTimelineRow = {
+        id: args.timelineId ?? existing?.id ?? null,
+        designId: args.designId,
+        sourceRef: args.sourceRef,
+        filePath: args.filePath ?? existing?.filePath ?? null,
+        tracks: args.tracks,
+        animationStyles: args.animationStyles,
+        nativeStyles: args.nativeStyles,
+        easingVariables: args.easingVariables,
+        textDocument: args.textDocument,
+        audioClips: args.audioClips,
+        durationMs: args.durationMs,
+        playbackMode: args.playbackMode,
+        defaultEase: args.defaultEase,
+        compiledHash: args.compiledHash ?? existing?.compiledHash ?? null,
+        cssHash: args.contentPatched ? args.compiledHash : null,
+        sourceVersionHash:
+          args.sourceVersionHash ?? existing?.sourceVersionHash ?? null,
+        source: "stored",
+        createdAt: existing?.createdAt ?? null,
+        updatedAt: args.updatedAt ?? null,
+      };
+      const nextTimelines = [...timelines];
+      if (existingIndex >= 0) nextTimelines[existingIndex] = timeline;
+      else nextTimelines.push(timeline);
+
+      return {
+        ...current,
+        designId: args.designId,
+        timelines: nextTimelines,
+        count: nextTimelines.length,
+      };
+    },
+  );
+}
 
 function motionAutosaveErrorMessage(
   error: unknown,
@@ -89,6 +168,7 @@ export interface MotionAutosaveArgs {
       persist?: boolean;
       recordHistory?: boolean;
       updatedAt?: string;
+      serverAccepted?: boolean;
       clipboardMutation?: ClipboardContentMutationPublication;
     },
   ) => void;
@@ -509,7 +589,7 @@ export function runMotionAutosave({
       ...(!localSource
         ? { currentContent, revision: fileRevisionAtSchedule }
         : {}),
-      includeContent: false,
+      includeContent: true,
     };
     const applyWithConsentRetry = (allowConsentRetry: boolean) =>
       applyMotionEdit(applyArgs, {
@@ -528,8 +608,55 @@ export function runMotionAutosave({
             contentPatched?: unknown;
             filePath?: unknown;
             versionHash?: unknown;
+            patchedContent?: unknown;
           };
           const isStillActiveFile = isCurrentActivation();
+          const timelineId =
+            typeof response.timelineId === "string"
+              ? response.timelineId
+              : (motionTimelineId ?? null);
+          const contentPatched = response.contentPatched !== false;
+          const compiledHash =
+            typeof response.compiledHash === "string"
+              ? response.compiledHash
+              : null;
+          const sourceVersionHash =
+            typeof response.versionHash === "string"
+              ? response.versionHash
+              : null;
+          if (
+            isStillActiveFile &&
+            id &&
+            sourceVersionHash &&
+            motionAutosaveRevisionRef.current === revisionAtSchedule
+          ) {
+            cacheSavedMotionTimeline({
+              queryClient,
+              designId: id,
+              sourceRef: fileIdAtSchedule,
+              timelineId,
+              filePath:
+                typeof response.filePath === "string"
+                  ? response.filePath
+                  : null,
+              tracks: tracksForSave,
+              animationStyles: motionAnimationStyles,
+              nativeStyles: motionNativeStyles,
+              audioClips: motionAudioClips,
+              easingVariables: motionEasingVariables,
+              textDocument: motionTextDocument,
+              durationMs: motionDurationMs,
+              playbackMode: motionPlaybackMode,
+              defaultEase: motionDefaultEase,
+              compiledHash,
+              sourceVersionHash,
+              contentPatched,
+              updatedAt:
+                typeof response.updatedAt === "string"
+                  ? response.updatedAt
+                  : null,
+            });
+          }
           if (typeof response.versionHash === "string" && isStillActiveFile) {
             motionSourceVersionHashRef.current = response.versionHash;
             motionSourceVersionCapturedRef.current = true;
@@ -549,10 +676,7 @@ export function runMotionAutosave({
                 : null;
             setMotionHydrationFingerprint(
               motionTimelineFingerprint(fileIdAtSchedule, {
-                id:
-                  typeof response.timelineId === "string"
-                    ? response.timelineId
-                    : (motionTimelineId ?? null),
+                id: timelineId,
                 designId: id,
                 sourceRef: fileIdAtSchedule,
                 filePath:
@@ -570,10 +694,7 @@ export function runMotionAutosave({
                 defaultEase: motionDefaultEase,
                 compiledHash: expectedHash,
                 cssHash: contentPatched ? expectedHash : null,
-                sourceVersionHash:
-                  typeof response.versionHash === "string"
-                    ? response.versionHash
-                    : null,
+                sourceVersionHash,
                 source: "stored",
                 createdAt: null,
                 updatedAt:
@@ -598,17 +719,27 @@ export function runMotionAutosave({
                 })
               : currentContent;
             const hasConcurrentEdits = freshContent !== currentContent;
-            let patchedContent = injectManagedMotionCss(
-              freshContent,
-              localMotionCss,
-            );
-            patchedContent = motionTextDocument
-              ? injectMotionTextRuntime(
-                  patchedContent,
-                  motionTextDocument,
-                  motionPlaybackMode,
-                )
-              : removeMotionTextRuntime(patchedContent);
+            let patchedContent: string;
+            if (hasConcurrentEdits) {
+              patchedContent = injectManagedMotionCss(
+                freshContent,
+                localMotionCss,
+              );
+              patchedContent = motionTextDocument
+                ? injectMotionTextRuntime(
+                    patchedContent,
+                    motionTextDocument,
+                    motionPlaybackMode,
+                  )
+                : removeMotionTextRuntime(patchedContent);
+            } else {
+              if (typeof response.patchedContent !== "string") {
+                throw new Error(
+                  `${MOTION_SOURCE_WRITE_UNAVAILABLE}: missing saved source acknowledgement`,
+                );
+              }
+              patchedContent = response.patchedContent;
+            }
             applyFileContentUpdate(response.fileId, patchedContent, {
               refreshPreview: false,
               forcePreviewFullDocument: true,
@@ -617,6 +748,7 @@ export function runMotionAutosave({
                 ? {}
                 : {
                     persist: false,
+                    serverAccepted: true,
                     ...(typeof response.updatedAt === "string"
                       ? { updatedAt: response.updatedAt }
                       : {}),

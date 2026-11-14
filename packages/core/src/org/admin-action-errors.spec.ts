@@ -7,6 +7,7 @@ const mocks = vi.hoisted(() => ({
   execute: vi.fn(),
   insertAuditEvent: vi.fn(),
   checkAction: vi.fn(),
+  getBrowserCookieSession: vi.fn(),
 }));
 vi.mock("../db/client.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../db/client.js")>()),
@@ -17,6 +18,10 @@ vi.mock("../audit/store.js", () => ({
 }));
 vi.mock("../authorization/check-action.js", () => ({
   checkAction: mocks.checkAction,
+}));
+vi.mock("../server/auth.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../server/auth.js")>()),
+  getBrowserCookieSession: mocks.getBrowserCookieSession,
 }));
 // The calls come from the signed-in app, which is where approval is given.
 vi.mock("../server/ui-action-capability.js", async (importOriginal) => ({
@@ -73,6 +78,9 @@ async function invoke(
       headers: {
         "content-type": "application/json",
         "x-agent-native-frontend": "1",
+        host: url.host,
+        origin: url.origin,
+        cookie: "an_session=test-browser-session",
       },
       body: JSON.stringify(args),
     }),
@@ -87,6 +95,9 @@ describe("admin-only action errors", () => {
     mocks.execute.mockResolvedValue({ rows: [{ role: "member" }] });
     mocks.insertAuditEvent.mockResolvedValue(undefined);
     mocks.checkAction.mockResolvedValue({ allowed: true });
+    mocks.getBrowserCookieSession.mockResolvedValue({
+      email: member.userEmail,
+    });
   });
 
   it.each(["frontend", "http", "tool", "mcp"] satisfies ActionCaller[])(

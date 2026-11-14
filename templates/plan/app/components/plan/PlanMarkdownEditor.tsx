@@ -138,7 +138,7 @@ export function PlanMarkdownEditor({
         ? [
             {
               ...imageCommand,
-              action: (editor) => {
+              action: (editor: Editor) => {
                 if (requestUpload()) imageCommand.action(editor);
               },
             },

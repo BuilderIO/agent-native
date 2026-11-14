@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { after, describe, it } from "node:test";
@@ -449,6 +455,19 @@ describe("guard over a repository", () => {
         'import { createDirectActionCall } from "./direct-action-call.js";\n',
     });
     assert.deepEqual(checkBoundary(root), { status: "passed", inspected: 3 });
+  });
+
+  it("ignores a deleted tracked source file", () => {
+    const deletedFile = "packages/mobile-app/app/(tabs)/mail.tsx";
+    const root = repo("deleted-source", {
+      [PROTECTED_MODULE]: protectedSource,
+      [deletedFile]: "export {}\n",
+    });
+    const add = spawnSync("git", ["add", "-A"], { cwd: root });
+    assert.equal(add.status, 0, String(add.stderr));
+    unlinkSync(path.join(root, deletedFile));
+
+    assert.deepEqual(checkBoundary(root), { status: "passed", inspected: 1 });
   });
 
   it("passes on this repository", () => {

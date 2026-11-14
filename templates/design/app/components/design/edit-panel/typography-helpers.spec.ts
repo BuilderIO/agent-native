@@ -196,7 +196,7 @@ describe("line-height field values", () => {
       unit: "%",
     });
     expect(resolveLineHeightFieldValue("30px", "24px", "16px")).toEqual({
-      text: "30px",
+      text: "30",
       value: 30,
       unit: "px",
     });
@@ -214,7 +214,7 @@ describe("line-height field values", () => {
     const auto = resolveLineHeightFieldValue("normal", "19.2px", "16px");
     expect(auto).toEqual({ text: "Auto", value: 19.2, unit: "px" });
     expect(parseLineHeightInput("30", auto)).toMatchObject({
-      text: "30px",
+      text: "30",
       value: 30,
       unit: "px",
       cssValue: "30px",
@@ -240,21 +240,21 @@ describe("line-height field values", () => {
   it("defaults bare input to pixels from percentage mode", () => {
     expect(parseLineHeightInput("30", { value: 150, unit: "%" })).toMatchObject(
       {
-        text: "30px",
+        text: "30",
         value: 30,
         unit: "px",
         cssValue: "30px",
       },
     );
     expect(parseLineHeightInput("0", { value: 125, unit: "%" })).toMatchObject({
-      text: "0px",
+      text: "0",
       value: 0,
       unit: "px",
       cssValue: "0px",
     });
     expect(parseLineHeightInput("+5", { value: 150, unit: "%" })).toMatchObject(
       {
-        text: "5px",
+        text: "5",
         value: 5,
         unit: "px",
         cssValue: "5px",
@@ -276,10 +276,10 @@ describe("line-height field values", () => {
     expect(parseLineHeightInput("1.5%%", { value: 16, unit: "px" })).toBeNull();
     expect(
       parseLineHeightInput("24px", { value: 16, unit: "px" }),
-    ).toMatchObject({ text: "24px", value: 24, unit: "px", cssValue: "24px" });
+    ).toMatchObject({ text: "24", value: 24, unit: "px", cssValue: "24px" });
     expect(
       parseLineHeightInput("1.5", { value: 16, unit: "px" }),
-    ).toMatchObject({ text: "1.5px", value: 1.5, unit: "px" });
+    ).toMatchObject({ text: "1.5", value: 1.5, unit: "px" });
   });
 });
 
@@ -581,7 +581,7 @@ describe("parseLetterSpacingInput / resolveLetterSpacingFieldValue", () => {
       unit: "%",
     });
     expect(resolveLetterSpacingFieldValue("2px", "2px")).toEqual({
-      text: "2px",
+      text: "2",
       value: 2,
       unit: "px",
     });

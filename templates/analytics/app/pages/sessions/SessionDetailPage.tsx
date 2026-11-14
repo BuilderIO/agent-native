@@ -7,13 +7,21 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useLab } from "@agent-native/core/client/labs";
+import { preparePromptComposerAgentHandoff } from "@agent-native/toolkit/app/chat";
 import {
   AgentToggleButton,
   useSendToAgentChat,
   useSendToAgentChat as useCoreSendToAgentChat,
 } from "@agent-native/toolkit/app/chat";
-import { PromptComposer } from "@agent-native/toolkit/app/chat/composer/index";
-import { SESSION_REPLAY_AGENT_ACCESS_PARAM } from "@shared/session-replay-agent-access";
+import {
+  PromptComposer,
+  type PromptComposerSubmitOptions,
+  type Reference,
+} from "@agent-native/toolkit/app/chat/composer/index";
+import {
+  SESSION_REPLAY_AGENT_ACCESS_PARAM,
+  SESSION_REPLAY_AT_MS_PARAM,
+} from "@shared/session-replay-agent-access";
 import {
   MAX_SESSION_REPLAY_CAPTURE_OFFSET_MS,
   MAX_SESSION_REPLAY_CAPTURE_BYTES,
@@ -24,6 +32,7 @@ import {
 } from "@shared/session-replay-capture";
 import {
   isFailedSessionReplayNetworkStatus,
+  replayActionName,
   SESSION_REPLAY_CONSOLE_EVENT_TAG,
   SESSION_REPLAY_NETWORK_EVENT_TAG,
 } from "@shared/session-replay-diagnostics";
@@ -63,6 +72,7 @@ import {
 import { Link, useParams, useSearchParams } from "react-router";
 import { toast } from "sonner";
 
+import { useAnalyticsComposerMenuItems } from "@/components/AnalyticsComposerContext";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import {
@@ -103,7 +113,10 @@ import {
   type AnyReplayEvent,
   type ReplayViewportDimensions,
 } from "../../../shared/replay-playback.js";
-import { SESSION_REPLAY_ANALYTICS_EVENT_TAG } from "../../../shared/session-events";
+import {
+  SESSION_REPLAY_ANALYTICS_EVENT_TAG,
+  SESSION_REPLAY_NAVIGATION_EVENT_TAG,
+} from "../../../shared/session-events";
 import type { SessionRecordingFriction } from "../../../shared/session-friction";
 import {
   formatPerformanceValue,
@@ -128,6 +141,7 @@ import {
   SessionDevToolsPanel,
 } from "./SessionDevToolsPanel";
 import { SessionFrictionPanel } from "./SessionFriction";
+import { SessionOutputsButton } from "./SessionOutputs";
 import { SessionStartTime } from "./SessionStartTime";
 
 export {
@@ -304,7 +318,7 @@ export default function SessionDetailPage() {
   const { data, isLoading, error } = useSessionReplayPlayback(recordingId);
   const recording = data?.recording;
   const initialRecordingOffsetMs = useMemo(() => {
-    const raw = searchParams.get("atMs");
+    const raw = searchParams.get(SESSION_REPLAY_AT_MS_PARAM);
     if (raw === null || !/^\d+$/.test(raw)) return null;
     const offsetMs = Number(raw);
     return Number.isSafeInteger(offsetMs) ? offsetMs : null;
@@ -343,7 +357,8 @@ export default function SessionDetailPage() {
         </div>
         {recording ? (
           <TooltipProvider>
-            <div className="flex shrink-0 items-center gap-2">
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
+              <SessionOutputsButton recordingId={recording.id} />
               <CopySessionForAgentButton recordingId={recording.id} />
               <AskSessionPopover recording={recording} />
               <AgentToggleButton />
@@ -431,13 +446,29 @@ function AskSessionPopover({
   recording: SessionRecordingSummary;
 }) {
   const t = useT();
+  const contextMenuItems = useAnalyticsComposerMenuItems();
   const [open, setOpen] = useState(false);
   const { send, isGenerating } = useCoreSendToAgentChat();
 
-  function handleSubmit(text: string) {
+  async function handleSubmit(
+    text: string,
+    files: File[],
+    references: Reference[],
+    options: PromptComposerSubmitOptions,
+  ) {
     const trimmed = text.trim();
     if (!trimmed || isGenerating) return;
+    const handoff = await preparePromptComposerAgentHandoff(
+      files,
+      options,
+      t("composerSources.uploadFailed"),
+    );
     send({
+      ...handoff,
+      references,
+      model: options.model,
+      engine: options.engine,
+      effort: options.effort,
       message: trimmed,
       context:
         `The user is looking at session replay recording ${recording.id} on /sessions/${recording.id}. ` +
@@ -474,6 +505,7 @@ function AskSessionPopover({
           </p>
         </div>
         <PromptComposer
+          contextMenuItems={contextMenuItems}
           autoFocus
           requireAgentEngine
           disabled={isGenerating}
@@ -3107,6 +3139,20 @@ function customReplayMarker(
     };
   }
 
+  if (tag === SESSION_REPLAY_NAVIGATION_EVENT_TAG) {
+    const path = typeof payload.path === "string" ? payload.path : "";
+    if (!options.appEvents || !path) return null;
+    return {
+      id: `nav-${timestamp}-${index}`,
+      timestamp,
+      offsetMs,
+      kind: "navigation",
+      label: "Navigate",
+      detail: path,
+      fields: [{ label: "URL", value: path }],
+    };
+  }
+
   if (tag === SESSION_REPLAY_VITALS_EVENT_TAG) {
     if (!options.performance) return null;
     return vitalsReplayMarker(
@@ -3234,20 +3280,6 @@ function customReplayMarker(
     label: tag,
     detail: typeof payload.message === "string" ? payload.message : undefined,
   };
-}
-
-const ACTION_ROUTE_PATTERN = /\/_agent-native\/actions\/([A-Za-z0-9._:%-]+)/;
-
-/** The action name when a captured request called an Agent-Native action. */
-export function replayActionName(url: string | undefined): string | null {
-  if (!url) return null;
-  const match = ACTION_ROUTE_PATTERN.exec(url);
-  if (!match) return null;
-  try {
-    return decodeURIComponent(match[1]);
-  } catch {
-    return match[1];
-  }
 }
 
 /**

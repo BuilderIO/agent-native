@@ -110,6 +110,9 @@ packageExtensions:
   "node-pty@*":
     dependencies:
       node-gyp: "^12.4.0"
+  "@bacons/apple-targets@5.0.0":
+    dependencies:
+      "@expo/plist": "^0.10.1"
 
 allowBuilds:
   "@firebase/util": true

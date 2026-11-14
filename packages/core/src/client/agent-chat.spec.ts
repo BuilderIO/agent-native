@@ -44,6 +44,12 @@ vi.mock("./mcp-app-host.js", () => ({
   sendMcpAppHostMessage: sendMcpAppHostMessageMock,
 }));
 
+const trackEventMock = vi.hoisted(() => vi.fn());
+vi.mock("./analytics.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./analytics.js")>()),
+  trackEvent: trackEventMock,
+}));
+
 const windowStub = {
   parent: { postMessage: parentPostMessageSpy },
   addEventListener: addEventListenerSpy,
@@ -72,6 +78,7 @@ const {
   filterAgentChatContextItems,
   formatAgentChatContextItemsForPrompt,
   generateTabId,
+  getAgentChatSubmitTarget,
   insertAgentComposerReference,
   listAgentChatContext,
   normalizeAgentComposerReference,
@@ -81,6 +88,7 @@ const {
   removeAgentChatContextItem,
   removeAgentChatContextItemAndPersist,
   reportAgentChatSubmitResult,
+  reportAgentChatSubmitTarget,
   sendToAgentChat,
   sendToAgentChatAndConfirm,
   setAgentChatContextItem,
@@ -160,6 +168,33 @@ describe("sendToAgentChat", () => {
     expect(payload.type).toBe("agentNative.submitChat");
     expect(payload.data.tabId).toBe(tabId);
     expect(payload.data.message).toBe("hello");
+  });
+
+  it("preserves integration handoff references and rejects malformed references", () => {
+    const reference = {
+      type: "mention" as const,
+      path: "github",
+      name: "GitHub",
+      source: "workspace-integration",
+      refType: "integration",
+      refId: "github",
+    };
+    sendToAgentChat({ message: "Use GitHub", references: [reference] });
+    const payload = parentPostMessageSpy.mock.calls[0][0];
+    expect(
+      parseSubmitChatMessage({ data: payload } as MessageEvent)?.references,
+    ).toEqual([reference]);
+    expect(() =>
+      parseSubmitChatMessage({
+        data: {
+          ...payload,
+          data: {
+            ...payload.data,
+            references: [{ ...reference, type: "unsupported" }],
+          },
+        },
+      } as MessageEvent),
+    ).toThrow();
   });
 
   it("carries usageLabel through the postMessage payload and back out", () => {
@@ -469,40 +504,13 @@ describe("sendToAgentChat", () => {
     ]);
   });
 
-  it("snapshots stored plan mode into the postMessage payload", () => {
+  // oracle-change: the Agent/Plan picker is gone, so a stored exec mode no longer sets the request mode.
+  it("ignores an exec mode stored by the retired Agent/Plan picker", () => {
     window.localStorage.setItem("agent-native-exec-mode", "plan");
-
-    sendToAgentChat({
-      message: "plan this dashboard",
-      submit: true,
-    });
-
-    expect(parentPostMessageSpy).toHaveBeenCalledOnce();
-    const payload = parentPostMessageSpy.mock.calls[0][0];
-    expect(payload.data.mode).toBe("plan");
-    expect(payload.data.requestMode).toBe("plan");
-  });
-
-  it("snapshots namespaced stored plan mode into the postMessage payload", () => {
     window.localStorage.setItem("agent-native-exec-mode:workspace-app", "plan");
 
     sendToAgentChat({
-      message: "plan this workspace app",
-      submit: true,
-    });
-
-    expect(parentPostMessageSpy).toHaveBeenCalledOnce();
-    const payload = parentPostMessageSpy.mock.calls[0][0];
-    expect(payload.data.mode).toBe("plan");
-    expect(payload.data.requestMode).toBe("plan");
-  });
-
-  it("does not guess from ambiguous namespaced stored modes", () => {
-    window.localStorage.setItem("agent-native-exec-mode:workspace-app", "plan");
-    window.localStorage.setItem("agent-native-exec-mode:builder", "build");
-
-    sendToAgentChat({
-      message: "use the current explicit mode only",
+      message: "build this dashboard",
       submit: true,
     });
 
@@ -512,9 +520,7 @@ describe("sendToAgentChat", () => {
     expect(payload.data.requestMode).toBeUndefined();
   });
 
-  it("lets an explicit submitted mode override stored mode", () => {
-    window.localStorage.setItem("agent-native-exec-mode", "build");
-
+  it("sends an explicit submitted mode", () => {
     sendToAgentChat({
       message: "plan this dashboard",
       mode: "plan",
@@ -583,13 +589,13 @@ describe("sendToAgentChat", () => {
 
   it("routes Builder-frame code prompts to Builder chat", () => {
     frameState.inBuilderFrame = true;
-    window.localStorage.setItem("agent-native-exec-mode:builder", "plan");
 
     sendToAgentChat({
       message: "change this app",
       context: "code context",
       submit: true,
       type: "code",
+      mode: "plan",
     });
 
     expect(parentPostMessageSpy).not.toHaveBeenCalled();
@@ -777,12 +783,12 @@ describe("sendToAgentChat", () => {
     window.location.search =
       "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
     sendMcpAppHostMessageMock.mockReturnValue(Promise.resolve(true));
-    window.localStorage.setItem("agent-native-exec-mode:mcp-app", "plan");
 
     sendToAgentChat({
       message: "rewrite this",
       context: "Hidden draft context",
       submit: true,
+      mode: "plan",
     });
 
     expect(sendMcpAppHostMessageMock).toHaveBeenCalledWith({
@@ -818,7 +824,11 @@ describe("sendToAgentChat", () => {
     expect(dispatchEventSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agentNative.chatRunning",
-        detail: { isRunning: false, tabId },
+        detail: expect.objectContaining({
+          isRunning: false,
+          tabId,
+          browserTabId: expect.any(String),
+        }),
       }),
     );
   });
@@ -839,7 +849,11 @@ describe("sendToAgentChat", () => {
     expect(dispatchEventSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agentNative.chatRunning",
-        detail: { isRunning: false, tabId },
+        detail: expect.objectContaining({
+          isRunning: false,
+          tabId,
+          browserTabId: expect.any(String),
+        }),
       }),
     );
   });
@@ -1334,7 +1348,11 @@ describe("sendToAgentChat", () => {
     expect(dispatchEventSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         type: "agentNative.chatRunning",
-        detail: { isRunning: false, tabId },
+        detail: expect.objectContaining({
+          isRunning: false,
+          tabId,
+          browserTabId: expect.any(String),
+        }),
       }),
     );
   });
@@ -1775,8 +1793,7 @@ describe("sendToAgentChat", () => {
       targetThreadId: "thread-1",
     });
 
-    await flushMicrotasks();
-    expect(fetchSpy).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledOnce());
     expect(listAgentChatContext()).toEqual([]);
     expect(parentPostMessageSpy).not.toHaveBeenCalled();
     const requestState = JSON.parse(
@@ -1822,8 +1839,7 @@ describe("sendToAgentChat", () => {
       targetThreadId: "thread-2",
     });
 
-    await flushMicrotasks();
-    expect(fetchSpy).toHaveBeenCalledOnce();
+    await vi.waitFor(() => expect(fetchSpy).toHaveBeenCalledOnce());
     const firstState = JSON.parse(fetchSpy.mock.calls[0]?.[1]?.body as string);
     firstWrite.resolve({
       ok: true,
@@ -1943,6 +1959,199 @@ describe("sendToAgentChat", () => {
       "agent-panel:prepare",
     ]);
   });
+
+  describe("agent_turn_submitted for a send that starts no local turn", () => {
+    const MCP_BRIDGE_SEARCH =
+      "?embedded=1&__an_embed_token=signed-token&__an_mcp_chat_bridge=1";
+    const submitted = () =>
+      trackEventMock.mock.calls
+        .filter(([name]) => name === "agent_turn_submitted")
+        .map(([, properties]) => properties);
+
+    beforeEach(() => {
+      trackEventMock.mockReset();
+    });
+
+    it("reports a Builder code prompt once, as routed to Builder", async () => {
+      frameState.inBuilderFrame = true;
+
+      sendToAgentChat({
+        message: "change this app",
+        submit: true,
+        type: "code",
+        preset: "app-editor",
+        submitMessageId: "submit-builder",
+      });
+      await flushMicrotasks();
+
+      expect(sendToBuilderChatMock).toHaveBeenCalledOnce();
+      expect(submitted()).toEqual([
+        expect.objectContaining({
+          routed_to: "builder",
+          surface: "app-editor",
+          initiator: "app",
+          submit_message_id: "submit-builder",
+          prompt_category: "edit",
+          prompt_length_bucket: "1-50",
+        }),
+      ]);
+    });
+
+    it("does not report a blank prompt, the same as app.first_action", async () => {
+      frameState.inBuilderFrame = true;
+
+      sendToAgentChat({ message: "   ", submit: true, type: "code" });
+
+      expect(sendToBuilderChatMock).toHaveBeenCalledOnce();
+      expect(submitted()).toEqual([]);
+    });
+
+    it("reports an MCP host prompt once, as routed to the host", async () => {
+      window.location.search = MCP_BRIDGE_SEARCH;
+      sendMcpAppHostMessageMock.mockReturnValue(Promise.resolve(false));
+
+      sendToAgentChat({ message: "rewrite this", submit: true });
+      await flushMicrotasks();
+
+      // Undelivered, it falls back to the wrapper relay: still one send.
+      expect(parentPostMessageSpy).toHaveBeenCalledOnce();
+      const [event] = submitted();
+      expect(submitted()).toHaveLength(1);
+      expect(event).toMatchObject({
+        routed_to: "mcp_host",
+        surface: "chat",
+        initiator: "app",
+        submit_message_id:
+          parentPostMessageSpy.mock.calls[0][0].data.submitMessageId,
+        prompt_category: "edit",
+        prompt_length_bucket: "1-50",
+      });
+      expect(event).not.toHaveProperty("turn_id");
+    });
+
+    it.each([true, false])(
+      "reports a confirmed ChatGPT handoff once (host delivered: %s)",
+      async (delivered) => {
+        vi.useFakeTimers();
+        window.location.search = MCP_BRIDGE_SEARCH;
+        isOpenAiMcpAppHostMock.mockReturnValue(true);
+        sendMcpAppHostMessageMock.mockReturnValue(Promise.resolve(delivered));
+
+        const result = sendToAgentChatAndConfirm(
+          {
+            message: "Apply these comments",
+            submit: true,
+            chatTarget: "local",
+          },
+          { submitMessageId: "submit-chatgpt" },
+        );
+        await flushMicrotasks();
+        if (!delivered) reportAgentChatSubmitResult("submit-chatgpt", true);
+        await result;
+
+        expect(submitted()).toEqual([
+          expect.objectContaining({
+            routed_to: "mcp_host",
+            submit_message_id: "submit-chatgpt",
+          }),
+        ]);
+      },
+    );
+
+    it("keeps a confirmed ChatGPT handoff delivered when a JS caller sends no message", async () => {
+      vi.useFakeTimers();
+      window.location.search = MCP_BRIDGE_SEARCH;
+      isOpenAiMcpAppHostMock.mockReturnValue(true);
+      sendMcpAppHostMessageMock.mockReturnValue(Promise.resolve(true));
+
+      const result = await sendToAgentChatAndConfirm(
+        { submit: true, chatTarget: "local" } as never,
+        { submitMessageId: "submit-no-message" },
+      );
+
+      expect(result).toMatchObject({ delivered: true });
+      expect(submitted()).toEqual([]);
+    });
+
+    it("reports nothing for a prefill or a local send", () => {
+      vi.useFakeTimers();
+      frameState.inBuilderFrame = true;
+      sendToAgentChat({ message: "draft", submit: false, type: "code" });
+      frameState.inBuilderFrame = false;
+      window.location.search = MCP_BRIDGE_SEARCH;
+      sendToAgentChat({ message: "draft", submit: false });
+      window.location.search = "";
+      sendToAgentChat({ message: "local", submit: true, chatTarget: "local" });
+
+      // The local turn is reported by the chat runtime when it starts.
+      expect(submitted()).toEqual([]);
+      expect(trackEventMock).toHaveBeenCalledWith(
+        "app.first_action",
+        expect.objectContaining({ action: "chat_submit" }),
+      );
+    });
+
+    it("still routes the prompt when analytics throws", () => {
+      frameState.inBuilderFrame = true;
+      trackEventMock.mockImplementation((name: string) => {
+        if (name === "agent_turn_submitted") throw new Error("analytics down");
+      });
+
+      sendToAgentChat({
+        message: "change this app",
+        submit: true,
+        type: "code",
+      });
+
+      expect(sendToBuilderChatMock).toHaveBeenCalledOnce();
+    });
+  });
+
+  it("carries the sender's preset through to the parsed submit as its surface", () => {
+    sendToAgentChat({ message: "outline", preset: "deck-outline" });
+    const parsed = parseSubmitChatMessage({
+      data: parentPostMessageSpy.mock.calls[0][0],
+    } as MessageEvent);
+    expect(parsed?.surface).toBe("deck-outline");
+  });
+});
+
+describe("getAgentChatSubmitTarget", () => {
+  it("keeps each submission's route for listeners that subscribe after the event", () => {
+    reportAgentChatSubmitTarget("submit-first", "tab-shared", {
+      threadId: "thread-first",
+    });
+    reportAgentChatSubmitTarget("submit-second", "tab-shared", {
+      threadId: "thread-second",
+    });
+    reportAgentChatSubmitTarget("submit-no-thread", "tab-other");
+
+    expect(getAgentChatSubmitTarget("submit-first")).toEqual({
+      tabId: "tab-shared",
+      threadId: "thread-first",
+    });
+    expect(getAgentChatSubmitTarget("submit-second")).toEqual({
+      tabId: "tab-shared",
+      threadId: "thread-second",
+    });
+    expect(getAgentChatSubmitTarget("submit-no-thread")).toEqual({
+      tabId: "tab-other",
+      threadId: null,
+    });
+    expect(getAgentChatSubmitTarget("submit-never-routed")).toBeNull();
+  });
+
+  it("forgets the oldest submissions once the history is full", () => {
+    reportAgentChatSubmitTarget("submit-oldest", "tab-oldest");
+    for (let index = 0; index < 100; index += 1) {
+      reportAgentChatSubmitTarget(`submit-filler-${index}`, "tab-filler");
+    }
+
+    expect(getAgentChatSubmitTarget("submit-oldest")).toBeNull();
+    expect(getAgentChatSubmitTarget("submit-filler-99")?.tabId).toBe(
+      "tab-filler",
+    );
+  });
 });
 
 describe("generateTabId", () => {
@@ -1969,6 +2178,22 @@ describe("formatAgentChatContextItemsForPrompt", () => {
         { key: "b", title: "Cart", context: "2 items" },
       ]),
     ).toBe("## Selected Element\n<button>Buy</button>\n\n## Cart\n2 items");
+  });
+
+  it("leads with the picked objects when the user used Select", () => {
+    const prompt = formatAgentChatContextItemsForPrompt([
+      { key: "page", title: "Dashboard", context: "Revenue dashboard" },
+      {
+        key: "agent-select:panel:p1",
+        title: "Signups",
+        context: "Panel id: p1",
+      },
+    ]);
+    expect(prompt.startsWith("## Selected objects\n")).toBe(true);
+    expect(prompt).toContain('- panel "Signups" (id: "p1")');
+    expect(prompt).toContain(
+      "## Dashboard\nRevenue dashboard\n\n## Signups\nPanel id: p1",
+    );
   });
 });
 

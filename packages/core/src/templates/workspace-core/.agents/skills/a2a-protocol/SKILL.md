@@ -154,7 +154,7 @@ carry the identity of any current receiver-org member to a caller holding that
 shared secret, but only when the receiver's owner enables the setting, the org
 secret differs from `A2A_SECRET`, and the audience and short expiry verify. The
 receiver checks the live roster, and delegated org actions are always capped at
-`member`. MCP requests remain organization-scoped.
+`member`, including when an MCP endpoint accepts the typed assertion.
 
 Organization IDs are local to each app's database. For calls to a peer app,
 bind the token to the trusted `org_domain` and the peer's canonical audience;

@@ -1,4 +1,5 @@
 import { defineAction, embedApp } from "@agent-native/core";
+import { fail } from "@agent-native/core/action";
 import { readAppState } from "@agent-native/core/application-state";
 import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -28,7 +29,9 @@ import { z } from "zod";
 import { validateNativeSlideHtml } from "../app/lib/validate-native-slide-html.js";
 import { getDb, schema } from "../server/db/index.js";
 import { notifyClients } from "../server/handlers/decks.js";
+import { deckDataColumns } from "../server/lib/deck-list-columns.js";
 import { createDeckVersionSnapshot } from "../server/lib/deck-versions.js";
+import { withUniqueSlideIds } from "../shared/slide-ids.js";
 import { getDeckUrl } from "./_app-url.js";
 import {
   assertDeckWriteApplied,
@@ -81,6 +84,12 @@ export function cloneableNativeSlide(context: ContextDetail): {
 }
 
 export default defineAction({
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: false,
+    idempotentHint: false,
+    openWorldHint: false,
+  },
   description:
     "Clone one pinned Google Slides-native Creative Context item into an existing deck without regenerating or rewriting its editable HTML/CSS. Returns a link that opens the cloned slide in Slides.",
   schema: z.object({
@@ -134,10 +143,19 @@ export default defineAction({
         .from(schema.decks)
         .where(eq(schema.decks.id, deckId));
       if (!row) throw new Error(`Deck ${deckId} not found`);
-      const deck = JSON.parse(row.data) as Record<string, unknown>;
+      const deck = withUniqueSlideIds(
+        deckId,
+        JSON.parse(row.data) as Record<string, unknown>,
+      );
       const slides = Array.isArray(deck.slides)
         ? ([...deck.slides] as Array<Record<string, unknown>>)
         : [];
+      if (slideId && slides.some((slide) => slide.id === slideId)) {
+        fail(
+          `Slide ${slideId} already exists in deck ${deckId}; omit slideId or choose a new one.`,
+          { errorCode: "slide_id_taken", statusCode: 409 },
+        );
+      }
       const newSlideId = slideId ?? `slide-${nanoid(10)}`;
       const reuseLabel = {
         itemId,
@@ -256,7 +274,7 @@ export default defineAction({
         );
         const updateResult = await tx
           .update(schema.decks)
-          .set({ data: JSON.stringify(deck), updatedAt: now })
+          .set({ ...deckDataColumns(deck), updatedAt: now })
           .where(deckRevisionWhere(schema.decks, deckId, row.updatedAt));
         assertDeckWriteApplied(
           updateResult,

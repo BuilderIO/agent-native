@@ -11,6 +11,17 @@ const bindings = (sql: string) =>
   postgres(sql).sources.map(({ name, cte }) => [name, cte]);
 
 describe("readAgentSqlQuery", () => {
+  it("refuses an extra statement after a BigQuery raw literal with an escaped quote", () => {
+    expect(() =>
+      bigquery(String.raw`SELECT r'\''; SELECT * FROM notes; -- '`),
+    ).toThrow(/exactly one SQL query/);
+  });
+
+  it("discovers a source after a BigQuery raw literal with an escaped quote", () => {
+    const query = bigquery(String.raw`SELECT r'\'' FROM notes -- '`);
+    expect(query.sources.map((source) => source.name)).toEqual(["notes"]);
+  });
+
   it("discovers every FROM, JOIN and comma source with aliases and exact spans", () => {
     const sql =
       'SELECT a.id FROM ONLY Public."Events" AS a JOIN summaries s USING (id), totals AS t';

@@ -153,6 +153,10 @@ vi.mock("../server/lib/design-data-mutation.js", () => ({
   mutateDesignData: mocks.mutateDesignData,
 }));
 
+import {
+  executeAgentToolCall,
+  type ActionEntry,
+} from "../../../packages/core/src/agent/production-agent.js";
 import { variantPickFromGuidedSubmit } from "../app/lib/design-funnel-tracking.js";
 import { DESIGN_HTML_INTEGRITY_ERROR_CODE } from "../shared/html-integrity.js";
 import {
@@ -616,7 +620,7 @@ describe("present-design-variants", () => {
       designId: "design_123",
       prompt: "Pick a direction",
       brief: "Create a LinkedIn ad for our launch",
-      responsive: true,
+      fixedCanvas: false,
       variants: [
         {
           id: "a",
@@ -659,7 +663,7 @@ describe("present-design-variants", () => {
       designId: "design_123",
       prompt: "Pick a direction",
       brief: "Create an ad for our launch",
-      responsive: true,
+      fixedCanvas: false,
       variants: [
         {
           id: "a",
@@ -707,7 +711,7 @@ describe("present-design-variants", () => {
       designId: "design_123",
       prompt: "Pick a direction",
       brief: "Create a poster for the conference",
-      responsive: true,
+      fixedCanvas: false,
       variants: [
         {
           id: "a",
@@ -978,6 +982,80 @@ describe("present-design-variants", () => {
     expect(
       Object.values(data.canvasFrames).map((frame) => frame.width),
     ).toEqual([1440, 1440, 1440]);
+  });
+
+  // GPT-6 Luna pads every boolean it isn't using with `false`.
+  it("keeps app directions responsive when fixedCanvas is false", async () => {
+    await action.run({
+      designId: "design_123",
+      prompt: "Landing page for a Super Mario game",
+      fixedCanvas: false,
+      variants: [
+        { id: "retro", label: "Classic 8-Bit Retro" },
+        { id: "modern", label: "Modern 3D" },
+      ],
+    });
+
+    expect(mocks.designData.breakpointSet).toMatchObject({
+      id: "generated-responsive",
+    });
+    expect(mocks.designData.screenMetadata["file-a"]).not.toHaveProperty(
+      "breakpointWidths",
+    );
+  });
+
+  it("makes every direction one fixed canvas when fixedCanvas is true", async () => {
+    await action.run({
+      designId: "design_123",
+      prompt: "Landing page for a Super Mario game",
+      fixedCanvas: true,
+      variants: [
+        { id: "retro", label: "Classic 8-Bit Retro" },
+        { id: "modern", label: "Modern 3D" },
+      ],
+    });
+
+    expect(mocks.designData.breakpointSet).toBeUndefined();
+    expect(mocks.designData.screenMetadata).toMatchObject({
+      "file-a": { breakpointWidths: [] },
+      "file-b": { breakpointWidths: [] },
+    });
+  });
+
+  it("runs a call padded with null and empty lists as sent", async () => {
+    const unused = {
+      description: null,
+      accentColor: null,
+      features: [],
+      content: null,
+      width: null,
+      height: null,
+    };
+    const result = await executeAgentToolCall({
+      actions: {
+        "present-design-variants": action as unknown as ActionEntry,
+      },
+      name: "present-design-variants",
+      callId: "padded-by-model",
+      input: {
+        designId: "design_123",
+        prompt: "Landing page for a Super Mario game",
+        brief: null,
+        fixedCanvas: false,
+        deleteSupersededSetIds: [],
+        variants: [
+          { id: "retro", label: "Classic 8-Bit Retro", ...unused },
+          { id: "modern", label: "Modern 3D", ...unused },
+        ],
+      },
+    });
+
+    expect(result.status).toBe("completed");
+    expect(Object.keys(mocks.designData.screenMetadata)).toHaveLength(2);
+    expect(mocks.designData.breakpointSet).toMatchObject({
+      id: "generated-responsive",
+    });
+    expect(mocks.tx.delete).not.toHaveBeenCalled();
   });
 
   it("reserves every breakpoint the design already has", async () => {
@@ -1515,7 +1593,7 @@ describe("present-design-variants", () => {
       mocks.assertAccess.mockResolvedValue(undefined);
     });
 
-    it("records one started and one completed event for a saved set", async () => {
+    it("records generation start without a tool-level completion event", async () => {
       const result = await action.run({
         designId: "design_123",
         prompt: "Pick a direction",
@@ -1523,10 +1601,7 @@ describe("present-design-variants", () => {
         variants,
       });
 
-      expect(generationEvents()).toEqual([
-        "generation_started",
-        "generation_completed",
-      ]);
+      expect(generationEvents()).toEqual(["generation_started"]);
       const [started] = events("generation_started");
       expect(started).toMatchObject({
         output_id: "design_123",
@@ -1536,12 +1611,9 @@ describe("present-design-variants", () => {
         prompt_length_bucket: "1-50",
         variant_count: 2,
       });
-      expect(events("generation_completed")[0]).toMatchObject({
-        generation_attempt_id: started.generation_attempt_id,
-        generation_path: "variants",
-        outcome: "completed",
-        file_count: 2,
-        has_linked_design_system: false,
+      expect(events("generation_completed")).toEqual([]);
+      expect(events("variants_generated")[0]).toMatchObject({
+        variant_set_id: result.variantSetId,
       });
       expect(events("variants_generated")).toEqual([
         expect.objectContaining({
@@ -1552,9 +1624,6 @@ describe("present-design-variants", () => {
           app_name: "design",
         }),
       ]);
-      expect(events("generation_completed")[0]).toMatchObject({
-        variant_set_id: result.variantSetId,
-      });
       expect(JSON.stringify(track.mock.calls)).not.toContain("finance");
     });
 

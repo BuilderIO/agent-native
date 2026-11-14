@@ -522,7 +522,7 @@ export async function materializeCalendarMeetingFromVirtualId(
         calendarEventId: snapshot.id,
         recordingId: null,
         transcriptStatus: "idle",
-        shareTranscript: false,
+        shareTranscript: true,
         summaryMd: "",
         bulletsJson: "[]",
         actionItemsJson: "[]",

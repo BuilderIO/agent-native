@@ -202,6 +202,7 @@ export function resolveMotionEase(
 }
 
 export const MOTION_SPRING_DEFAULT_BOUNCE = 0.25;
+export const MOTION_DEFAULT_CUSTOM_BEZIER = "cubic-bezier(0.25, 0.1, 0.25, 1)";
 
 export interface MotionSpringPreset {
   label: string;

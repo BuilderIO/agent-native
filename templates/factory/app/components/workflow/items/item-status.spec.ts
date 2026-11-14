@@ -6,13 +6,14 @@ import { createItemsStrings } from "../items-strings";
 import {
   isSlackSource,
   itemPhase as phaseOf,
+  itemPreview,
   needsYouText as needsYouTextOf,
   sourceLabel as sourceLabelOf,
   statusLabel as statusLabelOf,
   whereText as whereTextOf,
   type PhaseInput,
 } from "./item-status";
-import type { ItemParking, NeedsYouReason } from "./read-types";
+import type { ItemParking, ItemRow, NeedsYouReason } from "./read-types";
 
 const NOW = new Date(2026, 9, 18, 12, 0, 0).getTime();
 const s = createItemsStrings(createEnglishTranslator());
@@ -99,35 +100,82 @@ describe("itemPhase", () => {
 });
 
 describe("whereText", () => {
+  const event: ItemRow["lastEvent"] = {
+    at: new Date(2026, 9, 18, 11, 0).toISOString(),
+    kind: "taken",
+    nodeId: "n1",
+    summary: "new message",
+    summaryTruncated: false,
+  };
+
   it("says what a parked item waits for and until when", () => {
-    expect(whereText({ parked: parking(), lastNode: null }, NOW)).toMatch(
-      /^Waiting for a reply until /,
-    );
     expect(
-      whereText({ parked: parking({ wait: "time" }), lastNode: null }, NOW),
+      whereText({ parked: parking(), lastNode: null, lastEvent: event }, NOW),
+    ).toMatch(/^Waiting for a reply until /);
+    expect(
+      whereText(
+        { parked: parking({ wait: "time" }), lastNode: null, lastEvent: event },
+        NOW,
+      ),
     ).toMatch(/^Waiting until /);
     expect(
       whereText(
-        { parked: parking({ wait: "condition" }), lastNode: null },
+        {
+          parked: parking({ wait: "condition" }),
+          lastNode: null,
+          lastEvent: event,
+        },
         NOW,
       ),
     ).toMatch(/^Waiting for a check to pass until /);
   });
 
-  it("falls back to the step of the last event, then to nothing", () => {
+  it("falls back to the step of the last event", () => {
     expect(
       whereText(
-        { parked: null, lastNode: { nodeId: "n1", nodeName: "Assess" } },
+        {
+          parked: null,
+          lastNode: { nodeId: "n1", nodeName: "Assess" },
+          lastEvent: event,
+        },
         NOW,
       ),
     ).toBe("At Assess");
     expect(
       whereText(
-        { parked: null, lastNode: { nodeId: "n1", nodeName: null } },
+        {
+          parked: null,
+          lastNode: { nodeId: "n1", nodeName: null },
+          lastEvent: event,
+        },
         NOW,
       ),
     ).toBe("At n1");
-    expect(whereText({ parked: null, lastNode: null }, NOW)).toBeNull();
+  });
+
+  it("has nothing to say for an item a person closed, since that event names no step", () => {
+    expect(
+      whereText(
+        {
+          parked: null,
+          lastNode: null,
+          lastEvent: {
+            ...event,
+            kind: "ended",
+            nodeId: null,
+            summary:
+              "dismissed: Dismissed by enzo@builder.io (status dismissed)",
+          },
+        },
+        NOW,
+      ),
+    ).toBeNull();
+  });
+
+  it("says no activity was recorded only for an item with no event at all", () => {
+    expect(
+      whereText({ parked: null, lastNode: null, lastEvent: null }, NOW),
+    ).toBe("No activity recorded");
   });
 });
 
@@ -151,5 +199,44 @@ describe("sourceLabel", () => {
     expect(isSlackSource("slack")).toBe(true);
     expect(isSlackSource("github")).toBe(false);
     expect(isSlackSource(null)).toBe(false);
+  });
+});
+
+describe("itemPreview", () => {
+  it("reads a Slack message as plain words", () => {
+    expect(
+      itemPreview({
+        title: "Slack user Enzo",
+        summary:
+          "*Deploy*   is down\n<@U123> see <https://example.com|the log>",
+        source: "slack",
+      }),
+    ).toBe("Deploy is down @U123 see the log");
+  });
+
+  it("keeps another source's text as written, on one line", () => {
+    expect(
+      itemPreview({
+        title: "Fix the build",
+        summary: "The build  fails\non main",
+        source: "github",
+      }),
+    ).toBe("The build fails on main");
+  });
+
+  it("shows nothing when there is no text or it only repeats the title", () => {
+    expect(
+      itemPreview({ title: "Slack user Enzo", summary: null, source: "slack" }),
+    ).toBeNull();
+    expect(
+      itemPreview({ title: "Fix the build", summary: " ", source: "github" }),
+    ).toBeNull();
+    expect(
+      itemPreview({
+        title: "Fix the build",
+        summary: "Fix the build",
+        source: "github",
+      }),
+    ).toBeNull();
   });
 });

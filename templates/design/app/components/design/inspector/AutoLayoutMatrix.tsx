@@ -301,6 +301,8 @@ export interface AutoLayoutMatrixProps {
     axis: AutoLayoutSizingAxis,
     sizing: AutoLayoutSizing,
   ) => void;
+  /** Hugs both axes as one change; without it Resize to fit commits per axis. */
+  onResizeToFit?: () => void;
   onChildSizeChange?: (
     axis: AutoLayoutSizingAxis,
     value: number,
@@ -397,6 +399,7 @@ export function AutoLayoutMatrix({
   onDistribute,
   onGapModeChange,
   onChildSizingChange,
+  onResizeToFit,
   onChildMinMaxChange,
   onApplyVariable,
   onFlowChange,
@@ -627,6 +630,10 @@ export function AutoLayoutMatrix({
                         "Resize to fit" /* i18n-ignore inspector tooltip */
                       }
                       onClick={() => {
+                        if (onResizeToFit) {
+                          onResizeToFit();
+                          return;
+                        }
                         onChildSizingChange("horizontal", "hug");
                         onChildSizingChange("vertical", "hug");
                       }}
@@ -1599,19 +1606,17 @@ function GapField({
           </Tooltip>
           <DropdownMenuContent
             align="end"
-            className="min-w-[110px] text-[12px]"
+            className="min-w-[110px]"
             sideOffset={4}
           >
             <DropdownMenuCheckboxItem
               checked={!gapModeMixed && gapMode !== "auto"}
-              className="text-[12px]"
               onSelect={() => onGapModeChange?.("fixed", direction)}
             >
               {"Fixed" /* i18n-ignore design gap mode label */}
             </DropdownMenuCheckboxItem>
             <DropdownMenuCheckboxItem
               checked={!gapModeMixed && gapMode === "auto"}
-              className="text-[12px]"
               onSelect={() => {
                 if (onGapModeChange) {
                   onGapModeChange("auto", direction);
@@ -2034,7 +2039,7 @@ export function SizingField({
     ? "Mixed"
     : resolvedSize == null
       ? ""
-      : String(roundToOneDecimal(resolvedSize));
+      : String(Math.round(resolvedSize));
 
   const addMinLabel = isWidth ? labels.addMinWidth : labels.addMinHeight;
   const addMaxLabel = isWidth ? labels.addMaxWidth : labels.addMaxHeight;
@@ -2069,11 +2074,7 @@ export function SizingField({
   };
 
   const dropdownContent = (
-    <DropdownMenuContent
-      align="start"
-      className="min-w-[180px] text-[12px]"
-      sideOffset={4}
-    >
+    <DropdownMenuContent align="start" className="min-w-[180px]" sideOffset={4}>
       {/* ── Modes ── */}
       <SizingMenuItem
         icon={<IconSizingFixed />}
@@ -2159,15 +2160,15 @@ export function SizingField({
               ariaLabel={`${axis} size in pixels`}
               tooltipLabel={`${axis} size`}
               icon={null}
-              value={mixed ? 0 : roundToOneDecimal(resolvedSize ?? 0)}
+              value={mixed ? 0 : Math.round(resolvedSize ?? 0)}
               onChange={(next, meta) =>
-                onSizeChange!(Math.max(0, roundToOneDecimal(next)), meta)
+                onSizeChange!(Math.max(0, Math.round(next)), meta)
               }
               mixed={mixed}
               unit="px"
               min={0}
               step={1}
-              precision={1}
+              precision={0}
               disabled={disabled}
               className="min-w-0 flex-1 gap-0"
               labelClassName="h-6 w-4 justify-center gap-0 rounded-l-md rounded-r-none px-0 text-muted-foreground"
@@ -2298,7 +2299,6 @@ function SizingMenuItem({
       data-design-sizing-menu-item={label}
       disabled={disabled}
       onSelect={onSelect}
-      className="gap-2 pl-2 pr-2 text-[12px]"
     >
       <span className="flex size-4 shrink-0 items-center justify-center text-muted-foreground">
         {icon}

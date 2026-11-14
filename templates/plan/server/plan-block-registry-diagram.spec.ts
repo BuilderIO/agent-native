@@ -74,7 +74,7 @@ describe("plan block registry — diagram", () => {
     const source = diagramContent();
     const folder = await exportPlanContentToMdxFolder({
       content: source,
-      title: source.title,
+      title: source.title ?? "",
       brief: source.brief,
     });
 
@@ -110,7 +110,7 @@ describe("plan block registry — diagram", () => {
     });
     const folder = await exportPlanContentToMdxFolder({
       content: source,
-      title: source.title,
+      title: source.title ?? "",
       brief: source.brief,
     });
 

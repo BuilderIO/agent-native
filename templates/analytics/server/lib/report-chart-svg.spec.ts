@@ -266,6 +266,58 @@ describe("renderReportChartSvg", () => {
     ]);
   });
 
+  it("formats duration axis ticks as minutes and hours", () => {
+    const svg = renderReportChartSvg({
+      ...base,
+      type: "line",
+      series: [
+        {
+          label: "Median time",
+          data: [600, 1200, 1800, 2400],
+          formatter: "duration",
+        },
+      ],
+    });
+
+    expect(leftAxisTicks(svg)).toEqual([
+      "40 min",
+      "30 min",
+      "20 min",
+      "10 min",
+      "0 sec",
+    ]);
+  });
+
+  it("steps duration axes in whole units so no two labels repeat", () => {
+    const svg = renderReportChartSvg({
+      ...base,
+      type: "line",
+      series: [
+        { label: "Signups", data: [10, 20, 30, 40] },
+        {
+          label: "Median time",
+          data: [30, 119, 45, 80],
+          axis: "right",
+          formatter: "duration",
+        },
+      ],
+    });
+
+    expect(rightAxisTicks(svg)).toEqual(["2 min", "1 min", "0 sec"]);
+    expect(leftAxisTicks(svg)).toEqual(["40", "30", "20", "10", "0"]);
+    expect(
+      leftAxisTicks(
+        renderReportChartSvg({
+          ...base,
+          type: "bar",
+          series: [
+            { label: "Wait", data: [3600, 86400], formatter: "duration" },
+          ],
+        }),
+      ),
+    ).toEqual(["24 hours", "18 hours", "12 hours", "6 hours", "0 sec"]);
+  });
+
   it("stacks bars per axis instead of summing two units into one bar", () => {
     const svg = renderReportChartSvg({
       ...base,

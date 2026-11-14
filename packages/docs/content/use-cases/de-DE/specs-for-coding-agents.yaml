@@ -1,0 +1,95 @@
+slug: specs-for-coding-agents
+app: content
+roles:
+  - engineering
+  - product
+title: Specs schreiben, die Ihr Coding-Agent liest
+seo_title: Specs für Claude Code, Codex und Cursor
+meta_description: Agent-Native Content hält die Spec auf einer Seite, die Claude Code, Codex oder Cursor per MCP liest. So baut Ihr Agent auf dem Stand, den Ihr Team bearbeitet.
+updated: 2026-10-27
+hero:
+  body: Agent-Native Content macht aus Notizen eine Spec, mit der Sie, Ihr Team und Ihr Coding-Agent auf einer Seite arbeiten. Claude Code, Codex oder Cursor liest die aktuelle Seite und schlägt Änderungen vor.
+  button:
+    label: Spec schreiben
+    url: https://content.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd7f1bf8fa6054abcafa30bd60751ae40
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F93c61e2bc6ba476a938b13934f237b0c
+    alt: Eine Spec namens „Team invites“, geöffnet in Content, mit den Abschnitten Ziele, Nicht-Ziele, Entscheidungen und Offene Fragen und dem Seitenbaum links. Der Agenten-Chat rechts hat eine Entscheidung ergänzt, wie lange Einladungslinks gültig sind.
+how_to:
+  heading: So schreiben Sie eine Spec für Ihren Coding-Agenten
+  steps:
+    - title: Die Spec mit dem Agenten schreiben
+      body: Klicken Sie in der Seitenleiste auf **+**, wählen Sie **Seite** und fügen Sie Notizen ein, oder lassen Sie [den integrierten Agenten von Content](https://www.agent-native.com/docs/template-content/) daraus „ein PRD für ein neues Feature“ entwerfen. Bearbeiten Sie von Hand oder lassen Sie Abschnitte umschreiben.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2f4dd334ddfa4ec5bd74e67315414e8b
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F15247dff32574395a608e454b510e22b
+        alt: Im Agenten-Chat wird eine Spec für Team-Einladungen aus Meeting-Notizen angefordert. Die Antwort des Agenten listet die geschriebenen Abschnitte auf, neben der neuen Seite.
+    - title: In Ihrem Coding-Agenten öffnen
+      body: Öffnen Sie unter **Teilen** den Bereich **Agenten** und wählen Sie **In Claude Code öffnen** oder **In Codex öffnen**. Ihr Agent liest die Seite oder bittet erst um die Verbindung. Für Cursor oder VS Code fügen Sie Content hinzu, klicken auf **Agenten-Anweisung kopieren** und fügen sie ein.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa052d84a44fb4e6ead8b69535f25c726
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fc574e414836749119ad937c14623d14e
+        alt: "Nahaufnahme des Tabs „Agenten“ im Menü „Teilen“: „Agenten-Anweisung kopieren“, „In Claude öffnen“, „In Claude Code öffnen“ und „In Codex öffnen“. Darunter bietet „Content verbinden“ die Optionen Add to Cursor, Add to VS Code und „Andere Agenten“."
+    - title: Die Spec aktuell halten
+      body: Klärt der Build eine offene Frage, bitten Sie Ihren Coding-Agenten, die Änderung auf der Seite vorzuschlagen. Jeder Vorschlag zeigt die Begründung des Agenten. Klicken Sie auf das Häkchen zum Annehmen oder auf das X zum Ablehnen.
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F156092664ebc424bb86899f876b88a97
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F0c0108d3427d4641b5c3a2b266e8c4aa
+        alt: Nahaufnahme des Abschnitts Offene Fragen der Spec mit einer vorgeschlagenen Änderung des Coding-Agenten, als Agent markiert, mit Begründung und den Schaltflächen Annehmen (Häkchen) und Ablehnen (X).
+features:
+  heading: Alles, was Sie für Specs für Ihren Coding-Agenten brauchen
+  items:
+    - title: Feedback als Kommentare
+      body: Bitten Sie den Agenten, Ihre Spec zu prüfen, und er kommentiert die Schwachstellen, statt Ihren Text umzuschreiben.
+    - title: Eine Seite pro Feature
+      body: Legen Sie Recherche, API-Notizen und frühere Entscheidungen unter jede Spec und finden Sie alles über Titel und Text.
+    - title: Ein Board mit Specs
+      body: Führen Sie Specs in einer Sammlung mit Verantwortlichem und Status, als Tabelle oder Board, mit der Seite hinter jeder Zeile.
+    - title: Hinweise für Ihren Agenten
+      body: Notieren Sie in der Beschreibung der Seite, welche Abschnitte feststehen, und jeder Agent, der die Spec liest, liest das mit.
+    - title: Liest ungespeicherte Änderungen
+      body: Ihr Coding-Agent sieht die noch offenen Änderungen in Ihrem Editor und arbeitet immer mit dem aktuellen Stand der Seite.
+    - title: Mit dem Team prüfen
+      body: Kommentieren Sie Passagen, erwähnen Sie Kollegen per @ und antworten Sie in Threads. Der Versionsverlauf holt ältere Specs zurück.
+integrations:
+  heading: Verbinden Sie Content mit den Tools, die Sie schon nutzen
+  cards:
+    - title: Funktioniert mit Ihrem Coding-Agenten
+      logos:
+        - name: Claude Code
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F190047dd37374c68b75234e7c5f891fc
+        - name: Codex
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe4eb6789d3b740ccae5009325f2eeba7
+        - name: Cursor
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6d361551019e420bb3081a64104edbad
+          mono: true
+        - name: GitHub Copilot
+          src: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8be66b264343497caddac07fd7c26935
+          mono: true
+      body: Öffnen Sie Seiten über „Teilen“ in Claude Code oder Codex, oder fügen Sie Content per Klick zu Cursor oder GitHub Copilot in VS Code hinzu.
+    - title: Ihre bestehende Spec mitbringen
+      logos:
+        - name: Notion
+        - name: GitHub
+      body: Synchronisieren Sie Seiten in beide Richtungen mit Notion oder machen Sie einen GitHub-Ordner mit Markdown-Specs zur Sammlung.
+    - title: Alles per MCP verbinden
+      logos:
+        - name: Linear
+        - name: Granola
+        - name: Sentry
+      more: true
+      body: Verbinden Sie die Tools Ihres Teams per MCP oder fügen Sie einen beliebigen MCP-Server über seine URL hinzu.
+faqs:
+  heading: Fragen? Wir haben Antworten
+  items:
+    - q: Ist Agent-Native Content kostenlos?
+      a: Ja, Agent-Native Content ist kostenlos und Open Source. Ihr Coding-Agent liest und bearbeitet die Spec mit seinem eigenen Modell, das zählt also zur Nutzung Ihres Agenten. Der integrierte Agent von Content läuft über Builder.io-Guthaben oder Ihren eigenen Modell-Schlüssel. Content ist in der Alpha-Phase, rechnen Sie also mit Änderungen.
+    - q: Welche Coding-Agenten können meine Spec lesen?
+      a: Claude Code und Codex öffnen die Seite über **Teilen** und bitten Sie einmalig, sich zu verbinden. Cursor und GitHub Copilot in VS Code fügen Content dort mit einem Klick hinzu. Claude Cowork, Goose und OpenCode verbinden sich über Ihr Terminal, und jeder MCP-Client mit Anmeldung kann sich [über die URL mit Content verbinden](https://www.agent-native.com/docs/external-agents/#private-content-links). Jeder Agent sieht nur, was Ihr Konto sehen darf.
+    - q: Worin unterscheidet sich das von einer Spec-Datei in meinem Repo?
+      a: Eine Spec-Datei in Ihrem Repo ist eine Kopie, die meist nur Leute bearbeiten, die im Code arbeiten. In Content schreibt und kommentiert Ihr Team auf derselben Seite, die Ihr Coding-Agent liest, und die Änderungen des Agenten kommen als Vorschläge. Wenn Sie Markdown zusätzlich im Repo möchten, [synchronisiert Content mit einem lokalen Ordner](https://www.agent-native.com/docs/template-content-sync/).
+    - q: Kann mein Coding-Agent die Spec ändern?
+      a: Ja, mit den Rechten Ihres Kontos. Bitten Sie ihn, Änderungen vorzuschlagen, und die Seite bleibt unverändert, bis Sie jede einzelne annehmen. Er kann die Seite auch direkt bearbeiten, aber hat sie sich geändert, nachdem der Agent sie gelesen hat, lehnt Content die Bearbeitung ab. Der [Versionsverlauf](https://www.agent-native.com/docs/template-content-editing/) bewahrt frühere Versionen auf.
+    - q: Kann ich meine Specs in meinem Repo behalten?
+      a: Ja. Verbinden Sie in Content einen [lokalen Markdown- oder MDX-Ordner](https://www.agent-native.com/docs/template-content-local-files/) und holen, prüfen oder übertragen Sie Änderungen, oder starten Sie Content mit einem Befehl aus Ihrem Repo. Konflikte werden Ihnen zur Prüfung angezeigt. Der Browser kann lokale Dateien nicht selbst lesen, daher braucht das eine lokale Content-App oder Agent-Native Desktop.

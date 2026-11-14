@@ -43,10 +43,12 @@ import {
   commitFixedElementSizes,
   commitElementMinMax,
   commitElementSizing,
+  commitElementSizingForAxes,
   horizontalToJustify,
   inferElementSizing,
   measuredElementSize,
   isContainerElement,
+  marginApplies,
   isParentFlex,
   isParentGrid,
   readElementMinMax,
@@ -57,9 +59,10 @@ import {
   elementStableKey,
   useAspectRatioLock,
 } from "./element-identity";
-import { FieldTrailer } from "./field-primitives";
+import { FieldTrailer, ScrubStyleInput } from "./field-primitives";
 import { joinCssLayers, splitCssLayers } from "./fill-gradient-helpers";
 import { SectionIconButton } from "./inspector-controls";
+import { lineGeometryForElement, lineLengthSizes } from "./line-geometry";
 import {
   INSPECTOR_GRID_ACTION_GUTTER_SPAN,
   INSPECTOR_GRID_ACTION_PAIR_SPAN,
@@ -481,7 +484,7 @@ function FlexContainerControls({
     padding,
     paddingMixed,
     paddingLinked,
-    margin: marginProperties.value,
+    margin: marginApplies(element) ? marginProperties.value : undefined,
     marginMixed: marginProperties.mixed,
     marginTextValues: marginProperties.textValues,
     childSizing: {
@@ -675,8 +678,18 @@ function FlexContainerControls({
             sizing,
             onStyleChange,
             onStylesChange,
+            onApplyLayoutFlow,
           );
         }}
+        onResizeToFit={() =>
+          commitElementSizingForAxes(
+            element,
+            { horizontal: "hug", vertical: "hug" },
+            onStyleChange,
+            onStylesChange,
+            onApplyLayoutFlow,
+          )
+        }
         onChildSizeChange={(axis, px, meta) =>
           commitFixedElementSizes(
             element,
@@ -892,6 +905,7 @@ export function LayoutContextProperties({
   if (!isContainer) {
     if (motionInspector) return null;
 
+    const line = lineGeometryForElement(element);
     const widthSizing = inferElementSizing(element, "horizontal");
     const heightSizing = inferElementSizing(element, "vertical");
     const resolvedWidth = measuredElementSize(element, "horizontal");
@@ -971,158 +985,200 @@ export function LayoutContextProperties({
             plus a chain-link aspect-ratio lock at the FAR RIGHT of the row
             (the constrain-proportions link sits after both W
             and H, not between them). */}
-        <InspectorGrid className="items-start" layout="action-pair">
-          <InspectorGridCell
-            span={INSPECTOR_GRID_ACTION_PAIR_SPAN}
-            className="group/field relative"
-          >
-            <div className="flex min-w-0 flex-col gap-1">
-              <div className="flex h-4 items-center justify-between gap-1">
-                <SubsectionLabel>{t("editPanel.labels.width")}</SubsectionLabel>
-                <FieldTrailer
-                  element={element}
-                  motionCssProperty="width"
-                  overrideProperty="width"
-                  motionKeyframeContext={motionKeyframeContext}
-                  breakpointOverrideContext={breakpointOverrideContext}
-                />
-              </div>
-              <SizingField
-                axis="W"
-                sizingAxis="horizontal"
-                value={widthSizing}
-                resolvedSize={resolvedWidth}
-                mixed={isMixedValue(element.computedStyles.width)}
-                minMax={readElementMinMax(element, "horizontal")}
-                options={availableSizing.horizontal ?? ["fixed"]}
-                disabled={false}
-                onChange={(mode) =>
-                  commitElementSizing(
-                    element,
-                    "horizontal",
-                    mode,
-                    onStyleChange,
-                    onStylesChange,
-                  )
-                }
-                onSizeChange={commitWidth}
-                onMinMaxChange={(axis, kind, val, meta) =>
-                  commitElementMinMax(axis, kind, val, onStyleChange, meta)
-                }
-              />
-            </div>
-          </InspectorGridCell>
-          <InspectorGridCell
-            span={INSPECTOR_GRID_ACTION_GUTTER_SPAN}
-            ariaHidden
-          />
-          <InspectorGridCell
-            span={INSPECTOR_GRID_ACTION_PAIR_SPAN}
-            className="group/field relative"
-          >
-            <div className="flex min-w-0 flex-col gap-1">
-              <div className="flex h-4 items-center justify-between gap-1">
-                <SubsectionLabel>
-                  {t("editPanel.labels.height")}
-                </SubsectionLabel>
-                <FieldTrailer
-                  element={element}
-                  motionCssProperty="height"
-                  overrideProperty="height"
-                  motionKeyframeContext={motionKeyframeContext}
-                  breakpointOverrideContext={breakpointOverrideContext}
-                />
-              </div>
-              <SizingField
-                axis="H"
-                sizingAxis="vertical"
-                value={heightSizing}
-                resolvedSize={resolvedHeight}
-                mixed={isMixedValue(element.computedStyles.height)}
-                minMax={readElementMinMax(element, "vertical")}
-                options={availableSizing.vertical ?? ["fixed"]}
-                disabled={false}
-                onChange={(mode) =>
-                  commitElementSizing(
-                    element,
-                    "vertical",
-                    mode,
-                    onStyleChange,
-                    onStylesChange,
-                  )
-                }
-                onSizeChange={commitHeight}
-                onMinMaxChange={(axis, kind, val, meta) =>
-                  commitElementMinMax(axis, kind, val, onStyleChange, meta)
-                }
-              />
-            </div>
-          </InspectorGridCell>
-          <InspectorGridCell
-            span={INSPECTOR_GRID_ACTION_GUTTER_SPAN}
-            ariaHidden
-          />
-          <InspectorGridCell
-            span={INSPECTOR_GRID_ACTION_SPAN}
-            className="flex items-center justify-center"
-          >
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  aria-label={
-                    aspectLock.locked
-                      ? t("editPanel.labels.unlockAspectRatio")
-                      : t("editPanel.labels.lockAspectRatio")
+        {line ? (
+          <InspectorGrid className="items-start" layout="action-pair">
+            <InspectorGridCell span={INSPECTOR_GRID_ACTION_PAIR_SPAN}>
+              <div className="flex min-w-0 flex-col gap-1">
+                <div className="flex h-4 items-center">
+                  <SubsectionLabel>
+                    {t("editPanel.labels.length")}
+                  </SubsectionLabel>
+                </div>
+                <ScrubStyleInput
+                  label="L"
+                  ariaLabel={t("editPanel.labels.length")}
+                  tooltipLabel={t("editPanel.labels.length")}
+                  value={`${line.length}px`}
+                  min={0}
+                  precision={0}
+                  inputClassName="h-6"
+                  onChange={(px, meta) =>
+                    commitFixedElementSizes(
+                      element,
+                      lineLengthSizes(line, px),
+                      onStyleChange,
+                      onStylesChange,
+                      meta,
+                    )
                   }
-                  aria-pressed={aspectLock.locked}
-                  disabled={!canLockAspect}
-                  onClick={toggleAspectLock}
-                  className={cn(
-                    "mt-5 flex size-6 shrink-0 items-center justify-center self-start rounded-md text-muted-foreground transition-colors",
-                    "hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
-                    aspectLock.locked &&
-                      "text-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]",
-                    !canLockAspect && "pointer-events-none opacity-40",
-                  )}
-                >
-                  {aspectLock.locked ? (
-                    <IconLink className="size-3.5" />
-                  ) : (
-                    <IconLinkOff className="size-3.5" />
-                  )}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent>
-                {aspectLock.locked
-                  ? t("editPanel.labels.unlockAspectRatio")
-                  : t("editPanel.labels.lockAspectRatio")}
-              </TooltipContent>
-            </Tooltip>
-          </InspectorGridCell>
-        </InspectorGrid>
-        <MarginProperties
-          key={elementStableKey(element)}
-          value={marginProperties.value}
-          mixed={marginProperties.mixed}
-          textValues={marginProperties.textValues}
-          labels={marginLabels}
-          onChange={(margin, meta, changedSides) => {
-            const patch = spacingStylesForSides("margin", margin, changedSides);
-            const changeMeta =
-              meta &&
-              (meta.relativeDelta !== undefined || meta.relativeExpression)
-                ? { ...meta, relativeDeltaProperties: Object.keys(patch) }
-                : meta;
-            if (onStylesChange) {
-              onStylesChange(patch, changeMeta);
-              return;
-            }
-            Object.entries(patch).forEach(([property, value]) =>
-              onStyleChange(property, value, changeMeta),
-            );
-          }}
-        />
+                />
+              </div>
+            </InspectorGridCell>
+          </InspectorGrid>
+        ) : (
+          <InspectorGrid className="items-start" layout="action-pair">
+            <InspectorGridCell
+              span={INSPECTOR_GRID_ACTION_PAIR_SPAN}
+              className="group/field relative"
+            >
+              <div className="flex min-w-0 flex-col gap-1">
+                <div className="flex h-4 items-center justify-between gap-1">
+                  <SubsectionLabel>
+                    {t("editPanel.labels.width")}
+                  </SubsectionLabel>
+                  <FieldTrailer
+                    element={element}
+                    motionCssProperty="width"
+                    overrideProperty="width"
+                    motionKeyframeContext={motionKeyframeContext}
+                    breakpointOverrideContext={breakpointOverrideContext}
+                  />
+                </div>
+                <SizingField
+                  axis="W"
+                  sizingAxis="horizontal"
+                  value={widthSizing}
+                  resolvedSize={resolvedWidth}
+                  mixed={isMixedValue(element.computedStyles.width)}
+                  minMax={readElementMinMax(element, "horizontal")}
+                  options={availableSizing.horizontal ?? ["fixed"]}
+                  disabled={false}
+                  onChange={(mode) =>
+                    commitElementSizing(
+                      element,
+                      "horizontal",
+                      mode,
+                      onStyleChange,
+                      onStylesChange,
+                      onApplyLayoutFlow,
+                    )
+                  }
+                  onSizeChange={commitWidth}
+                  onMinMaxChange={(axis, kind, val, meta) =>
+                    commitElementMinMax(axis, kind, val, onStyleChange, meta)
+                  }
+                />
+              </div>
+            </InspectorGridCell>
+            <InspectorGridCell
+              span={INSPECTOR_GRID_ACTION_GUTTER_SPAN}
+              ariaHidden
+            />
+            <InspectorGridCell
+              span={INSPECTOR_GRID_ACTION_PAIR_SPAN}
+              className="group/field relative"
+            >
+              <div className="flex min-w-0 flex-col gap-1">
+                <div className="flex h-4 items-center justify-between gap-1">
+                  <SubsectionLabel>
+                    {t("editPanel.labels.height")}
+                  </SubsectionLabel>
+                  <FieldTrailer
+                    element={element}
+                    motionCssProperty="height"
+                    overrideProperty="height"
+                    motionKeyframeContext={motionKeyframeContext}
+                    breakpointOverrideContext={breakpointOverrideContext}
+                  />
+                </div>
+                <SizingField
+                  axis="H"
+                  sizingAxis="vertical"
+                  value={heightSizing}
+                  resolvedSize={resolvedHeight}
+                  mixed={isMixedValue(element.computedStyles.height)}
+                  minMax={readElementMinMax(element, "vertical")}
+                  options={availableSizing.vertical ?? ["fixed"]}
+                  disabled={false}
+                  onChange={(mode) =>
+                    commitElementSizing(
+                      element,
+                      "vertical",
+                      mode,
+                      onStyleChange,
+                      onStylesChange,
+                      onApplyLayoutFlow,
+                    )
+                  }
+                  onSizeChange={commitHeight}
+                  onMinMaxChange={(axis, kind, val, meta) =>
+                    commitElementMinMax(axis, kind, val, onStyleChange, meta)
+                  }
+                />
+              </div>
+            </InspectorGridCell>
+            <InspectorGridCell
+              span={INSPECTOR_GRID_ACTION_GUTTER_SPAN}
+              ariaHidden
+            />
+            <InspectorGridCell
+              span={INSPECTOR_GRID_ACTION_SPAN}
+              className="flex items-center justify-center"
+            >
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    aria-label={
+                      aspectLock.locked
+                        ? t("editPanel.labels.unlockAspectRatio")
+                        : t("editPanel.labels.lockAspectRatio")
+                    }
+                    aria-pressed={aspectLock.locked}
+                    disabled={!canLockAspect}
+                    onClick={toggleAspectLock}
+                    className={cn(
+                      "mt-5 flex size-6 shrink-0 items-center justify-center self-start rounded-md text-muted-foreground transition-colors",
+                      "hover:bg-[var(--design-editor-control-bg)] hover:text-foreground",
+                      aspectLock.locked &&
+                        "text-[var(--design-editor-accent-color)] hover:text-[var(--design-editor-accent-color)]",
+                      !canLockAspect && "pointer-events-none opacity-40",
+                    )}
+                  >
+                    {aspectLock.locked ? (
+                      <IconLink className="size-3.5" />
+                    ) : (
+                      <IconLinkOff className="size-3.5" />
+                    )}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent>
+                  {aspectLock.locked
+                    ? t("editPanel.labels.unlockAspectRatio")
+                    : t("editPanel.labels.lockAspectRatio")}
+                </TooltipContent>
+              </Tooltip>
+            </InspectorGridCell>
+          </InspectorGrid>
+        )}
+        {marginApplies(element) ? (
+          <MarginProperties
+            key={elementStableKey(element)}
+            value={marginProperties.value}
+            mixed={marginProperties.mixed}
+            textValues={marginProperties.textValues}
+            labels={marginLabels}
+            onChange={(margin, meta, changedSides) => {
+              const patch = spacingStylesForSides(
+                "margin",
+                margin,
+                changedSides,
+              );
+              const changeMeta =
+                meta &&
+                (meta.relativeDelta !== undefined || meta.relativeExpression)
+                  ? { ...meta, relativeDeltaProperties: Object.keys(patch) }
+                  : meta;
+              if (onStylesChange) {
+                onStylesChange(patch, changeMeta);
+                return;
+              }
+              Object.entries(patch).forEach(([property, value]) =>
+                onStyleChange(property, value, changeMeta),
+              );
+            }}
+          />
+        ) : null}
       </PanelSection>
     );
   }
@@ -1143,10 +1199,32 @@ export function LayoutContextProperties({
     );
   }
 
+  const autoLayoutNodeId = element.sourceId ?? element.pendingNodeId;
+  const autoLayoutActive =
+    element.isFlexContainer ||
+    element.isGridContainer ||
+    /flex|grid/.test(element.computedStyles.display ?? "");
+  const removeAutoLayoutAction =
+    autoLayoutActive && onDisableAutoLayout && autoLayoutNodeId ? (
+      <SectionIconButton
+        label={t("canvasMenu.removeAutoLayout")}
+        onClick={() => onDisableAutoLayout(autoLayoutNodeId)}
+      >
+        <IconMinus className="size-3.5" />
+      </SectionIconButton>
+    ) : null;
+
   return (
     <PanelSection
       title={t("editPanel.sections.autoLayout")}
-      actions={childActions}
+      actions={
+        childActions || removeAutoLayoutAction ? (
+          <>
+            {childActions}
+            {removeAutoLayoutAction}
+          </>
+        ) : undefined
+      }
     >
       {/* Selection-stable key so per-selection UI state (paddingLinked, which
           must not silently flip while the user is mid-scrub — see the

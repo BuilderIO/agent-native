@@ -36,9 +36,19 @@ vi.mock("@agent-native/toolkit/ui/popover", () => ({
   Popover: ({ children, open }: { children: React.ReactNode; open: boolean }) =>
     (open && <div>{children}</div>) || null,
   PopoverAnchor: () => null,
-  PopoverContent: ({ children, ...props }: HTMLAttributes<HTMLDivElement>) => (
-    <div {...props}>{children}</div>
-  ),
+  PopoverContent: ({
+    children,
+    sideOffset: _sideOffset,
+    align: _align,
+    onOpenAutoFocus: _onOpenAutoFocus,
+    onCloseAutoFocus: _onCloseAutoFocus,
+    ...props
+  }: HTMLAttributes<HTMLDivElement> & {
+    sideOffset?: number;
+    align?: string;
+    onOpenAutoFocus?: (event: Event) => void;
+    onCloseAutoFocus?: (event: Event) => void;
+  }) => <div {...props}>{children}</div>,
 }));
 
 vi.mock("@agent-native/toolkit/ui/button", () => ({

@@ -9,7 +9,7 @@ import {
   type BuilderCmsModelSummary,
   type ContentDatabaseItem,
   type ContentDatabaseOpenPagesIn,
-  type ContentDatabaseResponse,
+  type ContentDatabaseResponsePayload,
   type ContentDatabaseSource,
   type ContentDatabaseSourceChangeSet,
   type ContentDatabaseSourceJoinRequest,
@@ -25,11 +25,9 @@ import { evaluateNormalizationFormula } from "@shared/properties";
 import {
   IconArrowLeft,
   IconCheck,
-  IconChevronDown,
   IconChevronRight,
   IconExternalLink,
   IconEye,
-  IconEyeOff,
   IconFileText,
   IconLayoutGrid,
   IconLayoutKanban,
@@ -217,16 +215,16 @@ export function DatabaseSettingsPanelSheet({
   onAttachBuilderSource: (
     model: BuilderCmsModelSummary,
     relationshipMode?: "items" | "details",
-  ) => Promise<ContentDatabaseResponse>;
+  ) => Promise<ContentDatabaseResponsePayload>;
   onFederateSource: (
     candidate: PendingSourceCandidate,
     join: ContentDatabaseSourceJoinRequest,
-  ) => Promise<ContentDatabaseResponse>;
+  ) => Promise<ContentDatabaseResponsePayload>;
   onChangeSourceRole: (
     sourceId: string,
     relationshipMode: "items" | "details",
     join?: ContentDatabaseSourceJoinRequest,
-  ) => Promise<ContentDatabaseResponse>;
+  ) => Promise<ContentDatabaseResponsePayload>;
   onDisconnectSecondary: (sourceId: string) => void;
   onRefreshSource: (sourceId?: string) => void;
   onHydrateBuilderBodies: (sourceId: string) => void;
@@ -541,6 +539,7 @@ export function buildClientBuilderReviewPayload(
       riskLevel: changeSet.riskLevel,
       riskReasons: changeSet.riskReasons,
       conflictState: changeSet.conflictState,
+      stagedPublicationTransition: changeSet.stagedPublicationTransition,
       effect,
       execution: latestExecution,
     };
@@ -646,16 +645,16 @@ function DatabaseSettingsSourcePanel({
   onAttachBuilderSource: (
     model: BuilderCmsModelSummary,
     relationshipMode?: "items" | "details",
-  ) => Promise<ContentDatabaseResponse>;
+  ) => Promise<ContentDatabaseResponsePayload>;
   onFederateSource: (
     candidate: PendingSourceCandidate,
     join: ContentDatabaseSourceJoinRequest,
-  ) => Promise<ContentDatabaseResponse>;
+  ) => Promise<ContentDatabaseResponsePayload>;
   onChangeSourceRole: (
     sourceId: string,
     relationshipMode: "items" | "details",
     join?: ContentDatabaseSourceJoinRequest,
-  ) => Promise<ContentDatabaseResponse>;
+  ) => Promise<ContentDatabaseResponsePayload>;
   onDisconnectSecondary: (sourceId: string) => void;
   onRefreshSource: (sourceId?: string) => void;
   onHydrateBuilderBodies: (sourceId: string) => void;
@@ -1670,7 +1669,7 @@ function detailsReasonText(suggestion: SourceJoinSuggestion | null) {
 }
 
 function findDetailsSource(
-  response: ContentDatabaseResponse,
+  response: Pick<ContentDatabaseResponsePayload, "sources">,
   candidate: PendingSourceCandidate,
 ) {
   return (
@@ -2732,20 +2731,17 @@ function DatabaseOpenPagesInSetting({
           </span>
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-72 p-1">
+      <DropdownMenuContent align="end" className="w-72">
         {DATABASE_OPEN_PAGES_IN.map((option) => {
-          const Icon =
-            option === "full_page" ? IconExternalLink : IconLayoutGrid;
           return (
             <DropdownMenuItem
               key={option}
-              className="items-start gap-2 py-2"
+              className="items-start"
               onSelect={(event) => {
                 event.preventDefault();
                 onChange(option);
               }}
             >
-              <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
               <span className="min-w-0 flex-1">
                 <span className="block text-sm font-medium">
                   {databaseOpenPagesInLabel(option)}
@@ -3146,7 +3142,7 @@ export function DatabaseGroupMenu({
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="end" className="w-56">
-        <DropdownMenuLabel className="text-xs text-muted-foreground">
+        <DropdownMenuLabel className="text-muted-foreground">
           {dbText("groupBy")}
         </DropdownMenuLabel>
         <DropdownMenuItem
@@ -3189,7 +3185,6 @@ export function DatabaseGroupMenu({
                 onHideEmptyGroupsChange(!hideEmptyGroups);
               }}
             >
-              <IconEyeOff className="mr-2 size-4 text-muted-foreground" />
               <span className="flex-1">{dbText("hideEmptyGroups")}</span>
               {hideEmptyGroups ? (
                 <IconCheck className="size-4 text-muted-foreground" />
@@ -3202,7 +3197,6 @@ export function DatabaseGroupMenu({
                 onGroupsCollapsedChange(groupIds, true);
               }}
             >
-              <IconChevronRight className="mr-2 size-4 text-muted-foreground" />
               {dbText("collapseAllGroups")}
             </DropdownMenuItem>
             <DropdownMenuItem
@@ -3212,7 +3206,6 @@ export function DatabaseGroupMenu({
                 onGroupsCollapsedChange(groupIds, false);
               }}
             >
-              <IconChevronDown className="mr-2 size-4 text-muted-foreground" />
               {dbText("expandAllGroups")}
             </DropdownMenuItem>
           </>

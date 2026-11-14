@@ -16,12 +16,19 @@ import {
   type ParsedPath,
 } from "./expressions.js";
 import {
+  STATUS_WITH_PAGING_REFUSAL,
+  checkFreeFormValue,
+  freeFormRoleOf,
+} from "./free-form-request.js";
+import {
+  isModelToolAllowed,
   isWriteAllowedForNode,
+  operationOutputs,
   type OperationCatalog,
   type OperationDefinition,
   type OperationNodeKind,
 } from "./operations.js";
-import { portsFor, portsWithLimit } from "./ports.js";
+import { ERROR_PORT, portsFor, portsWithLimit } from "./ports.js";
 
 export const ISSUE_CODES = [
   "trigger_count",
@@ -371,6 +378,10 @@ function fieldIssues(
   });
   const fields = new Map(def.fields.map((field) => [field.name, field]));
   const found: WorkflowIssue[] = [];
+  const freeForm =
+    def.implementation.type === "provider-request"
+      ? def.implementation.freeForm
+      : undefined;
 
   for (const [name, binding] of Object.entries(args)) {
     const field = fields.get(name);
@@ -378,13 +389,15 @@ function fieldIssues(
       found.push(issue("unknown_field", `${def.id} has no field "${name}"`));
       continue;
     }
-    if (field.target && !field.modelMayWrite) {
+    // The typed path of a free-form request decides which endpoint it reads, so a model may not write it either.
+    const typedPath = freeForm?.path === name;
+    if ((field.target || typedPath) && !field.modelMayWrite) {
       const reason = modelWrittenReason(binding, aiScopeKeys);
       if (reason) {
         found.push(
           issue(
             "model_written_target",
-            `args.${name} decides who or where ${def.id} lands, and ${reason}. Type it in, or read it from a setting, an item field or a lookup.`,
+            `args.${name} decides ${typedPath ? `which endpoint ${def.id} reads` : `who or where ${def.id} lands`}, and ${reason}. Type it in, or read it from a setting, an item field or a lookup.`,
           ),
         );
       }
@@ -392,6 +405,21 @@ function fieldIssues(
     if (binding.mode !== "fixed") continue;
     const { value } = binding;
     if (typeof value === "string" && hasHole(value)) continue;
+    // What a free-form request would refuse is refused here too, unless the value holds a `{{ }}` hole that only a run can fill.
+    const role = freeForm ? freeFormRoleOf(freeForm, name) : undefined;
+    if (freeForm && role && !stringsIn(value).some((text) => hasHole(text))) {
+      const refusal = checkFreeFormValue(freeForm, role, value);
+      if (refusal) {
+        // The typed code a run would give ends the detail, so a reader can tell refusals apart.
+        found.push(
+          issue(
+            "field_type_mismatch",
+            `args.${name}: ${refusal.message} (${refusal.code})`,
+          ),
+        );
+        continue;
+      }
+    }
     const mismatch = (expected: string) =>
       found.push(
         issue(
@@ -428,6 +456,29 @@ function fieldIssues(
     }
   }
 
+  // Two typed-in values that cannot go together are refused here, as a run would.
+  const status =
+    freeForm?.includeStatus === undefined
+      ? undefined
+      : args[freeForm.includeStatus];
+  const paging =
+    freeForm?.pagination === undefined ? undefined : args[freeForm.pagination];
+  if (
+    freeForm?.includeStatus !== undefined &&
+    status?.mode === "fixed" &&
+    status.value === true &&
+    paging?.mode === "fixed" &&
+    paging.value !== undefined &&
+    paging.value !== null
+  ) {
+    found.push(
+      issue(
+        "field_type_mismatch",
+        `args.${freeForm.includeStatus}: ${STATUS_WITH_PAGING_REFUSAL.message} (${STATUS_WITH_PAGING_REFUSAL.code})`,
+      ),
+    );
+  }
+
   for (const field of def.fields) {
     // A default fills the field when the node leaves it out.
     if (
@@ -443,6 +494,15 @@ function fieldIssues(
   return found;
 }
 
+interface ValidationOptions {
+  /**
+   * Refuse `nodes.<step>.<field>` when the step's operation declares its
+   * outputs and does not list that field. A graph saved before outputs were
+   * declared keeps running, so the run path turns this off.
+   */
+  checkOutputFields?: boolean;
+}
+
 /**
  * Checks that a graph is complete enough to save. "Upstream" means reachable
  * backwards over forward edges only, so a back-edge never makes a later node
@@ -453,6 +513,7 @@ function fieldIssues(
 export function validateWorkflowGraph(
   graph: WorkflowGraph,
   catalog: OperationCatalog,
+  { checkOutputFields = true }: ValidationOptions = {},
 ): WorkflowValidation {
   const issues: WorkflowIssue[] = [];
   const add = (issue: WorkflowIssue) => {
@@ -534,7 +595,17 @@ export function validateWorkflowGraph(
   for (const node of graph.nodes) {
     for (const port of portsWithLimit(graph, node)) {
       if (!connected.has(`${node.id}\n${port}`)) {
-        add({ code: "port_leads_nowhere", nodeId: node.id, port });
+        add({
+          code: "port_leads_nowhere",
+          nodeId: node.id,
+          port,
+          // An error output nobody listens to would drop the very items it exists to catch.
+          ...(port === ERROR_PORT
+            ? {
+                detail: `"${node.name}" is set to send failed items to its error output, so that output must lead to a node (or set On error back to stop)`,
+              }
+            : {}),
+        });
       }
     }
   }
@@ -674,6 +745,12 @@ export function validateWorkflowGraph(
           nodeId: node.id,
           detail: `${tool} writes, and a model may only be given reads`,
         });
+      } else if (!isModelToolAllowed(def)) {
+        add({
+          code: "unknown_tool",
+          nodeId: node.id,
+          detail: `${tool} reads a path someone types, and a model may only be given reads whose endpoint is fixed`,
+        });
       }
     }
   }
@@ -692,6 +769,27 @@ export function validateWorkflowGraph(
   const badReference = (node: WorkflowNode, where: string, why: string) =>
     add({ code: "bad_reference", nodeId: node.id, detail: `${where}: ${why}` });
 
+  /** Why `field` is not something `target`'s result carries, or undefined when it is, or when nothing is declared to check it against. */
+  const unknownOutput = (
+    target: WorkflowNode,
+    field: string,
+  ): string | undefined => {
+    if (
+      target.kind !== "lookup" &&
+      target.kind !== "action" &&
+      target.kind !== "agent"
+    ) {
+      return undefined;
+    }
+    const use = operationUse(target);
+    const def = use ? catalog.get(use.id) : undefined;
+    const outputs = def ? operationOutputs(def) : undefined;
+    if (!def || !outputs || outputs.some((output) => output.name === field)) {
+      return undefined;
+    }
+    return `reads "${field}", which ${def.id} does not return. It returns: ${outputs.map((output) => output.name).join(", ")}.`;
+  };
+
   const checkParsedPath = (
     node: WorkflowNode,
     where: string,
@@ -699,7 +797,7 @@ export function validateWorkflowGraph(
     path: ParsedPath,
   ) => {
     if (path.root !== "nodes") return;
-    const [name] = path.segments;
+    const [name, field] = path.segments;
     if (typeof name !== "string") {
       return badReference(
         node,
@@ -710,7 +808,15 @@ export function validateWorkflowGraph(
     const target = scopeKeys.get(name);
     if (!target) return badReference(node, where, `no node is named "${name}"`);
     if (!upstreamOf(node.id).has(target.id)) {
-      badReference(node, where, `"${name}" is not upstream of this node`);
+      return badReference(
+        node,
+        where,
+        `"${name}" is not upstream of this node`,
+      );
+    }
+    if (checkOutputFields && typeof field === "string") {
+      const unknown = unknownOutput(target, field);
+      if (unknown) badReference(node, where, `"${text}" ${unknown}`);
     }
   };
 

@@ -13,6 +13,13 @@ export default defineAction({
     id: z.string().min(1).describe("Deck ID"),
   }),
   http: { method: "DELETE" },
+  needsApproval: true,
+  allowPersistentApproval: false,
+  mcpAnnotations: {
+    readOnlyHint: false,
+    destructiveHint: true,
+    openWorldHint: false,
+  },
   run: async ({ id }) => {
     try {
       const access = await assertAccess("deck", id, "admin");
@@ -72,6 +79,9 @@ export default defineAction({
         await tx
           .delete(schema.slideComments)
           .where(eq(schema.slideComments.deckId, id));
+        await tx
+          .delete(schema.deckShareLinks)
+          .where(eq(schema.deckShareLinks.deckId, id));
         return tx
           .delete(schema.decks)
           .where(eq(schema.decks.id, id))
@@ -93,8 +103,22 @@ export default defineAction({
       }
       return { success: true };
     } catch (err) {
+      // The client treats 404 as "already deleted" and drops the card, so only a
+      // deck the caller cannot see may answer 404; a visible deck the caller
+      // cannot delete must be a 403 the client can roll back and report.
       if (err instanceof ForbiddenError) {
-        throw deckHttpError(404, "Deck not found");
+        const canView = await assertAccess("deck", id, "viewer").then(
+          () => true,
+          (viewErr) => {
+            if (viewErr instanceof ForbiddenError) return false;
+            throw viewErr;
+          },
+        );
+        if (!canView) throw deckHttpError(404, "Deck not found");
+        throw deckHttpError(
+          403,
+          "You don't have permission to delete this deck.",
+        );
       }
       throw err;
     }

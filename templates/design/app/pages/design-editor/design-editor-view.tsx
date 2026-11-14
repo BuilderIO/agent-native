@@ -1,6 +1,7 @@
 import { CreativeContextShareTab } from "@agent-native/creative-context/client";
 import { ShareButton } from "@agent-native/toolkit/app/sharing";
 import { PresenceBar } from "@agent-native/toolkit/collab-ui";
+import type { AgentShareDestination } from "@agent-native/toolkit/sharing";
 import type {
   MotionAnimationStyleDefinition,
   MotionAnimationStyleMetadata,
@@ -22,6 +23,7 @@ import {
 import type { MotionTextAnimation } from "@shared/motion-text-code";
 import {
   MOTION_DEFAULT_PLAYBACK_MODE,
+  withMotionTrackIdsFromExisting,
   withTimelinePlaybackMode,
   type MotionEase,
 } from "@shared/motion-timeline";
@@ -56,7 +58,12 @@ import { UrlScreenControls } from "@/components/design/editor/UrlScreenControls"
 import { FusionAppMenu } from "@/components/design/FusionAppMenu";
 import { getUnavailableShortcutIds } from "@/components/design/keyboard-shortcuts";
 import { KeyboardShortcutsDialog } from "@/components/design/KeyboardShortcutsDialog";
-import type { MotionNativeStyleIdentity } from "@/components/design/MotionNativeStyleEditor";
+import {
+  removeMotionNativeStyleAndReconcileSelection,
+  type MotionNativeStyleIdentity,
+} from "@/components/design/motion-native-style-identity";
+import type { MotionDockEasingSegment } from "@/components/design/MotionDock";
+import { NudgeAmountDialog } from "@/components/design/NudgeAmountDialog";
 import { QuestionFlow } from "@/components/design/QuestionFlow";
 import { DesignAccessState } from "@/components/DesignAccessState";
 import { Button } from "@/components/ui/button";
@@ -74,6 +81,7 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { SaveStatusIndicator } from "@/components/visual-editor/SaveStatusIndicator";
 import { getDesignHostChannel } from "@/host/design-host-channel";
 import {
   DESIGN_IMPORT_FORMATS,
@@ -82,6 +90,7 @@ import {
 import { cn } from "@/lib/utils";
 
 import type { ResponsiveEditScope, ShareExportFormat } from "./command-types";
+import { layoutMoveRefusalMessageKey } from "./commands/align-selection";
 import { resolveUrlScreen } from "./derive/url-screen";
 import { pageHasWebMcpHost } from "./design-editor-shared";
 import type { EditorActiveScreenAndGeometry } from "./domains/use-editor-active-screen-and-geometry";
@@ -121,6 +130,7 @@ import { shouldRenderDesignShareControl } from "./mcp-widget-write-capabilities"
 import {
   hasMinimalInspectorSelection,
   isRightInspectorVisible,
+  rightInspectorCanvasInset,
 } from "./minimal-inspector";
 import {
   addMotionMarkers,
@@ -136,6 +146,7 @@ import {
   applyMotionBuiltInRecipeToTargets,
   applyMotionAnimationStyleToTargets,
   motionAnimationStyleDefinitionFromTracks,
+  motionTextDocumentAsDockTracks,
   resolveSelectedMotionTargets,
 } from "./motion-state";
 import { mergePresenceUsers } from "./presence-users";
@@ -145,6 +156,7 @@ import { TOP_BAR_HEIGHT_PX, getTopBarModes, isTopBarVisible } from "./top-bar";
 import { type EditorMode } from "./types";
 import { renderEditorCanvasArea } from "./view/editor-canvas-area";
 import { renderEditorDialogs } from "./view/editor-dialogs";
+import { DesignFirstOutputNextStep } from "./view/first-output-next-step";
 import { renderLeftSidebar } from "./view/left-sidebar";
 import { renderMobileInspectorSheet } from "./view/mobile-inspector-sheet";
 import { renderMotionDockPanel } from "./view/motion-dock-panel";
@@ -160,8 +172,6 @@ import {
 } from "./view/responsive-interact-toolbar";
 import { renderRightRail } from "./view/right-rail";
 import { renderRightSidebarActions } from "./view/right-sidebar-actions";
-import { ShareCopyLinkButton } from "./view/share-copy-link-button";
-import { ShareSendToTab } from "./view/share-send-to-tab";
 import { renderSignedOutPersistenceActions } from "./view/signed-out-persistence-actions";
 import { renderZoomMenu } from "./view/zoom-menu";
 import { VisualEditWebMcp } from "./VisualEditWebMcp";
@@ -205,6 +215,10 @@ function motionDimensionValue(
   if (computed && computed !== "auto" && computed !== "none") return computed;
   const size = selectedElement?.boundingRect[property] ?? 0;
   return `${Number.isInteger(size) ? size : Number(size.toFixed(2))}px`;
+}
+
+function getActiveFileId(file: { id: string } | undefined): string | undefined {
+  return file?.id;
 }
 
 export function renderDesignEditorView({
@@ -257,6 +271,7 @@ export function renderDesignEditorView({
     id,
     isSignedIn,
     sessionResolved,
+    session,
     shellMode,
     embedded,
     isVisualEditSurface,
@@ -348,6 +363,8 @@ export function renderDesignEditorView({
     hasLocalhostScreens,
     editorShareUrl,
     canvasFrameGeometryById,
+    unsavedChangeCount,
+    retryUnsavedChanges,
   } = editorFilesAndSaving;
   const {
     responsiveEditScope,
@@ -383,6 +400,8 @@ export function renderDesignEditorView({
     motionTracks,
     motionNativeStyles,
     setMotionNativeStyles,
+    motionNativeStyleSelection,
+    setMotionNativeStyleSelection,
     motionEasingVariables,
     setMotionEasingVariables,
     motionAnimationStyles,
@@ -392,6 +411,7 @@ export function renderDesignEditorView({
     motionPlayhead,
     motionDefaultEase,
     motionPlaybackMode,
+    motionDockLiveState,
     motionSelectedTarget,
     setMotionOriginEditing,
     motionKeyframeState,
@@ -410,6 +430,7 @@ export function renderDesignEditorView({
     defaultComponentName,
     handleToggleMotionKeyframe,
     handleMotionTracksChange,
+    handleMotionDockTracksChange,
     handleMotionAudioClipsChange,
     markMotionTracksDirty,
     handleMotionAnimationStyleSaved,
@@ -452,7 +473,8 @@ export function renderDesignEditorView({
 
   const {
     keyboardShortcutsOpen,
-    keyboardShortcutsInitialFocus,
+    nudgeAmountOpen,
+    handleCloseNudgeAmount,
     responsiveInteractActive,
     handleModeChange,
     handlePinToolToggle,
@@ -462,8 +484,8 @@ export function renderDesignEditorView({
   const {
     pngExporting,
     svgExporting,
-    codingHandoffLoading,
     handleCopyCodingHandoff,
+    handleSendCodingHandoff,
     visualEditPromptResult,
     handleDownloadHtml,
     handleDownloadZip,
@@ -475,7 +497,6 @@ export function renderDesignEditorView({
   const {
     shareExportFormat,
     setShareExportFormat,
-    codingHandoffPreviewText,
     selectedLayerIds,
     selectedInspectorElements,
   } = editorLayerModels;
@@ -495,7 +516,7 @@ export function renderDesignEditorView({
   const hasCompleteSelectedMotionTargets =
     selectedInspectorElements.length > 0 &&
     uniqueSelectedMotionTargets.length === selectedInspectorElements.length;
-  const motionTargetForInspector = hasCompleteSelectedMotionTargets
+  const canvasMotionTargetForInspector = hasCompleteSelectedMotionTargets
     ? {
         nodeId: uniqueSelectedMotionTargets[0]!.nodeId,
         label: uniqueSelectedMotionTargets
@@ -509,6 +530,79 @@ export function renderDesignEditorView({
     : selectedInspectorElements.length <= 1
       ? motionSelectedTarget
       : null;
+  const motionDockTracksForInspector = withMotionTrackIdsFromExisting(
+    [
+      ...motionTracks,
+      ...motionTextDocumentAsDockTracks(
+        motionTextDocument,
+        activeCodeLayerProjection,
+      ),
+    ],
+    motionTracks,
+  );
+  const motionEasingSelection =
+    motionDockLiveState.selectedEasingSegment ?? null;
+  const motionEasingSegment: MotionDockEasingSegment | null = (() => {
+    if (!motionEasingSelection) return null;
+    const track = motionDockTracksForInspector.find(
+      (candidate) => candidate.id === motionEasingSelection.trackId,
+    );
+    if (!track) return null;
+    const orderedKeyframes = [...track.keyframes].sort((a, b) => a.t - b.t);
+    const fromIndex = orderedKeyframes.findIndex(
+      (keyframe, index) =>
+        keyframe.t === motionEasingSelection.fromT &&
+        orderedKeyframes[index + 1]?.t === motionEasingSelection.toT,
+    );
+    if (fromIndex < 0) return null;
+    const from = orderedKeyframes.find(
+      (_keyframe, index) => index === fromIndex,
+    );
+    if (!from) return null;
+    return {
+      ...motionEasingSelection,
+      targetNodeId: track.targetNodeId,
+      property: track.property,
+      label: track.label,
+      isTextAnimation: track.isTextAnimation ?? false,
+      ease: from.ease ?? motionDefaultEase,
+    };
+  })();
+  const activeFileId = getActiveFileId(activeFile);
+  const activeMotionEasingSegment =
+    motionDockOpen && activeFileId ? motionEasingSegment : null;
+  const motionTargetForInspector = activeMotionEasingSegment
+    ? {
+        nodeId: activeMotionEasingSegment.targetNodeId,
+        label: activeMotionEasingSegment.label,
+        isText: activeMotionEasingSegment.isTextAnimation,
+        isPath: false,
+      }
+    : canvasMotionTargetForInspector;
+
+  const handleMotionEasingSegmentChange = (ease: MotionEase) => {
+    if (!canWriteMotion || !activeMotionEasingSegment) return;
+    const nextTracks = motionDockTracksForInspector.map((track) => {
+      if (track.id !== activeMotionEasingSegment.trackId) return track;
+      const keyframes = track.keyframes.map((keyframe) => {
+        if (keyframe.t !== activeMotionEasingSegment.fromT) return keyframe;
+        if (keyframe.ease === ease) return keyframe;
+        return { ...keyframe, ease };
+      });
+      return keyframes.some(
+        (keyframe, index) => keyframe !== track.keyframes[index],
+      )
+        ? { ...track, keyframes }
+        : track;
+    });
+    if (
+      nextTracks.some(
+        (track, index) => track !== motionDockTracksForInspector[index],
+      )
+    ) {
+      handleMotionDockTracksChange(nextTracks);
+    }
+  };
 
   const createMotionNativeStyle = (
     styleKey: MotionNativeStyleKey,
@@ -673,7 +767,6 @@ export function renderDesignEditorView({
     handleSelectionColorChange,
     handleSelectionColorPickerOpenChange,
     canSelectSelectionColorTarget,
-    handleGroupFillStylesChange,
     handleSelectionColorTarget,
     activeScreenPreviewUrl,
     statesPanelProps,
@@ -727,8 +820,8 @@ export function renderDesignEditorView({
   });
   const activeRuntimeSourceLocationSnapshotFailed =
     activeRuntimeProjectionEligible &&
-    runtimeLayerSnapshotReadiness?.screenId === activeFile?.id &&
-    runtimeLayerSnapshotReadiness.readiness.status === "error";
+    runtimeLayerSnapshotReadiness?.screenId === activeFileId &&
+    runtimeLayerSnapshotReadiness?.readiness.status === "error";
   const pendingVisualStyleWarningOpen =
     pendingVisualStyleNavigationBlocker.state === "blocked";
   const exportsUnavailable = shouldDisableExportsUntilCanvasFramesExist({
@@ -868,14 +961,15 @@ export function renderDesignEditorView({
       </div>
     </div>
   );
-  const shareSendToTab = (
-    <ShareSendToTab
-      codingHandoffPreviewText={codingHandoffPreviewText}
-      exportsUnavailable={exportsUnavailable}
-      codingHandoffLoading={codingHandoffLoading}
-      onCopyCodingHandoff={handleCopyCodingHandoff}
-    />
-  );
+  // The coding handoff is Design's agent prompt; until the canvas has frames
+  // there is nothing to hand off, and the shared read prompt stands in.
+  const designShareSendTo = exportsUnavailable
+    ? undefined
+    : {
+        openInAgent: (destination: AgentShareDestination) =>
+          void handleSendCodingHandoff(destination),
+        copyAgentPrompt: handleCopyCodingHandoff,
+      };
   const designShareTabs = {
     shareLabel: "Share link" /* i18n-ignore share tab label */,
     defaultValue: "share",
@@ -884,11 +978,6 @@ export function renderDesignEditorView({
         value: "export",
         label: t("designEditor.export"),
         content: shareExportTab,
-      },
-      {
-        value: "send",
-        label: "Send to agent" /* i18n-ignore share tab label */,
-        content: shareSendToTab,
       },
       ...(hasLocalhostScreens &&
       sessionResolved &&
@@ -1164,6 +1253,7 @@ export function renderDesignEditorView({
       editorLayoutAndStructure,
       editorModes,
       editorScreenRendering,
+      editorSourceAndSync,
       controlId,
     });
 
@@ -1247,7 +1337,18 @@ export function renderDesignEditorView({
 
   const shareSegmentClassName =
     "!border-primary !bg-primary !text-primary-foreground shadow-none hover:!border-primary/90 hover:!bg-primary/90 hover:!text-primary-foreground focus-visible:ring-ring [&_svg]:!text-primary-foreground";
-  const renderShareControl = (dense: boolean) => {
+  const firstOutputActionsAvailable =
+    !hostEmbeddedEditor &&
+    !uiHidden &&
+    (widgetEmbed
+      ? shouldRenderDesignShareControl({
+          widgetEmbed,
+          canShareDesign,
+          canRenderAuthenticatedShare,
+        })
+      : canRenderAuthenticatedShare);
+  const nextStepShareActionEvent = "design:first-output-next-step-share";
+  const renderShareControl = (_dense: boolean, actionEvent?: string) => {
     if (hostEmbeddedEditor) return null;
     if (widgetEmbed) {
       if (
@@ -1269,6 +1370,7 @@ export function renderDesignEditorView({
           resourceType="design"
           resourceId={id}
           resourceTitle={design.title}
+          actionEvent={actionEvent}
           hideTriggerIcon
           defaultOpen={shouldOpenShare}
           shareUrl={editorShareUrl}
@@ -1278,32 +1380,10 @@ export function renderDesignEditorView({
               : "designEditor.shareEditorLink",
           )}
           shareUrlDescription={t("designEditor.shareEditorLinkDescription")}
-          roleCopy={{
-            commenter: {
-              label: t("designEditor.commenterRoleLabel"),
-              description: t("designEditor.commenterRoleDescription"),
-            },
-          }}
           shareTabs={designShareTabs}
+          sendTo={designShareSendTo}
           popoverClassName="z-[100010]"
-          triggerClassName={cn(
-            dense
-              ? "h-[var(--design-control-height)] px-[var(--design-baseline-unit)] text-xs"
-              : "h-[var(--design-row-height)] px-[calc(var(--design-baseline-unit)*1.5)] text-sm",
-            "rounded-r-none",
-            shareSegmentClassName,
-          )}
-        />
-        <ShareCopyLinkButton
-          editorCore={editorCore}
-          shareUrl={editorShareUrl}
-          className={cn(
-            dense
-              ? "h-[var(--design-control-height)]"
-              : "h-[var(--design-row-height)]",
-            "relative rounded-l-none before:absolute before:inset-y-0 before:left-0 before:w-px before:bg-primary-foreground",
-            shareSegmentClassName,
-          )}
+          triggerClassName={shareSegmentClassName}
         />
       </div>
     );
@@ -1391,6 +1471,13 @@ export function renderDesignEditorView({
       </div>
     ) : null;
 
+  const topBarVisible = isTopBarVisible({
+    embedded,
+    isVisualEditSurface,
+    minimalUi,
+    uiHidden,
+  });
+
   // Minimal UI hides the top bar, so its floating right bar carries the same
   // controls.
   const rightSidebarActions = renderRightSidebarActions({
@@ -1401,16 +1488,14 @@ export function renderDesignEditorView({
     publishWaitlistControl,
     presenceControl,
     reviewFeedbackControl,
-    renderShareControl,
+    renderShareControl: (dense) =>
+      renderShareControl(
+        dense,
+        !topBarVisible ? nextStepShareActionEvent : undefined,
+      ),
     localPreviewRow,
   });
 
-  const topBarVisible = isTopBarVisible({
-    embedded,
-    isVisualEditSurface,
-    minimalUi,
-    uiHidden,
-  });
   const topBarControlsVisible = !initialGenerationChromeLimited;
   // The mode switch used to live in the bottom toolbar, so it keeps that
   // toolbar's gating.
@@ -1426,10 +1511,17 @@ export function renderDesignEditorView({
   };
   const topBarActions = (
     <>
+      <SaveStatusIndicator
+        unsavedChangeCount={unsavedChangeCount}
+        onRetry={retryUnsavedChanges}
+      />
       {renderPendingNodeRewriteControl(isMobileViewport)}
       {reviewFeedbackControl}
       {publishWaitlistControl}
-      {renderShareControl(true)}
+      {renderShareControl(
+        true,
+        topBarVisible ? nextStepShareActionEvent : undefined,
+      )}
     </>
   );
 
@@ -1479,6 +1571,7 @@ export function renderDesignEditorView({
     selectedElement,
     selectedLayerIds,
     selectedScreenGeometry,
+    motionEasingSegmentSelected: Boolean(activeMotionEasingSegment),
   });
   // Below md the docked inspector panel is display:none and the Sheet below
   // carries it, so the panel must neither inset the canvas nor displace the
@@ -1495,12 +1588,23 @@ export function renderDesignEditorView({
     mode,
     canEdit: canEditActiveVisualScreen,
   });
+  const questionFlowInsetRight = rightInspectorCanvasInset({
+    visible: rightSidebarVisible,
+    width: rightSidebarWidth,
+    minimalUi,
+  });
   const chromeInsetLeft = leftSidebarVisible
     ? DESIGN_CHROME_RAIL_WIDTH_PX + (activeLeftPanel ? leftContentWidth : 0)
     : 0;
   const selectedRouteScreen = overviewScreens.find(
     (screen) => screen.id === selectedScreenGeometry?.id,
   );
+  const alignDisabledReasonKey = alignAvailability.canAlign
+    ? null
+    : layoutMoveRefusalMessageKey(alignAvailability.blocker);
+  const alignDisabledReason = alignDisabledReasonKey
+    ? t(alignDisabledReasonKey)
+    : undefined;
   const editPanelProps = {
     selectedElement,
     textEditingState,
@@ -1572,7 +1676,11 @@ export function renderDesignEditorView({
       ? (value: number, meta?: { phase?: "preview" | "commit" | "cancel" }) =>
           handleVectorCornerRadiusChange(
             value,
-            meta?.phase === "preview" ? "preview" : "commit",
+            meta?.phase === "preview"
+              ? "preview"
+              : meta?.phase === "cancel"
+                ? "cancel"
+                : "commit",
           )
       : undefined,
     selectionColorScopes,
@@ -1584,9 +1692,6 @@ export function renderDesignEditorView({
       : undefined,
     onSelectionColorPickerOpenChange: canEditActiveVisualScreen
       ? handleSelectionColorPickerOpenChange
-      : undefined,
-    onGroupFillStylesChange: canEditActiveVisualScreen
-      ? handleGroupFillStylesChange
       : undefined,
     viewMode,
     mode,
@@ -1611,7 +1716,17 @@ export function renderDesignEditorView({
       editorLiveEditsAndPresence.motionLabEnabled &&
       motionDockOpen &&
       Boolean(activeFile?.id) &&
-      selectedInspectorElements.length > 0,
+      (selectedInspectorElements.length > 0 ||
+        Boolean(activeMotionEasingSegment)),
+    motionEasingSegment: editorLiveEditsAndPresence.motionLabEnabled
+      ? activeMotionEasingSegment
+      : null,
+    onMotionEasingSegmentChange:
+      editorLiveEditsAndPresence.motionLabEnabled && canWriteMotion
+        ? handleMotionEasingSegmentChange
+        : undefined,
+    onMotionEasingSegmentBack:
+      editorLiveEditsAndPresence.handleMotionEasingSegmentBack,
     activeContent,
     pendingInteractionStateStyles: pendingInspectorInteractionStateStyles,
     activeFileUpdatedAt: activeFile?.updatedAt ?? null,
@@ -1651,9 +1766,11 @@ export function renderDesignEditorView({
               easingVariables: motionEasingVariables,
             },
             nodes: activeCodeLayerProjection.nodes,
-            targets: hasCompleteSelectedMotionTargets
-              ? uniqueSelectedMotionTargets
-              : [motionTargetForInspector],
+            targets: activeMotionEasingSegment
+              ? [motionTargetForInspector]
+              : hasCompleteSelectedMotionTargets
+                ? uniqueSelectedMotionTargets
+                : [motionTargetForInspector],
             onHoverLayer: editorLayerActions.layerPanelCallbacks.onHoverLayer,
             onOpenInTimeline: () => setMotionDockOpenAnimated(true),
           }
@@ -1776,6 +1893,8 @@ export function renderDesignEditorView({
           }
         : undefined,
     motionNativeStyles,
+    selectedMotionNativeStyle: motionNativeStyleSelection,
+    onSelectMotionNativeStyle: setMotionNativeStyleSelection,
     motionEasingVariables,
     onMotionEasingVariablesChange:
       canEditActiveVisualScreen && canWriteMotion
@@ -1798,28 +1917,15 @@ export function renderDesignEditorView({
     onRemoveMotionNativeStyle:
       canEditActiveVisualScreen && canWriteMotion
         ? (identity: MotionNativeStyleIdentity) => {
-            setMotionNativeStyles((current) => {
-              const index = identity.sourceInstanceId
-                ? current.findIndex(
-                    (candidate) =>
-                      candidate.sourceInstanceId ===
-                        identity.sourceInstanceId &&
-                      candidate.styleKey === identity.styleKey &&
-                      candidate.targetNodeId === identity.targetNodeId,
-                  )
-                : identity.index;
-              const instance = current[index];
-              if (
-                !instance ||
-                instance.styleKey !== identity.styleKey ||
-                instance.targetNodeId !== identity.targetNodeId
-              ) {
-                return current;
-              }
-              return current.filter(
-                (_, currentIndex) => currentIndex !== index,
-              );
-            });
+            const result = removeMotionNativeStyleAndReconcileSelection(
+              motionNativeStyles,
+              motionNativeStyleSelection,
+              identity,
+              motionSelectedTarget?.nodeId,
+            );
+            if (result.styles === motionNativeStyles) return;
+            setMotionNativeStyles(result.styles);
+            setMotionNativeStyleSelection(result.selection);
             markMotionTracksDirty();
           }
         : undefined,
@@ -2027,6 +2133,7 @@ export function renderDesignEditorView({
     reviewPanelProps: resolvedReviewPanelProps,
     onAlignSelection: canEditDesign ? handleAlignSelection : undefined,
     alignSelectionDisabled: !alignAvailability.canAlign,
+    alignSelectionDisabledReason: alignDisabledReason,
     onDisableAutoLayout: canEditDesign ? handleDisableAutoLayout : undefined,
     onApplyLayoutFlow: canEditDesign ? handleApplyLayoutFlow : undefined,
     onInteractionStateChange: handleInteractionStateChange,
@@ -2169,14 +2276,20 @@ export function renderDesignEditorView({
           <KeyboardShortcutsDialog
             open={keyboardShortcutsOpen}
             onClose={handleCloseKeyboardShortcuts}
-            initialFocus={keyboardShortcutsInitialFocus}
+            unavailableShortcutIds={getUnavailableShortcutIds({
+              annotateEnabled: annotateLab === "on",
+            })}
+          />
+        ) : null}
+
+        {!hostOwnsChrome ? (
+          <NudgeAmountDialog
+            open={nudgeAmountOpen}
+            onClose={handleCloseNudgeAmount}
             nudgeAmounts={editorPreferences.nudge}
             onNudgeAmountsChange={(nudge) =>
               setEditorPreferences({ ...editorPreferences, nudge })
             }
-            unavailableShortcutIds={getUnavailableShortcutIds({
-              annotateEnabled: annotateLab === "on",
-            })}
           />
         ) : null}
 
@@ -2184,7 +2297,10 @@ export function renderDesignEditorView({
         {questionFlowActive ? (
           <div
             className="relative mx-1 h-full min-w-0 flex-1 overflow-hidden rounded-xl bg-[var(--design-editor-panel-bg)]"
-            style={{ paddingLeft: leftChromeOverlayInset }}
+            style={{
+              paddingLeft: leftChromeOverlayInset,
+              paddingRight: questionFlowInsetRight,
+            }}
           >
             <QuestionFlow
               questions={pendingQuestions ?? []}
@@ -2248,6 +2364,43 @@ export function renderDesignEditorView({
         })}
       </div>
 
+      <DesignFirstOutputNextStep
+        key={id}
+        outputId={id}
+        actionsAvailable={firstOutputActionsAvailable}
+        {...(session && (session.userId ?? session.email)
+          ? { userScope: session.userId ?? session.email }
+          : {})}
+        generationActive={generating}
+        outputReady={getActiveFileId(activeFile) !== undefined}
+        labels={{
+          ariaLabel: t("home.nextStepBar.ariaLabel"),
+          refineWithPrompt: t("home.nextStepBar.refineWithPrompt"),
+          export: t("home.nextStepBar.export"),
+          shareLink: t("home.nextStepBar.shareLink"),
+          dismiss: t("home.nextStepBar.dismiss"),
+        }}
+        onRefine={() =>
+          window.dispatchEvent(
+            new CustomEvent("agent-panel:open", { detail: { focus: true } }),
+          )
+        }
+        onExport={() =>
+          window.dispatchEvent(
+            new CustomEvent(nextStepShareActionEvent, {
+              detail: { tab: "export" },
+            }),
+          )
+        }
+        onShareLink={() =>
+          window.dispatchEvent(
+            new CustomEvent(nextStepShareActionEvent, {
+              detail: { tab: "share" },
+            }),
+          )
+        }
+      />
+
       {/* ── Render: mobile inspector sheet ── */}
       {renderMobileInspectorSheet({
         editorCore,
@@ -2272,6 +2425,7 @@ export function renderDesignEditorView({
         editorClipboard,
         editorLayoutAndStructure,
         editorSourceAndSync,
+        editorExportAndHandoff,
         id,
         pendingVisualStyleWarningOpen,
       })}

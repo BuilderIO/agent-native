@@ -7,8 +7,19 @@ import "../authorization/check-action.js";
 import { Agent } from "undici";
 
 import { actionCallEmitsChange } from "../action-call-classification.js";
+import {
+  actionCallIntent,
+  preparedCallArguments,
+  preparedCallNeedsApproval,
+  recordInvalidActionCall,
+} from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import { getAppConfig } from "../app-config/index.js";
+import {
+  requestCliApproval,
+  runApprovedCliAction,
+  takeCliApprovalFlag,
+} from "../cli/action-approval.js";
 import { getUrlOpenerCommand } from "../cli/open-url.js";
 import {
   closeDbExec,
@@ -18,6 +29,7 @@ import {
 import { notifyActionChange } from "../server/action-change.js";
 import {
   DEV_ACTION_ORG_HEADER,
+  DEV_ACTION_ORG_SCOPE_HEADER,
   DEV_ACTION_ROUTE,
   DEV_ACTION_TOKEN_HEADER,
   DEV_ACTION_USER_HEADER,
@@ -34,7 +46,11 @@ import {
 } from "../server/request-context.js";
 import { loadCliBootstrap } from "./cli-bootstrap.js";
 import { coreScripts, getCoreScriptNames } from "./core-scripts.js";
-import { resolveDevUserEmail } from "./dev-session.js";
+import {
+  devOrgChoiceFromEnv,
+  resolveDevOrgScope,
+  resolveDevUserEmail,
+} from "./dev-session.js";
 import { loadEnv } from "./utils.js";
 
 loadEnv();
@@ -230,7 +246,7 @@ export async function runScript(options: RunScriptOptions = {}): Promise<void> {
 
   if (!actionName || actionName === "--help" || args.includes("--help")) {
     console.log(
-      `Usage: pnpm action <action-name> ['{"arg":"value"}'] [--arg value ...]`,
+      `Usage: pnpm action <action-name> ['{"arg":"value"}'] [--arg value ...] [--approved]`,
     );
 
     const actionsDir = path.resolve(process.cwd(), "actions");
@@ -278,11 +294,31 @@ export async function runScript(options: RunScriptOptions = {}): Promise<void> {
   await loadCliBootstrap();
 
   const userEmail = await resolveDevUserEmail();
-  const orgId = process.env.AGENT_ORG_ID || undefined;
+  let orgScope: Awaited<ReturnType<typeof resolveDevOrgScope>>;
+  try {
+    orgScope = await resolveDevOrgScope(userEmail, devOrgChoiceFromEnv());
+  } catch (err) {
+    // The lookup can open the database, so a failure closes it and reports
+    // like a failed action rather than leaving an unhandled rejection.
+    await closeDbExec().catch(() => {});
+    console.error(
+      `Action "${actionName}" failed:`,
+      err instanceof Error ? err.message : String(err),
+    );
+    process.exit(1);
+  }
 
-  return runWithRequestContext({ userEmail, orgId }, () =>
-    dispatchAction(actionName, args, options),
+  return runWithRequestContext(
+    { ...(userEmail ? { userEmail } : {}), ...orgScope },
+    () => dispatchAction(actionName, args, options),
   );
+}
+
+/** Tells the dev server this call acts in no org, so it looks none up. */
+function devOrgScopeHeader(): Record<string, string> {
+  return devOrgChoiceFromEnv().personal
+    ? { [DEV_ACTION_ORG_SCOPE_HEADER]: "personal" }
+    : {};
 }
 
 export async function tryForwardToDevServer(
@@ -297,9 +333,11 @@ export async function tryForwardToDevServer(
   );
   if (discovery.databaseKey !== ourDatabaseKey) return;
 
+  let cli: ReturnType<typeof takeCliApprovalFlag>;
   let input: Record<string, unknown>;
   try {
-    input = parseActionArgs(args, { coerceBooleans: true });
+    cli = takeCliApprovalFlag(args);
+    input = parseActionArgs(cli.args, { coerceBooleans: true });
   } catch (error) {
     console.error(
       `Action "${actionName}" failed:`,
@@ -327,14 +365,65 @@ export async function tryForwardToDevServer(
         ...(process.env.AGENT_ORG_ID
           ? { [DEV_ACTION_ORG_HEADER]: process.env.AGENT_ORG_ID }
           : {}),
+        ...devOrgScopeHeader(),
       },
-      body: JSON.stringify({ name: actionName, input }),
+      body: JSON.stringify({
+        name: actionName,
+        input,
+        ...(cli.approved ? { approved: true, approvalSource: "flag" } : {}),
+      }),
       ...(tlsDispatcher ? { dispatcher: tlsDispatcher } : {}),
     };
     response = await fetch(`${discovery.origin}${DEV_ACTION_ROUTE}`, request);
   } catch {
     await tlsDispatcher?.destroy();
     return;
+  }
+
+  if (response.status === 409 && !cli.approved) {
+    const challenge = (await response.clone().json()) as {
+      errorCode?: string;
+      arguments?: unknown;
+      argumentsHash?: string;
+    };
+    if (challenge.errorCode === "approval_required") {
+      try {
+        const approvalSource = await requestCliApproval(
+          actionName,
+          challenge.arguments,
+          args,
+        );
+        response = await fetch(`${discovery.origin}${DEV_ACTION_ROUTE}`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            [DEV_ACTION_TOKEN_HEADER]: discovery.token,
+            ...(process.env.AGENT_USER_EMAIL
+              ? { [DEV_ACTION_USER_HEADER]: process.env.AGENT_USER_EMAIL }
+              : {}),
+            ...(process.env.AGENT_ORG_ID
+              ? { [DEV_ACTION_ORG_HEADER]: process.env.AGENT_ORG_ID }
+              : {}),
+            ...devOrgScopeHeader(),
+          },
+          body: JSON.stringify({
+            name: actionName,
+            input,
+            approved: true,
+            approvalSource,
+            approvalArgumentsHash: challenge.argumentsHash,
+          }),
+          ...(tlsDispatcher ? { dispatcher: tlsDispatcher } : {}),
+        } as RequestInit);
+      } catch (error) {
+        console.error(
+          `Action "${actionName}" failed:`,
+          error instanceof Error ? error.message : String(error),
+        );
+        await tlsDispatcher?.close();
+        process.exit(1);
+      }
+    }
   }
 
   if (response.status === 404) {
@@ -526,8 +615,11 @@ async function dispatchAction(
         typeof handler === "object" &&
         typeof handler.run === "function"
       ) {
-        const parsed = parseActionArgs(args, { coerceBooleans: true });
-        const result = await handler.run(parsed, cliActionCtx(actionName));
+        const { result, parsed } = await dispatchDefinedAction(
+          handler,
+          actionName,
+          args,
+        );
         if (actionCallEmitsChange(handler, parsed, false)) {
           await notifyActionChange({ actionName }).catch(() => {});
         }
@@ -556,10 +648,10 @@ async function dispatchAction(
   if (packageAction) {
     try {
       await runAppDbPluginIfPresent();
-      const parsed = parseActionArgs(args, { coerceBooleans: true });
-      const result = await packageAction.run(
-        parsed as Record<string, string>,
-        cliActionCtx(actionName),
+      const { result, parsed } = await dispatchDefinedAction(
+        packageAction,
+        actionName,
+        args,
       );
       if (actionCallEmitsChange(packageAction, parsed, false)) {
         await notifyActionChange({ actionName }).catch(() => {});
@@ -597,4 +689,33 @@ async function dispatchAction(
     `Error: Action "${actionName}" not found. Run "pnpm action --help" for available actions.`,
   );
   process.exit(1);
+}
+
+async function dispatchDefinedAction(
+  entry: ActionEntry,
+  actionName: string,
+  args: string[],
+): Promise<{ result: unknown; parsed: Record<string, unknown> }> {
+  const cli = takeCliApprovalFlag(args);
+  const parsed = parseActionArgs(cli.args, { coerceBooleans: true });
+  const ctx = cliActionCtx(actionName);
+  const prepared = await actionCallIntent(entry, parsed);
+  if (!prepared.valid) {
+    await recordInvalidActionCall(entry, parsed, ctx, prepared.error);
+    throw prepared.error;
+  }
+  const needsApproval = await preparedCallNeedsApproval(entry, prepared, ctx);
+  const approval = needsApproval
+    ? cli.approved
+      ? "flag"
+      : await requestCliApproval(
+          actionName,
+          preparedCallArguments(prepared),
+          args,
+        )
+    : undefined;
+  return {
+    result: await runApprovedCliAction(entry, prepared, ctx, approval),
+    parsed,
+  };
 }

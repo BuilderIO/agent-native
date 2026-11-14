@@ -1,3 +1,4 @@
+import crypto from "node:crypto";
 /**
  * Sandboxed JavaScript execution tool for the agent.
  *
@@ -28,15 +29,14 @@
  * changing this file. The bridge, env scrub, module building, and output
  * formatting stay here in the parent regardless of adapter.
  */
-
-import crypto from "node:crypto";
 import http from "node:http";
 
-import { createRunner, RunError, type HostFunctions } from "run";
+import type { HostFunctions, RunError, Runner } from "run";
 
 import { runActionInvocation } from "../action-invocation.js";
 import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import { frameworkMcpTool } from "../mcp/framework-tools.js";
 import { parseServiceIdentityEmail } from "../org/service-identity.js";
 import {
   getRequestContext,
@@ -44,6 +44,7 @@ import {
   getRequestUserEmail,
   runWithRequestContext,
 } from "../server/request-context.js";
+import { runCodeStatusLines } from "./run-code-result.js";
 import {
   failExpiredSandboxExecution,
   getSandboxExecutionForOwner,
@@ -73,19 +74,37 @@ const RUN_MAX_CONSOLE_OUTPUT_BYTES = 512 * 1024;
 const RUN_MAX_RESULT_BYTES = 2 * 1024 * 1024;
 const RUN_MAX_SOURCE_BYTES = 256 * 1024;
 
-const runEvaluator = createRunner({
-  limits: {
-    memoryLimitBytes: 64 * 1024 * 1024,
-    maxStackSizeBytes: 2 * 1024 * 1024,
-    maxResultBytes: RUN_MAX_RESULT_BYTES,
-    maxConsoleOutputBytes: RUN_MAX_CONSOLE_OUTPUT_BYTES,
-    maxSourceBytes: RUN_MAX_SOURCE_BYTES,
-    maxHostFunctionArgumentsBytes: 1 * 1024 * 1024,
-    maxHostFunctionOutputBytes: 4 * 1024 * 1024,
-    maxBridgeRequests: 256,
-    maxInFlightBridgeRequests: 32,
-  },
-});
+// QuickJS is megabytes of code to compile, and registering these tools runs
+// on a cold instance's first framework request, so it loads on the first run.
+// A failed start isn't kept, so the next run tries again. That recovers a
+// runner that failed to start, not a module whose evaluation threw: Node keeps
+// that error for the life of the process.
+let runRuntime:
+  | Promise<{ runEvaluator: Runner; RunError: typeof RunError }>
+  | undefined;
+function loadRunRuntime() {
+  return (runRuntime ??= import("run")
+    .then(({ createRunner, RunError }) => ({
+      RunError,
+      runEvaluator: createRunner({
+        limits: {
+          memoryLimitBytes: 64 * 1024 * 1024,
+          maxStackSizeBytes: 2 * 1024 * 1024,
+          maxResultBytes: RUN_MAX_RESULT_BYTES,
+          maxConsoleOutputBytes: RUN_MAX_CONSOLE_OUTPUT_BYTES,
+          maxSourceBytes: RUN_MAX_SOURCE_BYTES,
+          maxHostFunctionArgumentsBytes: 1 * 1024 * 1024,
+          maxHostFunctionOutputBytes: 4 * 1024 * 1024,
+          maxBridgeRequests: 256,
+          maxInFlightBridgeRequests: 32,
+        },
+      }),
+    }))
+    .catch((error: unknown) => {
+      runRuntime = undefined;
+      throw error;
+    }));
+}
 
 export type SandboxCodeMode = "run-code" | "tool-orchestration";
 export type SandboxCodeEvaluator = "node" | "run";
@@ -131,7 +150,7 @@ export function createRunCodeEntry(
       ? "JavaScript source to execute. Top-level await and return are allowed; Node ESM imports are not available. Required unless polling with executionId."
       : "JavaScript source to execute. ESM syntax, top-level await allowed. Required unless polling with executionId.";
 
-  return {
+  return frameworkMcpTool({
     readOnly: true,
     allowInPlanMode: false,
     // The bridge can write workspace files and send provider and web writes, so
@@ -250,14 +269,14 @@ export function createRunCodeEntry(
         });
 
       const combined =
-        [stdout ? `stdout:\n${stdout}` : "", stderr ? `stderr:\n${stderr}` : ""]
+        [
+          stdout ? `stdout:\n${stdout.trimEnd()}` : "",
+          stderr ? `stderr:\n${stderr.trimEnd()}` : "",
+        ]
           .filter(Boolean)
           .join("\n\n") || "(no output)";
 
-      const lines: string[] = [];
-      if (timedOut) lines.push(`timedOut: true (${timeoutMs}ms)`);
-      if (exitCode !== 0 && exitCode !== null)
-        lines.push(`exitCode: ${exitCode}`);
+      const lines = runCodeStatusLines({ timedOut, timeoutMs, exitCode });
       if (bridgeToolsUsed.length)
         lines.push(`bridgeToolsUsed: ${bridgeToolsUsed.join(", ")}`);
       lines.push(combined);
@@ -269,7 +288,7 @@ export function createRunCodeEntry(
       }
       return full;
     },
-  };
+  });
 }
 
 export interface ExecuteSandboxCodeOptions {
@@ -466,7 +485,8 @@ async function describeSandboxExecutionForOwner(
     });
   }
 
-  let row = await getSandboxExecutionForOwner(executionId, owner);
+  const orgId = context?.orgId ?? getRequestContext()?.orgId ?? null;
+  let row = await getSandboxExecutionForOwner(executionId, owner, orgId);
   if (!row) {
     return structuredRunCodeError({
       executionId,
@@ -542,7 +562,20 @@ async function describeSandboxExecutionForOwner(
       `Executor lease expired after ${row.attemptCount} attempt(s); the execution environment was likely terminated before the code finished. Split the computation into smaller chunks or persist intermediate results (e.g. workspaceWrite) and run again.`,
       now,
     );
-    row = (await getSandboxExecutionForOwner(executionId, owner)) ?? row;
+    const refreshed = await getSandboxExecutionForOwner(
+      executionId,
+      owner,
+      orgId,
+    );
+    if (!refreshed) {
+      return structuredRunCodeError({
+        executionId,
+        code: "execution_not_found",
+        message: `No background execution "${executionId}" exists for this user.`,
+        guidance: "Check the executionId and your current organization access.",
+      });
+    }
+    row = refreshed;
   }
 
   return formatTerminalSandboxExecution(row);
@@ -601,7 +634,7 @@ function formatTerminalSandboxExecution(row: SandboxExecutionRow): string {
 }
 
 export function createGetCodeExecutionEntry(): ActionEntry {
-  return {
+  return frameworkMcpTool({
     readOnly: true,
     dedupe: false,
     tool: {
@@ -632,7 +665,7 @@ export function createGetCodeExecutionEntry(): ActionEntry {
       }
       return describeSandboxExecutionForOwner(executionId, context);
     },
-  };
+  });
 }
 
 interface BridgeResult {
@@ -986,6 +1019,7 @@ async function executeRunSandboxCode(input: {
     },
   } as HostFunctions;
 
+  const { runEvaluator, RunError } = await loadRunRuntime();
   try {
     const result = await runEvaluator.run({
       source: buildSandboxModule(input.code, 0, "", input.mode, "run"),
@@ -1024,7 +1058,7 @@ async function executeRunSandboxCode(input: {
     const timedOut = RunError.isInstance(error) && error.code === "RUN_TIMEOUT";
     return {
       stdout: "",
-      stderr: formatRunError(error),
+      stderr: formatRunError(RunError, error),
       exitCode: 1,
       timedOut,
       bridgeToolsUsed: input.bridge.getUsedTools(),
@@ -1032,8 +1066,8 @@ async function executeRunSandboxCode(input: {
   }
 }
 
-function formatRunError(error: unknown): string {
-  if (RunError.isInstance(error)) return `${error.code}: ${error.message}`;
+function formatRunError(runError: typeof RunError, error: unknown): string {
+  if (runError.isInstance(error)) return `${error.code}: ${error.message}`;
   return error instanceof Error ? error.message : String(error);
 }
 

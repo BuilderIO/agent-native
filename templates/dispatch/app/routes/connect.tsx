@@ -1,3 +1,4 @@
+import { agentNativePath } from "@agent-native/core/client/api-path";
 import ConnectRoute, {
   meta,
 } from "@agent-native/dispatch/routes/pages/connect";
@@ -6,13 +7,13 @@ import type { ClientLoaderFunction } from "react-router";
 async function requireConnectAppsFlag(request: Request): Promise<void> {
   let response: Response;
   try {
+    const cookie = request.headers.get("cookie");
     response = await fetch(
-      new URL("/_agent-native/actions/get-feature-flags", request.url),
-      {
-        headers: request.headers.get("cookie")
-          ? { cookie: request.headers.get("cookie")! }
-          : undefined,
-      },
+      new URL(
+        agentNativePath("/_agent-native/actions/get-feature-flags"),
+        request.url,
+      ),
+      cookie ? { headers: { cookie } } : {},
     );
   } catch {
     throw new Response(null, { status: 404 });

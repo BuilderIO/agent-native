@@ -19,6 +19,7 @@ export {
   withDbExec,
   createDbExec,
   getDatabaseUrl,
+  getMigrationDatabaseUrl,
   getRuntimeDatabaseUrl,
   getRuntimeDatabaseSource,
   isLocalDatabase,
@@ -29,10 +30,12 @@ export {
   isUniqueViolation,
   type DbExec,
   type DbExecConfig,
+  type DbExecInput,
   type DbExecQuery,
   type DbExecStatement,
 } from "./client.js";
 export { table, text, integer, real, now } from "./schema.js";
+export { sql, type SqlFragment, type SqlTag } from "./sql.js";
 export {
   ensureAdditiveColumns,
   type EnsureAdditiveColumnsOptions,

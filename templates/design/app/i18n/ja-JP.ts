@@ -63,8 +63,7 @@ export default {
     appBandHeading: "{app} · {count} セッション",
     journeyTitleSummary:
       "{app} · {from} から {to} · {count} セッション{partial}",
-    journeyTitleAppBandsSummary:
-      "{from} から {to} · アプリごとの別コホート{partial}",
+    journeyTitleAppBandsSummary: "{from} から {to} · 別々のコホート{partial}",
     sessionCount: "{count} セッション",
     otherPaths: "その他の経路",
     otherBranchesShown: "{total} 件中 {shown} 件の分岐を表示",
@@ -239,6 +238,23 @@ export default {
     expandSidebar: "サイドバーを展開",
     collapseSidebar: "サイドバーを折りたたむ",
   },
+  gettingStarted: {
+    title: "はじめに",
+    progress: "{{totalCount}}件中{{completeCount}}件完了",
+    collapse: "折りたたむ",
+    expand: "展開",
+    completed: "完了",
+    loadError: "チェックリストを読み込めませんでした",
+    retry: "再試行",
+    steps: {
+      createDesign: "最初のデザインを作成",
+      addBrand: "ブランドを追加",
+      useRealData: "実際のデータを使う",
+      shareFeedback: "フィードバックのために共有",
+      inviteTeammate: "チームメイトを招待",
+      saveTemplate: "デザインをテンプレートとして保存",
+    },
+  },
   settings: {
     agentTitle: "エージェントを管理",
     agentDescription:
@@ -304,6 +320,10 @@ export default {
       chooseFrame: "フレームを選択",
       inspect: "確認",
       exportSvg: "SVG をエクスポート",
+      moreActions: "その他の操作",
+      askAboutFile: "このファイルについて質問",
+      askAboutFilePrompt:
+        "このリンクされたデザインファイルについて質問してください。{{url}}",
       actionsPrefill: "確認して送信",
       retry: "再試行",
       currentDesign: "現在のDesign",
@@ -324,6 +344,8 @@ export default {
   common: {
     loading: "読み込み中...",
     genericError: "何か問題が発生しました",
+    linkedSourceSizeLimit:
+      "このリンクされたコンポーネントの編集はソースのサイズ制限を超えています。",
   },
   editPanel: {
     colorInputLabel: "色",
@@ -423,6 +445,7 @@ export default {
       font: "フォント",
       baseSize: "ベースサイズ",
       size: "サイズ",
+      fontSizes: "タイプスケール",
       weight: "重さ",
       color: "色",
       align: "整列",
@@ -455,6 +478,7 @@ export default {
       image: "画像",
       style: "スタイル",
       rotation: "回転",
+      length: "長さ",
       flipHorizontal: "水平方向に反転",
       flipVertical: "垂直方向に反転",
       shadow: "影",
@@ -471,7 +495,6 @@ export default {
       showGrid: "グリッドを表示",
       hideGrid: "グリッドを非表示",
       reorderLayer: "レイヤーを並べ替え",
-      stylesComingSoon: "スタイル — 近日対応",
       linkSides: "辺をリンク",
       unlinkSides: "辺のリンクを解除",
       allSides: "すべて",
@@ -874,6 +897,9 @@ export default {
       bottom: "B",
       left: "L",
     },
+    fontPicker: {
+      catalogUnavailable: "フォントライブラリ全体を読み込めませんでした。",
+    },
     fontFamilies: {
       inherit: "継承する",
       sansSerif: "サンセリフ",
@@ -1024,6 +1050,9 @@ export default {
     },
   },
   designEditor: {
+    sourceLoadFailed: "この画面を読み込めませんでした。",
+    selectionPublishFailed:
+      "エージェントが最新の選択範囲を認識していない可能性があります。もう一度選択してください。",
     liveCollaboration: {
       title: "ライブコラボレーション",
       description:
@@ -1205,6 +1234,14 @@ export default {
         animation: "アニメーション",
         distance: "距離",
         amount: "量",
+        axis: "軸",
+        axisBoth: "両方",
+        axisX: "X",
+        axisY: "Y",
+        startWidth: "開始幅",
+        endWidth: "終了幅",
+        startHeight: "開始高さ",
+        endHeight: "終了高さ",
         delay: "遅延",
         easing: "イージング",
         editCurve: "イージングカーブを編集",
@@ -1392,7 +1429,7 @@ export default {
       sourceWriteUnavailable:
         "現在、Motion のコードを書き込めるのはインライン HTML デザインのみです。",
       unresolvedStylesheets:
-        "Motion を編集または追加する前に、外部スタイルシートを解決してください。",
+        "Motion を編集または追加する前に、外部または実行時に生成されるスタイルを解決してください。",
       sourceConflict:
         "タイムラインに未保存の変更がある間に Motion のソースが変更されました。コードを再読み込みすると、これらの変更を破棄して最新のソースを使用します。",
       reloadFromSource: "コードを再読み込み",
@@ -1607,32 +1644,18 @@ export default {
       editColor: "{{name}} のカラーを編集",
     },
     import: {
-      title: "インポート",
       description:
         "Figma のクリップボード HTML または単体 HTML を Design の画面として取り込みます。",
-      figmaUrlTitle: "Figma フレーム URL",
-      figmaUrlDescription:
-        "Figma リンクからフレームまたはファイルをインポートします。",
       figmaUrlLabel: "Figma フレームまたはファイル URL",
       figmaUrlPlaceholder: "https://www.figma.com/design/…",
-      figmaConnectionChecking: "Figma 接続を確認中…",
-      figmaConnected: "Figma 接続済み",
-      figmaConnectedWithSuffix: "Figma 接続済み · ••••{{suffix}}",
       figmaTokenLabel: "Figma アクセストークン",
       figmaTokenDocs: "トークンを取得",
       figmaTokenPlaceholder: "Figma 個人アクセストークンを貼り付け",
-      figmaTokenDescription:
-        "Figma インポートとエージェントチャット用に安全に保存されます。トークンはチャットに追加されません。",
-      importFigmaUrl: "Figma からインポート",
-      saveKeyAndImport: "キーを保存してインポート",
       figmaUrlSuccess: "Figma からインポートしました。",
       figmaImageFallbackWarning:
         "画像フォールバック: {{count}}。外観は保持されますが、これらのレイヤーは完全には編集できません。",
       figmaApproximationWarning:
         "近似レイヤー: {{count}}。HTML/CSS ではすべての Figma プロパティを正確に表現できません。",
-      figmaPasteTitle: "Figma から貼り付け",
-      figmaPasteDescription:
-        "Figma でフレームまたはレイヤーをコピーし、Design キャンバスに貼り付けます。Design は表示されているクリップボード HTML をインポートします。",
       figmaPasteTarget: "キャンバスに貼り付け",
       figmaPasteApiKeyHint:
         "正確なノードインポートのために Figma アクセストークンを接続してください。",
@@ -1641,11 +1664,10 @@ export default {
       figmaPasteMatchGuidance:
         "特定の Figma ノードと一致しませんでした。正確にインポートするにはフレームのリンクを貼り付けてください。",
       figmaPasteUnreadable:
-        "クリップボードにコピーされた Figma レイヤーがありません。Figma でフレームを選択し Cmd+C でコピーしてから貼り付け直すか、インポートパネルから Figma のリンクをインポートしてください。",
+        "クリップボードにコピーされた Figma レイヤーがありません。Figma でフレームを選択し Cmd+C でコピーしてから貼り付け直すか、チャットにフレームのリンクを貼り付けてください。",
       figmaPasteRestLabel: "Figma API 経由でインポート",
       figmaPasteHtmlLabel: "クリップボードプレビューからインポート",
-      figmaPasteLocalKiwiLabel:
-        "トークンなしでインポート — ジオメトリとテキストのみ",
+      figmaPasteLocalKiwiLabel: "Figma のクリップボードからインポートしました",
       figmaPasteImagesNeedToken:
         "{{count}} 枚の画像{{plural}}を読み込むには Figma へのアクセスが必要です。",
       figmaPasteImagesDontShowAgain: "今後は表示しない",
@@ -1677,77 +1699,30 @@ export default {
         "{{count}} image{{plural}} filled in from the .fig file.",
       figmaHydrationInvalidFig: "Choose a .fig file exported from Figma.",
       figmaHydrationFigError: "Couldn't read images from that .fig file.",
-      figUploadTitle: ".fig をアップロード",
       figUploadDescription:
         "試験的機能：Figma の .fig 形式は独自仕様で、変更される可能性があります。対応レイヤーは編集可能な画面になりますが、一部の機能は異なる場合があります。最大 {{max}} MB。",
-      chooseFigFile: ".fig ファイルを選択",
       figUploadUploading: "アップロード中 {{progress}}%",
       figUploadProcessing: "変換中…",
-      figImportWarningTitle: "大規模な .fig のインポート",
-      figImportWarningDescription:
-        "このファイルには {{frames}} 個のフレームと {{nodes}} 個のレイヤーがあります。すべてをインポートするとエディターが遅くなる可能性があります。必要なページを選択してください。",
-      figImportFrameCount: "{{total}} 個中 {{selected}} 個のフレームを選択",
-      figImportSelectAll: "すべて選択",
-      figImportClearAll: "すべて解除",
-      figImportCancel: "キャンセル",
-      figImportSelected: "選択した {{count}} 個をインポート",
-      figImportAll: "すべてインポート",
       figImportAnalyzing: "分析中…",
       figImportSaving: "{{total}} 個中 {{saved}} 個のフレームを保存中",
-      figImportFrameLimit:
-        "フレームの合計が {{max}} 個以下になるようにページを選択してください。",
       figImportFramesSkippedWarning:
         "複雑すぎてインポートできない {{count}} 個のフレームをスキップしました：{{names}}",
-      figUploadLimits:
-        "最大 {{size}} GB · 1 回のインポートで {{frames}} フレームまで",
-      figUploadDescriptionShort:
-        "ローカルインポート — Figma API の割り当てを使用しません。対応する埋め込み画像が含まれます。",
       figUploadImagesSkippedWarning:
         "Skipped embedded images ({{count}}) because browser uploads have a per-image limit.",
-      figmaPasteBodyUnlimited:
-        "Works without a Figma token — geometry, layout, and text import immediately.",
-      figmaPasteBodyImages:
-        "Image fills may be missing without a token. Upload the .fig file to include embedded images.",
-      quotaCooldownTitle: "Design がこのインポートを一時停止しました",
-      quotaCooldownBody:
-        "クォータの上限に達したため、Design が Figma へのリクエストを調整しています。自動的にリセットされます。",
-      rateLimitTitle: "Figma paused this import",
-      rateLimitLowSeat:
-        "Your seat type (Viewer/Collab) has a limited Figma API quota for file imports — up to 6 requests per month per the official Figma docs.",
-      rateLimitGeneric:
-        "Figma rate-limited this import. The quota resets automatically.",
-      rateLimitRetryIn: "Try again in {{time}}.",
-      rateLimitAlternatives: "No-quota alternatives:",
-      rateLimitUsePaste: "Paste from Figma — unlimited",
-      rateLimitUseFig: "Upload .fig — unlimited",
-      rateLimitUpgrade: "View Figma plan options →",
-      htmlTitle: "HTML をインポート",
       htmlDescription:
         "単体 HTML を貼り付けるかアップロードします。Design はこのエディター UI に注入せず、新しい画面として保存します。",
-      htmlPlaceholder: "<main>単体 HTML をここに貼り付け...</main>",
-      importHtml: "HTML をインポート",
-      chooseHtmlFile: "HTML ファイルを選択",
       allSupportedFiles: "対応しているすべてのファイル",
-      githubTitle: "GitHub",
       githubDescription:
         "近日対応: リポジトリから画面とコンポーネントを直接インポートします。",
-      localTitle: "ローカル app",
       localDescription:
         "/visual-edit で任意の実行中ローカル app に接続します。",
-      visualEditGuidance:
-        "/visual-edit skill をインストールし、任意のローカル app を起動してから、その app repo でブリッジコマンドを実行し、エージェントが URL ベースの画面を追加できるようにします。",
-      comingSoon: "近日対応",
       warningsToast: "警告付きでインポートが完了しました",
       figmaSuccess: "Figma 貼り付けをインポートしました",
       htmlSuccess: "HTML をインポートしました",
       uploadSuccess: "ファイルをインポートしました",
-      lastImport: "前回のインポート",
       errors: {
         figmaTokenMustBeToken:
           "Figma ファイルのリンクではなく、Figma アクセストークンを貼り付けてください。",
-        figmaUrlRequired:
-          "Figma フレームまたはファイル URL を貼り付けてください。",
-        invalidFigmaUrl: "有効な figma.com URL を入力してください。",
         figmaImportFailed: "Figma からインポートできませんでした",
         notHtml: "インポートする有効な HTML を貼り付けるか選択してください。",
         importFailed: "インポートに失敗しました",
@@ -1756,9 +1731,11 @@ export default {
         invalidFigFile: ".fig で終わるファイルを選択してください。",
         unsupportedFileType: ".fig、.html、.htm ファイルを選択してください。",
         importBusy:
-          "別のインポートを実行中です。先に完了するかキャンセルしてください。",
+          "別のインポートを実行中です。完了してからもう一度お試しください。",
         figFileTooLarge:
-          "この .fig ファイルは大きすぎます。アップロードは {{max}} MB までです。Figma で目的のフレームだけを新しいファイルにコピーし、そのファイルを .fig として書き出すか、「Figma から貼り付け」をご利用ください。",
+          "このファイルは大きすぎるため、ここではインポートできません。代わりに Figma のページまたはフレームのリンクを貼り付けてください。",
+        figFileUnreadable:
+          "このファイルは .fig ファイルとして読み取れません。Figma で新しいローカルコピーを保存して、それをインポートしてください。",
       },
     },
     generationMayHaveStopped:
@@ -1784,7 +1761,6 @@ export default {
     signInToRequestAccessTitle: "ログインしてアクセスをリクエスト",
     signInToRequestAccessDescription:
       "ログインするかアカウントを作成して、所有者にアクセスをリクエストしてください。",
-    signInOrSignUp: "ログインまたは登録",
     accessCheckFailed: "このデザインへのアクセスを確認できませんでした。",
     retryAccessCheck: "再試行",
     saveAsTemplate: "テンプレートとして保存…",
@@ -1818,9 +1794,12 @@ export default {
         "複製する前に、保留中のビジュアル編集を適用または破棄してください。",
       allDesigns: "すべてのデザイン",
       rename: "名前を変更",
+      builtFrom: "{{title}} から作成",
+      builtFromPage: "Content のページから作成",
       duplicate: "複製",
       versionHistory: "バージョン履歴",
       import: "インポート…",
+      connectLocalApp: "ローカルアプリを接続",
       delete: "削除",
       deleteError: "このデザインを削除できませんでした",
     },
@@ -1862,7 +1841,7 @@ export default {
       ellipse: "楕円",
       polygon: "多角形",
       star: "星",
-      imageVideo: "画像/動画...",
+      imageVideo: "画像/動画…",
       text: "Text",
       pen: "Pen",
       hand: "Hand",
@@ -1883,8 +1862,12 @@ export default {
         small: "小さい移動量",
         big: "大きい移動量",
         unit: "px",
-        description:
-          "矢印キーは小さい移動量、Shift 矢印キーは大きい移動量で移動します。オートレイアウトフレーム内では、矢印キーはレイヤーの順序を変更します。",
+        close: "移動量を閉じる",
+        done: "完了",
+        smallDescription:
+          "矢印キーを使用したときにオブジェクトが移動するピクセル数を設定します。",
+        bigDescription:
+          "Shift + 矢印キーを使用したときにオブジェクトが移動するピクセル数を設定します。",
       },
       keys: {
         or: "または",
@@ -1922,6 +1905,7 @@ export default {
         arrange: "配置",
         components: "コンポーネント",
         layout: "レイアウト",
+        code: "コード",
       },
       commands: {
         showShortcuts: "キーボードショートカット",
@@ -1938,7 +1922,7 @@ export default {
         drawTool: "描画",
         showLayers: "レイヤー",
         showAssets: "アセット",
-        toggleUi: "View",
+        toggleUi: "UIの表示を切り替え",
         toggleMinimalUi: "ミニマルUI",
         toggleComments: "コメントをピン留め",
         zoomIn: "拡大",
@@ -1946,6 +1930,8 @@ export default {
         zoomReset: "ズーム 100%",
         zoomFit: "画面に合わせる",
         zoomSelection: "ズーム: 選択",
+        bold: "太字",
+        italic: "斜体",
         underline: "下線",
         strikethrough: "取り消し線",
         rectangle: "Rectangle",
@@ -1960,7 +1946,8 @@ export default {
         previousSibling: "← 選択",
         nextScreen: "画面 →",
         previousScreen: "← 画面",
-        toggleLayoutGrids: "レイアウトグリッド: View",
+        toggleLayoutGrids: "レイアウトグリッドの表示を切り替え",
+        toggleRulers: "定規の表示を切り替え",
         nudge: "Move",
         nudgeLarge: "大きい移動量",
         copy: "コピー",
@@ -1993,7 +1980,15 @@ export default {
         ungroup: "グループ解除",
         frameSelection: "選択範囲をフレーム化",
         autoLayout: "オートレイアウト",
-        imageVideo: "画像/動画...",
+        removeAutoLayout: "オートレイアウトを削除",
+        toggleHidden: "選択範囲の表示を切り替え",
+        toggleLocked: "選択範囲のロックを切り替え",
+        alignHorizontalCenters: "水平方向の中央に整列",
+        alignVerticalCenters: "垂直方向の中央に整列",
+        distributeHorizontal: "水平方向に等間隔に分布",
+        distributeVertical: "垂直方向に等間隔に分布",
+        setOpacity: "不透明度を設定",
+        imageVideo: "画像/動画…",
       },
     },
     undo: "元に戻す",
@@ -2022,6 +2017,16 @@ export default {
     pinComment: "コメントをピン留め",
     export: "輸出",
     downloadHtml: "HTML をダウンロード",
+    exportHubspotHtml: "HubSpot HTML をエクスポート",
+    hubspotConversion: {
+      title: "HubSpot 用に変換しますか？",
+      description:
+        "{{name}} にはメール対応の変更が必要です。元のフレームは保持されます。",
+      convert: "エージェントで変換",
+      cancel: "キャンセル",
+      prompt:
+        "このフレームの HubSpot メール版を作成し、内容とブランドを維持して元のフレームも保持してください。HTML エクスポートを検証し、新しいフレームを開いてください。",
+    },
     downloadPng: "PNG をダウンロード",
     downloadSvg: "SVG をダウンロード",
     downloadFigmaSvg: "Figma 用にダウンロード（SVG）",
@@ -2165,6 +2170,20 @@ export default {
       added: "画面を追加しました",
       addFailed: "画面を追加できませんでした",
     },
+    localhostConsent: {
+      approvedTitle: "承認済み — 編集をもう一度実行してください",
+      approvedDescription:
+        "ファイルの書き込みは 8 時間許可されます。アクセスを求めた編集は保存されていません。",
+      retryInChat: "チャットで再実行",
+      retryPrompt:
+        "{{rootPath}} へのファイル書き込みが承認されました。これを必要とした編集をもう一度実行してください。",
+      unavailableTitle: "この書き込みリクエストは保留中ではなくなりました",
+      unavailableDescription:
+        "アクセスを求めるには、編集をもう一度実行してください。",
+      close: "閉じる",
+      prepareSignInError:
+        "サインイン前にこのリクエストを保存できませんでした。もう一度お試しください。",
+    },
     nodeRewrite: {
       composerTitle: "選択範囲について質問または変更",
       send: "送信",
@@ -2214,9 +2233,16 @@ export default {
         "別の共同編集者の変更が適用待ちです。新しい変更を送る前に適用するか消去してください。",
       codingHandoffCopied: "コーディング引き継ぎをコピーしました",
       clipboardBlocked: "クリップボードがブロックされました",
+      pasteMediaTooMany_other:
+        "{{count}} 件のファイルは貼り付けられませんでした。一度に貼り付けられるのは最大 {{limit}} 件です。",
+      pasteMediaTooLarge_other:
+        "{{count}} 件のファイルは {{limitMb}} MB を超えているため貼り付けられませんでした。",
       htmlCreateError: "HTML ダウンロードを作成できませんでした",
       htmlDownloaded: "HTML をダウンロードしました",
       htmlExportError: "HTML をエクスポートできませんでした",
+      hubspotHtmlExporting: "HubSpot HTML を準備しています…",
+      hubspotHtmlDownloaded: "HubSpot HTML をダウンロードしました",
+      hubspotHtmlExportError: "HubSpot HTML をエクスポートできませんでした",
       zipCreateError: "ZIP ダウンロードを作成できませんでした",
       zipDownloaded: "ZIP をダウンロードしました",
       zipExportError: "ZIP をエクスポートできませんでした",
@@ -2296,6 +2322,7 @@ export default {
         "この画面は別の場所で変更されました。最後の編集は保存されませんでした。",
       versionHistoryUnavailable:
         "このデザインではバージョン履歴を利用できません。編集内容は保存されました。",
+      removeAutoLayoutFailed: "オートレイアウトを削除できませんでした",
       autoLayoutScreensUnsupported:
         "オートレイアウトの追加は画面には適用されません",
       booleanSubtractUnsupported:
@@ -2313,8 +2340,25 @@ export default {
         "この形状または変形はベクター編集に対応していません。",
       imageUploading: "画像をアップロード中…",
       pasteReplaceFailed: "そのレイヤーを置き換えられませんでした",
+      pasteTargetUnmeasured:
+        "選択したレイヤーを測定できないため、貼り付けられません",
+      pasteClipboardUnreadable:
+        "ここに貼り付けるには、クリップボードへのアクセスを許可してください",
+      pasteClipboardUntrusted:
+        "別のサイトの Design からコピーしたレイヤーは貼り付けられません",
       swapFillStrokeLayeredFill:
         "複数の塗りや画像の塗りはまだ線に移動できません",
+      alignNeedsTwoLayers: "整列するには2つ以上のレイヤーを選択してください",
+      alignNeedsTwoScreens: "整列するには2つ以上の画面を選択してください",
+      layoutUnmeasurable:
+        "選択したレイヤーを測定できませんでした。キャンバス上に表示されていることを確認して、もう一度お試しください。",
+      layoutAutoLayoutChildren:
+        "これらのレイヤーはオートレイアウトで配置されています。自由に移動するには、フレームのオートレイアウトを削除してください。",
+      layoutUnsupportedPosition:
+        "スティッキーレイヤーとSVG内のシェイプはこの方法では移動できません",
+      layoutMovesNestedLayers:
+        "このレイヤーを移動すると、内部に配置されたレイヤーがずれます",
+      layoutMoveFailed: "選択したレイヤーを移動できませんでした",
     },
     commenterRoleLabel: "コメント投稿者",
     commenterRoleDescription: "閲覧してレビューコメントを追加できます",
@@ -2338,6 +2382,7 @@ export default {
     order: "順序",
     createComponent: "コンポーネントを作成",
     addAutoLayout: "オートレイアウトを追加",
+    removeAutoLayout: "オートレイアウトを削除",
     copyAs: "コピー/貼り付け形式",
     copyProps: "プロパティをコピー",
     pasteProps: "プロパティを貼り付け",
@@ -2358,13 +2403,15 @@ export default {
     allScreens: "すべての画面",
     thumbnail: "サムネイル",
     addScreen: "画面を追加",
-    searchPlaceholder: "レイヤーを検索...",
+    searchPlaceholder: "レイヤーを検索",
     empty: "レイヤーがありません",
     noMatches: "一致するレイヤーがありません",
     designLayers: "デザインレイヤー",
     codeLayers: "コードレイヤー",
     elementLayers: "要素レイヤー",
     collapse: "レイヤーを折りたたむ",
+    collapseAll: "すべてのレイヤーを折りたたむ",
+    clearSearch: "検索をクリア",
     expand: "レイヤーを展開",
     lock: "レイヤーをロック",
     unlock: "レイヤーのロックを解除",
@@ -2555,6 +2602,8 @@ export default {
     changesDiscarded:
       "ファイルが存在しないため、一部の変更を保存できず破棄しました。",
     offline: "オフライン",
+    unsaved: "未保存",
+    saveRetrying: "変更を保存できませんでした。自動的に再試行します。",
     saving: "保存中...",
     clearedAllAnnotations: "すべての注釈を消去しました",
     annotationsDiscardedOnViewChange:
@@ -2609,9 +2658,9 @@ export default {
   },
   homeContext: {
     websiteReference: "ウェブサイトを追加",
+    websiteReferenceMenu: "ウェブサイトを追加…",
     websiteUrlLabel: "ウェブサイトのURL",
     websiteUrl: "ウェブサイトのURLを貼り付け",
-    figmaUrlLabel: "Figmaリンク",
     invalidFigmaUrl:
       "有効なfigma.comのフレームまたはファイルのURLを入力してください。",
     tooMany: "参照は20件まで選択できます。",
@@ -2620,24 +2669,45 @@ export default {
     noSystems:
       "まだデザインシステムがありません。ウェブサイト、ファイル、または Figma から作成できます。",
     searchSystems: "デザインシステムを検索…",
-    searchFrames: "Figmaフレームを検索…",
     searchDesigns: "デザインを検索…",
     searchPresentations: "プレゼンテーションを検索…",
+    searchPages: "ページを検索…",
     searchDesign: "デザインを検索…",
     useDesignSystem: "デザインシステムを使用",
     notReady:
       "まだ送信できません。選択したコンテキストと接続を確認して、再試行してください。",
     search: "コンテキストを検索…",
-    figmaUrl: "Figmaリンクを貼り付け",
-    browse: "フレームを参照",
     loadFailed: "この参照を読み込めませんでした。",
     retry: "再試行",
     empty: "一致する参照がありません。",
     none: "なし",
-    design: "デザイン",
+    design: "デザインの参照",
     slides: "スライド",
     referenceDesign: "デザインを参照",
-    figmaReference: "Figmaを追加",
+    contentPage: "Content のページ",
+    connectFigma: "Figma を接続",
+    figmaReference: "Figma デザイン…",
+    figmaDialogTitle: "Figma デザインを追加",
+    figmaDropTitle: ".fig ファイルをドロップ",
+    figmaChooseFile: "ファイルを選択",
+    figmaPasteHint:
+      "コピーしたフレームはプロンプトに直接貼り付けることもできます。",
+    figmaAddToPrompt: "プロンプトに追加",
+    figmaLinkNeedsConnection:
+      "リンクには Figma アカウントの接続が必要です。代わりに .fig ファイルをドロップするか、コピーしたフレームを貼り付けてください。",
+    figmaReferenceMore: "{{name}} ほか {{count}} 件",
+    figmaReferenceEmpty:
+      "フレームを取得できませんでした。Figma でフレームをコピーして、もう一度お試しください。",
+    figmaSelection: "Figma の選択範囲",
+    figmaFileTooLarge:
+      "このファイルは大きすぎてここでは読み込めません。代わりにページまたはフレームへのリンクを貼り付けてください。",
+    figmaSearch: "ページとフレームを検索",
+    figmaSelectedCount: "{{count}} 件を選択中",
+    figmaShowFrames: "{{name}} のフレームを表示",
+    figmaLinkNotFrame:
+      "Figma のページまたはフレームへのリンクを指定してください。",
+    figmaPageFrameCap:
+      "最初の {{limit}} 個のフレームを追加します。追加するフレームを選ぶには、フレームにチェックを入れてください。",
     referenceDeck: "プレゼンテーションを参照",
     quickSaas: "SaaS ランディングページを作成",
     quickDashboard: "ダッシュボードを作成",
@@ -2647,12 +2717,162 @@ export default {
   },
   home: {
     suggestedPrompts: "おすすめのプロンプト",
+    suggestions: {
+      product: {
+        analyticsDashboard:
+          "KPIカード、コンバージョングラフ、活動テーブルを備えたプロダクト分析ダッシュボードを、データ重視の自信あるトーンでデザインしてください。",
+        roadmapWorkspace:
+          "四半期タイムライン、優先度、顧客フィードバックを備えたロードマップ画面を、落ち着いた協調的なトーンで作成してください。",
+        onboardingFlow:
+          "進捗ステップ、目標選択、アカウント設定を備えた予算アプリのオンボーディングを、安心感のあるトーンでデザインしてください。",
+        featureComparison:
+          "プランカード、機能比較表、FAQを備えたSaaS比較ページを、明快でコンバージョン重視のトーンで作成してください。",
+        feedbackPortal:
+          "リクエスト一覧、投票、ステータスフィルターを備えた顧客フィードバックページを、開かれたコミュニティ調でデザインしてください。",
+        releaseNotes:
+          "バージョン履歴、機能の要点、移行ノートを備えたリリース情報ページを、簡潔な編集調で作成してください。",
+        projectWorkspace:
+          "カンバン列、担当者、マイルストーンを備えたプロダクト作業スペースを、生産性重視のトーンでデザインしてください。",
+        launchWaitlist:
+          "ヒーロー、導入実績、登録フォームを備えたローンチ待機リストを、前向きなトーンで作成してください。",
+      },
+      design: {
+        portfolioHome:
+          "短い紹介、事例グリッド、プロフィール、連絡先を備えたデザイナーポートフォリオを、洗練された編集調でデザインしてください。",
+        designSystem:
+          "カラーと文字のトークン、コンポーネント一覧、利用メモを備えたデザインシステム資料を、正確な文書調で作成してください。",
+        bankingApp:
+          "残高、取引一覧、貯蓄目標を備えたモバイル銀行アプリのホーム画面を、穏やかで信頼感のあるトーンでデザインしてください。",
+        travelBooking:
+          "目的地フィルター、旅程カード、地図を備えた旅行検索画面を、軽やかで冒険的なトーンで作成してください。",
+        coffeeShop:
+          "おすすめの豆、産地紹介、定期購入CTAを備えたコーヒーショップを、温かく手触りのあるトーンでデザインしてください。",
+        musicFestival:
+          "出演者一覧、スケジュール、会場マップを備えた音楽フェスページを、ポスター風で活気あるトーンで作成してください。",
+        accessibilityAudit:
+          "スコア概要、課題一覧、フィルターを備えたアクセシビリティ監査画面を、明快で高コントラストにデザインしてください。",
+        artBook:
+          "作品、引用、章ナビゲーションを備えたアートブックのページを、落ち着いたギャラリー調で作成してください。",
+      },
+      developer: {
+        apiDocs:
+          "サイドナビ、コード例、リクエスト作成機能を備えたAPIドキュメントを、正確で技術的なトーンでデザインしてください。",
+        deploymentDashboard:
+          "環境カード、ライブログ、ロールバック操作を備えたデプロイ画面を、落ち着いた運用向けのトーンで作成してください。",
+        componentPlayground:
+          "プロパティ操作、状態バリエーション、コードパネルを備えたコンポーネントプレイグラウンドを、開発者向けにすっきりデザインしてください。",
+        databaseConsole:
+          "クエリエディター、スキーマツリー、結果テーブルを備えたデータベースコンソールを、控えめな技術調で作成してください。",
+        issueTriage:
+          "フィルター、優先度バッジ、担当キューを備えた課題トリアージ画面を、明快で集中できるトーンでデザインしてください。",
+        authSettings:
+          "プロバイダーカード、コールバックURL、権限一覧を備えた認証設定画面を、安全で安心感のあるトーンで作成してください。",
+        workflowBuilder:
+          "ステップノード、実行履歴、ブランチ選択を備えたCIワークフロービルダーを、正確な技術調でデザインしてください。",
+        developerPortfolio:
+          "プロジェクトカード、ツール一覧、タイムラインを備えた開発者ポートフォリオを、落ち着いたダーク調で作成してください。",
+      },
+      marketing: {
+        campaignLanding:
+          "強いヒーロー、メリット、顧客の声、登録CTAを備えたキャンペーンページを、活気あるトーンでデザインしてください。",
+        emailBuilder:
+          "件名プレビュー、コンテンツブロック、対象者概要を備えたメール編集画面を、明快で親しみやすく作成してください。",
+        socialCalendar:
+          "チャネルタブ、予約投稿、成果指標を備えたSNSカレンダーを、明るい編集調でデザインしてください。",
+        brandCampaign:
+          "見出し、アートディレクション、素材ギャラリーを備えたブランドキャンペーンを、一貫性と自信のあるトーンで作成してください。",
+        webinarRegistration:
+          "登壇者カード、アジェンダ、登録フォームを備えたウェビナーページを、信頼感があり親しみやすくデザインしてください。",
+        seoBrief:
+          "キーワード群、構成案、競合メモを備えたSEOブリーフを、調査に集中できるトーンで作成してください。",
+        launchMetrics:
+          "チャネルカード、コンバージョングラフ、キャンペーン表を備えたローンチ分析画面を、分析的にデザインしてください。",
+        newsletterSignup:
+          "編集プレビュー、トピック選択、メール欄を備えたニュースレター登録ページを、温かく簡潔に作成してください。",
+      },
+      sales: {
+        leadWorkspace:
+          "連絡先、活動履歴、見込み度項目を備えた営業リード画面を、決断力のあるプロ向けトーンでデザインしてください。",
+        accountBrief:
+          "企業概要、関係者、最近の動きを備えたアカウント調査資料を、明快な経営層向けトーンで作成してください。",
+        productDemo:
+          "用途タブ、製品画像、顧客実績を備えた製品デモページを、自信があり説得力のあるトーンでデザインしてください。",
+        proposalBuilder:
+          "範囲、価格カード、スケジュールを備えた提案書ビルダーを、洗練されたコンサルティング調で作成してください。",
+        pipelineDashboard:
+          "ステージ列、案件金額、予測グラフを備えたパイプライン画面を、簡潔なビジネス調でデザインしてください。",
+        meetingBooking:
+          "予約枠、アジェンダプレビュー、フォームを備えた面談予約ページを、歓迎感のあるプロ向けトーンで作成してください。",
+        customerStory:
+          "課題、成果、引用、数値を備えた顧客事例ページを、根拠を重視した編集調でデザインしてください。",
+        accountHandoff:
+          "顧客目標、連絡先、未完了タスクを備えた引き継ぎ画面を、穏やかで協調的なトーンで作成してください。",
+      },
+      ops: {
+        inventoryDashboard:
+          "在庫数、補充アラート、カテゴリーフィルターを備えた在庫管理画面を、実務的な運用向けトーンでデザインしてください。",
+        staffScheduler:
+          "シフト表、勤務可能状況、休暇申請を備えたスタッフ予定表を、ひと目で読みやすく作成してください。",
+        vendorPortal:
+          "チェックリスト、書類のアップロード状態、連絡先を備えた取引先ポータルを、明快で安心感のあるトーンでデザインしてください。",
+        incidentResponse:
+          "重大度、イベント履歴、担当者欄を備えたインシデント対応画面を、落ち着いて集中できるトーンで作成してください。",
+        expenseApprovals:
+          "領収書、規定アラート、合計額を備えた経費承認キューを、中立的で効率のよいトーンでデザインしてください。",
+        warehouseReceiving:
+          "配送情報、スキャン状態、商品一覧を備えた倉庫受け入れ画面を、非常にわかりやすく作成してください。",
+        automationControl:
+          "自動化カード、実行履歴、失敗アラートを備えたワークフロー管理画面を、自信のある運用向けトーンでデザインしてください。",
+        helpdeskQueue:
+          "依頼カード、状態フィルター、担当操作を備えた社内ヘルプデスクを、明快で親切なトーンで作成してください。",
+      },
+      individual: {
+        personalPortfolio:
+          "短い自己紹介、作品、スキル、連絡先を備えた個人ポートフォリオを、温かい編集調でデザインしてください。",
+        mealPlanner:
+          "週ごとのレシピ、買い物リスト、食事フィルターを備えた献立アプリ画面を、実用的で親しみやすく作成してください。",
+        homeBudget:
+          "月次概要、カテゴリーチャート、請求一覧を備えた家計ダッシュボードを、穏やかで支えになるトーンでデザインしてください。",
+        tripPlanner:
+          "旅程タイムライン、地図、予約カードを備えた旅行プランナーを、軽やかで冒険的なトーンで作成してください。",
+        readingJournal:
+          "本の表紙、進捗メモ、星評価を備えた読書日記を、静かな文学調でデザインしてください。",
+        invoiceTracker:
+          "顧客一覧、支払い状況、期限を備えたフリーランス請求管理を、整ったプロ向けトーンで作成してください。",
+        habitTracker:
+          "毎日の記録、連続達成カード、進捗グラフを備えた習慣アプリを、穏やかで励みになるトーンでデザインしてください。",
+        neighborhoodEvents:
+          "イベントカード、地域フィルター、参加操作を備えた近隣イベントページを、温かいコミュニティ調で作成してください。",
+      },
+      general: {
+        saasHomepage:
+          "ヒーロー、機能紹介、顧客実績を備えたSaaSホームページを、明快で親しみやすいトーンでデザインしてください。",
+        analyticsDashboard:
+          "KPIカード、トレンドグラフ、活動テーブルを備えた分析画面を、穏やかでデータ重視のトーンで作成してください。",
+        habitApp:
+          "毎日の目標、進捗リング、リマインダーを備えた習慣アプリのホーム画面を、励みになる親しみやすいトーンでデザインしてください。",
+        onlineStore:
+          "おすすめ商品、カテゴリー、レビューを備えたオンラインストアを、温かく上質なトーンで作成してください。",
+        creativePortfolio:
+          "短い紹介、作品グリッド、プロフィールを備えたクリエイティブポートフォリオを、表現豊かな編集調でデザインしてください。",
+        bookingPage:
+          "空き状況カレンダー、サービスカード、レビューを備えた予約ページを、明快で信頼感のあるトーンで作成してください。",
+        adminDashboard:
+          "サイドナビ、概要カード、最近の履歴を備えた管理画面を、実用的で控えめなトーンでデザインしてください。",
+        communityEvent:
+          "スケジュール、会場、登壇者を備えた地域イベントページを、祝祭感のある温かいトーンで作成してください。",
+      },
+    },
+    nextStepBar: {
+      ariaLabel: "次のステップ",
+      refineWithPrompt: "プロンプトで調整",
+      export: "エクスポート",
+      shareLink: "リンクを共有",
+      dismiss: "閉じる",
+    },
     import: "インポート",
-    importOptions: "インポートオプション",
-    figmaLink: "Figmaリンク",
     importFromFigma: "Figma からインポート",
     figmaFile: "Figma ファイル (.fig)",
-    figmaFileMaxSize: "最大 {{max}} GB",
     openImport: "インポートを開く",
     importSelectedFile: "選択したファイルをインポート",
     starterSaasPrompt:
@@ -2724,6 +2944,89 @@ export default {
     paginationPrevious: "前へ",
     paginationNext: "次へ",
     paginationPage: "{{totalPages}}ページ中{{page}}ページ",
+
+    suggestionLabels: {
+      product: {
+        analyticsDashboard: "KPIカード、コンバージョングラフ",
+        roadmapWorkspace: "四半期タイムライン、優先度",
+        onboardingFlow: "進捗ステップ、目標選択",
+        featureComparison: "プランカード、機能比較表",
+        feedbackPortal: "リクエスト一覧、投票",
+        releaseNotes: "バージョン履歴、機能の要点",
+        projectWorkspace: "カンバン列、担当者",
+        launchWaitlist: "ヒーロー、導入実績",
+      },
+      design: {
+        portfolioHome: "短い紹介、事例グリッド",
+        designSystem: "カラー、文字、コンポーネント",
+        bankingApp: "残高、取引一覧",
+        travelBooking: "目的地フィルター、旅程カード",
+        coffeeShop: "おすすめの豆、産地紹介",
+        musicFestival: "出演者一覧、スケジュール",
+        accessibilityAudit: "スコア概要、課題一覧",
+        artBook: "作品、引用",
+      },
+      developer: {
+        apiDocs: "サイドナビ、コード例",
+        deploymentDashboard: "環境カード、ライブログ",
+        componentPlayground: "プロパティ操作、状態バリエーション",
+        databaseConsole: "クエリエディター、スキーマツリー",
+        issueTriage: "フィルター、優先度バッジ",
+        authSettings: "認証設定",
+        workflowBuilder: "ステップノード、実行履歴",
+        developerPortfolio: "プロジェクトカード、ツール一覧",
+      },
+      marketing: {
+        campaignLanding: "強いヒーロー、メリット",
+        emailBuilder: "件名プレビュー、コンテンツブロック",
+        socialCalendar: "チャネルタブ、予約投稿",
+        brandCampaign: "見出し、アートディレクション",
+        webinarRegistration: "登壇者カード、アジェンダ",
+        seoBrief: "キーワード群、構成案",
+        launchMetrics: "チャネルカード、コンバージョングラフ",
+        newsletterSignup: "ニュースレター登録",
+      },
+      sales: {
+        leadWorkspace: "連絡先、活動履歴",
+        accountBrief: "企業概要、関係者",
+        productDemo: "用途タブ、製品画像",
+        proposalBuilder: "範囲、価格カード",
+        pipelineDashboard: "ステージ列、案件金額",
+        meetingBooking: "予約枠、アジェンダプレビュー",
+        customerStory: "課題、成果",
+        accountHandoff: "顧客目標、連絡先",
+      },
+      ops: {
+        inventoryDashboard: "在庫数、補充アラート",
+        staffScheduler: "シフト表、勤務可能状況",
+        vendorPortal: "ベンダーポータル",
+        incidentResponse: "重大度、イベント履歴",
+        expenseApprovals: "領収書、規定アラート",
+        warehouseReceiving: "配送情報、スキャン状態",
+        automationControl: "自動化カード、実行履歴",
+        helpdeskQueue: "依頼カード、状態フィルター",
+      },
+      individual: {
+        personalPortfolio: "短い自己紹介、作品",
+        mealPlanner: "週ごとのレシピ、買い物リスト",
+        homeBudget: "月次概要、カテゴリーチャート",
+        tripPlanner: "旅程タイムライン、地図",
+        readingJournal: "本の表紙、進捗メモ",
+        invoiceTracker: "顧客一覧、支払い状況",
+        habitTracker: "毎日の記録、連続達成カード",
+        neighborhoodEvents: "イベントカード、地域フィルター",
+      },
+      general: {
+        saasHomepage: "ヒーロー、機能紹介",
+        analyticsDashboard: "KPIカード、トレンドグラフ",
+        habitApp: "毎日の目標、進捗リング",
+        onlineStore: "おすすめ商品、カテゴリー",
+        creativePortfolio: "短い紹介、作品グリッド",
+        bookingPage: "空き状況カレンダー、サービスカード",
+        adminDashboard: "サイドナビ、概要カード",
+        communityEvent: "スケジュール、会場",
+      },
+    },
   },
   visualEdit: {
     eyebrow: "ビジュアル編集",
@@ -3101,6 +3404,7 @@ export default {
     updateFailed: "コメントを更新できませんでした",
     commentsInCluster: "クラスター内のコメント: {{count}}",
     moreActions: "その他の操作",
+    moreActionsFor: "{{author}} のその他の操作",
     copyLink: "リンクをコピー",
     linkCopied: "リンクをコピーしました",
     copyLinkFailed: "リンクをコピーできませんでした",
@@ -3120,6 +3424,7 @@ export default {
     addEmoji: "絵文字を追加",
     mention: "メンションする",
     noMentions: "該当するユーザーがいません",
+    mentionsFailed: "ユーザーを読み込めませんでした",
     reopen: "再開",
     reopening: "再開中…",
     undo: "元に戻す",
@@ -3146,6 +3451,64 @@ export default {
     searching: "検索中…",
     reactionFailed: "リアクションを更新できませんでした",
     moveFailed: "コメントを移動できませんでした",
+    threadTitle: "コメント",
+    agentBadge: "エージェント",
+    closeThread: "スレッドを閉じる",
+    deleteThread: "スレッドを削除",
+    deleteThreadTitle: "スレッドを削除しますか？",
+    deleteThreadDescription: "このスレッドをレビューから削除します。",
+    pin: {
+      thread_other: "{{authors}} のスレッド、{{count}} 件のコメント",
+      authorsOther_other: "ほか {{count}} 名",
+      unread: "未読",
+      resolved: "解決済み",
+      draft: "下書きのコメント",
+    },
+    reaction: {
+      label_other: "{{emoji}}、{{count}} 件のリアクション",
+      labelMine_other: "{{emoji}}、{{count}} 件のリアクション（自分を含む）",
+    },
+    filtersActive: "絞り込みを適用中",
+    suggestChanges: "変更を提案",
+    applyChangesAndResolve: "変更を適用して解決",
+    agent: {
+      sectionLabel: "エージェント",
+      queued: "{{agent}} は待機中です",
+      working: "{{agent}} が作業中…",
+      replied: "{{agent}} が返信しました",
+      suggested: "{{agent}} が変更を提案しました",
+      applied: "{{agent}} が変更を適用し、解決しました",
+      needsInput: "{{agent}} の入力が必要です",
+      failed: "{{agent}} は完了できませんでした",
+      cancelled: "停止しました",
+      cancel: "キャンセル",
+      openChat: "チャットを開く",
+      retry: "再試行",
+      fallbackName: "AI",
+      setupRequired: "エージェントを使うには AI モデルを接続してください",
+      startFailed: "エージェントを開始できませんでした",
+      cancelFailed: "エージェントを停止できませんでした",
+      busy: "このスレッドではすでにエージェントが作業中です",
+      error: {
+        engineNotConfigured: "AI モデルが接続されていません",
+        noResult: "エージェントが応答せずに終了しました",
+        timeout: "エージェントが時間内に応答しませんでした",
+        permission: "編集権限がなくなりました",
+        threadUnavailable: "このスレッドはもう開けません",
+        targetChanged: "エージェントの作業中にデザインが変更されました",
+        applyUnavailable: "エージェントはこの画面を編集できません",
+        applyIncomplete:
+          "デザインは編集されましたが、スレッドは解決されませんでした。変更を確認してください。",
+        cancelledAfterEdit:
+          "デザインを編集した後に停止しました。変更を確認してください。",
+        generic: "問題が発生しました",
+      },
+    },
+    newThread: "新しいスレッド",
+    threadsCount_other: "{{count}} 件のスレッド",
+    boardGroup: "キャンバス",
+    send: "送信",
+    pinLabel_other: "{{count}} 件のコメントがあるスレッド",
     status: {
       draft: "下書き",
       in_review: "レビュー中",

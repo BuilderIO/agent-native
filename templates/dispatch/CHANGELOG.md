@@ -3,7 +3,58 @@
 All notable user-facing changes to Agent-Native Dispatch are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-11-09
+
+### Improved
+
+- More save failures now say why, such as being offline or lacking permission.
+
+## 2026-11-05
+
+### Improved
+
+- Failed saves now show a clear error message instead of failing silently.
+
+## 2026-11-02
+
+### Fixed
+
+- Dispatch now opens on the chat home with a smaller heading and more room above it, and the Connect AI card sits inside the composer edges.
+
+## 2026-10-30
+
+### Added
+
+- App lists now group apps into Pinned apps, Workspace apps, and Agent-Native.com hosted apps, every app has a visible pin button, the sidebar shows your pinned apps, and admins can hide Agent-Native.com hosted apps in Settings › Organization › Apps.
+
+### Fixed
+
+- Builder team members can find their workspace from standalone Dispatch.
+
+## 2026-10-29
+
+### Improved
+
+- Sharing is one panel: invite people and your organization's agents from one field, see everyone with access in one list, and find Copy link and Send to at the bottom.
+
+## 2026-10-23
+
+### Fixed
+
+- Workspace app sharing is managed only by app owners and organization admins.
+
+## 2026-10-22
+
+### Improved
+
+- Approval links from a connected agent, such as Claude Code, now open the review inside the app, in its own theme.
+
 ## 2026-10-21
+
+### Added
+
+- You can pin a shared chat just for yourself, or hide it from your list and undo that from the toast.
+- Owned and shared chats appear in separate history sections, with each shared chat's owner shown as an avatar and a Copy link action on every chat.
 
 ### Improved
 

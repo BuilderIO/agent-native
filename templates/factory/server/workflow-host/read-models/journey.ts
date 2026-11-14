@@ -111,6 +111,7 @@ export interface ItemJourney {
     | "itemId"
     | "inbox"
     | "title"
+    | "summary"
     | "source"
     | "sourceUrl"
     | "status"

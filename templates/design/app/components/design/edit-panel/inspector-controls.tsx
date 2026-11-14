@@ -218,6 +218,7 @@ export function InspectorIconButton({
   label,
   active,
   disabled,
+  disabledReason,
   onClick,
   children,
   shortcut,
@@ -225,31 +226,46 @@ export function InspectorIconButton({
   label: string;
   active?: boolean;
   disabled?: boolean;
+  /** Shown in place of the label while disabled, so the user learns why. */
+  disabledReason?: string;
   onClick?: () => void;
   children: ReactNode;
   shortcut?: string;
 }) {
+  const button = (
+    <Button
+      type="button"
+      variant="ghost"
+      size="icon"
+      disabled={disabled}
+      className={cn(
+        "h-6 min-w-6 flex-1 cursor-pointer rounded-none border-r border-border/50 text-muted-foreground first:rounded-l-md last:rounded-r-md last:border-r-0 hover:bg-[var(--design-editor-panel-raised-bg)] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40",
+        active &&
+          "bg-[var(--design-editor-panel-bg)] text-[var(--design-editor-accent-color)] shadow-[inset_0_0_0_1px_var(--design-editor-control-border)]",
+      )}
+      onClick={onClick}
+      aria-label={label}
+    >
+      {children}
+    </Button>
+  );
+  const explainDisabled = Boolean(disabled && disabledReason);
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <Button
-          type="button"
-          variant="ghost"
-          size="icon"
-          disabled={disabled}
-          className={cn(
-            "h-6 min-w-6 flex-1 cursor-pointer rounded-none border-r border-border/50 text-muted-foreground first:rounded-l-md last:rounded-r-md last:border-r-0 hover:bg-[var(--design-editor-panel-raised-bg)] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-40",
-            active &&
-              "bg-[var(--design-editor-panel-bg)] text-[var(--design-editor-accent-color)] shadow-[inset_0_0_0_1px_var(--design-editor-control-border)]",
-          )}
-          onClick={onClick}
-          aria-label={label}
-        >
-          {children}
-        </Button>
+        {explainDisabled ? (
+          // A disabled button gets no pointer events, so the span owns the hover.
+          <span className="flex min-w-6 flex-1">{button}</span>
+        ) : (
+          button
+        )}
       </TooltipTrigger>
       <TooltipContent>
-        {shortcut ? `${label}  ${shortcut}` : label}
+        {explainDisabled
+          ? disabledReason
+          : shortcut
+            ? `${label}  ${shortcut}`
+            : label}
       </TooltipContent>
     </Tooltip>
   );

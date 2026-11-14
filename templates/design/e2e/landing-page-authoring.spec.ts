@@ -69,9 +69,16 @@ async function typeText(app: App, at: { x: number; y: number }, text: string) {
   await app.settled();
 }
 
-async function clickAt(app: App, x: number, y: number) {
+async function clickAt(
+  app: App,
+  x: number,
+  y: number,
+  modifiers: string[] = [],
+) {
   const point = await app.pagePoint(x, y);
+  for (const key of modifiers) await app.page.keyboard.down(key);
   await app.page.mouse.click(point.x, point.y);
+  for (const key of modifiers) await app.page.keyboard.up(key);
 }
 
 async function dragBy(
@@ -313,28 +320,42 @@ test("2:35 / 8:09 — Shift+A turns a frame holding text into an auto-layout con
   ]);
   await clickAt(app, 250, 380);
   await expect.poll(() => app.selectedLayers()).toEqual(["Frame"]);
+  const frameBox = await app.designRect(frame!.id);
+  const textBox = await app.designRect(text!.id);
 
   await app.page.keyboard.press("Shift+A");
   await app.settled();
 
   const after = await app.savedNodes(id);
+  // The padding is inferred from where the text sat inside the frame, and
+  // the content-box size gives it back so the frame keeps its box.
+  const inset = (value: number) => Math.max(0, Math.round(value));
+  const padding = {
+    top: inset(textBox.y - frameBox.y),
+    right: inset(frameBox.x + frameBox.width - textBox.x - textBox.width),
+    bottom: inset(frameBox.y + frameBox.height - textBox.y - textBox.height),
+    left: inset(textBox.x - frameBox.x),
+  };
   expect(styleOf(after.get(frame!.id))).toEqual({
     ...styleOf(frame),
     display: "flex",
     "flex-direction": "column",
     "align-items": "flex-start",
     gap: "10px",
+    padding: `${padding.top}px ${padding.right}px ${padding.bottom}px ${padding.left}px`,
+    width: `${Math.round(frameBox.width) - padding.left - padding.right}px`,
+    height: `${Math.round(frameBox.height) - padding.top - padding.bottom}px`,
   });
   expect(childrenOf(after, frame!.id)).toStrictEqual([text!.id]);
   expect(after.get(text!.id)?.text).toBe("Hero title");
-  expect(styleOf(after.get(text!.id))).toEqual({
-    ...styleOf(text),
-    position: "static",
-    left: "auto",
-    top: "auto",
-    right: "auto",
-    bottom: "auto",
-  });
+  // Auto layout places the text, so its absolute placement is removed.
+  const {
+    position: _position,
+    left: _left,
+    top: _top,
+    ...flowStyle
+  } = styleOf(text);
+  expect(styleOf(after.get(text!.id))).toEqual(flowStyle);
   expectOnlyChanged(before, after, [frame!.id, text!.id]);
   await expectBox(app, "rendered frame", await renderedBox(app, frame!.id), {
     left: 20,
@@ -343,7 +364,7 @@ test("2:35 / 8:09 — Shift+A turns a frame holding text into an auto-layout con
     height: 300,
   });
   const gap = app.page.locator('input[aria-label="Gap"]');
-  await expect(gap).toHaveValue("10px");
+  await expect(gap).toHaveValue("10");
   expect(
     await gap.evaluate((input) => input.scrollWidth <= input.clientWidth),
     "the inspector's Gap field shows its whole value",
@@ -454,7 +475,7 @@ test("Typography edits apply to a headline with direct text and inline children"
     has: app.page.getByRole("heading", { name: "Typography", exact: true }),
   });
   const size = typography.getByLabel("Size", { exact: true });
-  await expect(size).toHaveValue("32px");
+  await expect(size).toHaveValue("32");
 
   await size.fill("40");
   await size.press("Enter");
@@ -491,7 +512,8 @@ test("5:07 — dragging a text layer above its sibling on the canvas reorders th
     x: second.x + second.width / 2,
     y: second.y + second.height / 2,
   };
-  await clickAt(app, grab.x, grab.y);
+  // Cmd+click reaches the text inside Stack; a plain click takes Stack.
+  await clickAt(app, grab.x, grab.y, ["ControlOrMeta"]);
   await expect.poll(() => app.selectedLayers()).toEqual(["Second"]);
 
   await dragBy(app, grab, 0, first.y + 4 - grab.y);

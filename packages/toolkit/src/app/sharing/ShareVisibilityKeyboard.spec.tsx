@@ -32,6 +32,7 @@ describe("organization confirmation from the keyboard", () => {
       resourceId: "doc-1",
       current: visibility,
       orgId: null,
+      confirmOrgVisibility: true,
       canManage: true,
       active: true,
       apply: async (next) => {
@@ -145,7 +146,7 @@ describe("organization confirmation from the keyboard", () => {
     press("ArrowDown", trigger());
     const content = document.body.querySelector('[role="listbox"]')!;
     expect(content).not.toBeNull();
-    const organization = option("Organization");
+    const organization = option("Anyone in your organization");
     (document.activeElement as HTMLElement | null)?.blur?.();
     organization.focus();
     press(key, organization);
@@ -226,6 +227,33 @@ describe("organization confirmation from the keyboard", () => {
     expect(saved).toHaveBeenCalledOnce();
     expect(saved).toHaveBeenCalledWith("org");
     expect(transition.pending).toBeNull();
+  });
+
+  it("opens the menu when the panel asks for it and reports the close", async () => {
+    const onMenuOpenChange = vi.fn();
+    const controller = {
+      visibility: "private",
+      canManage: true,
+      policy: { allowPublic: true },
+      handleVisibility: () => undefined,
+      visibilityTransition: transition,
+    } as unknown as ShareButtonController;
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <ShareGeneralAccessRow
+            controller={controller}
+            menuOpen
+            onMenuOpenChange={onMenuOpenChange}
+          />
+        </QueryClientProvider>,
+      );
+      await Promise.resolve();
+    });
+
+    expect(document.body.querySelector('[role="listbox"]')).not.toBeNull();
+    press("Escape", document.activeElement ?? trigger());
+    expect(onMenuOpenChange).toHaveBeenCalledWith(false);
   });
 
   it("closes on Escape without saving and hands focus back to the picker", async () => {

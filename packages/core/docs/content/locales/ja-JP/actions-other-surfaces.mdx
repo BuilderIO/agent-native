@@ -56,7 +56,49 @@ JSON 入力は、エージェントや複雑なオブジェクトに適した形
 pnpm action reply-to-email --emailId thread-123 --body "Thanks!"
 ```
 
-これは、エージェント開発ループ、スクリプト、cron ジョブに便利です。
+`defineAction()` の呼び出しでは、CLI は準備・解析済みでスキーマのデフォルト値が適用された引数と caller `cli` で `needsApproval` を評価します。stdin と stdout が両方 TTY の場合、アクション名と引数を表示して `y/N` を尋ねます。`y` または `yes` のみがアクションを実行します。
+
+両方の TTY が揃わない場合、CLI はエージェントに本人の承認を求めるよう指示します。その特定の呼び出しを本人が承認した後、元の `pnpm action` の引数を一切変えず、末尾に `--approved` を追加して再実行してください。
+
+```bash
+pnpm action reply-to-email --emailId thread-123 --body "Thanks!" --approved
+```
+
+`--approved` は CLI の予約済みメタデータで、入力解析前に取り除かれます。値は取りません。後ろに別のフラグや JSON オブジェクト以外のものが続く呼び出しは拒否され、`approved` という名前の入力は `--approved=<value>` と書きます。承認不要のアクションに付けても問題ありません。CLI は誰がこのフラグを付けたかを確認できないため、本人に尋ねずに付けたエージェントは確認を飛ばせます。このフラグは、本人が承認するコマンドと監査ログに承認を残し、監査ログでは未検証として表示されます。POSIX の `SHELL` がない Windows では、拒否メッセージに PowerShell 用のコマンドと、クォートが異なる場合は cmd.exe 用のコマンドも表示されます。Windows では、pnpm はどのシェルから実行してもアクションの引数を cmd.exe 経由で渡し、cmd.exe はクォート内でも `%NAME%` を展開します。引数にこれが含まれる場合、拒否メッセージは `--approved` 付きの再実行を示しません。本人がターミナルでコマンドを実行し、確認プロンプトで値を確かめます。引数に引用符と `&`、`|`、`<`、`>`、`^` のいずれかが含まれる場合、pnpm はそれを cmd.exe にそのまま渡せないため、拒否メッセージはコマンドを示しません。本人はアプリ上で呼び出しを承認します。Windows PowerShell 5.1 は引数内の `"` をすべて取り除くため、POSIX の `SHELL` がない Windows では、二重引用符を含む引数も `--approved` 付きの再実行ではなく確認プロンプトに回されます。
+
+ローカル開発ブリッジは、JSON 本文の `input` の外側に承認メタデータを送信します。
+
+```ts
+{ name, input, approved: true, approvalSource: "flag" }
+```
+
+承認が必要な呼び出しに承認がない場合、ブリッジは HTTP `409` を返します。
+
+```ts
+{
+  ok: false,
+  errorCode: "approval_required",
+  error: 'Action "<name>" requires human approval. Ask the person, then rerun with --approved.',
+  arguments: preparedArgs,
+  argumentsHash: prepared.argumentsHash,
+}
+```
+
+TTY での確認後、CLI は承認要求のレスポンスに含まれる `argumentsHash` を使って再試行します。
+
+```ts
+{
+  name,
+  input,
+  approved: true,
+  approvalSource: "prompt",
+  approvalArgumentsHash: challenge.argumentsHash,
+}
+```
+
+ブリッジは本人が確認した呼び出しを一度だけそのまま実行するため、タイムスタンプのように呼び出しごとに変わるデフォルト値も、表示された値のまま使われます。実行する保持済みの呼び出しがない確認（すでに実行済み、10 分経過、または開発サーバーの再起動）には、HTTP `409` と `errorCode: "approval_expired"` が返ります。コマンドをもう一度実行して確認してください。
+
+`arguments` には準備済みの引数が入ります。このローカル開発ブリッジの契約は、[公開 HTTP アクション API の承認ルール](/docs/actions-access-control#needs-approval)を変更しません。承認された承認対象の CLI 呼び出しは、アクション自身の監査行に `approval: "cli-prompt"` または `approval: "cli-flag"` を caller `cli` とともに記録します。確認プロンプトを見るのは CLI だけなので、監査ログではどちらも未検証として表示されます。
 
 ## 別のエージェントから呼び出す (A2A) {#a2a}
 

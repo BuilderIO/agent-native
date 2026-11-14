@@ -1,8 +1,10 @@
 import { createHmac } from "node:crypto";
 
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { resetAppConfigForTests } from "../app-config/index.js";
+import { encodeOAuthState } from "../server/google-oauth.js";
+import { ForbiddenError } from "../sharing/errors.js";
 import { IntegrationIdentityDeclinedError } from "./identity.js";
 import { createIntegrationsPlugin } from "./plugin.js";
 import type { PlatformAdapter } from "./types.js";
@@ -11,6 +13,7 @@ const getSessionMock = vi.hoisted(() => vi.fn());
 const getOrgContextMock = vi.hoisted(() =>
   vi.fn(async () => ({ orgId: "org-qa", role: "owner" })),
 );
+const hasForbiddenOrgScopeMock = vi.hoisted(() => vi.fn(() => false));
 const resolveOrgScopeForEmailMock = vi.hoisted(() =>
   vi.fn(async () => ({ status: "organization", orgId: "org-owner" })),
 );
@@ -62,6 +65,11 @@ const recoverDueA2AContinuationsMock = vi.hoisted(() =>
 );
 const processDueA2AContinuationsMock = vi.hoisted(() => vi.fn(async () => {}));
 const startPendingTasksRetryJobMock = vi.hoisted(() => vi.fn());
+const stopPendingTasksRetryJobMock = vi.hoisted(() => vi.fn());
+const startRemoteCommandsRetryJobMock = vi.hoisted(() => vi.fn());
+const stopRemoteCommandsRetryJobMock = vi.hoisted(() => vi.fn());
+const startRemotePushDeliveryJobMock = vi.hoisted(() => vi.fn());
+const stopRemotePushDeliveryJobMock = vi.hoisted(() => vi.fn());
 const processA2AContinuationByIdMock = vi.hoisted(() => vi.fn());
 const recoverA2AContinuationAfterProcessorFailureMock = vi.hoisted(() =>
   vi.fn(),
@@ -100,7 +108,8 @@ vi.mock("../deploy/route-discovery.js", () => ({
   getMissingDefaultPlugins: vi.fn(async () => []),
 }));
 
-vi.mock("../server/auth.js", () => ({
+vi.mock("../server/auth.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../server/auth.js")>()),
   getSession: getSessionMock,
 }));
 
@@ -113,6 +122,8 @@ vi.mock("../server/credential-provider.js", async () => {
 
 vi.mock("../org/context.js", () => ({
   getOrgContext: getOrgContextMock,
+  hasForbiddenOrgScope: hasForbiddenOrgScopeMock,
+  hasOrgScopeResolutionUnavailable: () => false,
   resolveOrgScopeForEmail: resolveOrgScopeForEmailMock,
 }));
 
@@ -130,7 +141,18 @@ vi.mock("./config-store.js", () => ({
 
 vi.mock("./pending-tasks-retry-job.js", () => ({
   startPendingTasksRetryJob: startPendingTasksRetryJobMock,
+  stopPendingTasksRetryJob: stopPendingTasksRetryJobMock,
   retryStuckPendingTasks: retryStuckPendingTasksMock,
+}));
+
+vi.mock("./remote-retry-job.js", () => ({
+  startRemoteCommandsRetryJob: startRemoteCommandsRetryJobMock,
+  stopRemoteCommandsRetryJob: stopRemoteCommandsRetryJobMock,
+}));
+
+vi.mock("./remote-push-delivery-job.js", () => ({
+  startRemotePushDeliveryJob: startRemotePushDeliveryJobMock,
+  stopRemotePushDeliveryJob: stopRemotePushDeliveryJobMock,
 }));
 
 vi.mock("./integration-campaign-recovery.js", () => ({
@@ -258,8 +280,25 @@ vi.mock("./identity.js", async () => {
   };
 });
 
-function createNitroApp() {
-  return { h3: { "~middleware": [] as any[] } };
+function createNitroApp(options?: { withCloseHook?: boolean }) {
+  if (!options?.withCloseHook) {
+    return { h3: { "~middleware": [] as any[] } };
+  }
+  const callbacks = new Map<string, Array<() => void | Promise<void>>>();
+  return {
+    h3: { "~middleware": [] as any[] },
+    hooks: {
+      hook(name: string, callback: () => void | Promise<void>) {
+        const registered = callbacks.get(name) ?? [];
+        registered.push(callback);
+        callbacks.set(name, registered);
+      },
+      // Nitro's hooks run one after another in the order they were added.
+      async callHook(name: string) {
+        for (const callback of callbacks.get(name) ?? []) await callback();
+      },
+    },
+  };
 }
 
 async function dispatch(
@@ -314,7 +353,11 @@ async function dispatch(
     return middleware(event, next);
   };
   const responseBody = await next();
-  return { body: responseBody, status: event.res.status };
+  return {
+    body: responseBody,
+    status: event.res.status,
+    headers: event.res.headers,
+  };
 }
 
 const adapter: PlatformAdapter = {
@@ -417,6 +460,7 @@ describe("integrations plugin routes", () => {
       owner: null,
     }));
     getOrgContextMock.mockResolvedValue({ orgId: "org-qa", role: "owner" });
+    hasForbiddenOrgScopeMock.mockReturnValue(false);
     resolveOrgScopeForEmailMock.mockResolvedValue({
       status: "organization",
       orgId: "org-owner",
@@ -443,6 +487,92 @@ describe("integrations plugin routes", () => {
   });
 
   it.each([
+    ["fake/enable", "POST"],
+    ["fake/setup", "POST"],
+    ["fake/status", "GET"],
+    ["installations", "GET"],
+    ["scopes", "POST"],
+    ["slack/oauth/install", "GET"],
+  ])(
+    "fails closed when a signed-in org member's permanent lookup fails on %s",
+    async (action, method) => {
+      getSessionMock.mockResolvedValue({
+        email: "member@example.test",
+        orgId: "fake-org",
+      });
+      getOrgContextMock.mockRejectedValue(
+        Object.assign(new Error("permission denied for table org_members"), {
+          code: "42501",
+        }),
+      );
+      const app = createNitroApp();
+      await createIntegrationsPlugin({ adapters: [adapter] })(app);
+      const response = await dispatch(
+        app,
+        `/_agent-native/integrations/${action}`,
+        method,
+      );
+      expect(saveIntegrationConfigMock).not.toHaveBeenCalled();
+      expect(response.status).toBe(500);
+      expect(response.headers.get("retry-after")).toBeNull();
+      expect(JSON.stringify(response.body)).not.toContain("org_members");
+    },
+  );
+
+  it.each([
+    ["fake/enable", "POST"],
+    ["fake/setup", "POST"],
+    ["fake/status", "GET"],
+    ["installations", "GET"],
+    ["scopes", "POST"],
+    ["slack/oauth/install", "GET"],
+  ])("preserves definitive org refusal on %s", async (action, method) => {
+    getSessionMock.mockResolvedValue({
+      email: "member@example.test",
+      orgId: "fake-org",
+    });
+    getOrgContextMock.mockRejectedValue(new ForbiddenError());
+    const app = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(app);
+    const response = await dispatch(
+      app,
+      `/_agent-native/integrations/${action}`,
+      method,
+    );
+    expect(saveIntegrationConfigMock).not.toHaveBeenCalled();
+    expect(response.status).toBe(403);
+    expect(response.headers.get("retry-after")).toBeNull();
+  });
+
+  it.each([
+    ["fake/enable", "POST"],
+    ["fake/setup", "POST"],
+    ["fake/status", "GET"],
+    ["installations", "GET"],
+    ["scopes", "POST"],
+    ["slack/oauth/install", "GET"],
+  ])(
+    "refuses a forbidden organization scope on %s instead of using Personal",
+    async (action, method) => {
+      getSessionMock.mockResolvedValue({
+        email: "member@example.test",
+        orgId: "fake-org",
+      });
+      getOrgContextMock.mockResolvedValue({ orgId: null, role: null });
+      hasForbiddenOrgScopeMock.mockReturnValue(true);
+      const app = createNitroApp();
+      await createIntegrationsPlugin({ adapters: [adapter] })(app);
+      const response = await dispatch(
+        app,
+        `/_agent-native/integrations/${action}`,
+        method,
+      );
+      expect(saveIntegrationConfigMock).not.toHaveBeenCalled();
+      expect(response.status).toBe(403);
+    },
+  );
+
+  it.each([
     "__AGENT_NATIVE_BACKGROUND_RUNTIME__",
     "__AGENT_NATIVE_INTEGRATION_RECOVERY_RUNTIME__",
   ])(
@@ -456,6 +586,89 @@ describe("integrations plugin routes", () => {
       expect(startPendingTasksRetryJobMock).not.toHaveBeenCalled();
     },
   );
+
+  it("stops recurring integration jobs when Nitro closes", async () => {
+    const { resumePgliteClientAccess } = await import("../db/client.js");
+    const nitroApp = createNitroApp({ withCloseHook: true });
+
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    expect(startPendingTasksRetryJobMock).toHaveBeenCalledOnce();
+    expect(startRemoteCommandsRetryJobMock).toHaveBeenCalledOnce();
+    expect(startRemotePushDeliveryJobMock).toHaveBeenCalledOnce();
+
+    await nitroApp.hooks.callHook("close");
+
+    expect(stopPendingTasksRetryJobMock).toHaveBeenCalled();
+    expect(stopRemoteCommandsRetryJobMock).toHaveBeenCalled();
+    expect(stopRemotePushDeliveryJobMock).toHaveBeenCalled();
+    expect(stopGoogleDocsPollerMock).not.toHaveBeenCalled();
+    resumePgliteClientAccess();
+  });
+
+  it("stops the Google Docs poller when Nitro closes but keeps the shared watch", async () => {
+    const { resumePgliteClientAccess } = await import("../db/client.js");
+    const nitroApp = createNitroApp({ withCloseHook: true });
+
+    await createIntegrationsPlugin({
+      adapters: [{ ...adapter, platform: "google-docs", label: "Google Docs" }],
+    })(nitroApp);
+    await nitroApp.hooks.callHook("close");
+
+    expect(stopGoogleDocsPollerMock).toHaveBeenCalledWith({
+      shuttingDown: true,
+    });
+    resumePgliteClientAccess();
+  });
+
+  it("awaits Google Docs poller cleanup on Nitro close before resolving", async () => {
+    const { resumePgliteClientAccess } = await import("../db/client.js");
+    const nitroApp = createNitroApp({ withCloseHook: true });
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const order: string[] = [];
+    stopGoogleDocsPollerMock.mockImplementationOnce(async () => {
+      order.push("stop-start");
+      await gate;
+      order.push("stop-done");
+    });
+
+    await createIntegrationsPlugin({
+      adapters: [{ ...adapter, platform: "google-docs", label: "Google Docs" }],
+    })(nitroApp);
+
+    const closing = nitroApp.hooks.callHook("close").then(() => {
+      order.push("closed");
+    });
+    await vi.waitFor(() => {
+      expect(order).toContain("stop-start");
+    });
+    expect(order).not.toContain("closed");
+
+    release();
+    await closing;
+    expect(order).toEqual(["stop-start", "stop-done", "closed"]);
+    resumePgliteClientAccess();
+  });
+
+  it("stops the Google Docs poller only once when Nitro closes", async () => {
+    const { resumePgliteClientAccess } = await import("../db/client.js");
+    const { stopBackgroundJobs } = await import("../server/background-jobs.js");
+    // Earlier tests leave their plugins' stops in the shared registry.
+    await stopBackgroundJobs();
+    stopGoogleDocsPollerMock.mockClear();
+    const nitroApp = createNitroApp({ withCloseHook: true });
+
+    await createIntegrationsPlugin({
+      adapters: [{ ...adapter, platform: "google-docs", label: "Google Docs" }],
+    })(nitroApp);
+    await nitroApp.hooks.callHook("close");
+
+    expect(stopGoogleDocsPollerMock).toHaveBeenCalledOnce();
+    resumePgliteClientAccess();
+  });
 
   it("requires a session for integration status", async () => {
     getSessionMock.mockResolvedValueOnce(null);
@@ -601,6 +814,66 @@ describe("integrations plugin routes", () => {
     );
   });
 
+  describe("with a verified Personal scope", () => {
+    beforeEach(() => {
+      getSessionMock.mockResolvedValue({
+        email: "alice+qa@agent-native.test",
+        orgId: "org-stale",
+      });
+      getOrgContextMock.mockResolvedValue({ orgId: null, role: null });
+      resolveOrgScopeForEmailMock.mockResolvedValue({
+        status: "unknown",
+        cause: Object.assign(new Error("permission denied"), {
+          code: "42501",
+        }),
+      });
+    });
+
+    it("starts a Slack install without looking the scope up again", async () => {
+      resolveSecretMock.mockImplementation(
+        (key: string) => `configured-${key}`,
+      );
+      const nitroApp = createNitroApp();
+      await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+      const result = await dispatch(
+        nitroApp,
+        "/_agent-native/integrations/slack/oauth/install?return=%2Fmessaging",
+      );
+
+      expect(result.status).toBe(200);
+      expect(resolveOrgScopeForEmailMock).not.toHaveBeenCalled();
+      expect(runWithRequestContextMock).toHaveBeenCalledWith(
+        { userEmail: "alice+qa@agent-native.test", orgScope: "personal" },
+        expect.any(Function),
+      );
+    });
+
+    it("finishes a Slack callback without looking the scope up again", async () => {
+      const state = encodeOAuthState({
+        redirectUri:
+          "https://app.test/_agent-native/integrations/slack/oauth/callback",
+        owner: "alice+qa@agent-native.test",
+        app: "agent-native:slack",
+        addAccount: true,
+        returnUrl: "/messaging",
+      });
+      const nitroApp = createNitroApp();
+      await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+      await dispatch(
+        nitroApp,
+        `/_agent-native/integrations/slack/oauth/callback?code=fake-code&state=${encodeURIComponent(state)}`,
+      );
+
+      expect(resolveOrgScopeForEmailMock).not.toHaveBeenCalled();
+      expect(runWithRequestContextMock).toHaveBeenCalledWith(
+        { userEmail: "alice+qa@agent-native.test", orgScope: "personal" },
+        expect.any(Function),
+      );
+    });
+  });
+
   it("runs integration status checks in the signed-in request context", async () => {
     getSessionMock.mockResolvedValue({
       email: "alice+qa@agent-native.test",
@@ -629,6 +902,32 @@ describe("integrations plugin routes", () => {
         userEmail: "alice+qa@agent-native.test",
         orgId: "org-team",
       },
+      expect.any(Function),
+    );
+  });
+
+  it("keeps a Personal lookup from restoring the session's organization", async () => {
+    getSessionMock.mockResolvedValue({
+      email: "alice+qa@agent-native.test",
+      orgId: "org-stale",
+    });
+    getOrgContextMock.mockResolvedValue({ orgId: null, role: null });
+    resolveOrgScopeForEmailMock.mockResolvedValue({
+      status: "unknown",
+      cause: Object.assign(new Error("permission denied"), { code: "42501" }),
+    });
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/fake/status",
+    );
+
+    expect(result.status).toBe(200);
+    expect(resolveOrgScopeForEmailMock).not.toHaveBeenCalled();
+    expect(runWithRequestContextMock).not.toHaveBeenCalledWith(
+      expect.objectContaining({ orgId: "org-stale" }),
       expect.any(Function),
     );
   });

@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -5,11 +6,24 @@ import { join } from "node:path";
 import { serializeIconValue } from "@agent-native/core/icons";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { eq } from "drizzle-orm";
+import { H3 } from "h3";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 const checkOwner = vi.hoisted(() => vi.fn());
-vi.mock("./private-icon-authority.js", () => ({
+const ownsIcon = vi.hoisted(() => vi.fn());
+const session = vi.hoisted(() => ({ email: "" }));
+vi.mock("@agent-native/core/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/server")>()),
+  getSession: async () => ({ email: session.email }),
+}));
+vi.mock("./private-icon-authority.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./private-icon-authority.js")>()),
   assertPrivateIconOwner: checkOwner,
+  ownsPrivateIcon: ownsIcon,
+  readPrivateIcon: async () => ({
+    data: new Uint8Array([1, 2, 3]),
+    mimeType: "image/png",
+  }),
 }));
 vi.mock("@agent-native/creative-context/server", async (importOriginal) => ({
   ...(await importOriginal<
@@ -36,6 +50,7 @@ let updateDocumentAction: typeof import("../../actions/update-document.js").defa
 let duplicateDatabaseItemAction: typeof import("../../actions/duplicate-database-item.js").default;
 let duplicateDatabaseItemsAction: typeof import("../../actions/duplicate-database-items.js").default;
 let restoreDocumentVersionAction: typeof import("../../actions/restore-document-version.js").default;
+let readIcon: H3["request"];
 let count = 0;
 
 function icon(id = ASSET) {
@@ -181,6 +196,16 @@ beforeAll(async () => {
   ).default;
   const plugin = (await import("../plugins/db.js")).default;
   await plugin(undefined as never);
+  const iconRoute = (await import("../routes/api/private-icons/[id].get.js"))
+    .default;
+  const iconApp = new H3();
+  iconApp.get("/icons/:id", iconRoute);
+  readIcon = iconApp.request.bind(iconApp);
+  ownsIcon.mockImplementation(
+    async ({ assetId, ownerEmail }: { assetId: string; ownerEmail: string }) =>
+      (assetId === ASSET && ownerEmail === OWNER) ||
+      (assetId === FORGED && ownerEmail === OTHER),
+  );
   checkOwner.mockImplementation(
     async ({
       assetId,
@@ -189,7 +214,12 @@ beforeAll(async () => {
       assetId: string;
       ownerEmail: string;
     }) => {
-      if (assetId !== ASSET || ownerEmail !== OWNER)
+      if (
+        !(
+          (assetId === ASSET && ownerEmail === OWNER) ||
+          (assetId === FORGED && ownerEmail === OTHER)
+        )
+      )
         throw new Error("Private icon is unavailable to this user.");
     },
   );
@@ -466,7 +496,7 @@ describe("private icon references", () => {
     ).rejects.toThrow();
   });
 
-  it("restores a saved callout reference without granting arbitrary image assignment", async () => {
+  it("keeps unproved saved callouts without granting arbitrary image assignment", async () => {
     const savedContent = `<callout icon="${icon().replace(/"/g, "&quot;")}">\n\tSaved\n</callout>`;
     const id = await document({ content: "Current" });
     const versionId = `private-icon-version-${++count}`;
@@ -498,6 +528,12 @@ describe("private icon references", () => {
       }),
     );
     expect(checkOwner).not.toHaveBeenCalled();
+    expect(
+      await db
+        .select()
+        .from(schema.privateIconReferences)
+        .where(eq(schema.privateIconReferences.documentId, id)),
+    ).toEqual([]);
     await expect(
       runWithRequestContext({ userEmail: SHARED }, () =>
         refs.syncPrivateCalloutReferences(db, {
@@ -585,7 +621,7 @@ describe("private icon references", () => {
     ).rejects.toThrow("unavailable");
   });
 
-  it("restores a collaborator-visible saved version containing a prior callout image", async () => {
+  it("restores a collaborator-visible version's text without authorizing its prior image", async () => {
     const savedContent = `<callout icon="${icon().replace(/"/g, "&quot;")}">\n\tSaved\n</callout>`;
     const id = await document({ content: "Current" });
     const versionId = `private-icon-version-${++count}`;
@@ -625,8 +661,231 @@ describe("private icon references", () => {
       .select({ assetId: schema.privateIconReferences.assetId })
       .from(schema.privateIconReferences)
       .where(eq(schema.privateIconReferences.elementId, `${id}:${ASSET}`));
-    expect(reference.assetId).toBe(ASSET);
+    expect(reference).toBeUndefined();
     expect(checkOwner).not.toHaveBeenCalled();
+  });
+
+  it.each(["recovery", "after"] as const)(
+    "restores %s text verbatim without publishing a non-owned icon, including on later saves",
+    async (checkpointKind) => {
+      const saved = `Keep $60 and snake_case verbatim.\n\n<callout icon="${icon(FORGED).replace(/"/g, "&quot;")}">\n\tPrivate\n</callout>\n\n`;
+      const id = await document({ content: "Current" });
+      await db.insert(schema.documentVersions).values({
+        id: `unproved-${id}`,
+        documentId: id,
+        ownerEmail: OWNER,
+        title: "Recovered",
+        content: saved,
+        checkpointKind,
+        actorEmail: OTHER,
+      });
+      await db.insert(schema.documentShares).values({
+        id: `editor-${id}`,
+        resourceId: id,
+        principalType: "user",
+        principalId: SHARED,
+        role: "editor",
+        createdBy: OWNER,
+      });
+      const [before] = await db
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.id, id));
+      assert(before);
+      ownsIcon.mockClear();
+      await runWithRequestContext({ userEmail: SHARED }, () =>
+        restoreDocumentVersionAction.run({
+          documentId: id,
+          versionId: `unproved-${id}`,
+          expectedUpdatedAt: before.updatedAt,
+        }),
+      );
+      const [restored] = await db
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.id, id));
+      assert(restored);
+      expect(restored.content).toBe(saved);
+      expect(
+        await db
+          .select()
+          .from(schema.privateIconReferences)
+          .where(eq(schema.privateIconReferences.documentId, id)),
+      ).toEqual([]);
+      expect(ownsIcon).toHaveBeenCalledExactlyOnceWith({
+        assetId: FORGED,
+        ownerEmail: SHARED,
+        orgId: null,
+      });
+
+      session.email = OTHER;
+      expect(
+        (await readIcon(new Request(`http://localhost/icons/${FORGED}`)))
+          .status,
+      ).toBe(200);
+      for (const viewer of [OWNER, SHARED]) {
+        session.email = viewer;
+        expect(
+          (await readIcon(new Request(`http://localhost/icons/${FORGED}`)))
+            .status,
+        ).toBe(404);
+      }
+
+      ownsIcon.mockClear();
+      checkOwner.mockClear();
+      await runWithRequestContext({ userEmail: SHARED }, () =>
+        updateDocumentAction.run({ id, content: `${saved}Later text.` }),
+      );
+      expect(ownsIcon).not.toHaveBeenCalled();
+      expect(checkOwner).not.toHaveBeenCalled();
+      const [later] = await db
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.id, id));
+      assert(later);
+      expect(later.content).toBe(`${saved}Later text.`);
+      expect(
+        await refs.resolveReadablePrivateIcon(FORGED, { userEmail: SHARED }),
+      ).toBeNull();
+
+      await db.insert(schema.documentShares).values({
+        id: `icon-owner-${id}`,
+        resourceId: id,
+        principalType: "user",
+        principalId: OTHER,
+        role: "editor",
+        createdBy: OWNER,
+      });
+      const register = (
+        await import("../../actions/register-private-callout-icon.js")
+      ).default;
+      await runWithRequestContext({ userEmail: OTHER }, () =>
+        register.run({ documentId: id, assetId: FORGED }),
+      );
+      session.email = SHARED;
+      expect(
+        (await readIcon(new Request(`http://localhost/icons/${FORGED}`)))
+          .status,
+      ).toBe(200);
+      await db
+        .update(schema.documents)
+        .set({ content: "Finished" })
+        .where(eq(schema.documents.id, id));
+    },
+  );
+
+  it.each(["restorer owns icon", "existing page reference"] as const)(
+    "restores an authorized callout: %s",
+    async (authorization) => {
+      const saved = `<callout icon="${icon().replace(/"/g, "&quot;")}">\n\tSaved\n</callout>`;
+      const id = await document({ content: "Current" });
+      await share(id);
+      await db.insert(schema.documentVersions).values({
+        id: `authorized-${id}`,
+        documentId: id,
+        ownerEmail: OWNER,
+        title: "Recovered",
+        content: saved,
+      });
+      if (authorization === "existing page reference") {
+        await refs.registerPrivateCalloutIcon({
+          documentId: id,
+          assetId: ASSET,
+          userEmail: OWNER,
+          ownerEmail: OWNER,
+          orgId: null,
+        });
+        await db
+          .update(schema.documentShares)
+          .set({ role: "editor" })
+          .where(eq(schema.documentShares.resourceId, id));
+      }
+      const userEmail = authorization === "restorer owns icon" ? OWNER : SHARED;
+      const [before] = await db
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.id, id));
+      assert(before);
+      await runWithRequestContext({ userEmail }, () =>
+        restoreDocumentVersionAction.run({
+          documentId: id,
+          versionId: `authorized-${id}`,
+          expectedUpdatedAt: before.updatedAt,
+        }),
+      );
+      expect(
+        await db
+          .select({ assetId: schema.privateIconReferences.assetId })
+          .from(schema.privateIconReferences)
+          .where(eq(schema.privateIconReferences.documentId, id)),
+      ).toEqual([{ assetId: ASSET }]);
+      expect(
+        await refs.resolveReadablePrivateIcon(ASSET, { userEmail: SHARED }),
+      ).toEqual({ orgId: null });
+    },
+  );
+
+  it("rolls back a restore when icon ownership cannot be checked", async () => {
+    const saved = `<callout icon="${icon().replace(/"/g, "&quot;")}">\n\tSaved\n</callout>`;
+    const id = await document({ content: "Current" });
+    await db.insert(schema.documentVersions).values({
+      id: `unavailable-${id}`,
+      documentId: id,
+      ownerEmail: OWNER,
+      title: "Recovered",
+      content: saved,
+    });
+    const [before] = await db
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, id));
+    assert(before);
+    ownsIcon.mockRejectedValueOnce(
+      new Error("Private icon authority unavailable"),
+    );
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        restoreDocumentVersionAction.run({
+          documentId: id,
+          versionId: `unavailable-${id}`,
+          expectedUpdatedAt: before.updatedAt,
+        }),
+      ),
+    ).rejects.toThrow("authority unavailable");
+    const [current] = await db
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, id));
+    assert(current);
+    expect(current.content).toBe("Current");
+    expect(current.updatedAt).toBe(before.updatedAt);
+    expect(
+      await db
+        .select()
+        .from(schema.privateIconReferences)
+        .where(eq(schema.privateIconReferences.documentId, id)),
+    ).toEqual([]);
+  });
+
+  it("saves text on a page with more than 64 unchanged private icons", async () => {
+    const saved = Array.from({ length: 65 }, (_, index) => {
+      const assetId = `33333333-3333-4333-8333-${String(index).padStart(12, "0")}`;
+      return `<callout icon="${icon(assetId).replace(/"/g, "&quot;")}">\n\t${index}\n</callout>`;
+    }).join("\n\n");
+    const id = await document({ content: saved });
+    checkOwner.mockClear();
+    ownsIcon.mockClear();
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run({ id, content: `${saved}\n\nMore text.` }),
+    );
+    const [current] = await db
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, id));
+    assert(current);
+    expect(current.content).toBe(`${saved}\n\nMore text.`);
+    expect(checkOwner).not.toHaveBeenCalled();
+    expect(ownsIcon).not.toHaveBeenCalled();
   });
 
   it("requires a real saved callout, ignoring a code-fenced lookalike", async () => {

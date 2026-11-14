@@ -1,14 +1,15 @@
 import { IconEye, IconX } from "@tabler/icons-react";
 
-import { defaultChatFirstCopy } from "./copy.js";
+import { useChatFirstCopy } from "./copy.js";
 import type { ChatFirstSessionWatchPaneProps } from "./types.js";
 
 export function ChatFirstSessionWatchPane({
   target,
   onClose,
   renderChat,
-  copy = defaultChatFirstCopy,
+  copy: copyProp,
 }: ChatFirstSessionWatchPaneProps) {
+  const copy = useChatFirstCopy(copyProp);
   if (!target) return null;
   const sessionName = target.title || copy("session");
 

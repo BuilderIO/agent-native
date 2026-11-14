@@ -9,19 +9,28 @@ import {
   uploadFile,
 } from "@agent-native/core/file-upload";
 import { runWithRequestContext } from "@agent-native/core/server";
+import { getRequestOrgId } from "@agent-native/core/server/request-context";
 import { and, eq, inArray, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
-import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
-import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
+import {
+  assertLegacyBodyWriter,
+  lockLegacyBodyWrites,
+} from "../server/lib/document-body-revision.js";
+import {
+  recordCreatedDocumentsHistory,
+  recordDocumentHistoryTransition,
+} from "../server/lib/document-history.js";
 import {
   GitHubSourceDeadlineError,
   GitHubSourceError,
   readGitHubBlob,
+  readGitHubBlobTexts,
   readGitHubBranchHead,
   readGitHubDefaultBranch,
   readGitHubFolderTree,
   readGitHubRenames,
+  type GitHubRepositoryTarget,
   type GitHubTreeEntry,
 } from "../server/lib/github-source-client.js";
 import {
@@ -71,6 +80,7 @@ import {
   type DocumentPropertyOptionColor,
   type DocumentPropertyOptions,
 } from "../shared/properties.js";
+import { bulkChunkSizeForColumnCount, chunks } from "./_batch-utils.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { ensureDocumentsFilesMembership } from "./_content-files.js";
 import { mutateContentDatabaseSourceMetadata } from "./_database-source-utils.js";
@@ -84,6 +94,7 @@ import {
   type GitHubSourceState,
 } from "./_github-source-metadata.js";
 import {
+  createAppendPositionAllocator,
   databaseItemsPositionScope,
   documentsPositionScope,
   nextAppendPosition,
@@ -98,6 +109,7 @@ type DocumentRow = typeof schema.documents.$inferSelect;
 type SourceRow = typeof schema.contentDatabaseSourceRows.$inferSelect;
 
 export const GITHUB_SYNC_OPERATION = "sync-github-source";
+const GITHUB_BODY_WRITER = { operation: "GitHub folder sync" };
 /** How long a running sync holds its lease; longer than any sync's budget. */
 const SYNC_LEASE_MS = 2 * 60 * 1000;
 /** Files previewed before linking, enough to see the frontmatter's shape. */
@@ -134,16 +146,29 @@ function parseJsonObject(value: string | null | undefined) {
     : {};
 }
 
-/** Runs GitHub reads as the person who linked the folder. */
+/** Runs as the person who linked the folder, in the collection's workspace. */
 async function asLinker<T>(
   state: Pick<GitHubSourceState, "linkedBy">,
   orgId: string | null,
   run: () => Promise<T>,
 ): Promise<T> {
   return await runWithRequestContext(
-    { userEmail: state.linkedBy, orgId: orgId ?? undefined },
+    { userEmail: state.linkedBy, ...(orgId ? { orgId } : {}) },
     run,
   );
+}
+
+/**
+ * Reads GitHub as the person who linked the folder. Their connection is saved
+ * under the workspace they linked it from, so a collection with no workspace
+ * of its own, in a Personal space, reads through that one.
+ */
+async function readAsLinker<T>(
+  state: Pick<GitHubSourceState, "linkedBy" | "linkedOrgId">,
+  orgId: string | null,
+  run: () => Promise<T>,
+): Promise<T> {
+  return await asLinker(state, orgId ?? state.linkedOrgId, run);
 }
 
 async function mapLimit<T, R>(
@@ -170,6 +195,56 @@ function decodeText(bytes: Uint8Array): string | null {
     // coercion-ok: null means not UTF-8, and the caller skips the file as "not-text".
   } catch {
     return null;
+  }
+}
+
+/** Files read from GitHub in one request, at most this many and this many bytes. */
+const TEXT_BATCH_FILES = 100;
+const TEXT_BATCH_BYTES = 2 * 1024 * 1024;
+
+/**
+ * The first files that fit one request for texts. A file bigger than the
+ * request's bytes on its own is sent alone, and so read on its own.
+ */
+function fitTextBatch<T>(files: T[], size: (file: T) => number | null): T[] {
+  const batch: T[] = [];
+  let bytes = 0;
+  for (const file of files) {
+    const fileBytes = size(file) ?? 0;
+    if (batch.length >= TEXT_BATCH_FILES) break;
+    if (batch.length > 0 && bytes + fileBytes > TEXT_BATCH_BYTES) break;
+    bytes += fileBytes;
+    batch.push(file);
+  }
+  return batch;
+}
+
+/**
+ * Reads files' texts in one request, by blob SHA. A failure other than the
+ * caller's time running out or GitHub's rate limit reads as no texts, so
+ * each file is read on its own instead, as is any file the request leaves
+ * out. A request of fewer than two files isn't worth sending.
+ */
+async function readTextsTogether(
+  target: GitHubRepositoryTarget,
+  shas: string[],
+): Promise<Map<string, string>> {
+  if (shas.length < 2) return new Map();
+  try {
+    return await readGitHubBlobTexts(target, shas);
+  } catch (error) {
+    if (error instanceof GitHubSourceDeadlineError) throw error;
+    // GitHub asked for fewer requests, so the sync stops and says so, as it
+    // does at a REST rate limit, rather than send a request a file.
+    if (error instanceof GitHubSourceError && error.code === "rate_limited") {
+      throw error;
+    }
+    // coercion-ok: each file is read on its own instead.
+    console.warn(
+      "[github-source] batched read failed:",
+      error instanceof Error ? error.message : String(error),
+    );
+    return new Map();
   }
 }
 
@@ -206,6 +281,7 @@ const PROBLEM_STATUS: Record<GitHubSourceProblemCode, number> = {
   unavailable: 502,
   sync_failed: 500,
   storage_unavailable: 503,
+  storage_failed: 503,
 };
 
 /** Gives a GitHub read failure the error code and status agents act on. */
@@ -368,13 +444,27 @@ export async function previewGitHubFolder(
   }
   const sampleEntries = files.markdown.slice(0, PREVIEW_SAMPLE_FILES);
   const skipped = [...files.skipped];
+  // In as few requests as the sync's caps on one allow.
+  const texts = new Map<string, string>();
+  for (let from = 0; from < sampleEntries.length; ) {
+    const batch = fitTextBatch(
+      sampleEntries.slice(from),
+      (entry) => entry.size,
+    );
+    const read = await readTextsTogether(
+      target,
+      batch.map((entry) => entry.sha),
+    );
+    for (const [sha, text] of read) texts.set(sha, text);
+    from += batch.length;
+  }
   const drafts = await mapLimit(
     sampleEntries,
     PREVIEW_READ_CONCURRENCY,
     async (entry) => {
-      const text = decodeText(
-        await readGitHubBlob({ ...target, sha: entry.sha }),
-      );
+      const text =
+        texts.get(entry.sha) ??
+        decodeText(await readGitHubBlob({ ...target, sha: entry.sha }));
       if (text === null) {
         skipped.push({ path: entry.path, reason: "not-text" });
         return null;
@@ -670,8 +760,14 @@ interface RowState {
   frontmatterId: string | null;
   /** Images uploaded for this page, by folder-relative path. */
   assets: Record<string, { sha: string; url: string }>;
-  /** Images left out because file storage isn't set up; retried once it is. */
+  /** Images left out because file storage isn't set up or failed; retried later. */
   imagesWaiting?: number;
+  /**
+   * When an upload of one of this page's images last failed. Such pages are
+   * retried after the rest, oldest failure first, so an image storage always
+   * rejects can't hold back the others.
+   */
+  imagesFailedAt?: string;
 }
 
 function rowState(row: Pick<SourceRow, "sourceValuesJson">): RowState | null {
@@ -702,6 +798,9 @@ function rowState(row: Pick<SourceRow, "sourceValuesJson">): RowState | null {
     assets,
     ...(typeof value.imagesWaiting === "number" && value.imagesWaiting > 0
       ? { imagesWaiting: value.imagesWaiting }
+      : {}),
+    ...(typeof value.imagesFailedAt === "string"
+      ? { imagesFailedAt: value.imagesFailedAt }
       : {}),
   };
 }
@@ -734,9 +833,32 @@ export interface GitHubSyncResult {
   renamed: number;
   trashed: number;
   remaining: number;
-  /** Images left out because file storage isn't set up. */
+  /** Images left out because file storage isn't set up or failed. */
   imagesWaiting: number;
   problem: GitHubSourceState["problem"];
+}
+
+/**
+ * How many images the planned pages wait on: what this run left out of the
+ * pages it wrote, and what their last sync left out of the rest. Also whether
+ * any of those images failed to upload, rather than waiting for storage.
+ */
+function waitingImages(planned: readonly PlannedFile[]) {
+  let waiting = 0;
+  let failed = false;
+  for (const file of planned) {
+    // A skipped file's page keeps its last version until the file changes,
+    // so no sync can add its images before then, storage or not.
+    if (file.skipped) continue;
+    const linked = file.row ?? file.renamedFrom;
+    const last = linked ? rowState(linked) : null;
+    const count = file.imagesWaiting ?? last?.imagesWaiting ?? 0;
+    waiting += count;
+    if (count > 0 && (file.imagesFailed ?? Boolean(last?.imagesFailedAt))) {
+      failed = true;
+    }
+  }
+  return { waiting, failed };
 }
 
 function emptyResult(
@@ -778,17 +900,29 @@ export function unexpectedSyncFailure(at: string): GitHubSyncResult {
   return emptyResult("error", null, unexpectedProblem(at));
 }
 
-/** The status problem for images a sync couldn't store, if there are any. */
+/**
+ * The status problem for images a sync couldn't store, if there are any:
+ * storage isn't set up, or `failed` when it's set up but couldn't save them.
+ */
 function storageProblem(
   imagesWaiting: number,
   at: string,
+  failed = false,
 ): GitHubSourceState["problem"] {
   if (imagesWaiting === 0) return null;
-  return {
-    code: "storage_unavailable",
-    message: `${imagesWaiting === 1 ? "1 image isn't" : `${imagesWaiting} images aren't`} shown because file storage isn't set up. Connect storage in Settings → File uploads; the next sync adds ${imagesWaiting === 1 ? "it" : "them"}.`,
-    at,
-  };
+  const images =
+    imagesWaiting === 1 ? "1 image isn't" : `${imagesWaiting} images aren't`;
+  return failed
+    ? {
+        code: "storage_failed",
+        message: `${images} shown because file storage couldn't save images. The next sync tries again.`,
+        at,
+      }
+    : {
+        code: "storage_unavailable",
+        message: `${images} shown because file storage isn't set up. Connect storage in Settings → File uploads; the next sync adds ${imagesWaiting === 1 ? "it" : "them"}.`,
+        at,
+      };
 }
 
 async function readSource(sourceId: string) {
@@ -906,8 +1040,14 @@ interface PlannedFile {
   renamedFrom: SourceRow | null;
   /** The file's text once read, or null when it isn't UTF-8. */
   text?: string | null;
+  /** A batched read tried the file, so it isn't asked for again. */
+  batched?: boolean;
   /** Images this sync couldn't store for the file's page. */
   imagesWaiting?: number;
+  /** Whether any of those failed to upload, this sync or an earlier one. */
+  imagesFailed?: boolean;
+  /** Whether the file can't become a page, this sync or an earlier one. */
+  skipped?: boolean;
 }
 
 interface SyncRun {
@@ -925,8 +1065,17 @@ interface SyncRun {
   documentIdByPath: Map<string, string>;
   /** Uploaded image URL by blob SHA, shared across pages. */
   assetUrlBySha: Map<string, string>;
+  /**
+   * Blob SHAs of images whose upload failed this run. Other pages that use
+   * one leave it out without trying again, so one image counts once.
+   */
+  failedAssetShas: Set<string>;
   /** Set once an upload finds no file storage, so later images skip the read. */
   storageMissing: boolean;
+  /** Set once an upload fails, so the status says storage couldn't save images. */
+  storageFailed: boolean;
+  /** Uploads that failed since the last one that worked; see `storageDown`. */
+  uploadFailuresInARow: number;
   now: string;
   actor: string;
   /** Aborts GitHub requests once the sync's time budget runs out. */
@@ -949,13 +1098,86 @@ function folderRelative(run: SyncRun, repoPath: string) {
 }
 
 /**
- * Copies one image into Content's file storage. `"no-storage"` means none is
- * set up, so the page leaves the image out until a later sync can store it.
+ * Stores one image's bytes and returns its URL. Returns null when storage
+ * isn't set up, which stops the run's uploads, or `"failed"` when this upload
+ * failed; a later sync tries it again. `uploadFile` also returns nothing when
+ * it couldn't check a Builder credential, so storage that's still set up
+ * after an empty answer counts as a failed upload.
+ */
+async function storeImage(
+  run: SyncRun,
+  file: Omit<Parameters<typeof uploadFile>[0], "ownerEmail">,
+): Promise<{ url: string } | "failed" | null> {
+  try {
+    const uploaded = await asLinker(run.state, run.database.orgId, () =>
+      uploadFile({ ...file, ownerEmail: run.database.ownerEmail }),
+    );
+    if (uploaded?.url) {
+      run.uploadFailuresInARow = 0;
+      return { url: uploaded.url };
+    }
+    const provider = await asLinker(run.state, run.database.orgId, () =>
+      getActiveFileUploadProviderForRequest(),
+    );
+    if (provider) return uploadFailed(run, "file storage returned no URL");
+    run.storageMissing = true;
+    return null;
+  } catch (error) {
+    return uploadFailed(
+      run,
+      error instanceof Error ? error.message : String(error),
+    );
+  }
+}
+
+function uploadFailed(run: SyncRun, reason: string): "failed" {
+  console.warn(
+    "[github-source] couldn't save an image to file storage; the next sync tries again:",
+    reason,
+  );
+  run.storageFailed = true;
+  run.uploadFailuresInARow += 1;
+  return "failed";
+}
+
+/**
+ * Uploads that fail in a row before a sync stops trying for the rest of its
+ * run. One failure may be that image alone, such as a file storage rejects;
+ * several different images in a row mean storage itself is down.
+ */
+const STORAGE_DOWN_FAILURES = 3;
+
+/** Whether later images should wait for a later sync without being read. */
+function storageDown(run: SyncRun) {
+  return (
+    run.storageMissing || run.uploadFailuresInARow >= STORAGE_DOWN_FAILURES
+  );
+}
+
+/**
+ * Whether a file's page would be rebuilt only to add its images while
+ * storage is down. It would come out the same, so it waits for a later sync
+ * without reading GitHub.
+ */
+function waitsForStorage(run: SyncRun, file: PlannedFile) {
+  return (
+    storageDown(run) &&
+    !!file.row &&
+    rowState(file.row)?.blobSha === file.entry.sha
+  );
+}
+
+/**
+ * Copies one image into Content's file storage. `"no-storage"` means storage
+ * isn't set up or is down, and `"failed"` that this upload failed; either way
+ * the page leaves the image out until a later sync can store it.
+ * `beforeUpload` runs before each copy the sync can't take back.
  */
 async function uploadAsset(
   run: SyncRun,
   request: ImportAssetRequest,
-): Promise<{ sha: string; url: string } | "no-storage" | null> {
+  beforeUpload: () => Promise<void>,
+): Promise<{ sha: string; url: string } | "no-storage" | "failed" | null> {
   if (request.kind === "data-url") {
     if (!isImportImageMediaType(request.mediaType)) return null;
     const data = dataUrlBytes(request.dataUrl);
@@ -963,22 +1185,22 @@ async function uploadAsset(
     const sha = hash(request.dataUrl);
     const cached = run.assetUrlBySha.get(sha);
     if (cached) return { sha, url: cached };
-    if (run.storageMissing) return "no-storage";
+    if (run.failedAssetShas.has(sha)) return "failed";
+    if (storageDown(run)) return "no-storage";
+    await beforeUpload();
     const extension = request.mediaType.split("/")[1]?.split("+")[0] ?? "img";
-    const uploaded = await asLinker(run.state, run.database.orgId, () =>
-      uploadFile({
-        data,
-        filename: `github-image.${extension}`,
-        mimeType: request.mediaType,
-        ownerEmail: run.database.ownerEmail,
-      }),
-    );
-    if (!uploaded?.url) {
-      run.storageMissing = true;
-      return "no-storage";
+    const stored = await storeImage(run, {
+      data,
+      filename: `github-image.${extension}`,
+      mimeType: request.mediaType,
+    });
+    if (stored === "failed") {
+      run.failedAssetShas.add(sha);
+      return stored;
     }
-    run.assetUrlBySha.set(sha, uploaded.url);
-    return { sha, url: uploaded.url };
+    if (!stored) return "no-storage";
+    run.assetUrlBySha.set(sha, stored.url);
+    return { sha, url: stored.url };
   }
   const entry = run.files.blobs.get(request.path);
   const mimeType = importImageMediaType(request.path);
@@ -988,8 +1210,10 @@ async function uploadAsset(
   }
   const cached = run.assetUrlBySha.get(entry.sha);
   if (cached) return { sha: entry.sha, url: cached };
-  if (run.storageMissing) return "no-storage";
-  const data = await asLinker(run.state, run.database.orgId, () =>
+  if (run.failedAssetShas.has(entry.sha)) return "failed";
+  if (storageDown(run)) return "no-storage";
+  await beforeUpload();
+  const data = await readAsLinker(run.state, run.database.orgId, () =>
     readGitHubBlob({
       owner: run.state.owner,
       repo: run.state.repo,
@@ -998,20 +1222,18 @@ async function uploadAsset(
       signal: run.signal,
     }),
   );
-  const uploaded = await asLinker(run.state, run.database.orgId, () =>
-    uploadFile({
-      data,
-      filename: request.path.split("/").pop() ?? "image",
-      mimeType,
-      ownerEmail: run.database.ownerEmail,
-    }),
-  );
-  if (!uploaded?.url) {
-    run.storageMissing = true;
-    return "no-storage";
+  const stored = await storeImage(run, {
+    data,
+    filename: request.path.split("/").pop() ?? "image",
+    mimeType,
+  });
+  if (stored === "failed") {
+    run.failedAssetShas.add(entry.sha);
+    return stored;
   }
-  run.assetUrlBySha.set(entry.sha, uploaded.url);
-  return { sha: entry.sha, url: uploaded.url };
+  if (!stored) return "no-storage";
+  run.assetUrlBySha.set(entry.sha, stored.url);
+  return { sha: entry.sha, url: stored.url };
 }
 
 /**
@@ -1019,7 +1241,12 @@ async function uploadAsset(
  * uses, with images copied into Content storage and links to other files in
  * the folder pointing at their pages.
  */
-async function buildPage(run: SyncRun, relativePath: string, text: string) {
+async function buildPage(
+  run: SyncRun,
+  relativePath: string,
+  text: string,
+  beforeUpload: () => Promise<void>,
+) {
   const draft = parseMarkdownImport({
     sourcePath: relativePath,
     text,
@@ -1045,10 +1272,14 @@ async function buildPage(run: SyncRun, relativePath: string, text: string) {
   const assets: RowState["assets"] = {};
   const urls = new Map<string, string>();
   let imagesWaiting = 0;
+  let imagesFailed = false;
   for (const [key, request] of requests) {
-    const uploaded = await uploadAsset(run, request);
-    if (uploaded === "no-storage") imagesWaiting += 1;
-    if (!uploaded || uploaded === "no-storage") continue;
+    const uploaded = await uploadAsset(run, request, beforeUpload);
+    if (uploaded === "no-storage" || uploaded === "failed") imagesWaiting += 1;
+    if (uploaded === "failed") imagesFailed = true;
+    if (!uploaded || uploaded === "no-storage" || uploaded === "failed") {
+      continue;
+    }
     urls.set(key, uploaded.url);
     if (request.kind === "file") assets[request.path] = uploaded;
   }
@@ -1070,16 +1301,20 @@ async function buildPage(run: SyncRun, relativePath: string, text: string) {
     },
     "apply",
   );
-  return { draft, page, assets, imagesWaiting };
+  return { draft, page, assets, imagesWaiting, imagesFailed };
 }
 
-/** Writes the file's frontmatter into its columns; true when a value changed. */
-async function writePropertyValues(
+/**
+ * Makes the folder's columns fit a file's values: adds a column for a new
+ * key and widens one a value doesn't fit. The select options the values name
+ * are added now, or collected in `options` by a caller adding many files'.
+ */
+async function fitColumns(
   tx: Db,
   run: SyncRun,
-  documentId: string,
   values: Record<string, unknown>,
-): Promise<boolean> {
+  options?: Map<GitHubColumn, unknown[]>,
+) {
   for (const [key, value] of Object.entries(values)) {
     if (run.removedKeys.has(key) || value === null || value === undefined) {
       continue;
@@ -1097,8 +1332,46 @@ async function writePropertyValues(
     } else if (!fitsGitHubFieldType(column.type, value)) {
       await widenColumnToText(tx, column, run.now);
     }
-    await ensureOptions(tx, column, value, run.now);
+    if (options) options.set(column, [...(options.get(column) ?? []), value]);
+    else await ensureOptions(tx, column, value, run.now);
   }
+}
+
+/** A new page's property values, in its columns' current types. */
+function newPropertyValues(
+  run: SyncRun,
+  documentId: string,
+  values: Record<string, unknown>,
+) {
+  const rows: Array<typeof schema.documentPropertyValues.$inferInsert> = [];
+  for (const column of run.columns.values()) {
+    const normalized = normalizePropertyValueWithOptions(
+      column.type,
+      githubFieldPropertyInput(column.type, values[column.key]),
+      column.options,
+    );
+    if (normalized === null) continue;
+    rows.push({
+      id: nanoid(),
+      ownerEmail: run.database.ownerEmail,
+      documentId,
+      propertyId: column.propertyId,
+      valueJson: serializePropertyValue(normalized),
+      createdAt: run.now,
+      updatedAt: run.now,
+    });
+  }
+  return rows;
+}
+
+/** Writes the file's frontmatter into its columns; true when a value changed. */
+async function writePropertyValues(
+  tx: Db,
+  run: SyncRun,
+  documentId: string,
+  values: Record<string, unknown>,
+): Promise<boolean> {
+  await fitColumns(tx, run, values);
 
   const columns = [...run.columns.values()];
   if (columns.length === 0) return false;
@@ -1166,32 +1439,16 @@ function sourceRowValues(
   return JSON.stringify({ ...values, [ROW_STATE_KEY]: state });
 }
 
-async function upsertSourceRow(
-  tx: Db,
-  run: SyncRun,
-  args: {
-    rowId: string;
-    itemId: string;
-    documentId: string;
-    state: RowState;
-    values: Record<string, unknown>;
-  },
-) {
-  const values = {
-    sourceId: run.sourceId,
-    databaseItemId: args.itemId,
-    documentId: args.documentId,
-    sourceRowId: args.state.path,
-    sourceQualifiedId: `github://${run.state.owner}/${run.state.repo}/${encodeURIComponent(run.state.branch)}/${args.state.path}`,
-    sourceDisplayKey: args.state.path,
-    sourceValuesJson: sourceRowValues(run, args.state, args.values),
-    provenance: "github",
-    syncState: "linked",
-    freshness: "fresh",
-    lastSyncedAt: run.now,
-    lastSourceUpdatedAt: run.now,
-    updatedAt: run.now,
-  };
+interface SourceRowArgs {
+  rowId: string;
+  itemId: string;
+  documentId: string;
+  state: RowState;
+  values: Record<string, unknown>;
+}
+
+async function upsertSourceRow(tx: Db, run: SyncRun, args: SourceRowArgs) {
+  const values = sourceRowFields(run, args);
   await tx
     .insert(schema.contentDatabaseSourceRows)
     .values({
@@ -1207,6 +1464,24 @@ async function upsertSourceRow(
     .where(eq(schema.contentDatabaseSourceRows.id, args.rowId));
 }
 
+function sourceRowFields(run: SyncRun, args: SourceRowArgs) {
+  return {
+    sourceId: run.sourceId,
+    databaseItemId: args.itemId,
+    documentId: args.documentId,
+    sourceRowId: args.state.path,
+    sourceQualifiedId: `github://${run.state.owner}/${run.state.repo}/${encodeURIComponent(run.state.branch)}/${args.state.path}`,
+    sourceDisplayKey: args.state.path,
+    sourceValuesJson: sourceRowValues(run, args.state, args.values),
+    provenance: "github",
+    syncState: "linked",
+    freshness: "fresh",
+    lastSyncedAt: run.now,
+    lastSourceUpdatedAt: run.now,
+    updatedAt: run.now,
+  };
+}
+
 type FileOutcome =
   | "created"
   | "updated"
@@ -1216,7 +1491,7 @@ type FileOutcome =
 
 async function readFileText(run: SyncRun, file: PlannedFile) {
   if (file.text !== undefined) return file.text;
-  const bytes = await asLinker(run.state, run.database.orgId, () =>
+  const bytes = await readAsLinker(run.state, run.database.orgId, () =>
     readGitHubBlob({
       owner: run.state.owner,
       repo: run.state.repo,
@@ -1229,6 +1504,124 @@ async function readFileText(run: SyncRun, file: PlannedFile) {
   return file.text;
 }
 
+/** A file no read has tried yet, on its own or with others. */
+function unread(file: PlannedFile) {
+  return file.text === undefined && !file.batched;
+}
+
+/**
+ * Reads the texts of the next files in one request, so a big push reads in
+ * a few requests rather than one a file. A file the batch can't read, like
+ * one GitHub sees as binary, is read on its own when its turn comes, as is
+ * every file when the batch fails.
+ */
+async function readTextsAhead(run: SyncRun, work: PlannedFile[], from: number) {
+  const batch = fitTextBatch(
+    work
+      .slice(from)
+      .filter((file) => unread(file) && !waitsForStorage(run, file)),
+    (file) => file.entry.size,
+  );
+  if (batch.length < 2) return;
+  for (const file of batch) file.batched = true;
+  const texts = await readAsLinker(run.state, run.database.orgId, () =>
+    readTextsTogether(
+      {
+        owner: run.state.owner,
+        repo: run.state.repo,
+        connectionId: run.state.connectionId,
+        signal: run.signal,
+      },
+      batch.map((file) => file.entry.sha),
+    ),
+  );
+  for (const file of batch) {
+    const text = texts.get(file.entry.sha);
+    if (text !== undefined) file.text = text;
+  }
+}
+
+/** A file read and built into the page it becomes, ready to write. */
+interface BuiltFile {
+  file: PlannedFile;
+  page: Awaited<ReturnType<typeof buildPage>>["page"];
+  values: Record<string, unknown>;
+  state: RowState;
+}
+
+/**
+ * Reads a file and builds its page, copying its images into storage. A file
+ * that can't become a page comes back as the reason it's skipped.
+ */
+async function buildFile(
+  run: SyncRun,
+  file: PlannedFile,
+): Promise<BuiltFile | { skipped: GitHubSourceSkipReason }> {
+  const text = await readFileText(run, file);
+  if (text === null) return { skipped: "not-text" };
+  const linkedRow = file.row ?? file.renamedFrom;
+  // An upload can't roll back with the write, so a page the write would refuse
+  // refuses before the first one. Only a page this file's record still links
+  // refuses here: a restore that released the record gives the file a new
+  // page. The write rechecks both under its locks.
+  let uploadsAllowed: Promise<void> | undefined;
+  const beforeUpload = () =>
+    (uploadsAllowed ??= (async () => {
+      if (linkedRow && (await recordStillLinked(run.db, linkedRow))) {
+        await assertLegacyBodyWriter(linkedRow.documentId, GITHUB_BODY_WRITER);
+      }
+    })());
+  const { draft, page, assets, imagesWaiting, imagesFailed } = await buildPage(
+    run,
+    file.entry.path,
+    text,
+    beforeUpload,
+  );
+  if (page.content.length > MAX_IMPORT_PAGE_CHARACTERS) {
+    return { skipped: "too-large" };
+  }
+  const values = frontmatterValues(draft);
+  const previous = linkedRow ? rowState(linkedRow) : null;
+  return {
+    file,
+    page,
+    values,
+    state: {
+      path: file.repoPath,
+      blobSha: file.entry.sha,
+      contentHash: hash(page.content),
+      metaHash: metaHash(page),
+      frontmatterId: frontmatterId(values),
+      assets,
+      ...(imagesWaiting ? { imagesWaiting } : {}),
+      // A page whose images only waited this time keeps its place in line.
+      ...(imagesFailed
+        ? { imagesFailedAt: run.now }
+        : imagesWaiting && previous?.imagesFailedAt
+          ? { imagesFailedAt: previous.imagesFailedAt }
+          : {}),
+    },
+  };
+}
+
+/**
+ * Counts what this run left out of a page once the page is saved. One that
+ * failed to save keeps its row's count, so the next sync still goes back for
+ * them.
+ */
+function countSavedImages({ file, state }: BuiltFile) {
+  file.imagesWaiting = state.imagesWaiting ?? 0;
+  file.imagesFailed = Boolean(state.imagesFailedAt);
+}
+
+/** Holds the collection's next positions while a write may append to it. */
+function withAppendPositions<T>(run: SyncRun, write: () => Promise<T>) {
+  return withPositionLock(
+    documentsPositionScope(run.database.ownerEmail, run.database.documentId),
+    () => withPositionLock(databaseItemsPositionScope(run.database.id), write),
+  );
+}
+
 /**
  * Reads one file and makes its row match it, in one transaction. A file
  * that can't become a page is skipped with its reason, and its row, if it
@@ -1238,253 +1631,402 @@ async function applyFile(
   run: SyncRun,
   file: PlannedFile,
 ): Promise<FileOutcome> {
-  const relativePath = file.entry.path;
-  const text = await readFileText(run, file);
-  if (text === null) return { skipped: "not-text" };
-  const { draft, page, assets, imagesWaiting } = await buildPage(
-    run,
-    relativePath,
-    text,
-  );
-  if (page.content.length > MAX_IMPORT_PAGE_CHARACTERS) {
-    return { skipped: "too-large" };
-  }
-  file.imagesWaiting = imagesWaiting;
-  const values = frontmatterValues(draft);
+  const built = await buildFile(run, file);
+  if ("skipped" in built) return built;
+  const { page, values, state: nextState } = built;
   const linkedRow = file.row ?? file.renamedFrom;
   const previous = linkedRow ? rowState(linkedRow) : null;
-  const nextState: RowState = {
-    path: file.repoPath,
-    blobSha: file.entry.sha,
-    contentHash: hash(page.content),
-    metaHash: metaHash(page),
-    frontmatterId: frontmatterId(values),
-    assets,
-    ...(imagesWaiting ? { imagesWaiting } : {}),
-  };
 
-  return withPositionLock(
-    documentsPositionScope(run.database.ownerEmail, run.database.documentId),
-    () =>
-      withPositionLock(databaseItemsPositionScope(run.database.id), () =>
-        run.db.transaction(async (tx: Db): Promise<FileOutcome> => {
-          await lockLinkedCollection(tx, run);
-          // A restore that released the page since this sync planned the
-          // file deleted its record; the file then gets a new page.
-          const linked =
-            linkedRow && (await recordStillLinked(tx, linkedRow))
-              ? linkedRow
-              : null;
-          if (linked) {
-            const [document] = await tx
-              .select()
-              .from(schema.documents)
-              .where(eq(schema.documents.id, linked.documentId));
-            if (document) {
-              const bodyChanged =
-                !previous ||
-                previous.contentHash !== nextState.contentHash ||
-                previous.metaHash !== nextState.metaHash;
-              const moved = document.sourcePath !== file.repoPath;
-              if (bodyChanged) {
-                const [written] = await tx
-                  .update(schema.documents)
-                  .set({
-                    title: page.title,
-                    content: page.content,
-                    bodyRevision: bodyRevisionForContent(page.content),
-                    description: page.description ?? "",
-                    icon: page.icon ?? document.icon,
-                    sourcePath: file.repoPath,
-                    sourceUpdatedAt: run.now,
-                    updatedAt: run.now,
-                  })
-                  .where(eq(schema.documents.id, document.id))
-                  .returning({ bodyRevision: schema.documents.bodyRevision });
-                if (
-                  document.title !== page.title ||
-                  document.content !== page.content
-                ) {
-                  await recordDocumentHistoryTransition({
-                    db: tx,
-                    ownerEmail: document.ownerEmail,
-                    documentId: document.id,
-                    before: {
-                      title: document.title,
-                      content: document.content,
-                    },
-                    after: { title: page.title, content: page.content },
-                    beforeBodyRevision: document.bodyRevision,
-                    afterBodyRevision: written?.bodyRevision,
-                    cause: {
-                      groupId: `github:${run.sourceId}:${run.commitSha}:${document.id}`,
-                      groupKind: "operation",
-                      actorKind: "source",
-                      actorEmail: null,
-                      origin: "github",
-                      operation: GITHUB_SYNC_OPERATION,
-                    },
-                    now: run.now,
-                  });
-                }
-              } else if (moved) {
-                await tx
-                  .update(schema.documents)
-                  .set({
-                    sourcePath: file.repoPath,
-                    sourceUpdatedAt: run.now,
-                    updatedAt: run.now,
-                  })
-                  .where(eq(schema.documents.id, document.id));
-              }
-              const valuesChanged = await writePropertyValues(
-                tx,
-                run,
-                document.id,
-                values,
-              );
-              await upsertSourceRow(tx, run, {
-                rowId: linked.id,
-                itemId: linked.databaseItemId,
+  const outcome = await withAppendPositions(run, () =>
+    run.db.transaction(async (tx: Db): Promise<FileOutcome> => {
+      await lockLinkedCollection(tx, run);
+      // A restore that released the page since this sync planned the
+      // file deleted its record; the file then gets a new page.
+      const linked =
+        linkedRow && (await recordStillLinked(tx, linkedRow))
+          ? linkedRow
+          : null;
+      if (linked) {
+        // guard:allow-unscoped — the id comes from the collection's own
+        // source record, which this transaction just found still linked
+        // under the collection's lock.
+        const [document] = await tx
+          .select()
+          .from(schema.documents)
+          .where(eq(schema.documents.id, linked.documentId));
+        if (document) {
+          const bodyChanged =
+            !previous ||
+            previous.contentHash !== nextState.contentHash ||
+            previous.metaHash !== nextState.metaHash;
+          const moved = document.sourcePath !== file.repoPath;
+          if (bodyChanged) {
+            const legacy = await lockLegacyBodyWrites(tx, [document.id], {
+              ...GITHUB_BODY_WRITER,
+              content: page.content,
+            });
+            const [written] = await tx
+              .update(schema.documents)
+              .set({
+                title: page.title,
+                content: page.content,
+                bodyRevision: legacy.bodyRevision(page.content),
+                description: page.description ?? "",
+                icon: page.icon ?? document.icon,
+                sourcePath: file.repoPath,
+                sourceUpdatedAt: run.now,
+                updatedAt: run.now,
+              })
+              .where(eq(schema.documents.id, document.id))
+              .returning({ bodyRevision: schema.documents.bodyRevision });
+            if (
+              document.title !== page.title ||
+              document.content !== page.content
+            ) {
+              await recordDocumentHistoryTransition({
+                db: tx,
+                ownerEmail: document.ownerEmail,
                 documentId: document.id,
-                state: nextState,
-                values,
+                before: {
+                  title: document.title,
+                  content: document.content,
+                },
+                after: { title: page.title, content: page.content },
+                beforeBodyRevision: document.bodyRevision,
+                afterBodyRevision: written?.bodyRevision,
+                cause: {
+                  groupId: `github:${run.sourceId}:${run.commitSha}:${document.id}`,
+                  groupKind: "operation",
+                  actorKind: "source",
+                  actorEmail: null,
+                  origin: "github",
+                  operation: GITHUB_SYNC_OPERATION,
+                },
+                now: run.now,
               });
-              return file.renamedFrom
-                ? "renamed"
-                : bodyChanged || valuesChanged
-                  ? "updated"
-                  : "unchanged";
             }
-            // The page is gone for good (purged from Trash): the file gets a
-            // new page, and the stale row is replaced below.
+          } else if (moved) {
             await tx
-              .delete(schema.contentDatabaseSourceRows)
-              .where(eq(schema.contentDatabaseSourceRows.id, linked.id));
+              .update(schema.documents)
+              .set({
+                sourcePath: file.repoPath,
+                sourceUpdatedAt: run.now,
+                updatedAt: run.now,
+              })
+              .where(eq(schema.documents.id, document.id));
           }
-
-          let documentId = run.documentIdByPath.get(relativePath)!;
-          const [taken] = await tx
-            .select({ id: schema.documents.id })
-            .from(schema.documents)
-            .where(eq(schema.documents.id, documentId));
-          if (taken) {
-            documentId = opaqueId(
-              "content_github_page",
-              `${run.sourceId}:${file.repoPath}:${run.commitSha}`,
-            );
-            run.documentIdByPath.set(relativePath, documentId);
-          }
-          const itemId = itemIdForDocument(run, documentId);
-          const [maxDocument] = await tx
-            .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
-            .from(schema.documents)
-            .where(
-              and(
-                eq(schema.documents.ownerEmail, run.database.ownerEmail),
-                eq(schema.documents.parentId, run.database.documentId),
-              ),
-            );
-          const [maxItem] = await tx
-            .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
-            .from(schema.contentDatabaseItems)
-            .where(eq(schema.contentDatabaseItems.databaseId, run.database.id));
-          await tx.insert(schema.documents).values({
-            id: documentId,
-            spaceId: run.database.spaceId ?? run.databaseDocument.spaceId,
-            ownerEmail: run.database.ownerEmail,
-            orgId: run.database.orgId,
-            parentId: run.database.documentId,
-            title: page.title,
-            content: page.content,
-            description: page.description ?? "",
-            icon: page.icon,
-            position: nextAppendPosition(maxDocument?.max),
-            isFavorite: 0,
-            hideFromSearch: run.databaseDocument.hideFromSearch ?? 0,
-            visibility: run.databaseDocument.visibility ?? "private",
-            sourceMode: "github",
-            sourceKind: "file",
-            sourcePath: file.repoPath,
-            sourceRootPath: run.sourceTable,
-            sourceUpdatedAt: run.now,
-            createdBy: run.actor,
-            updatedBy: run.actor,
-            createdAt: run.now,
-            updatedAt: run.now,
-          });
-          await tx.insert(schema.contentDatabaseItems).values({
-            id: itemId,
-            ownerEmail: run.database.ownerEmail,
-            orgId: run.database.orgId,
-            databaseId: run.database.id,
-            documentId,
-            position: nextAppendPosition(maxItem?.max),
-            createdAt: run.now,
-            updatedAt: run.now,
-          });
-          const shares = await tx
-            .select({
-              principalType: schema.documentShares.principalType,
-              principalId: schema.documentShares.principalId,
-              role: schema.documentShares.role,
-            })
-            .from(schema.documentShares)
-            .where(
-              eq(schema.documentShares.resourceId, run.database.documentId),
-            );
-          if (shares.length > 0) {
-            await tx.insert(schema.documentShares).values(
-              shares.map((share) => ({
-                id: nanoid(),
-                resourceId: documentId,
-                principalType: share.principalType,
-                principalId: share.principalId,
-                role: share.role,
-                createdBy: run.actor,
-                createdAt: run.now,
-              })),
-            );
-          }
-          await ensureDocumentsFilesMembership(
+          const valuesChanged = await writePropertyValues(
             tx,
-            [documentId],
-            run.now,
-            run.database.ownerEmail,
+            run,
+            document.id,
+            values,
           );
-          const created = { title: page.title, content: page.content };
-          await recordDocumentHistoryTransition({
-            db: tx,
-            ownerEmail: run.database.ownerEmail,
-            documentId,
-            before: created,
-            after: created,
-            cause: {
-              groupId: `github:${run.sourceId}:${run.commitSha}:${documentId}`,
-              groupKind: "operation",
-              actorKind: "source",
-              actorEmail: null,
-              origin: "github",
-              skipBeforeCheckpoint: true,
-              operation: GITHUB_SYNC_OPERATION,
-            },
-            now: run.now,
-          });
-          await writePropertyValues(tx, run, documentId, values);
           await upsertSourceRow(tx, run, {
-            rowId: opaqueId(
-              "content_source_row",
-              `${run.sourceId}:${documentId}`,
-            ),
-            itemId,
-            documentId,
+            rowId: linked.id,
+            itemId: linked.databaseItemId,
+            documentId: document.id,
             state: nextState,
             values,
           });
-          return "created";
-        }),
-      ),
+          return file.renamedFrom
+            ? "renamed"
+            : bodyChanged || valuesChanged
+              ? "updated"
+              : "unchanged";
+        }
+        // The page is gone for good (purged from Trash): the file gets a
+        // new page, and the stale row is replaced below.
+        await tx
+          .delete(schema.contentDatabaseSourceRows)
+          .where(eq(schema.contentDatabaseSourceRows.id, linked.id));
+      }
+      await insertNewPages(tx, run, [built]);
+      return "created";
+    }),
   );
+  countSavedImages(built);
+  return outcome;
+}
+
+/** New files a sync writes in one transaction. */
+const NEW_FILE_BATCH = 50;
+
+/** A file without a page yet, which a batch can write with others like it. */
+function isNewFile(file: PlannedFile) {
+  return !file.row && !file.renamedFrom;
+}
+
+/**
+ * Builds new files' pages, then writes them together in one transaction, so
+ * a big folder's first fill doesn't spend most of its time on round trips.
+ * Returns an outcome for each file it got to, in order. Once the sync's time
+ * is up it starts no more files. When the time runs out reading one, it
+ * writes the pages before it and returns that file as `cutShort`; the files
+ * after it wait for the next sync. Any other failure while reading also
+ * writes the pages before it, then comes back as `failure`.
+ */
+async function applyNewFiles(
+  run: SyncRun,
+  files: PlannedFile[],
+): Promise<{
+  outcomes: FileOutcome[];
+  cutShort: PlannedFile | null;
+  failure: unknown;
+}> {
+  const outcomes: FileOutcome[] = [];
+  const pages: BuiltFile[] = [];
+  let cutShort: PlannedFile | null = null;
+  let failure: unknown = null;
+  for (const file of files) {
+    if (run.signal.aborted) break;
+    try {
+      const built = await buildFile(run, file);
+      outcomes.push("skipped" in built ? built : "created");
+      if (!("skipped" in built)) pages.push(built);
+    } catch (error) {
+      if (error instanceof GitHubSourceDeadlineError) cutShort = file;
+      else failure = error;
+      break;
+    }
+  }
+  if (pages.length > 0) {
+    await withAppendPositions(run, () =>
+      run.db.transaction(async (tx: Db) => {
+        await lockLinkedCollection(tx, run);
+        await insertNewPages(tx, run, pages);
+      }),
+    );
+    for (const page of pages) countSavedImages(page);
+  }
+  return { outcomes, cutShort, failure };
+}
+
+/** Which of these page ids a page already has, in Trash or out of it. */
+async function takenDocumentIds(db: Db, ids: string[]) {
+  const taken = new Set<string>();
+  for (const chunk of chunks(ids, bulkChunkSizeForColumnCount(1))) {
+    // guard:allow-unscoped — page ids are unique across every owner, so a
+    // new page's id must be free of all of them. Only ids are read.
+    const rows = await db
+      .select({ id: schema.documents.id })
+      .from(schema.documents)
+      .where(inArray(schema.documents.id, chunk));
+    for (const row of rows as Array<{ id: string }>) taken.add(row.id);
+  }
+  return taken;
+}
+
+/**
+ * Settles the ids new files' pages get. A sync settles every new file's
+ * before it builds any page, so links between the new pages point at the
+ * pages they become. An id a page already has, like one in Trash from an
+ * earlier link of the folder, stays that page's: the file's new page gets an
+ * id tied to this commit, or, when a relink of the same commit took that
+ * too, the next free one after it.
+ */
+async function settlePageIds(db: Db, run: SyncRun, files: PlannedFile[]) {
+  let unsettled = files.map((file) => ({
+    file,
+    id: run.documentIdByPath.get(file.entry.path)!,
+  }));
+  for (let attempt = 0; unsettled.length > 0; attempt++) {
+    const taken = await takenDocumentIds(
+      db,
+      unsettled.map(({ id }) => id),
+    );
+    unsettled = unsettled
+      .filter(({ id }) => taken.has(id))
+      .map(({ file }) => ({
+        file,
+        id: opaqueId(
+          "content_github_page",
+          `${run.sourceId}:${file.repoPath}:${run.commitSha}${attempt > 0 ? `:${attempt}` : ""}`,
+        ),
+      }));
+    for (const { file, id } of unsettled) {
+      run.documentIdByPath.set(file.entry.path, id);
+    }
+  }
+}
+
+/**
+ * Writes rows a few statements at a time rather than one a row, each small
+ * enough for SQLite's cap on the values one statement carries.
+ */
+async function inStatements<T extends object>(
+  rows: T[],
+  write: (rows: T[]) => Promise<unknown>,
+) {
+  if (rows.length === 0) return;
+  const size = bulkChunkSizeForColumnCount(Object.keys(rows[0]!).length);
+  for (const chunk of chunks(rows, size)) await write(chunk);
+}
+
+/**
+ * Adds new files' pages to the collection, a statement a table rather than
+ * a statement a page: the pages and their rows, after the rows already
+ * there, the collection's shares, History's first checkpoint, the
+ * frontmatter's values, and the records that tie each page to its file. The
+ * caller's transaction holds the collection's lock.
+ */
+async function insertNewPages(tx: Db, run: SyncRun, pages: BuiltFile[]) {
+  // The sync settled these ids before it built the pages. One is taken by
+  // now only when a restore released the file's page from the collection
+  // while this sync read the file: that page keeps its id.
+  await settlePageIds(
+    tx,
+    run,
+    pages.map(({ file }) => file),
+  );
+  const documentIds = pages.map(
+    ({ file }) => run.documentIdByPath.get(file.entry.path)!,
+  );
+  const itemIds = documentIds.map((id) => itemIdForDocument(run, id));
+  const [maxDocument] = await tx
+    .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
+    .from(schema.documents)
+    .where(
+      and(
+        eq(schema.documents.ownerEmail, run.database.ownerEmail),
+        eq(schema.documents.parentId, run.database.documentId),
+      ),
+    );
+  const [maxItem] = await tx
+    .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
+    .from(schema.contentDatabaseItems)
+    .where(eq(schema.contentDatabaseItems.databaseId, run.database.id));
+  const documentPosition = createAppendPositionAllocator(maxDocument?.max);
+  const itemPosition = createAppendPositionAllocator(maxItem?.max);
+  await inStatements(
+    pages.map(({ file, page }, index) => ({
+      id: documentIds[index]!,
+      spaceId: run.database.spaceId ?? run.databaseDocument.spaceId,
+      ownerEmail: run.database.ownerEmail,
+      orgId: run.database.orgId,
+      parentId: run.database.documentId,
+      title: page.title,
+      content: page.content,
+      description: page.description ?? "",
+      icon: page.icon,
+      position: documentPosition(),
+      isFavorite: 0,
+      hideFromSearch: run.databaseDocument.hideFromSearch ?? 0,
+      visibility: run.databaseDocument.visibility ?? "private",
+      sourceMode: "github",
+      sourceKind: "file",
+      sourcePath: file.repoPath,
+      sourceRootPath: run.sourceTable,
+      sourceUpdatedAt: run.now,
+      createdBy: run.actor,
+      updatedBy: run.actor,
+      createdAt: run.now,
+      updatedAt: run.now,
+    })),
+    (rows) => tx.insert(schema.documents).values(rows),
+  );
+  await inStatements(
+    documentIds.map((documentId, index) => ({
+      id: itemIds[index]!,
+      ownerEmail: run.database.ownerEmail,
+      orgId: run.database.orgId,
+      databaseId: run.database.id,
+      documentId,
+      position: itemPosition(),
+      createdAt: run.now,
+      updatedAt: run.now,
+    })),
+    (rows) => tx.insert(schema.contentDatabaseItems).values(rows),
+  );
+  const shares = await tx
+    .select({
+      principalType: schema.documentShares.principalType,
+      principalId: schema.documentShares.principalId,
+      role: schema.documentShares.role,
+    })
+    .from(schema.documentShares)
+    .where(eq(schema.documentShares.resourceId, run.database.documentId));
+  await inStatements(
+    documentIds.flatMap((documentId) =>
+      shares.map((share) => ({
+        id: nanoid(),
+        resourceId: documentId,
+        principalType: share.principalType,
+        principalId: share.principalId,
+        role: share.role,
+        createdBy: run.actor,
+        createdAt: run.now,
+      })),
+    ),
+    (rows) => tx.insert(schema.documentShares).values(rows),
+  );
+  await ensureDocumentsFilesMembership(
+    tx,
+    documentIds,
+    run.now,
+    run.database.ownerEmail,
+  );
+  await recordCreatedDocumentsHistory({
+    db: tx,
+    ownerEmail: run.database.ownerEmail,
+    documents: pages.map(({ page }, index) => ({
+      documentId: documentIds[index]!,
+      title: page.title,
+      content: page.content,
+      cause: {
+        groupId: `github:${run.sourceId}:${run.commitSha}:${documentIds[index]}`,
+        groupKind: "operation",
+        actorKind: "source",
+        actorEmail: null,
+        origin: "github",
+        operation: GITHUB_SYNC_OPERATION,
+      },
+    })),
+    now: run.now,
+  });
+  // Every page's values fit the columns before any are written, and each
+  // column's new select options are added in one write.
+  const options = new Map<GitHubColumn, unknown[]>();
+  for (const { values } of pages) await fitColumns(tx, run, values, options);
+  for (const [column, values] of options) {
+    await ensureOptions(tx, column, values.flat(), run.now);
+  }
+  await inStatements(
+    pages.flatMap(({ values }, index) =>
+      newPropertyValues(run, documentIds[index]!, values),
+    ),
+    (rows) => tx.insert(schema.documentPropertyValues).values(rows),
+  );
+  const records = pages.map(({ state, values }, index) => ({
+    rowId: opaqueId(
+      "content_source_row",
+      `${run.sourceId}:${documentIds[index]}`,
+    ),
+    itemId: itemIds[index]!,
+    documentId: documentIds[index]!,
+    state,
+    values,
+  }));
+  const inserted = new Set<string>();
+  await inStatements(
+    records.map((record) => ({
+      id: record.rowId,
+      ownerEmail: run.database.ownerEmail,
+      createdAt: run.now,
+      ...sourceRowFields(run, record),
+    })),
+    async (rows) => {
+      const written = await tx
+        .insert(schema.contentDatabaseSourceRows)
+        .values(rows)
+        .onConflictDoNothing()
+        .returning({ id: schema.contentDatabaseSourceRows.id });
+      for (const row of written) inserted.add(row.id);
+    },
+  );
+  // A record an earlier link of the same page left behind is brought up to date.
+  for (const record of records) {
+    if (!inserted.has(record.rowId)) await upsertSourceRow(tx, run, record);
+  }
 }
 
 /**
@@ -1597,7 +2139,7 @@ async function matchRenames(
   };
   const addedByPath = new Map(added.map((file) => [file.repoPath, file]));
   if (run.state.syncedCommitSha) {
-    const renames = await asLinker(run.state, run.database.orgId, () =>
+    const renames = await readAsLinker(run.state, run.database.orgId, () =>
       readGitHubRenames({
         owner: run.state.owner,
         repo: run.state.repo,
@@ -1715,12 +2257,31 @@ export async function syncGitHubSource(
   // Files this run read and had to skip. A run that fails partway keeps
   // them too, so the next one doesn't read them again.
   let readSkipsSoFar: GitHubReadSkip[] | null = null;
+  // The images this run's planned files wait on, once it has planned them,
+  // whether storage failed to save some, and whether storage is set up. A run
+  // that fails partway records them, so the next sync goes back for the ones
+  // still missing, stops counting the ones it stored, and the status line
+  // still says why.
+  let imagesSoFar:
+    | (() => { waiting: number; failed: boolean; ready: boolean })
+    | null = null;
+  // Whether this run found storage set up for the images it found waiting,
+  // or null when it hasn't looked.
+  let storageFound: boolean | null = null;
+  const imagesNow = (current: GitHubSourceState) =>
+    imagesSoFar?.() ?? {
+      waiting: current.imagesWaiting,
+      // Storage this run found missing didn't fail to save them.
+      failed: current.imagesFailed && storageFound !== false,
+      ready: storageFound ?? current.storageReady,
+    };
   const failed = (problem: GitHubSourceState["problem"]): GitHubSyncResult => ({
     ...emptyResult("error", state.pendingCommitSha, problem),
     created: result.created,
     updated: result.updated,
     renamed: result.renamed,
     trashed: result.trashed,
+    imagesWaiting: imagesNow(state).waiting,
   });
   const endBudget = () => budget.abort();
   if (options.signal?.aborted) endBudget();
@@ -1729,19 +2290,21 @@ export async function syncGitHubSource(
   try {
     // Pages left without images get rebuilt once storage is set up, even
     // when the branch hasn't moved.
-    const retryImages =
-      state.imagesWaiting > 0 &&
-      Boolean(
-        await asLinker(state, database.orgId, () =>
-          getActiveFileUploadProviderForRequest(),
-        ),
-      );
+    storageFound =
+      state.imagesWaiting > 0
+        ? Boolean(
+            await asLinker(state, database.orgId, () =>
+              getActiveFileUploadProviderForRequest(),
+            ),
+          )
+        : null;
+    const retryImages = storageFound === true;
     const canSkip =
       !options.force &&
       !retryImages &&
       !!state.syncedCommitSha &&
       !state.pendingCommitSha;
-    const head = await asLinker(state, database.orgId, () =>
+    const head = await readAsLinker(state, database.orgId, () =>
       readGitHubBranchHead(
         {
           owner: state.owner,
@@ -1763,6 +2326,9 @@ export async function syncGitHubSource(
           checkedAt: now,
           headEtag: head.status === "ok" ? head.etag : current.headEtag,
           problem: storageProblem(current.imagesWaiting, now),
+          // Images wait here only when storage isn't set up.
+          imagesFailed: false,
+          storageReady: false,
         }),
         () => ({
           syncState: "linked",
@@ -1793,7 +2359,7 @@ export async function syncGitHubSource(
       });
     }
     const files = classifyFolder(
-      await asLinker(state, database.orgId, () =>
+      await readAsLinker(state, database.orgId, () =>
         readGitHubFolderTree({
           owner: state.owner,
           repo: state.repo,
@@ -1837,7 +2403,10 @@ export async function syncGitHubSource(
       removedKeys: removed,
       documentIdByPath: new Map(),
       assetUrlBySha,
+      failedAssetShas: new Set(),
       storageMissing: false,
+      storageFailed: false,
+      uploadFailuresInARow: 0,
       now,
       actor: state.linkedBy,
       signal: budget.signal,
@@ -1879,6 +2448,7 @@ export async function syncGitHubSource(
     for (const [path, row] of gone) {
       run.documentIdByPath.set(folderRelative(run, path), row.documentId);
     }
+    await settlePageIds(db, run, planned.filter(isNewFile));
 
     // A file skipped once it was read is skipped again while its blob is the
     // same, so it isn't read again. It has no row to record that on.
@@ -1890,6 +2460,7 @@ export async function syncGitHubSource(
       const skip = readSkipsByPath.get(file.entry.path);
       if (skip?.blobSha === file.entry.sha) {
         stillSkipped.push(skip);
+        file.skipped = true;
         return false;
       }
       const previous = file.row ? rowState(file.row) : null;
@@ -1905,20 +2476,122 @@ export async function syncGitHubSource(
     const cutShort = new Map(
       state.cutShort.map((path, index) => [path, index + 1]),
     );
-    work.sort(
-      (a, b) =>
-        (cutShort.get(a.repoPath) ?? 0) - (cutShort.get(b.repoPath) ?? 0),
+    // A renamed file keeps the place its old path had.
+    const cutShortRank = new Map(
+      work.map((file) => {
+        const from = file.renamedFrom ? rowState(file.renamedFrom)?.path : null;
+        const rank =
+          cutShort.get(file.repoPath) ?? (from ? cutShort.get(from) : 0) ?? 0;
+        return [file, rank];
+      }),
     );
+    // Pages whose images failed to upload go after those too, oldest failure
+    // first, so an image storage always rejects can't stop the rest.
+    const failedAt = new Map(
+      work.map((file) => [
+        file,
+        (() => {
+          const linked = file.row ?? file.renamedFrom;
+          return linked ? rowState(linked)?.imagesFailedAt : undefined;
+        })() ?? "",
+      ]),
+    );
+    const imagesFailedTier = (file: PlannedFile) =>
+      failedAt.get(file) ? 1 : 0;
+    const inLine = (a: PlannedFile, b: PlannedFile) =>
+      imagesFailedTier(a) - imagesFailedTier(b) ||
+      cutShortRank.get(a)! - cutShortRank.get(b)! ||
+      failedAt.get(a)!.localeCompare(failedAt.get(b)!);
+    work.sort(inLine);
     result.commitSha = head.sha;
     result.unchanged = planned.length - work.length - stillSkipped.length;
     const readSkips: GitHubReadSkip[] = [...stillSkipped];
     readSkipsSoFar = readSkips;
+    // Images that failed to upload say so until they're stored, even when the
+    // time ran out before a run got back to them.
+    const imagesOfRun = () => {
+      const images = waitingImages(planned);
+      // Storage that went missing during the run isn't set up any more,
+      // whatever failed before it went.
+      const storageFailed =
+        !run.storageMissing &&
+        (run.storageFailed || (retryImages && images.failed));
+      return {
+        waiting: images.waiting,
+        failed: images.waiting > 0 && storageFailed,
+        ready: !run.storageMissing && (retryImages || run.storageFailed),
+      };
+    };
+    imagesSoFar = imagesOfRun;
     let done = 0;
     let cutShortPath: string | null = null;
-    for (const file of work) {
+    const record = (file: PlannedFile, outcome: FileOutcome) => {
+      if (typeof outcome === "string") result[outcome] += 1;
+      else {
+        file.skipped = true;
+        readSkips.push({
+          path: file.entry.path,
+          reason: outcome.skipped,
+          blobSha: file.entry.sha,
+        });
+      }
+      done += 1;
+    };
+    for (let index = 0; index < work.length; ) {
       if (outOfTime()) break;
+      const file = work[index]!;
+      // New files go in batches, unless a file that left the folder may
+      // claim one by its frontmatter id, which only reading it shows.
+      if (isNewFile(file) && goneById.size === 0) {
+        // The next texts are read only once those in hand are written, so a
+        // read the deadline ends costs no page that was ready to write.
+        if (unread(file)) {
+          try {
+            await readTextsAhead(run, work, index);
+          } catch (error) {
+            // A read the deadline cut short leaves its files for the next
+            // sync, which takes the first after the rest.
+            if (error instanceof GitHubSourceDeadlineError) {
+              cutShortPath = file.repoPath;
+              break;
+            }
+            throw error;
+          }
+        }
+        // The new files from here that a read has tried, or this one alone
+        // when it was too big to read with others.
+        let end = index + 1;
+        while (
+          end < work.length &&
+          end - index < NEW_FILE_BATCH &&
+          isNewFile(work[end]!) &&
+          !unread(work[end]!)
+        ) {
+          end++;
+        }
+        const batch = work.slice(index, end);
+        const written = await applyNewFiles(run, batch);
+        written.outcomes.forEach((outcome, offset) =>
+          record(batch[offset]!, outcome),
+        );
+        index += written.outcomes.length;
+        if (written.failure) throw written.failure;
+        if (written.cutShort) {
+          cutShortPath = written.cutShort.repoPath;
+          break;
+        }
+        continue;
+      }
+      index += 1;
+      if (waitsForStorage(run, file)) {
+        record(file, "unchanged");
+        continue;
+      }
       let outcome: Awaited<ReturnType<typeof applyFile>>;
       try {
+        if (file.text === undefined && !file.batched) {
+          await readTextsAhead(run, work, index - 1);
+        }
         if (!file.row && !file.renamedFrom && goneById.size > 0) {
           // Only a read shows the id, so the claim waits until the file is read.
           const text = await readFileText(run, file);
@@ -1939,6 +2612,24 @@ export async function syncGitHubSource(
               folderRelative(run, file.repoPath),
               match[1].documentId,
             );
+            // It takes its old page's place in line, so one the time ran out
+            // on, or whose images failed to upload, still goes after the
+            // files still to come.
+            cutShortRank.set(
+              file,
+              cutShort.get(file.repoPath) ?? cutShort.get(match[0]) ?? 0,
+            );
+            failedAt.set(file, rowState(match[1])?.imagesFailedAt ?? "");
+            // The loop has already moved index past this file.
+            const at = index - 1;
+            let to = index;
+            while (to < work.length && inLine(work[to]!, file) < 0) to += 1;
+            if (to > index) {
+              work.splice(to, 0, file);
+              work.splice(at, 1);
+              index = at;
+              continue;
+            }
           }
         }
         outcome = await applyFile(run, file);
@@ -1951,14 +2642,7 @@ export async function syncGitHubSource(
         }
         throw error;
       }
-      if (typeof outcome === "string") result[outcome] += 1;
-      else
-        readSkips.push({
-          path: file.entry.path,
-          reason: outcome.skipped,
-          blobSha: file.entry.sha,
-        });
-      done += 1;
+      record(file, outcome);
     }
     const remainingFiles = work.length - done;
     if (remainingFiles === 0) {
@@ -1970,20 +2654,15 @@ export async function syncGitHubSource(
       }
     }
     result.remaining = remainingFiles + gone.size;
-    result.imagesWaiting = planned.reduce((total, file) => {
-      const linked = file.row ?? file.renamedFrom;
-      return (
-        total +
-        (file.imagesWaiting ??
-          (linked ? (rowState(linked)?.imagesWaiting ?? 0) : 0))
-      );
-    }, 0);
-    // Storage that just worked isn't missing, even if the time budget left
-    // some pages for the next sync to fill in.
-    const storageReady = retryImages && !run.storageMissing;
-    result.problem = storageReady
-      ? null
-      : storageProblem(result.imagesWaiting, now);
+    // Pages this run didn't get to still wait on what their last sync left
+    // out. Storage that just worked isn't missing, even if the time budget
+    // left some pages for the next sync to fill in.
+    const images = imagesOfRun();
+    result.imagesWaiting = images.waiting;
+    result.problem =
+      images.ready && !images.failed
+        ? null
+        : storageProblem(result.imagesWaiting, now, images.failed);
     const complete = result.remaining === 0;
     result.state = complete ? "synced" : "partial";
     // A run that got through some files isn't a finished check, so the
@@ -2017,6 +2696,8 @@ export async function syncGitHubSource(
           skippedCount: skippedFiles.length,
           readSkips,
           imagesWaiting: result.imagesWaiting,
+          imagesFailed: images.failed,
+          storageReady: images.ready,
           ...(complete
             ? {
                 syncedCommitSha: head.sha,
@@ -2055,7 +2736,15 @@ export async function syncGitHubSource(
       // may well finish, so the link shows no problem and waits its turn. It
       // can't say the rows match the branch, though, until a check gets through.
       await release(
-        (current) => current,
+        (current) => {
+          const images = imagesNow(current);
+          return {
+            ...current,
+            imagesWaiting: images.waiting,
+            imagesFailed: images.failed,
+            storageReady: images.ready,
+          };
+        },
         (next) => ({
           syncState: next.pendingCommitSha
             ? "refreshing"
@@ -2087,12 +2776,20 @@ export async function syncGitHubSource(
       );
     }
     await release(
-      (current) => ({
-        ...current,
-        checkedAt: now,
-        problem,
-        ...(readSkipsSoFar ? { readSkips: readSkipsSoFar } : {}),
-      }),
+      (current) => {
+        // The problem says why the sync failed, and imagesFailed and
+        // storageReady still say why its pictures are missing.
+        const images = imagesNow(current);
+        return {
+          ...current,
+          imagesWaiting: images.waiting,
+          imagesFailed: images.failed,
+          storageReady: images.ready,
+          checkedAt: now,
+          problem,
+          ...(readSkipsSoFar ? { readSkips: readSkipsSoFar } : {}),
+        };
+      },
       () => ({
         syncState: "error",
         freshness: "stale",
@@ -2133,6 +2830,7 @@ export async function createGitHubSourceLink(args: {
     ...resolved.location,
     connectionId: args.connectionId,
     linkedBy: args.userEmail,
+    linkedOrgId: getRequestOrgId() ?? null,
     linkedAt: now,
     mode: "view_only",
     headEtag: null,
@@ -2141,6 +2839,8 @@ export async function createGitHubSourceLink(args: {
     checkedAt: null,
     pendingCommitSha: resolved.commitSha,
     imagesWaiting: 0,
+    imagesFailed: false,
+    storageReady: false,
     progress: { done: 0, total: preview.markdownFiles },
     cutShort: [],
     files: preview.markdownFiles,
@@ -2258,7 +2958,8 @@ export function githubSyncSummary(label: string, result: GitHubSyncResult) {
     return `${label} is already syncing; its rows update when that sync finishes.`;
   }
   const waiting =
-    result.problem?.code === "storage_unavailable"
+    result.problem?.code === "storage_unavailable" ||
+    result.problem?.code === "storage_failed"
       ? ` ${result.problem.message}`
       : "";
   if (result.state === "unchanged") {

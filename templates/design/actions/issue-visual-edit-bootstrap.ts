@@ -2,8 +2,10 @@ import crypto from "node:crypto";
 
 import { fail } from "@agent-native/core";
 import { defineAction } from "@agent-native/core/action";
-import { signEmbedSessionToken } from "@agent-native/core/server";
-import { getRequestContext } from "@agent-native/core/server/request-context";
+import {
+  getEmbedSessionOrigin,
+  signEmbedSessionToken,
+} from "@agent-native/core/server";
 import { z } from "zod";
 
 import { isSameOriginVisualEditBrowserRequest } from "./visual-edit-browser-request.js";
@@ -21,7 +23,7 @@ export default defineAction({
   mcpTool: false,
   schema: z.object({}),
   run: async (_args, ctx) => {
-    const requestOrigin = getRequestContext()?.requestOrigin;
+    const requestOrigin = getEmbedSessionOrigin();
     if (
       !isSameOriginVisualEditBrowserRequest(ctx) ||
       !requestOrigin ||
@@ -38,7 +40,7 @@ export default defineAction({
       token: signEmbedSessionToken({
         ownerEmail: `bootstrap+${nonce}@${BOOTSTRAP_PRINCIPAL_DOMAIN}`,
         targetPath: "/visual-edit",
-        audienceHost: new URL(requestOrigin).hostname,
+        audienceHost: requestOrigin,
         scope,
         ttlSeconds: BOOTSTRAP_TTL_SECONDS,
       }),

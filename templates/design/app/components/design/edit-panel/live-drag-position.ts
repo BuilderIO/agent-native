@@ -13,16 +13,18 @@ export function useLiveDragPosition(
   useEffect(() => {
     setLive(null);
     if (!selector) return;
+    const nodeId = /^\[data-agent-native-node-id="([^"]+)"\]$/.exec(
+      selector,
+    )?.[1];
     let frame = 0;
     let pending: LiveDragPosition | null = null;
     const onMessage = (event: MessageEvent) => {
       const data = event.data;
-      if (
-        data?.type !== "agent-native:live-drag-position" ||
-        data.selector !== selector
-      ) {
-        return;
-      }
+      if (data?.type !== "agent-native:live-drag-position") return;
+      const matches =
+        data.selector === selector ||
+        (nodeId !== undefined && data.sourceId === nodeId);
+      if (!matches) return;
       pending =
         data.active === true &&
         typeof data.left === "string" &&

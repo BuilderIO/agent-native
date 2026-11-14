@@ -1,4 +1,4 @@
-// i18n-raw-literal-disable-file -- unused pure helper copy; live database editor owns localized UI.
+// i18n-raw-literal-disable-file -- "Checked" and "Unchecked" are the checkbox values text filters match against, not UI copy.
 // Filter/sort helpers: apply, upsert, quick filters, property values.
 // Pure logic — no React, no icons.
 import type {
@@ -9,6 +9,7 @@ import type {
 import { applyContentDatabaseTableQuery } from "@shared/database-query";
 import { formulaValueText } from "@shared/properties";
 
+import { dbText } from "./text";
 import {
   type ColumnKey,
   type DatabaseFilter,
@@ -63,13 +64,13 @@ export function databaseQuickFilterOptionsForColumn(
 ): Array<{ operator: DatabaseQuickFilterOperator; label: string }> {
   if (propertyType === "checkbox") {
     return [
-      { operator: "is_checked", label: "Filter checked" },
-      { operator: "is_unchecked", label: "Filter unchecked" },
+      { operator: "is_checked", label: dbText("filterChecked") },
+      { operator: "is_unchecked", label: dbText("filterUnchecked") },
     ];
   }
   return [
-    { operator: "is_empty", label: "Filter empty" },
-    { operator: "is_not_empty", label: "Filter not empty" },
+    { operator: "is_empty", label: dbText("filterEmpty") },
+    { operator: "is_not_empty", label: dbText("filterNotEmpty") },
   ];
 }
 

@@ -1,5 +1,5 @@
 import type { CanvasFrameGeometryById } from "@shared/canvas-frames";
-import type { CodeLayerNode, CodeLayerSource } from "@shared/code-layer";
+import type { CodeLayerNode } from "@shared/code-layer";
 import { buildCodeLayerProjection } from "@shared/code-layer";
 import type { RefObject } from "react";
 
@@ -11,23 +11,22 @@ import {
   cloneCanvasFrameGeometry,
   getCanvasFrameGeometry,
 } from "@/pages/design-editor/design-data-geometry-utils";
-import type {
-  AlignableRect,
-  NodePositionPatch,
-} from "@/pages/design-editor/layout-operations";
+import type { AlignableRect } from "@/pages/design-editor/layout-operations";
 import { computeDistributedPositions } from "@/pages/design-editor/layout-operations";
 import type { DesignFile } from "@/pages/design-editor/types";
+
+import {
+  type CommitNodeStylePatches,
+  type MeasureAlignSelection,
+  runSharedLayoutMove,
+} from "./align-selection";
 
 export interface DistributeSelectionArgs {
   activeFile: DesignFile;
   boardFileId: string | undefined;
   boardFrameGeometry: FrameGeometry | undefined;
   canEditDesign: boolean;
-  commitNodePositions: (
-    baseContent: string,
-    positions: ReadonlyMap<string, NodePositionPatch>,
-    source?: CodeLayerSource,
-  ) => boolean;
+  commitNodePositions: CommitNodeStylePatches;
   designDataJsonRef: RefObject<Record<string, unknown>>;
   getActiveFileSelectedNodeIds: (content: string) => string[];
   getFreshActiveContent: () => string;
@@ -36,9 +35,10 @@ export interface DistributeSelectionArgs {
     after: CanvasFrameGeometryById,
     options?: { source?: "pointer" | "keyboard" },
   ) => void;
+  measureSelection: MeasureAlignSelection;
   overviewScreens: OverviewScreen[];
   overviewSelectedScreenIds: string[];
-  rectFromCodeLayerNode: (node: CodeLayerNode) => AlignableRect;
+  t: (key: string) => string;
   viewModeRef: RefObject<"single" | "overview">;
 }
 
@@ -53,9 +53,10 @@ export function runDistributeSelection(
     getActiveFileSelectedNodeIds,
     getFreshActiveContent,
     handleGeometryCommit,
+    measureSelection,
     overviewScreens,
     overviewSelectedScreenIds,
-    rectFromCodeLayerNode,
+    t,
     viewModeRef,
   }: DistributeSelectionArgs,
   axis: DesignHotkeyDistributeAxis,
@@ -113,7 +114,14 @@ export function runDistributeSelection(
     .map((nodeId) => nodesById.get(nodeId))
     .filter((node): node is CodeLayerNode => Boolean(node));
   if (selectedNodes.length < 3) return;
-  const selectedRects = selectedNodes.map(rectFromCodeLayerNode);
-  const positions = computeDistributedPositions(selectedRects, axis);
-  commitNodePositions(baseContent, positions, source);
+  runSharedLayoutMove({
+    baseContent,
+    commitNodePositions,
+    measureSelection,
+    nodes: selectedNodes,
+    source,
+    t,
+    traceName: "distribute",
+    targets: (rects) => computeDistributedPositions(rects, axis),
+  });
 }

@@ -12,7 +12,7 @@ import https from "node:https";
 import { createRequire } from "node:module";
 import path from "node:path";
 
-import { parse } from "@babel/parser";
+import { parse, type ParserPlugin } from "@babel/parser";
 import { WebSocket, WebSocketServer, type RawData } from "ws";
 
 import {
@@ -1465,7 +1465,9 @@ async function fetchPreviewProxyResource(
       body:
         request.method === "GET" || request.method === "HEAD"
           ? undefined
-          : request.body,
+          : request.body
+            ? Uint8Array.from(request.body)
+            : undefined,
     });
     const setCookieHeaders =
       cookieJar?.store(response.headers, targetUrl) ?? [];
@@ -1616,7 +1618,11 @@ function addOpaqueFrameCredentials(
       );
       const resourceUrl =
         resourceMatch?.[2] ?? resourceMatch?.[3] ?? resourceMatch?.[4] ?? "";
-      if (!resourceUrl || /^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(resourceUrl)) {
+      if (
+        !resourceMatch ||
+        !resourceUrl ||
+        /^(?:[a-z][a-z\d+.-]*:|\/\/)/i.test(resourceUrl)
+      ) {
         return fullTag;
       }
       let nextAttributes = attributes;
@@ -2839,14 +2845,12 @@ async function resolveSourceModule(
 function moduleDependencies(source: string, filePath: string): string[] {
   const extension = path.extname(filePath).toLowerCase();
   let ast: unknown;
+  const plugins: ParserPlugin[] =
+    extension === ".tsx" || extension === ".jsx"
+      ? ["jsx", ...(extension === ".tsx" ? (["typescript"] as const) : [])]
+      : ["typescript", "jsx"];
   try {
-    ast = parse(source, {
-      sourceType: "unambiguous",
-      plugins:
-        extension === ".tsx" || extension === ".jsx"
-          ? ["jsx", ...(extension === ".tsx" ? ["typescript"] : [])]
-          : ["typescript", "jsx"],
-    });
+    ast = parse(source, { sourceType: "unambiguous", plugins });
   } catch (error) {
     throw new Error(
       `Cannot parse source module ${filePath}: ${error instanceof Error ? error.message : String(error)}`,
@@ -4084,7 +4088,6 @@ export async function startDesignConnectBridge(
             const revision = body.revision;
             const now = Date.now();
             pruneLiveEditPendingEntries(pendingVisualEditPayloads, now);
-            const existing = pendingVisualEditPayloads.get(pendingDesignId);
             if (pending === null) {
               if (
                 typeof revision !== "number" ||
@@ -5173,7 +5176,9 @@ export async function startDesignConnectBridge(
   const close = () => {
     closePromise ??= (async () => {
       terminateHmrClients();
-      await new Promise<void>((resolve) => hmrWebSocketServer.close(resolve));
+      await new Promise<void>((resolve) =>
+        hmrWebSocketServer.close(() => resolve()),
+      );
       await new Promise<void>((resolve, reject) => {
         server.close((error) => (error ? reject(error) : resolve()));
       });
@@ -5183,7 +5188,7 @@ export async function startDesignConnectBridge(
 
   await new Promise<void>((resolve, reject) => {
     server.once("error", reject);
-    server.listen(new URL(manifest.bridgeUrl).port, "127.0.0.1", () => {
+    server.listen(Number(new URL(manifest.bridgeUrl).port), "127.0.0.1", () => {
       server.off("error", reject);
       resolve();
     });

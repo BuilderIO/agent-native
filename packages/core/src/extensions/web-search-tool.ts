@@ -1,5 +1,6 @@
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { CredentialContext } from "../credentials/index.js";
+import { frameworkMcpTools } from "../mcp/framework-tools.js";
 
 export interface WebSearchResult {
   title: string;
@@ -259,7 +260,7 @@ async function searchBuilderManaged(
 export function createWebSearchToolEntry(
   opts: WebSearchToolOptions = {},
 ): Record<string, ActionEntry> {
-  return {
+  return frameworkMcpTools({
     "web-search": {
       tool: {
         description:
@@ -290,10 +291,12 @@ export function createWebSearchToolEntry(
             ? Math.min(Math.floor(rawCount), MAX_COUNT)
             : DEFAULT_COUNT;
 
-        const braveKey = await resolveSearchKey("BRAVE_SEARCH_API_KEY", opts);
-        const tavilyKey = await resolveSearchKey("TAVILY_API_KEY", opts);
-        const exaKey = await resolveSearchKey("EXA_API_KEY", opts);
-        const firecrawlKey = await resolveSearchKey("FIRECRAWL_API_KEY", opts);
+        const [braveKey, tavilyKey, exaKey, firecrawlKey] = await Promise.all([
+          resolveSearchKey("BRAVE_SEARCH_API_KEY", opts),
+          resolveSearchKey("TAVILY_API_KEY", opts),
+          resolveSearchKey("EXA_API_KEY", opts),
+          resolveSearchKey("FIRECRAWL_API_KEY", opts),
+        ]);
 
         let results: WebSearchResult[];
         let backend: string;
@@ -374,5 +377,5 @@ export function createWebSearchToolEntry(
       },
       readOnly: true,
     },
-  };
+  });
 }

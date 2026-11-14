@@ -42,6 +42,8 @@ export interface AgentEngineStatusResult {
 export interface AgentEngineStatusResponse extends AgentEngineStatusResult {
   /** Fast chat setup snapshot; dispatch rechecks credentials before model use. */
   chatEligible: boolean;
+  /** The deploy's Builder.io credits pair is set but this runtime refuses it. */
+  builderCreditsRefused?: true;
 }
 
 export interface AgentEngineStatusDeps<

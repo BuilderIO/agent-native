@@ -49,7 +49,9 @@ describe("verifyAuth — static-token caller identity", () => {
   });
 
   it("dev-open derives identity from the forwarded owner-email header", async () => {
-    const res = await verifyAuth(undefined, "hdr@example.com");
+    const res = await verifyAuth(undefined, "hdr@example.com", {
+      allowLocalOwnerHint: true,
+    });
     expect(res.identity?.userEmail).toBe("hdr@example.com");
   });
 
@@ -80,9 +82,18 @@ describe("verifyAuth — static-token caller identity", () => {
   it("forwarded header is used only as a fallback when the owner env is unset", async () => {
     process.env.ACCESS_TOKEN = "tok-123";
     delete process.env.AGENT_NATIVE_OWNER_EMAIL;
-    const res = await verifyAuth("Bearer tok-123", "header-owner@example.com");
+    const res = await verifyAuth("Bearer tok-123", "header-owner@example.com", {
+      allowLocalOwnerHint: true,
+    });
     expect(res.authed).toBe(true);
     expect(res.identity?.userEmail).toBe("header-owner@example.com");
+  });
+
+  it("rejects a shared static bearer with no server pin or trusted local hint", async () => {
+    process.env.ACCESS_TOKEN = "tok-123";
+    const res = await verifyAuth("Bearer tok-123", "victim@example.com");
+    expect(res.authed).toBe(false);
+    expect(res.identity).toBeUndefined();
   });
 
   it("rejects an unknown token regardless of owner hint", async () => {
@@ -219,7 +230,11 @@ describe("open_app — same-app / standalone keeps a relative deep link", () => 
     });
 
     const result: any = await runWithRequestContext(
-      { userEmail: "owner@example.com", orgId: "org-123" },
+      {
+        userEmail: "owner@example.com",
+        orgId: "org-123",
+        requestOrigin: "https://mail.example.com",
+      },
       () =>
         tools.open_app.run({
           app: "mail",
@@ -287,7 +302,11 @@ describe("open_app — same-app / standalone keeps a relative deep link", () => 
     });
 
     const result: any = await runWithRequestContext(
-      { userEmail: "owner@example.com", orgId: "org-123" },
+      {
+        userEmail: "owner@example.com",
+        orgId: "org-123",
+        requestOrigin: "https://mail.example.com",
+      },
       () =>
         tools.open_app.run({
           app: "mail",
@@ -375,9 +394,29 @@ describe("open_app — same-app / standalone keeps a relative deep link", () => 
 });
 
 describe("create_embed_session", () => {
+  it.each(["open_app", "create_embed_session"])(
+    "returns a public path from %s without minting from an originless context",
+    async (name) => {
+      const createTicket = vi.spyOn(embedSession, "createEmbedSessionTicket");
+      const tools = getBuiltinCrossAppTools(baseConfig(), {
+        origin: "https://mail.example.com",
+        inlineMcpApps: true,
+      });
+      const result = await runWithRequestContext(
+        { userEmail: "owner@example.com", orgId: "org-123" },
+        () => tools[name]!.run({ path: "/inbox", embed: true }),
+      );
+      expect(result).toMatchObject({ url: "/inbox" });
+      expect(result).not.toHaveProperty("startUrl");
+      expect(result).not.toHaveProperty("embedStartUrl");
+      expect(createTicket).not.toHaveBeenCalled();
+    },
+  );
+
   it("is write-scoped because the embed ticket becomes a browser session", () => {
     const tools = getBuiltinCrossAppTools(baseConfig(), {
       origin: "https://mail.example.com",
+      inlineMcpApps: true,
     });
     expect(tools.create_embed_session.readOnly).toBe(false);
   });
@@ -385,6 +424,7 @@ describe("create_embed_session", () => {
   it("requires an authenticated MCP caller", async () => {
     const tools = getBuiltinCrossAppTools(baseConfig(), {
       origin: "https://mail.example.com",
+      inlineMcpApps: true,
     });
     await expect(
       tools.create_embed_session.run({ path: "/inbox" }),

@@ -1,8 +1,14 @@
 // @vitest-environment happy-dom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+} from "@testing-library/react";
 import { MemoryRouter, useLocation } from "react-router";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Slide } from "@/context/DeckContext";
 
@@ -27,7 +33,14 @@ vi.mock("@/components/deck/SlideRenderer", () => ({
 }));
 
 vi.mock("@/lib/export-pdf-client", () => ({ exportDeckAsPdf: vi.fn() }));
-vi.mock("./present-channel", () => ({ openPresentChannel: () => null }));
+const presentChannel = vi.hoisted(() => ({ supported: true }));
+vi.mock("./present-channel", () => ({
+  openPresentChannel: () => null,
+  presentChannelSupported: () => presentChannel.supported,
+}));
+vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
+
+import { toast } from "sonner";
 
 import PresentationView from "./PresentationView";
 
@@ -168,6 +181,97 @@ describe("PresentationView keyboard shortcuts", () => {
     );
 
     expect(screen.getByText("2 / 3")).toBeTruthy();
+  });
+
+  it("follows presentation clicker and Home/End keys", () => {
+    const threeSlides = [
+      ...slides,
+      { id: "third-slide", content: "", layout: "content" },
+    ] as unknown as Slide[];
+    render(
+      <MemoryRouter>
+        <PresentationView slides={threeSlides} deckId="deck-1" />
+      </MemoryRouter>,
+    );
+
+    fireEvent.keyDown(window, { key: "PageDown" });
+    expect(screen.getByText("2 / 3")).toBeTruthy();
+    fireEvent.keyDown(window, { key: "PageUp" });
+    expect(screen.getByText("1 / 3")).toBeTruthy();
+    fireEvent.keyDown(window, { key: "End" });
+    expect(screen.getByText("3 / 3")).toBeTruthy();
+    fireEvent.keyDown(window, { key: "Home" });
+    expect(screen.getByText("1 / 3")).toBeTruthy();
+  });
+
+  it("toggles fullscreen with F and stays in the presentation", async () => {
+    const descriptors = {
+      request: Object.getOwnPropertyDescriptor(
+        document.documentElement,
+        "requestFullscreen",
+      ),
+      exit: Object.getOwnPropertyDescriptor(document, "exitFullscreen"),
+      element: Object.getOwnPropertyDescriptor(document, "fullscreenElement"),
+    };
+    let fullscreenElement: Element | null = null;
+    Object.defineProperty(document, "fullscreenElement", {
+      configurable: true,
+      get: () => fullscreenElement,
+    });
+    Object.defineProperty(document.documentElement, "requestFullscreen", {
+      configurable: true,
+      value: vi.fn(async () => {
+        fullscreenElement = document.documentElement;
+        document.dispatchEvent(new Event("fullscreenchange"));
+      }),
+    });
+    Object.defineProperty(document, "exitFullscreen", {
+      configurable: true,
+      value: vi.fn(async () => {
+        fullscreenElement = null;
+        document.dispatchEvent(new Event("fullscreenchange"));
+      }),
+    });
+    try {
+      render(
+        <MemoryRouter initialEntries={["/presentation"]}>
+          <PresentationView slides={slides} deckId="deck-1" />
+          <CurrentLocation />
+        </MemoryRouter>,
+      );
+      await act(async () => {});
+      expect(fullscreenElement).not.toBeNull();
+
+      await act(async () => {
+        fireEvent.keyDown(window, { key: "f" });
+      });
+      expect(fullscreenElement).toBeNull();
+      expect(screen.getByTestId("current-location").textContent).toBe(
+        "/presentation",
+      );
+
+      await act(async () => {
+        fireEvent.keyDown(window, { key: "f" });
+      });
+      expect(fullscreenElement).not.toBeNull();
+
+      // Escape out of fullscreen still ends a presentation that is fullscreen.
+      await act(async () => {
+        await document.exitFullscreen();
+      });
+      expect(screen.getByTestId("current-location").textContent).toBe(
+        "/deck/deck-1?slide=1",
+      );
+    } finally {
+      for (const [target, name, descriptor] of [
+        [document.documentElement, "requestFullscreen", descriptors.request],
+        [document, "exitFullscreen", descriptors.exit],
+        [document, "fullscreenElement", descriptors.element],
+      ] as const) {
+        if (descriptor) Object.defineProperty(target, name, descriptor);
+        else Reflect.deleteProperty(target, name);
+      }
+    }
   });
 
   it("keeps Space as a deck shortcut after a mouse-focused button", () => {
@@ -400,5 +504,93 @@ describe("PresentationView paragraph animations", () => {
 
     fireEvent.click(previous);
     expect(revealed()).toEqual([true, true, false, false]);
+  });
+});
+
+describe("PresentationView presenter window", () => {
+  function pressS() {
+    fireEvent(
+      window,
+      new KeyboardEvent("keydown", {
+        key: "s",
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  }
+
+  beforeEach(() => {
+    vi.mocked(toast.error).mockClear();
+    presentChannel.supported = true;
+  });
+
+  afterEach(() => vi.restoreAllMocks());
+
+  it("does not open a presenter window on a shared deck", () => {
+    const open = vi.spyOn(window, "open");
+    render(
+      <MemoryRouter>
+        <PresentationView slides={slides} deckId="__shared__/token-1" />
+      </MemoryRouter>,
+    );
+
+    expect(
+      screen.queryByRole("button", { name: "presentation.presenterView" }),
+    ).toBeNull();
+    const key = new KeyboardEvent("keydown", {
+      key: "s",
+      bubbles: true,
+      cancelable: true,
+    });
+    fireEvent(window, key);
+    expect(open).not.toHaveBeenCalled();
+    expect(key.defaultPrevented).toBe(false);
+  });
+
+  it("opens a presenter window named after the deck", () => {
+    const open = vi.spyOn(window, "open").mockReturnValue({} as Window);
+    render(
+      <MemoryRouter>
+        <PresentationView slides={slides} deckId="deck-1" />
+      </MemoryRouter>,
+    );
+
+    pressS();
+    expect(open).toHaveBeenCalledWith(
+      expect.stringContaining("presenter=1"),
+      "slides-presenter-deck-1",
+      expect.any(String),
+    );
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it("tells the user when the presenter popup is blocked", () => {
+    vi.spyOn(window, "open").mockReturnValue(null);
+    render(
+      <MemoryRouter>
+        <PresentationView slides={slides} deckId="deck-1" />
+      </MemoryRouter>,
+    );
+
+    pressS();
+    expect(toast.error).toHaveBeenCalledWith(
+      "editorToolbar.presenterViewBlocked",
+    );
+  });
+
+  it("tells the user instead of opening an unsyncable presenter window", () => {
+    presentChannel.supported = false;
+    const open = vi.spyOn(window, "open");
+    render(
+      <MemoryRouter>
+        <PresentationView slides={slides} deckId="deck-1" />
+      </MemoryRouter>,
+    );
+
+    pressS();
+    expect(open).not.toHaveBeenCalled();
+    expect(toast.error).toHaveBeenCalledWith(
+      "editorToolbar.presenterViewUnsupported",
+    );
   });
 });

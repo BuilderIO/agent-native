@@ -173,6 +173,7 @@ export default function registerBrainExportJob(): void {
     }
     return;
   }
+  // guard:allow-deferred-count — a recurring sweep on a long-lived server; the upload failures it tracks are found by the sweep, not held back from a request.
   setInterval(() => {
     if (running) return;
     running = true;

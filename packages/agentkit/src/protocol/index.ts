@@ -71,6 +71,12 @@ export interface ReasoningPart {
   text: string;
   label?: string;
   visibility?: "visible" | "summary" | "hidden";
+  /**
+   * Tool calls made after this reasoning and before the next, in order. Saved
+   * history keeps no reasoning events, so this is what places reasoning
+   * between the calls it introduced.
+   */
+  toolCallIds?: string[];
 }
 
 export interface CitationPart {
@@ -133,6 +139,33 @@ function isInlineFileBody(value: string): boolean {
   return INLINE_FILE_BASE64_PREFIXES.some((prefix) => prefix.test(normalized));
 }
 
+const STORAGE_DOWNLOAD_QUERY_KEYS = new Set(["alt", "token", "apiKey"]);
+
+/**
+ * A query string usually means an expiring signature or a secret, so durable
+ * references carry none. The one exception is Builder storage's file download
+ * URL (`/o/<object>?alt=media&token=…`): the token is the object's permanent
+ * download token, and it is the only URL Builder returns for non-image
+ * uploads, so rejecting it fails every such attachment. `apiKey` is the
+ * space's public key, which these URLs also carry. The token makes the stored
+ * URL a bearer link to the file: every store that persists it (threads, runs,
+ * resources, dispatched work) must already be access-scoped to the people
+ * allowed to read the file.
+ */
+function hasDurableQuery(url: URL): boolean {
+  if (!url.search) return true;
+  const keys = [...url.searchParams.keys()];
+  return (
+    url.protocol === "https:" &&
+    url.hostname === "cdn.builder.io" &&
+    url.pathname.startsWith("/o/") &&
+    url.searchParams.get("alt") === "media" &&
+    Boolean(url.searchParams.get("token")) &&
+    new Set(keys).size === keys.length &&
+    keys.every((key) => STORAGE_DOWNLOAD_QUERY_KEYS.has(key))
+  );
+}
+
 export function isPersistableAttachmentUrl(value: unknown): value is string {
   if (typeof value !== "string" || !value.trim()) return false;
   if (!URL.canParse(value)) return false;
@@ -142,7 +175,7 @@ export function isPersistableAttachmentUrl(value: unknown): value is string {
     Boolean(url.hostname) &&
     !url.username &&
     !url.password &&
-    !url.search &&
+    hasDurableQuery(url) &&
     !url.hash
   );
 }
@@ -164,7 +197,7 @@ export function isPersistableAttachmentReferenceUrl(
     Boolean(url.hostname) &&
     !url.username &&
     !url.password &&
-    !url.search &&
+    hasDurableQuery(url) &&
     !url.hash
   );
 }
@@ -638,6 +671,19 @@ export interface AgentUploadTarget {
   expiresAt?: string;
 }
 
+export interface AgentUploadFile {
+  name: string;
+  mediaType: string;
+  size: number;
+  body: Blob;
+}
+
+export type AgentUploadDriver = (
+  target: AgentUploadTarget,
+  file: AgentUploadFile,
+  context?: AgentRequestContext,
+) => Promise<void>;
+
 export interface AgentUploadProgress {
   uploadId: UploadId;
   loaded: number;
@@ -881,6 +927,14 @@ export type AgentEvent =
       type: "message.completed";
       message: AgentMessage;
     })
+  /**
+   * Replaces the parts of a message that is still streaming, such as when the
+   * server discards a draft and the agent writes it again. Status is unchanged.
+   */
+  | (AgentEventBase & {
+      type: "message.replaced";
+      message: AgentMessage;
+    })
   | (AgentEventBase & {
       type: "reasoning.delta";
       messageId: string;
@@ -1091,9 +1145,40 @@ export interface AgentQueuedMessage {
   createdAt: string;
   attachments?: FilePart[];
   requestAttachments?: AgentRequestAttachment[];
+  references?: AgentSubmissionReference[];
   metadata?: AgentProtocolMetadata;
   options?: AgentRunOptions;
   interruptActiveRun?: boolean;
+  /**
+   * Send now was pressed while a run was working: `steering` sends it into
+   * that run at its next step, `after_reply` sends it as the next turn.
+   */
+  delivery?: AgentQueuedMessageDelivery;
+}
+
+export type AgentQueuedMessageDelivery = "steering" | "after_reply";
+
+export interface AgentSubmissionReference {
+  type: "file" | "skill" | "mention" | "agent" | "custom-agent";
+  path: string;
+  name: string;
+  source: string;
+  refType?: string;
+  refId?: string;
+  slotKey?: string;
+  slotLabel?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface AgentQueuedSubmissionReceipt {
+  state: "queued";
+  message: AgentQueuedMessage;
+  activeRunId?: RunId;
+}
+
+export interface AgentQueuedSubmissionStatus {
+  state: "queued" | "submitted" | "removed" | "expired" | "blocked";
+  submittedRunId?: RunId;
 }
 
 export interface ListThreadsInput {
@@ -1116,7 +1201,15 @@ export interface ThreadMessageInput extends ThreadIdInput {
 }
 
 export interface SteerQueuedMessageInput extends ThreadMessageInput {
+  /** Stops the active run before sending. */
   interruptActiveRun?: boolean;
+  /** Sends into the active run at its next step instead of stopping it. */
+  deliverInActiveRun?: boolean;
+}
+
+export interface ReorderQueuedMessagesInput extends ThreadIdInput {
+  /** Every queued message id exactly once, in the new order. */
+  messageIds: readonly string[];
 }
 
 export interface CreateThreadInput {
@@ -1143,6 +1236,7 @@ export interface QueueMessageInput {
   text: string;
   attachments?: FilePart[];
   requestAttachments?: AgentRequestAttachment[];
+  references?: AgentSubmissionReference[];
   metadata?: AgentProtocolMetadata;
   options?: AgentRunOptions;
   interruptActiveRun?: boolean;
@@ -1171,6 +1265,7 @@ export interface AgentSubmissionPayload {
   /** Fingerprints keep original attachment identity without retaining file bodies. */
   attachments?: AgentSubmissionFileIdentity[];
   requestAttachments?: AgentSubmissionRequestAttachmentIdentity[];
+  references?: AgentSubmissionReference[];
   metadata?: AgentProtocolMetadata;
   options?: AgentRunOptions;
   interruptActiveRun?: boolean;
@@ -1189,8 +1284,10 @@ export type QueueMessageResult =
     };
 
 export type SteerQueuedMessageResult =
-  | (StartRunResult & { alreadySubmitted?: true })
+  | (AgentRunStartResult & { alreadySubmitted?: true })
   | { alreadyRemoved: true }
+  /** The message stays queued until the active run takes it or ends. */
+  | { delivery: AgentQueuedMessageDelivery }
   | void;
 
 export interface AgentTransportThreadOperations {
@@ -1230,6 +1327,10 @@ export interface AgentTransportThreadOperations {
     input: ThreadIdInput,
     context?: AgentRequestContext,
   ): Promise<AgentQueuedMessage[]>;
+  getQueuedSubmissionStatus?(
+    input: ThreadMessageInput,
+    context?: AgentRequestContext,
+  ): Promise<AgentQueuedSubmissionStatus | null>;
   queueMessage?(
     input: QueueMessageInput,
     context?: AgentRequestContext,
@@ -1248,9 +1349,19 @@ export interface AgentTransportThreadOperations {
     input: ThreadMessageInput,
     context?: AgentRequestContext,
   ): Promise<void>;
+  /**
+   * Replace the durable queue order. Rejects when `messageIds` no longer
+   * matches the queued set, so a stale client never reorders blind.
+   */
+  reorderQueuedMessages?(
+    input: ReorderQueuedMessagesInput,
+    context?: AgentRequestContext,
+  ): Promise<void>;
 }
 
 export interface AgentTransport extends AgentTransportThreadOperations {
+  /** Local binary transfer for transports whose upload response needs interpretation. */
+  upload?: AgentUploadDriver;
   dispose?(): void | Promise<void>;
   capabilities?: AgentCapabilities;
   /** Checks whether a new user-initiated chat dispatch is allowed to start. */
@@ -1274,7 +1385,7 @@ export interface AgentTransport extends AgentTransportThreadOperations {
   resumeRun?(
     input: ResumeRunInput,
     context?: AgentRequestContext,
-  ): Promise<StartRunResult>;
+  ): Promise<AgentRunStartResult>;
   /**
    * Continues a run that stopped before it finished (a time limit, a crashed
    * worker, an error) as a new run in the same turn, so steps the stopped run
@@ -1283,7 +1394,7 @@ export interface AgentTransport extends AgentTransportThreadOperations {
   continueRun?(
     input: ContinueRunInput,
     context?: AgentRequestContext,
-  ): Promise<StartRunResult>;
+  ): Promise<AgentRunStartResult>;
   /**
    * @deprecated Implement {@link resumeRun}. Kept as a source-compatible
    * bridge for protocol-v1 transports while consumers migrate to interrupts.
@@ -1326,6 +1437,7 @@ export interface StartRunInput {
   threadId: ThreadId;
   messages: AgentMessage[];
   requestAttachments?: AgentRequestAttachment[];
+  references?: AgentSubmissionReference[];
   options?: AgentRunOptions;
   resume?: AgentResumeEntry[];
   metadata?: AgentProtocolMetadata;
@@ -1359,10 +1471,19 @@ export interface ContinueRunInput {
   attachments?: FilePart[];
 }
 
-export interface StartRunResult {
+export interface AgentRunStartResult {
   runId: RunId;
   capabilities?: AgentCapabilities;
+  queuedSubmission?: never;
 }
+
+export type StartRunResult =
+  | AgentRunStartResult
+  | {
+      queuedSubmission: AgentQueuedSubmissionReceipt;
+      capabilities?: AgentCapabilities;
+      runId?: never;
+    };
 
 export interface SubscribeToRunInput {
   threadId: ThreadId;
@@ -1437,6 +1558,7 @@ export interface AgentProtocolEnvelope<TPayload = unknown> {
 }
 
 export * from "./validation.js";
+export * from "./submission-fingerprint.js";
 export * from "./compatibility.js";
 export * from "./errors.js";
 export * from "./agui.js";

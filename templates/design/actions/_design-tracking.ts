@@ -21,7 +21,7 @@ export function defaultCreationMethod(
  * that created it commits. Callers that reuse create-design must not emit it
  * themselves, or the row is counted twice.
  */
-export function trackDesignCreated(
+export async function trackDesignCreated(
   designId: string,
   properties: {
     creationMethod: DesignCreationMethod;
@@ -32,7 +32,7 @@ export function trackDesignCreated(
     variantCount?: number;
   },
   source?: TrackingSource,
-): void {
+): Promise<void> {
   try {
     trackDesign(
       "design_created",

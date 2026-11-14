@@ -19,12 +19,16 @@ import {
 } from "../shared/properties.js";
 import { chunks } from "./_batch-utils.js";
 import { readBuilderCmsContentEntries } from "./_builder-cms-read-client.js";
+import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import {
   builderReferenceIdSourceValueKey,
   resolveDatabaseForSourceMutation,
 } from "./_database-source-utils.js";
-import { getContentDatabaseResponse } from "./_database-utils.js";
+import {
+  contentDatabaseResponseForCaller,
+  getContentDatabaseResponse,
+} from "./_database-utils.js";
 import { createAppendPositionAllocator } from "./_position-utils.js";
 import { nanoid } from "./_property-utils.js";
 import {
@@ -50,13 +54,18 @@ const OPTION_COLORS: DocumentPropertyOptionColor[] = [
 type SourceRow = typeof schema.contentDatabaseSourceRows.$inferSelect;
 type SourceField = typeof schema.contentDatabaseSourceFields.$inferSelect;
 
-function parseMetadata(value: string | null) {
-  if (!value)
-    return {} as { builderModelFields?: BuilderCmsModelFieldSummary[] };
+type SourceMetadata = {
+  builderModelFields?: BuilderCmsModelFieldSummary[];
+  builderSpacePublicKey?: unknown;
+  connectionId?: unknown;
+};
+
+function parseMetadata(value: string | null): SourceMetadata {
+  if (!value) return {};
   try {
     const parsed = JSON.parse(value) as unknown;
     return parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as { builderModelFields?: BuilderCmsModelFieldSummary[] })
+      ? (parsed as SourceMetadata)
       : {};
   } catch {
     return {};
@@ -137,6 +146,8 @@ type ReferenceSnapshot = {
 
 export async function readBuilderReferenceSnapshot(args: {
   sourceTable: string;
+  expectedSourceSpace: string | null;
+  expectedSourceConnectionId: string | null;
   field: BuilderCmsModelFieldSummary;
   visibleValueBySourceRowId?: ReadonlyMap<string, unknown>;
   readEntries?: typeof readBuilderCmsContentEntries;
@@ -144,9 +155,11 @@ export async function readBuilderReferenceSnapshot(args: {
   const sourceFieldKey = requiredFieldKey(args.field);
   const read = await (args.readEntries ?? readBuilderCmsContentEntries)({
     model: args.sourceTable,
+    expectedSourceSpace: args.expectedSourceSpace,
+    expectedSourceConnectionId: args.expectedSourceConnectionId,
+    requireBoundOAuth: true,
     fieldPaths: [sourceFieldKey],
     rawData: true,
-    requirePrivateKey: true,
     limit: 10_000,
     maxPages: 100,
   });
@@ -256,7 +269,7 @@ export default defineAction({
     documentId: z.string().optional(),
     sourceId: z.string().optional(),
   }),
-  run: async (args) => {
+  run: async (args, context) => {
     const database = await resolveDatabaseForSourceMutation(args);
     if (!database) throw new Error("Database not found.");
     await assertAccess("document", database.documentId, "editor");
@@ -282,8 +295,8 @@ export default defineAction({
       );
     }
 
-    const modelFields =
-      parseMetadata(source.metadataJson).builderModelFields ?? [];
+    const sourceMetadata = parseMetadata(source.metadataJson);
+    const modelFields = sourceMetadata.builderModelFields ?? [];
     const requiredModelFields = modelFields.filter(
       isRequiredEditableBuilderField,
     );
@@ -313,6 +326,14 @@ export default defineAction({
         field.sourceFieldKey,
         await readBuilderReferenceSnapshot({
           sourceTable: source.sourceTable,
+          expectedSourceSpace:
+            typeof sourceMetadata.builderSpacePublicKey === "string"
+              ? sourceMetadata.builderSpacePublicKey
+              : null,
+          expectedSourceConnectionId:
+            typeof sourceMetadata.connectionId === "string"
+              ? sourceMetadata.connectionId
+              : null,
           field: metadata,
           visibleValueBySourceRowId: new Map(
             sourceRows.map((row) => [
@@ -330,6 +351,13 @@ export default defineAction({
         : field;
     });
     await db.transaction(async (tx) => {
+      // Like every other value writer, before it reads which values are
+      // missing, so a guarded write can't fill one between that read and
+      // the insert.
+      await lockContentDatabaseMutation(
+        tx as unknown as ReturnType<typeof getDb>,
+        database.id,
+      );
       const currentFields = await tx
         .select()
         .from(schema.contentDatabaseSourceFields)
@@ -572,6 +600,9 @@ export default defineAction({
       );
     });
 
-    return getContentDatabaseResponse(database.id, { limit: 100, offset: 0 });
+    return contentDatabaseResponseForCaller(
+      await getContentDatabaseResponse(database.id, { limit: 100, offset: 0 }),
+      context,
+    );
   },
 });

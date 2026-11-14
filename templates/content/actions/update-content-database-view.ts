@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { iconValueSchema } from "@agent-native/core/icons";
 import { buildDeepLink } from "@agent-native/core/server";
@@ -18,12 +18,16 @@ import {
   setupAuditSummary,
   setupGuardSchema,
 } from "./_database-setup-mutation.js";
-import { getContentDatabaseResponse } from "./_database-utils.js";
+import {
+  contentDatabaseResponseForCaller,
+  getContentDatabaseResponse,
+} from "./_database-utils.js";
 import {
   contentDatabaseItemLayoutSchema,
   runReplaceContentDatabaseViews,
   runUpdateContentDatabaseView,
   updateContentDatabaseViewAgentSchema,
+  viewConfigDateFilterError,
   withSavableItemLayout,
 } from "./_database-view-setup.js";
 import {
@@ -149,7 +153,7 @@ const guardedViewReplacementSchema = setupGuardSchema
 
 export default defineAction({
   description:
-    "Create one named ordinary table view, or sparsely update one exact saved table view or a list view's name, icon, and row layout (itemLayout, itemLayoutPreset), using stable property IDs, fresh schema and configuration revisions, and an idempotency key.",
+    "Create a table view, sparsely update a saved view, or use operation copy-settings to make a target table view match sourceViewId with explicit replacement filters and filterMode while keeping the target's name and icon. Prefer copy-settings for matching views: it copies the saved settings on the server without repeating optional patch fields. List views support name, icon, and row layout (itemLayout, itemLayoutPreset). Use stable IDs, fresh schema and configuration revisions, and an idempotency key.",
   mcpTool: true,
   mcpApp: { structuredContent: true },
   agentInputSchema: updateContentDatabaseViewAgentSchema,
@@ -238,6 +242,14 @@ export default defineAction({
         ),
       };
       const nextViewConfigJson = serializeDatabaseViewConfig(nextViewConfig);
+      const dateError = viewConfigDateFilterError(
+        parseDatabaseViewConfig(nextViewConfigJson),
+        currentViewConfig,
+        definitions,
+      );
+      if (dateError) {
+        fail(dateError, { statusCode: 400, errorCode: "invalid_filter" });
+      }
 
       const userEmail = getRequestUserEmail();
       if (!userEmail) throw new Error("Authentication is required.");
@@ -265,7 +277,10 @@ export default defineAction({
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
-    return getContentDatabaseResponse(databaseId, { limit: 100, offset: 0 });
+    return contentDatabaseResponseForCaller(
+      await getContentDatabaseResponse(databaseId, { limit: 100, offset: 0 }),
+      context,
+    );
   },
   link: ({ result }) => {
     const receipt = (

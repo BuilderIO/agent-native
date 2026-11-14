@@ -14,9 +14,9 @@ export const sourceAdapterRegistry: SourceAdapterRegistry = [
 
 export interface SelectSourceAdapterOptions {
   sourceRoot: string;
-  inputKind?: MigrationInputKind | (string & {});
-  inputDescription?: string;
-  registry?: SourceAdapterRegistry;
+  inputKind?: MigrationInputKind | (string & {}) | undefined;
+  inputDescription?: string | undefined;
+  registry?: SourceAdapterRegistry | undefined;
 }
 
 export async function selectSourceAdapter(

@@ -139,9 +139,9 @@ function writeModeCopy(writeMode: ContentDatabaseSourceWriteMode) {
     return {
       pushModeLabel: "Stage only",
       pushModeDescription:
-        "Prepare and review local revisions without writing to Builder.",
+        "Review local changes, then save them to Builder without making them live: a published entry keeps them as unpublished changes, a draft as its draft. Never publishes or unpublishes.",
       notes:
-        "Builder CMS source with local review staging enabled and remote writes disabled.",
+        "Builder CMS source that saves reviewed changes to Builder and never publishes.",
     };
   }
   return {

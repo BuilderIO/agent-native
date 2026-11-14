@@ -388,6 +388,7 @@ export const ONBOARDING_JOURNEY_EVENT_SOURCE_COLUMNS = [
   "session_id",
   "timestamp",
   "path",
+  "hostname",
   "app",
   "template",
   "properties",
@@ -404,6 +405,7 @@ export const ONBOARDING_JOURNEY_RESPONSE_IDENTITY_SOURCE_COLUMNS = [
   "user_id",
   "user_key",
   "session_id",
+  "hostname",
   "app",
   "template",
   "properties",
@@ -1301,7 +1303,8 @@ function translateFirstPartyAnalyticsBigQuerySql(sql: string): string {
   });
   const intervalCode = maskSqlLiterals(translated);
   translated = translated.replace(
-    /\bINTERVAL\s*'(\d+)\s+(day|days|week|weeks|month|months)'/gi,
+    // `(?!')`: the closing quote of `'7 days'' …` is half of an escaped pair.
+    /\bINTERVAL\s*'(\d+)\s+(day|days|week|weeks|month|months)'(?!')/gi,
     (whole, amount: string, unit: string, offset: number) =>
       intervalCode[offset] === " "
         ? whole
@@ -1326,6 +1329,16 @@ function translateFirstPartyAnalyticsBigQuerySql(sql: string): string {
       );
     }
     return `FORMAT_DATE('%Y-%m-%d', CAST(${translatePostgresDateExpression(args[0] ?? "")} AS DATE))`;
+  });
+  // PostgreSQL's md5(text) is lowercase hex; BigQuery's MD5 returns bytes.
+  translated = rewriteSqlFunctionCalls(translated, "md5", (args) => {
+    if (args.length !== 1) {
+      throw new FirstPartyAnalyticsUnsupportedSqlError(
+        "a multi-argument md5(...) call",
+        "First-party BigQuery query has an invalid md5 call",
+      );
+    }
+    return `TO_HEX(MD5(${args[0]}))`;
   });
   translated = rewriteSqlFunctionCalls(translated, "chr", (args) => {
     if (args.length !== 1) {
@@ -2140,6 +2153,9 @@ export async function queryFirstPartyAnalyticsInBigQuery(
     rows: result.rows,
     schema: result.schema,
     bytesProcessed: result.bytesProcessed,
+    ...(result.usageAccounting
+      ? { usageAccounting: result.usageAccounting }
+      : {}),
     ...(eventsSource ? { eventsSource } : {}),
     ...(result.sourceGeneration !== undefined
       ? { sourceGeneration: result.sourceGeneration }
@@ -2150,6 +2166,7 @@ export async function queryFirstPartyAnalyticsInBigQuery(
       : {}),
     ...(result.fetchedAt !== undefined ? { fetchedAt: result.fetchedAt } : {}),
     ...(result.truncated !== undefined ? { truncated: result.truncated } : {}),
+    ...(result.partial !== undefined ? { partial: result.partial } : {}),
   };
 }
 

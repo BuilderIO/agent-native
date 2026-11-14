@@ -278,8 +278,8 @@ const messages = {
       openWorkflow: "Open {{name}}",
       turnOn: "Turn on {{name}}",
       turnOff: "Turn off {{name}}",
-      dryRunRequired: "Run a test before turning this on.",
-      runTest: "Run a test",
+      dryRunRequired: "Do a dry run before turning this on.",
+      runTest: "Dry run",
       neverRun: "No runs yet",
       olderRun: "No recent run",
       runsFailed: "Runs did not load",
@@ -371,9 +371,6 @@ const messages = {
       connectionsNeeded: "{{count}} to connect",
       connectionsListName: "Connections needed",
       jumpToProblem: "Show on the canvas",
-      testRun: "Test run",
-      testing: "Starting",
-      saveAndTest: "Save and test",
       moreActions: "More actions",
       runNow: "Run now",
       runNowSaveFirst: "Save your changes before running for real.",
@@ -414,7 +411,7 @@ const messages = {
       confirmBody: "It is saved as a new version, so no version is lost.",
       confirmDiscards: "Your unsaved changes are discarded.",
       confirmSwitchesOff:
-        "The workflow is switched off until it is tested again.",
+        "The workflow is switched off until it has a clean dry run again.",
       restored: "Restored as version {{version}}.",
       restoreFailed: "Could not restore that version.",
       restoreInvalid_one:
@@ -426,7 +423,7 @@ const messages = {
       invalid_one: "Not saved: {{count}} problem to fix.",
       invalid_other: "Not saved: {{count}} problems to fix.",
       switchedOff:
-        "Saved. The workflow was switched off: test it and turn it on again.",
+        "Saved. The workflow was switched off: dry run it and turn it on again.",
       jobSyncFailed:
         "Saved, but its schedule could not be updated. Save again to retry.",
       notFound: "This workflow no longer exists.",
@@ -448,18 +445,27 @@ const messages = {
       stay: "Keep editing",
       discard: "Discard",
     },
+    draft: {
+      restored: "Restored your unsaved changes.",
+      saveFailed: "Could not save a draft of your changes. {{reason}}",
+      unreadable:
+        "Your unsaved changes could not be restored, so the saved version is open.",
+      discardFailed: "Could not discard your draft. {{reason}}",
+    },
     liveRun: {
       dialogTitle: "Run this workflow for real?",
       body: "This is not a test. It can send messages, update records, and merge pull requests.",
       cancel: "Cancel",
     },
     run: {
-      started: "Test run started.",
-      unavailable: "Test runs are not available yet.",
-      failed: "Could not start the test run. {{reason}}",
+      started: "Dry run started.",
+      unavailable: "Dry runs are not available yet.",
+      failed: "Could not start the dry run. {{reason}}",
       liveStarted: "Run started.",
       liveFailed: "Could not start the run. {{reason}}",
       enableFailed: "Could not change the workflow. {{reason}}",
+      testNeedsItems:
+        "This step needs items to test on. Dry run the workflow first, then test the step.",
     },
     nodePanel: {
       tabsName: "Step views",
@@ -468,6 +474,8 @@ const messages = {
       testStepNeedsRun:
         "Run the workflow once so this step has items to test on.",
       testStepSamplesFailed: "Could not load items to test this step on.",
+      testStepOlderSample:
+        "Testing on items from an earlier run: the newest runs gave this step none.",
     },
     nodeDetails: {
       dialogName: "Step details",
@@ -495,8 +503,8 @@ const messages = {
       ofTotal: "{{shown}} of {{total}} items",
       noInputConnected: "No input connected",
       noInputData: "No input data",
-      testWorkflowHint: "Test the workflow to see items here",
-      testWorkflow: "Test workflow",
+      testWorkflowHint: "Dry run the workflow to see items here",
+      testWorkflow: "Dry run",
       noOutputData: "No output data",
       previewHint: "Run the workflow to see real values",
       noMatchingItems: "No matching items",
@@ -510,8 +518,60 @@ const messages = {
       copyPath: "Copy path",
       pathCopied: "Path copied",
       pathCopyFailed: "The path could not be copied",
-      dragHint: "Drag onto a field to map it",
+      dragHint: "Drag this handle onto a field to map it",
       mappedFirstField: "You just mapped a field.",
+    },
+    apiRequest: {
+      docs: "Docs",
+      docsFor: "{{provider}} API docs",
+      truncatedNotice:
+        "The answer was cut to fit, and one record can be that large. Narrow the query with parameters such as per_page, or use pagination.",
+      cutList: "{{path}}: kept {{kept}} of {{of}} entries",
+      cutText: "{{path}}: kept {{kept}} of {{of}} characters",
+      cutKeys_one: "{{path}}: left out {{count}} field",
+      cutKeys_other: "{{path}}: left out {{count}} fields",
+      cutsMore_one: "and {{count}} more cut",
+      cutsMore_other: "and {{count}} more cuts",
+      tooLargeHint:
+        "A step can hand on about 64 KB and 100 items in all, counting every earlier answer still attached to them. Narrow the query, use pagination, or make fewer calls in one run.",
+      fieldsMissing: "These fields were not found in the answer: {{names}}",
+      fieldsMissingMore: "and {{count}} more",
+      cutNotice:
+        "Only the start of the answer is shown: a step keeps a short record of what it read.",
+      noOutputRecorded: "This run recorded no answer for this step.",
+      liveMark: "HTTP {{status}}, {{ms}} ms",
+      notStored:
+        "Shown here only. The answer is not saved, and closing this window clears it.",
+      errorDetails: "Error details",
+      detailCode: "Code",
+      detailStatus: "Status",
+      detailMessage: "Message",
+      heading: {
+        not_connected: "The provider isn't connected",
+        access_denied: "The provider refused the connection's access",
+        not_found: "The provider couldn't find that path",
+        rate_limited: "The provider is limiting requests",
+        provider_problem: "The provider had a problem",
+        rejected: "The provider rejected the request",
+        too_large: "The answers were too large to keep",
+        request_failed: "The request did not go through",
+        request_refused: "The request was refused before it was sent",
+        unreadable: "The answer could not be read",
+        expression_failed: "A value this step reads has nothing in it",
+        test_not_allowed: "You can't test this step",
+        failed: "The step failed",
+        full_url_refused: "The path is a full URL",
+        unsafe_path_value: "The path can't be sent as typed",
+        invalid_query: "The query parameters are not valid",
+        invalid_header: "A header is not valid",
+        header_denied: "A header can't be set here",
+        invalid_pagination: "The pagination settings are not valid",
+        invalid_timeout: "The timeout is not valid",
+        incompatible_fields:
+          "Status and headers can't be returned with pagination",
+        invalid_fields_to_keep: "Fields to keep is not valid",
+        invalid_field: "A field is empty or not valid",
+      },
     },
     diagnostics: {
       copy: "Copy diagnostics",
@@ -772,6 +832,7 @@ const messages = {
       itemFailures_other: "{{count}} items failed",
       needsCheck: "{{count}} to check",
       nothing: "Nothing new",
+      primed: "Started from now",
       summary: "{{head}}: {{parts}}",
     },
     change: {
@@ -878,6 +939,10 @@ const messages = {
       searchApps: "Search apps...",
       searchActions: "Search actions...",
       clearSearch: "Clear search",
+      apiRequest: "API request",
+      apiRequestLink: "API request step",
+      apiRequestTip: "Read any endpoint of a connected app with the {{link}}.",
+      anythingElseCaption: "Anything else",
       hint: {
         onSchedule: "Runs on a timer, every few minutes or daily",
         newFromApp: "A new message, ticket, lead or subscription",
@@ -887,6 +952,7 @@ const messages = {
         data: "Filter, split or combine items",
         flow: "Route, pause or stop an item",
         describe: "Ask the agent to build this step",
+        apiRequest: "Read any endpoint of a connected app",
         decideAi: "Answer a question about each item",
         builderStart: "Hand a clear bug to Builder to fix",
         builderCheck: "Check where a Builder task stands",
@@ -906,8 +972,8 @@ const messages = {
     },
     canvasActions: {
       addFirstStep: "Add a first step",
-      testWorkflow: "Test workflow",
-      saveAndTestWorkflow: "Save and test workflow",
+      testWorkflow: "Dry run",
+      saveAndTestWorkflow: "Save and dry run",
       describeFirstPrefill: "Create a workflow that ",
       describeTile: "Describe it to the agent",
       or: "or",
@@ -940,6 +1006,7 @@ const messages = {
       match: "Match",
       otherwise: "Otherwise",
       limitReached: "Limit reached",
+      error: "Error",
       replied: "Replied",
       timedOut: "Timed out",
       done: "Done",
@@ -1113,6 +1180,11 @@ const messages = {
       noOperations: "No operations are available",
       notInCatalog: "{{id}} (not in the catalog)",
       resultName: "Name the result",
+      onError: {
+        label: "On error",
+        stop: "Stop this item",
+        route: "Send it to the error output",
+      },
       insertPath: "Insert a path",
       searchPaths: "Search paths",
       noPaths: "No path matches that.",
@@ -1216,6 +1288,7 @@ const messages = {
       combine: {
         mode: "Combine into",
         key: "Group by",
+        firstMemberIdentity: "Name each group after its first item",
         field: "Collect this field",
         group: "Group by",
         value: "Add up",
@@ -1308,6 +1381,154 @@ const messages = {
         confirm: "Remove route",
         cancel: "Keep route",
       },
+      apiRequest: {
+        importCurl: "Import cURL",
+        method: "Method",
+        methodReadOnly: "This step only reads, so the method is always GET.",
+        provider: "Provider",
+        path: "Path",
+        pathPlaceholder: "repos/acme/web/issues",
+        authentication: "Authentication",
+        authProvider: "Provider connection",
+        authProviderHint: "Sends the connection's credential with the request",
+        authNone: "None",
+        authNoneHint: "Sends no credential, for a public endpoint",
+        sendQuery: "Send query parameters",
+        sendHeaders: "Send headers",
+        specifyQuery: "Specify query parameters",
+        specifyHeaders: "Specify headers",
+        modeFields: "Using fields below",
+        modeJson: "Using JSON",
+        name: "Name",
+        value: "Value",
+        queryJson: "Query parameters as JSON",
+        headersJson: "Headers as JSON",
+        addParameter: "Add parameter",
+        addHeader: "Add header",
+        removeRow: "Remove",
+        addOption: "Add option",
+        optionTimeout: "Timeout",
+        optionPagination: "Pagination",
+        optionStatus: "Include response status and headers",
+        optionFieldsToKeep: "Fields to keep",
+        optionFieldsToKeepHint:
+          "Keep only the fields later steps use, so long answers fit.",
+        fieldsPlaceholder: "Type a field, such as user.login, and press Enter",
+        fieldsInputLabel: "Add a field to keep",
+        removeField: "Remove {{path}}",
+        pickFromResponse: "Pick from last response",
+        pickSearch: "Search fields",
+        pickNeedsTest: "Run Test step first, then pick from its answer.",
+        pickRunning: "Test step is still running.",
+        pickFailed: "The last test failed, so there is no answer to pick from.",
+        pickNoFields: "The answer has no fields to pick from.",
+        pickCutNote:
+          "The answer was cut, so fields that only appear in later entries are not listed.",
+        pickCapped: "Showing the first {{count}} fields.",
+        pickKeptNote:
+          "Shows the fields of the last answer. Run Test step with no fields to keep to see all of them.",
+        optionBlockedByPagination: "Not available with pagination.",
+        optionBlockedByStatus:
+          "Not available while the response status and headers are included.",
+        removeOption: "Remove {{option}}",
+        timeoutSeconds: "Timeout (seconds)",
+        cursorPath: "Cursor path",
+        cursorParam: "Cursor parameter",
+        itemsPath: "Items path",
+        maxPages: "Maximum pages",
+        notice:
+          "Requests only read. They use the provider connection, and no credentials are shown or stored here.",
+        cardSubtitle: "GET: {{path}}",
+        cardSubtitleEmpty: "GET:",
+        problem: {
+          pathEmpty:
+            "Type the path of the endpoint, such as repos/acme/web/issues.",
+          fullUrl: "Type only the path. The host comes from the connection.",
+          useOnlyPath: "Use only the path",
+          pathQuery:
+            "Put query parameters under Send query parameters, not in the path.",
+          moveToParameters: "Move them there",
+          pathFragment: "Remove the # part: it is never sent to the provider.",
+          pathPlaceholder:
+            "A {name} in the path is not filled in. Type the real value.",
+          pathSegment: "The path has an empty, dot or control-character part.",
+          pathLength: "The path is too long.",
+          queryInvalid:
+            "Query parameters must be names with text, numbers or lists.",
+          queryName: "Use only letters, digits and - _ . [ ] in a name.",
+          queryValue: "A value cannot hold a line break or be that long.",
+          nameMissing: "Add a name, or remove this row.",
+          headersInvalid: "Headers must be names with text values.",
+          headerDenied:
+            "{{name}} is sent by the connection, so it cannot be set here.",
+          headerDeniedRow: "The connection sends this header itself.",
+          headerName: "That is not a valid header name.",
+          headerValue:
+            "A value cannot hold a control character or be that long.",
+          headerDuplicate: "This header is already listed.",
+          timeout: "Use a number of seconds from 1 to 60.",
+          paginationShape: "Check the pagination settings.",
+          paginationCursorPath:
+            "Type the path to the next cursor in the response, such as meta.next_cursor.",
+          paginationCursorParam:
+            "Type the query parameter that sends the cursor back.",
+          paginationItemsPath:
+            "Use a dotted path to the list in each page, such as data.items.",
+          paginationMaxPages: "Use a whole number of pages from 1 to 5.",
+          statusWithPaging:
+            "Turn off the status and headers, or turn off pagination: only the last page's status is known.",
+          fieldsToKeepShape: "Fields to keep must be a list of field names.",
+          fieldsToKeepEmpty: "Add at least one field, or remove this option.",
+          fieldsToKeepCount: "Keep at most 50 fields.",
+          fieldsToKeepControl: "A field name cannot hold a control character.",
+          fieldsToKeepSegment:
+            "Name each level between the dots, such as user.login.",
+          fieldsToKeepLong:
+            "Each level of a field name can be at most 64 characters.",
+          fieldsToKeepDeep: "A field can go at most 8 levels deep.",
+          fieldsToKeepReserved: "That name is reserved and cannot be used.",
+          fieldsToKeepDuplicate: "This field is already listed.",
+          droppedCredentials:
+            "Left out {{names}}: credentials are never kept in a step.",
+        },
+        importDialog: {
+          title: "Import cURL command",
+          label: "cURL command",
+          placeholder: "Paste the cURL command here",
+          warning: "This will overwrite this step's settings.",
+          import: "Import",
+          cancel: "Cancel",
+          done: "Done",
+          providersFailed:
+            "The list of providers could not be loaded, so a command cannot be matched yet.",
+          retry: "Retry",
+          imported: "Imported from cURL",
+          leftOutTitle: "Imported. These were left out:",
+          fail: {
+            not_curl: "That is not a cURL command. It should start with curl.",
+            no_url: "The command has no URL.",
+            invalid_url:
+              "The URL could not be read. It cannot hold a variable or a command.",
+            not_https: "Only https URLs can be imported.",
+            unknown_host: "This URL isn't on a connected provider.",
+            unterminated_quote: "A quote in the command is never closed.",
+            method_not_get:
+              "This step only reads with GET, and the command asks for something else.",
+          },
+          failFlag:
+            "This step only reads with GET, but the command uses {{flag}}.",
+          leftOut: {
+            credentials:
+              "Credentials, which the connection supplies: {{names}}",
+            headers: "Headers the request sends itself: {{names}}",
+            bodies: "The request body, since this step only reads: {{names}}",
+            flags: "Options with no meaning here: {{names}}",
+            unreadableHeader: "A header that could not be read",
+            extraUrl: "Every URL after the first",
+            urlUserinfo: "the user and password in the URL",
+          },
+        },
+      },
     },
     rejection: {
       unknown_node: "That step is not in this workflow.",
@@ -1336,6 +1557,37 @@ const messages = {
       deleteMany: "Delete {{count}} steps",
       selectAll: "Select all",
       clearSelection: "Clear selection",
+    },
+  },
+  providerPicker: {
+    choose: {
+      channels: "Choose a channel",
+      repositories: "Choose a repository",
+      organizations: "Choose an organization",
+      projects: "Choose a project",
+    },
+    search: "Search or type a value",
+    useTyped: "Use “{{value}}”",
+    noMatches: "No matches",
+    loadMore: "Load more",
+    retry: "Retry",
+    changeOrganization: "Change organization",
+    tag: {
+      private: "Private",
+      botNotMember: "Bot not in channel",
+      archived: "Archived",
+    },
+    error: {
+      notConnected:
+        "{{provider}} is not connected, so the list cannot load. You can still type a value.",
+      refused:
+        "{{provider}} refused the connected credential. You can still type a value.",
+      missingScope:
+        "The {{provider}} connection lacks the {{scope}} permission. You can still type a value.",
+      rateLimited:
+        "{{provider}} is limiting requests. Retry in a moment, or type a value.",
+      unreadable:
+        "The list from {{provider}} could not be read. Retry, or type a value.",
     },
   },
 };

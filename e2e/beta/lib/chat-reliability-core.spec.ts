@@ -11,6 +11,8 @@ import {
   inspectActiveRun,
   inspectPersistedThread,
   isIdle,
+  isQueuedMessageAppendPost,
+  isTurnPost,
   lineToken,
   longAnswerPrompt,
   LONG_ANSWER_LINES,
@@ -1064,6 +1066,98 @@ test("the active-run read distinguishes idle, active, and unreadable", () => {
   assert.equal(inspectActiveRun(null).kind, "unreadable");
 });
 
+test("active-run diagnostics keep stage labels and omit stage details", () => {
+  const view = inspectActiveRun({
+    active: false,
+    status: "errored",
+    terminalReason: "error:stale_run",
+    runId: "r",
+    dispatchMode: "background-processing",
+    diagStage:
+      '{"stage":"stale_run_recovery_attempted","detail":"declined reason=execution_lease_changed priorDiag=worker_claimed priorWorker=worker_started window=45000 dispatch=background-processing redispatchable=1 sinceHeartbeat=46000 sinceProgress=45001 hbAheadOfProgress=999 runAge=90000 inFlight=1 inFlightFor=30000 token=PRIVATE_DETAIL"}',
+    workerStage: '{"stage":"worker_started","detail":"PRIVATE_DETAIL"}',
+    heartbeatAt: 123,
+    lastProgressAt: 456,
+  });
+  assert.equal(
+    view.detail,
+    JSON.stringify({
+      active: false,
+      status: "errored",
+      terminalReason: "error:stale_run",
+      runId: "r",
+      dispatchMode: "background-processing",
+      diagStage: "stale_run_recovery_attempted",
+      diagEvidence:
+        "declined reason=execution_lease_changed priorDiag=worker_claimed priorWorker=worker_started window=45000 dispatch=background-processing redispatchable=1 sinceHeartbeat=46000 sinceProgress=45001 hbAheadOfProgress=999 runAge=90000 inFlight=1 inFlightFor=30000",
+      workerStage: "worker_started",
+      heartbeatAt: 123,
+      lastProgressAt: 456,
+    }),
+  );
+  assert.doesNotMatch(view.detail, /PRIVATE_DETAIL/);
+});
+
+test("active-run diagnostics omit token-shaped raw failure detail", () => {
+  const view = inspectActiveRun({
+    active: false,
+    status: "errored",
+    diagStage: JSON.stringify({
+      stage: "route_threw",
+      detail:
+        "errorMetadata=unreadable errorName=Error errorCode=customer_secret failure=PRIVATE_DETAIL errorCode=other_secret httpStatus=500",
+      evidence: {
+        format: "route_failure_v1",
+        errorMetadata: "unreadable",
+        errorName: "Error",
+        errorCode: "dispatch_timeout",
+        httpStatus: "503",
+      },
+    }),
+  });
+
+  const detail = JSON.parse(view.detail);
+  assert.equal(
+    detail.diagEvidence,
+    "errorMetadata=unreadable errorName=Error errorCode=dispatch_timeout httpStatus=503",
+  );
+  assert.doesNotMatch(
+    view.detail,
+    /PRIVATE_DETAIL|customer_secret|other_secret|httpStatus=500/,
+  );
+});
+
+test("legacy route markers cannot turn raw detail into structured evidence", () => {
+  const view = inspectActiveRun({
+    active: false,
+    status: "errored",
+    diagStage: JSON.stringify({
+      stage: "route_threw",
+      detail:
+        "errorName=Error errorCode=dispatch_timeout failure=raw errorCode=customer_secret httpStatus=500",
+    }),
+  });
+
+  const detail = JSON.parse(view.detail);
+  assert.equal(detail.diagEvidence, null);
+  assert.doesNotMatch(view.detail, /customer_secret|httpStatus=500/);
+});
+
+test("raw details from non-stale stages are never surfaced as diagnostic evidence", () => {
+  const view = inspectActiveRun({
+    active: false,
+    status: "errored",
+    diagStage: JSON.stringify({
+      stage: "worker_threw",
+      detail: "errorName=Error errorCode=customer_secret httpStatus=500",
+    }),
+  });
+
+  const detail = JSON.parse(view.detail);
+  assert.equal(detail.diagEvidence, null);
+  assert.doesNotMatch(view.detail, /customer_secret|httpStatus=500/);
+});
+
 test("text helpers", () => {
   assert.equal(countOccurrences("a-b-a", "a"), 2);
   assert.equal(countOccurrences("abc", ""), 0);
@@ -1119,5 +1213,24 @@ test("the thread id comes from the turn POST before any other request", () => {
       }),
     ]),
     "from-poll",
+  );
+});
+
+test("queued append mutations are distinct from turn POSTs", () => {
+  const entry: TrafficEntry = {
+    atMs: 0,
+    method: "POST",
+    path: "/_agent-native/agent-chat/threads/thread-1/queued",
+    query: "",
+    status: 200,
+    threadId: "thread-1",
+    messageId: "message-1",
+    queueMutationType: "append",
+  };
+  assert.equal(isQueuedMessageAppendPost(entry), true);
+  assert.equal(isTurnPost(entry), false);
+  assert.equal(
+    isQueuedMessageAppendPost({ ...entry, queueMutationType: "claim" }),
+    false,
   );
 });

@@ -27,10 +27,12 @@ import {
 
 import finalizeRecording from "../../../../../actions/finalize-recording.js";
 import { getDb, schema } from "../../../../db/index.js";
+import { refuseContentUploadChunk } from "../../../../lib/content-uploads.js";
 import { debugLog } from "../../../../lib/debug.js";
 import { mediaVerificationStateKey } from "../../../../lib/media-verification-state.js";
 import { reconcileMeetingOnRecordingFailedBestEffort } from "../../../../lib/reconcile-meeting-on-finalize.js";
 import {
+  finalizeFailureTracking,
   hostedStorageAuthFailure,
   recordingTrackingSource,
   trackRecordingFailure,
@@ -55,6 +57,7 @@ import {
 } from "../../../../lib/resumable-session.js";
 import { abortResumableUploadSession } from "../../../../lib/resumable-upload-cleanup.js";
 import { resolveResumableUploadProvider } from "../../../../lib/resumable-upload-provider.js";
+import { recordSourceHeadFromFirstChunk } from "../../../../lib/source-fingerprint.js";
 import { isStreamingUploadDisabled } from "../../../../lib/streaming-upload-mode.js";
 import {
   markHostedCleanupConfirmed,
@@ -511,6 +514,8 @@ export async function handleRecordingChunk(
     ownerEmail?: string;
     orgId?: string;
     authUserId?: string;
+    /** Content's own chunk route, which checked the upload's page binding. */
+    fromContentPage?: boolean;
   },
 ) {
   const recordingId =
@@ -627,6 +632,9 @@ export async function handleRecordingChunk(
         ownerEmail,
       });
       throw createError({ statusCode: 404, message: "Recording not found" });
+    }
+    if (!override?.fromContentPage) {
+      await refuseContentUploadChunk(recordingId);
     }
 
     const maxUploadBytes =
@@ -941,6 +949,7 @@ export async function handleRecordingChunk(
           recordingId,
           userId: authUserId,
           ownerEmail,
+          reason: "upload_failed",
         });
       }
       await reconcileMeetingOnRecordingFailedBestEffort({
@@ -1041,6 +1050,7 @@ export async function handleRecordingChunk(
         await releaseHostedClipRecording({
           recordingId,
           userId: authUserId,
+          reason: "upload_failed",
         });
       }
       await deleteRecordingChunks(
@@ -1101,6 +1111,13 @@ export async function handleRecordingChunk(
       if (bytesReceived > maxUploadBytes) {
         return failRecordingTooLarge(bytesReceived);
       }
+      await recordSourceHeadFromFirstChunk({
+        recordingId,
+        ownerEmail,
+        index,
+        bytes,
+        isFinal,
+      });
     }
 
     if (total > 0) {
@@ -1416,6 +1433,7 @@ export async function handleRecordingChunk(
           uploadAttemptId: attemptId,
           platform: existing.recordingPlatform,
           failureCode,
+          ...finalizeFailureTracking(err),
           browserSessionId: failureSessionId,
         });
         const repairResult = await repairUploadState({
@@ -1722,6 +1740,7 @@ async function handleResumableChunk(
         await releaseHostedClipRecording({
           recordingId,
           userId: authUserId,
+          reason: "upload_failed",
         });
       }
     } else if (storageMode === "hosted") {
@@ -1937,6 +1956,15 @@ async function handleResumableChunk(
           error: lease.failureReason ?? "Recording upload has already failed.",
         };
       }
+      // Here and not before the replay check: a committed chunk's replay is
+      // acked without storing its bytes, so it must not change the fingerprint.
+      await recordSourceHeadFromFirstChunk({
+        recordingId,
+        ownerEmail,
+        index,
+        bytes,
+        isFinal,
+      });
       const start = session.bytesUploaded;
       const end = start + bytes.byteLength - 1;
       const contentRange = isFinal
@@ -2288,6 +2316,7 @@ async function handleResumableChunk(
       uploadAttemptId: failed[0]?.uploadAttemptId,
       platform: failed[0]?.recordingPlatform,
       failureCode,
+      ...finalizeFailureTracking(err),
       browserSessionId: failureSessionId,
     });
     const repairResult = await repairUploadState({

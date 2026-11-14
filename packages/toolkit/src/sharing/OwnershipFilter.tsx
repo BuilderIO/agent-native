@@ -1,4 +1,4 @@
-import { IconChevronDown } from "@tabler/icons-react";
+import { IconChevronDown, IconFilter } from "@tabler/icons-react";
 
 import { Button } from "../ui/button.js";
 import {
@@ -44,11 +44,15 @@ export function OwnershipFilter({
       <DropdownMenuTrigger asChild>
         <Button
           type="button"
-          variant="outline"
+          variant="ghost"
           size="sm"
           aria-label={label}
-          className={cn("h-9 shrink-0 gap-2", className)}
+          className={cn(
+            "shrink-0 font-normal text-muted-foreground hover:text-foreground",
+            className,
+          )}
         >
+          <IconFilter className="size-3.5" aria-hidden="true" />
           {/* Every option is rendered invisibly so the trigger keeps one width. */}
           <span className="grid">
             {OWNERSHIP_FILTER_VALUES.map((option) => (
@@ -64,7 +68,7 @@ export function OwnershipFilter({
               {label}
             </span>
           </span>
-          <IconChevronDown className="size-4" aria-hidden="true" />
+          <IconChevronDown className="size-3.5" aria-hidden="true" />
         </Button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start">

@@ -224,14 +224,17 @@ describe("workflow generation background sessions", () => {
     });
     const snapshot = { requests: [workflowRequest] };
     configureActions(snapshot, {
-      stop: () => {
+      reject: () => {
         snapshot.requests = [];
         return { reconciled: true };
       },
     });
     await renderBridge();
 
-    await vi.waitFor(() => expect(workflowOperations("stop")).toHaveLength(1));
+    await vi.waitFor(() =>
+      expect(workflowOperations("reject")).toHaveLength(1),
+    );
+    expect(workflowOperations("settle")).toHaveLength(0);
     expect(workflowOperations("release")).toHaveLength(0);
     expect(workflowOperations("mark-delivered")).toHaveLength(0);
     expect(workflowOperations("consume")).toHaveLength(0);
@@ -320,7 +323,7 @@ describe("workflow generation background sessions", () => {
       await renderBridge();
 
       await vi.waitFor(() =>
-        expect(workflowOperations("stop")).toHaveLength(1),
+        expect(workflowOperations("settle-terminal")).toHaveLength(1),
       );
       expect(mocks.getBackgroundAgentSessionStatus).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -332,17 +335,18 @@ describe("workflow generation background sessions", () => {
       expect(mocks.callAction).toHaveBeenCalledWith(
         "reconcile-workflow-generation",
         {
-          operation: "stop",
+          operation: "settle-terminal",
           recordingId: "rec_123",
           requestedAt,
           requestId,
           tabId: workflowTabId,
+          terminalRunId: "run-1",
         },
       );
     },
   );
 
-  it("retries the stop reconciliation after a transient failure", async () => {
+  it("retries terminal reconciliation while the run is still active", async () => {
     let attempts = 0;
     mocks.getBackgroundAgentSessionStatus.mockResolvedValue({
       operationId: workflowTabId,
@@ -354,7 +358,35 @@ describe("workflow generation background sessions", () => {
     configureActions(
       { requests: [], activeSessions: [workflowSession] },
       {
-        stop: () => {
+        "settle-terminal": () => {
+          if (attempts++ === 0) {
+            return { reconciled: false, reason: "in-progress" };
+          }
+          return { reconciled: true };
+        },
+      },
+    );
+    await renderBridge();
+
+    await vi.waitFor(
+      () => expect(workflowOperations("settle-terminal")).toHaveLength(2),
+      { timeout: 5000 },
+    );
+  });
+
+  it("retries terminal reconciliation after a transient action failure", async () => {
+    let attempts = 0;
+    mocks.getBackgroundAgentSessionStatus.mockResolvedValue({
+      operationId: workflowTabId,
+      threadId: workflowTabId,
+      turnId: "turn-123",
+      runId: "run-1",
+      status: "errored",
+    });
+    configureActions(
+      { requests: [], activeSessions: [workflowSession] },
+      {
+        "settle-terminal": () => {
           if (attempts++ === 0) throw new Error("connection dropped");
           return { reconciled: true };
         },
@@ -362,9 +394,10 @@ describe("workflow generation background sessions", () => {
     );
     await renderBridge();
 
-    await vi.waitFor(() => expect(workflowOperations("stop")).toHaveLength(2), {
-      timeout: 5000,
-    });
+    await vi.waitFor(
+      () => expect(workflowOperations("settle-terminal")).toHaveLength(2),
+      { timeout: 5000 },
+    );
   });
 
   it("leaves a still-running workflow session alone", async () => {
@@ -381,7 +414,7 @@ describe("workflow generation background sessions", () => {
     await vi.waitFor(() =>
       expect(mocks.getBackgroundAgentSessionStatus).toHaveBeenCalled(),
     );
-    expect(workflowOperations("stop")).toHaveLength(0);
+    expect(workflowOperations("settle")).toHaveLength(0);
   });
 });
 

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { mockEvent } from "h3";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { actionArgumentsHash } from "../action-arguments-identity.js";
 import { runWithRequestContext } from "../server/request-context.js";
@@ -107,6 +107,23 @@ function createProductionAgentHandler(
 const { createCallAgentScriptEntry } =
   await import("../server/agent-chat/script-entries.js");
 const { getThread } = await import("../chat-threads/store.js");
+const defaultGetThread = vi.mocked(getThread).getMockImplementation()!;
+
+// A test's thread is the one every getThread call in that test sees. A
+// one-shot mock answers whichever call runs first, and a write still settling
+// from an earlier test can make that call, so the handler read the default
+// thread and skipped the refusal it was meant to hit.
+function storeThread(thread: Awaited<ReturnType<typeof getThread>>) {
+  vi.mocked(getThread).mockImplementation(async () => thread);
+}
+function failThreadRead(error: Error) {
+  vi.mocked(getThread).mockImplementation(async () => {
+    throw error;
+  });
+}
+afterEach(() => {
+  vi.mocked(getThread).mockImplementation(defaultGetThread);
+});
 const actualRunStore =
   await vi.importActual<typeof import("./run-store.js")>("./run-store.js");
 
@@ -382,7 +399,7 @@ describe("an automatic continuation request", () => {
     const stopped = JSON.parse(
       (await vi.mocked(getThread)("thread-auto"))!.threadData!,
     );
-    vi.mocked(getThread).mockResolvedValueOnce({
+    storeThread({
       id: "thread-auto",
       threadData: JSON.stringify({
         messages: [
@@ -489,9 +506,7 @@ describe("an automatic continuation request", () => {
       "thread cannot be read",
       () => {
         turnLedger.mockResolvedValue(FINISHED_DELEGATION);
-        vi.mocked(getThread).mockRejectedValueOnce(
-          new Error("Connection terminated"),
-        );
+        failThreadRead(new Error("Connection terminated"));
       },
     ],
     [
@@ -503,14 +518,14 @@ describe("an automatic continuation request", () => {
       "thread is missing",
       () => {
         turnLedger.mockResolvedValue(FINISHED_DELEGATION);
-        vi.mocked(getThread).mockResolvedValueOnce(null);
+        storeThread(null);
       },
     ],
     [
       "thread has no messages",
       () => {
         turnLedger.mockResolvedValue(FINISHED_DELEGATION);
-        vi.mocked(getThread).mockResolvedValueOnce({
+        storeThread({
           id: "thread-auto",
           threadData: JSON.stringify({ messages: [] }),
         } as Awaited<ReturnType<typeof getThread>>);
@@ -520,7 +535,7 @@ describe("an automatic continuation request", () => {
       "thread has no user prompt",
       () => {
         turnLedger.mockResolvedValue(FINISHED_DELEGATION);
-        vi.mocked(getThread).mockResolvedValueOnce({
+        storeThread({
           id: "thread-auto",
           threadData: JSON.stringify({
             messages: [
@@ -593,16 +608,9 @@ describe("an automatic continuation request", () => {
     [
       "cannot be read",
       "unreadable",
-      () =>
-        vi
-          .mocked(getThread)
-          .mockRejectedValueOnce(new Error("Connection terminated")),
+      () => failThreadRead(new Error("Connection terminated")),
     ],
-    [
-      "is missing",
-      "missing",
-      () => vi.mocked(getThread).mockResolvedValueOnce(null),
-    ],
+    ["is missing", "missing", () => storeThread(null)],
   ])(
     "still resumes a server successor from the request when the thread %s",
     async (_, id, breakRead) => {
@@ -719,7 +727,7 @@ describe("an automatic continuation request", () => {
       claimRunSlot.mockReset();
       mockClaimedRunSlot();
       turnLedger.mockResolvedValue(FINISHED_DELEGATION);
-      vi.mocked(getThread).mockResolvedValueOnce({
+      storeThread({
         id: "thread-auto",
         threadData: JSON.stringify(threadData),
       } as Awaited<ReturnType<typeof getThread>>);

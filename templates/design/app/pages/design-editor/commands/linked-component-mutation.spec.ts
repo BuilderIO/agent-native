@@ -67,6 +67,7 @@ function queueArgs(overrides: Partial<LinkedComponentMutationQueueArgs> = {}) {
   const reportFailure = vi.fn();
   const args: LinkedComponentMutationQueueArgs = {
     designId: "design-1",
+    sourceSetChangedMessage: "Source set changed",
     fileIds: () => [...content.keys()],
     getContent: (fileId) => content.get(fileId) ?? "",
     getSourceBaseContent: (fileId) => content.get(fileId) ?? "",
@@ -109,6 +110,70 @@ function queueArgs(overrides: Partial<LinkedComponentMutationQueueArgs> = {}) {
 }
 
 describe("linked component mutation queue", () => {
+  it("waits for source preparation before hashing and releases the batch lease", async () => {
+    const ready = deferred<() => void>();
+    const release = vi.fn();
+    const fixture = queueArgs({
+      prepareSources: vi.fn(() => ready.promise),
+      canProject: () => false,
+      projectEdit: vi.fn(),
+    });
+    const before = new Map(fixture.content);
+    const after = new Map([["file-copy", "copy-v1"]]);
+    vi.mocked(fixture.args.invokeAction).mockResolvedValue(
+      resultFor(before, after, "2"),
+    );
+    const queue = createLinkedComponentMutationQueue(fixture.args);
+    const operation = queue.enqueue("file-copy", "copy-root", {
+      kind: "textContent",
+      value: "updated",
+    });
+    expect(queue.blocksLocalContentEdits()).toBe(true);
+    await Promise.resolve();
+    expect(fixture.args.projectEdit).not.toHaveBeenCalled();
+    expect(fixture.args.invokeAction).not.toHaveBeenCalled();
+    ready.resolve(release);
+    await operation;
+    expect(fixture.args.invokeAction).toHaveBeenCalledOnce();
+    expect(release).toHaveBeenCalledOnce();
+  });
+
+  it("reports a preparation failure without invoking the mutation", async () => {
+    const fixture = queueArgs({
+      prepareSources: vi
+        .fn()
+        .mockRejectedValue(new Error("source unavailable")),
+      canProject: () => false,
+    });
+    const queue = createLinkedComponentMutationQueue(fixture.args);
+    await expect(
+      queue.enqueue("file-copy", "copy-root", {
+        kind: "textContent",
+        value: "updated",
+      }),
+    ).rejects.toThrow("source unavailable");
+    expect(fixture.args.invokeAction).not.toHaveBeenCalled();
+    expect(fixture.reportFailure).toHaveBeenCalled();
+  });
+
+  it("releases prepared sources when batch setup fails", async () => {
+    const release = vi.fn();
+    const fixture = queueArgs({
+      prepareSources: async () => release,
+      canProject: () => false,
+      getSourceBaseContent: () => {
+        throw new Error("source unavailable");
+      },
+    });
+    const queue = createLinkedComponentMutationQueue(fixture.args);
+    await expect(
+      queue.enqueue("file-copy", "copy-root", {
+        kind: "textContent",
+        value: "updated",
+      }),
+    ).rejects.toThrow("source unavailable");
+    expect(release).toHaveBeenCalledOnce();
+  });
   it("projects a mixed linked and plain target batch with the server transform", () => {
     const mainContent =
       '<section data-agent-native-node-id="main-root" data-agent-native-component="Button" data-agent-native-component-id="button"><span data-agent-native-node-id="main-label" style="color: blue">Play</span></section><div data-agent-native-node-id="plain-target" style="color: black">Plain</div>';
@@ -1476,15 +1541,9 @@ describe("linked component mutation queue", () => {
     expect(setup.refreshAfterConflict).not.toHaveBeenCalled();
   });
 
-  it.each([
-    { undoCount: 1, selectOther: false, selectAfterUndo: false },
-    { undoCount: 2, selectOther: false, selectAfterUndo: false },
-    { undoCount: 1, selectOther: true, selectAfterUndo: false },
-    { undoCount: 2, selectOther: true, selectAfterUndo: false },
-    { undoCount: 2, selectOther: true, selectAfterUndo: true },
-  ])(
-    "runs $undoCount pending Undo requests, selection: $selectOther, after requested Undo: $selectAfterUndo",
-    async ({ undoCount, selectOther, selectAfterUndo }) => {
+  it.each([{ undoCount: 1 }, { undoCount: 2 }])(
+    "runs $undoCount pending Undo requests",
+    async ({ undoCount }) => {
       const response = deferred<LinkedComponentActionResult>();
       const actionCall = deferred<LinkedComponentEditPayload>();
       const setup = queueArgs({
@@ -1596,66 +1655,17 @@ describe("linked component mutation queue", () => {
       });
 
       await actionCall.promise;
-      const registerSelection = () => {
-        undoArgs.selectionUndoStackRef = {
-          current: [
-            {
-              before: {
-                activeFileId: "file-copy",
-                selectedLayerIds: ["file-copy"],
-                overviewSelectedScreenIds: ["file-copy"],
-              },
-              after: {
-                activeFileId: "file-main",
-                selectedLayerIds: ["file-main"],
-                overviewSelectedScreenIds: ["file-main"],
-              },
-            },
-          ],
-        };
-        undoArgs.selectionRedoStackRef = { current: [] };
-        undoArgs.historyOrderRef.current.push("selection");
-      };
-      if (selectOther && !selectAfterUndo) registerSelection();
-      const sourceAfterUndo: string[] = [];
-      const undos = Array.from({ length: undoCount }, (_, index) => {
-        if (
-          selectAfterUndo &&
-          index === 1 &&
-          !queue.deferHistoryChange?.(registerSelection)
-        )
-          registerSelection();
-        return queue.dispatchHistory(() => {
-          runUndo(undoArgs);
-          sourceAfterUndo.push(setup.content.get("file-copy")!);
-        });
-      });
+      const undos = Array.from({ length: undoCount }, () =>
+        queue.dispatchHistory(() => runUndo(undoArgs)),
+      );
       expect(setup.content.get("file-copy")).toBe("copy-v0");
       response.resolve(resultFor(initial, after, "saved-after-undo"));
       await Promise.all([pending, ...undos]);
-      const expected = new Map(
-        selectOther && undoCount === 1 ? after : initial,
-      );
-      if (!selectOther && undoCount === 2)
+      const expected = new Map(initial);
+      if (undoCount === 2)
         expected.set("file-copy", "copy-before-previous-commit");
       expect(setup.content).toEqual(expected);
-      expect(undoArgs.contentUndoStackRef.current).toHaveLength(
-        2 - undoCount + (selectOther ? 1 : 0),
-      );
-      if (selectAfterUndo)
-        expect(sourceAfterUndo).toEqual(["copy-v0", "copy-v0"]);
-      if (selectOther) {
-        expect(undoArgs.restoreSelectionSnapshot).toHaveBeenNthCalledWith(
-          selectAfterUndo ? 2 : 1,
-          expect.objectContaining({
-            activeFileId: "file-copy",
-            selectedLayerIds: ["file-copy"],
-            overviewSelectedScreenIds: ["file-copy"],
-          }),
-        );
-        if (undoCount === 1)
-          expect(undoArgs.applyLocalContentUpdate).not.toHaveBeenCalled();
-      }
+      expect(undoArgs.contentUndoStackRef.current).toHaveLength(2 - undoCount);
       expect(setup.applyFileContentUpdate).toHaveBeenCalledTimes(2);
       expect(setup.refreshAfterConflict).not.toHaveBeenCalled();
     },

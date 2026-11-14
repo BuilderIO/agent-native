@@ -22,6 +22,8 @@ Before creating any custom route for app data, check `actions/` and the action t
 
 An action may call a provider API, validate data, and persist records without being an AI feature — keep it deterministic, focused, and independently useful to the agent. Don't put LLM calls or a second model runtime in app actions.
 
+The sanctioned model-backed exception is `@agent-native/core/decisions` for capability-aware classification and scoring, and it returns a result without performing or authorizing the selected action.
+
 When a workflow is research, analysis, generation, recommendation, or synthesis — or spans several provider calls and writes — route it to the AgentSidebar via `sendToAgentChat({ openSidebar: true })` and let the agent orchestrate focused actions instead of hiding an AI-shaped workflow behind one opaque `generate-*`/`create-*` action just because its implementation happens to be deterministic.
 
 ## How to Create an Action
@@ -49,6 +51,8 @@ export default defineAction({
 
 `schema` (Zod or Standard Schema-compatible) gives runtime validation, TS inference for `run()` args, and an auto-generated JSON Schema for the tool. Write it so an agent can call the tool correctly on the first try: `.describe()` every param and state enum values and the default in that text (`z.enum(["open","closed"]).default("open").describe('Filter status: "open" or "closed"; defaults to "open"')`); mark a field `.optional()` only when the action truly tolerates its absence — a silent default the caller cannot see is a required field in disguise; name the primary id the same way across a family (`create-/get-/update-/delete-<thing>` all take `id`, not a mix of `id` and `<thing>Id`), and if one action must differ, accept both with `.or()`; give nested objects a real schema, never a prose description; keep the one-line `description` complete enough to call the tool without a second lookup, because compact catalogs and `tool-search` show only that line. Use `z.coerce.number()` for numeric HTTP params, but write an explicit boolean parser instead of `z.coerce.boolean()`, which treats `"false"` as truthy.
 
+Some models (GPT-6 Luna in strict mode) send every optional field they aren't using, filled with `null`, `[]`, `false`, or an enum's only value, so a call must mean the same with that padding as without it. Make an optional switch act only when `true` (`fixedCanvas: true`, not `responsive: false`), and never give `[]` a meaning of its own such as "none".
+
 Use Drizzle's PostgreSQL query builder, not raw SQL/`getDbExec()` or direct driver imports, unless Drizzle can't express the query. Never hardcode API keys/tokens/secrets - read via `readAppSecret` / `resolveCredential` / OAuth helpers; `process.env` is deploy-level config only.
 
 **Decision order:** existing action → extend/create a `defineAction` → custom route as last resort (*Custom `/api/` Routes* below). Actions are already callable by agents, CLIs, hooks, HTTP, and MCP/A2A — don't wrap them in an umbrella REST API.
@@ -64,7 +68,7 @@ Every agent-exposed action is a tool in the model's context window; more tools d
 
 ## Key Actions — One Index, Every Surface
 
-Document the app's primary actions in the `AGENTS.md` action table. For first-turn loading, add those action names to the plugin's `initialToolNames` (`INITIAL_TOOL_NAMES` in some templates), or mark the full starter set `deferLoading: false` on the actions. When one action opts into per-action eager loading, unmarked actions are deferred; the remaining actions stay discoverable through `tool-search`.
+Document the app's primary actions in the `AGENTS.md` action table. For first-turn loading, add those action names to the plugin's `initialToolNames` (`INITIAL_TOOL_NAMES` in some templates), or mark the full starter set `deferLoading: false` on the actions. When one action opts into per-action eager loading, unmarked actions are deferred; the remaining actions stay discoverable through `tool-search`. When users name an action's job in words its name and description lack ("auto-archive rule", "canned reply"), add those words as `searchHints`: `tool-search` ranks them just below the name and never shows them to the model.
 
 When MCP is enabled, its `Key tools` line is generated from `mcp.keyToolNames ?? initialToolNames` and filtered to the actions served on that surface. A configured `mcp.keyToolNames` overrides the advertised MCP/WebMCP key list; it does not change the in-app agent's first-turn list. Keep the advertised subset consistent with the primary actions in the `AGENTS.md` table and the external catalog; the table may also document other in-app actions. Do not hand-write another action list in `mcp.instructions`, a skill, or an external skill; describe when to use actions there.
 
@@ -81,6 +85,17 @@ Controls HTTP exposure:
 | `false` | never exposed as HTTP | `navigate`, `view-screen`, internal |
 
 Mutating actions (anything but `GET`) auto-refresh the UI on success — don't call `refresh-screen` after a normal action. Overrides (`readOnly`, `parallelSafe`) and exact trigger rules: `references/action-fields.md`.
+
+## Saves That Can Race
+
+An action that writes a value a person or another agent may also be changing checks what it read:
+
+- **Server:** `saveIfCurrent` from `@agent-native/core/save-conflict/server` takes `read`, `write` and `expectedRevision`. It checks and writes in one statement, confirms exactly one row changed, ignores a repeat of a save it already applied, and throws one typed conflict carrying the current value. Use `saveRevisionOf(value)` as the revision, so no migration is needed and any writer moves it. Set `requireRevision` for a write that replaces a whole value: a caller that read nothing gets the conflict, with the current value, and can redo its edit.
+- **Reads** return the same revision, and the schema takes it as `expectedRevision` with `EXPECTED_REVISION_DESCRIPTION`.
+- **Browser:** `saveWithMerge` from `@agent-native/core/save-conflict` merges field by field on a conflict and saves again, so most apps need no merge code. `useSaveConflictPrompt` from `@agent-native/toolkit/app/save-conflict` is its `resolveOverlap`: a person sees it only when both writers changed the same field, and can get the other version back.
+- **Agents** never see the prompt. They get the conflict and redo the edit on `details.current`.
+
+Outcomes are counted (`save_outcome_counts`, and `save_conflict_prompt` in the browser), so prompts that could have been automatic show up.
 
 ## Return Values
 
@@ -105,7 +120,9 @@ for interrupted-run recovery.
 
 An action that hands control back to the user (question form, intake dialog) sets `endsTurn: true`; that hides it from MCP/WebMCP/A2A unless `mcpTool: true` is explicit — `references/action-fields.md`. For external-agent integrations, use the external-agents documentation slug listed by `agent-native-docs`.
 
-Reach for `outputSchema` (validate the return), `_agentImages` (attach images the agent can see), `authorize` (gate who may call it), or `needsApproval` (require human sign-off per call) only when the action needs that guarantee — examples in `references/action-fields.md`.
+Every new action declares `outputSchema`: it types the action's return and is enforced strictly by default (`guard:action-output-schema`). Declare its failure codes with `defineActionErrors` and fail through them. Reach for `_agentImages` (attach images the agent can see), `authorize` (gate who may call it), or `needsApproval` (require human sign-off per call) only when the action needs that guarantee — examples in `references/action-fields.md`.
+
+To test an action, start with `checkActionProperties(action, { context })` from `@agent-native/core/action-properties`. It generates inputs from the zod `schema`, and fails on any throw that is not an action contract error, on a return its `outputSchema` rejects, and on an invalid input that reaches `run`. It needs `fast-check` as a devDependency, and it throws `UnsupportedSchemaError` for a schema shape it cannot generate unless you pass an override.
 
 ### Write receipts
 
@@ -132,6 +149,16 @@ return { id, _receipt };
 
 A receipt is not an error channel. A write that did not achieve the requested state throws (`fail()`); return `changed: false` only for a benign no-op, such as the record already being in the requested state.
 
+## Failed Writes
+
+The framework classifies a failed action from the writes it **saw** the call make: every database write (any statement that is not a read such as `SELECT`, `SET` or `LOCK`, and not the framework's own schema setup) and every `fetch` that is not GET, HEAD or OPTIONS. A rejection raised before any of those is "nothing saved", however it is thrown (`fail()`, a plain `Error`, a library error).
+
+- **Declare writes it cannot see.** Before a disk write, child process, `node:http`/`https` request or vendor SDK call, call `noteExternalWrite("<channel>")`, e.g. `noteExternalWrite("local-disk")`. Without it, a failed call that already wrote looks retry-safe. `guard:no-unobserved-writes` fails new code that skips the call. A temp-only or retry-idempotent write can say why with `// observed-write-ok: <reason>` instead.
+- **`withoutWriteObservation(fn)`** is only for framework bookkeeping (an audit row, a change marker, analytics) or a write a retry provably cannot repeat, such as one keyed by a deterministic id or dedup key. Never wrap the write the call exists to make. `await` the work inside `fn`: a Drizzle query builder only runs when awaited, after `fn` has returned, so `withoutWriteObservation(() => db.insert(t).values(v))` exempts nothing.
+- **`retrySafe`** says this action's own write is safe to run again, so a failure after that write is not "unknown". It covers only this action's write. Don't set it on an action that appends, sends or charges unless the input carries an idempotency key.
+- **`NoWriteError`** is an override, not a requirement: most rejections need no label, but it wins over an observed write when the only write before the rejection is one a retry harmlessly repeats (such as uploads nobody has referenced yet), and the framework accepts it only for the call that raised it and only when no nested write action entered that call's handler.
+- **A call that times out or loses its result stays "unknown"**, because it may still be running.
+
 ## Frontend Hooks
 
 Import from focused `@agent-native/core/client/*` entry points; the broad
@@ -149,6 +176,8 @@ const people = await callAction("search-people", { query }, { method: "GET" }); 
 
 Don't add manual generics like `useActionQuery<Meal[]>(...)` — types come from `.generated/action-types.d.ts`. Mutations auto-invalidate all `["action"]` query keys, so GET queries refetch. A revisit paints the persisted result for the signed-in user and org before that refetch; see `references/action-fields.md` for `persistInBrowser: false`.
 
+A failed `useActionMutation` write shows one shared toast (`WriteFailureToaster`, mounted by `AppProviders`) when nothing else reports it. `mutate` toasts unless an `onError` (hook-level or per call) handles the failure; `mutateAsync` toasts only when its rejection ends up unhandled. `errorNotification` picks the mode: `"auto"` (default), `"shared"` (toast even beside an `onError` that only rolls back or logs), or `"caller"` (never: background saves, deliberate swallows, call sites that render the error themselves). `errorLabel` is an already-translated title. A `fail()` with a 4xx status shows its message as the toast text, a 5xx shows only the title because the server masks its text, and a 401 stays silent. For a write that is not a `useActionMutation` (a raw `fetch` upload, a swallowed `catch`), call `reportWriteFailure(error, { label })` from `@agent-native/core/client/write-failure`.
+
 When a query result varies by viewer or another client context that is not part of the action arguments, pass that stable context through `queryKeyScope`. It partitions only the local query cache; it is not sent to the action and never replaces server-side authorization.
 
 ## How to Run (Agent)
@@ -158,6 +187,8 @@ pnpm action log-meal --name "Salad" --calories 350
 ```
 
 CLI flags become action input fields (`--key value` or `--key=value`); the runner does not read or write files for `--input` or `--output`. The default template dispatches through core's `runScript()` in `actions/run.ts`. Action names are lowercase-with-hyphens (`pnpm action my-action` → `actions/my-action.ts`).
+
+For a `needsApproval` action, the CLI checks parsed/defaulted input with caller `cli`. An interactive terminal shows the action and arguments and asks `y/N` (only `y` or `yes` runs). Without both stdin and stdout TTYs, ask the person to approve the specific call, then rerun the exact original `pnpm action` arguments with `--approved` appended. Never add `--approved` before the person approves. This reserved flag is removed before action input parsing and is harmless on ungated actions. See `references/action-fields.md` for approval details.
 
 ## Custom `/api/` Routes
 
@@ -172,10 +203,11 @@ Everything else — CRUD, settings, search, list/detail reads, auth state, anyth
 - **Do** signal failure by throwing, using `fail()` for expected caller-readable failures. Never return `{ error: ... }` as a failure result: a normal return is treated as a successful action. Reserve bare errors for unexpected internal faults.
 - **Do** use `fail()` rather than a bare `Error` for caller-readable failures. It carries the action's message, `errorCode`, and `details` to the browser and to agents; unexpected errors become a generic 500. Reserve bare throws for internal faults.
 - **Do** give `fail()` the status that matches the cause: it defaults to `400`, and `useActionQuery` retries only `429`, `502`, `503`, and `504`. Mutations do not retry; use transient statuses only for retryable failures.
+- **Do** validate inputs before the first write. A rejection raised before any write the framework can see is "nothing saved", so the agent can fix its request and retry. Don't reorder code just to add labels. See *Failed Writes*.
 - **Do** render `actionErrorMessage(error) ?? yourCopy` in UI, never bare `error.message`. The message keeps an `Action <name> failed:` prefix that belongs in a console, so a toast built from it reads "Action update-brand-kit failed: That name is taken." The helper returns only what the action wrote, and `undefined` when nothing did (network drop, proxy HTML page), which is why the fallback is not optional.
 - **Do** pass a real `errorCode` when the agent should branch on the failure rather than re-read it. Codes other than the default `action_failed` are appended to the tool result as `(errorCode: not_found)`, on both the in-app agent and MCP. `details` follow as an `Error details: {...}` JSON line, and as `structuredContent.error` over MCP, capped at 2,000 characters, so keep them to what the agent acts on next: ids, limits, field names. The status never reaches either.
 - **Don't** re-export actions as REST — `/_agent-native/actions/:name` is already the REST surface; duplicating it under `/api/*` hides the operation from agents.
-- **Don't** reach for provider integrations, `outputSchema`, `authorize`, `needsApproval`, or `_agentImages` without checking `references/` first — each has sharp edges covered there, not here.
+- **Don't** reach for provider integrations, `authorize`, `needsApproval`, or `_agentImages` without checking `references/` first — each has sharp edges covered there, not here.
 
 ## Troubleshooting
 

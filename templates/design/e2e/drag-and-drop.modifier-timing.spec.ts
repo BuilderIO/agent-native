@@ -91,7 +91,10 @@ async function selectOnCanvas(app: App, nodeId: string, layerName: string) {
     rect.x + rect.width / 2,
     rect.y + rect.height / 2,
   );
+  // Cmd+click reaches a nested layer; a plain click takes the top-level one.
+  await app.page.keyboard.down(PRIMARY);
   await app.page.mouse.click(centre.x, centre.y);
+  await app.page.keyboard.up(PRIMARY);
   await expect.poll(() => app.selectedLayers()).toEqual([layerName]);
   return centre;
 }
@@ -318,7 +321,6 @@ test("late Alt on a free drag drops a selected copy where it is released and lea
   expect(attrsBesidesStyle(copy)).toEqual({
     "data-agent-native-node-id": copyId,
     "data-agent-native-layer-name": "Copy Source",
-    "data-agent-native-clone-root": "true",
   });
   expect(after.get(copyTextId)).toMatchObject({
     tag: "span",
@@ -332,7 +334,7 @@ test("late Alt on a free drag drops a selected copy where it is released and lea
     top: "268px",
     width: "120px",
     height: "64px",
-    background: "rgb(99, 102, 241)",
+    background: "#6366f1",
   });
   expectOnlyChanged(before, after, added);
   expect
@@ -348,9 +350,9 @@ test("late Alt on a free drag drops a selected copy where it is released and lea
   await expect(
     app.page.getByLabel("X-position", { exact: true }),
     "the copy, not the source, is selected",
-  ).toHaveValue("500px");
+  ).toHaveValue("500");
   await expect(app.page.getByLabel("Y-position", { exact: true })).toHaveValue(
-    "268px",
+    "268",
   );
 });
 
@@ -361,8 +363,8 @@ test("Escape during a late-Alt free drag discards the copy and leaves the source
   const grab = await selectOnCanvas(app, "copy-source", "Copy Source");
   const x = app.page.getByLabel("X-position", { exact: true });
   const y = app.page.getByLabel("Y-position", { exact: true });
-  await expect(x).toHaveValue("80px");
-  await expect(y).toHaveValue("80px");
+  await expect(x).toHaveValue("80");
+  await expect(y).toHaveValue("80");
   const before = await app.savedHtml(id);
 
   await pressAndStartDrag(app, grab);
@@ -383,8 +385,8 @@ test("Escape during a late-Alt free drag discards the copy and leaves the source
     height: 64,
   });
   await expect.poll(() => app.selectedLayers()).toEqual(["Copy Source"]);
-  await expect(x).toHaveValue("80px");
-  await expect(y).toHaveValue("80px");
+  await expect(x).toHaveValue("80");
+  await expect(y).toHaveValue("80");
 });
 
 test("late Alt free drag waits for post-key movement before duplicating", async ({
@@ -476,7 +478,6 @@ test("late Alt flow reorder inserts a copy at the hovered slot and leaves the so
   expect(attrsBesidesStyle(copy)).toEqual({
     "data-agent-native-node-id": copyId,
     "data-agent-native-layer-name": "Control Child",
-    "data-agent-native-clone-root": "true",
   });
   expect(after.get(copyTextId)).toMatchObject({
     tag: "span",
@@ -486,7 +487,7 @@ test("late Alt flow reorder inserts a copy at the hovered slot and leaves the so
   expect(styleOf(copy)).toEqual({
     width: "100px",
     height: "48px",
-    background: "rgb(99, 102, 241)",
+    background: "#6366f1",
   });
   expectOnlyChanged(before, after, added);
   expect(await app.designRect(copyId)).toEqual({
@@ -515,7 +516,7 @@ test("Escape during a late-Alt flow drag discards the copy and leaves the source
   const grab = await selectOnCanvas(app, "control-child", "Control Child");
   const width = app.page.locator('input[aria-label="W size in pixels"]');
   const dropShadow = app.page.getByText("Drop shadow", { exact: true });
-  await expect(width).toHaveValue("100px");
+  await expect(width).toHaveValue("100");
   await expect(dropShadow).toHaveCount(0);
   const before = await app.savedHtml(id);
 
@@ -537,7 +538,7 @@ test("Escape during a late-Alt flow drag discards the copy and leaves the source
     height: 48,
   });
   await expect.poll(() => app.selectedLayers()).toEqual(["Control Child"]);
-  await expect(width).toHaveValue("100px");
+  await expect(width).toHaveValue("100");
   await expect(dropShadow).toHaveCount(0);
 });
 
@@ -583,14 +584,18 @@ test("late Alt grid reorder clears authored placement on the duplicate", async (
   expect(attrsBesidesStyle(after.get(copyId))).toEqual({
     "data-agent-native-node-id": copyId,
     "data-agent-native-layer-name": "Grid Flow Source",
-    "data-agent-native-clone-root": "true",
   });
+  // The copy keeps its authored placement text; the longhands written after
+  // it return it to auto-placement.
   expect(styleOf(after.get(copyId))).toEqual({
-    "grid-area": "auto",
-    order: "0",
+    "grid-column": "1",
+    "grid-row": "1",
     width: "120px",
     height: "56px",
-    background: "rgb(99, 102, 241)",
+    background: "#6366f1",
+    "grid-column-start": "auto",
+    "grid-row-start": "auto",
+    order: "0",
   });
   expectOnlyChanged(before, after, added);
   expect(await app.designRect("grid-flow-source")).toEqual({

@@ -240,6 +240,13 @@ export function AppMenu({
             <DropdownMenuSubContent className="w-56">
               <DropdownMenuItem
                 className={itemClass}
+                disabled={!canvas?.canFitToScreen}
+                onSelect={() => canvas?.fitToScreen()}
+              >
+                {t("raw.fitToScreen")}
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                className={itemClass}
                 disabled={!canvas?.canZoomIn}
                 onSelect={canvas?.zoomIn}
               >

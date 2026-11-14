@@ -1,6 +1,8 @@
 import {
   applyVisualEdit,
   buildCodeLayerProjection,
+  type CodeLayerNode,
+  type CodeLayerProjection,
   removeCodeLayerNodeFromHtml,
 } from "@shared/code-layer";
 import { linkedComponentRootForNode } from "@shared/component-links";
@@ -43,6 +45,29 @@ import {
   mapAcceptedSelectionNode,
   projectAcceptedSource,
 } from "./selection-publication";
+
+// Clicking empty canvas or another layer ends a text edit, and the commit
+// lands after that selection change. Re-selecting the edited layer then would
+// undo the click, so the commit only refreshes a selection that still holds it.
+export function textCommitSelectionMovedOn(
+  projection: CodeLayerProjection,
+  editedNode: CodeLayerNode | null,
+  selection: { element: ElementInfo | null } | { layerIds: string[] },
+): boolean {
+  if ("layerIds" in selection) {
+    return (
+      selection.layerIds.length === 0 ||
+      (!!editedNode && !selection.layerIds.includes(editedNode.id))
+    );
+  }
+  if (!selection.element) return true;
+  if (!editedNode) return false;
+  const selectedNode = resolveCodeLayerNodeFromElementInfo(
+    projection,
+    selection.element,
+  );
+  return !!selectedNode && selectedNode.id !== editedNode.id;
+}
 
 export interface TextContentChangeArgs {
   activeCanvasSourceType: "inline" | "localhost" | "fusion";
@@ -327,8 +352,23 @@ export function runTextContentChange(
       submittedNode,
     );
   }
-  if (selectedNode) setSelectedLayerIdsState([selectedNode.id]);
+  const followsSelection = !finalizedCreation.isCreationCommit;
+  if (selectedNode) {
+    const nextLayerId = selectedNode.id;
+    setSelectedLayerIdsState((current) =>
+      followsSelection &&
+      textCommitSelectionMovedOn(projection, targetNode, { layerIds: current })
+        ? current
+        : [nextLayerId],
+    );
+  }
   setSelectedElement((previous) => {
+    if (
+      followsSelection &&
+      textCommitSelectionMovedOn(projection, targetNode, { element: previous })
+    ) {
+      return previous;
+    }
     const base =
       elementInfo ?? (previous?.selector === selector ? previous : undefined);
     return base

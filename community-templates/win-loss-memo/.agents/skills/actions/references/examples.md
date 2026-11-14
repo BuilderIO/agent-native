@@ -1,8 +1,8 @@
-# Extra Examples, Legacy Pattern, and the Audit Script
+# Extra Action Examples and Compatibility Patterns
 
 Read this for a second worked example beyond the one in SKILL.md, for the
-older bare-export action format you may find in existing code, or for the
-advisory dead-action audit tool.
+legacy `parameters` form or CLI-only bare-export action you may find in
+existing code.
 
 ## Common Patterns
 
@@ -49,24 +49,35 @@ export default defineAction({
 
 ```ts
 import { z } from "zod";
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
+import { writeAppStateForCurrentTab } from "@agent-native/core/application-state";
 
 export default defineAction({
-  description: "Navigate the UI to a view",
+  description: "Navigate the UI to a view or path",
   schema: z.object({
-    view: z.string().describe("Target view"),
+    view: z.string().optional().describe("Target view"),
+    path: z.string().optional().describe("URL path to navigate to"),
   }),
   http: false,
   run: async (args) => {
-    await writeAppState("navigate", { command: "go", view: args.view });
-    return "Navigated";
+    if (!args.view && !args.path) {
+      fail("At least --view or --path is required.", {
+        errorCode: "invalid_navigation",
+      });
+    }
+    const navigation: Record<string, string> = {};
+    if (args.view) navigation.view = args.view;
+    if (args.path) navigation.path = args.path;
+    navigation._writeId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    await writeAppStateForCurrentTab("navigate", navigation);
+    return { message: `Navigating to ${args.view || args.path}` };
   },
 });
 ```
 
 ## Legacy `parameters` Field
 
-Before Standard Schema support, `defineAction` took a plain JSON Schema object via `parameters` instead of a Zod `schema`. It still works — the action is still callable — but skips runtime validation and TypeScript inference. Migrate to `schema: z.object({...})` when you touch one of these.
+The older `defineAction` form accepts a JSON Schema object through `parameters`. It still supplies the agent's input schema and infers TypeScript args for supported parameter shapes, but does not provide the Standard Schema validation and transforms of `schema`. Prefer `schema: z.object({...})` for new actions and when updating existing ones.
 
 ## Legacy Pattern (bare export)
 
@@ -82,13 +93,4 @@ export default async function myAction(args: string[]) {
 }
 ```
 
-This still works but is not auto-exposed as HTTP. Prefer `defineAction` for all new actions.
-
-## Audit Script (Advisory)
-
-`pnpm actions:audit [template ...]` (or `node scripts/audit-template-actions.mjs`) statically scans a template's `actions/` and prints two kinds of suggestions:
-
-1. **Likely UI-dead** — HTTP-exposed mutating actions whose name is never referenced under `app/` (candidates to delete or mark `agentTool: false`).
-2. **Likely redundant clusters** — groups like `update-foo-name` / `update-foo-order` that could collapse into one orthogonal `update-foo`.
-
-It is **advisory only**: it always exits 0, never fails CI, and uses conservative heuristics, so expect some false positives (e.g. an action the agent calls but the UI doesn't). Use it as a prompt to review, not a gate.
+The CLI runner still accepts this function form, but it is CLI-only: it is not registered as an agent tool, does not mount an HTTP endpoint, and has no typed frontend hook. Prefer `defineAction` for actions shared with the agent or UI. See `actions-advanced` for this legacy form and its helpers.

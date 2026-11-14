@@ -1,4 +1,5 @@
-import { asc, count, eq } from "drizzle-orm";
+import { and, asc, count, eq, gte, lt, or, type SQL } from "drizzle-orm";
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
 import {
   defineEventHandler,
   getQuery,
@@ -6,6 +7,11 @@ import {
   type H3Event,
 } from "h3";
 
+import {
+  getExcludedRanges,
+  parseEdits,
+} from "../../../app/lib/timestamp-mapping.js";
+import { canReadRecordingComments } from "../../../shared/comment-access.js";
 import { getDb, schema } from "../../db/index.js";
 import {
   applyAgentJsonHeaders,
@@ -41,8 +47,32 @@ export default defineEventHandler(async (event: H3Event) => {
   }
 
   const recording = accessResult.access.recording;
+  const commentsReadable = canReadRecordingComments({
+    enableComments: recording.enableComments,
+    viewerIsOwner: accessResult.access.viewerIsOwner,
+  });
   const db = getDb();
   const historyQueryLimit = MAX_PUBLIC_AGENT_HISTORY_ITEMS + 1;
+  // Owner-cut footage is excluded before the history cap, so removed rows
+  // cannot crowd out visible ones.
+  const excludedRanges = getExcludedRanges(parseEdits(recording.editsJson));
+  const outsideCuts = (timestamp: AnyPgColumn) =>
+    excludedRanges.map(
+      (range): SQL =>
+        or(lt(timestamp, range.startMs), gte(timestamp, range.endMs)) as SQL,
+    );
+  const commentScope = excludedRanges.length
+    ? and(
+        eq(schema.recordingComments.recordingId, recording.id),
+        ...outsideCuts(schema.recordingComments.videoTimestampMs),
+      )
+    : eq(schema.recordingComments.recordingId, recording.id);
+  const reactionScope = excludedRanges.length
+    ? and(
+        eq(schema.recordingReactions.recordingId, recording.id),
+        ...outsideCuts(schema.recordingReactions.videoTimestampMs),
+      )
+    : eq(schema.recordingReactions.recordingId, recording.id);
   const [
     { transcript, agentSegments },
     commentRows,
@@ -54,7 +84,7 @@ export default defineEventHandler(async (event: H3Event) => {
     bugReport,
   ] = await Promise.all([
     loadAgentTranscript(recording.id, recording.durationMs),
-    recording.enableComments
+    commentsReadable
       ? db
           .select({
             id: schema.recordingComments.id,
@@ -70,7 +100,7 @@ export default defineEventHandler(async (event: H3Event) => {
             updatedAt: schema.recordingComments.updatedAt,
           })
           .from(schema.recordingComments)
-          .where(eq(schema.recordingComments.recordingId, recording.id))
+          .where(commentScope)
           .orderBy(
             asc(schema.recordingComments.videoTimestampMs),
             asc(schema.recordingComments.createdAt),
@@ -87,21 +117,21 @@ export default defineEventHandler(async (event: H3Event) => {
             createdAt: schema.recordingReactions.createdAt,
           })
           .from(schema.recordingReactions)
-          .where(eq(schema.recordingReactions.recordingId, recording.id))
+          .where(reactionScope)
           .orderBy(asc(schema.recordingReactions.createdAt))
           .limit(historyQueryLimit)
       : Promise.resolve([]),
-    recording.enableComments
+    commentsReadable
       ? db
           .select({ count: count() })
           .from(schema.recordingComments)
-          .where(eq(schema.recordingComments.recordingId, recording.id))
+          .where(commentScope)
       : Promise.resolve([{ count: 0 }]),
     recording.enableReactions
       ? db
           .select({ count: count() })
           .from(schema.recordingReactions)
-          .where(eq(schema.recordingReactions.recordingId, recording.id))
+          .where(reactionScope)
       : Promise.resolve([{ count: 0 }]),
     loadAgentCtas(recording.id),
     loadAgentBrowserDiagnostics(recording.id),

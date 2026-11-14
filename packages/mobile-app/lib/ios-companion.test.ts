@@ -6,7 +6,10 @@ const mocks = vi.hoisted(() => ({
     string,
     { deleted?: boolean; exists: boolean; size?: number; text: string }
   >(),
+  peekPendingQuickAction: vi.fn(),
+  acknowledgeQuickAction: vi.fn(),
   getClipsSession: vi.fn(),
+  addListener: vi.fn(),
   persistCaptureFile: vi.fn(),
 }));
 
@@ -69,8 +72,17 @@ vi.mock("expo-file-system", () => {
   };
 });
 vi.mock("react-native", () => ({
-  NativeEventEmitter: class {},
-  NativeModules: {},
+  NativeEventEmitter: class {
+    addListener(...args: unknown[]) {
+      return mocks.addListener(...args);
+    }
+  },
+  NativeModules: {
+    AgentNativeIOSCompanion: {
+      peekPendingQuickAction: mocks.peekPendingQuickAction,
+      acknowledgeQuickAction: mocks.acknowledgeQuickAction,
+    },
+  },
   Platform: { OS: "ios" },
 }));
 vi.mock("./capture-queue", () => ({
@@ -84,8 +96,11 @@ vi.mock("./persist-capture", () => ({
 }));
 
 import {
+  acknowledgeIOSQuickAction,
   importIOSSharedCaptures,
   isSharedCaptureReadyForImport,
+  peekPendingIOSQuickAction,
+  subscribeToIOSQuickActionAvailable,
 } from "./ios-companion";
 
 describe("iOS shared capture recovery", () => {
@@ -94,7 +109,10 @@ describe("iOS shared capture recovery", () => {
   beforeEach(() => {
     mocks.files.clear();
     mocks.enqueueCaptureJob.mockReset();
+    mocks.peekPendingQuickAction.mockReset();
+    mocks.acknowledgeQuickAction.mockReset();
     mocks.getClipsSession.mockReset().mockResolvedValue({ ownerKey: "owner" });
+    mocks.addListener.mockReset();
     mocks.persistCaptureFile
       .mockReset()
       .mockResolvedValue("local://capture.mp4");
@@ -126,6 +144,32 @@ describe("iOS shared capture recovery", () => {
         now,
       ),
     ).toBe(true);
+  });
+
+  it("exposes the pending route before acknowledging its delivery", async () => {
+    const remove = vi.fn();
+    const listener = vi.fn();
+    mocks.peekPendingQuickAction.mockResolvedValue({
+      id: "quick-action-1",
+      path: "/capture/audio",
+    });
+    mocks.acknowledgeQuickAction.mockResolvedValue(undefined);
+    mocks.addListener.mockReturnValue({ remove });
+
+    const unsubscribe = subscribeToIOSQuickActionAvailable(listener);
+    await expect(peekPendingIOSQuickAction()).resolves.toEqual({
+      id: "quick-action-1",
+      path: "/capture/audio",
+    });
+
+    expect(mocks.addListener).toHaveBeenCalledWith(
+      "quickActionAvailable",
+      listener,
+    );
+    await acknowledgeIOSQuickAction("quick-action-1");
+    expect(mocks.acknowledgeQuickAction).toHaveBeenCalledWith("quick-action-1");
+    unsubscribe();
+    expect(remove).toHaveBeenCalledOnce();
   });
 
   it("imports completed ReplayKit metadata with its measured duration", async () => {

@@ -1,5 +1,7 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { oauthRedirectUri } from "@agent-native/core/client/host";
+import { serverAuthReturnPath } from "@agent-native/core/client/sign-in-return";
+import { surfaceMutationError } from "@agent-native/core/client/write-failure";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useEffect } from "react";
 
@@ -129,7 +131,7 @@ export function useGoogleAuthUrl(enabled = false) {
       const returnPath = `${window.location.pathname}${window.location.search}`;
       return fetchJson<{ url: string }>(
         agentNativePath(
-          `/_agent-native/google/auth-url?redirect_uri=${encodeURIComponent(redirectUri)}&return=${encodeURIComponent(returnPath)}`,
+          `/_agent-native/google/auth-url?redirect_uri=${encodeURIComponent(redirectUri)}&return=${encodeURIComponent(serverAuthReturnPath(returnPath))}`,
         ),
       );
     },
@@ -190,5 +192,6 @@ export function useDisconnectGoogle() {
       void queryClient.invalidateQueries({ queryKey: LABELS_QUERY_KEY });
       void invalidateInboxThreads(queryClient);
     },
+    meta: surfaceMutationError(),
   });
 }

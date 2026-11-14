@@ -1,8 +1,13 @@
-import { defineAction, type ActionRunContext } from "@agent-native/core/action";
+import {
+  defineAction,
+  fail,
+  type ActionRunContext,
+} from "@agent-native/core/action";
 import { getCredentialContext } from "@agent-native/core/server/request-context";
 import { z } from "zod";
 
 import { BigQueryMaximumBytesBilledError } from "../server/lib/bigquery";
+import { withBigQueryUsageAttribution } from "../server/lib/bigquery-usage";
 import {
   DASHBOARD_PANEL_SOURCES,
   normalizeDashboardPanelQuery,
@@ -12,6 +17,7 @@ import {
   BREAKDOWN_OVER_BYTE_CAP_ERROR,
   ROW_BREAKDOWN_MAX_BYTES_BILLED,
 } from "../shared/row-breakdown";
+import { TRAFFIC_ENVIRONMENTS } from "../shared/traffic-environment";
 
 export default defineAction({
   description:
@@ -20,9 +26,10 @@ export default defineAction({
     source: z.enum(DASHBOARD_PANEL_SOURCES),
     query: z.unknown(),
     forceRefresh: z.boolean().optional(),
-    // The cap is fixed here, not sent by the browser, so a client can't
-    // raise what one row breakdown may bill.
-    purpose: z.enum(["row-breakdown"]).optional(),
+    // Interaction budgets are fixed here. The normal SQL operation retains its
+    // source budget; purpose is not an authorization boundary for arbitrary SQL.
+    purpose: z.enum(["row-breakdown", "panel-drilldown"]).optional(),
+    environment: z.enum(TRAFFIC_ENVIRONMENTS).optional(),
   }),
   http: { method: "POST" },
   readOnly: true,
@@ -34,26 +41,44 @@ export default defineAction({
       throw new Error("No authenticated context for query-dashboard-panel.");
     }
 
+    if (args.environment && args.source !== "first-party") {
+      fail("environment applies only to first-party panels.", {
+        errorCode: "invalid_target",
+        statusCode: 400,
+      });
+    }
     const query = normalizeDashboardPanelQuery(args.source, args.query);
-    const breakdown = args.purpose === "row-breakdown";
     try {
-      return await resolveAnalyticsPanelSource(
-        {
-          source: args.source,
-          query,
-          ...(args.forceRefresh ? { forceRefresh: true } : {}),
-          ...(actionContext?.signal ? { signal: actionContext.signal } : {}),
-          ...(breakdown
-            ? { maxBytesBilled: ROW_BREAKDOWN_MAX_BYTES_BILLED }
-            : {}),
-        },
-        context,
+      return await withBigQueryUsageAttribution(
+        { workload: "dashboard-panel" },
+        () =>
+          resolveAnalyticsPanelSource(
+            {
+              source: args.source,
+              query,
+              ...(args.environment
+                ? { trafficEnvironment: args.environment }
+                : {}),
+              ...(args.forceRefresh ? { forceRefresh: true } : {}),
+              ...(actionContext?.signal
+                ? { signal: actionContext.signal }
+                : {}),
+              ...(args.purpose
+                ? { maxBytesBilled: ROW_BREAKDOWN_MAX_BYTES_BILLED }
+                : {}),
+            },
+            context,
+          ),
       );
     } catch (error) {
-      if (breakdown && error instanceof BigQueryMaximumBytesBilledError) {
+      if (args.purpose && error instanceof BigQueryMaximumBytesBilledError) {
+        const gib = ROW_BREAKDOWN_MAX_BYTES_BILLED / 1024 ** 3;
         return {
           error: BREAKDOWN_OVER_BYTE_CAP_ERROR,
-          message: `This breakdown would read more than ${ROW_BREAKDOWN_MAX_BYTES_BILLED / 1024 ** 3} GiB, so it did not run. Narrow the dashboard filters or the panel's date range and try again.`,
+          message:
+            args.purpose === "panel-drilldown"
+              ? `These records would read more than ${gib} GiB, so they did not load. Narrow the dashboard filters or the panel's date range and try again.`
+              : `This breakdown would read more than ${gib} GiB, so it did not run. Narrow the dashboard filters or the panel's date range and try again.`,
         };
       }
       throw error;

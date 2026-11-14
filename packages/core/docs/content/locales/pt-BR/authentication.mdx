@@ -341,6 +341,8 @@ export default createAuthPlugin({
 });
 ```
 
+A autenticação personalizada também deve configurar o retorno de chamada opcional `AuthOptions.getBrowserSession` para recursos da interface e aprovações do navegador. Ele aceita um `H3Event` e retorna `AuthSession | null`, como `getSession`, mas deve ler apenas cookies do navegador, nunca tokens bearer, tokens de consulta ou outros cabeçalhos. Sem esse hook explícito, essas operações exclusivas do navegador retornam `401`.
+
 ## Aplicativos de espaço de trabalho público {#public-workspace-apps}
 
 Os aplicativos do Workspace são internos por padrão. Para permitir que visitantes anônimos carreguem um arquivo público
@@ -484,6 +486,20 @@ A flag do Dispatch `desktop.workspace-sso`, desativada por padrão, controla ape
 O marcador Canary do agente do usuário é apenas uma indicação de disponibilidade, não uma atestação remota; autenticação e autorização não confiam nele.
 Os apps hospedados canônicos reconhecem solicitações do Desktop SSO Canary empacotado sem configuração de hub de identidade por app. Navegadores comuns continuam usando o login normal por app. Apps auto-hospedados exigem `AGENT_NATIVE_IDENTITY_HUB_URL` apenas para o caminho explícito restante do Desktop ou da federação no servidor. Builds estáveis do Desktop não inicializam o intermediário até que uma versão posterior seja aprovada separadamente.
 A versão Canary não intercepta a navegação de login anônimo dos aplicativos. O usuário deve escolher explicitamente o login do workspace nas configurações do Desktop para o aplicativo registrado ativo; o login normal do aplicativo continua sendo o caminho padrão.
+
+## Personalizar a página de login
+
+O modelo Chat define `marketing: false` em `server/plugins/auth.ts`. Um objeto de marketing ativa o painel, exibido abaixo do formulário em dispositivos móveis. `AuthMarketingProps` descreve as propriedades renderizadas. O plugin aceita os campos `marketing` abaixo. `authHeadHtml` adiciona HTML confiável do aplicativo após os estilos internos. Não passe dados de usuários.
+
+```ts filename="server/plugins/auth.ts"
+import { createToolkitAuthPlugin } from "@agent-native/toolkit/app/auth/server";
+
+export default createToolkitAuthPlugin({
+  rootAuth: true,
+  marketing: { appName: "My app", tagline: "Make work easier" },
+  authHeadHtml: "<style>.auth-root { font-family: sans-serif; }</style>",
+});
+```
 
 ## Implantação administrada e convites
 

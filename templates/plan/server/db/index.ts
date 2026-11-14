@@ -25,6 +25,7 @@ function planResourcePath(plan: unknown): string {
 
 registerShareableResource({
   type: "plan",
+  agentRead: { actions: ["get-visual-plan"] },
   resourceTable: schema.plans,
   sharesTable: schema.planShares,
   displayName: "Plan",

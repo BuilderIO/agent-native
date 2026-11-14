@@ -3,6 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
+import { noteExternalWrite } from "../../action.js";
 import type {
   SandboxAdapter,
   SandboxRunRequest,
@@ -72,6 +73,27 @@ function supportsNetPermissionFlag(permissionFlag: string): boolean {
   return cachedNetPermissionSupport;
 }
 
+const EXPERIMENTAL_WARNING_FLAG = "--disable-warning=ExperimentalWarning";
+let cachedDisableWarningSupport: boolean | undefined;
+// `--allow-net` warns on every run, which the agent reads as its code's stderr.
+// Node before 20.11 rejects this flag, so it is probed.
+function supportsDisableWarningFlag(): boolean {
+  if (cachedDisableWarningSupport !== undefined) {
+    return cachedDisableWarningSupport;
+  }
+  try {
+    const probe = spawnSync(
+      process.execPath,
+      [EXPERIMENTAL_WARNING_FLAG, "-e", "process.exit(0)"],
+      { timeout: 10_000, stdio: "ignore" },
+    );
+    cachedDisableWarningSupport = probe.status === 0;
+  } catch {
+    cachedDisableWarningSupport = false;
+  }
+  return cachedDisableWarningSupport;
+}
+
 export class LocalChildProcessAdapter implements SandboxAdapter {
   readonly id = "local-child-process";
 
@@ -99,6 +121,9 @@ export class LocalChildProcessAdapter implements SandboxAdapter {
             ...(supportsNetPermissionFlag(permissionFlag)
               ? ["--allow-net"]
               : []),
+            ...(supportsDisableWarningFlag()
+              ? [EXPERIMENTAL_WARNING_FLAG]
+              : []),
             ...sandboxReadAllowPaths(tmpDir).map(
               (allowedPath) => `--allow-fs-read=${allowedPath}`,
             ),
@@ -109,6 +134,7 @@ export class LocalChildProcessAdapter implements SandboxAdapter {
           ]
         : [tmpFile];
 
+      noteExternalWrite("child-process");
       const child = spawn(process.execPath, nodeArgs, {
         cwd: tmpDir,
         env: safeEnv,

@@ -3,6 +3,7 @@ import {
   type ChatFirstSurfaceKind,
   type ChatFirstSurfaceTab,
 } from "@agent-native/core/client/chat-first-state";
+import { useT } from "@agent-native/core/client/i18n";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -27,7 +28,7 @@ import {
 } from "@tabler/icons-react";
 import type { ComponentType, ReactNode } from "react";
 
-import { defaultChatFirstCopy } from "./copy.js";
+import { useChatFirstCopy } from "./copy.js";
 import type { ChatFirstSurfaceTabsProps } from "./types.js";
 
 const ICONS: Record<
@@ -62,9 +63,12 @@ export function ChatFirstSurfaceTabs({
   onOpenApp,
   renderAppIcon,
   onAddTab,
-  addTabLabel = "New tab",
-  copy = defaultChatFirstCopy,
+  addTabLabel,
+  copy: copyProp,
 }: ChatFirstSurfaceTabsProps) {
+  const t = useT();
+  const copy = useChatFirstCopy(copyProp);
+  const newTabLabel = addTabLabel ?? t("agentChat.chatFirst.newTab");
   return (
     <TooltipProvider delayDuration={400}>
       <div
@@ -143,7 +147,7 @@ export function ChatFirstSurfaceTabs({
                     </button>
                     <button
                       type="button"
-                      className="mr-1 flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground/65 opacity-0 transition-opacity hover:bg-background/70 hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100"
+                      className="me-1 flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground/65 opacity-0 transition-opacity hover:bg-background/70 hover:text-foreground group-hover:opacity-100 group-data-[active=true]:opacity-100 focus-visible:opacity-100 [@media(hover:none)]:opacity-100"
                       aria-label={copy("closeTab", { name: tab.title })}
                       title={copy("closeTab", { name: tab.title })}
                       onClick={(event) => {
@@ -182,8 +186,8 @@ export function ChatFirstSurfaceTabs({
               <button
                 type="button"
                 className="flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground/65 transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                aria-label={addTabLabel}
-                title={addTabLabel}
+                aria-label={newTabLabel}
+                title={newTabLabel}
                 onClick={onAddTab}
               >
                 <IconPlus size={14} aria-hidden="true" />
@@ -275,12 +279,11 @@ export function ChatFirstSurfaceTabs({
                 className="mt-1 border-t border-border pt-1"
                 data-chat-first-workspace-apps
               >
-                <p className="px-2 py-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-                  {copy("workspaceApps")}
-                </p>
                 <div
                   className="grid grid-cols-2 gap-1.5"
                   data-chat-first-workspace-app-list
+                  aria-label={copy("workspaceApps")}
+                  role="group"
                 >
                   {apps.map((app) => (
                     <button

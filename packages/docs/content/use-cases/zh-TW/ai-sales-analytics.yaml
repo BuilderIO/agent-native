@@ -1,0 +1,101 @@
+slug: ai-sales-analytics
+app: analytics
+roles:
+  - revops
+  - sales
+title: 用 HubSpot 和 Gong 資料檢視銷售管道
+seo_title: 適用於 HubSpot 和 Gong 的 AI 銷售分析
+meta_description: 在銷售管道檢討會前，先掌握哪些交易停滯、原因為何。用日常語言詢問 Agent-Native Analytics 關於 HubSpot 和 Gong 的問題，再把答案存成儀表板。
+updated: 2026-10-27
+hero:
+  body: Agent-Native Analytics 把 HubSpot 交易和 Gong 通話變成每次銷售管道檢討都能用的儀表板。用日常語言問哪些交易停滯、原因為何，agent 會綜合兩者回答。
+  button:
+    label: 詢問你的銷售管道
+    url: https://analytics.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe534007e491840cc86570110b7d00de4
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4780c6d1885541bcaf3d949dbdbc1eb7
+    alt: Analytics 中的「Weekly pipeline review」儀表板，面板包括各階段的未成交管道、各負責人的交易，以及停滯 30 天的交易。右側的 agent 對話根據 HubSpot 階段記錄和最近一次 Gong 通話，說明其中一筆交易為何停滯。
+how_to:
+  heading: 如何用 AI 分析銷售管道
+  steps:
+    - title: 連接 CRM 和通話資料
+      body: 開啟 **資料來源**，在 **CRM & Sales** 底下點選 HubSpot 旁的 **連線**。貼上你在 HubSpot 設定中建立的私人應用程式權杖，再點選 **儲存憑證**。Gong 的做法相同，使用存取金鑰和密鑰。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fdeea3eb7d84048eca0f534b7b00390ee
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd918aa95f46047559b1f30c42d89d62f
+        alt: 「資料來源」頁面，HubSpot 位於「已連線」底下，Gong 位於 CRM & Sales 底下。Gong 的設定面板停在 Access Key Secret 步驟，已貼上金鑰，下方是「儲存憑證」。
+    - title: 詢問你的銷售管道
+      body: 在 **提問** 中用日常語言提問：「哪些未成交的交易在同一個階段停留了 30 天以上？」agent 會搜尋你的 HubSpot 交易，並以可排序、可追問的表格回答。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7acaa378761c453bb79f9f246d8cab72
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe66acdb3c24e41c7b5caef3e0251b17a
+        alt: 「提問」對話中詢問停滯 30 天的交易。agent 以六筆未成交交易的表格回答：階段、負責人、金額和停留天數。
+    - title: 把答案存成儀表板
+      body: 請 agent「把這個存成銷售管道檢討用的儀表板」。它會為每個答案建立一個面板，面板會隨 HubSpot 的新資料更新。在銷售管道檢討會之前，把儀表板分享給團隊。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F69b61731b5b74d61ad0e510f57522796
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2720d0e5fd8f40bfa3b72c056270f174
+        alt: agent 對話確認已儲存「Weekly pipeline review」儀表板，旁邊是新的儀表板，有停滯交易表格和各階段管道圖表。
+features:
+  heading: 銷售管道檢討所需的一切
+  items:
+    - title: 交易和通話放在一起
+      body: 一個問題就能同時取得 HubSpot 中交易的階段和負責人，以及 Gong 通話中買方說了什麼。
+    - title: agent 會編輯的儀表板
+      body: 要一個新面板、依負責人篩選或換一種圖表，agent 都會更新團隊共用的儀表板。
+    - title: 可以查證的答案
+      body: 數字若不是來自即時的 HubSpot 或 Gong 查詢，agent 會標為「Unverified」，讓你知道要檢查什麼。
+    - title: 銷售管道和營收並列
+      body: 再連接 Stripe 和 BigQuery，同一個對話就能在交易旁回答營收和產品使用的問題。
+    - title: 你的銷售管道定義
+      body: 管理員在 **語意層** 頁面寫下停滯交易或合格管道的定義，agent 回答前會先讀取。
+    - title: 每日銷售管道報告
+      body: 每天透過電子郵件把儀表板寄給最多五個人，或發到 Slack 頻道，不必開啟應用程式。
+integrations:
+  heading: 將 Analytics 連接到你已在用的工具
+  cards:
+    - title: 你的 CRM 和通話
+      logos:
+        - name: HubSpot
+        - name: Gong
+      body: Analytics 從 HubSpot 讀取交易、管道、階段和負責人，從 Gong 讀取通話錄音和逐字稿。
+    - title: 分享到團隊看得到的地方
+      logos:
+        - name: Slack
+        - name: Google Sheets
+      body: 把儀表板發到 Slack 頻道，或把交易表格匯出到你已連接的 Google 帳號中的新 Google Sheets。
+    - title: 透過 MCP 連接任何工具
+      logos:
+        - name: Notion
+        - name: Granola
+        - name: Exa
+      more: true
+      body: 透過 MCP 連接團隊使用的工具，或用網址加入任何 MCP 伺服器。
+other_uses:
+  heading: 你還能用 Agent-Native Analytics 做的其他事
+  cards:
+    - title: 為你的新創公司打造 KPI 儀表板
+      url: https://www.agent-native.com/use-cases/ai-kpi-dashboard/
+      body: 要求新創公司追蹤的圖表，並集中在同一個儀表板。
+    - title: 不用試算表，也能做出每週行銷報告
+      url: https://www.agent-native.com/use-cases/weekly-marketing-report/
+      body: 綜合 Google Analytics 和 HubSpot 詢問這週表現如何，並保留這份報告。
+    - title: 找出新使用者在哪一步流失
+      url: https://www.agent-native.com/use-cases/ai-funnel-analysis/
+      body: 看出新使用者在哪裡停下，再觀看工作階段找出原因。
+faqs:
+  heading: 有問題？我們來解答
+  items:
+    - q: Agent-Native Analytics 是免費的嗎？
+      a: 是的，Agent-Native Analytics 免費且開源。agent 使用 Builder.io AI 點數或你自己的 AI 金鑰，所以 AI 用量並非無限。關於通話的問題也可能用到你的 Gong API 額度，管理員可以關閉這項功能。Analytics 目前是 alpha 版。
+    - q: Agent-Native Analytics 可以連接哪些 CRM 和通話工具？
+      a: Analytics 可連接 HubSpot 作為 CRM，連接 Gong 取得業務通話。Apollo 和 Clay 也能連接，提供聯絡人和公司資料。每個工具都[在「資料來源」頁面連接](https://www.agent-native.com/docs/template-analytics-connectors/)，各自使用自己的金鑰，一個問題就能同時用到 HubSpot 和 Gong。
+    - q: 我需要會寫 SQL 嗎？
+      a: 不需要。你用日常語言提問，agent 會在 HubSpot 或 Gong 中找到資料、執行查詢，並以數字、表格或圖表回答。把答案存到儀表板時，agent 會設定每個面板如何取得最新資料。
+    - q: 這些數字可信嗎？
+      a: 可以，但要查證：agent 根據即時的 HubSpot 和 Gong 資料回答，數字若不是來自即時查詢就會標為「Unverified」。它會遵循你團隊[在「語意層」頁面寫下的定義](https://www.agent-native.com/docs/template-analytics-dashboards/)。在依賴這些答案之前，先把最初幾個答案和 HubSpot 對照一下。
+    - q: Agent-Native Analytics 和 HubSpot 或 Gong 內建的 AI 有什麼不同？
+      a: HubSpot 或 Gong 的 AI 只內建在那一個工具中。Analytics 能綜合 HubSpot 和 Gong 回答同一個問題，也能讀取 Stripe 和 BigQuery，還會把答案保存成團隊每週都會打開的儀表板。你照常使用 HubSpot 和 Gong，Analytics 則從兩者讀取資料。
+    - q: 誰能看到我的儀表板？
+      a: 在你分享之前只有你能看到。你可以把儀表板分享給隊友或整個組織，身分可設為檢視者、編輯者或管理員。隊友透過自己的連線，或管理員為組織設定的連線，查看 HubSpot 和 Gong 資料；兩者都沒有時，那些面板會顯示錯誤。

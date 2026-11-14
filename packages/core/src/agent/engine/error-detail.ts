@@ -51,7 +51,12 @@ export function isProviderConnectionError(err: unknown): boolean {
   return isProviderConnectionErrorMessage(describeErrorWithCauses(err));
 }
 
+export function isProviderTokenRateLimitMessage(message: string): boolean {
+  return /\btokens? per minute\b|\(TPM\)/i.test(message);
+}
+
 export function isContextOverflowMessage(message: string): boolean {
+  if (isProviderTokenRateLimitMessage(message)) return false;
   const msg = message.toLowerCase();
   return (
     msg.includes("context_length_exceeded") ||
@@ -75,6 +80,102 @@ export const PROVIDER_RATE_LIMITED_ERROR_CODE = "provider_rate_limited";
 export function isCreditsLimitErrorCode(errorCode?: string): boolean {
   const code = errorCode?.trim().toLowerCase();
   return code === "http_402" || code?.startsWith("credits-limit") === true;
+}
+
+/**
+ * The provider refused the request itself (a tool schema, an image source), so
+ * the model never ran and sending the same request again fails the same way.
+ */
+export function isRejectedRequestErrorCode(errorCode?: string): boolean {
+  const code = errorCode?.trim().toLowerCase();
+  return code === "invalid_request" || code === "invalid_request_error";
+}
+
+/**
+ * Codes after which sending the same request again cannot help: the request,
+ * credential, or model selection is at fault, the server already spent its own
+ * recovery path, or the run's outcome is unknown and a replay could duplicate
+ * side effects. The SSE auto-continue gate and the run-status retry verdict
+ * both read this, so the two cannot drift.
+ */
+export function isTerminalRecoveryErrorCode(errorCode?: string): boolean {
+  const code = errorCode?.trim().toLowerCase() ?? "";
+  return (
+    code === "context_length_exceeded" ||
+    code === "input_too_long" ||
+    isCreditsLimitErrorCode(code) ||
+    code === "billing_error" ||
+    code === "unauthorized" ||
+    code === "authentication_error" ||
+    code === "permission_error" ||
+    code === "builder_auth_error" ||
+    // The account cannot use this model; another POST picks the same one.
+    code === "builder_model_unauthorized" ||
+    code === "http_401" ||
+    code === "http_403" ||
+    code === "rate_limit_exceeded" ||
+    code === "gateway_not_enabled" ||
+    code === "missing_api_key" ||
+    code === "missing_credentials" ||
+    isRejectedRequestErrorCode(code) ||
+    code === "request_too_large" ||
+    code === "not_found_error" ||
+    code === "model_not_found" ||
+    code === "invalid_attachment" ||
+    // The server now owns rate-limit recovery end to end (in-loop retries,
+    // sibling-model fallback, one cooled continuation, then a terminal
+    // `provider_rate_limited`) and caps the continuation chain it hands back
+    // to the client. Auto-recovering a bare `http_429`/`http_529` here would
+    // let an exhausted rate-limit error re-POST as a client continuation,
+    // bypassing that one-hop cap and restarting the retry/fallback budget
+    // the server just spent. Render with the manual Retry affordance like
+    // `provider_rate_limited` below, not auto-continued.
+    code === "http_429" ||
+    code === "http_529" ||
+    // The gateway's own throttle codes, same reasoning.
+    code === "rate_limited" ||
+    code === "too_many_concurrent_requests" ||
+    code === "provider_rate_limited" ||
+    // The server already retried the bare-403 load-shedding signature before
+    // this reached the client; another automatic POST would just hammer the
+    // same throttle. Renders with the manual Retry affordance like
+    // `provider_rate_limited` above, not auto-continued.
+    code === PROVIDER_TRANSIENT_REJECTION_ERROR_CODE ||
+    // `builder_gateway_error` is the no-detail fallback the Builder engine
+    // emits when the gateway returns `{type:"stop",reason:"error"}` with no
+    // explanation — almost always the upstream provider giving up (model
+    // quota hit, account misconfiguration, opaque downstream failure). The
+    // production-agent already retries this synchronously up to MAX_RETRIES
+    // before the error escapes to the SSE stream, so by the time the client
+    // sees it, retrying again with another POST /agent-chat will hit the
+    // same wall. This used to send the chat into a 32-continuation runaway
+    // (each turn cleared+regenerated visible content) for users hitting a
+    // misbehaving Builder route. Surface the error instead.
+    code === "builder_gateway_error" ||
+    // The hosted run exhausted its in-invocation continuation budget without
+    // finishing (run-loop-with-resume.ts). It's flagged `recoverable: true` so
+    // the recovery banner reads "stopped before finishing", but it must NOT
+    // auto-continue: another POST would hit the same ~40s wall and churn. The
+    // user retries deliberately (ideally as a single bulk action).
+    code === "run_budget_exhausted" ||
+    // `aborted_<reason>` is emitted by `terminalEventForAbortReason` for every
+    // abort that is neither a user stop nor a continuation boundary — a Slack
+    // cancel, a stuck-banner auto-retry, an operator kill. Whoever aborted the
+    // run owns the retry; auto-continuing here restarts work someone just
+    // stopped (and double-fires alongside the stuck banner's own retry). They
+    // stay `recoverable: true` so the banner still reads "stopped before
+    // finishing".
+    code.startsWith("aborted_") ||
+    // The run's outcome is genuinely UNKNOWN: its row is gone, or it left
+    // 'running' in a state the server has no terminal event for. Both stay
+    // `recoverable: true` so the banner offers a manual Retry, but an
+    // automatic re-POST would assert the turn did not finish — and it may
+    // well have, side effects included. Replaying it would duplicate them.
+    // The user decides, which is exactly what these errors say to do.
+    code === "run_record_missing" ||
+    code === "unknown_run_status" ||
+    code === "run_terminal_lookup_failed"
+  );
 }
 
 export function isBareProviderRejectionMessage(message: string): boolean {
@@ -101,12 +202,27 @@ export function isBuilderGatewayInternalErrorMessage(message: string): boolean {
   );
 }
 
+export function isGenericInternalServerErrorMessage(message: string): boolean {
+  return /^(?:http\s+)?500(?:\s+internal server error)?$|^internal server error$/i.test(
+    message.trim(),
+  );
+}
+
 export function canonicalizeBuilderGatewayErrorCode(
   code: string | undefined,
   message: string,
 ): string | undefined {
-  return (code === undefined || code === "provider_internal_error") &&
-    isBuilderGatewayInternalErrorMessage(message)
+  const normalizedCode = code?.trim().toLowerCase();
+  const genericInternalError = isGenericInternalServerErrorMessage(message);
+  const builderInternalError =
+    (code === undefined || code === "provider_internal_error") &&
+    isBuilderGatewayInternalErrorMessage(message);
+  return builderInternalError ||
+    (genericInternalError &&
+      (normalizedCode === undefined ||
+        normalizedCode === "provider_internal_error" ||
+        normalizedCode === "invalid_request" ||
+        normalizedCode === "invalid_request_error"))
     ? BUILDER_GATEWAY_INTERNAL_ERROR_CODE
     : code;
 }

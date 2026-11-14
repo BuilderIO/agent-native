@@ -87,9 +87,9 @@ description: "تشريح defineAction(): المخطط، وrun، وإعداد HTT
         },
         {
           name: "outputErrorStrategy",
-          type: '"warn" | "strict" | "fallback"',
+          type: '"strict" | "warn" | "fallback"',
           optional: true,
-          default: '"warn"',
+          default: '"strict"',
           description: "ما الذي يحدث عند عدم تطابق الإخراج.",
         },
         {
@@ -97,7 +97,14 @@ description: "تشريح defineAction(): المخطط، وrun، وإعداد HTT
           type: "TReturn",
           optional: true,
           description:
-            'تُرجَع بدلاً من نتيجة غير صالحة عندما تكون outputErrorStrategy هي "fallback".',
+            'مُهمَل. تُرجَع بدلاً من نتيجة غير صالحة عندما تكون outputErrorStrategy هي "fallback".',
+        },
+        {
+          name: "errors",
+          type: "ActionErrors",
+          optional: true,
+          description:
+            "المجموعة المغلقة من رموز الخطأ الخاصة بالـ action، من defineActionErrors. راجع إعلان رموز الخطأ أدناه.",
         },
         {
           name: "mcpOutputSchema",
@@ -238,24 +245,50 @@ export default defineAction({
     summary: z.string(),
     messageCount: z.number(),
   }),
-  outputErrorStrategy: "warn", // default
   run: async ({ threadId }) => {
     /* ...returns { summary, messageCount } ... */
   },
 });
 ```
 
+يأتي نوع القيمة المرجعة للـ action من `outputSchema`، ويجب أن تُرجع `run` قيمة يقبلها المخطط، لذا فإن النتيجة التي تنحرف عن المخطط تكون خطأ في الترجمة قبل أن تكون خطأ في وقت التشغيل.
+
 `outputErrorStrategy` controls what happens on a mismatch:
 
-| الاستراتيجية | السلوك عند عدم التطابق                                                                         |
-| ------------ | ---------------------------------------------------------------------------------------------- |
-| `"warn"`     | **الافتراضي.** ينفّذ `console.warn` للمشكلات ويُرجع النتيجة **الأصلية** دون تغيير. غير معطِّل. |
-| `"strict"`   | يطرح خطأ واضحًا، بحيث يسهل ملاحظة أي خلل في الـ action.                                        |
-| `"fallback"` | يُرجع قيمة `outputFallback` المقدَّمة بدلاً من النتيجة غير الصالحة.                            |
+| الاستراتيجية | السلوك عند عدم التطابق                                                                                         |
+| ------------ | -------------------------------------------------------------------------------------------------------------- |
+| `"strict"`   | **الافتراضي.** يطرح `ActionOutputContractError`، بحيث يفشل أي خلل في الـ action بوضوح.                         |
+| `"warn"`     | ينفّذ `console.warn` للمشكلات ويُرجع النتيجة **الأصلية** دون تغيير. استخدمه أثناء إصلاح المخطط.                |
+| `"fallback"` | **مُهمَل.** يُرجع `outputFallback` بدلاً من النتيجة غير الصالحة، ولا يستطيع المستدعون تمييزها عن نتيجة حقيقية. |
 
 عندما تنجح `run()`، يُرجع إطار العمل القيمة التي تم التحقق من صحتها، بحيث تسري أي قيم افتراضية أو تحويلات على `outputSchema`، بالطريقة نفسها التي تسري بها على المدخل. عندما لا تمرّر `outputSchema`، تبقى القيمة المرجعة دون تغيير.
 
 يجري التحقق الصارم بعد `run()`، لذا يصف الخطأ (`ActionOutputContractError`، `errorCode: "output_contract_violation"`) ما حدث بالفعل: تكون قيمة `effect` هي `"committed"` بمجرد أن تدخل عملية كتابة إلى معالجها، في الاستدعاء نفسه أو في action استدعاها (حتى من action للقراءة فقط)، ويجب ألا يعيد المستدعون محاولتها؛ وفي غير ذلك تكون `"none"`. لا تذكر الرسالة سوى مسارات الحقول المعلنة ورموز المشكلات، ولا تتضمن القيم المُعادة أبدًا.
+
+### إعلان رموز الخطأ {#error-codes}
+
+يعلن `defineActionErrors` المجموعة المغلقة من قيم `errorCode` التي قد تفشل بها الـ action. لا تقبل الدالتان `fail` و`noWrite` سوى هذه الرموز، لذا لا يُترجَم رمز مكتوب بشكل خاطئ، ويؤدي تمريرها بوصفها `errors` إلى نشر الرموز بوصفها `errorCodes` على التعريف.
+
+```ts
+const errors = defineActionErrors("thread_not_found", "thread_locked");
+
+export default defineAction({
+  description: "Archive a thread.",
+  schema: z.object({ threadId: z.string() }),
+  outputSchema: z.object({ archived: z.literal(true) }),
+  errors,
+  run: async ({ threadId }) => {
+    const thread = await findThread(threadId);
+    if (!thread) {
+      errors.noWrite("Thread not found.", "thread_not_found", {
+        statusCode: 404,
+      });
+    }
+    /* ... */
+    return { archived: true };
+  },
+});
+```
 
 ### إعلان العقد عبر MCP {#mcp-output-schema}
 
@@ -411,6 +444,7 @@ const reply = useActionMutation("reply-to-email", {
 - قبل إضافة action قراءة جديد لكل استعلام أو عامل تصفية، ضع في اعتبارك خيارًا أكثر عمومية أولاً: [ثلاثي provider API](/docs/template-dispatch-developers#calling-a-provider-directly) (`provider-api-catalog` و`provider-api-docs` و`provider-api-request`) لبيانات الموفر، أو أداة `db-query` للتطوير لبيانات التطبيق.
 - علّم actions الخاصة بواجهة المستخدم فقط أو البرمجية بـ [`agentTool: false`](/docs/actions-access-control#agent-tool). تبقى قابلة للاستدعاء من الواجهة الأمامية أو عبر HTTP، دون أن تشغل فتحة في قائمة أدوات النموذج.
 - ضع `deferLoading: false` على الحفنة القليلة من actions التي يلجأ إليها الوكيل باستمرار. هذه هي المخططات التي تُرسَل في أول طلب إلى النموذج؛ وكل ما عداها يُحمَّل عند الحاجة عبر `tool-search`. وبمجرد أن تخرج action واحدة بهذه الطريقة، تُؤجَّل كل action غير معلَّمة، لذا علّم مجموعة البداية كاملة دفعة واحدة لا action تلو الأخرى. المسألة هنا كلفة الدور الأول، لا الصلاحية: تبقى الـ action المؤجَّلة قابلة للاستدعاء فور أن يعيدها `tool-search`. لا تزال actions المؤجَّلة تظهر بالاسم في فهرس الأدوات الخاص بـ prompt، مجمّعة حسب الاسم التالي للفعل الأول، لذا فإن أسماء `verb-noun` مثل `list-dashboards` و`create-dashboard` هي ما يتيح للوكيل العثور عليها. وهذا هو الشكل الخاص بكل action من مصفوفة `initialToolNames` في الملحق، ويمكن للتطبيق استخدام أيٍّ من الشكلين.
+- أضف `searchHints` إلى action عندما يسمّي المستخدمون وظيفته بكلمات لا يذكرها اسمه ولا وصفه، مثل `["auto-archive rule", "inbox rule"]` على action لقواعد البريد الوارد. يرتّب `tool-search` هذه الكلمات بعد الاسم مباشرة، ولا تُرسَل إلى النموذج أبدًا، فلا تستهلك شيئًا من السياق. اجعلها قصيرة وواقعية (12 على الأكثر، وكل منها حتى 60 حرفًا)، لا قائمة بكل طلب قد يخدمه الـ action.
 - احذف أو أخفِ actions التي لم تعد واجهة المستخدم تستخدمها، بدلاً من تركها مكشوفة للنموذج.
 
 يتضمن المستودع مساعدًا استشاريًا، `node scripts/audit-template-actions.mjs [template ...]` (بالاسم المستعار `pnpm actions:audit`). يفحص مجلد `actions/` الخاص بالقالب ويشير إلى actions قد لا تستخدمها واجهة المستخدم بعد الآن، إلى جانب مجموعات actions لكل حقل يمكن دمجها في واحد. يخرج دائمًا برمز 0 ولا يُفشل CI أبدًا، وقواعده الاستدلالية متحفظة، لذا تعامل مع مخرجاته على أنها اقتراح، لا خطأ.

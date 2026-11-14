@@ -532,13 +532,7 @@ export function AppSidebarFeedbackButton({
   className,
   collapsed: propCollapsed,
 }: AppSidebarFeedbackButtonProps) {
-  let contextCollapsed = false;
-  try {
-    const context = useAppSidebar();
-    contextCollapsed = context.collapsed;
-  } catch {
-    // coercion-ok: context is optional when AppSidebarFeedbackButton is used standalone
-  }
+  const contextCollapsed = useAppSidebar().collapsed;
   const isCollapsed = propCollapsed ?? contextCollapsed;
 
   const button = (

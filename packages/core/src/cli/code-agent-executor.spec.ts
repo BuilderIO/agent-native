@@ -8,6 +8,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import type { EngineContentPart } from "../agent/engine/types.js";
 import type { AgentEngine } from "../agent/engine/types.js";
 import { JPEG_BASE64 } from "../file-upload/test-image-fixtures.js";
+import * as mcpClient from "../mcp-client/index.js";
 import {
   buildCodeAgentSystemPrompt,
   buildRepoInstructionsBlock,
@@ -474,6 +475,82 @@ describe("executeCodeAgentRun", () => {
         "AGENT_NATIVE_CODE_AGENT_MCP_SERVER_ALLOWLIST",
         originalAllowlist,
       );
+    }
+  });
+
+  it("surfaces MCP configuration errors to the Claude run without passing the server", async () => {
+    const root = useTempCodeAgentsHome();
+    for (const key of providerEnvKeys) delete process.env[key];
+    const originalMcpServers = process.env.MCP_SERVERS;
+    delete process.env.MCP_SERVERS;
+    const buildConfig = vi
+      .spyOn(mcpClient, "buildMergedConfig")
+      .mockResolvedValue({
+        servers: {
+          unavailable: {
+            type: "http",
+            url: "https://unavailable.example/mcp",
+            configurationError: new Error(
+              "Saved MCP headers could not be read.",
+            ),
+          },
+        },
+      });
+    const binDir = path.join(root, "bin");
+    const argsPath = path.join(root, "claude-args.json");
+    const promptPath = path.join(root, "claude-prompt.txt");
+    fs.mkdirSync(binDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(binDir, "claude"),
+      [
+        "#!/usr/bin/env node",
+        "const fs = require('fs');",
+        "const args = process.argv.slice(2);",
+        "if (args[0] === 'auth' && args[1] === 'status' && args[2] === '--json') {",
+        "  process.stdout.write(JSON.stringify({ loggedIn: true, authMethod: 'claude.ai', apiProvider: 'firstParty', subscriptionType: 'max' }));",
+        "  process.exit(0);",
+        "}",
+        `fs.writeFileSync(${JSON.stringify(argsPath)}, JSON.stringify(args));`,
+        "process.stdin.resume();",
+        `process.stdin.on('data', chunk => fs.appendFileSync(${JSON.stringify(promptPath)}, chunk));`,
+        "process.stdin.on('end', () => {",
+        "  process.stdout.write(JSON.stringify({ type: 'result', result: 'done' }) + '\\n');",
+        "});",
+      ].join("\n"),
+      { mode: 0o755 },
+    );
+    process.env.PATH = `${binDir}${path.delimiter}${originalPath ?? ""}`;
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Skip unavailable MCP server",
+      status: "queued",
+      cwd: process.cwd(),
+      metadata: { engine: "claude-cli", ownerEmail: "alice@example.test" },
+    });
+
+    try {
+      await executeCodeAgentRun({ runId: run.id, prompt: "inspect the app" });
+
+      const args = JSON.parse(fs.readFileSync(argsPath, "utf8")) as string[];
+      expect(args).not.toContain("--mcp-config");
+      expect(fs.readFileSync(promptPath, "utf8")).toContain(
+        "Do not claim to have used them.",
+      );
+      expect(listCodeAgentTranscriptEvents(run.id)).toContainEqual(
+        expect.objectContaining({
+          kind: "status",
+          message:
+            "MCP server unavailable is unavailable for this run: Saved MCP headers could not be read.",
+          metadata: expect.objectContaining({
+            type: "mcp-config-error",
+            serverId: "unavailable",
+          }),
+        }),
+      );
+      expect(getCodeAgentRunRecord(run.id)?.status).toBe("completed");
+    } finally {
+      buildConfig.mockRestore();
+      restoreEnv("MCP_SERVERS", originalMcpServers);
     }
   });
 
@@ -1499,7 +1576,7 @@ describe("executeCodeAgentRun", () => {
     );
   });
 
-  it("limits recap-source runs to repository reads and one output writer", async () => {
+  it("limits recap-source runs to generated input reads and one output writer", async () => {
     useTempCodeAgentsHome();
     process.env.AGENT_NATIVE_CODE_TOOL_PROFILE = "recap-source";
     const run = createCodeAgentRunRecord({
@@ -1550,6 +1627,78 @@ describe("executeCodeAgentRun", () => {
         ),
       ),
     ).toBe(true);
+  });
+
+  it.each(["outside.txt", "missing.txt"])(
+    "does not follow a recap output symlink to %s",
+    async (target) => {
+      const root = useTempCodeAgentsHome();
+      const cwd = path.join(root, "repo");
+      fs.mkdirSync(cwd, { recursive: true });
+      fs.writeFileSync(path.join(cwd, "outside.txt"), "unchanged");
+      fs.symlinkSync(target, path.join(cwd, "recap-source.json"));
+      process.env.AGENT_NATIVE_CODE_TOOL_PROFILE = "recap-source";
+      const run = createCodeAgentRunRecord({
+        goalId: "task",
+        title: "Try a linked output",
+        status: "queued",
+        cwd,
+        permissionMode: "auto-edit",
+      });
+      await executeCodeAgentRun({
+        runId: run.id,
+        prompt: "write recap source",
+        engine: createWriteAttemptEngine("recap-source.json"),
+      });
+      expect(fs.readFileSync(path.join(cwd, "outside.txt"), "utf8")).toBe(
+        "unchanged",
+      );
+      expect(fs.existsSync(path.join(cwd, "missing.txt"))).toBe(false);
+    },
+  );
+
+  it("blocks recap-source reads of checkout, home, and symlinked credential paths", async () => {
+    const root = useTempCodeAgentsHome();
+    const cwd = path.join(root, "repo");
+    fs.mkdirSync(cwd, { recursive: true });
+    fs.writeFileSync(path.join(cwd, ".env"), "FAKE_TOKEN=placeholder\n");
+    fs.symlinkSync(".env", path.join(cwd, "credential-alias"));
+    fs.writeFileSync(path.join(cwd, "README.md"), "public source\n");
+    fs.mkdirSync(path.join(cwd, ".aws"));
+    fs.writeFileSync(
+      path.join(cwd, ".aws", "credentials"),
+      "FAKE_TOKEN=placeholder\n",
+    );
+    fs.symlinkSync(".env", path.join(cwd, "recap.diff"));
+    process.env.AGENT_NATIVE_CODE_TOOL_PROFILE = "recap-source";
+    const run = createCodeAgentRunRecord({
+      goalId: "task",
+      title: "Try credential reads",
+      status: "queued",
+      cwd,
+      permissionMode: "auto-edit",
+    });
+
+    await executeCodeAgentRun({
+      runId: run.id,
+      prompt: "read local credentials",
+      engine: createReadAttemptEngine([
+        ".env",
+        "credential-alias",
+        ".git/config",
+        ".aws/credentials",
+        "README.md",
+        "recap.diff",
+        "../outside",
+      ]),
+    });
+
+    const denied = listCodeAgentTranscriptEvents(run.id).filter((event) =>
+      String(event.metadata?.result ?? "").includes(
+        "recap source reads are limited to generated recap inputs",
+      ),
+    );
+    expect(denied).toHaveLength(7);
   });
 
   it("runs pending follow-ups after the current execution completes", async () => {
@@ -1843,6 +1992,46 @@ function createWriteAttemptEngine(filePath: string): AgentEngine {
               id: "write-other-file",
               name: "write",
               input: { path: filePath, content: "secret" },
+            },
+          ],
+        };
+        yield { type: "stop", reason: "tool_use" };
+        return;
+      }
+      yield {
+        type: "assistant-content",
+        parts: [{ type: "text" as const, text: "done" }],
+      };
+      yield { type: "stop", reason: "end_turn" };
+    },
+  };
+}
+
+function createReadAttemptEngine(filePaths: string[]): AgentEngine {
+  let turn = 0;
+  return {
+    name: "read-attempt",
+    label: "Read Attempt",
+    defaultModel: "read-attempt",
+    supportedModels: ["read-attempt"],
+    capabilities: {
+      thinking: false,
+      promptCaching: false,
+      vision: false,
+      computerUse: false,
+      parallelToolCalls: false,
+    },
+    async *stream() {
+      const filePath = filePaths[turn++];
+      if (filePath) {
+        yield {
+          type: "assistant-content",
+          parts: [
+            {
+              type: "tool-call" as const,
+              id: `read-${turn}`,
+              name: "read",
+              input: { path: filePath },
             },
           ],
         };

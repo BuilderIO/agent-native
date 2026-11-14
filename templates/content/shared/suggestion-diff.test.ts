@@ -9,7 +9,10 @@ import {
   markdownSuggestionOperationsForReplacements,
   suggestionDiffParts,
 } from "./suggestion-diff.js";
-import { suggestionMarkedSourceRanges } from "./suggestion-formatting.js";
+import {
+  suggestionMarkedSourceRanges,
+  SuggestionFormattingMappingError,
+} from "./suggestion-formatting.js";
 import { resolveMarkdownSuggestionRange } from "./suggestion-rebase.js";
 
 function proposedFrom(
@@ -63,6 +66,118 @@ function expectIntactOperations(
 }
 
 describe("suggestion decomposition", () => {
+  describe("localized edits on large synthetic pages", () => {
+    const embed = `![Chart](data:image/svg+xml;base64,${"A".repeat(70_000)})`;
+    const link = "[Reference](https://example.test)";
+    const find =
+      "First paragraph to shorten.\n\nSecond paragraph to shorten.\n\nThird paragraph to shorten.";
+    const replace = "Short summary.\n\nSecond summary.\n\nThird summary.";
+
+    it.each([
+      ["leading embed, nearby link", [embed, link, "Opener."]],
+      ["trailing embed, nearby link", ["Opener.", link, embed]],
+      ["leading embed, remote link", [`${link}\n\n${embed}`, "Closing.", ""]],
+      ["trailing embed before remote link", ["Opener.", embed, link]],
+    ] as const)("shortens three paragraphs with %s", (_label, blocks) => {
+      const before = [blocks[0], find, blocks[1], blocks[2]].join("\n\n");
+      const after = before.replace(find, replace);
+      const operations = markdownSuggestionOperationsForFindReplace({
+        before,
+        find,
+        replace,
+        start: before.indexOf(find),
+      });
+      expect(operations.length).toBeGreaterThanOrEqual(3);
+      expectIntactOperations(before, after, operations);
+      for (const operation of operations) {
+        expect(operation.anchor.from).toBeGreaterThanOrEqual(
+          before.indexOf(find),
+        );
+        expect(operation.anchor.to).toBeLessThanOrEqual(
+          before.indexOf(find) + find.length,
+        );
+        expect(operation.after.markdown).toContain(embed);
+        expect(operation.after.markdown).toContain(link);
+      }
+    });
+
+    it.each([
+      ["Use 𐐀x𐐀 and café here.", "Use 𐐨x𐐨 and cafés here."],
+      [
+        "Alpha<br>bravo and **marked text**.",
+        "Alpha bravo and **revised text**.",
+      ],
+      [
+        "[Old label](https://example.test) stays.",
+        "[New label](https://example.test) stays.",
+      ],
+      ["Repeat.\n\nRepeat.\n\nKeep.", "Repeat.\n\nKeep."],
+      [
+        "First word.\n\nMiddle stays.\n\nLast word.",
+        "First phrase.\n\nMiddle stays.\n\nLast phrase.",
+      ],
+    ])(
+      "preserves small-page hunk alignment for %s",
+      (beforeText, afterText) => {
+        const prefix = `${embed}\n\n`;
+        const suffix = `\n\n${link}\n\n${embed}`;
+        const before = prefix + beforeText + suffix;
+        const after = prefix + afterText + suffix;
+        const operations = markdownSuggestionOperations(before, after);
+        const small = markdownSuggestionOperations(beforeText, afterText);
+        expect(
+          operations.map(({ anchor, before, after }) => [
+            anchor.from - prefix.length,
+            anchor.to - prefix.length,
+            before.changedText,
+            after.changedText,
+          ]),
+        ).toEqual(
+          small.map(({ anchor, before, after }) => [
+            anchor.from,
+            anchor.to,
+            before.changedText,
+            after.changedText,
+          ]),
+        );
+        expectIntactOperations(before, after, operations);
+      },
+    );
+
+    it("retains identical large sources as one equality", () => {
+      expect(suggestionDiffParts(embed, embed)).toEqual([
+        { type: "equal", text: embed },
+      ]);
+    });
+
+    it("inserts a paragraph before an unchanged leading atom", () => {
+      const before = `${embed}\n\n${link}`;
+      const after = `New paragraph.\n\n${before}`;
+      const operations = markdownSuggestionOperations(before, after);
+      expect(operations).toHaveLength(1);
+      expect(operations[0]?.anchor).toMatchObject({ from: 0, to: 0 });
+      expect(operations[0]?.after.changedText).toBe("New paragraph.\n\n");
+      expectIntactOperations(before, after, operations);
+    });
+
+    it("retains length and edit-distance refusals for the changed window", () => {
+      for (const [beforeText, afterText] of [
+        [
+          `Start.\n${"x".repeat(33_000)}\nEnd.`,
+          `Changed.\n${"x".repeat(33_000)}\nFinish.`,
+        ],
+        ["x".repeat(1_100), "y".repeat(1_100)],
+      ]) {
+        const before = `${embed}\n\n${beforeText}\n\n${link}`;
+        const after = `${embed}\n\n${afterText}\n\n${link}`;
+        expect(suggestionDiffParts(before, after)).toBeNull();
+        expect(() => markdownSuggestionOperations(before, after)).toThrow(
+          SuggestionFormattingMappingError,
+        );
+      }
+    });
+  });
+
   it("keeps a typed sentence whole when the author also edits elsewhere", () => {
     const before = [
       "It means I'd just learned three things about drawing.",
@@ -261,6 +376,80 @@ describe("suggestion decomposition", () => {
       }
       expect(current).toBe("one TWO three");
     }
+  });
+
+  describe("an agent's rewrite of most of a paragraph", () => {
+    const sentences = [
+      {
+        find: "Well, they're not the only ones.",
+        replace: "They're not the only ones.",
+      },
+      {
+        find: "Since September 30, a studio called [ArtCraft](https://github.com/storytold) has put up 13 open-source clones of Photoshop, Premiere, Word, Excel, Pro Tools, AutoCAD, Figma and more, and they've collected about 172,000 GitHub stars between them.",
+        replace:
+          "Since September 30, [ArtCraft](https://github.com/storytold) has released 13 open-source clones of apps like Photoshop, Premiere, Word and Figma, with about 172,000 GitHub stars between them.",
+      },
+      {
+        find: "Meanwhile, thousands of people are playing Switch and PS5 games natively on PC, because agents rebuilt them from the games' compiled code.",
+        replace:
+          "Agents have also rebuilt Switch and PS5 games from their compiled code, and thousands now play them on PC.",
+      },
+    ];
+    const paragraph = sentences.map(({ find }) => find).join(" ");
+    const shorter = sentences.map(({ replace }) => replace).join(" ");
+    const before = `Sound audacious?\n${paragraph}\nBack in May, I wrote about it.`;
+    const start = before.indexOf(paragraph);
+
+    it("is one edit, not a struck word every few words", () => {
+      const operations = markdownSuggestionOperationsForFindReplace({
+        before,
+        find: paragraph,
+        replace: shorter,
+        start,
+      });
+
+      expect(operations).toHaveLength(1);
+      expect(proposedFrom(before, operations)).toBe(
+        before.replace(paragraph, shorter),
+      );
+    });
+
+    it("is one edit when the agent sends it as several finds", () => {
+      let offset = start;
+      const edits = sentences.map((sentence) => {
+        const edit = { ...sentence, start: offset };
+        offset += sentence.find.length + 1;
+        return edit;
+      });
+
+      const operations = markdownSuggestionOperationsForFindReplaceEdits({
+        before,
+        edits,
+      });
+
+      expect(operations).toHaveLength(1);
+      expect(proposedFrom(before, operations)).toBe(
+        before.replace(paragraph, shorter),
+      );
+    });
+
+    it("leaves a light edit throughout a paragraph one edit per occurrence", () => {
+      const text =
+        "We built Acme Notes for teams. Acme Notes apps share one action surface, so Acme Notes stays honest about parity.";
+      const page = `Intro\n${text}\nEnd`;
+      const edits = [...text.matchAll(/Acme Notes/gu)].map((match) => ({
+        find: "Acme Notes",
+        replace: "AcmeNotes",
+        start: page.indexOf(text) + match.index,
+      }));
+
+      const operations = markdownSuggestionOperationsForFindReplaceEdits({
+        before: page,
+        edits,
+      });
+
+      expect(operations).toHaveLength(3);
+    });
   });
 
   it("keeps selected sentence replacements granular", () => {
@@ -580,6 +769,87 @@ describe("suggestion decomposition", () => {
       ["Ready", "Ship"],
     ]);
     expectIntactOperations(before, after, operations);
+  });
+
+  it("keeps text and a new paragraph as one edit when another block also changes", () => {
+    const before =
+      "Alpha one has a few words.\nBravo two sits in the middle.\nCharlie three is next.\nDelta four closes it out.";
+    const paragraphOnly = before.replace(
+      "words.\n",
+      "words. More alpha.\nAlpha follow-up paragraph.\n",
+    );
+    const after = paragraphOnly.replace("it out.", "it out. Delta extra.");
+    const changes = (
+      operations: ReturnType<typeof markdownSuggestionOperations>,
+    ) =>
+      operations.map((item) => [
+        item.anchor.from,
+        item.before.changedText,
+        item.after.changedText,
+      ]);
+
+    expect(
+      changes(markdownSuggestionOperations(before, paragraphOnly)),
+    ).toEqual([[26, "", " More alpha.\nAlpha follow-up paragraph."]]);
+    const operations = markdownSuggestionOperations(before, after);
+    expect(changes(operations)).toEqual([
+      [26, "", " More alpha.\nAlpha follow-up paragraph."],
+      [105, "", " Delta extra."],
+    ]);
+    expectIntactOperations(before, after, operations);
+  });
+
+  it("keeps a deleted paragraph a deletion when another block also changes", () => {
+    const before =
+      "Alpha one has a few words.\nBravo two sits in the middle.\nCharlie three is next.\nDelta four closes it out.\nEcho five ends here.";
+    const after = before
+      .replace("Charlie three is next.\n", "")
+      .replace("it out.\nEcho", "it out.Echo");
+    const operations = markdownSuggestionOperations(before, after);
+    expect(
+      operations.map((item) => [
+        item.anchor.from,
+        item.before.changedText,
+        item.after.changedText,
+      ]),
+    ).toEqual([
+      [57, "Charlie three is next.\n", ""],
+      [105, "\n", ""],
+    ]);
+    expectIntactOperations(before, after, operations);
+  });
+
+  it("keeps edits at the end of one block and the start of the next separate", () => {
+    const before = "Alpha ends here\nBravo starts here\nCharlie";
+    const after = "Alpha ends here now\nSo Bravo starts here\nCharlie stays";
+    const operations = markdownSuggestionOperations(before, after);
+    expect(operations.map((item) => item.after.changedText)).toEqual([
+      " now",
+      "So ",
+      " stays",
+    ]);
+    expectIntactOperations(before, after, operations);
+  });
+
+  it("keeps a replacement across a paragraph break as one edit", () => {
+    const before = "Alpha one has a few words.\nBravo two sits in the middle.";
+    const from = before.indexOf("has a few");
+    const to = before.indexOf(" sits");
+    const after = `${before.slice(0, from)}is now joined with${before.slice(to)}`;
+    const operations = markdownSuggestionOperationsForReplacements({
+      before,
+      after,
+      replacements: [{ from, to }],
+    });
+
+    expect(
+      operations.map((item) => [
+        item.anchor.from,
+        item.anchor.to,
+        item.after.changedText,
+      ]),
+    ).toEqual([[from, to, "is now joined with"]]);
+    expect(proposedFrom(before, operations)).toBe(after);
   });
 
   it("returns no edit for an unchanged replacement", () => {

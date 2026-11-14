@@ -1,7 +1,7 @@
 import { clampChatFirstSurfaceWidth } from "@agent-native/core/client/chat-first-state";
 import type { CSSProperties, PointerEvent, ReactNode } from "react";
 
-import { defaultChatFirstCopy } from "./copy.js";
+import { useChatFirstCopy } from "./copy.js";
 import type { ChatFirstCopy } from "./types.js";
 
 export interface ChatFirstSurfacePanelProps {
@@ -15,8 +15,9 @@ export function ChatFirstSurfacePanel({
   width,
   onResizePointerDown,
   children,
-  copy = defaultChatFirstCopy,
+  copy: copyProp,
 }: ChatFirstSurfacePanelProps) {
+  const copy = useChatFirstCopy(copyProp);
   const panelWidth = clampChatFirstSurfaceWidth(width);
 
   return (

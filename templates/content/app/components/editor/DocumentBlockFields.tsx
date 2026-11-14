@@ -14,13 +14,7 @@ import {
   isPrimaryBlocksField,
   type BlocksStorageTarget,
 } from "@shared/properties";
-import {
-  IconGripVertical,
-  IconMessage,
-  IconPencil,
-  IconPlus,
-  IconTrash,
-} from "@tabler/icons-react";
+import { IconGripVertical, IconMessage, IconPlus } from "@tabler/icons-react";
 import {
   useCallback,
   useEffect,
@@ -65,6 +59,7 @@ import {
 } from "@/components/ui/tooltip";
 import {
   documentPropertiesPlaceholder,
+  documentPropertiesReadFailed,
   documentPropertiesResponseMatchesScope,
   useConfigureDocumentProperty,
   useDeleteDocumentProperty,
@@ -116,6 +111,7 @@ import {
   type BlockFieldSeen,
   type BlockFieldTabDirection,
 } from "./blockFieldTabs";
+import { useBlocksFieldSuggestionEditor } from "./blocks-field-suggestion-sessions";
 import { dbText } from "./database/text";
 import {
   VisualEditor,
@@ -149,7 +145,7 @@ interface DocumentBlockFieldsProps {
   /** The primary body as its editor holds it now, for its tab's word count. */
   primaryContent?: string;
   /** The fields the page read returned, used until the property read lands. */
-  pageProperties?: DocumentProperty[];
+  pageProperties?: DocumentProperty[] | undefined;
   onAdditionalContentChange?: (
     documentId: string,
     propertyId: string,
@@ -409,7 +405,9 @@ export function DocumentBlockFields({
     placeholder,
   });
   const propertiesData = usePagePropertiesOnly ? placeholder : query.data;
-  const hasQueryError = !usePagePropertiesOnly && query.isError;
+  const hasQueryError =
+    !usePagePropertiesOnly &&
+    documentPropertiesReadFailed(documentId, databaseId, query);
   const canEditFields =
     canEdit &&
     propertiesData?.canEditValues === true &&
@@ -485,11 +483,7 @@ export function DocumentBlockFields({
         className={cn(BLOCK_FIELDS_GRID, "gap-1")}
         data-block-fields-state="error"
       >
-        <QueryErrorState
-          compact
-          onRetry={() => globalThis.location.reload()}
-          retrying={query.isRefetching}
-        />
+        <QueryErrorState compact onRetry={() => void query.refetch()} />
       </div>
     );
   }
@@ -1568,12 +1562,11 @@ function BlockFieldTabMenu({
         onCloseAutoFocus={(event) => event.preventDefault()}
         data-block-field-menu
       >
-        <DropdownMenuLabel className="text-xs font-normal text-muted-foreground">
+        <DropdownMenuLabel className="font-normal text-muted-foreground">
           {t("editor.blockFieldMenuScope")}
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
         <DropdownMenuItem onSelect={onRename} data-block-field-rename>
-          <IconPencil className="mr-2 size-4 text-muted-foreground" />
           {t("editor.renameBlockField")}
         </DropdownMenuItem>
         <DropdownMenuItem
@@ -1581,7 +1574,6 @@ function BlockFieldTabMenu({
           onSelect={onDelete}
           data-block-field-delete
         >
-          <IconTrash className="mr-2 size-4" />
           {t("editor.deleteBlockField")}
         </DropdownMenuItem>
       </DropdownMenuContent>
@@ -1799,6 +1791,13 @@ export function useBlockFieldEditor({
   onPersistenceControllerChange: (
     controller: VisualEditorPersistenceController | null,
   ) => void;
+  /**
+   * The tab's saved text and its revision, which a suggestion draft starts
+   * from, or null while an edit of the tab's own is unsaved or on the way.
+   */
+  suggestionBase: () => { content: string; revision: number } | null;
+  /** Changes whenever `suggestionBase` may answer differently. */
+  suggestionBaseVersion: string;
 } {
   const key = `${documentId}:${propertyId}`;
 
@@ -2087,6 +2086,21 @@ export function useBlockFieldEditor({
     );
   }
 
+  const suggestionBase = useCallback(() => {
+    const controller = controllerRef.current;
+    if (!controller || controller.isSaving || !controller.isClean) return null;
+    const revision = blockFieldRevision(key, initialRevision);
+    if (revision.stale) return null;
+    // Newer text from the server is the saved text, since nothing here
+    // waits to be merged with it.
+    return initialRevision >= revision.base
+      ? { content: initialContent, revision: initialRevision }
+      : { content: controller.lastSaved, revision: revision.base };
+  }, [initialContent, initialRevision, key]);
+  // A save settling or a merge landing can change that answer, so a caller's
+  // effect asks again when this does.
+  const suggestionBaseVersion = `${settledSaves}:${mergeRequest?.key ?? ""}`;
+
   return {
     content,
     externalContent,
@@ -2095,6 +2109,8 @@ export function useBlockFieldEditor({
     isAcknowledgedContent,
     isPendingContent,
     onPersistenceControllerChange,
+    suggestionBase,
+    suggestionBaseVersion,
   };
 }
 
@@ -2137,6 +2153,8 @@ function AdditionalBlockEditor({
     isAcknowledgedContent,
     isPendingContent,
     onPersistenceControllerChange,
+    suggestionBase,
+    suggestionBaseVersion,
   } = useBlockFieldEditor({
     documentId,
     propertyId,
@@ -2188,24 +2206,94 @@ function AdditionalBlockEditor({
   }, [content, documentId, onContentChange, propertyId]);
   const comments = useBlockFieldEditorComments(propertyId);
 
+  // While the page suggests, the tab shows its own suggestion draft, made
+  // against its saved text, in place of that text.
+  const suggestionEditor = useBlocksFieldSuggestionEditor(propertyId);
+  const session = suggestionEditor?.session ?? null;
+  // Accepting suggestions shows the tab's text with them in it at once, and
+  // the tab takes no typing until it holds the text they wrote: its own copy
+  // takes that in a render or two after the page reads it, and would show
+  // the old text meanwhile.
+  const landed = suggestionEditor?.landed ?? null;
+  const preview =
+    suggestionEditor?.preview ??
+    (landed &&
+    blockFieldRevision(key, property.blocksField?.revision ?? 0).base <
+      landed.revision
+      ? landed
+      : null);
+  // A draft starts on the text accepting wrote, once the tab holds it.
+  const needsSession = !!suggestionEditor?.suggesting && !session && !preview;
+  const startSession = suggestionEditor?.start;
+  useEffect(() => {
+    if (!needsSession) return;
+    const base = suggestionBase();
+    if (base) startSession?.(base);
+  }, [needsSession, startSession, suggestionBase, suggestionBaseVersion]);
+  // The editor takes no newer text while it shows a draft or a preview, and
+  // the tab has no typing it hasn't reported to merge then, so newer saved
+  // text (an accepted suggestion) goes straight into the tab's own copy. Its
+  // word count stays current, and the editor shows that text afterwards.
+  const holdsEditor = session !== null || preview !== null;
+  useEffect(() => {
+    if (holdsEditor && externalContent) externalContent.merge(null, () => true);
+  }, [externalContent, holdsEditor]);
+  const shownContent = preview
+    ? preview.text
+    : session
+      ? session.draft
+      : content;
+  const visualsFor = suggestionEditor?.visuals;
+  const visuals = useMemo(
+    () => visualsFor?.(shownContent),
+    [shownContent, visualsFor],
+  );
+
   return (
     <VisualEditor
       documentId={documentId}
-      content={content}
-      externalContent={externalContent}
+      content={shownContent}
+      contentResetKey={
+        preview
+          ? `preview:${preview.key}`
+          : session
+            ? `suggesting:${session.key}`
+            : null
+      }
+      externalContent={holdsEditor ? null : externalContent}
       onChange={(markdown) => {
-        if (canEdit) onChange(markdown);
+        if (preview) return;
+        if (session) suggestionEditor?.change(markdown);
+        else if (canEdit) onChange(markdown);
       }}
       onSaveContent={async (markdown) => {
-        if (isAcknowledgedContent(markdown)) return "unchanged";
+        // A suggestion draft is saved as suggestions, never as the tab's
+        // text, and a preview is the server's to write.
+        if (preview || session || isAcknowledgedContent(markdown))
+          return "unchanged";
         if (!canEdit && (!allowPendingSave || !isPendingContent(markdown)))
           return "failed";
         return (await onSaveContent(markdown)) ? "persisted" : "failed";
       }}
-      editable={canEdit}
+      // A decision on the tab's suggestions, or the page's last save before
+      // Suggesting mode ends, ends its draft, so the tab takes no typing
+      // until it restarts or leaves Suggesting mode.
+      editable={
+        preview ? false : session ? !suggestionEditor?.readOnly : canEdit
+      }
+      suggesting={!!session}
+      suggestions={visuals}
+      activeSuggestionId={suggestionEditor?.activeSuggestionId}
+      onActivateSuggestion={suggestionEditor?.activate}
+      onHoverSuggestion={suggestionEditor?.hover}
+      onSuggestionReplacementIntent={
+        session ? suggestionEditor?.replacementIntent : undefined
+      }
+      onSuggestionAnchorsChange={suggestionEditor?.anchorsChange}
       onPersistenceControllerChange={onPersistenceControllerChange}
       localFileMode
       onComment={comments?.onComment}
+      onBlockComment={comments?.onBlockComment}
       commentThreads={comments?.commentThreads}
       activeThreadId={comments?.activeThreadId}
       hoveredThreadId={comments?.hoveredThreadId}

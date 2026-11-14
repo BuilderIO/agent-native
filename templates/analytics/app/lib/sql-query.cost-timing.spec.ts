@@ -70,6 +70,21 @@ describe("executeSqlQuery metadata, cost and timing", () => {
     expect(Object.keys(bare).sort()).toEqual(["rows", "schema"]);
   });
 
+  it("preserves provider partial results as incomplete even without transport truncation", async () => {
+    mocks.callAction.mockResolvedValue({
+      rows: [{ n: 1 }],
+      partial: true,
+      truncated: false,
+    });
+    await expect(
+      executeSqlQuery("SELECT 1", "bigquery"),
+    ).resolves.toMatchObject({
+      rows: [{ n: 1 }],
+      partial: true,
+      truncated: true,
+    });
+  });
+
   it("drops an unreadable fetch time with a warning instead of guessing", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     mocks.callAction.mockResolvedValue({

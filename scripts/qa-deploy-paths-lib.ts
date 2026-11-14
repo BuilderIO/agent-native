@@ -168,6 +168,68 @@ export function schedulerCheckIsAfter(
   return checkedAt > deployedAt;
 }
 
+export function routeFailureEvidenceSummary(value: unknown): string | null {
+  if (value == null) return null;
+  if (typeof value !== "string") return "routeFailure=unreadable";
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(value);
+  } catch (error) {
+    if (error instanceof SyntaxError) return "routeFailure=unreadable";
+    throw error;
+  }
+  if (!parsed || typeof parsed !== "object") {
+    return "routeFailure=unreadable";
+  }
+  const diagnostic = parsed as {
+    stage?: unknown;
+    evidence?: {
+      format?: unknown;
+      errorMetadata?: unknown;
+      errorName?: unknown;
+      errorCode?: unknown;
+      httpStatus?: unknown;
+      causeName?: unknown;
+    };
+  };
+  if (diagnostic.stage !== "route_threw") return null;
+  const evidence = diagnostic.evidence;
+  if (!evidence || evidence.format !== "route_failure_v1") {
+    return "routeFailure=unclassified";
+  }
+  const fields = [
+    "errorMetadata",
+    "errorName",
+    "errorCode",
+    "httpStatus",
+    "causeName",
+  ] as const;
+  const details = fields.flatMap((field) => {
+    const token = evidence[field];
+    return typeof token === "string" && /^[A-Za-z0-9_]{1,64}$/.test(token)
+      ? [`${field}=${token}`]
+      : [];
+  });
+  return details.length > 0
+    ? `routeFailure=${details.join(" ")}`
+    : "routeFailure=unclassified";
+}
+
+export function diagnosticStageName(value: unknown): string {
+  if (typeof value !== "string") return "unavailable";
+  try {
+    const parsed: unknown = JSON.parse(value);
+    if (!parsed || typeof parsed !== "object") return "unavailable";
+    const stage = (parsed as { stage?: unknown }).stage;
+    return typeof stage === "string" && /^[A-Za-z0-9_]{1,64}$/.test(stage)
+      ? stage
+      : "unavailable";
+  } catch (error) {
+    if (error instanceof SyntaxError) return "unavailable";
+    throw error;
+  }
+}
+
 export interface DeployMarkerObservation {
   consecutiveHits: number;
 }

@@ -1,5 +1,9 @@
 {
   "compilerOptions": {
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": false,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",

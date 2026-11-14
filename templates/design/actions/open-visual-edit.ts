@@ -302,7 +302,8 @@ async function createCallerHandoff(
   targetPath: string,
   ownerEmail: string,
   designId: string,
-): Promise<string> {
+): Promise<string | undefined> {
+  if (!getRequestContext()?.requestOrigin) return undefined;
   const ticket = await createEmbedSessionTicket({
     ownerEmail,
     orgId: getRequestOrgId(),

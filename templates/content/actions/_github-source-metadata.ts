@@ -35,6 +35,12 @@ export interface GitHubSourceState extends GitHubFolderLocation {
   connectionId: string | null;
   /** Who linked the folder; background syncs read GitHub as them. */
   linkedBy: string;
+  /**
+   * The workspace they linked it from. Their GitHub connection is saved
+   * under it, so a collection with no workspace of its own, in a Personal
+   * space, reads GitHub through this one.
+   */
+  linkedOrgId: string | null;
   linkedAt: string;
   mode: "view_only";
   headEtag: string | null;
@@ -60,8 +66,18 @@ export interface GitHubSourceState extends GitHubFolderLocation {
    * file at most, so a link never keeps more than 2,000.
    */
   readSkips: GitHubReadSkip[];
-  /** Images rows couldn't store yet because file storage isn't set up. */
+  /** Images rows couldn't store yet because file storage isn't set up or failed. */
   imagesWaiting: number;
+  /**
+   * Whether storage is set up but failed to save some of those images, so
+   * the status line says so even when another problem stopped the sync.
+   */
+  imagesFailed: boolean;
+  /**
+   * Whether the last sync found file storage set up while images waited, so
+   * a sync another problem stopped doesn't ask for storage that's there.
+   */
+  storageReady: boolean;
   problem: {
     code: GitHubSourceProblemCode;
     message: string;
@@ -173,6 +189,7 @@ export function readGitHubSourceState(
     path: github.path,
     connectionId: stringOrNull(github.connectionId),
     linkedBy: typeof github.linkedBy === "string" ? github.linkedBy : "",
+    linkedOrgId: stringOrNull(github.linkedOrgId),
     linkedAt: typeof github.linkedAt === "string" ? github.linkedAt : "",
     mode: "view_only",
     headEtag: stringOrNull(github.headEtag),
@@ -198,6 +215,8 @@ export function readGitHubSourceState(
     readSkips,
     imagesWaiting:
       typeof github.imagesWaiting === "number" ? github.imagesWaiting : 0,
+    imagesFailed: github.imagesFailed === true,
+    storageReady: github.storageReady === true,
     problem:
       problem &&
       typeof problem.code === "string" &&
@@ -247,6 +266,8 @@ export function githubSourceStatus(
     skipped: state.skipped.map(({ path, reason }) => ({ path, reason })),
     skippedCount: state.skippedCount,
     imagesWaiting: state.imagesWaiting,
+    imagesFailed: state.imagesFailed,
+    storageReady: state.storageReady,
     problem: state.problem,
   };
 }

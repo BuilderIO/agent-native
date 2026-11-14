@@ -23,7 +23,9 @@ function AgentKitChat() {
         },
       }}
     >
-      <AgentKitChatImplementation />
+      {/* The composer's deferred autofocus would race the More toggle for
+          focus on a slow runner. */}
+      <AgentKitChatImplementation composerProps={{ autoFocus: false }} />
     </ComposerRuntimeAdaptersProvider>
   );
 }
@@ -47,7 +49,7 @@ describe("AgentKit regenerate readiness", () => {
       startRun,
       async *subscribeToRun() {},
       async cancelRun() {},
-      async getThreadSnapshot(threadId) {
+      async getThreadSnapshot({ threadId }) {
         return {
           id: threadId,
           createdAt: "2026-09-26T00:00:00.000Z",
@@ -94,10 +96,19 @@ describe("AgentKit regenerate readiness", () => {
         await Promise.resolve();
       });
 
+      await act(async () => {
+        container
+          .querySelector<HTMLButtonElement>(
+            "button[data-message-actions-toggle]",
+          )
+          ?.click();
+        await Promise.resolve();
+      });
       const regenerateButton = container.querySelector<HTMLButtonElement>(
-        'button[aria-label="Regenerate response"]',
+        'button[aria-label="Retry"]',
       );
       expect(regenerateButton).not.toBeNull();
+      expect(document.activeElement).toBe(regenerateButton);
       await act(async () => {
         regenerateButton?.click();
         await new Promise((resolve) => setTimeout(resolve, 0));
@@ -106,6 +117,9 @@ describe("AgentKit regenerate readiness", () => {
       expect(assertAiSetupReady).toHaveBeenCalledOnce();
       expect(forkThread).not.toHaveBeenCalled();
       expect(startRun).not.toHaveBeenCalled();
+      expect(container.querySelector("[role=alert]")?.textContent).toContain(
+        "AI setup is required",
+      );
     } finally {
       await act(async () => {
         root.unmount();

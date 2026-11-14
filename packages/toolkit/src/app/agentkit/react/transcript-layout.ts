@@ -7,6 +7,8 @@ export interface AgentChatTranscriptLayout {
   messageLaneWidth?: number;
   /** Signed inline offset for the centered message lane, in CSS pixels. */
   messageLaneOffsetInline?: number;
+  /** Keep the offset within the lane at all widths or allow wide-screen docking. */
+  messageLaneOffsetMode?: "clamped" | "responsive";
   /** Space after each message, in CSS pixels. */
   messageGap?: number;
   /** Assistant message line height, in CSS pixels. */

@@ -77,7 +77,6 @@ test("reopening the Motion dock as its collapse finishes keeps it open", async (
   await selectByText(page, "Reference Rectangle", {
     screenId: fileId,
     clearPreviousSelection: true,
-    deep: false,
   });
   await page.getByRole("button", { name: "Motion dock", exact: true }).click();
   const dockRegion = page.locator('[role="region"][aria-label="Motion dock"]');
@@ -174,7 +173,6 @@ test("adding a Position style beside a curved path is refused instead of left un
   await selectByText(page, "Reference Rectangle", {
     screenId: fileId,
     clearPreviousSelection: true,
-    deep: false,
   });
   await page
     .getByRole("button", { name: "Add animation", exact: true })

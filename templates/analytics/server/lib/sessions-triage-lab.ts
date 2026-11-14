@@ -17,6 +17,7 @@ const READ_FAILURES = {
   labState: "Couldn't read the Sessions triage Lab state.",
   friction: "Couldn't read session friction.",
   speed: "Couldn't read session speed data.",
+  outputs: "Couldn't read session outputs.",
 } as const;
 
 /**
@@ -33,7 +34,11 @@ export function sessionsTriageReadFailure(
 }
 
 /** What a request asked the Lab for, named in its 403. */
-export type SessionsTriageLabFeature = "events" | "friction" | "speed";
+export type SessionsTriageLabFeature =
+  | "events"
+  | "friction"
+  | "speed"
+  | "outputs";
 
 function labFeatureSubject(
   features: readonly SessionsTriageLabFeature[],
@@ -43,7 +48,8 @@ function labFeatureSubject(
     nouns.length < 3
       ? nouns.join(" and ")
       : `${nouns.slice(0, -1).join(", ")}, and ${nouns[nouns.length - 1]}`;
-  const plural = nouns.length > 1 || nouns[0] === "events";
+  const plural =
+    nouns.length > 1 || nouns[0] === "events" || nouns[0] === "outputs";
   return `Session ${list} ${plural ? "are" : "is"}`;
 }
 

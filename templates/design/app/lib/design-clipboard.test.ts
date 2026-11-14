@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   getDesignClipboardLayerEntries,
   plainTextFromDesignHtml,
+  readDesignClipboardPasteData,
   readDesignClipboardPayloadFromDataTransfer,
   readDesignClipboardPayloadFromSystem,
   writeDesignClipboard,
@@ -295,6 +296,64 @@ describe("readDesignClipboardPayload", () => {
     await expect(
       readDesignClipboardPayloadFromSystem({ clipboard: null }),
     ).resolves.toEqual({ status: "unavailable" });
+  });
+
+  it("reports a marker written under another trust token as untrusted, not empty", async () => {
+    const foreign = serializeDesignClipboardPayload(
+      "<p>Readable text</p>",
+      payload,
+      "other-origin-token",
+    );
+    await expect(
+      readDesignClipboardPayloadFromSystem({
+        clipboard: { readText: async () => foreign },
+        trustToken: "this-origin-token",
+      }),
+    ).resolves.toEqual({ status: "untrusted" });
+    await expect(
+      readDesignClipboardPayloadFromSystem({
+        clipboard: {
+          read: async () => [
+            {
+              types: ["text/html"],
+              getType: async () => new Blob([foreign]),
+            },
+          ],
+        },
+        trustToken: "this-origin-token",
+      }),
+    ).resolves.toEqual({ status: "untrusted" });
+  });
+
+  it("tells a paste event's untrusted marker apart from no marker", () => {
+    const foreign = serializeDesignClipboardPayload(
+      "<svg></svg>",
+      payload,
+      "other-origin-token",
+    );
+    const transfer = (html: string) => ({
+      getData: (type: string) => (type === "text/html" ? html : ""),
+    });
+    expect(
+      readDesignClipboardPasteData(transfer(foreign), {
+        trustToken: "this-origin-token",
+      }),
+    ).toEqual({ status: "untrusted" });
+    expect(
+      readDesignClipboardPasteData(transfer("<svg></svg>"), {
+        trustToken: "this-origin-token",
+      }),
+    ).toEqual({ status: "absent" });
+    const trusted = serializeDesignClipboardPayload(
+      "<svg></svg>",
+      payload,
+      "this-origin-token",
+    );
+    expect(
+      readDesignClipboardPasteData(transfer(trusted), {
+        trustToken: "this-origin-token",
+      }),
+    ).toMatchObject({ status: "found", value: { payload } });
   });
 
   it("can inspect legacy markers in an explicit migration context", () => {

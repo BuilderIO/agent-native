@@ -37,6 +37,7 @@ import {
   type CollisionDetection,
 } from "@dnd-kit/core";
 import { normalizeDashboardConfig } from "@shared/dashboard-config-normalization";
+import { TRAFFIC_FILTER_ID } from "@shared/traffic-environment";
 import {
   IconArchive,
   IconArrowBackUp,
@@ -118,6 +119,8 @@ import {
 } from "@/components/ui/tooltip";
 import {
   useDashboardChatContext,
+  useDashboardPanelSelectable,
+  type DashboardChatContextResult,
   type DashboardPanelChatContextArgs,
   type SelectDashboardPanelOptions,
 } from "@/hooks/use-dashboard-chat-context";
@@ -143,6 +146,7 @@ import {
   resourceCanManage,
   type ResourceAccess,
 } from "@/lib/resource-access";
+import { TrafficEnvironmentContext } from "@/lib/sql-query";
 import { useAutoFocusSelect } from "@/lib/use-auto-focus-select";
 
 import BlankDashboard from "../BlankDashboard";
@@ -215,6 +219,12 @@ import { AddPanelPopover, PanelEditorDialog } from "./PanelEditorDialog";
 import { listReportablePanelIds } from "./report-panel-window";
 import { dashboardTileElementId, SqlChartCard } from "./SqlChartCard";
 import {
+  dashboardFiltersWithTraffic,
+  dashboardTrafficEnvironment,
+  reportFiltersWithTraffic,
+  withOfferedTraffic,
+} from "./traffic-filter";
+import {
   clampDashboardColumns,
   clampPanelHeight,
   clampPanelWidth,
@@ -228,6 +238,7 @@ import {
   type SqlPanel,
   type TableColumnConfig,
 } from "./types";
+import { UnknownTrafficCount } from "./UnknownTrafficCount";
 import { ViewsMenu } from "./ViewsMenu";
 
 const TAB_ID = generateTabId();
@@ -336,6 +347,7 @@ const PanelCell = memo(function PanelCell({
   selectedForChat,
   highlighted,
   selectPanelForChat,
+  panelSelectionTarget,
   onRemovePanel,
   onEditPanel,
   onSaveSql,
@@ -359,6 +371,7 @@ const PanelCell = memo(function PanelCell({
     panel: DashboardPanelChatContextArgs,
     options?: SelectDashboardPanelOptions,
   ) => void;
+  panelSelectionTarget: DashboardChatContextResult["panelSelectionTarget"];
   onRemovePanel: (panelId: string) => void;
   onEditPanel: (panel: SqlPanel) => void;
   onSaveSql: (panelId: string, sql: string) => Promise<void>;
@@ -459,28 +472,33 @@ const PanelCell = memo(function PanelCell({
       ),
     [panel.sql, effectiveVars],
   );
+  const panelArgs = useMemo<DashboardPanelChatContextArgs>(
+    () => ({
+      panelId: panel.id,
+      panelTitle: panel.title,
+      panelKind:
+        panel.chartType === "table"
+          ? "table"
+          : panel.chartType === "extension"
+            ? "extension"
+            : "chart",
+      chartType: panel.chartType,
+      source: panel.source,
+      extensionId:
+        panel.chartType === "extension" ? panel.config?.extensionId : undefined,
+    }),
+    [panel],
+  );
+  useDashboardPanelSelectable(
+    panelSelectionTarget,
+    panelArgs,
+    () => cellRef.current,
+  );
   const handleSelectForChat = useCallback(
     (options?: SelectDashboardPanelOptions) => {
-      const extensionId =
-        panel.chartType === "extension" ? panel.config?.extensionId : undefined;
-      selectPanelForChat(
-        {
-          panelId: panel.id,
-          panelTitle: panel.title,
-          panelKind:
-            panel.chartType === "table"
-              ? "table"
-              : panel.chartType === "extension"
-                ? "extension"
-                : "chart",
-          chartType: panel.chartType,
-          source: panel.source,
-          extensionId,
-        },
-        options,
-      );
+      selectPanelForChat(panelArgs, options);
     },
-    [panel, selectPanelForChat],
+    [panelArgs, selectPanelForChat],
   );
 
   const measuredHeight = () =>
@@ -1056,14 +1074,15 @@ function SqlDashboardPageContent({
   const dashboardColumns = clampDashboardColumns(
     dashboard?.columns ?? DEFAULT_DASHBOARD_COLUMNS,
   );
-  const { selectedPanelId, selectPanelForChat } = useDashboardChatContext({
-    id: reportScreenshot ? null : dashboardId,
-    kind: "sql",
-    title: dashboard?.name,
-    panelCount: dashboard?.panels.length,
-    canEdit,
-    editing,
-  });
+  const { selectedPanelIds, selectPanelForChat, panelSelectionTarget } =
+    useDashboardChatContext({
+      id: reportScreenshot ? null : dashboardId,
+      kind: "sql",
+      title: dashboard?.name,
+      panelCount: dashboard?.panels.length,
+      canEdit,
+      editing,
+    });
   const isDemoDashboard = dashboard?.demo?.id === "demo-node-exporter";
   const showDemoIntro =
     isDemoDashboard && searchParams.get("demoIntro") === "1";
@@ -2288,15 +2307,27 @@ function SqlDashboardPageContent({
     setEditingDescription(false);
   }, [descriptionInput, persist]);
 
+  const shownFilters = useMemo(
+    () =>
+      dashboardFiltersWithTraffic(dashboard?.filters, dashboard?.panels ?? [], {
+        label: t("sessions.traffic"),
+        all: t("sessions.allTraffic"),
+        production: t("sessions.productionTraffic"),
+        beta: t("sessions.betaTraffic"),
+      }),
+    [dashboard?.filters, dashboard?.panels, t],
+  );
+
   const vars = useMemo<Record<string, string>>(() => {
-    const filterValues = dashboard?.filters
-      ? resolveFilterVars(
-          dashboard.filters,
-          (key) => searchParams.get(FILTER_PARAM_PREFIX + key) ?? "",
-        )
-      : {};
-    return { ...(dashboard?.variables ?? {}), ...filterValues };
-  }, [dashboard?.variables, dashboard?.filters, searchParams]);
+    const filterValues = resolveFilterVars(
+      shownFilters,
+      (key) => searchParams.get(FILTER_PARAM_PREFIX + key) ?? "",
+    );
+    return {
+      ...(dashboard?.variables ?? {}),
+      ...withOfferedTraffic(filterValues, shownFilters),
+    };
+  }, [dashboard?.variables, shownFilters, searchParams]);
 
   const timeRangeFilter = useMemo<DashboardFilter | undefined>(
     () => dashboard?.filters?.find((f) => f.id === "timeRange"),
@@ -2314,13 +2345,15 @@ function SqlDashboardPageContent({
   );
 
   const currentReportFilters = useMemo<Record<string, string>>(() => {
-    const out = dashboard?.filters
-      ? extractFilterParams(dashboard.filters, searchParams)
-      : {};
+    const out = reportFiltersWithTraffic(
+      extractFilterParams(shownFilters, searchParams),
+      shownFilters,
+      vars,
+    );
     const tab = searchParams.get("tab");
     if (tab) out.tab = tab;
     return out;
-  }, [dashboard?.filters, searchParams]);
+  }, [shownFilters, searchParams, vars]);
 
   // Reruns on a dashboard change, after the reset closed the dialog, so a
   // report-settings link to another dashboard still opens it.
@@ -2840,7 +2873,6 @@ function SqlDashboardPageContent({
             allowedRoles={["viewer", "editor", "admin"]}
             resourceTitle={dashboard.name}
             variant="compact"
-            triggerClassName="border-0 bg-accent text-accent-foreground hover:bg-accent/80 hover:text-accent-foreground"
             shareUrl={dashboardShareUrl}
             shareTabs={
               creativeContextEnabled
@@ -3329,24 +3361,28 @@ function SqlDashboardPageContent({
       )}
 
       {/* Filters */}
-      {!reportScreenshot &&
-        dashboard.filters &&
-        dashboard.filters.length > 0 && (
-          <DashboardFilterBar
-            key={`filters:${loadedDashboardId}`}
-            loadedDashboardId={loadedDashboardId}
-            filters={dashboard.filters}
-            views={dashboardViewsLoaded ? views : null}
-            viewsRefreshing={dashboardViewsState === "loading"}
-            onSaveView={
-              canEdit && loadedDashboardId && loadedDashboardId === dashboardId
-                ? handleSaveView
-                : undefined
-            }
-            onEditPreset={editing ? handleEditFilterPreset : undefined}
-            shared={dashboardShared}
-          />
-        )}
+      {!reportScreenshot && shownFilters.length > 0 && (
+        <DashboardFilterBar
+          key={`filters:${loadedDashboardId}`}
+          loadedDashboardId={loadedDashboardId}
+          filters={shownFilters}
+          trailing={
+            shownFilters.some((f) => f.id === TRAFFIC_FILTER_ID) &&
+            dashboardTrafficEnvironment(vars) !== "beta" ? (
+              <UnknownTrafficCount />
+            ) : null
+          }
+          views={dashboardViewsLoaded ? views : null}
+          viewsRefreshing={dashboardViewsState === "loading"}
+          onSaveView={
+            canEdit && loadedDashboardId && loadedDashboardId === dashboardId
+              ? handleSaveView
+              : undefined
+          }
+          onEditPreset={editing ? handleEditFilterPreset : undefined}
+          shared={dashboardShared}
+        />
+      )}
 
       {/* Panels grid */}
       {dashboard.panels.length === 0 ? (
@@ -3489,9 +3525,12 @@ function SqlDashboardPageContent({
                                 eagerLoad={reportScreenshot}
                                 reportScreenshot={reportScreenshot}
                                 isDragSource={activeDragPanelId === panel.id}
-                                selectedForChat={selectedPanelId === panel.id}
+                                selectedForChat={selectedPanelIds.includes(
+                                  panel.id,
+                                )}
                                 highlighted={highlightedTileId === panel.id}
                                 selectPanelForChat={selectPanelForChat}
+                                panelSelectionTarget={panelSelectionTarget}
                                 onRemovePanel={removePanel}
                                 onEditPanel={openEditPanel}
                                 onSaveSql={handleSaveSql}
@@ -3555,7 +3594,7 @@ function SqlDashboardPageContent({
       ) : null}
     </DashboardReportCaptureSurface>
   );
-  return (
+  const dashboardPage = (
     <DashboardAnnotationsProvider
       dashboardId={loadedDashboardId}
       annotations={dashboard.annotations}
@@ -3566,5 +3605,12 @@ function SqlDashboardPageContent({
       {content}
       {annotationEditing.dialogs}
     </DashboardAnnotationsProvider>
+  );
+  return (
+    <TrafficEnvironmentContext.Provider
+      value={dashboardTrafficEnvironment(vars)}
+    >
+      {dashboardPage}
+    </TrafficEnvironmentContext.Provider>
   );
 }

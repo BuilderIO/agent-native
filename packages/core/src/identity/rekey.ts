@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { jwtVerify } from "jose";
 
 import { AGENT_AUDIT_LOG_CREATE_SQL } from "../audit/store.js";
+import { sql } from "../db/sql.js";
 import {
   decryptSecretValue,
   encryptSecretValue,
@@ -41,6 +42,8 @@ export type IdentityColumn = {
     | "unsupported-oauth";
   /** Email-change behavior. Omitted means rewrite the value to the new address. */
   emailChange?: IdentityEmailChange;
+  /** The other key columns. An email change refuses when the new address already holds the same key. */
+  uniqueWith?: readonly string[];
   /** Offboarding behavior. Omitted means offboard.ts derives it from `mode`. */
   offboard?: IdentityOffboard;
   /** How an organization-scoped offboard finds this organization's rows. Omitted means an `org_id` column. */
@@ -131,6 +134,17 @@ export const IDENTITY_REKEY_COLUMNS: readonly IdentityColumn[] = [
   },
   { table: "agent_turn_initiators", column: "principal_email" },
   { table: "chat_threads", column: "owner_email" },
+  {
+    table: "chat_thread_viewer_state",
+    column: "user_email",
+    emailChange: "rekey",
+    uniqueWith: ["thread_id"],
+    offboard: "delete",
+    orgScope: {
+      column: "thread_id",
+      references: { table: "chat_threads", column: "id", orgColumn: "org_id" },
+    },
+  },
   { table: "chat_thread_shares", column: "principal_id", mode: "user-share" },
   { table: "chat_thread_shares", column: "created_by" },
   { table: "data_programs", column: "owner_email" },
@@ -141,6 +155,7 @@ export const IDENTITY_REKEY_COLUMNS: readonly IdentityColumn[] = [
   { table: "agent_harness_sessions", column: "owner_email" },
   { table: "workspace_apps", column: "owner_email" },
   { table: "private_icon_assets", column: "owner_email" },
+  { table: "private_media", column: "owner_email" },
   { table: "application_state", column: "session_id", mode: "state-session" },
   { table: "oauth_tokens", column: "owner", mode: "unsupported-oauth" },
   { table: "workspace_connections", column: "owner_email" },
@@ -187,6 +202,17 @@ export const IDENTITY_REKEY_COLUMNS: readonly IdentityColumn[] = [
   { table: "integration_conversation_scopes", column: "owner_email" },
   { table: "integration_usage_budgets", column: "owner_email" },
   { table: "mcp_device_codes", column: "owner_email", offboard: "delete" },
+  // A removed member's pending MCP approvals have no one left to review them.
+  {
+    table: "mcp_action_approvals",
+    column: "owner_email",
+    offboard: "delete",
+  },
+  {
+    table: "mcp_action_approvals",
+    column: "approver_email",
+    offboard: "retain",
+  },
   // A missing connect-token row reads as "not revoked", so revoke, never delete.
   { table: "mcp_connect_tokens", column: "owner_email", offboard: "revoke" },
   { table: "mcp_connect_tokens", column: "created_by" },
@@ -261,6 +287,13 @@ export const IDENTITY_REKEY_COLUMNS: readonly IdentityColumn[] = [
     column: "author_email",
   },
   { table: "agent_team_run_queue", column: "owner_email" },
+  // Expired presence state is cleared while its client ownership is retained.
+  {
+    table: "_collab_awareness",
+    column: "actor_email",
+    emailChange: "rekey",
+    offboard: "retain",
+  },
   // Submission history keeps the original actor as attribution when a member leaves.
   {
     table: "agent_chat_submission_inbox",
@@ -291,6 +324,8 @@ export const IDENTITY_REKEY_IGNORED_COLUMNS = new Set([
   "tool_history.actor_email",
   "tool_history.owner_email",
   "agent_resource_versions.created_by",
+  // Creator attribution on a Vault key, kept as written; the key is owned by its scope.
+  "app_secrets.created_by",
   "agent_review_comments.created_by",
   "agent_human_review_summaries.created_by",
   "organizations.created_by",
@@ -318,6 +353,8 @@ export const IDENTITY_REKEY_IGNORED_COLUMNS = new Set([
   // Browser-extension session ids; the row identity is owner_email.
   "agent_native_browser_sessions.session_id",
   "agent_native_browser_session_requests.session_id",
+  // Stable AgentHarness session primary key; owner email is rekeyed on its parent session row.
+  "agent_harness_session_events.session_id",
 ]);
 
 const IDENTITY_COLUMN_PATTERN =
@@ -491,14 +528,16 @@ export function assertIdentityColumnRows(
   return resolveIdentityColumns(rows);
 }
 
+export const IDENTITY_SCHEMA_COLUMNS_QUERY = sql`
+  SELECT table_name, column_name FROM information_schema.columns
+  WHERE table_schema = 'public'
+  ORDER BY table_name, column_name
+`;
+
 export async function assertIdentityColumnsRegistered(
   db: IdentityRekeyDb,
 ): Promise<IdentityColumn[]> {
-  const rows = await db.unsafe(
-    `SELECT table_name, column_name FROM information_schema.columns
-     WHERE table_schema = 'public'
-     ORDER BY table_name, column_name`,
-  );
+  const rows = await db.unsafe(IDENTITY_SCHEMA_COLUMNS_QUERY.sql);
   return resolveIdentityColumns(rows);
 }
 
@@ -1457,6 +1496,19 @@ export async function rekeyIdentity(
           [...args, newEmail],
         );
     } else {
+      if (entry.uniqueWith?.length) {
+        const sameKey = entry.uniqueWith
+          .map((column) => `target.${quote(column)} = source.${quote(column)}`)
+          .join(" AND ");
+        const collisionRows = await db.unsafe(
+          `SELECT 1 FROM ${quote(entry.table)} source JOIN ${quote(entry.table)} target ON ${sameKey} AND LOWER(target.${quote(entry.column)}) = LOWER($2) WHERE LOWER(source.${quote(entry.column)}) = LOWER($1) LIMIT 1`,
+          [oldEmail, newEmail],
+        );
+        if (collisionRows.length)
+          throw new Error(
+            `${entry.table} key collision detected; no identity data was changed.`,
+          );
+      }
       if (!options.dryRun) {
         const update = await db.unsafe(
           `UPDATE ${quote(entry.table)} SET ${quote(entry.column)} = $${args.length + 1} WHERE ${where}`,

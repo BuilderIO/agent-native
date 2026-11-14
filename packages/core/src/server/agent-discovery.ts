@@ -66,7 +66,10 @@ export interface DiscoveredAgent {
 export interface DiscoverAgentsOptions {
   preferLocalUrls?: boolean;
   requireReadableAgentSources?: boolean;
+  requireResolvableWorkspaceUrls?: boolean;
   includePersonalAgents?: boolean;
+  /** Reuse a previously loaded manifest for consistent workspace discovery. */
+  workspaceAppsManifest?: WorkspaceAppManifestEntry[] | null;
 }
 
 export interface DiscoverOrgDirectoryAgentsOptions {
@@ -868,66 +871,20 @@ async function discoverOrgDirectoryApps(selfAppId?: string): Promise<
 > {
   const selfId = selfAppId ? normalizeAgentId(selfAppId) : undefined;
   try {
-    const { fetchOrgAppsResult, resolveOrgDirectoryOrigin } =
-      await import("../mcp/org-directory.js");
-    const configuredBaseUrl = resolveOrgDirectoryOrigin();
-    let result = await fetchOrgAppsResult({ selfId });
-    let baseUrl = configuredBaseUrl;
-
-    if (result.status === "unavailable" && result.reason === "not-configured") {
-      const orgId = getRequestOrgId();
-      if (!orgId) {
-        return {
-          status: "setup-required",
-          reason: "organization-not-selected",
-        };
-      }
-      const { getOrgWorkspaceUrl } = await import("../org/context.js");
-      const workspaceUrl = await getOrgWorkspaceUrl(orgId);
-      if (!workspaceUrl) {
-        return { status: "setup-required", reason: "workspace-url-not-set" };
-      }
-      let workspaceOrigin: string;
-      try {
-        const parsed = new URL(workspaceUrl);
-        if (
-          (parsed.protocol !== "http:" && parsed.protocol !== "https:") ||
-          parsed.username ||
-          parsed.password ||
-          parsed.search ||
-          parsed.hash ||
-          (parsed.pathname !== "/" && parsed.pathname !== "")
-        ) {
-          return { status: "setup-required", reason: "invalid-workspace-url" };
-        }
-        workspaceOrigin = parsed.origin;
-      } catch {
-        return { status: "setup-required", reason: "invalid-workspace-url" };
-      }
-      baseUrl = `${workspaceOrigin}/dispatch`;
-      result = await fetchOrgAppsResult({ directoryBaseUrl: baseUrl, selfId });
-    }
-
-    if (
-      result.status === "unavailable" &&
-      result.reason === "missing-route" &&
-      baseUrl
-    ) {
-      const rootUrl = new URL(baseUrl).origin;
-      if (rootUrl !== baseUrl.replace(/\/+$/, "")) {
-        result = await fetchOrgAppsResult({
-          directoryBaseUrl: rootUrl,
-          selfId,
-        });
-      }
-    }
+    const { fetchOrgAppsResult } = await import("../mcp/org-directory.js");
+    const result = await fetchOrgAppsResult({ selfId });
 
     if (result.status === "available") return result;
     if (result.reason === "authorization") return { status: "forbidden" };
-    if (
-      result.reason === "not-configured" ||
-      result.reason === "invalid-origin"
-    ) {
+    if (result.reason === "not-configured") {
+      return {
+        status: "setup-required",
+        reason: getRequestOrgId()
+          ? "workspace-url-not-set"
+          : "organization-not-selected",
+      };
+    }
+    if (result.reason === "invalid-origin") {
       return { status: "setup-required", reason: result.reason };
     }
     return { status: "unavailable", reason: result.reason };
@@ -1410,7 +1367,21 @@ async function readWorkspaceAppsFromFilesystem(
     .readdirSync(appsDir, { withFileTypes: true })
     .filter((entry) => entry.isDirectory())) {
     const appDir = path.join(appsDir, entry.name);
-    const pkg = readJson(path.join(appDir, "package.json"));
+    const packagePath = path.join(appDir, "package.json");
+    if (strict) {
+      try {
+        fs.lstatSync(packagePath);
+      } catch (error) {
+        if (
+          error instanceof Error &&
+          "code" in error &&
+          error.code === "ENOENT"
+        )
+          continue;
+        throw error;
+      }
+    }
+    const pkg = readJson(packagePath);
     if (!pkg) {
       if (strict) throw new Error(`Invalid workspace package: ${entry.name}`);
       continue;
@@ -1511,10 +1482,17 @@ function workspaceAppUrl(
 
 async function discoverWorkspaceAgents(
   selfAppId?: string,
-  options?: { preferLocalUrls?: boolean },
+  options?: {
+    preferLocalUrls?: boolean;
+    workspaceAppsManifest?: WorkspaceAppManifestEntry[] | null;
+    requireResolvableWorkspaceUrls?: boolean;
+  },
   strict = false,
 ): Promise<DiscoveredAgent[]> {
-  const workspaceApps = await loadWorkspaceAppsManifest(strict);
+  const workspaceApps =
+    options?.workspaceAppsManifest !== undefined
+      ? options.workspaceAppsManifest
+      : await loadWorkspaceAppsManifest(strict);
   if (!workspaceApps) return [];
 
   const metadataSettings =
@@ -1536,7 +1514,12 @@ async function discoverWorkspaceAgents(
         options?.preferLocalUrls && builtin
           ? resolveAgentUrl(builtin, true)
           : workspaceAppUrl(withOverride, builtin?.url);
-      if (strict && (!url || !isAbsoluteHttpUrl(url))) {
+      if (
+        (strict || options?.requireResolvableWorkspaceUrls) &&
+        (!url ||
+          !isAbsoluteHttpUrl(url) ||
+          (options?.requireResolvableWorkspaceUrls && /[?#]/.test(url)))
+      ) {
         throw new Error(`Invalid workspace app URL: ${withOverride.id}`);
       }
       if (!url) return null;

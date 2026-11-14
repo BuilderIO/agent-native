@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto";
 
+import { ActionContractError } from "@agent-native/core";
 import { sanitizeIconSvg } from "@agent-native/core/icon-assets";
 import { describe, expect, it, vi } from "vitest";
 
@@ -170,6 +171,24 @@ describe("historical icon rehost", () => {
     const report = await migrateHistoricalIconUrls(unreadable, { apply: true });
     expect(report.migrated).toBe(0);
     expect(unreadable.replaceIfUnchanged).not.toHaveBeenCalled();
+  });
+
+  it("defers a page that takes body writes through its live copy, and says so", async () => {
+    const deps = dependencies();
+    deps.replaceIfUnchanged.mockRejectedValue(
+      new ActionContractError(
+        "Page doc-1 takes body writes through its live copy.",
+        {
+          errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+          statusCode: 409,
+        },
+      ),
+    );
+    const report = await migrateHistoricalIconUrls(deps, { apply: true });
+    expect(report.migrated).toBe(0);
+    expect(report.deferred[0].reason).toBe(
+      "page takes body writes through its live copy",
+    );
   });
 
   it("rejects internally consistent upload bytes that differ from the fetched source", async () => {

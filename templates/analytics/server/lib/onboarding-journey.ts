@@ -23,6 +23,7 @@ import {
   buildOnboardingJourneyPersonFollowupSql,
   onboardingJourneyEventDateRange,
   onboardingJourneyPersonFollowupDateRange,
+  onboardingPersonFollowupEmailHash,
   MAX_ONBOARDING_PERSON_FOLLOWUP_MEMBERS,
   ONBOARDING_PERSON_FOLLOWUP_HORIZON_DAYS,
   type OnboardingJourneyEventsFilters,
@@ -67,6 +68,14 @@ export const ONBOARDING_EVENTS_MAX_TOTAL_BYTES_BILLED =
   ONBOARDING_EVENTS_MAX_BYTES_BILLED * 51;
 const ONBOARDING_FOLLOWUP_MAX_BYTES_BILLED = 10_000_000_000;
 const DAY_MS = 24 * 60 * 60 * 1000;
+
+export const ONBOARDING_JOURNEY_EXPERIMENT_IDS = [
+  "first_run_builder_credits",
+  "first_run_builder_credits_v2",
+] as const;
+
+export type OnboardingJourneyExperimentId =
+  (typeof ONBOARDING_JOURNEY_EXPERIMENT_IDS)[number];
 
 export function getOnboardingJourneyEventReadPageCount(
   maxEventRows: number,
@@ -211,6 +220,58 @@ export interface OnboardingJourneyArgs extends OnboardingJourneyEventsFilters {
   settleMs: number;
   recency: "newest" | "none";
   viewport?: ViewportConstraints;
+  experimentId?: OnboardingJourneyExperimentId;
+  splitDesignFirstTouch?: boolean;
+}
+
+export interface JourneyCohortTree {
+  window: { from: string; to: string };
+  app: string;
+  rootN: number;
+  populationGrain?: "sessions" | "signup_events";
+  coverage: {
+    sessionsWithEvents: number;
+    sessionsWithReplay: number | null;
+    truncated: boolean;
+    paginationConsistency: "stable" | "may_have_shifted";
+  };
+  nodes: JourneyNode[];
+  notes?: string[];
+}
+
+export interface OnboardingJourneyCohorts {
+  format: "cohorts";
+  window: { from: string; to: string };
+  app: string;
+  readCoverage: {
+    rawRows: number;
+    invalidRows: number;
+    pages: number;
+    truncated: boolean;
+    paginationConsistency: "stable" | "may_have_shifted";
+    sessionlessMcpOauthSignupEvents: number;
+  };
+  tree: JourneyCohortTree;
+  experiment?: {
+    id: OnboardingJourneyExperimentId;
+    arms: Record<"control" | "credits", JourneyCohortTree>;
+    assignedSessions: number;
+    exposureSessions: number;
+    unassignedSessions: number;
+    conflictingSessions: number;
+    designFirstTouch?: Record<
+      "control" | "credits",
+      {
+        cohorts: Record<"web" | "mcp-oauth" | "unknown", JourneyCohortTree>;
+        conflictingSessions: number;
+      }
+    >;
+  };
+  designFirstTouch?: {
+    cohorts: Record<"web" | "mcp-oauth" | "unknown", JourneyCohortTree>;
+    conflictingSessions: number;
+    sessionlessMcpOauthSignupTree: JourneyCohortTree;
+  };
 }
 
 /** The contract other agents build against; field names are fixed. */
@@ -387,6 +448,10 @@ export interface JourneyPersonFollowup {
         | "unknown";
       terminalSessions: number | null;
       sessionsWithCanonicalIdentity: number | null;
+      /** Identified sessions matched by their one email. */
+      sessionsIdentifiedByEmail: number | null;
+      /** Identified sessions with no usable email, matched by sign-in ID. */
+      sessionsIdentifiedBySignInIdOnly: number | null;
       sessionsWithoutCanonicalIdentity: number | null;
       uniqueCanonicalPeople: number | null;
       coveragePct: number | null;
@@ -438,13 +503,18 @@ export function parseJourneyEventRow(
   raw: Record<string, unknown>,
 ): JourneyEventRow | null {
   const id = text(raw.id);
-  const sessionId = text(raw.session_id);
+  const sessionId = text(raw.session_id) ?? "";
   const eventName = text(raw.event_name);
   const journeyKind = text(raw.journey_kind);
   const tsMs = parseJourneyTimestampMs(raw.timestamp);
+  const firstTouchPath = text(raw.first_touch_path);
+  const sessionlessMcpOauthSignup =
+    !sessionId &&
+    eventName === "signup" &&
+    firstTouchPath?.startsWith("/mcp/oauth");
   if (
     !id ||
-    !sessionId ||
+    (!sessionId && !sessionlessMcpOauthSignup) ||
     !eventName ||
     (journeyKind !== "onboarding" && journeyKind !== "standalone_setup") ||
     tsMs === null
@@ -460,6 +530,7 @@ export function parseJourneyEventRow(
     sessionReplayId.length > 0 &&
     sessionReplayStartedAt !== null &&
     sessionReplayId.length <= MAX_SESSION_ID_LENGTH;
+  const sessionEmailHash = text(raw.session_email_hash);
   return {
     id,
     sessionId,
@@ -467,6 +538,7 @@ export function parseJourneyEventRow(
     tsMs,
     eventName,
     ...(text(raw.auth_user_id) ? { authUserId: text(raw.auth_user_id)! } : {}),
+    ...(sessionEmailHash ? { sessionEmailHash } : {}),
     ...(text(raw.app) ? { app: text(raw.app)! } : {}),
     templateName: text(raw.template_name),
     path: text(raw.path),
@@ -479,6 +551,9 @@ export function parseJourneyEventRow(
     action: text(raw.action),
     aliasId: text(raw.alias_id),
     attemptId: text(raw.attempt_id),
+    firstTouchPath,
+    experimentId: text(raw.experiment_id),
+    experimentVariant: text(raw.experiment_variant),
     sessionReplayId: hasExactReplayLink ? sessionReplayId : null,
     sessionReplayStartedAt: hasExactReplayLink ? sessionReplayStartedAt : null,
   };
@@ -508,6 +583,32 @@ export interface OnboardingJourneyEventPageRequest {
   offset: number;
   eventDateRange: { startDate: string; endDate: string };
 }
+
+/**
+ * How every journey event read is scoped: one scan of each raw source, with
+ * only the projected columns. The read, its cost estimate and the tests share
+ * this, so a column the SQL names but the projection leaves out fails in tests.
+ */
+export const ONBOARDING_JOURNEY_EVENT_SOURCE_OPTIONS = {
+  scopedEventsSingleScan: true,
+  scopedEventsProjection: "onboarding_journey",
+  scopedEventsSourceProjections: {
+    e: "onboarding_journey",
+    r: "onboarding_journey_response_identity",
+  },
+} as const;
+
+/**
+ * The person follow-up reads its one raw source through the narrow identity
+ * projection: it needs the identity, time, app and host columns, and unlike the
+ * journey event projection it keeps `http.response` events as later activity.
+ */
+export const ONBOARDING_PERSON_FOLLOWUP_SOURCE_OPTIONS = {
+  scopedEventsSingleScan: true,
+  scopedEventsSourceProjections: {
+    e: "onboarding_journey_response_identity",
+  },
+} as const;
 
 export function buildOnboardingJourneyEventPageRequest(
   filters: OnboardingJourneyEventsFilters,
@@ -554,6 +655,7 @@ async function readJourneyEvents(
   let overflowSessionId: string | null = null;
   let pages = 0;
   let rowsFetched = 0;
+  const pageTotals: JourneyPageTotal[] = [];
   const deadline = new AbortController();
   const deadlineTimer = setTimeout(
     () =>
@@ -610,12 +712,7 @@ async function readJourneyEvents(
           timeoutMs: ONBOARDING_QUERY_TIMEOUT_MS,
           maxBytesBilled: ONBOARDING_EVENTS_MAX_BYTES_BILLED,
           eventDateRange: request.eventDateRange,
-          scopedEventsSingleScan: true,
-          scopedEventsProjection: "onboarding_journey",
-          scopedEventsSourceProjections: {
-            e: "onboarding_journey",
-            r: "onboarding_journey_response_identity",
-          },
+          ...ONBOARDING_JOURNEY_EVENT_SOURCE_OPTIONS,
           signal: querySignal,
         });
       } catch (error) {
@@ -631,6 +728,12 @@ async function readJourneyEvents(
       pages += 1;
       raw.push(...page.rows);
       rowsFetched += page.rows.length;
+      if (page.rows.length) {
+        pageTotals.push({
+          rows: integer(page.rows[0]?.journey_total_rows),
+          fingerprint: integer(page.rows[0]?.journey_rows_fingerprint),
+        });
+      }
       if (page.truncated) {
         truncated = true;
         truncationReason = "backend_result";
@@ -699,9 +802,40 @@ async function readJourneyEvents(
     standaloneSetupTruncated: truncated,
     lastSessionDroppedFor,
     pages,
-    paginationConsistency: pages > 1 ? "may_have_shifted" : "stable",
+    paginationConsistency: journeyPagesAgree(
+      pages,
+      pageTotals,
+      rowsFetched,
+      truncated,
+    )
+      ? "stable"
+      : "may_have_shifted",
     truncationReason,
   };
+}
+
+type JourneyPageTotal = { rows: number | null; fingerprint: number | null };
+
+/**
+ * OFFSET pages are separate queries, so an event that arrives between them can
+ * move a page boundary. A matching row count alone does not rule that out: a
+ * late duplicate can drop one event and settle another's ambiguous link. So
+ * every page also fingerprints the whole read's sort keys, and pages agree
+ * only when every count and fingerprint matches and a read that ran to its end
+ * returned exactly that many rows.
+ */
+function journeyPagesAgree(
+  pages: number,
+  pageTotals: readonly JourneyPageTotal[],
+  rowsFetched: number,
+  truncated: boolean,
+): boolean {
+  if (pages <= 1) return true;
+  const rows = new Set(pageTotals.map((total) => total.rows));
+  const fingerprints = new Set(pageTotals.map((total) => total.fingerprint));
+  if (rows.size !== 1 || fingerprints.size !== 1) return false;
+  if (rows.has(null) || fingerprints.has(null)) return false;
+  return truncated || rows.has(rowsFetched);
 }
 
 function groupSessions(rows: readonly JourneyEventRow[]): {
@@ -711,6 +845,7 @@ function groupSessions(rows: readonly JourneyEventRow[]): {
 } {
   const bySession = new Map<string, JourneyEventRow[]>();
   for (const row of rows) {
+    if (!row.sessionId) continue;
     const list = bySession.get(row.sessionId);
     if (list) list.push(row);
     else bySession.set(row.sessionId, [row]);
@@ -734,6 +869,9 @@ function groupSessions(rows: readonly JourneyEventRow[]): {
         tsMs: terminal.tsMs,
         app: terminal.app ?? "",
         authUserId: terminal.authUserId ?? null,
+        emailHash: onboardingPersonFollowupEmailHash(
+          sessionRows.find((row) => row.sessionEmailHash)?.sessionEmailHash,
+        ),
       });
     } else sessionsWithoutSteps += 1;
   }
@@ -1050,6 +1188,104 @@ function canonicalPersonId(value: string | null | undefined): string | null {
   return value;
 }
 
+/** The email hash and direct auth ID a terminal session can be matched on. */
+function personFollowupMember(
+  terminal: OnboardingJourneyPersonMember,
+): OnboardingJourneyPersonMember {
+  return {
+    ...terminal,
+    app: terminal.app.toLowerCase(),
+    authUserId: canonicalPersonId(terminal.authUserId),
+    emailHash: onboardingPersonFollowupEmailHash(terminal.emailHash),
+  };
+}
+
+function isLaterTerminal(
+  terminal: OnboardingJourneyPersonMember,
+  current: OnboardingJourneyPersonMember,
+): boolean {
+  return (
+    terminal.tsMs > current.tsMs ||
+    (terminal.tsMs === current.tsMs &&
+      (terminal.sessionId > current.sessionId ||
+        (terminal.sessionId === current.sessionId &&
+          terminal.stepKey > current.stepKey)))
+  );
+}
+
+/**
+ * Sessions that share an email or a direct auth ID belong to one person, who
+ * keeps their latest terminal step. That member matches later activity by
+ * every email and auth ID its sessions carried, and names one of each when its
+ * own session lacks it.
+ */
+function groupPersonFollowupMembers(
+  members: readonly OnboardingJourneyPersonMember[],
+): OnboardingJourneyPersonMember[] {
+  const parent = new Map<string, string>();
+  const root = (key: string): string => {
+    const next = parent.get(key);
+    if (next === undefined) parent.set(key, key);
+    if (next === undefined || next === key) return key;
+    const top = root(next);
+    parent.set(key, top);
+    return top;
+  };
+  const emailKey = (emailHash: string) => `email:${emailHash}`;
+  const authKey = (authUserId: string) => `auth:${authUserId}`;
+  for (const member of members) {
+    if (member.emailHash && member.authUserId) {
+      parent.set(
+        root(authKey(member.authUserId)),
+        root(emailKey(member.emailHash)),
+      );
+    }
+  }
+  const people = new Map<
+    string,
+    {
+      latest: OnboardingJourneyPersonMember;
+      emailHashes: Set<string>;
+      authUserIds: Set<string>;
+    }
+  >();
+  for (const member of members) {
+    const key = member.emailHash
+      ? emailKey(member.emailHash)
+      : member.authUserId
+        ? authKey(member.authUserId)
+        : null;
+    if (key === null) continue;
+    const id = root(key);
+    const person = people.get(id) ?? {
+      latest: member,
+      emailHashes: new Set<string>(),
+      authUserIds: new Set<string>(),
+    };
+    if (member.emailHash) person.emailHashes.add(member.emailHash);
+    if (member.authUserId) person.authUserIds.add(member.authUserId);
+    if (isLaterTerminal(member, person.latest)) person.latest = member;
+    people.set(id, person);
+  }
+  return [...people.values()].map(({ latest, emailHashes, authUserIds }) => {
+    const aliases = {
+      emailHashes: [...emailHashes].sort(),
+      authUserIds: [...authUserIds].sort(),
+    };
+    return {
+      ...latest,
+      emailHash: latest.emailHash ?? firstValue(aliases.emailHashes),
+      authUserId: latest.authUserId ?? firstValue(aliases.authUserIds),
+      aliases,
+    };
+  });
+}
+
+function firstValue(values: Iterable<string>): string | null {
+  for (const value of values) return value;
+  return null;
+}
+
 interface PersonFollowupStepCohort {
   terminalSessions: number;
   identifiedTerminalSessions: number;
@@ -1137,6 +1373,8 @@ async function readPersonFollowup(
     status: "unknown" as const,
     terminalSessions: null,
     sessionsWithCanonicalIdentity: null,
+    sessionsIdentifiedByEmail: null,
+    sessionsIdentifiedBySignInIdOnly: null,
     sessionsWithoutCanonicalIdentity: null,
     uniqueCanonicalPeople: null,
     coveragePct: null,
@@ -1214,32 +1452,18 @@ async function readPersonFollowup(
     });
   }
 
-  const canonicalSessions = terminals.filter(
-    (terminal) => canonicalPersonId(terminal.authUserId) !== null,
+  const terminalMembers = terminals.map(personFollowupMember);
+  const isIdentified = (member: OnboardingJourneyPersonMember) =>
+    member.emailHash !== null || member.authUserId !== null;
+  const identifiedMembers = terminalMembers.filter(isIdentified);
+  const identityUnavailableMembers = terminalMembers.filter(
+    (member) => !isIdentified(member),
+  );
+  const canonicalSessions = identifiedMembers.length;
+  const sessionsIdentifiedByEmail = identifiedMembers.filter(
+    (member) => member.emailHash !== null,
   ).length;
-  const identityUnavailableSessions = terminals.length - canonicalSessions;
-  const peopleById = new Map<string, OnboardingJourneyPersonMember>();
-  const identityUnavailableMembers: OnboardingJourneyPersonMember[] = [];
-  for (const terminal of terminals) {
-    const app = terminal.app.toLowerCase();
-    const personId = canonicalPersonId(terminal.authUserId);
-    if (!personId) {
-      identityUnavailableMembers.push({ ...terminal, app, authUserId: null });
-      continue;
-    }
-    const current = peopleById.get(personId);
-    if (
-      !current ||
-      terminal.tsMs > current.tsMs ||
-      (terminal.tsMs === current.tsMs &&
-        (terminal.sessionId > current.sessionId ||
-          (terminal.sessionId === current.sessionId &&
-            terminal.stepKey > current.stepKey)))
-    ) {
-      peopleById.set(personId, { ...terminal, app, authUserId: personId });
-    }
-  }
-  const personMembers = [...peopleById.values()];
+  const personMembers = groupPersonFollowupMembers(identifiedMembers);
   const members = [...personMembers, ...identityUnavailableMembers];
   const identityJoin: JourneyPersonFollowup["coverage"]["identityJoin"] = {
     status:
@@ -1252,7 +1476,10 @@ async function readPersonFollowup(
             : "partial",
     terminalSessions: terminals.length,
     sessionsWithCanonicalIdentity: canonicalSessions,
-    sessionsWithoutCanonicalIdentity: identityUnavailableSessions,
+    sessionsIdentifiedByEmail,
+    sessionsIdentifiedBySignInIdOnly:
+      canonicalSessions - sessionsIdentifiedByEmail,
+    sessionsWithoutCanonicalIdentity: identityUnavailableMembers.length,
     uniqueCanonicalPeople: personMembers.length,
     coveragePct: terminals.length
       ? Math.round((canonicalSessions / terminals.length) * 1_000) / 10
@@ -1299,10 +1526,10 @@ async function readPersonFollowup(
     }
     return cohort;
   };
-  for (const terminal of terminals) {
+  for (const terminal of terminalMembers) {
     const cohort = ensureStep(terminal.stepKey);
     cohort.terminalSessions += 1;
-    if (canonicalPersonId(terminal.authUserId)) {
+    if (isIdentified(terminal)) {
       cohort.identifiedTerminalSessions += 1;
     } else {
       cohort.identityUnavailableSessions += 1;
@@ -1369,6 +1596,7 @@ async function readPersonFollowup(
       timeoutMs: ONBOARDING_QUERY_TIMEOUT_MS,
       maxBytesBilled: ONBOARDING_FOLLOWUP_MAX_BYTES_BILLED,
       eventDateRange,
+      ...ONBOARDING_PERSON_FOLLOWUP_SOURCE_OPTIONS,
       signal,
     });
   } catch (error) {
@@ -1637,11 +1865,421 @@ export function formatJourneyOutline(
     .join("\n");
 }
 
+function buildJourneyCohortTree(
+  args: OnboardingJourneyArgs,
+  read: EventRead,
+  sessionIds: ReadonlySet<string>,
+  recordingsBySession: ReadonlyMap<string, readonly JourneyRecording[]> | null,
+): JourneyCohortTree {
+  const rows = read.rows.filter(
+    (row) =>
+      row.journeyKind === "onboarding" &&
+      row.sessionId !== "" &&
+      sessionIds.has(row.sessionId),
+  );
+  const { sessions } = groupSessions(rows);
+  const replayUrlFor = replayUrlBuilder();
+  const built = buildJourneyTree(sessions, recordingsBySession, {
+    maxDepth: args.maxDepth,
+    minNodeSessions: args.minNodeSessions,
+    examplesPerNode: args.examplesPerNode,
+    settleMs: args.settleMs,
+    recency: args.recency,
+    ...(args.viewport ? { viewport: args.viewport } : {}),
+    ...(replayUrlFor ? { replayUrlFor } : {}),
+  });
+  const capped = capNodes(built.nodes, args.maxNodes);
+  const depthTruncated = sessions.some(
+    (session) => session.steps.length > args.maxDepth,
+  );
+  const truncated =
+    read.onboardingTruncated || depthTruncated || capped.dropped > 0;
+  const notes: string[] = [];
+  if (read.onboardingTruncated) {
+    notes.push("The onboarding event read was truncated.");
+  }
+  if (depthTruncated) {
+    notes.push("At least one session continued past maxDepth.");
+  }
+  if (capped.dropped > 0) {
+    notes.push(`${capped.dropped} nodes were omitted by maxNodes.`);
+  }
+  if (read.paginationConsistency === "may_have_shifted") {
+    notes.push("Multiple event pages may have shifted during the read.");
+  }
+  const sessionsWithReplay =
+    recordingsBySession === null
+      ? null
+      : sessions.filter((session) => recordingsBySession.has(session.sessionId))
+          .length;
+  return {
+    window: { from: args.dateFrom, to: args.dateTo },
+    app: args.app,
+    rootN: built.rootN,
+    coverage: {
+      sessionsWithEvents: built.rootN,
+      sessionsWithReplay,
+      truncated,
+      paginationConsistency: read.paginationConsistency,
+    },
+    nodes: capped.nodes,
+    ...(notes.length ? { notes } : {}),
+  };
+}
+
+type JourneyExperimentArm = "control" | "credits";
+type JourneyFirstTouchCohort = "web" | "mcp-oauth" | "unknown";
+
+interface JourneyFirstTouchCohortPartition {
+  cohorts: Record<JourneyFirstTouchCohort, Set<string>>;
+  conflictingSessions: number;
+}
+
+interface JourneyFirstTouchPartition extends JourneyFirstTouchCohortPartition {
+  conflictingSessionIds: Set<string>;
+}
+
+interface OnboardingJourneyCohortPartition {
+  sessionRows: Map<string, JourneyEventRow[]>;
+  allSessionIds: Set<string>;
+  experiment?: {
+    arms: Record<JourneyExperimentArm, Set<string>>;
+    assignedSessions: number;
+    exposureSessions: number;
+    unassignedSessions: number;
+    conflictingSessions: number;
+    designFirstTouch?: Record<
+      JourneyExperimentArm,
+      JourneyFirstTouchCohortPartition
+    >;
+  };
+  designFirstTouch?: JourneyFirstTouchPartition;
+  sessionlessMcpOauthSignupEvents: number;
+}
+
+export function partitionOnboardingJourneyCohorts(
+  rows: readonly JourneyEventRow[],
+  args: Pick<OnboardingJourneyArgs, "experimentId" | "splitDesignFirstTouch">,
+): OnboardingJourneyCohortPartition {
+  const sessionRows = new Map<string, JourneyEventRow[]>();
+  for (const row of rows) {
+    if (row.journeyKind !== "onboarding" || !row.sessionId) continue;
+    const list = sessionRows.get(row.sessionId);
+    if (list) list.push(row);
+    else sessionRows.set(row.sessionId, [row]);
+  }
+
+  let experiment: OnboardingJourneyCohortPartition["experiment"];
+  if (args.experimentId) {
+    const arms: Record<JourneyExperimentArm, Set<string>> = {
+      control: new Set(),
+      credits: new Set(),
+    };
+    let conflictingSessions = 0;
+    let exposureSessions = 0;
+    for (const [sessionId, sessionEvents] of sessionRows) {
+      const exposureEvents = sessionEvents.filter(
+        (row) =>
+          row.eventName === "onboarding_experiment_exposed" &&
+          row.experimentId === args.experimentId,
+      );
+      if (exposureEvents.length) exposureSessions += 1;
+      const variants = new Set(
+        exposureEvents
+          .map((row) => row.experimentVariant)
+          .filter((variant): variant is string => Boolean(variant)),
+      );
+      if (variants.size > 1) {
+        conflictingSessions += 1;
+        continue;
+      }
+      const variant = [...variants][0];
+      if (variant === "control" || variant === "credits") {
+        arms[variant].add(sessionId);
+      }
+    }
+    const assignedSessions = arms.control.size + arms.credits.size;
+    experiment = {
+      arms,
+      assignedSessions,
+      exposureSessions,
+      unassignedSessions: Math.max(
+        0,
+        sessionRows.size - assignedSessions - conflictingSessions,
+      ),
+      conflictingSessions,
+    };
+  }
+
+  let designFirstTouch: JourneyFirstTouchPartition | undefined;
+  if (args.splitDesignFirstTouch) {
+    const cohorts: JourneyFirstTouchPartition["cohorts"] = {
+      web: new Set(),
+      "mcp-oauth": new Set(),
+      unknown: new Set(),
+    };
+    let conflictingSessions = 0;
+    const conflictingSessionIds = new Set<string>();
+    for (const [sessionId, sessionEvents] of sessionRows) {
+      const paths = new Set(
+        sessionEvents
+          .filter((row) => row.eventName === "signup")
+          .map((row) => row.firstTouchPath?.trim() ?? "")
+          .filter(Boolean),
+      );
+      const hasMcpOauth = [...paths].some((value) =>
+        value.startsWith("/mcp/oauth"),
+      );
+      const hasWebPath = [...paths].some(
+        (value) => !value.startsWith("/mcp/oauth"),
+      );
+      if (hasMcpOauth && hasWebPath) {
+        cohorts.unknown.add(sessionId);
+        conflictingSessionIds.add(sessionId);
+        conflictingSessions += 1;
+      } else if (hasMcpOauth) {
+        cohorts["mcp-oauth"].add(sessionId);
+      } else if (hasWebPath) {
+        cohorts.web.add(sessionId);
+      } else {
+        cohorts.unknown.add(sessionId);
+      }
+    }
+    designFirstTouch = {
+      cohorts,
+      conflictingSessionIds,
+      conflictingSessions,
+    };
+  }
+
+  const firstTouchPartition = designFirstTouch;
+  if (experiment && firstTouchPartition) {
+    experiment.designFirstTouch = {
+      control: {
+        cohorts: intersectJourneyCohorts(
+          experiment.arms.control,
+          firstTouchPartition.cohorts,
+        ),
+        conflictingSessions: [...experiment.arms.control].filter((sessionId) =>
+          firstTouchPartition.conflictingSessionIds.has(sessionId),
+        ).length,
+      },
+      credits: {
+        cohorts: intersectJourneyCohorts(
+          experiment.arms.credits,
+          firstTouchPartition.cohorts,
+        ),
+        conflictingSessions: [...experiment.arms.credits].filter((sessionId) =>
+          firstTouchPartition.conflictingSessionIds.has(sessionId),
+        ).length,
+      },
+    };
+  }
+
+  return {
+    sessionRows,
+    allSessionIds: new Set(sessionRows.keys()),
+    ...(experiment ? { experiment } : {}),
+    ...(designFirstTouch ? { designFirstTouch } : {}),
+    sessionlessMcpOauthSignupEvents: rows.filter(
+      (row) =>
+        !row.sessionId &&
+        row.eventName === "signup" &&
+        row.firstTouchPath?.startsWith("/mcp/oauth"),
+    ).length,
+  };
+}
+
+function intersectJourneyCohorts(
+  sessionIds: ReadonlySet<string>,
+  cohorts: JourneyFirstTouchPartition["cohorts"],
+): JourneyFirstTouchPartition["cohorts"] {
+  return {
+    web: new Set([...sessionIds].filter((id) => cohorts.web.has(id))),
+    "mcp-oauth": new Set(
+      [...sessionIds].filter((id) => cohorts["mcp-oauth"].has(id)),
+    ),
+    unknown: new Set([...sessionIds].filter((id) => cohorts.unknown.has(id))),
+  };
+}
+
+function sessionlessMcpOauthSignupTree(
+  args: OnboardingJourneyArgs,
+  read: EventRead,
+  eventCount: number,
+): JourneyCohortTree {
+  return {
+    window: { from: args.dateFrom, to: args.dateTo },
+    app: args.app,
+    rootN: eventCount,
+    populationGrain: "signup_events",
+    coverage: {
+      sessionsWithEvents: 0,
+      sessionsWithReplay: 0,
+      truncated: read.onboardingTruncated,
+      paginationConsistency: read.paginationConsistency,
+    },
+    nodes: eventCount
+      ? [
+          {
+            key: "signup:mcp-oauth:sessionless",
+            label: "MCP OAuth signup without a web session",
+            parentKey: null,
+            depth: 1,
+            kind: "step",
+            n: eventCount,
+            pctOfRoot: 100,
+            pctOfParent: 100,
+            dropoffN: 0,
+            dropoffPct: 0,
+            deeperN: 0,
+            examples: [],
+          },
+        ]
+      : [],
+    ...(eventCount
+      ? {
+          notes: [
+            "Counts are signup events, not sessions; these signups have no first-party web session or replay.",
+          ],
+        }
+      : {}),
+  };
+}
+
+async function buildOnboardingJourneyCohorts(
+  scope: AnalyticsScope,
+  args: OnboardingJourneyArgs,
+  read: EventRead,
+  signal?: AbortSignal,
+): Promise<OnboardingJourneyCohorts> {
+  const partition = partitionOnboardingJourneyCohorts(read.rows, args);
+
+  throwIfAborted(signal);
+  const sessionIds = [...partition.allSessionIds];
+  let recordingsBySession: Map<string, JourneyRecording[]> | null = null;
+  if (!read.truncated && sessionIds.length > 0) {
+    const selectedSessionIds = new Set(sessionIds);
+    const replayLinksByKey = new Map<string, JourneyReplayLink>();
+    for (const row of read.rows) {
+      if (
+        !selectedSessionIds.has(row.sessionId) ||
+        !row.sessionReplayId ||
+        !row.sessionReplayStartedAt
+      ) {
+        continue;
+      }
+      const link = {
+        sessionId: row.sessionId,
+        clientRecordingId: row.sessionReplayId,
+        startedAt: row.sessionReplayStartedAt,
+      };
+      replayLinksByKey.set(
+        JSON.stringify([
+          link.sessionId,
+          link.clientRecordingId,
+          link.startedAt,
+        ]),
+        link,
+      );
+    }
+    const recordings = await readRecordings(
+      scope,
+      sessionIds,
+      [...replayLinksByKey.values()],
+      args,
+    );
+    recordingsBySession = new Map();
+    for (const recording of recordings) {
+      const list = recordingsBySession.get(recording.sessionId);
+      if (list) list.push(recording);
+      else recordingsBySession.set(recording.sessionId, [recording]);
+    }
+  }
+
+  const makeTree = (sessionIds: ReadonlySet<string>) =>
+    buildJourneyCohortTree(args, read, sessionIds, recordingsBySession);
+  const makeFirstTouchTrees = (
+    cohorts: JourneyFirstTouchPartition["cohorts"],
+  ) => ({
+    web: makeTree(cohorts.web),
+    "mcp-oauth": makeTree(cohorts["mcp-oauth"]),
+    unknown: makeTree(cohorts.unknown),
+  });
+  const response: OnboardingJourneyCohorts = {
+    format: "cohorts",
+    window: { from: args.dateFrom, to: args.dateTo },
+    app: args.app,
+    readCoverage: {
+      rawRows: read.rawRows,
+      invalidRows: read.invalidRows,
+      pages: read.pages,
+      truncated: read.truncated,
+      paginationConsistency: read.paginationConsistency,
+      sessionlessMcpOauthSignupEvents:
+        partition.sessionlessMcpOauthSignupEvents,
+    },
+    tree: makeTree(partition.allSessionIds),
+  };
+  if (args.experimentId && partition.experiment) {
+    const experiment = partition.experiment;
+    response.experiment = {
+      id: args.experimentId,
+      arms: {
+        control: makeTree(experiment.arms.control),
+        credits: makeTree(experiment.arms.credits),
+      },
+      assignedSessions: experiment.assignedSessions,
+      exposureSessions: experiment.exposureSessions,
+      unassignedSessions: experiment.unassignedSessions,
+      conflictingSessions: experiment.conflictingSessions,
+      ...(experiment.designFirstTouch
+        ? {
+            designFirstTouch: {
+              control: {
+                cohorts: makeFirstTouchTrees(
+                  experiment.designFirstTouch.control.cohorts,
+                ),
+                conflictingSessions:
+                  experiment.designFirstTouch.control.conflictingSessions,
+              },
+              credits: {
+                cohorts: makeFirstTouchTrees(
+                  experiment.designFirstTouch.credits.cohorts,
+                ),
+                conflictingSessions:
+                  experiment.designFirstTouch.credits.conflictingSessions,
+              },
+            },
+          }
+        : {}),
+    };
+  }
+  if (args.splitDesignFirstTouch && partition.designFirstTouch) {
+    response.designFirstTouch = {
+      cohorts: makeFirstTouchTrees(partition.designFirstTouch.cohorts),
+      conflictingSessions: partition.designFirstTouch.conflictingSessions,
+      sessionlessMcpOauthSignupTree: sessionlessMcpOauthSignupTree(
+        args,
+        read,
+        partition.sessionlessMcpOauthSignupEvents,
+      ),
+    };
+  }
+  return response;
+}
+
 export async function getOnboardingJourney(
   scope: AnalyticsScope,
   args: OnboardingJourneyArgs,
   signal?: AbortSignal,
-): Promise<JourneyTree | JourneySummary> {
+): Promise<JourneyTree | JourneySummary | OnboardingJourneyCohorts> {
+  if (
+    (args.experimentId || args.splitDesignFirstTouch) &&
+    args.followUpMode === "person"
+  ) {
+    throw new Error("Person follow-up is not available with cohort splits.");
+  }
   throwIfAborted(signal);
   const observation = freezeOnboardingJourneyObservationWindow(args);
   let read: EventRead;
@@ -1659,6 +2297,9 @@ export async function getOnboardingJourney(
     if (signal?.aborted || isAbortError(error)) throw error;
     if (error instanceof OnboardingJourneyReadError) throw error;
     throw new OnboardingJourneyReadError(error);
+  }
+  if (args.experimentId || args.splitDesignFirstTouch) {
+    return buildOnboardingJourneyCohorts(scope, args, read, signal);
   }
   const { sessions, terminalSteps, sessionsWithoutSteps } = groupSessions(
     read.rows.filter((row) => row.journeyKind === "onboarding"),
@@ -1791,10 +2432,10 @@ export async function getOnboardingJourney(
       `Some onboarding or standalone setup sessions continue beyond maxDepth=${args.maxDepth}; deeperN counts observed continuation omitted below each returned node.`,
     );
   }
-  if (read.pages > 1) {
+  if (read.paginationConsistency === "may_have_shifted") {
     // Late-arriving events can change OFFSET page membership in any window.
     notes.push(
-      `The event read took ${read.pages} OFFSET pages; late-arriving events can shift page membership in any window, so returned tree counts may be incomplete.`,
+      `The event read took ${read.pages} OFFSET pages and their row totals disagreed; late-arriving events can shift page membership in any window, so returned tree counts may be incomplete.`,
     );
   }
   if (capped.dropped) {

@@ -1,9 +1,18 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+vi.mock("@agent-native/core/sharing", async (original) => ({
+  ...(await original<typeof import("@agent-native/core/sharing")>()),
+  assertAccess: async () => ({ role: "editor", resource: { expiresAt: null } }),
+}));
+
 const mocks = vi.hoisted(() => ({
   compareAndSetManyAppState: vi.fn(async () => true),
   readAppState: vi.fn(async () => null as Record<string, unknown> | null),
   writeAppState: vi.fn(async () => undefined),
+}));
+
+vi.mock("@agent-native/core/server", () => ({
+  resolveChatModelAvailability: async () => "available",
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({

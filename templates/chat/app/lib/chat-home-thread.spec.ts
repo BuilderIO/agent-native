@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { isClientDraftThread } from "@agent-native/toolkit/app/chat/agentkit-chat/rail";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import {
@@ -11,6 +12,7 @@ import {
 describe("chat home handoff thread", () => {
   beforeEach(() => {
     window.sessionStorage.clear();
+    window.localStorage.clear();
   });
 
   it("reuses a pending id while the home route is being handed off", () => {
@@ -39,5 +41,13 @@ describe("chat home handoff thread", () => {
     getChatHomeThreadId();
 
     expect(consumeChatHomeThreadId("chat-other")).toBe(false);
+  });
+
+  it("marks an issued id as a client draft until the server lists it", () => {
+    const pending = getChatHomeThreadId();
+
+    expect(consumeChatHomeThreadId(pending)).toBe(true);
+    expect(isClientDraftThread(pending)).toBe(true);
+    expect(isClientDraftThread("chat-other")).toBe(false);
   });
 });

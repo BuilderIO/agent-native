@@ -74,17 +74,28 @@ vi.mock("../observability/experiments.js", async (importOriginal) => ({
 }));
 
 const instrumented = vi.hoisted(
-  () => [] as Array<{ metadata?: Record<string, unknown> }>,
+  () =>
+    [] as Array<{
+      metadata?: Record<string, unknown>;
+      runId?: string;
+      turnId?: string | null;
+    }>,
 );
 vi.mock("../observability/traces.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../observability/traces.js")>()),
   getObservabilityConfig: async () => ({ enabled: true }),
   instrumentAgentLoop: async (opts: {
     metadata?: Record<string, unknown>;
+    runId?: string;
+    turnId?: string | null;
     runAgentLoop: (loopOpts: unknown) => Promise<unknown>;
     loopOpts: unknown;
   }) => {
-    instrumented.push({ metadata: opts.metadata });
+    instrumented.push({
+      metadata: opts.metadata,
+      runId: opts.runId,
+      turnId: opts.turnId,
+    });
     return opts.runAgentLoop(opts.loopOpts);
   },
 }));
@@ -109,6 +120,7 @@ async function firstPrompt(
     effort?: string;
     references?: unknown[];
     threadId?: string;
+    turnId?: string;
   } = {},
   {
     user = true,
@@ -594,7 +606,7 @@ describe("run trace metadata", () => {
 
     expect(instrumented.at(-1)?.metadata).toMatchObject({
       modelSelectionSource: "default",
-      reasoningEffortRequested: "high",
+      reasoningEffortRequested: null,
       contextPrefetchStatus: "timed_out",
       screenContextStatus: "failed",
     });
@@ -656,6 +668,29 @@ describe("run trace metadata", () => {
       expect(instrumented.at(-1)?.metadata).not.toHaveProperty(
         "experimentAssignments",
       );
+    });
+  });
+});
+
+describe("turn id on run analytics", () => {
+  it("hands the request's turn id to onRunStart and the trace instrumentation", async () => {
+    instrumented.length = 0;
+    const started: Array<{ runId: string; turnId: string }> = [];
+
+    await firstPrompt(
+      {
+        onRunStart: (_send, _threadId, runId, turnId) => {
+          started.push({ runId, turnId });
+        },
+      },
+      { turnId: "turn-analytics-1" },
+    );
+
+    expect(started).toHaveLength(1);
+    expect(started[0].turnId).toBe("turn-analytics-1");
+    expect(instrumented.at(-1)).toMatchObject({
+      runId: started[0].runId,
+      turnId: "turn-analytics-1",
     });
   });
 });

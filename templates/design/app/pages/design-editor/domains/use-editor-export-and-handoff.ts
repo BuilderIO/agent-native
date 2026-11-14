@@ -34,8 +34,11 @@ import { runDownloadPdf } from "../commands/download-pdf";
 import { runDownloadPng } from "../commands/download-png";
 import { runDownloadSvg } from "../commands/download-svg";
 import {
-  resolveSelectedScreensExportBounds,
+  runRenderPngCapture,
   runRenderPngBlob,
+  type RenderPngBlobArgs,
+  type PngCaptureResult,
+  type PngRenderOptions,
 } from "../commands/render-png-blob";
 import {
   runSelectAll,
@@ -77,6 +80,7 @@ import type { EditorHistory } from "./use-editor-history";
 import type { EditorLiveEditsAndPresence } from "./use-editor-live-edits-and-presence";
 import type { EditorSelectionAndStyles } from "./use-editor-selection-and-styles";
 import type { EditorToolsAndVectors } from "./use-editor-tools-and-vectors";
+import { useHubspotHtmlExport } from "./use-hubspot-html-export";
 
 export function useEditorExportAndHandoff({
   editorCore,
@@ -147,13 +151,14 @@ export function useEditorExportAndHandoff({
   } = editorHistory;
   const {
     setRuntimeLayerSnapshotRequest,
-    recordSelectionHistoryAroundChange,
+    applySelectionChange,
     setDrawMode,
     setPinMode,
     design,
     canEditDesign,
     exportHtmlMutation,
     exportZipMutation,
+    leaseHydratedSource,
   } = editorGenerationAndAccess;
   const {
     files,
@@ -165,6 +170,7 @@ export function useEditorExportAndHandoff({
     designSourceType,
     boardFileId,
     overviewScreens,
+    flushPendingFileContentSavesForBackground,
   } = editorFilesAndSaving;
   const {
     exportCanvasFrameGeometryById,
@@ -179,6 +185,7 @@ export function useEditorExportAndHandoff({
     exportPreviewScreenIdRef,
     runtimeLayerSnapshotReadinessByIdRef,
     canvasIframeRef,
+    getScreenContent,
   } = editorCanvasAndScreens;
   const { activeCodeLayerProjection, selectedElementLayerId } =
     editorLiveEditsAndPresence;
@@ -215,7 +222,7 @@ export function useEditorExportAndHandoff({
   );
 
   const handleSelectAllFrames = useCallback(() => {
-    recordSelectionHistoryAroundChange(() => {
+    applySelectionChange(() => {
       const projection = activeFile
         ? buildCodeLayerProjection(getFreshActiveContent(), {
             source: codeLayerSourceForScreen(activeFile.id),
@@ -263,7 +270,7 @@ export function useEditorExportAndHandoff({
     files,
     getFreshActiveContent,
     overviewScreens,
-    recordSelectionHistoryAroundChange,
+    applySelectionChange,
     selectedLayerIdsState,
   ]);
 
@@ -609,6 +616,20 @@ export function useEditorExportAndHandoff({
     });
   }, [exportHtmlMutation, fallbackExportName, id, t, triggerBlobDownload]);
 
+  const hubspotHtmlExport = useHubspotHtmlExport({
+    designId: id,
+    selectedFile:
+      viewMode === "single"
+        ? activeFile
+        : selectedScreenIds.length === 1
+          ? files.find((file) => file.id === selectedScreenIds[0])
+          : undefined,
+    getScreenContent,
+    flushPendingFileContentSaves: flushPendingFileContentSavesForBackground,
+    triggerBlobDownload,
+    t,
+  });
+
   const handleDownloadZip = useCallback(() => {
     if (!id) return;
     exportZipMutation.mutate({ id } as any, {
@@ -843,57 +864,19 @@ export function useEditorExportAndHandoff({
     ],
   );
 
-  const resolveSelectedScreensBounds = useCallback(() => {
-    if (viewMode !== "overview") return null;
-    const iframeSizeById = new Map(
-      selectedScreenIds.flatMap((screenId) => {
-        const iframe = document.querySelector<HTMLIFrameElement>(
-          `iframe[data-screen-iframe-id="${CSS.escape(screenId)}"]`,
-        );
-        return iframe
-          ? [
-              [
-                screenId,
-                { width: iframe.clientWidth, height: iframe.clientHeight },
-              ] as const,
-            ]
-          : [];
-      }),
-    );
-    return resolveSelectedScreensExportBounds({
-      selectedScreenIds,
-      overviewScreens,
+  const pngCaptureArgs = useMemo<RenderPngBlobArgs>(
+    () => ({
+      activeCanvasSourceType,
+      designId: id,
+      fileId: activeFile?.id,
+      canEditDesign,
       canvasFrameGeometryById: exportCanvasFrameGeometryById,
-      iframeSizeById,
-    });
-  }, [
-    exportCanvasFrameGeometryById,
-    overviewScreens,
-    selectedScreenIds,
-    viewMode,
-  ]);
-
-  const renderPngBlob = useCallback(
-    async (arg0: {
-      scope: PngCaptureScope;
-      settings?: Partial<ExportSettingsValue>;
-      format?: "png" | "jpg" | "webp";
-    }): Promise<Blob> =>
-      runRenderPngBlob(
-        {
-          activeCanvasSourceType,
-          designId: id,
-          fileId: activeFile?.id,
-          canEditDesign,
-          canvasFrameGeometryById: exportCanvasFrameGeometryById,
-          overviewScreens,
-          releaseScreenFromExport,
-          resolvePngCaptureTarget,
-          selectedScreenIds,
-          viewMode,
-        },
-        arg0,
-      ),
+      overviewScreens,
+      releaseScreenFromExport,
+      resolvePngCaptureTarget,
+      selectedScreenIds,
+      viewMode,
+    }),
     [
       activeCanvasSourceType,
       id,
@@ -907,6 +890,16 @@ export function useEditorExportAndHandoff({
       selectedScreenIds,
       viewMode,
     ],
+  );
+  const renderPngCapture = useCallback(
+    (options: PngRenderOptions): Promise<PngCaptureResult> =>
+      runRenderPngCapture(pngCaptureArgs, options),
+    [pngCaptureArgs],
+  );
+  const renderPngBlob = useCallback(
+    (options: PngRenderOptions): Promise<Blob> =>
+      runRenderPngBlob(pngCaptureArgs, options),
+    [pngCaptureArgs],
   );
 
   const showRasterCaptureError = useCallback(
@@ -1109,10 +1102,7 @@ export function useEditorExportAndHandoff({
           exportTracking,
           fallbackExportName,
           pngExportingRef,
-          renderPngBlob,
-          resolveSelectedScreensBounds,
-          resolvePngCaptureTarget,
-          releaseScreenFromExport,
+          renderPngCapture,
           setPngExporting,
           showRasterCaptureError,
           t,
@@ -1124,10 +1114,7 @@ export function useEditorExportAndHandoff({
     [
       exportTracking,
       fallbackExportName,
-      renderPngBlob,
-      resolveSelectedScreensBounds,
-      resolvePngCaptureTarget,
-      releaseScreenFromExport,
+      renderPngCapture,
       t,
       triggerBlobDownload,
     ],
@@ -1142,6 +1129,7 @@ export function useEditorExportAndHandoff({
         exportTracking,
         fallbackExportName,
         overviewScreens,
+        leaseHydratedSource,
         prepareScreenForExport: markScreenForExport,
         resolveSnapshotExportSource,
         releaseScreenFromExport,
@@ -1159,6 +1147,7 @@ export function useEditorExportAndHandoff({
       fallbackExportName,
       pngExportingRef,
       overviewScreens,
+      leaseHydratedSource,
       markScreenForExport,
       resolveSnapshotExportSource,
       releaseScreenFromExport,
@@ -1446,6 +1435,7 @@ export function useEditorExportAndHandoff({
     handleApplyPendingVisualStylesWithAgent,
     handleCopyPendingVisualStylePrompt,
     handleDownloadHtml,
+    ...hubspotHtmlExport,
     handleDownloadZip,
     handleDownloadPng,
     handleDownloadAllScreensPdf,

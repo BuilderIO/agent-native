@@ -109,7 +109,7 @@ const COUNT_ORDER = [
   "needsCheck",
 ] as const;
 
-/** "Took 3 items: 1 done, 1 dismissed, 1 handed to a person", or "Nothing new". */
+/** "Took 3 items: 1 done, 1 dismissed, 1 handed to a person", "Started from now" for a first read that took the position only, or "Nothing new". */
 export function describeRunCounts(
   counts: RunActivity["counts"],
   s: ItemsStrings,
@@ -120,7 +120,12 @@ export function describeRunCounts(
     const count = counts[key] ?? 0;
     if (count > 0) parts.push(s.activity.runCounts[key](count));
   }
-  if (taken === 0 && parts.length === 0) return s.activity.runCounts.nothing;
+  // A first live read that started from now took nothing on purpose: it is not an empty channel.
+  if (taken === 0 && parts.length === 0) {
+    return "primed" in counts && counts.primed > 0
+      ? s.activity.runCounts.primed
+      : s.activity.runCounts.nothing;
+  }
   const head = s.activity.runCounts.taken(taken);
   return parts.length === 0
     ? head
@@ -132,12 +137,16 @@ interface RunStatusView {
   tone: "attention" | "waiting" | "neutral";
 }
 
+/** `itemFailures` is what a succeeded run still lost (`succeededItemFailures`): it takes the attention tone, not the quiet one of a clean run. */
 export function runStatusView(
   status: RunStatus,
   s: ItemsStrings,
+  itemFailures = 0,
 ): RunStatusView {
   const label = s.activity.runStatus[status];
-  if (status === "failed") return { label, tone: "attention" };
+  if (status === "failed" || itemFailures > 0) {
+    return { label, tone: "attention" };
+  }
   if (status === "paused") return { label, tone: "waiting" };
   return { label, tone: "neutral" };
 }

@@ -9,7 +9,10 @@ import {
   initYDocWithJson,
   type PatchOp,
 } from "./json-to-yjs.js";
-import type { LiveCopyCatchUp } from "./live-copy-tasks.js";
+import {
+  SNAPSHOT_ADOPTION_MAP,
+  type LiveCopyCatchUp,
+} from "./live-copy-tasks.js";
 import {
   applyLiveCopyUpdate,
   assertLiveCopy,
@@ -1073,7 +1076,10 @@ export async function seedXmlFragmentIfEmpty(
         try {
           if (stored?.state.length) Y.applyUpdate(committed, stored.state);
           const fragment = committed.getXmlFragment("default");
-          if (!isEmptyXmlSeedTarget(fragment)) {
+          if (
+            adoptedRevisionOf(committed) !== null ||
+            !isEmptyXmlSeedTarget(fragment)
+          ) {
             return { seeded: false, state: Y.encodeStateAsUpdate(committed) };
           }
 
@@ -1117,6 +1123,183 @@ export async function seedXmlFragmentIfEmpty(
       );
     },
     "seedXmlFragmentIfEmpty",
+  );
+}
+
+export type SnapshotAdoptionStatus =
+  | "adopted"
+  | "already-adopted"
+  | "rebase"
+  | "stale";
+
+function adoptedRevisionOf(doc: Y.Doc): string | null {
+  const revision = doc.getMap(SNAPSHOT_ADOPTION_MAP).get("revision");
+  return typeof revision === "string" ? revision : null;
+}
+
+function adoptedBodyOf(doc: Y.Doc): string | null {
+  const body = doc.getMap(SNAPSHOT_ADOPTION_MAP).get("body");
+  return typeof body === "string" ? body : null;
+}
+
+/** Whether `whole` already holds every insert and deletion in `part`. */
+function holdsAll(whole: Y.Doc, part: Y.Doc): boolean {
+  const merged = new Y.Doc();
+  try {
+    Y.applyUpdate(merged, Y.encodeStateAsUpdate(whole));
+    Y.applyUpdate(merged, Y.encodeStateAsUpdate(part));
+    return Y.equalSnapshots(Y.snapshot(merged), Y.snapshot(whole));
+  } finally {
+    merged.destroy();
+  }
+}
+
+/**
+ * Takes a saved-body snapshot into the live doc at most once per revision.
+ * Every open editor proposes the same change, and without one arbiter each
+ * editor's inserts survive the merge, so the text appears once per editor.
+ *
+ * `adoptionUpdate` is the proposing editor's whole doc with the snapshot
+ * taken in. A proposal built before the server took in another revision is
+ * refused with `rebase`: its inserts would land beside that revision's. So is
+ * one built on a doc missing live edits the server holds, which would put an
+ * edit in a second time, or delete one the proposal never saw.
+ *
+ * `body` is the saved body at `revision`. The doc keeps it next to the
+ * revision, so an editor that never saw that revision can still plan the next
+ * one against it rather than against its own unsaved typing.
+ */
+export async function adoptSnapshotOnce(
+  docId: string,
+  adoptionUpdate: Uint8Array,
+  revision: string,
+  options: {
+    isCurrent?: () => Promise<boolean> | boolean;
+    body?: string;
+    requestSource?: string;
+  } = {},
+): Promise<{
+  status: SnapshotAdoptionStatus;
+  state: Uint8Array;
+  adoptedRevision: string | null;
+  adoptedBody: string | null;
+}> {
+  if (!revision) throw new Error("A snapshot revision is required");
+  const proposal = new Y.Doc();
+  try {
+    Y.applyUpdate(proposal, adoptionUpdate);
+    if (proposal.store.pendingStructs || proposal.store.pendingDs) {
+      throw new Error(
+        "Snapshot adoption update must hold the proposing editor's whole doc",
+      );
+    }
+    return await adoptProposal(
+      docId,
+      proposal,
+      adoptionUpdate,
+      revision,
+      options,
+    );
+  } finally {
+    proposal.destroy();
+  }
+}
+
+async function adoptProposal(
+  docId: string,
+  proposal: Y.Doc,
+  adoptionUpdate: Uint8Array,
+  revision: string,
+  options: {
+    isCurrent?: () => Promise<boolean> | boolean;
+    body?: string;
+    requestSource?: string;
+  },
+): Promise<{
+  status: SnapshotAdoptionStatus;
+  state: Uint8Array;
+  adoptedRevision: string | null;
+  adoptedBody: string | null;
+}> {
+  const baseRevision = adoptedRevisionOf(proposal);
+  return withDocWriteLock(
+    docId,
+    async () => {
+      for (let attempt = 0; attempt < 5; attempt += 1) {
+        const stored = await loadYDocRecord(docId);
+        const committed = new Y.Doc();
+        try {
+          if (stored?.state.length) Y.applyUpdate(committed, stored.state);
+          const adoptedRevision = adoptedRevisionOf(committed);
+          const answer = (status: SnapshotAdoptionStatus) => ({
+            status,
+            state: Y.encodeStateAsUpdate(committed),
+            adoptedRevision,
+            adoptedBody: adoptedBodyOf(committed),
+          });
+          if (adoptedRevision === revision) return answer("already-adopted");
+          if (
+            adoptedRevision !== baseRevision ||
+            !holdsAll(proposal, committed)
+          ) {
+            return answer("rebase");
+          }
+          // The saved body can move on once this check passes; the newer
+          // revision is then proposed against this one, which is in the doc.
+          if (options.isCurrent && !(await options.isCurrent())) {
+            return answer("stale");
+          }
+
+          const beforeVector = Y.encodeStateVector(committed);
+          committed.transact(() => {
+            Y.applyUpdate(committed, adoptionUpdate);
+            const marker = committed.getMap(SNAPSHOT_ADOPTION_MAP);
+            marker.set("revision", revision);
+            if (options.body === undefined) marker.delete("body");
+            else marker.set("body", options.body);
+          });
+          if (committed.store.pendingStructs || committed.store.pendingDs) {
+            throw new Error(
+              "Snapshot adoption update depends on state the server does not have",
+            );
+          }
+          const state = Y.encodeStateAsUpdate(committed);
+          const committedUpdate = Y.encodeStateAsUpdate(
+            committed,
+            beforeVector,
+          );
+          const textSnapshot =
+            committed.getText(DEFAULT_FIELD).toString() ||
+            extractTextFromYXml(committed.getXmlFragment("default"));
+          const saved = await trySaveYDocState(
+            docId,
+            state,
+            textSnapshot,
+            stored?.version ?? null,
+          );
+          if (!saved) continue;
+
+          releaseDoc(docId);
+          emitCollabUpdate(
+            docId,
+            uint8ArrayToBase64(committedUpdate),
+            options.requestSource,
+          );
+          return {
+            status: "adopted",
+            state,
+            adoptedRevision: revision,
+            adoptedBody: options.body ?? null,
+          };
+        } finally {
+          committed.destroy();
+        }
+      }
+      throw new CollabBaseVersionConflictError(
+        `Document ${docId} kept changing while a saved snapshot was being adopted.`,
+      );
+    },
+    "adoptSnapshotOnce",
   );
 }
 
@@ -1242,17 +1425,36 @@ export async function getIncUpdate(
   docId: string,
   clientStateVector: Uint8Array,
 ): Promise<Uint8Array> {
+  return (await getIncUpdateWithStateVector(docId, clientStateVector)).update;
+}
+
+/**
+ * What a client at `clientStateVector` lacks, with the server's own vector, so
+ * the client can check the server holds everything it already has: a saved
+ * local copy the server's doc does not cover would bring back text the
+ * server no longer has.
+ */
+export async function getIncUpdateWithStateVector(
+  docId: string,
+  clientStateVector: Uint8Array,
+): Promise<{ update: Uint8Array; stateVector: Uint8Array }> {
   const target = await readTarget(docId);
   if (target.kind === "doc") {
-    return Y.encodeStateAsUpdate(target.doc, clientStateVector);
+    return {
+      update: Y.encodeStateAsUpdate(target.doc, clientStateVector),
+      stateVector: Y.encodeStateVector(target.doc),
+    };
   }
   const { state, catchUp } = await liveCopyStateForRead(target.binding, docId);
   // Diffing against the client's vector would decode the copy on this
   // thread. A client at the same vector lacks at most deletions; any other
   // gets the whole state, which Yjs applies idempotently.
-  return sameBytes(clientStateVector, catchUp.stateVector)
-    ? catchUp.deletions.slice()
-    : state.slice();
+  return {
+    update: sameBytes(clientStateVector, catchUp.stateVector)
+      ? catchUp.deletions.slice()
+      : state.slice(),
+    stateVector: catchUp.stateVector.slice(),
+  };
 }
 
 function sameBytes(a: Uint8Array, b: Uint8Array): boolean {

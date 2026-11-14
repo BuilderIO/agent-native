@@ -10,11 +10,14 @@ import {
   AGENT_TEAM_PROCESS_RUN_PATH,
   isAgentChatDurableBackgroundEnabled,
 } from "../agent/durable-background.js";
+import { WORKSPACE_DEPLOY_BUILD_ENV } from "../cli/process.js";
 import { addVercelSweepCron } from "./build.js";
 import { IMMUTABLE_ASSET_CACHE_CONTROL } from "./immutable-assets.js";
 import {
+  buildStart,
   isDurableBackgroundWorkspaceDeployEnabled,
   runWorkspaceDeploy,
+  spawnBuild,
 } from "./workspace-deploy.js";
 
 const INVALID_DIRECTORY_BASE_LOG = Symbol.for(
@@ -247,6 +250,26 @@ afterEach(() => {
 });
 
 describe("workspace deploy", () => {
+  it("reports its progress and keeps app builds from reporting for themselves", async () => {
+    makeWorkspaceApp(tmpDir, "dispatch");
+    const progress: Array<{ step: string; preset?: string }> = [];
+
+    await runWorkspaceDeploy({
+      workspaceRoot: tmpDir,
+      args: ["--preset=netlify", "--build-only"],
+      execFile: execFile as typeof execFileSync,
+      onProgress: (update) => progress.push(update),
+    });
+
+    expect(progress).toEqual([
+      { step: "build", preset: "netlify" },
+      { step: "package" },
+    ]);
+    expect(buildCallForApp("dispatch")?.env).toMatchObject({
+      [WORKSPACE_DEPLOY_BUILD_ENV]: "1",
+    });
+  });
+
   it("preserves an explicitly configured hosted feedback URL", async () => {
     process.env.VITE_AGENT_NATIVE_FEEDBACK_URL =
       "https://feedback.example.com/f/workspace/form-id";
@@ -262,6 +285,60 @@ describe("workspace deploy", () => {
       VITE_AGENT_NATIVE_FEEDBACK_URL:
         "https://feedback.example.com/f/workspace/form-id",
     });
+  });
+
+  it("sends / to WORKSPACE_DEFAULT_APP from the root .env while keeping Dispatch redirects", async () => {
+    const previous = process.env.WORKSPACE_DEFAULT_APP;
+    delete process.env.WORKSPACE_DEFAULT_APP;
+    try {
+      makeWorkspaceApp(tmpDir, "dispatch");
+      makeWorkspaceApp(tmpDir, "programs");
+      fs.writeFileSync(
+        path.join(tmpDir, ".env"),
+        "WORKSPACE_DEFAULT_APP=programs\n",
+      );
+
+      await runWorkspaceDeploy({
+        workspaceRoot: tmpDir,
+        preset: "netlify",
+        buildOnly: true,
+        execFile: execFile as typeof execFileSync,
+      });
+      const redirects = fs.readFileSync(
+        path.join(tmpDir, "dist", "_redirects"),
+        "utf-8",
+      );
+      const lines = redirects.split("\n");
+      expect(lines).toContain("/ /programs/ 302");
+      expect(lines).not.toContain("/ /dispatch/overview 302");
+      expect(redirects).toContain("/dispatch /dispatch/overview 302");
+      expect(redirects).toContain("/dispatch/ /dispatch/overview 302");
+
+      await runWorkspaceDeploy({
+        workspaceRoot: tmpDir,
+        preset: "vercel",
+        buildOnly: true,
+        execFile: execFile as typeof execFileSync,
+      });
+      const config = JSON.parse(
+        fs.readFileSync(
+          path.join(tmpDir, ".vercel", "output", "config.json"),
+          "utf-8",
+        ),
+      );
+      expect(config.routes).toContainEqual({
+        src: "/",
+        status: 302,
+        headers: { Location: "/programs/" },
+      });
+      expect(config.routes).toContainEqual({
+        src: "/dispatch",
+        status: 302,
+        headers: { Location: "/dispatch/overview" },
+      });
+    } finally {
+      restoreEnv("WORKSPACE_DEFAULT_APP", previous);
+    }
   });
 
   it("omits an empty framework route prefix and forwards a configured prefix", async () => {
@@ -832,6 +909,19 @@ describe("workspace deploy", () => {
     expect(dispatchServer).not.toContain('"/dispatch/*.json"');
     expect(dispatchServer).not.toContain('"/dispatch/*.svg"');
     expect(dispatchServer).toContain('"/.netlify/*"');
+    // Netlify resolves overlapping function paths by function name, so
+    // dispatch-server must not also claim starter's discovery paths.
+    for (const discoveryPath of [
+      "/.well-known/oauth-authorization-server/starter",
+      "/.well-known/openid-configuration/starter",
+      "/.well-known/oauth-protected-resource/starter",
+      "/.well-known/oauth-protected-resource/starter/*",
+    ]) {
+      expect(dispatchServer).toContain(`"${discoveryPath}"`);
+    }
+    expect(dispatchServer).not.toContain(
+      '"/.well-known/oauth-authorization-server/dispatch"',
+    );
     expect(dispatchServer).toContain("preferStatic: false");
     expect(dispatchServer).not.toContain("normalizeBasePathArgs");
 
@@ -2304,6 +2394,53 @@ describe("workspace deploy", () => {
       }),
     ).rejects.toThrow(/Cloudflare Pages was removed/);
     expect(execFile).not.toHaveBeenCalled();
+  });
+});
+
+describe("buildStart", () => {
+  it("starts a command directly outside Windows", () => {
+    expect(
+      buildStart("pnpm", ["--filter", "my app", "build"], "linux"),
+    ).toEqual({
+      command: "pnpm",
+      args: ["--filter", "my app", "build"],
+      shell: false,
+    });
+  });
+
+  it("starts a line through a shell on Windows, arguments quoted", () => {
+    expect(
+      buildStart("pnpm", ["--filter", "my app", "build"], "win32"),
+    ).toEqual({
+      command: 'pnpm "--filter" "my app" "build"',
+      args: [],
+      shell: true,
+    });
+  });
+
+  it("quotes a command path on Windows", () => {
+    expect(
+      buildStart("C:\\Program Files\\nodejs\\node.exe", ["-v"], "win32")
+        .command,
+    ).toBe('"C:\\Program Files\\nodejs\\node.exe" "-v"');
+  });
+});
+
+describe("spawnBuild", () => {
+  it("starts in its directory and keeps a spaced argument whole", async () => {
+    await spawnBuild(
+      process.execPath,
+      [
+        "-e",
+        "require('fs').writeFileSync('args.json', JSON.stringify(process.argv.slice(1)))",
+        "my app",
+      ],
+      { cwd: tmpDir, env: process.env, stdio: "pipe" },
+    );
+
+    expect(
+      JSON.parse(fs.readFileSync(path.join(tmpDir, "args.json"), "utf8")),
+    ).toEqual(["my app"]);
   });
 });
 

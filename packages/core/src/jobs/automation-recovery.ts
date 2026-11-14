@@ -49,6 +49,17 @@ export class AutomationRecoveryStorageError extends Error {
   }
 }
 
+export class AutomationRecoveryProjectionDeferredError extends Error {
+  readonly errorCode = "automation_recovery_projection_deferred";
+
+  constructor(runId: string) {
+    super(
+      `Automation recovery is waiting for run ${runId} to project its thread`,
+    );
+    this.name = "AutomationRecoveryProjectionDeferredError";
+  }
+}
+
 export async function withAutomationRecoveryStorage<T>(
   operation: () => Promise<T>,
 ): Promise<T> {

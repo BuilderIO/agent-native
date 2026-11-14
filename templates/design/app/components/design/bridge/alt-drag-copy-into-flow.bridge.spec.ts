@@ -75,4 +75,48 @@ describe("Alt-drag copy into an auto-layout row", () => {
       await browser.close();
     }
   });
+
+  it("persists the copy without the bridge's runtime clone marker", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(FIXTURE);
+      await page.evaluate(() => {
+        (window as any).__cloneHtml = [];
+        window.addEventListener("message", (e: MessageEvent) => {
+          if (e.data?.type === "visual-duplicate-change") {
+            (window as any).__cloneHtml.push(e.data.cloneHtml);
+          }
+        });
+      });
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await page.evaluate(() => {
+        window.postMessage(
+          {
+            type: "select-element",
+            selector: '[data-agent-native-node-id="icon"]',
+          },
+          "*",
+        );
+      });
+      await page.waitForTimeout(30);
+
+      await page.mouse.move(112, 112);
+      await page.keyboard.down("Alt");
+      await page.mouse.down();
+      await page.mouse.move(260, 140, { steps: 10 });
+      await page.mouse.up();
+      await page.keyboard.up("Alt");
+      await page.waitForTimeout(30);
+
+      const cloneHtml = await page.evaluate(
+        () => (window as any).__cloneHtml as string[],
+      );
+      expect(cloneHtml).toHaveLength(1);
+      expect(cloneHtml[0]).toContain('data-an-primitive="frame"');
+      expect(cloneHtml[0]).not.toContain("data-agent-native-clone-root");
+    } finally {
+      await browser.close();
+    }
+  });
 });

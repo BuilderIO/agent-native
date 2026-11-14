@@ -34,7 +34,9 @@ describe("commitVisualStyles on a localhost screen", () => {
     expect(commitVisualStyles).toContain(
       "replayPendingVisualStyleRuntimePatch(",
     );
-    expect(commitVisualStyles).toContain("!options.runtimeApplied &&");
+    expect(commitVisualStyles).toContain(
+      "(!options.runtimeApplied || runtimePreviewStale) &&",
+    );
     expect(commitVisualStyles).toContain(
       "activeBreakpointUpperBoundPx == null &&",
     );

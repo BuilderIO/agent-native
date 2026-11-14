@@ -66,6 +66,8 @@ on:
     secrets:
       BETA_E2E_EMAIL:
         required: false
+      BETA_E2E_EMAILS:
+        required: false
       BETA_E2E_SESSION_TOKENS:
         required: false
       BETA_E2E_SESSION_TOKEN_CRM:
@@ -394,7 +396,8 @@ jobs:
             app: ""
             timeout: 30
             global_timeout: 25
-          # [slides-import], [forms], [design-systems], [dispatch-apps].
+          # [slides-import], [forms], [design-systems], [dispatch-apps],
+          # [content-review].
           - slot: journeys-flows
             cluster: journeys
             project: journeys-flows
@@ -457,6 +460,7 @@ jobs:
         if: ${{ env.SHARD_SELECTED == 'true' }}
         env:
           BETA_E2E_EMAIL: ${{ secrets.BETA_E2E_EMAIL }}
+          BETA_E2E_EMAILS: ${{ secrets.BETA_E2E_EMAILS }}
           BETA_E2E_SESSION_TOKENS: ${{ secrets.BETA_E2E_SESSION_TOKENS }}
           BETA_E2E_SESSION_TOKEN_CRM: ${{ secrets.BETA_E2E_SESSION_TOKEN_CRM }}
           BETA_E2E_SESSION_TOKEN_CHAT: ${{ secrets.BETA_E2E_SESSION_TOKEN_CHAT }}
@@ -539,6 +543,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           BETA_E2E_APPS: ${{ matrix.app }}
           BETA_E2E_EMAIL: ${{ secrets.BETA_E2E_EMAIL }}
+          BETA_E2E_EMAILS: ${{ secrets.BETA_E2E_EMAILS }}
           BETA_E2E_SESSION_TOKENS: ${{ secrets.BETA_E2E_SESSION_TOKENS }}
         run: pnpm exec tsx e2e/beta/read-saved-thread.ts
 

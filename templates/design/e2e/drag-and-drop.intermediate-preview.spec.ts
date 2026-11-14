@@ -1,11 +1,6 @@
 import { type Page } from "@playwright/test";
 
-import {
-  indexHtml,
-  node,
-  openEditor,
-  setBaseURL,
-} from "./drag-and-drop.shared";
+import { indexHtml, node, openEditor } from "./drag-and-drop.shared";
 import { expect, test } from "./rails";
 
 const FIXTURE = `<!doctype html>
@@ -19,8 +14,6 @@ const FIXTURE = `<!doctype html>
 </body></html>`;
 
 test.use({ viewport: { width: 1600, height: 1000 } });
-
-test.beforeEach(async ({}, testInfo) => setBaseURL(testInfo));
 
 function preview(page: Page) {
   return page

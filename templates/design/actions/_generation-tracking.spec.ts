@@ -35,7 +35,7 @@ describe("withGenerationAttempt", () => {
     track.mockReset();
   });
 
-  it("emits started then exactly one completed with the run's file count", async () => {
+  it("does not call a successful tool return a completed design", async () => {
     const result = await run(async (attempt) => {
       attempt.start(start);
       attempt.savedFileCount = () => 3;
@@ -43,13 +43,9 @@ describe("withGenerationAttempt", () => {
     });
 
     expect(result).toBe("ok");
-    expect(names()).toEqual(["generation_started", "generation_completed"]);
-    expect(event("generation_completed")).toMatchObject({
-      outcome: "completed",
-      file_count: 3,
-      generation_path: "generate_design",
-      generation_attempt_id: event("generation_started")?.generation_attempt_id,
-    });
+    expect(names()).toEqual(["generation_started"]);
+    expect(event("generation_completed")).toBeUndefined();
+    expect(event("generation_started")).not.toHaveProperty("file_count");
   });
 
   it("records nothing when the handler never starts the attempt", async () => {
@@ -69,16 +65,7 @@ describe("withGenerationAttempt", () => {
       attempt.start(start);
       attempt.savedFileCount = () => 1;
     });
-    expect(names()).toEqual(["generation_started", "generation_completed"]);
-  });
-
-  it("reports partial when the run marks it", async () => {
-    await run(async (attempt) => {
-      attempt.start(start);
-      attempt.savedFileCount = () => 1;
-      attempt.markPartial();
-    });
-    expect(event("generation_completed")?.outcome).toBe("partial");
+    expect(names()).toEqual(["generation_started"]);
   });
 
   it("records a failure, not a completion, when nothing was saved", async () => {
@@ -134,16 +121,16 @@ describe("withGenerationAttempt", () => {
     ).resolves.toBe(7);
   });
 
-  it("reports an unreadable file count as unknown, never as nothing saved", async () => {
+  it("does not infer completion from an unreadable file count", async () => {
     await run(async (attempt) => {
       attempt.start(start);
       attempt.savedFileCount = () => {
         throw new Error("counter broke");
       };
     });
-    expect(names()).toEqual(["generation_started", "generation_completed"]);
-    expect(event("generation_completed")).toMatchObject({ outcome: "unknown" });
-    expect(event("generation_completed")).not.toHaveProperty("file_count");
+    expect(names()).toEqual(["generation_started"]);
+    expect(event("generation_completed")).toBeUndefined();
+    expect(JSON.stringify(track.mock.calls)).not.toContain("file_count");
 
     track.mockClear();
     const error = new Error("boom");

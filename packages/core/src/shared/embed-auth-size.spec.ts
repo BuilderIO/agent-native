@@ -93,7 +93,7 @@ describe("Content widget write capability size", () => {
       ownerEmail: userEmail,
       orgId,
       targetPath: `${target.targetPath}?__an_mcp_chat_bridge=1&embedded=1&agentSidebar=closed`,
-      audienceHost: "beta.content.agent-native.com",
+      audienceHost: "https://beta.content.agent-native.com",
       scope,
       ticketCreatedAtMs: Date.now(),
       sessionId: "f".repeat(64),

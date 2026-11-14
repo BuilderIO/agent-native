@@ -46,9 +46,7 @@ async function openTheme(app: App, theme: "dark" | "light", designId: string) {
     if (window.top === window) localStorage.setItem("theme", value);
   }, theme);
   await app.page.goto(appPath(`/design/${designId}`));
-  await expect(app.page.locator("[data-design-bottom-toolbar]")).toBeVisible({
-    timeout: 30_000,
-  });
+  await expect(app.page.locator("[data-design-bottom-toolbar]")).toBeVisible();
   await expect(app.page.locator("html")).toHaveClass(new RegExp(theme));
 }
 
@@ -479,9 +477,7 @@ test("dark: from the moment it mounts, the canvas never resolves a light colour 
   });
 
   await page.goto(appPath(`/design/${designId}`));
-  await expect(page.locator("[data-design-bottom-toolbar]")).toBeVisible({
-    timeout: 30_000,
-  });
+  await expect(page.locator("[data-design-bottom-toolbar]")).toBeVisible();
   await app.settled();
   const seen = await page.evaluate(
     () => (window as Window & { __loadCanvas?: string[] }).__loadCanvas ?? [],

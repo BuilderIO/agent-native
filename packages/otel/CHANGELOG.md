@@ -1,5 +1,126 @@
 # @agent-native/otel
 
+## 0.1.39
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.38
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.37
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.36
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.35
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.34
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.33
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.32
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.31
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.30
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.29
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.28
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.27
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.26
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 2e8f454: Compile with `noImplicitOverride` and `noFallthroughCasesInSwitch`, and, where the code already passes them, `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`. Optional fields that legitimately hold `undefined` are now typed `T | undefined`. No runtime behavior changes.
+
+## 0.1.25
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.24
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.23
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.22
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.21
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.1.20
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
 ## 0.1.19
 
 ### Patch Changes

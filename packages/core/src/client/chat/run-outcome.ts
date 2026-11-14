@@ -5,6 +5,7 @@ import {
   isTimeLimitStop,
   type AutoContinueRefusalCode,
 } from "../../agent/auto-continue.js";
+import { RUN_STREAM_ENDED_ERROR_CODE } from "../../agent/run-errors.js";
 import { isContinuationTerminalReason } from "../../agent/types.js";
 import {
   BACKGROUND_FUNCTION_WALL_HEADROOM_MS,
@@ -35,12 +36,85 @@ export const RUN_OUTCOMES = [
 
 export type RunOutcome = (typeof RUN_OUTCOMES)[number];
 
+export type ActiveRunPhase =
+  | { readonly type: "streaming" }
+  | { readonly type: "holdingInterruption"; readonly error: AgentError }
+  | { readonly type: "followingSuccessor" }
+  | { readonly type: "awaitingContinuation"; readonly streamClosed: boolean };
+
+export type RunPhase =
+  | ActiveRunPhase
+  | { readonly type: "cancelling"; readonly previous: ActiveRunPhase }
+  | { readonly type: "terminal" }
+  | { readonly type: "disposed" };
+
+export type RunPhaseEvent =
+  | { readonly type: "streamEnded" }
+  | { readonly type: "streamFailed" }
+  | { readonly type: "interrupted"; readonly error: AgentError }
+  | { readonly type: "followSuccessor" }
+  | { readonly type: "streamOpened" }
+  | { readonly type: "continuationResumed" }
+  | { readonly type: "awaitContinuation"; readonly streamClosed: boolean }
+  | { readonly type: "terminal" }
+  | { readonly type: "cancelStarted" }
+  | { readonly type: "cancelSucceeded" }
+  | { readonly type: "cancelFailed" }
+  | { readonly type: "dispose" };
+
+/** Late stream and authority results cannot revive a terminal or disposed run. */
+export function transition(phase: RunPhase, event: RunPhaseEvent): RunPhase {
+  if (event.type === "dispose") return { type: "disposed" };
+  if (phase.type === "disposed") return phase;
+  if (phase.type === "terminal") return phase;
+  if (phase.type === "cancelling") {
+    if (event.type === "cancelFailed") return phase.previous;
+    if (event.type === "cancelSucceeded") return { type: "terminal" };
+    return phase;
+  }
+  switch (event.type) {
+    case "streamEnded":
+    case "streamFailed":
+      return phase.type === "streaming"
+        ? { type: "followingSuccessor" }
+        : phase;
+    case "interrupted":
+      return phase.type === "streaming"
+        ? { type: "holdingInterruption", error: event.error }
+        : phase;
+    case "followSuccessor":
+      return phase.type === "holdingInterruption"
+        ? { type: "followingSuccessor" }
+        : phase;
+    case "streamOpened":
+      return phase.type === "followingSuccessor"
+        ? { type: "streaming" }
+        : phase;
+    case "continuationResumed":
+      return phase.type === "awaitingContinuation"
+        ? { type: "streaming" }
+        : phase;
+    case "awaitContinuation":
+      return phase.type === "streaming"
+        ? { type: "awaitingContinuation", streamClosed: event.streamClosed }
+        : phase;
+    case "terminal":
+      return { type: "terminal" };
+    case "cancelStarted":
+      return { type: "cancelling", previous: phase };
+    case "cancelSucceeded":
+    case "cancelFailed":
+      return phase;
+  }
+}
+
 /**
  * Codes that described "the agent stopped / is stuck" one incident at a time.
  * They survive only as telemetry detail; the user sees their outcome. A new
  * code is added here with its outcome or it does not type-check.
  */
 export const LEGACY_RUN_CODES = [
+  RUN_STREAM_ENDED_ERROR_CODE,
   "stream_ended",
   "action_not_started",
   "background_run_lost",
@@ -92,6 +166,7 @@ export const LEGACY_RUN_CODES = [
 export type LegacyRunCode = (typeof LEGACY_RUN_CODES)[number];
 
 const LEGACY_RUN_CODE_OUTCOMES = {
+  [RUN_STREAM_ENDED_ERROR_CODE]: "interrupted",
   stream_ended: "interrupted",
   action_not_started: "interrupted",
   background_run_lost: "interrupted",
@@ -183,6 +258,11 @@ export type RunTerminalSource = "stream" | "authority" | "pipe" | "local";
 export interface RunOutcomeReport {
   readonly runId: string;
   readonly threadId: string;
+  /**
+   * The turn the server stored the run under; absent when this page did not
+   * start it, or for a replay whose turn the server did not name.
+   */
+  readonly turnId?: string;
   readonly outcome: RunOutcome;
   /** The legacy code that named this outcome one incident at a time. */
   readonly code?: string;

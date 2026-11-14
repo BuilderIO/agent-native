@@ -1,6 +1,19 @@
-import { mockEvent } from "h3";
-import { describe, expect, it, vi } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
+import { mockEvent } from "h3";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
+import {
+  createThread,
+  ensureChatThreadTables,
+  registerChatThreadsShareable,
+} from "../chat-threads/store.js";
+import { closeDbExec } from "../db/client.js";
+import { withMigrationRuntime } from "../db/migration-runtime.js";
+import { SCHEMA_SNAPSHOT } from "../db/schema-snapshot.generated.js";
+import { __setSchemaSnapshotForTests } from "../db/store-registry.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import type {
   AgentEngine,
@@ -8,6 +21,7 @@ import type {
   EngineStreamOptions,
 } from "./engine/types.js";
 import type { ActionEntry } from "./production-agent.js";
+import { ensureRunTables } from "./run-store.js";
 import type { AgentChatStructuredMessage } from "./types.js";
 
 const consumeApproval = vi.hoisted(() => vi.fn(async () => true));
@@ -22,6 +36,39 @@ vi.mock("./tool-approval-store.js", async (importOriginal) => ({
 
 const { createProductionAgentHandler, toolCallCacheKey } =
   await import("./production-agent.js");
+
+const previousDatabaseUrl = process.env.DATABASE_URL;
+let databaseDirectory: string;
+
+beforeAll(async () => {
+  await closeDbExec();
+  databaseDirectory = fs.mkdtempSync(
+    path.join(os.tmpdir(), "approved-tool-gone-"),
+  );
+  process.env.DATABASE_URL = `pglite:${databaseDirectory}`;
+  // Retain release-owned inbox schema while leaving the thread store cold.
+  __setSchemaSnapshotForTests({
+    ...SCHEMA_SNAPSHOT,
+    statements: SCHEMA_SNAPSHOT.statements.filter(
+      (statement) => !/\bchat_threads\b/.test(statement),
+    ),
+    tables: SCHEMA_SNAPSHOT.tables.filter((table) => table !== "chat_threads"),
+    migrations: SCHEMA_SNAPSHOT.migrations.filter(
+      ([storeId]) => storeId !== "chat_threads",
+    ),
+  });
+  await withMigrationRuntime(ensureRunTables);
+  registerChatThreadsShareable();
+  await withMigrationRuntime(ensureChatThreadTables);
+});
+afterAll(async () => {
+  __setSchemaSnapshotForTests(undefined);
+  await closeDbExec();
+  if (previousDatabaseUrl === undefined) delete process.env.DATABASE_URL;
+  else process.env.DATABASE_URL = previousDatabaseUrl;
+  if (databaseDirectory)
+    fs.rmSync(databaseDirectory, { recursive: true, force: true });
+});
 
 const EMAIL = { to: "customer@example.com", body: "Your refund is approved." };
 
@@ -83,6 +130,7 @@ async function approve(
   actions: Record<string, ActionEntry>,
   structuredHistory: AgentChatStructuredMessage[] = pausedTurn,
 ) {
+  await createThread("alice@example.com", { id: threadId, orgId: "acme" });
   const { engine, stream, messages } = testEngine();
   const handler = createProductionAgentHandler({
     systemPrompt: "Test",

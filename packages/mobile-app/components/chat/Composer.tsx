@@ -1,5 +1,4 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { useNavigation } from "@react-navigation/native";
 import {
   IconArrowUp,
   IconAt,
@@ -23,8 +22,9 @@ import {
   IconX,
 } from "@tabler/icons-react-native";
 import * as DocumentPicker from "expo-document-picker";
-import * as FileSystem from "expo-file-system";
+import * as FileSystem from "expo-file-system/legacy";
 import * as ImagePicker from "expo-image-picker";
+import { useNavigation } from "expo-router";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AppState,

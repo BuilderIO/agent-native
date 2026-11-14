@@ -20,8 +20,20 @@ vi.mock("../server/poll.js", () => ({
 }));
 
 const mockReadBody = vi.fn();
-vi.mock("../server/h3-helpers.js", () => ({
-  readBody: (...args: unknown[]) => mockReadBody(...args),
+const mockReadCollabBody = vi.fn(async (event: any) => {
+  const body = await mockReadBody(event);
+  const maxBytes = event.context?._collabMaxPayloadBytes ?? DEFAULT_MAX_BYTES;
+  const encoded = typeof body === "string" ? body : JSON.stringify(body ?? "");
+  if (Buffer.byteLength(encoded, "utf8") > maxBytes) {
+    event._status = 413;
+    throw Object.assign(new Error("Request body too large"), {
+      statusCode: 413,
+    });
+  }
+  return body;
+});
+vi.mock("./payload.js", () => ({
+  readCollabBody: (...args: unknown[]) => mockReadCollabBody(...args),
 }));
 
 vi.mock("./ydoc-manager.js", () => ({
@@ -32,7 +44,10 @@ vi.mock("./ydoc-manager.js", () => ({
   applyPatchOps: vi.fn(),
   getJson: vi.fn().mockResolvedValue(null),
   getState: vi.fn().mockResolvedValue(new Uint8Array([0, 0])),
-  getIncUpdate: vi.fn().mockResolvedValue(new Uint8Array([0, 0])),
+  getIncUpdateWithStateVector: vi.fn().mockResolvedValue({
+    update: new Uint8Array([0, 0]),
+    stateVector: new Uint8Array([1, 7, 3]),
+  }),
 }));
 
 vi.mock("./storage.js", () => ({
@@ -69,7 +84,7 @@ describe("getCollabState cache policy", () => {
     async (query) => {
       const ev = event({ docId: "doc-1" });
       ev._query = query;
-      expect(await getCollabState(ev)).toEqual({
+      expect(await getCollabState(ev)).toMatchObject({
         docId: "doc-1",
         state: "AAA=",
       });
@@ -89,14 +104,16 @@ describe("getCollabState cache policy", () => {
       reason: "yjs",
     });
     for (const failure of [malformed, new Error("database unavailable")]) {
-      vi.mocked(manager.getIncUpdate).mockRejectedValueOnce(failure);
+      vi.mocked(manager.getIncUpdateWithStateVector).mockRejectedValueOnce(
+        failure,
+      );
       const ev = event({ docId: "doc-1" });
       ev._query = { stateVector: "AAA=" };
       await expect(getCollabState(ev)).rejects.toBe(failure);
       expect(ev._status).toBe(200);
     }
 
-    vi.mocked(manager.getIncUpdate).mockClear();
+    vi.mocked(manager.getIncUpdateWithStateVector).mockClear();
     // Base64 for a vector that announces five entries and holds none.
     for (const stateVector of ["BQ==", "not base64", ""]) {
       const bad = event({ docId: "doc-1" });
@@ -106,7 +123,23 @@ describe("getCollabState cache policy", () => {
       });
       expect(bad._status).toBe(400);
     }
-    expect(manager.getIncUpdate).not.toHaveBeenCalled();
+    expect(manager.getIncUpdateWithStateVector).not.toHaveBeenCalled();
+  });
+
+  it("sends the server's state vector with a diff, and only with one", async () => {
+    const diff = event({ docId: "doc-1" });
+    diff._query = { stateVector: "AA==" };
+    expect(await getCollabState(diff)).toEqual({
+      docId: "doc-1",
+      state: "AAA=",
+      stateVector: "AQcD",
+    });
+
+    const whole = event({ docId: "doc-1" });
+    expect(await getCollabState(whole)).toEqual({
+      docId: "doc-1",
+      state: "AAA=",
+    });
   });
 
   it("includes a server activity cursor with the initial state", async () => {
@@ -151,9 +184,10 @@ describe("postCollabUpdate payload limit", () => {
     const oversized = { update: bigString(DEFAULT_MAX_BYTES + 1) };
     mockReadBody.mockResolvedValue(oversized);
     const ev = event({ docId: "doc-1" });
-    const res = await postCollabUpdate(ev);
+    await expect(postCollabUpdate(ev)).rejects.toMatchObject({
+      statusCode: 413,
+    });
     expect(ev._status).toBe(413);
-    expect(res).toEqual({ error: "Payload too large" });
   });
 
   it("passes through when body is within the limit", async () => {
@@ -169,7 +203,9 @@ describe("postCollabUpdate payload limit", () => {
     const oversized = { update: bigString(customLimit + 1) };
     mockReadBody.mockResolvedValue(oversized);
     const ev = event({ docId: "doc-1" }, customLimit);
-    const res = await postCollabUpdate(ev);
+    await expect(postCollabUpdate(ev)).rejects.toMatchObject({
+      statusCode: 413,
+    });
     expect(ev._status).toBe(413);
   });
 });
@@ -199,9 +235,8 @@ describe("postCollabText payload limit", () => {
     const oversized = { text: bigString(DEFAULT_MAX_BYTES + 1) };
     mockReadBody.mockResolvedValue(oversized);
     const ev = event({ docId: "doc-2" });
-    const res = await postCollabText(ev);
+    await expect(postCollabText(ev)).rejects.toMatchObject({ statusCode: 413 });
     expect(ev._status).toBe(413);
-    expect(res).toEqual({ error: "Payload too large" });
   });
 
   it("passes through when text is within the limit", async () => {
@@ -217,7 +252,9 @@ describe("postCollabSearchReplace payload limit", () => {
     const oversized = { find: bigString(DEFAULT_MAX_BYTES + 1), replace: "" };
     mockReadBody.mockResolvedValue(oversized);
     const ev = event({ docId: "doc-3" });
-    const res = await postCollabSearchReplace(ev);
+    await expect(postCollabSearchReplace(ev)).rejects.toMatchObject({
+      statusCode: 413,
+    });
     expect(ev._status).toBe(413);
   });
 });
@@ -227,9 +264,8 @@ describe("postCollabJson payload limit", () => {
     const oversized = { json: bigString(DEFAULT_MAX_BYTES + 1) };
     mockReadBody.mockResolvedValue(oversized);
     const ev = event({ docId: "doc-4" });
-    const res = await postCollabJson(ev);
+    await expect(postCollabJson(ev)).rejects.toMatchObject({ statusCode: 413 });
     expect(ev._status).toBe(413);
-    expect(res).toEqual({ error: "Payload too large" });
   });
 
   it("passes through when json body is within the limit", async () => {
@@ -245,9 +281,10 @@ describe("postCollabPatch payload limit", () => {
     const oversized = { ops: bigString(DEFAULT_MAX_BYTES + 1) };
     mockReadBody.mockResolvedValue(oversized);
     const ev = event({ docId: "doc-5" });
-    const res = await postCollabPatch(ev);
+    await expect(postCollabPatch(ev)).rejects.toMatchObject({
+      statusCode: 413,
+    });
     expect(ev._status).toBe(413);
-    expect(res).toEqual({ error: "Payload too large" });
   });
 
   it("passes through valid ops array within the limit", async () => {

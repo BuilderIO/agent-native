@@ -20,9 +20,10 @@ import {
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
+import { PdfExportStage } from "@/components/deck/PdfExportStage";
 import SlideRenderer from "@/components/deck/SlideRenderer";
 import type { Slide } from "@/context/DeckContext";
-import { getAspectRatioDims, type AspectRatio } from "@/lib/aspect-ratios";
+import type { AspectRatio } from "@/lib/aspect-ratios";
 import {
   PRESENTER_WINDOW_FEATURES,
   presenterWindowName,
@@ -36,7 +37,11 @@ import { trackSlidesRelay } from "@/lib/slides-relay-tracking";
 
 import type { DesignSystemData } from "../../../shared/api";
 import { normalizeSlideTransition } from "../../../shared/slide-transitions";
-import { openPresentChannel, type PresentMessage } from "./present-channel";
+import {
+  openPresentChannel,
+  presentChannelSupported,
+  type PresentMessage,
+} from "./present-channel";
 import {
   annotateBuildSteps,
   buildClickCount,
@@ -52,6 +57,7 @@ import {
   canCommand,
   createSlideNavigation,
   reduceSlideNavigation,
+  slideNavigationKeyCommand,
   targetBuildStep,
   type SlideNavigationAction,
   type SlideNavigationLayout,
@@ -74,36 +80,6 @@ interface PresentationViewProps {
   pdfExportToken?: string;
   /** Present inside the tab as it is, without asking the browser for fullscreen. */
   windowed?: boolean;
-}
-
-function PdfExportStage({
-  slides,
-  aspectRatio,
-  designSystem,
-}: Pick<PresentationViewProps, "slides" | "aspectRatio" | "designSystem">) {
-  const dims = getAspectRatioDims(aspectRatio);
-
-  return (
-    <div
-      aria-hidden="true"
-      className="pointer-events-none fixed top-0"
-      data-pdf-export-stage="true"
-      style={{ left: "-10000px", width: dims.width }}
-    >
-      {slides.map((slide, index) => (
-        <div key={slide.id} style={{ width: dims.width, height: dims.height }}>
-          <SlideRenderer
-            slide={slide}
-            slidePosition={{ number: index + 1, count: slides.length }}
-            thumbnail={false}
-            disableVideoAutoplay
-            aspectRatio={aspectRatio}
-            designSystem={designSystem}
-          />
-        </div>
-      ))}
-    </div>
-  );
 }
 
 export default function PresentationView({
@@ -497,18 +473,27 @@ export default function PresentationView({
   }, [nav, layout, postState]);
 
   const openPresenterWindow = useCallback(() => {
+    // Shared routes ignore `presenter=1`, so a window opened there shows no notes.
+    if (isShared) return false;
+    // Without a channel the presenter window can neither follow nor drive this view.
+    if (!presentChannelSupported()) {
+      toast.error(t("editorToolbar.presenterViewUnsupported"));
+      return true;
+    }
     const url = new URL(window.location.href);
     url.searchParams.set("presenter", "1");
     url.searchParams.set(
       "slide",
       String(toRawIndex(navRef.current.targetIndex) + 1),
     );
-    window.open(
+    const presenterWindow = window.open(
       url.toString(),
       presenterWindowName(deckId),
       PRESENTER_WINDOW_FEATURES,
     );
-  }, [deckId, toRawIndex]);
+    if (!presenterWindow) toast.error(t("editorToolbar.presenterViewBlocked"));
+    return true;
+  }, [deckId, isShared, t, toRawIndex]);
 
   useEffect(() => {
     const handleKey = (e: KeyboardEvent) => {
@@ -516,31 +501,33 @@ export default function PresentationView({
       // A held key auto-repeats keydown with repeat=true. Each one would step
       // again, so one physical press could advance two or more slides.
       if (e.repeat) return;
+      const command = slideNavigationKeyCommand(e.key);
+      if (command) {
+        e.preventDefault();
+        apply({ type: "command", command });
+        return;
+      }
       switch (e.key) {
-        case "ArrowRight":
-        case "ArrowDown":
-        case " ":
-          e.preventDefault();
-          goNext();
-          break;
-        case "ArrowLeft":
-        case "ArrowUp":
-          e.preventDefault();
-          goPrev();
-          break;
         case "f":
         case "F":
           e.preventDefault();
           if (!document.fullscreenElement) {
-            document.documentElement.requestFullscreen().catch(() => {});
+            document.documentElement
+              .requestFullscreen()
+              .then(() => {
+                if (!windowed) enteredFullscreenRef.current = true;
+              })
+              .catch(() => {});
           } else {
+            // F only toggles fullscreen. Leaving it here must not read as the
+            // Escape that ends a presentation started in fullscreen.
+            enteredFullscreenRef.current = false;
             document.exitFullscreen().catch(() => {});
           }
           break;
         case "s":
         case "S":
-          e.preventDefault();
-          openPresenterWindow();
+          if (openPresenterWindow()) e.preventDefault();
           break;
         case "Escape":
           exit();
@@ -549,7 +536,7 @@ export default function PresentationView({
     };
     window.addEventListener("keydown", handleKey);
     return () => window.removeEventListener("keydown", handleKey);
-  }, [goNext, goPrev, exit, openPresenterWindow]);
+  }, [apply, exit, openPresenterWindow, windowed]);
 
   const enterFullscreen = useCallback(() => {
     const el = document.documentElement;
@@ -654,7 +641,7 @@ export default function PresentationView({
 
     const exportPdf = async () => {
       try {
-        await exportDeckAsPdf(
+        const { sidecarSkipped } = await exportDeckAsPdf(
           pdfExportRequest.title,
           pdfExportRequest.slides,
           pdfExportRequest.aspectRatio,
@@ -666,6 +653,7 @@ export default function PresentationView({
             ...(isShared ? {} : { analytics: { deckId } }),
           },
         );
+        if (sidecarSkipped) toast.warning(t("editorExport.pdfSidecarSkipped"));
       } catch (error) {
         if (cancelled || abortController.signal.aborted) return;
         console.error("[slides] shared PDF export failed:", error);
@@ -846,14 +834,22 @@ export default function PresentationView({
                 )}
               </button>
             )}
-            <button
-              onClick={openPresenterWindow}
-              className="p-3 sm:p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors cursor-pointer"
-              aria-label={t("presentation.presenterView")}
-              title={t("presentation.presenterView")}
-            >
-              <IconNotes className="w-5 h-5 sm:w-4 sm:h-4 text-white" />
-            </button>
+            {!isShared && (
+              <button
+                onClick={openPresenterWindow}
+                className={
+                  "p-3 sm:p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors cursor-pointer" // guard:allow-raw-color - fixed black presentation surface
+                }
+                aria-label={t("presentation.presenterView")}
+                title={t("presentation.presenterView")}
+              >
+                <IconNotes
+                  className={
+                    "w-5 h-5 sm:w-4 sm:h-4 text-white" // guard:allow-raw-color - fixed black presentation surface
+                  }
+                />
+              </button>
+            )}
             <button
               onClick={exit}
               className="p-3 sm:p-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors"

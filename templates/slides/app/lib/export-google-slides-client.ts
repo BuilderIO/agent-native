@@ -1,7 +1,11 @@
 import {
   agentNativePath,
-  appBasePath,
+  appApiPath,
 } from "@agent-native/core/client/api-path";
+import {
+  type ExportWarning,
+  readExportWarningsHeader,
+} from "@shared/export-warnings";
 
 import type { AspectRatio } from "./aspect-ratios";
 import { buildDeckPptxBlob } from "./export-pptx-client";
@@ -18,15 +22,26 @@ interface GoogleSlidesExportSlide {
 }
 
 export type GoogleSlidesExportResult =
-  | { url: string }
+  | { url: string; warnings?: ExportWarning[] | undefined }
   /** Drive was unavailable, so the PPTX was downloaded for a manual import. */
-  | { url: null; downloaded: true; reason: string }
+  | {
+      url: null;
+      downloaded: true;
+      reason: string;
+      warnings?: ExportWarning[] | undefined;
+    }
   /** The export action should send the user through Google OAuth first. */
-  | { url: null; requiresConnection: true; reason: string };
+  | {
+      url: null;
+      requiresConnection: true;
+      reason: string;
+      warnings?: undefined;
+    };
 
 export interface DeckPptxFile {
   blob: Blob;
   filename: string;
+  warnings?: ExportWarning[];
 }
 
 async function googleDriveIsConnected(): Promise<boolean> {
@@ -57,7 +72,7 @@ export async function fetchDeckPptxFromServer(
   fallbackError: string,
   exportPurpose?: "google_slides",
 ): Promise<DeckPptxFile> {
-  const res = await fetch(`${appBasePath()}/api/exports/pptx`, {
+  const res = await fetch(appApiPath("/api/exports/pptx"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -76,6 +91,7 @@ export async function fetchDeckPptxFromServer(
   return {
     blob: await res.blob(),
     filename: disposition?.match(/filename="?([^"]+)"?/i)?.[1] ?? "deck.pptx",
+    warnings: readExportWarningsHeader(res),
   };
 }
 
@@ -157,7 +173,7 @@ export async function exportDeckToGoogleSlides(
     }
     throw error;
   }
-  const { blob, filename } = built;
+  const { blob, filename, warnings } = built;
 
   const form = new FormData();
   form.append("file", blob, filename);
@@ -170,7 +186,7 @@ export async function exportDeckToGoogleSlides(
   // A rejected upload doesn't prove the route never ran (the response can be
   // lost after Drive accepted the file), so it is left to the route's own
   // event; an export with no outcome counts as failed_unknown downstream.
-  const res = await fetch(`${appBasePath()}/api/exports/google-slides`, {
+  const res = await fetch(appApiPath("/api/exports/google-slides"), {
     method: "POST",
     body: form,
   });
@@ -181,7 +197,7 @@ export async function exportDeckToGoogleSlides(
     code?: string;
   } | null;
 
-  if (res.ok && payload?.url) return { url: payload.url };
+  if (res.ok && payload?.url) return { url: payload.url, warnings };
 
   if (payload?.code === "google-not-connected") {
     return {
@@ -196,5 +212,6 @@ export async function exportDeckToGoogleSlides(
     url: null,
     downloaded: true,
     reason: payload?.error ?? `HTTP ${res.status}`,
+    warnings,
   };
 }

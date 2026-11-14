@@ -408,15 +408,26 @@ function ProviderDialogForm({
     mode === "manage"
       ? ((scope === "org" ? entry?.org : entry?.personal) ?? null)
       : replaceTarget;
+  const unreadableKey =
+    !!existing?.unreadableKey ||
+    (!!existing?.unreadable && !existing?.unreadableEndpoint);
+  const unreadableEndpointOnly =
+    isOpenAi &&
+    !!existing?.unreadableEndpoint &&
+    !existing?.masked &&
+    !unreadableKey;
 
   const [replacing, setReplacing] = useState(
-    () => mode !== "manage" || !existing || !!existing.rejectedAt,
+    () =>
+      mode !== "manage" || !existing || !!existing.rejectedAt || unreadableKey,
   );
   const [keyValue, setKeyValue] = useState("");
   const [keyError, setKeyError] = useState(false);
   const keyEntryTrackedRef = useRef(false);
   const savedEndpoint = isOpenAi ? (existing?.endpoint ?? "") : "";
-  const [endpointOpen, setEndpointOpen] = useState(!!savedEndpoint);
+  const [endpointOpen, setEndpointOpen] = useState(
+    !!savedEndpoint || !!existing?.unreadableEndpoint,
+  );
   const [endpoint, setEndpoint] = useState(savedEndpoint);
 
   // What this open started with; Save writes the selection only if it changed.
@@ -619,7 +630,10 @@ function ProviderDialogForm({
       return;
     }
     const gateway = isOpenAi && endpointOpen ? endpoint.trim() : "";
-    const endpointChanged = isOpenAi && gateway !== (existing?.endpoint ?? "");
+    const endpointChanged =
+      isOpenAi &&
+      (!!existing?.unreadableEndpoint ||
+        gateway !== (existing?.endpoint ?? ""));
     const modelsChanged =
       mode !== "manage" || !sameModels(checked, initialSelection ?? []);
 
@@ -633,7 +647,9 @@ function ProviderDialogForm({
             provider,
             ...(isOllama ? { baseUrl: value } : { apiKey: value }),
             ...(gateway ? { baseUrl: gateway } : {}),
-            ...(isOpenAi && !gateway && existing?.endpoint
+            ...(isOpenAi &&
+            !gateway &&
+            (existing?.endpoint || existing?.unreadableEndpoint)
               ? { clearBaseUrl: true }
               : {}),
             scope,
@@ -780,72 +796,76 @@ function ProviderDialogForm({
             </div>
           ) : null}
 
-          <div className="grid gap-2">
-            <Label htmlFor={ids.key}>
-              {isOllama ? t(`${K}endpointUrl`) : t(`${K}apiKey`)}
-            </Label>
-            {replacing ? (
-              <Input
-                ref={keyInputRef}
-                id={ids.key}
-                type={isOllama ? "url" : "password"}
-                value={keyValue}
-                autoComplete="off"
-                spellCheck={false}
-                autoFocus={mode !== "add"}
-                disabled={saving}
-                placeholder={
-                  isOllama
-                    ? OLLAMA_PLACEHOLDER
-                    : t(`${K}keyPlaceholder`, { provider: name })
-                }
-                aria-invalid={keyError || check.state === "failed"}
-                aria-describedby={`${ids.key}-hint`}
-                onChange={(event) => {
-                  setKeyValue(event.target.value);
-                  setKeyError(false);
-                  if (event.target.value.trim() && !isOllama) {
-                    trackCustomKeyOnboardingOutcome("credential_entry_started");
-                  }
-                }}
-              />
-            ) : (
-              <div className="flex h-9 items-center justify-between gap-2 rounded-md border border-input bg-background ps-3 pe-1.5">
-                <span className="truncate font-mono text-sm">
-                  {isOllama ? existing?.endpoint : existing?.masked}
-                </span>
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="xs"
+          {!unreadableEndpointOnly ? (
+            <div className="grid gap-2">
+              <Label htmlFor={ids.key}>
+                {isOllama ? t(`${K}endpointUrl`) : t(`${K}apiKey`)}
+              </Label>
+              {replacing ? (
+                <Input
+                  ref={keyInputRef}
+                  id={ids.key}
+                  type={isOllama ? "url" : "password"}
+                  value={keyValue}
+                  autoComplete="off"
+                  spellCheck={false}
+                  autoFocus={mode !== "add"}
                   disabled={saving}
-                  onClick={() => {
-                    setReplacing(true);
-                    window.requestAnimationFrame(() =>
-                      keyInputRef.current?.focus(),
-                    );
+                  placeholder={
+                    isOllama
+                      ? OLLAMA_PLACEHOLDER
+                      : t(`${K}keyPlaceholder`, { provider: name })
+                  }
+                  aria-invalid={keyError || check.state === "failed"}
+                  aria-describedby={`${ids.key}-hint`}
+                  onChange={(event) => {
+                    setKeyValue(event.target.value);
+                    setKeyError(false);
+                    if (event.target.value.trim() && !isOllama) {
+                      trackCustomKeyOnboardingOutcome(
+                        "credential_entry_started",
+                      );
+                    }
                   }}
-                >
-                  {isOllama ? t(`${K}change`) : t(`${K}replace`)}
-                </Button>
-              </div>
-            )}
-            <KeyHint
-              id={`${ids.key}-hint`}
-              provider={provider}
-              name={name}
-              replacing={replacing}
-              keyError={keyError}
-              savedRejected={savedRejected}
-              hasValue={!!keyValue.trim()}
-              recheck={recheck}
-              updatedAt={existing?.updatedAt ?? null}
-              formatDate={(value, options) =>
-                formatters.formatDate(value, options)
-              }
-              onRecheck={runRecheck}
-            />
-          </div>
+                />
+              ) : (
+                <div className="flex h-9 items-center justify-between gap-2 rounded-md border border-input bg-background ps-3 pe-1.5">
+                  <span className="truncate font-mono text-sm">
+                    {isOllama ? existing?.endpoint : existing?.masked}
+                  </span>
+                  <Button
+                    type="button"
+                    variant="secondary"
+                    size="xs"
+                    disabled={saving}
+                    onClick={() => {
+                      setReplacing(true);
+                      window.requestAnimationFrame(() =>
+                        keyInputRef.current?.focus(),
+                      );
+                    }}
+                  >
+                    {isOllama ? t(`${K}change`) : t(`${K}replace`)}
+                  </Button>
+                </div>
+              )}
+              <KeyHint
+                id={`${ids.key}-hint`}
+                provider={provider}
+                name={name}
+                replacing={replacing}
+                keyError={keyError}
+                savedRejected={savedRejected}
+                hasValue={!!keyValue.trim()}
+                recheck={recheck}
+                updatedAt={existing?.updatedAt ?? null}
+                formatDate={(value, options) =>
+                  formatters.formatDate(value, options)
+                }
+                onRecheck={runRecheck}
+              />
+            </div>
+          ) : null}
 
           {isOpenAi ? (
             endpointOpen ? (

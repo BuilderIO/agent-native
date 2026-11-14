@@ -727,7 +727,22 @@ function KeyProviderRow({
 
   let description: ReactNode;
   let control: ReactNode = null;
-  if (key.rejectedAt) {
+  if (key.unreadable) {
+    description = t(`${K}unreadable`);
+    if (canManage) {
+      control = (
+        <RowButton onClick={onManage}>
+          {t(
+            key.unreadableEndpoint && !key.unreadableKey
+              ? `${K}replaceEndpoint`
+              : `${K}replaceKey`,
+          )}
+        </RowButton>
+      );
+    } else {
+      description = t(`${K}unreadableAskAdmin`);
+    }
+  } else if (key.rejectedAt) {
     const date = formatters.formatDate(key.rejectedAt, {
       month: "short",
       day: "numeric",

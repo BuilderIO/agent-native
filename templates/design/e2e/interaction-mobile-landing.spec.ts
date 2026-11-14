@@ -106,9 +106,16 @@ async function openSeeded(app: App, html: string) {
   return id;
 }
 
-async function clickDesign(app: App, x: number, y: number) {
+async function clickDesign(
+  app: App,
+  x: number,
+  y: number,
+  modifiers: (typeof MOD)[] = [],
+) {
   const point = await app.pagePoint(x, y);
+  for (const key of modifiers) await app.page.keyboard.down(key);
   await app.page.mouse.click(point.x, point.y);
+  for (const key of modifiers) await app.page.keyboard.up(key);
   return point;
 }
 
@@ -508,7 +515,8 @@ test.describe("landing page build", () => {
     app,
   }) => {
     const id = await openSeeded(app, LANDING_HTML);
-    const grab = await clickDesign(app, 1080, 400);
+    // Cmd+click reaches HeroImage; a plain click takes Hero.
+    const grab = await clickDesign(app, 1080, 400, [MOD]);
     await expect.poll(() => app.selectedLayers()).toEqual(["HeroImage"]);
     const before = await app.savedNodes(id);
     const to = await app.pagePoint(1140, 440);

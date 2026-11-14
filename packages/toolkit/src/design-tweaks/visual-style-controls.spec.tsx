@@ -617,6 +617,44 @@ describe("visual style controls", () => {
     expect(input.value).toBe("0px");
   });
 
+  it("shows the display unit while still reading typed units", () => {
+    const onChange = vi.fn();
+    act(() => {
+      root.render(
+        <VisualScrubInput
+          label="W"
+          value={160}
+          unit="px"
+          displayUnit=""
+          onChange={onChange}
+        />,
+      );
+    });
+
+    const input = container.querySelector<HTMLInputElement>("input")!;
+    expect(input.value).toBe("160");
+    act(() => input.focus());
+    act(() => {
+      const setter = Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!;
+      setter.call(input, "200px");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    act(() => {
+      input.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+
+    expect(onChange).toHaveBeenCalledWith(
+      200,
+      expect.objectContaining({ source: "commit" }),
+    );
+    expect(input.value).toBe("200");
+  });
+
   it("releases focus on Enter when the consumer opts in", () => {
     const onChange = vi.fn();
     act(() => {

@@ -105,6 +105,10 @@
       "dist/app/changelog/index.d.ts",
       "dist/app/changelog/index.js"
     ],
+    "./app/agent-select": [
+      "dist/app/agent-select/index.d.ts",
+      "dist/app/agent-select/index.js"
+    ],
     "./app/context-xray": [
       "dist/app/context-xray/index.d.ts",
       "dist/app/context-xray/index.js"
@@ -137,6 +141,10 @@
     "./app/onboarding": [
       "dist/app/onboarding/index.d.ts",
       "dist/app/onboarding/index.js"
+    ],
+    "./app/generation": [
+      "dist/app/generation/index.d.ts",
+      "dist/app/generation/index.js"
     ],
     "./app/progress": [
       "dist/app/progress/index.d.ts",

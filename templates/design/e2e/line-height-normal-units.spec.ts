@@ -223,7 +223,7 @@ test("line-height Auto, px, percent, and legacy unitless values round-trip", asy
   );
 
   await lineHeightInput(page).press("ArrowUp");
-  await expect(lineHeightInput(page)).toHaveValue("20px");
+  await expect(lineHeightInput(page)).toHaveValue("20");
   await expectSourceAndRender(
     page,
     designId,
@@ -243,7 +243,7 @@ test("line-height Auto, px, percent, and legacy unitless values round-trip", asy
     30,
   );
   await lineHeightInput(page).press("ArrowUp");
-  await expect(lineHeightInput(page)).toHaveValue("31px");
+  await expect(lineHeightInput(page)).toHaveValue("31");
   await expectSourceAndRender(
     page,
     designId,
@@ -263,7 +263,7 @@ test("line-height Auto, px, percent, and legacy unitless values round-trip", asy
     "30px",
     30,
   );
-  await expect(lineHeightInput(page)).toHaveValue("30px");
+  await expect(lineHeightInput(page)).toHaveValue("30");
 
   await setLineHeight(page, "150%");
   await expect(lineHeightInput(page)).toHaveValue("150%");
@@ -277,7 +277,7 @@ test("line-height Auto, px, percent, and legacy unitless values round-trip", asy
   );
 
   await setLineHeight(page, "30");
-  await expect(lineHeightInput(page)).toHaveValue("30px");
+  await expect(lineHeightInput(page)).toHaveValue("30");
   await expectSourceAndRender(
     page,
     designId,
@@ -289,7 +289,7 @@ test("line-height Auto, px, percent, and legacy unitless values round-trip", asy
 
   await page.reload();
   await selectLayerByName(page, headingText);
-  await expect(lineHeightInput(page)).toHaveValue("30px");
+  await expect(lineHeightInput(page)).toHaveValue("30");
   await expectSourceAndRender(
     page,
     designId,
@@ -300,7 +300,7 @@ test("line-height Auto, px, percent, and legacy unitless values round-trip", asy
   );
 
   await setLineHeight(page, "+5");
-  await expect(lineHeightInput(page)).toHaveValue("5px");
+  await expect(lineHeightInput(page)).toHaveValue("5");
   await expectSourceAndRender(page, designId, headingSelector, "5px", "5px", 5);
 
   await setLineHeight(page, "150%");
@@ -315,7 +315,7 @@ test("line-height Auto, px, percent, and legacy unitless values round-trip", asy
   );
 
   await setLineHeight(page, "0");
-  await expect(lineHeightInput(page)).toHaveValue("0px");
+  await expect(lineHeightInput(page)).toHaveValue("0");
   await expectSourceAndRender(page, designId, headingSelector, "0px", "0px", 0);
 
   const paragraphId = await selectedNodeId(page, paragraphSelector);

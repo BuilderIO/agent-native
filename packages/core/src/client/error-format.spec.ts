@@ -171,6 +171,20 @@ describe("formatChatErrorText", () => {
     expect(normalized.message).not.toContain("no body");
   });
 
+  it.each([
+    "http_413",
+    "rate_limit_exceeded",
+    "invalid_request",
+    "invalid_request_error",
+  ])(
+    "keeps the provider's token budget in the visible error for %s",
+    (code) => {
+      const message =
+        "Request too large on tokens per minute (TPM): Limit 8000, Requested 8700.";
+      expect(normalizeChatError(message, code).message).toBe(message);
+    },
+  );
+
   it("normalizes overloaded provider JSON payloads without exposing raw details in the message", () => {
     const raw =
       '{"type":"error","error":{"type":"overloaded_error","message":"Overloaded"},"request_id":"req_example"}';
@@ -225,6 +239,7 @@ describe("formatChatErrorText", () => {
   describe("a message the server already chose for a visitor", () => {
     const ownerCodes = [
       "builder_auth_error",
+      "builder_oauth_lookup_failed",
       "builder_model_unauthorized",
       "email_verification_required",
       "provider_config_error",
@@ -277,6 +292,14 @@ describe("formatChatErrorText", () => {
     it("still maps the same codes for an owner-facing message", () => {
       expect(
         normalizeChatError("Invalid token", "builder_auth_error").message,
+      ).toBe(
+        "Builder rejected the connected credentials. Sign in to Builder.io again (free tier available) in Settings, then retry.",
+      );
+      expect(
+        normalizeChatError(
+          "Builder credential lookup failed.",
+          "builder_oauth_lookup_failed",
+        ).message,
       ).toBe(
         "Builder rejected the connected credentials. Sign in to Builder.io again (free tier available) in Settings, then retry.",
       );

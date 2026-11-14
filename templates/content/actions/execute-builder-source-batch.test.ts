@@ -123,10 +123,12 @@ function source(
 function depsFor(args: {
   source: ContentDatabaseSource;
   runOne: ExecuteBuilderSourceBatchDeps["runOne"];
+  assertPageEditor?: ExecuteBuilderSourceBatchDeps["assertPageEditor"];
 }): ExecuteBuilderSourceBatchDeps {
   return {
     resolveDatabase: vi.fn(async () => DATABASE),
     assertEditor: vi.fn(async () => {}),
+    assertPageEditor: args.assertPageEditor ?? vi.fn(async () => {}),
     getSourceSnapshot: vi.fn(async () => args.source),
     runOne: args.runOne,
   };
@@ -310,5 +312,48 @@ describe("execute Builder source batch", () => {
     expect(runOne).toHaveBeenNthCalledWith(2, "change-2", {
       publicationTransition: "publish",
     });
+  });
+
+  it("refuses the whole batch when one transition is on a page the caller can't edit", async () => {
+    const runOne = vi.fn(async (changeSetId: string) => ({
+      changeSetId,
+      status: "succeeded" as const,
+    }));
+    const assertPageEditor = vi.fn(async (documentId: string) => {
+      if (documentId === "doc-change-3") {
+        throw new Error(
+          "Requires editor role on document doc-change-3 (have viewer)",
+        );
+      }
+    });
+
+    await expect(
+      executeBuilderSourceBatchWithDeps(
+        {
+          databaseId: "database-1",
+          transitions: {
+            "change-2": { publicationTransition: "publish" },
+            "change-3": { publicationTransition: "unpublish" },
+          },
+        },
+        depsFor({
+          source: source([
+            changeSet("change-1"),
+            changeSet("change-2"),
+            changeSet("change-3"),
+          ]),
+          runOne,
+          assertPageEditor,
+        }),
+      ),
+    ).rejects.toThrow(
+      "Requires editor role on document doc-change-3 (have viewer)",
+    );
+
+    expect(assertPageEditor.mock.calls).toEqual([
+      ["doc-change-2"],
+      ["doc-change-3"],
+    ]);
+    expect(runOne).not.toHaveBeenCalled();
   });
 });

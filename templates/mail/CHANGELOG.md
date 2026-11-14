@@ -3,6 +3,90 @@
 All notable user-facing changes to Agent-Native Mail are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-09
+
+### Improved
+
+- More save failures now say why, such as being offline or lacking permission.
+
+## 2026-11-08
+
+### Improved
+
+- Hovering an email action shows its name and shortcut, and keys now follow Superhuman: Space pages, X selects, Enter replies all in an open email, ? asks the agent, and Shift+U opens Unread.
+
+## 2026-11-05
+
+### Improved
+
+- Failed saves now show a clear error message instead of failing silently.
+
+## 2026-11-04
+
+### Improved
+
+- The agent finds the right Mail action more often when you describe a task in your own words, such as auto-archive rules or send later.
+
+## 2026-11-03
+
+### Improved
+
+- Opening Gmail messages is faster.
+- Opening Gmail threads is faster.
+
+### Fixed
+
+- Closing a draft addressed to a saved group no longer shows a "Failed to save draft" error.
+- AI rule backfills now wait out Gmail rate limits and retry instead of failing right after you create or edit a rule.
+
+## 2026-11-02
+
+### Fixed
+
+- Draft edits from another tab or the agent no longer overwrite each other. If you both change the same field, you choose which version to keep and can get the other one back.
+- Show an agent's draft as an editable card in chat again, next to the conversation it answers. Send and Delete open the draft in Mail.
+
+## 2026-10-30
+
+### Fixed
+
+- Keep Continue disabled until a setup preference is entered.
+
+## 2026-10-28
+
+### Improved
+
+- Inbox rule requests with invalid actions now report which part is wrong.
+
+## 2026-10-27
+
+### Fixed
+
+- Configured Mail labels now show archived messages, and checkbox selection keeps the email list open.
+- Priority sort refreshes scores when its AI provider changes.
+
+## 2026-10-26
+
+### Improved
+
+- Mail AI rules and Priority sort can use OpenAI when Jev is unavailable.
+
+## 2026-10-22
+
+### Improved
+
+- Approval links from a connected agent, such as Claude Code, now open the review inside the app, in its own theme.
+
+## 2026-10-21
+
+### Added
+
+- Connected agents can create and update email drafts for review in Mail.
+
+### Improved
+
+- When an agent in Claude or ChatGPT drafts an email, Mail shows a compact card with the conversation and the editable draft, ready to send.
+
 ## 2026-10-20
 
 ### Improved

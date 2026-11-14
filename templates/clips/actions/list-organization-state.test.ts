@@ -28,6 +28,10 @@ vi.mock("../server/lib/agent-recording-access.js", () => ({
   isAgentRecordingCaller: () => false,
 }));
 
+vi.mock("../server/lib/content-uploads.js", () => ({
+  uploadFromTrashedPage: () => ({ op: "upload-from-trashed-page" }),
+}));
+
 vi.mock("../server/lib/recordings.js", () => ({
   getActiveOrganizationId: (...args: unknown[]) =>
     mockGetActiveOrganizationId(...args),
@@ -62,6 +66,7 @@ vi.mock("drizzle-orm", () => ({
   eq: (...args: unknown[]) => ({ op: "eq", args }),
   isNotNull: (...args: unknown[]) => ({ op: "isNotNull", args }),
   isNull: (...args: unknown[]) => ({ op: "isNull", args }),
+  not: (...args: unknown[]) => ({ op: "not", args }),
   notExists: (...args: unknown[]) => ({ op: "notExists", args }),
   or: (...args: unknown[]) => ({ op: "or", args }),
   sql: () => ({ raw: "sql" }),
@@ -85,7 +90,7 @@ function builder(
     "groupBy",
     "limit",
   ]) {
-    b[method] = () => b;
+    b[method] = vi.fn(() => b);
   }
   b.then = (
     resolve: (value: unknown) => unknown,
@@ -224,5 +229,12 @@ describe("list-organization-state action", () => {
     expect(result.folders).toEqual([
       expect.objectContaining({ id: "f1", recordingCount: 2 }),
     ]);
+    expect(builders[5].where).toHaveBeenCalledWith(
+      expect.objectContaining({
+        args: expect.arrayContaining([
+          { op: "not", args: [{ op: "upload-from-trashed-page" }] },
+        ]),
+      }),
+    );
   });
 });

@@ -36,6 +36,21 @@ import {
 } from "./group-runtime.js";
 import { isStandaloneHttpUrl } from "./html-content.js";
 import { resolveLayerNameAttribute } from "./layer-name.js";
+import {
+  joinFlowPatch,
+  readLayoutModel,
+  writeLayoutChange,
+  type LayoutBoxModel,
+  type LayoutNodeInput,
+  type LayoutRect,
+  type LayoutStylePatch,
+} from "./layout-model";
+import {
+  LINE_SEGMENT_PROPERTY,
+  lineSegmentPathData,
+  lineSegmentViewBox,
+  parseLineSegment,
+} from "./line-segment";
 import { pruneDeletedNativeEffects } from "./native-effect-pruning";
 import {
   parsePenNodes,
@@ -206,6 +221,7 @@ export type VisualStyleProperty =
   | "--an-vector-stroke-position"
   | "--an-vector-start-point"
   | "--an-vector-end-point"
+  | "--an-line-segment"
   | "outline"
   | "outline-width"
   | "outline-style"
@@ -555,7 +571,13 @@ export interface AutoLayoutEditIntent {
   gap?: string;
   childRects?: Record<
     string,
-    { x: number; y: number; width: number; height: number }
+    {
+      x: number;
+      y: number;
+      width: number;
+      height: number;
+      box?: LayoutBoxModel;
+    }
   >;
   containerRect?: { width: number; height: number };
 }
@@ -750,6 +772,7 @@ const STYLE_PROPERTIES = [
   "--an-vector-stroke-position",
   "--an-vector-start-point",
   "--an-vector-end-point",
+  "--an-line-segment",
   "outline",
   "outline-width",
   "outline-style",
@@ -1741,6 +1764,9 @@ function isSafeStyleValue(
   }
   if (isVectorEndpointProperty(property)) {
     return isVectorEndpointStyle(trimmed);
+  }
+  if (property === LINE_SEGMENT_PROPERTY) {
+    return parseLineSegment(trimmed) !== null;
   }
   if (/expression\s*\(/i.test(trimmed)) return false;
   if (/javascript\s*:/i.test(trimmed)) return false;
@@ -3778,6 +3804,92 @@ export function wrapBareTextLeavesInHtml(
   return { content, changed: true, wrapped: edits.length };
 }
 
+const FLATTENABLE_CHILD_TAGS = new Set([
+  "article",
+  "aside",
+  "blockquote",
+  "div",
+  "figure",
+  "footer",
+  "form",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+  "header",
+  "main",
+  "nav",
+  "ol",
+  "p",
+  "section",
+  "table",
+  "ul",
+]);
+
+/**
+ * Removes `<div>` wrappers that hold exactly one block-level child and carry
+ * no class, style, id, behavior, or name: they render nothing, yet each is a
+ * layer the user has to dig through. Inline children stay wrapped because the
+ * div is what puts them on their own line.
+ */
+// Selectors that match on tree shape: removing a wrapper would change what
+// they select, so any of them in the page's own CSS keeps every wrapper.
+const STRUCTURAL_SELECTOR = /[>+~]|:(?:nth-|first-|last-|only-|empty\b|has\()/;
+
+export function flattenRedundantWrappersInHtml(html: string): {
+  content: string;
+  removed: number;
+} {
+  const pageCss = [...html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)];
+  if (pageCss.some((match) => STRUCTURAL_SELECTOR.test(match[1] ?? ""))) {
+    return { content: html, removed: 0 };
+  }
+  // A linked stylesheet cannot be read here, so it may hold such selectors.
+  // Font stylesheets only declare @font-face.
+  const linkedStylesheets = [...html.matchAll(/<link\b[^>]*>/gi)].filter(
+    (match) =>
+      /\brel\s*=\s*["']?stylesheet\b/i.test(match[0]) &&
+      !/\bhref\s*=\s*["']?https:\/\/fonts\.googleapis\.com\//i.test(match[0]),
+  );
+  if (linkedStylesheets.length > 0) return { content: html, removed: 0 };
+  const elements = parseHtmlElements(html);
+  const ranges: Array<{ start: number; end: number }> = [];
+  for (const element of elements) {
+    if (element.tag !== "div" || element.selfClosing) continue;
+    if (element.parentIndex === undefined) continue;
+    if (element.closeStart === undefined || element.closeEnd === undefined) {
+      continue;
+    }
+    const bare = element.attributes.every(
+      (attribute) =>
+        attribute.lowerName === "data-agent-native-node-id" ||
+        ((attribute.lowerName === "class" || attribute.lowerName === "style") &&
+          (attribute.value === true || attribute.value.trim() === "")),
+    );
+    if (!bare || element.childIndexes.length !== 1) continue;
+    const child = elements[element.childIndexes[0]!];
+    if (!child || !FLATTENABLE_CHILD_TAGS.has(child.tag)) continue;
+    if (
+      html.slice(element.contentStart, child.start).trim() !== "" ||
+      html.slice(child.end, element.contentEnd).trim() !== ""
+    ) {
+      continue;
+    }
+    ranges.push(
+      { start: element.start, end: element.openEnd },
+      { start: element.closeStart, end: element.closeEnd },
+    );
+  }
+  if (ranges.length === 0) return { content: html, removed: 0 };
+  let content = html;
+  for (const range of ranges.sort((a, b) => b.start - a.start)) {
+    content = `${content.slice(0, range.start)}${content.slice(range.end)}`;
+  }
+  return { content, removed: ranges.length / 2 };
+}
+
 const STABLE_NODE_ID_ATTRIBUTE_RE =
   /\sdata-agent-native-node-id\s*=\s*(?:"[^"]*"|'[^']*'|[^\s/>]+)/gi;
 
@@ -3910,6 +4022,282 @@ export function ensureCodeLayerNodeIdsInHtml(
     });
   }
   return { content, changed: true, stamped: orderedEdits.length };
+}
+
+interface IdHolder {
+  attr: ParsedAttribute;
+  element: ParsedElement;
+}
+
+function idHoldersByValue(
+  elements: readonly ParsedElement[],
+  name: string,
+): Map<string, IdHolder[]> {
+  const byValue = new Map<string, IdHolder[]>();
+  for (const element of elements) {
+    const attr = getAttribute(element, name);
+    const value = typeof attr?.value === "string" ? attr.value.trim() : "";
+    if (!attr || !value) continue;
+    const holder = { attr, element };
+    const holders = byValue.get(value);
+    if (holders) holders.push(holder);
+    else byValue.set(value, [holder]);
+  }
+  for (const holders of byValue.values()) {
+    holders.sort((a, b) => a.attr.start - b.attr.start);
+  }
+  return byValue;
+}
+
+const IDENTITY_ATTRIBUTE_RE =
+  /\s(?:data-agent-native-node-id|id)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s/>]+)/gi;
+
+function identityFreeMarkup(html: string, element: ParsedElement): string {
+  return html
+    .slice(element.start, element.end)
+    .replace(IDENTITY_ATTRIBUTE_RE, "");
+}
+
+/**
+ * Which holders keep an id. A holder whose markup matches one that already had
+ * the id is the original, wherever a copy was inserted. Holders that match
+ * nothing (identical or edited copies) take the rest in document order.
+ */
+function holdersToKeep(
+  previous: readonly string[],
+  next: readonly string[],
+  quota: number,
+): Set<number> {
+  const unmatched = new Map<string, number>();
+  for (const markup of previous) {
+    unmatched.set(markup, (unmatched.get(markup) ?? 0) + 1);
+  }
+  const keep = new Set<number>();
+  next.forEach((markup, index) => {
+    const count = unmatched.get(markup) ?? 0;
+    if (keep.size >= quota || count === 0) return;
+    unmatched.set(markup, count - 1);
+    keep.add(index);
+  });
+  for (let index = 0; keep.size < quota && index < next.length; index += 1) {
+    keep.add(index);
+  }
+  return keep;
+}
+
+const RENAMEABLE_HTML_ID_RE = /^[A-Za-z][\w:.-]*$/;
+const ID_LIST_REFERENCE_ATTRIBUTES = new Set([
+  "aria-activedescendant",
+  "aria-controls",
+  "aria-describedby",
+  "aria-details",
+  "aria-errormessage",
+  "aria-flowto",
+  "aria-labelledby",
+  "aria-owns",
+  "for",
+  "form",
+  "headers",
+  "list",
+]);
+
+function rewriteIdReferences(
+  name: string,
+  value: string,
+  oldId: string,
+  newId: string,
+): string {
+  if (name === "href" || name === "xlink:href") {
+    return value === `#${oldId}` ? `#${newId}` : value;
+  }
+  let next = value;
+  if (ID_LIST_REFERENCE_ATTRIBUTES.has(name)) {
+    next = next.replace(/\S+/g, (token) => (token === oldId ? newId : token));
+  }
+  if (next.includes("url(")) {
+    const escaped = oldId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    next = next.replace(
+      new RegExp(`url\\((['"]?)#${escaped}\\1\\)`, "g"),
+      `url($1#${newId}$1)`,
+    );
+  }
+  return next;
+}
+
+/**
+ * Rewrites references to a renamed id inside the element that was renamed.
+ * `current` holds values already rewritten by a more deeply nested rename, so
+ * the innermost copy's references win.
+ */
+function rewriteReferencesInSubtree(
+  html: string,
+  elements: readonly ParsedElement[],
+  element: ParsedElement,
+  oldId: string,
+  newId: string,
+  current: Map<number, { start: number; end: number; value: string }>,
+): void {
+  for (const candidate of elements) {
+    if (candidate.start < element.start || candidate.start >= element.end) {
+      continue;
+    }
+    for (const attr of candidate.attributes) {
+      if (typeof attr.value !== "string") continue;
+      const raw = html.slice(attr.start, attr.end);
+      const equals = raw.indexOf("=");
+      const afterEquals = raw.slice(equals + 1);
+      const rest = afterEquals.trimStart();
+      const quote = rest.charAt(0);
+      const quoted = quote === '"' || quote === "'";
+      const valueStart =
+        attr.start +
+        equals +
+        1 +
+        (afterEquals.length - rest.length) +
+        (quoted ? 1 : 0);
+      const rawValue = quoted ? rest.slice(1, rest.indexOf(quote, 1)) : rest;
+      const existing = current.get(valueStart)?.value ?? rawValue;
+      const rewritten = rewriteIdReferences(
+        attr.lowerName,
+        existing,
+        oldId,
+        newId,
+      );
+      if (rewritten !== existing) {
+        current.set(valueStart, {
+          start: valueStart,
+          end: valueStart + rawValue.length,
+          value: rewritten,
+        });
+      }
+    }
+  }
+}
+
+/**
+ * An edit that copies an element copies its ids with it. Each id keeps the
+ * holders the write did not add: a holder matching a previous holder's markup
+ * keeps the id, and the others get a fresh node id or, for a markup `id`, the
+ * next free `-N` suffix. A markup `id` is only renamed when it existed before
+ * the write, so a new id repeated across freshly authored markup is left
+ * alone. References to a renamed id inside the renamed subtree follow it.
+ * Copies with identical markup cannot be told apart from their text, so
+ * document order decides which of them keeps the id.
+ */
+export function reconcileIntroducedIdsInHtml(
+  previousHtml: string,
+  nextHtml: string,
+): { content: string; restampedNodeIds: number; renamedHtmlIds: number } {
+  const unchanged = {
+    content: nextHtml,
+    restampedNodeIds: 0,
+    renamedHtmlIds: 0,
+  };
+  if (
+    nextHtml === previousHtml ||
+    !previousHtml.trim() ||
+    isStandaloneHttpUrl(previousHtml) ||
+    isStandaloneHttpUrl(nextHtml)
+  ) {
+    return unchanged;
+  }
+  const previousElements = parseHtmlElements(previousHtml);
+  const nextElements = parseHtmlElements(nextHtml);
+  const edits: Array<{ start: number; end: number; value: string }> = [];
+
+  const previousNodeIds = idHoldersByValue(
+    previousElements,
+    "data-agent-native-node-id",
+  );
+  const nextNodeIds = idHoldersByValue(
+    nextElements,
+    "data-agent-native-node-id",
+  );
+  const usedNodeIds = new Set(nextNodeIds.keys());
+  let restampedNodeIds = 0;
+  for (const [value, holders] of nextNodeIds) {
+    const before = previousNodeIds.get(value) ?? [];
+    const keep = holdersToKeep(
+      before.map((holder) => identityFreeMarkup(previousHtml, holder.element)),
+      holders.map((holder) => identityFreeMarkup(nextHtml, holder.element)),
+      Math.max(before.length, 1),
+    );
+    holders.forEach(({ attr }, index) => {
+      if (keep.has(index)) return;
+      const fresh = freshNodeId(
+        usedNodeIds,
+        `reconciled:${value}:${attr.start}`,
+      );
+      edits.push({
+        start: attr.start,
+        end: attr.end,
+        value: `data-agent-native-node-id="${escapeHtmlAttribute(fresh)}"`,
+      });
+      restampedNodeIds += 1;
+    });
+  }
+
+  const previousHtmlIds = idHoldersByValue(previousElements, "id");
+  const nextHtmlIds = idHoldersByValue(nextElements, "id");
+  const usedHtmlIds = new Set(nextHtmlIds.keys());
+  const renamed: Array<{
+    element: ParsedElement;
+    oldId: string;
+    newId: string;
+  }> = [];
+  for (const [value, holders] of nextHtmlIds) {
+    const before = previousHtmlIds.get(value) ?? [];
+    if (before.length < 1 || !RENAMEABLE_HTML_ID_RE.test(value)) continue;
+    const keep = holdersToKeep(
+      before.map((holder) => identityFreeMarkup(previousHtml, holder.element)),
+      holders.map((holder) => identityFreeMarkup(nextHtml, holder.element)),
+      before.length,
+    );
+    holders.forEach(({ attr, element }, index) => {
+      if (keep.has(index)) return;
+      let suffix = 2;
+      while (usedHtmlIds.has(`${value}-${suffix}`)) suffix += 1;
+      const newId = `${value}-${suffix}`;
+      usedHtmlIds.add(newId);
+      edits.push({
+        start: attr.start,
+        end: attr.end,
+        value: `${attr.name}="${newId}"`,
+      });
+      renamed.push({ element, oldId: value, newId });
+    });
+  }
+
+  const referenceValues = new Map<
+    number,
+    { start: number; end: number; value: string }
+  >();
+  const innermostFirst = [...renamed].sort(
+    (a, b) =>
+      a.element.end - a.element.start - (b.element.end - b.element.start),
+  );
+  for (const { element, oldId, newId } of innermostFirst) {
+    rewriteReferencesInSubtree(
+      nextHtml,
+      nextElements,
+      element,
+      oldId,
+      newId,
+      referenceValues,
+    );
+  }
+  edits.push(...referenceValues.values());
+
+  if (edits.length === 0) return unchanged;
+  let content = nextHtml;
+  for (const edit of edits.sort((a, b) => b.start - a.start)) {
+    content = `${content.slice(0, edit.start)}${edit.value}${content.slice(edit.end)}`;
+  }
+  return {
+    content,
+    restampedNodeIds,
+    renamedHtmlIds: renamed.length,
+  };
 }
 
 export function ensureCodeLayerNodeIdInHtml(
@@ -4495,13 +4883,9 @@ function simpleSelectorMatchesElement(
 
 function selectorPathMatchesElement(
   element: ParsedElement | undefined,
-  selector: string,
+  parts: readonly string[],
   elements: readonly ParsedElement[],
 ): boolean {
-  const parts = normalizeSelectorForMatch(selector)
-    .split(" > ")
-    .map((part) => part.trim())
-    .filter(Boolean);
   if (parts.length <= 1) return false;
 
   let current: ParsedElement | undefined = element;
@@ -4561,37 +4945,69 @@ function nodesWithStableSourceId(
   return index.get(sourceId) ?? [];
 }
 
+interface SelectorQuery {
+  normalized: string;
+  hasDirectPath: boolean;
+  pathParts: readonly string[];
+  lastPart: string;
+}
+
+function selectorQuery(selector: string): SelectorQuery {
+  const normalized = normalizeSelectorForMatch(selector);
+  return {
+    normalized,
+    hasDirectPath: normalized.includes(" > "),
+    pathParts: normalizeSelectorForMatch(normalized)
+      .split(" > ")
+      .map((part) => part.trim())
+      .filter(Boolean),
+    lastPart: lastSelectorPart(normalized),
+  };
+}
+
+// A selector lookup tests every node of the screen, so a node's selectors are
+// normalized once per projection, not once per lookup.
+const normalizedSelectorsByNode = new WeakMap<
+  CodeLayerNode,
+  readonly string[]
+>();
+
+function normalizedNodeSelectors(node: CodeLayerNode): readonly string[] {
+  let normalized = normalizedSelectorsByNode.get(node);
+  if (!normalized) {
+    normalized = [node.selector, node.path, ...node.selectors].map(
+      normalizeSelectorForMatch,
+    );
+    normalizedSelectorsByNode.set(node, normalized);
+  }
+  return normalized;
+}
+
 function selectorMatches(
   node: CodeLayerNode,
-  selector: string,
+  query: SelectorQuery,
   element: ParsedElement | undefined,
   elements: readonly ParsedElement[],
 ): boolean {
-  const normalizedSelector = normalizeSelectorForMatch(selector);
-  const normalizedNodeSelectors = [
-    node.selector,
-    node.path,
-    ...node.selectors,
-  ].map(normalizeSelectorForMatch);
-  if (normalizedNodeSelectors.includes(normalizedSelector)) return true;
-  const selectorHasDirectPath = normalizedSelector.includes(" > ");
+  const { normalized: normalizedSelector, hasDirectPath, lastPart } = query;
+  const nodeSelectors = normalizedNodeSelectors(node);
+  if (nodeSelectors.includes(normalizedSelector)) return true;
   if (
-    selectorHasDirectPath &&
-    normalizedNodeSelectors.some((candidate) =>
+    hasDirectPath &&
+    nodeSelectors.some((candidate) =>
       candidate.endsWith(` > ${normalizedSelector}`),
     )
   ) {
     return true;
   }
   if (
-    selectorHasDirectPath &&
-    selectorPathMatchesElement(element, normalizedSelector, elements)
+    hasDirectPath &&
+    selectorPathMatchesElement(element, query.pathParts, elements)
   ) {
     return true;
   }
-  if (selectorHasDirectPath) return false;
+  if (hasDirectPath) return false;
   if (simpleSelectorMatches(node, normalizedSelector)) return true;
-  const lastPart = lastSelectorPart(normalizedSelector);
   return (
     lastPart !== normalizedSelector && simpleSelectorMatches(node, lastPart)
   );
@@ -4602,15 +5018,17 @@ function resolveTarget(
   target: EditIntentTarget,
 ): EditIntentResolution {
   const { projection, elementByNodeId } = build;
-  const matchesForSelector = (value: string): CodeLayerNode[] =>
-    projection.nodes.filter((node) => {
-      return selectorMatches(
+  const matchesForSelector = (value: string): CodeLayerNode[] => {
+    const query = selectorQuery(value);
+    return projection.nodes.filter((node) =>
+      selectorMatches(
         node,
-        value,
+        query,
         elementByNodeId.get(node.id),
         build.elements,
-      );
-    });
+      ),
+    );
+  };
   if (target.nodeId) {
     const matches = nodesWithStableSourceId(projection, target.nodeId);
     if (matches.length === 1 && matches[0]) {
@@ -6278,8 +6696,10 @@ function resolveStyleEditTargetRoute(
     return { kind: "released-svg" };
   }
   const paintChild = vectorPaintChild(html, element, intent.property, elements);
+  const isPaintProperty =
+    intent.property.startsWith("fill") || intent.property.startsWith("stroke");
   const useTarget =
-    element.tag === "use"
+    element.tag === "use" && isPaintProperty
       ? element
       : paintChild?.tag === "use"
         ? paintChild
@@ -6293,6 +6713,7 @@ function resolveStyleEditTargetRoute(
   }
   if (
     node.dataAttributes["data-an-primitive"] === "pasted-svg" &&
+    isPaintProperty &&
     !paintChild
   ) {
     return { kind: "unsupported" };
@@ -6336,6 +6757,32 @@ function removeVectorEndpointMarkup(
     result = `${result.slice(0, span.start)}${result.slice(span.end)}`;
   }
   return result;
+}
+
+function applyLineSegmentEdit(
+  html: string,
+  wrapper: ParsedElement,
+  value: string,
+): string | PatchResultStatus {
+  const segment = parseLineSegment(value);
+  const elements = parseHtmlElements(html);
+  const current = elements[wrapper.index];
+  if (
+    !segment ||
+    !current ||
+    current.start !== wrapper.start ||
+    current.tag !== "svg"
+  ) {
+    return "unsupported";
+  }
+  const kind = attributeValue(current, "data-an-primitive");
+  if (kind !== "line" && kind !== "arrow") return "unsupported";
+  const path = vectorShapeChild(current, elements);
+  if (!path || path.tag !== "path") return "unsupported";
+  return patchElementAttributes(html, [
+    { element: current, attributes: { viewBox: lineSegmentViewBox(segment) } },
+    { element: path, attributes: { d: lineSegmentPathData(segment) } },
+  ]);
 }
 
 function applyVectorEndpointEdit(
@@ -6601,6 +7048,14 @@ function applyStyleEdit(
         properties: [property],
         confidence: 0.9,
       },
+    };
+  }
+  if (property === LINE_SEGMENT_PROPERTY) {
+    const content = applyLineSegmentEdit(html, element, value);
+    if (content === "unsupported") return content;
+    return {
+      content,
+      capability: { kind: "style", properties: [property], confidence: 0.9 },
     };
   }
   if (property === "--an-vector-stroke-position") {
@@ -7035,7 +7490,11 @@ function applyStyleRemoveEdit(
   route: StyleEditTargetRoute,
 ): { content: string; capability: EditCapability } | PatchResultStatus {
   const property = normalizeStyleProperty(intent.property);
-  if (!property || property === "--an-vector-stroke-position") {
+  if (
+    !property ||
+    property === "--an-vector-stroke-position" ||
+    property === LINE_SEGMENT_PROPERTY
+  ) {
     return "unsupported";
   }
   if (isVectorEndpointProperty(property)) {
@@ -7965,6 +8424,7 @@ function applyBreakpointStyleEdit(
   const property = normalizeStyleProperty(intent.property);
   if (!property) return "unsupported";
   if (isVectorEndpointProperty(property)) return "unsupported";
+  if (property === LINE_SEGMENT_PROPERTY) return "unsupported";
   if (element.tag === "svg" && BORDER_RADIUS_PROPERTY.test(property)) {
     return "unsupported";
   }
@@ -8442,15 +8902,6 @@ function stripStyleProperties(
   return serializeStyleDeclarations(parsed);
 }
 
-const AUTO_LAYOUT_STRIP_PROPS = [
-  "position",
-  "left",
-  "top",
-  "right",
-  "bottom",
-  "inset",
-] as const;
-
 const FLEX_ITEM_STRIP_PROPS = [
   "flex",
   "flex-grow",
@@ -8459,6 +8910,8 @@ const FLEX_ITEM_STRIP_PROPS = [
   "align-self",
   "order",
 ] as const;
+
+const MEASURED_FLOW_STYLE_ATTR = "data-agent-native-group-flow-style";
 
 const MEASURED_FLOW_REBASE_STRIP_PROPS = [
   "position",
@@ -8486,23 +8939,94 @@ const MEASURED_FLOW_REBASE_STRIP_PROPS = [
   "margin-inline-end",
 ] as const;
 
+function layoutNodeFromParsed(
+  element: ParsedElement,
+  rect: LayoutRect | null = null,
+  box: LayoutBoxModel | null = null,
+): LayoutNodeInput {
+  const styles: Record<string, string> = {};
+  for (const [property, value] of Object.entries(
+    parseStyle(attributeValue(element, "style")),
+  )) {
+    styles[camelCssProperty(property)] = value
+      .replace(/\s*!important\s*$/i, "")
+      .trim();
+  }
+  return {
+    id: attributeValue(element, "data-agent-native-node-id"),
+    tagName: element.tag,
+    primitiveKind:
+      attributeValue(element, "data-an-primitive") ??
+      attributeValue(element, "data-agent-native-primitive") ??
+      undefined,
+    styles,
+    classes: classList(element),
+    rect,
+    box,
+  };
+}
+
+function camelCssProperty(property: string): string {
+  return property.startsWith("--")
+    ? property
+    : property.replace(/-([a-z])/g, (_, letter: string) =>
+        letter.toUpperCase(),
+      );
+}
+
+function kebabCssProperty(property: string): string {
+  return property.startsWith("--")
+    ? property
+    : property.replace(/[A-Z]/g, (letter) => `-${letter.toLowerCase()}`);
+}
+
+function applyLayoutStylePatch(
+  declarations: ParsedStyleDeclarations,
+  patch: LayoutStylePatch,
+): void {
+  const removals = Object.keys(patch)
+    .filter((property) => patch[property] === null)
+    .map(kebabCssProperty);
+  if (removals.length > 0) removeStyleDeclarations(declarations, removals);
+  for (const [property, value] of Object.entries(patch)) {
+    if (value !== null) {
+      setStyleDeclaration(declarations, kebabCssProperty(property), value);
+    }
+  }
+}
+
 function stripAbsolutePositioningFromChild(
   html: string,
   child: ParsedElement,
   forceRootIntoFlow = false,
+  renderedSize?: { width: number; height: number; box?: LayoutBoxModel },
 ): string {
   const currentStyle = attributeValue(child, "style");
+  const declarations = parseStyleDeclarations(currentStyle ?? "");
+  const joinPatch = joinFlowPatch(
+    layoutNodeFromParsed(
+      child,
+      renderedSize
+        ? {
+            x: 0,
+            y: 0,
+            width: renderedSize.width,
+            height: renderedSize.height,
+          }
+        : null,
+      renderedSize?.box ?? null,
+    ),
+  );
+  // Without a measurement an inset-sized child cannot keep its size in flow;
+  // it stays absolute inside the frame rather than collapsing.
+  if (joinPatch === null) return html;
+  applyLayoutStylePatch(declarations, joinPatch);
   const isFrame =
     (
       attributeValue(child, "data-an-primitive") ||
       attributeValue(child, "data-agent-native-primitive")
     )?.toLowerCase() === "frame";
-  const strippedStyle = currentStyle
-    ? stripStyleProperties(currentStyle, [...AUTO_LAYOUT_STRIP_PROPS])
-    : "";
-  let nextStyle = strippedStyle;
   if (isFrame || forceRootIntoFlow) {
-    const declarations = parseStyleDeclarations(strippedStyle);
     for (const [property, value] of [
       ["position", "relative !important"],
       ["left", "auto !important"],
@@ -8512,11 +9036,15 @@ function stripAbsolutePositioningFromChild(
     ]) {
       setStyleDeclaration(declarations, property, value);
     }
-    nextStyle = serializeStyleDeclarations(declarations);
   }
   let nextHtml =
     currentStyle || isFrame || forceRootIntoFlow
-      ? replaceOrInsertAttribute(html, child, "style", nextStyle)
+      ? replaceOrInsertAttribute(
+          html,
+          child,
+          "style",
+          serializeStyleDeclarations(declarations),
+        )
       : html;
 
   const reparsed = parseHtmlElements(nextHtml);
@@ -8576,16 +9104,70 @@ function rebaseMeasuredFlowChild(
   top: number,
 ): string {
   const declarations = parseStyleDeclarations(attributeValue(child, "style"));
+  const authored = declarations.declarations
+    .filter((declaration) =>
+      isMeasuredFlowStrippedProp(cssPropertyKey(declaration.prop)),
+    )
+    .map(
+      (declaration) =>
+        `${declaration.prop}: ${styleDeclarationValue(declaration)}`,
+    );
   removeStyleDeclarations(declarations, MEASURED_FLOW_REBASE_STRIP_PROPS);
   setStyleDeclaration(declarations, "position", "absolute");
   setStyleDeclaration(declarations, "left", formatMeasuredPixel(left));
   setStyleDeclaration(declarations, "top", formatMeasuredPixel(top));
-  return replaceOrInsertAttribute(
-    html,
-    child,
-    "style",
-    serializeStyleDeclarations(declarations),
+  return patchElementAttributes(html, [
+    {
+      element: child,
+      attributes: {
+        style: serializeStyleDeclarations(declarations),
+        [MEASURED_FLOW_STYLE_ATTR]:
+          authored.length > 0 ? authored.join("; ") : null,
+      },
+    },
+  ]);
+}
+
+function releaseMeasuredFlowChild(html: string, child: ParsedElement): string {
+  if (parseStyle(attributeValue(child, "style")).position !== "absolute") {
+    return html;
+  }
+  const declarations = parseStyleDeclarations(attributeValue(child, "style"));
+  removeStyleDeclarations(declarations, ["position", "left", "top"]);
+  // A family the user set again while grouped keeps their value: appending the
+  // snapshot's shorthand after a newer longhand would silently override it.
+  const keys = declarations.declarations.map((declaration) =>
+    cssPropertyKey(declaration.prop),
   );
+  const editedMargin = keys.some((key) => key.startsWith("margin"));
+  const editedOffset = keys.some(
+    (key) => isMeasuredFlowStrippedProp(key) && !key.startsWith("margin"),
+  );
+  const saved = parseStyleDeclarations(
+    attributeValue(child, MEASURED_FLOW_STYLE_ATTR),
+  ).declarations;
+  for (const declaration of saved) {
+    const isMargin = cssPropertyKey(declaration.prop).startsWith("margin");
+    if (isMargin ? editedMargin : editedOffset) continue;
+    setStyleDeclaration(
+      declarations,
+      declaration.prop,
+      styleDeclarationValue(declaration),
+    );
+  }
+  return patchElementAttributes(html, [
+    {
+      element: child,
+      attributes: {
+        style: serializeStyleDeclarations(declarations),
+        [MEASURED_FLOW_STYLE_ATTR]: null,
+      },
+    },
+  ]);
+}
+
+function isMeasuredFlowStrippedProp(key: string): boolean {
+  return (MEASURED_FLOW_REBASE_STRIP_PROPS as readonly string[]).includes(key);
 }
 
 function nextSequentialWrapperName(
@@ -8626,26 +9208,52 @@ interface AbsoluteUnionBounds {
   height: number;
 }
 
+interface AbsoluteUnionGeometry extends AbsoluteUnionBounds {
+  /**
+   * Members anchored by right/bottom, %, calc() or utility classes. Their
+   * authored offsets mean nothing inside the new wrapper, so they are pinned
+   * at their measured box instead of rebased.
+   */
+  measuredMembers: Map<ParsedElement, AbsoluteUnionBounds>;
+}
+
 function computeAbsoluteUnionBounds(
   elements: ParsedElement[],
   sizeHints?: ReadonlyMap<ParsedElement, WrapNodeSizeHint>,
-): AbsoluteUnionBounds | null {
+): AbsoluteUnionGeometry | null {
   let minLeft = Infinity;
   let minTop = Infinity;
   let maxRight = -Infinity;
   let maxBottom = -Infinity;
+  const measuredMembers = new Map<ParsedElement, AbsoluteUnionBounds>();
 
   for (const element of elements) {
     const style = parseStyle(attributeValue(element, "style"));
-    if (style.position !== "absolute") return null;
-    const left = parsePixelLength(style.left);
-    const top = parsePixelLength(style.top);
     const hint = sizeHints?.get(element);
+    if (style.position !== "absolute" && !hint?.outOfFlow) return null;
+    const authoredLeft = parsePixelLength(style.left);
+    const authoredTop = parsePixelLength(style.top);
     const width = parsePixelLength(style.width) ?? hint?.width ?? null;
     const height = parsePixelLength(style.height) ?? hint?.height ?? null;
-    if (left === null || top === null || width === null || height === null) {
-      return null;
+    if (width === null || height === null) return null;
+    let left = authoredLeft;
+    let top = authoredTop;
+    if (
+      (left === null || top === null) &&
+      hint &&
+      Number.isFinite(hint.left) &&
+      Number.isFinite(hint.top)
+    ) {
+      left = hint.left!;
+      top = hint.top!;
+      measuredMembers.set(element, {
+        left,
+        top,
+        width: hint.width,
+        height: hint.height,
+      });
     }
+    if (left === null || top === null) return null;
     minLeft = Math.min(minLeft, left);
     minTop = Math.min(minTop, top);
     maxRight = Math.max(maxRight, left + width);
@@ -8662,10 +9270,24 @@ function computeAbsoluteUnionBounds(
   }
 
   return {
-    left: minLeft,
-    top: minTop,
-    width: maxRight - minLeft,
-    height: maxBottom - minTop,
+    ...wholePixelBounds(minLeft, minTop, maxRight, maxBottom),
+    measuredMembers,
+  };
+}
+
+function wholePixelBounds(
+  minLeft: number,
+  minTop: number,
+  maxRight: number,
+  maxBottom: number,
+): AbsoluteUnionBounds {
+  const left = Math.round(minLeft);
+  const top = Math.round(minTop);
+  return {
+    left,
+    top,
+    width: Math.round(maxRight) - left,
+    height: Math.round(maxBottom) - top,
   };
 }
 
@@ -8939,12 +9561,7 @@ function computeMeasuredFlowBounds(
     return null;
   }
 
-  return {
-    left: minLeft,
-    top: minTop,
-    width: maxRight - minLeft,
-    height: maxBottom - minTop,
-  };
+  return wholePixelBounds(minLeft, minTop, maxRight, maxBottom);
 }
 
 function computeAbsoluteUnionOrigin(
@@ -8962,7 +9579,7 @@ function computeAbsoluteUnionOrigin(
     minTop = Math.min(minTop, top);
   }
   if (!Number.isFinite(minLeft) || !Number.isFinite(minTop)) return null;
-  return { left: minLeft, top: minTop };
+  return { left: Math.round(minLeft), top: Math.round(minTop) };
 }
 
 function applyWrapNodes(
@@ -9100,12 +9717,24 @@ function applyWrapNodes(
       const fragElements = parseHtmlElements(frag);
       const root = fragElements.find((fe) => fe.parentIndex === undefined);
       if (root) {
-        frag = stripAbsolutePositioningFromChild(frag, root);
+        frag = stripAbsolutePositioningFromChild(
+          frag,
+          root,
+          false,
+          sizeHintsByElement.get(el),
+        );
       }
     } else if (targetGeometry) {
       const fragElements = parseHtmlElements(frag);
       const root = fragElements.find((fe) => fe.parentIndex === undefined);
-      if (root) {
+      const measured = targetGeometry.measuredMembers.get(el);
+      if (root && measured) {
+        frag = pinMeasuredAbsoluteChild(frag, root, {
+          ...measured,
+          left: measured.left - targetGeometry.left,
+          top: measured.top - targetGeometry.top,
+        });
+      } else if (root) {
         frag = rebaseChildOffset(
           frag,
           root,
@@ -9590,7 +10219,39 @@ function parsePixelLength(value: string | undefined): number | null {
 }
 
 function formatMeasuredPixel(value: number): string {
-  return `${Number(value.toFixed(4))}px`;
+  return `${Math.round(value)}px`;
+}
+
+function pinMeasuredAbsoluteChild(
+  html: string,
+  child: ParsedElement,
+  box: AbsoluteUnionBounds,
+): string {
+  const declarations = parseStyleDeclarations(attributeValue(child, "style"));
+  const authored = parseStyle(attributeValue(child, "style"));
+  removeStyleDeclarations(declarations, ["inset"]);
+  setStyleDeclaration(declarations, "position", "absolute");
+  setStyleDeclaration(declarations, "margin", "0");
+  setStyleDeclaration(declarations, "left", formatMeasuredPixel(box.left));
+  setStyleDeclaration(declarations, "top", formatMeasuredPixel(box.top));
+  setStyleDeclaration(declarations, "right", "auto");
+  setStyleDeclaration(declarations, "bottom", "auto");
+  if (parsePixelLength(authored.width) === null) {
+    setStyleDeclaration(declarations, "width", formatMeasuredPixel(box.width));
+  }
+  if (parsePixelLength(authored.height) === null) {
+    setStyleDeclaration(
+      declarations,
+      "height",
+      formatMeasuredPixel(box.height),
+    );
+  }
+  return replaceOrInsertAttribute(
+    html,
+    child,
+    "style",
+    serializeStyleDeclarations(declarations),
+  );
 }
 
 function rebaseChildOffset(
@@ -9609,12 +10270,16 @@ function rebaseChildOffset(
     nextStyle = setStyleValue(
       nextStyle,
       "left",
-      `${currentLeft + deltaLeftPx}px`,
+      `${Math.round(currentLeft + deltaLeftPx)}px`,
     );
   }
   const currentTop = parsePixelLength(style.top);
   if (currentTop !== null && deltaTopPx !== 0) {
-    nextStyle = setStyleValue(nextStyle, "top", `${currentTop + deltaTopPx}px`);
+    nextStyle = setStyleValue(
+      nextStyle,
+      "top",
+      `${Math.round(currentTop + deltaTopPx)}px`,
+    );
   }
   if (nextStyle === (currentStyle ?? "")) return html;
   return replaceOrInsertAttribute(html, child, "style", nextStyle);
@@ -10137,9 +10802,20 @@ function applyUnwrap(
   const hasMeasuredFlowOrigin =
     measuredGroupLeft !== null || measuredGroupTop !== null;
   const shouldRebase = hasPositionedOffset || hasMeasuredFlowOrigin;
+  // A measured-flow group only exists around children that were in flow, and
+  // a pinned child is out of flow, so its siblings would reflow around the gap.
+  const releaseIntoFlow = hasMeasuredFlowOrigin && !hasPositionedOffset;
 
   let innerContent = html.slice(element.contentStart, element.contentEnd);
-  if (shouldRebase) {
+  if (releaseIntoFlow) {
+    const fragmentElements = parseHtmlElements(innerContent);
+    const directChildren = fragmentElements.filter(
+      (fe) => fe.parentIndex === undefined,
+    );
+    for (const child of [...directChildren].sort((a, b) => b.start - a.start)) {
+      innerContent = releaseMeasuredFlowChild(innerContent, child);
+    }
+  } else if (shouldRebase) {
     const deltaLeftPx =
       (measuredGroupLeft ?? 0) + (hasPositionedOffset ? (wrapperLeft ?? 0) : 0);
     const deltaTopPx =
@@ -10170,12 +10846,6 @@ function applyUnwrap(
   };
 }
 
-function holdsOpen(value: string, extent: number): boolean {
-  const trimmed = value.trim();
-  if (!/^[\d.]+px$/i.test(trimmed)) return !/^0[a-z%]*$/i.test(trimmed);
-  return Number.parseFloat(trimmed) >= extent;
-}
-
 const GENERATED_FLEX_ALIGNMENT_ATTRIBUTE =
   "data-agent-native-generated-flex-align-items";
 
@@ -10196,40 +10866,60 @@ function applyAutoLayout(
   const element = build.elementByNodeId.get(node.id);
   if (!element) return "conflict";
 
+  const childRects = intent.childRects ?? {};
+  const frameNode = layoutNodeFromParsed(element);
+  // The projection, not the inline style alone, knows whether a class or
+  // stylesheet already lays this frame out.
+  const model = readLayoutModel({
+    node: {
+      ...frameNode,
+      styles: {
+        ...frameNode.styles,
+        display: node.layout.isGridContainer
+          ? "grid"
+          : node.layout.isFlexContainer
+            ? "flex"
+            : "block",
+      },
+      resolvedSize: {
+        horizontal: intent.containerRect?.width ?? null,
+        vertical: intent.containerRect?.height ?? null,
+      },
+    },
+    // Without the parent, a full-width section reads as Hug and would be
+    // pinned to a px width when auto layout is removed.
+    parent:
+      element.parentIndex === undefined
+        ? null
+        : {
+            display: node.layout.parentDisplay || "block",
+            ...(node.layout.parentFlexDirection
+              ? { flexDirection: node.layout.parentFlexDirection }
+              : {}),
+          },
+    children: {
+      status: "read",
+      looseText: false,
+      complete: true,
+      children: element.childIndexes.flatMap((index) => {
+        const child = build.elements[index];
+        if (!child) return [];
+        const id = attributeValue(child, "data-agent-native-node-id");
+        const measured = id ? childRects[id] : undefined;
+        return [
+          layoutNodeFromParsed(child, measured ?? null, measured?.box ?? null),
+        ];
+      }),
+    },
+  });
+
   if (!enabled) {
-    const childRects = intent.childRects;
-    const hasRects = !!childRects && Object.keys(childRects).length > 0;
-    if (!hasRects) return "needsAgent";
-    const currentStyle = attributeValue(element, "style");
-    const declarations = parseStyleDeclarations(currentStyle);
-    const setOnContainer = (property: string, value: string) => {
-      setStyleDeclaration(declarations, property, value);
-    };
-    setOnContainer("display", "block");
-    if (hasRects) {
-      const position = effectiveStyleDeclarations(declarations).find(
-        (d) => cssPropertyKey(d.prop) === "position",
-      );
-      if (!position || position.value === "static") {
-        setOnContainer("position", "relative");
-      }
-      const rect = intent.containerRect;
-      if (rect) {
-        for (const [property, value] of [
-          ["min-width", rect.width],
-          ["min-height", rect.height],
-        ] as const) {
-          const existing = effectiveStyleDeclarations(declarations).find(
-            (d) => cssPropertyKey(d.prop) === property,
-          );
-          if (existing && !holdsOpen(existing.value, value)) {
-            setOnContainer(property, `${Math.round(value)}px`);
-          } else if (!existing) {
-            setOnContainer(property, `${Math.round(value)}px`);
-          }
-        }
-      }
-    }
+    const write = writeLayoutChange(model, { kind: "disable-auto-layout" });
+    if (write.status !== "ok") return "needsAgent";
+    const declarations = parseStyleDeclarations(
+      attributeValue(element, "style"),
+    );
+    applyLayoutStylePatch(declarations, write.frame);
     let result = replaceOrInsertAttribute(
       html,
       element,
@@ -10249,23 +10939,15 @@ function applyAutoLayout(
     if (updatedTarget) {
       for (const childIndex of [...updatedTarget.childIndexes].reverse()) {
         const child = updatedElements[childIndex];
-        if (!child) continue;
-        const childId = attributeValue(child, "data-agent-native-node-id");
-        const rect = childId ? childRects[childId] : undefined;
-        if (!rect) continue;
+        const childId = child
+          ? attributeValue(child, "data-agent-native-node-id")
+          : null;
+        const childPatch = childId ? write.children.get(childId) : undefined;
+        if (!child || !childPatch) continue;
         const childDecls = parseStyleDeclarations(
           attributeValue(child, "style"),
         );
-        const setOnChild = (property: string, value: string) => {
-          setStyleDeclaration(childDecls, property, value);
-        };
-        setOnChild("box-sizing", "border-box");
-        setOnChild("margin", "0");
-        setOnChild("position", "absolute");
-        setOnChild("left", `${Math.round(rect.x)}px`);
-        setOnChild("top", `${Math.round(rect.y)}px`);
-        setOnChild("width", `${Math.round(rect.width)}px`);
-        setOnChild("height", `${Math.round(rect.height)}px`);
+        applyLayoutStylePatch(childDecls, childPatch);
         result = replaceOrInsertAttribute(
           result,
           child,
@@ -10410,12 +11092,17 @@ function applyAutoLayout(
   };
   const updatedTarget = findElementInParsed(updatedElements);
 
-  if (updatedTarget) {
+  // Changing direction, gap or alignment on a frame that already lays out
+  // must not drag its intentionally absolute children (badges, overlays)
+  // into flow; only the freeform → auto layout transition does that.
+  if (updatedTarget && model.frame.mode === "none") {
     const childIndexes = [...updatedTarget.childIndexes].reverse();
     for (const childIndex of childIndexes) {
       const child = updatedElements[childIndex];
       if (!child) continue;
-      result = stripAbsolutePositioningFromChild(result, child);
+      const childId = attributeValue(child, "data-agent-native-node-id");
+      const rect = childId ? childRects[childId] : undefined;
+      result = stripAbsolutePositioningFromChild(result, child, false, rect);
     }
   }
   if (!isFlowLayoutContainer(element)) {

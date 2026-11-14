@@ -9,6 +9,7 @@ import {
   isInstructionPath,
   normalizeChangedPath,
 } from "./ci-change-scope.ts";
+import { pnpmCommand } from "./lib/pnpm-command.ts";
 
 const ROOT = process.cwd();
 const CORE = "@agent-native/core";
@@ -16,12 +17,9 @@ const LANES = Math.max(1, Number(process.env.LANES || 5));
 // Each lane pays ~100 s of checkout and install, so a shard smaller than this
 // spends more time on setup than it saves.
 const MIN_SHARD_FILES = 100;
-// Slides 2's full fast suite can exhaust a Vitest worker's heap on CI.
-const MIN_PACKAGE_SHARDS: Readonly<Record<string, number>> = { "slides-2": 64 };
-const MAX_PACKAGE_SHARDS: Readonly<Record<string, number>> = { "slides-2": 64 };
-const MIN_PACKAGE_SHARD_FILES: Readonly<Record<string, number>> = {
-  "slides-2": 7,
-};
+const MIN_PACKAGE_SHARDS: Readonly<Record<string, number>> = {};
+const MAX_PACKAGE_SHARDS: Readonly<Record<string, number>> = {};
+const MIN_PACKAGE_SHARD_FILES: Readonly<Record<string, number>> = {};
 
 const PACKAGE_PARENTS = ["packages", "templates"];
 const COMMUNITY_TEMPLATES_PARENT = "community-templates";
@@ -120,10 +118,6 @@ function discoverTestPackages(includeCommunityTemplates: boolean): Pkg[] {
   return out;
 }
 
-function pnpmCommand(): string {
-  return process.platform === "win32" ? "pnpm.cmd" : "pnpm";
-}
-
 function readTargetedFilters(): string[] | undefined {
   const raw = process.env.CI_WORKSPACE_FILTERS;
   if (raw === undefined) return undefined;
@@ -165,8 +159,10 @@ function resolveTestPackages(all: Pkg[], filters: string[] | undefined): Pkg[] {
     "--depth=-1",
     "--json",
   ];
-  const output = execFileSync(pnpmCommand(), args, {
+  const pnpm = pnpmCommand(args);
+  const output = execFileSync(pnpm.command, pnpm.args, {
     encoding: "utf8",
+    shell: pnpm.shell,
   });
 
   let workspaces: unknown;
@@ -235,7 +231,31 @@ export function requiresFullCoreFastTests(paths: readonly string[]): boolean {
 const CATALOG_CONTRACT_CORE_SPECS = [
   "src/mcp/advertised-tool-annotations.spec.ts",
   "src/mcp/instructions-name-advertised-tools.spec.ts",
+  "src/mcp/hidden-inline-apps.spec.ts",
 ] as const;
+
+// The tool-search benchmark ranks requests against templates' action
+// registries, which it imports through a generated file `vitest --changed`
+// cannot see. Core changes reach it through the import graph; a template
+// action (its name, description, schema, or search hints) needs this, and so
+// does a `shared/` module, where actions keep schemas they share with the UI.
+const TOOL_SEARCH_BENCHMARK_CORE_SPEC =
+  "src/agent/tool-search.benchmark.spec.ts";
+
+export function toolSearchBenchmarkCoreSpecs(
+  paths: readonly string[],
+): readonly string[] {
+  return paths.some((path) => {
+    const normalized = normalizeChangedPath(path);
+    return (
+      /^templates\/[^/]+\/(?:actions|shared)\/.+\.tsx?$/u.test(normalized) &&
+      !TEST_FILE_RE.test(normalized) &&
+      !/\.d\.[cm]?ts$/u.test(normalized)
+    );
+  })
+    ? [TOOL_SEARCH_BENCHMARK_CORE_SPEC]
+    : [];
+}
 const NON_CODE_ASSET_RE =
   /\.(?:css|scss|sass|less|png|jpe?g|gif|webp|avif|ico|svg|woff2?|ttf|otf|eot|mp3|mp4|wav|webm|mov)$/iu;
 
@@ -264,9 +284,11 @@ function readCoreFastTestFiles(since?: string): string[] {
     args.push("--exclude", exclude);
   }
 
-  const output = execFileSync(pnpmCommand(), args, {
+  const pnpm = pnpmCommand(args);
+  const output = execFileSync(pnpm.command, pnpm.args, {
     cwd: ROOT,
     encoding: "utf8",
+    shell: pnpm.shell,
   });
   let result: unknown;
   try {
@@ -646,6 +668,7 @@ function main(): void {
       ...new Set([
         ...readCoreFastTestFiles(fullCore ? undefined : baseSha),
         ...(fullCore ? [] : catalogContractCoreSpecs(changedPaths)),
+        ...(fullCore ? [] : toolSearchBenchmarkCoreSpecs(changedPaths)),
       ]),
     ];
     coreFiles = coreTestFiles.length;

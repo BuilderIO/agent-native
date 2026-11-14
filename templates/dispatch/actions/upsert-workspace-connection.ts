@@ -278,11 +278,20 @@ export default defineAction({
       }
     }
     const result = await upsertWorkspaceConnection({
-      ...args,
+      provider: args.provider,
+      ...(args.id === undefined ? {} : { id: args.id }),
+      ...(args.label === undefined ? {} : { label: args.label }),
+      ...(args.accountId === undefined ? {} : { accountId: args.accountId }),
+      ...(args.accountLabel === undefined
+        ? {}
+        : { accountLabel: args.accountLabel }),
+      ...(args.scopes === undefined ? {} : { scopes: args.scopes }),
+      ...(args.lastError === undefined ? {} : { lastError: args.lastError }),
+      allowedApps: args.allowedApps,
       config,
       status: args.status as WorkspaceConnectionStatus,
-      allowedUsers,
-      allowedUserGroups,
+      ...(allowedUsers === undefined ? {} : { allowedUsers }),
+      ...(allowedUserGroups === undefined ? {} : { allowedUserGroups }),
       credentialRefs: normalizeCredentialRefs(args.credentialRefs, provider),
     });
     const channel = args.provider.trim().toLowerCase();

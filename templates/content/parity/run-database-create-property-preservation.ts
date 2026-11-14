@@ -91,6 +91,7 @@ const runner = await createAgentRunner({
               type: "status",
               writable: true,
               sourceManaged: false,
+              systemRole: null,
               acceptedShape: null,
               options: {
                 options: [
@@ -108,6 +109,7 @@ const runner = await createAgentRunner({
               type: "text",
               writable: true,
               sourceManaged: false,
+              systemRole: null,
               acceptedShape: null,
               options: {},
             },

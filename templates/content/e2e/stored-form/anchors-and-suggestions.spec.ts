@@ -616,67 +616,61 @@ test.describe(
       },
     );
 
-    test(
-      "accepting a suggestion after the edits applies its change once, in both tabs",
-      knownLossSpec({
-        lane: "L7",
-        outcome: "SF-05",
-        reason:
-          "Accepting a suggestion from its card after the page body changed since the suggestion was made crashes the accepting tab with React error #185 (Something went wrong), though the server applies the change once.",
-      }),
-      async ({ page, context }) => {
-        const scene = await editAround(
-          page,
-          context,
-          agent,
-          "SF-05 accept after edits",
-        );
-        const decisions = recordDecisions(scene.first);
-        const before = (await getDocument(page, scene.id)).content ?? "";
-        expect(countMarkers(before, [ACCEPTED.find])[ACCEPTED.find]).toBe(1);
-        const expected = before.replace(ACCEPTED.find, ACCEPTED.replace);
+    test("accepting a suggestion after the edits applies its change once, in both tabs", async ({
+      page,
+      context,
+    }) => {
+      const scene = await editAround(
+        page,
+        context,
+        agent,
+        "SF-05 accept after edits",
+      );
+      const decisions = recordDecisions(scene.first);
+      const before = (await getDocument(page, scene.id)).content ?? "";
+      expect(countMarkers(before, [ACCEPTED.find])[ACCEPTED.find]).toBe(1);
+      const expected = before.replace(ACCEPTED.find, ACCEPTED.replace);
 
-        await decideInUi(scene.first, scene.accepted, "accepted");
-        await expect
-          .poll(() => suggestionStatus(page, scene.id, scene.accepted), {
-            message: "the suggestion is accepted",
-            timeout: 30_000,
-          })
-          .toBe("accepted");
-        await expect
-          .poll(async () => (await getDocument(page, scene.id)).content, {
-            message: "the body with the accepted change",
-            timeout: 30_000,
-          })
-          .toBe(expected);
-        await expectShowsAccepted(scene.tabs, scene.second, scene.accepted);
-        await expectShowsAccepted(scene.tabs, scene.first, scene.accepted);
-        // A tab that saves its older copy after the accept would undo it.
-        await delay(POLL_INTERVAL_MS + 3_000);
-        await scene.tabs.quiet();
+      await decideInUi(scene.first, scene.accepted, "accepted");
+      await expect
+        .poll(() => suggestionStatus(page, scene.id, scene.accepted), {
+          message: "the suggestion is accepted",
+          timeout: 30_000,
+        })
+        .toBe("accepted");
+      await expect
+        .poll(async () => (await getDocument(page, scene.id)).content, {
+          message: "the body with the accepted change",
+          timeout: 30_000,
+        })
+        .toBe(expected);
+      await expectShowsAccepted(scene.tabs, scene.second, scene.accepted);
+      await expectShowsAccepted(scene.tabs, scene.first, scene.accepted);
+      // A tab that saves its older copy after the accept would undo it.
+      await delay(POLL_INTERVAL_MS + 3_000);
+      await scene.tabs.quiet();
+      expect(
+        (await getDocument(page, scene.id)).content,
+        "the body a poll interval after the accept",
+      ).toBe(expected);
+      for (const [tab, label] of [
+        [scene.first, "A"],
+        [scene.second, "B"],
+      ] as const)
         expect(
-          (await getDocument(page, scene.id)).content,
-          "the body a poll interval after the accept",
-        ).toBe(expected);
-        for (const [tab, label] of [
-          [scene.first, "A"],
-          [scene.second, "B"],
-        ] as const)
-          expect(
-            countMarkers(await editorText(tab), [
-              ACCEPTED.replace,
-              ...scene.markers.all,
-            ]),
-            `${label} after the accept`,
-          ).toEqual(
-            Object.fromEntries(
-              [ACCEPTED.replace, ...scene.markers.all].map((word) => [word, 1]),
-            ),
-          );
-        expect(decisions.map((answer) => answer.status)).toEqual([200]);
-        expectNoNoise(scene.tabs);
-      },
-    );
+          countMarkers(await editorText(tab), [
+            ACCEPTED.replace,
+            ...scene.markers.all,
+          ]),
+          `${label} after the accept`,
+        ).toEqual(
+          Object.fromEntries(
+            [ACCEPTED.replace, ...scene.markers.all].map((word) => [word, 1]),
+          ),
+        );
+      expect(decisions.map((answer) => answer.status)).toEqual([200]);
+      expectNoNoise(scene.tabs);
+    });
 
     test(
       "rejecting a suggestion after the edits leaves the body byte for byte",
@@ -762,12 +756,6 @@ test.describe(
         // SF-11 keeps gate off on main's body path, which stores the agent's
         // bytes as sent, so no lane flips this arm before the old path goes.
         off: { lane: "unowned", outcome: "SF-05", reason: AGENT_FORM_LOSS },
-        on: {
-          lane: "L7",
-          outcome: "SF-05",
-          reason:
-            "On a switched page the comments stay anchored and the suggestion paints, but until L7 accepting it fails with a 500: decide-resource-suggestion writes through withPreparedYDocMutation, which refuses a live copy.",
-        },
       }),
       async ({ page, context }) => {
         const { id } = await agent.createPage("SF-05 agent form", AGENT_FORM);

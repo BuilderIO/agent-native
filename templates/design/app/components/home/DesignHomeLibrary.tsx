@@ -1,8 +1,12 @@
 import type { ReactNode } from "react";
 
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import type { DesignHomeLibraryTab } from "@/home-library-state";
 
-export type DesignHomeLibraryTab = "templates" | "recent";
+export type { DesignHomeLibraryTab } from "@/home-library-state";
+
+const TAB_CLASS =
+  "h-auto px-0 py-0 text-lg leading-[27px] font-medium group-data-[variant=line]/tabs-list:h-auto group-data-[variant=line]/tabs-list:border-b group-data-[variant=line]/tabs-list:text-muted-foreground";
 
 interface DesignHomeLibraryProps {
   value: DesignHomeLibraryTab;
@@ -29,7 +33,8 @@ export function DesignHomeLibrary({
 
   return (
     <section
-      className="agent-prompt-home-library"
+      id="design-home-library"
+      className="agent-prompt-home-library mx-auto w-full max-w-[63rem]"
       aria-label={labels.templates}
     >
       <Tabs
@@ -42,18 +47,23 @@ export function DesignHomeLibrary({
         }}
       >
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <TabsList variant="line">
-            <TabsTrigger value="recent" className="flex-none">
-              {labels.recent}
-            </TabsTrigger>
+          <TabsList variant="line" className="gap-2 border-b-0">
             <TabsTrigger
               value="templates"
-              className="flex-none"
+              data-design-home-library-tab="templates"
+              className={TAB_CLASS}
               onClick={() => {
                 if (activeValue === "templates") onValueChange("templates");
               }}
             >
               {labels.templates}
+            </TabsTrigger>
+            <TabsTrigger
+              value="recent"
+              data-design-home-library-tab="recent"
+              className={TAB_CLASS}
+            >
+              {labels.recent}
             </TabsTrigger>
           </TabsList>
           {activeValue === "recent" ? (
@@ -65,8 +75,12 @@ export function DesignHomeLibrary({
             browseAll
           )}
         </div>
-        <TabsContent value="templates">{templates}</TabsContent>
-        <TabsContent value="recent">{recent}</TabsContent>
+        <TabsContent value="templates" className="mt-4">
+          {templates}
+        </TabsContent>
+        <TabsContent value="recent" className="mt-4">
+          {recent}
+        </TabsContent>
       </Tabs>
     </section>
   );

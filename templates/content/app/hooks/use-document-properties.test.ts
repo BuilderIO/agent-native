@@ -22,12 +22,15 @@ vi.mock("sonner", () => ({
 
 import {
   documentPropertiesPlaceholder,
+  documentPropertiesReadFailed,
   documentPropertiesResponseMatchesScope,
   useConfigureDocumentProperty,
+  useDeleteDocumentProperty,
   useDocumentProperties,
   useSetDocumentProperty,
   useUpdateDatabaseItems,
 } from "./use-document-properties";
+import { documentPropertiesQueryKey } from "./use-documents";
 
 describe("documentPropertiesResponseMatchesScope", () => {
   it("rejects placeholder data from another database for the same row", () => {
@@ -48,6 +51,65 @@ describe("documentPropertiesResponseMatchesScope", () => {
         properties: [],
       }),
     ).toBe(true);
+  });
+});
+
+describe("documentPropertiesReadFailed", () => {
+  const answer = {
+    documentId: "row-1",
+    databaseId: "database-1",
+    canEditValues: true,
+    canManageSchema: true,
+    properties: [],
+  };
+  const stopped = {
+    data: undefined,
+    dataUpdatedAt: 0,
+    fetchStatus: "idle",
+    isError: true,
+    isPlaceholderData: false,
+  };
+
+  it.each([
+    { state: "no answer at all", query: stopped, failed: true },
+    {
+      state: "only the row's early copy",
+      query: { ...stopped, data: answer },
+      failed: true,
+    },
+    {
+      state: "another row's answer",
+      query: {
+        ...stopped,
+        data: { ...answer, documentId: "row-2" },
+        dataUpdatedAt: 1,
+      },
+      failed: true,
+    },
+    {
+      state: "a confirmed answer whose refresh failed",
+      query: { ...stopped, data: answer, dataUpdatedAt: 1 },
+      failed: false,
+    },
+    {
+      state: "a retry still running",
+      query: { ...stopped, data: answer, fetchStatus: "fetching" },
+      failed: false,
+    },
+    {
+      state: "a retry paused offline",
+      query: { ...stopped, data: answer, fetchStatus: "paused" },
+      failed: false,
+    },
+    {
+      state: "a read with no error",
+      query: { ...stopped, isError: false },
+      failed: false,
+    },
+  ])("reads $state as failed: $failed", ({ query, failed }) => {
+    expect(
+      documentPropertiesReadFailed("row-1", "database-1", query as never),
+    ).toBe(failed);
   });
 });
 
@@ -131,6 +193,14 @@ describe("useDocumentProperties", () => {
     expect(options.enabled).toBe(false);
     expect(options.placeholderData({ documentId: "stale" })).toBe(placeholder);
   });
+
+  it("keeps a row's first real read out of a batch, even behind its early copy", () => {
+    useDocumentProperties("doc-1", "database-1");
+
+    expect(useActionQuery.mock.calls[0]?.[2]).toMatchObject({
+      batchRefetches: false,
+    });
+  });
 });
 
 describe("useUpdateDatabaseItems", () => {
@@ -202,6 +272,103 @@ describe("useUpdateDatabaseItems", () => {
       );
     } finally {
       subscriptions.forEach((unsubscribe) => unsubscribe());
+      queryClient.clear();
+    }
+  });
+});
+
+describe("useDeleteDocumentProperty", () => {
+  beforeEach(() => {
+    useActionMutation.mockReset();
+    useQueryClient.mockReset();
+    useActionMutation.mockImplementation((_name, options) => options);
+  });
+
+  it("rereads open table rows except reads that sort or filter on the deleted property", async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { staleTime: Infinity, retry: false } },
+    });
+    useQueryClient.mockReturnValue(queryClient);
+    const returnedPage = { items: [] };
+    const tableQuery = (constraints: Record<string, unknown>) => ({
+      search: "",
+      filters: [],
+      sorts: [],
+      ...constraints,
+    });
+    const deletedFilter = {
+      filters: [
+        { key: "deleted", label: "Deleted", operator: "equals", value: "x" },
+      ],
+    };
+    const tableRead = (constraints: Record<string, unknown>) =>
+      [
+        "action",
+        "query-content-database-items",
+        { documentId: "database-page", tableQuery: tableQuery(constraints) },
+      ] as const;
+    const searchKey = tableRead({ search: "draft" });
+    const filteredKey = tableRead(deletedFilter);
+    const sortedKey = tableRead({
+      sorts: [{ key: "deleted", label: "Deleted", direction: "asc" }],
+    });
+    const databaseKey = [
+      "action",
+      "get-content-database",
+      { documentId: "database-page" },
+    ] as const;
+    const filteredDatabaseKey = [
+      "action",
+      "get-content-database",
+      { documentId: "database-page", tableQuery: tableQuery(deletedFilter) },
+    ] as const;
+    const reads = [
+      searchKey,
+      filteredKey,
+      sortedKey,
+      databaseKey,
+      filteredDatabaseKey,
+    ].map((queryKey) => {
+      const queryFn = vi.fn(async () => returnedPage);
+      queryClient.setQueryData(
+        queryKey,
+        queryKey[1] === "get-content-database"
+          ? { database: { id: "database-1" }, properties: [], items: [] }
+          : { items: [{ id: "item-1" }] },
+      );
+      const observer = new QueryObserver(queryClient, { queryKey, queryFn });
+      return { queryFn, unsubscribe: observer.subscribe(() => {}) };
+    });
+
+    try {
+      useDeleteDocumentProperty("database-page", "database-1");
+      const call = useActionMutation.mock.calls.find(
+        ([name]) => name === "delete-document-property",
+      );
+      if (!call) throw new Error("delete-document-property was not wired");
+      const mutation = call[1];
+      mutation.onSuccess(
+        {
+          documentId: "database-page",
+          databaseId: "database-1",
+          properties: [],
+        },
+        {
+          documentId: "database-page",
+          databaseId: "database-1",
+          propertyId: "deleted",
+        },
+      );
+
+      await vi.waitFor(() => {
+        expect(queryClient.getQueryData(searchKey)).toEqual(returnedPage);
+        expect(queryClient.getQueryData(databaseKey)).toEqual(returnedPage);
+      });
+      expect(reads.map(({ queryFn }) => queryFn.mock.calls.length)).toEqual([
+        1, 0, 0, 1, 0,
+      ]);
+    } finally {
+      reads.forEach(({ unsubscribe }) => unsubscribe());
       queryClient.clear();
     }
   });
@@ -657,6 +824,7 @@ describe("useSetDocumentProperty", () => {
     const queryClient = {
       cancelQueries: vi.fn(),
       getQueriesData: vi.fn(() => []),
+      getQueryState: vi.fn(),
       setQueriesData: vi.fn(),
       setQueryData: vi.fn(),
       invalidateQueries: vi.fn(),
@@ -881,6 +1049,160 @@ describe("useSetDocumentProperty", () => {
     );
 
     expect(queryClient.getQueryState(pageKey)?.isInvalidated).toBe(true);
+  });
+
+  it("shows a saved value without waiting on the refresh after it", async () => {
+    const queryClient = new QueryClient();
+    const key = documentPropertiesQueryKey("row-1", "database-1");
+    const saved = { definition: { id: "marker" }, value: "before" };
+    const other = { definition: { id: "other" }, value: "kept" };
+    queryClient.setQueryData(key, {
+      documentId: "row-1",
+      databaseId: "database-1",
+      canEditValues: true,
+      canManageSchema: true,
+      properties: [saved, other],
+    });
+    useQueryClient.mockReturnValue(queryClient);
+    useActionMutation.mockImplementation((_name, options) => options);
+
+    useSetDocumentProperty("row-1", "database-1", "database-page");
+    const options = useActionMutation.mock.calls[0]?.[1];
+    const variables = {
+      documentId: "row-1",
+      databaseId: "database-1",
+      propertyId: "marker",
+      value: "after",
+    };
+    const context = await options.onMutate(variables);
+    options.onSuccess(
+      { properties: [{ ...saved, value: "after" }] },
+      variables,
+      context,
+    );
+
+    expect(queryClient.getQueryData(key)).toMatchObject({
+      canEditValues: true,
+      properties: [{ value: "after" }, { value: "kept" }],
+    });
+  });
+
+  it("keeps a row's early copy unconfirmed after saving one of its Properties", async () => {
+    const queryClient = new QueryClient();
+    const key = documentPropertiesQueryKey("row-1", "database-1");
+    const saved = { definition: { id: "marker" }, value: "before" };
+    queryClient.setQueryData(
+      key,
+      {
+        documentId: "row-1",
+        databaseId: "database-1",
+        canEditValues: false,
+        canManageSchema: false,
+        properties: [saved],
+      },
+      { updatedAt: 0 },
+    );
+    useQueryClient.mockReturnValue(queryClient);
+    useActionMutation.mockImplementation((_name, options) => options);
+
+    useSetDocumentProperty("row-1", "database-1", "database-page");
+    const options = useActionMutation.mock.calls[0]?.[1];
+    const variables = {
+      documentId: "row-1",
+      databaseId: "database-1",
+      propertyId: "marker",
+      value: "after",
+    };
+    const context = await options.onMutate(variables);
+    options.onSuccess(
+      { properties: [{ ...saved, value: "after" }] },
+      variables,
+      context,
+    );
+
+    expect(queryClient.getQueryData(key)).toMatchObject({
+      properties: [{ value: "after" }],
+    });
+    expect(queryClient.getQueryState(key)?.dataUpdatedAt).toBe(0);
+  });
+
+  it("keeps a row's failed read failed when one of its Properties saves", async () => {
+    const queryClient = new QueryClient();
+    const key = documentPropertiesQueryKey("row-1", "database-1");
+    const saved = { definition: { id: "marker" }, value: "before" };
+    queryClient.setQueryData(
+      key,
+      {
+        documentId: "row-1",
+        databaseId: "database-1",
+        canEditValues: false,
+        canManageSchema: false,
+        properties: [saved],
+      },
+      { updatedAt: 0 },
+    );
+    await queryClient
+      .fetchQuery({
+        queryKey: key,
+        queryFn: () => Promise.reject(new Error("refused")),
+        retry: false,
+      })
+      .catch(() => undefined);
+    useQueryClient.mockReturnValue(queryClient);
+    useActionMutation.mockImplementation((_name, options) => options);
+
+    useSetDocumentProperty("row-1", "database-1", "database-page");
+    const options = useActionMutation.mock.calls[0]?.[1];
+    const variables = {
+      documentId: "row-1",
+      databaseId: "database-1",
+      propertyId: "marker",
+      value: "after",
+    };
+    const context = await options.onMutate(variables);
+    options.onSuccess(
+      { properties: [{ ...saved, value: "after" }] },
+      variables,
+      context,
+    );
+
+    expect(queryClient.getQueryState(key)?.status).toBe("error");
+  });
+
+  it("keeps a saved value when the edit queued behind it fails", async () => {
+    const queryClient = new QueryClient();
+    const key = documentPropertiesQueryKey("row-1", "database-1");
+    const saved = { definition: { id: "marker" }, value: "first" };
+    queryClient.setQueryData(key, {
+      documentId: "row-1",
+      databaseId: "database-1",
+      canEditValues: true,
+      canManageSchema: true,
+      properties: [saved],
+    });
+    useQueryClient.mockReturnValue(queryClient);
+    useActionMutation.mockImplementation((_name, options) => options);
+
+    useSetDocumentProperty("row-1", "database-1", "database-page");
+    const options = useActionMutation.mock.calls[0]?.[1];
+    const edit = (value: string) => ({
+      documentId: "row-1",
+      databaseId: "database-1",
+      propertyId: "marker",
+      value,
+    });
+    const earlierContext = await options.onMutate(edit("second"));
+    const laterContext = await options.onMutate(edit("third"));
+    options.onSuccess(
+      { properties: [{ ...saved, value: "second" }] },
+      edit("second"),
+      earlierContext,
+    );
+    options.onError(new Error("refused"), edit("third"), laterContext);
+
+    expect(queryClient.getQueryData(key)).toMatchObject({
+      properties: [{ value: "second" }],
+    });
   });
 
   it("does not let an older property response overwrite a newer edit", async () => {

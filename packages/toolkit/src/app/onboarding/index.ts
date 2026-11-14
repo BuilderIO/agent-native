@@ -1,4 +1,5 @@
 export * from "./FirstRunOnboarding.js";
+export * from "./GettingStartedCard.js";
 export * from "./NewWorkspaceAppFlow.js";
 export * from "./OnboardingBanner.js";
 export * from "./OnboardingPanel.js";

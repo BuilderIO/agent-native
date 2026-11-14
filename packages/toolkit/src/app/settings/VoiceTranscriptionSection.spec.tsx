@@ -124,6 +124,7 @@ describe("VoiceTranscriptionSection compact picker", () => {
   let prefsGet: Handler;
   let prefsPut: Handler;
   let cleanupPrefsGet: Handler;
+  let providerStatus: Record<string, unknown>;
   const puts: unknown[] = [];
 
   beforeEach(() => {
@@ -139,6 +140,14 @@ describe("VoiceTranscriptionSection compact picker", () => {
     puts.length = 0;
     prefsGet = () => json({ transcriptionMode: "mac-native" });
     cleanupPrefsGet = () => json(null);
+    providerStatus = {
+      builder: false,
+      gemini: false,
+      openai: false,
+      groq: false,
+      googleRealtime: false,
+      browser: true,
+    };
     prefsPut = (init) => {
       puts.push(JSON.parse(String(init?.body)));
       return json({ ok: true });
@@ -152,14 +161,7 @@ describe("VoiceTranscriptionSection compact picker", () => {
         }
         if (url.endsWith("/voice-cleanup-prefs")) return cleanupPrefsGet(init);
         if (url.endsWith("/voice-providers/status")) {
-          return json({
-            builder: false,
-            gemini: false,
-            openai: false,
-            groq: false,
-            googleRealtime: false,
-            browser: true,
-          });
+          return json(providerStatus);
         }
         return json(null, 404);
       }),
@@ -312,6 +314,30 @@ describe("VoiceTranscriptionSection compact picker", () => {
     });
 
     expect(container.querySelector('[role="alert"]')).toBeNull();
+  });
+
+  it("shows unreadable credentials as a retryable failure, not as unconfigured", async () => {
+    await render(false);
+    expect(container.textContent).toContain("Configure");
+
+    act(() => root.unmount());
+    root = createRoot(container);
+    providerStatus = {
+      ...providerStatus,
+      credentialLookupFailed: [
+        "builder",
+        "gemini",
+        "openai",
+        "groq",
+        "googleRealtime",
+      ],
+    };
+    await render(false);
+
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain(
+      "Couldn't load this. Please try again.",
+    );
+    expect(container.textContent).not.toContain("Configure");
   });
 
   it("shows and retries a synchronous cleanup preference mount failure", async () => {

@@ -1,4 +1,11 @@
 const messages = {
+  composerSources: {
+    reference: "الإشارة إلى محادثة…",
+    group: "المحادثات",
+    authentication: "سجّل الدخول لإضافة مرجع.",
+    invalid: "اختر مرجعًا صالحًا قبل الإرسال.",
+    unavailable: "لم يعد المرجع المحدد متاحًا. أزله أو اختره مرة أخرى.",
+  },
   composer: {
     removeAttachment: "إزالة {{name}}",
     removeReference: "إزالة مرجع {{name}}",
@@ -17,9 +24,9 @@ const messages = {
   },
   chat: {
     archiveChat: "أرشفة المحادثة",
-    archiveFailed: "فشلت الأرشفة",
+    archiveFailed: "تعذرت أرشفة المحادثة.",
     chats: "المحادثات",
-    composerPlaceholder: "اسأل الوكيل...",
+    composerPlaceholder: "اسأل عن أي شيء",
     emptyState: "اسألني أي شيء",
     heroDescription: "اطلب من الوكيل فحص هذا التطبيق أو شرحه أو تغييره.",
     heroTitle: "كيف يمكنني المساعدة؟",
@@ -28,7 +35,7 @@ const messages = {
     inspectSuggestionCapabilities: "ما الذي يمكن لهذا التطبيق فعله؟",
     inspectSuggestionHello: "ساعدني على البدء",
     newChat: "محادثة جديدة",
-    optionsFor: "خيارات لـ",
+    optionsFor: "خيارات المحادثة لـ {{title}}",
     pinChat: "تثبيت المحادثة",
     pinned: "المثبتة",
     recents: "الأخيرة",
@@ -40,8 +47,8 @@ const messages = {
     retryAttachmentUnavailable:
       "لا يمكن للدردشة إعادة فتح هذا المرفق لإعادة المحاولة. أضف عنوان URL يمكن الوصول إليه للملف، ثم أعد المحاولة.",
     renameChat: "إعادة تسمية المحادثة",
-    renameFailed: "فشلت إعادة التسمية",
-    renameThread: "إعادة تسمية السلسلة",
+    renameFailed: "تعذرت إعادة تسمية المحادثة.",
+    renameThread: "إعادة تسمية {{title}}",
     suggestionActions: "أرني الإجراءات المتاحة",
     suggestionCapabilities: "ما الذي يمكن لهذا التطبيق فعله؟",
     suggestionCustomize: "ساعدني في تخصيص هذا التطبيق",
@@ -49,18 +56,12 @@ const messages = {
     untitledChat: "محادثة بلا عنوان",
   },
   home: {
-    communityDescription: "انضم إلى مجتمع Agent-Native",
-    composerPlaceholder: "استدعِ الإجراء hello من أجل Alex",
     communityTitle: "تواصل معنا",
     docsAddAction: "إضافة إجراء",
     docsAddPage: "إضافة صفحة",
-    docsDescription: "أدلة حول الإجراءات والصفحات والوكلاء",
     docsGettingStarted: "البدء",
     docsKeyConcepts: "المفاهيم الأساسية",
     docsTitle: "المستندات",
-    editHint: "عدّل {{file}} واحفظه، ثم اسأل مجددًا لترى التحية الجديدة.",
-    lead: "تتشارك واجهة تطبيقك ووكيله الإجراءات نفسها.",
-    leadTry: "اطلب من الوكيل استدعاء الإجراء hello.",
     title: "ابدأ الآن",
   },
   navigation: {

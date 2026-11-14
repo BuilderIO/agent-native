@@ -43,7 +43,7 @@ const REQUIRED_CORE_COVERAGE = [
     shard: "inspector-2",
     file: "canvas-chords.spec.ts",
     title:
-      "Keyboard paste preserves relative roots without an anchor across screens",
+      "Keyboard paste into another selected screen places a relative root without an anchor at its old offset",
   },
   {
     shard: "inspector-3a",
@@ -54,7 +54,7 @@ const REQUIRED_CORE_COVERAGE = [
     shard: "inspector-3b",
     file: "canvas-chords.spec.ts",
     title:
-      "Keyboard paste and replacement measure the active breakpoint preview",
+      "Keyboard paste into a selected screen and replacement measure the active breakpoint preview",
   },
   {
     shard: "position-1b",
@@ -66,12 +66,13 @@ const REQUIRED_CORE_COVERAGE = [
     shard: "inspector-3b",
     file: "canvas-chords.spec.ts",
     title:
-      "Keyboard paste preserves non-pixel margins at exact visual coordinates",
+      "Keyboard paste with nothing selected starts a board and centres legacy layers on the view",
   },
   {
     shard: "position-3",
     file: "canvas-chords.spec.ts",
-    title: "Keyboard paste and replacement preserve board-layer geometry",
+    title:
+      "Keyboard paste centres legacy layers on a rendered board and replacement keeps board geometry",
   },
   {
     shard: "drag-1a",
@@ -218,7 +219,7 @@ const REQUIRED_CORE_COVERAGE = [
     shard: "position-1a",
     file: "interaction-clipboard-duplicate.spec.ts",
     title:
-      "cmd+C then cmd+V with nothing else selected pastes into the SAME parent, directly above the source, keeping name and size",
+      "cmd+C then cmd+V with the source still selected pastes into the SAME parent, directly above the source, keeping name and size",
   },
   {
     shard: "position-1b",

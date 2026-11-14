@@ -1,0 +1,101 @@
+slug: weekly-marketing-report
+app: analytics
+roles:
+  - marketing
+title: "أعدّ تقرير التسويق الأسبوعي دون جداول بيانات"
+seo_title: "تقرير تسويق أسبوعي من GA4 وHubSpot"
+meta_description: "أنشئ تقرير التسويق الأسبوعي من Google Analytics وHubSpot باستخدام Agent-Native Analytics. اسأل كيف كان الأسبوع وشارك الإجابات كلوحة تحكم."
+updated: 2026-10-27
+hero:
+  body: "يحوّل Agent-Native Analytics بيانات Google Analytics وHubSpot إلى تقرير التسويق ليوم الاثنين. اسأل كيف كان الأسبوع، فيحفظ الوكيل كل إجابة في لوحة تحكم لا تعيد بناءها أبدًا."
+  button:
+    label: "أنشئ لوحة التحكم"
+    url: https://analytics.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F8b9582619b1b42e4a44e6246e01ff7f8
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F70d3b80ce73f472c95b94f7f5c0d65d6
+    alt: "لوحة تسويق أسبوعية مفتوحة في Analytics. تعرض بطاقات المقاييس في الأعلى جلسات هذا الأسبوع، والتسجيلات العضوية، وجهات الاتصال الجديدة في HubSpot، والصفقات المنشأة، ولكل منها التغيّر عن الأسبوع الماضي. وتحتها مخطط أعمدة يقارن الجلسات حسب القناة بين هذا الأسبوع والماضي، ومخطط خطي للصفقات المنشأة يوميًا في HubSpot. وفي محادثة الوكيل على اليمين السؤال «How did the week go?» وإجابة قصيرة تذكر أن البحث العضوي حقق أكبر مكسب."
+how_to:
+  heading: "كيف تعدّ تقرير تسويق أسبوعيًا بالذكاء الاصطناعي"
+  steps:
+    - title: "اربط بيانات التسويق"
+      body: "افتح **مصادر البيانات**، واتبع [خطوات الإعداد](https://www.agent-native.com/docs/template-analytics-connectors/) في بطاقتي Google Analytics وHubSpot، وانقر على **اختبار الاتصال**. يحتاج Google Analytics إلى حساب خدمة في Google Cloud بصلاحية Viewer على الموقع، وهو إعداد لمرة واحدة."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F0218d6c271db4bbe8534c00e6f5e85a6
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fa38de1d80c2e4f7fb8e1407d95f97984
+        alt: "لقطة مقرّبة لصفحة Data Sources وفيها Google Analytics وHubSpot بحالة متصل. ولوحة إعداد HubSpot مفتوحة بجانبهما، ورمزه مضبوط، وTest connection يعرض Connection successful."
+    - title: "اسأل كيف كان الأسبوع"
+      body: "اسأل كما تسأل محللًا. مثلًا: «كيف كان أداء التسجيلات من البحث العضوي هذا الأسبوع مقارنةً بالأسبوع الماضي؟» يشغّل الوكيل استعلامًا مباشرًا على بياناتك ويجيب بمخطط."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fcd7a4f648f5b4dee8a6282c3f512f698
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F74bf8b013f944b96a414979ff7234deb
+        alt: "محادثة الوكيل مع ذلك السؤال وإجابته. جملتان تقولان إن التسجيلات العضوية ارتفعت عن الأسبوع السابق، فوق مخطط أعمدة للتسجيلات حسب القناة لهذا الأسبوع والماضي."
+    - title: "احفظ لوحة التحكم وشاركها"
+      body: "اطلب من الوكيل: «اجعل هذه لوحة التسويق الأسبوعية». انقر على **Share** لتمنح زميلًا أو مؤسستك كلها [صلاحية العرض أو التعديل](https://www.agent-native.com/docs/sharing/)، أو افتح **تقارير البريد الإلكتروني** لترسلها يوميًا في وقت تختاره."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F04feeeb2a1384ce0adecb7bee676b806
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F61fd64ac2bff4f53a3ca6cfbd97225fe
+        alt: "لوحة التسويق الأسبوعية ونافذة Email reports مفتوحة: Send to مضبوط على Email وSlack، وعنوانا بريد للفريق، ووقت إرسال 9:00، وزر Send now."
+features:
+  heading: "كل ما تحتاجه لتقرير أسبوعك التسويقي"
+  items:
+    - title: "الأداتان في سؤال واحد"
+      body: "اسأل عن جلسات Google Analytics وجهات الاتصال في HubSpot في السؤال نفسه، فيجيب الوكيل بالاثنين جنبًا إلى جنب."
+    - title: "ترتيب البحث بجانب الزيارات"
+      body: "اربط DataForSEO واسأل كيف تغيّر ترتيب كلماتك المفتاحية مقارنةً بجلسات البحث العضوي هذا الأسبوع."
+    - title: "أرقام محدّثة دائمًا"
+      body: "مخططات Google Analytics تستعلم مباشرة، ومخططات HubSpot تتحدّث تلقائيًا، فيعرض التقرير دائمًا أحدث أسبوع."
+    - title: "أعد تحليل الأسبوع الماضي"
+      body: "احفظ تحقيقًا بسؤاله وخطواته، ثم اطلب من الوكيل تشغيله من جديد على بيانات هذا الأسبوع."
+    - title: "تعريفات فريقك"
+      body: "يحدّد المسؤولون ما يُعدّ عميلًا محتملًا أو تسجيلًا في صفحة الطبقة الدلالية، ويستخدم الوكيل هذه التعريفات في كل إجابة."
+    - title: "اسأل عن أي مخطط"
+      body: "انقر على مخطط واسأل عمّا تغيّر. يتلقى الوكيل ذلك المخطط مع سؤالك ويجيب من البيانات التي وراءه."
+integrations:
+  heading: "اربط Analytics بالأدوات التي تستخدمها بالفعل"
+  cards:
+    - title: "أحضر بيانات التسويق"
+      logos:
+        - name: Google Analytics
+        - name: HubSpot
+        - name: X
+      body: "اربط Google Analytics للزيارات، وHubSpot لجهات الاتصال والصفقات، وX لتفاعل المنشورات، كلًّا من صفحة مصادر البيانات."
+    - title: "أرسل التقرير حيث يقرأ فريقك"
+      logos:
+        - name: Slack
+        - name: Google Sheets
+      body: "أرسل ملخصًا يوميًا ورابط لوحة التحكم إلى قناة Slack عبر Slack webhook، وصدّر أي جدول إلى حساب Google Sheets مرتبط."
+    - title: "اربط أي أداة عبر MCP"
+      logos:
+        - name: Notion
+        - name: Webflow
+        - name: Exa
+      more: true
+      body: "اربط الأدوات التي يستخدمها فريقك عبر MCP، أو أضف أي خادم MCP بعنوان URL الخاص به."
+other_uses:
+  heading: "أشياء أخرى يمكنك فعلها مع Agent-Native Analytics"
+  cards:
+    - title: "أنشئ لوحة مؤشرات أداء لشركتك الناشئة"
+      url: https://www.agent-native.com/use-cases/ai-kpi-dashboard/
+      body: "تابع إيرادات شركتك الناشئة وتسجيلاتها وتسرّبها، واسأل الوكيل لماذا تغيّر رقم."
+    - title: "اعرف أين يتوقف المستخدمون الجدد"
+      url: https://www.agent-native.com/use-cases/ai-funnel-analysis/
+      body: "اعثر على الخطوة التي يتوقف عندها المستخدمون الجدد، وشاهد الجلسات التي حدث فيها ذلك."
+    - title: "راجع مسار مبيعاتك ببيانات HubSpot وGong"
+      url: https://www.agent-native.com/use-cases/ai-sales-analytics/
+      body: "اسأل عن صفقاتك في HubSpot ومكالماتك في Gong بلغة عادية."
+faqs:
+  heading: "لديك أسئلة؟ لدينا الإجابات"
+  items:
+    - q: "هل Agent-Native Analytics مجاني؟"
+      a: "نعم، Agent-Native Analytics مجاني ومفتوح المصدر. تربط حساباتك الخاصة في Google Analytics وHubSpot. وللبدء، تختار أرصدة Builder.io المجانية للذكاء الاصطناعي أو مفتاح نموذج الذكاء الاصطناعي الخاص بك للوكيل، فاستخدام الذكاء الاصطناعي له حدود. لا يزال Analytics في مرحلة ألفا، فتوقّع تغييرات."
+    - q: "ما مصادر بيانات التسويق التي يمكنني ربطها؟"
+      a: "يتصل Agent-Native Analytics بـ Google Analytics ‏(GA4) وHubSpot، وDataForSEO لترتيب الكلمات المفتاحية وحجم البحث، وX لتفاعل المنشورات. ويتصل أيضًا بـ BigQuery وAmplitude وMixpanel وPostHog وStripe. يحتاج كل مصدر إلى بيانات اعتماده، ويحتاج Google Analytics إلى حساب خدمة في Google Cloud."
+    - q: "هل يمكن لـ Agent-Native Analytics إرسال التقرير كل اثنين؟"
+      a: "ليس بجدول أسبوعي حتى الآن. [تقارير لوحة التحكم بالبريد](https://www.agent-native.com/docs/template-analytics-dashboards/) تُرسل يوميًا، في وقت ومنطقة زمنية تختارهما، إلى ما يصل إلى خمسة عناوين بريد أو قناة Slack أو كليهما. وقبل اجتماع الاثنين، انقر على **إرسال الآن** في **تقارير البريد الإلكتروني** لترسل أحدث نسخة من لوحة التحكم."
+    - q: "هل أحتاج إلى معرفة SQL؟"
+      a: "لا. تسأل بكلمات بسيطة، فيختار الوكيل المصدر ويكتب الاستعلام. ويمكنك أن تطلب من الوكيل عرض الاستعلام وراء أي إجابة إن أردت التحقق منه."
+    - q: "هل يمكنني الوثوق بالأرقام؟"
+      a: "يشغّل الوكيل استعلامًا مباشرًا على بياناتك قبل أن يعطيك أي رقم، ويضع علامة «Unverified» على الرقم عندما لا يُشغَّل استعلام. ومع ذلك، قارن تقرير الأسبوع الأول بـ Google Analytics وHubSpot قبل أن ترسله إلى الفريق."
+    - q: "كيف يختلف Agent-Native Analytics عن تقارير GA4 وHubSpot؟"
+      a: "يقدّم كل من Google Analytics وHubSpot تقارير عن بياناته وحده. أما Agent-Native Analytics فيجيب عن سؤال واحد عبر الاثنين، بكلمات بسيطة، ويحفظ الإجابات في لوحة تحكم واحدة تحسّنها بالسؤال. وهذا [تطبيق وكيلي](https://www.agent-native.com/articles/what-is-an-agent-native-app/): ذكاء الوكيل وسهولة التطبيق."

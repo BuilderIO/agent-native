@@ -9,6 +9,7 @@ import { formatRelative } from "./format";
 import {
   isSlackSource,
   itemPhase,
+  itemPreview,
   needsYouText,
   sourceLabel,
   whereText,
@@ -60,12 +61,10 @@ export function ItemListRow({
   const where = whereText(row, nowMs, s, locale);
   const last = row.lastEvent ? lastEventText(row.lastEvent) : null;
   const source = sourceLabel(row.source, s);
-  const secondary = [
-    source,
-    row.workflowName,
-    where ?? (last ? null : s.where.notStarted),
-    last,
-  ].filter((part): part is string => Boolean(part));
+  const preview = itemPreview(row);
+  const secondary = [source, row.workflowName, where, last].filter(
+    (part): part is string => Boolean(part),
+  );
   return (
     <div role="listitem" className="border-b border-border last:border-b-0">
       <button
@@ -77,6 +76,11 @@ export function ItemListRow({
         <span className="min-w-0 space-y-0.5">
           <span className="block truncate text-sm font-medium text-foreground">
             <ItemTitle title={row.title} source={row.source} />
+            {preview ? (
+              <span className="ms-2 font-normal text-muted-foreground">
+                {preview}
+              </span>
+            ) : null}
           </span>
           <span className="block truncate text-xs text-muted-foreground">
             {reasons ? (

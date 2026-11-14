@@ -11,6 +11,7 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { requireFormsPermission } from "../server/lib/app-roles.js";
 import { assertIntegrationUrlsAllowed } from "../server/lib/integrations.js";
+import { fieldsRevision } from "../server/lib/merge-fields.js";
 import {
   assertValidFields,
   normalizeFieldIds,
@@ -178,6 +179,7 @@ export default defineAction({
       responseCount: 0,
       createdAt: now,
       updatedAt: now,
+      revision: fieldsRevision(JSON.stringify(fields)),
       editorUrl,
       publicUrl,
     };

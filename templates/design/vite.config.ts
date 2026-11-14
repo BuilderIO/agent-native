@@ -18,6 +18,11 @@ export default defineConfig({
   // mid-session and answers with a full page reload, which closes open
   // popovers and fails in-flight Playwright actions.
   optimizeDeps: {
+    // The Code panel is lazy, so scan Monaco before its first browser load can invalidate the page.
+    entries: [
+      "app/root.tsx",
+      "app/components/design/code-workbench/CodeWorkbench.tsx",
+    ],
     include: [
       "@radix-ui/react-dialog",
       "@radix-ui/react-dropdown-menu",

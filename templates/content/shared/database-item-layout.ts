@@ -1,6 +1,7 @@
 import type {
   ContentDatabaseItemLayout,
   ContentDatabaseItemLeadingKind,
+  ContentDatabaseItemLine2Source,
   ContentDatabaseItemTitleWeight,
 } from "./api";
 import {
@@ -24,6 +25,11 @@ export const CONTENT_DATABASE_ITEM_TITLE_WEIGHTS = [
 ] as const satisfies readonly ContentDatabaseItemTitleWeight[];
 
 export const CONTENT_DATABASE_ITEM_LINE2_LINES = [1, 2, 3] as const;
+
+export const CONTENT_DATABASE_ITEM_LINE2_SOURCES = [
+  "property",
+  "page",
+] as const satisfies readonly ContentDatabaseItemLine2Source[];
 
 /** Most properties line 3 or the trailing slot may show. */
 export const MAX_ITEM_LAYOUT_META_PROPERTIES = 6;
@@ -92,7 +98,7 @@ export function itemLayoutLeadingCandidates<
   );
 }
 
-/** Text-like properties line 2 can show. The page body arrives separately. */
+/** Text-like properties line 2 can show. Page text is its own choice. */
 export function itemLayoutLine2Candidates<
   P extends ContentDatabaseItemLayoutPropertyLike,
 >(properties: readonly P[]): P[] {
@@ -135,6 +141,14 @@ function propertyIdList(value: unknown) {
   return ids;
 }
 
+/** Line 2 with a new property ID, unless it shows page text. */
+function withLine2PropertyId(
+  line2: ContentDatabaseItemLayout["line2"],
+  propertyId: string | null,
+): ContentDatabaseItemLayout["line2"] {
+  return line2.source === "page" ? line2 : { propertyId, lines: line2.lines };
+}
+
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -174,7 +188,10 @@ export function normalizeContentDatabaseItemLayout(
     )
       ? (raw.titleWeight as ContentDatabaseItemTitleWeight)
       : "medium",
-    line2: { propertyId: propertyIdOrNull(line2.propertyId), lines },
+    line2:
+      line2.source === "page"
+        ? { source: "page", propertyId: null, lines }
+        : { propertyId: propertyIdOrNull(line2.propertyId), lines },
     line3: propertyIdList(raw.line3),
     trailing: propertyIdList(raw.trailing),
   };
@@ -214,7 +231,8 @@ export function withSavedContentDatabaseItemLayout<
 export interface ResolvedContentDatabaseItemLayout<P> {
   leading: { kind: ContentDatabaseItemLeadingKind; property: P | null };
   titleWeight: ContentDatabaseItemTitleWeight;
-  line2: { property: P | null; lines: 1 | 2 | 3 };
+  /** `pageText` rows show the first lines of their page instead of a property. */
+  line2: { property: P | null; pageText: boolean; lines: 1 | 2 | 3 };
   line3: P[];
   trailing: P[];
 }
@@ -248,9 +266,11 @@ export function resolveContentDatabaseItemLayout<
       : (leadingCandidates[0] ?? null)
     : null;
   const line2Candidates = new Set(itemLayoutLine2Candidates(properties));
-  const line2Property = layout.line2.propertyId
-    ? (byId.get(layout.line2.propertyId) ?? null)
-    : null;
+  const pageText = layout.line2.source === "page";
+  const line2Property =
+    !pageText && layout.line2.propertyId
+      ? (byId.get(layout.line2.propertyId) ?? null)
+      : null;
   const meta = (ids: readonly string[]) =>
     ids.flatMap((id) => {
       const property = byId.get(id);
@@ -272,6 +292,7 @@ export function resolveContentDatabaseItemLayout<
         line2Property && line2Candidates.has(line2Property)
           ? line2Property
           : null,
+      pageText,
       lines: layout.line2.lines,
     },
     line3: meta(layout.line3),
@@ -353,10 +374,10 @@ export function pruneContentDatabaseItemLayout(
       propertyId: resolved.leading.property ? layout.leading.propertyId : null,
     },
     titleWeight: layout.titleWeight,
-    line2: {
-      propertyId: resolved.line2.property?.definition.id ?? null,
-      lines: layout.line2.lines,
-    },
+    line2: withLine2PropertyId(
+      layout.line2,
+      resolved.line2.property?.definition.id ?? null,
+    ),
     line3: ids(resolved.line3),
     trailing: ids(resolved.trailing),
   };
@@ -379,10 +400,7 @@ export function dropDeletedContentDatabaseItemLayoutReferences(
         ? { kind: "page_icon", propertyId: null }
         : layout.leading,
     titleWeight: layout.titleWeight,
-    line2: {
-      propertyId: kept(layout.line2.propertyId),
-      lines: layout.line2.lines,
-    },
+    line2: withLine2PropertyId(layout.line2, kept(layout.line2.propertyId)),
     line3: layout.line3.filter((id) => exists.has(id)),
     trailing: layout.trailing.filter((id) => exists.has(id)),
   };
@@ -444,13 +462,12 @@ export function savableContentDatabaseItemLayout(
     {
       leading: savedLeading ? layout.leading : showable.leading,
       titleWeight: layout.titleWeight,
-      line2: {
-        propertyId:
-          saved?.line2.propertyId === layout.line2.propertyId
-            ? layout.line2.propertyId
-            : showable.line2.propertyId,
-        lines: layout.line2.lines,
-      },
+      line2: withLine2PropertyId(
+        layout.line2,
+        saved?.line2.propertyId === layout.line2.propertyId
+          ? layout.line2.propertyId
+          : showable.line2.propertyId,
+      ),
       line3: meta("line3"),
       trailing: meta("trailing"),
     },
@@ -462,7 +479,7 @@ export function savableContentDatabaseItemLayout(
  * The layout someone starts editing from on a view with no saved layout. It
  * matches the default rows: page icon, title, and the first four properties.
  * Line 2 is the only slot that shows a Blocks field, so one of those goes
- * there. The page body itself has no slot yet.
+ * there.
  */
 export function startingContentDatabaseItemLayout(
   visibleProperties: readonly ContentDatabaseItemLayoutPropertyLike[],
@@ -480,6 +497,21 @@ export function startingContentDatabaseItemLayout(
       (property) => property.definition.id,
     ),
   };
+}
+
+/**
+ * Whether any List view shows page text in line 2, so list reads carry each
+ * row's excerpt. Other collections never read page bodies for their rows.
+ */
+export function contentDatabaseViewsShowPageText(
+  views: readonly {
+    type: string;
+    itemLayout?: ContentDatabaseItemLayout | null;
+  }[],
+): boolean {
+  return views.some(
+    (view) => view.type === "list" && view.itemLayout?.line2.source === "page",
+  );
 }
 
 export interface ContentDatabaseItemLayoutPreset {

@@ -277,6 +277,30 @@ describe("RunStuckBanner", () => {
     expect(container.textContent).toBe("");
   });
 
+  it("renders the stuck run as one dismissable warning notice", async () => {
+    hookState.current = STUCK_STATE;
+    await render({ threadId: "thread-1" });
+
+    const notice = container.querySelector<HTMLElement>(
+      '[data-agent-composer-notice][data-notice="run-stuck"]',
+    );
+    expect(notice?.dataset.tone).toBe("warning");
+    expect(notice?.getAttribute("role")).toBe("status");
+    await act(async () => {
+      notice!
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="agentChat.common.dismiss"]',
+        )!
+        .click();
+    });
+    expect(container.querySelector("[data-agent-composer-notice]")).toBeNull();
+
+    // A different stuck run is a new problem, so it shows again.
+    hookState.current = { ...STUCK_STATE, runId: "run-2" };
+    await render({ threadId: "thread-1" });
+    expect(container.querySelector('[data-notice="run-stuck"]')).not.toBeNull();
+  });
+
   it("shows the unreadable status, not a stuck banner, when the status is unreadable", async () => {
     hookState.current = { ...STUCK_STATE, statusUnreadable: true };
 
@@ -288,7 +312,11 @@ describe("RunStuckBanner", () => {
     expect(container.textContent).not.toContain(
       "agentChat.recovery.stuckTitle",
     );
-    expect(container.querySelectorAll("button")).toHaveLength(0);
+    // Only the dismiss control: no Retry or Cancel acts on an unread status.
+    const buttons = [...container.querySelectorAll("button")];
+    expect(buttons.map((button) => button.getAttribute("aria-label"))).toEqual([
+      "agentChat.common.dismiss",
+    ]);
   });
 
   describe.each([
@@ -296,8 +324,8 @@ describe("RunStuckBanner", () => {
     { action: "cancel", label: "agentChat.common.cancel" },
   ])("when the user clicks $action on a stuck run", ({ action, label }) => {
     const button = () =>
-      Array.from(container.querySelectorAll("button")).find(
-        (candidate) => candidate.textContent === label,
+      Array.from(container.querySelectorAll("button")).find((candidate) =>
+        candidate.textContent?.endsWith(label),
       )!;
     const click = () =>
       act(async () => {
@@ -322,7 +350,7 @@ describe("RunStuckBanner", () => {
 
       expect(abortRunMock).toHaveBeenCalledTimes(1);
       expect(button().disabled).toBe(true);
-      expect(container.querySelector(".animate-spin")).not.toBeNull();
+      expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
       await act(async () => finishAbort(null));
     });
 
@@ -336,7 +364,7 @@ describe("RunStuckBanner", () => {
         `user_stuck_${action}`,
       );
       expect(bothButtonsEnabled()).toBe(true);
-      expect(container.querySelector(".animate-spin")).toBeNull();
+      expect(container.querySelector('[aria-busy="true"]')).toBeNull();
     });
 
     it("aborts again on a second click after a failed abort", async () => {
@@ -358,7 +386,7 @@ describe("RunStuckBanner", () => {
 
       expect(onRetry).toHaveBeenCalledTimes(action === "retry" ? 1 : 0);
       expect(button().disabled).toBe(true);
-      expect(container.querySelector(".animate-spin")).not.toBeNull();
+      expect(container.querySelector('[aria-busy="true"]')).not.toBeNull();
 
       hookState.current = { ...STUCK_STATE, runId: "run-2" };
       await render({ threadId: "thread-1", onRetry });

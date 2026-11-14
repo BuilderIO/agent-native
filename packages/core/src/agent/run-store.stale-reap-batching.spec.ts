@@ -58,11 +58,13 @@ const mockDb = {
 
 vi.mock("../db/client.js", () => ({
   getDbExec: () => mockDb,
+  getScopedDbExec: () => undefined,
 }));
 
 vi.mock("../db/ddl-guard.js", () => ({
   ensureColumnExists: vi.fn().mockResolvedValue(undefined),
   ensureTableExists: vi.fn().mockResolvedValue(undefined),
+  ensureIndexExists: vi.fn().mockResolvedValue(undefined),
 }));
 
 vi.mock("../server/capture-error.js", () => ({

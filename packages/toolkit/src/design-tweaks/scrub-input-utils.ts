@@ -1,5 +1,7 @@
 export interface ScrubExpressionOptions {
   unit?: string;
+  /** Suffix shown in the field; defaults to `unit`. Parsing still uses `unit`. */
+  displayUnit?: string;
   min?: number;
   max?: number;
   precision?: number;
@@ -14,6 +16,13 @@ export interface ScrubRelativeExpression {
 }
 
 export const SCRUB_DRAG_THRESHOLD_PX = 3;
+
+/**
+ * Decimals a field shows and commits when its caller sets no `precision`.
+ * Values read back from the browser carry float noise (0.555556px); a field
+ * shows more than two decimals only when its caller asks for them.
+ */
+export const DEFAULT_SCRUB_PRECISION = 2;
 
 export interface ScrubDragState {
   startX: number;
@@ -132,10 +141,11 @@ export function normalizeScrubNumber(
   let next = value;
   if (Number.isFinite(options.min)) next = Math.max(options.min!, next);
   if (Number.isFinite(options.max)) next = Math.min(options.max!, next);
-  if (Number.isFinite(options.precision)) {
-    const scale = 10 ** Math.max(0, options.precision!);
-    next = Math.round(next * scale) / scale;
-  }
+  const precision = Number.isFinite(options.precision)
+    ? Math.max(0, options.precision ?? DEFAULT_SCRUB_PRECISION)
+    : DEFAULT_SCRUB_PRECISION;
+  const scale = 10 ** precision;
+  next = Math.round(next * scale) / scale;
   return Object.is(next, -0) ? 0 : next;
 }
 
@@ -152,7 +162,10 @@ export function roundScrubDragValue(
 
 export function formatScrubValue(
   value: number,
-  options: Pick<ScrubExpressionOptions, "precision" | "unit"> = {},
+  options: Pick<
+    ScrubExpressionOptions,
+    "precision" | "unit" | "displayUnit"
+  > = {},
 ): string {
   const normalized = normalizeScrubNumber(value, options);
   let numeric: string;
@@ -166,7 +179,7 @@ export function formatScrubValue(
   } else {
     numeric = String(normalized);
   }
-  return `${numeric}${options.unit ?? ""}`;
+  return `${numeric}${options.displayUnit ?? options.unit ?? ""}`;
 }
 
 export function getScrubStepFromEvent(
@@ -179,6 +192,16 @@ export function getScrubStepFromEvent(
   return step * multiplier;
 }
 
+const UNIT_ALIASES: Readonly<Record<string, readonly string[]>> = {
+  deg: ["deg", "°"],
+  "°": ["°", "deg"],
+};
+
+function acceptedUnits(unit: string | undefined): readonly string[] {
+  if (!unit) return [];
+  return UNIT_ALIASES[unit.toLowerCase()] ?? [unit];
+}
+
 function toNumericExpression(
   raw: string,
   currentValue: number,
@@ -186,8 +209,11 @@ function toNumericExpression(
 ): string {
   let expression = raw.trim();
 
-  if (unit) {
-    expression = expression.replace(new RegExp(escapeRegExp(unit), "gi"), "");
+  for (const accepted of acceptedUnits(unit)) {
+    expression = expression.replace(
+      new RegExp(escapeRegExp(accepted), "gi"),
+      "",
+    );
   }
 
   expression = expression.replace(/\bx\b/gi, `(${currentValue})`);

@@ -1,6 +1,8 @@
+import { slackPlainText } from "@/components/factory/slack-mrkdwn";
+
 import type { ItemsStrings } from "../items-strings";
 import { formatUntil } from "./format";
-import type { ItemParking, NeedsYouReason } from "./read-types";
+import type { ItemParking, ItemRow, NeedsYouReason } from "./read-types";
 
 export type PhaseKey =
   | "needs_you"
@@ -75,11 +77,16 @@ export function needsYouText(
     .join(s.listSeparator);
 }
 
-/** Where the item is right now, in words: its parking, else the step of its last event. */
+/**
+ * Where the item is right now, in words: its parking, else the step of its
+ * last event. An item whose last event names no step (a person closed it) has
+ * nothing to say; only one with no event at all has not started.
+ */
 export function whereText(
   row: {
     parked: ItemParking | null;
     lastNode: { nodeId: string; nodeName: string | null } | null;
+    lastEvent: ItemRow["lastEvent"];
   },
   nowMs: number,
   s: ItemsStrings,
@@ -100,7 +107,7 @@ export function whereText(
   if (lastNode) {
     return s.where.atNode(lastNode.nodeName ?? lastNode.nodeId);
   }
-  return null;
+  return row.lastEvent === null ? s.where.notStarted : null;
 }
 
 export function sourceLabel(
@@ -119,6 +126,22 @@ export function sourceLabel(
 
 export function isSlackSource(source: string | null): boolean {
   return (source ?? "").toLowerCase().includes("slack");
+}
+
+/**
+ * The item's own text for a list row: Slack markup read as plain words, and
+ * nothing when it only repeats the title.
+ */
+export function itemPreview(row: {
+  title: string | null;
+  summary: string | null;
+  source: string | null;
+}): string | null {
+  if (!row.summary) return null;
+  const text = isSlackSource(row.source)
+    ? slackPlainText(row.summary)
+    : row.summary.replace(/\s+/g, " ").trim();
+  return text === "" || text === row.title?.trim() ? null : text;
 }
 
 export const KNOWN_SOURCE_IDS = [

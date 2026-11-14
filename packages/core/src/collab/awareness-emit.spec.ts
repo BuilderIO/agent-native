@@ -10,8 +10,32 @@ vi.mock("h3", () => ({
 }));
 
 const mockReadBody = vi.fn();
+const mockReadCollabBody = vi.fn((event: unknown) => mockReadBody(event));
+const mockGetSession = vi.fn();
+const {
+  mockWriteAwarenessRow,
+  mockLoadAwarenessClientSequence,
+  mockLoadAwarenessRows,
+} = vi.hoisted(() => ({
+  mockWriteAwarenessRow: vi.fn(),
+  mockLoadAwarenessClientSequence: vi.fn(),
+  mockLoadAwarenessRows: vi.fn(),
+}));
+vi.mock("../server/auth.js", () => ({
+  getSession: (...args: unknown[]) => mockGetSession(...args),
+}));
 vi.mock("../server/h3-helpers.js", () => ({
   readBody: (...args: unknown[]) => mockReadBody(...args),
+  readBodyWithSizeLimit: (...args: unknown[]) => mockReadBody(...args),
+}));
+vi.mock("./payload.js", () => ({
+  readCollabBody: (...args: unknown[]) => mockReadCollabBody(...args),
+}));
+vi.mock("./awareness-store.js", () => ({
+  loadAwarenessClientSequence: (...args: unknown[]) =>
+    mockLoadAwarenessClientSequence(...args),
+  loadAwarenessRows: (...args: unknown[]) => mockLoadAwarenessRows(...args),
+  writeAwarenessRow: (...args: unknown[]) => mockWriteAwarenessRow(...args),
 }));
 
 import {
@@ -23,7 +47,11 @@ import {
 } from "./awareness.js";
 
 function event(params: Record<string, string> = {}) {
-  return { _params: params, _status: 200 } as unknown;
+  return {
+    _params: params,
+    _status: 200,
+    context: { _collabAwarenessCanEdit: true },
+  } as unknown;
 }
 
 function scopedEvent(params: Record<string, string> = {}) {
@@ -31,6 +59,7 @@ function scopedEvent(params: Record<string, string> = {}) {
     _params: params,
     _status: 200,
     context: {
+      _collabAwarenessCanEdit: true,
       _collabAwarenessScope: {
         owner: "owner@example.com",
         orgId: "org-1",
@@ -45,6 +74,15 @@ describe("postAwareness SSE fast-path", () => {
   beforeEach(() => {
     getDocAwareness("emit-doc").clear();
     mockReadBody.mockReset();
+    mockReadCollabBody.mockClear();
+    mockGetSession.mockReset();
+    mockGetSession.mockResolvedValue({ email: "collaborator@example.com" });
+    mockWriteAwarenessRow.mockReset();
+    mockWriteAwarenessRow.mockResolvedValue(true);
+    mockLoadAwarenessClientSequence.mockReset();
+    mockLoadAwarenessClientSequence.mockResolvedValue(undefined);
+    mockLoadAwarenessRows.mockReset();
+    mockLoadAwarenessRows.mockResolvedValue([]);
   });
 
   afterEach(() => {
@@ -128,6 +166,7 @@ describe("postAwareness SSE fast-path", () => {
       clientId: 10,
       state: JSON.stringify({ user: { name: "Alice", email: "alice@ex.com" } }),
       lastSeen: Date.now(),
+      actorEmail: "collaborator@example.com",
     });
     map.set(99, {
       clientId: 99,

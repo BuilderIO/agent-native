@@ -729,7 +729,13 @@ function sanitizeBlock(block: PlanBlock): PlanBlock {
   return block;
 }
 
-function sanitizePrototype(prototype: PlanPrototype | undefined) {
+function sanitizePrototype(prototype: PlanPrototype): PlanPrototype;
+function sanitizePrototype(
+  prototype: PlanPrototype | undefined,
+): PlanPrototype | undefined;
+function sanitizePrototype(
+  prototype: PlanPrototype | undefined,
+): PlanPrototype | undefined {
   if (!prototype) return undefined;
   return {
     ...prototype,
@@ -759,7 +765,15 @@ function sanitizeWireframeData(
   };
 }
 
-function sanitizeDiagramData(diagram: PlanDiagramBlock["data"] | undefined) {
+function sanitizeDiagramData(
+  diagram: PlanDiagramBlock["data"],
+): PlanDiagramBlock["data"];
+function sanitizeDiagramData(
+  diagram: PlanDiagramBlock["data"] | undefined,
+): PlanDiagramBlock["data"] | undefined;
+function sanitizeDiagramData(
+  diagram: PlanDiagramBlock["data"] | undefined,
+): PlanDiagramBlock["data"] | undefined {
   if (!diagram) return undefined;
   return {
     ...diagram,
@@ -951,7 +965,7 @@ function createDesignMetadata(
     PlanDesignContentInput,
     "designMd" | "brandKit" | "codebaseStyles" | "designNotes"
   >,
-): NonNullable<PlanContent["canvas"]>["design"] {
+): NonNullable<NonNullable<PlanContent["canvas"]>["design"]> {
   return {
     ...(input.designMd ? { designMd: input.designMd } : {}),
     ...(input.brandKit ? { brandKit: input.brandKit } : {}),
@@ -3458,7 +3472,7 @@ function renderDiagramHtml(data: PlanDiagramBlock["data"]) {
 
 function renderKitWireframeHtml(data: PlanWireframeBlock["data"]): string {
   const surface = escapeHtml(data.surface || "desktop");
-  const screen = data.screen.map(renderKitNodeHtml).join("");
+  const screen = (data.screen ?? []).map(renderKitNodeHtml).join("");
   const caption = data.caption
     ? `<p class="caption">${escapeHtml(data.caption)}</p>`
     : "";

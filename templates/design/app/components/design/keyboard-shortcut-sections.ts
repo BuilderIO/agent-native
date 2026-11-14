@@ -16,29 +16,31 @@ export interface ShortcutRow {
   source: "design" | "code";
   label: string;
   bindings: readonly string[];
-  badge?: "screen" | "code";
+  badge?: "screen";
 }
 
+/** Code editor commands get their own section after the canvas categories. */
+export type ShortcutSectionCategory = DesignShortcutCategory | "code";
+
 export interface ShortcutSection {
-  category: DesignShortcutCategory;
+  category: ShortcutSectionCategory;
   label: string;
   rows: ShortcutRow[];
 }
 
-export const CODE_CATEGORY_BY_COMMAND: Record<string, DesignShortcutCategory> =
-  {
-    "workbench.save": "edit",
-    "workbench.saveAll": "edit",
-    "workbench.quickOpen": "edit",
-    "workbench.commandPalette": "edit",
-    "workbench.search": "edit",
-    "workbench.explorer": "view",
-    "workbench.toggleSidebar": "view",
-    "workbench.nextTab": "selection",
-    "workbench.previousTab": "selection",
-    "editor.gotoSymbol": "selection",
-    "editor.gotoLine": "selection",
-  };
+export const CODE_SHORTCUT_COMMAND_IDS: readonly string[] = [
+  "workbench.save",
+  "workbench.saveAll",
+  "workbench.quickOpen",
+  "workbench.commandPalette",
+  "workbench.search",
+  "workbench.explorer",
+  "workbench.toggleSidebar",
+  "workbench.nextTab",
+  "workbench.previousTab",
+  "editor.gotoSymbol",
+  "editor.gotoLine",
+];
 
 function normalizeQuery(value: string) {
   return value.trim().toLocaleLowerCase();
@@ -70,44 +72,50 @@ export function buildShortcutSections({
 }: {
   query: string;
   applePlatform: boolean;
-  categoryLabel: (category: DesignShortcutCategory) => string;
+  categoryLabel: (category: ShortcutSectionCategory) => string;
   rowLabel: (labelKey: string) => string;
   codeCommands: readonly CodeShortcutCommand[];
   /** Design shortcut ids whose tool is not available right now (a lab that is off). */
   unavailableIds?: readonly string[];
 }): ShortcutSection[] {
   const needle = normalizeQuery(query);
-  return DESIGN_SHORTCUT_CATEGORIES.flatMap((category) => {
+  const codeRows = codeCommands
+    .filter(
+      (command) =>
+        CODE_SHORTCUT_COMMAND_IDS.includes(command.id) &&
+        command.keybindings?.length,
+    )
+    .map(
+      (command): ShortcutRow => ({
+        id: command.id,
+        source: "code",
+        label: command.title,
+        bindings: command.keybindings ?? [],
+      }),
+    );
+  const categories: ShortcutSectionCategory[] = [
+    ...DESIGN_SHORTCUT_CATEGORIES,
+    "code",
+  ];
+  return categories.flatMap((category) => {
     const label = categoryLabel(category);
-    const rows: ShortcutRow[] = [
-      ...DESIGN_SHORTCUTS.filter(
-        (item) =>
-          item.category === category && !unavailableIds.includes(item.id),
-      ).map(
-        (item): ShortcutRow => ({
-          id: item.id,
-          source: "design",
-          label: rowLabel(item.labelKey),
-          bindings: item.bindings,
-          badge: item.context === "screen" ? "screen" : undefined,
-        }),
-      ),
-      ...codeCommands
-        .filter(
-          (command) =>
-            CODE_CATEGORY_BY_COMMAND[command.id] === category &&
-            command.keybindings?.length,
-        )
-        .map(
-          (command): ShortcutRow => ({
-            id: command.id,
-            source: "code",
-            label: command.title,
-            bindings: command.keybindings ?? [],
-            badge: "code",
-          }),
-        ),
-    ];
+    const rows: ShortcutRow[] =
+      category === "code"
+        ? codeRows
+        : DESIGN_SHORTCUTS.filter(
+            (item) =>
+              item.category === category &&
+              !unavailableIds.includes(item.id) &&
+              (applePlatform || !item.appleOnly),
+          ).map(
+            (item): ShortcutRow => ({
+              id: item.id,
+              source: "design",
+              label: rowLabel(item.labelKey),
+              bindings: item.bindings,
+              badge: item.context === "screen" ? "screen" : undefined,
+            }),
+          );
     const visible = needle
       ? rows.filter((row) =>
           searchText([row.label, label], row.bindings, applePlatform).includes(

@@ -70,7 +70,7 @@ describe("generate-qr-code", () => {
       ownerEmail: "user@example.com",
       recordAsset: false,
     });
-    expect(mocks.uploadFile.mock.calls[0][0].filename).not.toContain(
+    expect(mocks.uploadFile.mock.calls[0]?.[0].filename).not.toContain(
       args.content,
     );
     expect(result).toMatchObject({

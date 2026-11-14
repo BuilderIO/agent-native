@@ -1,6 +1,11 @@
 import { getAppConfig } from "../app-config/store.js";
 import { safeValue } from "../tracking/redaction.js";
 import { listTrackingProviders, track } from "../tracking/registry.js";
+import {
+  databaseFailureCode,
+  databaseFailureMessage,
+  isDatabaseQueryFailure,
+} from "./embed-redaction.js";
 
 const CLIENT_INFO_META_KEY = "io.modelcontextprotocol/clientInfo";
 const PROTOCOL_VERSION_META_KEY = "io.modelcontextprotocol/protocolVersion";
@@ -11,18 +16,23 @@ export const MCP_ANALYTICS_EVENTS = {
   toolCall: "$mcp_tool_call",
   resourcesList: "$mcp_resources_list",
   resourceRead: "$mcp_resource_read",
+  oauthAuthorizeOpened: "$mcp_oauth_authorize_opened",
+  oauthLoginWallShown: "$mcp_oauth_login_wall_shown",
 } as const;
 
 export interface McpAnalyticsContext {
   source: "http" | "stdio";
   serverName: string;
-  serverVersion: string;
+  serverVersion?: string;
   appId?: string;
   clientName?: string;
   clientVersion?: string;
   clientUserAgent?: string;
+  clientKey?: string;
+  redirectHost?: string;
   protocolVersion?: string;
   userId?: string;
+  anonymousId?: string;
   sessionId?: string;
 }
 
@@ -64,6 +74,27 @@ export function detectVendorClient(
   return undefined;
 }
 
+// A known redirect host labels a vendor when the client's name does not (a
+// client that points its callback at a domain it does not control cannot use
+// the code). It is still the client's own registration, so it does not prove
+// who the client is. Match the host itself or a subdomain, never a substring:
+// that would credit `openai.evil.example`.
+const REDIRECT_HOST_VENDORS: Array<[domain: string, vendor: string]> = [
+  ["chatgpt.com", "openai"],
+  ["openai.com", "openai"],
+  ["claude.ai", "claude"],
+];
+
+export function vendorForRedirectHost(
+  host: string | undefined,
+): string | undefined {
+  const name = host?.toLowerCase();
+  if (!name) return undefined;
+  return REDIRECT_HOST_VENDORS.find(
+    ([domain]) => name === domain || name.endsWith(`.${domain}`),
+  )?.[1];
+}
+
 export function readClientInfoFromRequest(
   request: McpRequestLike | undefined,
 ): {
@@ -98,22 +129,48 @@ function captureParameters(): boolean {
 }
 
 function contextProperties(ctx: McpAnalyticsContext): Record<string, unknown> {
-  const vendor = detectVendorClient(ctx.clientName, ctx.clientUserAgent);
+  // The client's name or user agent labels the vendor as it does on every other
+  // MCP event, so the dimension stays consistent; a known redirect host labels
+  // it only when they do not. On OAuth events (the ones with a redirect host)
+  // `$mcp_vendor_source` says whether the host gave the same label. Neither
+  // proves who the client is.
+  const hostVendor = vendorForRedirectHost(ctx.redirectHost);
+  const vendor = mcpVendorForContext(ctx);
   return {
     $mcp_source: ctx.source,
     $mcp_server_name: ctx.serverName,
-    $mcp_server_version: ctx.serverVersion,
+    ...(ctx.serverVersion ? { $mcp_server_version: ctx.serverVersion } : {}),
     ...(ctx.appId ? { $mcp_app_id: ctx.appId } : {}),
     ...(ctx.clientName ? { $mcp_client_name: ctx.clientName } : {}),
     ...(ctx.clientVersion ? { $mcp_client_version: ctx.clientVersion } : {}),
     ...(ctx.clientUserAgent
       ? { $mcp_client_user_agent: ctx.clientUserAgent }
       : {}),
+    ...(ctx.clientKey ? { $mcp_client_key: ctx.clientKey } : {}),
+    ...(ctx.redirectHost ? { $mcp_redirect_host: ctx.redirectHost } : {}),
     ...(vendor ? { $mcp_vendor_client: vendor } : {}),
+    ...(vendor && ctx.redirectHost
+      ? {
+          $mcp_vendor_source:
+            hostVendor === vendor ? "redirect_host" : "client_name",
+        }
+      : {}),
     ...(ctx.protocolVersion
       ? { $mcp_protocol_version: ctx.protocolVersion }
       : {}),
   };
+}
+
+export function mcpVendorForContext(
+  ctx: Pick<
+    McpAnalyticsContext,
+    "clientName" | "clientUserAgent" | "redirectHost"
+  >,
+): string | undefined {
+  return (
+    detectVendorClient(ctx.clientName, ctx.clientUserAgent) ??
+    vendorForRedirectHost(ctx.redirectHost)
+  );
 }
 
 function emit(
@@ -125,7 +182,11 @@ function emit(
     track(
       event,
       { ...contextProperties(ctx), ...properties },
-      { userId: ctx.userId, sessionId: ctx.sessionId },
+      {
+        ...(ctx.userId ? { userId: ctx.userId } : {}),
+        ...(ctx.anonymousId ? { anonymousId: ctx.anonymousId } : {}),
+        ...(ctx.sessionId ? { sessionId: ctx.sessionId } : {}),
+      },
     );
   } catch (err) {
     console.error(`[mcp-analytics] Failed to emit ${event}:`, err);
@@ -212,10 +273,45 @@ export function trackMcpResourceRead(
   });
 }
 
+export type McpOAuthRoute = "directory" | "mcp";
+
+// A new user's attempt serves two pages: the sign-in page (signedIn false, with
+// a login wall) and, after sign-in, the consent page (signedIn true). A
+// returning signed-in user sees only the consent page. So signedIn false counts
+// signed-out arrivals and signedIn true counts everyone who reached consent,
+// new and returning together; neither is "starts" on its own, and adding them
+// double-counts new users.
+export function trackMcpOAuthAuthorizeOpened(
+  ctx: McpAnalyticsContext,
+  args: { route: McpOAuthRoute; signedIn: boolean },
+): void {
+  if (!analyticsEnabled()) return;
+  emit(MCP_ANALYTICS_EVENTS.oauthAuthorizeOpened, ctx, {
+    $mcp_oauth_route: args.route,
+    $mcp_oauth_signed_in: args.signedIn,
+  });
+}
+
+export function trackMcpOAuthLoginWallShown(
+  ctx: McpAnalyticsContext,
+  args: { route: McpOAuthRoute },
+): void {
+  if (!analyticsEnabled()) return;
+  emit(MCP_ANALYTICS_EVENTS.oauthLoginWallShown, ctx, {
+    $mcp_oauth_route: args.route,
+  });
+}
+
 export function describeMcpError(err: unknown): {
   errorType: string;
   errorMessage: string;
 } {
+  if (isDatabaseQueryFailure(err)) {
+    return {
+      errorType: databaseFailureCode(err) ?? "DrizzleQueryError",
+      errorMessage: databaseFailureMessage(err),
+    };
+  }
   if (err && typeof err === "object") {
     const record = err as Record<string, unknown>;
     const code = record.errorCode ?? record.code;

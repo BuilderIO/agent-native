@@ -32,6 +32,7 @@ import {
 } from "h3";
 
 import type { ActionRunContext } from "../action.js";
+import { AppSecretDecryptionError } from "../secrets/errors.js";
 import { getH3App } from "../server/framework-request-handler.js";
 import { readBody } from "../server/h3-helpers.js";
 import { runWithRequestContext } from "../server/request-context.js";
@@ -58,6 +59,7 @@ import { formatMcpConnectError } from "./errors.js";
 import { fetchHubServers } from "./hub-client.js";
 import {
   buildMcpToolName,
+  fetchMcpOriginBound,
   parseMcpToolName,
   type McpClientManager,
   type McpTool,
@@ -70,6 +72,8 @@ import {
   type McpPrincipal,
 } from "./principal.js";
 import {
+  InvalidMcpHeaderConfigurationError,
+  McpHeaderSecretUnavailableError,
   addRemoteServer,
   listRemoteServers,
   mergedConfigKey,
@@ -80,6 +84,7 @@ import {
   type StoredRemoteMcpServer,
 } from "./remote-store.js";
 import { isMcpToolAllowedForRequest } from "./visibility.js";
+import { addWorkspaceConnectionMcpServers } from "./workspace-connection-servers.js";
 import { loadWorkspaceMcpServers } from "./workspace-servers.js";
 
 const getOrgContext: (typeof import("../org/context.js"))["getOrgContext"] = (
@@ -268,8 +273,37 @@ export async function buildMergedConfig(
     if (!Array.isArray(list)) continue;
     for (const stored of list) {
       if (!stored || typeof stored.url !== "string" || !stored.name) continue;
-      servers[mergedConfigKey(scope, stored, ownerId)] =
-        await toHttpServerConfigAsync(scope, ownerId, stored);
+      const mergedKey = mergedConfigKey(scope, stored, ownerId);
+      try {
+        servers[mergedKey] = await toHttpServerConfigAsync(
+          scope,
+          ownerId,
+          stored,
+        );
+      } catch (error) {
+        if (
+          !(
+            error instanceof InvalidMcpHeaderConfigurationError ||
+            error instanceof AppSecretDecryptionError ||
+            error instanceof McpHeaderSecretUnavailableError
+          )
+        ) {
+          throw error;
+        }
+        servers[mergedKey] = {
+          type: "http",
+          url: stored.url,
+          ...(stored.firstParty ? { firstParty: true } : {}),
+          ...(stored.firstPartyAppId
+            ? { firstPartyAppId: stored.firstPartyAppId }
+            : {}),
+          ...(stored.firstParty && scope === "org"
+            ? { firstPartyOrgId: ownerId }
+            : {}),
+          description: stored.description,
+          configurationError: error,
+        };
+      }
     }
   }
   if (includeBuiltins) {
@@ -307,6 +341,7 @@ export async function buildMergedConfig(
   for (const [mergedKey, cfg] of Object.entries(workspaceServers)) {
     servers[mergedKey] = cfg;
   }
+  await addWorkspaceConnectionMcpServers(servers, principal);
 
   // Hub-consume: if this app is configured to consume from a remote hub
   // (AGENT_NATIVE_MCP_HUB_URL + AGENT_NATIVE_MCP_HUB_TOKEN), pull its
@@ -956,8 +991,10 @@ async function handleList(
   role: string | null;
 }> {
   const { email, orgId, role } = await resolveContextForRequest(event);
-  const userServers = email ? await listRemoteServers("user", email) : [];
-  const orgServers = orgId ? await listRemoteServers("org", orgId) : [];
+  const [userServers, orgServers] = await Promise.all([
+    email ? listRemoteServers("user", email) : [],
+    orgId ? listRemoteServers("org", orgId) : [],
+  ]);
   return {
     user: userServers.map((s) =>
       projectForClient(
@@ -1170,7 +1207,37 @@ async function handleTestExisting(
     setResponseStatus(event, 404);
     return { error: "Server not found" };
   }
-  const config = await toHttpServerConfigAsync(parsedScope, scopeId, server);
+  let config: Awaited<ReturnType<typeof toHttpServerConfigAsync>>;
+  try {
+    config = await toHttpServerConfigAsync(parsedScope, scopeId, server);
+  } catch (error) {
+    if (error instanceof InvalidMcpHeaderConfigurationError) {
+      setResponseStatus(event, 400);
+      return {
+        ok: false,
+        error: error.message,
+        errorCode: error.code,
+      };
+    }
+    if (error instanceof AppSecretDecryptionError) {
+      setResponseStatus(event, 503);
+      return {
+        ok: false,
+        error:
+          "A saved MCP server credential could not be read. Retry or replace it before testing.",
+        errorCode: error.errorCode,
+      };
+    }
+    if (error instanceof McpHeaderSecretUnavailableError) {
+      setResponseStatus(event, 503);
+      return {
+        ok: false,
+        error: error.message,
+        errorCode: error.code,
+      };
+    }
+    throw error;
+  }
   const result = await tryConnect(server.url, config.headers);
   if (result.ok !== true) {
     setResponseStatus(event, 400);
@@ -1253,6 +1320,8 @@ async function tryConnect(
     }
     const transport = new StreamableHTTPClientTransport(new URL(url), {
       requestInit,
+      fetch: (input, init) =>
+        fetchMcpOriginBound(input, init, new URL(url).origin),
     });
     const client = new Client(
       { name: "agent-native-mcp-client-test", version: "1.0.0" },

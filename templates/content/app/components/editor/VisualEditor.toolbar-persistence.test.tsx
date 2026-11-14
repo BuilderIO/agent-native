@@ -236,7 +236,7 @@ describe("collaborative toolbar persistence", () => {
       expect(savedContent()).toBe(expected);
       expect(
         updates.find((update) => update.markdown === expected)?.explicit,
-      ).toBe(true);
+      ).toBe(false);
     },
   );
 
@@ -270,7 +270,7 @@ describe("collaborative toolbar persistence", () => {
       expect(savedContent()).toBe(expected);
       expect(
         updates.find((update) => update.markdown === expected)?.explicit,
-      ).toBe(true);
+      ).toBe(false);
     },
   );
 
@@ -326,9 +326,9 @@ describe("collaborative toolbar persistence", () => {
       const expected = docToNfm(editor.getJSON());
       expect(onChange).toHaveBeenCalledExactlyOnceWith(expected);
       expect(savedContent()).toBe(expected);
-      expect(updates.some((update) => !update.focused && update.explicit)).toBe(
-        true,
-      );
+      expect(
+        updates.some((update) => !update.focused && !update.explicit),
+      ).toBe(true);
     },
   );
 
@@ -385,7 +385,7 @@ describe("collaborative toolbar persistence", () => {
   );
 
   it.each(["heading", "mark"])(
-    "emits explicitly attributed %s intent while toolbar focus is delayed",
+    "saves an unmarked %s command while toolbar focus is delayed",
     async (kind) => {
       const { editor, onChange, updates } = await mount();
       const button = container.querySelector<HTMLButtonElement>(
@@ -394,18 +394,15 @@ describe("collaborative toolbar persistence", () => {
       act(() => button.focus());
       expect(editor.isFocused).toBe(false);
       act(() => {
-        const chain = editor.chain().command(({ tr }) => {
-          tr.setMeta(LOCAL_FILE_USER_EDIT_META, true);
-          return true;
-        });
+        const chain = editor.chain();
         if (kind === "heading") chain.setHeading({ level: 2 }).focus().run();
         else chain.toggleBold().focus().run();
       });
       await settle();
       expect(onChange).toHaveBeenCalledWith(docToNfm(editor.getJSON()));
-      expect(updates.some((update) => !update.focused && update.explicit)).toBe(
-        true,
-      );
+      expect(
+        updates.some((update) => !update.focused && !update.explicit),
+      ).toBe(true);
     },
   );
 

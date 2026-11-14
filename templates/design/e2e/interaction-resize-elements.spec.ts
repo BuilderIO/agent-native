@@ -223,8 +223,8 @@ test.describe("element resize", () => {
     const { id, before } = await openWithBoxA(app);
     const width = app.page.getByLabel("W size in pixels");
     const height = app.page.getByLabel("H size in pixels");
-    await expect(width).toHaveValue("120px");
-    await expect(height).toHaveValue("80px");
+    await expect(width).toHaveValue("120");
+    await expect(height).toHaveValue("80");
 
     const start = await app.pagePoint(160, 120);
     const held = await app.pagePoint(230, 170);

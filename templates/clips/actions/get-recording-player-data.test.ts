@@ -205,7 +205,10 @@ vi.mock("../shared/builder-credits.js", () => ({
   normalizeBuilderCreditsStatus: vi.fn(() => null),
 }));
 
-vi.mock("../shared/transcript-segments.js", () => ({
+vi.mock("../shared/transcript-segments.js", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("../shared/transcript-segments.js")
+  >()),
   normalizeTranscriptSegments: vi.fn(() => []),
   parseTranscriptSegments: vi.fn(() => []),
 }));
@@ -231,6 +234,26 @@ describe("get-recording-player-data direct public access", () => {
     mockIsSeekableRepairPending.mockResolvedValue(false);
     mockShareLimit.mockResolvedValue([]);
   });
+
+  it.each(["admin", "editor", "viewer"] as const)(
+    "withholds a trashed recording's direct player payload from %s callers",
+    async (role) => {
+      mockResolveAccess.mockResolvedValue({
+        role,
+        resource: {
+          id: "rec-1",
+          visibility: "org",
+          password: null,
+          expiresAt: null,
+          trashedAt: "2026-10-22T12:00:00.000Z",
+        },
+      });
+      await expect(action.run({ recordingId: "rec-1" })).rejects.toThrow(
+        "No access to recording rec-1",
+      );
+      expect(mockDb.select).not.toHaveBeenCalled();
+    },
+  );
 
   it.each(["admin", "editor", "viewer"] as const)(
     "requires an explicit recording share for %s callers",
@@ -524,6 +547,63 @@ describe("get-recording-player-data view count", () => {
     },
   );
 
+  it.each([
+    { segmentsJson: "[{", unreadable: true },
+    { segmentsJson: "[]", unreadable: false },
+  ])(
+    "only calls an empty transcript no speech when its saved lines can be read ($segmentsJson)",
+    async ({ segmentsJson, unreadable }) => {
+      mockResolveAccess.mockResolvedValue({
+        role: "owner",
+        resource: {
+          id: "rec-1",
+          ownerEmail: "owner@example.com",
+          visibility: "private",
+          password: null,
+          expiresAt: null,
+          status: "ready",
+          chaptersJson: "[]",
+        },
+      });
+      let transcriptRead = false;
+      mockPlayerQuery.build = () => {
+        const query: Record<string, unknown> = {};
+        query.from = () => query;
+        query.where = () => query;
+        query.orderBy = async () => [];
+        query.limit = async () => {
+          if (transcriptRead) return [];
+          transcriptRead = true;
+          return [
+            {
+              recordingId: "rec-1",
+              status: "ready",
+              fullText: "",
+              segmentsJson,
+              language: "en",
+            },
+          ];
+        };
+        query.then = (resolve: (rows: unknown[]) => unknown) => resolve([]);
+        return query;
+      };
+
+      const result = await action.run({ recordingId: "rec-1" });
+
+      if (unreadable) {
+        expect(result.transcript).toMatchObject({ segmentsUnreadable: true });
+        expect(result.transcript?.status).not.toBe("failed");
+        expect(result.transcript?.failureReason).toBeNull();
+      } else {
+        expect(result.transcript).not.toHaveProperty("segmentsUnreadable");
+        expect(result.transcript).toMatchObject({
+          status: "failed",
+          failureReason: expect.stringContaining("No speech was detected"),
+        });
+      }
+    },
+  );
+
   it("reports zero views without failing the player payload", async () => {
     const result = await action.run({ recordingId: "rec-1" });
 
@@ -531,6 +611,53 @@ describe("get-recording-player-data view count", () => {
     expect(result.recording.id).toBe("rec-1");
     expect(result.recording.folderId).toBe("folder-1");
   });
+
+  it.each(["owner", "viewer"])(
+    "applies owner visibility to disabled comments in the %s player payload",
+    async (role) => {
+      mockResolveAccess.mockResolvedValue({
+        role,
+        resource: {
+          id: "rec-1",
+          ownerEmail: "owner@example.com",
+          visibility: "org",
+          enableComments: false,
+          password: null,
+          expiresAt: null,
+          status: "ready",
+          chaptersJson: "[]",
+        },
+      });
+      mockPlayerQuery.build = () => {
+        let isCommentsQuery = false;
+        const query: Record<string, unknown> = {};
+        query.from = (table: unknown) => {
+          isCommentsQuery =
+            (table as { videoTimestampMs?: string } | undefined)
+              ?.videoTimestampMs === "recordingComments.videoTimestampMs";
+          return query;
+        };
+        query.where = () => query;
+        query.limit = async () => [];
+        query.orderBy = async () =>
+          isCommentsQuery
+            ? [
+                {
+                  id: "comment-1",
+                  authorEmail: "author@example.com",
+                  authorName: "Author",
+                  content: "Saved comment",
+                },
+              ]
+            : [];
+        return query;
+      };
+      const result = await action.run({ recordingId: "rec-1" });
+      expect(result.comments.map((comment) => comment.content)).toEqual(
+        role === "owner" ? ["Saved comment"] : [],
+      );
+    },
+  );
 
   it("includes a trashed recording's timestamp in the player payload", async () => {
     const trashedAt = "2026-09-22T12:00:00.000Z";
@@ -683,6 +810,7 @@ describe("get-recording-player-data for agents reading a YouTube clip", () => {
       role: "owner",
       resource: {
         id: "rec-yt",
+        enableComments: true,
         ownerEmail: "owner@example.com",
         visibility: "private",
         password: null,

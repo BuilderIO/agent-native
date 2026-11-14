@@ -16,8 +16,10 @@ import {
   actionExecutionStorage,
   endInvocationEvidence,
   holdInvocationEvidence,
+  noteObservedWrite,
   runOutsideActionInvocation,
   takeVouchedEvidence,
+  withoutWriteObservation,
   type ActionExecutionFrame,
   type ActionExecutionRun,
   type ActionExecutionState,
@@ -26,6 +28,8 @@ import { coerceGatewayStringifiedArgs } from "./action-input-coercion.js";
 import {
   buildActionMcpOutputContract,
   describeOutputContractIssue,
+  inputSchemaToJsonSchema,
+  maskedIssuePath,
   outputSchemaToJsonSchema,
   type JsonSchemaObject,
   type ActionMcpOutputContract,
@@ -34,6 +38,8 @@ import {
   normalizeActionChatUIConfig,
   type ActionChatUIConfig,
 } from "./action-ui.js";
+import { normalizeOptionalToolPlaceholders } from "./agent/optional-placeholders.js";
+import { getStrictToolInputValidator } from "./agent/strict-tool-input.js";
 import type {
   ActionTool,
   AgentChatAttachment,
@@ -62,6 +68,7 @@ import {
 import { assertUsableSchema } from "./json-schema/usable-schema.js";
 import { describeThrownForLog } from "./mcp/embed-redaction.js";
 import { parseServiceIdentityEmail } from "./org/service-identity.js";
+import { observeOutboundWrites } from "./outbound-write-observation.js";
 import { wrapRunWithActionTracking } from "./tracking/action-lifecycle.js";
 
 export {
@@ -91,7 +98,7 @@ export type {
   ActionReceiptProvenance,
   CommitActionOptions,
 } from "./action-receipt.js";
-export { ACTION_EXECUTION_KEY };
+export { ACTION_EXECUTION_KEY, withoutWriteObservation };
 
 /**
  * An action's recorder for a call refused before its run, kept on its
@@ -159,8 +166,36 @@ export interface ActionAutomationContext {
   policyId?: string;
 }
 
+export const DEFAULT_TOOL_RESULT_CHARS = 50_000;
+
+/**
+ * The most characters of a pretty-printed result the agent keeps for a call:
+ * the action's own limit, else the agent-wide limit, else the default, bounded
+ * by any hard limit. The agent loop and actions that fit their own results
+ * resolve it here so they cannot disagree.
+ */
+export function resolveToolMaxResultChars(
+  action: { maxResultChars?: number },
+  limits?: { maxResultChars?: number; hardMaxResultChars?: number },
+): number {
+  const configured =
+    action.maxResultChars ??
+    limits?.maxResultChars ??
+    DEFAULT_TOOL_RESULT_CHARS;
+  return typeof limits?.hardMaxResultChars === "number"
+    ? Math.min(configured, limits.hardMaxResultChars)
+    : configured;
+}
+
 export interface ActionRunContext {
   send?: (event: AgentChatEvent) => void;
+  /** Request a clean empty final after this invocation succeeds. Available only to agent tool calls; does not stop the model or override errors, receipts, or later instructions. */
+  settle?: () => void;
+  /**
+   * Result cap the agent loop enforces on this call, from
+   * `resolveToolMaxResultChars`. Absent outside the agent loop.
+   */
+  maxResultChars?: number;
   userEmail?: string;
   /**
    * Request headers for server-only actions that must delegate to an
@@ -200,6 +235,8 @@ export interface ActionRunContext {
   runId?: string;
   turnId?: string;
   toolCallId?: string;
+  /** Marks calls made after a private action in this agent turn. */
+  omitFromPersistedHistory?: true;
   /**
    * The approval the agent loop ran this call under, for approval gates to
    * check. Audit rows read approval from the invocation's execution frame,
@@ -208,10 +245,16 @@ export interface ActionRunContext {
   approvedToolCallKey?: string;
   /**
    * The client behind a `caller: "mcp"` call. `name` and `version` are its
-   * self-reported `clientInfo`. `oauthClientId` is the OAuth client its
-   * credential was issued to.
+   * self-reported `clientInfo`, and `userAgent` its self-reported HTTP
+   * User-Agent. `oauthClientId` is the OAuth client its credential was issued
+   * to.
    */
-  mcpClient?: { name?: string; version?: string; oauthClientId?: string };
+  mcpClient?: {
+    name?: string;
+    version?: string;
+    userAgent?: string;
+    oauthClientId?: string;
+  };
 }
 
 export type ActionAuthorize<TArgs> = (
@@ -272,6 +315,73 @@ export function fail(message: string, options: FailOptions = {}): never {
     ...(options.details === undefined ? {} : { details: options.details }),
   });
 }
+
+/**
+ * The closed set of `errorCode`s an action fails with. Its `fail` and
+ * `noWrite` accept only these codes, so a misspelled code is a compile error
+ * and a caller can switch over the action's failures exhaustively. Pass it to
+ * `defineAction` as `errors` to publish the codes on the definition.
+ */
+export interface ActionErrors<TCode extends string> {
+  readonly codes: readonly TCode[];
+  fail(
+    message: string,
+    errorCode: TCode,
+    options?: Omit<FailOptions, "errorCode">,
+  ): never;
+  noWrite(
+    message: string,
+    errorCode: TCode,
+    options?: Omit<FailOptions, "errorCode">,
+  ): never;
+}
+
+export function defineActionErrors<const TCode extends string>(
+  ...codes: [TCode, ...TCode[]]
+): ActionErrors<TCode> {
+  const errors: ActionErrors<TCode> = {
+    codes: Object.freeze([...new Set(codes)]),
+    fail: (message, errorCode, options = {}) =>
+      fail(message, { ...options, errorCode }),
+    noWrite: (message, errorCode, options = {}) => {
+      throw new NoWriteError(message, { ...options, errorCode });
+    },
+  };
+  return Object.freeze(errors);
+}
+
+/**
+ * A rejection raised before the action saved anything that matters, so a
+ * caller can retry with corrected arguments. The framework reads a failure
+ * from the writes it saw, so most rejections need no label. This one is an
+ * override that wins over an observed write, for example when the only thing
+ * written first is something a retry harmlessly repeats, such as uploads
+ * nobody has referenced yet. The framework accepts the claim only for the call
+ * that raised it, and only when no write action nested in that call entered
+ * its handler; otherwise it reads as any other failure.
+ */
+export class NoWriteError extends ActionContractError {
+  readonly noWrite = true;
+
+  constructor(message: string, options: FailOptions = {}) {
+    super(message, {
+      errorCode: options.errorCode ?? "action_failed",
+      statusCode: options.statusCode ?? 400,
+      ...(options.details === undefined ? {} : { details: options.details }),
+    });
+    this.name = "NoWriteError";
+  }
+}
+
+export function isNoWriteError(error: unknown): error is NoWriteError {
+  return (
+    isActionContractError(error) &&
+    (error as { noWrite?: unknown }).noWrite === true
+  );
+}
+
+/** Each `NoWriteError` the call that raised it was verified to have written nothing in. */
+const verifiedNoWrites = new WeakSet<object>();
 
 export type { ActionMcpOutputContract } from "./action-output-contract.js";
 
@@ -352,12 +462,20 @@ export function isActionOutputContractError(
 /**
  * What a failed call had already done, when its failure came after `run`
  * returned: an output-contract error, or a stop or connection signal raised
- * while its result was checked. `undefined` when the failure carries no such
- * evidence, so the caller must not assume the call changed nothing.
+ * while its result was checked; or a verified `NoWriteError`. `undefined`
+ * when the failure carries no such evidence, so the caller must not assume
+ * the call changed nothing.
  */
 export function actionFailureEffect(
   error: unknown,
 ): ActionOutputEffect | undefined {
+  if (
+    error !== null &&
+    typeof error === "object" &&
+    verifiedNoWrites.has(error)
+  ) {
+    return "none";
+  }
   if (isActionOutputContractError(error)) return error.effect;
   if (!isAgentActionStopError(error)) return undefined;
   const effect = (error as { effect?: unknown }).effect;
@@ -382,6 +500,28 @@ function readableFailure(error: unknown): unknown {
   }
 }
 
+/**
+ * Record that the running action call wrote somewhere the framework cannot
+ * watch, such as a socket, a file or a vendor SDK that does not use `fetch`, so
+ * that a later failure of the call is not read as one that saved nothing. Call
+ * it before the write is sent. It only adds evidence: nothing it records can be
+ * cleared, and outside an action call it does nothing. Database writes and
+ * `fetch` requests that are not GET, HEAD or OPTIONS need no call.
+ */
+export function noteExternalWrite(channel: string): void {
+  noteObservedWrite(channel);
+}
+
+/**
+ * A `fetch` that cannot be wrapped hides every HTTP write, so a call that
+ * cannot be watched counts as having sent one and its failure stays `unknown`.
+ */
+function noteUnwatchedFetch(
+  status: ReturnType<typeof observeOutboundWrites>,
+): void {
+  if (status === "fetch-unwritable") noteObservedWrite("http-unwatched");
+}
+
 /** What a dispatched call did, and whether other sessions must refresh. */
 export interface InvocationEffect {
   /** `unknown`: a write may have run that nothing confirms or rules out. */
@@ -400,6 +540,15 @@ export interface InvocationEffect {
  * declaration, which only then a receipt, `retrySafe` or a typed failure the
  * call raised itself may narrow. A refused call is settled before its error is
  * read.
+ *
+ * A recorded call that threw by itself needs a write the framework saw it
+ * send as well, not just a write handler having started: a rejection raised
+ * before anything was saved is `none`. Seeing a write only narrows what
+ * entered, so a call declared read-only that writes anyway is no more suspect
+ * than before. A call whose result never came may still be running and write
+ * later, so observing nothing proves nothing and it keeps the entered
+ * evidence alone. So does `changed`: a refresh nothing needed costs less than
+ * a missed one.
  */
 export function invocationEffect(
   entry: { changeEvents?: boolean },
@@ -409,30 +558,47 @@ export function invocationEffect(
     readOnly?: boolean;
     retrySafe?: boolean;
     receipt?: { changed: boolean };
-    /** It failed, with what it threw; `lost` when its result never came. */
-    failed?: { error?: unknown; lost?: boolean };
+    /**
+     * It failed, with what it threw; `lost` when its result never came;
+     * `reported` when it returned an error result instead, such as an MCP
+     * tool's `isError`, which says the tool did not do its work.
+     */
+    failed?: { error?: unknown; lost?: boolean; reported?: boolean };
   },
 ): InvocationEffect {
   const { evidence, record } = outcome;
   const { failed, readOnly } = settled;
   if (outcome.refused) return { effect: "none", changed: false };
   if (outcome.keyed && !record) return { effect: "unknown", changed: true };
+  // The report speaks for the tool, not for a write nested in the call.
+  if (failed?.reported && !failed.lost && !evidence?.nestedWriteEntered) {
+    return { effect: "none", changed: false };
+  }
   // A typed effect speaks for the call that raised it, not for one it passed
   // through. Untracked, nothing names that call, so it stands.
   const typed =
     failed && !failed.lost && (!evidence || evidence.raised === failed.error)
       ? actionFailureEffect(failed.error)
       : undefined;
-  if (evidence?.writeEntered && (evidence.nestedWriteEntered || !record)) {
+  const enteredNested =
+    evidence?.writeEntered && (evidence.nestedWriteEntered || !record)
+      ? evidence
+      : undefined;
+  const enteredOwn = record ? record.evidence.writeEntered : readOnly !== true;
+  const changed = enteredNested
+    ? enteredNested.changeEntered
+    : record
+      ? record.evidence.changeEntered && !(failed && typed === "none")
+      : entry.changeEvents !== false &&
+        (failed ? typed === "committed" : enteredOwn);
+  const observed = record !== undefined && failed !== undefined && !failed.lost;
+  if (enteredNested && (!observed || enteredNested.nestedWriteObserved)) {
     return {
       effect: !failed || typed === "committed" ? "committed" : "unknown",
-      changed: evidence.changeEntered,
+      changed,
     };
   }
-  const wrote = record ? record.evidence.writeEntered : readOnly !== true;
-  const changed = record
-    ? record.evidence.changeEntered
-    : entry.changeEvents !== false && (failed ? typed === "committed" : wrote);
+  const wrote = enteredOwn && (!observed || record.evidence.writeObserved);
   const effect = !failed
     ? (settled.receipt?.changed ?? wrote)
       ? "committed"
@@ -675,6 +841,14 @@ function postRunSignal(
  */
 function withCommittedEffect(error: unknown): unknown {
   if (actionFailureEffect(error) !== "none") return error;
+  // Its claim holds only for the call that raised it.
+  if (isNoWriteError(error)) {
+    return new ActionContractError(error.message, {
+      errorCode: error.errorCode,
+      statusCode: error.statusCode,
+      ...(error.details === undefined ? {} : { details: error.details }),
+    });
+  }
   if (isActionOutputContractError(error)) {
     return new ActionOutputContractError({
       actionName: error.actionName,
@@ -778,6 +952,7 @@ export interface ActionMcpAppResourceConfig {
   title?: string;
   description?: string;
   html: string | ActionMcpAppHtmlBuilder;
+  requiresEmbedSession?: boolean;
   mimeType?: typeof MCP_APP_MIME_TYPE;
   _meta?: Record<string, unknown>;
   csp?: ActionMcpAppCsp | ActionMcpAppCspBuilder;
@@ -804,7 +979,27 @@ type InferParams<T extends Record<string, ParameterSchema> | undefined> =
     ? { [K in keyof T]?: string }
     : Record<string, string>;
 
+/**
+ * What a result that does not match `outputSchema` does. Defaults to
+ * `"strict"`. `"fallback"` is deprecated: it replaces a broken result with a
+ * value callers cannot tell from a real one.
+ */
 export type ActionOutputErrorStrategy = "strict" | "warn" | "fallback";
+
+/**
+ * What an action with `outputSchema` returns under `TStrategy`. `"warn"` can
+ * pass `run`'s unvalidated value through; `"fallback"` returns
+ * `outputFallback` as given, `undefined` when it is unset.
+ */
+export type ActionOutputResult<
+  TOutputSchema extends StandardSchemaV1,
+  TStrategy extends ActionOutputErrorStrategy,
+> = TStrategy extends "strict"
+  ? StandardSchemaV1.InferOutput<TOutputSchema>
+  :
+      | StandardSchemaV1.InferOutput<TOutputSchema>
+      | StandardSchemaV1.InferInput<TOutputSchema>
+      | (TStrategy extends "fallback" ? undefined : never);
 
 export interface ActionMcpToolAnnotations {
   readOnlyHint: boolean;
@@ -817,6 +1012,7 @@ interface DefineActionWithSchema<
   TSchema extends StandardSchemaV1,
   TReturn = any,
   TOutputSchema extends StandardSchemaV1 | undefined = undefined,
+  TStrategy extends ActionOutputErrorStrategy = ActionOutputErrorStrategy,
 > {
   title?: string;
   description: string;
@@ -824,8 +1020,12 @@ interface DefineActionWithSchema<
   parameters?: never;
   agentInputSchema?: StandardSchemaV1;
   outputSchema?: TOutputSchema;
-  outputErrorStrategy?: ActionOutputErrorStrategy;
+  outputErrorStrategy?: TStrategy;
+  /** @deprecated `outputErrorStrategy: "fallback"` hides a broken result
+   *  behind a plausible one. Fix the result or use `"strict"`. */
   outputFallback?: TReturn;
+  /** The action's closed error-code set, from `defineActionErrors`. */
+  errors?: ActionErrors<string>;
   /** Advertise `outputSchema` to MCP clients as the tool's `outputSchema`
    *  and validate every `structuredContent` against it. Set it only after
    *  auditing that every value `run` can return meets the schema; it requires
@@ -874,6 +1074,22 @@ interface DefineActionWithSchema<
   mcpTool?: boolean;
   mcpAnnotations?: ActionMcpToolAnnotations;
   deferLoading?: boolean;
+  /** Words and short phrases a user says for this action that its name and
+   *  description do not: "auto-archive rule", "canned reply", "reschedule".
+   *  `tool-search` ranks them just below the name. They are never shown to a
+   *  model, so they add no context cost; keep them factual, not a list of
+   *  every request the action might serve. At most 12, each up to 60
+   *  characters. */
+  searchHints?: readonly string[];
+  eagerInputStreaming?: boolean;
+  /** An empty list on this action erases nothing saved, so a call that pads
+   *  unused fields with `null` and `[]` can run as sent. The action must then
+   *  read every `[]` as if the field were left out: a padding model sends it
+   *  for each list it isn't using, so `[]` can't also mean "none" (give that
+   *  its own `true`-only switch). Leave this off for any action that stores a
+   *  list: there, `[]` beside a padded `null` might be a real clear or
+   *  padding, so the call is refused rather than guessed at. */
+  emptyListsEraseNothing?: boolean;
   readOnly?: boolean;
   grounding?: boolean;
   allowInPlanMode?: boolean;
@@ -888,6 +1104,10 @@ interface DefineActionWithSchema<
    *  codes, private data) is never painted from disk on a revisit. Defaults to
    *  persisting. */
   persistInBrowser?: boolean;
+  /** `false` keeps this action's arguments and result out of persisted chat
+   *  history, execution journals, and traces. The live turn still receives the
+   *  full result. Following assistant content in that turn is omitted too. */
+  persistInChatHistory?: boolean;
   /** Names the shareable resource a mutating call changes so the `action`
    *  change event also reaches every collaborator who can read it, not only the
    *  actor. Without it other open sessions are never told and show stale data
@@ -906,12 +1126,20 @@ interface DefineActionWithSchema<
    * agent loop then lets the model correct its arguments and retry instead of
    * ending the run as `write_tool_outcome_unknown`. Pass a predicate when only
    * some inputs qualify. Do not set it on an action that appends, sends, or
-   * charges. It covers this action's own write: once a write nested in it
-   * entered its handler, a failure stays an unknown outcome.
+   * charges, except for inputs carrying an idempotency key the action answers
+   * with its first result. It covers this action's own write: once a write
+   * nested in it entered its handler, a failure stays an unknown outcome. MCP
+   * approval reads it too: a call it covers gets no "already ran" warning.
    */
   retrySafe?:
     | boolean
     | ((input: StandardSchemaV1.InferInput<TSchema>) => boolean);
+  /**
+   * How the action reads an ISO date-time argument that names no zone, so an
+   * approval summary can say so: `"calendar"` means in the calendar's own
+   * time zone. Unset, the summary shows such a time as having no zone given.
+   */
+  zonelessTimes?: "calendar";
   endsTurn?: boolean;
   dedupe?: boolean;
   toolCallable?: boolean;
@@ -962,15 +1190,21 @@ interface DefineActionWithParams<
     | Record<string, ParameterSchema>
     | undefined,
   TReturn = any,
+  TOutputSchema extends StandardSchemaV1 | undefined =
+    | StandardSchemaV1
+    | undefined,
+  TStrategy extends ActionOutputErrorStrategy = ActionOutputErrorStrategy,
 > {
   title?: string;
   description: string;
   parameters?: TParams;
   schema?: never;
   agentInputSchema?: never;
-  outputSchema?: StandardSchemaV1;
-  outputErrorStrategy?: ActionOutputErrorStrategy;
+  outputSchema?: TOutputSchema;
+  outputErrorStrategy?: TStrategy;
+  /** @deprecated See `DefineActionWithSchema.outputFallback`. */
   outputFallback?: TReturn;
+  errors?: ActionErrors<string>;
   mcpOutputSchema?: boolean;
   run: (
     args: InferParams<TParams>,
@@ -984,12 +1218,17 @@ interface DefineActionWithParams<
   mcpTool?: boolean;
   mcpAnnotations?: ActionMcpToolAnnotations;
   deferLoading?: boolean;
+  /** See `searchHints` on the schema form above. */
+  searchHints?: readonly string[];
+  eagerInputStreaming?: boolean;
+  emptyListsEraseNothing?: boolean;
   readOnly?: boolean;
   grounding?: boolean;
   allowInPlanMode?: boolean;
   planMode?: ActionPlanModeConfig<InferParams<TParams>>;
   changeEvents?: boolean;
   persistInBrowser?: boolean;
+  persistInChatHistory?: boolean;
   changeResource?: (
     input: InferParams<TParams>,
     result: TReturn,
@@ -997,6 +1236,8 @@ interface DefineActionWithParams<
   parallelSafe?: boolean;
   /** See `ActionDefinition.retrySafe`. */
   retrySafe?: boolean | ((input: InferParams<TParams>) => boolean);
+  /** See `ActionDefinition.zonelessTimes`. */
+  zonelessTimes?: "calendar";
   endsTurn?: boolean;
   dedupe?: boolean;
   toolCallable?: boolean;
@@ -1034,18 +1275,23 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly mcpTool?: boolean;
   readonly mcpAnnotations?: ActionMcpToolAnnotations;
   readonly deferLoading?: boolean;
+  readonly searchHints?: readonly string[];
+  readonly eagerInputStreaming?: boolean;
+  readonly emptyListsEraseNothing?: boolean;
   readonly readOnly?: boolean;
   readonly grounding?: boolean;
   readonly allowInPlanMode?: boolean;
   readonly planMode?: ActionPlanModeConfig<TInput>;
   readonly changeEvents?: boolean;
   readonly persistInBrowser?: boolean;
+  readonly persistInChatHistory?: boolean;
   readonly changeResource?: (
     input: TInput,
     result: TReturn,
   ) => ActionChangeResource | null | undefined;
   readonly parallelSafe?: boolean;
   readonly retrySafe?: boolean | ((input: TInput) => boolean);
+  readonly zonelessTimes?: "calendar";
   readonly endsTurn?: boolean;
   readonly dedupe?: boolean;
   readonly toolCallable?: boolean;
@@ -1058,7 +1304,10 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly maxResultChars?: number;
   readonly outputSchema?: StandardSchemaV1;
   readonly outputErrorStrategy?: ActionOutputErrorStrategy;
+  /** @deprecated See `DefineActionWithSchema.outputFallback`. */
   readonly outputFallback?: TReturn;
+  /** Present only when the action declared `errors`. */
+  readonly errorCodes?: readonly string[];
   /** Present only when the action opted in with `mcpOutputSchema: true`. */
   readonly mcpOutputContract?: ActionMcpOutputContract;
   readonly needsApproval?:
@@ -1069,39 +1318,173 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly access?: ActionAccessConfig;
 }
 
-export function defineAction<
-  TSchema extends StandardSchemaV1,
-  TReturn,
-  TOutputSchema extends StandardSchemaV1 | undefined = undefined,
->(
-  options: DefineActionWithSchema<TSchema, TReturn, TOutputSchema>,
+const MAX_SEARCH_HINTS = 12;
+const MAX_SEARCH_HINT_CHARS = 60;
+
+/**
+ * An action's own definition is invalid. Loaders never skip such an action or
+ * fall back to wrapping it as a CLI script: the app fails to load, naming the
+ * action, until the definition is fixed.
+ */
+export class ActionDefinitionError extends TypeError {
+  readonly actionDefinitionError = true;
+  readonly actionName: string | undefined;
+
+  constructor(message: string, actionName?: string) {
+    super(actionName ? `Action "${actionName}": ${message}` : message);
+    this.name = "ActionDefinitionError";
+    this.actionName = actionName;
+  }
+}
+
+export function isActionDefinitionError(
+  error: unknown,
+): error is ActionDefinitionError {
+  return (
+    error instanceof ActionDefinitionError ||
+    (!!error &&
+      typeof error === "object" &&
+      (error as { actionDefinitionError?: unknown }).actionDefinitionError ===
+        true)
+  );
+}
+
+/**
+ * The same error naming `actionName`, for a loader that knows the name the
+ * definition itself could not report.
+ */
+export function namedActionDefinitionError(
+  error: ActionDefinitionError,
+  actionName: string,
+): ActionDefinitionError {
+  return error.actionName
+    ? error
+    : new ActionDefinitionError(error.message, actionName);
+}
+
+/** Throws unless `value` is absent or a valid hint list. */
+export function validateSearchHints(
+  value: unknown,
+  actionName?: string,
+): readonly string[] | undefined {
+  if (value === undefined) return undefined;
+  if (
+    !Array.isArray(value) ||
+    value.length > MAX_SEARCH_HINTS ||
+    value.some(
+      (hint) =>
+        typeof hint !== "string" ||
+        hint.trim().length === 0 ||
+        hint.length > MAX_SEARCH_HINT_CHARS,
+    )
+  ) {
+    throw new ActionDefinitionError(
+      `searchHints must be at most ${MAX_SEARCH_HINTS} non-empty strings of up to ${MAX_SEARCH_HINT_CHARS} characters.`,
+      actionName,
+    );
+  }
+  return Object.freeze([...value]);
+}
+
+export function defineAction<TSchema extends StandardSchemaV1, TReturn>(
+  options: DefineActionWithSchema<TSchema, TReturn, undefined>,
 ): ActionDefinition<StandardSchemaV1.InferInput<TSchema>, TReturn>;
 export function defineAction<
   TParams extends Record<string, ParameterSchema> | undefined,
   TReturn,
 >(
-  options: DefineActionWithParams<TParams, TReturn>,
+  options: DefineActionWithParams<TParams, TReturn, undefined>,
 ): ActionDefinition<InferParams<TParams>, TReturn>;
+// With an `outputSchema`, `run` must return the schema's input. Under the
+// default strict strategy the action returns the schema's output; `"warn"`
+// can pass `run`'s value through and `"fallback"` returns `outputFallback`,
+// so those also admit the input shape. These come last, so a `run` whose
+// result does not match is reported against them.
+export function defineAction<
+  TParams extends Record<string, ParameterSchema> | undefined,
+  TOutputSchema extends StandardSchemaV1,
+  TStrategy extends ActionOutputErrorStrategy = "strict",
+>(
+  options: DefineActionWithParams<
+    TParams,
+    StandardSchemaV1.InferInput<TOutputSchema>,
+    TOutputSchema,
+    TStrategy
+  > & { outputSchema: TOutputSchema },
+): ActionDefinition<
+  InferParams<TParams>,
+  ActionOutputResult<TOutputSchema, TStrategy>
+>;
+export function defineAction<
+  TSchema extends StandardSchemaV1,
+  TOutputSchema extends StandardSchemaV1,
+  TStrategy extends ActionOutputErrorStrategy = "strict",
+>(
+  options: DefineActionWithSchema<
+    TSchema,
+    StandardSchemaV1.InferInput<TOutputSchema>,
+    TOutputSchema,
+    TStrategy
+  > & { outputSchema: TOutputSchema },
+): ActionDefinition<
+  StandardSchemaV1.InferInput<TSchema>,
+  ActionOutputResult<TOutputSchema, TStrategy>
+>;
 export function defineAction(options: any) {
   const hasSchema = options.schema && "~standard" in options.schema;
 
+  const tool: ActionTool = {
+    ...(typeof options.title === "string" && options.title.trim()
+      ? { title: options.title.trim() }
+      : {}),
+    description: options.description,
+    ...(!hasSchema && options.parameters
+      ? {
+          parameters: {
+            type: "object" as const,
+            properties: options.parameters,
+          },
+        }
+      : {}),
+  };
   // Converting a schema to JSON Schema is the dominant module-scope cost of an
-  // action-heavy app's cold start, so convert only the schema the agent sees.
-  let toolParameters: ActionTool["parameters"];
-  let inputSchemaVerdict: ConvertedSchema["verdict"];
+  // action-heavy app's cold start, so convert only the schema the agent sees,
+  // and only when something first reads it. `convertedParameters` is the one
+  // place that converts: it records the verdict against this `tool`, so readers
+  // of the verdict read `parameters` first (`usableInputSchema`, `derivedTool`).
+  let convertedParameters: () => ActionTool["parameters"] = () => undefined;
   if (hasSchema) {
-    ({ parameters: toolParameters, verdict: inputSchemaVerdict } =
-      schemaToJsonSchema(
-        options.agentInputSchema && "~standard" in options.agentInputSchema
-          ? options.agentInputSchema
-          : options.schema,
-        options.description,
-      ));
-  } else if (options.parameters) {
-    toolParameters = {
-      type: "object" as const,
-      properties: options.parameters,
+    const agentSchema =
+      options.agentInputSchema && "~standard" in options.agentInputSchema
+        ? options.agentInputSchema
+        : options.schema;
+    let converted: ConvertedSchema | undefined;
+    convertedParameters = () => {
+      if (!converted) {
+        converted = schemaToJsonSchema(agentSchema, options.description);
+        if (converted.verdict) {
+          recordInputSchemaVerdict(tool, converted.verdict);
+        }
+      }
+      return converted.parameters;
     };
+    Object.defineProperty(tool, "parameters", {
+      enumerable: true,
+      configurable: true,
+      get: convertedParameters,
+      // An assigned schema replaces what the agent sees, as it did when this
+      // was a plain property. The schema's own conversion still runs first, so
+      // its verdict is recorded and validation keeps using it.
+      set(value: ActionTool["parameters"]) {
+        convertedParameters();
+        Object.defineProperty(tool, "parameters", {
+          value,
+          enumerable: true,
+          configurable: true,
+          writable: true,
+        });
+      },
+    });
   }
 
   const executionKey = {};
@@ -1161,7 +1544,7 @@ export function defineAction(options: any) {
     options.outputErrorStrategy === "warn" ||
     options.outputErrorStrategy === "fallback"
       ? options.outputErrorStrategy
-      : "warn";
+      : "strict";
 
   const httpConfig = options.http as ActionHttpConfig | false | undefined;
   const inferredReadOnly =
@@ -1243,6 +1626,19 @@ export function defineAction(options: any) {
         : output;
     } catch (thrown) {
       const error = readableFailure(thrown);
+      // Raised by this handler, not passed up through a nested call's
+      // boundary, with no nested write entered.
+      if (
+        !ran &&
+        frame &&
+        isNoWriteError(error) &&
+        !frame.nestedWriteEntered &&
+        actionExecutionStorage?.getStore()?.failures.get(error) === undefined
+      ) {
+        verifiedNoWrites.add(error);
+        frame.raised = error;
+        throw error;
+      }
       if (!ran && effect() !== "committed") throw error;
       const raised = ran ? error : withCommittedEffect(error);
       if (frame) frame.raised = raised;
@@ -1250,24 +1646,39 @@ export function defineAction(options: any) {
     }
   };
   const run = hasSchema
-    ? wrapWithValidation(options.schema, classifiedRun, toolParameters)
+    ? wrapWithValidation(options.schema, classifiedRun, convertedParameters)
     : classifiedRun;
 
   const uiOnly: boolean | undefined =
     typeof options.uiOnly === "boolean" ? options.uiOnly : undefined;
 
   const auditConfig = normalizeAuditConfig(options.audit);
-  const finalRun = resolveAuditAttach(auditConfig, readOnly)
-    ? wrapRunWithAudit(run, auditConfig)
+  const actionIsPrivate = options.persistInChatHistory === false;
+  let effectiveAuditConfig: ActionAuditConfig | undefined;
+  if (actionIsPrivate) {
+    const { target: _target, summary: _summary, ...shared } = auditConfig ?? {};
+    effectiveAuditConfig = { ...shared, recordInputs: false };
+  } else {
+    effectiveAuditConfig = auditConfig;
+  }
+  const finalRun = resolveAuditAttach(effectiveAuditConfig, readOnly)
+    ? wrapRunWithAudit(run, effectiveAuditConfig, actionIsPrivate)
     : run;
   const trackedRun = wrapRunWithServicePrincipalGrant(
-    wrapRunWithActionTracking(finalRun, readOnly),
+    wrapRunWithActionTracking(finalRun, readOnly, {
+      includeOutputId: options.persistInChatHistory !== false,
+    }),
   );
   const invalidCallRun = wrapRunWithActionTracking(
-    resolveAuditAttach(auditConfig, readOnly)
-      ? wrapRunWithAudit(throwInvalidCallError, auditConfig)
+    resolveAuditAttach(effectiveAuditConfig, readOnly)
+      ? wrapRunWithAudit(
+          throwInvalidCallError,
+          effectiveAuditConfig,
+          actionIsPrivate,
+        )
       : throwInvalidCallError,
     readOnly,
+    { includeOutputId: options.persistInChatHistory !== false },
   );
 
   const toolCallable: boolean | undefined =
@@ -1299,6 +1710,7 @@ export function defineAction(options: any) {
     typeof options.deferLoading === "boolean"
       ? options.deferLoading
       : undefined;
+  const searchHints = validateSearchHints(options.searchHints);
   const parallelSafe: boolean | undefined =
     typeof options.parallelSafe === "boolean"
       ? options.parallelSafe
@@ -1310,6 +1722,8 @@ export function defineAction(options: any) {
       : undefined;
   const endsTurn: boolean | undefined =
     typeof options.endsTurn === "boolean" ? options.endsTurn : undefined;
+  const zonelessTimes =
+    options.zonelessTimes === "calendar" ? options.zonelessTimes : undefined;
   const dedupe: boolean | undefined =
     typeof options.dedupe === "boolean" ? options.dedupe : undefined;
   const publicAgent: PublicAgentActionConfig | undefined =
@@ -1330,7 +1744,8 @@ export function defineAction(options: any) {
     }
     if (
       (options.mcpApp.compactCatalog === true ||
-        options.mcpApp.structuredContent === true) &&
+        options.mcpApp.structuredContent === true ||
+        Array.isArray(options.mcpApp.visibility)) &&
       !options.mcpApp.resource
     ) {
       return options.mcpApp as ActionMcpAppConfig;
@@ -1363,13 +1778,7 @@ export function defineAction(options: any) {
   })();
 
   const entry = {
-    tool: {
-      ...(typeof options.title === "string" && options.title.trim()
-        ? { title: options.title.trim() }
-        : {}),
-      description: options.description,
-      parameters: toolParameters,
-    },
+    tool,
     run: wrapRunWithExecutionBoundary(trackedRun, executionKey),
     ...(hasSchema ? { schema: options.schema } : {}),
     ...(options.http !== undefined ? { http: options.http } : {}),
@@ -1384,6 +1793,13 @@ export function defineAction(options: any) {
     ...(typeof mcpTool === "boolean" ? { mcpTool } : {}),
     ...(mcpAnnotations ? { mcpAnnotations } : {}),
     ...(typeof deferLoading === "boolean" ? { deferLoading } : {}),
+    ...(searchHints ? { searchHints } : {}),
+    ...(typeof options.eagerInputStreaming === "boolean"
+      ? { eagerInputStreaming: options.eagerInputStreaming }
+      : {}),
+    ...(typeof options.emptyListsEraseNothing === "boolean"
+      ? { emptyListsEraseNothing: options.emptyListsEraseNothing }
+      : {}),
     ...(typeof readOnly === "boolean" ? { readOnly } : {}),
     ...(typeof options.grounding === "boolean"
       ? { grounding: options.grounding }
@@ -1406,11 +1822,15 @@ export function defineAction(options: any) {
     ...(typeof options.persistInBrowser === "boolean"
       ? { persistInBrowser: options.persistInBrowser }
       : {}),
+    ...(typeof options.persistInChatHistory === "boolean"
+      ? { persistInChatHistory: options.persistInChatHistory }
+      : {}),
     ...(typeof options.changeResource === "function"
       ? { changeResource: options.changeResource }
       : {}),
     ...(typeof parallelSafe === "boolean" ? { parallelSafe } : {}),
     ...(retrySafe !== undefined ? { retrySafe } : {}),
+    ...(zonelessTimes !== undefined ? { zonelessTimes } : {}),
     ...(typeof endsTurn === "boolean" ? { endsTurn } : {}),
     ...(typeof dedupe === "boolean" ? { dedupe } : {}),
     ...(typeof toolCallable === "boolean" ? { toolCallable } : {}),
@@ -1438,6 +1858,7 @@ export function defineAction(options: any) {
         }
       : {}),
     ...(mcpOutputContract ? { mcpOutputContract } : {}),
+    ...(options.errors ? { errorCodes: options.errors.codes } : {}),
     ...(typeof options.needsApproval === "boolean" ||
     typeof options.needsApproval === "function"
       ? { needsApproval: options.needsApproval }
@@ -1462,10 +1883,9 @@ export function defineAction(options: any) {
       return invalidCallRun(args, ctx);
     },
   });
-  if (inputSchemaVerdict) {
-    recordInputSchemaVerdict(entry.tool, inputSchemaVerdict);
-  }
-  return entry;
+  // `never` input keeps the implementation compatible with every overload,
+  // which `exactOptionalPropertyTypes` rejects for the inferred entry type.
+  return entry as ActionDefinition<never, unknown>;
 }
 
 export function isActionExposedToExternalAgents(entry: {
@@ -1551,6 +1971,7 @@ function wrapRunWithServicePrincipalGrant(
 function wrapRunWithAudit(
   run: (args: any, ctx?: ActionRunContext) => any,
   auditConfig: ActionAuditConfig | undefined,
+  actionIsPrivate: boolean,
 ): (args: any, ctx?: ActionRunContext) => Promise<any> {
   return async function auditedRun(args: any, ctx?: ActionRunContext) {
     // The run consumes the preparation, and its handler may change `args`.
@@ -1570,16 +1991,36 @@ function wrapRunWithAudit(
         import("./audit/record.js"),
         import("./audit/attribution.js"),
       ]);
+      const omitFromPersistedHistory =
+        actionIsPrivate || ctx?.omitFromPersistedHistory === true;
+      const effectiveAuditConfig = omitFromPersistedHistory
+        ? {
+            ...(auditConfig ?? {}),
+            recordInputs: false,
+            target: undefined,
+            summary: undefined,
+          }
+        : auditConfig;
       const call = {
-        config: auditConfig,
-        args: recorded,
+        config: effectiveAuditConfig,
+        args: omitFromPersistedHistory ? {} : recorded,
         ctx,
         attribution: auditAttribution(ctx),
       };
       await recordActionAudit(
         threw
-          ? { ...call, status: "error", error }
-          : { ...call, status: "success", result },
+          ? {
+              ...call,
+              status: "error",
+              error: omitFromPersistedHistory
+                ? new Error("Private content omitted")
+                : error,
+            }
+          : {
+              ...call,
+              status: "success",
+              ...(!omitFromPersistedHistory ? { result } : {}),
+            },
       );
     } catch {
       // Recorder failed to load/run — never affect the action.
@@ -1710,6 +2151,16 @@ export function stripUnsupportedSchemaKeywords<T>(
     const existing = Array.isArray(obj.anyOf) ? obj.anyOf : [];
     obj.anyOf = [...existing, ...obj.oneOf];
     delete obj.oneOf;
+  }
+  // OpenAI rejects an array with no `items` ("array schema missing items"),
+  // which is how `z.tuple` emits, with `prefixItems` alone. Beside
+  // `prefixItems`, `items` only covers elements past the tuple, so the
+  // tuple's own positions keep their schemas.
+  const types = Array.isArray(obj.type) ? obj.type : [obj.type];
+  if (obj.items === undefined && types.includes("array")) {
+    const items: Record<string, unknown> = {};
+    writeJsonValue(items);
+    obj.items = items;
   }
   if (obj.type === undefined) typeEnumeratedValues(obj);
   withStringOnlyEnum(obj);
@@ -2098,6 +2549,10 @@ export interface ActionCallEvidence {
   readonly changeEntered: boolean;
   /** One of those writes was nested in the call, not the call's own. */
   readonly nestedWriteEntered?: boolean;
+  /** The framework saw the call, or one nested in it, send a write. */
+  readonly writeObserved: boolean;
+  /** One of those observed writes was nested in the call, not the call's own. */
+  readonly nestedWriteObserved?: boolean;
   /**
    * The failure this call raised or rebuilt itself; only its typed effect
    * speaks for the call. Its own, so another call throwing it again cannot
@@ -2135,8 +2590,51 @@ export interface ActionExecutionOutcome {
   keyed?: boolean;
 }
 
-/** Rejected action input; execution phase determines whether effects are possible. */
-export class ActionInputValidationError extends Error {}
+/**
+ * Rejected action input; execution phase determines whether effects are possible.
+ * `paths` names the failing fields (`tweaks.2.type`) and never carries values:
+ * a segment the schema does not declare, such as a record key, is `*`.
+ */
+export class ActionInputValidationError extends Error {
+  readonly paths: readonly string[];
+
+  constructor(message: string, paths: readonly string[] = []) {
+    super(message);
+    this.paths = paths;
+  }
+}
+
+const inputIssueSchemas = new WeakMap<object, JsonSchemaObject | undefined>();
+
+/** Converted once, and only once an input is rejected: a rejection is the only reader. */
+function inputIssueSchema(
+  schema: StandardSchemaV1,
+): JsonSchemaObject | undefined {
+  if (inputIssueSchemas.has(schema)) return inputIssueSchemas.get(schema);
+  let converted: JsonSchemaObject | undefined;
+  try {
+    converted = inputSchemaToJsonSchema(schema);
+  } catch {
+    // coercion-ok: without a JSON Schema nothing is known to be declared, so
+    // every segment of an issue path is masked.
+  }
+  inputIssueSchemas.set(schema, converted);
+  return converted;
+}
+
+const MAX_TELEMETRY_INVALID_PATHS = 8;
+const MAX_TELEMETRY_INVALID_PATH_LENGTH = 120;
+
+/** Failing field paths bounded for telemetry; undefined when there are none. */
+export function telemetryInvalidPaths(
+  paths: readonly string[],
+): string[] | undefined {
+  if (paths.length === 0) return undefined;
+  // Masking folds sibling record keys into one path, so repeats are common.
+  return [...new Set(paths)]
+    .slice(0, MAX_TELEMETRY_INVALID_PATHS)
+    .map((path) => path.slice(0, MAX_TELEMETRY_INVALID_PATH_LENGTH));
+}
 
 function wrapRunWithExecutionBoundary(
   run: ActionExecutionRun,
@@ -2144,6 +2642,7 @@ function wrapRunWithExecutionBoundary(
 ): ActionExecutionRun {
   const boundaryRun: ActionExecutionRun = async (args, ctx) => {
     if (!actionExecutionStorage) return run(args, ctx);
+    const fetchStatus = observeOutboundWrites();
     const parent = actionExecutionStorage.getStore();
     const frame: ActionExecutionFrame =
       parent?.frame?.boundaryPending &&
@@ -2156,6 +2655,7 @@ function wrapRunWithExecutionBoundary(
             handlerEntered: false,
             writeEntered: false,
             changeEntered: false,
+            writeObserved: false,
           };
     frame.key = key;
     frame.boundaryPending = false;
@@ -2165,6 +2665,7 @@ function wrapRunWithExecutionBoundary(
       failures: parent?.failures ?? new WeakMap(),
     };
     return actionExecutionStorage.run(state, async () => {
+      noteUnwatchedFetch(fetchStatus);
       try {
         return await run(args, ctx);
       } catch (error) {
@@ -2194,6 +2695,7 @@ export async function runActionWithExecutionOutcome(
   // A mutable async stack cannot safely attribute overlapping invocations,
   // so without one no row records the evidence vouched for this one.
   if (!actionExecutionStorage) return run(args, ctx);
+  const fetchStatus = observeOutboundWrites();
   const parent = actionExecutionStorage.getStore();
   const entryKey = entry
     ? (entry as Record<symbol, unknown>)[ACTION_EXECUTION_KEY]
@@ -2208,6 +2710,7 @@ export async function runActionWithExecutionOutcome(
     handlerEntered: true,
     writeEntered: false,
     changeEntered: false,
+    writeObserved: false,
     boundaryPending: true,
     outcome,
   };
@@ -2221,6 +2724,7 @@ export async function runActionWithExecutionOutcome(
     failures: parent?.failures ?? new WeakMap(),
   };
   return actionExecutionStorage.run(state, async () => {
+    noteUnwatchedFetch(fetchStatus);
     try {
       return await run(args, ctx);
     } catch (error) {
@@ -2288,10 +2792,23 @@ async function validatedActionArgs(
   if (result.issues) {
     const missing: string[] = [];
     const other: string[] = [];
+    const paths: string[] = [];
+    const declared = inputIssueSchema(schema);
     for (const issue of result.issues) {
       const pathStr = issue.path
         ? issue.path.map((p) => (typeof p === "object" ? p.key : p)).join(".")
         : "";
+      if (issue.path?.length) {
+        paths.push(
+          maskedIssuePath(
+            issue.path.map((p) => {
+              const key = typeof p === "object" ? p.key : p;
+              return typeof key === "number" ? key : String(key);
+            }),
+            declared,
+          ).join("."),
+        );
+      }
       const msg = String(issue.message ?? "");
       if (
         pathStr &&
@@ -2330,6 +2847,7 @@ async function validatedActionArgs(
 
     throw new ActionInputValidationError(
       `Invalid action parameters — ${parts.join(". ")}. Received: ${received}.${expected}`,
+      paths,
     );
   }
   const value = (result as StandardSchemaV1.SuccessResult<any>).value;
@@ -2398,8 +2916,18 @@ export async function actionCallIntent(
       : undefined;
   let snapshot: ReturnType<typeof snapshotActionArguments>;
   try {
+    const repaired = getStrictToolInputValidator(entry)
+      ? { input, error: undefined }
+      : normalizeOptionalToolPlaceholders(
+          entry.tool?.parameters,
+          coerceGatewayStringifiedArgs(input, entry.tool?.parameters),
+          entry,
+          { nullOnly: true },
+        );
+    if (repaired.error) throw repaired.error;
+    args = repaired.input;
     if (schema) {
-      args = await validateActionArgs(schema, input, entry.tool?.parameters);
+      args = await validateActionArgs(schema, args, entry.tool?.parameters);
     }
     // Arguments with no exact snapshot (an accessor, a Map, a class
     // instance) are refused: a gate could not be sure it read what runs.
@@ -2507,11 +3035,11 @@ export function boundActionCallIntent(
 function wrapWithValidation(
   schema: StandardSchemaV1,
   run: Function,
-  toolParameters?: ActionTool["parameters"],
+  toolParameters: () => ActionTool["parameters"],
 ): (args: any, ctx?: ActionRunContext) => any {
   return async (args: any, ctx?: ActionRunContext) => {
     if (preparedRunFor(ctx, args)?.schema === schema) return run(args, ctx);
-    return run(await validateActionArgs(schema, args, toolParameters), ctx);
+    return run(await validateActionArgs(schema, args, toolParameters()), ctx);
   };
 }
 

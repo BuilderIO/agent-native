@@ -1,5 +1,6 @@
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { CredentialContext } from "../credentials/index.js";
+import { frameworkMcpTools } from "../mcp/framework-tools.js";
 import {
   canUseDeployCredentialFallbackForRequest,
   readDeployCredentialEnv,
@@ -518,7 +519,7 @@ const repoParams = {
 export function createGitHubRepoToolEntries(
   options: GitHubRepoToolOptions = {},
 ): Record<string, ActionEntry> {
-  return {
+  return frameworkMcpTools({
     "github-repo-list-files": {
       readOnly: true,
       parallelSafe: true,
@@ -671,5 +672,5 @@ export function createGitHubRepoToolEntries(
       },
       run: (args) => deleteFileImpl(args ?? {}, options),
     },
-  };
+  });
 }

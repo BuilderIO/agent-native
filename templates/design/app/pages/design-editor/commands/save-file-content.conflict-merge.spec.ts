@@ -7,7 +7,32 @@ import type { QueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import {
+  __resetCanvasOutcomeTrackingForTests,
+  flushCanvasOutcomeCounts,
+  setCanvasOutcomeContext,
+} from "@/lib/canvas-outcome-tracking";
 import type { FileContentSaveRequest } from "@/pages/design-editor/editor-state";
+
+const outcomeMocks = vi.hoisted(() => ({ trackDesignRelay: vi.fn() }));
+
+vi.mock("@/lib/design-relay-tracking", () => ({
+  trackDesignRelay: outcomeMocks.trackDesignRelay,
+}));
+
+function saveOutcomes(): Record<string, number> {
+  flushCanvasOutcomeCounts();
+  const out: Record<string, number> = {};
+  for (const [, props] of outcomeMocks.trackDesignRelay.mock.calls) {
+    const { operation, outcome, reason, count } = props as Record<
+      string,
+      string | number
+    >;
+    const key = `${operation}/${outcome}/${reason}`;
+    out[key] = (out[key] ?? 0) + Number(count);
+  }
+  return out;
+}
 
 import {
   __clearKnownSaveContentsForTests,
@@ -248,6 +273,43 @@ describe("runSaveFileContent concurrent edit merge", () => {
     expect(onPersistedContent).not.toHaveBeenCalled();
   });
 
+  it("settles a save the server reports as already applied, without a conflict toast", async () => {
+    const { args, pending, mutateAsync, rollbackPendingLocalFileContent } =
+      setup({
+        mutate: async () => ({
+          updated: true,
+          skippedStaleOperation: true,
+          operationAlreadyApplied: true,
+          versionHash: sourceContentHash(THEIRS),
+        }),
+      });
+    const onPersistedContent = vi.fn();
+
+    await expect(
+      runSaveFileContent(args, pending, undefined, onPersistedContent),
+    ).resolves.toBe("persisted");
+
+    expect(mutateAsync).toHaveBeenCalledTimes(1);
+    expect(errorToast).not.toHaveBeenCalled();
+    expect(rollbackPendingLocalFileContent).toHaveBeenCalledWith(
+      pending.id,
+      pending.content,
+    );
+    expect(onPersistedContent).not.toHaveBeenCalled();
+    expect(args.latestFileSaveForUnloadRef.current[pending.id]).toBeUndefined();
+  });
+
+  it("does not take an already-applied flag from a response that did not confirm the save", async () => {
+    const { args, pending } = setup({
+      mutate: async () => ({
+        operationAlreadyApplied: true,
+        versionHash: sourceContentHash(THEIRS),
+      }),
+    });
+
+    await expect(runSaveFileContent(args, pending)).resolves.toBe("failed");
+  });
+
   it("keeps the conflict loud when the base content is unknown", async () => {
     const { args, pending, mutateAsync, rollbackPendingLocalFileContent } =
       setup({
@@ -282,6 +344,37 @@ describe("runSaveFileContent concurrent edit merge", () => {
 
     expect(mutateAsync).toHaveBeenCalledTimes(1);
     expect(rollbackPendingLocalFileContent).toHaveBeenCalled();
+  });
+
+  it("keeps a save the server could not verify queued for retry, without a conflict toast", async () => {
+    const warningToast = vi
+      .spyOn(toast, "warning")
+      .mockImplementation(() => "test-toast");
+    const { args, pending, mutateAsync, rollbackPendingLocalFileContent } =
+      setup({
+        mutate: async () => {
+          throw Object.assign(
+            new Error(
+              "Could not verify a source file's live version. Re-read the design and retry.",
+            ),
+            { status: 409, errorCode: "source_version_unverifiable" },
+          );
+        },
+      });
+    const entry = { key: "outbox-entry" };
+    args.createFileSaveOutboxEntry = vi.fn(() => entry as never);
+
+    await expect(runSaveFileContent(args, pending)).resolves.toBe("retryable");
+
+    expect(mutateAsync).toHaveBeenCalledTimes(1);
+    expect(rollbackPendingLocalFileContent).not.toHaveBeenCalled();
+    expect(args.acknowledgeOutboxEntry).not.toHaveBeenCalled();
+    expect(errorToast).not.toHaveBeenCalledWith(
+      "designEditor.toasts.saveConflict",
+      expect.anything(),
+    );
+    expect(warningToast).toHaveBeenCalled();
+    warningToast.mockRestore();
   });
 
   it("stops merging after bounded retries when the file keeps moving", async () => {
@@ -467,5 +560,108 @@ describe("runSaveFileContent request body", () => {
       pending.id,
       MINE,
     );
+  });
+});
+
+describe("runSaveFileContent outcome counts", () => {
+  beforeEach(() => {
+    __clearKnownSaveContentsForTests();
+    __resetCanvasOutcomeTrackingForTests();
+    setCanvasOutcomeContext({ designId: undefined, signedIn: true });
+    outcomeMocks.trackDesignRelay.mockReset();
+    vi.spyOn(toast, "error").mockImplementation(() => "test-toast");
+    vi.spyOn(toast, "warning").mockImplementation(() => "test-toast");
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it("counts a save under the design it was queued for", async () => {
+    const { args, pending } = setup({
+      mutate: async () => ({
+        updated: true,
+        versionHash: sourceContentHash(MINE),
+      }),
+    });
+    args.designId = "design-a";
+    setCanvasOutcomeContext({ designId: "design-b", signedIn: true });
+    await runSaveFileContent(args, pending);
+    flushCanvasOutcomeCounts();
+    expect(
+      outcomeMocks.trackDesignRelay.mock.calls.map(
+        ([, props]) => (props as { design_id?: string }).design_id,
+      ),
+    ).toEqual(["design-a"]);
+  });
+
+  it("counts a save that merged and retried as one success", async () => {
+    const { args, pending, mutateAsync } = setup({
+      mutate: async (input) => {
+        if (input.expectedVersionHash === sourceContentHash(BASE)) {
+          throw conflict();
+        }
+        return { updated: true, versionHash: sourceContentHash(MERGED) };
+      },
+    });
+    await expect(runSaveFileContent(args, pending)).resolves.toBe("persisted");
+    expect(mutateAsync).toHaveBeenCalledTimes(2);
+    expect(saveOutcomes()).toEqual({ "save/succeeded/none": 1 });
+  });
+
+  it("counts an unresolvable conflict as a failed save", async () => {
+    const { args, pending } = setup({
+      live: async () => BASE.replace("#22c55e", "#ffffff"),
+      mutate: async () => {
+        throw conflict();
+      },
+    });
+    pending.content = BASE.replace("#22c55e", "#000000");
+    await expect(runSaveFileContent(args, pending)).resolves.toBe("conflict");
+    expect(saveOutcomes()).toEqual({ "save/failed/conflict": 1 });
+  });
+
+  it("counts a server-skipped stale copy as a failure the server calls success", async () => {
+    const { args, pending } = setup({
+      mutate: async () => ({ updated: true, skippedStaleMirror: true }),
+    });
+    await expect(runSaveFileContent(args, pending)).resolves.toBe("conflict");
+    expect(saveOutcomes()).toEqual({ "save/failed/stale_mirror": 1 });
+  });
+
+  it("counts a save the server already applied as a success", async () => {
+    const { args, pending } = setup({
+      mutate: async () => ({
+        updated: true,
+        skippedStaleOperation: true,
+        operationAlreadyApplied: true,
+        versionHash: sourceContentHash(THEIRS),
+      }),
+    });
+    await expect(runSaveFileContent(args, pending)).resolves.toBe("persisted");
+    expect(saveOutcomes()).toEqual({ "save/succeeded/none": 1 });
+  });
+
+  it("counts a save without edit rights as skipped, never sent", async () => {
+    const { args, pending, mutateAsync } = setup({
+      mutate: async () => ({ updated: true }),
+    });
+    args.canEditDesignRef.current = false;
+    await expect(runSaveFileContent(args, pending)).resolves.toBe("failed");
+    expect(mutateAsync).not.toHaveBeenCalled();
+    expect(saveOutcomes()).toEqual({ "save/skipped/no_edit_rights": 1 });
+  });
+
+  it("counts an offline save kept for retry as deferred, not failed", async () => {
+    vi.stubGlobal("navigator", { onLine: false });
+    const { args, pending } = setup({
+      mutate: async () => {
+        throw new TypeError("Failed to fetch");
+      },
+    });
+    await expect(
+      runSaveFileContent(args, pending, Promise.resolve(true)),
+    ).resolves.toBe("retryable");
+    expect(saveOutcomes()).toEqual({ "save/deferred/offline_queued": 1 });
   });
 });

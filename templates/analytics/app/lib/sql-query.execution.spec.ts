@@ -19,6 +19,28 @@ describe("SQL execution boundary with the real cost counter", () => {
   afterEach(() => vi.restoreAllMocks());
 
   it.each(["bigquery", "first-party"] as const)(
+    "preserves %s accounting receipts through the public query helper",
+    async (source) => {
+      for (const status of ["recorded", "pending", "unavailable"] as const) {
+        const usageAccounting = {
+          status,
+          projectId: "test-project",
+          jobId: "job-" + status,
+          ...(status === "recorded" ? { usageStatus: "partial" as const } : {}),
+        };
+        callAction.mockResolvedValue({ rows: [{ n: 1 }], usageAccounting });
+        expect(await executeSqlQuery("SELECT 1", source)).toMatchObject({
+          rows: [{ n: 1 }],
+          usageAccounting,
+        });
+      }
+      expect(callAction).toHaveBeenCalledTimes(3);
+      expect(getTotalBytes()).toBe(0);
+      expect(getUnknownScans()).toBe(3);
+    },
+  );
+
+  it.each(["bigquery", "first-party"] as const)(
     "keeps a %s result with missing provider cache metadata unknown",
     async (source) => {
       callAction.mockResolvedValue({
@@ -60,16 +82,24 @@ describe("SQL execution boundary with the real cost counter", () => {
     },
   );
 
-  it.each([undefined, null, 0, -1, Number.NaN, Infinity, "4096"])(
-    "does not invent a scan for bytes %s",
-    async (bytesProcessed) => {
+  it.each([
+    [undefined, 1],
+    [null, 1],
+    [0, 0],
+    [-1, 0],
+    [Number.NaN, 0],
+    [Infinity, 0],
+    ["4096", 0],
+  ])(
+    "does not invent scan bytes for %s and tallies %s unknown scans",
+    async (bytesProcessed, unknownScans) => {
       callAction.mockResolvedValue({ rows: [], bytesProcessed });
 
       await executeSqlQuery("SELECT 1", "bigquery");
 
       expect(callAction).toHaveBeenCalledTimes(1);
       expect(getTotalBytes()).toBe(0);
-      expect(getUnknownScans()).toBe(0);
+      expect(getUnknownScans()).toBe(unknownScans);
     },
   );
 
@@ -130,7 +160,13 @@ describe("SQL execution boundary with the real cost counter", () => {
 
   it("counts first-party BigQuery bytes once and preserves cached fetch times", async () => {
     const fetchedAt = "2026-10-14T12:00:00.000Z";
+    const usageAccounting = {
+      status: "pending" as const,
+      projectId: "test-project",
+      jobId: "original-job",
+    };
     const response = {
+      usageAccounting,
       rows: [{ n: 1 }],
       bytesProcessed: 4096,
       cached: false,
@@ -144,7 +180,11 @@ describe("SQL execution boundary with the real cost counter", () => {
     for (let i = 0; i < 3; i += 1) {
       await expect(
         executeSqlQuery("SELECT 1", "first-party"),
-      ).resolves.toMatchObject({ rows: [{ n: 1 }], fetchedAt });
+      ).resolves.toMatchObject({
+        rows: [{ n: 1 }],
+        fetchedAt,
+        usageAccounting,
+      });
       expect(getTotalBytes()).toBe(4096);
       expect(getUnknownScans()).toBe(0);
     }

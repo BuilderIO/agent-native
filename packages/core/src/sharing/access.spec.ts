@@ -31,6 +31,7 @@ const resourceType = "qa-doc";
 const ownerEmail = "owner+qa@example.com";
 const viewerEmail = "viewer+qa@example.com";
 const outsiderEmail = "outsider+qa@example.com";
+const orgAdminEmail = "org-admin+qa@example.com";
 const orgId = "org-qa";
 const otherOrgId = "org-other";
 
@@ -41,6 +42,13 @@ const docs = table("qa_docs", {
 });
 
 const docShares = createSharesTable("qa_doc_shares");
+const managedDocs = table("qa_managed_docs", {
+  id: text("id").primaryKey(),
+  title: text("title").notNull(),
+  ...ownableColumns(),
+});
+
+const managedDocShares = createSharesTable("qa_managed_doc_shares");
 
 type Db = ReturnType<typeof drizzle>;
 
@@ -77,6 +85,21 @@ async function insertDoc(values: {
   visibility?: "private" | "org" | "public";
 }) {
   await db.insert(docs).values({
+    id: values.id,
+    title: values.id,
+    ownerEmail: values.ownerEmail ?? ownerEmail,
+    orgId: values.orgId === undefined ? orgId : values.orgId,
+    visibility: values.visibility ?? "private",
+  });
+}
+
+async function insertManagedDoc(values: {
+  id: string;
+  ownerEmail?: string;
+  orgId?: string | null;
+  visibility?: "private" | "org" | "public";
+}) {
+  await db.insert(managedDocs).values({
     id: values.id,
     title: values.id,
     ownerEmail: values.ownerEmail ?? ownerEmail,
@@ -138,6 +161,23 @@ beforeEach(async () => {
       created_at TEXT NOT NULL,
       notified_at TEXT
     );
+    CREATE TABLE qa_managed_docs (
+      id TEXT PRIMARY KEY,
+      title TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      visibility TEXT NOT NULL DEFAULT 'private'
+    );
+    CREATE TABLE qa_managed_doc_shares (
+      id TEXT PRIMARY KEY,
+      resource_id TEXT NOT NULL,
+      principal_type TEXT NOT NULL,
+      principal_id TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'viewer',
+      created_by TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      notified_at TEXT
+    );
     CREATE TABLE organizations (
       id TEXT PRIMARY KEY,
       name TEXT NOT NULL,
@@ -180,6 +220,17 @@ beforeEach(async () => {
     getDb: () => db,
     supportsGroupShares: true,
   });
+  registerShareableResource({
+    type: `${resourceType}-manager-policy`,
+    resourceTable: managedDocs,
+    sharesTable: managedDocShares,
+    displayName: "QA Workspace App",
+    titleColumn: "title",
+    getDb: () => db,
+    publicAccessRole: "admin",
+    canManageAccess: (_resource, ctx) =>
+      ctx.userEmail === orgAdminEmail && ctx.orgId === orgId,
+  });
 });
 
 afterEach(async () => {
@@ -187,6 +238,106 @@ afterEach(async () => {
 });
 
 describe("shareable resource access helpers", () => {
+  it("keeps direct admin shares below a registration's manager policy", async () => {
+    const managedResourceType = `${resourceType}-manager-policy`;
+    await insertManagedDoc({ id: "manager-policy-app" });
+    await db.insert(managedDocShares).values({
+      id: "manager-policy-admin-share",
+      resourceId: "manager-policy-app",
+      principalType: "user",
+      principalId: viewerEmail,
+      role: "admin",
+      createdBy: ownerEmail,
+      createdAt: "2026-01-01",
+    });
+
+    await runWithRequestContext({ userEmail: viewerEmail, orgId }, async () => {
+      await expect(
+        resolveAccess(managedResourceType, "manager-policy-app"),
+      ).resolves.toMatchObject({ role: "editor" });
+      await expect(
+        setResourceVisibility.run({
+          resourceType: managedResourceType,
+          resourceId: "manager-policy-app",
+          visibility: "org",
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+    });
+    const [unchanged] = await db
+      .select()
+      .from(managedDocs)
+      .where(eq(managedDocs.id, "manager-policy-app"));
+    expect(unchanged?.visibility).toBe("private");
+
+    await runWithRequestContext(
+      { userEmail: orgAdminEmail, orgId },
+      async () => {
+        await expect(
+          resolveAccess(managedResourceType, "manager-policy-app"),
+        ).resolves.toMatchObject({ role: "admin" });
+        await expect(
+          setResourceVisibility.run({
+            resourceType: managedResourceType,
+            resourceId: "manager-policy-app",
+            visibility: "org",
+          }),
+        ).resolves.toMatchObject({ ok: true });
+      },
+    );
+  });
+
+  it("does not filter direct admin shares through manager-policy SQL", async () => {
+    await insertManagedDoc({ id: "manager-policy-filter" });
+    await db.insert(managedDocShares).values({
+      id: "manager-policy-filter-admin-share",
+      resourceId: "manager-policy-filter",
+      principalType: "user",
+      principalId: viewerEmail,
+      role: "admin",
+      createdBy: ownerEmail,
+      createdAt: "2026-01-01",
+    });
+
+    const listFor = (userEmail: string) =>
+      runWithRequestContext({ userEmail, orgId }, async () => {
+        const rows = await db
+          .select()
+          .from(managedDocs)
+          .where(
+            accessFilter(
+              managedDocs,
+              managedDocShares,
+              { userEmail, orgId },
+              "admin",
+            ),
+          );
+        return rows.map((row) => row.id);
+      });
+
+    await expect(listFor(viewerEmail)).resolves.toEqual([]);
+    await expect(listFor(ownerEmail)).resolves.toEqual([
+      "manager-policy-filter",
+    ]);
+  });
+
+  it("does not let public access bypass a registration's manager policy", async () => {
+    const managedResourceType = `${resourceType}-manager-policy`;
+    await insertManagedDoc({
+      id: "manager-policy-public-app",
+      ownerEmail: outsiderEmail,
+      visibility: "public",
+    });
+
+    await runWithRequestContext({ userEmail: viewerEmail, orgId }, async () => {
+      await expect(
+        resolveAccess(managedResourceType, "manager-policy-public-app"),
+      ).resolves.toMatchObject({ role: "editor" });
+      await expect(
+        assertAccess(managedResourceType, "manager-policy-public-app", "admin"),
+      ).rejects.toBeInstanceOf(ForbiddenError);
+    });
+  });
+
   it.each(["viewer", "editor", "admin"] as const)(
     "checks current membership for explicit organization %s grants while preserving direct admin grants",
     async (role) => {
@@ -653,6 +804,58 @@ describe("shareable resource access helpers", () => {
       await runWithRequestContext({ userEmail: ownerEmail, orgId }, () =>
         expect(resolveAccess(resourceType, "doc-hosted")).resolves.toBe(null),
       );
+    } finally {
+      registerHostAccessResolver(resourceType, null);
+    }
+  });
+
+  it("never asks a host about signed-out requests unless it opted in", async () => {
+    await insertDoc({ id: "doc-hosted-signed-in-only" });
+    const asked: Array<string | undefined> = [];
+    registerHostAccessResolver(resourceType, async (_resource, ctx) => {
+      asked.push(ctx.userEmail);
+      return "editor";
+    });
+    try {
+      await runWithRequestContext({}, async () => {
+        await expect(
+          resolveAccess(resourceType, "doc-hosted-signed-in-only"),
+        ).resolves.toBeNull();
+      });
+      expect(asked).toEqual([]);
+
+      await runWithRequestContext({ userEmail: viewerEmail }, async () => {
+        await expect(
+          resolveAccess(resourceType, "doc-hosted-signed-in-only"),
+        ).resolves.toMatchObject({ role: "editor" });
+      });
+      expect(asked).toEqual([viewerEmail]);
+    } finally {
+      registerHostAccessResolver(resourceType, null);
+    }
+  });
+
+  it("asks a host that opted in about signed-out requests", async () => {
+    await insertDoc({ id: "doc-hosted-anonymous" });
+    const asked: Array<string | undefined> = [];
+    registerHostAccessResolver(
+      resourceType,
+      async (resource, ctx) => {
+        asked.push(ctx.userEmail);
+        return resource.id === "doc-hosted-anonymous" ? "viewer" : undefined;
+      },
+      { includeSignedOut: true },
+    );
+    try {
+      await runWithRequestContext({}, async () => {
+        await expect(
+          resolveAccess(resourceType, "doc-hosted-anonymous"),
+        ).resolves.toMatchObject({ role: "viewer" });
+        await expect(
+          assertAccess(resourceType, "doc-hosted-anonymous", "editor"),
+        ).rejects.toThrow();
+      });
+      expect(asked).toContain(undefined);
     } finally {
       registerHostAccessResolver(resourceType, null);
     }

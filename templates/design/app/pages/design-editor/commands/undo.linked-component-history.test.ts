@@ -213,8 +213,6 @@ function commandArgs() {
     restoreSelectionSnapshot,
     runtimeStructureInsertRevisionRef: { current: 0 },
     runtimeStructureMoveRevisionRef: { current: 0 },
-    selectionRedoStackRef: { current: [] },
-    selectionUndoStackRef: { current: [] },
     setActiveFileId: vi.fn(),
     setContentRenderRevision: vi.fn(),
     setHoveredElement: vi.fn(),
@@ -931,6 +929,7 @@ it.each(["rejected", "no-op", "committed", "intervening edit"])(
     });
     const queue = createLinkedComponentMutationQueue({
       designId: "design-1",
+      sourceSetChangedMessage: "Source set changed",
       fileIds: () => [...state.content.keys()],
       getContent: (id) => state.content.get(id)!,
       getSourceBaseContent: (id) => state.content.get(id)!,

@@ -148,11 +148,17 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "settings.privacyDeletionDescription":
         "This records a deletion request; it does not delete data immediately. An administrator will verify your identity and complete the request under the deployment's retention and legal obligations.",
       "settings.privacyDocsLink": "Read privacy and data rights",
+      "consentBanner.cookieSettings": "Cookie settings",
       "common.cancel": "Cancel",
       "agentChat.auth.logOut": "Log out",
     }[key] ??
     options?.defaultValue ??
     key,
+}));
+
+const openConsentSettingsMock = vi.hoisted(() => vi.fn());
+vi.mock("@agent-native/core/client/consent", () => ({
+  openConsentSettings: openConsentSettingsMock,
 }));
 
 vi.mock("./SchedulingTimezoneField.js", () => ({
@@ -453,5 +459,30 @@ describe("AccountSettingsForm name editing", () => {
     expect(privacyRequestMock).toHaveBeenLastCalledWith({
       requestType: "deletion",
     });
+  });
+
+  it("reopens the cookie banner from Privacy & data", async () => {
+    await act(async () => {
+      root.render(
+        <TooltipProvider>
+          <AccountSettingsForm />
+        </TooltipProvider>,
+      );
+    });
+    act(() => {
+      Array.from(
+        container.querySelectorAll<HTMLButtonElement>("#privacy-data button"),
+      )
+        .find((button) => button.textContent?.trim() === "Manage")
+        ?.click();
+    });
+
+    act(() => {
+      Array.from(document.querySelectorAll<HTMLButtonElement>("button"))
+        .find((button) => button.textContent?.trim() === "Cookie settings")
+        ?.click();
+    });
+
+    expect(openConsentSettingsMock).toHaveBeenCalledTimes(1);
   });
 });

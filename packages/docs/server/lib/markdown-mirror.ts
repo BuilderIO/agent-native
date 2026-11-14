@@ -3,6 +3,10 @@ import { getRequestHeader, type H3Event } from "h3";
 
 const MIRROR_FETCH_HEADER = "x-agent-native-md-mirror";
 
+// Docs is not a first-party template, so without this the unconfigured
+// production fallback is localhost and every markdown request 502s.
+const DOCS_PUBLIC_ORIGIN = "https://www.agent-native.com";
+
 const MIRROR_FETCH_TIMEOUT_MS = 5000;
 
 export type MarkdownMirrorResult =
@@ -20,7 +24,9 @@ export async function fetchMarkdownMirror(
 ): Promise<MarkdownMirrorResult> {
   if (isMarkdownMirrorFetch(event)) return { kind: "absent" };
 
-  const staticUrl = new URL(getAppProductionUrl());
+  const staticUrl = new URL(
+    getAppProductionUrl(undefined, { fallback: DOCS_PUBLIC_ORIGIN }),
+  );
   staticUrl.pathname = `/${relativePath.replace(/^\/+/, "")}`;
   staticUrl.search = "";
   let response: Response;

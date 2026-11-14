@@ -10,8 +10,8 @@ and cross-app delegation, shipped as a single drop-in package.
 Powers the `dispatch` template. Provides:
 
 - **Drizzle schemas** — destinations, identity links, link tokens, approval
-  requests, audit events, dream reports/proposals, vault secrets/grants/
-  requests/audit, workspace resources/grants
+  requests, audit events, dream reports/proposals, vault grants/requests/
+  audit, workspace resources/grants
 - **Server layer** — `setupDispatch(config)` plus Nitro plugins for auth,
   integrations, agent chat, DB, and core routes
 - **Actions** — ~90 `defineAction` modules (vault grants/requests, workspace
@@ -90,21 +90,21 @@ file in the consumer's own `actions/` to override any single action.
 
 ## Exports
 
-| Subpath                            | What it is                                                                                                                                                                                                                                                                                                                                                                               |
-| ---------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `.`                                | Shared config types only — `DispatchConfig`, `DispatchAuthConfig`, `DispatchIntegrationsConfig`. Import this where a type is needed without pulling in server/client code.                                                                                                                                                                                                               |
-| `./routes`                         | `dispatchRoutes` — a programmatic `RouteConfig[]` covering every Dispatch page (chat, overview, metrics, operations, apps, vault, integrations, agents, workspace, messaging, destinations, identities, approvals, automations, audit, settings, dreams, extensions, thread-debug, team, and a workspace-app catch-all route).                                                           |
-| `./routes/pages/*`                 | Individual compiled page modules the routes above point at (e.g. `./routes/pages/vault.js`). Not normally imported directly.                                                                                                                                                                                                                                                             |
-| `./server`                         | `setupDispatch(config)` plus the Nitro plugin set: `dispatchAuthPlugin`, `dispatchIntegrationsPlugin`, `dispatchAgentChatPlugin`, `dispatchDbPlugin`, `dispatchCoreRoutesPlugin`. Importing this module also side-effect-registers all Dispatch actions.                                                                                                                                 |
-| `./shared/feature-flags`           | The default-off `DISPATCH_WORKSPACE_SSO_FLAG` definition used to target browser workspace sign-in safely.                                                                                                                                                                                                                                                                                |
-| `./shared/workspace-sso`           | Exact first-party workspace SSO origins and the additive custom registration parser shared by Dispatch and the identity hub.                                                                                                                                                                                                                                                             |
-| `./server/lib/thread-link-preview` | `loadThreadLinkPreview(threadId)` — server-only helper (reads request context and checks thread ownership) that builds link-preview metadata for shared thread URLs.                                                                                                                                                                                                                     |
-| `./actions`                        | `dispatchActions` — the flat name → `ActionEntry` map of every Dispatch action (vault, workspace resources, destinations, dream jobs, provider-api catalog/docs/request, connected agents, audit, approvals, platform messaging, and more).                                                                                                                                              |
-| `./db`                             | `getDb()` / `db()`, the Drizzle `schema` namespace, the Dispatch table exports (`dispatchDestinations`, `dispatchIdentityLinks`, `dispatchLinkTokens`, `dispatchApprovalRequests`, `dispatchAuditEvents`, `dispatchDreams`, `dispatchDreamProposals`, `vaultSecrets`, `vaultGrants`, `vaultRequests`, `vaultAuditLog`, `workspaceResources`, `workspaceResourceGrants`), and migrations. |
-| `./lib/thread-link-preview`        | Isomorphic helpers behind the server one above — `extractThreadPreviewImageUrl`, `buildThreadLinkPreviewMeta`, and the `ThreadLinkPreview` type. Safe to import from client code.                                                                                                                                                                                                        |
-| `./components`                     | Escape-hatch UI pieces for custom layouts: `DispatchShell`, `Layout`/`NavContent` (plus `DispatchExtensionConfig`/`DispatchNavIcon`/`DispatchNavItem`/`DispatchNavSection` types), `CreateAppPopover`/`CreateAppFlow`, `AppKeysPopover`. Most consumers only need `dispatchRoutes` and never import from here directly.                                                                  |
-| `./components/ui/*`                | The shadcn/ui primitive set Dispatch's own UI is built on (`button`, `dialog`, `dropdown-menu`, `card`, `command`, `calendar`, `chart`, ...), exported per-file so a consumer can reuse one primitive without pulling in the rest.                                                                                                                                                       |
-| `./styles/dispatch.css`            | Tailwind layer with Dispatch-specific styles. Import once in the consumer's global CSS entry.                                                                                                                                                                                                                                                                                            |
+| Subpath                            | What it is                                                                                                                                                                                                                                                                                                                                                               |
+| ---------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `.`                                | Shared config types only — `DispatchConfig`, `DispatchAuthConfig`, `DispatchIntegrationsConfig`. Import this where a type is needed without pulling in server/client code.                                                                                                                                                                                               |
+| `./routes`                         | `dispatchRoutes` — a programmatic `RouteConfig[]` covering every Dispatch page (chat, overview, metrics, operations, apps, vault, integrations, agents, workspace, messaging, destinations, identities, approvals, automations, audit, settings, dreams, extensions, thread-debug, team, and a workspace-app catch-all route).                                           |
+| `./routes/pages/*`                 | Individual compiled page modules the routes above point at (e.g. `./routes/pages/vault.js`). Not normally imported directly.                                                                                                                                                                                                                                             |
+| `./server`                         | `setupDispatch(config)` plus the Nitro plugin set: `dispatchAuthPlugin`, `dispatchIntegrationsPlugin`, `dispatchAgentChatPlugin`, `dispatchDbPlugin`, `dispatchCoreRoutesPlugin`. Importing this module also side-effect-registers all Dispatch actions.                                                                                                                 |
+| `./shared/feature-flags`           | The default-off `DISPATCH_WORKSPACE_SSO_FLAG` definition used to target browser workspace sign-in safely.                                                                                                                                                                                                                                                                |
+| `./shared/workspace-sso`           | Exact first-party workspace SSO origins and the additive custom registration parser shared by Dispatch and the identity hub.                                                                                                                                                                                                                                             |
+| `./server/lib/thread-link-preview` | `loadThreadLinkPreview(threadId)` — server-only helper (reads request context and checks thread ownership) that builds link-preview metadata for shared thread URLs.                                                                                                                                                                                                     |
+| `./actions`                        | `dispatchActions` — the flat name → `ActionEntry` map of every Dispatch action (vault, workspace resources, destinations, dream jobs, provider-api catalog/docs/request, connected agents, audit, approvals, platform messaging, and more).                                                                                                                              |
+| `./db`                             | `getDb()` / `db()`, the Drizzle `schema` namespace, the Dispatch table exports (`dispatchDestinations`, `dispatchIdentityLinks`, `dispatchLinkTokens`, `dispatchApprovalRequests`, `dispatchAuditEvents`, `dispatchDreams`, `dispatchDreamProposals`, `vaultGrants`, `vaultRequests`, `vaultAuditLog`, `workspaceResources`, `workspaceResourceGrants`), and migrations. |
+| `./lib/thread-link-preview`        | Isomorphic helpers behind the server one above — `extractThreadPreviewImageUrl`, `buildThreadLinkPreviewMeta`, and the `ThreadLinkPreview` type. Safe to import from client code.                                                                                                                                                                                        |
+| `./components`                     | Escape-hatch UI pieces for custom layouts: `DispatchShell`, `Layout`/`NavContent` (plus `DispatchExtensionConfig`/`DispatchNavIcon`/`DispatchNavItem`/`DispatchNavSection` types), `CreateAppPopover`/`CreateAppFlow`, `AppKeysPopover`. Most consumers only need `dispatchRoutes` and never import from here directly.                                                  |
+| `./components/ui/*`                | The shadcn/ui primitive set Dispatch's own UI is built on (`button`, `dialog`, `dropdown-menu`, `card`, `command`, `calendar`, `chart`, ...), exported per-file so a consumer can reuse one primitive without pulling in the rest.                                                                                                                                       |
+| `./styles/dispatch.css`            | Tailwind layer with Dispatch-specific styles. Import once in the consumer's global CSS entry.                                                                                                                                                                                                                                                                            |
 
 Hosts that compose the exported layout can brand its desktop and mobile
 navigation together without forking Dispatch:
@@ -117,13 +117,57 @@ import { Layout } from "@agent-native/dispatch/components";
 </Layout>;
 ```
 
+## Verify a community template branch
+
+When a branch verification fails, an organization owner or admin can call
+`inspect-community-builder-backup` with only `branchName`. It reads bounded
+backup and branch status metadata from the organization's saved Builder project
+to show whether the backup is partial, valid, complete and current, whether the
+branch is active, archived, deleted or unknown, and whether it is idle or has
+unpushed changes. It only reads existing status metadata; it does not request a
+backup, download a bundle, or verify app files.
+`backupPartial` returns `missing` or `invalid` when the provider flag is absent
+or malformed; it never coerces those cases to `false`.
+An explicit provider `invalid`/`no-backup` status with no backup object is a
+typed `status_no_backup` failure; other missing backup objects remain malformed
+status failures.
+`verificationPerformed` is always `false`. Use
+`verify-curated-community-app` for the separate hash verification step.
+The verifier requests a bundle-download URL and may refresh provider backup
+state; this status action does not. Status metadata is diagnostic only and
+never authorizes an install or a retry.
+
+Organization owners and admins can call `verify-curated-community-app` with
+`sourceId`, `appId`, and `branchName` to check an existing Builder branch in
+the organization's configured Builder project. Project selection and reviewed
+file pins come from Dispatch; callers cannot supply another project or hashes.
+
+The action uses the saved Builder connection with project read access. It
+requires a complete backup whose digest and immutable commit match the idle,
+clean branch before and after reading its Git bundle. Every regular file under
+`apps/<appId>` must match the reviewed template's exact path and Git blob hash;
+missing, extra, changed, or linked files fail verification. The result contains
+commit and file hashes, without file contents or signed download URLs.
+
+The server needs a writable temporary directory. Verification bounds pack
+decompression before a JavaScript Git reader opens an isolated object store,
+never checks out or executes app code, and removes its temporary files.
+Stale or partial backups,
+unverifiable identities, access errors, and size limits fail closed.
+
+Verification does not install an app, grant access, change Community Lab, or
+mark an app ready. Builder-mode community installs remain disabled pending
+verified generated-branch acceptance.
+
 ## What it's for
 
 Dispatch is the workspace control plane sitting above individual template
 apps:
 
 - **Vault** — shared workspace secrets with a request → grant → audit flow,
-  scoped per app.
+  scoped per app. Each key is one encrypted row of the credential store
+  (`app_secrets`, owned by `@agent-native/core`); Dispatch's own tables hold
+  only grants, requests, and the audit log.
 - **Workspace resources** — cross-app resources (e.g. shared instructions or
   data) with explicit per-app grants and effective-context resolution.
 - **Simple agents and agent packs** — reusable agents keep a Claude-compatible

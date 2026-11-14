@@ -4,6 +4,28 @@ import type { OperationDefinitionInput } from "../operations.js";
 // address, which chat.postMessage rejects until it is resolved to a user id.
 const postReceipt = { externalRef: "ts", url: "permalink" };
 
+const postOutputs = [
+  { name: "ok", type: "boolean" },
+  {
+    name: "channel",
+    type: "string",
+    description: "The channel id it landed in.",
+  },
+  {
+    name: "ts",
+    type: "string",
+    description: "The message time; the same value is externalRef.",
+  },
+  { name: "threadTs", type: "string", nullable: true },
+  { name: "permalink", type: "string", nullable: true },
+  {
+    name: "permalinkError",
+    type: "string",
+    description: "Only when Slack gave no permalink.",
+  },
+  { name: "recipient", type: "object" },
+] as const;
+
 // Unset, the host action posts `<!channel>`, `<!here>` and `<@U...>` as plain
 // text. It is a target because it decides who gets notified.
 const mentionsField = {
@@ -18,8 +40,15 @@ export const slackOperations: OperationDefinitionInput[] = [
     id: "slack.readThread",
     provider: "slack",
     label: "Slack: read a thread",
+    description:
+      "Reads a whole thread. A message's reactions are everyone's but the app's own bot, whose are listed apart as ownReactions.",
     nodeKinds: ["lookup"],
     effect: "read",
+    // The action cuts whole messages at its own 34,000 characters, and story 01
+    // reads a thread for each of up to three reports, then the open reports for
+    // each clear one. 6,500 holds about 16 messages and leaves a step room for
+    // both; a longer thread says so and gives `nextOldest` to read the rest.
+    answerBudgetChars: 6_500,
     fields: [
       { name: "channel", type: "string", required: true, label: "Channel" },
       { name: "threadTs", type: "string", required: true, label: "Thread" },
@@ -45,6 +74,42 @@ export const slackOperations: OperationDefinitionInput[] = [
     credential: { provider: "slack" },
   },
   {
+    id: "slack.getUserEmail",
+    provider: "slack",
+    label: "Slack: read a person's email",
+    description:
+      "Reads a Slack member's email from their user id (U...), as a report's item.author holds it. emailSource says slack when Slack gave the address and fallback when the person has none and fallbackEmail was used. A lookup that failed, such as a credential without the users:read.email scope, fails the step and never falls back.",
+    nodeKinds: ["lookup"],
+    effect: "read",
+    fields: [
+      { name: "userId", type: "string", required: true, label: "Person" },
+      {
+        name: "fallbackEmail",
+        type: "string",
+        label: "Use this email when the person has none",
+        description:
+          "Bind a setting such as settings.triageOwnerEmail. Used only when Slack says the person has no email, never when the lookup fails.",
+      },
+    ],
+    implementation: { type: "action", action: "read-slack-user-email" },
+    outputs: [
+      { name: "ok", type: "boolean" },
+      { name: "userId", type: "string" },
+      {
+        name: "email",
+        type: "string",
+        description:
+          "Always an address: the person's, or fallbackEmail when emailSource is fallback.",
+      },
+      {
+        name: "emailSource",
+        type: "string",
+        description: "slack or fallback.",
+      },
+    ],
+    credential: { provider: "slack" },
+  },
+  {
     id: "slack.postMessage",
     provider: "slack",
     label: "Slack: post a message",
@@ -66,6 +131,7 @@ export const slackOperations: OperationDefinitionInput[] = [
       action: "post-slack-message",
       argMap: { to: "to", text: "text", allowMentions: "allowMentions" },
     },
+    outputs: [...postOutputs],
     receipt: postReceipt,
     credential: { provider: "slack" },
   },
@@ -103,7 +169,56 @@ export const slackOperations: OperationDefinitionInput[] = [
         allowMentions: "allowMentions",
       },
     },
+    outputs: [...postOutputs],
     receipt: postReceipt,
+    credential: { provider: "slack" },
+  },
+  {
+    id: "slack.addReaction",
+    provider: "slack",
+    label: "Slack: add a reaction",
+    description:
+      "Adds an emoji reaction to a message as the bot. channel is an id, not a name; ts is the message's time. A repeat is a success with alreadyReacted true. The bot's own reaction never counts as a person's claim or reply.",
+    nodeKinds: ["action"],
+    effect: "write",
+    fields: [
+      {
+        name: "channel",
+        type: "string",
+        required: true,
+        target: true,
+        label: "Channel",
+      },
+      {
+        name: "ts",
+        type: "string",
+        required: true,
+        target: true,
+        label: "Message",
+      },
+      {
+        name: "name",
+        type: "string",
+        required: true,
+        label: "Emoji name, without colons",
+        description:
+          "Lowercase letters, digits, _, + and -, such as eyes or white_check_mark.",
+      },
+    ],
+    implementation: {
+      type: "action",
+      action: "add-slack-reaction",
+      argMap: { channel: "channel", ts: "ts", name: "name" },
+    },
+    outputs: [
+      { name: "ok", type: "boolean" },
+      {
+        name: "alreadyReacted",
+        type: "boolean",
+        description: "True when the bot had already put this reaction there.",
+      },
+    ],
+    receipt: { externalRef: "externalRef" },
     credential: { provider: "slack" },
   },
 ];

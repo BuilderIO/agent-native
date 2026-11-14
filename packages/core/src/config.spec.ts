@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 
+import { resolveThemeFamilyConfig } from "./appearance/theme-family.js";
 import {
   agentNativeConfigEnvName,
   defineAgentNativeConfig,
@@ -83,6 +84,95 @@ describe("agent-native app config", () => {
     ).toEqual({
       translations: { locales: ["en-US", "es-ES"] },
       changelog: { enabled: false },
+    });
+  });
+
+  it("keeps theme families opt-in and validates the configured default", () => {
+    expect(normalizeAgentNativeConfig({})).toEqual({});
+    expect(
+      normalizeAgentNativeConfig({
+        themeFamily: {
+          families: ["original", "agent-native", "original"],
+          defaultFamily: "agent-native",
+        },
+      }),
+    ).toEqual({
+      themeFamily: {
+        families: ["original", "agent-native"],
+        defaultFamily: "agent-native",
+      },
+    });
+    expect(() =>
+      normalizeAgentNativeConfig({
+        themeFamily: {
+          families: ["original"],
+          defaultFamily: "agent-native",
+        },
+      }),
+    ).toThrow("defaultFamily must be included in families");
+  });
+
+  it("merges the opt-in family list and its default", () => {
+    expect(
+      mergeAgentNativeConfigs(
+        {
+          themeFamily: {
+            families: ["original"],
+            defaultFamily: "original",
+          },
+        },
+        {
+          themeFamily: {
+            families: ["agent-native"],
+            defaultFamily: "agent-native",
+          },
+        },
+      ).themeFamily,
+    ).toEqual({
+      families: ["original", "agent-native"],
+      defaultFamily: "agent-native",
+    });
+  });
+
+  it("inherits an explicit lower-layer default when the override omits one", () => {
+    const lowerLayer = normalizeAgentNativeConfig({
+      themeFamily: {
+        families: ["original", "agent-native"],
+        defaultFamily: "agent-native",
+      },
+    });
+    const override = normalizeAgentNativeConfig({
+      themeFamily: { families: ["original", "agent-native"] },
+    });
+
+    expect(override.themeFamily).toEqual({
+      families: ["original", "agent-native"],
+    });
+    expect(mergeAgentNativeConfigs(lowerLayer, override).themeFamily).toEqual({
+      families: ["original", "agent-native"],
+      defaultFamily: "agent-native",
+    });
+  });
+
+  it("falls back when a replacing family list excludes the inherited default", () => {
+    const lowerLayer = normalizeAgentNativeConfig({
+      themeFamily: {
+        families: ["original", "agent-native"],
+        defaultFamily: "agent-native",
+      },
+    });
+    const override = normalizeAgentNativeConfig({
+      themeFamily: { families: ["original"] },
+    });
+
+    const merged = mergeAgentNativeConfigs(lowerLayer, override, {
+      arrayStrategy: "replace",
+    });
+
+    expect(merged.themeFamily).toEqual({ families: ["original"] });
+    expect(resolveThemeFamilyConfig(merged.themeFamily)).toEqual({
+      families: ["original"],
+      defaultFamily: "original",
     });
   });
 
@@ -373,6 +463,39 @@ describe("agent-native app config", () => {
 });
 
 describe("agent-native config environment aliases", () => {
+  it("reads and validates the API base URL from its deployment alias", () => {
+    expect(agentNativeConfigEnvName(["runtime", "apiBaseUrl"])).toBe(
+      "AGENT_NATIVE_CONFIG_RUNTIME_API_BASE_URL",
+    );
+    expect(
+      resolveAgentNativeConfig(
+        readAgentNativeConfigEnv({
+          AGENT_NATIVE_CONFIG_RUNTIME_API_BASE_URL:
+            " https://api.example.com/mail/ ",
+        }),
+        devContext,
+      ).runtime?.apiBaseUrl,
+    ).toBe("https://api.example.com/mail");
+    expect(
+      resolveAgentNativeConfig({ runtime: { apiBaseUrl: "" } }, devContext)
+        .runtime?.apiBaseUrl,
+    ).toBeUndefined();
+    for (const invalid of [
+      "/api",
+      "ftp://api.example.com",
+      "https://user:pass@api.example.com",
+      "https://api.example.com/?x=1",
+      "https://api.example.com/#x",
+    ]) {
+      expect(() =>
+        resolveAgentNativeConfig(
+          { runtime: { apiBaseUrl: invalid } },
+          devContext,
+        ),
+      ).toThrow(/runtime\.apiBaseUrl must/);
+    }
+  });
+
   it("reads the framework route prefix from its deployment alias", () => {
     expect(agentNativeConfigEnvName(["runtime", "frameworkRoutePrefix"])).toBe(
       "AGENT_NATIVE_CONFIG_RUNTIME_FRAMEWORK_ROUTE_PREFIX",
@@ -450,6 +573,30 @@ describe("agent-native config environment aliases", () => {
       translations: { locales: ["en-US", "es-ES"] },
       deployment: { workspace: { authMode: "isolated" } },
     });
+  });
+
+  it("inherits configured families for a default-family-only env override", () => {
+    const base = normalizeAgentNativeConfig({
+      themeFamily: {
+        families: ["original", "agent-native"],
+        defaultFamily: "original",
+      },
+    });
+    const override = readAgentNativeConfigEnv({
+      AGENT_NATIVE_CONFIG_THEME_FAMILY_DEFAULT_FAMILY: "agent-native",
+    });
+
+    expect(override.themeFamily).toEqual({ defaultFamily: "agent-native" });
+    expect(
+      mergeAgentNativeConfigs(base, override, { arrayStrategy: "replace" })
+        .themeFamily,
+    ).toEqual({
+      families: ["original", "agent-native"],
+      defaultFamily: "agent-native",
+    });
+    expect(() =>
+      mergeAgentNativeConfigs({}, override, { arrayStrategy: "replace" }),
+    ).toThrow("families must be a non-empty array");
   });
 
   it("keeps the legacy deployment variable outside config-layer precedence", () => {

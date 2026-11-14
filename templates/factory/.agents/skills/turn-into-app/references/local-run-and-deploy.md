@@ -19,16 +19,19 @@ The chat scaffold ships `agent-native.json` with `"onboarding": { "firstRun":
   "version": 1,
   "onboarding": {
     "firstRun": {
-      "development": "connect",
+      "development": "off",
       "production": "connect-and-integrations"
     }
   }
 }
 ```
 
-`connect` shows the shared setup in the agent sidebar ("Use Builder.io" or
-"Custom keys"); `connect-and-integrations` adds the integrations catalog; only
-`"off"` hides it. Never replace it with a local credential form.
+Development stays `"off"`, as in the first-party templates, so a person
+running the app locally lands in it instead of a setup screen. Without a
+provider key, the agent sidebar still offers "Connect AI" above its composer.
+In production, `connect` shows the shared setup ("Use Builder.io" or
+"Custom keys") after the first sign-in, and `connect-and-integrations` adds
+the integrations catalog. Never replace it with a local credential form.
 
 When the mode needs code, set it in the scaffold's existing
 `agent-native.config.ts` instead. The typed file takes precedence over the JSON
@@ -40,7 +43,7 @@ import { defineAgentNativeConfig } from "@agent-native/core/config";
 export default defineAgentNativeConfig(({ isDev }) => ({
   // keep the keys the scaffold already sets here
   onboarding: {
-    firstRun: isDev ? "connect" : "connect-and-integrations",
+    firstRun: isDev ? "off" : "connect-and-integrations",
   },
 }));
 ```
@@ -59,8 +62,12 @@ put `AUTH_DISABLED=1` in the app's ignored `.env` while the dev server is
 stopped (see Run). Loopback development only: never commit it, never deploy
 it, and remove it before the final `pnpm build`. A scaffold skill (`build-an-app`) that says not
 to set `AUTH_DISABLED` is about keeping auth on in real use; this skill's
-review loop is the exception for local runs. Without it, a person opening the
-app clicks "Continue as local dev".
+review loop is the exception for local runs. Without it, only the first
+browser to open the app is signed in automatically; later fresh browsers get
+the "Continue as local dev" card. That first visit belongs to the person: the
+hand-off (Processes and evidence) opens the app in their own browser, and
+that is the visit. `curl` polls do not use it up, but a browser or screenshot
+you open does, so after the final start check the app with `curl` only.
 
 A developer can put a provider key such as `ANTHROPIC_API_KEY` or
 `OPENAI_API_KEY` in the same `.env`; once the server restarts, the sidebar skips
@@ -92,8 +99,11 @@ children. Vite restarts the dev server when `.env` changes; the framework closes
 the worker's database clients during shutdown so the restarted server can
 reopen the same local database. Wait for that restart, then poll again. After
 editing `server/plugins/*` or adding a dependency, poll again, and restart if
-`/` does not reflect the change. The scaffold's
-`pnpm dev` runs the same server and also opens a browser tab.
+`/` does not reflect the change. The scaffold's `pnpm dev` runs the same
+server with `--open`, which opens a browser tab. Leave `--open` off while you
+build, so the person's browser does not pop up on every start; only the
+hand-off adds it. Vite opens a tab when it starts, never on a `.env` or
+config restart.
 
 ## Checks and build
 
@@ -149,10 +159,38 @@ deployment.
 
 ## Processes and evidence
 
-- After an interactive invocation (see "When to ask" in SKILL.md for what
-  counts), leave the dev server running and report its URL, PID, and stop
-  command. In a headless or harness run, stop every process you started, by
-  its PID, before exiting.
+- **Hand-off.** After an interactive invocation (see "When to ask" in
+  SKILL.md for what counts), start the server once more after `pnpm build`,
+  from the app directory with `--open`, and poll it as in Run. First make
+  sure the earlier server's PID has exited and nothing answers on the port,
+  or the poll can pass on that stale server while the new one failed to bind:
+
+  ```bash
+  (nohup pnpm exec agent-native dev --port <port> --open > .tmp/dev.log 2>&1 & echo $! > .tmp/dev.pid)
+  ```
+
+  Inside a workspace, too, start it from the app's own directory: at the
+  workspace root, `agent-native dev` runs the gateway, which opens its
+  default app (Dispatch) instead. Vite opens `http://localhost:<port>/` once,
+  in the person's default browser. That is the first visit: when the
+  database has no accounts yet, the page waits for the server, then signs
+  them in as the local dev account. When it already has one (a resumed app, a
+  shared workspace database), they get the sign-in page instead: "Continue as
+  local dev" for the dev account, otherwise their own sign-in. From then on,
+  check the app with `curl` only, never a browser or screenshot of your own.
+
+  If the person is not at this machine (Claude Cowork, an SSH session, a
+  container), leave `--open` off. Local dev sign-in answers only requests
+  from this machine, so a LAN address or a container's published port shows a
+  sign-in page the dev account cannot pass. Give a URL through a forwarded
+  port (an SSH `-L` tunnel, the editor's port forwarding) or the command
+  that forwards it; if none can reach them, say so, and give the folder and
+  `pnpm dev` to run it on their own machine. Report the URL, PID, and stop
+  command.
+
+- In a headless or harness run, stop every process you started, by its PID,
+  before exiting, and open nothing. The report gives the app's folder and
+  says `pnpm dev` starts it and opens it.
 - Stopping means processes only: keep `.tmp/ui-review/out/` and the app's
   `data/`, so the report's paths still exist.
 - Evidence labels are separate states: locally running (the server answers),

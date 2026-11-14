@@ -1,41 +1,116 @@
 import { hasActiveAgentRuns } from "@agent-native/agentkit";
 import { IconPlayerStopFilled } from "@tabler/icons-react";
+import { useEffect, useRef, useState } from "react";
 
-import { useAgentKitControl, useAgentThread } from "./context.js";
+import { Tooltip } from "../../../design-system/index.js";
+import {
+  useAgentKit,
+  useAgentKitControl,
+  useAgentKitSubmissionStarting,
+  useAgentThread,
+} from "./context.js";
+
+// During voice chat, End voice chat holds the primary slot beside Stop (it
+// renders as the send-button slot), so Stop steps down to secondary and the
+// row never shows two identical primaries. A draft hides Stop instead.
+const STOP_BESIDE_PRIMARY =
+  "[[data-agent-composer-slot=toolbar]:has([data-agent-composer-slot=send-button])_&]:bg-secondary [[data-agent-composer-slot=toolbar]:has([data-agent-composer-slot=send-button])_&]:text-secondary-foreground";
+
+// Stands in for the run key while a submission has no run id yet, so the
+// deferred stop stays busy across the run registering.
+const STARTING_RUN_KEY = "\u0000starting";
 
 /**
- * The composer's primary action while a run is active. A host that renders
- * AgentKitChat directly has no way to stop a run without it: the composer only
- * shows what the host supplies.
+ * The composer's primary action while a turn is in progress, from the moment
+ * its send is accepted. AgentKitComposer falls back to it when the host
+ * supplies no stop button of its own.
  */
 export function useAgentKitStopButton(options: {
   /** The accessible name and tooltip, already localized by the host. */
   label: string;
   /** Called when stopping a run fails, so the host can tell the user it is still running. */
   onError: (error: Error) => void;
+  /** Runs before cancelling; resolving `false` keeps the run going. */
+  beforeCancel?: () => boolean | Promise<boolean>;
+  /** Defaults to the provider's thread. */
+  threadId?: string;
 }) {
-  const thread = useAgentThread();
-  const control = useAgentKitControl();
-  if (!hasActiveAgentRuns(thread)) return undefined;
+  const thread = useAgentThread(options.threadId);
+  const control = useAgentKitControl(options.threadId);
+  const running = hasActiveAgentRuns(thread);
+  const starting = useAgentKitSubmissionStarting(options.threadId);
+  const activeRunKey = running
+    ? thread.activeRunIds.join("\u0000")
+    : STARTING_RUN_KEY;
+  // Keyed to the runs being stopped, so a run that starts while a cancel is in
+  // flight (a queued follow-up) gets an enabled Stop of its own.
+  const [stoppingRunKey, setStoppingRunKey] = useState<string | null>(null);
+  const stopping =
+    stoppingRunKey !== null &&
+    (stoppingRunKey === activeRunKey || stoppingRunKey === STARTING_RUN_KEY);
+  // A second click lands before React re-renders the disabled button.
+  const stoppingRef = useRef<string | null>(null);
+  const onErrorRef = useRef(options.onError);
+  onErrorRef.current = options.onError;
+  const beforeCancelRef = useRef(options.beforeCancel);
+  beforeCancelRef.current = options.beforeCancel;
+  const { requestComposerFocus, threadId: providerThreadId } = useAgentKit();
+  // Keyboard stops only: refocusing the composer on touch opens the keyboard.
+  const refocusComposerRef = useRef(false);
+  const visible = running || starting;
+  const focusThreadId = options.threadId ?? providerThreadId;
+  useEffect(() => {
+    if (visible || !refocusComposerRef.current) return;
+    refocusComposerRef.current = false;
+    requestComposerFocus(focusThreadId);
+  }, [focusThreadId, requestComposerFocus, visible]);
+  if (!visible) return undefined;
   const { label } = options;
   return (
-    <button
-      type="button"
-      onClick={() => {
-        void Promise.all(
-          thread.activeRunIds.map((runId) => control.cancel(runId)),
-        ).catch((error: unknown) => {
-          options.onError(
-            error instanceof Error ? error : new Error(String(error)),
-          );
-        });
-      }}
-      aria-label={label}
-      title={label}
-      data-agent-composer-slot="stop-button"
-      className="flex h-7 w-7 items-center justify-center rounded-full bg-primary text-primary-foreground"
-    >
-      <IconPlayerStopFilled className="h-3 w-3" />
-    </button>
+    <Tooltip
+      content={label}
+      trigger={
+        <button
+          type="button"
+          onClick={(event) => {
+            if (stoppingRef.current === activeRunKey) return;
+            // Enter and Space fire a click with no pointer detail.
+            refocusComposerRef.current = event.detail === 0;
+            const runKey = activeRunKey;
+            stoppingRef.current = runKey;
+            setStoppingRunKey(runKey);
+            const release = () => {
+              if (stoppingRef.current !== runKey) return;
+              stoppingRef.current = null;
+              setStoppingRunKey(null);
+            };
+            const knownRunIds = running ? thread.activeRunIds : undefined;
+            void (async () => {
+              const beforeCancel = beforeCancelRef.current;
+              if (beforeCancel && (await beforeCancel()) === false) {
+                refocusComposerRef.current = false;
+                return;
+              }
+              const runIds = knownRunIds ?? (await control.runIdsOnceStarted());
+              await Promise.all(runIds.map((runId) => control.cancel(runId)));
+            })()
+              .catch((error: unknown) => {
+                refocusComposerRef.current = false;
+                onErrorRef.current(
+                  error instanceof Error ? error : new Error(String(error)),
+                );
+              })
+              .finally(release);
+          }}
+          aria-label={label}
+          aria-busy={stopping || undefined}
+          disabled={stopping}
+          data-agent-composer-slot="stop-button"
+          className={`flex size-[var(--agentkit-composer-primary-control-size,2rem)] shrink-0 items-center justify-center rounded-[var(--agent-kit-radius-sm,0.5rem)] bg-primary text-primary-foreground transition-[opacity,background-color,color] duration-150 hover:opacity-90 disabled:cursor-default disabled:opacity-35 ${STOP_BESIDE_PRIMARY}`}
+        >
+          <IconPlayerStopFilled aria-hidden="true" className="size-4" />
+        </button>
+      }
+    />
   );
 }

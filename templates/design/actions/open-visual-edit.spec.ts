@@ -930,6 +930,26 @@ describe("open-visual-edit", () => {
     );
   });
 
+  it("returns the app link after saving an originless local visual-edit request", async () => {
+    mocks.getRequestContext.mockReturnValue({
+      userEmail: "owner@example.com",
+      orgId: "org_1",
+    });
+    const result = await action.run({
+      designId: "design_1",
+      devServerUrl: "http://localhost:5173",
+      paths: ["/"],
+      navigate: false,
+    });
+
+    expect(mocks.addLocalhostScreensRun).toHaveBeenCalled();
+    expect(mocks.createEmbedSessionTicket).not.toHaveBeenCalled();
+    expect(result).not.toHaveProperty("embedStartUrl");
+    expect(result.openUrl).toBe(
+      "agent-native://open/visual-edit/design_1?editorView=overview&embedChrome=1",
+    );
+  });
+
   it("exposes the handoff only to the same-origin frontend transport", async () => {
     const result = await action.run(
       {

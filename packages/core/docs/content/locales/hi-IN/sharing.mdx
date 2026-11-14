@@ -118,13 +118,12 @@ description: "फ़्रेमवर्क में निर्मित प
 
 प्रत्येक साझा करने योग्य संसाधन को उसके हेडर में एक शेयर बटन मिलता है। इसे क्लिक करने से बटन से जुड़ा एक पॉपओवर खुलता है (मोडल नहीं):
 
-- दृश्यता चयनकर्ता (`Private` / `Organization` / `Public link`)।
-- "लोगों या टीमों को जोड़ें" स्वतः पूर्ण - संगठन में उपयोगकर्ताओं को खोजें या एक ईमेल पेस्ट करें।
-- व्यक्तिगत ईमेल अनुदानों के लिए `लोगों को सूचित करें` चेकबॉक्स।
-- भूमिका चयनकर्ताओं और हटाने के नियंत्रण के साथ वर्तमान अनुदानों की एक सूची।
-- एक कॉपी-लिंक बटन जो वर्तमान दृश्यता का सम्मान करता है।
+- लोगों, संगठन समूहों और संगठन के एजेंटों के लिए एक आमंत्रण फ़ील्ड, भूमिका चुनने के विकल्प और आमंत्रित करें बटन के साथ। टाइप किए गए ईमेल के लिए `Notify people` चेकबॉक्स भी दिखता है।
+- एक्सेस वाले लोग: मालिक, लोग, समूह और एजेंट एक ही सूची में। भूमिकाएं हैं: देख सकते हैं, टिप्पणी कर सकते हैं, संपादित कर सकते हैं और एक्सेस प्रबंधित कर सकते हैं। एक्सेस हटाएं हर पंक्ति के भूमिका मेनू का आखिरी आइटम है।
+- सामान्य एक्सेस: केवल आमंत्रित लोग / संगठन का कोई भी व्यक्ति / लिंक वाला कोई भी व्यक्ति। “संगठन का कोई भी व्यक्ति” के लिए भूमिका चुनने का विकल्प है (देख सकते हैं, टिप्पणी कर सकते हैं, संपादित कर सकते हैं), और “लिंक वाला कोई भी व्यक्ति” के लिए भी (देख सकते हैं, टिप्पणी कर सकते हैं)।
+- लिंक कॉपी करें, और इसमें भेजें मेनू: Claude, Claude Code या Codex में खोलें, एजेंट प्रॉम्प्ट कॉपी करें, एजेंट लिंक कॉपी करें, MCP सर्वर सेटिंग और ऐप के जोड़े गए अन्य गंतव्य।
 
-किसी संसाधन को `Private` से `Organization` में बदलने पर पहले पुष्टि माँगी जाती है। पुष्टि होने तक कुछ नहीं बदलता। रद्द करें या Escape दबाने पर मौजूदा एक्सेस बना रहता है। यदि सहेजना विफल हो, तो डायलॉग त्रुटि दिखाता है और उपयोगकर्ता फिर से कोशिश कर सकता है। दृश्यता के अन्य बदलाव तुरंत सहेजे जाते हैं। पुष्टि केवल साझाकरण UI में है। `set-resource-visibility` में कोई बदलाव नहीं है, इसलिए एजेंट और कोई भी अन्य कॉलर दृश्यता को सीधे बदलना जारी रखते हैं, और क्या अनुमत है यह अब भी संसाधन की साझाकरण नीति तय करती है।
+दृश्यता के बदलाव तुरंत सहेजे जाते हैं। जिस संसाधन प्रकार की सामग्री आसानी से नज़रअंदाज़ हो सकती है, वह पहले पुष्टि माँग सकता है: चैट अपने रजिस्ट्रेशन में `confirmOrgVisibility: true` सेट करती हैं, इसलिए किसी चैट को `Private` से `Organization` में बदलने पर उपयोगकर्ता की पुष्टि तक इंतज़ार होता है। रद्द करें या Escape दबाने पर मौजूदा एक्सेस बना रहता है। यदि सहेजना विफल हो, तो डायलॉग त्रुटि दिखाता है और उपयोगकर्ता फिर से कोशिश कर सकता है। पुष्टि केवल साझाकरण UI में है, इसलिए एजेंट और कोई भी अन्य कॉलर `set-resource-visibility` के ज़रिए दृश्यता को सीधे बदलना जारी रखते हैं, और क्या अनुमत है यह अब भी संसाधन की साझाकरण नीति तय करती है।
 
 शेयर बटन एक एकल आयात है:
 
@@ -136,6 +135,8 @@ import { ShareButton } from "@agent-native/toolkit/app/sharing";
   resourceTitle={deck.title}
 />;
 ```
+
+जब संगठन के पास सेवा एजेंट होते हैं (संगठन सेवा टोकन से बनी `svc-<name>@service.<orgId>` पहचानें), तो वे आमंत्रण फ़ील्ड में दिखते हैं। उन्हें सामान्य उपयोगकर्ता की तरह साझा किया जाता है और उन्हें कभी ईमेल नहीं भेजा जाता। MCP या OAuth से जुड़ने वाले एजेंट उसी व्यक्ति के रूप में काम करते हैं जिसने उन्हें जोड़ा, इसलिए उनकी कोई पंक्ति नहीं होती। उन्हें इसमें भेजें मेनू से संसाधन दें।
 
 सूचियों के लिए, प्रत्येक पंक्ति के आगे एक `<VisibilityBadge visibility={row.visibility} />` छोड़ें ताकि उपयोगकर्ता एक नज़र में देख सकें कि निजी बनाम साझा क्या है।
 
@@ -173,17 +174,19 @@ const shared = useChatThreadList({ ownership: "shared", pageSize: 50 });
 
 विफल अनुरोध `error` सेट करता है और पहले से लोड हुई पंक्तियाँ बनाए रखता है। यह कभी खाली सूची जैसा नहीं दिखता। `<ShareButton>` और `<ShareDialog>` सहेजने के बाद माउंट की गई चैट सूचियों को रीफ़्रेश करते हैं। यदि आप किसी और तरीके से चैट का साझाकरण बदलते हैं, तो `notifyChatThreadsUpdated()` कॉल करें, ताकि माउंट की गई सूचियाँ फिर से लोड हों।
 
+पिन हर उपयोगकर्ता के लिए अलग हैं: साझा चैट में भी `pinnedAt` कॉल करने वाले का पिन है; सूची और खोज इसी से क्रमबद्ध होते हैं। `useChatThreads().pinThread(id, pinned)` अपरिवर्तित है। दोनों हुक साझा चैट के लिए `hideThread(id, hidden)` देते हैं। छिपी चैट केवल `includeHidden: true` पर लौटती हैं; सूची और एकल पढ़ाई में अपना `hiddenAt` मिलता है। ID या लिंक से खोलना जारी रहता है। मालिक अपनी चैट छिपा नहीं सकते, उन्हें संग्रहित करें; नाम बदलना और संग्रहित करना केवल मालिक कर सकते हैं। अस्वीकृति पर छिपाना `ChatThreadMutationError` देता है (`status`: मालिक के लिए403, पहुँच न होने पर404); सफलता पर `true` लौटता है। HTTP: `POST /_agent-native/agent-chat/threads/:id/hide` और `{ hidden: boolean }`; सूची/खोज में `includeHidden=1`। `chat-history` में `pin`, `unpin`, `hide`, `unhide` तथा `includeHidden: true` वाली खोज हैं। पहुँच हटने पर सहेजी स्थिति नहीं दिखती; चैट हटाने पर स्थिति भी हटती है।
+
 ## समान मॉडल, एजेंट और UI {#agent-and-ui}
 
 फ्रेमवर्क इन actions को प्रत्येक टेम्पलेट में ऑटो-माउंट करता है - एजेंट उन्हें टूल के रूप में कॉल करता है, और UI उन्हें `useActionQuery` / `useActionMutation` के माध्यम से कॉल करता है:
 
-| कार्रवाई                     | यह क्या करता है                                                                                                            |
-| ---------------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `share-resource`             | किसी उपयोगकर्ता या संगठन को किसी विशिष्ट भूमिका तक पहुंच प्रदान करें। वैकल्पिक `notify` ईमेल सूचनाओं को नियंत्रित करता है। |
-| `unshare-resource`           | किसी उपयोगकर्ता या संगठन के लिए पहुंच रद्द करें।                                                                           |
-| `list-resource-shares`       | वर्तमान दृश्यता और सभी स्पष्ट अनुदान दिखाएं।                                                                               |
-| `set-resource-visibility`    | `private`, `org`, या `public` में बदलें।                                                                                   |
-| `create-agent-resource-link` | Mint a temporary read-only `agent_access` URL for a registered agent-readable resource.                                    |
+| कार्रवाई                     | यह क्या करता है                                                                                                                                                                     |
+| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `share-resource`             | किसी उपयोगकर्ता या संगठन को किसी विशिष्ट भूमिका तक पहुंच प्रदान करें। वैकल्पिक `notify` ईमेल सूचनाओं को नियंत्रित करता है।                                                          |
+| `unshare-resource`           | किसी उपयोगकर्ता या संगठन के लिए पहुंच रद्द करें।                                                                                                                                    |
+| `list-resource-shares`       | वर्तमान दृश्यता और सभी स्पष्ट अनुदान दिखाएं।                                                                                                                                        |
+| `set-resource-visibility`    | `private`, `org`, या `public` में बदलें। वैकल्पिक `role` तय करता है कि संगठन (देखना, टिप्पणी करना, संपादित करना) या लिंक वाला कोई भी व्यक्ति (देखना, टिप्पणी करना) क्या कर सकता है। |
+| `create-agent-resource-link` | Mint a temporary read-only `agent_access` URL for a registered agent-readable resource.                                                                                             |
 
 एजेंट को बताएं "इस डिज़ाइन को संपादकों के रूप में मार्केटिंग टीम के साथ साझा करें" और यह UI द्वारा उपयोग किए जाने वाले उसी एंडपॉइंट के विरुद्ध `share-resource` को कॉल करता है। परिणाम अगले रेंडर पर शेयर डायलॉग में दिखाई देता है।
 
@@ -191,7 +194,7 @@ const shared = useChatThreadList({ ownership: "shared", pageSize: 50 });
 
 Human share links should also work for agents when the resource is a document-like artifact: plans, documents, decks, designs, analytics dashboards, saved analyses, clips, and similar "things you would send to a person." Public links expose a small SSR discovery script that points at structured JSON. Private resources use a short-lived `agent_access` token scoped to exactly one resource.
 
-Register the resource with `agentReadable`, add a read-only JSON context endpoint, inject the SSR discovery script with `renderAgentReadableResourceDiscoveryScript()`, and let agents call `create-agent-resource-link` when they need a temporary private URL. The endpoint must return data only when the row is `public` or `verifyScopedAgentAccessToken()` accepts the token for that exact `resourceKind` and `resourceId`.
+Register the resource with `agentReadable`, add a read-only JSON context endpoint, inject the SSR discovery script with `renderAgentReadableResourceDiscoveryScript()`, and let agents call `create-agent-resource-link` when they need a temporary private URL. The endpoint must return data only when the row is `public` or `verifyScopedAgentAccessToken()` accepts the token for that exact `resourceKind` and `resourceId`. Declare `agentRead: { actions: ["get-<thing>"] }` (and `idParam` when the tool's id argument is not `id`) so the share panel's Send to menu offers Open in Claude, Claude Code, and Codex with a prompt that calls that MCP tool with the person's own permissions.
 
 ## इसे एक नए टेम्पलेट में बनाना {#building}
 
@@ -361,3 +364,9 @@ For resources that execute code or carry elevated trust (like extensions), set `
 - [**प्रमाणीकरण**](/docs/authentication) — सत्र, संगठन और अनुरोध संदर्भ में पहचान का प्रवाह
 - [**Extensions**](/docs/extensions#sharing) — सैंडबॉक्स किए गए मिनी-ऐप सतह में साझाकरण
 - [**टेम्पलेट बनाना**](/docs/creating-templates) — नए टेम्पलेट की स्कीमा में `ownableColumns` जोड़ना
+
+## साझा चैट इतिहास
+
+`@agent-native/toolkit/app/chat/ownership-history` आपकी चैट और आपके साथ साझा की गई चैट के लिए अलग अनुभागों वाली साइडबार हेतु `useOwnershipChatHistory()` और `OwnershipChatHistoryRail` देता है। साझा पंक्तियाँ मालिक और पहुँच का आधार दिखाती हैं। हर अनुभाग अलग पेज होता है। रीफ़्रेश विफल होने पर लोड की गई पंक्तियाँ और स्थानीय बदलाव बने रहते हैं।
+
+पहली बार सेव होने की प्रतीक्षा के दौरान सक्रिय खाली ड्राफ़्ट चुना और चलाया जा सकता है। सेव होने की पुष्टि तक पिन, नाम बदलने और संग्रहित करने की कार्रवाइयाँ छिपाएँ; अडैप्टर इन कॉलबैक को ज़बरन बुलाने पर भी अस्वीकार करता है। `ownDraftRows` अपने ड्राफ़्ट की सेव स्थिति का स्रोत देता है, जबकि सर्वर सूची की पुष्टि की गई अपनी पंक्तियों में सामान्य कार्रवाइयाँ उपलब्ध रहती हैं। कस्टम `OwnDraftRow` मानों में वैकल्पिक `persisted?: boolean` को `true` केवल तब रखें जब पुष्टि हो कि सर्वर पर सेव पंक्ति वर्तमान उपयोगकर्ता की है। संदेशों की संख्या या सक्रिय ID से सेव होने का अनुमान न लगाएँ। भूमिका, गोपनीयता और सक्रिय ड्राफ़्ट का खाली होना अलग-अलग बातें हैं।

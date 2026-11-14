@@ -12,7 +12,7 @@ import type { Browser, BrowserContext } from "@playwright/test";
 
 import { isAutozQaEmail } from "../../../packages/core/src/shared/qa-test-email";
 import type { SetupStep } from "./deadline";
-import { type BetaSite, originFor } from "./fleet";
+import { ALL_SITES, type BetaSite, originFor } from "./fleet";
 import {
   BETA_E2E_TEST_TRAFFIC_HEADERS,
   installBetaE2ETrafficMarker,
@@ -21,9 +21,10 @@ import {
 /**
  * Authenticated-session bootstrap for the beta fleet.
  *
- * Beta hosts accept exactly one interactive sign-in: Google OAuth. CI must
- * never drive a credential form, so an authenticated run replays an identity a
- * human established once, supplied through one of two secrets:
+ * CI replays a dedicated QA identity established through the host’s normal
+ * verified sign-in flow. BETA_E2E_EMAIL is the fallback expected identity;
+ * BETA_E2E_EMAILS overrides that expectation only for its listed apps. Every
+ * identity must contain +autoz. Session credentials come from these secrets:
  *
  *   BETA_E2E_SESSION_TOKENS  a JSON map of app id -> framework session token,
  *                            replayed through `?_session=`, which the framework
@@ -50,13 +51,18 @@ import {
  * shape the existing template global-setups fall into today.
  */
 
-const AUTH_DIR = path.join(
+const DEFAULT_AUTH_DIR = path.join(
   path.dirname(fileURLToPath(import.meta.url)),
   "..",
   ".auth",
 );
 const SESSION_EXCHANGE_MAX_ATTEMPTS = 3;
 const RETRYABLE_SESSION_EXCHANGE_STATUSES = new Set([500, 502, 503, 504]);
+
+function authDir(): string {
+  const configured = process.env.BETA_E2E_AUTH_STATE_DIR?.trim();
+  return configured ? path.resolve(configured) : DEFAULT_AUTH_DIR;
+}
 
 export function shouldRetrySessionExchange(
   status: number,
@@ -78,15 +84,15 @@ export interface SessionIdentity {
 }
 
 export function authStatePath(appId: string): string {
-  return path.join(AUTH_DIR, `${appId}.json`);
+  return path.join(authDir(), `${appId}.json`);
 }
 
 export function laneMarkerPath(): string {
-  return path.join(AUTH_DIR, "lane-ready");
+  return path.join(authDir(), "lane-ready");
 }
 
 export function markAuthedLaneReady(): void {
-  mkdirSync(AUTH_DIR, { recursive: true });
+  mkdirSync(authDir(), { recursive: true });
   writeFileSync(laneMarkerPath(), new Date().toISOString());
 }
 
@@ -98,19 +104,42 @@ export function authedLaneReady(): boolean {
   return existsSync(laneMarkerPath());
 }
 
-export function expectedEmail(): string {
-  const email = process.env.BETA_E2E_EMAIL?.trim();
-  if (!email) {
-    throw new Error(
-      "BETA_E2E_EMAIL is not set. Authenticated beta specs must assert which identity they are running as; without it a bootstrap that silently lands as the wrong user would pass.",
-    );
+function dedicatedQaEmail(value: unknown, setting: string): string {
+  if (typeof value !== "string" || !value.trim()) {
+    throw new Error(`${setting} is not set to a dedicated QA email string.`);
   }
+  const email = value.trim();
   if (!isAutozQaEmail(email)) {
     throw new Error(
-      "BETA_E2E_EMAIL must be a dedicated QA account whose email contains +autoz.",
+      `${setting} must be a dedicated QA account whose email contains +autoz.`,
     );
   }
   return email;
+}
+
+export function expectedEmail(appId?: string): string {
+  const parsed = parseJsonEnv<unknown>("BETA_E2E_EMAILS");
+  if (
+    parsed !== undefined &&
+    (!parsed || typeof parsed !== "object" || Array.isArray(parsed))
+  ) {
+    throw new Error("BETA_E2E_EMAILS must be an app-to-QA-email object.");
+  }
+  const overrides = parsed as Record<string, unknown> | undefined;
+  const knownAppIds = new Set(ALL_SITES.map((site) => site.id));
+  for (const [id, value] of Object.entries(overrides ?? {})) {
+    if (!knownAppIds.has(id)) {
+      throw new Error(`BETA_E2E_EMAILS contains unknown app ID: ${id}.`);
+    }
+    dedicatedQaEmail(value, `BETA_E2E_EMAILS entry for ${id}`);
+  }
+  if (appId && overrides && Object.hasOwn(overrides, appId)) {
+    return dedicatedQaEmail(
+      overrides[appId],
+      `BETA_E2E_EMAILS entry for ${appId}`,
+    );
+  }
+  return dedicatedQaEmail(process.env.BETA_E2E_EMAIL, "BETA_E2E_EMAIL");
 }
 
 function parseJsonEnv<T>(name: string): T | undefined {
@@ -236,7 +265,7 @@ export async function bootstrapAppSession(
   onStep: SetupStep = () => {},
 ): Promise<SessionIdentity> {
   const origin = originFor(site);
-  const email = expectedEmail();
+  const email = expectedEmail(site.id);
   const blob = storageStateBlob();
   const token = sessionTokenFor(site.id);
 
@@ -325,7 +354,7 @@ export async function bootstrapAppSession(
       );
     }
 
-    mkdirSync(AUTH_DIR, { recursive: true });
+    mkdirSync(authDir(), { recursive: true });
     await context.storageState({ path: authStatePath(site.id) });
     return identity;
   } finally {
@@ -334,7 +363,7 @@ export async function bootstrapAppSession(
 }
 
 export function writeCapturedState(appId: string, state: string): string {
-  mkdirSync(AUTH_DIR, { recursive: true });
+  mkdirSync(authDir(), { recursive: true });
   const file = authStatePath(appId);
   writeFileSync(file, state);
   return file;

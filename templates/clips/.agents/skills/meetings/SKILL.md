@@ -75,19 +75,22 @@ After confirmation, Clips matches a nearby calendar meeting or creates an adhoc 
 
 Recording stop has several signals: conferencing-app microphone release is confirmed for 15s, scheduled end is combined with quiet system audio, both audio streams can trigger the longer silence fallback, and sleep is treated as an end signal. Browser adhoc detection carries the exact browser bundle through the meeting prompt so stop monitoring follows the app that confirmed the call; calendar starts infer the app from the join URL or platform. Native auto-stop events retry with backoff until the frontend acknowledges by stopping the detector. The frontend stops through the idempotent `stop-meeting-recording` action and uses its returned persisted `actualEnd` as confirmation; it does not read back `get-meeting`, which hides trashed meetings. Stop and transcript-save requests have 10s deadlines. The final transcript flush happens only after the server confirms the stop; if confirmation or flushing fails, Clips retains the session and retries instead of reporting completion. When quitting during a meeting, Clips waits 15s for teardown, then offers Keep Clips open to continue retries or Quit anyway, which may lose the latest unflushed transcript. A second explicit quit request remains available if the WebView cannot show the recovery dialog. The server stale-meeting sweeper remains a recovery path, not the normal end signal.
 
+Desktop notes also check for web End meeting requests every five seconds while active, and on startup or focus/visibility recovery. `start-meeting-recording` returns the meeting's `captureStopRevision` and initial `actualEnd`; monitoring waits for that startup snapshot. Each stop atomically advances the revision, and the scoped `get-meeting-capture-state` read returns only that revision and end time, including for trashed meetings. It does not load transcripts, recordings, participants, or action items. A native session stops on a newer revision or a newly changed end timestamp, covering server recovery closures while keeping a meeting's persistent first `actualEnd` from immediately stopping restarted notes. An untyped route 404 or explicit unknown-action error selects the legacy get-meeting end check on its 30-second cadence, preserving its reopened-note actualEnd limitation until the server supports capture-state. Other failures retry the five-second path without downgrading. Fallback is scoped to the affected session; the next session probes capture-state again. Only one polling path is active. Failed, unavailable, or timed-out checks are logged and retried without overlapping requests; an unavailable response does not establish that the meeting ended.
+
 ## Actions
 
 | Action                    | What it does                                                          |
 | ------------------------- | --------------------------------------------------------------------- |
-| `list-meetings`           | Upcoming + past, scoped via `accessFilter`; reads connected Google Calendar live. `hasContent` filters to meetings worth reopening; `offset` + `hasMore` page the history |
-| `search-meetings`         | Find a meeting by title, summary, notes, attendee, or linked transcript text, with a match snippet. Use this — not `list-meetings` — when the user describes what was said rather than when it happened |
-| `get-meeting`             | One meeting + participants + segments + notes                         |
+| `list-meetings`           | Upcoming + past, scoped via `accessFilter`; reads connected Google Calendar live. `hasContent` filters to meetings worth reopening; `offset` + `hasMore` page the history. Agent calls get at most 25 meetings per call, each with `summaryPreview`, `hasNotes`, `actionItemCount`, the first 10 `participants` and `participantCount` in place of its whole summary, notes, bullets, action items and attendee list; `get-meeting` has those. Live calendar events merge into the first 1,000 saved meetings; `historyCapped: true` means older ones remain, reachable with `includeLiveCalendar=false` and `offset`, or `search-meetings` |
+| `search-meetings`         | Find a meeting by title, summary, notes, attendee, or linked transcript text, with a match snippet. Use this — not `list-meetings` — when the user describes what was said rather than when it happened. Agent calls get at most 25 matches, each with `summaryPreview`, `hasNotes`, `actionItemCount`, the first 10 `participants` and `participantCount` in place of its whole summary, notes, action items and attendee list |
+| `get-meeting`             | One meeting + participants + notes + transcript. Agent calls get the transcript in chunks: pass `transcriptOffset` from `nextFullTextOffset` until it is null. The rest comes whole, each detail once: action items only in `actionItems`, bullets only parsed. Its text carries `Me:` / `Them:` labels; `segments` covers only the start |
 | `create-meeting`          | Create a meeting row (`source`: `calendar` / `adhoc` / `manual`); desktop adhoc Zoom/Teams/Meet/Webex detection passes `source: "adhoc"` |
-| `update-meeting`          | Inline title/notes edits and owner/admin visibility changes; meeting share links include the full transcript whenever one exists |
+| `update-meeting`          | Inline title/notes edits; owner/admin changes to visibility and `shareTranscript` |
 | `delete-meeting`          | Soft-delete a meeting from the visible list; linked recordings and calendar events stay intact |
 | `start-meeting-recording` | Begin native macOS transcript stream + create the linked recording   |
 | `stop-meeting-recording`  | End the active capture                                                |
 | `finalize-meeting`        | Delegate Gemini Flash-Lite cleanup + summary + bullets + action items |
+| `remove-earlier-meeting-audio` | Take audio recovered from before the user started recording out of the transcript, rebuild the notes and the linked Clip's description and generated title, and delete its chapters. `get-meeting` and `view-screen` report it as `earlierAudioMinutes`, which is null when the transcript can't be parsed |
 | `cleanup-transcript`      | Shared cleanup pipeline (used by Clips, Meetings, Dictate)            |
 | `connect-calendar`        | Returns OAuth URL for Google Calendar                                 |
 | `list-calendar-accounts`  | What's connected                                                      |
@@ -107,12 +110,17 @@ sharing/status boundary.
 
 ## Sharing meeting notes and transcripts
 
-Meeting share links always include generated notes: the summary, key points,
-action items, and the full transcript whenever a linked transcript exists.
-There is no transcript-sharing toggle. The legacy `share_transcript` column is
-retained for database compatibility, but it is no longer a control and does not
-change the meeting share payload. Sharing a meeting still must not expose the
-linked recording's media or comments.
+Meeting share links always include the generated notes: the summary, key
+points, and action items. The full transcript appears on the share link and the
+agent link only when the meeting's `shareTranscript` is `true`. The owner sets
+it with **Transcript on the share link** under Advanced in the Share panel, or
+an admin passes `shareTranscript` to `update-meeting`.
+
+New meetings start with `shareTranscript: true`. Meetings created earlier keep
+whatever they stored, and any value other than `true` means off, so never
+backfill or default older meetings on. People invited to a meeting see its full
+transcript in Clips either way; the switch only governs the link. Sharing a
+meeting still must not expose the linked recording's media or comments.
 
 ## Cleanup credential order
 

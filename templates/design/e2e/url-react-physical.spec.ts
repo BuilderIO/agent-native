@@ -680,7 +680,15 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
         ).__incomingPreviewMessages?.splice(0);
       });
       await page.evaluate(() => ((window as any).__bridge = []));
-      await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+      // A plain click picks the screen's top-level layer; Cmd/Ctrl reaches the
+      // nested target.
+      const deepModifier = process.platform === "darwin" ? "Meta" : "Control";
+      await page.keyboard.down(deepModifier);
+      try {
+        await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+      } finally {
+        await page.keyboard.up(deepModifier);
+      }
       await page.waitForFunction(
         (id) =>
           [...((window as any).__bridge ?? [])].some(
@@ -1818,10 +1826,21 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
       '[data-agent-native-node-id="v1"]',
     );
     if (!clickBox) throw new Error("missing React selection geometry");
-    await page.mouse.click(
-      clickBox.x + clickBox.width / 2,
-      clickBox.y + clickBox.height / 2,
+    // A plain click picks the screen's top-level layer; Cmd/Ctrl reaches the
+    // nested React layers.
+    await page.keyboard.down(
+      process.platform === "darwin" ? "Meta" : "Control",
     );
+    try {
+      await page.mouse.click(
+        clickBox.x + clickBox.width / 2,
+        clickBox.y + clickBox.height / 2,
+      );
+    } finally {
+      await page.keyboard.up(
+        process.platform === "darwin" ? "Meta" : "Control",
+      );
+    }
     const firstSelection = await waitForAnySelection();
     expect(firstSelection.payload.selector).toBeTruthy();
     expect(firstSelection.payload.sourceId).toBeTruthy();
@@ -1832,10 +1851,19 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
       '[data-agent-native-node-id="v3"]',
     );
     if (!otherBox) throw new Error("missing sibling selection geometry");
-    await page.mouse.click(
-      otherBox.x + otherBox.width / 2,
-      otherBox.y + otherBox.height / 2,
+    await page.keyboard.down(
+      process.platform === "darwin" ? "Meta" : "Control",
     );
+    try {
+      await page.mouse.click(
+        otherBox.x + otherBox.width / 2,
+        otherBox.y + otherBox.height / 2,
+      );
+    } finally {
+      await page.keyboard.up(
+        process.platform === "darwin" ? "Meta" : "Control",
+      );
+    }
     await waitForSelection("v3");
     await page.evaluate(() => ((window as any).__bridge = []));
     await page.keyboard.down(
@@ -2345,10 +2373,19 @@ test("React URL-backed drag/drop emits semantic handoff and survives coding-agen
     if (!differentSelectionBox)
       throw new Error("missing sibling selection geometry after hydration");
     await page.evaluate(() => ((window as any).__bridge = []));
-    await page.mouse.click(
-      differentSelectionBox.x + differentSelectionBox.width / 2,
-      differentSelectionBox.y + differentSelectionBox.height / 2,
+    await page.keyboard.down(
+      process.platform === "darwin" ? "Meta" : "Control",
     );
+    try {
+      await page.mouse.click(
+        differentSelectionBox.x + differentSelectionBox.width / 2,
+        differentSelectionBox.y + differentSelectionBox.height / 2,
+      );
+    } finally {
+      await page.keyboard.up(
+        process.platform === "darwin" ? "Meta" : "Control",
+      );
+    }
     expect((await waitForSelection("v2")).payload.sourceId).toBe("v2");
     await page.evaluate(() => ((window as any).__bridge = []));
     const healedModifier = process.platform === "darwin" ? "Meta" : "Control";

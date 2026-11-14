@@ -35,6 +35,7 @@ vi.mock("../settings/store.js", async (importOriginal) => ({
 
 vi.mock("../secrets/storage.js", () => ({
   readAppSecret: vi.fn(async () => null),
+  isMissingAppSecretsTableError: () => false,
 }));
 
 const { describeCredentialScopeGap } = await import("./index.js");

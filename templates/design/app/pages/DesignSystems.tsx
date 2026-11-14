@@ -1,4 +1,4 @@
-import { appApiPath } from "@agent-native/core/client/api-path";
+import { appApiPath, appPath } from "@agent-native/core/client/api-path";
 import {
   isDesignSystemTierAtMax,
   type DesignSystemTierLimit,
@@ -14,7 +14,7 @@ import {
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
 import { ShareButton } from "@agent-native/toolkit/app/sharing";
-import { VisibilityBadge } from "@agent-native/toolkit/sharing";
+import { VisibilityBadge } from "@agent-native/toolkit/app/sharing/VisibilityBadge";
 import {
   IconCheckbox,
   IconChecks,
@@ -181,7 +181,9 @@ export default function DesignSystems() {
     designSystems: DesignSystem[];
   }>("list-design-systems");
 
-  const setDefaultMutation = useActionMutation("set-default-design-system");
+  const setDefaultMutation = useActionMutation("set-default-design-system", {
+    errorNotification: "shared",
+  });
   const deleteMutation = useActionMutation("delete-design-system");
   const updateMutation = useActionMutation("update-design-system");
   const refreshBuilderSystemMutation = useActionMutation<
@@ -754,6 +756,11 @@ export default function DesignSystems() {
                           <ShareButton
                             resourceType="design-system"
                             resourceId={ds.id}
+                            shareUrl={
+                              typeof window === "undefined"
+                                ? undefined
+                                : `${window.location.origin}${appPath(`/design-systems?designSystemId=${encodeURIComponent(ds.id)}`)}`
+                            }
                             allowedRoles={["viewer", "editor", "admin"]}
                             resourceTitle={ds.title}
                           />

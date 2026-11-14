@@ -14,6 +14,8 @@ const MAX_THREAD_LIMIT = 500;
 
 export type ContentDatabaseCommentTarget =
   | { kind: "text"; quotedText: string }
+  /** A whole block, such as a video, by its id in the row's content. */
+  | { kind: "block"; blockId: string; blockType: string | null }
   | {
       kind: "property";
       propertyId: string;
@@ -29,7 +31,7 @@ export type ContentDatabaseCommentTarget =
 
 export default defineAction({
   description:
-    "List Comment threads across every row of one Collection in a single call, newest first. Each thread names its row, what it targets (quoted text, a Property, or the whole Page), the Blocks field tab it sits in (fieldId and fieldName; null for the page body), and its comments in order. A Property target carries the value it had when the thread started, except for relation, rollup, and formula Properties. Only rows the caller can read are included. Defaults to open threads.",
+    "List Comment threads across every row of one Collection in a single call, newest first. Each thread names its row, what it targets (quoted text, a whole block such as a video, a Property, or the whole Page), the Blocks field tab it sits in (fieldId and fieldName; null for the page body), and its comments in order. A Property target carries the value it had when the thread started, except for relation, rollup, and formula Properties. Only rows the caller can read are included. Defaults to open threads.",
   mcpTool: true,
   schema: z.object({
     databaseId: z.string().optional().describe("Collection ID"),
@@ -86,6 +88,8 @@ export default defineAction({
         propertyValue: schema.documentComments.propertyValue,
         fieldId: schema.documentComments.fieldId,
         fieldName: schema.documentComments.fieldName,
+        blockId: schema.documentComments.blockId,
+        blockType: schema.documentComments.blockType,
       })
       .from(schema.documentComments)
       .innerJoin(
@@ -168,9 +172,15 @@ export default defineAction({
               propertyName: root.propertyName,
               propertyValue: root.propertyValue,
             }
-          : root.quotedText
-            ? { kind: "text", quotedText: root.quotedText }
-            : { kind: "page" };
+          : root.blockId
+            ? {
+                kind: "block",
+                blockId: root.blockId,
+                blockType: root.blockType,
+              }
+            : root.quotedText
+              ? { kind: "text", quotedText: root.quotedText }
+              : { kind: "page" };
         return {
           threadId: root.threadId,
           documentId: root.documentId,

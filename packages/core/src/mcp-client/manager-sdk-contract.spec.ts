@@ -11,7 +11,7 @@ import { McpClientManager } from "./manager.js";
  * connect leaves it, with no tools to offer or call. If a future SDK stops
  * reporting the refusal, these fail and the manager has to detect it itself.
  */
-const URL = "http://mcp.example.test/mcp";
+const URL = "http://93.184.216.34/mcp";
 
 type Refusal = (request: Request, body: any) => Response | undefined;
 
@@ -71,6 +71,140 @@ afterEach(async () => {
 });
 
 describe("McpClientManager with the real MCP SDK", () => {
+  it("force-refreshes and retries once when an OAuth token receives a 401", async () => {
+    const refuse: { current?: Refusal } = {};
+    const methods: string[] = [];
+    const authorizationHeaders: string[] = [];
+    serve(refuse, methods);
+    const refresh = vi.fn(async () => "<NEW_ACCESS_TOKEN>");
+    const manager = new McpClientManager({
+      servers: {
+        docs: {
+          type: "http",
+          url: URL,
+          headers: { Authorization: "Bearer <OLD_ACCESS_TOKEN>" },
+          oauthAccessRefresh: { identity: "oauth-test", refresh },
+        },
+      },
+    });
+    managers.push(manager);
+    await manager.start();
+
+    refuse.current = (request, body) => {
+      if (body?.method !== "tools/call") return;
+      const authorization = request.headers.get("authorization") ?? "";
+      authorizationHeaders.push(authorization);
+      return authorization === "Bearer <OLD_ACCESS_TOKEN>"
+        ? unauthorized(401)()
+        : undefined;
+    };
+
+    await expect(manager.callTool(SEARCH, {})).resolves.toMatchObject({
+      content: [{ type: "text", text: "found" }],
+    });
+
+    await expect(manager.callTool(SEARCH, {})).resolves.toMatchObject({
+      content: [{ type: "text", text: "found" }],
+    });
+
+    expect(refresh).toHaveBeenCalledTimes(1);
+    expect(methods.filter((method) => method === "tools/call")).toHaveLength(3);
+    expect(authorizationHeaders).toEqual([
+      "Bearer <OLD_ACCESS_TOKEN>",
+      "Bearer <NEW_ACCESS_TOKEN>",
+      "Bearer <NEW_ACCESS_TOKEN>",
+    ]);
+  });
+
+  it("preserves the original 401 when OAuth refresh rejects", async () => {
+    const refuse: { current?: Refusal } = {};
+    const methods: string[] = [];
+    serve(refuse, methods);
+    const refresh = vi.fn(async () => {
+      throw new Error("refresh failed");
+    });
+    const manager = new McpClientManager({
+      servers: {
+        docs: {
+          type: "http",
+          url: URL,
+          headers: { Authorization: "Bearer <OLD_ACCESS_TOKEN>" },
+          oauthAccessRefresh: { identity: "oauth-test", refresh },
+        },
+      },
+    });
+    managers.push(manager);
+    await manager.start();
+    refuse.current = (_request, body) =>
+      body?.method === "tools/call" ? unauthorized(401)() : undefined;
+
+    await expect(manager.callTool(SEARCH, {})).rejects.toMatchObject({
+      status: 401,
+    });
+    expect(refresh).toHaveBeenCalledOnce();
+    expect(methods.filter((method) => method === "tools/call")).toHaveLength(1);
+  });
+
+  it.each([
+    ["an absent token", null],
+    ["an unchanged token", "<OLD_ACCESS_TOKEN>"],
+  ] as const)(
+    "preserves the 401 without retrying when refresh returns %s",
+    async (_description, refreshedToken) => {
+      const refuse: { current?: Refusal } = {};
+      const methods: string[] = [];
+      serve(refuse, methods);
+      const refresh = vi.fn(async () => refreshedToken);
+      const manager = new McpClientManager({
+        servers: {
+          docs: {
+            type: "http",
+            url: URL,
+            headers: { Authorization: "Bearer <OLD_ACCESS_TOKEN>" },
+            oauthAccessRefresh: { identity: "oauth-test", refresh },
+          },
+        },
+      });
+      managers.push(manager);
+      await manager.start();
+      refuse.current = (_request, body) =>
+        body?.method === "tools/call" ? unauthorized(401)() : undefined;
+
+      await expect(manager.callTool(SEARCH, {})).rejects.toMatchObject({
+        status: 401,
+      });
+      expect(refresh).toHaveBeenCalledTimes(1);
+      expect(methods.filter((method) => method === "tools/call")).toHaveLength(
+        1,
+      );
+    },
+  );
+
+  it("keeps an existing OAuth transport when its refresh identity is stable", async () => {
+    const refuse: { current?: Refusal } = {};
+    const methods: string[] = [];
+    serve(refuse, methods);
+    const config = (refresh: () => Promise<string | null>) => ({
+      type: "http" as const,
+      url: URL,
+      headers: { Authorization: "Bearer <ACCESS_TOKEN>" },
+      oauthAccessRefresh: { identity: "oauth-test", refresh },
+    });
+    const manager = new McpClientManager({
+      servers: { docs: config(async () => "<ACCESS_TOKEN>") },
+    });
+    managers.push(manager);
+    await manager.start();
+    const requestCount = methods.length;
+
+    await expect(
+      manager.reconfigure({
+        servers: { docs: config(async () => "<ACCESS_TOKEN>") },
+      }),
+    ).resolves.toMatchObject({ unchanged: ["docs"], reconnected: [] });
+    expect(methods).toHaveLength(requestCount);
+  });
+
   it.each([401, 403])(
     "leaves a server whose tool list gets HTTP %i as a refused connect leaves it",
     async (status) => {
@@ -94,6 +228,7 @@ describe("McpClientManager with the real MCP SDK", () => {
         error: expect.stringMatching(new RegExp(`^HTTP ${status}: `)),
         tools: [],
       });
+      expect(manager.getConnectErrorStatus("docs")).toBeUndefined();
       await expect(manager.callTool(SEARCH, {})).rejects.toThrow(
         `MCP server "docs" is not connected: HTTP ${status}: `,
       );
@@ -104,6 +239,7 @@ describe("McpClientManager with the real MCP SDK", () => {
         error: expect.stringContaining(String(status)),
         tools: [],
       });
+      expect(refusedAtConnect.getConnectErrorStatus("docs")).toBe(status);
     },
   );
 

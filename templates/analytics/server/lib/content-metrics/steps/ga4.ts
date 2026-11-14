@@ -1,6 +1,7 @@
 import { runFullReport } from "../../google-analytics.js";
+import { ga4ConfigFingerprint } from "../config.js";
 import { ContentStepStop, type ContentStep } from "../step.js";
-import { listContentItems } from "../store.js";
+import { lastSucceededContentRun, listContentItems } from "../store.js";
 import { BUILDER_BLOG_ORIGIN } from "./builder-blog.js";
 import {
   collectionWindow,
@@ -22,6 +23,17 @@ function ga4Date(value: string): string {
 export const ga4Step: ContentStep = {
   id: "ga4",
   async run({ collection, now, signal }) {
+    const propertyId = collection.config.ga4.propertyId;
+    if (!propertyId) {
+      throw new ContentStepStop({
+        status: "not_configured",
+        errorCode: "ga4_property_not_configured",
+        errorMessage:
+          "Set ga4PropertyId with configure-content-collection to the GA4 property that measures the blog. The collection does not use the shared GA4_PROPERTY_ID.",
+      });
+    }
+    const configFingerprint = ga4ConfigFingerprint(propertyId);
+    const previous = await lastSucceededContentRun(collection, "ga4");
     const articles = await listContentItems(collection, "builder_blog");
     if (articles.length === 0) {
       throw new ContentStepStop({
@@ -43,8 +55,10 @@ export const ga4Step: ContentStep = {
       "ga4",
       now,
       LOOKBACK_DAYS,
+      configFingerprint,
     );
     const rows = await runFullReport({
+      propertyId,
       dimensions: ["date", "pagePath"],
       metrics: ["screenPageViews"],
       dateRange: window,
@@ -72,16 +86,8 @@ export const ga4Step: ContentStep = {
       maxRows: MAX_REPORT_ROWS,
       ...(signal ? { signal } : {}),
     });
-    if (rows.length === 0) {
-      // The blog always has readers, so an empty report means the property
-      // is not the one that measures it. Recording that as a quiet window
-      // would show zeros for every article.
-      throw new Error(
-        `The GA4 property returned no pageviews for ${blog.hostname}${blog.pathname} between ${window.startDate} and ${window.endDate}. Check which property GA4_PROPERTY_ID points at.`,
-      );
-    }
-
     const values = new DailyMetricValues();
+    let hasMatchedArticle = false;
     let lastReturnedDate: string | null = null;
     for (const row of rows) {
       const date = ga4Date(row.dimensionValues[0]!.value);
@@ -89,11 +95,18 @@ export const ga4Step: ContentStep = {
       const key = pageKey(`${blog.origin}${row.dimensionValues[1]!.value}`);
       const article = key ? byKey.get(key) : undefined;
       if (!article) continue;
+      hasMatchedArticle = true;
       values.add(
         article,
         date,
         GA4_PAGEVIEWS_METRIC,
         Number(row.metricValues[0]!.value),
+      );
+    }
+
+    if (!hasMatchedArticle) {
+      throw new Error(
+        `GA4 property ${propertyId} returned no pageviews matching collected articles for ${blog.hostname}${blog.pathname} between ${window.startDate} and ${window.endDate}. Check the collection's ga4PropertyId and article URLs.`,
       );
     }
 
@@ -105,10 +118,13 @@ export const ga4Step: ContentStep = {
     });
     return {
       snapshots,
+      // Replace the old property's entire series only when the new report can commit.
+      replaceSnapshots: previous?.configFingerprint !== configFingerprint,
       outcome: {
         rowCount: snapshots.length,
         windowStart: window.startDate,
         windowEnd: lastReturnedDate,
+        configFingerprint,
       },
     };
   },

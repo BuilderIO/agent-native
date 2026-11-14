@@ -118,13 +118,13 @@ pnpm dev                         # opens Dispatch; other apps start on first vis
 작업공간 내부 어디에서나:
 
 ```bash
-npx @agent-native/core@latest add-app
+pnpm exec agent-native add-app
 ```
 
 CLI는 이미 설치한 앱을 필터링하여 템플릿 선택기를 다시 표시합니다. 하나 이상을 선택하면 `apps/` 아래에 비계가 설치됩니다. 비대화형 변형:
 
 ```bash
-npx @agent-native/core@latest add-app crm --template content
+pnpm exec agent-native add-app crm --template content
 ```
 
 모든 자사 템플릿은 작업 공간 앱으로 작동합니다. CLI는 공유 패키지를 dep으로 추가하고 `workspace:*` 참조를 확인하는 템플릿에서 작은 **workspacify** 변환을 실행합니다. 유지 관리할 병렬 "작업 공간 앱" 스캐폴드가 없습니다.
@@ -259,6 +259,8 @@ pnpm dev
 
 이 설정은 앱 목록, 에이전트 검색, 에이전트 간 호출을 제어합니다. 마운트된 워크스페이스 앱과 연결된 원격 에이전트의 사용자 지정 URL이 우선합니다. MCP 앱 액세스는 별도의 라우팅 권한으로 유지됩니다.
 
+Dispatch에서는 조직 소유자와 관리자가 설정 › 조직 › 앱에서(또는 `set-hosted-apps-settings`로) 제공되는 기본 제공 앱을 숨길 수도 있습니다. 숨기면 해당 조직의 Dispatch 앱 목록과 에이전트의 앱 컨텍스트에서 빠지며, 이름으로 지정한 `call-agent`로는 계속 호출할 수 있습니다. 조직이 없으면 설정 페이지가 없으므로 에이전트만 해당 사용자에 대해 변경할 수 있습니다.
+
 ## 공유 MCP 서버 {#shared-mcp}
 
 작업 공간 앱 전체에서 MCP 서버를 공유하기 위한 권장 옵션(선호도 순):
@@ -275,7 +277,7 @@ pnpm dev
 
 The workspace root `.env` is loaded into every app automatically for deployment-level configuration such as `A2A_SECRET`, `BETTER_AUTH_SECRET`, and `DATABASE_URL`. User, org, and workspace API keys should be saved as scoped DB secrets instead of being written into `.env`. Per-app deploy-time overrides can still go in `apps/<name>/.env` and win on conflict.
 
-런타임 앱 자격 증명의 경우 `.env` 파일을 직접 편집하는 것보다 Dispatch Vault를 선호합니다. 볼트는 기본적으로 모든 앱 액세스로 설정되어 있으므로 저장된 모든 볼트 키는 모든 작업 공간 앱에서 사용할 수 있으며 `sync-vault-to-app`로 푸시할 수 있습니다. 앱에 명시적인 키별 부여가 필요한 경우에만 Vault를 수동 모드로 전환하세요.
+런타임 앱 자격 증명의 경우 `.env` 파일을 직접 편집하는 것보다 Dispatch Vault를 선호합니다. 볼트는 기본적으로 모든 앱 액세스로 설정되어 있으므로 저장된 모든 볼트 키는 같은 데이터베이스를 공유하는 모든 작업 공간 앱에서 사용할 수 있습니다. 앱에 명시적인 키별 부여가 필요한 경우에만 Vault를 수동 모드로 전환하세요.
 
 ```text
 my-company-platform/
@@ -293,6 +295,10 @@ my-company-platform/
 ## 공유 자격 증명 {#shared-credentials}
 
 동일한 작업 공간에 있는 앱은 기본적으로 동일한 `DATABASE_URL`를 가리키므로 프레임워크 자격 증명 저장소는 앱별 구성 없이 모든 앱에서 자격 증명을 사용할 수 있도록 할 수 있습니다. `@agent-native/core/credentials`를 직접 사용하거나 작업 공간에서 더 엄격한 명명 규칙을 원하는 경우 `packages/shared`에 씬 도우미를 추가하세요.
+
+## `/`의 기본 앱 {#default-app}
+
+워크스페이스에 `dispatch` 앱이 있으면 `/`는 Dispatch를 열고, 없으면 첫 번째 앱을 엽니다. 다른 앱을 열려면 `WORKSPACE_DEFAULT_APP=<app-id>`를 설정하세요. `agent-native dev`와 워크스페이스 배포는 모두 프로세스 환경에서 먼저 읽고, 그다음 워크스페이스 루트의 `.env`에서 읽습니다. 어떤 앱과도 일치하지 않는 값은 무시됩니다. 배포는 빌드 시점에 읽으므로 빌드를 실행하는 곳에서 설정하세요. Dispatch는 자체 `/dispatch` 리디렉션을 유지하며, `deployment.workspace.rootPage: "directory"`는 계속 앱 목록을 표시합니다.
 
 ## 공유 디자인 토큰 {#design-tokens}
 

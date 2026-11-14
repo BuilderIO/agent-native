@@ -1,4 +1,25 @@
 import {
+  availableSizing,
+  canHugContent as layoutCanHugContent,
+  CONTAINER_TAGS,
+  isOutOfFlow,
+  LEAF_TAGS,
+  layoutPatchesById,
+  parentLayoutKind,
+  parentMainAxis,
+  readLayoutModel,
+  readNodeSizing,
+  TEXT_TAGS,
+  writeLayoutChange,
+  type LayoutChildrenInput,
+  type LayoutModel,
+  type LayoutNodeInput,
+  type LayoutParentInput,
+  type LayoutStylePatch,
+} from "@shared/layout-model";
+
+import { trace } from "../design-trace";
+import {
   type AlignmentMatrixValue,
   type AutoLayoutMatrixValue,
   type AutoLayoutSizing,
@@ -10,26 +31,26 @@ import { commitStylePatch } from "./field-primitives";
 import { splitCssLayers } from "./fill-gradient-helpers";
 import { colorHasVisibleAlpha } from "./position-helpers";
 import type {
+  ApplyLayoutFlowHandler,
   StyleChangeHandler,
   StyleChangeMeta,
   StylesChangeHandler,
 } from "./style-change-types";
 
-export const TEXT_TAGS = new Set([
-  "p",
-  "h1",
-  "h2",
-  "h3",
-  "h4",
-  "h5",
-  "h6",
-  "span",
-  "a",
-  "strong",
-  "em",
-  "label",
-  "li",
-]);
+export { TEXT_TAGS };
+
+const PRIMITIVE_TITLES: Readonly<Record<string, string>> = {
+  rect: "Rectangle",
+  rectangle: "Rectangle",
+  ellipse: "Ellipse",
+  circle: "Ellipse",
+  oval: "Ellipse",
+  line: "Line",
+  arrow: "Arrow",
+  polygon: "Polygon",
+  star: "Star",
+  image: "Image",
+};
 
 export function inspectorObjectTitle(element: ElementInfo): string {
   const componentName = componentNameForElementInfo(element);
@@ -37,10 +58,15 @@ export function inspectorObjectTitle(element: ElementInfo): string {
   if (element.isGroup) return "Group";
   const tag = normalizedElementTagName(element.tagName);
   if (isTextElement(element)) return "Text";
+  const primitiveTitle =
+    PRIMITIVE_TITLES[element.primitiveKind?.trim().toLowerCase() ?? ""];
+  if (primitiveTitle) return primitiveTitle;
   if (tag === "img" || tag === "picture") return "Image";
-  if (tag === "svg") return "Vector";
-  if (element.primitiveKind === "frame") return "Frame";
-  return tag;
+  if (tag === "video") return "Video";
+  if (tag === "svg" || isVectorShapeElement(element)) return "Vector";
+  return layoutModelForElement(element).frame.mode === "none"
+    ? "Frame"
+    : "Auto layout frame";
 }
 
 export function componentNameForElementInfo(
@@ -124,46 +150,6 @@ export function autoLayoutAlignmentFromStyles(
   };
 }
 
-const CONTAINER_TAGS = new Set([
-  "body",
-  "div",
-  "section",
-  "main",
-  "header",
-  "footer",
-  "nav",
-  "article",
-  "aside",
-  "form",
-  "ul",
-  "ol",
-  "figure",
-  "fieldset",
-  "details",
-  "dialog",
-  "blockquote",
-  "table",
-  "tbody",
-  "thead",
-  "tr",
-]);
-
-const LEAF_TAGS = new Set([
-  "img",
-  "video",
-  "picture",
-  "audio",
-  "canvas",
-  "svg",
-  "path",
-  "input",
-  "textarea",
-  "select",
-  "br",
-  "hr",
-  "iframe",
-]);
-
 function hasExplicitTextIdentity(element: ElementInfo): boolean {
   const tag = (element.tagName || "").toLowerCase();
   if (TEXT_TAGS.has(tag)) {
@@ -178,54 +164,139 @@ export function isContainerElement(element: ElementInfo): boolean {
   if (element.isGroup === true) return false;
   if (hasExplicitTextIdentity(element)) return false;
   const primitiveKind = element.primitiveKind?.trim().toLowerCase();
-  if (primitiveKind) {
-    return ["frame", "rectangle", "rect"].includes(primitiveKind);
+  if (primitiveKind === "frame") return true;
+  if (primitiveKind === "rectangle" || primitiveKind === "rect") {
+    return (element.childElementCount ?? 0) > 0;
   }
+  if (primitiveKind) return false;
   if (element.isFlexContainer || element.isGridContainer) return true;
   const tag = (element.tagName || "").toLowerCase();
   if (TEXT_TAGS.has(tag) || LEAF_TAGS.has(tag)) return false;
   return CONTAINER_TAGS.has(tag);
 }
 
-export function canHugContent(element: ElementInfo): boolean {
-  const primitiveKind = element.primitiveKind?.trim().toLowerCase();
-  const tag = (element.tagName || "").toLowerCase();
-  const isAutoLayoutContainer =
-    element.isFlexContainer || element.isGridContainer;
-  if (primitiveKind === "text" || TEXT_TAGS.has(tag)) return true;
-  if (primitiveKind) {
-    if (!["frame", "rectangle", "rect"].includes(primitiveKind)) return false;
-    return isAutoLayoutContainer || hasMeasurableContent(element);
-  }
-  if (LEAF_TAGS.has(tag)) return false;
-  return isAutoLayoutContainer || hasMeasurableContent(element);
+function elementNodeId(element: ElementInfo): string | null {
+  return element.sourceId || element.pendingNodeId || null;
 }
 
-function hasMeasurableContent(element: ElementInfo): boolean {
-  const children = element.childElementCount;
-  const text = element.textContent?.trim();
-  if (children === undefined && element.textContent === undefined) return true;
-  return (children ?? 0) > 0 || Boolean(text);
+function elementDisplay(element: ElementInfo): string | undefined {
+  const display = (
+    element.computedStyles.display ||
+    element.inlineStyles?.display ||
+    ""
+  ).toLowerCase();
+  if (element.isGridContainer && !display.includes("grid")) return "grid";
+  if (element.isFlexContainer && !display.includes("flex")) return "flex";
+  return display || undefined;
+}
+
+function layoutNodeForElement(element: ElementInfo): LayoutNodeInput {
+  const declared = (property: "width" | "height") =>
+    element.authoredSizeStyles?.[property]?.trim() ||
+    element.inlineStyles?.[property]?.trim() ||
+    element.computedStyles[property]?.trim() ||
+    undefined;
+  return {
+    id: elementNodeId(element),
+    tagName: element.tagName,
+    primitiveKind: element.primitiveKind,
+    styles: {
+      ...element.computedStyles,
+      display: elementDisplay(element),
+      position:
+        element.computedStyles.position || element.inlineStyles?.position,
+    },
+    declaredSize: { width: declared("width"), height: declared("height") },
+    classes: element.classes,
+    resolvedSize: {
+      horizontal: measuredElementSize(element, "horizontal"),
+      vertical: measuredElementSize(element, "vertical"),
+    },
+    rect: element.boundingRect,
+  };
+}
+
+function layoutParentForElement(
+  element: ElementInfo,
+): LayoutParentInput | null {
+  let display = (
+    element.parentDisplay ||
+    element.parentLayout?.display ||
+    ""
+  ).toLowerCase();
+  if (element.isFlexChild && !display.includes("flex")) display = "flex";
+  if (!display) return null;
+  return {
+    display,
+    flexDirection: element.parentLayout?.flexDirection,
+    alignItems: element.parentLayout?.alignItems,
+  };
+}
+
+function layoutChildrenForElement(element: ElementInfo): LayoutChildrenInput {
+  const layouts = element.childLayouts;
+  if (!layouts) {
+    return {
+      status: "unreadable",
+      childCount: element.childElementCount ?? null,
+      hasText:
+        element.textContent === undefined
+          ? null
+          : Boolean(element.textContent.trim()),
+    };
+  }
+  return {
+    status: "read",
+    looseText: layouts.looseText,
+    complete: layouts.complete,
+    children: layouts.children.map((child) => ({
+      id: child.nodeId ?? null,
+      tagName: child.tagName,
+      styles: {
+        position: child.position,
+        display: child.display,
+        flexGrow: child.flexGrow,
+        alignSelf: child.alignSelf,
+        justifySelf: child.justifySelf,
+        float: child.float,
+      },
+      declaredSize: { width: child.width, height: child.height },
+      rect: child.rect,
+    })),
+  };
+}
+
+export function layoutModelForElement(element: ElementInfo): LayoutModel {
+  return readLayoutModel({
+    node: layoutNodeForElement(element),
+    parent: layoutParentForElement(element),
+    children: layoutChildrenForElement(element),
+  });
+}
+
+/** Margin moves only a layer in flow; a screen root or a placed layer ignores it. */
+export function marginApplies(element: ElementInfo): boolean {
+  const tag = normalizedElementTagName(element.tagName);
+  if (tag === "body" || tag === "html") return false;
+  return !isOutOfFlow(layoutNodeForElement(element));
+}
+
+export function canHugContent(element: ElementInfo): boolean {
+  return layoutCanHugContent(layoutModelForElement(element));
 }
 
 export function isParentFlex(element: ElementInfo): boolean {
-  return (
-    element.isFlexChild ||
-    Boolean(element.parentDisplay?.toLowerCase().includes("flex"))
-  );
+  return parentLayoutKind(layoutParentForElement(element)) === "flex";
 }
 
 export function isParentGrid(element: ElementInfo): boolean {
-  return Boolean(element.parentDisplay?.toLowerCase().includes("grid"));
+  return parentLayoutKind(layoutParentForElement(element)) === "grid";
 }
 
 export function parentFlexDirection(
   element: ElementInfo,
 ): AutoLayoutSizingAxis | null {
-  const direction = element.parentLayout?.flexDirection;
-  if (direction)
-    return direction.includes("column") ? "vertical" : "horizontal";
-  return isParentFlex(element) ? "horizontal" : null;
+  return parentMainAxis(layoutParentForElement(element));
 }
 
 const VECTOR_PRIMITIVE_KINDS = new Set([
@@ -242,6 +313,12 @@ const VECTOR_PRIMITIVE_KINDS = new Set([
   "boolean",
   "boolean-operand",
 ]);
+
+/** Line and arrow layers: a stroked segment with no fill or corners. */
+export function isLineElement(element: ElementInfo): boolean {
+  const kind = element.primitiveKind?.trim().toLowerCase();
+  return kind === "line" || kind === "arrow";
+}
 
 export function isVectorShapeElement(element: ElementInfo): boolean {
   const tag = (element.tagName || "").toLowerCase();
@@ -340,31 +417,7 @@ export function isBoxlessText(element: ElementInfo): boolean {
 export function availableSizingForElement(
   element: ElementInfo,
 ): Partial<Record<AutoLayoutSizingAxis, AutoLayoutSizing[]>> {
-  const canHug = canHugContent(element);
-  const isFlexChildEl = isParentFlex(element) || isParentGrid(element);
-  const position = (
-    element.computedStyles.position || element.inlineStyles?.position
-  )?.toLowerCase();
-  const isOutOfFlowLayoutChild =
-    isFlexChildEl && (position === "absolute" || position === "fixed");
-  const isBlockChild = Boolean(element.parentDisplay) && !isFlexChildEl;
-
-  const buildAxis = (axis: AutoLayoutSizingAxis): AutoLayoutSizing[] => {
-    const options: AutoLayoutSizing[] = ["fixed"];
-    if (canHug) options.push("hug");
-    if (
-      (isFlexChildEl && !isOutOfFlowLayoutChild) ||
-      (isBlockChild && axis === "horizontal")
-    ) {
-      options.push("fill");
-    }
-    return options;
-  };
-
-  return {
-    horizontal: buildAxis("horizontal"),
-    vertical: buildAxis("vertical"),
-  };
+  return availableSizing(layoutModelForElement(element));
 }
 
 export function readElementMinMax(
@@ -428,30 +481,11 @@ export function inferElementSizing(
   element: ElementInfo,
   axis: AutoLayoutSizingAxis,
 ): AutoLayoutSizing {
-  const styles = element.computedStyles;
-  const property = axis === "horizontal" ? "width" : "height";
-  const authoredSize =
-    element.authoredSizeStyles?.[property]?.trim().toLowerCase() ||
-    element.inlineStyles?.[property]?.trim().toLowerCase();
-  const size = authoredSize || styles[property];
-  const parentDirection = parentFlexDirection(element);
-  const isFlex = isParentFlex(element);
-  const isMainFlexAxis = isFlex && parentDirection === axis;
-  const isCrossFlexAxis =
-    isFlex && parentDirection !== null && parentDirection !== axis;
-  const alignSelf = (styles.alignSelf || "").toLowerCase();
-
-  if (
-    size === "100%" ||
-    (isMainFlexAxis && Number.parseFloat(styles.flexGrow || "0") > 0) ||
-    (isCrossFlexAxis && alignSelf === "stretch")
-  ) {
-    return "fill";
-  }
-  if (size === "auto" || size === "fit-content" || size === "max-content") {
-    return "hug";
-  }
-  return "fixed";
+  return readNodeSizing(
+    layoutNodeForElement(element),
+    layoutParentForElement(element),
+    axis,
+  );
 }
 
 export function measuredElementSize(
@@ -487,99 +521,102 @@ export function sizeNeedsMeasurement(styles: Record<string, string>): boolean {
   });
 }
 
-export function cssElementSize(
-  element: ElementInfo,
-  axis: AutoLayoutSizingAxis,
-): number {
-  const isHorizontal = axis === "horizontal";
-  const cssValue = isHorizontal
-    ? element.computedStyles.width
-    : element.computedStyles.height;
-  const parsed = parseFloat(cssValue || "");
-  const fallback = isHorizontal
-    ? element.boundingRect.width
-    : element.boundingRect.height;
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
-}
-
 export function commitElementSizing(
   element: ElementInfo,
   axis: AutoLayoutSizingAxis,
   sizing: AutoLayoutSizing,
   onStyleChange: StyleChangeHandler,
   onStylesChange?: StylesChangeHandler,
+  onApplyLayoutFlow?: ApplyLayoutFlowHandler,
 ) {
-  commitStylePatch(
-    elementSizingStylePatch(element, axis, sizing),
+  commitElementSizingForAxes(
+    element,
+    { [axis]: sizing },
     onStyleChange,
     onStylesChange,
+    onApplyLayoutFlow,
   );
+}
+
+type AxisSizings = Partial<Record<AutoLayoutSizingAxis, AutoLayoutSizing>>;
+type AxisSizes = Partial<Record<AutoLayoutSizingAxis, number>>;
+
+/**
+ * Commits a sizing change as the layout model writes it. Hug on an axis the
+ * children fill freezes them there too, and the frame and its children land
+ * as one edit; a change that only touches the layer keeps the ordinary style
+ * path, so previews, breakpoints and interaction states still apply.
+ */
+export function commitElementSizingForAxes(
+  element: ElementInfo,
+  sizing: AxisSizings,
+  onStyleChange: StyleChangeHandler,
+  onStylesChange?: StylesChangeHandler,
+  onApplyLayoutFlow?: ApplyLayoutFlowHandler,
+  px?: AxisSizes,
+  meta?: StyleChangeMeta,
+) {
+  const write = writeLayoutChange(layoutModelForElement(element), {
+    kind: "sizing",
+    sizing,
+    ...(px ? { px } : {}),
+  });
+  if (write.status !== "ok") {
+    trace("structure", "sizing-refused", {
+      reason: write.reason,
+      nodeIds: write.nodeIds,
+    });
+    return;
+  }
+  if (write.children.size === 0) {
+    commitStylePatch(
+      definedStyles(write.frame),
+      onStyleChange,
+      onStylesChange,
+      meta,
+    );
+    return;
+  }
+  const frameId = elementNodeId(element);
+  const outcome =
+    frameId && onApplyLayoutFlow
+      ? onApplyLayoutFlow(frameId, {}, layoutPatchesById(write, frameId))
+      : "unsupported";
+  if (outcome !== "applied") {
+    trace("structure", "sizing-refused", {
+      reason: "children-not-writable",
+      outcome,
+      nodeId: frameId,
+    });
+  }
 }
 
 export function commitFixedElementSizes(
   element: ElementInfo,
-  sizes: Partial<Record<AutoLayoutSizingAxis, number>>,
+  sizes: AxisSizes,
   onStyleChange: StyleChangeHandler,
   onStylesChange?: StylesChangeHandler,
   meta?: StyleChangeMeta,
 ) {
-  const patch: Record<string, string> = {};
+  const sizing: AxisSizings = {};
   for (const axis of ["horizontal", "vertical"] as const) {
-    const size = sizes[axis];
-    if (size === undefined) continue;
-    Object.assign(patch, elementSizingStylePatch(element, axis, "fixed", size));
+    if (sizes[axis] !== undefined) sizing[axis] = "fixed";
   }
-  commitStylePatch(patch, onStyleChange, onStylesChange, meta);
+  commitElementSizingForAxes(
+    element,
+    sizing,
+    onStyleChange,
+    onStylesChange,
+    undefined,
+    sizes,
+    meta,
+  );
 }
 
-function elementSizingStylePatch(
-  element: ElementInfo,
-  axis: AutoLayoutSizingAxis,
-  sizing: AutoLayoutSizing,
-  fixedSizePx?: number,
-): Record<string, string> {
-  const isHorizontal = axis === "horizontal";
-  const sizeProperty = isHorizontal ? "width" : "height";
-  const resolvedSize =
-    fixedSizePx ?? Math.max(1, Math.round(cssElementSize(element, axis)));
-  const parentDirection = parentFlexDirection(element);
-  const isFlex = isParentFlex(element);
-  const isGrid = isParentGrid(element);
-  const isMainFlexAxis = isFlex && parentDirection === axis;
-  const stretchProperty = isFlex || !isHorizontal ? "alignSelf" : "justifySelf";
-  const patch: Record<string, string> = {};
-
-  if (sizing === "fixed") {
-    patch[sizeProperty] = `${resolvedSize}px`;
-    if (isMainFlexAxis) {
-      patch.flexGrow = "0";
-      patch.flexShrink = "0";
-      patch.flexBasis = "auto";
-    } else if (isFlex || isGrid) {
-      patch[stretchProperty] = "auto";
-    }
-  } else if (sizing === "hug") {
-    patch[sizeProperty] = "fit-content";
-    if (isMainFlexAxis) {
-      patch.flexGrow = "0";
-      patch.flexShrink = "0";
-      patch.flexBasis = "auto";
-    } else if (isFlex || isGrid) {
-      patch[stretchProperty] = "auto";
-    }
-  } else {
-    if (isMainFlexAxis) {
-      patch.flexGrow = "1";
-      patch.flexShrink = "0";
-      patch.flexBasis = "0";
-      patch[sizeProperty] = "auto";
-    } else if (isFlex || isGrid) {
-      patch[stretchProperty] = "stretch";
-      patch[sizeProperty] = "auto";
-    } else {
-      patch[sizeProperty] = "100%";
-    }
+function definedStyles(patch: LayoutStylePatch): Record<string, string> {
+  const styles: Record<string, string> = {};
+  for (const [property, value] of Object.entries(patch)) {
+    if (value !== null) styles[property] = value;
   }
-
-  return patch;
+  return styles;
 }

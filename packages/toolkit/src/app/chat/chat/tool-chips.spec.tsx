@@ -27,6 +27,7 @@ describe("ToolChips", () => {
         <ToolChips
           diffs={[
             {
+              id: "diff-message-queue-drawer",
               file: "packages/toolkit/src/composer/MessageQueueDrawer.tsx",
               additions: 2,
               deletions: 0,

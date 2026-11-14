@@ -7,13 +7,16 @@ import {
   eq,
   gte,
   inArray,
+  isNull,
   lt,
   lte,
   notInArray,
+  or,
   sql,
 } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
+import { OUTPUT_MADE_EVENT, outputUseRule } from "../../shared/output-use.js";
 import {
   AUTOMATIC_ANALYTICS_EVENT_NAMES,
   type EventCatalogApp,
@@ -509,6 +512,25 @@ export async function sessionEventFilterConditions(
   const gaps = schema.analyticsSessionEventGaps;
   const recordingTenant = recordingTenantSql(r);
   const coverageStart = sql`(select ${coverage.startedAt} from ${coverage} where ${coverage.tenantKey} = ${recordingTenant})`;
+  // The same bound as `coverageStart`, on indexable columns. Without it a
+  // range reaching back before coverage fails in production, though
+  // every row it adds is excluded.
+  const coverageRows: { tenantKey: string; startedAt: string }[] = await db
+    .select({ tenantKey: coverage.tenantKey, startedAt: coverage.startedAt })
+    .from(coverage)
+    .where(inArray(coverage.tenantKey, viewerTenantKeys(scope)));
+  if (!coverageRows.length) return [sql`false`];
+  const coveredRange = or(
+    ...coverageRows.map(({ tenantKey, startedAt }) =>
+      tenantKey.startsWith("org:")
+        ? and(eq(r.orgId, tenantKey.slice(4)), gte(r.startedAt, startedAt))
+        : and(
+            isNull(r.orgId),
+            eq(r.ownerEmail, tenantKey.slice(5)),
+            gte(r.startedAt, startedAt),
+          ),
+    ),
+  );
   const sessionIndexed = (sessionId: AnyColumn, eventName?: string) =>
     sql`exists (select 1 from ${se} where ${se.tenantKey} = ${recordingTenant} and ${se.sessionId} = ${sessionId}${eventName === undefined ? sql`` : sql` and ${se.eventName} = ${eventName}`})`;
   const sessionCoverageConditions = (sessionId: AnyColumn) => [
@@ -517,15 +539,14 @@ export async function sessionEventFilterConditions(
     // index never saw.
     ...(associationsReady
       ? [
+          // Start from the session's associations: started from the
+          // recordings, Postgres scans the whole table once per candidate.
           sql`not exists (
-            select 1 from ${r} as ${sibling}
-            where ${recordingTenantSql(sibling)} = ${recordingTenant}
+            select 1 from ${schema.sessionRecordingSessionAssociations} as ${siblingAssociation}
+            inner join ${r} as ${sibling} on ${sibling.id} = ${siblingAssociation.recordingId}
+            where ${siblingAssociation.sessionId} = ${sessionId}
+              and ${recordingTenantSql(sibling)} = ${recordingTenant}
               and ${sibling.startedAt} < ${coverageStart}
-              and exists (
-                select 1 from ${schema.sessionRecordingSessionAssociations} as ${siblingAssociation}
-                where ${siblingAssociation.recordingId} = ${sibling.id}
-                  and ${siblingAssociation.sessionId} = ${sessionId}
-              )
           )`,
           sql`not exists (
             select 1 from ${r} as ${sibling}
@@ -616,6 +637,7 @@ export async function sessionEventFilterConditions(
   return [
     viewerReadsRecordingEventsSql(r, scope),
     sql`${r.startedAt} >= ${coverageStart}`,
+    coveredRange,
     sessionMatch,
     ...(allAssociatedSessionsCovered ? [allAssociatedSessionsCovered] : []),
     ...didNotEventConditions,
@@ -684,6 +706,18 @@ export async function listSessionEventNames(
     })),
     coverageStartedAt,
   };
+}
+
+function outputEventRole(
+  app: string | null,
+  eventName: string,
+): EventCatalogEntry["outputRole"] {
+  const rule = outputUseRule(app);
+  if (!rule) return null;
+  if (rule.madeEvents.includes(eventName)) return "made";
+  return rule.usedEvents.some((event) => event.eventName === eventName)
+    ? "used"
+    : null;
 }
 
 export function isAutomaticAnalyticsEvent(eventName: string): boolean {
@@ -798,6 +832,7 @@ export async function listEventCatalog(
         app: c.app,
         eventCount: sql<number>`count(distinct ${c.eventName})`,
         customEventCount: sql<number>`count(distinct ${c.eventName}) filter (where ${notInArray(c.eventName, [...AUTOMATIC_ANALYTICS_EVENT_NAMES])})`,
+        madeEventCount: sql<number>`count(*) filter (where ${eq(c.eventName, OUTPUT_MADE_EVENT)})`,
         volume: sql<number>`sum(${c.eventCount})`,
       })
       .from(c)
@@ -837,6 +872,7 @@ export async function listEventCatalog(
         description: null,
         automatic: isAutomaticAnalyticsEvent(row.eventName),
         stoppedFiring: false,
+        outputRole: outputEventRole(row.app, row.eventName),
       };
     },
   );
@@ -861,12 +897,17 @@ export async function listEventCatalog(
       app: string;
       eventCount: unknown;
       customEventCount: unknown;
+      madeEventCount: unknown;
       volume: unknown;
     }) => ({
       app: row.app || null,
       eventCount: Number(row.eventCount),
       volume: Number(row.volume),
       onlyAutomaticEvents: Number(row.customEventCount) === 0,
+      makesOutputs: Number(row.madeEventCount) > 0,
+      usedItEvents:
+        outputUseRule(row.app)?.usedEvents.map((event) => event.eventName) ??
+        [],
     }),
   );
 

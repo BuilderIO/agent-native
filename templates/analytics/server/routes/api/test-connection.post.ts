@@ -1,7 +1,8 @@
 import { readBody } from "@agent-native/core/server";
 import { resolveWorkspaceConnectionForApp } from "@agent-native/core/workspace-connections";
-import { defineEventHandler } from "h3";
+import { defineEventHandler, setResponseStatus } from "h3";
 
+import { fetchConfiguredEndpoint } from "../../lib/configured-endpoint-fetch";
 import {
   assertCredentialCanReachEndpoint,
   resolveCredential,
@@ -253,9 +254,14 @@ export default defineEventHandler(async (event) => {
           if (!url || !token)
             return { ok: false, error: "Missing credentials" };
           assertCredentialCanReachEndpoint(url, token, "GRAFANA_API_TOKEN");
-          const res = await fetch(`${url.value}/api/org`, {
-            headers: { Authorization: `Bearer ${token.value}` },
-          });
+          const res = await fetchConfiguredEndpoint(
+            "grafana",
+            url.value,
+            "/api/org",
+            {
+              headers: { Authorization: `Bearer ${token.value}` },
+            },
+          );
           if (!res.ok) return { ok: false, error: "Connection failed" };
           return { ok: true };
         }
@@ -340,8 +346,10 @@ export default defineEventHandler(async (event) => {
           const auth = `Basic ${Buffer.from(
             `${credentials.accessKey}:${credentials.accessSecret}`,
           ).toString("base64")}`;
-          const res = await fetch(
-            `${endpoint.value.replace(/\/+$/, "")}/users?limit=1`,
+          const res = await fetchConfiguredEndpoint(
+            "gong",
+            endpoint.value,
+            "/users?limit=1",
             {
               headers: { Authorization: auth },
             },
@@ -360,8 +368,19 @@ export default defineEventHandler(async (event) => {
         default:
           return { ok: false, error: `Unknown source: ${source}` };
       }
-    } catch (err: any) {
-      return { ok: false, error: err.message || "Connection test failed" };
+    } catch (err) {
+      if (
+        typeof err === "object" &&
+        err !== null &&
+        "statusCode" in err &&
+        typeof err.statusCode === "number"
+      ) {
+        setResponseStatus(event, err.statusCode);
+      }
+      return {
+        ok: false,
+        error: err instanceof Error ? err.message : "Connection test failed",
+      };
     }
   });
 

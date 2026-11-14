@@ -16,6 +16,11 @@ agent answers about browser recordings in the Analytics template.
   `get-session-replay-summary`, and `get-session-replay-events`.
 - `/sessions/:recordingId` is keyed by `session_recordings.id`, not
   `analytics_events.session_id`.
+- `environment` on `list-session-recordings` (`production` or `beta`; omit
+  for all) filters by the recording's host. `beta` also covers PR previews and
+  local runs, and a recording with no host counts as production. The Sessions
+  page's traffic menu and row badge use the same rule, and `view-screen` reads
+  `?environment=`.
 - Do not add actions that synthesize "sessions" from `analytics_events`.
   Events can be linked beside a recording through `session_id`, but they are not
   playable replay rows by themselves.
@@ -44,6 +49,23 @@ agent answers about browser recordings in the Analytics template.
   `/api/session-replay/agent-context.json` plus bounded
   `/api/session-replay/agent-events.json` and
   `/api/session-replay/agent-diagnostics.json` reads.
+- When the link's creator has the Sessions triage Lab on, the context adds
+  `keyMoments` and `build`. Each moment names what broke or what the person
+  did, the route (null means unknown, in recordings from before route
+  tracking), the steps before it, and a `playerUrl`. That is the recording's
+  frame page, which needs no sign-in: it stops just after the moment and fits
+  the recording to the window, so the agent opens it in its own browser, waits
+  for `[data-replay-frame="ready"]`, and screenshots the page.
+  `[data-replay-frame="error"]` means it could not be shown, and
+  `window.__anReplayFrame.reason` says why. `build.commit` is the commit the page
+  reported it was built from; anything holding the public replay key can report
+  one, so it is a lead, not proof. Null means the recording did not report one.
+  `build.latestCommit` appears when a reload moved the recording onto a newer
+  deploy. `keyMoments.complete` means every stored event was read; time the
+  recorder never stored, such as while its uploads were paused, can still be
+  missing. Failed agent runs and error toasts count as moments because neither
+  reaches the console or network capture. A failed run's message is masked in
+  newer recordings, so its moment carries the error code instead.
 - Do not make session recordings public just so an agent can inspect them.
   Tokenized agent links are the intended handoff path.
 
@@ -302,7 +324,7 @@ agent answers about browser recordings in the Analytics template.
   exist only while the Sessions triage Lab is on.
 - Lab state never holds up the base list. The page waits for it only when the
   URL carries Lab-only conditions (did/didn't events, friction signals or
-  sorts, `slow`), with one wait for all of them, and for at most 5 s; a
+  sorts, `slow`, `unused`), with one wait for all of them, and for at most 5 s; a
   failed or hung read lists sessions without them and says so once, with a
   retry, rather than telling the user to turn on a Lab that may be on.
   Row speed hints load beside the list through `list-session-performance`,
@@ -312,6 +334,66 @@ agent answers about browser recordings in the Analytics template.
   and reads row friction and speed hints beside the base list, reporting
   `labStateError`, `frictionError`, and `performanceError` separately; its
   `fullPageAction` asks for both.
+
+## Made It, Didn't Use It
+
+- `OUTPUT_USE_RULES` in `shared/output-use.ts` is the one definition: per
+  app, the output type, the events that make one, and the events that use it,
+  each with a `qualifies` check on its properties. A use counts only for the
+  same `output_id` the making event carried, within `OUTPUT_USE_WINDOW_DAYS`
+  (7). Opening an output never counts; a use shows it to people or takes it out
+  of the app. Slides: `generation_completed` makes a deck;
+  `presentation_ended` with `slides_advanced` ≥ 1 and `duration_ms` ≥
+  `MIN_PRESENTATION_MS` (30 s), or `deck_exported` with `status: "completed"`
+  and `slide_count` ≥ 1, uses it. A missing or non-numeric property never
+  proves a use.
+- Adding an app means adding a rule whose used events need real use and whose
+  making event carries `output_id`. Until then the event catalog flags it: an
+  app with `makesOutputs` (it sent `generation_completed`) and empty
+  `usedItEvents` is a gap, and entries carry `outputRole`. Known holes:
+  shared-audience presentations carry no `output_id`, and HTML export has no
+  completion event.
+- `recordOutputOutcomes` runs in the ingest transaction under a savepoint in
+  every sink mode, so views never read raw events or BigQuery. Each
+  `analytics_output_outcomes` row keeps the earliest making, its session, and
+  the earliest qualifying use; the upsert merges batches in any order. A failed
+  outcome write records the batch's event-time span per tenant in
+  `analytics_output_outcome_gaps`, and so does `recordLostOutputBatch` when
+  ingest fails to store a batch at all (sink lookup, volume limit, raw insert,
+  index), since
+  the tracker does not resend it. An output whose window overlaps a gap is
+  `unmeasured`, never `unused`, since the lost batch could hold its use.
+  Outputs made before the tenant's coverage start are skipped. Before the
+  migration creates `analytics_output_outcome_coverage` (created last), ingest
+  stores events without outcomes, `unused` matches nothing, and coverage is
+  null.
+- `unused` on `list-session-recordings` matches recordings whose own
+  tenant's session made an output whose window has closed unused; a recording
+  shared from another tenant never matches, nor does one a gap overlaps (a
+  lost batch may have held an output it made). It returns the paginated shape
+  with `outputs` and `omittedOutputs` by recording id and
+  `outputCoverageStartedAt`. Statuses are `used`, `unused`, `open` (window
+  still open), and `unmeasured`; `url` is the recording's origin, its
+  `/<app>` workspace mount when its first or last page is under it, and the
+  rule's `outputPath`. Recorded URLs come from the uploader, so `url` is null
+  unless the recording's replay key lists that origin (a key that accepts any
+  origin links nothing) and both pages share it (a real recording never
+  leaves its tab's origin). The app checks access when it opens.
+- `getSessionRecordingOutputs` is the one reader. Per readable recording it
+  gives `[]` for none, null when they are unknown (a recording from another
+  tenant, since a share grants the recording, not its events, one whose
+  tenant has not started output tracking, or one a gap overlaps), and at most `MAX_OUTPUTS_PER_RECORDING`
+  outputs, ranked unused first in SQL so a matched row always lists what it
+  matched on; `omittedOutputs` counts the rest. Ids the viewer cannot read are
+  absent. `list-session-outputs` returns that shape and rejects a failed read.
+  `get-session-replay-summary` and `view-screen` on a replay both use
+  `withSessionsTriage`, which puts one recording's `outputs` (and
+  `omittedOutputs` when some were left out) beside its friction and speed, and
+  returns `outputsError` instead when the read fails or skips the recording.
+- All of it is behind the Sessions triage Lab (`outputs` in its 403). Rows
+  link the first unused output beside the replay link, never inside it, and
+  the replay header lists the recording's outputs with their status and says
+  how many more it left out.
 
 ## Agent Diagnostics Surface
 

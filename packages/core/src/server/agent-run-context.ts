@@ -13,6 +13,7 @@ import {
   SYNTHETIC_TRAFFIC_HEADER,
   isSyntheticTrafficValue,
 } from "../shared/test-traffic.js";
+import { ForbiddenError } from "../sharing/errors.js";
 import {
   CREDENTIAL_MEMBERSHIP_UNAVAILABLE_MESSAGE,
   isCredentialMembershipUnavailable,
@@ -27,18 +28,34 @@ import {
   type RequestContext,
 } from "./request-context.js";
 import { getForwardedRequestOrigin } from "./request-origin.js";
+import {
+  SessionResolutionUnavailableError,
+  sessionResolutionFailure,
+} from "./session-resolution-errors.js";
+import {
+  isSessionResolutionUnavailable,
+  sessionResolutionUnavailableError,
+} from "./session-resolution-unavailable.js";
 
 const resolveOrgScopeForEmail: (typeof import("../org/context.js"))["resolveOrgScopeForEmail"] =
   (...args) =>
     import("../org/context.js").then(({ resolveOrgScopeForEmail }) =>
       resolveOrgScopeForEmail(...args),
     );
-async function hasOrgScopeResolutionUnavailable(
-  event: H3Event,
-): Promise<boolean> {
-  const { hasOrgScopeResolutionUnavailable } =
-    await import("../org/context.js");
-  return hasOrgScopeResolutionUnavailable(event);
+async function assertOrgScopeAvailable(event: H3Event): Promise<void> {
+  const org = await import("../org/context.js");
+  if (org.hasForbiddenOrgScope(event)) {
+    throw createError({
+      statusCode: 403,
+      statusMessage: "Workspace membership required",
+    });
+  }
+  if (org.hasOrgScopeResolutionUnavailable(event)) {
+    throw (
+      org.getOrgScopeResolutionError(event) ??
+      new SessionResolutionUnavailableError()
+    );
+  }
 }
 const getOrgContext: (typeof import("../org/context.js"))["getOrgContext"] = (
   ...args
@@ -236,6 +253,9 @@ export async function resolveAgentRunOwnerContext(
       headers: { "Retry-After": "5" },
     });
   }
+  if (!session?.email && isSessionResolutionUnavailable(event)) {
+    throw sessionResolutionUnavailableError();
+  }
   if (session?.email) {
     const orgScope = getRequestContext()?.orgScope;
     const identityAuthenticatedAtMs = getRequestIdentityAuthenticatedAtMs(
@@ -287,6 +307,7 @@ export async function resolveAgentRunOrgScope(options: {
   resolveOrgId?: OrgIdResolver;
 }): Promise<AgentRunOrgScope> {
   const { ownerContext } = options;
+  await assertOrgScopeAvailable(options.event);
   const hasOwnerOrgId = Object.prototype.hasOwnProperty.call(
     ownerContext,
     "orgId",
@@ -304,40 +325,46 @@ export async function resolveAgentRunOrgScope(options: {
   }
 
   let resolvedOrgId: string | undefined;
-  let orgLookupFailed = false;
+  let orgLookupFailure: Error | undefined;
 
   if (options.resolveOrgId) {
     resolvedOrgId = normalizeId(await options.resolveOrgId(options.event));
+    await assertOrgScopeAvailable(options.event);
+    if (hasExplicitPersonalOrgScope(options.event))
+      return { orgScope: "personal" };
   } else {
     try {
       const { getSession } = await import("./auth.js");
       const session = await getSession(options.event);
       resolvedOrgId = normalizeId(session?.orgId);
-    } catch {
-      orgLookupFailed = true;
+      if (!session && isSessionResolutionUnavailable(options.event)) {
+        orgLookupFailure = sessionResolutionUnavailableError();
+      }
+    } catch (error) {
+      if (error instanceof ForbiddenError) throw error;
+      orgLookupFailure ??= sessionResolutionFailure(error);
     }
+    await assertOrgScopeAvailable(options.event);
 
     if (!resolvedOrgId) {
+      let orgContext: Awaited<ReturnType<typeof getOrgContext>> | undefined;
       try {
-        const orgContext = await getOrgContext(options.event);
-        resolvedOrgId = normalizeId(orgContext.orgId);
-        const scopeUnavailable = await hasOrgScopeResolutionUnavailable(
-          options.event,
-        );
-        if (!resolvedOrgId && scopeUnavailable) orgLookupFailed = true;
-        if (
-          !resolvedOrgId &&
-          !scopeUnavailable &&
-          !orgLookupFailed &&
-          ownerContext.owner &&
-          !ownerContext.anonymous &&
-          normalizeId(orgContext.email)?.toLowerCase() ===
-            ownerContext.owner.trim().toLowerCase()
-        ) {
-          return { orgScope: "personal" };
-        }
-      } catch {
-        orgLookupFailed = true;
+        orgContext = await getOrgContext(options.event);
+      } catch (error) {
+        if (error instanceof ForbiddenError) throw error;
+        orgLookupFailure ??= sessionResolutionFailure(error);
+      }
+      await assertOrgScopeAvailable(options.event);
+      resolvedOrgId = normalizeId(orgContext?.orgId);
+      if (
+        !resolvedOrgId &&
+        !orgLookupFailure &&
+        ownerContext.owner &&
+        !ownerContext.anonymous &&
+        normalizeId(orgContext?.email)?.toLowerCase() ===
+          ownerContext.owner.trim().toLowerCase()
+      ) {
+        return { orgScope: "personal" };
       }
     }
   }
@@ -348,18 +375,19 @@ export async function resolveAgentRunOrgScope(options: {
       if (scope.status === "organization") {
         resolvedOrgId = normalizeId(scope.orgId);
       } else if (scope.status === "unknown") {
-        orgLookupFailed = true;
-      } else if (!orgLookupFailed) {
+        orgLookupFailure ??= sessionResolutionFailure(scope.cause);
+      } else if (!orgLookupFailure) {
         return { orgScope: "personal" };
       }
-    } catch {
-      orgLookupFailed = true;
+    } catch (error) {
+      if (error instanceof ForbiddenError) throw error;
+      orgLookupFailure ??= sessionResolutionFailure(error);
     }
   }
 
   if (resolvedOrgId) return { orgId: resolvedOrgId };
-  // An absent org is personal only when every available membership lookup succeeded.
-  if (!orgLookupFailed && ownerContext.owner && !ownerContext.anonymous) {
+  if (orgLookupFailure) throw orgLookupFailure;
+  if (ownerContext.owner && !ownerContext.anonymous) {
     return { orgScope: "personal" };
   }
   return {};

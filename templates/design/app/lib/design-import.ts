@@ -1,5 +1,9 @@
 import { actionErrorMessage } from "@agent-native/core/client/hooks";
 import { parseFigmaFileKey } from "@shared/figma-url";
+import {
+  STORED_SCREEN_FRAME_TYPES,
+  type StoredScreenFrameType,
+} from "@shared/screen-frame-type";
 
 import type { PortableStyleSnapshot } from "@/components/design/types";
 
@@ -250,12 +254,20 @@ function truncateForToast(value: string): string {
   return `${trimmed.slice(0, MAX_TOAST_BODY_CHARS)}…`;
 }
 
+export interface DesignClipboardCanvasRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 export interface DesignClipboardLayerEntry {
   html: string;
   rootNodeId?: string;
   sourceParentNodeId?: string;
   sourceFileId: string;
   sourceRelativeOffset?: RelativePositionOffset | null;
+  sourceCanvasRect?: DesignClipboardCanvasRect;
   portableStyleSnapshot?: PortableStyleSnapshot;
   styleSnapshotCaptureFailed?: boolean;
   managedStyleSnapshot?: DesignClipboardManagedStyleSnapshot;
@@ -266,6 +278,7 @@ export interface DesignClipboardScreenEntry {
   fileType?: string;
   content: string;
   sourceScreenId?: string;
+  frameType?: StoredScreenFrameType;
   canvasFrame?: {
     x?: number;
     y?: number;
@@ -306,6 +319,22 @@ export function isValidRelativePositionOffset(
     Number.isFinite(offset.y) &&
     Math.abs(offset.y) <= 10_000_000
   );
+}
+
+function isClipboardCanvasRect(
+  value: unknown,
+): value is DesignClipboardCanvasRect {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const rect = value as Record<string, unknown>;
+  return (["x", "y", "width", "height"] as const).every((key) => {
+    const part = rect[key];
+    return (
+      typeof part === "number" &&
+      Number.isFinite(part) &&
+      Math.abs(part) <= 10_000_000 &&
+      (key === "x" || key === "y" || part >= 0)
+    );
+  });
 }
 
 function isPortableClipboardStyleSnapshot(value: unknown): boolean {
@@ -374,6 +403,8 @@ function validateDesignClipboardPayload(
         !clipboardString(entry.sourceParentNodeId)) ||
       (entry.sourceRelativeOffset !== undefined &&
         !isValidRelativePositionOffset(entry.sourceRelativeOffset)) ||
+      (entry.sourceCanvasRect !== undefined &&
+        !isClipboardCanvasRect(entry.sourceCanvasRect)) ||
       (entry.styleSnapshotCaptureFailed !== undefined &&
         typeof entry.styleSnapshotCaptureFailed !== "boolean") ||
       (entry.portableStyleSnapshot !== undefined &&
@@ -403,7 +434,9 @@ function validateDesignClipboardPayload(
       (screen.fileType !== undefined &&
         !clipboardString(screen.fileType, 32)) ||
       (screen.sourceScreenId !== undefined &&
-        !clipboardString(screen.sourceScreenId))
+        !clipboardString(screen.sourceScreenId)) ||
+      (screen.frameType !== undefined &&
+        !STORED_SCREEN_FRAME_TYPES.some((type) => type === screen.frameType))
     ) {
       return null;
     }
@@ -466,6 +499,18 @@ export function serializeDesignClipboardPayload(
   const trustedPrefix = trustToken ? `${trustToken}.` : "";
   const marker = `<!--${CLIPBOARD_MARKER_PREFIX}${trustedPrefix}${encodeClipboardMarkerData(payload)}-->`;
   return `${visibleText}\n${marker}`;
+}
+
+/**
+ * Whether text carries a Design clipboard marker at all, trusted or not. A
+ * marker that fails to parse with this browser's trust token came from another
+ * Design origin or was forged; callers report it instead of pasting the
+ * visible HTML around it.
+ */
+export function hasDesignClipboardMarker(
+  text: string | null | undefined,
+): boolean {
+  return Boolean(text?.includes(`<!--${CLIPBOARD_MARKER_PREFIX}`));
 }
 
 export function parseDesignClipboardMarker(

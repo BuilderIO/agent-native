@@ -7,6 +7,7 @@ export type SuggestionStatus =
   | "superseded"
   | "withdrawn";
 export type SuggestionDecision = "accepted" | "rejected";
+export type SuggestionAuthorSource = "mcp" | "a2a" | "agent";
 export interface SuggestionOperation {
   id?: string;
   ordinal: number;
@@ -30,6 +31,18 @@ export interface ResourceSuggestion {
   threadId: string;
   authorEmail: string | null;
   actorKind: "human" | "agent" | "system";
+  /**
+   * How an agent's suggestion arrived: over MCP, from another app's agent
+   * (`a2a`), or from the app's own agent. Null for people and for
+   * suggestions made before it was recorded.
+   */
+  authorSource?: SuggestionAuthorSource | null;
+  /**
+   * The MCP host the agent's client said it was, as a connect host id such as
+   * `claude-code` (see `mcpConnectHostLabel`). Null when the client named no
+   * host this app knows.
+   */
+  authorClient?: string | null;
   baseRevision: string;
   status: SuggestionStatus;
   summary: string;
@@ -66,6 +79,11 @@ export interface SuggestionContext {
   ctx?: Record<string, unknown>;
   transaction: unknown;
   coordination?: unknown;
+  /**
+   * Where the reviewing editor showed the suggestion when it was accepted, as
+   * that editor sent it. Adapters check it against the resource before use.
+   */
+  placement?: unknown;
 }
 export interface SuggestionDecisionContext {
   resourceType: string;
@@ -74,8 +92,22 @@ export interface SuggestionDecisionContext {
   operations: SuggestionOperation[];
   decision: SuggestionDecision;
   proposalDecision?: boolean;
+  /**
+   * The members a proposal decision decides, in the order it calls `apply`
+   * for them. `suggestion` is the first.
+   */
+  proposalMemberIds?: string[];
   access: SuggestionAccess;
   ctx?: Record<string, unknown>;
+}
+export interface SuggestionDecisionRunOptions {
+  /**
+   * Runs the decision in this transaction instead of its own, so the
+   * decision commits or rolls back with the adapter's write. A decision that
+   * replays an earlier one returns without calling `apply`; an adapter whose
+   * write must not commit without the decision has to check for that.
+   */
+  transaction?: unknown;
 }
 export interface SuggestionAdapter {
   kind: string;
@@ -91,7 +123,10 @@ export interface SuggestionAdapter {
   preview?(context: SuggestionContext): Promise<unknown> | unknown;
   coordinateDecision?<T>(
     context: SuggestionDecisionContext,
-    run: (coordination?: unknown) => Promise<T>,
+    run: (
+      coordination?: unknown,
+      options?: SuggestionDecisionRunOptions,
+    ) => Promise<T>,
   ): Promise<T>;
   finalizeProposalDecision?(context: {
     resourceType: string;

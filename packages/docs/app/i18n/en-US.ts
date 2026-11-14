@@ -1,12 +1,7 @@
 const enUS = {
-  campaign: {
-    recipes: "Recipes",
-    waysToUse: "Ways to use it",
+  siteContent: {
     recipeWhen: "When",
-    recipeNextTime: "Next time:",
     howOften: "How often",
-    worksWith: "Works with:",
-    nextJobs: "What to do next",
     filterRole: "Role",
     filterAll: "All",
     filterEngineering: "Engineering",
@@ -17,46 +12,30 @@ const enUS = {
     filterSales: "Sales",
     filterFounders: "Founders",
     filterFinance: "Finance",
-    filterOften: "How often",
-    filterAny: "Any",
-    filterDaily: "Daily",
-    filterWeekly: "Weekly",
-    filterPerProject: "Per project or launch",
-    filterOccasional: "Occasionally",
     filterEmpty: "No use cases match these filters.",
     filterClear: "Clear filters",
     browseArticles: "Or browse the {{articles}} for templates and how-tos.",
     articlesLink: "articles",
-    whatItReplaces: "What it replaces",
     whatYouUse: "What you use",
     usedFor: "For",
     whereItBreaks: "Where it breaks",
     updatedDate: "Updated {{date}}",
     publishedDate: "Published {{date}}",
-    allArticles: "All articles",
     useCases: "Use cases",
     useCasesDescription: "Pages for recurring jobs, by app",
     useCasesTitle:
       "Recurring work, done with an Agent-Native app and your AI agent",
     useCasesIntro:
       "Pick the job you do again and again, or browse the {{articles}} for templates and how-tos.",
-    nextEyebrow: "Next",
-    frequencyLabel: "How often: {{text}}",
     articles: "Articles",
-    articlesIntro:
-      "Practical answers about recurring work with AI agents. For step-by-step pages on a single job, browse the {{useCases}}.",
-    useCasesLink: "use cases",
+    articlesIntro: "Guides and explainers for recurring work with AI agents.",
     articleCount_one: "{{count}} article",
     articleCount_other: "{{count}} articles",
-    moreOnTopic: "More on {{topic}}",
-    oldWay: "The old way",
-    newWay: "The new way",
-    alternative: "An open-source alternative to {{names}}",
-    usedBefore: "Used before: {{names}}",
-    faqs: "FAQs",
-    faqTitle: "Get answers to common questions",
-    goDeeper: "Go deeper",
     copyPage: "Copy page",
+    enlargeImage: "Enlarge image",
+    closeImage: "Close image",
+    copyPrompt: "Copy prompt",
+    promptHint: "Paste the prompt into the {{app}} prompt box.",
     copyLink: "Copy link",
     copied: "Copied",
     copyFailed: "Could not copy. Please try again.",
@@ -64,11 +43,9 @@ const enUS = {
     readTime_one: "{{count}} min read",
     readTime_other: "{{count}} min read",
     partOf: "Part of:",
-    relatedResources: "Related resources",
     moreArticles: "More {{category}} articles",
     genericMore: "More articles",
     showMore: "Show more articles",
-    allTopics: "All topics",
     topics: {
       clips: "Screen recordings, meetings, and dictation your AI agent can use",
       design: "Interactive prototypes with your AI agent",
@@ -2685,6 +2662,7 @@ const enUS = {
     deploymentEnvironmentVariables: "Deployment: Environment Variables",
     updatingUiInProduction: "Updating UI in Production",
     environmentVariables: "Environment Variables",
+    telemetry: "Telemetry",
     progress: "Progress",
     authentication: "Authentication",
     multiTenancy: "Multi-Tenancy",
@@ -2834,11 +2812,11 @@ type PluralKey =
   `${string}_${"zero" | "one" | "two" | "few" | "many" | "other"}`;
 
 /** Locales supply only the plural categories their language uses. */
-export type PluralLocaleMessages = Omit<typeof enUS, "campaign"> & {
-  campaign: {
-    [K in keyof typeof enUS.campaign as K extends PluralKey
+export type PluralLocaleMessages = Omit<typeof enUS, "siteContent"> & {
+  siteContent: {
+    [K in keyof typeof enUS.siteContent as K extends PluralKey
       ? never
-      : K]: (typeof enUS.campaign)[K];
+      : K]: (typeof enUS.siteContent)[K];
   } & Record<PluralKey, string>;
 };
 

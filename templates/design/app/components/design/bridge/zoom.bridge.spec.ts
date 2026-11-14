@@ -84,6 +84,24 @@ describe("zoom bridge payload", () => {
     expect(posted).toHaveLength(1);
   });
 
+  it("stays quiet while the overview's gesture bridge forwards the frame's wheels", () => {
+    const setOverviewForwarding = (wheelEnabled: boolean) =>
+      window.dispatchEvent(
+        new MessageEvent("message", {
+          data: { type: "embedded-canvas-gesture-mode", wheelEnabled },
+          source: window.parent,
+        }),
+      );
+
+    setOverviewForwarding(true);
+    dispatchWheel({ deltaY: -6, deltaMode: 0 });
+    expect(posted).toHaveLength(0);
+
+    setOverviewForwarding(false);
+    dispatchWheel({ deltaY: -6, deltaMode: 0 });
+    expect(posted).toHaveLength(1);
+  });
+
   it("does not cancel a non-cancelable wheel", () => {
     const event = new WheelEvent("wheel", {
       bubbles: true,

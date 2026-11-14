@@ -1,4 +1,8 @@
-import { sql } from "drizzle-orm";
+import { asc, inArray, sql } from "drizzle-orm";
+
+import { schema } from "../db/index.js";
+
+const ASSOCIATION_READ_PAGE_SIZE = 500;
 
 const readyDatabases = new WeakSet<object>();
 
@@ -25,4 +29,29 @@ export async function sessionRecordingAssociationsReady(
     return true;
   }
   throw new Error("Postgres table existence check returned an invalid value");
+}
+
+/** Every session each recording observed, read in pages. */
+export async function listRecordingSessionAssociations(
+  db: any,
+  recordingIds: readonly string[],
+): Promise<Array<{ recordingId: string; sessionId: string }>> {
+  const association = schema.sessionRecordingSessionAssociations;
+  const result: Array<{ recordingId: string; sessionId: string }> = [];
+  let offset = 0;
+  while (true) {
+    const page = await db
+      .select({
+        recordingId: association.recordingId,
+        sessionId: association.sessionId,
+      })
+      .from(association)
+      .where(inArray(association.recordingId, [...recordingIds]))
+      .orderBy(asc(association.recordingId), asc(association.sessionId))
+      .limit(ASSOCIATION_READ_PAGE_SIZE)
+      .offset(offset);
+    result.push(...page);
+    if (page.length < ASSOCIATION_READ_PAGE_SIZE) return result;
+    offset += page.length;
+  }
 }

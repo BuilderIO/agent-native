@@ -65,8 +65,7 @@ export default {
     recordingStarted: "Gravação iniciada",
     appBandHeading: "{app} · {count} sessões",
     journeyTitleSummary: "{app} · {from} a {to} · {count} sessões{partial}",
-    journeyTitleAppBandsSummary:
-      "{from} a {to} · coortes separadas por aplicativo{partial}",
+    journeyTitleAppBandsSummary: "{from} a {to} · coortes separadas{partial}",
     sessionCount: "{count} sessões",
     otherPaths: "Outros caminhos",
     otherBranchesShown: "Exibindo {shown} de {total} ramificações",
@@ -238,6 +237,23 @@ export default {
     expandSidebar: "Expandir barra lateral",
     collapseSidebar: "Recolher barra lateral",
   },
+  gettingStarted: {
+    title: "Primeiros passos",
+    progress: "{{completeCount}} de {{totalCount}} concluídos",
+    collapse: "Recolher",
+    expand: "Expandir",
+    completed: "Concluído",
+    loadError: "Não foi possível carregar sua lista",
+    retry: "Tentar novamente",
+    steps: {
+      createDesign: "Crie seu primeiro design",
+      addBrand: "Adicione sua marca",
+      useRealData: "Use seus dados reais",
+      shareFeedback: "Compartilhe para receber feedback",
+      inviteTeammate: "Convide um colega",
+      saveTemplate: "Salve um design como modelo",
+    },
+  },
   settings: {
     agentTitle: "Gerenciar agente",
     agentDescription:
@@ -304,6 +320,10 @@ export default {
       chooseFrame: "Escolher frame",
       inspect: "Inspecionar",
       exportSvg: "Exportar SVG",
+      moreActions: "Mais ações",
+      askAboutFile: "Perguntar sobre este arquivo",
+      askAboutFilePrompt:
+        "Pergunte sobre este arquivo de design vinculado. {{url}}",
       actionsPrefill: "Revise e envie",
       retry: "Tentar novamente",
       currentDesign: "o Design atual",
@@ -323,6 +343,8 @@ export default {
   common: {
     loading: "Carregando...",
     genericError: "Algo deu errado",
+    linkedSourceSizeLimit:
+      "Esta edição do componente vinculado excede o limite de tamanho das fontes.",
   },
   editPanel: {
     colorInputLabel: "cor",
@@ -420,6 +442,7 @@ export default {
       font: "Fonte",
       baseSize: "Tamanho básico",
       size: "Tamanho",
+      fontSizes: "Escala tipográfica",
       weight: "Peso",
       color: "Cor",
       align: "Alinhar",
@@ -452,6 +475,7 @@ export default {
       image: "Imagem",
       style: "Estilo",
       rotation: "Rotação",
+      length: "Comprimento",
       flipHorizontal: "Virar horizontalmente",
       flipVertical: "Virar verticalmente",
       shadow: "Sombra",
@@ -468,7 +492,6 @@ export default {
       showGrid: "Mostrar grade",
       hideGrid: "Ocultar grade",
       reorderLayer: "Reordenar camada",
-      stylesComingSoon: "Estilos — Em breve",
       linkSides: "Vincular lados",
       unlinkSides: "Desvincular lados",
       allSides: "Tudo",
@@ -871,6 +894,10 @@ export default {
       bottom: "B",
       left: "eu",
     },
+    fontPicker: {
+      catalogUnavailable:
+        "Não foi possível carregar a biblioteca completa de fontes.",
+    },
     fontFamilies: {
       inherit: "Herdar",
       sansSerif: "Sem serifa",
@@ -1021,6 +1048,9 @@ export default {
     },
   },
   designEditor: {
+    sourceLoadFailed: "Não foi possível carregar esta tela.",
+    selectionPublishFailed:
+      "O agente pode não ver sua seleção mais recente. Selecione-a novamente.",
     liveCollaboration: {
       title: "Colaboração ao vivo",
       description:
@@ -1202,6 +1232,14 @@ export default {
         animation: "Animação",
         distance: "Distância",
         amount: "Quantidade",
+        axis: "Eixo",
+        axisBoth: "Ambos",
+        axisX: "X",
+        axisY: "Y",
+        startWidth: "Largura inicial",
+        endWidth: "Largura final",
+        startHeight: "Altura inicial",
+        endHeight: "Altura final",
         delay: "Atraso",
         easing: "Aceleração",
         editCurve: "Editar curva de aceleração",
@@ -1389,7 +1427,7 @@ export default {
       sourceWriteUnavailable:
         "No momento, o código de movimento só pode ser gravado em designs HTML inline.",
       unresolvedStylesheets:
-        "Resolva as folhas de estilo externas antes de editar ou adicionar Motion.",
+        "Resolva os estilos externos ou gerados em tempo de execução antes de editar ou adicionar Motion.",
       sourceConflict:
         "O código do Motion mudou enquanto esta linha do tempo tinha alterações não salvas. Recarregue o código para descartá-las e usar a fonte atual.",
       reloadFromSource: "Recarregar código",
@@ -1604,31 +1642,18 @@ export default {
       editColor: "Editar a cor de {{name}}",
     },
     import: {
-      title: "Importar",
       description:
         "Traga HTML da área de transferência do Figma ou HTML independente como telas do Design.",
-      figmaUrlTitle: "URL de frame do Figma",
-      figmaUrlDescription: "Importe um frame ou arquivo de um link do Figma.",
       figmaUrlLabel: "URL de frame ou arquivo do Figma",
       figmaUrlPlaceholder: "https://www.figma.com/design/…",
-      figmaConnectionChecking: "Verificando conexão com o Figma…",
-      figmaConnected: "Figma conectado",
-      figmaConnectedWithSuffix: "Figma conectado · ••••{{suffix}}",
       figmaTokenLabel: "Token de acesso do Figma",
       figmaTokenDocs: "Obter token",
       figmaTokenPlaceholder: "Cole seu token de acesso pessoal do Figma",
-      figmaTokenDescription:
-        "Salvo com segurança para importações e chat. O token nunca é adicionado ao chat.",
-      importFigmaUrl: "Importar do Figma",
-      saveKeyAndImport: "Salvar chave e importar",
       figmaUrlSuccess: "Importado do Figma.",
       figmaImageFallbackWarning:
         "Fallbacks de imagem: {{count}}. A aparência é preservada, mas essas camadas não são totalmente editáveis.",
       figmaApproximationWarning:
         "Camadas aproximadas: {{count}}. HTML/CSS não consegue representar exatamente todas as propriedades do Figma.",
-      figmaPasteTitle: "Colar do Figma",
-      figmaPasteDescription:
-        "Copie um frame ou camada no Figma e cole na tela do Design. O Design importa o HTML visível da área de transferência.",
       figmaPasteTarget: "Cole na tela",
       figmaPasteApiKeyHint:
         "Conecte seu token de acesso do Figma para importações exatas de nós.",
@@ -1637,12 +1662,11 @@ export default {
       figmaPasteMatchGuidance:
         "Não foi possível corresponder a nós específicos do Figma. Cole um link do frame para uma importação exata.",
       figmaPasteUnreadable:
-        "Essa área de transferência não tem camadas do Figma copiadas. Selecione um frame no Figma, copie com Cmd+C e cole novamente, ou importe um link do Figma pelo painel Importar.",
+        "Essa área de transferência não tem camadas do Figma copiadas. Selecione um frame no Figma, copie com Cmd+C e cole novamente, ou cole um link para o frame no chat.",
       figmaPasteRestLabel: "Importado via API do Figma",
       figmaPasteHtmlLabel:
         "Importado da pré-visualização da área de transferência",
-      figmaPasteLocalKiwiLabel:
-        "Importado sem token — apenas geometria e texto",
+      figmaPasteLocalKiwiLabel: "Importado da área de transferência do Figma",
       figmaPasteImagesNeedToken:
         "{{count}} imagem{{plural}} precisa{{plural}} de acesso ao Figma para carregar.",
       figmaPasteImagesDontShowAgain: "Não mostrar novamente",
@@ -1674,75 +1698,30 @@ export default {
         "{{count}} image{{plural}} filled in from the .fig file.",
       figmaHydrationInvalidFig: "Choose a .fig file exported from Figma.",
       figmaHydrationFigError: "Couldn't read images from that .fig file.",
-      figUploadTitle: "Enviar .fig",
       figUploadDescription:
         "Experimental: o formato .fig do Figma é proprietário e pode mudar. As camadas compatíveis viram telas editáveis; alguns recursos podem ser diferentes. Máximo de {{max}} MB.",
-      chooseFigFile: "Escolher arquivo .fig",
       figUploadUploading: "Enviando {{progress}}%",
       figUploadProcessing: "Convertendo…",
-      figImportWarningTitle: "Importação de .fig grande",
-      figImportWarningDescription:
-        "Este arquivo contém {{frames}} quadros e {{nodes}} camadas. Importar tudo pode deixar o editor lento. Escolha as páginas necessárias.",
-      figImportFrameCount: "{{selected}} de {{total}} quadros selecionados",
-      figImportSelectAll: "Selecionar tudo",
-      figImportClearAll: "Limpar tudo",
-      figImportCancel: "Cancelar",
-      figImportSelected: "Importar {{count}} selecionados",
-      figImportAll: "Importar tudo",
       figImportAnalyzing: "Analisando…",
       figImportSaving: "Salvando {{saved}} de {{total}} quadros",
-      figImportFrameLimit:
-        "Escolha páginas com {{max}} quadros ou menos no total.",
       figImportFramesSkippedWarning:
         "{{count}} quadros complexos demais para importar foram ignorados: {{names}}",
-      figUploadLimits: "Até {{size}} GB · {{frames}} quadros por importação",
-      figUploadDescriptionShort:
-        "Importação local — sem cota da API do Figma. As imagens incorporadas compatíveis são incluídas.",
       figUploadImagesSkippedWarning:
         "Skipped embedded images ({{count}}) because browser uploads have a per-image limit.",
-      figmaPasteBodyUnlimited:
-        "Works without a Figma token — geometry, layout, and text import immediately.",
-      figmaPasteBodyImages:
-        "Image fills may be missing without a token. Upload the .fig file to include embedded images.",
-      quotaCooldownTitle: "O Design pausou esta importação",
-      quotaCooldownBody:
-        "O Design está limitando suas próprias solicitações ao Figma após atingir um limite de cota. A redefinição é automática.",
-      rateLimitTitle: "Figma paused this import",
-      rateLimitLowSeat:
-        "Your seat type (Viewer/Collab) has a limited Figma API quota for file imports — up to 6 requests per month per the official Figma docs.",
-      rateLimitGeneric:
-        "Figma rate-limited this import. The quota resets automatically.",
-      rateLimitRetryIn: "Try again in {{time}}.",
-      rateLimitAlternatives: "No-quota alternatives:",
-      rateLimitUsePaste: "Paste from Figma — unlimited",
-      rateLimitUseFig: "Upload .fig — unlimited",
-      rateLimitUpgrade: "View Figma plan options →",
-      htmlTitle: "Importar HTML",
       htmlDescription:
         "Cole ou envie HTML independente. O Design salva como uma nova tela sem injetar nesta interface.",
-      htmlPlaceholder: "<main>Cole HTML independente aqui...</main>",
-      importHtml: "Importar HTML",
-      chooseHtmlFile: "Escolher arquivo HTML",
       allSupportedFiles: "Todos os arquivos compatíveis",
-      githubTitle: "GitHub",
       githubDescription:
         "Em breve: importe telas e componentes diretamente de um repositório.",
-      localTitle: "App local",
       localDescription:
         "Conecte qualquer app local em execução com /visual-edit.",
-      visualEditGuidance:
-        "Instale a skill /visual-edit, inicie qualquer app local e execute o comando de ponte nesse repo para que seu agente adicione telas por URL.",
-      comingSoon: "Em breve",
       warningsToast: "Importação concluída com avisos",
       figmaSuccess: "Colagem do Figma importada",
       htmlSuccess: "HTML importado",
       uploadSuccess: "Arquivo importado",
-      lastImport: "Última importação",
       errors: {
         figmaTokenMustBeToken:
           "Cole um token de acesso do Figma, não um link de arquivo do Figma.",
-        figmaUrlRequired: "Cole uma URL de frame ou arquivo do Figma.",
-        invalidFigmaUrl: "Insira uma URL válida do figma.com.",
         figmaImportFailed: "Não foi possível importar do Figma",
         notHtml: "Cole ou escolha HTML válido para importar.",
         importFailed: "Falha ao importar",
@@ -1751,9 +1730,11 @@ export default {
         invalidFigFile: "Escolha um arquivo que termine em .fig.",
         unsupportedFileType: "Escolha um arquivo .fig, .html ou .htm.",
         importBusy:
-          "Outra importação está em andamento. Conclua ou cancele-a primeiro.",
+          "Outra importação está em andamento. Tente novamente quando ela terminar.",
         figFileTooLarge:
-          "Esse .fig é grande demais — os envios são limitados a {{max}} MB. No Figma, copie apenas o frame desejado para um novo arquivo e exporte esse arquivo como .fig, ou use Colar do Figma.",
+          "Este arquivo é grande demais para importar aqui. Cole um link para a página ou o frame do Figma.",
+        figFileUnreadable:
+          "Não é possível ler este arquivo como um arquivo .fig. Salve uma nova cópia local no Figma e importe-a.",
       },
     },
     generationMayHaveStopped:
@@ -1779,7 +1760,6 @@ export default {
     signInToRequestAccessTitle: "Entre para solicitar acesso",
     signInToRequestAccessDescription:
       "Entre ou crie uma conta para solicitar acesso ao proprietário.",
-    signInOrSignUp: "Entrar ou criar conta",
     accessCheckFailed: "Não foi possível verificar o acesso a este design.",
     retryAccessCheck: "Tentar novamente",
     saveAsTemplate: "Salvar como modelo…",
@@ -1813,9 +1793,12 @@ export default {
         "Aplique ou descarte suas edições visuais pendentes antes de duplicar.",
       allDesigns: "Todos os designs",
       rename: "Renomear",
+      builtFrom: "Criado a partir de {{title}}",
+      builtFromPage: "Criado a partir de uma página do Content",
       duplicate: "Duplicar",
       versionHistory: "Histórico de versões",
       import: "Importar…",
+      connectLocalApp: "Conectar app local",
       delete: "Excluir",
       deleteError: "Não foi possível excluir este design",
     },
@@ -1857,7 +1840,7 @@ export default {
       ellipse: "Elipse",
       polygon: "Polígono",
       star: "Estrela",
-      imageVideo: "Imagem/vídeo...",
+      imageVideo: "Imagem/vídeo…",
       text: "Text",
       pen: "Pen",
       hand: "Hand",
@@ -1878,8 +1861,12 @@ export default {
         small: "Deslocamento pequeno",
         big: "Deslocamento grande",
         unit: "px",
-        description:
-          "As setas movem pela distância pequena e Shift seta pela grande. Dentro de um frame com layout automático, as setas reordenam a camada.",
+        close: "Fechar distância de deslocamento",
+        done: "Concluído",
+        smallDescription:
+          "Define quantos pixels um objeto se move ao usar as setas.",
+        bigDescription:
+          "Define quantos pixels um objeto se move ao usar Shift + setas.",
       },
       keys: {
         or: "ou",
@@ -1917,6 +1904,7 @@ export default {
         arrange: "Organizar",
         components: "Componentes",
         layout: "Disposição",
+        code: "Código",
       },
       commands: {
         showShortcuts: "Atalhos de teclado",
@@ -1933,7 +1921,7 @@ export default {
         drawTool: "Desenhar",
         showLayers: "Camadas",
         showAssets: "Recursos",
-        toggleUi: "View",
+        toggleUi: "Mostrar ou ocultar a interface",
         toggleMinimalUi: "Interface mínima",
         toggleComments: "Fixar comentário",
         zoomIn: "Aumentar zoom",
@@ -1941,6 +1929,8 @@ export default {
         zoomReset: "Zoom 100%",
         zoomFit: "Ajustar à tela",
         zoomSelection: "Zoom: Seleção",
+        bold: "Negrito",
+        italic: "Itálico",
         underline: "Sublinhado",
         strikethrough: "Tachado",
         rectangle: "Rectangle",
@@ -1955,7 +1945,8 @@ export default {
         previousSibling: "← Seleção",
         nextScreen: "Telas →",
         previousScreen: "← Telas",
-        toggleLayoutGrids: "Grade de layout: View",
+        toggleLayoutGrids: "Mostrar ou ocultar as grades de layout",
+        toggleRulers: "Mostrar ou ocultar as réguas",
         nudge: "Move",
         nudgeLarge: "Deslocamento grande",
         copy: "Copiar",
@@ -1988,7 +1979,15 @@ export default {
         ungroup: "Desagrupar",
         frameSelection: "Enquadrar seleção",
         autoLayout: "Layout automático",
-        imageVideo: "Imagem/vídeo...",
+        removeAutoLayout: "Remover auto layout",
+        toggleHidden: "Mostrar ou ocultar a seleção",
+        toggleLocked: "Bloquear ou desbloquear a seleção",
+        alignHorizontalCenters: "Alinhar centros horizontais",
+        alignVerticalCenters: "Alinhar centros verticais",
+        distributeHorizontal: "Distribuir espaçamento horizontal",
+        distributeVertical: "Distribuir espaçamento vertical",
+        setOpacity: "Definir opacidade",
+        imageVideo: "Imagem/vídeo…",
       },
     },
     undo: "Desfazer",
@@ -2017,6 +2016,16 @@ export default {
     pinComment: "Fixar comentário",
     export: "Exportar",
     downloadHtml: "Baixar HTML",
+    exportHubspotHtml: "Exportar HTML do HubSpot",
+    hubspotConversion: {
+      title: "Converter para HubSpot?",
+      description:
+        "{{name}} precisa de ajustes para e-mail. O quadro original será preservado.",
+      convert: "Converter com o agente",
+      cancel: "Cancelar",
+      prompt:
+        "Crie uma versão de e-mail do HubSpot deste quadro, mantendo o conteúdo e a identidade visual e preservando o original. Valide a exportação HTML e abra o novo quadro.",
+    },
     downloadPng: "Baixar PNG",
     downloadSvg: "Baixar SVG",
     downloadFigmaSvg: "Baixar para o Figma (SVG)",
@@ -2159,6 +2168,19 @@ export default {
       added: "Tela adicionada",
       addFailed: "Não foi possível adicionar a tela",
     },
+    localhostConsent: {
+      approvedTitle: "Aprovado — execute a edição novamente",
+      approvedDescription:
+        "A gravação de arquivos está permitida por 8 horas. A edição que pediu acesso não foi salva.",
+      retryInChat: "Executar novamente no chat",
+      retryPrompt:
+        "A gravação de arquivos foi aprovada para {{rootPath}}. Execute novamente a edição que precisava dela.",
+      unavailableTitle: "Esta solicitação de gravação não está mais pendente",
+      unavailableDescription: "Execute a edição novamente para pedir acesso.",
+      close: "Fechar",
+      prepareSignInError:
+        "Não foi possível salvar esta solicitação antes de entrar. Tente novamente.",
+    },
     nodeRewrite: {
       composerTitle: "Pergunte ou altere a seleção",
       send: "Enviar",
@@ -2208,9 +2230,24 @@ export default {
         "Há alterações de outro colaborador aguardando aplicação. Aplique ou limpe-as antes de enviar novas alterações.",
       codingHandoffCopied: "Handoff de código copiado",
       clipboardBlocked: "Área de transferência bloqueada",
+      pasteMediaTooMany_one:
+        "{{count}} arquivo não foi colado. Você pode colar até {{limit}} arquivos de uma vez.",
+      pasteMediaTooMany_many:
+        "{{count}} arquivos não foram colados. Você pode colar até {{limit}} arquivos de uma vez.",
+      pasteMediaTooMany_other:
+        "{{count}} arquivos não foram colados. Você pode colar até {{limit}} arquivos de uma vez.",
+      pasteMediaTooLarge_one:
+        "{{count}} arquivo não foi colado porque tem mais de {{limitMb}} MB.",
+      pasteMediaTooLarge_many:
+        "{{count}} arquivos não foram colados porque têm mais de {{limitMb}} MB.",
+      pasteMediaTooLarge_other:
+        "{{count}} arquivos não foram colados porque têm mais de {{limitMb}} MB.",
       htmlCreateError: "Não foi possível criar o download HTML",
       htmlDownloaded: "HTML baixado",
       htmlExportError: "Não foi possível exportar HTML",
+      hubspotHtmlExporting: "Preparando HTML do HubSpot…",
+      hubspotHtmlDownloaded: "HTML do HubSpot baixado",
+      hubspotHtmlExportError: "Não foi possível exportar o HTML do HubSpot",
       zipCreateError: "Não foi possível criar o download ZIP",
       zipDownloaded: "ZIP baixado",
       zipExportError: "Não foi possível exportar ZIP",
@@ -2291,6 +2328,7 @@ export default {
         "Esta tela mudou em outro lugar. Sua última edição não foi salva.",
       versionHistoryUnavailable:
         "O histórico de versões não está disponível para este design. Sua edição foi salva mesmo assim.",
+      removeAutoLayoutFailed: "Não foi possível remover o auto layout",
       autoLayoutScreensUnsupported:
         "Adicionar layout automático não se aplica a telas",
       booleanSubtractUnsupported:
@@ -2308,8 +2346,25 @@ export default {
         "A edição vetorial não está disponível para esta forma ou transformação.",
       imageUploading: "Enviando imagem…",
       pasteReplaceFailed: "Não foi possível substituir essa camada",
+      pasteTargetUnmeasured:
+        "Não foi possível medir a camada selecionada para colar nela",
+      pasteClipboardUnreadable:
+        "Permita o acesso à área de transferência para colar aqui",
+      pasteClipboardUntrusted:
+        "Não é possível colar camadas copiadas do Design em outro site",
       swapFillStrokeLayeredFill:
         "Vários preenchimentos ou preenchimentos de imagem ainda não podem virar contorno",
+      alignNeedsTwoLayers: "Selecione duas ou mais camadas para alinhá-las",
+      alignNeedsTwoScreens: "Selecione duas ou mais telas para alinhá-las",
+      layoutUnmeasurable:
+        "Não foi possível medir uma camada selecionada. Verifique se ela está visível no canvas e tente novamente.",
+      layoutAutoLayoutChildren:
+        "O auto layout posiciona estas camadas. Remova o auto layout do frame delas para movê-las livremente.",
+      layoutUnsupportedPosition:
+        "Camadas fixas (sticky) e formas dentro de um SVG não podem ser movidas assim",
+      layoutMovesNestedLayers:
+        "Mover esta camada deslocaria as camadas posicionadas dentro dela",
+      layoutMoveFailed: "Não foi possível mover as camadas selecionadas",
     },
     commenterRoleLabel: "Comentarista",
     commenterRoleDescription: "Pode ver e adicionar comentários de revisão",
@@ -2333,6 +2388,7 @@ export default {
     order: "Ordem",
     createComponent: "Criar componente",
     addAutoLayout: "Adicionar auto layout",
+    removeAutoLayout: "Remover auto layout",
     copyAs: "Copiar/Colar como",
     copyProps: "Copiar propriedades",
     pasteProps: "Colar propriedades",
@@ -2353,13 +2409,15 @@ export default {
     allScreens: "Todas as telas",
     thumbnail: "Miniatura",
     addScreen: "Adicionar tela",
-    searchPlaceholder: "Buscar camadas...",
+    searchPlaceholder: "Buscar camadas",
     empty: "Nenhuma camada",
     noMatches: "Nenhuma camada corresponde",
     designLayers: "Camadas de design",
     codeLayers: "Camadas de código",
     elementLayers: "Camadas de elementos",
     collapse: "Recolher camada",
+    collapseAll: "Recolher todas as camadas",
+    clearSearch: "Limpar pesquisa",
     expand: "Expandir camada",
     lock: "Bloquear camada",
     unlock: "Desbloquear camada",
@@ -2551,6 +2609,9 @@ export default {
     changesDiscarded:
       "Algumas alterações não puderam ser salvas porque o arquivo não existe mais e foram descartadas.",
     offline: "Off-line",
+    unsaved: "Não salvo",
+    saveRetrying:
+      "Não foi possível salvar suas alterações. Tentando novamente automaticamente.",
     saving: "Salvando...",
     clearedAllAnnotations: "Todas as anotações foram limpas",
     annotationsDiscardedOnViewChange:
@@ -2606,9 +2667,9 @@ export default {
   },
   homeContext: {
     websiteReference: "Adicionar site",
+    websiteReferenceMenu: "Adicionar site…",
     websiteUrlLabel: "URL do site",
     websiteUrl: "Cole a URL de um site",
-    figmaUrlLabel: "Link do Figma",
     invalidFigmaUrl: "Insira uma URL válida de quadro ou arquivo do figma.com.",
     tooMany: "Escolha até 20 referências.",
     invalidWebsiteUrl: "Insira uma URL HTTP ou HTTPS válida.",
@@ -2616,24 +2677,43 @@ export default {
     noSystems:
       "Você ainda não tem um sistema de design. Crie um a partir de um site, arquivos ou Figma.",
     searchSystems: "Buscar sistemas de design…",
-    searchFrames: "Buscar quadros do Figma…",
     searchDesigns: "Buscar designs…",
     searchPresentations: "Buscar apresentações…",
+    searchPages: "Buscar páginas…",
     searchDesign: "Buscar design…",
     useDesignSystem: "Usar um sistema de design",
     notReady:
       "A solicitação ainda não está pronta. Confira o contexto selecionado e a conexão e tente novamente.",
     search: "Buscar contexto…",
-    figmaUrl: "Cole um link do Figma",
-    browse: "Explorar quadros",
     loadFailed: "Não foi possível carregar esta referência.",
     retry: "Tentar novamente",
     empty: "Nenhuma referência correspondente.",
     none: "Nenhum",
-    design: "Design",
+    design: "Referências de design",
     slides: "Slides",
     referenceDesign: "Usar um design como referência",
-    figmaReference: "Adicionar Figma",
+    contentPage: "Página do Content",
+    connectFigma: "Conectar Figma",
+    figmaReference: "Design do Figma…",
+    figmaDialogTitle: "Adicionar design do Figma",
+    figmaDropTitle: "Solte um arquivo .fig",
+    figmaChooseFile: "Escolher arquivo",
+    figmaPasteHint: "Você também pode colar um frame copiado direto no prompt.",
+    figmaAddToPrompt: "Adicionar ao prompt",
+    figmaLinkNeedsConnection:
+      "Links precisam de uma conta do Figma conectada. Solte um arquivo .fig ou cole um frame copiado.",
+    figmaReferenceMore: "{{name}} e mais {{count}}",
+    figmaReferenceEmpty:
+      "Nenhum frame chegou. Copie um frame no Figma e tente novamente.",
+    figmaSelection: "Seleção do Figma",
+    figmaFileTooLarge:
+      "Este arquivo é grande demais para ser lido aqui. Cole um link para a página ou o frame dele.",
+    figmaSearch: "Pesquisar páginas e frames",
+    figmaSelectedCount: "{{count}} selecionados",
+    figmaShowFrames: "Mostrar frames em {{name}}",
+    figmaLinkNotFrame: "Use um link para uma página ou frame do Figma.",
+    figmaPageFrameCap:
+      "Adiciona os primeiros {{limit}} frames. Marque frames para escolher quais.",
     referenceDeck: "Usar uma apresentação como referência",
     quickSaas: "Criar uma página de SaaS",
     quickDashboard: "Criar um painel",
@@ -2643,12 +2723,162 @@ export default {
   },
   home: {
     suggestedPrompts: "Prompts sugeridos",
+    suggestions: {
+      product: {
+        analyticsDashboard:
+          "Crie um painel de análise de produto com indicadores, conversão e atividade, em um tom seguro e orientado por dados.",
+        roadmapWorkspace:
+          "Desenhe um espaço de roadmap com linha do tempo trimestral, prioridades e feedback de clientes, em um tom calmo e colaborativo.",
+        onboardingFlow:
+          "Crie a integração inicial de um app de orçamento com etapas, metas e conta, em um tom tranquilizador.",
+        featureComparison:
+          "Crie uma comparação SaaS com cartões de planos, matriz de recursos e FAQ, em um tom direto para conversão.",
+        feedbackPortal:
+          "Desenhe um portal de feedback com quadro de pedidos, votos e filtros de status, em um tom aberto e comunitário.",
+        releaseNotes:
+          "Crie uma central de novidades com versões, destaques e notas de migração, em um tom editorial conciso.",
+        projectWorkspace:
+          "Desenhe um espaço de produto com colunas kanban, responsáveis e marcos, em um tom produtivo.",
+        launchWaitlist:
+          "Crie uma lista de espera de lançamento com destaque, provas e cadastro, em um tom otimista.",
+      },
+      design: {
+        portfolioHome:
+          "Desenhe um portfólio com apresentação breve, projetos, perfil e contato, em um tom editorial refinado.",
+        designSystem:
+          "Crie uma referência de sistema visual com tokens, componentes e notas de uso, em um tom documental preciso.",
+        bankingApp:
+          "Crie a tela inicial de um app bancário móvel com saldo, transações e metas, em um tom calmo e confiável.",
+        travelBooking:
+          "Desenhe uma busca de viagens com filtros, roteiros e mapa, em um tom leve e aventureiro.",
+        coffeeShop:
+          "Crie uma loja de café com blends, origem e assinatura, em um tom acolhedor e tátil.",
+        musicFestival:
+          "Desenhe uma página de festival com atrações, horários e mapa, em um tom energético de pôster.",
+        accessibilityAudit:
+          "Crie um painel de acessibilidade com nota, problemas e filtros, em um tom claro e de alto contraste.",
+        artBook:
+          "Desenhe uma página editorial de arte com obras imersivas, citação e capítulos, em um tom de galeria discreto.",
+      },
+      developer: {
+        apiDocs:
+          "Crie um portal de documentação de API com navegação, exemplos de código e construtor de requisições, em um tom técnico preciso.",
+        deploymentDashboard:
+          "Desenhe um painel de deploy com ambientes, logs ao vivo e reversão, em um tom operacional tranquilo.",
+        componentPlayground:
+          "Crie um playground de componentes com controles de props, estados e código, em um tom limpo para desenvolvimento.",
+        databaseConsole:
+          "Desenhe um console de banco de dados com editor de consultas, esquema e resultados, em um tom técnico sóbrio.",
+        issueTriage:
+          "Crie um quadro de triagem com filtros, prioridades e responsáveis, em um tom claro e focado.",
+        authSettings:
+          "Desenhe configurações de autenticação com provedores, URL de retorno e permissões, em um tom seguro.",
+        workflowBuilder:
+          "Crie um editor de fluxo CI com etapas, histórico e seleção de branches, em um tom técnico preciso.",
+        developerPortfolio:
+          "Desenhe um portfólio de desenvolvedor com projetos, ferramentas e linha do tempo, em um tom escuro e focado.",
+      },
+      marketing: {
+        campaignLanding:
+          "Desenhe uma página de campanha com destaque, benefícios, provas e cadastro, em um tom energético.",
+        emailBuilder:
+          "Crie um editor de e-mail com assunto, blocos de conteúdo e público, em um tom claro e amigável.",
+        socialCalendar:
+          "Desenhe um calendário social com canais, publicações e métricas, em um tom editorial vibrante.",
+        brandCampaign:
+          "Crie uma campanha de marca com chamada, direção de arte e galeria, em um tom seguro e coerente.",
+        webinarRegistration:
+          "Desenhe uma inscrição para webinar com palestrantes, agenda e formulário, em um tom confiável e acolhedor.",
+        seoBrief:
+          "Crie um briefing de SEO com palavras-chave, estrutura e concorrentes, em um tom de pesquisa focado.",
+        launchMetrics:
+          "Desenhe métricas de lançamento com canais, conversão e campanhas, em um tom analítico.",
+        newsletterSignup:
+          "Crie uma página de newsletter com prévia editorial, temas e e-mail, em um tom caloroso e conciso.",
+      },
+      sales: {
+        leadWorkspace:
+          "Crie um espaço de vendas com contatos, histórico e qualificação, em um tom profissional e decisivo.",
+        accountBrief:
+          "Desenhe um resumo de conta com empresa, envolvidos e sinais recentes, em um tom executivo claro.",
+        productDemo:
+          "Crie uma demo de produto com casos de uso, capturas e provas de clientes, em um tom persuasivo e confiante.",
+        proposalBuilder:
+          "Desenhe uma proposta com escopo, preços e cronograma, em um tom consultivo refinado.",
+        pipelineDashboard:
+          "Crie um painel de pipeline com etapas, valores e previsão, em um tom de negócios conciso.",
+        meetingBooking:
+          "Desenhe uma reserva de reunião com horários, pauta e formulário, em um tom profissional acolhedor.",
+        customerStory:
+          "Crie uma história de cliente com desafio, resultados, citação e métricas, em um tom editorial baseado em evidências.",
+        accountHandoff:
+          "Desenhe uma passagem de conta com metas, contatos e tarefas abertas, em um tom calmo e colaborativo.",
+      },
+      ops: {
+        inventoryDashboard:
+          "Crie um painel de estoque com níveis, alertas de reposição e filtros, em um tom operacional prático.",
+        staffScheduler:
+          "Desenhe uma escala de equipe com turnos, disponibilidade e folgas, fácil de consultar.",
+        vendorPortal:
+          "Crie um portal de fornecedores com checklist, documentos e contatos, em um tom claro e tranquilizador.",
+        incidentResponse:
+          "Desenhe uma tela de incidentes com gravidade, linha do tempo e responsável, em um tom calmo e focado.",
+        expenseApprovals:
+          "Crie aprovações de despesas com recibos, políticas e totais, em um tom neutro e eficiente.",
+        warehouseReceiving:
+          "Desenhe o recebimento de estoque com envio, leitura e itens, em um tom muito claro.",
+        automationControl:
+          "Crie um painel de fluxos com automações, histórico e alertas de falha, em um tom operacional seguro.",
+        helpdeskQueue:
+          "Desenhe uma fila de suporte interno com pedidos, status e responsáveis, em um tom claro e prestativo.",
+      },
+      individual: {
+        personalPortfolio:
+          "Desenhe um portfólio pessoal com bio, trabalhos, habilidades e contato, em um tom editorial acolhedor.",
+        mealPlanner:
+          "Crie refeições semanais com receitas, lista de compras e filtros alimentares, em um tom prático e amigável.",
+        homeBudget:
+          "Desenhe um orçamento doméstico com resumo mensal, categorias e contas, em um tom calmo e encorajador.",
+        tripPlanner:
+          "Crie um planejador de viagem com linha do tempo, mapa e reservas, em um tom leve e aventureiro.",
+        readingJournal:
+          "Desenhe um diário de leitura com capas, progresso e avaliações, em um tom literário tranquilo.",
+        invoiceTracker:
+          "Crie um controle de faturas freelancer com clientes, pagamentos e prazos, em um tom profissional organizado.",
+        habitTracker:
+          "Desenhe um app de hábitos com registros diários, sequências e progresso, em um tom gentil e motivador.",
+        neighborhoodEvents:
+          "Crie uma página de eventos do bairro com cartões, filtros locais e RSVP, em um tom acolhedor e comunitário.",
+      },
+      general: {
+        saasHomepage:
+          "Crie uma página inicial SaaS com destaque, recursos e provas de clientes, em um tom claro e acolhedor.",
+        analyticsDashboard:
+          "Desenhe um painel analítico com indicadores, tendências e atividade, em um tom calmo orientado por dados.",
+        habitApp:
+          "Crie a tela inicial de um app de hábitos com metas, progresso e lembretes, em um tom amigável e encorajador.",
+        onlineStore:
+          "Desenhe uma loja virtual com produtos, categorias e avaliações, em um tom acolhedor e refinado.",
+        creativePortfolio:
+          "Crie um portfólio criativo com apresentação, projetos e perfil, em um tom editorial expressivo.",
+        bookingPage:
+          "Desenhe uma página de reservas com calendário, serviços e avaliações, em um tom claro e confiável.",
+        adminDashboard:
+          "Crie um painel administrativo com navegação, resumos e atividade recente, em um tom prático e discreto.",
+        communityEvent:
+          "Desenhe uma página de evento comunitário com agenda, local e palestrantes, em um tom festivo e acolhedor.",
+      },
+    },
+    nextStepBar: {
+      ariaLabel: "Próximas etapas",
+      refineWithPrompt: "Aprimorar com um prompt",
+      export: "Exportar",
+      shareLink: "Compartilhar link",
+      dismiss: "Dispensar",
+    },
     import: "Importar",
-    importOptions: "Opções de importação",
-    figmaLink: "Link do Figma",
     importFromFigma: "Importar do Figma",
     figmaFile: "Arquivo do Figma (.fig)",
-    figmaFileMaxSize: "Até {{max}} GB",
     openImport: "Abrir importação",
     importSelectedFile: "Importar arquivo selecionado",
     starterSaasPrompt:
@@ -2721,6 +2951,89 @@ export default {
     paginationPrevious: "Anterior",
     paginationNext: "Próximo",
     paginationPage: "Página {{page}} de {{totalPages}}",
+
+    suggestionLabels: {
+      product: {
+        analyticsDashboard: "painel de análise de produto",
+        roadmapWorkspace: "espaço de roadmap",
+        onboardingFlow: "onboarding de app de orçamento",
+        featureComparison: "comparação SaaS",
+        feedbackPortal: "portal de feedback",
+        releaseNotes: "central de novidades",
+        projectWorkspace: "espaço de produto",
+        launchWaitlist: "lista de espera",
+      },
+      design: {
+        portfolioHome: "portfólio de designer",
+        designSystem: "referência de sistema visual",
+        bankingApp: "app de banco móvel",
+        travelBooking: "busca de viagens",
+        coffeeShop: "loja de café",
+        musicFestival: "página de festival",
+        accessibilityAudit: "painel de acessibilidade",
+        artBook: "página editorial de arte",
+      },
+      developer: {
+        apiDocs: "portal de documentação da API",
+        deploymentDashboard: "painel de deploy",
+        componentPlayground: "playground de componentes",
+        databaseConsole: "console de banco de dados",
+        issueTriage: "quadro de triagem",
+        authSettings: "configurações de autenticação",
+        workflowBuilder: "editor de fluxo CI",
+        developerPortfolio: "portfólio de desenvolvedor",
+      },
+      marketing: {
+        campaignLanding: "página de campanha",
+        emailBuilder: "editor de e-mail",
+        socialCalendar: "calendário social",
+        brandCampaign: "campanha de marca",
+        webinarRegistration: "inscrição para webinar",
+        seoBrief: "briefing de SEO",
+        launchMetrics: "métricas de lançamento",
+        newsletterSignup: "inscrição na newsletter",
+      },
+      sales: {
+        leadWorkspace: "espaço de vendas",
+        accountBrief: "resumo de conta",
+        productDemo: "demo de produto",
+        proposalBuilder: "criador de propostas",
+        pipelineDashboard: "painel de pipeline",
+        meetingBooking: "reserva de reunião",
+        customerStory: "história de cliente",
+        accountHandoff: "passagem de conta",
+      },
+      ops: {
+        inventoryDashboard: "painel de estoque",
+        staffScheduler: "escala de equipe",
+        vendorPortal: "portal de fornecedores",
+        incidentResponse: "tela de incidentes",
+        expenseApprovals: "aprovações de despesas",
+        warehouseReceiving: "recebimento de estoque",
+        automationControl: "painel de fluxos",
+        helpdeskQueue: "fila de suporte interno",
+      },
+      individual: {
+        personalPortfolio: "portfólio pessoal",
+        mealPlanner: "refeições semanais",
+        homeBudget: "orçamento doméstico",
+        tripPlanner: "planejador de viagem",
+        readingJournal: "diário de leitura",
+        invoiceTracker: "controle de faturas freelancer",
+        habitTracker: "app de hábitos",
+        neighborhoodEvents: "eventos do bairro",
+      },
+      general: {
+        saasHomepage: "página inicial SaaS",
+        analyticsDashboard: "painel analítico",
+        habitApp: "app de hábitos",
+        onlineStore: "loja virtual",
+        creativePortfolio: "portfólio criativo",
+        bookingPage: "página de reservas",
+        adminDashboard: "painel administrativo",
+        communityEvent: "página de evento comunitário",
+      },
+    },
   },
   visualEdit: {
     eyebrow: "Edicao visual",
@@ -3100,6 +3413,7 @@ export default {
     updateFailed: "Não foi possível atualizar o comentário",
     commentsInCluster: "Comentários no grupo: {{count}}",
     moreActions: "Mais ações",
+    moreActionsFor: "Mais ações para {{author}}",
     copyLink: "Copiar link",
     linkCopied: "Link copiado",
     copyLinkFailed: "Não foi possível copiar o link",
@@ -3119,6 +3433,7 @@ export default {
     addEmoji: "Adicionar emoji",
     mention: "Mencionar alguém",
     noMentions: "Nenhuma pessoa encontrada",
+    mentionsFailed: "Não foi possível carregar as pessoas",
     reopen: "Reabrir",
     reopening: "Reabrindo…",
     undo: "Desfazer",
@@ -3147,6 +3462,76 @@ export default {
     searching: "Pesquisando…",
     reactionFailed: "Não foi possível atualizar a reação",
     moveFailed: "Não foi possível mover o comentário",
+    threadTitle: "Comentário",
+    agentBadge: "Agente",
+    closeThread: "Fechar conversa",
+    deleteThread: "Excluir conversa",
+    deleteThreadTitle: "Excluir conversa?",
+    deleteThreadDescription: "Isso remove a conversa da revisão.",
+    pin: {
+      thread_one: "Conversa de {{authors}}, {{count}} comentário",
+      thread_many: "Conversa de {{authors}}, {{count}} comentários",
+      thread_other: "Conversa de {{authors}}, {{count}} comentários",
+      authorsOther_one: "{{count}} outra pessoa",
+      authorsOther_many: "{{count}} outras pessoas",
+      authorsOther_other: "{{count}} outras pessoas",
+      unread: "não lido",
+      resolved: "resolvido",
+      draft: "Comentário em rascunho",
+    },
+    reaction: {
+      label_one: "{{emoji}}, {{count}} reação",
+      label_many: "{{emoji}}, {{count}} reações",
+      label_other: "{{emoji}}, {{count}} reações",
+      labelMine_one: "{{emoji}}, {{count}} reação, incluindo a sua",
+      labelMine_many: "{{emoji}}, {{count}} reações, incluindo a sua",
+      labelMine_other: "{{emoji}}, {{count}} reações, incluindo a sua",
+    },
+    filtersActive: "Filtros aplicados",
+    suggestChanges: "Sugerir alterações",
+    applyChangesAndResolve: "Aplicar alterações e resolver",
+    agent: {
+      sectionLabel: "Agentes",
+      queued: "{{agent}} está na fila",
+      working: "{{agent}} está trabalhando…",
+      replied: "{{agent}} respondeu",
+      suggested: "{{agent}} sugeriu alterações",
+      applied: "{{agent}} aplicou as alterações e resolveu a conversa",
+      needsInput: "{{agent}} precisa da sua contribuição",
+      failed: "{{agent}} não conseguiu concluir",
+      cancelled: "Interrompido",
+      cancel: "Cancelar",
+      openChat: "Abrir chat",
+      retry: "Tentar novamente",
+      fallbackName: "IA",
+      setupRequired: "Conecte um modelo de IA para usar agentes",
+      startFailed: "Não foi possível iniciar o agente",
+      cancelFailed: "Não foi possível interromper o agente",
+      busy: "Um agente já está trabalhando nesta conversa",
+      error: {
+        engineNotConfigured: "Nenhum modelo de IA está conectado",
+        noResult: "O agente terminou sem responder",
+        timeout: "O agente não respondeu a tempo",
+        permission: "Você não tem mais acesso de edição",
+        threadUnavailable: "Esta conversa não está mais aberta",
+        targetChanged: "O design mudou enquanto o agente trabalhava",
+        applyUnavailable: "Um agente não pode editar esta tela",
+        applyIncomplete:
+          "O design foi editado, mas a conversa não foi resolvida. Revise a alteração.",
+        cancelledAfterEdit:
+          "Interrompido após a edição do design. Revise a alteração.",
+        generic: "Algo deu errado",
+      },
+    },
+    newThread: "Nova conversa",
+    threadsCount_one: "{{count}} conversa",
+    threadsCount_many: "{{count}} conversas",
+    threadsCount_other: "{{count}} conversas",
+    boardGroup: "Tela",
+    send: "Enviar",
+    pinLabel_one: "Conversa de comentários com {{count}} comentário",
+    pinLabel_many: "Conversa de comentários com {{count}} comentários",
+    pinLabel_other: "Conversa de comentários com {{count}} comentários",
     status: {
       draft: "Rascunho",
       in_review: "Em revisão",

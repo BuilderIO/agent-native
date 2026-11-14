@@ -33,6 +33,36 @@ export interface HighlightedCodeBlockProps {
 
 const DEBOUNCE_MS = 150;
 
+interface Highlighted {
+  code: string;
+  html: string;
+}
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+/**
+ * The highlighted markup for `code`. While code streams, the last highlight
+ * lags behind it; the text past it is appended unstyled, so new lines show as
+ * they arrive instead of all at once when the next highlight lands.
+ */
+function highlightedHtml(
+  highlighted: Highlighted,
+  code: string,
+): string | null {
+  if (highlighted.code === code) return highlighted.html;
+  if (!code.startsWith(highlighted.code)) return null;
+  const end = highlighted.html.lastIndexOf("</code></pre>");
+  if (end < 0) return null;
+  return `${highlighted.html.slice(0, end)}${escapeHtml(
+    code.slice(highlighted.code.length),
+  )}${highlighted.html.slice(end)}`;
+}
+
 function hashString(s: string): number {
   let h = 0;
   for (let i = 0; i < s.length; i++) {
@@ -48,7 +78,7 @@ export function HighlightedCodeBlock({
   streaming = false,
   loadHighlighter,
 }: HighlightedCodeBlockProps): React.ReactElement {
-  const [html, setHtml] = useState<string | null>(null);
+  const [highlighted, setHighlighted] = useState<Highlighted | null>(null);
   const [failed, setFailed] = useState(false);
   const renderedHashRef = useRef<number | null>(null);
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -91,14 +121,22 @@ export function HighlightedCodeBlock({
           if (!cancelledRef.current) {
             renderedHashRef.current = contentHash;
             setFailed(false);
-            setHtml(out as string);
+            // Highlights resolve out of order; an older, shorter one never
+            // replaces a newer one it is a prefix of.
+            setHighlighted((current) =>
+              current &&
+              current.code.length > code.length &&
+              current.code.startsWith(code)
+                ? current
+                : { code, html: out as string },
+            );
           }
         })
         .catch(() => {
           if (!cancelledRef.current) {
             renderedHashRef.current = contentHash;
             setFailed(true);
-            setHtml(null);
+            setHighlighted(null);
           }
         });
     };
@@ -118,6 +156,7 @@ export function HighlightedCodeBlock({
     }
   }, [code, lang, streaming, loadHighlighter]);
 
+  const html = highlighted ? highlightedHtml(highlighted, code) : null;
   if (html) {
     hasPaintedRef.current = true;
     return (

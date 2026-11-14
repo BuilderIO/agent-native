@@ -1,7 +1,28 @@
 import type { ChatThreadSummary } from "@agent-native/core/client/agent-chat";
-import { describe, expect, it } from "vitest";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it, vi } from "vitest";
 
-import { mostRecentlyUpdatedThread } from "./AgentContextTab.js";
+import {
+  AgentContextTab,
+  mostRecentlyUpdatedThread,
+} from "./AgentContextTab.js";
+
+const hooks = vi.hoisted(() => ({
+  threads: vi.fn(),
+  query: vi.fn((..._args: unknown[]) => ({})),
+}));
+
+vi.mock("@agent-native/core/client/agent-chat", () => ({
+  useChatThreads: hooks.threads,
+}));
+vi.mock("@agent-native/core/client/hooks", () => ({
+  useActionQuery: hooks.query,
+}));
+vi.mock("../context-xray/index.js", () => ({
+  ContextMeter: () => null,
+  ContextTreemap: () => null,
+}));
 
 function thread(
   id: string,
@@ -31,5 +52,32 @@ describe("mostRecentlyUpdatedThread", () => {
 
   it("returns undefined when no threads exist", () => {
     expect(mostRecentlyUpdatedThread([])).toBeUndefined();
+  });
+
+  it("requests only owned lifecycle summaries before choosing the latest snapshot", () => {
+    hooks.threads.mockReturnValue({
+      threads: [thread("old-pinned", 100, 500), thread("newest", 300)],
+    });
+    hooks.query.mockClear();
+    renderToStaticMarkup(createElement(AgentContextTab, { scope: "user" }));
+
+    expect(hooks.threads).toHaveBeenCalledWith(
+      undefined,
+      "agent-context-page",
+      null,
+      {
+        autoCreate: false,
+        restoreActiveThread: false,
+        ownership: "mine",
+      },
+    );
+    expect(hooks.query.mock.calls).toEqual([
+      ["context-preview-get", { scope: "user" }, { staleTime: 5_000 }],
+      [
+        "context-manifest-get",
+        { threadId: "newest" },
+        { enabled: true, staleTime: 1_000 },
+      ],
+    ]);
   });
 });

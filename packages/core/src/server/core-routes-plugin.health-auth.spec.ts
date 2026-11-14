@@ -28,7 +28,7 @@ function runtimeDebugHandlerSource(): string {
     "utf8",
   );
   const start = source.indexOf("`${P}/debug/runtime`");
-  const end = source.indexOf("`${P}/og-image.png`", start);
+  const end = source.indexOf("mountImageRoutes(getH3App(nitroApp), P);", start);
   return source.slice(start, end);
 }
 

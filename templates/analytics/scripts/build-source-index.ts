@@ -2258,11 +2258,13 @@ function directProjection(projection: string):
   let outputColumn: string | undefined;
   const outputIdentifier = String.raw`(?:${SQL_IDENTIFIER}|\x60[A-Za-z_][A-Za-z0-9_$-]*\x60)`;
   const explicitAlias = value.match(
-    new RegExp(String.raw`^(.+?)\s+as\s+(${outputIdentifier})$`, "i"),
+    new RegExp(String.raw`^([\s\S]+?)\s+as\s+(${outputIdentifier})$`, "i"),
   );
   const implicitAlias = explicitAlias
     ? undefined
-    : value.match(new RegExp(String.raw`^(.+?)\s+(${outputIdentifier})$`, "i"));
+    : value.match(
+        new RegExp(String.raw`^([\s\S]+?)\s+(${outputIdentifier})$`, "i"),
+      );
   const alias = explicitAlias ?? implicitAlias;
   if (alias) {
     expression = alias[1]!.trim();
@@ -2290,7 +2292,9 @@ function projectedOutputColumn(projection: string): string | undefined {
   const outputIdentifier = String.raw`(?:${SQL_IDENTIFIER}|\x60[A-Za-z_][A-Za-z0-9_$-]*\x60)`;
   const alias = projection
     .trim()
-    .match(new RegExp(String.raw`^(.+?)\s+as\s+(${outputIdentifier})$`, "i"));
+    .match(
+      new RegExp(String.raw`^([\s\S]+?)\s+as\s+(${outputIdentifier})$`, "i"),
+    );
   if (!alias) return undefined;
 
   const outputColumn = safeIdentifier(alias[2]!.replace(/`/g, ""));

@@ -88,9 +88,9 @@ El framework descubre automáticamente cada archivo en `actions/` y lo monta al 
         },
         {
           name: "outputErrorStrategy",
-          type: '"warn" | "strict" | "fallback"',
+          type: '"strict" | "warn" | "fallback"',
           optional: true,
-          default: '"warn"',
+          default: '"strict"',
           description: "Qué ocurre cuando el resultado no coincide.",
         },
         {
@@ -98,7 +98,14 @@ El framework descubre automáticamente cada archivo en `actions/` y lo monta al 
           type: "TReturn",
           optional: true,
           description:
-            'Se devuelve en lugar de un resultado inválido cuando outputErrorStrategy es "fallback".',
+            'Obsoleto. Se devuelve en lugar de un resultado inválido cuando outputErrorStrategy es "fallback".',
+        },
+        {
+          name: "errors",
+          type: "ActionErrors",
+          optional: true,
+          description:
+            "El conjunto cerrado de códigos de error de la acción, de defineActionErrors. Consulta Declarar códigos de error más abajo.",
         },
         {
           name: "mcpOutputSchema",
@@ -240,24 +247,50 @@ export default defineAction({
     summary: z.string(),
     messageCount: z.number(),
   }),
-  outputErrorStrategy: "warn", // default
   run: async ({ threadId }) => {
     /* ...returns { summary, messageCount } ... */
   },
 });
 ```
 
+El tipo de retorno de la acción procede de `outputSchema`, y `run` debe devolver un valor que el esquema acepte, de modo que un resultado que se desvía del esquema es un error de compilación antes que un error en tiempo de ejecución.
+
 `outputErrorStrategy` controla qué ocurre ante una discrepancia:
 
-| Estrategia   | Comportamiento ante una discrepancia                                                                                      |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------- |
-| `"warn"`     | **Predeterminado.** Hace `console.warn` de los problemas y devuelve el resultado **original** sin cambios. No rompe nada. |
-| `"strict"`   | Lanza un error claro, para que un bug en la acción sea fácil de notar.                                                    |
-| `"fallback"` | Devuelve el valor `outputFallback` proporcionado en lugar del resultado inválido.                                         |
+| Estrategia   | Comportamiento ante una discrepancia                                                                                       |
+| ------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| `"strict"`   | **Predeterminado.** Lanza `ActionOutputContractError`, para que un bug en la acción falle de forma ruidosa.                |
+| `"warn"`     | Hace `console.warn` de los problemas y devuelve el resultado **original** sin cambios. Úsalo mientras corriges un esquema. |
+| `"fallback"` | **Obsoleto.** Devuelve `outputFallback` en lugar del resultado inválido, que quien llama no puede distinguir de uno real.  |
 
 Cuando `run()` tiene éxito, el framework devuelve el valor validado, así que cualquier valor por defecto o coerción de `outputSchema` surte efecto, igual que ocurre con la entrada. Cuando no pasas un `outputSchema`, el valor de retorno queda sin cambios.
 
 La comprobación estricta se ejecuta después de `run()`, así que el error (`ActionOutputContractError`, `errorCode: "output_contract_violation"`) informa de lo que ya ha ocurrido: `effect` es `"committed"` en cuanto una escritura ha entrado en su handler, en la propia llamada o en una acción que esta llamó (incluso desde una acción de solo lectura), y quien llama no debe reintentarla; en otro caso es `"none"`. El mensaje solo enumera rutas de campos declarados y códigos de incidencia, nunca los valores devueltos.
+
+### Declarar códigos de error {#error-codes}
+
+`defineActionErrors` declara el conjunto cerrado de `errorCode` con los que falla una acción. Sus funciones `fail` y `noWrite` solo aceptan esos códigos, así que un código mal escrito no compila, y al pasarlo como `errors` publica los códigos como `errorCodes` en la definición.
+
+```ts
+const errors = defineActionErrors("thread_not_found", "thread_locked");
+
+export default defineAction({
+  description: "Archive a thread.",
+  schema: z.object({ threadId: z.string() }),
+  outputSchema: z.object({ archived: z.literal(true) }),
+  errors,
+  run: async ({ threadId }) => {
+    const thread = await findThread(threadId);
+    if (!thread) {
+      errors.noWrite("Thread not found.", "thread_not_found", {
+        statusCode: 404,
+      });
+    }
+    /* ... */
+    return { archived: true };
+  },
+});
+```
 
 ### Anunciar el contrato por MCP {#mcp-output-schema}
 
@@ -413,6 +446,7 @@ Cada acción que el agente puede ver ocupa una plaza en la lista de herramientas
 - Antes de añadir una nueva acción de lectura para cada consulta o filtro, considera primero una opción más general: el [trío de API de proveedor](/docs/template-dispatch-developers#calling-a-provider-directly) (`provider-api-catalog`, `provider-api-docs` y `provider-api-request`) para datos de proveedores, o la herramienta de desarrollo `db-query` para datos de la app.
 - Marca las acciones solo de UI o programáticas como [`agentTool: false`](/docs/actions-access-control#agent-tool). Siguen siendo invocables desde el frontend o por HTTP, sin ocupar una plaza en la lista de herramientas del modelo.
 - Marca con `deferLoading: false` el puñado de acciones a las que el agente recurre constantemente. Esos son los esquemas que se envían en la primera petición al modelo; todo lo demás se carga bajo demanda mediante `tool-search` cuando el agente lo necesita. En cuanto una acción se excluye así, todas las no marcadas quedan diferidas, así que marca todo el conjunto inicial de una vez en lugar de una acción cada vez. Esto trata de lo que cuesta el primer turno, no del acceso: una acción diferida es invocable en cuanto `tool-search` la devuelve. Las acciones diferidas siguen apareciendo por nombre en el índice de herramientas del prompt, agrupadas por el sustantivo después del verbo principal, así que los nombres `verb-noun`, como `list-dashboards` y `create-dashboard`, son lo que permite que el agente las encuentre. Es la forma por acción del array `initialToolNames` del plugin, y una app puede usar cualquiera de las dos.
+- Añade `searchHints` a una acción cuando los usuarios llaman a su tarea con palabras que no aparecen en su nombre ni en su descripción, como `["auto-archive rule", "inbox rule"]` en una acción de reglas de la bandeja de entrada. `tool-search` da a esas palabras el peso justo por debajo del nombre, y nunca se envían al modelo, así que no consumen contexto. Mantenlas breves y objetivas (12 como máximo, de hasta 60 caracteres cada una), no una lista de todas las peticiones que la acción podría atender.
 - Elimina u oculta las acciones que la UI ya no usa, en lugar de dejarlas expuestas al modelo.
 
 El repo incluye un ayudante consultivo, `node scripts/audit-template-actions.mjs [template ...]` (alias `pnpm actions:audit`). Escanea la carpeta `actions/` de una plantilla y señala acciones que la UI puede haber dejado de usar, junto con grupos de acciones por campo que podrían combinarse en una sola. Siempre termina con código 0 y nunca hace fallar el CI, y sus heurísticas son conservadoras, así que trata su salida como una sugerencia, no como un error.

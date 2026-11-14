@@ -72,7 +72,49 @@ funcionam da mesma forma para execuções manuais simples e scripts existentes:
 pnpm action reply-to-email --emailId thread-123 --body "Thanks!"
 ```
 
-Isso é útil para loops de agent-dev, scripts e cron jobs.
+Nas chamadas `defineAction()`, a CLI avalia `needsApproval` nos argumentos preparados e analisados, com os valores padrão do esquema e caller `cli`. Se stdin e stdout forem TTYs, ela mostra o nome da ação e os argumentos e pergunta `y/N`. Somente `y` ou `yes` executa a ação.
+
+Sem ambos os TTYs, a CLI pede ao agente que solicite a aprovação da pessoa. Depois que ela aprovar essa chamada específica, repita exatamente os argumentos originais de `pnpm action`, acrescentando `--approved`:
+
+```bash
+pnpm action reply-to-email --emailId thread-123 --body "Thanks!" --approved
+```
+
+`--approved` é um metadado reservado da CLI, removido antes de analisar a entrada. Ele não recebe valor: se vier seguido de algo que não seja outro flag ou um objeto JSON, a chamada é recusada, e uma entrada chamada `approved` é escrita como `--approved=<value>`. É inofensivo em ações sem aprovação obrigatória. A CLI não consegue verificar quem o adicionou: um agente que o adiciona sem perguntar pula a confirmação. O flag deixa a aprovação visível no comando que a pessoa aprova e no log de auditoria, que a marca como não verificada. No Windows sem um `SHELL` POSIX, a recusa mostra o comando para PowerShell e, quando as aspas diferem, também para cmd.exe. No Windows, o pnpm passa os argumentos da ação pelo cmd.exe a partir de qualquer shell, e o cmd.exe expande `%NAME%` mesmo entre aspas. Se um argumento tiver uma variável assim, a recusa não oferece repetir o comando com `--approved`: a pessoa executa o comando em um terminal e confere os valores na confirmação. Se os argumentos tiverem uma aspa e um de `&`, `|`, `<`, `>` ou `^`, o pnpm não consegue passá-los intactos pelo cmd.exe, então a recusa não mostra nenhum comando e a pessoa aprova a chamada no app. O Windows PowerShell 5.1 remove todas as `"` dentro de um argumento, então no Windows sem um `SHELL` POSIX, um argumento com aspas duplas também vai para a confirmação em vez de repetir o comando com `--approved`.
+
+A ponte local de desenvolvimento envia os metadados de aprovação fora de `input` no corpo JSON:
+
+```ts
+{ name, input, approved: true, approvalSource: "flag" }
+```
+
+Para uma chamada protegida sem aprovação, a ponte retorna HTTP `409`:
+
+```ts
+{
+  ok: false,
+  errorCode: "approval_required",
+  error: 'Action "<name>" requires human approval. Ask the person, then rerun with --approved.',
+  arguments: preparedArgs,
+  argumentsHash: prepared.argumentsHash,
+}
+```
+
+Após a confirmação no TTY, a CLI tenta novamente com o `argumentsHash` da resposta que solicita aprovação:
+
+```ts
+{
+  name,
+  input,
+  approved: true,
+  approvalSource: "prompt",
+  approvalArgumentsHash: challenge.argumentsHash,
+}
+```
+
+A ponte executa uma única vez a chamada que a pessoa revisou, então um valor padrão que muda a cada chamada, como um carimbo de data/hora, mantém o valor exibido. Uma confirmação sem chamada retida para executar (ela já foi executada, passaram 10 minutos ou o servidor de desenvolvimento reiniciou) recebe HTTP `409` com `errorCode: "approval_expired"`. Execute o comando de novo para revisá-la.
+
+`arguments` contém os argumentos preparados. Esse contrato da ponte local de desenvolvimento não altera as [regras de aprovação da API HTTP pública de ações](/docs/actions-access-control#needs-approval). Uma chamada CLI protegida e aprovada registra `approval: "cli-prompt"` ou `approval: "cli-flag"` na própria linha de auditoria da ação, com caller `cli`. O log de auditoria mostra os dois como não verificados, porque só a CLI vê o prompt.
 
 ## Chamando a partir de outro agente (A2A) {#a2a}
 

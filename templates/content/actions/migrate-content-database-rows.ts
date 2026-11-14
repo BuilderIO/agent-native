@@ -1,4 +1,5 @@
 import { defineAction } from "@agent-native/core/action";
+import type { ActionRunContext } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { isLocalDatabase } from "@agent-native/core/db";
 import { assertAccess } from "@agent-native/core/sharing";
@@ -6,7 +7,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import { chunks } from "./_batch-utils.js";
 import {
   lockContentDatabaseMutation,
@@ -25,6 +26,7 @@ import {
   validatePlan,
 } from "./_content-database-row-migration.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
+import { assertAgentsMayEditPagesText } from "./_document-agent-lock.js";
 import { flushOpenDocumentEditorToSql } from "./_document-flush.js";
 
 const validateSchema = z.object({
@@ -154,7 +156,10 @@ async function flushMigrationDocuments(rows: Array<{ documentId: string }>) {
   }
 }
 
-export async function runMigration(args: MigrationInput) {
+export async function runMigration(
+  args: MigrationInput,
+  ctx?: ActionRunContext,
+) {
   const db = getDb();
   const databaseId =
     args.phase === "apply" || args.phase === "validate"
@@ -450,6 +455,7 @@ export async function runMigration(args: MigrationInput) {
           snapshot,
           receiptId,
           now,
+          ctx,
         );
         const current = await snapshotMigration(tx, args.plan.databaseId);
         const postDigest = snapshotDigest(current);
@@ -697,18 +703,50 @@ export async function runMigration(args: MigrationInput) {
       const rollback = parseJson(receipt.rollbackJson);
       const now = new Date().toISOString();
       if (args.phase === "rollback") {
-        for (const prior of rollback.versions ?? []) {
+        const priors: Array<{
+          documentId: string;
+          versionId: string;
+          appliedUpdatedAt: string;
+        }> = rollback.versions ?? [];
+        const versions = new Map<
+          string,
+          typeof schema.documentVersions.$inferSelect
+        >();
+        for (const prior of priors) {
           const [version] = await tx
             .select()
             .from(schema.documentVersions)
             .where(eq(schema.documentVersions.id, prior.versionId));
           if (!version) throw new Error("Rollback snapshot is missing.");
+          versions.set(prior.versionId, version);
+        }
+        const legacy = await lockLegacyBodyWrites(
+          tx,
+          priors.map((prior) => prior.documentId),
+          {
+            operation: "migrate-content-database-rows",
+            content: new Map(
+              priors.map((prior) => [
+                prior.documentId,
+                versions.get(prior.versionId)!.content,
+              ]),
+            ),
+          },
+        );
+        // Under the row locks, which a person's switch has to wait for.
+        await assertAgentsMayEditPagesText(
+          tx as unknown as ReturnType<typeof getDb>,
+          priors.map((prior) => prior.documentId),
+          ctx,
+        );
+        for (const prior of priors) {
+          const version = versions.get(prior.versionId)!;
           const restoredRows = await tx
             .update(schema.documents)
             .set({
               title: version.title,
               content: version.content,
-              bodyRevision: bodyRevisionForContent(version.content),
+              bodyRevision: legacy.bodyRevision(version.content),
               updatedAt: now,
             })
             .where(
@@ -728,6 +766,12 @@ export async function runMigration(args: MigrationInput) {
           await tx
             .delete(schema.documentPropertyValues)
             .where(inArray(schema.documentPropertyValues.propertyId, ids));
+          // After the values: deleting them records a tombstone for each one.
+          await tx
+            .delete(schema.documentPropertyValueTombstones)
+            .where(
+              inArray(schema.documentPropertyValueTombstones.propertyId, ids),
+            );
           await tx
             .delete(schema.documentPropertyDefinitions)
             .where(inArray(schema.documentPropertyDefinitions.id, ids));
@@ -801,6 +845,15 @@ export async function runMigration(args: MigrationInput) {
         await tx
           .delete(schema.documentPropertyValues)
           .where(inArray(schema.documentPropertyValues.propertyId, legacyIds));
+        // After the values: deleting them records a tombstone for each one.
+        await tx
+          .delete(schema.documentPropertyValueTombstones)
+          .where(
+            inArray(
+              schema.documentPropertyValueTombstones.propertyId,
+              legacyIds,
+            ),
+          );
         await tx
           .delete(schema.documentPropertyDefinitions)
           .where(inArray(schema.documentPropertyDefinitions.id, legacyIds));
@@ -884,5 +937,5 @@ export default defineAction({
   mcpApp: { structuredContent: true },
   schema: safeOperationalSchema,
   audit: migrationAudit,
-  run: (args) => runMigration(args as MigrationInput),
+  run: (args, ctx) => runMigration(args as MigrationInput, ctx),
 });

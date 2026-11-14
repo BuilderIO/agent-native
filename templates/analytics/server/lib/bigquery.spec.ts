@@ -1,6 +1,44 @@
+import {
+  getOrCreateRequestDbPool,
+  runWithRequestDbPoolScope,
+} from "@agent-native/core/db/request-pool-context";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { BigQueryJobUsage } from "./bigquery-usage";
+
+function present<T>(value: T | undefined): T {
+  if (value === undefined) throw new Error("Expected fixture observation");
+  return value;
+}
+
 const execute = vi.fn();
+const usageWrites = vi.hoisted(() => [] as BigQueryJobUsage[]);
+const persistUsage = vi.hoisted(() =>
+  vi.fn(async (usage: BigQueryJobUsage) => {
+    usageWrites.push(structuredClone(usage));
+    return true;
+  }),
+);
+const finalizeUsage = vi.hoisted(() =>
+  vi.fn(
+    async (
+      usage: BigQueryJobUsage,
+      _token: string,
+      recorded: boolean,
+      _signal?: AbortSignal,
+    ) => ({
+      status: recorded ? ("recorded" as const) : ("unavailable" as const),
+      projectId: usage.projectId,
+      jobId: usage.jobId,
+      usageStatus: usage.usageStatus,
+    }),
+  ),
+);
+vi.mock("./bigquery-usage", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./bigquery-usage")>()),
+  persistBigQueryJobUsage: persistUsage,
+  finalizeBigQueryJobUsage: finalizeUsage,
+}));
 const resolveCredential = vi.fn();
 const getBigQueryAccessToken = vi.fn();
 const getCredentialContext = vi.hoisted(() => vi.fn());
@@ -12,6 +50,7 @@ vi.mock("@agent-native/core/db", () => ({
 vi.mock("@agent-native/core/server", () => ({
   getCredentialContext,
   getRequestRunContext: () => undefined,
+  platformWaitUntil: () => undefined,
 }));
 
 vi.mock("./credentials", () => ({ resolveCredential }));
@@ -276,6 +315,9 @@ function pauseNextL2Read(): { started: Promise<void>; release: () => void } {
 
 describe("runQuery cancellation", () => {
   beforeEach(() => {
+    usageWrites.length = 0;
+    persistUsage.mockClear();
+    finalizeUsage.mockClear();
     execute.mockReset();
     useCacheDatabase();
     getCredentialContext.mockReset();
@@ -295,6 +337,90 @@ describe("runQuery cancellation", () => {
     vi.useRealTimers();
     vi.unstubAllGlobals();
     vi.restoreAllMocks();
+  });
+
+  it("does not start warehouse work when its request scope is already closed", async () => {
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let lateQuery!: Promise<unknown>;
+    const fetchMock = vi.fn<typeof globalThis.fetch>();
+    vi.stubGlobal("fetch", fetchMock);
+    await runWithRequestDbPoolScope(true, undefined, () => {
+      lateQuery = gate.then(() => runQuery("SELECT 1 AS closed_request"));
+    });
+    release();
+    await expect(lateQuery).rejects.toThrow("already closed");
+    expect(resolveCredential).not.toHaveBeenCalled();
+    expect(getBigQueryAccessToken).not.toHaveBeenCalled();
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(persistUsage).not.toHaveBeenCalled();
+  });
+
+  it("retains query pools when a panel stops awaiting the warehouse job", async () => {
+    let releaseToken!: (token: string) => void;
+    let tokenStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      tokenStarted = resolve;
+    });
+    getBigQueryAccessToken.mockImplementationOnce(
+      () =>
+        new Promise<string>((resolve) => {
+          releaseToken = resolve;
+          tokenStarted();
+        }),
+    );
+    const ended = vi.fn(async () => {});
+    let query!: ReturnType<typeof runQuery>;
+    await runWithRequestDbPoolScope(true, undefined, async () => {
+      getOrCreateRequestDbPool("outliving-query", () => ({ end: ended }));
+      query = runQuery("SELECT 1 AS outliving_request");
+      await started;
+      // Model a panel timeout returning while its uncancelled query still runs.
+    });
+    expect(ended).not.toHaveBeenCalled();
+    vi.stubGlobal(
+      "fetch",
+      mockQueryJobs(
+        jsonResponse({ jobComplete: true, schema: { fields: [] }, rows: [] }),
+      ),
+    );
+    finalizeUsage.mockImplementationOnce(async (usage) => {
+      getOrCreateRequestDbPool("outliving-query", () => {
+        throw new Error("Pool lost before finalization");
+      });
+      return {
+        projectId: usage.projectId,
+        jobId: usage.jobId,
+        status: "recorded",
+        usageStatus: usage.usageStatus,
+      };
+    });
+    releaseToken("test-token");
+    await expect(query).resolves.toMatchObject({
+      usageAccounting: { status: "recorded" },
+    });
+    expect(ended).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves the original job receipt in real cache reads without resubmission", async () => {
+    const fetchMock = mockQueryJobs(
+      jsonResponse({ jobComplete: true, schema: { fields: [] }, rows: [] }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const first = await runQuery("SELECT 1 AS cached_usage_receipt");
+    const cached = await runQuery("SELECT 1 AS cached_usage_receipt");
+    expect(cached).toMatchObject({
+      cached: true,
+      usageAccounting: {
+        jobId: first.usageAccounting?.jobId,
+        status: "pending",
+      },
+    });
+    expect(persistUsage).toHaveBeenCalledTimes(1);
+    expect(finalizeUsage).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 
   it("stops an incomplete job's poll wait immediately when the agent run aborts", async () => {
@@ -335,6 +461,13 @@ describe("runQuery cancellation", () => {
       expect.objectContaining({ method: "POST" }),
     );
     expect(String(fetchMock.mock.calls[2]?.[0])).toContain("/cancel");
+    expect(usageWrites).toHaveLength(1);
+    expect(present(finalizeUsage.mock.calls[0])[0]).toMatchObject({
+      submissionState: "accepted",
+      outcome: null,
+      bytesBilled: null,
+    });
+    expect(finalizeUsage).toHaveBeenCalledOnce();
   });
 
   it("stops waiting when the configured event table credential lookup stalls", async () => {
@@ -449,7 +582,96 @@ describe("runQuery cancellation", () => {
       }),
     ).rejects.toBeInstanceOf(BigQueryMaximumBytesBilledError);
     expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(usageWrites).toHaveLength(1);
+    expect(present(finalizeUsage.mock.calls[0])[0]).toMatchObject({
+      submissionState: "rejected",
+      outcome: null,
+      bytesBilled: null,
+    });
+    expect(present(usageWrites[0]).jobId).toBe(
+      present(finalizeUsage.mock.calls[0])[0].jobId,
+    );
   });
+
+  it.each([
+    [400, "invalid"],
+    [400, "invalidQuery"],
+    [403, "accessDenied"],
+    [403, "billingNotEnabled"],
+  ] as const)(
+    "records definite submission rejection %s/%s without job probes",
+    async (status, reason) => {
+      const fetchMock = vi.fn<typeof globalThis.fetch>(
+        async () =>
+          new Response(
+            JSON.stringify({ error: { code: status, errors: [{ reason }] } }),
+            { status },
+          ),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      await expect(
+        runQuery("SELECT 1 AS definite_rejection_" + reason),
+      ).rejects.toBeInstanceOf(BigQueryBackendError);
+      expect(present(finalizeUsage.mock.calls[0])[0]).toMatchObject({
+        submissionState: "rejected",
+        bytesBilled: null,
+        outcome: null,
+      });
+      expect(fetchMock).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each([
+    { status: 409, reasons: ["duplicate"] },
+    { status: 503, reasons: ["backendError"] },
+    { status: 503, reasons: ["accessDenied"] },
+    { status: 400, reasons: ["jobBackendError"] },
+    { status: 400, reasons: ["jobRateLimitExceeded"] },
+    { status: 429, reasons: ["rateLimitExceeded"] },
+    { status: 403, reasons: ["unrecognized"] },
+    { status: 400, reasons: [] },
+    { status: 400, reasons: [], malformed: true },
+    { status: 400, reasons: ["invalid", "jobBackendError"] },
+  ])(
+    "keeps HTTP $status/$reasons submission failures unknown without resubmitting the query",
+    async (fixture) => {
+      const { status, reasons } = fixture;
+      const fetchMock = vi.fn<typeof globalThis.fetch>(async (input) => {
+        const url = String(input);
+        if (url.endsWith("/jobs"))
+          return new Response(
+            "malformed" in fixture
+              ? "invalid provider JSON"
+              : JSON.stringify({
+                  error: {
+                    message: "Ambiguous submission",
+                    errors: reasons.map((reason) => ({ reason })),
+                  },
+                }),
+            { status },
+          );
+        if (url.includes("/jobs?")) return jsonResponse({ jobs: [] });
+        if (url.includes("/cancel")) return jsonResponse({});
+        throw new Error("Unexpected request: " + url);
+      });
+      vi.stubGlobal("fetch", fetchMock);
+      await expect(
+        runQuery("SELECT 1 AS ambiguous_submission_" + status),
+      ).rejects.toBeInstanceOf(BigQueryBackendError);
+      expect(
+        fetchMock.mock.calls.filter(([input]) =>
+          String(input).endsWith("/jobs"),
+        ),
+      ).toHaveLength(1);
+      expect(usageWrites).toHaveLength(1);
+      expect(finalizeUsage).toHaveBeenCalledOnce();
+      expect(present(finalizeUsage.mock.calls[0])[0]).toMatchObject({
+        submissionState: "unknown",
+        bytesBilled: null,
+        outcome: null,
+      });
+    },
+  );
 
   it("keeps the submit deadline active while reading the response body", async () => {
     vi.useFakeTimers();
@@ -594,6 +816,32 @@ describe("runQuery cancellation", () => {
       warnings: [{ reason: "other", message: "A nonfatal query warning" }],
     });
   });
+
+  it.each([
+    ["a next page token", { nextPageToken: "page-2" }],
+    ["no total row count", {}],
+  ])(
+    "marks BigQuery rows incomplete when the response has %s",
+    async (_case, extra) => {
+      const fetchMock = mockQueryJobs(
+        jsonResponse({
+          jobComplete: true,
+          schema: { fields: [{ name: "value", type: "STRING" }] },
+          rows: [{ f: [{ v: "first" }] }],
+          totalBytesProcessed: "8",
+          ...extra,
+        }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+
+      await expect(
+        runQuery(`SELECT 'incomplete_${_case.replace(/ /g, "_")}' AS value`),
+      ).resolves.toMatchObject({
+        rows: [{ value: "first" }],
+        truncated: true,
+      });
+    },
+  );
 
   it("does not cache partial results so a retry can fetch complete rows", async () => {
     useCacheDatabase();
@@ -1081,14 +1329,36 @@ describe("runQuery cancellation", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     const pending = dryRunQuery("SELECT 1");
-    await vi.advanceTimersByTimeAsync(10_000);
-
-    await expect(pending).resolves.toBe(
+    const outcome = expect(pending).rejects.toThrow(
       "BigQuery validation timed out after 10 seconds",
     );
+    await vi.advanceTimersByTimeAsync(10_000);
+
+    await outcome;
     expect(fetchMock).toHaveBeenCalledWith(
       expect.stringContaining("/projects/test-project/jobs"),
       expect.objectContaining({ signal: expect.any(AbortSignal) }),
+    );
+  });
+
+  it("returns BigQuery's rejection of the SQL and throws when it reached no verdict", async () => {
+    const failedResponse = (status: number, message: string) =>
+      ({
+        ok: false,
+        status,
+        text: async () => JSON.stringify({ error: { message } }),
+      }) as Response;
+    const fetchMock = vi
+      .fn<typeof globalThis.fetch>()
+      .mockResolvedValueOnce(failedResponse(400, "Syntax error"))
+      .mockResolvedValueOnce(failedResponse(503, "Backend error"))
+      .mockResolvedValueOnce(failedResponse(429, "Rate limit exceeded"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(dryRunQuery("SELECT")).resolves.toBe("Syntax error");
+    await expect(dryRunQuery("SELECT 1")).rejects.toThrow("Backend error");
+    await expect(dryRunQuery("SELECT 1")).rejects.toThrow(
+      "Rate limit exceeded",
     );
   });
 
@@ -1618,7 +1888,7 @@ describe("runQuery cancellation", () => {
     const fenceRead = execute.mock.calls.find(([input]) =>
       input.sql.startsWith("SELECT generation, fence_token"),
     );
-    expect(fenceRead?.[0].args[0]).toMatch(/^v2:/);
+    expect(fenceRead?.[0].args[0]).toMatch(/^v3:/);
   });
 
   it("reports when the app received the result and whether the provider cache answered", async () => {
@@ -1673,6 +1943,52 @@ describe("runQuery cancellation", () => {
       maximumBytesBilled: "750000000000",
     });
   });
+
+  it.each([
+    { name: "omitted", raw: undefined, expected: undefined },
+    { name: "null", raw: null, expected: undefined },
+    { name: "empty", raw: "", expected: undefined },
+    { name: "malformed", raw: "12bytes", expected: undefined },
+    { name: "negative", raw: "-1", expected: undefined },
+    { name: "fractional", raw: "1.5", expected: undefined },
+    { name: "unsafe", raw: "9007199254740992", expected: undefined },
+    { name: "zero", raw: "0", expected: 0 },
+    { name: "actual", raw: "4096", expected: 4096 },
+  ])(
+    "preserves $name processed-byte metadata through both cache layers",
+    async ({ name, raw, expected }) => {
+      const cache = useCacheDatabase();
+      const fetchMock = mockQueryJobs(
+        jsonResponse({
+          jobComplete: true,
+          schema: { fields: [] },
+          rows: [],
+          totalBytesProcessed: raw,
+          cacheHit: false,
+        }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      const sql = `SELECT 1 AS byte_metadata_${name}`;
+
+      const fresh = await runQuery(sql, { forceRefresh: true });
+      const l1 = await runQuery(sql);
+      for (const entry of cache.values()) entry.generation++;
+      const l2 = await runQuery(sql);
+
+      expect(fresh.cached).toBe(false);
+      for (const result of [fresh, l1, l2]) {
+        expect(result.bytesProcessed).toBe(expected);
+        expect(result.providerCacheHit).toBe(false);
+      }
+      expect(l1.cached).toBe(true);
+      expect(l2.cached).toBe(true);
+      const write = execute.mock.calls.find(([query]) =>
+        query.sql.startsWith("UPDATE bigquery_cache SET sql"),
+      );
+      expect(write?.[0].args[3]).toBe(expected ?? -1);
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    },
+  );
 
   it("keeps the original fetch time and provider cache state on app cache hits", async () => {
     const cache = useCacheDatabase();
@@ -2314,5 +2630,75 @@ describe("runQuery cancellation", () => {
     await runQuery(sql);
 
     expect(fetchMock).toHaveBeenCalledTimes(8);
+  });
+
+  it("records one job across polling and no new job on an app cache read", async () => {
+    persistUsage.mockClear();
+    finalizeUsage.mockClear();
+    useCacheDatabase();
+    const fetchMock = mockQueryJobs(
+      jsonResponse({ jobComplete: false }),
+      jsonResponse({
+        jobComplete: true,
+        totalRows: "0",
+        totalBytesProcessed: "123",
+        cacheHit: false,
+        schema: { fields: [] },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await runQuery("SELECT 987654 AS ledger_cache_test");
+    const records = usageWrites;
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({
+      projectId: "test-project",
+      submissionState: "attempted",
+      usageStatus: "pending",
+    });
+    expect(persistUsage.mock.invocationCallOrder[0]).toBeLessThan(
+      present(fetchMock.mock.invocationCallOrder[0]),
+    );
+    expect(present(records[0]).jobId).toBe(
+      present(finalizeUsage.mock.calls[0])[0].jobId,
+    );
+    expect(present(finalizeUsage.mock.calls[0])[0]).toMatchObject({
+      bytesProcessed: "123",
+      providerCacheHit: false,
+      ownerEmail: expect.any(String),
+    });
+    expect(records[0]).not.toHaveProperty("query");
+    persistUsage.mockClear();
+    finalizeUsage.mockClear();
+    expect((await runQuery("SELECT 987654 AS ledger_cache_test")).cached).toBe(
+      true,
+    );
+    expect(persistUsage).not.toHaveBeenCalled();
+    expect(finalizeUsage).not.toHaveBeenCalled();
+  });
+  it("returns unavailable accounting without retrying a successful warehouse query", async () => {
+    persistUsage.mockResolvedValueOnce(false);
+    const fetchMock = mockQueryJobs(
+      jsonResponse({
+        jobComplete: true,
+        totalRows: "1",
+        schema: { fields: [{ name: "value", type: "INT64" }] },
+        rows: [{ f: [{ v: "1" }] }],
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const result = await runQuery("SELECT 876543 AS accounting_failure_test");
+    expect(result.rows).toEqual([{ value: 1 }]);
+    expect(result.usageAccounting).toMatchObject({
+      status: "unavailable",
+      projectId: "test-project",
+      jobId: expect.any(String),
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(finalizeUsage).toHaveBeenCalledWith(
+      expect.any(Object),
+      "test-access-token",
+      false,
+      undefined,
+    );
   });
 });

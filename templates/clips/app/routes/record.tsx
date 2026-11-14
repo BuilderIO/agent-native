@@ -4,6 +4,7 @@ import {
 } from "@agent-native/core/client/analytics";
 import {
   agentNativePath,
+  appApiPath,
   appBasePath,
 } from "@agent-native/core/client/api-path";
 import {
@@ -129,6 +130,7 @@ import {
   decideRecordingVisibilityAction,
   isMobileRecorderRuntime,
 } from "@/lib/recording-visibility";
+import { reportFailedFetchWrite } from "@/lib/report-failed-fetch-write";
 import { uploadVideoBlobThumbnail } from "@/lib/thumbnail-capture";
 import { uploadChunkRequest } from "@/lib/upload-request";
 import {
@@ -1263,11 +1265,13 @@ export function RecordingErrorCard({
 export function shouldRedirectToStorageSetupHome({
   storageSetupRequested,
   storageConfigured,
+  hostedStorage,
   hasPendingUpload,
   uiState,
 }: {
   storageSetupRequested: boolean;
   storageConfigured: boolean | null;
+  hostedStorage: boolean;
   hasPendingUpload: boolean;
   uiState: UiState;
 }): boolean {
@@ -1275,8 +1279,19 @@ export function shouldRedirectToStorageSetupHome({
     storageSetupRequested &&
     !hasPendingUpload &&
     uiState === "idle" &&
-    storageConfigured === true
+    storageConfigured === true &&
+    !hostedStorage
   );
+}
+
+export function storageSetupReason(
+  status: Pick<VideoStorageStatus, "denyReason"> | undefined,
+): string {
+  if (!status) return "status_unavailable";
+  // "disabled" means free hosted clips are off, not that a hosted clip was denied.
+  return status.denyReason && status.denyReason !== "disabled"
+    ? `hosted_${status.denyReason}`
+    : "storage_required";
 }
 
 export function shouldShowFirstRunStorageSetup({
@@ -1595,8 +1610,8 @@ export default function RecordRoute() {
   /** Point the engine at its server upload. */
   const applyUploadTarget = useCallback(
     (engine: RecorderEngine, info: CreatedUploadTarget): string => {
-      const uploadChunkUrl = `${appBasePath()}${info.uploadChunkUrl}`;
-      const abortUrl = `${appBasePath()}${info.abortUrl}`;
+      const uploadChunkUrl = appApiPath(info.uploadChunkUrl);
+      const abortUrl = appApiPath(info.abortUrl);
       pendingRef.current = {
         id: info.id,
         uploadChunkUrl,
@@ -1609,7 +1624,7 @@ export default function RecordRoute() {
         uploadUrl: uploadChunkUrl,
         abortUrl,
         resetUrl: info.resetChunksUrl
-          ? `${appBasePath()}${info.resetChunksUrl}`
+          ? appApiPath(info.resetChunksUrl)
           : undefined,
         uploadMode: info.uploadMode,
         maxUploadBytes: info.clientLimits?.maxClipBytes,
@@ -1932,7 +1947,7 @@ export default function RecordRoute() {
               ? "user_cancelled"
               : "recording_interrupted";
             if (info) {
-              fetch(`${appBasePath()}${info.abortUrl}`, {
+              fetch(appApiPath(info.abortUrl), {
                 method: "POST",
                 headers: { "Content-Type": "application/json" },
                 body: JSON.stringify({
@@ -2264,7 +2279,7 @@ export default function RecordRoute() {
         createdId = info.id;
         fileUploadRecordingIdRef.current = createdId;
         fileUploadAbortUrlRef.current =
-          intake && info.abortUrl ? `${appBasePath()}${info.abortUrl}` : null;
+          intake && info.abortUrl ? appApiPath(info.abortUrl) : null;
         if (!intake) await saveBugReportContextRef.current(info.id);
         if (isStale()) throw makeAbortError("Upload cancelled");
         if (!intake) {
@@ -2278,7 +2293,7 @@ export default function RecordRoute() {
           });
         }
         if (isStale()) throw makeAbortError("Upload cancelled");
-        const uploadBase = `${appBasePath()}${info.uploadChunkUrl}`;
+        const uploadBase = appApiPath(info.uploadChunkUrl);
 
         const totalChunks = Math.max(
           1,
@@ -2576,7 +2591,7 @@ export default function RecordRoute() {
         if (createdId && !serverRejectedTooLarge && !preserveBufferedChunks) {
           fetch(
             fileUploadAbortUrlRef.current ??
-              `${appBasePath()}/api/uploads/${createdId}/abort`,
+              appApiPath(`/api/uploads/${createdId}/abort`),
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },
@@ -3599,11 +3614,13 @@ export default function RecordRoute() {
         }).catch(() => {});
       } else {
         // The abort handler owns hosted allowance release after confirming cleanup.
-        fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: pendingId, skipIfReady: true }),
-        }).catch(() => {});
+        reportFailedFetchWrite(
+          fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: pendingId, skipIfReady: true }),
+          }),
+        );
       }
     }
     if (uploadRecordingId) {
@@ -3617,11 +3634,13 @@ export default function RecordRoute() {
           }),
         }).catch(() => {});
       } else {
-        fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ id: uploadRecordingId, skipIfReady: true }),
-        }).catch(() => {});
+        reportFailedFetchWrite(
+          fetch(agentNativePath("/_agent-native/actions/trash-recording"), {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ id: uploadRecordingId, skipIfReady: true }),
+          }),
+        );
       }
     }
     setCameraStream(null);
@@ -4052,6 +4071,7 @@ export default function RecordRoute() {
     onDialogOpenChange,
     onCloseAutoFocus,
     confirmLeave,
+    leavePromptKey,
   } = useRecordingLeaveGuard(
     // An in-app link away from a stopped recording is safe once its local
     // copy is written; only a live recording or a memory-only copy is lost.
@@ -4089,9 +4109,14 @@ export default function RecordRoute() {
   // to finish it.
   const showBackButton =
     uiState === "idle" || uiState === "error" || uiState === "pendingUpload";
+  // Free hosted clips count as configured, but a connect request still means
+  // the user wants their own Builder storage.
+  const hostedStorage = !clipIntake && storageQuery.data?.mode === "hosted";
   const showStorageSetupFirst =
     storageSetupRequested &&
-    (storageConfigured === false || storageStatusUnavailable);
+    (storageConfigured === false ||
+      storageStatusUnavailable ||
+      (hostedStorage && connectStorageRequested));
   const showStorageStatusUnavailable =
     storageStatusUnavailable && storageSetupRequested;
   const configureFirstRunStorage = (status?: VideoStorageStatus) => {
@@ -4103,6 +4128,7 @@ export default function RecordRoute() {
     shouldRedirectToStorageSetupHome({
       storageSetupRequested,
       storageConfigured,
+      hostedStorage,
       hasPendingUpload: pendingUploadFile,
       uiState,
     })
@@ -4187,6 +4213,7 @@ export default function RecordRoute() {
                     showBuilderStorageOffer={!hostedAllowanceExhausted}
                     connectSource="clips_record_storage_setup_card"
                     connectFlow="record"
+                    setupReason={storageSetupReason(storageQuery.data)}
                   />
                 </div>
               ) : showStorageStatusUnavailable ? (
@@ -4532,6 +4559,7 @@ export default function RecordRoute() {
 
       <AlertDialog open={leavePromptOpen} onOpenChange={onDialogOpenChange}>
         <AlertDialogContent
+          key={leavePromptKey}
           onCloseAutoFocus={onCloseAutoFocus}
           className="max-w-md"
         >

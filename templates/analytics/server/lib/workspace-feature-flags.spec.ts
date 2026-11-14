@@ -508,6 +508,244 @@ describe("verified fleet feature flag transaction", () => {
     );
   });
 
+  describe("global writes to a peer app", () => {
+    const on = { mode: "on", emails: [], orgIds: [], percentage: 0 };
+    const orgOwn = {
+      mode: "rules",
+      emails: ["someone@example.test"],
+      orgIds: [],
+      percentage: 0,
+    };
+    const listBody = (scopes: Record<string, unknown> | undefined) => ({
+      contractVersion: 1,
+      status: "ready",
+      flags: [
+        {
+          key: "new-editor",
+          defaultValue: false,
+          rules: orgOwn,
+          enabledForCurrentUser: false,
+          ...(scopes ? { scopes } : {}),
+        },
+      ],
+      canManage: true,
+    });
+    const scopes = (global: Record<string, unknown>) => ({
+      inEffect: "org",
+      global: { canManage: true, ...global },
+      org: {
+        orgId: "content-org",
+        state: "set",
+        rules: orgOwn,
+        canManage: true,
+      },
+    });
+    const globalMutation = {
+      contractVersion: 2,
+      status: "ready",
+      key: "new-editor",
+      rules: on,
+      scope: { kind: "global", orgId: null, orgDomain: null },
+    };
+
+    it("verifies the global rule even when the operator's org keeps its own", async () => {
+      const targetFetch = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(
+          response(200, listBody(scopes({ state: "unset" }))),
+        )
+        .mockResolvedValueOnce(response(200, globalMutation))
+        .mockResolvedValueOnce(
+          response(200, listBody(scopes({ state: "set", rules: on }))),
+        );
+
+      await expect(
+        setWorkspaceFeatureFlag(admin, {
+          appId: "mail",
+          key: "new-editor",
+          operation: "replace-rules",
+          scope: "global",
+          rules: { mode: "on" },
+        }),
+      ).resolves.toMatchObject({
+        contractVersion: 3,
+        status: "verified",
+        rules: on,
+        scope: { kind: "global", orgId: null },
+        enabledForCurrentUser: null,
+        flag: { scopes: { inEffect: "org", global: { rules: on } } },
+      });
+      const write = targetFetch.mock.calls[1]![1] as RequestInit;
+      expect(JSON.parse(write.body as string)).toMatchObject({
+        scope: "global",
+      });
+    });
+
+    it("reads a global write back even with the verification flag off", async () => {
+      mocks.isFeatureFlagEnabled.mockImplementation(
+        async (flag: string | { key: string }) =>
+          (typeof flag === "string" ? flag : flag.key) !==
+          "analytics.verified-fleet-flag-mutations",
+      );
+      const targetFetch = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(
+          response(200, listBody(scopes({ state: "unset" }))),
+        )
+        .mockResolvedValueOnce(response(200, globalMutation))
+        .mockResolvedValueOnce(
+          response(200, listBody(scopes({ state: "set", rules: on }))),
+        );
+
+      await expect(
+        setWorkspaceFeatureFlag(admin, {
+          appId: "mail",
+          key: "new-editor",
+          operation: "replace-rules",
+          scope: "global",
+          rules: { mode: "on" },
+        }),
+      ).resolves.toMatchObject({
+        status: "verified",
+        scope: { kind: "global", orgId: null },
+      });
+      expect(targetFetch).toHaveBeenCalledTimes(3);
+    });
+
+    it("fails verification when a global write is read back without its rows", async () => {
+      vi.spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(
+          response(200, listBody(scopes({ state: "unset" }))),
+        )
+        .mockResolvedValueOnce(response(200, globalMutation))
+        .mockResolvedValueOnce(
+          response(200, {
+            ...listBody(undefined),
+            flags: [
+              {
+                key: "new-editor",
+                defaultValue: false,
+                rules: on,
+                enabledForCurrentUser: true,
+              },
+            ],
+          }),
+        );
+
+      await expect(
+        setWorkspaceFeatureFlag(admin, {
+          appId: "mail",
+          key: "new-editor",
+          operation: "replace-rules",
+          scope: "global",
+          rules: { mode: "on" },
+        }),
+      ).rejects.toMatchObject({ phase: "verification" });
+    });
+
+    it("refuses before writing when the target cannot report its global rule", async () => {
+      const targetFetch = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(response(200, listBody(undefined)));
+
+      await expect(
+        setWorkspaceFeatureFlag(admin, {
+          appId: "mail",
+          key: "new-editor",
+          operation: "off",
+          scope: "global",
+        }),
+      ).rejects.toMatchObject({ phase: "unsupported-target" });
+      expect(targetFetch).toHaveBeenCalledOnce();
+    });
+
+    it("refuses before writing when the operator is not on the target's admin list", async () => {
+      const targetFetch = vi.spyOn(globalThis, "fetch").mockResolvedValueOnce(
+        response(
+          200,
+          listBody({
+            ...scopes({ state: "set", rules: on }),
+            global: { state: "set", rules: on, canManage: false },
+          }),
+        ),
+      );
+
+      await expect(
+        setWorkspaceFeatureFlag(admin, {
+          appId: "mail",
+          key: "new-editor",
+          operation: "off",
+          scope: "global",
+        }),
+      ).rejects.toMatchObject({ phase: "authorization" });
+      expect(targetFetch).toHaveBeenCalledOnce();
+    });
+
+    it("fails verification when the global rule read back is not the one written", async () => {
+      vi.spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(
+          response(200, listBody(scopes({ state: "unset" }))),
+        )
+        .mockResolvedValueOnce(response(200, globalMutation))
+        .mockResolvedValueOnce(
+          response(200, listBody(scopes({ state: "unset" }))),
+        );
+
+      await expect(
+        setWorkspaceFeatureFlag(admin, {
+          appId: "mail",
+          key: "new-editor",
+          operation: "replace-rules",
+          scope: "global",
+          rules: { mode: "on" },
+        }),
+      ).rejects.toMatchObject({ phase: "verification" });
+    });
+  });
+
+  it("writes Analytics' own global rule locally and verifies it", async () => {
+    const key = "analytics.resilient-fleet-flag-directory";
+    const on = { mode: "on", emails: [], orgIds: [], percentage: 0 };
+    mocks.setLocalFeatureFlag.mockResolvedValue({
+      contractVersion: 2,
+      status: "ready",
+      key,
+      rules: on,
+      scope: { kind: "global", orgId: null, orgDomain: null },
+    });
+    mocks.listLocalFeatureFlags.mockResolvedValue({
+      ...localListBody(on),
+      flags: [
+        {
+          ...localListBody(on).flags[0],
+          scopes: {
+            inEffect: "global",
+            global: { state: "set", rules: on, canManage: true },
+            org: { orgId: admin.orgId, state: "unset", canManage: true },
+          },
+        },
+      ],
+    });
+
+    await expect(
+      setWorkspaceFeatureFlag(admin, {
+        appId: "analytics",
+        key,
+        operation: "replace-rules",
+        scope: "global",
+        rules: { mode: "on" },
+      }),
+    ).resolves.toMatchObject({
+      status: "verified",
+      scope: { kind: "global" },
+      enabledForCurrentUser: true,
+    });
+    expect(mocks.setLocalFeatureFlag).toHaveBeenCalledWith(
+      expect.objectContaining({ scope: "global" }),
+      expect.anything(),
+    );
+  });
+
   it("retries one unavailable directory lookup before sending one mutation", async () => {
     const rules = { mode: "off", emails: [], orgIds: [], percentage: 0 };
     mocks.fetchOrgAppsResult
@@ -1132,29 +1370,80 @@ describe("fleet feature flag contracts", () => {
     ).toMatchObject({ contractVersion: 2, key: "new-editor", rules });
   });
 
-  it("accepts an explicit no-org target scope only when requested", () => {
-    const body = {
+  it("accepts a global write only when the target reports writing the global rule", () => {
+    const body = (scope: Record<string, unknown>) => ({
       contractVersion: 2,
       status: "ready",
       key: "new-editor",
-      rules: { mode: "rules", emails: ["admin@example.com"] },
-      scope: { orgDomain: null },
+      rules: { mode: "on" },
+      scope,
+    });
+    const global = {
+      key: "new-editor",
+      orgDomain: null,
+      scope: "global" as const,
     };
 
+    expect(
+      validateWorkspaceFeatureFlagMutation(
+        body({ kind: "global", orgId: null, orgDomain: null }),
+        global,
+      ),
+    ).toMatchObject({ scope: { kind: "global" } });
+    // A target that predates scope drops it and writes the operator's org.
     expect(() =>
-      validateWorkspaceFeatureFlagMutation(body, {
-        key: "new-editor",
-        orgDomain: "builder.io",
-      }),
+      validateWorkspaceFeatureFlagMutation(
+        body({ orgId: "org-1", orgDomain: "builder.io" }),
+        global,
+      ),
     ).toThrow("unsupported or unverified");
+    expect(() =>
+      validateWorkspaceFeatureFlagMutation(
+        body({ orgId: null, orgDomain: null }),
+        global,
+      ),
+    ).toThrow("unsupported or unverified");
+  });
+
+  it("accepts an org write only from the operator's org", () => {
+    const body = (scope: Record<string, unknown>) => ({
+      contractVersion: 2,
+      status: "ready",
+      key: "new-editor",
+      rules: { mode: "on" },
+      scope,
+    });
+    const org = {
+      key: "new-editor",
+      orgDomain: "builder.io",
+      scope: "org" as const,
+    };
 
     expect(
-      validateWorkspaceFeatureFlagMutation(body, {
-        key: "new-editor",
-        orgDomain: "builder.io",
-        allowExplicitNoOrgTarget: true,
-      }),
+      validateWorkspaceFeatureFlagMutation(
+        body({ orgId: "org-1", orgDomain: "builder.io" }),
+        org,
+      ),
     ).toMatchObject({ key: "new-editor" });
+    // The target could not resolve the org's domain but still wrote the org.
+    expect(
+      validateWorkspaceFeatureFlagMutation(
+        body({ kind: "org", orgId: "org-1", orgDomain: null }),
+        org,
+      ),
+    ).toMatchObject({ key: "new-editor" });
+    expect(() =>
+      validateWorkspaceFeatureFlagMutation(
+        body({ kind: "global", orgId: null, orgDomain: null }),
+        org,
+      ),
+    ).toThrow("unsupported or unverified");
+    expect(() =>
+      validateWorkspaceFeatureFlagMutation(
+        body({ orgId: null, orgDomain: null }),
+        org,
+      ),
+    ).toThrow("unsupported or unverified");
   });
   it("verifies off and enable-for-operator persisted semantics", () => {
     const base = {
@@ -1300,6 +1589,7 @@ describe("fleet feature flag contracts", () => {
     ).toEqual({
       key: "new-editor",
       operation: "replace-rules",
+      scope: "org",
       rules: {
         mode: "rules",
         emails: [],
@@ -1307,5 +1597,23 @@ describe("fleet feature flag contracts", () => {
         percentage: 50,
       },
     });
+  });
+
+  it("names the org rule when the caller leaves scope out", () => {
+    expect(
+      workspaceFeatureFlagTargetInput({
+        appId: "mail",
+        key: "new-editor",
+        operation: "off",
+      }),
+    ).toEqual({ key: "new-editor", operation: "off", scope: "org" });
+    expect(
+      workspaceFeatureFlagTargetInput({
+        appId: "mail",
+        key: "new-editor",
+        operation: "off",
+        scope: "global",
+      }),
+    ).toEqual({ key: "new-editor", operation: "off", scope: "global" });
   });
 });

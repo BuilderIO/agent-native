@@ -13,6 +13,10 @@ import {
   callAction,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import {
+  reportWriteFailure,
+  writeFailureFromResponse,
+} from "@agent-native/core/client/write-failure";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
 import { PresenceBar } from "@agent-native/toolkit/collab-ui";
 import {
@@ -251,13 +255,14 @@ export default function ExplorerDashboardPage() {
     setDashboardActionsOpen(false);
   }, []);
 
-  const { selectedPanelId, selectPanelForChat } = useDashboardChatContext({
-    id: dashboardId,
-    kind: "explorer",
-    title: dashboard?.name,
-    panelCount: dashboard?.charts.length,
-    canEdit,
-  });
+  const { selectedPanelIds, selectPanelForChat, panelSelectionTarget } =
+    useDashboardChatContext({
+      id: dashboardId,
+      kind: "explorer",
+      title: dashboard?.name,
+      panelCount: dashboard?.charts.length,
+      canEdit,
+    });
   const { mutateAsync: hideDashboardAction, isPending: unhidePending } =
     useActionMutation("hide-dashboard");
 
@@ -312,7 +317,14 @@ export default function ExplorerDashboardPage() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ text: body, requestSource: TAB_ID }),
-      }).catch(() => {});
+      }).then(
+        (res) => {
+          if (!res.ok) {
+            reportWriteFailure(writeFailureFromResponse(res));
+          }
+        },
+        (error: unknown) => reportWriteFailure(error),
+      );
     },
     [collabDocId],
   );
@@ -852,8 +864,9 @@ export default function ExplorerDashboardPage() {
                     navigate(`/dashboards/explorer?config=${chart.configId}`)
                   }
                   editable={canEdit}
-                  selectedForChat={selectedPanelId === chart.id}
+                  selectedForChat={selectedPanelIds.includes(chart.id)}
                   selectPanelForChat={selectPanelForChat}
+                  panelSelectionTarget={panelSelectionTarget}
                 />
               ))}
             </div>

@@ -1,6 +1,6 @@
 import { fileURLToPath } from "node:url";
 
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
   BASELINE_PATH,
@@ -8,14 +8,22 @@ import {
 } from "../../../../scripts/guard-no-new-legacy-mcp-hints.js";
 import { isMcpReadOnlyTool } from "../action-call-classification.js";
 import type { ActionEntry } from "../agent/production-agent.js";
+import { loadActionsFromStaticRegistry } from "../server/action-discovery.js";
 import { filesystemActionEntry } from "../server/filesystem-action-entry.js";
 import {
   LOAD_TIMEOUT_MS,
   SURFACES,
   loadAppCatalogs,
+  withCatalogClient,
   type AppCatalog,
   type SurfaceCatalog,
 } from "./advertised-catalog.harness.js";
+import type { MCPConfig } from "./build-server.js";
+import {
+  frameworkMcpTools,
+  isFrameworkMcpTool,
+  preferMcpAppActions,
+} from "./framework-tools.js";
 
 // The guard and this spec read the baseline through the same function, so the
 // list the guard compares with the base branch is the list checked here.
@@ -42,6 +50,289 @@ const SERVER_DECIDED_TOOLS: Readonly<
 
 let apps: AppCatalog[] = [];
 
+afterEach(() => vi.unstubAllEnvs());
+
+const REVIEWED_FRAMEWORK_TOOLS = new Set([
+  "invite-organization-member",
+  "list-organization-members",
+  "list-resource-shares",
+  "manage-automations",
+  "navigate",
+  "set-resource-visibility",
+  "share-resource",
+  "tool-search",
+  "unshare-resource",
+  "upload-image",
+  "view-screen",
+]);
+const MCP_SERVER_TOOLS = new Set([
+  "ask_app",
+  "ask_app_status",
+  "ask-agent",
+  "list_apps",
+  "open_app",
+  "create_embed_session",
+]);
+const RUNTIME_TOOLS = new Set([
+  "create_workspace_app",
+  "list_templates",
+  "core-send-email",
+  "fetch",
+  "web-request",
+  "db-schema",
+  "db-query",
+  "db-exec",
+  "db-patch",
+  "call-agent",
+  "manage-agent-engine",
+  "manage-agent-loop-settings",
+  "web-search",
+  "run-code",
+  "tool-orchestration",
+  "get-code-execution",
+  "workspace-files",
+  "activate-browser",
+  "set-browser-control",
+  "set-computer-use",
+  "list-remote-browser-devices",
+  "read-remote-browser-page",
+  "control-remote-browser",
+  "get-remote-browser-command",
+  "bash",
+  "read",
+  "edit",
+  "write",
+  "shell",
+  "read-file",
+  "write-file",
+  "search-files",
+]);
+
+function catalogModes(surface: SurfaceCatalog) {
+  const config = surface.config;
+  const base = {
+    ...config,
+    catalogMode: undefined,
+    directoryProfile: undefined,
+    widgetReadActions: undefined,
+    widgetWriteActions: undefined,
+  };
+  const entries = surface.surface.fullSurface
+    ? (config.productionActions ?? config.actions)
+    : config.actions;
+  const defaultNames = new Set(
+    surface.catalogs.default.map((tool) => tool.name),
+  );
+  const directoryNames = Object.entries(entries)
+    .filter(
+      ([name, entry]) =>
+        defaultNames.has(name) &&
+        !MCP_SERVER_TOOLS.has(name) &&
+        name !== "tool-search" &&
+        entry.mcpAnnotations?.readOnlyHint === isMcpReadOnlyTool(entry) &&
+        typeof entry.mcpAnnotations?.destructiveHint === "boolean" &&
+        typeof entry.mcpAnnotations?.openWorldHint === "boolean",
+    )
+    .map(([name]) => name);
+  if (directoryNames.length === 0)
+    throw new Error(`${config.name}: no reviewed directory tools`);
+  return [
+    { name: "mounted", config, fullCatalog: false, env: false },
+    {
+      name: "compact",
+      config: {
+        ...base,
+        connectorCatalog: undefined,
+        externalAgents: { ...base.externalAgents, authenticatedReads: "off" },
+      },
+      fullCatalog: false,
+      env: false,
+    },
+    {
+      name: "connector",
+      config: { ...base, connectorCatalog: Object.keys(entries) },
+      fullCatalog: false,
+      env: false,
+    },
+    {
+      name: "app",
+      config: { ...base, catalogMode: "app" },
+      fullCatalog: false,
+      env: false,
+    },
+    {
+      name: "directory",
+      config: {
+        ...base,
+        catalogMode: "directory",
+        widgetDomain: "https://catalog-contract.example.com",
+        connectorCatalog: directoryNames,
+      },
+      fullCatalog: false,
+      env: false,
+    },
+    { name: "full token", config: base, fullCatalog: true, env: false },
+    { name: "full env", config: base, fullCatalog: false, env: true },
+  ] satisfies Array<{
+    name: string;
+    config: MCPConfig;
+    fullCatalog: boolean;
+    env: boolean;
+  }>;
+}
+
+describe("MCP framework runtime boundary", () => {
+  it(
+    "does not advertise or execute excluded tools in any catalog mode",
+    async () => {
+      for (const app of apps) {
+        for (const surface of app.surfaces) {
+          vi.stubEnv(
+            "AGENT_MODE",
+            surface.surface.dev ? "development" : "production",
+          );
+          vi.stubEnv(
+            "AGENT_PROD_CODE_EXECUTION",
+            surface.surface.codeExecution,
+          );
+          const excluded = new Set(
+            [...RUNTIME_TOOLS].filter(
+              (name) => !app.templateActionNames.has(name),
+            ),
+          );
+          for (const [name, entry] of Object.entries(surface.entries)) {
+            const parameters = entry.tool.parameters as
+              | { properties?: Record<string, { type?: unknown }> }
+              | undefined;
+            const rawQuery = Object.entries(parameters?.properties ?? {}).some(
+              ([field, schema]) =>
+                ["sql", "code", "script", "expression"].includes(
+                  field.toLowerCase(),
+                ) &&
+                (schema.type === undefined ||
+                  schema.type === "string" ||
+                  (Array.isArray(schema.type) &&
+                    schema.type.includes("string"))),
+            );
+            if (
+              /^(?:db-|provider-api-|seed-)/i.test(name) ||
+              /extension|browser-session/.test(name) ||
+              /^context-(?:manifest-get|preview-get|pin|evict|restore|report)$/.test(
+                name,
+              ) ||
+              entry.cliWrapper ||
+              (rawQuery && entry.publicAgent?.allowRawQueryInput !== true) ||
+              (isFrameworkMcpTool(entry) &&
+                !REVIEWED_FRAMEWORK_TOOLS.has(name) &&
+                !MCP_SERVER_TOOLS.has(name))
+            )
+              excluded.add(name);
+          }
+          for (const mode of catalogModes(surface)) {
+            vi.stubEnv("AGENT_NATIVE_MCP_FULL_CATALOG", mode.env ? "1" : "0");
+            const run = vi.fn(() => ({ unexpected: true }));
+            const intercept = (entries: Record<string, ActionEntry>) =>
+              Object.fromEntries(
+                Object.entries(entries).map(([name, entry]) => [
+                  name,
+                  { ...entry, run },
+                ]),
+              );
+            const config = {
+              ...mode.config,
+              actions: intercept(mode.config.actions),
+              ...(mode.config.productionActions
+                ? {
+                    productionActions: intercept(mode.config.productionActions),
+                  }
+                : {}),
+            };
+            const label = `${app.appId}/${surface.surface.name}/${mode.name}`;
+            await withCatalogClient(
+              config,
+              {
+                fullCatalog: mode.fullCatalog,
+                fullSurface: surface.surface.fullSurface,
+              },
+              async (client) => {
+                const names = (await client.listTools()).tools.map(
+                  (tool) => tool.name,
+                );
+                expect(
+                  names.filter((name) => excluded.has(name)),
+                  label,
+                ).toEqual([]);
+                for (const name of excluded) {
+                  const result = await client.callTool({ name, arguments: {} });
+                  expect(result.isError, `${label}/${name}`).toBe(true);
+                  expect(result.content, `${label}/${name}`).toEqual([
+                    { type: "text", text: `Unknown tool: ${name}` },
+                  ]);
+                }
+                expect(run, label).not.toHaveBeenCalled();
+              },
+            );
+          }
+        }
+      }
+    },
+    LOAD_TIMEOUT_MS,
+  );
+
+  it("defaults future framework entries off after action loading and app-name collisions", async () => {
+    const run = vi.fn(() => ({ unexpected: true }));
+    const runtime = frameworkMcpTools({
+      "future-runtime-tool": { tool: { description: "Runtime tool" }, run },
+      "list-files": { tool: { description: "Local files" }, run },
+    });
+    const loaded = loadActionsFromStaticRegistry({
+      "future-runtime-tool": { default: runtime["future-runtime-tool"] },
+    });
+    const filesystemLoaded = filesystemActionEntry(
+      runtime["future-runtime-tool"]!,
+    );
+    const appRun = vi.fn(() => ({ files: [] }));
+    const app = {
+      "list-files": {
+        tool: { description: "App files" },
+        readOnly: true,
+        run: appRun,
+      },
+    };
+    const actions = preferMcpAppActions(
+      { ...runtime, ...loaded, "loaded-runtime-tool": filesystemLoaded },
+      app,
+    );
+    for (const fullCatalog of [false, true]) {
+      await withCatalogClient(
+        {
+          name: "factory-contract",
+          actions,
+          builtinCrossAppTools: false,
+          connectorCatalog: Object.keys(actions),
+        },
+        { fullCatalog, fullSurface: false },
+        async (client) => {
+          expect(
+            (await client.listTools()).tools.map((tool) => tool.name),
+          ).toEqual(["list-files"]);
+          for (const name of ["future-runtime-tool", "loaded-runtime-tool"]) {
+            expect(
+              (await client.callTool({ name, arguments: {} })).isError,
+            ).toBe(true);
+          }
+          expect(
+            (await client.callTool({ name: "list-files", arguments: {} }))
+              .isError,
+          ).not.toBe(true);
+        },
+      );
+    }
+    expect(run).not.toHaveBeenCalled();
+    expect(appRun).toHaveBeenCalledTimes(2);
+  });
+});
+
 beforeAll(async () => {
   apps = await loadAppCatalogs();
 }, LOAD_TIMEOUT_MS);
@@ -67,14 +358,8 @@ function advertisements(app: AppCatalog) {
   );
 }
 
-// Read-only actions that still write: run-code through its bridge, web-request
-// with a non-GET method or saveToFile, and pull-document by saving an open
-// editor first. Each stays a write over MCP wherever it is served.
-const READ_ONLY_ACTIONS_THAT_WRITE = [
-  "run-code",
-  "web-request",
-  "pull-document",
-] as const;
+// Saving an open editor before pulling is still a write over MCP.
+const READ_ONLY_ACTIONS_THAT_WRITE = ["pull-document"] as const;
 
 function isReadOnlyAction(entry: ActionEntry | undefined): boolean {
   return entry !== undefined && isMcpReadOnlyTool(entry);
@@ -180,25 +465,26 @@ describe("MCP destructiveHint contract over each app's real catalog", () => {
     }
   });
 
-  it("covers the code-execution tools that only some deployments register", () => {
-    const fullTools = (app: AppCatalog, index: number) =>
-      app.surfaces[index]!.catalogs.full.map((tool) => tool.name);
-    const [off, sandboxed, trusted, dev] = [0, 1, 2, 3];
-    const codingTools = ["bash", "edit", "write"];
-    for (const app of apps.filter((candidate) => !candidate.ownMcpMount)) {
-      const label = (index: number) =>
-        `${app.appId}: ${app.surfaces[index]!.surface.name}`;
-      expect(fullTools(app, off), label(off)).not.toContain("run-code");
-      for (const index of [sandboxed, trusted, dev]) {
-        expect(fullTools(app, index), label(index)).toContain("run-code");
-      }
-      for (const index of [off, sandboxed]) {
-        expect(fullTools(app, index), label(index)).not.toContain("bash");
-      }
-      for (const index of [trusted, dev]) {
-        expect(fullTools(app, index), label(index)).toEqual(
-          expect.arrayContaining(codingTools),
-        );
+  it("keeps code execution off MCP in every deployment", () => {
+    for (const app of apps) {
+      for (const surface of app.surfaces) {
+        for (const catalog of Object.values(surface.catalogs)) {
+          const names = catalog.map((tool) => tool.name);
+          for (const name of [
+            "run-code",
+            "tool-orchestration",
+            "bash",
+            "read",
+            "edit",
+            "write",
+            "shell",
+            "write-file",
+          ]) {
+            expect(names, `${app.appId}/${surface.surface.name}`).not.toContain(
+              name,
+            );
+          }
+        }
       }
     }
   });

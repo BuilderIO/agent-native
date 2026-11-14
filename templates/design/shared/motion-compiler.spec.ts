@@ -1,3 +1,4 @@
+import postcss from "postcss";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -225,6 +226,179 @@ describe("compile — property is emitted safely", () => {
     expect(css).toContain("animation-fill-mode: both, both;");
   });
 
+  it("cycles shorter animation longhand lists to match the animation-name list", () => {
+    const timeline = makeTimeline("opacity");
+    timeline.durationMs = 1000;
+    timeline.defaultEase = "linear";
+    timeline.tracks = [
+      {
+        targetNodeId: "node1",
+        property: "opacity",
+        keyframes: [
+          { t: 0, value: "0" },
+          { t: 1, value: "1" },
+        ],
+      },
+      {
+        targetNodeId: "node1",
+        property: "width",
+        keyframes: [
+          { t: 0, value: "0px" },
+          { t: 1, value: "10px" },
+        ],
+      },
+      {
+        targetNodeId: "node1",
+        property: "height",
+        keyframes: [
+          { t: 0, value: "0px" },
+          { t: 1, value: "10px" },
+        ],
+      },
+      {
+        targetNodeId: "node1",
+        property: "transform",
+        keyframes: [
+          { t: 0, value: "translateX(0px)" },
+          { t: 1, value: "translateX(10px)" },
+        ],
+      },
+    ];
+
+    const { css } = compile(timeline);
+    const ruleStart = css.indexOf('[data-agent-native-node-id="node1"] {');
+    const ruleEnd = css.indexOf("\n}", ruleStart) + 2;
+    const rule = css.slice(ruleStart, ruleEnd);
+    const shortenedRule = rule
+      .replace(
+        /  animation-duration: [^;]+;/,
+        "  animation-duration: 100ms, 200ms;\n  animation-delay: 0ms, 10ms;",
+      )
+      .replace(
+        /  animation-timing-function: [^;]+;/,
+        "  animation-timing-function: linear, ease-in;",
+      );
+    const shortenedCss =
+      `${css.slice(0, ruleStart)}${shortenedRule}${css.slice(ruleEnd)}`.replace(
+        /^    animation-timing-function: [^;]+;\n/gm,
+        "",
+      );
+    const parsed = parse(shortenedCss);
+    const byProperty = new Map(
+      parsed.map((track) => [
+        track.property,
+        {
+          durationMs: track.durationMs,
+          delayMs: track.delayMs ?? 0,
+          ease: track.keyframes[0]?.ease,
+        },
+      ]),
+    );
+
+    expect(byProperty.size).toBe(4);
+    expect(byProperty.get("height")).toEqual({
+      durationMs: 100,
+      delayMs: 0,
+      ease: "linear",
+    });
+    expect(byProperty.get("opacity")).toEqual({
+      durationMs: 200,
+      delayMs: 10,
+      ease: "ease-in",
+    });
+    expect(byProperty.get("transform")).toEqual({
+      durationMs: 100,
+      delayMs: 0,
+      ease: "linear",
+    });
+    expect(byProperty.get("width")).toEqual({
+      durationMs: 200,
+      delayMs: 10,
+      ease: "ease-in",
+    });
+  });
+
+  it("cycles a shorter composition list in the authored animation-name order", () => {
+    const timeline = makeTimeline("opacity");
+    timeline.tracks = [
+      {
+        targetNodeId: "node1",
+        property: "opacity",
+        keyframes: [
+          { t: 0, value: "0" },
+          { t: 1, value: "1" },
+        ],
+      },
+      {
+        id: "position-x",
+        targetNodeId: "node1",
+        property: "translate",
+        composition: "add",
+        keyframes: [
+          { t: 0, value: "0px 0px" },
+          { t: 1, value: "100px 0px" },
+        ],
+      },
+      {
+        id: "position-y",
+        targetNodeId: "node1",
+        property: "translate",
+        composition: "add",
+        keyframes: [
+          { t: 0, value: "0px 0px" },
+          { t: 1, value: "0px 50px" },
+        ],
+      },
+      {
+        targetNodeId: "node1",
+        property: "width",
+        keyframes: [
+          { t: 0, value: "0px" },
+          { t: 1, value: "10px" },
+        ],
+      },
+    ];
+
+    const { css } = compile(timeline);
+    const animationNames = [...css.matchAll(/@keyframes\s+([^\s{]+)/g)].map(
+      (match) => match[1]!,
+    );
+    const ruleStart = css.indexOf('[data-agent-native-node-id="node1"] {');
+    const ruleEnd = css.indexOf("\n}", ruleStart) + 2;
+    const rule = css.slice(ruleStart, ruleEnd);
+    const authoredOrder = [
+      animationNames[0],
+      animationNames[1],
+      animationNames[3],
+      animationNames[2],
+    ];
+    const authoredRule = rule
+      .replace(
+        /  animation-name: [^;]+;/,
+        `  animation-name: ${authoredOrder.join(", ")};`,
+      )
+      .replace(
+        /  animation-composition: [^;]+;/,
+        "  animation-composition: replace, add;",
+      );
+    const authoredCss = `${css.slice(0, ruleStart)}${authoredRule}${css.slice(ruleEnd)}`;
+
+    expect(
+      parse(authoredCss).map((track) => ({
+        id: track.id ?? null,
+        property: track.property,
+        composition: track.composition,
+      })),
+    ).toEqual(
+      expect.arrayContaining([
+        { id: null, property: "opacity", composition: "replace" },
+        { id: "position-x", property: "translate", composition: "add" },
+        { id: null, property: "width", composition: "replace" },
+        { id: "position-y", property: "translate", composition: "add" },
+      ]),
+    );
+  });
+
   it("keeps repeated property animations uniquely named and in input order", () => {
     const timeline = makeTimeline("opacity");
     timeline.durationMs = 900;
@@ -306,6 +480,28 @@ describe("compile — property is emitted safely", () => {
 });
 
 describe("parse — managed style fallback", () => {
+  it("inherits target timing for keyframes without local easing declarations", () => {
+    const timeline = makeTimeline("opacity");
+    const ease = "cubic-bezier(0.2, 0, 0, 1)";
+    timeline.defaultEase = ease;
+
+    const root = postcss.parse(compile(timeline).css);
+    root.walkAtRules("keyframes", (keyframes) => {
+      keyframes.walkDecls("animation-timing-function", (declaration) => {
+        declaration.remove();
+      });
+    });
+
+    expect(parse(root.toString())).toMatchObject([
+      {
+        keyframes: [
+          { t: 0, value: "0", ease },
+          { t: 1, value: "1", ease },
+        ],
+      },
+    ]);
+  });
+
   it("round-trips a one-keyframe track through managed CSS", () => {
     const timeline = makeTimeline("opacity");
     timeline.tracks[0]!.keyframes = [{ t: 0, value: "0.5", ease: "linear" }];
@@ -881,11 +1077,69 @@ describe("compile — normalized SVG Path trim", () => {
     expect(parse(css)[0]?.keyframes).toEqual(timeline.tracks[0]!.keyframes);
   });
 
+  it("accepts Path keyframes that inherit the animation-level easing", () => {
+    const timeline = makeTimeline("path-trim");
+    timeline.tracks[0]!.keyframes = [
+      { t: 0, value: "0% 100%" },
+      { t: 1, value: "50% 75%" },
+    ];
+    const css = compile(timeline).css.replace(
+      /^\s*animation-timing-function:[^;]+;\s*$/gm,
+      "",
+    );
+
+    expect(parse(css)[0]?.keyframes.map(({ t, value }) => [t, value])).toEqual(
+      timeline.tracks[0]!.keyframes.map(({ t, value }) => [t, value]),
+    );
+  });
+
+  it("accepts a Path keyframe whose final declaration omits its semicolon", () => {
+    const timeline = makeTimeline("path-trim");
+    timeline.tracks[0]!.keyframes = [
+      { t: 0, value: "0% 100%" },
+      { t: 1, value: "50% 75%" },
+    ];
+    const css = compile(timeline).css.replace(
+      /(animation-timing-function:[^;{}]+);(?=\s*})/g,
+      "$1",
+    );
+
+    expect(
+      parse(css)[0]?.keyframes.map(({ t, value }) => ({ t, value })),
+    ).toEqual(timeline.tracks[0]!.keyframes);
+  });
+
   it("rejects malformed semantic trim values", () => {
     const timeline = makeTimeline("path-trim");
     timeline.tracks[0]!.keyframes[1]!.value = "101% 0%";
     expect(() => compile(timeline)).toThrow(/percentages between 0 and 100/);
   });
+
+  it.each([
+    [
+      "stroke-dasharray",
+      "stroke-dasharray: 20 80;",
+      "stroke-dasharray: 21 79;",
+    ],
+    [
+      "stroke-dashoffset",
+      "stroke-dashoffset: -100;",
+      "stroke-dashoffset: -99;",
+    ],
+  ])(
+    "rejects edits to derived Path %s values",
+    (_property, original, edited) => {
+      const timeline = makeTimeline("path-trim");
+      timeline.tracks[0]!.keyframes[0]!.value = "100% 20%";
+      timeline.tracks[0]!.keyframes[1]!.value = "0% 100%";
+      const css = compile(timeline).css.replace(original, edited);
+
+      expect(css).not.toBe(compile(timeline).css);
+      expect(() => parse(css)).toThrow(
+        /path animation that cannot be read losslessly/,
+      );
+    },
+  );
 });
 
 const MAX_MOTION_TRACKS = 64;

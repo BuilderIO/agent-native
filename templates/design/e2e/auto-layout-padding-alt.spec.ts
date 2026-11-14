@@ -45,12 +45,10 @@ test("padding with four different sides opens as four side fields showing each v
 }) => {
   const { layout } = await openAndSelectFrame(app, "10px 20px 30px 40px");
 
-  await expect(layout.getByLabel("Top", { exact: true })).toHaveValue("10px");
-  await expect(layout.getByLabel("Right", { exact: true })).toHaveValue("20px");
-  await expect(layout.getByLabel("Bottom", { exact: true })).toHaveValue(
-    "30px",
-  );
-  await expect(layout.getByLabel("Left", { exact: true })).toHaveValue("40px");
+  await expect(layout.getByLabel("Top", { exact: true })).toHaveValue("10");
+  await expect(layout.getByLabel("Right", { exact: true })).toHaveValue("20");
+  await expect(layout.getByLabel("Bottom", { exact: true })).toHaveValue("30");
+  await expect(layout.getByLabel("Left", { exact: true })).toHaveValue("40");
 });
 
 test("Alt-scrubbing an unlinked padding side mirrors its opposite side", async ({
@@ -60,7 +58,7 @@ test("Alt-scrubbing an unlinked padding side mirrors its opposite side", async (
   await layout.getByRole("button", { name: "Unlink padding" }).click();
   const top = layout.getByLabel("Top", { exact: true });
   for (const side of ["Top", "Right", "Bottom", "Left"]) {
-    await expect(layout.getByLabel(side, { exact: true })).toHaveValue("10px");
+    await expect(layout.getByLabel(side, { exact: true })).toHaveValue("10");
   }
   const before = await app.savedNodes(id);
   const box = (await top.boundingBox())!;
@@ -93,7 +91,7 @@ test("Alt-scrubbing an unlinked padding side mirrors its opposite side", async (
   const after = await app.savedNodes(id);
   expectOnlyChanged(before, after, ["padding-frame"]);
   await expect(layout.getByLabel("Bottom", { exact: true })).toHaveValue(
-    scrubbed,
+    String(Number.parseFloat(scrubbed)),
   );
   const child = await app.designRect("padding-child");
   expect(

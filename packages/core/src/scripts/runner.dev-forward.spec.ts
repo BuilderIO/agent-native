@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockReadDevActionDiscoveryFile = vi.hoisted(() => vi.fn());
+const question = vi.hoisted(() => vi.fn(async (_prompt: string) => "n"));
+const closePrompt = vi.hoisted(() => vi.fn());
+vi.mock("node:readline/promises", () => ({
+  createInterface: () => ({ question, close: closePrompt }),
+}));
 const mockIsProcessAlive = vi.hoisted(() => vi.fn());
 const mockGetDatabaseUrl = vi.hoisted(() =>
   vi.fn(() => "pglite:./data/pglite"),
@@ -23,6 +28,7 @@ vi.mock("../db/client.js", () => ({
 }));
 vi.mock("../server/dev-action-bridge.js", () => ({
   DEV_ACTION_ORG_HEADER: "x-agent-native-dev-org",
+  DEV_ACTION_ORG_SCOPE_HEADER: "x-agent-native-dev-org-scope",
   DEV_ACTION_ROUTE: "/_agent-native/dev/action",
   DEV_ACTION_TOKEN_HEADER: "x-agent-native-dev-token",
   DEV_ACTION_USER_HEADER: "x-agent-native-dev-user",
@@ -81,6 +87,7 @@ describe("tryForwardToDevServer", () => {
 
   beforeEach(() => {
     fetchMock = vi.fn();
+    question.mockReset().mockResolvedValue("n");
     global.fetch = fetchMock as unknown as typeof fetch;
     mockReadDevActionDiscoveryFile.mockReset();
     mockIsProcessAlive.mockReset();
@@ -91,6 +98,7 @@ describe("tryForwardToDevServer", () => {
     mockIsValidDevActionHandoffUrl.mockClear();
     delete process.env.AGENT_USER_EMAIL;
     delete process.env.AGENT_ORG_ID;
+    delete process.env.AGENT_ORG_SCOPE;
     delete process.env.APP_URL;
     delete process.env.WORKSPACE_GATEWAY_URL;
     delete process.env.VITE_WORKSPACE_GATEWAY_URL;
@@ -107,6 +115,110 @@ describe("tryForwardToDevServer", () => {
     await tryForwardToDevServer("do-thing", []);
     expect(fetchMock).not.toHaveBeenCalled();
   });
+
+  it("passes --approved as bridge metadata, never as action input", async () => {
+    mockReadDevActionDiscoveryFile.mockReturnValue(liveDiscovery());
+    mockIsProcessAlive.mockReturnValue(true);
+    fetchMock.mockResolvedValue(Response.json({ ok: true, result: "done" }));
+    mockExit();
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    await expect(
+      tryForwardToDevServer("delete-data", [
+        "--approved",
+        '{"action":"delete"}',
+      ]),
+    ).rejects.toThrow("process.exit(0)");
+    expect(JSON.parse(fetchMock.mock.calls[0]![1].body)).toEqual({
+      name: "delete-data",
+      input: { action: "delete" },
+      approved: true,
+      approvalSource: "flag",
+    });
+    expect(question).not.toHaveBeenCalled();
+  });
+
+  it("refuses a bridge approval challenge without local fallback and prints the exact rerun", async () => {
+    mockReadDevActionDiscoveryFile.mockReturnValue(liveDiscovery());
+    mockIsProcessAlive.mockReturnValue(true);
+    fetchMock.mockResolvedValue(
+      Response.json(
+        {
+          ok: false,
+          errorCode: "approval_required",
+          arguments: { action: "delete" },
+        },
+        { status: 409 },
+      ),
+    );
+    mockExit();
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    await expect(
+      tryForwardToDevServer("delete-data", ["--action", "delete"]),
+    ).rejects.toThrow("process.exit(1)");
+    expect(error).toHaveBeenCalledWith(
+      'Action "delete-data" failed:',
+      'Action "delete-data" requires human approval. Ask the person to approve this call, then rerun:\npnpm action delete-data --action delete --approved',
+    );
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it.each(["y", "n", ""])(
+    "handles a forwarded TTY approval answer %j",
+    async (answer) => {
+      const stdinTty = Object.getOwnPropertyDescriptor(process.stdin, "isTTY");
+      const stdoutTty = Object.getOwnPropertyDescriptor(
+        process.stdout,
+        "isTTY",
+      );
+      Object.defineProperty(process.stdin, "isTTY", {
+        configurable: true,
+        value: true,
+      });
+      Object.defineProperty(process.stdout, "isTTY", {
+        configurable: true,
+        value: true,
+      });
+      try {
+        question.mockReset().mockResolvedValue(answer);
+        mockReadDevActionDiscoveryFile.mockReturnValue(liveDiscovery());
+        mockIsProcessAlive.mockReturnValue(true);
+        fetchMock
+          .mockResolvedValueOnce(
+            Response.json(
+              {
+                ok: false,
+                errorCode: "approval_required",
+                arguments: { action: "delete" },
+                argumentsHash: "reviewed-hash",
+              },
+              { status: 409 },
+            ),
+          )
+          .mockResolvedValueOnce(Response.json({ ok: true }));
+        mockExit();
+        vi.spyOn(console, "log").mockImplementation(() => {});
+        vi.spyOn(console, "error").mockImplementation(() => {});
+        await expect(tryForwardToDevServer("delete-data", [])).rejects.toThrow(
+          answer === "y" ? "process.exit(0)" : "process.exit(1)",
+        );
+        expect(fetchMock).toHaveBeenCalledTimes(answer === "y" ? 2 : 1);
+        if (answer === "y")
+          expect(JSON.parse(fetchMock.mock.calls[1]![1].body)).toEqual({
+            name: "delete-data",
+            input: {},
+            approved: true,
+            approvalSource: "prompt",
+            approvalArgumentsHash: "reviewed-hash",
+          });
+      } finally {
+        if (stdinTty) Object.defineProperty(process.stdin, "isTTY", stdinTty);
+        else delete (process.stdin as any).isTTY;
+        if (stdoutTty)
+          Object.defineProperty(process.stdout, "isTTY", stdoutTty);
+        else delete (process.stdout as any).isTTY;
+      }
+    },
+  );
 
   it("runs in-process when the discovery file's pid is dead", async () => {
     mockReadDevActionDiscoveryFile.mockReturnValue(liveDiscovery());
@@ -280,6 +392,30 @@ describe("tryForwardToDevServer", () => {
     );
     expect(logSpy).toHaveBeenCalledWith("forwarded-ok");
     expect(exit).toHaveBeenCalledWith(0);
+  });
+
+  it("forwards a personal scope so the dev server looks up no org", async () => {
+    // The agent's shell sets AGENT_ORG_SCOPE=personal for a request with no org.
+    mockReadDevActionDiscoveryFile.mockReturnValue(
+      liveDiscovery({ token: "secret-token" }),
+    );
+    mockIsProcessAlive.mockReturnValue(true);
+    process.env.AGENT_USER_EMAIL = "owner@example.test";
+    process.env.AGENT_ORG_SCOPE = "personal";
+    fetchMock.mockResolvedValue({
+      status: 200,
+      json: async () => ({ ok: true, result: "forwarded-ok" }),
+    });
+    mockExit();
+    vi.spyOn(console, "log").mockImplementation(() => {});
+
+    await expect(tryForwardToDevServer("do-thing", [])).rejects.toThrow(
+      "process.exit(0)",
+    );
+
+    const headers = fetchMock.mock.calls[0]?.[1]?.headers;
+    expect(headers["x-agent-native-dev-org-scope"]).toBe("personal");
+    expect(headers["x-agent-native-dev-org"]).toBeUndefined();
   });
 
   it("opens a private handoff returned beside the forwarded result", async () => {

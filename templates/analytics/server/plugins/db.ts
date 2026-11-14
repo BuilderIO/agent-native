@@ -14,6 +14,7 @@ import { isInBackgroundFunctionRuntime } from "@agent-native/core/server";
 import "../db/index.js";
 import * as schema from "../db/schema.js";
 import { EXTERNAL_DASHBOARD_MIGRATION_SQL } from "../lib/bi-migration/external-dashboards-store.js";
+import { BIGQUERY_USAGE_MIGRATION_SQL } from "../lib/bigquery-usage.js";
 import { BUILTIN_DASHBOARD_CHECKS_MIGRATION_SQL } from "../lib/builtin-dashboard-checks-migration.js";
 import {
   CONTENT_METRICS_MIGRATION_SQL,
@@ -169,6 +170,13 @@ async function repairAnalyticsReplayLinkIndexes(): Promise<
     SESSION_RECORDING_CLIENT_STARTED_AT_INDEX,
   ]);
 }
+
+// raw-sql-ok: this one migration imports static app-owned DDL with no runtime values or interpolation.
+const BIGQUERY_JOB_USAGE_MIGRATION = {
+  version: 183,
+  name: "analytics-bigquery-job-usage",
+  sql: BIGQUERY_USAGE_MIGRATION_SQL,
+};
 
 export const runAnalyticsMigrations = runMigrations(
   [
@@ -1847,6 +1855,59 @@ CREATE UNIQUE INDEX IF NOT EXISTS dashboard_views_default_per_dashboard_idx
       name: "analytics-content-coverage-config",
       sql: CONTENT_COVERAGE_CONFIG_MIGRATION_SQL,
     },
+    {
+      version: 182,
+      name: "analytics-output-outcomes",
+      sql: {
+        // The coverage table comes last: its existence is how ingest and
+        // reads know the other two exist.
+        postgres: `CREATE TABLE IF NOT EXISTS analytics_output_outcomes (
+      id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      app TEXT NOT NULL,
+      output_type TEXT NOT NULL,
+      output_id TEXT NOT NULL,
+      made_at TEXT,
+      use_by TEXT,
+      made_session_id TEXT,
+      first_used_at TEXT,
+      used_event TEXT,
+      last_seen_at TEXT NOT NULL
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS analytics_output_outcomes_key_idx
+      ON analytics_output_outcomes (tenant_key, app, output_id);
+    CREATE INDEX IF NOT EXISTS analytics_output_outcomes_made_session_idx
+      ON analytics_output_outcomes (tenant_key, made_session_id);
+    CREATE INDEX IF NOT EXISTS analytics_output_outcomes_last_seen_idx
+      ON analytics_output_outcomes (last_seen_at);
+    CREATE TABLE IF NOT EXISTS analytics_output_outcome_gaps (
+      id TEXT PRIMARY KEY,
+      tenant_key TEXT NOT NULL,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      first_at TEXT NOT NULL,
+      last_at TEXT NOT NULL,
+      recorded_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS analytics_output_outcome_gaps_tenant_idx
+      ON analytics_output_outcome_gaps (tenant_key, last_at);
+    CREATE TABLE IF NOT EXISTS analytics_output_outcome_coverage (
+      tenant_key TEXT PRIMARY KEY,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      started_at TEXT NOT NULL
+    )`,
+      },
+    },
+    BIGQUERY_JOB_USAGE_MIGRATION,
+    {
+      version: 184,
+      name: "analytics-bigquery-usage-expiry-index",
+      sql: `CREATE INDEX IF NOT EXISTS analytics_bigquery_usage_started_idx
+        ON analytics_bigquery_usage (started_at, project_id, job_id)`,
+    },
   ],
   { table: "analytics_migrations" },
 );
@@ -1873,7 +1934,9 @@ export default async (nitroApp: any): Promise<void> => {
       globalThis as typeof globalThis & {
         __AGENT_NATIVE_CONTENT_METRICS_SCHEDULED_RUNTIME__?: boolean;
       }
-    ).__AGENT_NATIVE_CONTENT_METRICS_SCHEDULED_RUNTIME__ === true;
+    ).__AGENT_NATIVE_CONTENT_METRICS_SCHEDULED_RUNTIME__ === true ||
+    globalThis.__AGENT_NATIVE_BIGQUERY_USAGE_RETENTION_SCHEDULED_RUNTIME__ ===
+      true;
   if (isInBackgroundFunctionRuntime() && !isScheduledSchemaRuntime) {
     // Most durable workers execute signed internal routes against a schema
     // owned by the regular server. A second migration runner only adds a Neon

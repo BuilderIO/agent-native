@@ -9,30 +9,37 @@ import {
 } from "@agent-native/core/server";
 import { backgroundAgentTurnIdForReceipt } from "@agent-native/core/shared";
 import { assertAccess } from "@agent-native/core/sharing";
-import { and, asc, desc, eq, inArray, notInArray, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  inArray,
+  isNull,
+  notInArray,
+  sql,
+} from "drizzle-orm";
 import { z } from "zod";
 
 import { documentRevisionToken } from "../../actions/_document-edit-mutation.js";
 import { commentIdForIdempotency } from "../../actions/add-comment.js";
-import type {
-  CommentAiErrorCode,
-  CommentAiIntent,
-  CommentAiPendingSession,
-  CommentAiRequest,
-  CommentAiSessionStatus,
-  CommentAiStatus,
-  CommentAiSubmittedMode,
-  StartCommentAiResult,
+import { blocksFieldId } from "../../shared/blocks-field-identity.js";
+import { blocksFieldSuggestionRevision } from "../../shared/blocks-field-suggestions.js";
+import {
+  ACTIVE_COMMENT_AI_STATUSES,
+  type CommentAiErrorCode,
+  type CommentAiIntent,
+  type CommentAiPendingSession,
+  type CommentAiRequest,
+  type CommentAiSessionStatus,
+  type CommentAiStatus,
+  type CommentAiSubmittedMode,
+  type StartCommentAiResult,
 } from "../../shared/comment-ai.js";
 import { getDb, schema } from "../db/index.js";
+import { resolveCommentBlocksField } from "./comment-blocks-field.js";
+import { documentContentHash } from "./document-revision.js";
 
-const ACTIVE_STATUSES = [
-  "classifying",
-  "classified",
-  "queued",
-  "running",
-  "refreshing",
-] as const;
 const TERMINAL_SUCCESS = ["replied", "suggested", "resolved"] as const;
 const MAX_ATTEMPTS = 2;
 
@@ -117,6 +124,7 @@ type RequestRow = typeof schema.commentAiRequests.$inferSelect;
 export type CommentAiAttemptRow = typeof schema.commentAiAttempts.$inferSelect;
 type CommentRow = typeof schema.documentComments.$inferSelect;
 type CommentSource = Awaited<ReturnType<typeof readCommentAiSource>>;
+type DocumentRow = typeof schema.documents.$inferSelect;
 type CommentAiActionSurfaceDetails = {
   ownerEmail: string | null;
   threadId?: string;
@@ -359,7 +367,83 @@ export async function readCommentAiSource(
       "The selected comment no longer belongs to this Page and thread",
     );
   }
-  return { document, comments, root };
+  const field = await resolveCommentBlocksField(document.id, root.fieldId);
+  if (root.fieldId && !field.fieldId) {
+    // The thread's tab became the Collection's primary field, whose text is
+    // the body now; the thread's anchor is in text that's gone.
+    throw operationError(
+      "permission_changed",
+      "This comment's tab is unavailable for Ask AI",
+    );
+  }
+  const text = await readCommentAiText(
+    getDb(),
+    document,
+    field.fieldId ?? "body",
+    field.fieldName,
+  );
+  return { document, comments, root, text };
+}
+
+/**
+ * The text a comment thread is on, which Ask AI reads and suggests edits to:
+ * the Page body, or the Blocks field tab the thread is in.
+ */
+export interface CommentAiText {
+  /** "body", or the tab's field id. */
+  fieldId: string;
+  /** The tab's name; null for the body. */
+  fieldName: string | null;
+  content: string;
+  /** Changes whenever the text does; an attempt reasons at one. */
+  revision: string;
+  /** The base revision a suggestion on this text is made at. */
+  suggestionBase: string;
+}
+
+/** Reads `fieldId`'s text, inside a transaction when `db` is one. */
+export async function readCommentAiText(
+  db: Pick<ReturnType<typeof getDb>, "select">,
+  document: DocumentRow,
+  fieldId: string,
+  fieldName: string | null = null,
+): Promise<CommentAiText> {
+  if (fieldId === "body") {
+    return {
+      fieldId,
+      fieldName: null,
+      content: document.content,
+      revision: documentRevisionToken(document.bodyRevision, document.content),
+      suggestionBase: document.updatedAt,
+    };
+  }
+  // A tab that was never written has no rows yet: it is empty, at revision 0.
+  const [{ content } = { content: "" }] = await db
+    .select({ content: schema.documentBlockFieldContents.content })
+    .from(schema.documentBlockFieldContents)
+    .where(
+      and(
+        eq(schema.documentBlockFieldContents.documentId, document.id),
+        eq(schema.documentBlockFieldContents.propertyId, fieldId),
+      ),
+    )
+    .limit(1);
+  const [{ revision } = { revision: 0 }] = await db
+    .select({ revision: schema.documentBlockFields.revision })
+    .from(schema.documentBlockFields)
+    .where(
+      eq(schema.documentBlockFields.id, blocksFieldId(document.id, fieldId)),
+    )
+    .limit(1);
+  // The revision the tab's own suggestions are made at, as its editor reads it.
+  const suggestionBase = blocksFieldSuggestionRevision(fieldId, revision);
+  return {
+    fieldId,
+    fieldName,
+    content,
+    revision: `${suggestionBase}:${documentContentHash(content)}`,
+    suggestionBase,
+  };
 }
 
 function assertSubmittedCommentContext(
@@ -480,7 +564,11 @@ function executionContext(request: RequestRow) {
   const continuation = request.continuationOfRequestId
     ? ` This operation continues the prior request ${request.continuationOfRequestId} on the same comment; use only the current scoped comment context as authority.`
     : "";
-  return `Original comment: /page/${encodeURIComponent(request.documentId)}?comment=${encodeURIComponent(request.threadId)}.${continuation} Read the scoped context before acting and follow any refresh instruction before publishing.`;
+  const tab =
+    request.fieldId === "body"
+      ? ""
+      : " The comment is in one of the Page's Blocks field tabs, not its body: the scoped context's content is that tab's text, and any edit you suggest is to it.";
+  return `Original comment: /page/${encodeURIComponent(request.documentId)}?comment=${encodeURIComponent(request.threadId)}.${tab}${continuation} Read the scoped context before acting and follow any refresh instruction before publishing.`;
 }
 
 function pendingSession(request: RequestRow): CommentAiPendingSession | null {
@@ -489,7 +577,11 @@ function pendingSession(request: RequestRow): CommentAiPendingSession | null {
       phase: "classification",
       backgroundSession: classificationBackgroundSession(request),
       prompt: request.instructions,
-      context: `Classify this request by calling submit-comment-ai-classification exactly once. Choose reply for conversation or explanation, suggest for uncertain or reviewable action, and apply-resolve only for a clear instruction to change the Page and resolve the comment.${
+      context: `Classify this request by calling submit-comment-ai-classification exactly once. ${
+        request.fieldId === "body"
+          ? "Choose reply for conversation or explanation, suggest for uncertain or reviewable action, and apply-resolve only for a clear instruction to change the Page and resolve the comment."
+          : "The comment is in one of the Page's Blocks field tabs, where changes are only suggested: choose reply for conversation or explanation, and suggest for any change to the text."
+      }${
         request.continuationOfRequestId
           ? " This is a follow-up on a comment the AI already answered or proposed a change for: asking for a different or adjusted change is suggest unless it explicitly asks to apply the change now."
           : ""
@@ -628,10 +720,9 @@ export async function startCommentAiRequest(
     });
     if (source.root.resolved)
       throw new Error("Reopen the comment before asking AI");
-    if (source.root.fieldId) {
-      // Ask AI reads and edits the page body; a thread in another Blocks
-      // field tab would get answers about text it isn't on.
-      fail("Ask AI works on comments in the page body only", {
+    if (source.text.fieldId !== "body" && resolvedIntent === "apply-resolve") {
+      // A tab's changes are suggested for review, never applied straight.
+      fail("Ask AI can reply or suggest changes in a tab, but not apply them", {
         statusCode: 400,
         errorCode: "comment_ai_field_unsupported",
       });
@@ -656,38 +747,58 @@ export async function startCommentAiRequest(
         ? `comment-ai-classifier-${crypto.randomUUID()}`
         : null;
     const snapshot = snapshotComments(source.comments);
-    const inserted = await db
-      .insert(schema.commentAiRequests)
-      .values({
-        id: args.requestId,
-        ownerEmail: source.document.ownerEmail,
-        requesterEmail: email,
-        documentId: args.documentId,
-        threadId: args.threadId,
-        rootCommentId: args.rootCommentId,
-        fieldId: "body",
-        intent: resolvedIntent ?? "unresolved",
-        submittedMode: submission.submittedMode,
-        instructions: submission.instructions,
-        submittedProvider: submission.provider,
-        submittedModel: submission.model,
-        submittedEngine: submission.engine,
-        status: resolvedIntent ? "queued" : "classifying",
-        submittedThreadDigest: commentThreadDigest(source.comments),
-        submittedSnapshotJson: JSON.stringify(snapshot),
-        threadDigest: commentThreadDigest(source.comments),
-        snapshotJson: JSON.stringify(snapshot),
-        baseRevision: documentRevisionToken(
-          source.document.bodyRevision,
-          source.document.content,
-        ),
-        suggestionRevision: source.document.updatedAt,
-        agentThreadId,
-        classificationThreadId,
-        continuationOfRequestId: continuation?.id ?? null,
-      })
-      .onConflictDoNothing()
-      .returning();
+    const inserted = await db.transaction(async (tx) => {
+      // Locked as delete-comment locks it, so the thread can't be deleted
+      // between the check that it's still here and the insert.
+      const roots = await tx
+        .select({ id: schema.documentComments.id })
+        .from(schema.documentComments)
+        .where(
+          and(
+            eq(schema.documentComments.id, args.rootCommentId),
+            eq(schema.documentComments.documentId, args.documentId),
+            eq(schema.documentComments.threadId, args.threadId),
+            isNull(schema.documentComments.parentId),
+          ),
+        )
+        .limit(1)
+        .for("update");
+      if (roots.length === 0) {
+        throw operationError(
+          "root_comment_changed",
+          "The selected comment no longer belongs to this Page and thread",
+        );
+      }
+      return tx
+        .insert(schema.commentAiRequests)
+        .values({
+          id: args.requestId,
+          ownerEmail: source.document.ownerEmail,
+          requesterEmail: email,
+          documentId: args.documentId,
+          threadId: args.threadId,
+          rootCommentId: args.rootCommentId,
+          fieldId: source.text.fieldId,
+          intent: resolvedIntent ?? "unresolved",
+          submittedMode: submission.submittedMode,
+          instructions: submission.instructions,
+          submittedProvider: submission.provider,
+          submittedModel: submission.model,
+          submittedEngine: submission.engine,
+          status: resolvedIntent ? "queued" : "classifying",
+          submittedThreadDigest: commentThreadDigest(source.comments),
+          submittedSnapshotJson: JSON.stringify(snapshot),
+          threadDigest: commentThreadDigest(source.comments),
+          snapshotJson: JSON.stringify(snapshot),
+          baseRevision: source.text.revision,
+          suggestionRevision: source.text.suggestionBase,
+          agentThreadId,
+          classificationThreadId,
+          continuationOfRequestId: continuation?.id ?? null,
+        })
+        .onConflictDoNothing()
+        .returning();
+    });
     if (inserted[0]) {
       request = inserted[0];
       dispatch = true;
@@ -699,7 +810,9 @@ export async function startCommentAiRequest(
           and(
             eq(schema.commentAiRequests.documentId, args.documentId),
             eq(schema.commentAiRequests.rootCommentId, args.rootCommentId),
-            inArray(schema.commentAiRequests.status, [...ACTIVE_STATUSES]),
+            inArray(schema.commentAiRequests.status, [
+              ...ACTIVE_COMMENT_AI_STATUSES,
+            ]),
           ),
         )
         .limit(1);
@@ -1007,7 +1120,12 @@ export async function submitCommentAiClassification(intent: CommentAiIntent) {
   if (run.threadId !== request.classificationThreadId) {
     throw new Error("This classifier thread is not bound to the operation");
   }
-  const resolvedIntent = commentAiIntentSchema.parse(intent);
+  const classified = commentAiIntentSchema.parse(intent);
+  // A tab's changes are suggested for review, never applied straight.
+  const resolvedIntent =
+    classified === "apply-resolve" && request.fieldId !== "body"
+      ? "suggest"
+      : classified;
   if (request.status !== "classifying") {
     if (
       request.submittedMode === "auto" &&
@@ -1088,8 +1206,8 @@ export async function requireCommentAiRequest(intent?: CommentAiIntent) {
       "This operation is not permitted by the selected comment intent",
     );
   }
-  if (request.fieldId !== "body") {
-    throw new Error("Unsupported Blocks field for this comment operation");
+  if (request.fieldId !== "body" && request.intent === "apply-resolve") {
+    throw new Error("Ask AI can't apply changes in a Blocks field tab");
   }
   const now = new Date().toISOString();
   const [updated] = await getDb()
@@ -1182,10 +1300,7 @@ export async function beginCommentAiAttempt(request: RequestRow) {
     throw typed;
   }
 
-  const sourceRevision = documentRevisionToken(
-    source.document.bodyRevision,
-    source.document.content,
-  );
+  const sourceRevision = source.text.revision;
   const threadDigest = currentThreadDigest(request, source.comments);
   const now = new Date().toISOString();
 
@@ -1282,7 +1397,7 @@ export async function beginCommentAiAttempt(request: RequestRow) {
         requestId: locked.id,
         attemptNumber,
         sourceRevision,
-        suggestionRevision: source.document.updatedAt,
+        suggestionRevision: source.text.suggestionBase,
         threadDigest,
         snapshotJson: JSON.stringify(snapshotComments(source.comments)),
         runId: locked.runId,
@@ -1338,15 +1453,8 @@ export async function verifyCommentAiAttempt(
   return {
     attempt,
     source,
-    currentRevision: documentRevisionToken(
-      source.document.bodyRevision,
-      source.document.content,
-    ),
-    sourceRevisionMatches:
-      documentRevisionToken(
-        source.document.bodyRevision,
-        source.document.content,
-      ) === attempt.sourceRevision,
+    currentRevision: source.text.revision,
+    sourceRevisionMatches: source.text.revision === attempt.sourceRevision,
   };
 }
 

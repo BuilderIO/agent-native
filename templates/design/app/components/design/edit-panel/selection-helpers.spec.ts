@@ -81,6 +81,15 @@ describe("mixedElementFromSelection", () => {
     expect(merged?.computedStyles.opacity).toBe(MIXED_VALUE);
   });
 
+  it("drops one layer's child layout instead of passing it off as the selection's", () => {
+    const childLayouts = { children: [], complete: true, looseText: false };
+    const merged = mixedElementFromSelection([
+      makeElement(),
+      makeElement({ childLayouts }),
+    ]);
+    expect(merged?.childLayouts).toBeUndefined();
+  });
+
   it("keeps a shared computedStyles value when all elements agree", () => {
     const a = makeElement({ computedStyles: { opacity: "1" } });
     const b = makeElement({ computedStyles: { opacity: "1" } });

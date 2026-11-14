@@ -2,6 +2,10 @@ import { canonicalA2AAudience } from "../a2a/audience.js";
 import { A2AClient, A2ANoJsonRpcInterfaceError } from "../a2a/client.js";
 import { resolveRemoteAgentToken } from "../a2a/remote-agent-auth.js";
 import type { AgentCard, AgentSkill } from "../a2a/types.js";
+import {
+  AGENT_PROFILE_WHEN_TO_USE_MAX_ITEMS,
+  AGENT_PROFILE_WHEN_TO_USE_MAX_LENGTH,
+} from "../shared/agent-profile.js";
 import { type DiscoveredAgent } from "./agent-discovery.js";
 import { getRequestOrgId, getRequestUserEmail } from "./request-context.js";
 
@@ -9,6 +13,10 @@ export const MAX_APPS = 30;
 const MAX_SKILLS_IN_SUMMARY = 8;
 const MAX_SKILLS_IN_DETAIL = 60;
 const MAX_DESCRIPTION_CHARS = 240;
+// Every valid profile fits; the cap only bounds unparsed sources.
+const MAX_WHEN_TO_USE_CHARS =
+  AGENT_PROFILE_WHEN_TO_USE_MAX_ITEMS *
+  (AGENT_PROFILE_WHEN_TO_USE_MAX_LENGTH + "; ".length);
 const CARD_TIMEOUT_MS = 6_000;
 const CARD_CONCURRENCY = 8;
 const CARD_CACHE_TTL_MS = 30_000;
@@ -197,12 +205,17 @@ export async function loadAllCapabilities(
 }
 
 export function purposeOf(peer: PeerCapabilities): string {
-  const manifest = peer.agent.description?.trim();
-  if (manifest) return truncate(manifest, MAX_DESCRIPTION_CHARS);
-  const card = peer.cardDescription?.trim();
-  return card
-    ? truncate(card, MAX_DESCRIPTION_CHARS)
+  const description =
+    peer.agent.description?.trim() || peer.cardDescription?.trim();
+  const purpose = description
+    ? truncate(description, MAX_DESCRIPTION_CHARS)
     : "(no description published)";
+  // Ranking matches on whenToUse; without it here the model picks between
+  // ranked apps by name alone and can overrule the ranking.
+  const whenToUse = peer.agent.whenToUse?.join("; ").trim();
+  return whenToUse
+    ? `${purpose}\nWhen to use: ${truncate(whenToUse, MAX_WHEN_TO_USE_CHARS)}`
+    : purpose;
 }
 
 export function formatCapabilitySummary(

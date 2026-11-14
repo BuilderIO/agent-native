@@ -46,7 +46,7 @@ describe("AutoLayoutMatrix", () => {
     });
   });
 
-  it("renders fractional resolved sizes without rounding them away", () => {
+  it("renders resolved sizes as whole pixels, like the canvas size badge", () => {
     const markup = renderToStaticMarkup(
       createElement(AutoLayoutMatrix, {
         value: {
@@ -63,8 +63,8 @@ describe("AutoLayoutMatrix", () => {
       }),
     );
 
-    expect(markup).toContain("W 123.4 Fixed");
-    expect(markup).toContain("H 45.6 Fixed");
+    expect(markup).toContain("W 123 Fixed");
+    expect(markup).toContain("H 46 Fixed");
   });
 
   it("keeps gap and unlinked padding on fixed inspector grid geometry", () => {

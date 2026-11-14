@@ -123,13 +123,15 @@ const bus = vi.hoisted(() => {
   const peers: FakeChannel[] = [];
   return {
     peers,
+    supported: true,
     open: (name: string) => new FakeChannel(name, peers),
   };
 });
 
 vi.mock("./present-channel", async (importOriginal) => ({
   ...(await importOriginal<typeof import("./present-channel")>()),
-  openPresentChannel: (deckId: string) => bus.open(`slides-present:${deckId}`),
+  openPresentChannel: (deckId: string) =>
+    bus.supported ? bus.open(`slides-present:${deckId}`) : null,
 }));
 
 import PresentationView from "./PresentationView";
@@ -182,6 +184,7 @@ function commandsPosted(channel: { posted: { type: string }[] }) {
 
 beforeEach(() => {
   bus.peers.splice(0);
+  bus.supported = true;
   transcriptionMock.start.mockClear();
   transcriptionMock.stop.mockClear();
   transcriptionMock.getIncompleteReason.mockReturnValue(null);
@@ -262,6 +265,28 @@ describe("PresenterView with an audience", () => {
       false,
     ]);
   });
+  it("relays clicker and Home/End keys to the audience", () => {
+    const audience = render(
+      <MemoryRouter>
+        <PresentationView slides={slides} deckId="deck-1" />
+      </MemoryRouter>,
+    );
+    const presenter = render(<PresenterView slides={slides} deckId="deck-1" />);
+
+    fireEvent.keyDown(window, { key: "End" });
+    expect(within(audience.container).getByText("3 / 3")).toBeTruthy();
+    expect(within(presenter.container).getByText("3 / 3")).toBeTruthy();
+
+    fireEvent.keyDown(window, { key: "PageUp" });
+    expect(within(presenter.container).getByText("2 / 3")).toBeTruthy();
+
+    fireEvent.keyDown(window, { key: "Home" });
+    expect(within(audience.container).getByText("1 / 3")).toBeTruthy();
+    expect(within(presenter.container).getByText("1 / 3")).toBeTruthy();
+
+    fireEvent.keyDown(window, { key: "PageDown" });
+    expect(within(presenter.container).getByText("2 / 3")).toBeTruthy();
+  });
 });
 
 describe("PresenterView after the audience leaves", () => {
@@ -300,6 +325,19 @@ describe("PresenterView after the audience leaves", () => {
 });
 
 describe("PresenterView without an audience", () => {
+  it("says Presenter View is unsupported when the browser has no channel", () => {
+    bus.supported = false;
+    const presenter = render(<PresenterView slides={slides} deckId="deck-1" />);
+    expect(presenter.getByRole("alert").textContent).toBe(
+      "editorToolbar.presenterViewUnsupported",
+    );
+  });
+
+  it("shows no unsupported message when the channel opens", () => {
+    const presenter = render(<PresenterView slides={slides} deckId="deck-1" />);
+    expect(presenter.queryByRole("alert")).toBeNull();
+  });
+
   it("keeps the voice status live region mounted before it has a message", () => {
     const presenter = render(<PresenterView slides={slides} deckId="deck-1" />);
     const status = within(presenter.container).getByRole("status");

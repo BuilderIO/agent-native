@@ -460,6 +460,61 @@ describe("design clipboard marker round-trip", () => {
     }
   });
 
+  it("round-trips the copied layer's canvas box and reads an older payload without one as unknown", () => {
+    const withBox: DesignClipboardPayload = {
+      version: 1,
+      entries: [
+        {
+          html: "<div>Hello</div>",
+          sourceFileId: "file-1",
+          sourceCanvasRect: { x: 0, y: -40, width: 200, height: 100 },
+        },
+      ],
+    };
+    expect(
+      parseDesignClipboardMarker(
+        serializeDesignClipboardPayload("Hello", withBox),
+      ),
+    ).toEqual(withBox);
+    const older = parseDesignClipboardMarker(
+      serializeDesignClipboardPayload("Hello", {
+        version: 1,
+        entries: [{ html: "<div>Hello</div>", sourceFileId: "file-1" }],
+      }),
+    );
+    expect(older?.entries[0]).not.toHaveProperty("sourceCanvasRect");
+  });
+
+  it("rejects a payload whose canvas box is not a finite box", () => {
+    for (const sourceCanvasRect of [
+      { x: 10, y: 10, width: 200 },
+      { x: "10px", y: 10, width: 200, height: 100 },
+      { x: null, y: 10, width: 200, height: 100 },
+      { x: 10, y: 10, width: -1, height: 100 },
+      [10, 10, 200, 100],
+    ]) {
+      const marker = btoa(
+        encodeURIComponent(
+          JSON.stringify({
+            version: 1,
+            entries: [
+              {
+                html: "<div>x</div>",
+                sourceFileId: "file-1",
+                sourceCanvasRect,
+              },
+            ],
+          }),
+        ),
+      );
+      expect(
+        parseDesignClipboardMarker(
+          `<!--agent-native-clipboard-v1:${marker}-->`,
+        ),
+      ).toBeNull();
+    }
+  });
+
   it("ignores an unrelated HTML comment that isn't our marker", () => {
     expect(
       parseDesignClipboardMarker("<div>Hi</div>\n<!-- just a comment -->"),

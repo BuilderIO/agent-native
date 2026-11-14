@@ -9,7 +9,10 @@ import {
   lockContentDatabaseMutation,
   touchContentDatabase,
 } from "./_content-database-mutation-lock.js";
-import { getContentDatabaseResponse } from "./_database-utils.js";
+import {
+  contentDatabaseResponseForCaller,
+  getContentDatabaseResponse,
+} from "./_database-utils.js";
 import {
   databaseItemsPositionScope,
   withPositionLock,
@@ -37,7 +40,7 @@ export default defineAction({
     documentId: z.string().optional().describe("Collection row document ID"),
     position: z.coerce.number().int().describe("New zero-based row position"),
   }),
-  run: async ({ databaseId, itemId, documentId, position }) => {
+  run: async ({ databaseId, itemId, documentId, position }, context) => {
     if (!itemId && !documentId) {
       throw new Error("Either itemId or documentId is required.");
     }
@@ -149,9 +152,12 @@ export default defineAction({
 
     await writeAppState("refresh-signal", { ts: Date.now() });
 
-    return getContentDatabaseResponse(row.item.databaseId, {
-      limit: 100,
-      offset: 0,
-    });
+    return contentDatabaseResponseForCaller(
+      await getContentDatabaseResponse(row.item.databaseId, {
+        limit: 100,
+        offset: 0,
+      }),
+      context,
+    );
   },
 });

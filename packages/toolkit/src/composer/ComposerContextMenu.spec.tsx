@@ -136,31 +136,91 @@ describe("connected composer menus", () => {
     );
   const open = async () => {
     await openRoot();
-    if (document.querySelector('[role="menuitem"][aria-haspopup="menu"]'))
-      await key(row("Add context"), "ArrowRight");
   };
   async function click(label: string) {
     await act(async () => row(label).click());
   }
+  it("keeps integration failures visible with a working retry outside source choices", async () => {
+    const retry = vi.fn().mockResolvedValue(undefined);
+    await render(
+      [
+        {
+          id: "source",
+          label: "Reference",
+          section: "context",
+          onSelect: vi.fn(),
+        },
+      ],
+      { integrationStatus: { loading: true } },
+    );
+    await openRoot();
+    const menu = menus()[0];
+    expect(menu.querySelector('[aria-busy="true"]')).not.toBeNull();
+    expect(menu.textContent).toContain("Loading...");
+    expect(menu.querySelector('[role="status"]')).toBeNull();
+    await render(
+      [
+        {
+          id: "source",
+          label: "Reference",
+          section: "context",
+          onSelect: vi.fn(),
+        },
+      ],
+      {
+        integrationStatus: { error: "Connection unavailable", onRetry: retry },
+      },
+    );
+    expect(menus()[0].textContent).toContain("Connection unavailable");
+    expect(row("Reference")).toBeDefined();
+    await click("Retry");
+    expect(retry).toHaveBeenCalledOnce();
+    expect(menus()).toHaveLength(1);
+  });
   it("keeps the root menu compact and puts context choices in nested menus", async () => {
-    await render(items, { addAttachment: vi.fn() });
+    await render(
+      [
+        {
+          id: "references",
+          label: "Design references",
+          order: 20,
+          children: items,
+        },
+        { id: "figma", label: "Figma design", order: 10, onSelect: vi.fn() },
+        { id: "zeta", label: "Zeta", order: 30, onSelect: vi.fn() },
+        { id: "alpha", label: "Alpha", order: 30, onSelect: vi.fn() },
+      ],
+      { addAttachment: vi.fn() },
+    );
     await openRoot();
     expect(document.querySelectorAll('[role="searchbox"]')).toHaveLength(0);
-    expect(row("Upload File").querySelector("svg")).not.toBeNull();
-    expect(row("Add context").getAttribute("aria-haspopup")).toBe("menu");
+    expect(row("Files and images").querySelector("svg")).not.toBeNull();
+    expect(
+      Array.from(menus()[0].querySelectorAll('[role="menuitem"]')).map(
+        (entry) => entry.textContent,
+      ),
+    ).toEqual([
+      "Files and images",
+      "Figma design",
+      "Design references",
+      "Alpha",
+      "Zeta",
+    ]);
+    expect(row("Design references").getAttribute("aria-haspopup")).toBe("menu");
+    expect(menus()[0].textContent).toContain("Add context");
     expect(menus()).toHaveLength(1);
     expect(menus()[0].classList.contains("w-64")).toBe(true);
     expect(menus()[0].style.boxShadow).toBe("none");
     expect(menus()[0].className).toContain("data-[state=open]:fade-in-100");
     expect(menus()[0].className).toContain("data-[state=closed]:fade-out-100");
-    await key(row("Add context"), "ArrowRight");
+    await key(row("Design references"), "ArrowRight");
     expect(row("Documents")).toBeDefined();
     expect(row("Library")).toBeDefined();
     expect(document.querySelectorAll('[role="searchbox"]')).toHaveLength(0);
     expect(menus()).toHaveLength(2);
-    expect(menus()[1].style.boxShadow).toBe("none");
-    expect(menus()[1].className).toContain("data-[state=open]:fade-in-100");
-    expect(menus()[1].className).toContain("data-[state=closed]:fade-out-100");
+    expect(menus()[0].style.boxShadow).toBe("none");
+    expect(menus()[0].className).toContain("data-[state=open]:fade-in-100");
+    expect(menus()[0].className).toContain("data-[state=closed]:fade-out-100");
   });
   it("hides the Add context tooltip while the host storage popover is open", async () => {
     const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
@@ -197,7 +257,7 @@ describe("connected composer menus", () => {
     expect(row("Workspace apps")).toBeDefined();
     await key(row("Workspace apps"), "ArrowRight");
     expect(row("DesignInteractive prototypes")).toBeDefined();
-    expect(menus()).toHaveLength(3);
+    expect(menus()).toHaveLength(2);
     await key(row("DesignInteractive prototypes"), "Enter");
     expect(menus()).toHaveLength(0);
   });
@@ -234,13 +294,13 @@ describe("connected composer menus", () => {
       await openRoot();
       expect(menus()[0].classList.contains("w-64")).toBe(true);
       expect(menus()[0].style.width).toBe("");
-      expect(menus()[0].style.maxHeight).toBe("280px");
+      expect(menus()[0].style.maxHeight).toBe("376px");
     },
   );
   it.each([
     [8, "bottom", 240],
     [40, "bottom", 208],
-    [100, "top", 136],
+    [100, "bottom", 148],
     [180, "top", 216],
   ] as const)(
     "keeps actions reachable at plus-button top %ipx in a short viewport",
@@ -269,7 +329,7 @@ describe("connected composer menus", () => {
         expect(menus()[0].style.maxHeight).toBe(`${maxHeight}px`);
         expect(menus()[0].getAttribute("data-side")).toBe(side);
         expect(menus()[0].querySelector('[role="menuitem"]')).not.toBeNull();
-        expect(menus()[0].querySelector(".overflow-y-auto")).not.toBeNull();
+        expect(menus()[0].classList.contains("overflow-y-auto")).toBe(true);
       } finally {
         window.innerHeight = previousHeight;
       }
@@ -317,7 +377,7 @@ describe("connected composer menus", () => {
         viewport.dispatchEvent(new Event("scroll"));
       });
       expect(menus()[0].style.maxHeight).toBe("118px");
-      await key(row("Add context"), "Escape");
+      await key(row("Documents"), "Escape");
       expect(removeListener).toHaveBeenCalledWith(
         "resize",
         expect.any(Function),
@@ -350,7 +410,6 @@ describe("connected composer menus", () => {
       },
     ]);
     await openRoot();
-    await key(row("Add context"), "ArrowLeft");
     expect(menus()[0].getAttribute("dir")).toBe("rtl");
     await key(row("Source"), "ArrowLeft");
     expect(row("One")).toBeDefined();
@@ -397,7 +456,6 @@ describe("connected composer menus", () => {
     }
     await key(row("Project brief"), "Escape");
     await key(row("Documents"), "Escape");
-    await key(row("Add context"), "Escape");
     expect(observation.disconnect).toHaveBeenCalled();
   });
   it("closes a context picker when its composer becomes disabled", async () => {
@@ -468,7 +526,7 @@ describe("connected composer menus", () => {
     await key(row("Documents"), "ArrowRight");
     expect(row("Project brief")).toBeDefined();
     expect(row("Notes")).toBeDefined();
-    expect(menus()).toHaveLength(3);
+    expect(menus()).toHaveLength(2);
     await click("Project brief");
     expect(select).toHaveBeenCalledOnce();
     expect(menus()).toHaveLength(0);
@@ -476,21 +534,20 @@ describe("connected composer menus", () => {
   it("supports native keyboard navigation across nested context menus", async () => {
     await render();
     await openRoot();
-    await key(row("Add context"), "ArrowRight");
     await key(row("Documents"), "ArrowRight");
-    expect(menus()).toHaveLength(3);
-    await key(row("Project brief"), "ArrowDown");
+    expect(menus()).toHaveLength(2);
+    await key(row("Archive"), "ArrowDown");
+    expect(document.activeElement).toBe(row("Project brief"));
+    await key(row("Project brief"), "ArrowUp");
     expect(document.activeElement).toBe(row("Archive"));
     await key(row("Archive"), "ArrowRight");
     expect(row("Meeting notes")).toBeDefined();
-    expect(menus()).toHaveLength(4);
-    await key(row("Meeting notes"), "Escape");
     expect(menus()).toHaveLength(3);
-    await key(row("Archive"), "Escape");
+    await key(row("Meeting notes"), "Escape");
     expect(menus()).toHaveLength(2);
-    await key(row("Documents"), "Escape");
+    await key(row("Archive"), "Escape");
     expect(menus()).toHaveLength(1);
-    await key(row("Add context"), "Escape");
+    await key(row("Documents"), "Escape");
     expect(menus()).toHaveLength(0);
   });
   it("preserves native upload accepts, cancellation, multiple files and errors", async () => {
@@ -510,7 +567,7 @@ describe("connected composer menus", () => {
     expect(input.multiple).toBe(true);
     expect(input.accept).toBe("text/plain");
     await openRoot();
-    await click("Upload File");
+    await click("Files and images");
     expect(picker).toHaveBeenCalledOnce();
     await act(async () =>
       input.dispatchEvent(new Event("change", { bubbles: true })),
@@ -526,11 +583,18 @@ describe("connected composer menus", () => {
   });
   it("requests gated upload after the menu closes", async () => {
     const onAttachmentRequest = vi.fn();
-    await render([], { onAttachmentRequest });
+    const addAttachment = vi.fn();
+    await render([], { onAttachmentRequest, addAttachment });
+    const input =
+      document.querySelector<HTMLInputElement>('input[type="file"]');
+    if (!input) throw new Error("Missing file input");
+    const choose = vi.spyOn(input, "click");
     await openRoot();
-    await click("Upload File");
+    await click("Files and images");
     await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
     expect(onAttachmentRequest).toHaveBeenCalledOnce();
+    expect(choose).not.toHaveBeenCalled();
+    expect(addAttachment).not.toHaveBeenCalled();
     expect(menus()).toHaveLength(0);
     expect(document.activeElement?.getAttribute("aria-label")).toBe(
       "Add context",
@@ -569,7 +633,7 @@ describe("connected composer menus", () => {
     expect(select).toHaveBeenCalledOnce();
     expect(container.querySelector('[aria-label="Prompt draft"]')).toBe(draft);
     await act(async () => controls.onBack());
-    expect(menus()).toHaveLength(2);
+    expect(menus()).toHaveLength(1);
     expect(dismiss).toHaveBeenCalledTimes(2);
   });
   it("ignores stale legacy close and reports resume of a removed source", async () => {
@@ -592,7 +656,7 @@ describe("connected composer menus", () => {
     const old = controls;
     await act(async () => controls.onBack());
     await act(async () => old.onClose());
-    expect(menus()).toHaveLength(2);
+    expect(menus()).toHaveLength(1);
     await render([]);
     await act(async () => old.onResume());
     expect(document.querySelector('[role="alert"]')?.textContent).toBe(
@@ -616,7 +680,7 @@ describe("connected composer menus", () => {
       ]);
       await open();
       await click("Reference");
-      expect(menus()).toHaveLength(3);
+      expect(menus()).toHaveLength(2);
       expect(document.querySelector('[role="alert"]')?.textContent).toBe(
         "Reference unavailable",
       );

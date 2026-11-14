@@ -1,4 +1,5 @@
 import { useActionQuery, callAction } from "@agent-native/core/client/hooks";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   buildCodeLayerProjection,
   type CodeLayerProjection,
@@ -50,8 +51,8 @@ import { motionPathTrackForTarget } from "@/components/design/design-canvas/moti
 import { inspectCodeDataForElement } from "@/components/design/edit-panel/inspect-code-source";
 import { type InspectCodeData } from "@/components/design/EditPanel";
 import { type LocalhostWriteConsentPayload } from "@/components/design/LocalhostWriteConsentDialog";
+import type { MotionNativeStyleIdentity } from "@/components/design/motion-native-style-identity";
 import { type MotionDockTrack } from "@/components/design/MotionDock";
-import type { MotionNativeStyleIdentity } from "@/components/design/MotionNativeStyleEditor";
 import type { ScreenProjectionNodeIdentity } from "@/components/design/multi-screen/types";
 import type { ReviewPanelProps } from "@/components/design/ReviewPanel";
 import {
@@ -115,11 +116,11 @@ import {
 } from "../motion-state";
 import { projectRelativeSourcePath } from "../pending-edits";
 import { isScreenRootElementInfo } from "../selection-state";
+import { SOURCE_HYDRATION_MAX_BYTES } from "../source-hydration";
 import {
   resolveSourceBaseForPublication,
   prepareCanonicalSourceContent,
 } from "../source-publication";
-import { type DesignFile } from "../types";
 import type { EditorActiveScreenAndGeometry } from "./use-editor-active-screen-and-geometry";
 import type { EditorCanvasAndScreens } from "./use-editor-canvas-and-screens";
 import type { EditorCore } from "./use-editor-core";
@@ -140,6 +141,8 @@ type LinkedComponentQueueRuntime = Omit<
   LinkedComponentMutationQueueArgs,
   "fileSaveChainsRef" | "pendingFileSavesRef"
 >;
+
+class LinkedSourceSizeLimitError extends Error {}
 
 export function useEditorContentAndComponents({
   editorCore,
@@ -198,6 +201,9 @@ export function useEditorContentAndComponents({
   } = editorHistory;
   const {
     restoreSelectionSnapshot,
+    sourceMetadata,
+    sourceLoader,
+    leaseSources,
     canEditDesign,
     canEditDesignRef,
     rawServerFilesByIdRef,
@@ -605,12 +611,12 @@ export function useEditorContentAndComponents({
   const markMotionTracksDirty = useCallback(() => {
     captureMotionSourceVersion(localhostMotionProof?.moduleVersionHash);
     setMotionTracksDirty(true);
-    setMotionAutosaveRevision((revision) => {
-      const next = revision + 1;
-      motionAutosaveRevisionRef.current = next;
-      motionAutosaveFailedRevisionRef.current = null;
-      return next;
-    });
+    // A save timer can fire before React applies this edit. Moving the ref
+    // now makes it stand down instead of saving the document from before it.
+    const next = motionAutosaveRevisionRef.current + 1;
+    motionAutosaveRevisionRef.current = next;
+    motionAutosaveFailedRevisionRef.current = null;
+    setMotionAutosaveRevision(next);
   }, [captureMotionSourceVersion, localhostMotionProof?.moduleVersionHash]);
 
   const pruneMotionTracksByNodeId = useCallback(
@@ -630,16 +636,26 @@ export function useEditorContentAndComponents({
         );
         markMotionTracksDirty();
       }
+      // Marked here, not in the updater: React may run that later, after a
+      // pending save has already sent the tracks from before the prune.
+      if (
+        motionTracks.some((track) => nodeIdsToRemove.has(track.targetNodeId))
+      ) {
+        markMotionTracksDirty();
+      }
       setMotionTracks((current) => {
         const next = current.filter(
           (track) => !nodeIdsToRemove.has(track.targetNodeId),
         );
-        if (next.length === current.length) return current;
-        markMotionTracksDirty();
-        return next;
+        return next.length === current.length ? current : next;
       });
     },
-    [markMotionTracksDirty, motionTextDocument, setMotionTextDocument],
+    [
+      markMotionTracksDirty,
+      motionTextDocument,
+      motionTracks,
+      setMotionTextDocument,
+    ],
   );
 
   const handleMotionTracksChange = useCallback(
@@ -1288,7 +1304,9 @@ export function useEditorContentAndComponents({
               });
               return;
             }
-            toast.error(t("designEditor.toasts.componentCreateFailed"));
+            reportWriteFailure(error, {
+              label: t("designEditor.toasts.componentCreateFailed"),
+            });
           });
       void run();
     },
@@ -1432,10 +1450,8 @@ export function useEditorContentAndComponents({
         serverAccepted?: boolean;
       } = {},
     ) => {
-      if (
-        options.persist !== false &&
-        !canApplyContentEdit(activeFile?.id ?? "active")
-      ) {
+      if (!activeFile) return { status: "refused" as const };
+      if (options.persist !== false && !canApplyContentEdit(activeFile.id)) {
         return { status: "refused" as const };
       }
       const result = runApplyLocalContentUpdate(
@@ -1452,6 +1468,8 @@ export function useEditorContentAndComponents({
           lastLocalContentRef,
           latestActiveContentRef,
           markPendingLocalFileContent,
+          primeAcceptedSource: (fileId, source) =>
+            sourceLoader?.prime(fileId, source),
           queryClient,
           queueFileContentSave,
           recordContentHistoryEntry,
@@ -1473,9 +1491,8 @@ export function useEditorContentAndComponents({
           sourceBaseContent:
             options.sourceBaseContent ??
             sourceBaseForPublication(
-              activeFile?.id ?? "",
-              options.historyBeforeContent ??
-                getScreenContent(activeFile?.id ?? ""),
+              activeFile.id,
+              options.historyBeforeContent ?? getScreenContent(activeFile.id),
             ),
         },
       );
@@ -1493,6 +1510,7 @@ export function useEditorContentAndComponents({
       id,
       isSynced,
       markPendingLocalFileContent,
+      sourceLoader,
       queryClient,
       queueFileContentSave,
       replacePreviewContent,
@@ -1522,14 +1540,18 @@ export function useEditorContentAndComponents({
         historyBeforeContent?: string;
         sourceBaseContent?: string;
         identityMigrationSourceContent?: string;
+        deferWhenLinkedMutationPending?: boolean;
         shaderWriteCompletion?: true;
         updatedAt?: string;
         clipboardMutation?: ClipboardContentMutationPublication;
         serverAccepted?: boolean;
       } = {},
     ) => {
+      if (!activeFile) return { status: "refused" as const };
       if (options.persist !== false && !canApplyContentEdit(fileId)) {
-        return { status: "refused" as const };
+        return options.deferWhenLinkedMutationPending
+          ? { status: "deferred" as const }
+          : { status: "refused" as const };
       }
       const result = runApplyFileContentUpdate(
         {
@@ -1544,6 +1566,8 @@ export function useEditorContentAndComponents({
           getScreenContent,
           id,
           markPendingLocalFileContent,
+          primeAcceptedSource: (fileId, source) =>
+            sourceLoader?.prime(fileId, source),
           overviewIsSynced,
           overviewPresenceFileId,
           overviewYdoc,
@@ -1580,6 +1604,7 @@ export function useEditorContentAndComponents({
       files,
       id,
       markPendingLocalFileContent,
+      sourceLoader,
       overviewIsSynced,
       overviewPresenceFileId,
       overviewYdoc,
@@ -1600,10 +1625,83 @@ export function useEditorContentAndComponents({
   linkedComponentQueueRuntimeRef.current = id
     ? {
         designId: id,
+        sourceSetChangedMessage: t("common.genericError"),
         fileIds: () =>
-          files
+          sourceMetadata
             .filter((file) => file.fileType === "html")
             .map((file) => file.id),
+        canProject: (fileIds) => {
+          const readyIds = new Set(files.map((file) => file.id));
+          return fileIds.every((fileId) => readyIds.has(fileId));
+        },
+        prepareSources: async (fileIds) => {
+          if (!sourceLoader) throw new Error(t("common.genericError"));
+          const metadata = await callAction<{
+            files: Array<{ id: string; contentBytes?: number | null }>;
+          }>(
+            "get-design",
+            { id, includeFileContent: false },
+            { method: "GET" },
+          );
+          const sizes = new Map(
+            metadata.files.map((file) => [file.id, file.contentBytes]),
+          );
+          const encoder = new TextEncoder();
+          let estimatedBytes = 0;
+          for (const fileId of fileIds) {
+            const size = sizes.get(fileId);
+            if (
+              typeof size !== "number" ||
+              !Number.isSafeInteger(size) ||
+              size < 0
+            )
+              throw new Error(t("common.genericError"));
+            const pending = pendingLocalFileContentsRef.current.get(fileId);
+            const state = sourceLoader.get(fileId);
+            const known =
+              pending?.content ??
+              (state.status === "ready" ? state.content : undefined);
+            estimatedBytes += Math.max(
+              size,
+              known === undefined ? 0 : encoder.encode(known).byteLength,
+            );
+          }
+          if (estimatedBytes > SOURCE_HYDRATION_MAX_BYTES)
+            throw new LinkedSourceSizeLimitError(
+              t("common.linkedSourceSizeLimit"),
+            );
+          let release: (() => void) | undefined;
+          try {
+            release = await leaseSources(fileIds);
+            let actualBytes = 0;
+            for (const fileId of fileIds) {
+              const state = sourceLoader.get(fileId);
+              if (state.status !== "ready")
+                throw new Error(t("common.genericError"));
+              const pending = pendingLocalFileContentsRef.current.get(fileId);
+              actualBytes += encoder.encode(
+                pending?.content ?? state.content,
+              ).byteLength;
+              if (actualBytes > SOURCE_HYDRATION_MAX_BYTES)
+                throw new LinkedSourceSizeLimitError(
+                  t("common.linkedSourceSizeLimit"),
+                );
+            }
+            return release;
+          } catch (error) {
+            release?.();
+            throw Object.assign(
+              new Error(
+                error instanceof LinkedSourceSizeLimitError
+                  ? error.message
+                  : t("common.genericError"),
+              ),
+              {
+                cause: error,
+              },
+            );
+          }
+        },
         getContent: getUnprojectedScreenContent,
         getSourceBaseContent: (fileId) =>
           sourceBaseForPublication(fileId, getUnprojectedScreenContent(fileId)),
@@ -1664,7 +1762,7 @@ export function useEditorContentAndComponents({
         syncUndoRedoState,
         refreshAfterConflict: () =>
           queryClient.invalidateQueries({
-            queryKey: ["action", "get-design", { id }],
+            queryKey: ["action", "get-design"],
           }),
         reportFailure: (message) =>
           toast.error(message, {
@@ -1691,7 +1789,14 @@ export function useEditorContentAndComponents({
       designId: id,
       queue: createLinkedComponentMutationQueue({
         designId: id,
+        sourceSetChangedMessage: t("common.genericError"),
         fileIds: () => currentRuntime().fileIds(),
+        canProject: (fileIds) => currentRuntime().canProject?.(fileIds) ?? true,
+        prepareSources: (fileIds) => {
+          const prepare = currentRuntime().prepareSources;
+          if (!prepare) throw new Error(t("common.genericError"));
+          return prepare(fileIds);
+        },
         getContent: (fileId) => currentRuntime().getContent(fileId),
         getSourceBaseContent: (fileId) =>
           currentRuntime().getSourceBaseContent(fileId),
@@ -1728,77 +1833,28 @@ export function useEditorContentAndComponents({
     };
   }
 
-  useEffect(
-    () =>
-      runMotionAutosave({
-        activeCanvasSourceType,
-        activeCodeLayerProjection: motionPreviewProjection,
-        activeContent,
-        activeFile,
-        applyFileContentUpdate,
-        applyMotionEdit,
-        clearMotionAutosaveTimer,
-        getScreenContent,
-        id,
-        lastLocalContentRef,
-        lastScheduledMotionAutosaveFileVersionRef,
-        lastScheduledMotionAutosaveRevisionRef,
-        latestActiveContentRef,
-        motionAutosaveFailedRevisionRef,
-        motionAutosaveFlushRef,
-        motionAutosavePending,
-        motionAutosaveRevision,
-        motionAutosaveRevisionRef,
-        motionAutosaveTimerRef,
-        motionDefaultEase,
-        motionDurationMs,
-        motionPlaybackMode,
-        motionTimelineId,
-        motionTimelineFilePath,
-        motionTracks,
-        motionAnimationStyles,
-        motionNativeStyles,
-        motionAudioClips,
-        motionEasingVariables,
-        motionProofTargetNodeIds,
-        motionTextDocument,
-        motionTracksDirty,
-        motionSourceVersionHashRef,
-        motionSourceVersionCapturedRef,
-        motionSourceConflictRef,
-        motionFileActivationEpochRef,
-        previousMotionFileIdRef,
-        queryClient,
-        removeMotionTimeline,
-        removeMotionTimelineMutation,
-        setMotionHydrationFingerprint,
-        setMotionTimelineId,
-        setMotionTracksDirty,
-        requestLocalhostWrite: (opts) =>
-          requestLocalhostWriteRef.current?.(opts) ?? "not-editable",
-        writeMotionAvailable,
-        sourceWriteUnavailableMessage:
-          motionSourceReadUnavailableReason ??
-          t("designEditor.motion.sourceWriteUnavailable"),
-        unresolvedStylesheetsMessage: t(
-          "designEditor.motion.unresolvedStylesheets",
-        ),
-        motionSourceConflictMessage: t("designEditor.motion.sourceConflict"),
-        motionReloadFromSourceLabel: t("designEditor.motion.reloadFromSource"),
-      }),
-    [
-      activeFile?.id,
-      activeFile?.updatedAt,
-      activeContent,
+  useEffect(() => {
+    if (!activeFile) return;
+    return runMotionAutosave({
       activeCanvasSourceType,
-      motionPreviewProjection,
+      activeCodeLayerProjection: motionPreviewProjection,
+      activeContent,
+      activeFile,
       applyFileContentUpdate,
       applyMotionEdit,
       clearMotionAutosaveTimer,
       getScreenContent,
       id,
-      motionAutosaveRevision,
+      lastLocalContentRef,
+      lastScheduledMotionAutosaveFileVersionRef,
+      lastScheduledMotionAutosaveRevisionRef,
+      latestActiveContentRef,
+      motionAutosaveFailedRevisionRef,
+      motionAutosaveFlushRef,
       motionAutosavePending,
+      motionAutosaveRevision,
+      motionAutosaveRevisionRef,
+      motionAutosaveTimerRef,
       motionDefaultEase,
       motionDurationMs,
       motionPlaybackMode,
@@ -1812,18 +1868,66 @@ export function useEditorContentAndComponents({
       motionProofTargetNodeIds,
       motionTextDocument,
       motionTracksDirty,
-      motionSourceReadUnavailableReason,
       motionSourceVersionHashRef,
       motionSourceVersionCapturedRef,
       motionSourceConflictRef,
-      writeMotionAvailable,
+      motionFileActivationEpochRef,
+      previousMotionFileIdRef,
       queryClient,
-      t,
       removeMotionTimeline,
-      removeMotionTimelineMutation.isPending,
-      requestLocalhostWriteRef,
-    ],
-  );
+      removeMotionTimelineMutation,
+      setMotionHydrationFingerprint,
+      setMotionTimelineId,
+      setMotionTracksDirty,
+      requestLocalhostWrite: (opts) =>
+        requestLocalhostWriteRef.current?.(opts) ?? "not-editable",
+      writeMotionAvailable,
+      sourceWriteUnavailableMessage:
+        motionSourceReadUnavailableReason ??
+        t("designEditor.motion.sourceWriteUnavailable"),
+      unresolvedStylesheetsMessage: t(
+        "designEditor.motion.unresolvedStylesheets",
+      ),
+      motionSourceConflictMessage: t("designEditor.motion.sourceConflict"),
+      motionReloadFromSourceLabel: t("designEditor.motion.reloadFromSource"),
+    });
+  }, [
+    activeFile?.id,
+    activeFile?.updatedAt,
+    activeContent,
+    activeCanvasSourceType,
+    motionPreviewProjection,
+    applyFileContentUpdate,
+    applyMotionEdit,
+    clearMotionAutosaveTimer,
+    getScreenContent,
+    id,
+    motionAutosaveRevision,
+    motionAutosavePending,
+    motionDefaultEase,
+    motionDurationMs,
+    motionPlaybackMode,
+    motionTimelineId,
+    motionTimelineFilePath,
+    motionTracks,
+    motionAnimationStyles,
+    motionNativeStyles,
+    motionAudioClips,
+    motionEasingVariables,
+    motionProofTargetNodeIds,
+    motionTextDocument,
+    motionTracksDirty,
+    motionSourceReadUnavailableReason,
+    motionSourceVersionHashRef,
+    motionSourceVersionCapturedRef,
+    motionSourceConflictRef,
+    writeMotionAvailable,
+    queryClient,
+    t,
+    removeMotionTimeline,
+    removeMotionTimelineMutation.isPending,
+    requestLocalhostWriteRef,
+  ]);
 
   const handleComponentPropApplied = useMemo(
     () =>
@@ -1860,21 +1964,25 @@ export function useEditorContentAndComponents({
   );
 
   const applyLinkedComponentSelection = useCallback(
-    (selection: { fileId: string; nodeIds: string[] }) => {
-      const cached = queryClient.getQueryData<{ files: DesignFile[] }>([
-        "action",
-        "get-design",
-        { id },
-      ]);
-      const file = cached?.files.find((file) => file.id === selection.fileId);
-      if (typeof file?.content !== "string") {
-        throw new Error(
-          "The saved component file is unavailable for selection.",
-        );
+    (
+      selection: { fileId: string; nodeIds: string[] },
+      hydratedContent?: string,
+    ) => {
+      const file = files.find((candidate) => candidate.id === selection.fileId);
+      if (
+        (!file || file.sourceState === "error") &&
+        hydratedContent === undefined
+      ) {
+        throw new Error(t("common.genericError"));
       }
+      const content =
+        file && file.sourceState !== "error"
+          ? getScreenContent(selection.fileId)
+          : hydratedContent;
+      if (content === undefined) throw new Error(t("common.genericError"));
       const { snapshot, nodes } = resolveLinkedComponentSelection({
         ...selection,
-        content: file.content,
+        content,
         previous: captureCurrentSelection(),
       });
       flushSync(() => {
@@ -1891,7 +1999,9 @@ export function useEditorContentAndComponents({
       captureCurrentSelection,
       id,
       pendingOverviewLayerSelectionRef,
-      queryClient,
+      files,
+      getScreenContent,
+      t,
       restoreSelectionSnapshot,
       setSelectedElement,
     ],
@@ -1906,7 +2016,7 @@ export function useEditorContentAndComponents({
         fileId: activeFileId ?? undefined,
       },
       {
-        onSuccess: (result: {
+        onSuccess: async (result: {
           isMain?: boolean;
           ctaRequired?: boolean;
           ctaMessage?: string;
@@ -1934,13 +2044,23 @@ export function useEditorContentAndComponents({
             toast.error(t("designEditor.componentInstances.resolveMainFailed"));
             return;
           }
+          const releaseSource = sourceLoader?.lease(main.fileId);
           try {
-            applyLinkedComponentSelection({
-              fileId: main.fileId,
-              nodeIds: [main.nodeId],
-            });
+            await sourceLoader?.request(main.fileId);
+            const state = sourceLoader?.get(main.fileId);
+            if (state?.status !== "ready" || state.refreshError)
+              throw new Error(t("common.genericError"));
+            applyLinkedComponentSelection(
+              {
+                fileId: main.fileId,
+                nodeIds: [main.nodeId],
+              },
+              state.content,
+            );
           } catch {
             toast.error(t("designEditor.componentInstances.resolveMainFailed"));
+          } finally {
+            releaseSource?.();
           }
         },
         onError: () =>
@@ -1953,32 +2073,32 @@ export function useEditorContentAndComponents({
     goToMainComponentMutation,
     id,
     selectedInstanceActionNodeId,
+    sourceLoader,
     t,
   ]);
 
-  const handleDetachInstanceMenuAction = useCallback(
-    () =>
-      runDetachInstanceMenuAction({
-        activeContent,
-        activeFile,
-        activeFileId,
-        detachComponentInstanceMutation,
-        handleComponentPropApplied,
-        id,
-        selectedComponentNodeId: selectedInstanceActionNodeId,
-        t,
-      }),
-    [
-      activeFileId,
+  const handleDetachInstanceMenuAction = useCallback(() => {
+    if (!activeFile) return;
+    return runDetachInstanceMenuAction({
       activeContent,
-      activeFile?.updatedAt,
+      activeFile,
+      activeFileId,
       detachComponentInstanceMutation,
       handleComponentPropApplied,
       id,
-      selectedInstanceActionNodeId,
+      selectedComponentNodeId: selectedInstanceActionNodeId,
       t,
-    ],
-  );
+    });
+  }, [
+    activeFileId,
+    activeContent,
+    activeFile?.updatedAt,
+    detachComponentInstanceMutation,
+    handleComponentPropApplied,
+    id,
+    selectedInstanceActionNodeId,
+    t,
+  ]);
 
   const handleSwapInstanceMenuAction = useCallback(() => {
     if (!id || !selectedInstanceActionNodeId) return;

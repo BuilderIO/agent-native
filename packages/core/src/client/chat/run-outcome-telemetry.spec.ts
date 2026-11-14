@@ -53,6 +53,17 @@ describe("run outcome telemetry", () => {
     });
   });
 
+  it("carries the run's turn id only when the report knows it", () => {
+    trackRunOutcome(report({ turnId: "turn-7" }), send, () => 0.99);
+    trackRunOutcome(report(), send, () => 0.99);
+
+    expect(send.mock.calls[0]?.[1]).toMatchObject({
+      run_id: "run-1",
+      turn_id: "turn-7",
+    });
+    expect(send.mock.calls[1]?.[1]).not.toHaveProperty("turn_id");
+  });
+
   it("samples runs that succeeded and weights the ones it keeps", () => {
     trackRunOutcome(
       report({ outcome: "succeeded", code: undefined }),

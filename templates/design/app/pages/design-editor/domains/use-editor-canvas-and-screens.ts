@@ -12,6 +12,7 @@ import {
 import { type CanvasFrameGeometryById } from "@shared/canvas-frames";
 import { getFrameGroupBounds } from "@shared/canvas-math";
 import type { A11yFinding } from "@shared/design-review";
+import type { FrameSizePreset } from "@shared/frame-size-presets";
 import type { InteractionState } from "@shared/interaction-states";
 import { annotateScreenHtmlForPersist } from "@shared/screen-annotation";
 import { sourceContentHash } from "@shared/source-workspace";
@@ -58,6 +59,7 @@ import { runRecordPendingLiveTextEdit } from "../commands/record-pending-live-te
 import { runRecordPendingVisualStyleEdit } from "../commands/record-pending-visual-style-edit";
 import { runSendRuntimeLayerMoveSemanticHandoff } from "../commands/send-runtime-layer-move-semantic-handoff";
 import { getCreatedScreenNavigationPlan } from "../created-screen-navigation";
+import { designMetadataQueryKey } from "../design-query-key";
 import { shouldAcceptEditorDragStateEvent } from "../editor-drag-state";
 import { runtimeMultiplicityForElementProvenance } from "../editor-helpers";
 import { TAB_ID } from "../editor-session";
@@ -165,9 +167,6 @@ export function useEditorCanvasAndScreens({
     duplicateRecoveryRef,
     historyOrderRef,
     redoOrderRef,
-    selectionUndoStackRef,
-    selectionPushedAtRef,
-    dragStartSelectionRef,
     clearRedoStacks,
     historySourceReaderRef,
     syncUndoRedoState,
@@ -180,9 +179,11 @@ export function useEditorCanvasAndScreens({
     designEditorCommandVersion,
     designAccessRole,
     canEditDesign,
+    canPersistDesignSource,
     rawServerFilesByIdRef,
     historyFilesRef,
     pendingLocalFileContentsRef,
+    sourceLoader,
     createFileMutation,
     createFileAsync,
     deleteFileMutation,
@@ -376,28 +377,35 @@ export function useEditorCanvasAndScreens({
             args.fileOrderIndex,
           );
       void queryClient.cancelQueries({
-        queryKey: ["action", "get-design", { id }],
+        queryKey: designMetadataQueryKey(id),
         exact: true,
       });
-      queryClient.setQueryData(["action", "get-design", { id }], (old: any) => {
-        if (!old || typeof old !== "object" || !Array.isArray(old.files)) {
-          return old;
-        }
-        return {
-          ...old,
-          files: old.files.some((file: DesignFile) => file.id === args.fileId)
-            ? old.files.map((file: DesignFile) =>
-                file.id === args.fileId ? optimisticFile : file,
-              )
-            : insertAtFileOrderIndex(
-                old.files,
-                optimisticFile,
-                args.fileOrderIndex,
-              ),
-        };
+      queryClient.setQueryData(
+        designMetadataQueryKey(id),
+        (old: Record<string, unknown> | undefined) => {
+          if (!old || typeof old !== "object" || !Array.isArray(old.files))
+            return old;
+          const { content: _content, ...metadata } = optimisticFile;
+          return {
+            ...old,
+            files: old.files.some((file: DesignFile) => file.id === args.fileId)
+              ? old.files.map((file: DesignFile) =>
+                  file.id === args.fileId ? metadata : file,
+                )
+              : insertAtFileOrderIndex(
+                  old.files,
+                  metadata,
+                  args.fileOrderIndex,
+                ),
+          };
+        },
+      );
+      sourceLoader?.prime(args.fileId, {
+        content: optimisticFile.content,
+        updatedAt: optimisticFile.updatedAt,
       });
     },
-    [id, queryClient],
+    [id, queryClient, sourceLoader],
   );
 
   const focusCreatedScreen = useCallback(
@@ -587,7 +595,7 @@ export function useEditorCanvasAndScreens({
   );
 
   const handleCreateScreenFromPreset = useCallback(
-    (preset: { name: string; width: number; height: number }) => {
+    (preset: FrameSizePreset) => {
       const frames = getAllScreenFrameEntries({
         overviewScreens,
         canvasFrameGeometryById: exportCanvasFrameGeometryById,
@@ -704,6 +712,7 @@ export function useEditorCanvasAndScreens({
     serverFiles,
     publishCanonicalContent,
     canEditDesign,
+    canPersistDesignSource,
     isSignedIn,
     activeFileId,
     viewMode,
@@ -850,16 +859,6 @@ export function useEditorCanvasAndScreens({
           return next;
         });
         return;
-      }
-      if (state.active && !activeEditorDragRef.current) {
-        // The pointerdown that starts a drag selects just before the drag reports.
-        dragStartSelectionRef.current =
-          historyOrderRef.current[historyOrderRef.current.length - 1] ===
-            "selection" && Date.now() - selectionPushedAtRef.current < 1500
-            ? (selectionUndoStackRef.current[
-                selectionUndoStackRef.current.length - 1
-              ] ?? null)
-            : null;
       }
       activeEditorDragRef.current = state.active;
       activeEditorDragScreenIdRef.current = state.active

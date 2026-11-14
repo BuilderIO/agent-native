@@ -1,4 +1,12 @@
 const messages = {
+  composerSources: {
+    reference: "Aufnahme referenzieren…",
+    group: "Aufnahmen",
+    authentication: "Melde dich an, um eine Referenz hinzuzufügen.",
+    invalid: "Wähle vor dem Senden eine gültige Referenz.",
+    unavailable:
+      "Eine ausgewählte Referenz ist nicht mehr verfügbar. Entferne sie oder wähle sie erneut.",
+  },
   meetingAsk: { resizeOrDismissAnswers: "Antworten anpassen oder schließen" },
   meetingBrowserConfirmation:
     "Clips erkennt Mikrofonaktivität in diesem Browser, kann aber nicht feststellen, welcher Tab an der Besprechung teilnimmt.",
@@ -231,6 +239,7 @@ const messages = {
     spaces: "Bereiche",
     meetings: "Treffen",
     dictate: "Diktieren",
+    fromContent: "Aus Content",
     archive: "Archiv",
     trash: "Papierkorb",
     agent: "Agent",
@@ -288,6 +297,10 @@ const messages = {
       title: "Keine archivierten Aufnahmen",
       body: "Archivierte Clips bleiben hier, bis du sie zurückholen möchtest.",
     },
+    fromContent: {
+      title: "Noch keine Uploads aus Content",
+      body: "Videos, die du auf eine Content-Seite hochlädst, werden hier als Clips gespeichert.",
+    },
     trash: {
       title: "Der Papierkorb ist leer",
       body: "Gelöschte Clips bleiben 30 Tage hier, bevor sie endgültig entfernt werden.",
@@ -318,6 +331,53 @@ const messages = {
       "{{count}} Clips konnten nicht wiederhergestellt werden",
     clipsPermanentlyDeleted: "{{count}} Clips endgültig gelöscht",
     clipsDeleteFailed: "{{count}} Clips konnten nicht gelöscht werden",
+    deletedMediaPending: "Video aus Clips entfernt. Löschprüfungen laufen.",
+    deletedMediaBlocked:
+      "Video aus Clips entfernt. Löschung der Dateien konnte nicht bestätigt werden.",
+    deletedMediaRetained:
+      "Aufnahme gelöscht. Mediendateien, die andere Aufnahmen noch verwenden, wurden behalten.",
+    clipsDeletedMediaPending:
+      "Aus Clips entfernte Videos: {{count}}. Löschprüfungen laufen.",
+    clipsDeletedMediaBlocked:
+      "Aus Clips entfernte Videos: {{count}}. Löschung der Dateien konnte nicht bestätigt werden.",
+    clipsDeletedMediaRetained:
+      "Gelöschte Aufnahmen: {{count}}. Mediendateien, die andere Aufnahmen noch verwenden, wurden behalten.",
+    deletedMediaFinalizing:
+      "Video aus Clips entfernt. Aktualisierung der Speichernutzung muss wiederholt werden.",
+    clipsDeletedMediaFinalizing:
+      "Aus Clips entfernte Videos: {{count}}. Aktualisierung der Speichernutzung muss wiederholt werden.",
+    mediaCleanupFinalizing:
+      "Aktualisierung der Speichernutzung muss wiederholt werden",
+    mediaCleanupFinalizingHelp:
+      "Die Prüfungen zur Dateientfernung sind abgeschlossen, aber dieses Video kann noch auf dein Speicherlimit angerechnet werden. Versuche die Aktualisierung der Nutzung erneut, um deinen Speicherstand zu aktualisieren.",
+    mediaCleanupListLabel: "Entfernen von Mediendateien",
+    mediaCleanupPending: "Löschprüfungen laufen",
+    mediaCleanupPendingHelp:
+      "Clips prüft im Hintergrund weiter. Du kannst diese Seite verlassen und im Papierkorb nach Updates sehen.",
+    mediaCleanupBlocked:
+      "Löschung der Videodateien konnte nicht bestätigt werden",
+    mediaCleanupBlockedHelp:
+      "Gespeicherte Videodateien können noch vorhanden sein. Entfernung erneut versuchen startet einen weiteren Versuch. Du kannst diese Seite verlassen und das Ergebnis im Papierkorb prüfen.",
+    mediaCleanupReconnect:
+      "Verbinde den Speicher erneut, um Mediendateien gelöschter Aufnahmen zu entfernen",
+    mediaCleanupRetained:
+      "Geteilte Mediendateien gelöschter Aufnahmen bleiben erhalten, solange andere Aufnahmen sie verwenden",
+    mediaCleanupHelp: "Weitere Informationen",
+    mediaCleanupRetryFiles: "Entfernen wiederholen",
+    mediaCleanupRetryingFiles: "Löschung der Videodateien wird erneut versucht",
+    mediaCleanupRetryUsage: "Nutzung erneut aktualisieren",
+    mediaCleanupRetryingUsage:
+      "Aktualisierung der Speichernutzung wird erneut versucht",
+    mediaCleanupRemoved: "Mediendateien entfernt",
+    mediaCleanupUsageUpdated: "Speichernutzung aktualisiert",
+    mediaCleanupStillBlocked:
+      "Löschung der Videodateien konnte weiterhin nicht bestätigt werden",
+    mediaCleanupStillFinalizing:
+      "Aktualisierung der Speichernutzung muss weiterhin wiederholt werden",
+    mediaCleanupRetryFailed:
+      "Erneuter Versuch konnte nicht gestartet werden. Versuche es noch einmal.",
+    mediaCleanupLoadFailed:
+      "Status der Medienentfernung konnte nicht geladen werden",
   },
   recordingRoute: {
     pageTitle: "Clip-Aufnahme · Clips",
@@ -353,6 +413,8 @@ const messages = {
     fillerCompleted: "Füllwörter wurden entfernt",
     workflowReady: "Workflow bereit",
     workflowFailed: "Workflow konnte nicht erstellt werden",
+    workflowCancelled: "Workflow-Erstellung abgebrochen",
+    workflowTimedOut: "Zeitüberschreitung bei der Workflow-Erstellung",
     transcriptionCompleted: "Transkription abgeschlossen",
     transcriptNotReady: "Das Transkript ist noch nicht fertig",
     tryAfterTranscription:
@@ -367,6 +429,8 @@ const messages = {
     fillerQueued: "Füllwörter werden entfernt…",
     silenceQueued: "Pausen werden entfernt…",
     workflowQueued: "Workflow wird erstellt…",
+    workflowStillGenerating: "Workflow wird weiterhin erstellt…",
+    workflowTakingLonger: "Das dauert länger als üblich…",
     pageTitle: "Clip-Aufnahme · Clips",
     loomMissingUrl: "Dieser Loom-Aufnahme fehlt die Quelle URL.",
     finalizeFailed: "Finalisierung fehlgeschlagen ({{status}})",
@@ -585,6 +649,8 @@ const messages = {
     them: "Ihnen",
     me: "Mich",
     regeneratingNotes: "Zusammenfassung wird neu generiert",
+    notesAlreadyGenerating:
+      "Eine Zusammenfassung wird bereits erstellt. Sie erscheint hier, sobald sie fertig ist.",
     meetingRemoved: "Besprechung entfernt",
     couldNotRemoveMeeting: "Das Meeting konnte nicht entfernt werden",
     couldNotLoadMeeting: "Dieses Meeting konnte nicht geladen werden.",
@@ -598,7 +664,7 @@ const messages = {
     live: "Übersetzt: Live",
     generatingNotesInline: "Zusammenfassung wird erstellt…",
     regenerateNotes: "Zusammenfassung neu generieren",
-    share: "Aktie",
+    share: "Teilen",
     meetingOptions: "Besprechungsmöglichkeiten",
     removeMeeting: "Besprechung entfernen",
     removeThisMeeting: "Diese Besprechung entfernen?",
@@ -610,6 +676,15 @@ const messages = {
     desktopHint:
       "Um Notizen zu starten, öffnen Sie Clips Desktop über die Menüleiste und wählen Sie Start Meeting Notes, oder klicken Sie auf Start notes, wenn die Erinnerung erscheint. Clips erfasst Mikrofon und Systemaudio und schreibt das Transkript hier.",
     getDesktopApp: "Holen Sie sich die Desktop-App",
+    earlierAudioAdded_one: "{{count}} Minute von vor deinem Start hinzugefügt",
+    earlierAudioAdded_other:
+      "{{count}} Minuten von vor deinem Start hinzugefügt",
+    earlierAudioUnreadable:
+      "Dieses Transkript konnte nicht auf früheren Ton geprüft werden",
+    removeEarlierAudioTitle: "Früheren Ton entfernen?",
+    removeEarlierAudioDescription:
+      "Er wird aus dem Transkript entfernt, und Zusammenfassung, Aufgaben und Clip-Beschreibung werden neu erstellt, auch wenn Sie die Beschreibung selbst geschrieben haben. Ein generierter Titel wird ebenfalls neu erstellt, ein von Ihnen gewählter bleibt erhalten. Vorhandene Kapitel werden ebenfalls gelöscht.",
+    couldNotRemoveEarlierAudio: "Früherer Ton konnte nicht entfernt werden",
     generateNotesFailed:
       "Zusammenfassung konnte nicht generiert werden. Versuchen Sie es erneut.",
     attendee_one: "{{count}}-Teilnehmer",
@@ -661,6 +736,10 @@ const messages = {
     noMatches: "Keine Übereinstimmungen.",
     noTranscript: "Noch kein Transkript.",
     noTranscriptCaptured: "Es wurde kein Transkript erfasst.",
+    unreadableDescription:
+      "Das gespeicherte Transkript ist beschädigt. Beim Neuerstellen entsteht aus dem Ton des Clips ein neues.",
+    partialTranscript:
+      "Teiltranskript: Die Aufnahme wurde abgeschnitten, daher fehlen möglicherweise Teile.",
     backupFailed:
       "Es wurde keine Rede lokal erfasst und die Sicherungstranskription wurde nicht abgeschlossen. Versuchen Sie es noch einmal oder überprüfen Sie die Mikrofon- und Sprachberechtigungen.",
     backupNotSetup:
@@ -743,6 +822,10 @@ const messages = {
     saveThumbnail: "Thumbnail speichern",
   },
   shareDialog: {
+    enterPassword: "Passwort eingeben",
+    showPassword: "Passwort anzeigen",
+    hidePassword: "Passwort verbergen",
+    copyPassword: "Passwort kopieren",
     redactionsPendingTitle: "Schwärzungen vor dem Teilen abschließen",
     redactionsPendingBody:
       "Ausstehende Schwärzungen: {{count}}. Wende sie im Editor an, bevor du teilst; das Video enthält noch den ursprünglichen Inhalt.",
@@ -768,7 +851,7 @@ const messages = {
     openInCodex: "In Codex öffnen",
     copyAgentPrompt: "Agent-Prompt kopieren",
     agentPrompt:
-      "Lies diese Clips-Agent-Kontext-URL: {{agentContextUrl}}. Lies das vollständige Transkript über apis.transcript und rufe recommendedFrames[].url (oder apis.frame.urlTemplate mit atMs) als Bilder ab. Behalte id und agent_access genau wie angegeben bei. Prüfe bei jedem Fehler failureKind, error und nextStep in der JSON-Antwort. Bei failureKind=access erklärt der Link den Zugriff nicht; bitte den Eigentümer eines privaten Clips, im Clips-Share-Menü {{shareWithAgents}} zu wählen und den erzeugten Link zu senden. Bei failureKind=media und funktionierendem Transkript konnten die gespeicherten Medien nicht abgerufen werden; ein anderer Link hilft nicht. Bei failureKind=processing folgen Sie nextStep; das bedeutet nicht, dass Medien fehlen oder der Link ungültig ist. Bei failureKind=expired soll der Eigentümer den Ablauf des Clips im Share-Menü verlängern oder entfernen, speichern und anschließend {{shareWithAgents}} wählen und den neuen Link senden. Nutze browserDiagnostics bei Fehlerberichten, falls vorhanden.",
+      "Lies diese Clips-Agent-Kontext-URL: {{agentContextUrl}}. Lies das vollständige Transkript über apis.transcript und rufe recommendedFrames[].url (oder apis.frame.urlTemplate mit atMs) als Bilder ab. Behalte id und agent_access genau wie angegeben bei. Prüfe bei jedem Fehler failureKind, error und nextStep in der JSON-Antwort. Bei failureKind=access erklärt der Link den Zugriff nicht; bitte den Eigentümer eines privaten Clips, im Clips-Share-Menü {{shareWithAgents}} zu wählen und den erzeugten Link zu senden. Bei failureKind=media und funktionierendem Transkript konnten die gespeicherten Medien nicht abgerufen werden; ein anderer Link hilft nicht. Bei failureKind=processing folgen Sie nextStep; das bedeutet nicht, dass Medien fehlen oder der Link ungültig ist. Bei failureKind=expired soll der Eigentümer den Ablauf des Clips im Share-Menü verlängern oder entfernen, speichern und anschließend {{shareWithAgents}} wählen und den neuen Link senden. Nutze browserDiagnostics bei Fehlerberichten, falls vorhanden. Wenn du die Frame-URLs nicht als Bilder öffnen kannst, rufe das Clips-Tool get-recording-frames mit der Aufnahme-ID aus dieser Kontext-URL auf, falls es verfügbar ist. Falls nicht, sage dem Nutzer, dass er mit der Verbindung von Clips unter {{connectUrl}} dir ermöglicht, Frames zu sehen.",
     agentTokenDescription:
       "Temporärer Nur-Lese-Link für Agenten, da dieser Clip nicht öffentlich ist. Läuft in 2 Stunden ab.",
     agentPublicDescription:
@@ -783,12 +866,16 @@ const messages = {
     chooseFile: "Datei auswählen",
     remove: "Entfernen",
     downloadMp4: "Laden Sie MP4 herunter",
-    embedsNeedPublic: "Für Einbettungen ist ein öffentlicher Clip erforderlich",
-    embedPublicDescription:
-      "Dieser Clip ist derzeit {{visibility}}. Eingebettete IFrames werden anonym geladen, daher muss der Clip öffentlich sein, damit Zuschauer ihn ansehen können.",
-    makingPublic: "Öffentlich machen…",
-    makePublic: "Öffentlich machen",
     askOwnerPublic: "Bitten Sie den Eigentümer, es öffentlich zu machen.",
+    advanced: "Erweitert",
+    passwordSet: "Passwort festgelegt",
+    noPassword: "Kein Passwort",
+    linkExpires: "Link läuft ab",
+    expiresOn: "Läuft am {{date}} ab",
+    neverExpires: "Läuft nie ab",
+    embedNeedsLinkAccess:
+      "Eingebettete Player laden ohne Anmeldung. Sie spielen daher nur ab, wenn alle mit dem Link ansehen können.",
+    changeGeneralAccess: "Allgemeinen Zugriff ändern",
     responsive: "Responsiv (16:9)",
     fixedSize: "Feste Größe",
     embedIframeTitle: "Clips-Video",
@@ -1386,12 +1473,13 @@ const messages = {
     actionItems: "Aufgaben",
     sharedContent: "Geteilte Inhalte",
     summaryIncluded: "Zusammenfassung, Kernpunkte und Aufgaben",
-    includeTranscript: "Vollständiges Transkript einschließen",
-    includeTranscriptDescription:
-      "Alle Personen mit Zugriff auf dieses Meeting können das vollständige Transkript lesen.",
     transcriptUnavailable: "Das Transkript ist noch nicht verfügbar.",
-    agentLinkDescription:
-      "Über diesen temporären Link können Agenten diese Meeting-Notizen lesen, ohne sie öffentlich zu machen. Er läuft nach zwei Stunden ab.",
+    transcriptOnShareLink: "Transkript im Teillink",
+    transcriptOnShareLinkDescription:
+      "Eingeladene Personen sehen das Transkript in Clips immer.",
+    linkShowsTranscript: "Link enthält das Transkript",
+    linkShowsNotesOnly: "Link zeigt nur Notizen",
+    copyAgentLink: "Agent-Link kopieren",
     transcript: "Transkript",
     copyTranscript: "Transkript kopieren",
     transcriptCopied: "Transkript kopiert",
@@ -1517,6 +1605,7 @@ const messages = {
   transcriptBubbles: {
     listening: "Hört zu…",
     noTranscript: "Noch kein Transkript.",
+    unreadable: "Dieses Transkript konnte nicht gelesen werden.",
     liveTranscriptDescription:
       "Das Live-Transkript erscheint hier, sobald Notizen starten.",
     me: "Ich",
@@ -1723,10 +1812,10 @@ const messages = {
     openDesktopApp: "Open desktop app (Lokalisiert)",
   },
   editableTitle: {
-    untitled: "Untitled Clip (Lokalisiert)",
+    untitled: "Unbenannter Clip",
     renameFailed: "Failed to rename clip (Lokalisiert)",
     emptyTitle: "Title cannot be empty (Lokalisiert)",
-    generatingTitle: "Generating title (Lokalisiert)",
+    generatingTitle: "Titel wird generiert",
     placeholder: "Clip title (Lokalisiert)",
     editLabel: "Edit clip title (Lokalisiert)",
   },
@@ -2014,6 +2103,7 @@ const messages = {
   recordRoute: {
     freeClipsLeft_one: "Noch {{count}} kostenloser Clip verfügbar",
     freeClipsLeft_other: "Noch {{count}} kostenlose Clips verfügbar",
+    activateBuilder: "Builder.io aktivieren",
     hostedClipsExhaustedTitle:
       "Verbinde Builder.io kostenlos, um weiter aufzunehmen",
     hostedClipsExhaustedDescription:
@@ -2228,6 +2318,14 @@ const messages = {
       "Textbereinigung übersprungen; Originaltext beibehalten",
     flowBacktrackSkipped:
       "Textbearbeitung übersprungen; erkannter Text beibehalten",
+    flowAppleSpeechParakeetMissing:
+      "Apple Speech · Parakeet nicht heruntergeladen",
+    flowAppleSpeechParakeetDownloading:
+      "Apple Speech · Parakeet wird heruntergeladen",
+    flowAppleSpeechParakeetLoading: "Apple Speech · Parakeet wird geladen",
+    flowAppleSpeechParakeetBusy: "Apple Speech · Parakeet ist beschäftigt",
+    flowAppleSpeechParakeetFailed:
+      "Apple Speech · Parakeet konnte nicht geladen werden",
     flowCancelDictation: "Diktat abbrechen",
     flowCopying: "Transkript wird kopiert…",
     aiProcessed: "KI-verarbeitet",
@@ -2367,6 +2465,8 @@ const messages = {
     goHome: "Zur Startseite",
     testMic: "Mikrofon testen",
     archivePageTitle: "Archiv · Clips",
+    fromContentPageTitle: "Aus Content · Clips",
+    openContentPage: "Seite öffnen",
     insightsPageTitle: "Einblicke · Clips",
     folderPageTitle: "Ordner · Clips",
     spacePageTitle: "Bereich · Clips",

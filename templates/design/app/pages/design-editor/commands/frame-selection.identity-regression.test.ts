@@ -119,7 +119,10 @@ describe("frame size hints preserve projected identity and layout geometry", () 
       .remove();
     expect(
       collectLiveSizeHints([second.id], projection, fileId, undefined),
-    ).toEqual({});
+    ).toEqual({
+      hints: {},
+      unmeasured: [{ nodeId: second.id, reason: "not-found" }],
+    });
   });
   it("wraps only the second duplicate using its own auto size", () => {
     mount(duplicateHtml, [

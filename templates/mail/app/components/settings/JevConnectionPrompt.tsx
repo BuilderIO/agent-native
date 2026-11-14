@@ -37,7 +37,7 @@ export function JevConnectionPrompt({
   });
 
   const actions = (
-    <div className="flex shrink-0 items-center gap-2">
+    <div className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1">
       <BuilderConnectPopover flow={flow}>
         <Button
           type="button"
@@ -57,6 +57,14 @@ export function JevConnectionPrompt({
         className="whitespace-nowrap text-xs font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
       >
         {t("mail.aiFilter.addJevApiKey")}
+      </Link>
+      <Link
+        to={buildSettingsRoute("keys:secrets:OPENAI_API_KEY")}
+        target="_blank"
+        rel="noreferrer"
+        className="whitespace-nowrap text-xs font-medium text-muted-foreground underline-offset-4 hover:text-foreground hover:underline"
+      >
+        {t("mail.aiFilter.addOpenAiApiKey")}
       </Link>
     </div>
   );

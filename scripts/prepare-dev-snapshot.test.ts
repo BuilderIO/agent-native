@@ -20,8 +20,9 @@ describe("validateDevTag", () => {
     assert.equal(validateDevTag("feature-42"), "feature-42");
   });
 
-  it("normalizes case", () => {
+  it("normalizes case and surrounding whitespace", () => {
     assert.equal(validateDevTag("Sami"), "sami");
+    assert.equal(validateDevTag("  Sami \n"), "sami");
   });
 
   it("rejects an empty or missing tag", () => {

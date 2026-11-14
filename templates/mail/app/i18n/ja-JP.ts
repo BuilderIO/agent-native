@@ -34,8 +34,12 @@ const messages = {
       newest: "新着順",
       priority: "優先度",
       priorityFailed: "受信トレイを並べ替えられませんでした。",
+      priorityProviderRequired:
+        "優先度順で並べ替えるには、AIプロバイダーを接続してください。",
+      priorityPartialFailed:
+        "{{count}} 件のメールを評価できませんでした。評価済みのメールの後に表示します。",
       priorityScoreHelp:
-        "スコアが高いほど、Jev が重要と判断したメッセージです。",
+        "スコアが高いほど、このメールが重要である可能性が高くなります。",
       priorityFeedbackSuggestion:
         "この傾向を重要度または自動アーカイブのルールにできます。",
       priorityFeedbackAskAgent: "エージェントにルールを提案してもらう",
@@ -464,6 +468,15 @@ const messages = {
       scheduledCancelFailed: "予約メールのキャンセルに失敗しました",
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToUploadImage: "画像のアップロードに失敗しました",
+      storageBuilderRefused:
+        "Builder.io が Mail のファイルストレージ接続を拒否したため、ファイルを添付できませんでした。Builder.io に再接続するか独自のストレージを使ってから、もう一度お試しください。",
+      storageRefused:
+        "ストレージバケットがこのアップロードを拒否したため、ファイルを添付できませんでした。バケットとそのキーを確認してから、もう一度お試しください。",
+      storageNotConfigured:
+        "ファイルストレージが設定されていないため、ファイルを添付できませんでした。Builder.io または独自のストレージバケットを接続してから、もう一度お試しください。",
+      openStorageSettings: "ストレージ設定を開く",
+      reconnectBuilderStorage: "Builder.io に再接続",
+      useOwnStorage: "独自のストレージを使う",
       failedToSendEmail: "No se pudo enviar el email",
       messageSent: "メッセージを送信しました。",
       failedToSaveDraft: "下書きを保存できませんでした。",
@@ -720,12 +733,15 @@ const messages = {
       tagTabsHelp: "各タグが受信トレイのタブになります",
       addTag: "タグを追加",
       triageTitle: "AIトリアージ",
-      connectJev: "Jevを接続",
-      connectJevToRunTriage: "トリアージを実行するにはJevを接続",
+      connectJev: "AIプロバイダーを接続",
+      connectJevToRunTriage:
+        "トリアージを実行するにはAIプロバイダーを接続してください",
       freeBuilderOrApiKey: "Builder.ioなら無料、またはAPIキーを追加。",
-      jevAvailabilityFailed: "Jev の利用可否を確認できませんでした。",
+      jevAvailabilityFailed:
+        "AI 判定プロバイダーが利用可能か確認できませんでした。",
       connectBuilder: "Builder.ioを使用",
-      addJevApiKey: "APIキーを追加",
+      addJevApiKey: "Jev APIキーを追加",
+      addOpenAiApiKey: "OpenAI APIキーを追加",
     },
     draftQueue: {
       title: "Cola de borradores",
@@ -767,6 +783,16 @@ const messages = {
       emailThread: "Conversación de email",
       unableToLoadThread: "No se pudo cargar la conversación",
       openInApp: "Abrir en la app",
+      draft: "メールの下書き - Mail",
+    },
+    draftCard: {
+      loadFailed: "この下書きを読み込めませんでした。",
+      notFoundTitle: "下書きが見つかりません",
+      goneTitle: "この下書きは送信または削除されました。",
+      threadUnavailable: "この会話の以前のメッセージを読み込めませんでした。",
+      earlierMessages: "以前のメッセージ（{{count}}）",
+      sendInMail: "Mailで送信",
+      openBlocked: "ブラウザが新しいタブをブロックしました。",
     },
     agentEngine: {
       activeEngine: "Motor activo",
@@ -924,15 +950,19 @@ const messages = {
     shortcutsList: "メール一覧",
     shortcutsThread: "スレッド",
     shortcutsCompose: "作成",
+    askAi: "AIに質問",
     backToCommands: "コマンドに戻る",
     backToMessageList: "メッセージ一覧に戻る",
     cycleTabs: "タブを切り替える",
     extendSelection: "選択範囲を広げる",
+    goToUnread: "未読へ移動",
     moveSelection: "選択を移動",
     nextPreviousConversation: "次 / 前の会話",
     nextPreviousMessage: "次 / 前のメッセージ",
     openMessage: "メールを開く",
+    pageDownUp: "ページを下へ / 上へ",
     selectAllConversations: "すべての会話を選択",
+    selectConversation: "会話を選択",
     sendAndMarkDone: "送信して完了にする",
     toggleMessageExpansion: "メッセージを展開 / 折りたたむ",
     toggleReadState: "既読状態を切り替える",

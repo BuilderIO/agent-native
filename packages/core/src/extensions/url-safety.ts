@@ -129,11 +129,12 @@ export async function isBlockedExtensionUrlWithDns(
   try {
     const { lookup } = await import("node:dns/promises");
     const records = await lookup(hostname, { all: true, verbatim: true });
-    return records.some((record) => isPrivateHost(record.address));
+    return (
+      records.length === 0 ||
+      records.some((record) => isPrivateHost(record.address))
+    );
   } catch {
-    // Some edge runtimes do not expose DNS lookup. Keep the deterministic
-    // parser-based protections instead of failing every outbound request.
-    return false;
+    return true;
   }
 }
 
@@ -217,7 +218,7 @@ const privateSsrfDispatchers = new Map<string, Promise<unknown>>();
 async function createSsrfSafeDispatcherUncached(
   allowedPrivateOrigins: readonly string[] = [],
   destinationUrl?: string,
-  options: { required?: boolean } = {},
+  options: { required?: boolean; loopbackOnly?: boolean } = {},
 ): Promise<unknown> {
   let undici: any;
   let dnsModule: any;
@@ -226,13 +227,10 @@ async function createSsrfSafeDispatcherUncached(
     undici = await import(/* @vite-ignore */ undiciSpecifier);
     dnsModule = await import("node:dns");
   } catch (error) {
-    if (options.required) {
-      throw new Error(
-        "SSRF protection is unavailable because the server dispatcher could not be loaded.",
-        { cause: error },
-      );
-    }
-    return null;
+    throw new Error(
+      "SSRF protection is unavailable because the server dispatcher could not be loaded.",
+      { cause: error },
+    );
   }
 
   const { Agent } = undici;
@@ -247,19 +245,16 @@ async function createSsrfSafeDispatcherUncached(
       parsed.port || (parsed.protocol === "https:" ? "443" : "80");
   }
   if (!Agent || !lookup) {
-    if (options.required) {
-      throw new Error(
-        "SSRF protection is unavailable because the server dispatcher is incomplete.",
-      );
-    }
-    return null;
+    throw new Error(
+      "SSRF protection is unavailable because the server dispatcher is incomplete.",
+    );
   }
 
   return new Agent({
     connect: {
       lookup: (
         hostname: string,
-        options: any,
+        lookupOptions: { all?: boolean },
         callback: (
           err: NodeJS.ErrnoException | null,
           address?: string | { address: string; family: number }[],
@@ -276,19 +271,32 @@ async function createSsrfSafeDispatcherUncached(
             )
               ? addresses
               : [{ address: addresses, family: 4 }];
+            if (list.length === 0 || list.some((record) => !record.address)) {
+              const error = new Error(
+                `Connect blocked: ${hostname} returned no DNS address`,
+              ) as NodeJS.ErrnoException;
+              error.code = "EAI_BLOCKED";
+              return callback(error);
+            }
             for (const record of list) {
               const allowedOrigin = allowedPrivateOriginKeys.has(
                 `${normalizeLookupHostname(hostname)}:${destinationPort}`,
               );
-              if (isPrivateHost(record.address) && !allowedOrigin) {
+              const loopback =
+                record.address === "127.0.0.1" || record.address === "::1";
+              if (
+                options.loopbackOnly
+                  ? !loopback
+                  : isPrivateHost(record.address) && !allowedOrigin
+              ) {
                 const e = new Error(
-                  `Connect blocked: ${hostname} resolved to private address ${record.address}`,
+                  `Connect blocked: ${hostname} resolved to ${options.loopbackOnly ? "non-loopback" : "private"} address ${record.address}`,
                 ) as NodeJS.ErrnoException;
                 e.code = "EAI_BLOCKED";
                 return callback(e);
               }
             }
-            if (options && options.all) {
+            if (lookupOptions.all) {
               return callback(null, list as any);
             }
             const first = list[0];
@@ -303,22 +311,42 @@ async function createSsrfSafeDispatcherUncached(
 export async function createSsrfSafeDispatcher(
   allowedPrivateOrigins: readonly string[] = [],
   destinationUrl?: string,
-  options: { required?: boolean } = {},
+  options: { required?: boolean; loopbackOnly?: boolean } = {},
 ): Promise<unknown> {
   const allowedPrivateOrigin = allowedPrivateOriginForDestination(
     destinationUrl,
     allowedPrivateOrigins,
   );
+  if (options.loopbackOnly) {
+    if (
+      !allowedPrivateOrigin ||
+      new URL(allowedPrivateOrigin).hostname !== "localhost" ||
+      !allowedPrivateOrigins.includes(allowedPrivateOrigin)
+    ) {
+      throw new Error(
+        "SSRF protection requires an exact localhost origin for loopback-only dispatch.",
+      );
+    }
+  }
   if (!allowedPrivateOrigin) {
     sharedSsrfDispatcher ??= createSsrfSafeDispatcherUncached();
-    const dispatcher = await sharedSsrfDispatcher;
-    if (dispatcher || !options.required) return dispatcher;
-    return createSsrfSafeDispatcherUncached([], undefined, options);
+    try {
+      const dispatcher = await sharedSsrfDispatcher;
+      if (!dispatcher) {
+        throw new Error(
+          "SSRF protection is unavailable because the server dispatcher is empty.",
+        );
+      }
+      return dispatcher;
+    } catch (error) {
+      sharedSsrfDispatcher = undefined;
+      throw error;
+    }
   }
 
   const cacheKey = JSON.stringify([
     allowedPrivateOrigin,
-    options.required === true,
+    options.loopbackOnly === true,
   ]);
   let dispatcher = privateSsrfDispatchers.get(cacheKey);
   if (!dispatcher) {
@@ -332,8 +360,10 @@ export async function createSsrfSafeDispatcher(
 
   try {
     const resolved = await dispatcher;
-    if (!resolved && privateSsrfDispatchers.get(cacheKey) === dispatcher) {
-      privateSsrfDispatchers.delete(cacheKey);
+    if (!resolved) {
+      throw new Error(
+        "SSRF protection is unavailable because the server dispatcher is empty.",
+      );
     }
     return resolved;
   } catch (error) {
@@ -352,9 +382,7 @@ export async function createSsrfSafeDispatcher(
  *   1. Pre-flight DNS-aware private-address check (isBlockedExtensionUrlWithDns)
  *      on the initial URL and on every redirect hop.
  *   2. A connect-time dispatcher that re-checks the resolved IP at TCP-connect
- *      time (closes the DNS-rebinding TOCTOU) when the runtime supports the
- *      Node dispatcher. Edge runtimes retain preflight DNS checks, literal and
- *      rebinding-domain rejection, and per-hop redirect validation.
+ *      time (closes the DNS-rebinding TOCTOU). If unavailable, the request fails.
  *   3. Manual redirect handling — a public URL cannot 30x-redirect into the
  *      private network because each hop is re-validated before it is followed.
  *
@@ -370,6 +398,8 @@ export async function createSsrfSafeDispatcher(
  * example, a credential's origin allowlist) on top of the SSRF checks. It runs
  * before the initial request and before every redirect hop, so sensitive
  * headers and bodies are never forwarded to a destination the caller rejects.
+ * `allowedLocalhostOrigin` permits only that exact localhost origin and requires
+ * a dispatcher that rejects every non-loopback DNS result at connect time.
  */
 export async function ssrfSafeFetch(
   url: string,
@@ -381,6 +411,7 @@ export async function ssrfSafeFetch(
     httpsOnly?: boolean;
     assertUrlAllowed?: (url: string) => void | Promise<void>;
     allowedPrivateOrigins?: readonly string[];
+    allowedLocalhostOrigin?: string;
   } = {},
 ): Promise<Response> {
   const maxRedirects = options.maxRedirects ?? 3;
@@ -403,6 +434,16 @@ export async function ssrfSafeFetch(
 
   let currentUrl = url;
   for (let hop = 0; hop <= maxRedirects; hop++) {
+    const allowedLocalhostOrigin = (() => {
+      if (!options.allowedLocalhostOrigin || !URL.canParse(currentUrl))
+        return undefined;
+      const parsed = new URL(currentUrl);
+      return parsed.hostname === "localhost" &&
+        (parsed.protocol === "http:" || parsed.protocol === "https:") &&
+        options.allowedLocalhostOrigin === parsed.origin
+        ? parsed.origin
+        : undefined;
+    })();
     await options.assertUrlAllowed?.(currentUrl);
     if (options.httpsOnly && new URL(currentUrl).protocol !== "https:") {
       throw new Error(
@@ -410,6 +451,7 @@ export async function ssrfSafeFetch(
       );
     }
     if (
+      !allowedLocalhostOrigin &&
       !isAllowedPrivateOrigin(currentUrl) &&
       (await isBlockedExtensionUrlWithDns(currentUrl))
     ) {
@@ -422,9 +464,13 @@ export async function ssrfSafeFetch(
       redirect: "manual",
     };
     const dispatcher = await createSsrfSafeDispatcher(
-      options.allowedPrivateOrigins,
+      allowedLocalhostOrigin
+        ? [allowedLocalhostOrigin]
+        : options.allowedPrivateOrigins,
       currentUrl,
-      { required: options.requireDispatcher },
+      {
+        loopbackOnly: Boolean(allowedLocalhostOrigin),
+      },
     );
     if (dispatcher) fetchOpts.dispatcher = dispatcher;
 
@@ -440,6 +486,22 @@ export async function ssrfSafeFetch(
         ((response.status === 301 || response.status === 302) &&
           method === "POST") ||
         (response.status === 303 && method !== "GET" && method !== "HEAD");
+      const changesOrigin = nextUrl.origin !== new URL(currentUrl).origin;
+      if (
+        changesOrigin &&
+        !rewritesToGet &&
+        method !== "GET" &&
+        method !== "HEAD"
+      ) {
+        throw new Error(
+          "Refusing to follow a cross-origin redirect with a non-GET request",
+        );
+      }
+      if (!rewritesToGet && currentInit.body instanceof ReadableStream) {
+        throw new Error(
+          "Cannot replay a one-shot streamed request body after redirect",
+        );
+      }
       let headers = new Headers(currentInit.headers);
       if (rewritesToGet) {
         for (const name of [
@@ -453,13 +515,7 @@ export async function ssrfSafeFetch(
         }
         currentInit = { ...currentInit, method: "GET", body: undefined };
       }
-      if (nextUrl.origin !== new URL(currentUrl).origin) {
-        const redirectedMethod = currentInit.method?.toUpperCase() ?? "GET";
-        if (redirectedMethod !== "GET" && redirectedMethod !== "HEAD") {
-          throw new Error(
-            "Refusing to follow a cross-origin redirect with a non-GET request",
-          );
-        }
+      if (changesOrigin) {
         const safeHeaders = new Headers();
         const accept = headers.get("accept");
         if (accept !== null) safeHeaders.set("accept", accept);

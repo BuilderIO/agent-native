@@ -56,7 +56,7 @@ export interface FrameworkToolsOption {
    *  `check-provider-key`,
    *  `manage-provider-key-policy`, `manage-builder-connection`,
    *  `get-provider-models`, `manage-provider-models`,
-   *  `list-model-providers`. */
+   *  `list-model-providers`, `describe-models`. */
   chat?: boolean;
   email?: boolean;
   emailCatalog?: boolean;
@@ -238,6 +238,7 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "get-provider-models": "chat",
   "manage-provider-models": "chat",
   "list-model-providers": "chat",
+  "describe-models": "chat",
   "get-experiments": "labs",
   "set-experiment": "labs",
 
@@ -265,6 +266,8 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
   "context-evict": "contextXray",
   "context-restore": "contextXray",
   "context-report": "contextXray",
+  "context-compact": "contextXray",
+  "context-compaction-get": "contextXray",
 
   "get-localization-preference": "localization",
   "set-localization-preference": "localization",
@@ -290,6 +293,10 @@ export const CORE_ACTION_GROUPS: Record<string, FrameworkToolGroup> = {
 
   "export-resource-pack": "resources",
   "import-resource-pack": "resources",
+  "get-skill-choices": "resources",
+  "get-skill-choice-counts": "resources",
+  "set-skill-switch": "resources",
+  "set-skill-mark": "resources",
 
   "create-resource-version": "history",
   "list-resource-versions": "history",

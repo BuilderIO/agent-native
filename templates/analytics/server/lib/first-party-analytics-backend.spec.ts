@@ -51,6 +51,28 @@ import {
 } from "./first-party-analytics-backend.js";
 
 describe("first-party BigQuery execution metadata", () => {
+  it.each([true, false])(
+    "preserves the provider partial flag %s without requiring truncation",
+    async (partial) => {
+      const result = {
+        rows: [{ record: "first", total_matching: 1 }],
+        schema: [{ name: "record", type: "STRING" }],
+        bytesProcessed: 4096,
+        partial,
+        truncated: false,
+      };
+      runQuery.mockResolvedValue(result);
+      await expect(
+        queryFirstPartyAnalyticsInBigQuery("SELECT 1", [], {
+          projectId: "example-project",
+          datasetId: "analytics",
+          tableId: "example_events",
+          fullyQualified: "example-project.analytics.example_events",
+        }),
+      ).resolves.toEqual(result);
+    },
+  );
+
   it.each([false, true])(
     "forwards the byte cap and preserves runQuery metadata on app cache hit %s",
     async (cached) => {
@@ -657,6 +679,22 @@ describe("first-party BigQuery backend", () => {
       );
     },
   );
+
+  it("keeps an interval literal whole when it continues past an escaped quote", () => {
+    const sql = renderFirstPartyAnalyticsBigQuerySql(
+      "SELECT * FROM analytics_events WHERE timestamp > now() - INTERVAL '7 days'' AND event_name = ''x'",
+      [],
+      {
+        projectId: "example-project",
+        datasetId: "analytics",
+        tableId: "synthetic_events",
+        fullyQualified: "example-project.analytics.synthetic_events",
+      },
+    );
+
+    expect(sql).toContain("INTERVAL '7 days\\' AND event_name = \\'x'");
+    expect(sql).not.toContain("INTERVAL 7 DAY");
+  });
 
   it.each([
     "E'escaped\\n'",

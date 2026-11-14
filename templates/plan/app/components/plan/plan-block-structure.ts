@@ -146,7 +146,8 @@ export function updatePlanBlocks(
     if (!isRecord(block.data)) return block;
 
     const collectionKey = block.type === "tabs" ? "tabs" : "columns";
-    const regions = block.data[collectionKey];
+    const data: Record<string, unknown> = block.data;
+    const regions = data[collectionKey];
     if (!Array.isArray(regions)) return block;
 
     let regionsChanged = false;

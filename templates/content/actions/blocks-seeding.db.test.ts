@@ -48,6 +48,7 @@ let configureDocumentPropertyAction: typeof import("./configure-document-propert
 let addDatabaseItemAction: typeof import("./add-database-item.js").default;
 let removeDatabaseItemsAction: typeof import("./remove-database-items.js").default;
 let deleteDocumentPropertyAction: typeof import("./delete-document-property.js").default;
+let liveCopy: typeof import("../server/test-support/live-copy-page.js");
 
 const OWNER = "owner@example.com";
 
@@ -86,6 +87,7 @@ beforeAll(async () => {
     .default;
   deleteDocumentPropertyAction = (await import("./delete-document-property.js"))
     .default;
+  liveCopy = await import("../server/test-support/live-copy-page.js");
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as any);
   const { scheduleStartupMaintenance } =
@@ -1936,5 +1938,261 @@ describe("rollups resolve Blocks fields from their backing stores", () => {
         (property: any) => property.definition.id === rollupPropertyId,
       )?.value,
     ).toBe(1);
+  });
+});
+
+describe("primary Blocks body writers on a page that takes body writes through its live copy", () => {
+  async function primaryRows(...contents: string[]) {
+    const { databaseId } = await createDatabaseRow();
+    const db = getDb();
+    const now = new Date().toISOString();
+    const primaryId = await propertyUtils.seedDefaultBlocksField({
+      databaseId,
+      ownerEmail: OWNER,
+      orgId: null,
+      now,
+    });
+    const key = ++counter;
+    const rowDocumentIds = contents.map(
+      (_, index) => `live_copy_row_${key}_${index}`,
+    );
+    await db.insert(schema.documents).values(
+      contents.map((content, index) => ({
+        id: rowDocumentIds[index],
+        ownerEmail: OWNER,
+        title: `Row ${index}`,
+        content,
+        createdAt: now,
+        updatedAt: now,
+      })),
+    );
+    await db.insert(schema.contentDatabaseItems).values(
+      rowDocumentIds.map((documentId, index) => ({
+        id: `item_${documentId}`,
+        ownerEmail: OWNER,
+        databaseId,
+        documentId,
+        position: index,
+        createdAt: now,
+        updatedAt: now,
+      })),
+    );
+    return { databaseId, primaryId, rowDocumentIds };
+  }
+
+  async function pageState(documentId: string) {
+    const db = getDb();
+    const [page] = await db
+      .select({
+        content: schema.documents.content,
+        bodyRevision: schema.documents.bodyRevision,
+      })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, documentId));
+    const history = await db
+      .select({ id: schema.documentVersions.id })
+      .from(schema.documentVersions)
+      .where(eq(schema.documentVersions.documentId, documentId));
+    return {
+      ...page,
+      liveCopyVersion: await liveCopy.liveCopyVersionOf(documentId),
+      history: history.length,
+    };
+  }
+
+  function refusal(documentId: string, operation: string) {
+    return {
+      errorCode: "LIVE_BODY_WRITER_UNSUPPORTED",
+      statusCode: 409,
+      details: { documentId, operation },
+    };
+  }
+
+  it("writes a primary Blocks property set through the live copy of a page that takes body writes there", async () => {
+    const { databaseId, primaryId, rowDocumentIds } =
+      await primaryRows("Before");
+    const [rowDocumentId] = rowDocumentIds;
+    await liveCopy.putPageOnLiveCopy(rowDocumentId, { seeded: true });
+    const before = await pageState(rowDocumentId);
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      setDocumentPropertyAction.run({
+        documentId: rowDocumentId,
+        databaseId,
+        propertyId: primaryId,
+        value: "After",
+      }),
+    );
+
+    const after = await pageState(rowDocumentId);
+    expect(after).toMatchObject({
+      content: "After",
+      bodyRevision: before.bodyRevision + 1,
+    });
+    expect(before.liveCopyVersion).not.toBeNull();
+    expect(after.liveCopyVersion).toBeGreaterThan(
+      Number(before.liveCopyVersion),
+    );
+  });
+
+  it("lets a switched page take a primary Blocks property set while its flags are off (SF-11)", async () => {
+    const { databaseId, primaryId, rowDocumentIds } =
+      await primaryRows("Before");
+    const [rowDocumentId] = rowDocumentIds;
+    await liveCopy.putPageOnLiveCopy(rowDocumentId);
+    await liveCopy.turnLiveCopyFlagsOff();
+    const before = await pageState(rowDocumentId);
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      setDocumentPropertyAction.run({
+        documentId: rowDocumentId,
+        databaseId,
+        propertyId: primaryId,
+        value: "After",
+      }),
+    );
+
+    expect(await pageState(rowDocumentId)).toEqual({
+      ...before,
+      content: "After",
+      bodyRevision: before.bodyRevision + 1,
+    });
+  });
+
+  it("refuses to delete a primary Blocks property whose bodies include a page on its live copy", async () => {
+    const { databaseId, primaryId, rowDocumentIds } = await primaryRows(
+      "Legacy body",
+      "Live body",
+    );
+    const [legacyRowId, liveRowId] = rowDocumentIds;
+    await liveCopy.putPageOnLiveCopy(liveRowId);
+    const before = await Promise.all(rowDocumentIds.map(pageState));
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        deleteDocumentPropertyAction.run({
+          documentId: legacyRowId,
+          databaseId,
+          propertyId: primaryId,
+        }),
+      ),
+    ).rejects.toMatchObject(refusal(liveRowId, "delete-document-property"));
+    expect(await Promise.all(rowDocumentIds.map(pageState))).toEqual(before);
+    expect(await blocksDefinitions(databaseId)).toEqual([
+      expect.objectContaining({ id: primaryId }),
+    ]);
+    const [database] = await getDb()
+      .select()
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, databaseId));
+    expect(database.primaryBlocksPropertyId).toBe(primaryId);
+  });
+
+  it("sets a primary Blocks property to the body a page that takes body writes through its live copy already has", async () => {
+    const { databaseId, primaryId, rowDocumentIds } =
+      await primaryRows("Before");
+    const [rowDocumentId] = rowDocumentIds;
+    await liveCopy.putPageOnLiveCopy(rowDocumentId, { seeded: true });
+    await getDb()
+      .update(schema.documents)
+      .set({ updatedAt: "2026-01-01T00:00:00.000Z" })
+      .where(eq(schema.documents.id, rowDocumentId));
+    const storedBefore = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, rowDocumentId));
+    expect(storedBefore).toHaveLength(1);
+    const before = await pageState(rowDocumentId);
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      setDocumentPropertyAction.run({
+        documentId: rowDocumentId,
+        databaseId,
+        propertyId: primaryId,
+        value: "Before",
+      }),
+    );
+
+    expect(await pageState(rowDocumentId)).toEqual(before);
+    expect(
+      await getDb()
+        .select()
+        .from(schema.documents)
+        .where(eq(schema.documents.id, rowDocumentId)),
+    ).toEqual(storedBefore);
+  });
+
+  it("checks the field revision for a live body edit that changes no text", async () => {
+    const { databaseId, primaryId, rowDocumentIds } =
+      await primaryRows("Before");
+    const [rowDocumentId] = rowDocumentIds;
+    await liveCopy.putPageOnLiveCopy(rowDocumentId, { seeded: true });
+    const before = await pageState(rowDocumentId);
+    const { editContentLiveCopy } =
+      await import("../server/live-copy/write.js");
+    const { CONTENT_LIVE_COPY_EDITS } =
+      await import("../server/live-copy/binding.js");
+    const edit = (revision: number) =>
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        editContentLiveCopy(rowDocumentId, {
+          cause: {
+            operation: "set-document-property",
+            lockCollections: [databaseId],
+            expectedBlocksFieldRevision: { propertyId: primaryId, revision },
+          },
+          edit: CONTENT_LIVE_COPY_EDITS.replaceBody,
+          input: { content: "Before", expected: "Before" },
+        }),
+      );
+
+    await expect(edit(1)).rejects.toMatchObject({
+      name: "BlocksFieldRevisionConflictError",
+      statusCode: 409,
+    });
+    expect(await pageState(rowDocumentId)).toEqual(before);
+    await expect(edit(0)).resolves.toMatchObject({ changed: false });
+    expect(await pageState(rowDocumentId)).toEqual(before);
+  });
+
+  it("deletes a primary Blocks property when its pages on their live copy already have an empty body", async () => {
+    const { databaseId, primaryId, rowDocumentIds } = await primaryRows(
+      "Legacy body",
+      "",
+    );
+    const [legacyRowId, liveRowId] = rowDocumentIds;
+    await liveCopy.putPageOnLiveCopy(liveRowId);
+    const live = await pageState(liveRowId);
+
+    await runWithRequestContext({ userEmail: OWNER }, () =>
+      deleteDocumentPropertyAction.run({
+        documentId: legacyRowId,
+        databaseId,
+        propertyId: primaryId,
+      }),
+    );
+
+    expect(await pageState(liveRowId)).toEqual(live);
+    expect((await pageState(legacyRowId)).content).toBe("");
+    expect(await blocksDefinitions(databaseId)).toEqual([]);
+  });
+
+  it("refuses a direct primary Blocks body write to a page that takes body writes through its live copy", async () => {
+    const { rowDocumentIds } = await primaryRows("Before");
+    const [rowDocumentId] = rowDocumentIds;
+    await liveCopy.putPageOnLiveCopy(rowDocumentId);
+    const before = await pageState(rowDocumentId);
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        propertyUtils.writePrimaryBlocksContent({
+          documentId: rowDocumentId,
+          content: "one two three",
+          now: new Date().toISOString(),
+        }),
+      ),
+    ).rejects.toMatchObject(
+      refusal(rowDocumentId, "writePrimaryBlocksContent"),
+    );
+    expect(await pageState(rowDocumentId)).toEqual(before);
   });
 });

@@ -48,6 +48,29 @@ describe("startIntervalJob", () => {
     expect(runOnce).toHaveBeenCalledTimes(1);
   });
 
+  it("stop() waits for an in-flight run to settle", async () => {
+    let resolveRun: (() => void) | undefined;
+    const runOnce = vi
+      .fn()
+      .mockImplementation(
+        () => new Promise<void>((resolve) => (resolveRun = resolve)),
+      );
+    const job = startIntervalJob(runOnce, { intervalMs: 1000 });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(runOnce).toHaveBeenCalledTimes(1);
+
+    let stopped = false;
+    const stopping = job.stop().then(() => {
+      stopped = true;
+    });
+    await Promise.resolve();
+    expect(stopped).toBe(false);
+
+    resolveRun?.();
+    await stopping;
+    expect(stopped).toBe(true);
+  });
+
   it("bounds a hanging run with the configured timeout", async () => {
     const onError = vi.fn();
     const runOnce = vi.fn().mockImplementation(

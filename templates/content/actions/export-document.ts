@@ -6,12 +6,6 @@ import { z } from "zod";
 import { CONTENT_DATABASE_FILTER_OPERATORS } from "../shared/api.js";
 import { blocksContentHash } from "../shared/blocks-field-identity.js";
 import {
-  renderCollectionCsv,
-  renderCollectionHtml,
-  renderCollectionMarkdownArchive,
-} from "../shared/database-collection-export.js";
-import { buildDocumentExport } from "../shared/document-export.js";
-import {
   isBlocksPropertyType,
   isPrimaryBlocksField,
 } from "../shared/properties.js";
@@ -117,6 +111,14 @@ export default defineAction({
       throw new Error("CSV export requires collection options");
     }
     if (effectiveCollection) {
+      // The renderers bring the Tabler icon map, react-dom/server and KaTeX,
+      // megabytes of code a cold server would otherwise load before its first
+      // request of any kind, so they load when an export runs.
+      const {
+        renderCollectionCsv,
+        renderCollectionHtml,
+        renderCollectionMarkdownArchive,
+      } = await import("../shared/database-collection-export.js");
       const projection = await buildCollectionExportProjection(
         doc.id,
         effectiveCollection,
@@ -197,6 +199,8 @@ export default defineAction({
           identity,
         };
       });
+    const { buildDocumentExport } =
+      await import("../shared/document-export.js");
     const payload = buildDocumentExport({
       id: doc.id,
       title: title ?? doc.title,

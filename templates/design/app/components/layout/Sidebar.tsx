@@ -14,6 +14,8 @@ import { IconComponents, IconHome, IconTemplate } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 import { useLocation } from "react-router";
 
+import { GettingStarted } from "./GettingStarted";
+
 const COLLAPSE_KEY = "design.sidebar.collapsed";
 
 export function Sidebar() {
@@ -79,6 +81,7 @@ export function Sidebar() {
       items={items}
       footerContent={
         <>
+          {collapsed ? null : <GettingStarted className="mx-2 mb-2" />}
           <div className={collapsed ? "flex flex-col items-center" : undefined}>
             <BuilderCreditNotice compact showAtLimitOnly className="mb-2" />
           </div>

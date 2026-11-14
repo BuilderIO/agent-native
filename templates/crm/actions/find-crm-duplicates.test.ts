@@ -1,12 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { findCandidates, getJevKey } = vi.hoisted(() => ({
+const { decide, findCandidates } = vi.hoisted(() => ({
+  decide: vi.fn(),
   findCandidates: vi.fn(),
-  getJevKey: vi.fn(),
 }));
 
+vi.mock("@agent-native/core/decisions", () => ({ decide }));
 vi.mock("@agent-native/core/server", () => ({
-  getOwnerJevApiKey: getJevKey,
   getRequestUserEmail: () => "owner@example.test",
   getRequestOrgId: () => null,
 }));
@@ -39,7 +39,18 @@ function candidate(id: string, reason: "email" | "domain") {
 beforeEach(() => {
   vi.restoreAllMocks();
   vi.clearAllMocks();
-  getJevKey.mockResolvedValue("test-only-key");
+  decide.mockResolvedValue({
+    status: "ok",
+    provider: "openai",
+    model: "gpt-6-luna",
+    answers: {
+      candidate_0: {
+        type: "predicate",
+        name: "candidate_0",
+        probability: 0.5,
+      },
+    },
+  });
   findCandidates.mockResolvedValue([
     {
       recordId: "seed",
@@ -55,29 +66,38 @@ beforeEach(() => {
   ]);
 });
 
-describe("find-crm-duplicates Jev review", () => {
+describe("find-crm-duplicates semantic review", () => {
   it("leaves ordinary deterministic checks local", async () => {
-    const fetch = vi.spyOn(globalThis, "fetch");
     const result = await action.run({ recordIds: ["seed"] }, ctx);
     expect(result.records[0].candidates).toHaveLength(2);
-    expect(getJevKey).not.toHaveBeenCalled();
-    expect(fetch).not.toHaveBeenCalled();
+    expect(decide).not.toHaveBeenCalled();
   });
 
   it("reviews only ambiguous returned pairs and keeps low probabilities", async () => {
-    const fetch = vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      Response.json({
-        answers: { candidate_0: { type: "noul", noul: 0.12 } },
-      }),
-    );
+    decide.mockResolvedValueOnce({
+      status: "ok",
+      provider: "openai",
+      model: "gpt-6-luna",
+      answers: {
+        candidate_0: {
+          type: "predicate",
+          name: "candidate_0",
+          probability: 0.12,
+        },
+      },
+    });
     const result = await action.run(
       { recordIds: ["seed"], semanticReview: true, candidatesPerRecord: 10 },
       ctx,
     );
-    const body = JSON.parse(String(fetch.mock.calls[0][1]?.body));
-    expect(body.model).toBe("jev-latest");
-    expect(body.state.candidates).toHaveLength(1);
-    expect(body.state.candidates[0].name).toBe("Acme possible");
+    const request = decide.mock.calls[0][0];
+    expect(request.ownerEmail).toBe("owner@example.test");
+    expect(request.input[0].value.candidates).toHaveLength(1);
+    expect(request.input[0].value.candidates[0].name).toBe("Acme possible");
+    expect(request.questions).toEqual([
+      expect.objectContaining({ type: "predicate", name: "candidate_0" }),
+    ]);
+    expect(request.options).toEqual({ timeoutMs: 12_000 });
     expect(findCandidates).toHaveBeenCalledWith(
       expect.objectContaining({ limit: 10, recordIds: ["seed"] }),
     );
@@ -89,7 +109,7 @@ describe("find-crm-duplicates Jev review", () => {
     expect(result.semanticReviewUnavailable).toBe(false);
   });
 
-  it("reports no candidates without contacting Jev", async () => {
+  it("reports no candidates without requesting a decision", async () => {
     findCandidates.mockResolvedValue([
       {
         recordId: "seed",
@@ -100,25 +120,22 @@ describe("find-crm-duplicates Jev review", () => {
         candidates: [],
       },
     ]);
-    const fetch = vi.spyOn(globalThis, "fetch");
     const result = await action.run(
       { recordIds: ["seed"], semanticReview: true },
       ctx,
     );
     expect(result.cleanRecordIds).toEqual(["seed"]);
-    expect(getJevKey).not.toHaveBeenCalled();
-    expect(fetch).not.toHaveBeenCalled();
+    expect(decide).not.toHaveBeenCalled();
   });
 
   it("does not send unreadable records or more than five pairs", async () => {
-    const fetch = vi.spyOn(globalThis, "fetch");
     findCandidates.mockResolvedValueOnce([]);
     const unreadable = await action.run(
       { recordIds: ["hidden"], semanticReview: true },
       ctx,
     );
     expect(unreadable.unreadableRecordIds).toEqual(["hidden"]);
-    expect(fetch).not.toHaveBeenCalled();
+    expect(decide).not.toHaveBeenCalled();
 
     findCandidates.mockResolvedValueOnce([
       {
@@ -132,33 +149,41 @@ describe("find-crm-duplicates Jev review", () => {
         ),
       },
     ]);
-    fetch.mockResolvedValueOnce(
-      Response.json({
-        answers: Object.fromEntries(
-          Array.from({ length: 5 }, (_, index) => [
-            `candidate_${index}`,
-            { type: "noul", noul: 0.5 },
-          ]),
-        ),
-      }),
-    );
+    decide.mockResolvedValueOnce({
+      status: "ok",
+      provider: "openai",
+      model: "gpt-6-luna",
+      answers: Object.fromEntries(
+        Array.from({ length: 5 }, (_, index) => [
+          `candidate_${index}`,
+          {
+            type: "predicate",
+            name: `candidate_${index}`,
+            probability: 0.5,
+          },
+        ]),
+      ),
+    });
     const result = await action.run(
       { recordIds: ["seed"], semanticReview: true, candidatesPerRecord: 10 },
       ctx,
     );
-    const body = JSON.parse(String(fetch.mock.calls[0][1]?.body));
-    expect(body.state.candidates).toHaveLength(5);
+    expect(decide.mock.calls[0][0].input[0].value.candidates).toHaveLength(5);
     expect(result.records[0].candidates).toHaveLength(6);
     expect(result.records[0].candidates[5].semanticReview).toBeUndefined();
   });
 
-  it("rejects automatic scans but preserves candidates on incomplete Jev answers", async () => {
+  it("rejects automatic scans but preserves candidates on incomplete answers", async () => {
     await expect(action.run({ semanticReview: true }, ctx)).rejects.toThrow(
       "exactly one explicit recordId",
     );
-    const fetch = vi
-      .spyOn(globalThis, "fetch")
-      .mockResolvedValue(Response.json({ answers: {} }));
+    decide.mockResolvedValueOnce({
+      status: "ok",
+      provider: "openai",
+      model: "gpt-6-luna",
+      answers: {},
+      questionFailures: { candidate_0: "invalid_response" },
+    });
     const result = await action.run(
       { recordIds: ["seed"], semanticReview: true },
       ctx,
@@ -166,11 +191,15 @@ describe("find-crm-duplicates Jev review", () => {
     expect(result.semanticReviewUnavailable).toBe(true);
     expect(result.records[0].candidates).toHaveLength(2);
     expect(result.records[0].candidates[1].semanticReview).toBeUndefined();
-    expect(fetch).toHaveBeenCalledTimes(1);
+    expect(decide).toHaveBeenCalledTimes(1);
   });
 
-  it("preserves deterministic candidates when the Jev request fails", async () => {
-    vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("timeout"));
+  it("preserves deterministic candidates when the decision fails", async () => {
+    decide.mockResolvedValueOnce({
+      status: "failed",
+      reason: "timeout",
+      provider: "openai",
+    });
 
     const result = await action.run(
       { recordIds: ["seed"], semanticReview: true },

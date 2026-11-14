@@ -46,9 +46,20 @@ export {
 } from "./design-system/index.js";
 export { splitMarkdownBlocks } from "./markdown-block-split.js";
 export {
-  initialSmoothStreamingGraphemeCount,
-  smoothStreamingPunctuationDelayMs,
-  smoothStreamingRevealCount,
+  splitStreamingRevealUnits,
   splitStreamingTextGraphemes,
+  streamingRevealPauseMs,
+  streamingRevealUnitEnds,
+  StreamingRevealPacer,
   SMOOTH_STREAMING_COMMIT_INTERVAL_MS,
+  STREAMING_REVEAL_MAX_UNITS_PER_FRAME,
+  STREAMING_REVEAL_TARGET_LAG_MS,
+  STREAMING_REVEAL_WORDS_PER_SECOND,
 } from "./streaming-text-smoothing.js";
+export {
+  markdownBlockOffsets,
+  rehypeStreamingReveal,
+  settleStreamingMarkdown,
+  STREAMING_REVEAL_BLOCK_CLASS,
+  STREAMING_REVEAL_WORD_CLASS,
+} from "./streaming-markdown.js";

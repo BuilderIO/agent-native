@@ -330,12 +330,8 @@ async function openOverview(page: Page, designId: string) {
   });
   await expect(
     page.getByRole("button", { name: "Move", exact: true }),
-  ).toBeVisible({
-    timeout: 30_000,
-  });
-  await expect(page.locator("[data-screen-shell]")).toHaveCount(1, {
-    timeout: 30_000,
-  });
+  ).toBeVisible();
+  await expect(page.locator("[data-screen-shell]")).toHaveCount(1);
   await expect(page.locator("[data-screen-card]").first()).toBeVisible();
   await page.getByRole("button", { name: /%$/, exact: false }).first().click();
   await page.getByRole("menuitem", { name: "Zoom to 50%" }).click();
@@ -1109,7 +1105,6 @@ test("report path: a fixed 60×30 board frame dropped between auto-layout childr
     "data-agent-native-node-id": "board-source",
     "data-agent-native-layer-name": "Board source",
     "data-an-primitive": "frame",
-    "data-agent-native-clone-root": "true",
     "data-agent-native-preserve-styles": "true",
   });
   expectOnlyChanged(screenBefore, after, subtree(after, "board-source"));
@@ -1185,7 +1180,6 @@ test("report path: Option-dragging a selected root board frame duplicates into a
     "data-agent-native-node-id": copyId,
     "data-agent-native-layer-name": "Board source",
     "data-an-primitive": "frame",
-    "data-agent-native-clone-root": "true",
     "data-agent-native-preserve-styles": "true",
   });
   const landed = await expectLandedCentredInNestedFrame(app, after, copyId);
@@ -1338,9 +1332,7 @@ test("report path: Option-dragging a root Screen preserves naming, placement, se
     })
     .toBe(redoCopy?.id);
   await page.reload({ waitUntil: "domcontentloaded" });
-  await expect(page.locator("[data-screen-shell]")).toHaveCount(2, {
-    timeout: 30_000,
-  });
+  await expect(page.locator("[data-screen-shell]")).toHaveCount(2);
   await expect(
     page.getByRole("button", { name: "50%", exact: true }),
   ).toBeVisible();

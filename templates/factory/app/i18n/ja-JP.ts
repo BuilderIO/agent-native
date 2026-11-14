@@ -280,8 +280,8 @@ const messages = {
       openWorkflow: "{{name}} を開く",
       turnOn: "{{name}} をオンにする",
       turnOff: "{{name}} をオフにする",
-      dryRunRequired: "オンにする前にテストを実行してください。",
-      runTest: "テストを実行",
+      dryRunRequired: "オンにする前にドライランを実行してください。",
+      runTest: "ドライラン",
       neverRun: "実行はまだありません",
       olderRun: "最近の実行はありません",
       runsFailed: "実行を読み込めませんでした",
@@ -372,9 +372,6 @@ const messages = {
       connectionsNeeded: "接続が必要 {{count}} 件",
       connectionsListName: "接続が必要",
       jumpToProblem: "キャンバスで表示",
-      testRun: "テスト実行",
-      testing: "開始中",
-      saveAndTest: "保存してテスト",
       moreActions: "その他のアクション",
       runNow: "今すぐ実行",
       runNowSaveFirst: "本番で実行する前に変更を保存してください。",
@@ -415,7 +412,8 @@ const messages = {
       confirmBody:
         "新しいバージョンとして保存されるため、どのバージョンも失われません。",
       confirmDiscards: "未保存の変更は破棄されます。",
-      confirmSwitchesOff: "再度テストするまで、ワークフローはオフになります。",
+      confirmSwitchesOff:
+        "再びドライランが問題なく完了するまで、ワークフローはオフのままになります。",
       restored: "バージョン {{version}} として復元しました。",
       restoreFailed: "そのバージョンを復元できませんでした。",
       restoreInvalid_other:
@@ -425,7 +423,7 @@ const messages = {
       invalid_other:
         "保存できませんでした：修正が必要な問題が {{count}} 件あります。",
       switchedOff:
-        "保存しました。ワークフローはオフになりました。テストしてから、もう一度オンにしてください。",
+        "保存しました。ワークフローはオフになりました。ドライランを実行してから、もう一度オンにしてください。",
       jobSyncFailed:
         "保存しましたが、スケジュールを更新できませんでした。もう一度保存して再試行してください。",
       notFound: "このワークフローはもう存在しません。",
@@ -447,18 +445,27 @@ const messages = {
       stay: "編集を続ける",
       discard: "破棄",
     },
+    draft: {
+      restored: "未保存の変更を復元しました。",
+      saveFailed: "変更の下書きを保存できませんでした。{{reason}}",
+      unreadable:
+        "未保存の変更を復元できなかったため、保存済みのバージョンを開いています。",
+      discardFailed: "下書きを破棄できませんでした。{{reason}}",
+    },
     liveRun: {
       dialogTitle: "このワークフローを本番で実行しますか？",
       body: "これはテストではありません。メッセージを送信したり、レコードを更新したり、プルリクエストをマージしたりできます。",
       cancel: "キャンセル",
     },
     run: {
-      started: "テスト実行を開始しました。",
-      unavailable: "テスト実行はまだ利用できません。",
-      failed: "テスト実行を開始できませんでした。{{reason}}",
+      started: "ドライランを開始しました。",
+      unavailable: "ドライランはまだ利用できません。",
+      failed: "ドライランを開始できませんでした。{{reason}}",
       liveStarted: "実行を開始しました。",
       liveFailed: "実行を開始できませんでした。{{reason}}",
       enableFailed: "ワークフローを変更できませんでした。{{reason}}",
+      testNeedsItems:
+        "このステップをテストするには項目が必要です。先にワークフローをドライランしてから、ステップをテストしてください。",
     },
     nodePanel: {
       tabsName: "ステップの表示",
@@ -468,6 +475,8 @@ const messages = {
         "このステップでテストする項目を用意するため、ワークフローを一度実行してください。",
       testStepSamplesFailed:
         "このステップでテストする項目を読み込めませんでした。",
+      testStepOlderSample:
+        "以前の実行の項目でテスト中: 直近の実行では、このステップに項目がありませんでした。",
     },
     nodeDetails: {
       dialogName: "ステップの詳細",
@@ -494,8 +503,9 @@ const messages = {
       ofTotal: "全 {{total}} 件中 {{shown}} 件",
       noInputConnected: "入力が接続されていません",
       noInputData: "入力データがありません",
-      testWorkflowHint: "ワークフローをテストすると、ここに項目が表示されます",
-      testWorkflow: "ワークフローをテスト",
+      testWorkflowHint:
+        "ワークフローをドライランすると、ここに項目が表示されます",
+      testWorkflow: "ドライラン",
       noOutputData: "出力データがありません",
       previewHint: "ワークフローを実行すると、実際の値が表示されます",
       noMatchingItems: "一致する項目がありません",
@@ -509,8 +519,59 @@ const messages = {
       copyPath: "パスをコピー",
       pathCopied: "パスをコピーしました",
       pathCopyFailed: "パスをコピーできませんでした",
-      dragHint: "フィールドにドラッグしてマッピング",
+      dragHint: "このハンドルをフィールドにドラッグしてマッピング",
       mappedFirstField: "フィールドをマッピングしました。",
+    },
+    apiRequest: {
+      docs: "ドキュメント",
+      docsFor: "{{provider}} API ドキュメント",
+      truncatedNotice:
+        "回答は収まるように切り詰められました。1 件のレコードでも、これくらい大きくなることがあります。per_page などのパラメータでクエリを絞るか、ページネーションを使ってください。",
+      cutList: "{{path}}：{{of}} 件中 {{kept}} 件を保持",
+      cutText: "{{path}}：{{of}} 文字中 {{kept}} 文字を保持",
+      cutKeys_other: "{{path}}：{{count}} 件のフィールドを除外しました",
+      cutsMore_other: "ほか {{count}} 件を切り詰め",
+      tooLargeHint:
+        "ステップが次に渡せるのは、合計で約 64 KB と 100 件の項目までです。項目に付いている前の回答もすべて数えます。クエリを絞るか、ページネーションを使うか、1 回の実行での呼び出しを減らしてください。",
+      fieldsMissing: "回答に次のフィールドが見つかりませんでした: {{names}}",
+      fieldsMissingMore: "ほか {{count}} 件",
+      cutNotice:
+        "回答の冒頭だけを表示しています。ステップは読み取った内容の短い記録を保持します。",
+      noOutputRecorded:
+        "この実行では、このステップの回答は記録されていません。",
+      liveMark: "HTTP {{status}}、{{ms}} ms",
+      notStored:
+        "ここでのみ表示しています。回答は保存されておらず、このウィンドウを閉じると消去されます。",
+      errorDetails: "エラーの詳細",
+      detailCode: "コード",
+      detailStatus: "ステータス",
+      detailMessage: "メッセージ",
+      heading: {
+        not_connected: "プロバイダーに接続されていません",
+        access_denied: "プロバイダーが接続のアクセスを拒否しました",
+        not_found: "プロバイダーでそのパスが見つかりませんでした",
+        rate_limited: "プロバイダーがリクエストを制限しています",
+        provider_problem: "プロバイダーで問題が発生しました",
+        rejected: "プロバイダーがリクエストを拒否しました",
+        too_large: "回答が大きすぎて保持できません",
+        request_failed: "リクエストを完了できませんでした",
+        request_refused: "リクエストは送信前に拒否されました",
+        unreadable: "回答を読み取れませんでした",
+        expression_failed: "このステップが読み取る値に中身がありません",
+        test_not_allowed: "このステップはテストできません",
+        failed: "ステップが失敗しました",
+        full_url_refused: "パスが完全な URL になっています",
+        unsafe_path_value: "入力どおりのパスは送信できません",
+        invalid_query: "クエリパラメータが正しくありません",
+        invalid_header: "ヘッダーが正しくありません",
+        header_denied: "ここではヘッダーを設定できません",
+        invalid_pagination: "ページネーションの設定が正しくありません",
+        invalid_timeout: "タイムアウトが正しくありません",
+        incompatible_fields:
+          "ステータスとヘッダーはページネーションと一緒に返せません",
+        invalid_fields_to_keep: "保持するフィールドが正しくありません",
+        invalid_field: "フィールドが空か、正しくありません",
+      },
     },
     diagnostics: {
       copy: "診断情報をコピー",
@@ -770,6 +831,7 @@ const messages = {
       itemFailures_other: "{{count}} 件の項目が失敗",
       needsCheck: "{{count}} 件要チェック",
       nothing: "新しいものはありません",
+      primed: "今から開始",
       summary: "{{head}}：{{parts}}",
     },
     change: {
@@ -872,6 +934,11 @@ const messages = {
       searchApps: "アプリを検索...",
       searchActions: "アクションを検索...",
       clearSearch: "検索をクリア",
+      apiRequest: "API リクエスト",
+      apiRequestLink: "API リクエストステップ",
+      apiRequestTip:
+        "{{link}} で、接続済みアプリの任意のエンドポイントを読み取れます。",
+      anythingElseCaption: "その他",
       hint: {
         onSchedule: "タイマーで実行（数分ごと、または毎日）",
         newFromApp: "新しいメッセージ、チケット、リード、サブスクリプション",
@@ -881,6 +948,7 @@ const messages = {
         data: "項目の絞り込み、分割、結合",
         flow: "項目を振り分け、一時停止、または停止",
         describe: "エージェントにこのステップの作成を依頼",
+        apiRequest: "接続済みアプリの任意のエンドポイントを読み取り",
         decideAi: "各項目についての質問に答える",
         builderStart: "明確なバグを Builder に渡して修正",
         builderCheck: "Builder のタスクの進捗を確認",
@@ -900,8 +968,8 @@ const messages = {
     },
     canvasActions: {
       addFirstStep: "最初のステップを追加",
-      testWorkflow: "ワークフローをテスト",
-      saveAndTestWorkflow: "保存してワークフローをテスト",
+      testWorkflow: "ドライラン",
+      saveAndTestWorkflow: "保存してドライラン",
       describeFirstPrefill: "次の動作をするワークフローを作成 ",
       describeTile: "エージェントに説明する",
       or: "または",
@@ -934,6 +1002,7 @@ const messages = {
       match: "一致",
       otherwise: "それ以外",
       limitReached: "上限到達",
+      error: "エラー",
       replied: "返信あり",
       timedOut: "タイムアウト",
       done: "完了",
@@ -1096,6 +1165,11 @@ const messages = {
       noOperations: "利用できる操作はありません",
       notInCatalog: "{{id}}（カタログにありません）",
       resultName: "結果に名前を付ける",
+      onError: {
+        label: "エラー時",
+        stop: "このアイテムを停止",
+        route: "エラー出力に送る",
+      },
       insertPath: "パスを挿入",
       searchPaths: "パスを検索",
       noPaths: "一致するパスはありません。",
@@ -1202,6 +1276,7 @@ const messages = {
       combine: {
         mode: "まとめ方",
         key: "グループ化の基準",
+        firstMemberIdentity: "各グループ名は最初の項目から付ける",
         field: "収集するフィールド",
         group: "グループ化の基準",
         value: "合計する値",
@@ -1293,6 +1368,160 @@ const messages = {
         confirm: "ルートを削除",
         cancel: "ルートを残す",
       },
+      apiRequest: {
+        importCurl: "cURL をインポート",
+        method: "メソッド",
+        methodReadOnly:
+          "このステップは読み取りのみのため、メソッドは常に GET です。",
+        provider: "プロバイダー",
+        path: "パス",
+        pathPlaceholder: "repos/acme/web/issues",
+        authentication: "認証",
+        authProvider: "プロバイダーの接続",
+        authProviderHint: "接続の認証情報をリクエストに付けて送信",
+        authNone: "なし",
+        authNoneHint: "認証情報は送らず、公開エンドポイント向け",
+        sendQuery: "クエリパラメータを送信",
+        sendHeaders: "ヘッダーを送信",
+        specifyQuery: "クエリパラメータを指定",
+        specifyHeaders: "ヘッダーを指定",
+        modeFields: "下のフィールドを使用",
+        modeJson: "JSON を使用",
+        name: "名前",
+        value: "値",
+        queryJson: "JSON 形式のクエリパラメータ",
+        headersJson: "JSON 形式のヘッダー",
+        addParameter: "パラメータを追加",
+        addHeader: "ヘッダーを追加",
+        removeRow: "削除",
+        addOption: "オプションを追加",
+        optionTimeout: "タイムアウト",
+        optionPagination: "ページネーション",
+        optionStatus: "レスポンスのステータスとヘッダーを含める",
+        optionFieldsToKeep: "保持するフィールド",
+        optionFieldsToKeepHint:
+          "後続のステップが使うフィールドだけを残し、長い回答を収めます。",
+        fieldsPlaceholder:
+          "user.login などのフィールドを入力して Enter を押してください",
+        fieldsInputLabel: "保持するフィールドを追加",
+        removeField: "{{path}} を削除",
+        pickFromResponse: "前回の回答から選択",
+        pickSearch: "フィールドを検索",
+        pickNeedsTest:
+          "先に「ステップをテスト」を実行し、その回答から選んでください。",
+        pickRunning: "「ステップをテスト」を実行中です。",
+        pickFailed: "前回のテストが失敗したため、選択できる回答がありません。",
+        pickNoFields: "回答には選択できるフィールドがありません。",
+        pickCutNote:
+          "回答が途中で切れているため、後のエントリにだけ現れるフィールドは一覧に含まれていません。",
+        pickCapped: "最初の {{count}} 件のフィールドを表示しています。",
+        pickKeptNote:
+          "前回の回答のフィールドを表示します。すべて見るには、保持するフィールドを指定せずに「ステップをテスト」を実行してください。",
+        optionBlockedByPagination: "ページネーションとは併用できません。",
+        optionBlockedByStatus:
+          "レスポンスのステータスとヘッダーを含めている間は使用できません。",
+        removeOption: "{{option}} を削除",
+        timeoutSeconds: "タイムアウト（秒）",
+        cursorPath: "カーソルのパス",
+        cursorParam: "カーソルのパラメータ",
+        itemsPath: "項目のパス",
+        maxPages: "最大ページ数",
+        notice:
+          "リクエストは読み取りのみです。プロバイダーの接続を使い、認証情報はここに表示も保存もされません。",
+        cardSubtitle: "GET: {{path}}",
+        cardSubtitleEmpty: "GET:",
+        problem: {
+          pathEmpty:
+            "エンドポイントのパスを入力してください。例：repos/acme/web/issues",
+          fullUrl: "パスだけを入力してください。ホストは接続から取得されます。",
+          useOnlyPath: "パスだけを使う",
+          pathQuery:
+            "クエリパラメータはパスに含めず、「クエリパラメータを送信」に入れてください。",
+          moveToParameters: "パラメータに移動",
+          pathFragment:
+            "# の部分を削除してください。プロバイダーには送信されません。",
+          pathPlaceholder:
+            "パス内の {name} が埋まっていません。実際の値を入力してください。",
+          pathSegment:
+            "パスに、空の部分、「.」だけの部分、制御文字を含む部分があります。",
+          pathLength: "パスが長すぎます。",
+          queryInvalid:
+            "クエリパラメータは、名前と、文字列・数値・リストの値で指定してください。",
+          queryName: "名前には英字、数字、- _ . [ ] だけを使ってください。",
+          queryValue: "値には改行を含められず、この長さも使えません。",
+          nameMissing: "名前を入力するか、この行を削除してください。",
+          headersInvalid: "ヘッダーは、名前と文字列の値で指定してください。",
+          headerDenied: "{{name}} は接続が送るため、ここでは設定できません。",
+          headerDeniedRow: "このヘッダーは接続が自動で送ります。",
+          headerName: "ヘッダー名が正しくありません。",
+          headerValue: "値には制御文字を含められず、この長さも使えません。",
+          headerDuplicate: "このヘッダーはすでに追加されています。",
+          timeout: "1 〜 60 秒の数値を使ってください。",
+          paginationShape: "ページネーションの設定を確認してください。",
+          paginationCursorPath:
+            "レスポンス内の次のカーソルへのパスを入力してください。例：meta.next_cursor",
+          paginationCursorParam:
+            "カーソルを返すクエリパラメータを入力してください。",
+          paginationItemsPath:
+            "各ページ内のリストへのドット区切りのパスを使ってください。例：data.items",
+          paginationMaxPages: "1 〜 5 の整数でページ数を指定してください。",
+          statusWithPaging:
+            "ステータスとヘッダーをオフにするか、ページネーションをオフにしてください。ステータスが分かるのは最後のページだけです。",
+          fieldsToKeepShape:
+            "保持するフィールドは、フィールド名のリストである必要があります。",
+          fieldsToKeepEmpty:
+            "フィールドを 1 つ以上追加するか、このオプションを削除してください。",
+          fieldsToKeepCount: "保持するフィールドは最大 50 個までです。",
+          fieldsToKeepControl:
+            "フィールド名に制御文字を含めることはできません。",
+          fieldsToKeepSegment:
+            "user.login のように、ドットで区切った各階層に名前を付けてください。",
+          fieldsToKeepLong: "フィールド名の各階層は最大 64 文字までです。",
+          fieldsToKeepDeep: "フィールドの階層は最大 8 段までです。",
+          fieldsToKeepReserved: "その名前は予約されているため使用できません。",
+          fieldsToKeepDuplicate: "このフィールドはすでに一覧にあります。",
+          droppedCredentials:
+            "{{names}} を除外しました。認証情報はステップに保存されません。",
+        },
+        importDialog: {
+          title: "cURL コマンドをインポート",
+          label: "cURL コマンド",
+          placeholder: "ここに cURL コマンドを貼り付け",
+          warning: "このステップの設定が上書きされます。",
+          import: "インポート",
+          cancel: "キャンセル",
+          done: "完了",
+          providersFailed:
+            "プロバイダーの一覧を読み込めなかったため、コマンドをまだ照合できません。",
+          retry: "再試行",
+          imported: "cURL からインポートしました",
+          leftOutTitle: "インポートしました。次は除外されました：",
+          fail: {
+            not_curl:
+              "cURL コマンドではありません。curl で始まる必要があります。",
+            no_url: "コマンドに URL がありません。",
+            invalid_url:
+              "URL を読み取れませんでした。変数やコマンドは含められません。",
+            not_https: "インポートできるのは https の URL だけです。",
+            unknown_host:
+              "この URL は接続済みのプロバイダーのものではありません。",
+            unterminated_quote: "コマンド内の引用符が閉じられていません。",
+            method_not_get:
+              "このステップは GET でのみ読み取れますが、コマンドは別のメソッドを求めています。",
+          },
+          failFlag:
+            "このステップは GET でのみ読み取れますが、コマンドは {{flag}} を使っています。",
+          leftOut: {
+            credentials: "接続が提供する認証情報：{{names}}",
+            headers: "リクエストが自動で送るヘッダー：{{names}}",
+            bodies: "リクエストボディ（読み取りのみのため）：{{names}}",
+            flags: "ここでは意味のないオプション：{{names}}",
+            unreadableHeader: "読み取れなかったヘッダー",
+            extraUrl: "最初の URL 以降のすべての URL",
+            urlUserinfo: "URL 内のユーザー名とパスワード",
+          },
+        },
+      },
     },
     rejection: {
       unknown_node: "そのステップはこのワークフローにありません。",
@@ -1320,6 +1549,37 @@ const messages = {
       deleteMany: "{{count}} 件のステップを削除",
       selectAll: "すべて選択",
       clearSelection: "選択を解除",
+    },
+  },
+  providerPicker: {
+    choose: {
+      channels: "チャンネルを選択",
+      repositories: "リポジトリを選択",
+      organizations: "組織を選択",
+      projects: "プロジェクトを選択",
+    },
+    search: "検索、または値を入力",
+    useTyped: "「{{value}}」を使用",
+    noMatches: "一致する項目がありません",
+    loadMore: "さらに読み込む",
+    retry: "再試行",
+    changeOrganization: "組織を変更",
+    tag: {
+      private: "非公開",
+      botNotMember: "Bot がチャンネルに未参加",
+      archived: "アーカイブ済み",
+    },
+    error: {
+      notConnected:
+        "{{provider}} が接続されていないため、一覧を読み込めません。値を直接入力することもできます。",
+      refused:
+        "{{provider}} が接続済みの認証情報を拒否しました。値を直接入力することもできます。",
+      missingScope:
+        "{{provider}} の接続に {{scope}} の権限がありません。値を直接入力することもできます。",
+      rateLimited:
+        "{{provider}} がリクエストを制限しています。しばらくしてから再試行するか、値を入力してください。",
+      unreadable:
+        "{{provider}} の一覧を読み取れませんでした。再試行するか、値を入力してください。",
     },
   },
 };

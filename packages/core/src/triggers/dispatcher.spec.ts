@@ -15,6 +15,7 @@ import {
   initTriggerDispatcher,
   parseTriggerFrontmatter,
   refreshEventSubscriptions,
+  stopTriggerQueueWorker,
 } from "./dispatcher.js";
 import {
   expireAutomationTriggerEvent,
@@ -1167,8 +1168,12 @@ Respond to the fanout event.`,
     ).toThrow("Delegated automation policy IDs");
   });
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
+    // Module-level worker flag survives across tests; clearAllMocks only
+    // resets the startIntervalJob mock, so stop the worker or later inits
+    // early-return and never register a new handle.
+    await stopTriggerQueueWorker();
     isProductionServerlessRuntimeMock.mockReturnValue(false);
     triggerQueueMocks.reset();
     resourceFingerprintAllOwnersMock.mockResolvedValue("fingerprint-unchanged");
@@ -1649,6 +1654,152 @@ Respond to the event.`,
 
     expect(triggerQueueMocks.ready).toHaveBeenCalledTimes(readyScans);
     expect(triggerQueueMocks.claim).toHaveBeenCalledOnce();
+  });
+
+  it("stops the event-queue recovery interval on shutdown", async () => {
+    await initTriggerDispatcher({
+      appId: "mail",
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+
+    const handle = vi.mocked(startIntervalJob).mock.results.at(-1)?.value as
+      | { stop: ReturnType<typeof vi.fn> }
+      | undefined;
+    expect(handle?.stop).toEqual(expect.any(Function));
+
+    await stopTriggerQueueWorker();
+    expect(handle?.stop).toHaveBeenCalledTimes(1);
+  });
+
+  it("awaits in-flight trigger drains when the queue worker stops", async () => {
+    let releaseDrain!: () => void;
+    // Resolve to null so drainTriggerQueue exits after the in-flight claim;
+    // a truthy value would loop forever and OOM the suite.
+    const drainGate = new Promise<null>((resolve) => {
+      releaseDrain = () => resolve(null);
+    });
+    triggerQueueMocks.ready.mockResolvedValueOnce(["trigger-drain-wait"]);
+    triggerQueueMocks.claim.mockImplementationOnce(() => drainGate);
+
+    await initTriggerDispatcher({
+      appId: "mail",
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    });
+
+    const handle = vi.mocked(startIntervalJob).mock.results.at(-1)?.value as
+      | {
+          stop: ReturnType<typeof vi.fn>;
+          run?: (signal: AbortSignal) => Promise<void>;
+        }
+      | undefined;
+    // Drive one worker tick so startTriggerDrain registers an in-flight promise.
+    const runOnce = vi.mocked(startIntervalJob).mock.calls.at(-1)?.[0];
+    expect(runOnce).toEqual(expect.any(Function));
+    const tick = runOnce!(new AbortController().signal);
+    await vi.waitFor(() => {
+      expect(triggerQueueMocks.claim).toHaveBeenCalled();
+    });
+
+    let stopped = false;
+    const stopping = stopTriggerQueueWorker().then(() => {
+      stopped = true;
+    });
+    await Promise.resolve();
+    expect(stopped).toBe(false);
+
+    releaseDrain();
+    await tick.catch(() => undefined);
+    await stopping;
+    expect(stopped).toBe(true);
+    expect(handle?.stop).toHaveBeenCalled();
+  });
+
+  it("stops claiming further queued events once shutdown begins", async () => {
+    let releaseFirstClaim!: () => void;
+    const firstClaimGate = new Promise<void>((resolve) => {
+      releaseFirstClaim = resolve;
+    });
+    let claims = 0;
+    const defaultClaim = triggerQueueMocks.claim.getMockImplementation();
+    triggerQueueMocks.ready.mockResolvedValueOnce(["trigger-shutdown-bound"]);
+    triggerQueueMocks.claim.mockImplementation(async (...args) => {
+      claims += 1;
+      if (claims === 1) {
+        await firstClaimGate;
+        // Stale mail path expires then loops; the shutdown flag must stop
+        // further claims so stop() cannot hang on a large backlog.
+        return {
+          id: "queue-shutdown-1",
+          triggerId: "trigger-shutdown-bound",
+          triggerPath: "jobs/shutdown-bound.md",
+          appId: "mail",
+          eventName: "mail.message.received",
+          eventId: "shutdown-event-1",
+          payload: { messageId: "shutdown-1" },
+          eventOwner: "alice+triggers@agent-native.test",
+          emittedAt: new Date(Date.now() - 2 * 60 * 60_000).toISOString(),
+          status: "processing",
+          attempts: 1,
+          failureAttempts: 0,
+          claimedAt: Date.now(),
+          availableAt: 0,
+        };
+      }
+      return defaultClaim ? defaultClaim(...args) : null;
+    });
+
+    try {
+      await initTriggerDispatcher({
+        appId: "mail",
+        getActions: () => ({}),
+        getSystemPrompt: async () => "system",
+      });
+
+      const runOnce = vi.mocked(startIntervalJob).mock.calls.at(-1)?.[0];
+      expect(runOnce).toEqual(expect.any(Function));
+      const tick = runOnce!(new AbortController().signal);
+      await vi.waitFor(() => {
+        expect(claims).toBe(1);
+      });
+
+      const stopping = stopTriggerQueueWorker();
+      await Promise.resolve();
+      releaseFirstClaim();
+      await tick.catch(() => undefined);
+      await stopping;
+
+      expect(claims).toBe(1);
+      expect(expireAutomationTriggerEvent).toHaveBeenCalled();
+    } finally {
+      if (defaultClaim) {
+        triggerQueueMocks.claim.mockImplementation(defaultClaim);
+      } else {
+        triggerQueueMocks.claim.mockReset();
+      }
+    }
+  });
+
+  it("takes no queue work after the worker stops until the dispatcher starts again", async () => {
+    const deps = {
+      appId: "mail",
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+    };
+    await initTriggerDispatcher(deps);
+    const staleTick = vi.mocked(startIntervalJob).mock.calls.at(-1)?.[0];
+    expect(staleTick).toEqual(expect.any(Function));
+
+    await stopTriggerQueueWorker();
+    // Other jobs can still be stopping when a late tick or event runs.
+    await staleTick!(new AbortController().signal);
+    expect(triggerQueueMocks.ready).not.toHaveBeenCalled();
+
+    await initTriggerDispatcher(deps);
+    const tick = vi.mocked(startIntervalJob).mock.calls.at(-1)?.[0];
+    await tick!(new AbortController().signal);
+    expect(triggerQueueMocks.ready).toHaveBeenCalledOnce();
   });
 
   it("backs off the interval worker when no trigger is claimable", async () => {
@@ -4058,7 +4209,82 @@ Handle the event.`,
     ).toMatchObject({
       engine: { name: "test-engine" },
       resolvedModel: "automation-model",
+      usageLabel: "automation:condition-deployment-key",
     });
+  });
+
+  it("keeps a conditional event queued while the credential store cannot be read, counting it once", async () => {
+    const { isResolvedEngineUsableForRequest } =
+      await import("../agent/engine/index.js");
+    const { CredentialStoreUnavailableError } =
+      await import("../server/credential-provider.js");
+    const usable = vi.mocked(isResolvedEngineUsableForRequest);
+    usable.mockRejectedValue(new CredentialStoreUnavailableError());
+    const stored = conditionResource(
+      "condition-store-down",
+      "event.condition.store.down",
+    );
+    resourceListAllOwnersMock.mockResolvedValue([stored]);
+    resourceGetByPathMock.mockImplementation(async () => ({ ...stored }));
+    resourcePutIfCurrentMock.mockImplementation(
+      async (input: { content: string }) => {
+        stored.content = input.content;
+        return { ...stored };
+      },
+    );
+
+    try {
+      await initTriggerDispatcher({
+        getActions: () => ({}),
+        getSystemPrompt: async () => "system",
+      });
+      const handler = busEventHandler("event.condition.store.down");
+      const event = {
+        owner: "alice+triggers@agent-native.test",
+        eventId: "event-condition-store-down",
+        emittedAt: "2026-04-30T00:00:00.000Z",
+      };
+      const row = () =>
+        triggerQueueMocks.rows.find(
+          (candidate) => candidate.eventId === event.eventId,
+        );
+
+      // Every attempt fails the same way. A runtime failure pauses after 5
+      // counted failures, so counting each retry would pause the automation.
+      for (
+        let attempt = 1;
+        attempt <= MAX_AUTOMATION_TRIGGER_EVENT_FAILURES;
+        attempt += 1
+      ) {
+        await vi.waitFor(async () => {
+          const current = row();
+          if (
+            !current ||
+            (current.status === "pending" && current.failureAttempts < attempt)
+          ) {
+            if (current) current.availableAt = 0;
+            await handler({ ok: true }, event);
+          }
+          expect(row()?.failureAttempts ?? 0).toBeGreaterThanOrEqual(attempt);
+          expect(row()?.status).not.toBe("processing");
+        });
+      }
+
+      expect(triggerQueueMocks.retry).toHaveBeenCalledTimes(
+        MAX_AUTOMATION_TRIGGER_EVENT_FAILURES - 1,
+      );
+      expect(triggerQueueMocks.complete).not.toHaveBeenCalled();
+      expect(row()?.status).toBe("failed");
+      expect(startRunMock).not.toHaveBeenCalled();
+      expect(stored.content).toContain(
+        'lastErrorCode: "credential_store_unavailable"',
+      );
+      expect(stored.content).toContain("consecutiveFailures: 1");
+      expect(stored.content).not.toContain("enabled: false");
+      expect(trackAutomationPausedMock).not.toHaveBeenCalled();
+    } finally {
+      usable.mockImplementation(async () => true);
+    }
   });
 
   it("passes a configured background engine into condition checks", async () => {

@@ -3,6 +3,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { getDbExec } from "@agent-native/core/db";
+import {
+  privateMedia,
+  privateMediaStore,
+} from "@agent-native/core/private-media";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -14,6 +18,7 @@ const TEST_DB_PATH = join(
   `content-database-form-${process.pid}-${Date.now()}.pglite`,
 );
 const OWNER = "form-owner@example.com";
+const OWNED_IMAGE = "a1111111-1111-4111-8111-111111111111";
 
 type Schema = typeof import("../server/db/schema.js");
 let getDb: () => any;
@@ -269,6 +274,44 @@ describe("submit-content-database-form", () => {
     expect(notes.content).toBe("Route through the web design queue.");
   });
 
+  it("attaches a private image the submitter uploaded to the new row", async () => {
+    await privateMediaStore.ready();
+    await getDb().insert(privateMedia).values({
+      id: OWNED_IMAGE,
+      ownerEmail: OWNER,
+      mimeType: "image/png",
+      size: 3,
+      sha256: "0",
+      blobHandleJson: "{}",
+      createdAt: 0,
+    });
+    const seeded = await seedFormDatabase();
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      submitForm.run({
+        databaseId: seeded.databaseId,
+        viewId: "request-form",
+        title: "Screenshot of the bug",
+        propertyValues: {
+          Description: `![](/api/private-media/${OWNED_IMAGE})`,
+          Priority: "P1 — High",
+          [seeded.deadlineId]: "2026-08-15",
+          Requester: "requester@example.com",
+        },
+      }),
+    );
+    await expect(
+      getDb()
+        .select({ mediaId: schema.privateMediaReferences.mediaId })
+        .from(schema.privateMediaReferences)
+        .where(
+          eq(
+            schema.privateMediaReferences.documentId,
+            result.createdDocumentId,
+          ),
+        ),
+    ).resolves.toEqual([{ mediaId: OWNED_IMAGE }]);
+  });
+
   it("accepts model-safe property entries without dynamic object keys", async () => {
     const seeded = await seedFormDatabase();
     const result = await runWithRequestContext({ userEmail: OWNER }, () =>
@@ -388,6 +431,48 @@ describe("submit-content-database-form", () => {
       .from(schema.contentDatabaseItems)
       .where(eq(schema.contentDatabaseItems.databaseId, seeded.databaseId));
     expect(after).toHaveLength(before.length);
+  });
+
+  it("saves Blocks that give two videos one id, since a new row has no thread on them", async () => {
+    const seeded = await seedFormDatabase();
+    const video = (caption: string) =>
+      `<video src="https://example.com/a.mp4" id="video-original">${caption}</video>`;
+    const paired = `${video("Demo")}
+${video("Copy")}`;
+    const result = await runWithRequestContext({ userEmail: OWNER }, () =>
+      submitForm.run({
+        databaseId: seeded.databaseId,
+        viewId: "request-form",
+        title: "Two clips",
+        propertyValues: {
+          Description: paired,
+          "Internal notes": paired,
+          Priority: "P1 — High",
+        },
+      }),
+    );
+
+    const db = getDb();
+    const [document] = await db
+      .select({ content: schema.documents.content })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, result.createdDocumentId));
+    const [notes] = await db
+      .select({ content: schema.documentBlockFieldContents.content })
+      .from(schema.documentBlockFieldContents)
+      .where(
+        and(
+          eq(
+            schema.documentBlockFieldContents.documentId,
+            result.createdDocumentId,
+          ),
+          eq(
+            schema.documentBlockFieldContents.propertyId,
+            seeded.additionalBlocksId,
+          ),
+        ),
+      );
+    expect([document.content, notes.content]).toEqual([paired, paired]);
   });
 
   it("rejects duplicate model-safe entries before creating a row", async () => {

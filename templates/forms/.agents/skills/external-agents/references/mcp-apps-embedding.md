@@ -120,6 +120,17 @@ resource CSP should include the exact origins of apps granted through Dispatch,
 not broad sources like `https:`. This lets Claude's transplant path fetch the
 signed target app HTML while keeping the connector's resource surface narrow.
 
+Side panel and app tools: every `embedApp()` resource sets
+`_meta.ui.preferredDisplayMode: "fullscreen"`, so Claude opens the app in its
+side panel beside the chat (other hosts ignore the field). The shell declares
+`availableDisplayModes` and `tools` in `ui/initialize` and answers the host's
+`tools/list` / `tools/call` on the open view: `read_view` returns the page's
+path, title, selection and visible text, `navigate_view` moves the open app to
+another same-origin path in place, and any page tools the app registered through
+WebMCP are passed through. Prefer these over a new `open_app` call when the user
+asks to change what the open panel shows, since each new UI tool call opens a
+new view.
+
 Host sizing rule: the MCP resource shell owns a bounded inline height and the
 embedded route should scroll internally. `embedApp({ height })` defaults to a
 `560px` shell, clamps to `320-900px`, and subtracts `44px` for the wrapper bar
@@ -162,8 +173,15 @@ actions for Forms, Content, Clips, Slides, and Design. The action should return
 concise structured content plus the link; it should not dump large catalogs or
 HTML.
 
-Compatibility target: build to the standard once, not per-client shims. MCP
-Apps-capable hosts should include Claude/Claude Desktop/Claude Code, ChatGPT
-custom MCP apps, VS Code GitHub Copilot, Goose, Postman, MCPJam, Cursor, and
-any future host that follows the extension negotiation. Host support varies by
-plan, release channel, and client version, so keep the deep link fallback.
+Compatibility target: build to the standard once, not per-client shims.
+Hosts that render MCP Apps inline today include Claude chat on web, desktop, and
+mobile, plus the Claude Desktop Code tab; ChatGPT; VS Code GitHub Copilot (1.109+);
+Microsoft 365 Copilot; Cursor (2.6+); Goose; Postman; MCPJam; Codex Desktop (26.616+);
+and T3 Code (in Codex threads). Desktop Code rendering is observed in
+[widget bug reports](https://github.com/anthropics/claude-code/issues/103809).
+Treat the Claude Code terminal, Cowork, and Code on claude.ai web as link-out hosts.
+[Cowork doesn't declare MCP Apps yet](https://github.com/anthropics/claude-code/issues/103924),
+and using it on the same connector can make inline apps disappear in Chat until
+you reconnect the connector. Host support varies by plan, release channel, and client version,
+so keep the deep link fallback. See the community-maintained
+[MCP client matrix](https://modelcontextprotocol.io/extensions/client-matrix).

@@ -1,5 +1,560 @@
 # @agent-native/toolkit
 
+## 0.228.2
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 75f2dbb: Question card buttons (Skip, Submit, Show another set) stay inside narrow cards instead of running past the edge.
+- Updated dependencies
+  - @agent-native/agentkit@0.228.2
+
+## 0.228.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.228.1
+
+## 0.228.0
+
+### Minor Changes
+
+- 8656de2: AgentKit React exports Trace parts (`Trace`, `TraceLine`, `TraceIcon`, `TraceTitle`, `TraceDescription`, `TraceCollapsible`, `TraceCollapsibleTrigger`, `TraceCollapsibleContent`) and Code Block parts (`CodeBlock`, `CodeBlockHeader`, `CodeBlockTitle`, `CodeBlockActions`, `CodeBlockCopyButton`, `CodeBlockContent`, `CodeBlockLine`, `CodeBlockFooter`, `useHighlightedCode`) for building custom renderers that match the default transcript. Every default step row (the live working row, work groups, activities, work steps, reasoning, tasks, and agent messages) now renders through Trace, and failed agent messages use the amber warning triangle. Fenced code in replies is syntax highlighted and labeled by language name. Tool input and results are highlighted code blocks with a copy button, and a tool that runs code or a command shows that source instead of escaped JSON. A message's citations render as one "Used N sources" step. `StackTrace` and `parseStackTrace` show a V8 or Python stack in a tool result as an error title with the caller's frames first and framework frames folded. `Terminal` shows a shell command with its streaming output, exit code, and duration; coding-tool command calls render through it, and a failed command uses the amber warning color instead of red. The composer's context ring and its usage panel are AgentKit parts (`ContextUsageRing`, `ContextUsagePanel`) styled with AgentKit tokens; the `context-ui` names still work, segments take a CSS `color` as well as a `colorClass`, and the ring fill reads `--agent-kit-progress-color`. `FileChange` shows a file the agent edited or created: an edit's diff with +/− lines, or a new file highlighted with line numbers. Chat's Files changed summary and edit and write cells render through it, a long path keeps its file name visible, line counts come from the diff, and an unchanged line after an edit now shows as unchanged instead of removed and re-added. Diff colors read `--agent-kit-diff-added-color` and `--agent-kit-diff-removed-color`. Sending a message now holds it near the top of the transcript, with a sliver of the previous turn above it, while the reply streams in below; once the reply fills the view, the transcript follows it as before. Pass `anchorTurns={false}` to `AgentKitChat` to follow the bottom from the moment a message is sent. AgentKit now uses one radius scale set by element size instead of the theme's `--radius`: 4px for anything 24px tall or less (icon buttons, chips, inline code, menu items), 8px for 32px buttons, the user bubble, code blocks, cards and popovers, 12px for dialogs and large previews, and 16px for the composer, so nested corners stay concentric. The Send, Stop, voice and scroll-to-bottom buttons are rounded squares instead of circles, and chips are no longer pills. Hosts can override the steps with `--agent-kit-radius-xs`, `-sm`, `-md` and `-lg`. The composer's model menu is now just the models, More models and Effort: the model details card, the printed 1-9 numbers (the digit keys still pick a model and are announced to screen readers) and the Recommended badges are gone, and the menu uses the shared composer popover surface. Keyboard and screen-reader fixes: each message's actions are one tab stop with the arrow keys, Home and End moving inside (a `toolbar`), and a "Skip to message box" link comes before the transcript. Regenerate, Fork and the branch arrows stay focusable with `aria-busy` while they run, and the branch arrows use `aria-disabled` at either end. Scroll to bottom, Stop and Regenerate pressed from the keyboard hand focus to the composer instead of dropping it to the page. The status region now also announces a run that is waiting for approval or input and one that was stopped. The @ and / menus are a labeled listbox the editor points to with `aria-controls` and `aria-activedescendant`, so the highlighted row is announced. The pasted-text Remove is a real button beside the preview, and removing any attachment returns focus to the editor. The running shimmer sweeps between two readable text colors instead of fading toward the background, and with reduced motion it shows plain text. The @ menu translates a mention provider's section label through the app's catalog, so Chat, Analytics and Clips show "Conversations", "Dashboards" and "Recordings" instead of the raw `composerSources.group` key; a plain label still shows as written. More accessibility fixes: counts, pending steps, diff counts, menu headers and error text now reach 4.5:1 (hosts get `--agent-kit-danger-text`, since a theme's `--destructive` is sized as a fill), and composer load failures are amber instead of red. The focused composer border reaches 3:1. A failed agent chip is amber with a triangle and says "Failed" to screen readers, a rejected command shows a triangle, and the context caption shows one past 80%. A failed context chip's reason is read with the chip and shown in Retry's tooltip, approval menu hints are a second line, unavailable message actions stay focusable and show their reason, an open step shows its full title, and a queued message shows in full while its row has focus. Code, terminal and stack trace copy buttons show on touch screens, the transcript scrollbar shows on hover, and the inline disclosure row and a failed attachment's Remove have 24px targets. Copies are announced, a failure is announced once, step names are announced at most every 10 seconds, each turn has a hidden heading, code blocks and tables are named groups instead of landmarks, queued thumbnails are named, and each composer paragraph takes its own text direction. One visual system: AgentKit and composer borders use one hairline (`border-border`) instead of five strengths, with the composer the one deliberate exception. Composer, mode, queue and approval menus share the 8px popover surface with 4px items; the shared `ui/dropdown-menu` primitive is unchanged. Every chip (composer mentions, file and skill references, context chips, sent mentions, agent chips) is 20px tall with 4px corners and 12px text. Failures are amber with a triangle everywhere, including a run failure that cannot be retried, command and feedback errors, connection notices and the render-error card, which drops its tinted fill; red is kept for destructive choices. AgentKit's stylesheet reads the caption, supporting, density and new `--agent-kit-body-font-size` type tokens instead of raw sizes. Approval, connection and widget cards share one frame: hairline border, 8px corners, no shadow and 12px padding. Queued messages are 32px rows with 8px corners at an 8px inset, and the queue's unused component CSS is gone. Each delegated agent is one collapsible Subagent step instead of separate "delegated", "working", "sent a message" and "finished" rows mixed with other agents': the row names the agent, says whether it is working, finished, paused or needs attention, and shows its task, latest progress, how long it worked and why it failed. Inside are its own tool calls (which no longer disappear from the transcript), its messages and its reply. A delegated agent's task moves into its step, and an agent still marked working when its run ends shows as finished. `formatAgentInteractionDetail` on `AgentKitProvider` and `AgentKitRoot` supplies an interaction's detail text; Chat uses it for its localized delegation failure reasons instead of a custom failed-row renderer. The Agent tasks summary says "2 of 5 done" instead of a bare count, and a task's own progress reads the same way. `QuestionCard` shows the agent's questions above the composer in the composer's frame and type scale: a "Question 1/3" header, one-line numbered options with Recommended first, a written-response field that takes the composer's focus border, the composer's dictation mic beside it (`renderResponseControl`), and Skip and Next, then Send, which delivers every answer in one message. Number keys and arrows pick options, focus follows each step, and a required question cannot be skipped. Chat renders the agent's questions through it with the new `GuidedQuestionCard`, while `GuidedQuestionFlow` keeps its full-panel layout for Analytics and Slides; Chat now shows a question as soon as the agent asks it instead of after a reload or a window refocus. `VoiceButton` takes `showShortcut={false}` for a mic outside the composer, whose ⌘⇧M shortcut it does not own. `QuestionCard` also asks color questions (a swatch on each one-line option), slider questions (one row showing the value that will be sent, starting at the midpoint) and file questions (a "Choose files…" button, dropping onto the card, and 20px chips), and takes `submitLabel` and `skipLabel`. The /chat route now localizes every AgentKit string the sidebar chat does (agent, task, feedback, queue, usage and branch copy was English there in other locales); both share `agentKitChatLabels`. Activity and tool rows say Running, Failed or Stopped to screen readers, since their title is the step's name. An unavailable message action's reason is its accessible description, and pressing it opens the reason's tooltip on touch screens. A failed tool call inside a Subagent step keeps its row instead of showing only its error text.
+- 8175f2d: Feature flag changes now say which rule they change. A flag can have a rule for every organization and an organization's own rule, which replaces it; `set-feature-flag` takes `scope: "org" | "global"`, only emails on the app's feature flag admin list can change the rule for every organization (from inside any organization), and `list-feature-flags` reports both rules, which one is in effect, and any rule that couldn't be read. A stored rule that can't be read now evaluates off everywhere, including when it is an organization's own rule over a global rule that is on, and `evaluateFeatureFlagStrict` throws on it. Enabling a flag for yourself adds to the rule in effect: it fails with a 409 on a rule that can't be read, and on an organization that follows the global rule, instead of starting that organization's own rule; turning a flag off or replacing its rules writes the whole rule either way. A rule the caller can't change is listed as `withheld`, with its mode, percentage, and how many emails and organizations it targets, but not which (`FeatureFlagRuleSummary`). The flag editor names where a change applies, shows when an organization's own rule overrides the rule for all organizations, and disables "Enable for me" where the server would refuse it. Breaking for TypeScript consumers: `FeatureFlagMetadata.rules` is now optional, absent when the rule in effect couldn't be read or is withheld, and `FeatureFlagStoredRule` has a new `withheld` state.
+- 78738f3: People can switch skills on or off for themselves, and organization admins can choose how each shared skill starts for people. Every skill in Settings → Skills has a switch that changes only the agent of the person who flips it. Admins mark each organization or Dispatch skill Recommended (on until someone switches it off, the default), Optional (off until someone switches it on) or Required (on for everyone, with a confirmation first). A Required skill wins over a same-named skill of anyone's own: their version is kept but unused, in the prompt and in explicit references. Admins see how many people switched each skill and how many keep their own version, never who. Switching or marking a Dispatch skill changes this app only. Nothing changes until someone acts. The new actions are `get-skill-choices`, `set-skill-switch`, `set-skill-mark` and `get-skill-choice-counts`; the client hook is `useSkillChoices` from `@agent-native/core/client/resources/use-skill-choices`.
+
+### Patch Changes
+
+- ade88da: An app can now draw the agent chat inside its own panel, and the Share button can show as plain text.
+- c8c081c: Keep a message sent from a closed agent panel when it opens a new chat, such as one sent from New automation. The panel cancelled it as meant for the chat it showed before, so the message never arrived and its text was lost.
+- da0d6d2: The Builder.io connect popover and first-run onboarding now say "15 free credits a day, up to 60 a month" instead of "60 monthly Agent Credits", so the daily limit is not a surprise. Every locale is updated.
+- 353cb43: Hide Create organization in the account menu when `ORG_CREATION=closed`, matching the no-organization screen and Team settings.
+- 40362af: In a collaborative editor, when someone else types in the paragraph you're typing in, your cursor stays after your own last letter instead of jumping back into your word, so your words no longer get mixed into theirs.
+- 8656de2: Run a custom agent when you @-mention it in the agent chat. The mention reached the server without its reference, so the main agent answered by itself instead of handing the question to the agent you named. A mention in the first message sent from Chat's Get started page now reaches the run too.
+- 54b3cc3: Right after sign-up, the app's home no longer flashes before or between the "What best describes your role?" screens. The startup skeleton stays up until the app knows whether onboarding starts, and apps with a first-paint home (Design, Slides) paint the plain skeleton instead while first run may start.
+- Release all public npm packages with a patch version bump.
+- 8930066: Match dropdown, context, and menubar menus to shadcn's Nova menu spacing: 4px menu padding with inset rows, separators with 4px above and below, and 6px item padding. The account menu now uses the standard menu rows instead of its own smaller text and labels.
+- bea9322: Require verified organization identity, scope background reads to the current organization, restrict shared MCP identity hints and recap agent tools, protect logout from cross-origin requests, confirm extension-submitted agent turns in the host UI, and let users approve exact outbound origins for custom keys without replacing their values.
+- b6222c2: Use compact split controls for resource sharing, and support link-only viewer surfaces and resource-specific general access controls.
+- bdefc2e: Refresh MCP client setup instructions and align MCP settings with the existing Settings hierarchy, using branded client rows, focused detail pages with named setup stages using the same shared numbered-steps renderer as Docs with borderless secondary circles for MCP and copyable connection details, connection actions and immediately copyable test prompts within setup steps, OAuth details where required, a compact setup-guide footer, Figma-matched spacing and setup copy, local-address guidance, copy feedback, accessible destination indicators, manual configuration on demand, shared shadcn surfaces, input groups, and error feedback, and server-backed connection badges and activity in the client list and details.
+- Updated dependencies [8656de2]
+- Updated dependencies
+  - @agent-native/agentkit@0.228.0
+
+## 0.227.0
+
+### Minor Changes
+
+- a467c58: Show one shared toast when a save fails instead of failing silently. `useActionMutation` now announces a failed write that nothing else handles (`errorNotification: "auto" | "shared" | "caller"`, plus an `errorLabel` title), `@agent-native/core/client/write-failure` adds `reportWriteFailure` for writes that are not mutations, and `AppProviders` mounts the toast. A typed 4xx refusal shows its own message, offline, timeout and permission failures show translated text, and a 5xx stays generic. Background saves and mutations that render their own error opt out with `errorNotification: "caller"`.
+
+### Patch Changes
+
+- ba1a7d3: `AgentShareSection` fetches a fresh agent link when the one it holds is about to expire, on reopening or on Copy, the same as the Share panel's Send to menu.
+- 48d9de3: Place the optional Builder signup agreement alongside the existing terms and privacy footer.
+- d1fa5c5: Keep Builder.io reconnect available in chat and Settings when credentials expire or grant status cannot be read. Add reconnect controls to healthy and failed integrations without overlapping error messages.
+- 6e8b91a: Support app-scoped Builder signup experiments and consented activation before first-run onboarding.
+- cd176a0: A collaborator's selection is tinted in their colour, and the text inside it stays at full strength.
+- 0f27dbe: Every connected integration tile opens a detail page
+
+  A connected remote MCP server's tile was an inert element whose only control was a "…"
+  menu, so a connected integration (a remote MCP server or a custom one added by URL) could
+  not be opened, inspected or reconnected — while a catalog tile always could. Connected
+  tiles are now links to the same settings detail page, and the page resolves a connected
+  server that has no catalog entry (a custom integration) by the slug the tile links to,
+  showing status, scope, tools, the error reason, Reconnect and Remove. The id convention
+  lives in one module so the tile and the page cannot drift apart.
+
+- 17bf02d: Identify hosted auth shells before app configuration loads, and record Builder signup enrollment and fallback outcomes for end-to-end experiment tracking.
+- 4a3c8c7: Use full-page Google sign-in redirects by default in ordinary browsers, preserving popups for embedded apps and explicit popup overrides.
+- 7f5db5c: Fix Google sign-in failing with `Invalid desktop exchange challenge.` on apps with a stricter Google auth route, such as Clips. The browser redirect no longer carries a desktop `flow_id`.
+- f94438c: Keep an open editor's unsaved text when the page's timestamp moves but its body doesn't, as after a rename elsewhere. `useCollabReconcile` no longer treats that snapshot as newer than the doc, so it doesn't replace the doc with a body the editor already took in.
+- 46ed84c: A fresh server no longer loads React DOM's server renderer, the sign-in pages and their icon set before it can answer a request. `createToolkitAuthPlugin` loads them before the first page request instead: any GET outside the routes the server answers before the app's router (the framework routes, `/api`, `/mcp`, `/.well-known` and `/assets`), or a browser navigation. It reads each path as the auth guard does, with `getAuthGuardPath`, which core now exports from `@agent-native/core/server/auth-guard-path`. The server's agent-presence code no longer imports React. `renderSignInPage` and `renderResetPasswordPage` may now return `undefined`, which serves core's fallback markup for the auth client script to render in the browser. An app that passes the toolkit's `renderAuthPage` to core's `createAuthPlugin` or `createGoogleAuthPlugin` itself should `await loadAuthPageRenderers()` before serving a sign-in page, or it gets that fallback, cached like the full page. `createGoogleAuthPlugin` now renders its sign-in page for each request that shows it, rather than once at startup, so a renderer that loads later still reaches the page.
+- 3142f57: Show a working turn's live activity row below the reply's latest text instead of above it, so long narration no longer pushes it out of view while the agent is still working.
+- Release all public npm packages with a patch version bump.
+- ec21102: Failed resource uploads, resource saves, and community app installs now use the shared write-failure toast, so the notice says why the save failed, such as being offline or lacking permission.
+- 36106a3: Show a saved integration access token as connected on its Settings page, refresh composer integrations when a key is saved, and register Dispatch's provider API runtime so its connected integrations appear. Composers can now claim a paste as app context (`onPasteContext`). A checkbox set to `"indeterminate"` now shows a filled dash instead of a check mark. When the saved token cannot be read, the integration page says so and offers Try again instead of showing no action.
+- ba1a7d3: `ShareButton` takes `hideSendTo`, which leaves the Send to menu out of the Share panel for an app that offers those destinations in a tab of its own.
+- 36074ef: Fixes for hiding shared chats that fail. When the server refuses a hide, `useChatThreadList` and the toolkit's chat history now fetch the list again. Before, a chat whose access was revoked while the request was out came back and stayed listed until the next refresh. In the toolkit's chat history, a hide that fails after you switch views or close the list now replaces the "Hidden" toast with the error. Before, the toast kept saying the chat was hidden.
+- d4f3450: The composer shows one primary control while a run is active: Stop while the draft is empty, Send once you type. Send no longer appears beside Stop, and Escape still stops the run mid-draft. A stopped run also no longer says "This run can't be continued anymore" once a newer run has picked up the thread.
+- 6189d88: Keep the viewport anchored when reordering a block within the same editor.
+- 7c7bf12: `TooltipTrigger` opens its tooltip again when keyboard focus lands on a control inside the trigger, such as a column header's menu button. A click that hands focus back still leaves it closed.
+- Updated dependencies
+  - @agent-native/agentkit@0.227.0
+
+## 0.226.0
+
+### Patch Changes
+
+- 5e251c0: Preserve Builder connection cancellation checks across asynchronous operations.
+- 5ee10e8: Separate app context from scoped workspace integration contributions in the shared composer, preserve references through app handoffs, and revalidate integration access before engine dispatch. Preserve bounded app-owned source identifiers in composer draft metadata. Support transport-owned binary uploads in AgentKit and provide the native file-storage upload lifecycle across shared composers.
+- 9aabcfb: Add a pre-signup experiment for automatic Builder account activation with recorded acceptance, verified identity checks, and a new-account-only provisioning contract.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [5ee10e8]
+- Updated dependencies
+  - @agent-native/agentkit@0.226.0
+
+## 0.225.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [1a62c08]
+- Updated dependencies
+  - @agent-native/agentkit@0.225.1
+
+## 0.225.0
+
+### Minor Changes
+
+- aeb3d12: Let the share panel choose what general access allows. Anyone at the organization gets a role picker for Can view, Can comment, or Can edit, and Anyone with the link gets one for Can view or Can comment. `set-resource-visibility` takes an optional `role` with `visibility: "org"` or `"public"`. The organization's role is stored as the share grant to the resource's own organization, and the link's role as a share row for the new `link` principal, which only signed-in callers receive and which is never listed or shared as a person. Each is removed when the resource leaves that visibility, and raising the link role needs the same approval as making a resource public. `list-resource-shares` returns `linkRole` for a public resource. `useShareButtonController` adds `generalAccessRole`, `canSetGeneralAccessRole` and `handleGeneralAccessRole`, and while visibility is `org` its `shares` no longer lists the organization grant. `ShareGeneralAccessRow` takes `roleCopy` and `allowedRoles`.
+
+  Going from private to the organization no longer opens a confirmation for every resource type. A registration opts in with `confirmOrgVisibility: true`, which chat threads set; `useShareVisibilityTransition` takes the matching `confirmOrgVisibility` option.
+
+### Patch Changes
+
+- 9108a0b: Keep a reply box expanded until a press outside it has finished, so collapsing it can't move a Resolve button or other control out from under the pointer.
+- 59b8c47: Stop the composer from re-rendering on every editor update, which could hit React's maximum update depth.
+- Release all public npm packages with a patch version bump.
+- 7557e39: The composer's @ menu lists an exact name or alias match first, so typing "@ai" picks the agent that answers to "AI". A host that passes its own mention list without the default search keeps that list's section order, even for a section named "Agents".
+- bce674a: Stop AppProviders logging React 19's "Encountered a script tag" error in dev on every private page load.
+- Updated dependencies
+  - @agent-native/agentkit@0.225.0
+
+## 0.224.0
+
+### Minor Changes
+
+- 6552f04: Let organizations hide Agent-Native.com hosted apps in Dispatch, group Dispatch's app pages into Pinned apps, Apps, and Agent-Native.com hosted apps, and keep the sidebar to pinned apps.
+  - Organization owners and admins get a "Show Agent-Native.com hosted apps" switch under Settings › Organization › Apps, backed by the new `get-hosted-apps-settings` and `set-hosted-apps-settings` actions (recorded in Dispatch's audit log, on by default). When it is off, Agent-Native.com hosted apps leave Dispatch's app lists, `list_apps`, and the Dispatch agent's app context; `list-connected-agents` still returns them marked `hiddenFromLaunchers`, and `call-agent` by name still reaches them. An unreadable stored value hides Agent-Native.com hosted apps and Settings offers to repair it.
+  - Core adds `registerAgentContextAgentFilter` and `discoverAgentContextAgents` so an app can narrow the peers its own agent is shown (`<available-apps>`, relevant apps, @-mention Connected Agents, `describe-workspace-apps`) without changing `discoverAgents` routing.
+  - Home, New chat, and All apps show Pinned apps, Apps, and Agent-Native.com hosted apps sections. The sidebar shows pinned apps, or until something is pinned, three suggested apps, above an All apps link. Every app row has a visible pin button, and pins stay in sync across surfaces. The toolkit apps rail accepts optional `sections` and `onTogglePinned` (pin changes go to the host instead of a whole layout); without them it renders as before.
+
+- 810b9e0: Two writers changing one record no longer silently overwrite each other. Core adds `saveIfCurrent` in `@agent-native/core/save-conflict/server`, which writes only when the record still has the revision the caller read and otherwise throws a typed `save_conflict` carrying the current value, and `saveWithMerge` in `@agent-native/core/save-conflict`, which merges and saves again before asking anyone. Toolkit adds `useSaveConflictPrompt` in `@agent-native/toolkit/app/save-conflict`, the one prompt for when both writers changed the same field. Forms, Clips and Mail use them first.
+
+### Patch Changes
+
+- aa0b323: Keep the caret on a block dragged downward with the drag handle, instead of the block after it.
+- Release all public npm packages with a patch version bump.
+- 7abe86d: New-workspace-app instructions now tell the agent to keep `configureClientRouterBasename()` in `app/entry.client.tsx`, matching the shipped templates.
+- Updated dependencies
+  - @agent-native/agentkit@0.224.0
+
+## 0.223.1
+
+### Patch Changes
+
+- 0d88792: Restore the feedback form on negative chat ratings.
+- 10735e3: Point to the Connect AI card when clicking anywhere in its chat field.
+- 70c5c8f: Keep the Connect AI setup card inside narrow chat panels and phone screens: its buttons wrap onto a second line instead of overflowing, a connect error wraps under the buttons instead of pushing Custom keys out of the card, and a long "Connected to" workspace name truncates. The Waiting, Cancel, and Custom keys buttons now share one size while a Builder.io connection is in progress. `BuilderConnectPopover` accepts `cancelSize` so the Cancel button can match its trigger.
+- Release all public npm packages with a patch version bump.
+- 110efd1: Add Content creator, Student and Educator to the onboarding role question.
+- Updated dependencies
+  - @agent-native/agentkit@0.223.1
+
+## 0.223.0
+
+### Minor Changes
+
+- 033d9ad: One way to show a comment, in every app:
+  - New `CommentBody` from `@agent-native/toolkit/app/review` draws a comment's Markdown: paragraphs, bold, italic, strikethrough, code, links, lists, quotes, code blocks and mention chips, with headings as bold lines. Raw HTML shows as written, so a note like `use <Button> here` keeps its tag; HTML comments stay hidden. Mentions come from a `mentions` list (`@label`, whole words only, or pinned with `at`) or from `@[Name](mailto:…)` text. A label two listed people share stays text, rather than name one of them for both. `renderMention` draws a mention an app's own way; returning nothing keeps the kit's chip. `compact` flattens it to one run of text for previews, with links shown as text and chips in the line's size and color, so they read on a dark card. Past 20,000 characters, or from a paragraph nested or tangled far past what people write (brackets, quotes or list markers more than 16 deep, more than 1,000 emphasis markers in one paragraph, or brackets the parser would spend long looking back for), the rest shows as plain text, so one comment can't stall the page. Code in a fence doesn't count, and rather than split a code block at 20,000 characters, the plain text starts before it. If drawing a comment fails, it shows as written instead of breaking the list it sits in.
+  - `ReviewCommentItem` uses it, so review comments keep their lists, quotes and code blocks, and mentions show as chips.
+  - New `commentPlainText()` and `commentExcerpt()` from `@agent-native/core/review/plain-text` turn a comment into plain text for emails and webhooks. They read the comment with the same Markdown parser as the renderer, so the text matches what the comment shows. The kit's reply and mention emails quote comments with them, so they no longer show Markdown markers or `@[Name](mailto:…)`. `COMMENT_MARKDOWN_LIMIT` and `splitCommentAtMarkdownLimit()` from the same module give the cut both use.
+  - `InlineMarkdown` shows a protected span's own text inside inline code and code blocks, instead of its placeholder link. A new `showRawHtml` option shows raw HTML as text rather than skip it, with its HTML comments cut out.
+  - Toolkit now requires Core 0.223.0 or newer, because `CommentBody` uses Core's comment plain text.
+
+- 7138000: One send key in every comment box: Enter sends, Shift+Enter starts a new line, and Cmd/Ctrl+Enter sends too. Nothing sends while an input method is composing, so Enter can confirm a Japanese, Chinese or Korean word.
+  - New `isCommentSendKey()` and `isComposingKey()` from `@agent-native/toolkit/app/review` check a keydown against that rule.
+  - `ReviewCommentComposer` now sends on Enter by default. Pass `submitOnEnter={false}` to keep Enter for new lines; Cmd/Ctrl+Enter then still sends, where before it did nothing.
+
+- f527363: The share popover is one panel: an invite field for people, groups and org agents, one "People with access" list, general access ("Only people invited", "Anyone at <org>", "Anyone with the link"), and a footer with Copy link and a Send to menu. Roles read "Can view", "Can comment", "Can edit" and "Can manage access", and Remove access moved into each row's role menu.
+
+  Org service principals can now be shared with like people: `list-resource-shares` returns `agents` for owners and admins in the resource's org, marks agent rows with `agent: true`, and resolves people's profile names into `displayName` and `ownerDisplayName`. Resources locked to their org accept live agents of that org, and agents are never emailed.
+
+  Breaking for `ShareButton`: `agentTabContent`, `peopleTabLabel`, `agentsTabLabel` and the `secondaryShareUrl*` props are removed. Pass a `sendTo` prop (`openInAgent`, `items`, `copyAgentPrompt`, `openMcpSettings`) instead. `shareUrlPlacement` and `shareUrlDescription` no longer affect rendering.
+
+  `writeClipboardText` keeps its fallback copy inside the open dialog or menu, so copying from a popover no longer closes it when the async clipboard is unavailable.
+
+  `registerShareableResource` accepts `agentRead: { actions, idParam? }` naming the MCP tool that reads one resource. `list-resource-shares` returns it, and the share panel then offers Open in Claude, Open in Claude Code, Open in Codex and Copy agent prompt with a prompt that sends the agent to the app's MCP server. Analytics, Assets, Brain, Design, Forms, Plan, Slides and Slides 2 declare it.
+
+### Patch Changes
+
+- 3a2fa31: Accept explicit undefined for optional composer seed values without changing runtime behavior.
+- 92d54bb: Scrub inputs show and commit at most two decimals when a field sets no `precision`, so float noise from the browser no longer reaches the field. `VisualColorPicker` takes `textColor` to draw its swatch as a bold "A" over a bar in the picked color, and its menu caret is a Tabler chevron.
+- 23cf2ea: Build each app faster. The resource icon picker's Tabler chunks now carry icon data instead of importing every icon component, so an app's client build handles about 3,200 modules instead of 9,200, and the picker's icon chunks are about 20% smaller. Core's stub and shim Vite plugins declare hook filters, so the bundler no longer calls into them for every import. Icons render exactly as before.
+- 92d54bb: `FontSizeField` from the design tweaks entry is a compact font size combobox: type a size and press Enter, pick one from a caller-provided type scale (with optional named sizes listed first), or step through the scale with the arrow keys. An optional `scrubIcon` adds a drag handle that previews and commits like the inspector's scrub fields, and `allowRelativeExpressions` reports a typed `Mixed+2` on a mixed selection as `meta.relativeExpression`.
+- 92d54bb: `@agent-native/core/server` reads Google's public font catalog with `readGoogleFontCatalog`, listing every family with the weights and italics it ships, most popular first. The toolkit font picker searches that whole library, previews each family in its own face, and loads any catalog family on the canvas through `ensureGoogleFontStylesheets`.
+- Release all public npm packages with a patch version bump.
+- 8cdee8a: In Safari, the More actions toggle on an agent reply closes on a second click, and Copy request ID copies again.
+- 3a2fa31: Allow applications to select the initial resource icon tab, observe temporary upload previews and add upload controls.
+- 3a2fa31: Show result-scoped semantic model attribution after built-in charts when valid metadata is provided.
+- 2428fde: `ReviewAuthorAvatar` is now the one avatar for a person on every review surface, and the `@` picker's `ReviewMentionAvatar` uses it too. It shows their photo when they have one and otherwise their initials ("EA") on a color that stays the same for that person, from the `--review-avatar-1` to `--review-avatar-6` tokens when an app defines them and a dark gray when it does not. It gains a 16px size (one letter) and a `decorative` prop, an agent shows its brand mark, and `reviewInitials` is exported. Initials now skip words that have no letter in them.
+- 2428fde: Review comments can carry their own menu: the new `ReviewCommentMenu` (Edit, Delete) goes in `ReviewCommentItem`'s new `menu` slot, which replaces the reply clock time (a comment now shows only its age). The card's resolve, close and More actions buttons show tooltips, `ReviewThreadMenu` drops its "Reply in thread" item, and `ReviewCommentComposer` reports the text after an `@` through `onMentionQueryChange` (and again with an empty query when it unmounts) so a host can search its people list server-side. While the host's `mentionOptionsLoading` is true and nothing in the list matches yet, the picker stays hidden instead of saying no one was found, and when `mentionOptionsFailed` is true it says the people could not be loaded (`mentionFailedLabel`) instead.
+- eacd478: Reply emails from the Comments & Review Kit now reach everyone in the thread on busy resources. The kit used to look for a thread's people among the resource's first 200 comments, so on a design or page with more comments than that, people in newer threads got no email; it now looks them up by thread with `listReviewThreadParticipantEmails`. Deleting a review comment now clears its text, mentions, anchor (which can quote the text it points at), image attachments and any resolution note, as apps that remove the row do, and so does deleting a thread for each reply it takes along. The comment box's mention parser reads the characters beside each `@` without copying the line, so loading a long line with many `@` signs into the box takes linear time.
+- 95841d4: Show a back arrow beside "Back to <app>" in Settings instead of an empty gap.
+- 92d54bb: `ShareButton` takes an `anchor` element for `hideTrigger`, so a share popover opened from a menu can sit beside the item it shares instead of the window corner. `normalizeCanvasHotkeyKey` from the canvas interactions entry reads a shortcut's letter from its physical key, so Option chords on macOS still match.
+- 3a2fa31: Add reusable chart schemas and optional UI controls while preserving current framework defaults.
+- 3a2fa31: Tighten shared audit and SQL boundary types, preserve scoped connection updates, and localize sign-out cleanup errors.
+- 3a2fa31: Allow application-selected empty-state suggestion sizing and explicit optional-value clearing for sharing and charts.
+- d795784: A sheet opened from inside a dialog now opens above it instead of behind it, and a popover inside a dialog or sheet scrolls with the mouse wheel instead of only by dragging its scrollbar.
+- 4699487: Opening a menu or popover no longer restyles the whole page in Safari. A message-queue rule in the AgentKit styles used `:first-of-type`, which made WebKit recompute every element's style whenever an overlay inserted its focus guards at the top of `<body>`.
+- Updated dependencies
+  - @agent-native/agentkit@0.223.0
+
+## 0.222.2
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 39cb8ce: `RequireSession` and `AppProviders` take a `signedOutHref` callback, so an app can send a signed-out visitor to a public view of the current URL instead of sign-in.
+- Updated dependencies
+  - @agent-native/agentkit@0.222.2
+
+## 0.222.1
+
+### Patch Changes
+
+- 86af196: Add `registerBuilderBranchProject`, a host hook that names the Builder project a code-change handoff targets, read through the new `resolveBuilderHandoffProjectId`. Realtime channels and Builder status keep the deployment's project. The Send to Builder card now sends the browser tab id so a host can find the open view. Design registers the hook under Builder identity so the Builder agent works on the project of the open design.
+- c96a41d: Render the first-paint prompt composer only on the client to prevent production /home server-rendering errors.
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.222.1
+
+## 0.222.0
+
+### Minor Changes
+
+- 7e08199: Let review comments mention AI agents alongside people:
+  - New export `ReviewMentionOption` from `@agent-native/toolkit/app/review`: a `ReviewMention` with an optional `description`. `ReviewCommentComposer`'s `mentionOptions` now accepts it. Plain `ReviewMention` lists still work.
+  - The `@` picker lists agents under an "Agents" heading after the people. Arrow keys and Enter move across people and agents in one list. The heading is set with the new optional `agentsLabel` prop on `ReviewCommentComposer` and `ReviewMentionPicker`.
+  - The picker's second line shows `description` when a row has no `email`, and the filter matches `description` as well as the name and email.
+  - Agent names containing `gpt` (for example `GPT-5.4`) get the Codex mark.
+
+- 8adaead: Add shared first-paint home suggestions and first-design next steps.
+
+### Patch Changes
+
+- ede5c57: Render quotes, code blocks, numbered list starts and headings (as bold lines) in `InlineMarkdown` block surfaces, without blank lines between list items.
+- c038e00: Apps can now show content the agent is still writing. `@agent-native/core/client/generation-stream` follows a tool call's arguments while they stream (`useStreamingToolInput`, or `useStreamingToolInputs` for every call one response writes), parses incomplete JSON and HTML, and patches the preview in place. New elements are drafted the way a designer blocks out a layout: each nesting level's frames trace in, then the content fades in beneath them. The AgentKit chat now forwards streamed tool input to the page instead of dropping it. `@agent-native/toolkit/app/generation` adds `GeneratingFrame`, `GeneratingLabel`, and `StreamingHtmlFrame`, which hold the final size, outline the work in the selection color with a wash over the label, and show a failed call as failed rather than finished.
+- 51e8de9: `getAgentChatSubmitTarget(submitMessageId)` returns where a submission was routed: its chat tab and, when the routing chat knows it, its conversation thread. `reportAgentChatSubmitTarget` takes that thread as an option, and the multi-tab chat passes it. Code that mounts after the one-time target event can still find the route. Slides uses it to keep tracking a new deck's generation when the editor route loads after Home sends the prompt.
+- Release all public npm packages with a patch version bump.
+- 7e08199: Restyle the review comment thread to the new design and add the building blocks Design's canvas card now shares with the sidebar:
+  - New exports from `@agent-native/toolkit/app/review`: `ReviewThreadCardFrame` (360px card with title bar), `ReviewCommentItem` (root and reply variants), `ReviewThreadMenu`, `ReviewReactionBar`, `ReviewAuthorAvatar`, `ReviewMentionChip`, `ReviewMentionPicker`, `ReviewAgentMark` and `resolveReviewAgent`.
+  - Agent-authored comments show an `Agent` badge and a brand mark. The mark is chosen from the author name (Claude, Claude Code, Codex), and any other agent gets a neutral mark.
+  - Replies show the relative age next to the name and the clock time on the right, with a react button and reaction chips under the body. Every comment, including the first, has that react button and those chips. Chips show a count from two reactions up, and 🔥 joins the default reactions.
+  - `ReviewCommentComposer` is now an editor with inline mention chips and a toolbar for emoji, mention and image. The text it submits and the `mentions` it reports are unchanged. New optional props: `variant` (`"expanded"` or the collapsed `"reply"` pill) and `attachments`. The "Send to agent" button renders only when `agentAction` or `showAgentAction` is passed.
+  - `ReviewThreadMenu` reads Send to agent, Suggest changes, Reply in thread, Apply changes and resolve, Copy link, Delete thread. The four agent items show only when their handler is passed, and `agentActionsDisabled` turns them off while a hand-off runs. Edit and Mark as unread stay available as optional items.
+  - The review editor's Tiptap packages are declared in the toolkit's eject manifest, and the migration manifest points `isTrustedReviewAttachmentUrl` at its new home, `ReviewCommentItem`.
+
+- f8c2ba6: A reply the agent rewrote after a final-answer check now shows once. Before, the chat kept the rejected draft and added the rewrite to its end, and a reload showed the rewrite again as a second reply. Now the draft leaves the screen when the server discards it, and a run that fails after a discard no longer leaves the draft behind. A reply the agent sends together with its follow-up suggestions is now the final answer. Before, the server erased it and asked the model again, which wrote a short recap of a reply that was no longer on screen. A streamed reply with a reasoning part is now replaced by its saved reply like any other. While a turn is still working, its steps stay in one live row above the reply, even when the agent writes a line between steps. Before, each such line closed the steps above it into a "Worked for" row while the agent kept working, so the turn showed two rows. Lines the agent writes between steps also show as separate lines while they stream, instead of running together.
+
+  AgentKit adds a `message.replaced` event, which swaps the parts of a message that is still streaming.
+
+- 78fa714: Workspace app mounts keep embedded credentials and browser tab identity scoped to the resolved mount. Successful agent navigation refreshes only the originating tab's route state, and resource views stay current when Vite serves duplicate Core module instances.
+- 0bf6393: In a docked chat, the Connect AI card attaches to the composer again instead of sitting above an empty suggestion row.
+- a54e178: Require Core 0.222.0 or newer because Toolkit's generation components depend on the Core generation-stream client added in 0.222.0.
+- Updated dependencies
+- Updated dependencies [f8c2ba6]
+  - @agent-native/agentkit@0.222.0
+
+## 0.221.0
+
+### Minor Changes
+
+- cc341a4: Add per-app theme family opt-in, URL pinning, and a Builder-only Appearance switch.
+- ee67a21: Keep a newer saved body's changes to a page's last block when an open editor merges it, instead of setting them aside because of the editor's own trailing empty line. Base-aware merges now report how many runs of the server's changed top-level blocks they set aside, through a new required `setAside` field on `planDocReconcile`'s `noop` and `applied` results and a new `onBaseAwareMerge` callback on `useCollabReconcile`. Code that builds those results itself, such as a test double, needs to add `setAside`.
+- 7199312: Make MCP Apps cards in Claude, ChatGPT and other chat apps a per-person lab, "App cards in chat apps", that anyone can turn on in Settings → Labs. Every app that mounts an MCP server lists it, off by default. Breaking: the `AGENT_NATIVE_MCP_APPS_INLINE` and `AGENT_NATIVE_MCP_APPS_INLINE_ALLOW_EMAILS` environment variables are removed and no longer turn cards on; the server logs one warning if either is still set. People who relied on them turn the lab on and reconnect the app in their chat app. The ChatGPT app-directory catalog and first-party callers still get cards without the lab.
+- 12a91c6: Show MCP approval reviews inside the app, in its own theme and components. When a signed-in reader opens a review link, an app that opts in now sends them to its home page, with the grant id in the URL fragment (`#mcpApproval=<id>`). The fragment survives the redirects that apps' home routes often make. `AppProviders` then shows the review in place of the app: who the call reaches, every argument, times in the reader's time zone, the client that asked and when it was connected, and a warning when the identical call already ran. It leads with who asks and for what ("Claude Code wants to create event"), and after a decision it keeps one line naming the request. Email addresses wrap only after their "@", never inside a name. Approve and Deny go through the same framework route and token as before, and a decision whose answer is lost is checked against the grant's state before the review says it wasn't saved. At a pending or approved review's deadline, the review asks the server for its state, timing the deadline on the server's clock, so a device clock that runs fast or slow doesn't end the review early or leave it showing "approved" late. The review is shown only in a top-level window, never under `sessionBypass`, on a public page or in another app's document. It sits outside the phone hand-off and first-run onboarding. Sign-in still happens at the link itself, so the link works after sign-in. An app whose shell renders `AppProviders` opts in with `createAgentChatPlugin({ mcp: { appApprovalPage: true } })`, or `appApprovalPage: true` on `mountMCP`; every bundled template and Dispatch do. Without it, a review link keeps the framework's plain page, which works in any app. In an app whose custom authentication has no `getBrowserSession` hook, the review says the app can't confirm the reader's sign-in instead of asking them to sign in, and the route's `401` carries `reason: "sign-in-unavailable"` to tell the two apart. The review's JSON now includes `locale` and `servedAt`, and `@agent-native/core/client/mcp-approval` exports the browser helpers that read and decide a review. On every approval surface (this page, the plain page and the in-client form), a field the summary already shows is left out of the field list but kept in the details: the call's one recipient argument when it holds only addresses (a call that names people under several, such as `to` and `bcc`, keeps each, so the reader sees who is copied how), and a time zone that a time in the summary already shows. A value the schema lists as a choice, including a boolean, reads in words (its `oneOf` or `anyOf` title, or else the enum value split into words, so `externalOnly` reads "External only", while a value that isn't an identifier, such as `America/New_York`, stays as written), and a time zone field reads by name ("Pacific Time"). A time whose zone shares the reader's offset but is another zone, such as London and Lagos in October, also shows the call's own time, naming its zone in full ("United Kingdom Time"), since that zone's own row is left out. `mountMCP` refuses `appApprovalPage` with a route prefix other than `/_agent-native`, the only one the app's review reads.
+
+### Patch Changes
+
+- 94dab1c: Chat markdown spacing now uses fixed 4px-grid steps instead of font-relative values, so the gaps between paragraphs, headings, lists, tables, code blocks and quotes, and the padding in table cells and code blocks, land on whole pixels.
+- 0ab7e59: Show what the agent is doing when you are not looking at its chat:
+  - While a run is active in the tab, the page title starts with "Working ·" and the favicon gets a small dot. When a reply finishes while the tab is hidden, the title starts with "Reply ready ·" until you come back. The app's own title and favicon are restored exactly when the run ends.
+  - A chat whose reply finished while you were viewing something else shows an unread dot in the chat history list and rail until you open it. Unread chats are kept per user in `application_state` (`chat-unread`), so the dot follows you across tabs, reloads and devices.
+
+- f717042: Add a Select button to the agent composer. Apps register on-screen objects with `useAgentSelectable` or `useAgentSelectableSource` from `@agent-native/toolkit/app/agent-select`; in Select mode the user clicks objects to add or remove them as context chips, and Esc exits. Picked objects are listed in a `Selected objects` context block as the agent's target set and mirrored to the tab-scoped `agent-selection` application state key.
+- 0ab7e59: Make the docked agent panel work at narrow widths:
+  - Below 384px of panel width the chat tabs become one switcher: the current chat's title opens a menu with New chat and every open chat, with a check on the current one and a close button per row. From 384px up, tabs keep a 112px minimum and a 200px maximum, scroll with faded edges, and show an "N more" menu when some are out of view.
+  - The panel's minimum width is now 320px (`AGENT_SIDEBAR_MIN_WIDTH`), held by the panel itself so a host layout yields space instead of squeezing it. Dragging the resize handle below it holds the panel at 320px.
+  - The model chip keeps its natural width in narrow composers and shrinks only when the toolbar runs out of room, so short names such as "Haiku 5.5 Medium" no longer truncate at 320 to 383px; the effort stays visible when a long name truncates.
+  - Home and End on the resize handle jump to the narrowest (320px) and widest panel.
+  - `AgentToggleButton` starts from the panel's current state, so a panel opened from a link no longer leaves the header toggle showing as closed. Core exports `getAgentSidebarState()` for controls that mount after the panel announced its state.
+
+- 9a61c1d: AgentKit chat spacing now sits on a 4px grid. Gaps between markdown blocks, table cell padding, card and approval padding, list and toolbar gaps, chip heights and composer control padding move from in-between values such as 2, 6, 10 and 14px to the nearest step.
+- 0ab7e59: Polish the AgentKit chat experience:
+  - Composer buttons keep their styles (stop, send hover, voice recording, attachment thumbnails), and composer controls sit on the 24px size ramp.
+  - The transcript and composer share one centered lane, and jump to latest is visible again.
+  - Existing threads load behind a skeleton instead of flashing the empty state. A failed load shows a Retry, not a blank new chat.
+  - Markdown tables scroll instead of overflowing, and server-rendered links hydrate cleanly. Prose cells wrap within the lane at a readable minimum width while short cells stay on one line, so long answers in tables no longer scroll sideways.
+  - Stop reports a failed cancel and re-enables for the next run.
+  - Text and icon contrast meets AA in light and dark.
+  - Fewer console warnings.
+  - Guided questions show only the caller's options, drop the default description and eyebrow, and show progress in the submit label. Explore and Decide rows are opt-in.
+  - The page chat header shows one New chat icon button instead of a labelled pill.
+  - AgentKit's stylesheet is one `@layer components` cascade layer, so host and design-system utilities win over its defaults.
+  - Every composer variant shares one metric set: 32px send and stop, 14px/20px text (16px on phones), one-line minimum, 12rem maximum, and a focus border mixed from the ring color.
+  - Stop stays beside Send for the whole run, so typing a follow-up no longer hides it, and Escape in the composer stops the run without touching the draft.
+  - Approval cards send Cancel and Deny options as a denial; only `kind: "choice"` requests render as a pick-then-submit list, and the three approval cards share one `ApprovalCard`.
+  - In reply footers, More actions swaps in Feedback, Fork and Copy request ID in place and shows a pressed fill while open, Feedback is one popover with Good response, Bad response and an optional note, and older replies show the footer on hover without reserving space (24px between turns).
+  - With no model connected, the Connect AI card is the one setup path: it is a single row with inline Use Builder.io and Custom keys buttons, the model chip hides while it is on screen, and the composer stays editable so a draft can be typed before connecting (sending still waits for setup).
+  - The model picker is a menu with Agent, Model and Effort submenus that open by click or keyboard and stack into one menu on narrow screens, and the harness docs link is a menu item.
+  - Voice dictation shows its recording state in the mic's own toolbar slot, so the composer no longer grows while recording.
+  - The chat header row is reserved from the empty state on, with no divider and the title on the transcript lane, so the first send no longer pushes the transcript down; a toolbar with no title floats on its own, and `data-agentkit-chat-header` lets hosts hide it.
+  - The default empty state shows a visible greeting (the `emptyStateText` label) with starters in the shared suggestion bar, and follow-up chips fade into a fixed single-line row that mounts only while the idle thread has follow-ups.
+  - Work, tool, task, activity and reasoning disclosures share one summary row (`AgentKitDisclosureSummary`): a fixed icon column, the label, then the chevron, with the whole row as the toggle button.
+  - Expanded activity lists no longer scroll inside the transcript; they show eight rows and a "Show N more" row.
+  - Editing a sent message shows an "Editing message" row above the editor with a Cancel button and a tooltip saying the send forks the chat, the source bubble gets a subtle focus tint, and Escape cancels the edit; composers take a new `headerSlot` for rows like this.
+  - Recoverable failures (lost connection, retryable run errors, failed sends, queue and continue failures, stuck runs, unreadable history or run status) show once, as an amber notice with a dismiss button in a slot just above the composer input; they clear on the next send and on thread change, the duplicate run-failure row under a lost connection is gone, and red is kept for final failures.
+  - A sent message shows in the transcript as soon as you press Send, before AI readiness, history restore or uploads finish, in every host that sends through `AgentKitComposer` or `useAgentKitControl().sendMessage`. A failed send puts its text, references and attachments back in the draft and shows the error once in the notice slot, and the copy is swapped for the real message by its `clientRequestId` metadata, never by matching text. Composers take a new `onSubmitStart` prop for this.
+  - Chat tab strips contain only tabs: the close control beside each tab is pointer-only and out of the accessibility tree, and Delete or Backspace on a focused tab (announced through `aria-keyshortcuts`) closes it.
+  - The model chip's effort label uses the strong muted text color, so it meets 4.5:1 on dark composers.
+  - The context ring no longer asks for a manifest before a new chat has a message, and a thread the server has not saved reads as `absent` rather than as an error.
+  - A fresh chat in the agent panel starts on the app's configured default model (the server's current engine first), the same model the home composer starts on, with effort unset so the provider default runs. Core exports `resolveDefaultModelSelection()`, which both pickers use. Explicit choices are still kept per surface.
+  - Chat history rail rows no longer show a relative time; the chat history popover list keeps it.
+
+- 0ab7e59: - The composer has two sizes. On an empty chat, or inside an element marked `data-agentkit-composer-size="large"`, it uses 16px text, a two-line text area, a 16px inset and 28px corners. Docked in a thread or a side panel it keeps 14px text and now has 24px corners, concentric with the Send button. Controls keep their sizes in both.
+  - A `layoutVariant="hero"` composer reads the same sizes: large while it is the only thing on an empty chat or inside a large-size element, docked once the thread starts. Hero hosts such as Ask and chat pages no longer pair 28px corners with docked 14px text. The legacy hero tokens apply only outside both.
+  - The side panel composer uses the composer radius (24px docked) instead of a fixed 14px.
+  - `AppShellSkeleton` gains an `assistant-new` layout that centers the heading and a large composer, for routes that open on an empty chat.
+  - The new-chat placeholder reads "Ask anything" instead of repeating the "How can I help?" heading.
+- 99c97eb: Name each message action (copy, edit, feedback, retry, fork, copy request ID, more, and branch arrows) in a tooltip on hover and keyboard focus.
+- 0ab7e59: Rebuild the right side of the agent chat prompt bar: context ring, model and effort, mic, then Send.
+  - The Agent/Plan mode picker and its Shift+Tab shortcut are gone; the composer always acts. `/plan` now plans only the next message: it adds a removable Plan chip, that one send goes out as a plan turn, and the composer acts again after it. `/act` is removed. The "Implement" affordance after a plan reply still sends the plan in act mode.
+  - Breaking for hosts: `execMode`, `onExecModeChange` and `planModeDisabledReason` are removed from `TiptapComposer`, `PromptComposer` and `AssistantChat`/`AgentKitAssistantChat`; `mode`, `defaultMode` and `onModeChange` are removed from `AgentKitComposer`; `execModeRef` is removed from the custom-transport adapter context; and `PlanModeCallout` takes only `onImplementPlan`. `TiptapComposer` and `PromptComposer` take `planCommand` to offer `/plan`, and report a planned send as `requestMode: "plan"` in their submit options. `AgentKitComposer` and `AssistantChat` offer `/plan` by default; `planModeDisabled` hides it.
+  - A Plan mode saved by the old picker under `agent-native-exec-mode` is no longer read, by `AgentPanel` or by `sendToAgentChat`, so nobody is left stuck in plan.
+  - The mic has its own slot beside Send and stays put while you type. Clicking it starts dictation right away (the browser asks for microphone access the first time); the "Use your voice" chooser and its "Remember my preference" setting are gone, and a previously saved preference is ignored. While dictating, the mic grows in place into a pill with a live waveform from the microphone level and a stop button: Stop inserts the transcript at the cursor, and Escape cancels. While the recording transcribes, a spinner takes the waveform's place and the control becomes Cancel transcription. A blocked, missing or busy microphone shows an amber notice in the composer that says how to allow it, with Try again, and the mic stays usable.
+  - Send is always the last control. With an empty draft, no run active, and a realtime voice provider (Builder.io or an OpenAI key) ready, it starts voice chat instead; any text, attachment or Plan chip turns it back into Send. Without a provider it is a dimmed Send. While a run is active, Stop takes its place with no draft, and Send returns beside Stop once a draft exists.
+  - Voice chat runs inside the composer instead of a floating orb. While a session is on, the mic's slot shows who is speaking (live bars from the microphone or the assistant's voice, with a Listening or Speaking status) and speaker and microphone mute toggles, and the primary slot becomes an End voice chat button that spins while connecting. The editor locks behind a "Listening…" placeholder because the realtime session takes no typed input, and a failed session shows as an amber composer notice with Try again.
+  - Voice chat's microphone, language, intelligence and voice style settings move to Settings › Account › Preferences › Voice chat, next to Voice input, and a session picks up changes the next time it starts.
+  - Both sides of a voice chat stream into the chat transcript in every host, including the full-page chat: your words fill in as a user message while you speak, the reply streams in as an assistant message, and each turn is finalized in place and saved with the thread when its transcript completes (a turn still being spoken is never saved or used for the chat title), so a reload shows the conversation. The shared `AgentKitChat` owns this; `AgentKitAssistantChat` no longer keeps its own copy. A new `AgentKitController.upsertLocalMessages()` adds or updates messages that arrive outside a run.
+  - Breaking for hosts: `RealtimeVoiceModeEntry`, `RealtimeVoiceModeEntryProps`, `RealtimeVoiceModeDock` and `RealtimeVoiceModeDockProps` are removed; `RealtimeVoiceModeApi` drops `chatVisible` and `toggleChat` and adds `inputMuted`, `outputMuted`, `setInputMuted`, `setOutputMuted` and `dismissError`; `RealtimeVoiceModeCopy` drops the chooser, setup and chat-toggle fields; `appendRealtimeVoiceTranscriptToRepository` is removed; and `VoiceDictationApi` replaces `amplitude` with a `levels` store. Core's upgrade doctor and old `@agent-native/core/client/chat` entry report the Entry and Dock exports as removed, with a pointer to the AgentKit chat migration guide.
+  - Dictation speech errors (no audio captured, speech service unreachable) are translated and point at Voice transcription in Settings.
+  - The model chip reads as the model name followed by the effort in muted text, with no separator ("Opus 5.5 High", "Auto"), and only shows an effort once one is set. In narrow composers the model name truncates and the effort stays.
+  - The context ring always shows: a thick track with a blue fill from 12 o'clock at the true share (amber from 80%), with square ends and no minimum arc, so low usage never looks like a loading spinner.
+  - The context ring popover shows "Context window" with the usage on one row and a chevron that expands an inline breakdown under the bar: one row per bar segment with a matching swatch, tokens and share of the window, plus free space. The bar tooltip, the "See detailed breakdown" link, the in-popover X-Ray view and the `onOpenDetails` prop on `ThreadContextRing` and `ContextUsagePanelView` are removed.
+  - The "Plan ready" note shows after any reply to a `/plan` message once the run is done, including a reloaded reply that carries no mode of its own, and the Chat template now shows it above its composer. New `getReplyRequestMode` and `IMPLEMENT_PLAN_PROMPT` exports from `run-recovery`.
+  - A turn holds the thread from the moment its draft is taken, before preflight checks or a run id: Stop shows once the send reaches the controller and takes effect once the run registers (a failed stop says so), and a draft sent in that window, including from `AgentKitAssistantChat`, shows as a queued row right away and is queued behind the turn instead of being dropped or racing it as a second turn. Rows queued during a run still go into it from Send now. New `useAgentKitSubmissionStarting` and `useAgentKitSubmissionHoldsTurn` hooks, and a `queuesBehindSubmission` prop on `TiptapComposer` and `PromptComposer` that sends a draft entered while an earlier one is in flight as a queued send behind it.
+  - Picking a slash command, skill or @ mention from the menu removes the whole typed token, read from the editor at pick time, even when the keys arrived before the menu opened. Disabling the composer now closes an open @ or / menu.
+  - The voice providers status counts Builder the way the realtime voice and transcription routes authenticate, so a Builder OAuth sign-in turns on voice chat, not only a stored key pair. A provider whose credentials can't be read is listed in a new `credentialLookupFailed` field instead of being reported as not configured. Settings › Voice transcription uses the same rule for Builder realtime, and shows a provider whose credentials couldn't be read as unknown with Retry instead of asking you to configure it. `getVoiceProviderStatus()` returns the same `credentialLookupFailed` list.
+
+- 0ab7e59: Smoother streaming replies in AgentKit chat:
+  - The word reveal follows the measured arrival rate and keeps a steady lag behind the received text, so a server poll's burst spreads over the next few hundred milliseconds instead of landing at once and then stalling. Rate changes ease, no frame reveals more than three words, and the drain after the run ends finishes in well under a second for typical replies. `STREAMING_REVEAL_TARGET_LAG_MS` and `STREAMING_REVEAL_MAX_UNITS_PER_FRAME` replace `streamingRevealSpeed`.
+  - While pinned to the bottom, the transcript glides to the new bottom as lines wrap instead of jumping a line at a time. Scrolling up still un-pins at once, jump to latest still works, and opening a thread lands at the bottom instantly. Reduced motion scrolls without the glide.
+  - With reduced motion, replies still reveal at the same steady pace, without the word fade, so a network chunk no longer lands a dozen words at once and the pinned transcript moves a line at a time.
+  - Table headers and rows stream in cell by cell with the same word fade as prose instead of appearing whole (a header no longer waits for its delimiter row), and table columns slide to their new widths.
+  - An unclosed bold, italic, strikethrough or inline code run streams in already formatted instead of waiting for its closing delimiter and landing all at once.
+  - Highlighted code blocks show new lines as they stream, unstyled until the next highlight lands, instead of waiting for it.
+
+- 9c559ff: AgentKit chat text now sits on a 20px line, so paragraphs, list items, headings and user bubbles have whole-pixel heights on the 4px grid. Inline code no longer adds a pixel to the line it sits on.
+- 9fd95b5: A user message's copy and edit icons now sit 8px below its bubble instead of 4px, giving them the same room as the icons under an agent reply. The space from that row to the next turn is unchanged.
+- 2938b17: An older user message's action buttons stay visible while the pointer moves from the bubble down to them.
+- 0ab7e59: Narrate the Worked for disclosure as steps:
+  - The collapsed row stays one line, "Worked for 1m 5s, 4 failed", with the failed count in amber. Credits used, Tool calls and Model used lead the expanded view.
+  - Expanded, each reasoning heading opens a step on a rail, with the calls that followed it grouped by what they did ("Searched 5 queries", "Read 4 pages", "Edited 3 files") and their queries, page domains or file names inline. The heading's reasoning opens from the step title.
+  - Failed calls read in place as "1 failed" with their short reason, and the failure lines add up to the summary's count. They stay in view past the step and group previews.
+  - Long runs show six steps and four groups per step before Show more; a running step stays in view.
+  - `ReasoningPart` gains an optional `toolCallIds`, and the agent-native transport fills it for saved replies, so reloaded threads keep reasoning between the calls it introduced.
+  - A user message's footer shows on hover or focus over the space under its bubble, and the agent turn starts a full turn gap below that space, so the two toolbars no longer stack.
+  - `agentWorkTimeline` and `agentWorkSteps` export the step model, and `useAgentKitInWorkStep` tells a host reasoning renderer it is inside a step.
+  - Once a reply finishes, its Worked for row moves under the reply onto one line with the reply's controls: Worked for on the left, copy, rating and more on the right. Its steps open full width below that line. While the reply runs, the live row stays above it.
+  - The move reads as one change: the row's old space above the reply closes over 180ms while the row fades in on the footer line, so the reply glides up instead of jumping. Only a finish seen live animates; a thread that loads already finished, and reduced motion, move at once. A row opened to watch the live work closes as it moves.
+  - Model used names the model the run's calls reported, by its catalog short name, so an Auto request shows the model Auto ran. Auto itself never shows as a model, and the row stays hidden when no model was recorded. `AgentKitRunUsage` gains an optional `model`, and `AgentKitRoot` takes `formatModelName` for the display name.
+  - A finished reply's work row always reads "Worked for <time>" ("Worked" when the time is unknown) with the clock icon, including a turn that only thought. "Thinking" shows only while it runs, and the thinking is listed as steps inside the row, titled by its own label when the agent gave one. `AgentKitLabels` drops `thought`, `thoughtFor` and `thoughtBriefly`.
+
+- 0c8b261: Attached text files and SVGs now reach the model as text instead of being dropped, reduced to a filename, or treated as reference-only images. A stored markdown or other text file is decoded on the server rather than sent as a file part that most engines replace with a placeholder. SVG source is sent as untrusted text alongside its reference URL.
+
+  When an attachment is longer than the inline budget, the model gets its head plus a `<chat-attachment-truncated>` note that requires reading the rest with `read-attachment` before acting on it or reporting the work as done. If the full text could not be stored, the note is a `<chat-attachment-processing-error code="truncated-remainder-unavailable">` that tells the model to say so up front. A text file that is not valid UTF-8 gets `code="undecodable-text"`. `persistTextAttachmentsAsResources` now returns a typed `stored` or `failed` result for each attachment instead of skipping failures. For an upload already in file storage it saves only a reference, and `read-attachment` re-reads the file from storage. A body copy in SQL is kept only for text with no storage URL, up to 1,000,000 characters.
+
+  In the composer, `readAgentPromptAttachment` reads SVG as text, keeps the head of a long file with its `totalChars`, and sets `readError` (`read-failed`, `too-large`, or `not-utf8`) instead of sending a file's name alone or text with replacement characters. `formatPromptWithAttachments` turns these into a truncation note or an `<attached-file-error>` block. Text and SVG files up to 8 MB are readable in both hosted chat and the composer; hosted chat previously stopped at about 750 KB. The attachment chip shows "Couldn't read this file", "File is over 8 MB", or "File isn't UTF-8 text" before you send.
+
+  `AgentKitComposer` now defaults `inlineTextAttachments` to `false`. AgentKit always uploads attached files and the server reads their text, so a text file is no longer also pasted into the message with only a weak truncation note. Pass `inlineTextAttachments` to opt back in.
+
+- 180ecbe: With no AI connected, the prompt is closed to typing and the Connect AI card shows as soon as the model list loads, instead of after the readiness check. A click on the closed prompt points at the card.
+
+  The starter home loading skeleton drops its lead and hint lines to match the simpler Chat home.
+
+  The Connect AI card no longer shows a red "Connection status is unavailable" line when the Builder.io status read fails; connect errors still show under the button, and Settings keeps the status message with its Retry.
+
+- 0ab7e59: `AppShellSkeleton` gains a `home` layout: a centered hero (mark, title, lead, large composer, hint) over a two-column resource footer, with no header row. The Chat template's Get started page loads behind it instead of the chat skeleton.
+- 723fac2: Keep text and the caret in place when collaborative undo or redo crosses a block type change. Yjs merges the text it restores when a block's type change is undone, so a later undo of typing in that block deleted the rest of the block too; each undo now removes only what it inserted, including when it passes over an edit to a block a collaborator has since removed. The caret stays in its block instead of jumping to another heading, goes back to where it was when an undo replaces its block, and keeps its offsets, or a selected range, when a redo does, even when another plugin answers the undo or redo. A collaborator's edit right after an undo no longer moves the caret. What plugins add in answer to a change from Yjs, such as the empty paragraph after a page's last heading, no longer becomes an undoable edit, so the undo stack is empty when a page opens and redo survives undoing past it. Working out where each restored copy ends reads only the history entry being undone or redone, so an undo no longer slows as the history grows.
+- 0ab7e59: Reorder queued messages and tidy the composer:
+  - Queued messages can be reordered: drag a row by its handle, press ArrowUp or ArrowDown on the handle (or Alt+ArrowUp/ArrowDown anywhere in the row), or pick Move up or Move down from the row menu. The move is announced, persisted through the new `reorderQueuedMessages` transport operation (`PUT /threads/:id/queue`, the `reorder` queue mutation in Agent-Native), and rolled back with a notice if the server refuses it. A reorder that names a different message set than the queue holds fails with `queue_order_stale` instead of reordering blind.
+  - The queue drawer keeps rows a fixed 32px with 14px/20px text, reserves its action columns so hovering and a second queued message never reflow a row, fades rows in instead of sliding them, and takes its corner radius from the composer so drawer and row corners are concentric.
+  - The composer placeholder reads "Reply…" once a thread has messages (`placeholder`, `replyPlaceholder` and `conversationStarted` props).
+  - ArrowUp in an empty composer edits the last sent message when the host passes `onRecallLastMessage`.
+  - Suggestion chips read as active controls with a hairline border and a hover fill, and the suggestion row grows to fit its caption on an opaque backing, so transcript text never shows through it.
+  - Reasoning renders as markdown.
+  - Attachment remove buttons have a 24px hit target.
+  - An empty slash menu says "No commands", or "No matches" for a query.
+
+- c2a6e7e: `PromptComposer` and `TiptapComposer` take `voiceChatEnabled`. Set it to `false` and an empty draft keeps Send as the primary button instead of switching to voice chat, while the dictation mic stays.
+- 656b02e: Chat no longer offers to connect an integration just because a prompt mentions it or links to it. Pasting a prompt with a `builder.io` link showed a "Builder.io Publish" connect card, and naming HubSpot or Slack in a prompt did the same. The composer no longer suggests connections while you type. A connect card now appears only on the newest reply, once it finishes, and only when that reply or the message you sent asks for the connection by name ("Connect Notion", "please reconnect Linear", "Slack isn't connected"). It never appears next to the agent's own connection request for the same provider. `McpConnectionSuggestionProps.requestedByUser` is removed.
+- 1cd201c: Move the custom API key option to a secondary link in the shared first-run credits v2 flow and register its flag across Design, Slides, and Clips.
+- c2a6e7e: Docked chats show their starter suggestions on one line directly above the composer, and the follow-up row is tall enough for its caption and chips.
+- bdfea6d: Let an app open its own block menu from the drag handle with the new `openMenu` option, and keep the handle on screen beside blocks at the page's edge. An open block menu now stays on its block when blocks around it are added, removed or duplicated. In a collaborative editor it closes once anything but the menu changes that block (an app's menu applies its own edits with the request's `dispatch`); without collaboration it follows the block through each edit and lets go of it the same way. Either way it does nothing once the block is deleted, instead of acting on the block that took its place. An open menu closes when the page scrolls, but no longer when something beside the page does, such as a sidebar keeping its current row in view.
+- 4173583: `Mod-d` duplicates a block the drag handle selected and selects the copy, and a click on the page outside the editor lets go of a selected block, which otherwise kept its outline after the editor lost focus. Clicks on buttons, menus, dialogs and toolbars keep the selection, since they may act on it.
+
+  `duplicateBlockTransaction` and `deleteBlockTransaction` build the edits the drag handle's Duplicate and Delete dispatch, so a block menu can ask the page's transaction filters about those exact edits before offering them.
+
+  An app menu opened from the drag handle now stays open on a touch screen while the keyboard opens for a field in it, such as a search box; the keyboard resizes and scrolls the page, which used to close the menu. A pan on the page still closes it.
+
+  A click on the drag handle leaves its block selected while the menu is open. Ending the click used to rewrite the block's class attribute even though only a drag changes it, and ProseMirror read that back as a text selection, so the block lost its outline as the menu opened.
+
+- 4173583: A dropdown submenu with no room beside its menu on either side, as on a phone, now slides back over the menu instead of running off the screen.
+- 369ceab: Take in an outside paragraph inserted right next to a block someone is editing. The merge used to count it as overlapping the edit and drop it.
+- d569c61: `EmbeddedExtension` takes an optional `onHeightChange` callback that receives each content height the extension's iframe reports.
+- e086032: Choosing "Open AI key settings" in first-run onboarding now opens the settings page in standalone apps instead of starting the questionnaire again at step 1. The startup gate's context is shared even when the dev server loads its module twice, and every onboarding hook hears when first run is completed.
+- ef8111a: Make the ownership filter trigger a lighter ghost button with a filter icon, matching the "Browse all" button that shares its slot.
+- 0ab7e59: Long conversations stay responsive:
+  - The WebMCP polyfill's declarative-form scan, which walked every element on the page after each DOM change, now runs at most every 500 ms in idle time. Typing, scrolling and streaming no longer slow down as a transcript grows. Declarative form tools still register.
+  - Each streamed delta re-renders only the message it changed. Message rows read narrow slices of the thread through the new `useAgentThreadSelector` hook, and every subscriber of a controller is notified in one task per change instead of one task per subscriber.
+  - A long thread opens on its newest 20 rows and mounts older rows in idle chunks without moving the view. Collapsed work steps in a long thread mount in idle time, or as soon as they are opened. Every row is mounted within a few idle periods, so find-in-page reaches the whole history shortly after opening.
+  - Finished replies use `content-visibility: auto`, so the browser skips styling, layout and paint for replies that are off screen.
+
+- Release all public npm packages with a patch version bump.
+- 8254996: Let people approve an MCP call to a `needsApproval` action in the app when their MCP client can't show an approval prompt, or declines or cancels it. The call returns a normal tool result with a link to a review page. The page reads only the browser's sign-in cookie, requires the same user, organization and app, and shows the stored arguments in the reader's time zone. Approve and Deny are same-origin POSTs with a per-user token. When a decision's response is lost, the page asks for the grant's state before saying the decision wasn't saved. After an approval, the identical call runs once within ten minutes, in the app that asked. A grant's stored arguments are cleared once it is used, denied or expired, by the recurring sweep or, on a long-lived server, its own timer. Stored call arguments (the audit log, approvals, A2A activity) now also redact a credential inside ordinary text, including complete authorization values and quoted credential values with spaces or escaped quotes. A word alone on its line after `Authorization:`, such as `Bearer` or `"Api-Key"`, also redacts the next line when that line reads as its credential (one token, quoted or not, or `name=value` parameters); a line of prose or one that opens another field (`Body: …`) stays readable. The page shows every recipient and argument whole, counting each address in a recipient string that lists several (`ana@example.com, Bo <bo@example.com>`), and says when the server had to cut the stored arguments. The in-client form prompt uses the same summary, says how many recipients and fields it leaves out, and links the page when it shows less. Links use the route the MCP server is mounted under, where the auth guard lets the page through, and use only configured origins for absolute public links. Configured app, trusted and gateway origins take precedence over platform URLs; without a configured origin the link is relative and explains, in the owner’s language, how to resolve it against the connected MCP server’s origin and configure `APP_URL`. Platform-only deployments prefer the main `URL`, using `DEPLOY_URL` only when it is missing. Loopback inbound origins are used only without a public origin. Signed continuations cover both the review window and the subsequent use window, while stored grants enforce expiry and one-use consumption. A new `zonelessTimes: "calendar"` action option says that a date-time with no offset or zone is read in the calendar's own time zone. A time its zone skips, such as 2:30 AM on a spring-forward day, is shown as written instead of as another hour. The audit log records page approvals as `mcp-review`. `registerAuthPublicPaths` accepts a `:name` segment for one path segment, with a `:name(uuidv4)` constraint for lowercase UUID v4 grant IDs. Review routes register their canonical framework path with that constraint. Object values in approval summaries retain their full stored fields. An app with a custom `AuthOptions.getSession` signs readers in on the review page only through the new cookie-only `AuthOptions.getBrowserSession` hook; without it the page says the app can't confirm the reader's sign-in, and its data and decisions return `401` naming the missing hook.
+- 0ab7e59: Rebuild the composer model picker and add a context ring:
+  - A model catalog (`@agent-native/core/agent/model-catalog`) gives one entry per model, resolved from every engine's spelling of its id: short name, a two or three word descriptor, a one-line description, relative 1-5 cost, reasoning, and speed ratings, and a recommended rank. `describeModelForEngine` adds the engine's facts: effort levels the engine forwards, how the engine bills usage, and the context window when it is known. Models without an entry get engine facts only. The new `describe-models` action lets the agent explain models the same way.
+  - The model picker lists only models from connected engines: Auto, then the catalog's fixed root list (`PICKER_ROOT_MODEL_IDS`: Opus 5.5, Sonnet 5.5, GPT-6.1 Sol, GPT-6 Luna) as far as the engines offer it, and a More models submenu for the rest. An engine offering none of those shows its own recommended ladder instead. Rows have number shortcuts 1-9 and a trailing check, and the focused row shows a card with its ratings, context window, and billing. Provider group headers and greyed unconnected models are gone.
+  - Effort is a row below the model list that opens a submenu of the model's supported levels, with a check on the effective level and a Recommended badge on the provider's documented default. It is hidden when the model and engine support no levels, and when no model is connected.
+  - Behavior change: when you have not chosen an effort, requests no longer send `high`. They send no effort, so each provider's own default applies (Anthropic documents `medium` for Claude Opus 5.5 and Haiku 5.5 and `high` for the other current Claude models). Adaptive-thinking Claude models keep thinking on. An explicit choice is sent exactly as before, and saved choices are kept. Picking the Recommended level goes back to sending none. `DEFAULT_REASONING_EFFORT` is now `"auto"` (unset).
+  - For Anthropic keys, `describe-models` reads the provider's model list (`max_input_tokens`, `max_tokens`, `capabilities.effort`, `capabilities.thinking.types`), cached per credential for an hour, and the picker uses its context window and effort levels; a failed read falls back to the catalog with a typed `metadata.state: "unavailable"`.
+  - `DropdownMenuShortcut` and the submenu chevron share one 16px trailing slot (new `DropdownMenuTrailing` for checks and icons), so shortcuts, checks, and chevrons end on the same edge in every menu. `Badge` gains `size="sm"`.
+  - `ThreadContextRing` (`@agent-native/toolkit/app/context-xray`) shows the thread's context use against the selected model's window, turns amber at 80%, and opens a summary with a segmented bar, a color-coded breakdown behind its chevron, the distance to automatic compaction, and Compact now. Hosts pass it to the composer through the new `contextUsageSlot` prop. It renders nothing until the thread has a measured model call.
+  - New `context-compact` action compacts a thread's unobserved messages into observational memory on demand, owner only, with typed failures. `context-compaction-get` reports the tokens left until the automatic post-turn pass.
+  - `getKnownContextWindowForModel` and `resolveKnownContextWindow` return undefined for an unknown model instead of the 128K default.
+
+- f20824d: Improve recovery from unreadable credentials in model provider, Channels, and file storage settings.
+- ef46f92: Let a page hand a voice chat off to a chat thread:
+  - `useRealtimeVoiceMode().start({ threadId })` binds the session's transcripts to that thread instead of the thread on screen when the session starts.
+  - `AgentKitComposer`, `PromptComposer`, and `TiptapComposer` accept `onVoiceChatStart`, which replaces the default start when the empty Send slot starts voice chat.
+
+- b14bed7: Realtime voice acts on requests instead of declining them and says what it is doing. The spoken GPT-Live model now gets its own instructions to delegate every lookup, web search, navigation, or change to the tool model, to name each action before it runs, and to mention a slow step instead of going quiet; the tool model keeps the app context. `web-search` and `web-request` load with each session. Voice now gets the same per-request actions as text chat, including the tools of MCP servers the user connected, which `tool-search` can find and voice can run. An action that needs approval now asks in the voice controls: Approve runs that exact call and tells the assistant the result, Deny tells it the call did not run, and an "always allow" set in chat applies in voice too. Apps can set `realtimeVoice` on `createAgentChatPlugin` to add voice guidance, preload their main edit tools (kept through tool discoveries), and choose a default intelligence that applies until the user picks one. On GPT-Live, Balanced now raises the tool model to medium reasoning and Deep to high. Each voice turn reports a `realtime_voice_turn` event with speech-to-first-audio time, tool call counts, and whether the user spoke again within 10 seconds of an edit, with no transcript text. While voice works, its status names the step it is running, such as "Patch deck", or says it is thinking between steps, and the chat's work row shows that live step as it does for a text run. Voice tool calls now show in the chat as one work item per request, like a text chat run's, and stay after a reload: AgentKit's new `appendLocalEvents` folds a local run's events into a thread without starting a server run. On GPT-Live a request is one delegation, and its work ends when the delegated model answers without calling a tool. GPT-Live transcripts are grouped into turns by the OpenAI SDK's Live transcript grouper (toolkit now depends on `openai`), so a reply spoken with short pauses is one message and a new message starts after two seconds of silence or a change of speaker.
+- f83c054: A registry block copied out of the editor can keep its source. `createRegistryBlockNode` writes the block's MDX source to `data-block-source` in its HTML, and the new `readPastedSource` option reads a pasted block back from it: return the block as the app parsed it, or null to drop a source that isn't exactly the declared block. With the option set, a pasted block with no `data-block-source` is dropped too, since it would save as nothing. Without the option a pasted block keeps no source, as before.
+
+  Pasted HTML is now read only through the block's `data-*` attributes. A malformed block type drops the block, a malformed id is replaced with a fresh one, and HTML attributes named after the node's own attributes, such as `blockid` or `__raw`, no longer override them.
+
+- 0ab7e59: Send now adds a queued message to the running turn instead of stopping it:
+  - The run reads the message at its next tool boundary. It goes into the next model request as user text after the tool results it waited for, and the transcript shows it between the reply before it and the reply after it. The run emits a new `user_message` event, the reply is split there on both the server fold and the live stream, and saved threads without the event render as before.
+  - Delivery happens exactly once. The queue mutation `steer` flags the message and moves it to the head of the inbox. The run then takes it off the queue and marks its inbox receipt submitted to that run in one transaction, so the inbox never also starts it as a new turn.
+  - Cmd+Enter (Ctrl+Enter elsewhere) and Cmd-click on Send during a run do the same: the draft is queued and sent into the running turn. `SendMessageInput.deliverInActiveRun` carries that intent, and the queued payload no longer asks the server to stop the run.
+  - A message that misses the run's last tool boundary goes first as the next turn. The queue row shows "Sending…" while it waits and "Sends after this reply" once the reply is past its last step.
+  - Stop and send, a new item in the row menu, stops the current response at a safe boundary and then sends the message. For a message the server inbox owns, the inbox starts it, and the client waits up to 15 seconds for its receipt. If the run refuses to stop, or the receipt is still waiting at the deadline, the message stays queued to send after the reply.
+  - Queue errors (`queue_item_busy`, `queue_item_blocked`, `queue_order_stale`, `run_slot_busy`) show localized copy instead of inbox text and message ids. The typed codes stay on the error for logic and logs.
+  - New protocol fields: `SteerQueuedMessageInput.deliverInActiveRun`, the `{ delivery }` steer result, and `AgentQueuedMessage.delivery`.
+  - The work a run did before a delivered message shows as its own finished "Worked for" row above that message, and the reply after it counts only the work after it. A reply segment with nothing to show, such as one that only called tools, renders nothing of its own instead of an empty message with a toolbar. Saved threads keep the delivered message's place in the run's events, so a reload splits the work the same way. A run resumed after a crash replays each delivered message with its attachments, the same way it first read them.
+
+- a9c0fa9: Let a share panel open the General access menu from elsewhere, such as an Embed tab that needs the resource public.
+- eaa780a: Let viewers pin a shared chat just for themselves and hide it from their chat list, with Undo.
+- d9cfcd4: Oversized PNG, JPEG, GIF, and WebP attachments are now downscaled on the server before they reach the model, so non-browser senders (MCP, Slack, A2A, API) get the image instead of a size note. Images past the browser's shrink limits (25 MB or 40 megapixels) are refused when attached, with the size or pixel reason, whether or not file storage is connected.
+- 82efd47: Take a newer saved body into a shared live document once, however many editors have it open. Each open editor used to apply it to its own copy, and the merge kept every copy, so the text appeared twice.
+- 0ab7e59: Stopping a run keeps what it wrote. The partial reply and any tool calls that finished before Stop are saved to the thread as the turn's stopped reply, so a reload shows the same text followed by "Stopped", the next turn's model sees it, and the thread gets its title. Before, Stop expired the run's execution lease and the run's own save was refused, so the thread lost the reply. If that save still fails, the run is left for the stale-run projection retry instead of being dropped.
+
+  A stopped run's "Stopped" line stays under its reply, or under its prompt when it wrote nothing, after later turns finish. A reloaded thread links each saved reply to its run, and a run loaded without its events is placed by its end time, so the line no longer drops to the bottom of the transcript.
+
+- 2e8f454: Compile with `noImplicitOverride` and `noFallthroughCasesInSwitch`, and, where the code already passes them, `noUncheckedIndexedAccess` and `exactOptionalPropertyTypes`. Optional fields that legitimately hold `undefined` are now typed `T | undefined`. No runtime behavior changes.
+- 90395b3: Show voice chat's composer button as a five-bar voice waveform instead of a sine wave.
+- 7ee0542: AgentKit chat now shows "Worked for Ns" under every finished reply that took a second or more, including replies with no tools or reasoning. With no steps, the row opens to the run's details, such as cost and model, and stays plain text when there are none to show.
+- Updated dependencies [0ab7e59]
+- Updated dependencies [0ab7e59]
+- Updated dependencies [798991f]
+- Updated dependencies [0ab7e59]
+- Updated dependencies
+- Updated dependencies [b14bed7]
+- Updated dependencies [0ab7e59]
+- Updated dependencies [2e8f454]
+  - @agent-native/agentkit@0.221.0
+
+## 0.220.0
+
+### Patch Changes
+
+- ddd3bd1: An agent run ended by a SQL write now sends its one `agent_run_terminal` too: runs the server reaps (`reaped: true`), stopped runs (`status: "aborted"`), runs the reaper repairs from their event log, and runs that fail or are released before their worker starts. The event carries `turn_id` and the run's user, except an anonymous visitor's. An aborted run is reported by the SQL write that stopped it, so aborted events no longer carry `model`, `engine` or `attempt_count`. `run_started` also carries `turn_id`, and so do `$ai_trace` and `$ai_generation` for agent chat runs.
+
+  The browser now sends `agent_turn_submitted` once per agent request it submits and the server accepts (not yet for a queued message the server's inbox drain admits), with the same `turn_id`, `initiator` (`user`, `app`, or `system`) and `surface`; continuations repeat the turn's `turn_id` as `system`. `agent_run_outcome` now carries `turn_id`, except for a replay whose turn the server did not name. See the tracking skill for the full contract.
+
+- 4ea7d64: Resume the skill file review when a native file picker closes the composer menu.
+- Release all public npm packages with a patch version bump.
+- 0c211bc: Keep pending approvals visible in the chat sidebar while the agent waits for a decision.
+- b73b8ef: Let `VisualScrubInput` show a different unit suffix than it parses (`displayUnit`), and accept `deg` and `°` interchangeably in degree fields.
+- Updated dependencies
+  - @agent-native/agentkit@0.220.0
+
+## 0.219.0
+
+### Minor Changes
+
+- 838e1ae: App-registered commands can render an opt-in preview inside the selected row.
+- 7b293b2: Expose the terminal status of action tool calls to custom chat renderers while keeping `isRunning` available.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 86429da: Keep the agent chat send button and tabs visible in narrow panels: the composer's model picker truncates instead of pushing the toolbar past the panel edge, and chat tabs shrink before scrolling.
+- Updated dependencies
+  - @agent-native/agentkit@0.219.0
+
+## 0.218.0
+
+### Minor Changes
+
+- fc038a0: Add opt-in transcript positioning and chart presentation controls to shared chat, including regular tool-call renderers.
+
+### Patch Changes
+
+- 84e4b2e: Add an ownership-aware chat history adapter that combines owned chats, shared chats, and eligible started drafts with independent sections, paging, and failure-safe optimistic mutations.
+- Release all public npm packages with a patch version bump.
+- 84e4b2e: Keep shared chat rows on one line with the owner's avatar, give every chat row a Copy link menu, and stop the share panel's people search from opening an empty "No people found" list.
+- Updated dependencies
+  - @agent-native/agentkit@0.218.0
+
+## 0.217.0
+
+### Minor Changes
+
+- 6c3f3cb: Let each command menu add ordered app commands, nested pages, selected-row previews, filter launchers, no-match suggestions, and an embedded chat slot without replacing the shared menu. Apps can also choose a shared wide dialog, supply search and empty states, report when dynamic result components contain rows, control selection and result placement, and opt into custom footer content or portal containers.
+- 4c43f86: Let each settings shell declare app-owned pages, ordered navigation sections, nested routes, custom controls, optional widget, chat, and toggle slots, and expose the shared theme-family setting to app-owned pages.
+- 9e4119f: Expose the shared toast notification helper from the toolkit UI package.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies
+  - @agent-native/agentkit@0.217.0
+
+## 0.216.0
+
+### Minor Changes
+
+- 31a1f1e: Allow hosts to customize the shared AgentPanel page header share trigger content.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- Updated dependencies [b28df00]
+- Updated dependencies [b28df00]
+- Updated dependencies [b28df00]
+- Updated dependencies
+  - @agent-native/agentkit@0.216.0
+
+## 0.215.0
+
+### Minor Changes
+
+- f8f4b9e: Expose optional transcript layout, post-widget text, and worked-summary controls for chat hosts.
+- 0b58010: Allow hosts to provide an action icon for the shared context banner.
+- 4fd6b35: Add chart tick intervals, horizontal-bar spacing controls, and direct icon actions.
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+- 11a11d9: Expose opt-in transcript positioning and typography controls on chat surfaces.
+- aa79d54: Move the shared work-summary disclosure indicator to the leading edge and give the row a full-size click target.
+- Updated dependencies
+  - @agent-native/agentkit@0.215.0
+
 ## 0.214.0
 
 ### Minor Changes
@@ -1100,180 +1655,5 @@
 ### Patch Changes
 
 - fc85cb2: Allow external prompt handoffs to insert text through the shared composer without publishing a runtime message update.
-
-## 0.16.6
-
-### Patch Changes
-
-- a2f21dc: Fix `ActionButton` and `IconButton` (from `@agent-native/toolkit/design-system`) not forwarding a native `ref`, which broke every Radix `asChild` trigger built on them — popovers, tooltips, dropdown menus, and dialogs positioned relative to the button would render off-screen (`transform: translate(0px, -200%)`) because Radix's `Slot` had no DOM node to measure. `ActionButton`/`IconButton` are now wrapped in `forwardRef`, and the forwarded ref is merged with the existing `elementRef` prop so both resolve to the same DOM node — existing consumers that pass `elementRef` explicitly are unaffected.
-
-  Also fix `IconButton` dropping a native `onClick`. `IconButtonProps` did not
-  declare `onClick` and the default adapter spread incoming props before setting
-  its own handler, so a Radix `asChild` trigger built on `IconButton` — popover,
-  dropdown menu, dialog — never opened at all. `IconButton` now merges `onClick`
-  with `onPress` the same way `ActionButton` already did.
-
-## 0.16.5
-
-### Patch Changes
-
-- 0b57293: Fix `ActionButton` and `IconButton` (from `@agent-native/toolkit/design-system`) not forwarding a native `ref`, which broke every Radix `asChild` trigger built on them — popovers, tooltips, dropdown menus, and dialogs positioned relative to the button would render off-screen (`transform: translate(0px, -200%)`) because Radix's `Slot` had no DOM node to measure. `ActionButton`/`IconButton` are now wrapped in `forwardRef`, and the forwarded ref is merged with the existing `elementRef` prop so both resolve to the same DOM node — existing consumers that pass `elementRef` explicitly are unaffected.
-
-  Also fix `IconButton` dropping a native `onClick`. `IconButtonProps` did not
-  declare `onClick` and the default adapter spread incoming props before setting
-  its own handler, so a Radix `asChild` trigger built on `IconButton` — popover,
-  dropdown menu, dialog — never opened at all. `IconButton` now merges `onClick`
-  with `onPress` the same way `ActionButton` already did.
-
-## 0.16.4
-
-### Patch Changes
-
-- 95ea873: Allow editor-owned controls outside TipTap's contenteditable surface to protect active edits from stale collaboration snapshots, and preserve a valid selection when collaborative documents initially hydrate block-only nodes.
-
-## 0.16.3
-
-### Patch Changes
-
-- 81fb79e: Keep shared composer labels theme-safe and translatable.
-
-## 0.16.2
-
-### Patch Changes
-
-- 43fa797: Keep shared composer labels theme-safe and translatable.
-
-## 0.16.1
-
-### Patch Changes
-
-- fb18771: Keep shared composer labels theme-safe and translatable.
-
-## 0.16.0
-
-### Minor Changes
-
-- 9e21e1b: Add a Core-free data grid kit with keyboard navigation, selection, resizing, typed editor slots, and app-owned persistence callbacks.
-
-### Patch Changes
-
-- 9e21e1b: Align chat history rail overflow actions with trailing timestamps.
-- 9e21e1b: Standardize share triggers, compact copy rows, and agent-sharing sections across framework surfaces.
-
-## 0.15.1
-
-### Patch Changes
-
-- 73c4a97: Align chat history rail overflow actions with trailing timestamps.
-- 73c4a97: Standardize share triggers, compact copy rows, and agent-sharing sections across framework surfaces.
-
-## 0.15.0
-
-### Minor Changes
-
-- f07ec04: Localize the Core agent-chat interface and Toolkit composer across every supported locale, provide built-in Core translations with app-level catalog overrides, and guard the complete chat surface against new raw visible strings.
-
-## 0.14.3
-
-### Patch Changes
-
-- 89f194f: Fix toolkit canvas interaction and collaboration UI behavior.
-
-## 0.14.2
-
-### Patch Changes
-
-- 2db503b: Fix toolkit canvas interaction and collaboration UI behavior.
-
-## 0.14.1
-
-### Patch Changes
-
-- b3b4580: Render chat-history row action menus in a collision-aware portal so rail menus are not clipped by the scroll container.
-- b3b4580: Overlay chat row menus on timestamps and unread indicators without reserving a separate trailing column.
-
-## 0.14.0
-
-### Minor Changes
-
-- aa17e22: Support bounded XLS/XLSX workbook previews as source context for `/make-into-app` and allow Excel workbooks in the shared composer attachment flow.
-
-## 0.13.10
-
-### Patch Changes
-
-- 7c5888c: Make chat history rail overflow actions replace timestamps without layout shifts.
-
-## 0.13.9
-
-### Patch Changes
-
-- dab8787: Fix the chat sidebar repainting glitches that made app content flash, shift, and
-  render as flat empty rectangles while the agent was generating.
-
-  Three properties on the always-mounted sidebar promoted or re-promoted a
-  compositing layer on every app that renders `AgentSidebar`:
-  - `will-change: transform` sat permanently on the sidebar panel (desktop, mobile
-    and drawer variants). It wraps the whole chat transcript and is never
-    unmounted, so the hint was never retired. The 260ms transform transition is
-    promoted by the browser on its own for exactly as long as it runs.
-  - `view-transition-name` was stamped on the panel unconditionally, including in
-    apps that never start a chat view transition. A permanent name makes the panel
-    a stacking context and the containing block for every fixed and absolutely
-    positioned descendant, and enlists it as a captured group in unrelated route
-    view transitions. It is now applied only while the wide-drawer morph runs.
-  - The chat scroller's top-fade `mask-image` was added and removed with the
-    `hasContentAbove` class, which flips as replies stream into an auto-scrolled
-    transcript. The mask is now always declared and only its length changes.
-
-  The same two defects existed independently on the workspace shell sidebar in
-  `@agent-native/frame`, which hosts the agent panel, so the promotions nested.
-  Fixed there too.
-
-  Regression tests cover all three invariants, and a new repo-wide
-  `pnpm guard:persistent-compositing` fails on any new compositing promotion on a
-  long-lived surface. Genuinely transient elements (a popover that unmounts on
-  close, a drag preview) opt out with a `compositing-ok: <reason>` comment.
-
-- dab8787: Call model effort "Effort" in chat controls and default model selections to GPT-5.6 Luna with high effort.
-- dab8787: Allow Slides to use a cleaner AI editing badge without a redundant status dot.
-
-## 0.13.8
-
-### Patch Changes
-
-- c41fd16: Use theme tokens for collaboration edit highlight labels.
-
-## 0.13.7
-
-### Patch Changes
-
-- 061896a: Add an opt-in chat-first workbench with contextual app surfaces for desktop, Dispatch, and mobile clients.
-
-## 0.13.6
-
-### Patch Changes
-
-- cf16fae: Add an opt-in chat-first workbench with contextual app surfaces for desktop, Dispatch, and mobile clients.
-
-## 0.13.5
-
-### Patch Changes
-
-- a107169: Fix PPTX/PDF import color and text fidelity: resolve theme/master colors (including `lumMod`/`lumOff`/`tint`/`shade` transforms) instead of defaulting to black, inherit per-level placeholder colors from the slide master, resolve each slide's own layout→master→theme chain instead of reusing the deck's first master (fixes wrong colors in presentations combining more than one template), recover per-run text colors and styles from PDF content streams instead of collapsing multi-color/multi-weight lines to a single style, treat a PDF's initial (unset) fill color as the known black default instead of an unresolved guess, preserve real PDF line spacing for bullet lists, bound concurrent PDF page image uploads, and fail clearly instead of silently importing a scanned/unrecoverable PDF as blank placeholder slides.
-
-## 0.13.4
-
-### Patch Changes
-
-- da40677: Fix realtime voice tool calls failing with "Invalid or expired realtime voice capability" on serverless deploys. The capability minted by `/_agent-native/realtime-voice/session` lived in a per-process `Map`, so under `NITRO_PRESET=netlify` a tool call that landed on a different instance than the SDP request was rejected — the agent would report that it could not read the current selection and ask the user to reopen the editor. The capability is now an HMAC-signed token carrying the caller's identity, browser tab, and allowed tool names, so any instance can verify it.
-
-  Two behavior changes follow from that. The grant no longer slides on use — it cannot be extended server-side — so its TTL is now an absolute 75 minutes, covering the provider's maximum session length. And when a `tool-search` widens the manifest, the tool response carries a re-issued capability that the client adopts; without it, calls to the newly discovered tools would 404.
-
-  Fix dictation stopping instantly with no error anywhere. `SpeechRecognition` always fires `end` after `error`, and `useVoiceDictation`'s `end` handler returned the composer to idle — erasing the message `onerror` had just set. Every speech failure was therefore invisible in both the UI and the console. `end` no longer overwrites a reported error.
-
-  Dictation also survives browsers that ship `SpeechRecognition` without a speech backend. Brave exposes `webkitSpeechRecognition` but removed the Google service behind it, so `auto` mode selected a recognizer that can only ever fail with `network`. In `auto` mode a recognizer that produced no text — because it failed, or because it ended before the microphone opened — now falls back to the MediaRecorder upload path. Permission and device errors are excluded, since retrying those through another provider fails identically. A mid-session drop that already captured speech keeps the transcript rather than failing over.
-
-  The amplitude meter's own `getUserMedia` also moved to after recognition claims the microphone, since taking the device first can make Chrome abort the session.
 
 For the full list of releases, see the [changelog archive](./changelog/archive/CHANGELOG.md).

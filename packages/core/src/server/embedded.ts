@@ -22,6 +22,7 @@ import {
   createCoreRoutesPlugin,
   type CoreRoutesPluginOptions,
 } from "./core-routes-plugin.js";
+import { bindEmbeddedHostOrgScope } from "./embedded-org-scope.js";
 import {
   awaitBootstrap,
   markDefaultPluginProvided,
@@ -29,6 +30,7 @@ import {
 } from "./framework-request-handler.js";
 import { createResourcesPlugin } from "./resources-plugin.js";
 import { createSentryPlugin } from "./sentry-plugin.js";
+import { sessionResolutionFailure } from "./session-resolution-errors.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
@@ -54,9 +56,10 @@ export type AgentNativeEmbeddedGetSession = (
 
 export interface AgentNativeEmbeddedAuthOptions extends Omit<
   AuthOptions,
-  "getSession"
+  "getSession" | "getBrowserSession"
 > {
   getSession: AgentNativeEmbeddedGetSession;
+  getBrowserSession?: AgentNativeEmbeddedGetSession;
 }
 
 export interface AgentNativeEmbeddedPluginOptions {
@@ -90,6 +93,18 @@ function readString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
+function embeddedOrgId(
+  session: AgentNativeEmbeddedHostSession | null | undefined,
+): string | null | undefined {
+  if (!session) return undefined;
+  if (session.orgId === null) return null;
+  const primary = readString(session.orgId);
+  if (primary !== undefined) return primary;
+  return session.organizationId === null
+    ? null
+    : readString(session.organizationId);
+}
+
 export function normalizeAgentNativeEmbeddedSession(
   session: AgentNativeEmbeddedHostSession | null | undefined,
 ): AuthSession | null {
@@ -97,6 +112,7 @@ export function normalizeAgentNativeEmbeddedSession(
   const userId = readString(session.userId);
   const email = readString(session.email) ?? userId;
   if (!email) return null;
+  const orgId = embeddedOrgId(session);
 
   return {
     email,
@@ -106,12 +122,11 @@ export function normalizeAgentNativeEmbeddedSession(
     userId,
     token: readString(session.token),
     name: readString(session.name),
-    orgId:
-      readString(session.orgId) ??
-      readString(session.organizationId) ??
-      undefined,
+    orgId: orgId ?? undefined,
     orgRole:
-      readString(session.orgRole) ?? readString(session.role) ?? undefined,
+      orgId == null || session.orgRole === null
+        ? undefined
+        : (readString(session.orgRole) ?? readString(session.role)),
   };
 }
 
@@ -136,16 +151,40 @@ export function createAgentNativeEmbeddedAuthOptions(
 ): AuthOptions | undefined {
   if (!auth) return undefined;
 
-  const authOptions =
-    typeof auth === "function"
-      ? ({ getSession: auth } satisfies AgentNativeEmbeddedAuthOptions)
-      : auth;
+  const authOptions: AgentNativeEmbeddedAuthOptions =
+    typeof auth === "function" ? { getSession: auth } : auth;
+  const { getSession, getBrowserSession, ...options } = authOptions;
+
+  const resolve = async (
+    event: H3Event,
+    callback: AgentNativeEmbeddedGetSession,
+  ) => {
+    try {
+      const hostSession = await callback(event);
+      const session = normalizeAgentNativeEmbeddedSession(hostSession);
+      if (session) {
+        bindEmbeddedHostOrgScope(
+          event,
+          session,
+          embeddedOrgId(hostSession) === null,
+        );
+      }
+      return session;
+    } catch (cause) {
+      throw sessionResolutionFailure(cause);
+    }
+  };
 
   return {
     mountGoogleOAuthRoutes: false,
-    ...authOptions,
-    getSession: async (event) =>
-      normalizeAgentNativeEmbeddedSession(await authOptions.getSession(event)),
+    ...options,
+    getSession: (event) => resolve(event, getSession),
+    ...(getBrowserSession
+      ? {
+          getBrowserSession: (event: H3Event) =>
+            resolve(event, getBrowserSession),
+        }
+      : {}),
   };
 }
 

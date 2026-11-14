@@ -1,14 +1,15 @@
-import {
-  getBuilderProxyOrigin,
-  type BuilderGatewayAuth,
-} from "../server/credential-provider.js";
-import {
-  loadOptionalPeer,
-  OptionalPeerDependencyError,
-} from "../shared/optional-peer.js";
-import { getBuilderGatewayRequestHeaders } from "./engine/builder-gateway-headers.js";
+import { JEV_TIMEOUT_MS, requestJev } from "../decisions/providers/jev.js";
+import type { BuilderGatewayAuth } from "../server/credential-provider.js";
+import { OptionalPeerDependencyError } from "../shared/optional-peer.js";
+export { JEV_TIMEOUT_MS };
+export {
+  isBuilderJevEnabled,
+  isJevEnabled,
+  requestJevThroughBuilder,
+  type JevResponse,
+} from "../decisions/providers/jev.js";
 import type { EngineTool } from "./engine/types.js";
-import type { ActionEntry, JevContextCredentials } from "./production-agent.js";
+import type { ActionEntry } from "./production-agent.js";
 import { TOOL_SEARCH_ACTION_NAME } from "./tool-search.js";
 import type {
   AgentChatStructuredContentPart,
@@ -20,7 +21,6 @@ const MAX_JEV_CANDIDATES = 128;
 const MAX_JEV_CANDIDATE_DESCRIPTION_CHARS = 140;
 const DEFAULT_PREFETCH_LIMIT = 3;
 const MAX_PREFETCH_LIMIT = 5;
-export const JEV_TIMEOUT_MS = 750;
 const JEV_MODEL = "jev-latest";
 const MAX_JEV_THREAD_CONTEXT_CHARS = 6_000;
 const MAX_JEV_PRIOR_USER_MESSAGES = 4;
@@ -29,16 +29,6 @@ const MAX_JEV_CURRENT_MESSAGE_CHARS = 3_600;
 const MAX_RETRIEVAL_CONTEXT_CHARS = 3_600;
 const MAX_RETRIEVAL_PRIOR_USER_MESSAGES = 2;
 const MAX_RETRIEVAL_PRIOR_MESSAGE_CHARS = 900;
-
-type JevChoiceAnswer = {
-  choice?: unknown;
-  probabilities?: unknown;
-};
-
-export type JevResponse = {
-  answers?: Record<string, JevChoiceAnswer & { noul?: unknown }>;
-  usage?: { input_tokens?: number; output_tokens?: number };
-};
 
 export interface JevCandidate {
   id: string;
@@ -50,6 +40,7 @@ export interface JevRankCandidatesOptions {
   request: string;
   apiKey?: string;
   personalApiKey?: string;
+  directApiKey?: string;
   builderAuth?: BuilderGatewayAuth | null;
   candidates: readonly JevCandidate[];
   candidateStateKey: string;
@@ -214,11 +205,12 @@ export async function rankJevCandidatesWithStatus(
   options: JevRankCandidatesOptions,
 ): Promise<JevCandidateRanking> {
   const request = options.request.trim();
-  const apiKey = options.personalApiKey?.trim();
+  const personalApiKey = options.personalApiKey?.trim();
+  const directApiKey = options.directApiKey?.trim();
   const builderAuth = options.builderAuth;
   if (
     !request ||
-    (!apiKey && !builderAuth) ||
+    (!personalApiKey && !directApiKey && !builderAuth) ||
     options.candidates.length === 0
   ) {
     return { status: "unavailable", ids: [] };
@@ -269,8 +261,9 @@ export async function rankJevCandidatesWithStatus(
     };
 
     const response = await requestJev({
-      apiKey,
-      personalApiKey: options.personalApiKey,
+      apiKey: options.apiKey,
+      personalApiKey,
+      directApiKey,
       builderAuth,
       request: jevRequest,
       signal: options.signal,
@@ -380,6 +373,7 @@ export interface JevToolPrefetchOptions {
   deadlineAt?: number;
   apiKey?: string;
   personalApiKey?: string;
+  directApiKey?: string;
   builderAuth?: BuilderGatewayAuth | null;
   registry: Record<string, ActionEntry>;
   initialTools: EngineTool[];
@@ -393,9 +387,10 @@ export async function preloadJevTools(
 ): Promise<EngineTool[]> {
   if (options.skip) return options.initialTools;
   const request = options.request.trim();
-  const apiKey = options.personalApiKey?.trim();
+  const personalApiKey = options.personalApiKey?.trim();
+  const directApiKey = options.directApiKey?.trim();
   const builderAuth = options.builderAuth;
-  if (!request || (!apiKey && !builderAuth)) {
+  if (!request || (!personalApiKey && !directApiKey && !builderAuth)) {
     return options.initialTools;
   }
 
@@ -439,8 +434,9 @@ export async function preloadJevTools(
   const selectedNames = await Promise.race([
     rankJevCandidates({
       request,
-      apiKey,
-      personalApiKey: options.personalApiKey,
+      apiKey: options.apiKey,
+      personalApiKey,
+      directApiKey,
       candidates,
       candidateStateKey: "candidate_tools",
       answerKey: "best_tool",
@@ -462,225 +458,6 @@ export async function preloadJevTools(
   return selectedNames.length > 0
     ? prependSelectedTools(options, selectedNames)
     : options.initialTools;
-}
-
-type JevRequest = {
-  model: string;
-  state: Record<string, unknown>;
-  questions: Record<
-    string,
-    {
-      type: "choice";
-      instructions: string;
-      criteria: Record<string, string>;
-    }
-  >;
-};
-
-async function requestJev(options: {
-  apiKey?: string;
-  personalApiKey?: string;
-  builderAuth?: BuilderGatewayAuth | null;
-  request: JevRequest;
-  signal?: AbortSignal;
-  timeoutMs?: number;
-}): Promise<JevResponse> {
-  options.signal?.throwIfAborted();
-  const personalApiKey = options.personalApiKey?.trim();
-  if (options.builderAuth) {
-    try {
-      return await requestJevThroughBuilder(
-        options.builderAuth,
-        options.request,
-        { signal: options.signal, timeoutMs: options.timeoutMs },
-      );
-    } catch (error) {
-      options.signal?.throwIfAborted();
-      if (!personalApiKey) throw error;
-      console.warn(
-        "[agent] Builder Jev proxy unavailable; falling back to the direct Jev API.",
-        error instanceof Error ? error.message : "unknown error",
-      );
-      return requestJevDirect(personalApiKey, options.request, options);
-    }
-  }
-
-  if (!personalApiKey) {
-    throw new Error("Builder Jev proxy is unavailable.");
-  }
-
-  return requestJevDirect(personalApiKey, options.request, options);
-}
-
-async function requestJevDirect(
-  apiKey: string,
-  request: JevRequest,
-  options: { signal?: AbortSignal; timeoutMs?: number },
-): Promise<JevResponse> {
-  options.signal?.throwIfAborted();
-  const { choice, TypeSafeClient } = await loadOptionalPeer(
-    "@typesafe-ai/sdk",
-    () => import("@typesafe-ai/sdk"),
-  );
-  options.signal?.throwIfAborted();
-  const client = new TypeSafeClient({
-    apiKey,
-    timeout: Math.max(
-      1,
-      Math.min(JEV_TIMEOUT_MS, options.timeoutMs ?? JEV_TIMEOUT_MS),
-    ),
-    retry: { maxRetries: 0 },
-  });
-  const systemOne = client.systemOne.bind(client) as unknown as (
-    request: unknown,
-    options?: { signal?: AbortSignal },
-  ) => Promise<unknown>;
-  return (await systemOne(
-    {
-      ...request,
-      questions: {
-        [Object.keys(request.questions)[0]!]: choice(
-          Object.values(request.questions)[0]!.instructions,
-          Object.values(request.questions)[0]!.criteria,
-        ),
-      },
-    },
-    options.signal ? { signal: options.signal } : undefined,
-  )) as JevResponse;
-}
-
-export async function requestJevThroughBuilder(
-  auth: BuilderGatewayAuth,
-  request: Record<string, unknown>,
-  options: { signal?: AbortSignal; timeoutMs?: number } = {},
-): Promise<JevResponse> {
-  const controller = new AbortController();
-  const signal = options.signal
-    ? AbortSignal.any([options.signal, controller.signal])
-    : controller.signal;
-  const timeout = setTimeout(
-    () => controller.abort(),
-    options.timeoutMs ?? JEV_TIMEOUT_MS,
-  );
-  try {
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-      signal.throwIfAborted();
-      const response = await fetch(
-        `${getBuilderProxyOrigin().replace(/\/+$/, "")}/agent-native/jev/v1/system-one`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: auth.authorization,
-            ...(auth.spaceId ? { "x-builder-api-key": auth.spaceId } : {}),
-            ...(auth.userId ? { "x-builder-user-id": auth.userId } : {}),
-            ...getBuilderGatewayRequestHeaders(),
-          },
-          body: JSON.stringify(request),
-          signal,
-        },
-      );
-      if (!response.ok) {
-        if (attempt === 0 && [429, 529].includes(response.status)) {
-          await response.body?.cancel().catch(() => undefined);
-          await waitForJevRetry(signal);
-          continue;
-        }
-        throw new Error(`Builder Jev proxy returned HTTP ${response.status}.`);
-      }
-      const result = (await response.json()) as unknown;
-      if (!isJevResponse(result)) {
-        throw new Error("Builder Jev proxy returned an invalid response.");
-      }
-      return result;
-    }
-    throw new Error("Builder Jev proxy request failed.");
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-function waitForJevRetry(signal: AbortSignal): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const onAbort = () => {
-      clearTimeout(timer);
-      reject(signal.reason ?? new DOMException("Aborted", "AbortError"));
-    };
-    const timer = setTimeout(() => {
-      signal.removeEventListener("abort", onAbort);
-      resolve();
-    }, 200);
-    signal.addEventListener("abort", onAbort, { once: true });
-    if (signal.aborted) onAbort();
-  });
-}
-
-export async function isBuilderJevEnabled(
-  auth: BuilderGatewayAuth,
-  options: { signal?: AbortSignal; timeoutMs?: number } = {},
-): Promise<boolean> {
-  const controller = new AbortController();
-  const timeout = setTimeout(
-    () => controller.abort(),
-    options.timeoutMs ?? 3_000,
-  );
-  try {
-    const response = await fetch(
-      `${getBuilderProxyOrigin().replace(/\/+$/, "")}/agent-native/jev/v1/status`,
-      {
-        method: "GET",
-        headers: {
-          Authorization: auth.authorization,
-          ...(auth.spaceId ? { "x-builder-api-key": auth.spaceId } : {}),
-          ...(auth.userId ? { "x-builder-user-id": auth.userId } : {}),
-          ...getBuilderGatewayRequestHeaders(),
-        },
-        signal: options.signal
-          ? AbortSignal.any([options.signal, controller.signal])
-          : controller.signal,
-      },
-    );
-    if (response.status === 403) return false;
-    if (!response.ok) {
-      throw new Error(`Builder Jev status returned HTTP ${response.status}.`);
-    }
-    const result = (await response.json()) as unknown;
-    if (
-      typeof result !== "object" ||
-      result === null ||
-      !("enabled" in result) ||
-      typeof result.enabled !== "boolean"
-    ) {
-      throw new Error("Builder Jev status returned an invalid response.");
-    }
-    return result.enabled;
-  } finally {
-    clearTimeout(timeout);
-  }
-}
-
-export async function isJevEnabled(
-  credentials: JevContextCredentials,
-): Promise<boolean> {
-  if (credentials.personalApiKey) return true;
-  if (credentials.builderAuth) {
-    const enabled = await isBuilderJevEnabled(credentials.builderAuth);
-    if (enabled || !credentials.apiKeyLookupFailed) return enabled;
-  }
-  if (credentials.apiKeyLookupFailed || credentials.builderAuthLookupFailed) {
-    throw new Error("Could not check Jev credentials or Builder entitlement.");
-  }
-  return false;
-}
-
-function isJevResponse(value: unknown): value is JevResponse {
-  return (
-    typeof value === "object" &&
-    value !== null &&
-    "answers" in value &&
-    typeof value.answers === "object" &&
-    value.answers !== null
-  );
 }
 
 function prependSelectedTools(

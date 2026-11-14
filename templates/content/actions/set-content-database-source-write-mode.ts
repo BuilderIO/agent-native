@@ -3,21 +3,26 @@ import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
 import {
-  type ContentDatabaseResponse,
+  type ContentDatabaseResponsePayload,
   type ContentDatabaseSourcePushMode,
   type ContentDatabaseSourceWriteMode,
   type SetContentDatabaseSourceWriteModeRequest,
 } from "../shared/api.js";
 import {
   buildBuilderCmsWriteModeJson,
+  builderCmsWriteSettingsFromJson,
   type BuilderCmsLiveWriteMode,
 } from "./_builder-cms-write-settings.js";
+import { clearStagedBuilderPublicationChanges } from "./_builder-entry-status.js";
 import {
   getExistingSourceForWrite,
   mutateContentDatabaseSourceMetadata,
   resolveDatabaseForSourceMutation,
 } from "./_database-source-utils.js";
-import { getContentDatabaseResponse } from "./_database-utils.js";
+import {
+  contentDatabaseResponseForCaller,
+  getContentDatabaseResponse,
+} from "./_database-utils.js";
 
 const legacyWriteModeSchema = z.enum(["autosave", "draft", "publish"]);
 const sourceWriteModeSchema = z.enum([
@@ -75,7 +80,8 @@ export default defineAction({
   }),
   run: async (
     args: SetContentDatabaseSourceWriteModeRequest,
-  ): Promise<ContentDatabaseResponse> => {
+    context,
+  ): Promise<ContentDatabaseResponsePayload> => {
     const database = await resolveDatabaseForSourceMutation(args);
     if (!database) throw new Error("Database not found.");
     await assertAccess("document", database.documentId, "admin");
@@ -93,6 +99,7 @@ export default defineAction({
     }
 
     const now = new Date().toISOString();
+    let allowPublicationTransitions = false as boolean;
     await mutateContentDatabaseSourceMetadata({
       sourceId: source.id,
       now,
@@ -111,6 +118,8 @@ export default defineAction({
           allowDraftWrites: args.allowDraftWrites,
           allowPublishWrites: args.allowPublishWrites,
         });
+        allowPublicationTransitions =
+          builderCmsWriteSettingsFromJson(next).allowPublicationTransitions;
         return {
           capabilitiesJson: next.capabilitiesJson,
           metadataJson: next.metadataJson,
@@ -120,7 +129,13 @@ export default defineAction({
       failureMessage:
         "Builder source settings changed repeatedly while saving write mode.",
     });
+    if (!allowPublicationTransitions) {
+      await clearStagedBuilderPublicationChanges({ sourceId: source.id, now });
+    }
 
-    return getContentDatabaseResponse(database.id, { limit: 100, offset: 0 });
+    return contentDatabaseResponseForCaller(
+      await getContentDatabaseResponse(database.id, { limit: 100, offset: 0 }),
+      context,
+    );
   },
 });

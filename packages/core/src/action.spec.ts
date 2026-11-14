@@ -1,5 +1,6 @@
 import { Client } from "@modelcontextprotocol/client";
 import { InMemoryTransport } from "@modelcontextprotocol/server";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import Ajv from "ajv";
 import Ajv2020 from "ajv/dist/2020.js";
 import { describe, it, expect, vi } from "vitest";
@@ -11,14 +12,22 @@ import {
 } from "./action-arguments-identity.js";
 import {
   actionCallIntent,
+  ActionInputValidationError,
   defineAction,
+  fail,
   failedCallEmitsChange,
+  telemetryInvalidPaths,
   ActionContractError,
   ActionOutputContractError,
   isActionContractError,
   isActionOutputContractError,
   runActionWithExecutionOutcome,
+  stripUnsupportedSchemaKeywords,
   invocationEffect,
+  NoWriteError,
+  noteExternalWrite,
+  DEFAULT_TOOL_RESULT_CHARS,
+  resolveToolMaxResultChars,
   type ActionExecutionOutcome,
   type ActionRunContext,
   AgentActionStopError,
@@ -37,7 +46,10 @@ import {
   actionsToEngineTools,
   createPlanModeActionRegistry,
 } from "./agent/production-agent.js";
+import * as actionAuditRecord from "./audit/record.js";
+import { boundedJsonValueBranches } from "./json-schema/json-value.js";
 import {
+  derivedTool,
   plainJsonSnapshot,
   UninterpretedSchema,
   usableInputSchema,
@@ -105,6 +117,70 @@ describe("the public action entry", () => {
 });
 
 describe("defineAction", () => {
+  it.each([false, true])(
+    "omits audit content when invocation privacy changes during execution (throws=%s)",
+    async (throws) => {
+      const body = "synthetic-late-private-audit-sentinel";
+      let privateTurn = false;
+      const audit = vi
+        .spyOn(actionAuditRecord, "recordActionAudit")
+        .mockResolvedValue(undefined);
+      const action = defineAction({
+        description: "Run a nested operation",
+        parameters: { note: { type: "string" } },
+        audit: {
+          enabled: true,
+          target: () => ({ id: body }),
+          summary: () => body,
+        },
+        run: async () => {
+          privateTurn = true;
+          if (throws) throw new Error(body);
+          return body;
+        },
+      });
+      const context: ActionRunContext = {
+        actionName: "nested-operation",
+        get omitFromPersistedHistory() {
+          return privateTurn ? true : undefined;
+        },
+      };
+      try {
+        if (throws)
+          await expect(action.run({ note: body }, context)).rejects.toThrow(
+            body,
+          );
+        else expect(await action.run({ note: body }, context)).toBe(body);
+        expect(audit).toHaveBeenCalledOnce();
+        expect(JSON.stringify(audit.mock.calls)).not.toContain(body);
+        expect(audit.mock.calls[0]?.[0].config).toMatchObject({
+          recordInputs: false,
+        });
+        expect(audit.mock.calls[0]?.[0].config?.summary).toBeUndefined();
+        expect(audit.mock.calls[0]?.[0].config?.target).toBeUndefined();
+      } finally {
+        audit.mockRestore();
+      }
+    },
+  );
+
+  it("exposes private chat-history persistence as an opt-in", () => {
+    const ordinary = defineAction({
+      description: "ordinary result",
+      parameters: {},
+      run: async () => "ok",
+    });
+    const privateAction = defineAction({
+      description: "private result",
+      parameters: {},
+      persistInChatHistory: false,
+      run: async () => "ok",
+    });
+
+    expect(ordinary.persistInChatHistory).toBeUndefined();
+    expect(privateAction.persistInChatHistory).toBe(false);
+  });
+
   it("infers readOnly=true for GET actions", () => {
     const action = defineAction({
       description: "read things",
@@ -310,6 +386,66 @@ describe("defineAction", () => {
     });
     expect(plain.mcpTool).toBeUndefined();
     expect(plain.deferLoading).toBeUndefined();
+  });
+
+  it("keeps searchHints off the model-facing tool and through registry loading", () => {
+    const hinted = defineAction({
+      description: "Create, list, update, or delete inbox rules.",
+      parameters: { id: { type: "string" } },
+      searchHints: ["auto-archive rule"],
+      run: async () => "ok",
+    });
+
+    expect(hinted.searchHints).toEqual(["auto-archive rule"]);
+    expect(JSON.stringify(hinted.tool)).not.toContain("auto-archive");
+    expect(
+      loadActionsFromStaticRegistry({ rules: { default: hinted } }).rules
+        ?.searchHints,
+    ).toEqual(["auto-archive rule"]);
+  });
+
+  it("rejects searchHints that are not a short list of short strings", () => {
+    const define = (searchHints: unknown) =>
+      defineAction({
+        description: "d",
+        parameters: {},
+        searchHints: searchHints as string[],
+        run: async () => "ok",
+      });
+
+    const twelve = Array.from({ length: 12 }, (_, i) => `h${i}`);
+    expect(define(twelve).searchHints).toEqual(twelve);
+    expect(define(["x".repeat(60)]).searchHints).toEqual(["x".repeat(60)]);
+
+    expect(() => define(["ok", ""])).toThrow(TypeError);
+    expect(() => define(["   "])).toThrow(TypeError);
+    expect(() => define([7])).toThrow(TypeError);
+    expect(() => define(["x".repeat(61)])).toThrow(TypeError);
+    expect(() => define([...twelve, "h12"])).toThrow(TypeError);
+    expect(() => define("auto-archive")).toThrow(TypeError);
+  });
+
+  it("fails loading a module whose searchHints are malformed, naming the action", () => {
+    // oracle-change: malformed hints used to be dropped silently; loading now fails loudly
+    const loaded = (searchHints: unknown) =>
+      loadActionsFromStaticRegistry({
+        "manage-rules": {
+          default: {
+            tool: { description: "d", parameters: { type: "object" } },
+            run: async () => "ok",
+            searchHints,
+          },
+        },
+      })["manage-rules"]?.searchHints;
+
+    expect(loaded(["inbox rule"])).toEqual(["inbox rule"]);
+    expect(loaded(undefined)).toBeUndefined();
+    expect(() => loaded(["inbox rule", 7])).toThrow(
+      /Action "manage-rules": searchHints/,
+    );
+    expect(() => loaded("inbox rule")).toThrow(
+      /Action "manage-rules": searchHints/,
+    );
   });
 
   it("resolves external exposure from mcpTool, falling back to agentTool", () => {
@@ -1017,11 +1153,31 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
     },
   );
 
+  it("fills the trailing items of a tuple through the any-value writer", () => {
+    const writeJsonValue = vi.fn((node: Record<string, unknown>) => {
+      node.type = "string";
+    });
+    const tuple = {
+      type: "array",
+      prefixItems: [{ type: "number" }],
+    };
+
+    stripUnsupportedSchemaKeywords(tuple, writeJsonValue);
+
+    expect(tuple).toEqual({
+      type: "array",
+      prefixItems: [{ type: "number" }],
+      items: { type: "string" },
+    });
+    expect(writeJsonValue).toHaveBeenCalledTimes(1);
+  });
+
   it.each([
     {
       name: "a Zod tuple",
       schema: z.object({ pair: z.tuple([z.number(), z.string()]) }),
       witness: { pair: [1, "a"] },
+      trailingItems: { anyOf: boundedJsonValueBranches() },
     },
     {
       name: "a 2020-12 tuple written by hand",
@@ -1043,10 +1199,11 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
         );
       })(),
       witness: { pair: [1, "a", true] },
+      trailingItems: { type: "boolean" },
     },
   ])(
     "lists, conforms and calls an action whose input holds $name",
-    async ({ schema, witness }) => {
+    async ({ schema, witness, trailingItems }) => {
       const pair = defineAction({
         description: "Reads a pair",
         schema,
@@ -1057,9 +1214,21 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
           pair: { prefixItems: [{ type: "number" }, { type: "string" }] },
         },
       });
-      expect(actionsToEngineTools({ pair }).map(({ name }) => name)).toEqual([
-        "pair",
-      ]);
+      const engineTools = actionsToEngineTools({ pair });
+      expect(engineTools.map(({ name }) => name)).toEqual(["pair"]);
+      const inAppSchema = engineTools[0]!.inputSchema;
+      expect(
+        providerSchemaViolations({ name: "pair", inputSchema: inAppSchema }),
+      ).toEqual([]);
+      expect(
+        (inAppSchema as { properties: { pair: { items: unknown } } }).properties
+          .pair.items,
+      ).toEqual(trailingItems);
+      const validateInApp = new Ajv2020({ strict: false }).compile(inAppSchema);
+      expect([
+        validateInApp(witness),
+        validateInApp({ pair: ["a", 1] }),
+      ]).toEqual([true, false]);
 
       await withMcpClient({ pair }, async (client) => {
         const { tools } = await client.listTools();
@@ -1146,11 +1315,11 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
 
   it("asks the emitter for 2020-12, the dialect MCP and the checks read", () => {
     const input = vi.fn(() => ({ type: "object" }));
-    defineAction({
+    void defineAction({
       description: "Reads",
       schema: standardSchema(input),
       run: async () => "ok",
-    });
+    }).tool.parameters;
 
     expect(input).toHaveBeenCalledWith({ target: "draft-2020-12" });
   });
@@ -1377,7 +1546,7 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
     },
   );
 
-  it("judges each action by what its emitter returned when it was defined", () => {
+  it("judges each action by what its emitter returned when it was converted", () => {
     const consoleError = vi
       .spyOn(console, "error")
       .mockImplementation(() => {});
@@ -1389,6 +1558,7 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
         schema,
         run: async () => "ok",
       });
+      void before.tool.parameters;
       emitted = accepted;
       const after = defineAction({
         description: "After",
@@ -1467,6 +1637,111 @@ describe("defineAction schema mode — tool parameter JSON Schema", () => {
       } as never);
 
       expect(tools.map(({ name }) => name)).toEqual(["repaired", "no-emitter"]);
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it("converts on the first read of the parameters, once for every reader", () => {
+    const schema = z.object({
+      title: z.string(),
+      count: z.number().optional(),
+    });
+    const convert = vi.spyOn((schema as any)["~standard"].jsonSchema, "input");
+    const action = defineAction({
+      description: "Lazy",
+      schema,
+      run: async () => "ok",
+    });
+    expect(convert).not.toHaveBeenCalled();
+
+    const first = action.tool.parameters;
+    expect(action.tool.parameters).toBe(first);
+    expect({ ...action.tool }.parameters).toBe(first);
+    expect(JSON.parse(JSON.stringify(action.tool)).parameters).toEqual(first);
+    expect(usableInputSchema(action, (parameters) => parameters)).toBe(first);
+    expect(actionsToEngineTools({ lazy: action })).toHaveLength(1);
+    expect(convert).toHaveBeenCalledTimes(1);
+    expect(first).toMatchObject({
+      type: "object",
+      properties: { title: { type: "string" }, count: { type: "number" } },
+      required: ["title"],
+    });
+  });
+
+  it("finds the verdict whichever reader converts first", () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    try {
+      const unread = () =>
+        defineAction({
+          description: "Accepts nothing",
+          schema: standardSchema(() => refused),
+          run: async () => "bad",
+        });
+
+      expect(mcpVerdict(unread())).toBeInstanceOf(UnusableSchemaError);
+      const derived = derivedTool(unread().tool, { description: "Copy" });
+      expect(mcpVerdict({ tool: derived })).toBeInstanceOf(UnusableSchemaError);
+      expect(actionsToEngineTools({ unread: unread() } as never)).toEqual([]);
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it("validates a call against the parameters it converts on demand", async () => {
+    const action = defineAction({
+      description: "Typed",
+      schema: z.object({ title: z.string() }),
+      run: async () => "ok",
+    });
+
+    await expect(action.run({} as never)).rejects.toThrow(
+      /Expected: \{ title\*: string \}/,
+    );
+  });
+
+  it("takes assigned parameters before or after the first read, and validates with its own", async () => {
+    const replacement = {
+      type: "object" as const,
+      properties: { note: { type: "string" as const } },
+    };
+    const typed = () =>
+      defineAction({
+        description: "Typed",
+        schema: z.object({ title: z.string() }),
+        run: async () => "ok",
+      });
+
+    const unread = typed();
+    unread.tool.parameters = replacement;
+    const read = typed();
+    void read.tool.parameters;
+    Object.assign(read.tool, { parameters: replacement });
+
+    for (const action of [unread, read]) {
+      expect(action.tool.parameters).toBe(replacement);
+      expect({ ...action.tool }.parameters).toBe(replacement);
+      await expect(action.run({} as never)).rejects.toThrow(
+        /Expected: \{ title\*: string \}/,
+      );
+    }
+  });
+
+  it("keeps an unusable schema's verdict when parameters are assigned before the first read", () => {
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    try {
+      const action = defineAction({
+        description: "Accepts nothing",
+        schema: standardSchema(() => refused),
+        run: async () => "bad",
+      });
+      action.tool.parameters = { type: "object", properties: {} };
+
+      expect(mcpVerdict(action)).toBeInstanceOf(UnusableSchemaError);
     } finally {
       consoleError.mockRestore();
     }
@@ -1698,6 +1973,99 @@ describe("defineAction schema mode — runtime validation wrapper", () => {
     expect(received).toEqual({ tag: "a!" });
   });
 
+  it("names the failing input fields by path, never by value", async () => {
+    const schema = z.object({
+      name: z.string(),
+      tweaks: z.array(z.object({ type: z.enum(["slider", "toggle"]) })),
+    });
+    const error = await validateActionArgs(schema, {
+      name: "ok",
+      tweaks: [
+        { type: "slider" },
+        { type: "toggle" },
+        { type: "secret-value" },
+      ],
+    }).catch((err: unknown) => err);
+
+    expect(error).toBeInstanceOf(ActionInputValidationError);
+    expect((error as ActionInputValidationError).paths).toEqual([
+      "tweaks.2.type",
+    ]);
+
+    const missing = await validateActionArgs(schema, {
+      tweaks: [],
+    }).catch((err: unknown) => err);
+    expect((missing as ActionInputValidationError).paths).toEqual(["name"]);
+    expect((missing as Error).message).toContain(
+      "Missing required parameter: name",
+    );
+  });
+
+  it("masks record keys in the failing paths", async () => {
+    const schema = z.object({
+      filters: z.record(z.string(), z.string()),
+      byYear: z.record(z.string(), z.object({ total: z.number() })),
+    });
+    const error = await validateActionArgs(schema, {
+      filters: { "acme-corp-q3": 42 },
+      byYear: { "1987": { total: "many" } },
+    }).catch((err: unknown) => err);
+
+    const paths = (error as ActionInputValidationError).paths;
+    expect(paths).toContain("filters.*");
+    expect(paths).toContain("byYear.*.total");
+    expect(paths.join(" ")).not.toMatch(/acme|1987/);
+  });
+
+  it("keeps declared fields behind a preprocess that parses a JSON string", async () => {
+    const schema = z.object({
+      tweaks: z.preprocess(
+        (v) => (typeof v === "string" ? JSON.parse(v) : v),
+        z.array(z.object({ type: z.enum(["slider", "toggle"]) })),
+      ),
+    });
+    const error = await validateActionArgs(schema, {
+      tweaks: JSON.stringify([{ type: "slider" }, { type: "dropdown" }]),
+    }).catch((err: unknown) => err);
+
+    expect((error as ActionInputValidationError).paths).toEqual([
+      "tweaks.1.type",
+    ]);
+  });
+
+  it("masks every segment of a schema with no JSON Schema converter", async () => {
+    const schema: StandardSchemaV1<unknown, unknown> = {
+      "~standard": {
+        version: 1,
+        vendor: "test",
+        validate: () => ({
+          issues: [{ message: "bad", path: ["secret-key", 0, "inner"] }],
+        }),
+      },
+    };
+    const error = await validateActionArgs(schema, {}).catch(
+      (err: unknown) => err,
+    );
+
+    expect((error as ActionInputValidationError).paths).toEqual(["*.*.*"]);
+  });
+
+  it("keeps the input rejection constructor compatible with a bare message", () => {
+    const error = new ActionInputValidationError("'question' is required.");
+    expect(error.message).toBe("'question' is required.");
+    expect(error.paths).toEqual([]);
+  });
+
+  it("bounds the failing paths kept for telemetry", () => {
+    const long = "x".repeat(200);
+    const paths = Array.from({ length: 10 }, (_, i) => `${long}.${i}`);
+
+    const bounded = telemetryInvalidPaths(paths);
+    expect(bounded).toHaveLength(8);
+    expect(bounded?.every((path) => path.length === 120)).toBe(true);
+    expect(telemetryInvalidPaths([])).toBeUndefined();
+  });
+
   it("re-validates normally when run() is called without the marking ctx", async () => {
     let received: unknown;
     const schema = z.object({ tag: z.preprocess((v) => `${v}!`, z.string()) });
@@ -1798,11 +2166,23 @@ describe("defineAction — outputSchema (return-value validation)", () => {
     });
     const out = await action.run({ x: "hi" });
     expect(out).toEqual({ id: "abc", count: 2 });
-    expect(action.outputErrorStrategy).toBe("warn");
+    expect(action.outputErrorStrategy).toBe("strict");
     expect(action.outputSchema).toBeDefined();
   });
 
-  it('warns and returns the ORIGINAL result on mismatch under the default "warn" strategy', async () => {
+  it("throws on mismatch under the default strict strategy", async () => {
+    const action = defineAction({
+      description: "strict by default",
+      schema: z.object({ x: z.string() }),
+      outputSchema: z.object({ id: z.string(), count: z.number() }),
+      run: async () => ({ id: "abc", count: "nope" }) as never,
+    });
+    await expect(action.run({ x: "hi" })).rejects.toMatchObject({
+      errorCode: "output_contract_violation",
+    });
+  });
+
+  it('warns and returns the ORIGINAL result on mismatch under the "warn" strategy', async () => {
     const bad = { id: "abc", count: "not-a-number" };
     const warnings: unknown[][] = [];
     const original = console.warn;
@@ -1814,7 +2194,8 @@ describe("defineAction — outputSchema (return-value validation)", () => {
         description: "warn output",
         schema: z.object({ x: z.string() }),
         outputSchema: z.object({ id: z.string(), count: z.number() }),
-        run: async () => bad,
+        outputErrorStrategy: "warn",
+        run: async () => bad as never,
       });
       const out = await action.run({ x: "hi" });
       expect(out).toBe(bad);
@@ -2029,6 +2410,7 @@ describe("defineAction — outputSchema (return-value validation)", () => {
         outputSchema: z.object({ owner: z.string() }).superRefine(() => {
           throw new Error("refinement bug");
         }),
+        outputErrorStrategy: "warn",
         run: async () => output,
       });
       await expect(action.run({})).resolves.toBe(output);
@@ -2339,6 +2721,138 @@ describe("defineAction — outputSchema (return-value validation)", () => {
     await expect(
       actionCallIntent(publish, { apply: "yes" }),
     ).resolves.toMatchObject({ valid: false });
+  });
+
+  describe("padded optional fields", () => {
+    const update = defineAction({
+      description: "update",
+      schema: z.object({
+        id: z.string(),
+        title: z.string().optional(),
+        note: z.string().nullable().optional(),
+        tags: z.array(z.string()).optional(),
+        label: z.string().optional(),
+        meta: z.record(z.string(), z.string()).optional(),
+        limit: z.number().optional().default(10),
+        items: z.array(z.string()).optional().default([]),
+      }),
+      run: async () => ({ ok: true }),
+    });
+
+    it("treats null on an optional field as omitted", async () => {
+      const intent = await actionCallIntent(update, {
+        id: "a",
+        title: null,
+        limit: null,
+      });
+      if (!intent.valid) throw intent.error;
+      expect(preparedCallArguments(intent)).toEqual({
+        id: "a",
+        limit: 10,
+        items: [],
+      });
+    });
+
+    it("refuses an empty list beside a null unless the action says it erases nothing", async () => {
+      const input = { id: "a", title: null, tags: [] };
+      expect((await actionCallIntent(update, input)).valid).toBe(false);
+      const listsEraseNothing = { ...update, emptyListsEraseNothing: true };
+      expect((await actionCallIntent(listsEraseNothing, input)).valid).toBe(
+        true,
+      );
+    });
+
+    it("runs a padded call whose empty value equals the schema default", async () => {
+      const intent = await actionCallIntent(update, {
+        id: "a",
+        title: null,
+        items: [],
+      });
+      expect(intent.valid).toBe(true);
+    });
+
+    it("treats null on a nullable optional field as omitted beside other nulls", async () => {
+      const intent = await actionCallIntent(update, {
+        id: "a",
+        title: null,
+        note: null,
+      });
+      if (!intent.valid) throw intent.error;
+      expect(preparedCallArguments(intent)).not.toHaveProperty("note");
+    });
+
+    it.each([{ id: "a", title: null, label: "" }])(
+      "refuses a padded call that could clear data: %j",
+      async (input) => {
+        const intent = await actionCallIntent(update, input);
+        expect(intent).toMatchObject({
+          valid: false,
+          error: { errorCode: "ambiguous_tool_placeholders" },
+        });
+      },
+    );
+
+    it("refuses a padded call whose dynamic plan-mode effect defaults to a write", async () => {
+      const publish = defineAction({
+        description: "dynamic",
+        schema: z.object({
+          mode: z.enum(["read", "write"]).default("write"),
+          label: z.string().optional(),
+          title: z.string().optional(),
+        }),
+        planMode: {
+          effect: (args) => (args.mode === "read" ? "read" : "write"),
+        },
+        run: async () => ({ ok: true }),
+      });
+      const intent = await actionCallIntent(publish, {
+        title: null,
+        label: "",
+      });
+      expect(intent).toMatchObject({
+        valid: false,
+        error: { errorCode: "ambiguous_tool_placeholders" },
+      });
+    });
+
+    it("sees an empty value that a stringified argument carries", async () => {
+      const intent = await actionCallIntent(update, {
+        id: "a",
+        title: null,
+        meta: "{}",
+      });
+      expect(intent).toMatchObject({
+        valid: false,
+        error: { errorCode: "ambiguous_tool_placeholders" },
+      });
+    });
+
+    it("rejects a wrong-typed empty value instead of dropping it", async () => {
+      const setStatus = defineAction({
+        description: "status",
+        schema: z.object({
+          id: z.string(),
+          status: z.enum(["open", "done"]).optional(),
+        }),
+        run: async () => ({ ok: true }),
+      });
+      const intent = await actionCallIntent(setStatus, { id: "a", status: "" });
+      expect(intent.valid).toBe(false);
+    });
+
+    it("runs the same padded call when it is read-only", async () => {
+      const search = defineAction({
+        description: "search",
+        schema: z.object({
+          q: z.string().optional(),
+          tags: z.array(z.string()).optional(),
+        }),
+        readOnly: true,
+        run: async () => ({ ok: true }),
+      });
+      const intent = await actionCallIntent(search, { q: null, tags: [] });
+      expect(intent.valid).toBe(true);
+    });
   });
 
   it("runs a prepared call as prepared, without parsing or classifying it again", async () => {
@@ -2710,8 +3224,11 @@ describe("defineAction — mcpOutputSchema opt-in", () => {
       /requires an outputSchema/,
     ],
     [
-      "the default warn strategy",
-      { outputSchema: z.object({ id: z.string() }) },
+      "a warn strategy",
+      {
+        outputSchema: z.object({ id: z.string() }),
+        outputErrorStrategy: "warn" as const,
+      },
       /outputErrorStrategy: "strict"/,
     ],
     [
@@ -3128,7 +3645,10 @@ describe("defineAction — authorize", () => {
     const save = defineAction({
       description: "Child write",
       schema: z.object({}),
-      run: async () => "saved",
+      run: async () => {
+        noteExternalWrite("test");
+        return "saved";
+      },
     });
     const write = (nested: boolean) =>
       defineAction({
@@ -3423,6 +3943,236 @@ describe("defineAction — authorize", () => {
   });
 });
 
+describe("invocationEffect — writes the framework observed", () => {
+  const tool: ActionRunContext = { caller: "tool" };
+
+  async function failedEffect(
+    action: Parameters<typeof dispatch>[0] & { changeEvents?: boolean },
+    options: { retrySafe?: boolean } = {},
+  ) {
+    const { outcome, error } = await dispatch(action, {}, tool);
+    expect(error).toBeDefined();
+    return invocationEffect(action, outcome, {
+      ...options,
+      failed: { error },
+    });
+  }
+
+  const write = (
+    run: (args: unknown, ctx?: ActionRunContext) => Promise<unknown>,
+    extra: { retrySafe?: boolean; readOnly?: boolean } = {},
+  ) =>
+    defineAction({
+      description: "Write",
+      schema: z.object({}),
+      ...extra,
+      run,
+    });
+
+  it("reads a write rejected before anything was saved as none, and still refreshes", async () => {
+    const rejected = write(async () => fail("Not a valid email template."));
+    expect(await failedEffect(rejected)).toEqual({
+      effect: "none",
+      changed: true,
+    });
+  });
+
+  it("reads a write that failed after it was seen to write as unknown", async () => {
+    const saved = write(async () => {
+      noteExternalWrite("test");
+      fail("Failed after saving.");
+    });
+    expect(await failedEffect(saved)).toEqual({
+      effect: "unknown",
+      changed: true,
+    });
+  });
+
+  it("reads a failure after a nested write was seen as unknown", async () => {
+    const child = write(async () => {
+      noteExternalWrite("test");
+      return "saved";
+    });
+    const parent = write(async (_args, ctx) => {
+      await child.run({}, ctx);
+      fail("Failed after the child saved.");
+    });
+    const { outcome, error } = await dispatch(parent, {}, tool);
+    expect(outcome.evidence).toMatchObject({
+      writeObserved: true,
+      nestedWriteObserved: true,
+    });
+    expect(invocationEffect(parent, outcome, { failed: { error } })).toEqual({
+      effect: "unknown",
+      changed: true,
+    });
+  });
+
+  it("reads a nested write that entered but was rejected before writing as none", async () => {
+    const child = write(async () => fail("Rejected before saving."));
+    const parent = write(async (_args, ctx) => {
+      await child.run({}, ctx);
+      return "unreachable";
+    });
+    const { outcome, error } = await dispatch(parent, {}, tool);
+    expect(outcome.evidence).toMatchObject({
+      writeEntered: true,
+      nestedWriteEntered: true,
+      writeObserved: false,
+    });
+    expect(invocationEffect(parent, outcome, { failed: { error } })).toEqual({
+      effect: "none",
+      changed: true,
+    });
+  });
+
+  it("reads a rejected parent beside a nested write that only read as none", async () => {
+    const lookup = defineAction({
+      description: "Look up",
+      schema: z.object({}),
+      readOnly: true,
+      run: async () => "found",
+    });
+    const parent = write(async (_args, ctx) => {
+      await lookup.run({}, ctx);
+      fail("Rejected after the lookup.");
+    });
+    expect((await failedEffect(parent)).effect).toBe("none");
+  });
+
+  it("keeps a call whose result never came unknown, however little was seen", async () => {
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => (entered = resolve));
+    const slow = write(async () => {
+      entered();
+      await held;
+      return "saved";
+    });
+    const outcome: ActionExecutionOutcome = { refused: false };
+    const running = runActionWithExecutionOutcome(
+      slow.run,
+      {},
+      tool,
+      outcome,
+      slow,
+    );
+    await started;
+    expect(outcome.evidence).toMatchObject({ writeObserved: false });
+    expect(invocationEffect(slow, outcome, { failed: { lost: true } })).toEqual(
+      { effect: "unknown", changed: true },
+    );
+    release();
+    await running;
+  });
+
+  it("keeps a successful call exactly as it was", async () => {
+    const quiet = write(async () => "ok");
+    const { outcome } = await dispatch(quiet, {}, tool);
+    expect(invocationEffect(quiet, outcome, {})).toEqual({
+      effect: "committed",
+      changed: true,
+    });
+    expect(
+      invocationEffect(quiet, outcome, { receipt: { changed: false } }),
+    ).toEqual({ effect: "none", changed: true });
+  });
+
+  it("lets a typed committed effect win over a write nothing saw", async () => {
+    const broken = defineAction({
+      description: "Write",
+      schema: z.object({}),
+      outputSchema: z.literal("ok"),
+      outputErrorStrategy: "strict",
+      run: async () => "bad" as never,
+    });
+    expect(await failedEffect(broken)).toEqual({
+      effect: "committed",
+      changed: true,
+    });
+  });
+
+  it("keeps a NoWriteError's claim for the call that raised it, and refuses it after a nested write", async () => {
+    const rejected = write(async () => {
+      throw new NoWriteError("Nothing matched.");
+    });
+    expect(await failedEffect(rejected)).toEqual({
+      effect: "none",
+      changed: false,
+    });
+    const child = write(async () => {
+      noteExternalWrite("test");
+      return "saved";
+    });
+    const parent = write(async (_args, ctx) => {
+      await child.run({}, ctx);
+      throw new NoWriteError("Nothing matched.");
+    });
+    expect((await failedEffect(parent)).effect).toBe("unknown");
+  });
+
+  it("lets retrySafe make a write that was seen safe to run again", async () => {
+    const saved = write(
+      async () => {
+        noteExternalWrite("test");
+        fail("Failed after saving.");
+      },
+      { retrySafe: true },
+    );
+    expect((await failedEffect(saved, { retrySafe: true })).effect).toBe(
+      "none",
+    );
+  });
+
+  it("is no more suspect of a call declared read-only that writes anyway", async () => {
+    const read = write(
+      async () => {
+        noteExternalWrite("test");
+        fail("Failed after a write nothing declared.");
+      },
+      { readOnly: true },
+    );
+    expect(await failedEffect(read)).toEqual({
+      effect: "none",
+      changed: false,
+    });
+  });
+
+  it("decides an untracked entry by its declaration, whatever was seen", async () => {
+    const plain = {
+      run: async () => {
+        throw new Error("Failed.");
+      },
+    };
+    const { outcome, error } = await dispatch(plain, {}, tool);
+    expect(outcome.record).toBeUndefined();
+    expect(invocationEffect(plain, outcome, { failed: { error } })).toEqual({
+      effect: "unknown",
+      changed: false,
+    });
+    expect(
+      invocationEffect(plain, outcome, {
+        readOnly: true,
+        failed: { error },
+      }),
+    ).toEqual({ effect: "none", changed: false });
+    const sawWrite = {
+      run: async () => {
+        noteExternalWrite("test");
+        throw new Error("Failed.");
+      },
+    };
+    const seen = await dispatch(sawWrite, {}, tool);
+    expect(
+      invocationEffect(sawWrite, seen.outcome, {
+        readOnly: true,
+        failed: { error: seen.error },
+      }),
+    ).toEqual({ effect: "none", changed: false });
+  });
+});
+
 describe("AgentActionStopError", () => {
   it("carries the stop marker, safe details, errorCode, and toolResult", () => {
     const err = new AgentActionStopError("nothing more to do", {
@@ -3536,5 +4286,32 @@ describe("gateway-stringified tool-arg coercion", () => {
       forceNew: false,
       ops: [{ op: "remove" }],
     });
+  });
+});
+
+describe("resolveToolMaxResultChars", () => {
+  it("prefers the action limit, then the agent limit, then the default", () => {
+    expect(resolveToolMaxResultChars({})).toBe(DEFAULT_TOOL_RESULT_CHARS);
+    expect(resolveToolMaxResultChars({}, { maxResultChars: 30_000 })).toBe(
+      30_000,
+    );
+    expect(
+      resolveToolMaxResultChars(
+        { maxResultChars: 100_000 },
+        { maxResultChars: 30_000 },
+      ),
+    ).toBe(100_000);
+  });
+
+  it("bounds the result by any hard limit", () => {
+    expect(
+      resolveToolMaxResultChars(
+        { maxResultChars: 100_000 },
+        { hardMaxResultChars: 40_000 },
+      ),
+    ).toBe(40_000);
+    expect(resolveToolMaxResultChars({}, { hardMaxResultChars: 80_000 })).toBe(
+      DEFAULT_TOOL_RESULT_CHARS,
+    );
   });
 });

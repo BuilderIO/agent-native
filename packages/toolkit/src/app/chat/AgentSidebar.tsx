@@ -21,6 +21,7 @@ import {
   clampAgentSidebarWidth,
   dispatchAgentSidebarStateChange,
   getAgentSidebarMaxWidth,
+  getAgentSidebarState,
   getInitialAgentSidebarOpen,
   getAgentSidebarWideWidth,
   setAgentSidebarOpenPreference,
@@ -33,6 +34,10 @@ import {
   getAgentChatViewTransitionStyle,
   startAgentChatViewTransition,
 } from "@agent-native/core/client/agent-chat";
+import {
+  AGENT_SIDEBAR_WIDTH_STEP,
+  snapAgentSidebarWidth,
+} from "@agent-native/core/client/agent-sidebar-state";
 import { injectedAgentNativeConfig } from "@agent-native/core/client/app-config";
 import { writeClientAppState } from "@agent-native/core/client/application-state";
 import { isAgentNativeDesktop } from "@agent-native/core/client/auth/auth-page-helpers";
@@ -68,7 +73,7 @@ import React, {
   lazy,
   Suspense,
 } from "react";
-import { flushSync } from "react-dom";
+import { createPortal, flushSync } from "react-dom";
 
 import { setComposerReferenceEventTarget } from "../../composer/runtime-adapters.js";
 import { Skeleton } from "../../ui/skeleton.js";
@@ -125,18 +130,11 @@ const FirstRunOnboarding = lazy(() =>
   })),
 );
 
-const AGENT_PANEL_FONT_FAMILY =
-  'ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif';
-const AGENT_PANEL_ROOT_STYLE = {
-  fontFamily: AGENT_PANEL_FONT_FAMILY,
-  fontSize: 13,
-  lineHeight: 1.2,
-} satisfies React.CSSProperties;
-
 type AgentPanelStyle = React.CSSProperties & {
   "--agent-sidebar-background"?: string;
   "--agent-sidebar-closed-transform"?: string;
   "--agent-sidebar-inner-closed-transform"?: string;
+  "--agent-sidebar-min-width"?: string;
   "--agent-sidebar-width"?: string;
   viewTransitionName?: string;
 };
@@ -155,101 +153,101 @@ const SIDEBAR_DRAWER_KEY = "agent-native-sidebar-wide-drawer";
 const SIDEBAR_DRAWER_PLACEHOLDER_KEY =
   "agent-native-sidebar-drawer-placeholder-width";
 const SIDEBAR_ANIMATION_MS = 260;
+const AGENT_SIDEBAR_DEFAULT_WIDTH = 384;
 const SIDEBAR_OVERLAY_Z_INDEX = 70;
 const SIDEBAR_DRAWER_Z_INDEX = 80;
 const SIDEBAR_DRAWER_VIEW_TRANSITION_NAME = "agent-native-sidebar-drawer";
 function ResizeHandle({
   position,
+  width,
+  maxWidth,
   onDrag,
+  onKeyboardResize,
   onResizeStart,
   onResizeEnd,
 }: {
   position: "left" | "right";
-  onDrag: (delta: number) => void;
+  width: number;
+  maxWidth: number;
+  /** Total pointer travel since the drag started, in width terms. */
+  onDrag: (offset: number) => void;
+  onKeyboardResize: (delta: number) => void;
   onResizeStart: () => void;
   onResizeEnd: () => void;
 }) {
-  const ref = useRef<HTMLDivElement>(null);
-  const dragging = useRef(false);
-  const lastX = useRef(0);
-  const onDragRef = useRef(onDrag);
-  const onResizeStartRef = useRef(onResizeStart);
+  const t = useT();
+  const dragStartX = useRef<number | null>(null);
   const onResizeEndRef = useRef(onResizeEnd);
-  onDragRef.current = onDrag;
-  onResizeStartRef.current = onResizeStart;
   onResizeEndRef.current = onResizeEnd;
-  const GRAB_ZONE = 5;
+  const toWidthDelta = (dx: number) => (position === "left" ? dx : -dx);
 
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    let cursorActive = false;
+  // Closing the panel mid-drag unmounts the handle before pointerup arrives.
+  useEffect(
+    () => () => {
+      if (dragStartX.current !== null) onResizeEndRef.current();
+    },
+    [],
+  );
 
-    function onMouseDown(e: MouseEvent) {
-      const rect = el!.getBoundingClientRect();
-      const dist = Math.abs(e.clientX - (rect.left + rect.width / 2));
-      if (dist > GRAB_ZONE) return;
-      e.preventDefault();
-      dragging.current = true;
-      lastX.current = e.clientX;
-      onResizeStartRef.current();
-      document.body.style.cursor = "col-resize";
-      document.body.style.userSelect = "none";
+  const endDrag = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (dragStartX.current === null) return;
+    dragStartX.current = null;
+    if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+      event.currentTarget.releasePointerCapture(event.pointerId);
     }
-
-    function onMouseMove(e: MouseEvent) {
-      if (dragging.current) {
-        const delta = e.clientX - lastX.current;
-        lastX.current = e.clientX;
-        onDragRef.current(position === "left" ? delta : -delta);
-        return;
-      }
-      const rect = el!.getBoundingClientRect();
-      const dist = Math.abs(e.clientX - (rect.left + rect.width / 2));
-      const near = dist <= GRAB_ZONE;
-      if (near && !cursorActive) {
-        cursorActive = true;
-        document.body.style.cursor = "col-resize";
-      } else if (!near && cursorActive) {
-        cursorActive = false;
-        document.body.style.cursor = "";
-      }
-    }
-
-    function endDrag() {
-      if (!dragging.current) return;
-      dragging.current = false;
-      document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      onResizeEndRef.current();
-    }
-
-    document.addEventListener("mousedown", onMouseDown);
-    document.addEventListener("mousemove", onMouseMove);
-    document.addEventListener("mouseup", endDrag);
-    window.addEventListener("blur", endDrag);
-    return () => {
-      document.removeEventListener("mousedown", onMouseDown);
-      document.removeEventListener("mousemove", onMouseMove);
-      document.removeEventListener("mouseup", endDrag);
-      window.removeEventListener("blur", endDrag);
-      if (cursorActive) document.body.style.cursor = "";
-      document.body.style.userSelect = "";
-      dragging.current = false;
-      onResizeEndRef.current();
-    };
-  }, [position]);
+    onResizeEnd();
+  };
 
   return (
     <div
-      ref={ref}
-      className={cn(
-        "agent-sidebar-resize-handle relative z-20 w-px shrink-0 touch-none select-none bg-transparent transition-colors hover:bg-border active:bg-border",
-      )}
-      style={{ cursor: "col-resize" }}
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={t("agentChat.agentPanel.resizePanel")}
+      aria-valuenow={width}
+      aria-valuemin={AGENT_SIDEBAR_MIN_WIDTH}
+      aria-valuemax={maxWidth}
+      tabIndex={0}
+      className="agent-sidebar-resize-handle relative z-20 w-px shrink-0 cursor-col-resize touch-none select-none bg-transparent transition-colors hover:bg-border focus-visible:bg-ring focus-visible:outline-none active:bg-border"
+      onPointerDown={(event) => {
+        if (event.button !== 0) return;
+        event.preventDefault();
+        event.currentTarget.setPointerCapture(event.pointerId);
+        dragStartX.current = event.clientX;
+        onResizeStart();
+      }}
+      onPointerMove={(event) => {
+        if (dragStartX.current === null) return;
+        onDrag(toWidthDelta(event.clientX - dragStartX.current));
+      }}
+      onPointerUp={endDrag}
+      onPointerCancel={endDrag}
+      onLostPointerCapture={endDrag}
+      onKeyDown={(event) => {
+        if (event.key === "Home" || event.key === "End") {
+          event.preventDefault();
+          const target =
+            event.key === "Home" ? AGENT_SIDEBAR_MIN_WIDTH : maxWidth;
+          onKeyboardResize(target - width);
+          return;
+        }
+        if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
+        event.preventDefault();
+        const dx =
+          event.key === "ArrowLeft"
+            ? -AGENT_SIDEBAR_WIDTH_STEP
+            : AGENT_SIDEBAR_WIDTH_STEP;
+        onKeyboardResize(toWidthDelta(dx));
+      }}
     />
   );
 }
+
+const MOBILE_SIDEBAR_QUERY = "(max-width: 767px)";
+// A newer navigation replacing or closing an older one is routine, not a fault.
+const EXPECTED_CANCELLATION_REASONS = new Set([
+  "navigation-closed",
+  "navigation-superseded",
+]);
 
 function postPerAppChatSidebarStateToEmbeddedFrames(open: boolean): void {
   const message = buildAppChatSidebarStateMessage(open);
@@ -298,6 +296,12 @@ export interface AgentSidebarProps {
   forceOverlay?: boolean;
   defaultOpen?: boolean;
   disableChatShortcut?: boolean;
+  /**
+   * Draws the panel inside this element instead of beside the page, for an app
+   * whose own sidebar holds the agent. The app then owns the panel's width,
+   * motion and close button, and the key that toggles the sidebar.
+   */
+  panelHost?: HTMLElement | null;
   showCollapseButton?: boolean;
   animateMobile?: boolean;
   animateDesktop?: boolean;
@@ -351,7 +355,7 @@ export function AgentSidebar({
   enabled = true,
   screenRefreshEnabled = true,
   screenRefreshOnlyWhenPanelActive,
-  emptyStateText = "How can I help you?",
+  emptyStateText,
   mcpSuggestionExcludedIntegrationIds,
   defaultMode = "chat",
   suggestions,
@@ -378,6 +382,7 @@ export function AgentSidebar({
   forceOverlay = false,
   defaultOpen,
   disableChatShortcut = false,
+  panelHost,
   showCollapseButton = true,
   animateMobile = true,
   animateDesktop = true,
@@ -483,7 +488,14 @@ export function AgentSidebar({
     !firstRunOnboardingGateOwnsSurface &&
     !suppressFirstRunOnboarding &&
     (SHOW_FIRST_RUN_ONBOARDING || onboardingPreviewMode);
-  const initialWidth = defaultSidebarWidth ?? sidebarWidth ?? 380;
+  const requestedWidth =
+    defaultSidebarWidth ?? sidebarWidth ?? AGENT_SIDEBAR_DEFAULT_WIDTH;
+  // A host's default width is still held to the panel's floor and ceiling.
+  const initialWidth = clampAgentSidebarWidth(
+    Number.isFinite(requestedWidth)
+      ? requestedWidth
+      : AGENT_SIDEBAR_DEFAULT_WIDTH,
+  );
   const [open, setOpen] = useState(
     () =>
       openOnChatRunning ||
@@ -492,6 +504,7 @@ export function AgentSidebar({
       }),
   );
   const openRef = useRef(open);
+  const [entryAnimated, setEntryAnimated] = useState(false);
   const [presentationMode, setPresentationMode] = useState(false);
   const [width, setWidth] = useState(initialWidth);
   const [isWideDrawer, setIsWideDrawer] = useState(() => {
@@ -504,7 +517,6 @@ export function AgentSidebar({
     }
   });
   const [drawerPlaceholderWidth, setDrawerPlaceholderWidth] = useState(() => {
-    const fallback = Number.isFinite(initialWidth) ? initialWidth : 380;
     try {
       const saved = localStorage.getItem(SIDEBAR_DRAWER_PLACEHOLDER_KEY);
       const parsed = saved ? Number.parseInt(saved, 10) : Number.NaN;
@@ -512,7 +524,7 @@ export function AgentSidebar({
     } catch {
       // coercion-ok: the normal sidebar width is a safe placeholder fallback.
     }
-    return clampAgentSidebarWidth(fallback);
+    return initialWidth;
   });
   const drawerExitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [isResizing, setIsResizing] = useState(false);
@@ -520,10 +532,10 @@ export function AgentSidebar({
   const [isMobile, setIsMobile] = useState(
     () =>
       typeof window !== "undefined" &&
-      window.matchMedia("(max-width: 767px)").matches,
+      window.matchMedia(MOBILE_SIDEBAR_QUERY).matches,
   );
   useEffect(() => {
-    const mq = window.matchMedia("(max-width: 767px)");
+    const mq = window.matchMedia(MOBILE_SIDEBAR_QUERY);
     const handler = (e: MediaQueryListEvent) => setIsMobile(e.matches);
     mq.addEventListener("change", handler);
     return () => mq.removeEventListener("change", handler);
@@ -533,7 +545,8 @@ export function AgentSidebar({
       const saved = localStorage.getItem(SIDEBAR_STORAGE_KEY);
       if (saved) {
         const n = Number.parseInt(saved, 10);
-        if (Number.isFinite(n)) setWidth(clampAgentSidebarWidth(n));
+        if (Number.isFinite(n))
+          setWidth(clampAgentSidebarWidth(snapAgentSidebarWidth(n)));
       }
     } catch {
       // coercion-ok: unavailable storage leaves the in-memory default width intact.
@@ -559,13 +572,22 @@ export function AgentSidebar({
     [],
   );
   const setOpenPersisted = useCallback(
-    (next: boolean | ((prev: boolean) => boolean)) => {
+    (
+      next: boolean | ((prev: boolean) => boolean),
+      { requested = true }: { requested?: boolean } = {},
+    ) => {
       if (!enabled) return;
+      if (requested) setEntryAnimated(true);
       const value = setOpenCurrent(next);
       setAgentSidebarOpenPreference(value, sidebarOpenStorageKey);
     },
     [enabled, setOpenCurrent, sidebarOpenStorageKey],
   );
+  const autoOpen = useCallback(() => {
+    if (openRef.current) return;
+    setEntryAnimated(true);
+    setOpenCurrent(true);
+  }, [setOpenCurrent]);
 
   useEffect(() => {
     try {
@@ -601,7 +623,7 @@ export function AgentSidebar({
 
   const applyUrlOpenOverride = useCallback(() => {
     const override = consumeAgentSidebarUrlOpenOverride(sidebarOpenStorageKey);
-    if (override !== null) setOpenPersisted(override);
+    if (override !== null) setOpenPersisted(override, { requested: false });
   }, [setOpenPersisted, sidebarOpenStorageKey]);
 
   useEffect(() => {
@@ -611,10 +633,8 @@ export function AgentSidebar({
   }, [applyUrlOpenOverride, enabled]);
 
   useEffect(() => {
-    if (enabled && openOnChatRunning && !isPerAppChatHosted) {
-      setOpenCurrent(true);
-    }
-  }, [enabled, isPerAppChatHosted, openOnChatRunning, setOpenCurrent]);
+    if (enabled && openOnChatRunning && !isPerAppChatHosted) autoOpen();
+  }, [autoOpen, enabled, isPerAppChatHosted, openOnChatRunning]);
 
   const [frameCodeMode, setFrameCodeMode] = useState(() =>
     shouldParentFrameOwnAgentPanel(),
@@ -631,9 +651,18 @@ export function AgentSidebar({
     !isPerAppChatHosted &&
     !presentationMode &&
     (!frameCodeMode || !shouldParentFrameOwnAgentPanel());
+  const hostedPanel = ownsPanel && panelHost ? panelHost : null;
+  // A host switches between the agent and its other sections, so the chat
+  // stays mounted behind them once it has opened.
+  const [hostedPanelOpened, setHostedPanelOpened] = useState(false);
+  useEffect(() => {
+    if (!hostedPanel) setHostedPanelOpened(false);
+    else if (open) setHostedPanelOpened(true);
+  }, [hostedPanel, open]);
   const shouldMountPanel =
     ownsPanel &&
     (open ||
+      hostedPanelOpened ||
       backgroundPanelActive ||
       runningTabIds.size > 0 ||
       hasPendingPanelEvents);
@@ -701,7 +730,7 @@ export function AgentSidebar({
                 return (
                   pending.order < navigation.order &&
                   !isPanelNavigationEvent(pending.event) &&
-                  !submit?.targetTabId
+                  !sendsToOwnTab(submit)
                 );
               }),
             );
@@ -793,7 +822,7 @@ export function AgentSidebar({
               cancellationReason,
             );
             cancelAgentChatSubmit(submit.submitMessageId);
-          } else {
+          } else if (!EXPECTED_CANCELLATION_REASONS.has(cancellationReason)) {
             console.warn("[agent-chat] cancelled retained conversation event", {
               type: pending.event.type,
               reason: cancellationReason,
@@ -831,7 +860,11 @@ export function AgentSidebar({
               pending.targetId == null &&
               !pending.reference &&
               !isComposerReferenceEvent(pending.event) &&
-              !isPanelNavigationEvent(pending.event)
+              !isPanelNavigationEvent(pending.event) &&
+              !(
+                pending.event instanceof MessageEvent &&
+                sendsToOwnTab(parseSubmitChatMessage(pending.event))
+              )
             )
               pending.targetId = targetId;
           }
@@ -842,7 +875,7 @@ export function AgentSidebar({
               pending.event instanceof MessageEvent
                 ? parseSubmitChatMessage(pending.event)
                 : null;
-            if (submit?.targetTabId) return false;
+            if (sendsToOwnTab(submit)) return false;
             const recipient =
               pending.referenceTargetId ??
               pending.reference?.referenceTargetId ??
@@ -965,10 +998,12 @@ export function AgentSidebar({
           : !presentationMode && (frameOwned ? frameSidebarOpen : open)),
       source: frameOwned ? "frame" : "app",
       mode: frameOwned ? "code" : "app",
+      hosted: Boolean(hostedPanel),
     });
   }, [
     frameCodeMode,
     frameSidebarOpen,
+    hostedPanel,
     open,
     presentationMode,
     hasFrameSidebarState,
@@ -1026,7 +1061,7 @@ export function AgentSidebar({
           : "__default__";
 
       if (detail?.isRunning === true) {
-        if (openOnChatRunning && !isPerAppChatHosted) setOpenCurrent(true);
+        if (openOnChatRunning && !isPerAppChatHosted) autoOpen();
         setRunningTabIds((prev) => {
           const next = new Set(prev);
           next.add(tabId);
@@ -1053,6 +1088,7 @@ export function AgentSidebar({
       window.removeEventListener(AGENT_CHAT_RUNNING_EVENT, handleChatRunning);
     };
   }, [
+    autoOpen,
     enabled,
     isPerAppChatHosted,
     openOnChatRunning,
@@ -1111,12 +1147,13 @@ export function AgentSidebar({
             : recipient
           : undefined,
         navigation:
-          submit?.targetTabId || isPanelNavigationEvent(event)
+          sendsToOwnTab(submit) || isPanelNavigationEvent(event)
             ? undefined
             : navigation,
         targetId:
           submit?.targetTabId ??
           (navigation ||
+          sendsToOwnTab(submit) ||
           isPanelNavigationEvent(event) ||
           isComposerReferenceEvent(event)
             ? undefined
@@ -1125,7 +1162,7 @@ export function AgentSidebar({
               : recipient),
         reference:
           !isPanelNavigationEvent(event) &&
-          !submit?.targetTabId &&
+          !sendsToOwnTab(submit) &&
           reference &&
           isComposerReferenceEvent(reference.event)
             ? reference
@@ -1409,12 +1446,12 @@ export function AgentSidebar({
         setFrameCodeMode(true);
         setFrameSidebarOpen(frameOpen !== false);
         setHasFrameSidebarState(true);
-        setOpenPersisted(false);
+        setOpenPersisted(false, { requested: false });
       } else if (mode === "app") {
         setFrameCodeMode(false);
         setFrameSidebarOpen(false);
         setHasFrameSidebarState(true);
-        setOpenPersisted(frameOpen !== false);
+        setOpenPersisted(frameOpen !== false, { requested: false });
         if (
           typeof frameWidth === "number" &&
           Number.isFinite(frameWidth) &&
@@ -1454,14 +1491,22 @@ export function AgentSidebar({
   useEffect(() => {
     if (!enabled) return;
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (isAgentSidebarToggleShortcut(e)) {
+      // A host's element that isn't on the page yet, such as one a loading
+      // page's skeleton holds, has no panel to answer ⌘\, so the shell does.
+      if (!panelHost?.isConnected && isAgentSidebarToggleShortcut(e)) {
         e.preventDefault();
         window.dispatchEvent(
           new CustomEvent("agent-panel:toggle", { detail: { focus: true } }),
         );
         return;
       }
-      if (!disableChatShortcut && isAgentPanelChatShortcut(e)) {
+      // A Mac reports ⇧⌘I with a lowercase key, and a hosting page's panel
+      // owns that key.
+      if (
+        !disableChatShortcut &&
+        isAgentPanelChatShortcut(e) &&
+        !(panelHost && e.shiftKey)
+      ) {
         e.preventDefault();
         let selectionText = "";
         try {
@@ -1486,7 +1531,7 @@ export function AgentSidebar({
     };
     document.addEventListener("keydown", handleKeyDown);
     return () => document.removeEventListener("keydown", handleKeyDown);
-  }, [disableChatShortcut, enabled]);
+  }, [disableChatShortcut, enabled, panelHost]);
 
   useEffect(() => {
     const handler = (event: MessageEvent) => {
@@ -1499,17 +1544,34 @@ export function AgentSidebar({
     return () => window.removeEventListener("message", handler);
   }, []);
 
-  const handleDrag = useCallback((delta: number) => {
-    setWidth((prev) => {
-      const next = clampAgentSidebarWidth(prev + delta);
-      try {
-        localStorage.setItem(SIDEBAR_STORAGE_KEY, String(next));
-      } catch {
-        // coercion-ok: the in-memory width update already applied; persistence is optional.
-      }
-      return next;
-    });
+  const widthRef = useRef(width);
+  widthRef.current = width;
+  const dragStartWidthRef = useRef(width);
+  const persistWidth = useCallback((next: number) => {
+    try {
+      localStorage.setItem(SIDEBAR_STORAGE_KEY, String(next));
+    } catch {
+      // coercion-ok: the in-memory width update already applied; persistence is optional.
+    }
   }, []);
+  const handleDrag = useCallback((offset: number) => {
+    const next = clampAgentSidebarWidth(
+      snapAgentSidebarWidth(dragStartWidthRef.current + offset),
+    );
+    widthRef.current = next;
+    setWidth(next);
+  }, []);
+  const handleKeyboardResize = useCallback(
+    (delta: number) => {
+      const next = clampAgentSidebarWidth(
+        snapAgentSidebarWidth(widthRef.current + delta),
+      );
+      widthRef.current = next;
+      setWidth(next);
+      persistWidth(next);
+    },
+    [persistWidth],
+  );
   const [drawerMorphing, setDrawerMorphing] = useState(false);
   const runDrawerMorph = useCallback((apply: () => void) => {
     flushSync(() => setDrawerMorphing(true));
@@ -1561,16 +1623,22 @@ export function AgentSidebar({
     };
     runDrawerMorph(apply);
   }, [runDrawerMorph, drawerPlaceholderWidth, isWideDrawer]);
-  const handleResizeStart = useCallback(() => setIsResizing(true), []);
-  const handleResizeEnd = useCallback(() => setIsResizing(false), []);
+  const handleResizeStart = useCallback(() => {
+    dragStartWidthRef.current = widthRef.current;
+    setIsResizing(true);
+  }, []);
+  const handleResizeEnd = useCallback(() => {
+    setIsResizing(false);
+    persistWidth(widthRef.current);
+  }, [persistWidth]);
 
   const isLeft = effectivePosition === "left";
-  const isOverlay = isMobile || forceOverlay;
-  const wideDrawerEnabled = isWideDrawer && !isOverlay;
+  const isOverlay = !hostedPanel && (isMobile || forceOverlay);
+  const wideDrawerEnabled = isWideDrawer && !isOverlay && !hostedPanel;
   const mobileAnimationEnabled =
     !presentationMode && isOverlay && animateMobile;
   const desktopAnimationEnabled =
-    !presentationMode && !isOverlay && effectiveAnimateDesktop;
+    !presentationMode && !isOverlay && !hostedPanel && effectiveAnimateDesktop;
   const sidebarAnimationEnabled =
     mobileAnimationEnabled || desktopAnimationEnabled;
   const [renderAnimatedPanel, setRenderAnimatedPanel] =
@@ -1615,7 +1683,6 @@ export function AgentSidebar({
   let panelStyle: AgentPanelStyle;
   if (isOverlay) {
     panelStyle = {
-      ...AGENT_PANEL_ROOT_STYLE,
       position: "fixed",
       top: 0,
       [isLeft ? "left" : "right"]: 0,
@@ -1634,7 +1701,6 @@ export function AgentSidebar({
     };
   } else if (wideDrawerEnabled) {
     panelStyle = {
-      ...AGENT_PANEL_ROOT_STYLE,
       position: "fixed",
       top: 0,
       [isLeft ? "left" : "right"]: 0,
@@ -1654,8 +1720,8 @@ export function AgentSidebar({
     };
   } else {
     panelStyle = {
-      ...AGENT_PANEL_ROOT_STYLE,
       "--agent-sidebar-width": `${width}px`,
+      "--agent-sidebar-min-width": `${AGENT_SIDEBAR_MIN_WIDTH}px`,
       "--agent-sidebar-inner-closed-transform": `translateX(${isLeft ? "-" : ""}100%)`,
       "--agent-sidebar-background": "var(--agent-kit-nav-surface)",
       background: "var(--agent-sidebar-background)",
@@ -1671,7 +1737,6 @@ export function AgentSidebar({
           ? "none"
           : "1px solid hsl(var(--border))",
       display: desktopAnimationEnabled || panelOpen ? "flex" : "none",
-      minWidth: desktopAnimationEnabled ? 0 : undefined,
       pointerEvents: desktopAnimationEnabled && !panelOpen ? "none" : undefined,
       ...(drawerMorphing
         ? { viewTransitionName: SIDEBAR_DRAWER_VIEW_TRANSITION_NAME }
@@ -1679,12 +1744,127 @@ export function AgentSidebar({
     };
   }
 
-  const sidebar = shouldRenderPanel ? (
+  const panelBody = (
+    <LazyChunkErrorBoundary
+      fallback={<LazyChunkRetryFallback />}
+      shouldHandleError={isPanelImportError}
+      onError={onPanelLoadFailed}
+    >
+      <Suspense
+        fallback={
+          <div
+            aria-hidden="true"
+            className="flex min-h-0 flex-1 flex-col gap-3 p-3"
+          >
+            <Skeleton className="h-8 w-full" />
+            <div className="flex-1" />
+            <Skeleton className="h-28 w-full rounded-xl" />
+          </div>
+        }
+      >
+        <AgentSidebarPanel
+          onReadyChange={onPanelReadyChange}
+          onReferenceTargetChange={onReferenceTargetChange}
+          onNavigationChange={onNavigationChange}
+          onTabsClosing={onTabsClosing}
+          emptyStateText={emptyStateText}
+          mcpSuggestionExcludedIntegrationIds={
+            mcpSuggestionExcludedIntegrationIds
+          }
+          suggestions={suggestions}
+          dynamicSuggestions={dynamicSuggestions}
+          suggestionPlacement="context-chips"
+          composerToolbarSlot={composerToolbarSlot}
+          composerSlot={composerSlot}
+          // A host's tab opens the chat without taking focus from the tab.
+          {...(hostedPanel ? { composerAutoFocus: false } : {})}
+          composerContextProvider={composerContextProvider}
+          onComposerTextChange={onComposerTextChange}
+          imageModelMenu={imageModelMenu}
+          availableAgents={effectiveAvailableAgents}
+          availableModels={availableModels}
+          modelListLoading={modelListLoading}
+          selectedAgent={effectiveSelectedAgent}
+          onAgentChange={effectiveOnAgentChange}
+          hostedHarness={hostedHarnessEnabled}
+          onConnectProvider={onConnectProvider}
+          builderConnectTransport={builderConnectTransport}
+          onConnectLocalRuntime={onConnectLocalRuntime}
+          runtime={runtime}
+          adapterReloadKey={adapterReloadKey}
+          threadFooterSlot={threadFooterSlot}
+          apiUrl={apiUrl}
+          agentChatSurface={agentChatSurface}
+          desktopIdentityUnauthenticated={desktopIdentityUnauthenticated}
+          desktopIdentityAuthenticated={desktopIdentityAuthenticated}
+          showTabBar={effectiveShowTabBar}
+          suppressInlineOpenApp={suppressInlineOpenApp}
+          composerPlaceholder={composerPlaceholder}
+          showMissingApiKeySetup={showMissingApiKeySetup}
+          setupCardOwner={setupCardOwner}
+          showGuidedQuestions={showGuidedQuestions}
+          missingApiKeySetupLayout="sidebar"
+          defaultMode={defaultMode}
+          onCollapse={() => setOpenPersisted(false)}
+          showCollapseButton={!hostedPanel && showCollapseButton}
+          onSnapTo75Percent={
+            isOverlay || hostedPanel ? undefined : snapTo75Percent
+          }
+          isWideDrawer={wideDrawerEnabled}
+          onExitWideDrawer={
+            isOverlay || hostedPanel ? undefined : exitWideDrawer
+          }
+          onFullViewRequest={onFullscreenRequest}
+          onOpenSettings={onOpenSettings}
+          onNewCliTab={onNewCliTab}
+          onNewUiTab={onNewUiTab}
+          renderCliTab={renderCliTab}
+          newTabMode={newTabMode}
+          newCliTabLabel={newCliTabLabel}
+          newUiTabLabel={newUiTabLabel}
+          storageKey={storageKey}
+          restoreActiveThread={restoreActiveThread}
+          scope={scope}
+          {...(chatHistory ? { chatHistory } : {})}
+          isolateHistoryByScope={isolateHistoryByScope}
+          showScopeBadge={showScopeBadge}
+          browserTabId={resolvedBrowserTabId}
+          threadUrlSync={threadUrlSync}
+          agentPageHref={agentPageHref}
+          thinkingDisplay={thinkingDisplay}
+          showModelSelector={showModelSelector}
+          chatOnly={chatOnly}
+        />
+      </Suspense>
+    </LazyChunkErrorBoundary>
+  );
+
+  const sidebar = !shouldRenderPanel ? null : hostedPanel ? (
+    createPortal(
+      <div
+        className="agent-sidebar-panel agent-kit-density flex min-h-0 flex-1 flex-col overflow-hidden"
+        data-agent-sidebar-layout="hosted"
+        data-agent-sidebar-state={panelOpen ? "open" : "closed"}
+        inert={!panelOpen || undefined}
+      >
+        <div
+          ref={panelElementRef}
+          className="agent-sidebar-panel-inner relative flex min-h-0 flex-1 flex-col"
+        >
+          {panelBody}
+        </div>
+      </div>,
+      hostedPanel,
+    )
+  ) : (
     <>
       {showResizeHandle && !isLeft && (
         <ResizeHandle
           position={effectivePosition}
+          width={width}
+          maxWidth={getAgentSidebarMaxWidth()}
           onDrag={handleDrag}
+          onKeyboardResize={handleKeyboardResize}
           onResizeStart={handleResizeStart}
           onResizeEnd={handleResizeEnd}
         />
@@ -1704,6 +1884,7 @@ export function AgentSidebar({
                 : undefined
         }
         data-agent-sidebar-layout={panelLayout}
+        data-agent-sidebar-entry={entryAnimated ? undefined : "instant"}
         data-agent-sidebar-position={effectivePosition}
         data-agent-native-hosted-harness-ui={
           hostedHarnessUi ? "desktop" : undefined
@@ -1728,104 +1909,22 @@ export function AgentSidebar({
           ref={panelElementRef}
           className="agent-sidebar-panel-inner relative flex min-h-0 flex-1 flex-col"
         >
-          <LazyChunkErrorBoundary
-            fallback={<LazyChunkRetryFallback />}
-            shouldHandleError={isPanelImportError}
-            onError={onPanelLoadFailed}
-          >
-            <Suspense
-              fallback={
-                <div
-                  aria-hidden="true"
-                  className="flex min-h-0 flex-1 flex-col gap-3 p-3"
-                >
-                  <Skeleton className="h-8 w-full" />
-                  <div className="flex-1" />
-                  <Skeleton className="h-28 w-full rounded-xl" />
-                </div>
-              }
-            >
-              <AgentSidebarPanel
-                onReadyChange={onPanelReadyChange}
-                onReferenceTargetChange={onReferenceTargetChange}
-                onNavigationChange={onNavigationChange}
-                onTabsClosing={onTabsClosing}
-                emptyStateText={emptyStateText}
-                mcpSuggestionExcludedIntegrationIds={
-                  mcpSuggestionExcludedIntegrationIds
-                }
-                suggestions={suggestions}
-                dynamicSuggestions={dynamicSuggestions}
-                suggestionPlacement="context-chips"
-                composerToolbarSlot={composerToolbarSlot}
-                composerSlot={composerSlot}
-                composerContextProvider={composerContextProvider}
-                onComposerTextChange={onComposerTextChange}
-                imageModelMenu={imageModelMenu}
-                availableAgents={effectiveAvailableAgents}
-                availableModels={availableModels}
-                modelListLoading={modelListLoading}
-                selectedAgent={effectiveSelectedAgent}
-                onAgentChange={effectiveOnAgentChange}
-                hostedHarness={hostedHarnessEnabled}
-                onConnectProvider={onConnectProvider}
-                builderConnectTransport={builderConnectTransport}
-                onConnectLocalRuntime={onConnectLocalRuntime}
-                runtime={runtime}
-                adapterReloadKey={adapterReloadKey}
-                threadFooterSlot={threadFooterSlot}
-                apiUrl={apiUrl}
-                agentChatSurface={agentChatSurface}
-                desktopIdentityUnauthenticated={desktopIdentityUnauthenticated}
-                desktopIdentityAuthenticated={desktopIdentityAuthenticated}
-                showTabBar={effectiveShowTabBar}
-                suppressInlineOpenApp={suppressInlineOpenApp}
-                composerPlaceholder={composerPlaceholder}
-                showMissingApiKeySetup={showMissingApiKeySetup}
-                setupCardOwner={setupCardOwner}
-                showGuidedQuestions={showGuidedQuestions}
-                missingApiKeySetupLayout="sidebar"
-                defaultMode={defaultMode}
-                onCollapse={() => setOpenPersisted(false)}
-                showCollapseButton={showCollapseButton}
-                onSnapTo75Percent={isOverlay ? undefined : snapTo75Percent}
-                isWideDrawer={isOverlay ? false : isWideDrawer}
-                onExitWideDrawer={isOverlay ? undefined : exitWideDrawer}
-                onFullViewRequest={onFullscreenRequest}
-                onOpenSettings={onOpenSettings}
-                onNewCliTab={onNewCliTab}
-                onNewUiTab={onNewUiTab}
-                renderCliTab={renderCliTab}
-                newTabMode={newTabMode}
-                newCliTabLabel={newCliTabLabel}
-                newUiTabLabel={newUiTabLabel}
-                storageKey={storageKey}
-                restoreActiveThread={restoreActiveThread}
-                scope={scope}
-                chatHistory={chatHistory}
-                isolateHistoryByScope={isolateHistoryByScope}
-                showScopeBadge={showScopeBadge}
-                browserTabId={resolvedBrowserTabId}
-                threadUrlSync={threadUrlSync}
-                agentPageHref={agentPageHref}
-                thinkingDisplay={thinkingDisplay}
-                showModelSelector={showModelSelector}
-                chatOnly={chatOnly}
-              />
-            </Suspense>
-          </LazyChunkErrorBoundary>
+          {panelBody}
         </div>
       </div>
       {showResizeHandle && isLeft && (
         <ResizeHandle
           position={effectivePosition}
+          width={width}
+          maxWidth={getAgentSidebarMaxWidth()}
           onDrag={handleDrag}
+          onKeyboardResize={handleKeyboardResize}
           onResizeStart={handleResizeStart}
           onResizeEnd={handleResizeEnd}
         />
       )}
     </>
-  ) : null;
+  );
 
   const drawerPlaceholder =
     wideDrawerEnabled && !presentationMode && panelOpen ? (
@@ -1861,13 +1960,14 @@ export function AgentSidebar({
           (mobileAnimationEnabled ? shouldRenderPanel : open) && (
             <div
               className={cn(
-                "agent-sidebar-backdrop fixed inset-0 bg-foreground/40",
+                "agent-sidebar-backdrop fixed inset-0 bg-background/45 backdrop-blur-[1px]",
                 mobileAnimationEnabled && !panelOpen && "pointer-events-none",
               )}
               data-agent-sidebar-animation={
                 mobileAnimationEnabled ? "mobile" : undefined
               }
               data-agent-sidebar-state={panelOpen ? "open" : "closed"}
+              data-agent-sidebar-entry={entryAnimated ? undefined : "instant"}
               style={{ zIndex: SIDEBAR_OVERLAY_Z_INDEX - 1 }}
               onClick={() => setOpenPersisted(false)}
             />
@@ -1886,7 +1986,9 @@ export function AgentSidebar({
           className="agent-sidebar-main-surface flex flex-1 flex-col overflow-auto min-w-0"
           data-agent-sidebar-main-position={effectivePosition}
           data-agent-sidebar-main-state={
-            !isOverlay && !presentationMode && panelOpen ? "open" : "closed"
+            !isOverlay && !hostedPanel && !presentationMode && panelOpen
+              ? "open"
+              : "closed"
           }
           data-agent-sidebar-resizing={isResizing ? "true" : undefined}
         >
@@ -1928,6 +2030,15 @@ function isComposerReferenceEvent(event: Event): boolean {
     (event instanceof MessageEvent &&
       event.data?.type === AGENT_CHAT_INSERT_REFERENCE_MESSAGE_TYPE)
   );
+}
+
+// A send that names its tab, or opens a new one, already knows where it lands.
+// The chat the panel happens to show meanwhile is not its recipient, so a
+// switch away from that chat must not cancel it.
+function sendsToOwnTab(
+  submit: ReturnType<typeof parseSubmitChatMessage>,
+): boolean {
+  return Boolean(submit?.targetTabId || submit?.newTab);
 }
 
 function isPanelNavigationEvent(event: Event): boolean {
@@ -1973,8 +2084,11 @@ export function AgentToggleButton({
   showWhenOpen?: boolean;
 }) {
   const t = useT();
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(() => getAgentSidebarState()?.open ?? false);
   useEffect(() => {
+    // The panel may have announced its state between render and subscribe.
+    const current = getAgentSidebarState();
+    if (current) setOpen(current.open);
     const handler = (event: Event) => {
       const detail = (event as CustomEvent<AgentSidebarStateChangeDetail>)
         .detail;
@@ -2001,12 +2115,12 @@ export function AgentToggleButton({
             )
           }
           className={cn(
-            "inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+            "inline-flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent/40 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
             open && "bg-accent text-foreground",
             className,
           )}
         >
-          {icon ?? <IconLayoutSidebarRight size={18} aria-hidden />}
+          {icon ?? <IconLayoutSidebarRight size={16} aria-hidden />}
         </button>
       }
       content={t("agentPanel.toggleAgent")}

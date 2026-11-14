@@ -105,9 +105,14 @@ export function orderMessageContent(
   events: AgentEvent[],
   resolveOrder?: AgentMessageContentOrderResolver,
 ): AgentMessageContentItem[] {
+  // The leading text keeps the key the interleaved path gives it, so a widget
+  // arriving mid-stream splits the reply without remounting its first segment.
   const fallback = [
     ...visibleParts.map((part, index) => ({
-      key: `${message.id}-${index}`,
+      key:
+        index === 0 && part.type === "text"
+          ? `${message.id}-text-0`
+          : `${message.id}-${index}`,
       type: "part" as const,
       part,
     })),

@@ -10,7 +10,11 @@ export {
   type CollabInitializationErrorCategory,
   type CollabInitializationState,
   type CollaborativeDocSyncResult,
+  type CollabUpdateAck,
+  type CollabLocalCopyOptions,
+  type DisplacedCollabEdits,
 } from "../../collab/client.js";
+export { prefetchCollabState } from "../../collab/state-prefetch.js";
 export { AGENT_CLIENT_ID } from "../../collab/agent-identity.js";
 export {
   usePresence,

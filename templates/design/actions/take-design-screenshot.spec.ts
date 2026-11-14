@@ -65,6 +65,9 @@ vi.mock("../server/lib/playwright-runtime.js", async (importOriginal) => {
     launchChromium: playwrightMocks.launchChromium,
   };
 });
+vi.mock("../server/lib/screenshot-readiness.js", () => ({
+  prepareScreenshotPage: vi.fn(async (page, html) => page.setContent(html)),
+}));
 vi.mock("../server/source-workspace.js", () => ({
   readLiveSourceFile: vi.fn(async () => ({
     content:
@@ -88,6 +91,18 @@ import action, {
 } from "./take-design-screenshot.js";
 
 describe("public design screenshot access", () => {
+  it("rejects contact samples for raw screenshots before reading a file", async () => {
+    const args = {
+      fileId: "file_1",
+      sampleContactValues: [{ field: "contact.firstname", value: "Alex" }],
+    };
+    expect(action.schema.safeParse(args).success).toBe(false);
+    mockGetDb.mockClear();
+    await expect(action.run(args)).rejects.toThrow(
+      'sampleContactValues requires templatePreview="hubspot-email"',
+    );
+    expect(mockGetDb).not.toHaveBeenCalled();
+  });
   it("includes public link visibility when reading a specific design file", async () => {
     mockAccessFilter.mockClear();
     const result = await action.run(
@@ -123,26 +138,23 @@ describe("native screenshot boundary", () => {
 });
 
 describe("screenshot image handoff", () => {
-  it("retains PNG bytes only for MCP export calls", async () => {
-    const png = Buffer.from("test png bytes");
-    const diagnostics = {
-      documentWidthPx: 900,
-      documentHeightPx: 600,
-      horizontalOverflowPx: 0,
-      overflowingElements: [],
-      lowContrastText: [],
-      brokenImages: [],
-      zeroSizeOrOffscreen: [],
-    };
+  const diagnostics = {
+    documentWidthPx: 900,
+    documentHeightPx: 600,
+    horizontalOverflowPx: 0,
+    overflowingElements: [],
+    lowContrastText: [],
+    brokenImages: [],
+    zeroSizeOrOffscreen: [],
+  };
+
+  function mockBrowser(screenshot: ReturnType<typeof vi.fn>) {
     const page = {
       on: vi.fn(),
       setContent: vi.fn().mockResolvedValue(undefined),
-      evaluate: vi
-        .fn()
-        .mockResolvedValueOnce(undefined)
-        .mockResolvedValue(diagnostics),
+      evaluate: vi.fn().mockResolvedValue(diagnostics),
       waitForFunction: vi.fn().mockResolvedValue(undefined),
-      screenshot: vi.fn().mockResolvedValue(png),
+      screenshot,
     };
     const context = {
       addInitScript: vi.fn().mockResolvedValue(undefined),
@@ -160,8 +172,14 @@ describe("screenshot image handoff", () => {
     vi.mocked(uploadFile).mockResolvedValue({
       url: "https://files.example.test/screen.png",
     } as never);
+    return { page, browser };
+  }
 
-    const args = { fileId: "file_1", widths: [900] };
+  it("retains PNG bytes only for MCP export calls", async () => {
+    const png = Buffer.from("test png bytes");
+    const { page, browser } = mockBrowser(vi.fn().mockResolvedValue(png));
+
+    const args = { fileId: "file_1", widths: [600, 375, 500, 400, 300] };
     const screenshotResult = await action.run(args, {
       caller: "tool",
       actionName: "take-design-screenshot",
@@ -181,8 +199,30 @@ describe("screenshot image handoff", () => {
     expect(renderedHtml).toContain("background: #00c248");
     expect(renderedHtml).not.toContain("oklch(");
 
-    expect(screenshotResult).not.toHaveProperty("_agentImages");
-    expect(JSON.stringify(screenshotResult)).not.toContain(
+    // The agent gets the pixels inline: Claude models behind the Builder
+    // gateway reject a screenshot sent as a URL.
+    expect(screenshotResult._agentImages).toHaveLength(4);
+    expect(screenshotResult._agentImages?.slice(0, 2)).toEqual([
+      {
+        data: png.toString("base64"),
+        mediaType: "image/png",
+        label: "index.html (600px)",
+      },
+      {
+        data: png.toString("base64"),
+        mediaType: "image/png",
+        label: "index.html (375px)",
+      },
+    ]);
+    expect(screenshotResult.screenshots[0].url).toBe(
+      "https://files.example.test/screen.png",
+    );
+    const scales = browser.newContext.mock.calls.map(
+      ([options]) => options.deviceScaleFactor,
+    );
+    expect(scales).toEqual([...Array(5).fill(1), ...Array(10).fill(2)]);
+    expect(httpExportResult).not.toHaveProperty("_agentImages");
+    expect(JSON.stringify(httpExportResult)).not.toContain(
       png.toString("base64"),
     );
     expect(
@@ -193,6 +233,45 @@ describe("screenshot image handoff", () => {
     ).toBeUndefined();
     expect(getScreenshotPngData(mcpExportResult.screenshots[0])).toEqual(png);
     expect(mcpExportResult.screenshots[0].url).toBe(
+      "https://files.example.test/screen.png",
+    );
+  });
+
+  it("re-encodes an oversize screenshot as JPEG for the agent", async () => {
+    const png = Buffer.alloc(1_600_000);
+    const jpeg = Buffer.from("small jpeg bytes");
+    const screenshot = vi.fn(async (options: { type: string }) =>
+      options.type === "jpeg" ? jpeg : png,
+    );
+    mockBrowser(screenshot);
+
+    const result = await action.run(
+      { fileId: "file_1", widths: [600] },
+      { caller: "tool", actionName: "take-design-screenshot" },
+    );
+
+    expect(result._agentImages).toEqual([
+      {
+        data: jpeg.toString("base64"),
+        mediaType: "image/jpeg",
+        label: "index.html (600px)",
+      },
+    ]);
+    expect(result).not.toHaveProperty("message");
+  });
+
+  it("sends no image, and says so, when even the JPEG is too large", async () => {
+    const huge = Buffer.alloc(1_600_000);
+    mockBrowser(vi.fn().mockResolvedValue(huge));
+
+    const result = await action.run(
+      { fileId: "file_1", widths: [600] },
+      { caller: "tool", actionName: "take-design-screenshot" },
+    );
+
+    expect(result).not.toHaveProperty("_agentImages");
+    expect(result.message).toContain("600px screenshot was too large");
+    expect(result.screenshots[0].url).toBe(
       "https://files.example.test/screen.png",
     );
   });

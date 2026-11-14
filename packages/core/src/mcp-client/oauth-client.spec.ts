@@ -1,3 +1,4 @@
+import { OAuthError, OAuthErrorCode } from "@modelcontextprotocol/client";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const authMock = vi.hoisted(() => vi.fn());
@@ -12,7 +13,8 @@ const deleteOAuthTokensIfRevisionMock = vi.hoisted(() => vi.fn());
 const ssrfSafeFetchMock = vi.hoisted(() => vi.fn());
 const getAppConfigMock = vi.hoisted(() => vi.fn());
 
-vi.mock("@modelcontextprotocol/client", () => ({
+vi.mock("@modelcontextprotocol/client", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@modelcontextprotocol/client")>()),
   auth: authMock,
   discoverOAuthServerInfo: discoverOAuthServerInfoMock,
   refreshAuthorization: refreshAuthorizationMock,
@@ -67,6 +69,7 @@ import {
   finishMcpOAuthAuthorization,
   getMcpOAuthAccessToken,
   McpOAuthClientProvider,
+  McpOAuthRefreshUnavailableError,
   readMcpOAuthCredentials,
   revokeMcpOAuthCredentials,
   saveMcpOAuthCredentials,
@@ -736,6 +739,67 @@ describe("MCP OAuth client", () => {
     );
   });
 
+  it("clears stale expiry when a refresh response omits expires_in", async () => {
+    getOAuthTokensMock.mockResolvedValue({
+      ...credentials,
+      tokenExpiresAt: Date.now() - 1,
+    });
+    refreshAuthorizationMock.mockResolvedValueOnce({
+      access_token: "<NEW_ACCESS_TOKEN>",
+      token_type: "bearer",
+    });
+
+    await expect(
+      getMcpOAuthAccessToken({
+        key: "mcp_oauth:test",
+        scope: "org",
+        scopeId: "org-test",
+        serverUrl: "https://mcp.example.com/mcp",
+      }),
+    ).resolves.toBe("<NEW_ACCESS_TOKEN>");
+
+    const saved = saveOAuthTokensMock.mock.calls[0]?.[2] as any;
+    expect(saved).toMatchObject({
+      tokens: { access_token: "<NEW_ACCESS_TOKEN>" },
+    });
+    expect(saved).not.toHaveProperty("tokenExpiresAt");
+    expect(
+      (saveOAuthTokensMock.mock.calls[0]?.[2] as any).tokens.expires_in,
+    ).toBeUndefined();
+  });
+
+  it("force-refreshes an unbounded token after a provider rejects it", async () => {
+    getOAuthTokensMock.mockResolvedValue({
+      ...credentials,
+      tokens: {
+        ...credentials.tokens,
+        expires_in: undefined,
+      },
+      tokenExpiresAt: undefined,
+    });
+    refreshAuthorizationMock.mockResolvedValueOnce({
+      access_token: "<REFRESHED_ACCESS_TOKEN>",
+      token_type: "bearer",
+    });
+
+    await expect(
+      getMcpOAuthAccessToken({
+        key: "mcp_oauth:test",
+        scope: "org",
+        scopeId: "org-test",
+        serverUrl: "https://mcp.example.com/mcp",
+        forceRefresh: true,
+      }),
+    ).resolves.toBe("<REFRESHED_ACCESS_TOKEN>");
+
+    expect(refreshAuthorizationMock).toHaveBeenCalledTimes(1);
+    const saved = saveOAuthTokensMock.mock.calls[0]?.[2] as any;
+    expect(saved).toMatchObject({
+      tokens: { access_token: "<REFRESHED_ACCESS_TOKEN>" },
+    });
+    expect(saved).not.toHaveProperty("tokenExpiresAt");
+  });
+
   it("refreshes with the advertised resource identifier, not the WHATWG href", async () => {
     getOAuthTokensMock.mockResolvedValue({
       ...credentials,
@@ -807,6 +871,55 @@ describe("MCP OAuth client", () => {
         serverUrl: "https://mcp.example.com/mcp",
       }),
     ).resolves.toBeNull();
+  });
+
+  it("keeps an expired Builder grant retryable and reports transient refresh failure", async () => {
+    getOAuthTokensMock.mockResolvedValue({
+      ...credentials,
+      tokenExpiresAt: Date.now() - 1,
+    });
+    refreshAuthorizationMock.mockRejectedValueOnce(
+      new Error("authorization server unavailable"),
+    );
+
+    await expect(
+      getMcpOAuthAccessToken({
+        key: "mcp_oauth:test",
+        scope: "user",
+        scopeId: "alice@example.com",
+        serverUrl: "https://mcp.example.com/mcp",
+        throwOnTransientRefreshFailure: true,
+        shouldMarkReconnectRequiredOnRefreshFailure: (error) =>
+          error instanceof OAuthError &&
+          error.code === OAuthErrorCode.InvalidGrant,
+      }),
+    ).rejects.toBeInstanceOf(McpOAuthRefreshUnavailableError);
+
+    expect(replaceOAuthTokensIfRevisionMock).not.toHaveBeenCalled();
+  });
+
+  it("reports a forced transient refresh failure as unavailable while the saved token remains connected", async () => {
+    getOAuthTokensMock.mockResolvedValue({
+      ...credentials,
+      tokenExpiresAt: Date.now() + 3_600_000,
+    });
+    refreshAuthorizationMock.mockRejectedValueOnce(
+      new Error("authorization server unavailable"),
+    );
+
+    await expect(
+      getMcpOAuthAccessToken({
+        key: "mcp_oauth:test",
+        scope: "user",
+        scopeId: "alice@example.com",
+        serverUrl: "https://mcp.example.com/mcp",
+        forceRefresh: true,
+        throwOnTransientRefreshFailure: true,
+        shouldMarkReconnectRequiredOnRefreshFailure: () => false,
+      }),
+    ).rejects.toBeInstanceOf(McpOAuthRefreshUnavailableError);
+
+    expect(replaceOAuthTokensIfRevisionMock).not.toHaveBeenCalled();
   });
 
   it("keeps a still-valid token when an early refresh fails", async () => {
@@ -886,7 +999,7 @@ describe("MCP OAuth client", () => {
     );
   });
 
-  it("fails closed instead of posting a token to a loopback revocation endpoint", async () => {
+  it("fails closed before posting a token to an unconfigured loopback revocation endpoint", async () => {
     getOAuthTokensMock.mockResolvedValue({
       ...credentials,
       discoveryState: {
@@ -897,9 +1010,6 @@ describe("MCP OAuth client", () => {
         },
       },
     });
-    ssrfSafeFetchMock.mockRejectedValueOnce(
-      new Error("SSRF blocked: refusing to fetch private/internal address"),
-    );
     const fetchMock = vi.spyOn(globalThis, "fetch");
 
     await expect(
@@ -911,14 +1021,8 @@ describe("MCP OAuth client", () => {
       }),
     ).resolves.toEqual({ remote: "failed", local: "deleted" });
 
-    expect(ssrfSafeFetchMock).toHaveBeenCalledWith(
-      "http://127.0.0.1:9000/revoke",
-      expect.any(Object),
-      expect.objectContaining({
-        allowedPrivateOrigins: [],
-        maxRedirects: 0,
-      }),
-    );
+    // oracle-change: URL admission now rejects this endpoint before dispatch.
+    expect(ssrfSafeFetchMock).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

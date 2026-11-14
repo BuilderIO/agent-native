@@ -13,6 +13,7 @@ import {
   _findLocalTemplate,
   _fixPackageJsonName,
   _fixWebManifestName,
+  _getAgentKitDependencyVersion,
   _getCoreDependencyVersion,
   _getCorePackageVersion,
   _getDispatchDependencyVersion,
@@ -175,6 +176,7 @@ export async function materializeTemplate(
       coreDependencyVersion: _getCoreDependencyVersion(),
       dispatchDependencyVersion: _getDispatchDependencyVersion(),
       toolkitDependencyVersion: _getToolkitDependencyVersion(),
+      agentKitDependencyVersion: _getAgentKitDependencyVersion(),
       otelDependencyVersion: _getOtelDependencyVersion(),
     });
     _fixPackageJsonName(dest, opts.appName, opts.template, {
@@ -289,12 +291,13 @@ export function mergeTemplateTrees(
 
   for (const rel of paths) {
     const oursPath = path.join(appDir, rel);
+    const base = readFileOrNull(path.join(baseDir, rel));
+    const theirs = readFileOrNull(path.join(theirsDir, rel));
+    if (equalBuffers(base, theirs)) continue;
     if (isLocalSymlink(oursPath)) {
       result.manual.push(`${rel} (local symlink)`);
       continue;
     }
-    const base = readFileOrNull(path.join(baseDir, rel));
-    const theirs = readFileOrNull(path.join(theirsDir, rel));
     const app = readAppFile(
       oursPath,
       normalized.has(rel) ? (base ?? theirs) : null,
@@ -302,8 +305,6 @@ export function mergeTemplateTrees(
     const ours = app.content;
     const writeOurs = (content: Buffer) =>
       writeFile(oursPath, app.crlf ? withCrlf(content) : content);
-
-    if (equalBuffers(base, theirs)) continue;
 
     if (theirs === null) {
       if (ours === null) continue;

@@ -24,6 +24,7 @@ import { PgDialect } from "drizzle-orm/pg-core";
 
 import { FIRST_PARTY_ANALYTICS_QUERY_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
 import type { SqlQueryExecutionMetadata } from "../../shared/sql-query-contract.js";
+import type { TrafficEnvironment } from "../../shared/traffic-environment.js";
 import { getDb, schema } from "../db/index.js";
 import {
   EXCEPTION_EVENT_NAME,
@@ -74,6 +75,10 @@ import {
   boundedIdentity,
   boundedText,
 } from "./indexed-text.js";
+import {
+  recordLostOutputBatch,
+  recordOutputOutcomes,
+} from "./output-outcomes.js";
 import { parseIngestBody, requestError } from "./request-errors.js";
 import {
   recordEventCatalog,
@@ -84,6 +89,12 @@ import {
   recordRoutePerformance,
   recordSessionPerformance,
 } from "./session-performance.js";
+import {
+  ANALYTICS_EVENT_TRAFFIC_COLUMNS,
+  SESSION_RECORDING_TRAFFIC_COLUMNS,
+  trafficConditionText,
+  trafficEnvironmentCondition,
+} from "./traffic-environment.js";
 
 export interface AnalyticsScope {
   userEmail: string;
@@ -128,6 +139,8 @@ export interface AnalyticsQueryOptions {
   >;
   /** Debugging only: metrics exclude test identities by default. */
   includeTestIdentities?: boolean;
+  /** Read only this traffic. Unset reads all of it. */
+  trafficEnvironment?: TrafficEnvironment;
   /**
    * Read the raw event table even when an events model is configured, for
    * callers that need events newer than the model's last build.
@@ -243,6 +256,7 @@ async function persistBigQueryRowsWithMigrationFallback(
       );
       await recordSessionEventIndex(tx, rows, receivedAt);
       await recordSessionPerformance(tx, rows, receivedAt);
+      await recordOutputOutcomes(tx, rows, receivedAt);
     });
   } catch (error) {
     if (!isFirstPartyAnalyticsDeliveryQueueMissingError(error)) throw error;
@@ -269,6 +283,7 @@ async function persistBigQueryRowsWithMigrationFallback(
       }
       await recordSessionEventIndex(tx, rows, receivedAt);
       await recordSessionPerformance(tx, rows, receivedAt);
+      await recordOutputOutcomes(tx, rows, receivedAt);
     });
     try {
       const result = await runWithRequestContext(
@@ -948,31 +963,29 @@ export async function recordAnalyticsEvents(
     };
   });
 
-  const backend = await getFirstPartyAnalyticsBackend({
-    userEmail: key.ownerEmail,
-    orgId: key.orgId ?? null,
-  });
-
-  if (rows.length && backend.sink === "dual") {
-    try {
-      await runWithRequestContext(
-        {
-          userEmail: key.ownerEmail,
-          orgId: key.orgId ?? undefined,
-        },
-        () => insertFirstPartyAnalyticsRows(rows, backend.table),
-      );
-    } catch (error) {
-      console.error(
-        "[first-party-analytics] BigQuery dual-write failed; retaining Postgres event:",
-        error,
-      );
-    }
-  }
-
   let persistenceError: unknown = null;
   if (rows.length) {
     try {
+      const backend = await getFirstPartyAnalyticsBackend({
+        userEmail: key.ownerEmail,
+        orgId: key.orgId ?? null,
+      });
+      if (backend.sink === "dual") {
+        try {
+          await runWithRequestContext(
+            {
+              userEmail: key.ownerEmail,
+              orgId: key.orgId ?? undefined,
+            },
+            () => insertFirstPartyAnalyticsRows(rows, backend.table),
+          );
+        } catch (error) {
+          console.error(
+            "[first-party-analytics] BigQuery dual-write failed; retaining Postgres event:",
+            error,
+          );
+        }
+      }
       if (backend.sink === "bigquery") {
         await persistBigQueryRowsWithMigrationFallback(
           db,
@@ -998,10 +1011,12 @@ export async function recordAnalyticsEvents(
           await upsertFirstPartyAnalyticsRollups(rows, tx);
           await recordSessionEventIndex(tx, rows, receivedAt);
           await recordSessionPerformance(tx, rows, receivedAt);
+          await recordOutputOutcomes(tx, rows, receivedAt);
         });
       }
     } catch (error) {
       persistenceError = error;
+      await recordLostOutputBatch(db, rows, receivedAt);
     }
   }
   if (rows.length && !persistenceError) {
@@ -1176,9 +1191,39 @@ function scopeTenantKeys(scope: AnalyticsScope): string[] {
   return scope.credentialScope === "org" ? [] : [`user:${scope.userEmail}`];
 }
 
+const TRAFFIC_COLUMNS: Partial<
+  Record<string, Parameters<typeof trafficEnvironmentCondition>[1]>
+> = {
+  analytics_events: ANALYTICS_EVENT_TRAFFIC_COLUMNS,
+  session_recordings: SESSION_RECORDING_TRAFFIC_COLUMNS,
+};
+
+const ROLLUP_TENANT_KEY_SQL =
+  "CASE WHEN org_id IS NOT NULL AND org_id <> '' THEN 'org:' || org_id ELSE 'user:' || owner_email END";
+
+/**
+ * Rollups have no host, so a traffic filter rebuilds them from raw events in
+ * the rollup's shape. The events stay in their own subquery: BigQuery adds its
+ * deduplication to `SELECT * FROM <raw> WHERE ...`, ahead of this aggregate.
+ */
+function rollupFromEvents(tableName: string, eventsSql: string): string {
+  if (tableName === "analytics_user_days") {
+    // raw-sql-ok: reads the scoped events subquery, tenant values bound // guard:allow-unbounded-read — that subquery bounds it
+    return `(SELECT MIN(id) AS id, tenant_key, MIN(owner_email) AS owner_email, MIN(org_id) AS org_id, event_date, user_key FROM (SELECT id, ${ROLLUP_TENANT_KEY_SQL} AS tenant_key, owner_email, org_id, event_date, COALESCE(NULLIF(user_key, ''), NULLIF(user_id, ''), NULLIF(anonymous_id, '')) AS user_key FROM ${eventsSql} AS traffic_events) AS traffic_user_days WHERE user_key IS NOT NULL GROUP BY tenant_key, event_date, user_key)`;
+  }
+  // raw-sql-ok: reads the scoped events subquery, tenant values bound // guard:allow-unbounded-read — that subquery bounds it
+  return `(SELECT MIN(id) AS id, tenant_key, MIN(owner_email) AS owner_email, MIN(org_id) AS org_id, event_date, event_name, app, template, COUNT(*) AS event_count FROM (SELECT id, ${ROLLUP_TENANT_KEY_SQL} AS tenant_key, owner_email, org_id, event_date, event_name, COALESCE(app, '') AS app, COALESCE(template, '') AS template FROM ${eventsSql} AS traffic_events) AS traffic_rollup GROUP BY tenant_key, event_date, event_name, app, template)`;
+}
+
 const SCOPED_ANALYTICS_EVENTS_CTE = "agent_native_scoped_analytics_events";
 const SCOPED_ANALYTICS_EVENT_SOURCE_CTE_PREFIX =
   "agent_native_scoped_analytics_event_source_";
+
+const EVENT_DATE_START = /^event_date\s+(?:=|>=?|between)\s/i;
+
+function startsEventDates(predicate: string): boolean {
+  return EVENT_DATE_START.test(predicate);
+}
 
 function scopedTableSource(
   tableName: string,
@@ -1189,6 +1234,7 @@ function scopedTableSource(
   eventPushdownPredicates: string[] = [],
   scopedEventsSingleScan = false,
   scopedEventsProjection?: FirstPartyAnalyticsEventSourceProjection,
+  trafficEnvironment?: TrafficEnvironment,
 ): {
   sql: string;
   args: Array<string | null>;
@@ -1198,6 +1244,12 @@ function scopedTableSource(
     identityColumn && !includeTestIdentities
       ? ` AND NOT ${testIdentitySql(identityColumn)}`
       : "";
+  const trafficColumns = TRAFFIC_COLUMNS[tableName];
+  const rowFilter =
+    testIdentityFilter +
+    (trafficEnvironment && trafficColumns
+      ? ` AND ${trafficConditionText(trafficEnvironmentCondition(trafficEnvironment, trafficColumns))}`
+      : "");
   const eventPushdownFilter =
     tableName === "analytics_events" && eventPushdownPredicates.length > 0
       ? ` AND (${eventPushdownPredicates.map((predicate) => `(${predicate})`).join(" OR ")})`
@@ -1217,6 +1269,36 @@ function scopedTableSource(
     };
   }
   if (FIRST_PARTY_ROLLUP_TABLES.has(tableName)) {
+    if (trafficEnvironment) {
+      // Rebuilt from raw events, a rollup with no start date would read every
+      // event the tenant ever sent on each uncached refresh. An end date or an
+      // event_name filter alone still reaches back to the first event.
+      if (!eventPushdownPredicates.some(startsEventDates)) {
+        throw new FirstPartyAnalyticsValidationError(
+          "invalid_shape",
+          `Reading ${trafficEnvironment} traffic from ${tableName} rebuilds it from raw events, so the query needs a start date on ${tableName} (event_date >=, = or BETWEEN) in the same query level. Add one, or read all traffic.`,
+        );
+      }
+      const events = scopedTableSource(
+        "analytics_events",
+        scope,
+        today,
+        parameterOffset,
+        includeTestIdentities,
+        [
+          eventPushdownPredicates
+            .map((predicate) => `(${predicate})`)
+            .join(" AND "),
+        ],
+        false,
+        undefined,
+        trafficEnvironment,
+      );
+      return {
+        sql: rollupFromEvents(tableName, events.sql),
+        args: events.args,
+      };
+    }
     const tenantKeys = scopeTenantKeys(scope);
     if (tenantKeys.length === 0) {
       return {
@@ -1239,7 +1321,7 @@ function scopedTableSource(
       scope,
       today,
       parameterOffset,
-      testIdentityFilter,
+      rowFilter,
     );
   }
 
@@ -1256,28 +1338,32 @@ function scopedTableSource(
   if (scope.orgId) {
     const orgParameter = parameterOffset + 1;
     if (scope.credentialScope === "org") {
+      // raw-sql-ok: fixed table and condition text; tenant values stay bound
       return {
-        sql: `(${select} FROM ${tableName} WHERE org_id = $${orgParameter} AND ${freshnessClause(tableName, orgParameter + 1)}${eventPushdownFilter}${testIdentityFilter})`,
+        sql: `(${select} FROM ${tableName} WHERE org_id = $${orgParameter} AND ${freshnessClause(tableName, orgParameter + 1)}${eventPushdownFilter}${rowFilter})`,
         args: [scope.orgId, today],
       };
     }
     const ownerParameter = parameterOffset + 3;
     if (tableName === "analytics_events" && scopedEventsSingleScan) {
+      // raw-sql-ok: fixed table and condition text; tenant values stay bound
       return {
-        sql: `(${select} FROM ${tableName} WHERE (org_id = $${orgParameter} OR (org_id IS NULL AND owner_email = $${ownerParameter})) AND ${freshnessClause(tableName, orgParameter + 1)}${eventPushdownFilter}${testIdentityFilter})`,
+        sql: `(${select} FROM ${tableName} WHERE (org_id = $${orgParameter} OR (org_id IS NULL AND owner_email = $${ownerParameter})) AND ${freshnessClause(tableName, orgParameter + 1)}${eventPushdownFilter}${rowFilter})`,
         args: [scope.orgId, today, ownerEmail],
       };
     }
+    // raw-sql-ok: fixed table and condition text; tenant values stay bound
     return {
-      sql: `(${select} FROM ${tableName} WHERE org_id = $${orgParameter} AND ${freshnessClause(tableName, orgParameter + 1)}${eventPushdownFilter}${testIdentityFilter} UNION ALL ${select} FROM ${tableName} WHERE org_id IS NULL AND owner_email = $${ownerParameter} AND ${freshnessClause(tableName, ownerParameter + 1)}${eventPushdownFilter}${testIdentityFilter})`,
+      sql: `(${select} FROM ${tableName} WHERE org_id = $${orgParameter} AND ${freshnessClause(tableName, orgParameter + 1)}${eventPushdownFilter}${rowFilter} UNION ALL ${select} FROM ${tableName} WHERE org_id IS NULL AND owner_email = $${ownerParameter} AND ${freshnessClause(tableName, ownerParameter + 1)}${eventPushdownFilter}${rowFilter})`,
       args: [scope.orgId, today, ownerEmail, today],
     };
   }
   if (scope.credentialScope === "org") {
     return { sql: `(SELECT * FROM ${tableName} WHERE 1 = 0)`, args: [] };
   }
+  // raw-sql-ok: fixed table and condition text; tenant values stay bound
   return {
-    sql: `(${select} FROM ${tableName} WHERE org_id IS NULL AND owner_email = $${parameterOffset + 1} AND ${freshnessClause(tableName, parameterOffset + 2)}${eventPushdownFilter}${testIdentityFilter})`,
+    sql: `(${select} FROM ${tableName} WHERE org_id IS NULL AND owner_email = $${parameterOffset + 1} AND ${freshnessClause(tableName, parameterOffset + 2)}${eventPushdownFilter}${rowFilter})`,
     args: [ownerEmail, today],
   };
 }
@@ -1407,6 +1493,7 @@ export function scopedAnalyticsSql(
     scopedEventsSingleScan = false,
     scopedEventsProjection,
     scopedEventsSourceProjections,
+    trafficEnvironment,
   }: {
     includeTestIdentities?: boolean;
     scopedEventsNotMaterialized?: boolean;
@@ -1416,6 +1503,7 @@ export function scopedAnalyticsSql(
       string,
       FirstPartyAnalyticsEventSourceProjection
     >;
+    trafficEnvironment?: TrafficEnvironment | undefined;
   } = {},
 ): { sql: string; args: Array<string | null> } {
   const args: Array<string | null> = [];
@@ -1472,6 +1560,7 @@ export function scopedAnalyticsSql(
         sourcePredicates[index] ?? [],
         scopedEventsSingleScan,
         projection,
+        trafficEnvironment,
       );
       args.push(...scopedSource.args);
       const name = `${SCOPED_ANALYTICS_EVENT_SOURCE_CTE_PREFIX}${index}`;
@@ -1503,9 +1592,11 @@ export function scopedAnalyticsSql(
           eventPushdownPredicates,
           scopedEventsSingleScan,
           scopedEventsProjection,
+          trafficEnvironment,
         )
       : null;
   if (scopedEvents) args.push(...scopedEvents.args);
+  // raw-sql-ok: each source is a scoped subquery whose tenant values stay bound
   const rewritten = rewriteAgentSqlQuerySources(query, (source) => {
     if (source.cte) return configuredSql.slice(source.start, source.end);
     if (source.name === "analytics_events") {
@@ -1520,12 +1611,24 @@ export function scopedAnalyticsSql(
       }
       return `${SCOPED_ANALYTICS_EVENTS_CTE}${source.alias ? "" : ` AS ${source.name}`}`;
     }
+    // A rollup read as raw events still needs its date range, or the whole
+    // event table is scanned before the query's own WHERE applies.
+    const rollupPredicates =
+      trafficEnvironment && FIRST_PARTY_ROLLUP_TABLES.has(source.name)
+        ? firstPartyEventPushdownPredicates(configuredSql, source.start, {
+            allowDirectSource: true,
+          })
+        : [];
     const scopedSource = scopedTableSource(
       source.name,
       scope,
       today,
       args.length,
       includeTestIdentities,
+      rollupPredicates,
+      false,
+      undefined,
+      trafficEnvironment,
     );
     args.push(...scopedSource.args);
     return scopedSource.sql + (source.alias ? "" : ` AS ${source.name}`);
@@ -1709,7 +1812,10 @@ export async function renderFirstPartyAnalyticsBigQueryEstimateSql(
   sql: string,
   scope: AnalyticsScope,
   signal?: AbortSignal,
-  options: Pick<AnalyticsQueryOptions, "eventsSource"> = {},
+  options: Pick<
+    AnalyticsQueryOptions,
+    "eventsSource" | "trafficEnvironment"
+  > = {},
 ): Promise<
   | { target: "bigquery"; sql: string }
   | { target: "sql-store" }
@@ -1730,7 +1836,9 @@ export async function renderFirstPartyAnalyticsBigQueryEstimateSql(
       return { target: "sql-store" };
     }
     validateAnalyticsSqlFunctions(shaped, "bigquery");
-    scoped = scopedAnalyticsSql(sql, scope);
+    scoped = scopedAnalyticsSql(sql, scope, undefined, {
+      trafficEnvironment: options.trafficEnvironment,
+    });
   } catch (error) {
     return { target: "invalid", error };
   }
@@ -1790,6 +1898,7 @@ export async function queryFirstPartyAnalyticsWithBackend(
     scopedEventsSingleScan: options.scopedEventsSingleScan === true,
     scopedEventsProjection: options.scopedEventsProjection,
     scopedEventsSourceProjections: options.scopedEventsSourceProjections,
+    trafficEnvironment: options.trafficEnvironment,
   };
   const queryClass = classifyFirstPartyAnalyticsQuery(sql);
   const startedAt = Date.now();
@@ -1988,7 +2097,8 @@ export async function queryFirstPartyAnalyticsWithBackend(
         throw failure;
       }
     };
-    if (!options.cache) return { ...(await compute()), backend: "postgres" };
+    if (!options.cache)
+      return { ...(await compute()), backend: "postgres", bytesProcessed: 0 };
     await withVerifiedPostgresQuery(
       statement,
       remainingTime(),
@@ -2004,7 +2114,7 @@ export async function queryFirstPartyAnalyticsWithBackend(
       }),
       signal,
     );
-    return { ...result, backend: "postgres" };
+    return { ...result, backend: "postgres", bytesProcessed: 0 };
   } catch (error) {
     throw normalizeFailure(error);
   } finally {

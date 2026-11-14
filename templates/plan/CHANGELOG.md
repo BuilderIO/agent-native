@@ -3,6 +3,61 @@
 All notable user-facing changes to Agent-Native Plan are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-11-09
+
+### Improved
+
+- Share controls use a consistent compact layout.
+- More save failures now say why, such as being offline or lacking permission.
+
+### Fixed
+
+- When someone else types in the paragraph you're typing in, your cursor stays after your own last letter, so your words no longer get mixed into theirs.
+
+## 2026-11-08
+
+### Fixed
+
+- Deleting a block or emptying a block of text in a plan now saves, instead of the block coming back or "Couldn't save" stopping later edits from saving too.
+  Undo after deleting a block brings back what was in it, including in columns and tabs, instead of an empty block of the same kind.
+
+## 2026-11-05
+
+### Improved
+
+- Failed saves now show a clear error message instead of failing silently.
+
+## 2026-11-03
+
+### Fixed
+
+- When you and someone else change the same part of a plan, you now choose which version to keep instead of one edit being lost.
+- After you drag a block down by its handle, the caret stays on that block instead of landing in the one below it.
+
+## 2026-11-01
+
+### Fixed
+
+- Local plans open correctly in the browser.
+
+## 2026-10-31
+
+### Fixed
+
+- Editing a comment you pinned on a plan saves again, instead of failing with a server error.
+
+## 2026-10-29
+
+### Improved
+
+- Sharing is one panel: invite people and your organization's agents from one field, see everyone with access in one list, and find Copy link and Send to at the bottom.
+
+## 2026-10-21
+
+### Added
+
+- You can pin a shared chat just for yourself, or hide it from your list and undo that from the toast.
+
 ## 2026-10-19
 
 ### Fixed
@@ -12,6 +67,12 @@ time from the command menu (Cmd+K → "What's new").
 ### Changed
 
 - Apps no longer keep server functions and databases warm by default; set `AGENT_NATIVE_ENABLE_KEEP_WARM=1` to opt in.
+
+## 2026-10-16
+
+### Added
+
+- Owned and shared chats appear in separate history sections, with each shared chat's owner shown as an avatar and a Copy link action on every chat.
 
 ## 2026-10-13
 

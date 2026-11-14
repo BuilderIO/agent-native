@@ -7,6 +7,7 @@ import {
   augmentSelfSentLabels,
   filterInboxTabEmails,
   isInboxScopedLabel,
+  isLabelCountLowerBound,
   labelTabHref,
   resolveInboxEmailQueryScope,
   resolveDefaultMailHref,
@@ -80,6 +81,16 @@ describe("resolveInboxEmailQueryScope", () => {
         { id: "important", name: "Important", type: "user" },
       ]),
     ).toBe(false);
+  });
+});
+
+describe("isLabelCountLowerBound", () => {
+  it("marks counts partial when any account label read fails", () => {
+    expect(isLabelCountLowerBound(false, [])).toBe(false);
+    expect(
+      isLabelCountLowerBound(false, [{ accountEmail: "mail@example.com" }]),
+    ).toBe(true);
+    expect(isLabelCountLowerBound(true, [])).toBe(true);
   });
 });
 
@@ -229,9 +240,22 @@ describe("labelTabHref", () => {
     expect(labelTabHref("2-tasks/jira")).toBe("/all?label=2-tasks%2Fjira");
   });
 
+  it("uses the actual label type when a user label shares a system id", () => {
+    expect(
+      labelTabHref("important", [
+        { id: "important", name: "Important", type: "user" },
+      ]),
+    ).toBe("/all?label=important");
+  });
+
   it("keeps Gmail's inbox-only categories pinned to the inbox view", () => {
     expect(labelTabHref("important")).toBe("/inbox?label=important");
     expect(labelTabHref("updates")).toBe("/inbox?label=updates");
+    expect(
+      labelTabHref("updates", [
+        { id: "updates", name: "Updates", type: "system" },
+      ]),
+    ).toBe("/inbox?label=updates");
   });
 });
 

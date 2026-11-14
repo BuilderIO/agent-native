@@ -3,6 +3,11 @@ import { buildDeepLink } from "@agent-native/core/server";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
+import { rewriteContentLiveCopyBody } from "../server/live-copy/write.js";
+import {
+  assertAgentsMayEditPageText,
+  serverSaveContext,
+} from "./_document-agent-lock.js";
 import updateDocument from "./update-document.js";
 
 function escapeRegExp(value: string): string {
@@ -116,11 +121,12 @@ export default defineAction({
         "Zero-based occurrence of this image URL in document order. Use this when the same image URL appears more than once.",
       ),
   }),
-  run: async ({ documentId, imageUrl, altText, imageOccurrence }) => {
+  run: async ({ documentId, imageUrl, altText, imageOccurrence }, ctx) => {
     const trimmedAlt = altText.trim();
     if (!trimmedAlt) throw new Error("altText cannot be empty");
 
     const access = await assertAccess("document", documentId, "editor");
+    assertAgentsMayEditPageText(access.resource, ctx);
     const existingContent = (access.resource.content as string | null) ?? "";
     const nextContent = updateImageAltInContent({
       content: existingContent,
@@ -133,7 +139,17 @@ export default defineAction({
       throw new Error("Could not find that image URL in the document content.");
     }
 
-    await updateDocument.run({ id: documentId, content: nextContent });
+    const wroteLiveCopy = await rewriteContentLiveCopyBody(documentId, {
+      cause: { ctx, operation: "set-image-alt-text" },
+      base: existingContent,
+      candidate: nextContent,
+    });
+    if (!wroteLiveCopy) {
+      await updateDocument.run(
+        { id: documentId, content: nextContent },
+        serverSaveContext(ctx),
+      );
+    }
 
     return {
       documentId,

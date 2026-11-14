@@ -120,22 +120,69 @@ describe("shortcut sections", () => {
   it("returns every category once, in catalog order, with no query", () => {
     expect(build("").map((section) => section.category)).toEqual([
       ...DESIGN_SHORTCUT_CATEGORIES,
+      "code",
     ]);
   });
 
   it("lists each Design shortcut exactly once across sections", () => {
-    const ids = build("")
+    const ids = buildShortcutSections({
+      query: "",
+      applePlatform: true,
+      categoryLabel: (category) => category,
+      rowLabel: (labelKey) => labelKey,
+      codeCommands: createCoreCommands(),
+    })
       .flatMap((section) => section.rows)
       .filter((row) => row.source === "design")
       .map((row) => row.id);
     expect(ids.sort()).toEqual(DESIGN_SHORTCUTS.map((item) => item.id).sort());
   });
 
-  it("places workbench commands under their mapped categories", () => {
-    const edit = build("").find((section) => section.category === "edit");
-    expect(edit?.rows.find((row) => row.id === "workbench.save")?.badge).toBe(
-      "code",
+  it("keeps code editor commands in their own Code section after the canvas ones", () => {
+    const sections = build("");
+    const code = sections[sections.length - 1];
+    expect(code?.category).toBe("code");
+    expect(code?.rows.map((row) => row.id)).toEqual(
+      expect.arrayContaining([
+        "workbench.save",
+        "workbench.commandPalette",
+        "editor.gotoLine",
+      ]),
     );
+    expect(code?.rows.every((row) => row.source === "code")).toBe(true);
+    for (const section of sections.slice(0, -1)) {
+      expect(section.rows.every((row) => row.source === "design")).toBe(true);
+    }
+  });
+
+  it("finds working canvas shortcuts by name", () => {
+    const found = (query: string) =>
+      build(query)
+        .flatMap((section) => section.rows)
+        .map((row) => row.id);
+    expect(found("rename")).toContain("rename");
+    expect(found("toggleHidden")).toContain("toggle-hidden");
+    expect(found("toggleLocked")).toContain("toggle-locked");
+    expect(found("alignHorizontalCenters")).toContain("align-center-h");
+    expect(found("alignVerticalCenters")).toContain("align-center-v");
+    expect(found("distributeHorizontal")).toContain("distribute-horizontal");
+    expect(found("setOpacity")).toContain("set-opacity");
+  });
+
+  it("only lists the vertical distribute chord where it is bound", () => {
+    const ids = (applePlatform: boolean) =>
+      buildShortcutSections({
+        query: "",
+        applePlatform,
+        categoryLabel: (category) => category,
+        rowLabel: (labelKey) => labelKey,
+        codeCommands: [],
+      })
+        .flatMap((section) => section.rows)
+        .map((row) => row.id);
+    expect(ids(true)).toContain("distribute-vertical");
+    expect(ids(false)).not.toContain("distribute-vertical");
+    expect(ids(false)).toContain("distribute-horizontal");
   });
 
   it("drops categories with no matching row", () => {

@@ -43,6 +43,42 @@
     {
       "name": "agent-harness-sessions-generation",
       "checksum": "e93055de6007e793"
+    },
+    {
+      "name": "agent-harness-sessions-follow-up-claim",
+      "checksum": "80b46ffbdbf7f298"
+    },
+    {
+      "name": "agent-harness-sessions-approval-resolution",
+      "checksum": "11882889ef267cdb"
+    },
+    {
+      "name": "agent-harness-sessions-expiry-cleanup",
+      "checksum": "3313363904158445"
+    },
+    {
+      "name": "agent-harness-sessions-follow-up-claim-id",
+      "checksum": "80b46ffbdbf7f298"
+    },
+    {
+      "name": "agent-harness-follow-up-recovery",
+      "checksum": null
+    },
+    {
+      "name": "agent-harness-approval-resolution-claim-lease",
+      "checksum": "67a8c1a568d3e4b8"
+    },
+    {
+      "name": "agent-harness-transcript-order-runtime-schema",
+      "checksum": null
+    },
+    {
+      "name": "agent-harness-sessions-run-policy",
+      "checksum": "005df5375106ffa4"
+    },
+    {
+      "name": "agent-harness-sessions-approval-and-expiry-columns",
+      "checksum": null
     }
   ],
   "agent_runs": [
@@ -89,6 +125,38 @@
     {
       "name": "agent-run-thread-projection-retry",
       "checksum": "d564128e21e3b424"
+    },
+    {
+      "name": "agent-run-thread-projection-retry-fairness",
+      "checksum": "36150eae08f95f3d"
+    },
+    {
+      "name": "agent-run-thread-projection-quarantine",
+      "checksum": "8eb065e2325e20ea"
+    },
+    {
+      "name": "thread-projection-retry-quarantine-runtime-schema",
+      "checksum": null
+    },
+    {
+      "name": "agent-run-harness-transcript-order-runtime-schema",
+      "checksum": null
+    },
+    {
+      "name": "agent-run-admission-order",
+      "checksum": "b4cd3c0f84735807"
+    },
+    {
+      "name": "execution-leases-and-steps",
+      "checksum": null
+    },
+    {
+      "name": "retained-private-thread-runs",
+      "checksum": "985f2cb44c16174a"
+    },
+    {
+      "name": "thread-projection-retry-order-backfill-repair",
+      "checksum": null
     }
   ],
   "agent_team_run_queue": [
@@ -147,6 +215,10 @@
     {
       "name": "baseline",
       "checksum": null
+    },
+    {
+      "name": "vault-metadata-columns",
+      "checksum": null
     }
   ],
   "application_state": [
@@ -160,6 +232,10 @@
     },
     {
       "name": "indexes",
+      "checksum": null
+    },
+    {
+      "name": "write-order",
       "checksum": null
     }
   ],
@@ -357,6 +433,22 @@
     {
       "name": "chat-thread-inbox-interrupt-replay",
       "checksum": "904890f43aebd9fe"
+    },
+    {
+      "name": "chat-thread-inbox-thread-order-index",
+      "checksum": "78d46649cafade48"
+    },
+    {
+      "name": "chat-thread-inbox-retry-count",
+      "checksum": "b25ff25b6a61ccc9"
+    },
+    {
+      "name": "viewer-state",
+      "checksum": "12d60e0fc4587fc5"
+    },
+    {
+      "name": "chat-thread-inbox-runtime-schema",
+      "checksum": null
     }
   ],
   "checkpoints": [
@@ -368,6 +460,30 @@
   "collab_awareness": [
     {
       "name": "baseline",
+      "checksum": null
+    },
+    {
+      "name": "client-sequence",
+      "checksum": null
+    },
+    {
+      "name": "client-sequence-raw",
+      "checksum": null
+    },
+    {
+      "name": "actor-email",
+      "checksum": null
+    },
+    {
+      "name": "clear-token-hash",
+      "checksum": null
+    },
+    {
+      "name": "actor-reservation-expiry",
+      "checksum": null
+    },
+    {
+      "name": "expiry-indexes",
       "checksum": null
     }
   ],
@@ -436,6 +552,10 @@
   "embed_sessions": [
     {
       "name": "baseline",
+      "checksum": null
+    },
+    {
+      "name": "ticket-audience",
       "checksum": null
     }
   ],
@@ -525,18 +645,30 @@
     {
       "name": "baseline",
       "checksum": null
+    },
+    {
+      "name": "review-page-columns",
+      "checksum": "5219a7b9642c4847"
     }
   ],
   "mcp_connect": [
     {
       "name": "baseline",
       "checksum": null
+    },
+    {
+      "name": "client-connection-metadata",
+      "checksum": "e3be9d6fc56a1427"
     }
   ],
   "mcp_oauth": [
     {
       "name": "baseline",
       "checksum": null
+    },
+    {
+      "name": "client-activity-lookup-index",
+      "checksum": "4b5d5edf48a0f71b"
     }
   ],
   "notifications": [
@@ -775,6 +907,12 @@
       "checksum": null
     }
   ],
+  "private_media": [
+    {
+      "name": "baseline",
+      "checksum": null
+    }
+  ],
   "progress": [
     {
       "name": "baseline",
@@ -869,11 +1007,19 @@
     {
       "name": "baseline",
       "checksum": null
+    },
+    {
+      "name": "storage-contract",
+      "checksum": "ed0e701a19ad1c15"
     }
   ],
   "review_suggestions": [
     {
       "name": "baseline",
+      "checksum": null
+    },
+    {
+      "name": "author-source-and-client",
       "checksum": null
     }
   ],
@@ -993,6 +1139,10 @@
     {
       "name": "usage-alert-notification-column",
       "checksum": "6bf0a66d6dd9c131"
+    },
+    {
+      "name": "usage-alert-default-twenty-a-month",
+      "checksum": "f32710e732e54ea5"
     }
   ],
   "usage_budgets": [

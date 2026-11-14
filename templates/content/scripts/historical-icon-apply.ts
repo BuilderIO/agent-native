@@ -18,7 +18,7 @@ import {
 } from "../actions/_blocks-field-identity.js";
 import { lockDocumentForSave } from "../actions/_document-save-locks.js";
 import { getDb, schema } from "../server/db/index.js";
-import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import { recordDocumentHistoryTransition } from "../server/lib/document-history.js";
 import { nextDocumentUpdatedAt } from "../server/lib/document-updated-at.js";
 import {
@@ -203,11 +203,15 @@ export async function replaceHistoricalIconIfUnchanged(
         { heldMembershipIds: lockedMembershipIds },
       );
       const now = nextDocumentUpdatedAt(current.updatedAt);
+      const legacy = await lockLegacyBodyWrites(tx, [reference.rowId], {
+        operation: "historical-icon-apply",
+        content,
+      });
       const changed = await tx
         .update(schema.documents)
         .set({
           content,
-          bodyRevision: bodyRevisionForContent(content),
+          bodyRevision: legacy.bodyRevision(content),
           updatedAt: now,
         })
         .where(condition)

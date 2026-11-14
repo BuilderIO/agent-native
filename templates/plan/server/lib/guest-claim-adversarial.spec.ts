@@ -231,7 +231,7 @@ describe("guest-abuse — adversarial counting & windows", () => {
   });
 
   let assertGuestCreateWithinLimits: (e: string) => Promise<void>;
-  let tryConsumeGuestMint: (e: unknown) => Promise<boolean>;
+  let tryConsumeGuestMint: typeof import("./guest-abuse.js").tryConsumeGuestMint;
   let GuestAbuseLimitError: any;
 
   let headers: Record<string, string | undefined> = {};

@@ -43,6 +43,8 @@ export interface ResolvedSettingsRoute extends SettingsRoute {
 export interface ResolveSettingsRouteOptions {
   /** Tabs on the app's General page, routed `/settings/app/<id>`. */
   appAreaIds?: readonly string[];
+  /** Legacy template tab ids map unless a direct page claims that path. */
+  templateTabPageIds?: ReadonlyMap<string, string>;
   /**
    * The tab a controlled template chose. A bare `/settings` opens it, which
    * covers the moment between a template stripping `?section=` from the URL
@@ -159,26 +161,36 @@ function pageForTabIds(
 }
 
 /**
- * The page a template's tab id opens. The template's own tabs win, because
- * its id space is its own: Mail's inbox `automations` tab is not the core
- * Automations page.
+ * The page a template's tab id opens. Direct page ids are canonical paths;
+ * template aliases still win over legacy redirects and core tab aliases.
  */
 export function resolveSettingsTabValue(
   value: string,
   pages: readonly SettingsPageDefinition[],
   appAreaIds: readonly string[] = [],
+  templateTabPageIds?: ReadonlyMap<string, string>,
 ): ResolvedSettingsRoute {
   const tab = value.trim();
   if (!tab) return NO_ROUTE;
+  const templatePage = templateTabPageIds?.get(tab);
+  if (templatePage && pages.some((page) => page.id === templatePage)) {
+    return { page: templatePage, sub: null, anchor: null, legacy: true };
+  }
+  const directAppPage = pages.find(
+    (page) => isAppPage(page) && page.id === tab,
+  );
+  if (directAppPage) {
+    return { page: directAppPage.id, sub: null, anchor: null, legacy: false };
+  }
+  if (appAreaIds.includes(tab)) {
+    return { page: "app", sub: tab, anchor: null, legacy: true };
+  }
   const appPage = pages.find(
     (page) =>
       isAppPage(page) && (page.id === tab || page.legacyTabIds?.includes(tab)),
   );
   if (appPage) {
     return { page: appPage.id, sub: null, anchor: null, legacy: true };
-  }
-  if (appAreaIds.includes(tab)) {
-    return { page: "app", sub: tab, anchor: null, legacy: true };
   }
   const redirect = resolveLegacySettingsId(tab, "tab");
   if (redirect) return redirectRoute(redirect, pages, null);
@@ -206,7 +218,8 @@ export function resolveSettingsRoute(
   if (segments.length > 0) {
     const joined = segments.join(":");
     const pageId = segments[0]!;
-    if (pages.some((page) => page.id === pageId)) {
+    const directPage = pages.find((page) => page.id === pageId);
+    if (directPage && isCoreSettingsPageId(pageId)) {
       const pattern = segments.length > 1 && resolveSettingsIdPattern(joined);
       if (pattern) return redirectRoute(pattern, pages, hash || null);
       return {
@@ -214,6 +227,26 @@ export function resolveSettingsRoute(
         sub: segments[1] ?? null,
         anchor: hash || null,
         legacy: segments.length > 2,
+      };
+    }
+    if (directPage) {
+      return {
+        page: pageId,
+        sub: segments[1] ?? null,
+        anchor: hash || null,
+        legacy: segments.length > 2,
+      };
+    }
+    const templatePageId = options.templateTabPageIds?.get(pageId);
+    const templatePage = templatePageId
+      ? pages.find((page) => page.id === templatePageId)
+      : undefined;
+    if (templatePage) {
+      return {
+        page: templatePage.id,
+        sub: null,
+        anchor: hash || null,
+        legacy: true,
       };
     }
     // Today's tab link to an area that moved onto the app's General page
@@ -266,11 +299,21 @@ export function resolveSettingsRoute(
   }
   const section = settingsSectionParam(location.search);
   if (section) {
-    const route = resolveSettingsTabValue(section, pages, options.appAreaIds);
+    const route = resolveSettingsTabValue(
+      section,
+      pages,
+      options.appAreaIds,
+      options.templateTabPageIds,
+    );
     if (route.page) return route;
   }
   if (options.tabValue) {
-    return resolveSettingsTabValue(options.tabValue, pages, options.appAreaIds);
+    return resolveSettingsTabValue(
+      options.tabValue,
+      pages,
+      options.appAreaIds,
+      options.templateTabPageIds,
+    );
   }
   return NO_ROUTE;
 }

@@ -24,6 +24,7 @@ import { analyticsAskThreadPath, isAnalyticsAskPath } from "@shared/ask-route";
 import { useEffect, useMemo, useRef } from "react";
 import { useLocation, useNavigate } from "react-router";
 
+import { AnalyticsComposerContextProvider } from "@/components/AnalyticsComposerContext";
 import { useNavigationState } from "@/hooks/use-navigation-state";
 import {
   ANALYTICS_CHAT_STORAGE_KEY,
@@ -159,6 +160,15 @@ function InteractiveLayout({ children }: LayoutProps) {
     buildSkipContext: () =>
       "The user skipped the guided analytics questions. Proceed with reasonable defaults, consult the data dictionary before writing SQL, and ask again only if a required source/table/metric is still genuinely ambiguous.",
   });
+  const guidedQuestionsWithDefaultRows = useMemo(
+    () =>
+      guidedQuestions?.map((question) => ({
+        ...question,
+        includeExplore: question.includeExplore ?? true,
+        includeDecide: question.includeDecide ?? true,
+      })),
+    [guidedQuestions],
+  );
   const isExtensionsRoute =
     location.pathname === "/extensions" ||
     location.pathname.startsWith("/extensions/");
@@ -260,10 +270,10 @@ function InteractiveLayout({ children }: LayoutProps) {
       >
         {children}
       </main>
-      {guidedQuestions && (
+      {guidedQuestionsWithDefaultRows && (
         <div className="fixed inset-0 z-[260] bg-background">
           <GuidedQuestionFlow
-            questions={guidedQuestions}
+            questions={guidedQuestionsWithDefaultRows}
             onSubmit={handleGuidedSubmit}
             onSkip={handleGuidedSkip}
             title={guidedTitle ?? t("guidedQuestions.title")}
@@ -295,6 +305,7 @@ function InteractiveLayout({ children }: LayoutProps) {
             </div>
           ) : (
             <AgentSidebar
+              composerContextProvider={AnalyticsComposerContextProvider}
               position="right"
               defaultOpen={false}
               chatViewTransition

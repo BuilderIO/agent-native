@@ -8,6 +8,7 @@ import {
   NativeEmbeddedAssetRegistryError,
   parseNativeEmbeddedAssetRegistryText,
 } from "../../../../shared/native-embedded-assets";
+import { isNativeElement, isNativeHtmlTag } from "./native-dom";
 
 export type NativeCompositionClockCode =
   | "composition-aborted"
@@ -154,7 +155,7 @@ function assertDeclarativeSource(
   owned: ReadonlySet<Node>,
 ): void {
   for (const element of sourceElements(root, owned)) {
-    if (element instanceof HTMLCanvasElement)
+    if (isNativeHtmlTag(element, "canvas"))
       throw failure(
         "composition-canvas-source",
         "An authored canvas needs an explicit deterministic source contract.",
@@ -166,7 +167,7 @@ function assertDeclarativeSource(
         "composition-scripted-source",
         "An authored event handler can change pixels outside the composition clock.",
       );
-    if (element instanceof HTMLScriptElement) {
+    if (isNativeHtmlTag(element, "script")) {
       if (element.type === "application/x-agent-native-effects") continue;
       if (
         element.type === NATIVE_EMBEDDED_ASSETS_SCRIPT_TYPE &&
@@ -339,7 +340,7 @@ function createDeadline(external: AbortSignal | undefined, timeoutMs: number) {
 
 function animationTarget(animation: Animation): Element | null {
   const target = (animation.effect as KeyframeEffect | null)?.target;
-  return target instanceof Element ? target : null;
+  return isNativeElement(target) ? target : null;
 }
 
 function relevantAnimations(
@@ -721,7 +722,7 @@ export async function withNativeCompositionFrame<T>(
       await deadline.awaitBounded(animation.ready);
     }
     const sourceVideos = [
-      ...(root instanceof HTMLVideoElement ? [root] : []),
+      ...(isNativeHtmlTag(root, "video") ? [root] : []),
       ...root.querySelectorAll("video"),
     ];
     if (sourceVideos.length > MAX_SOURCE_VIDEOS)

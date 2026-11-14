@@ -77,7 +77,8 @@ Any other `source`/`chartType` value, or a missing/blank `sql`, makes
   writing SQL that already returns unambiguous column names over relying on
   auto-detection.
 - `colors` / `color` — series colors.
-- `yFormatter` — `"number"` | `"currency"` | `"percent"`.
+- `yFormatter` — `"number"` | `"currency"` | `"percent"` | `"duration"`
+  (a number of seconds, shown as "16 min" or "7.4 hours").
 - `rightYKeys` / `rightYFormatter` — `line`, `area`, and `bar` only: plot the
   named series against a second, right-hand y-axis with its own scale and
   formatter. Use this whenever series share an x-axis but not a unit (counts
@@ -93,8 +94,10 @@ Any other `source`/`chartType` value, or a missing/blank `sql`, makes
   x-axis timestamps use Unix epoch milliseconds; colors use `#RGB`, `#RGBA`,
   `#RRGGBB`, or `#RRGGBBAA` hex values.
 - `columns` — `table` chartType only: `{ key, label?, format?, linkKey?, hidden? }[]`.
-- `stacked`, `legend`, `pivot`, `limit`, `valueLabels`, `description` — see
-  `SqlPanelConfig` in `types.ts` for the full list.
+  `format` is `"number"`, `"currency"`, `"percent"`, `"delta"`, `"date"`,
+  `"link"`, `"text"`, or `"duration"` (seconds; sorts by the number).
+- `stacked`, `legend`, `pivot`, `limit`, `valueLabels`, `comparison`,
+  `description` — see `SqlPanelConfig` in `types.ts` for the full list.
 
 ## Encoding The `panel` Param
 

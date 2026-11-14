@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { AgentToggleButton } from "@agent-native/toolkit/app/chat";
 import { IconMenu, IconPlus } from "@tabler/icons-react";
 import { useState, useEffect } from "react";
 import { useLocation } from "react-router";
@@ -55,7 +56,10 @@ export function MobileNav({ showNewChat }: { showNewChat?: boolean }) {
           <IconPlus className="h-4 w-4" />
           <span>{t("chat.newChat")}</span>
         </button>
-      ) : null}
+      ) : (
+        // The desktop header (and its agent toggle) is hidden on phones.
+        <AgentToggleButton className="-me-1 ms-2 size-9" />
+      )}
     </div>
   );
 }

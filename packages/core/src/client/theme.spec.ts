@@ -35,6 +35,7 @@ describe("getThemeInitScript", () => {
 
   beforeEach(() => {
     vi.unstubAllEnvs();
+    window.history.replaceState(null, "", "/");
     window.localStorage.clear();
     document.documentElement.classList.remove("light", "dark");
     document.documentElement.removeAttribute("data-theme");
@@ -123,6 +124,21 @@ describe("getThemeInitScript", () => {
           .__AGENT_NATIVE_CONFIG__;
       }
     }
+  });
+
+  it("boots an opted-in app with its configured family default", () => {
+    vi.stubGlobal("__AGENT_NATIVE_APP_CONFIG__", {
+      themeFamily: {
+        families: ["original", "agent-native"],
+        defaultFamily: "agent-native",
+      },
+    });
+
+    runThemeScript(getThemeInitScript());
+
+    expect(document.documentElement.getAttribute("data-theme-family")).toBe(
+      "agent-native",
+    );
   });
 
   it("lets an explicit stored theme override the browser preference", () => {
@@ -230,6 +246,35 @@ describe("getThemeInitScript", () => {
     expect(document.documentElement.getAttribute("data-theme")).toBe("dark");
     expect(document.documentElement.classList.contains("dark")).toBe(true);
     expect(document.documentElement.classList.contains("light")).toBe(false);
+  });
+
+  it("ignores Agent-Native URL overrides when the app has not opted in", () => {
+    window.history.replaceState(null, "", "/?theme-family=agent-native");
+
+    runThemeScript(getThemeFamilyInitScript("design"));
+
+    expect(document.documentElement.getAttribute("data-theme-family")).toBe(
+      "original",
+    );
+  });
+
+  it("lets a registered URL family override stored preferences before app mount", () => {
+    window.localStorage.setItem("theme-family:calendar", "agent-native");
+    window.history.replaceState(null, "", "/?theme-family=original");
+
+    runThemeScript(
+      getThemeFamilyInitScript("calendar", {
+        families: ["original", "agent-native"],
+        defaultFamily: "agent-native",
+      }),
+    );
+
+    expect(document.documentElement.getAttribute("data-theme-family")).toBe(
+      "original",
+    );
+    expect(window.localStorage.getItem("theme-family:calendar")).toBe(
+      "agent-native",
+    );
   });
 
   it("does not apply another app's local cache before scoped settings load", () => {

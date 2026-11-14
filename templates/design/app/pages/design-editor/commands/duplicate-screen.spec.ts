@@ -1,6 +1,27 @@
 import { toast } from "sonner";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+const sourceRead = vi.hoisted(() => ({
+  get: () => ({ files: [] as unknown[] }),
+}));
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
+  callAction: async (_name: string, params: { fileId?: string }) => {
+    const result = sourceRead.get();
+    return params.fileId
+      ? {
+          files: result.files.filter(
+            (file: unknown) =>
+              typeof file === "object" &&
+              file !== null &&
+              "id" in file &&
+              file.id === params.fileId,
+          ),
+        }
+      : result;
+  },
+}));
+
 vi.mock("sonner", () => ({
   toast: { error: vi.fn(), info: vi.fn(), success: vi.fn() },
 }));
@@ -41,7 +62,7 @@ function duplicateArgs(
     createdAt: "",
     updatedAt: "",
   };
-  return {
+  const args = {
     canEditDesign: true,
     widgetEmbed: false,
     createFileAsync: vi.fn().mockResolvedValue({ id: "copy" }),
@@ -78,6 +99,13 @@ function duplicateArgs(
     writeFrameGeometrySnapshot: vi.fn(),
     ...overrides,
   } as DuplicateScreenArgs;
+  sourceRead.get = () =>
+    (args.queryClient.getQueryData([
+      "action",
+      "get-design",
+      { id: args.id, includeFileContent: false },
+    ]) as { files: unknown[] }) ?? { files: [] };
+  return args;
 }
 
 function duplicateArgsWithOccupiedFrame(
@@ -360,6 +388,60 @@ describe("runDuplicateScreen", () => {
     expect(
       operations.some((operation) => operation.path[0] === "localhostScreens"),
     ).toBe(false);
+  });
+
+  it.each([
+    ["widget", "hubspot-email"],
+    ["editor", "hubspot-email"],
+    ["widget", "web"],
+    ["editor", "web"],
+  ])(
+    "keeps a stored frame type on a %s duplicate (%s)",
+    async (surface, frameType) => {
+      const args = duplicateArgs({
+        widgetEmbed: surface === "widget",
+        designDataJsonRef: {
+          current: {
+            canvasFrames: {
+              source: { x: 0, y: 0, width: 600, height: 800 },
+            },
+            screenMetadata: {
+              source: { width: 600, height: 800, frameType },
+            },
+          },
+        },
+      });
+
+      await runDuplicateScreen(args, "source");
+
+      expect((args.createFileAsync as any).mock.calls[0]?.[0]).toMatchObject({
+        frameType,
+      });
+      await vi.waitFor(() =>
+        expect(args.recordFileCreationHistoryEntry).toHaveBeenCalledTimes(1),
+      );
+      expect(
+        vi.mocked(args.recordFileCreationHistoryEntry).mock.calls[0]?.[0]
+          .screenMetadata,
+      ).toMatchObject({ frameType });
+    },
+  );
+
+  it("does not mark a duplicate of an ordinary screen as an email", async () => {
+    const args = duplicateArgs({
+      designDataJsonRef: {
+        current: {
+          canvasFrames: { source: { x: 0, y: 0, width: 640, height: 480 } },
+          screenMetadata: { source: { width: 640, height: 480 } },
+        },
+      },
+    });
+
+    await runDuplicateScreen(args, "source");
+
+    expect((args.createFileAsync as any).mock.calls[0]?.[0]).not.toHaveProperty(
+      "frameType",
+    );
   });
 
   it("keeps ordinary editor duplication metadata unchanged", async () => {
@@ -1383,6 +1465,7 @@ describe("runDuplicateScreen", () => {
       designId: "design-1",
       filename: "index-copy.html",
       fileType: "html",
+      frameType: null,
       createdAt: "2026-10-14T00:00:00.000Z",
       renderable: true,
       _receipt: {
@@ -1773,6 +1856,9 @@ describe("runDuplicateScreen", () => {
       writeFrameGeometrySnapshot,
     });
 
+    sourceRead.get = () => {
+      throw new Error("metadata unavailable");
+    };
     await runDuplicateScreen(args, "source");
 
     expect(args.duplicateRecoveryRef.current.get("index-copy.html")).toEqual(
@@ -1921,6 +2007,7 @@ describe("runDuplicateScreen", () => {
     let cached: unknown;
     let invalidationCount = 0;
     let requestedContent = "";
+    let visibleOnServer = false;
     const queryClient = {
       getQueryData: vi.fn(() => cached),
       invalidateQueries: vi.fn().mockImplementation(async () => {
@@ -1952,6 +2039,18 @@ describe("runDuplicateScreen", () => {
       queryClient: queryClient as unknown as DuplicateScreenArgs["queryClient"],
     });
 
+    sourceRead.get = () => ({
+      files: visibleOnServer
+        ? [
+            {
+              id: "copy-1",
+              filename: "index-copy.html",
+              fileType: "html",
+              content: requestedContent,
+            },
+          ]
+        : [],
+    });
     runDuplicateScreen(args, "source");
     await vi.waitFor(() =>
       expect(toast.error).toHaveBeenCalledWith(
@@ -1962,6 +2061,7 @@ describe("runDuplicateScreen", () => {
       expect.objectContaining({ sourceScreenId: "source" }),
     );
 
+    visibleOnServer = true;
     runDuplicateScreen(args, "source");
     await vi.waitFor(() =>
       expect(args.focusCreatedScreen).toHaveBeenCalledWith(

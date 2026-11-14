@@ -1,15 +1,21 @@
 import { createHash } from "node:crypto";
 
+import { OAuthError, OAuthErrorCode } from "@modelcontextprotocol/client";
+
 import {
   finishMcpOAuthAuthorization,
   getMcpOAuthAccessToken,
+  McpOAuthReauthorizationRequiredError,
+  McpOAuthRefreshUnavailableError,
   markMcpOAuthReconnectRequired,
   readMcpOAuthCredentials,
+  resolveMcpOAuthCredentialAccess,
   revokeMcpOAuthCredentials,
   saveMcpOAuthCredentials,
   startMcpOAuthAuthorization,
   validateMcpOAuthCallbackIssuer,
   type McpOAuthCredentialBundle,
+  type McpOAuthCredentialAccessBundle,
 } from "../mcp-client/oauth-client.js";
 import { getOAuthTokens, listOAuthTokenOwners } from "../oauth-tokens/store.js";
 import { invalidateAgentEngineStatusCache } from "./agent-engine-status-cache.js";
@@ -26,17 +32,33 @@ export const BUILDER_OAUTH_ISSUER = "https://mcp.builder.io";
 export const BUILDER_OAUTH_RESOURCE = "https://api.builder.io";
 export const BUILDER_OAUTH_SCOPE = "builder:ai:invoke";
 export const BUILDER_ASSETS_WRITE_SCOPE = "builder:assets:write";
+export const BUILDER_CONTENT_READ_SCOPE = "builder:content:read";
+export const BUILDER_CONTENT_WRITE_SCOPE = "builder:content:write";
 export const BUILDER_OAUTH_SCOPES = [
   BUILDER_OAUTH_SCOPE,
   "builder:agents:run",
   "builder:browser:connect",
   BUILDER_ASSETS_WRITE_SCOPE,
+  BUILDER_CONTENT_READ_SCOPE,
+  BUILDER_CONTENT_WRITE_SCOPE,
   "builder:projects:read",
   "builder:projects:write",
   "builder:designsystem:read",
   "builder:designsystem:write",
 ] as const;
 export type BuilderOAuthPermissionScope = (typeof BUILDER_OAUTH_SCOPES)[number];
+
+function shouldMarkBuilderReconnectRequiredOnRefreshFailure(
+  error: unknown,
+): boolean {
+  return (
+    error instanceof McpOAuthReauthorizationRequiredError ||
+    (error instanceof OAuthError &&
+      (error.code === OAuthErrorCode.InvalidGrant ||
+        error.code === OAuthErrorCode.InvalidClient ||
+        error.code === OAuthErrorCode.UnauthorizedClient))
+  );
+}
 
 const BUILDER_OAUTH_KEY = "builder-general-resource-v1";
 
@@ -110,10 +132,19 @@ export type BuilderOAuthSession = {
   expiresAt?: number;
   scopes: string[];
   scope: BuilderOAuthScope;
+  /** Opaque identity of the selected stored OAuth credential lane. */
+  connectionId?: string;
 };
 
 export type BuilderOAuthRequestAccess = BuilderOAuthSession & {
   ownerEmail: string;
+};
+
+export type ResolvedBuilderOAuthRequestAccess = Omit<
+  BuilderOAuthRequestAccess,
+  "connectionId"
+> & {
+  connectionId: string;
 };
 
 // Builder connections follow the same scope policy as legacy Builder keys:
@@ -253,7 +284,7 @@ function withRecordedScopes(
 // that up for anything this flow stores, so an absent claim can only be a grant
 // predating both. Those were AI-only and must not be credited with an upload
 // scope the user never consented to.
-function scopesFrom(credentials: McpOAuthCredentialBundle): string[] {
+function scopesFrom(credentials: McpOAuthCredentialAccessBundle): string[] {
   const declared = credentials.tokens.scope;
   if (typeof declared !== "string") return [BUILDER_OAUTH_SCOPE];
   return declared.split(/\s+/).filter(Boolean);
@@ -283,7 +314,9 @@ function isBuilderDiscoveryState(value: unknown): boolean {
   );
 }
 
-function isBuilderCredential(credentials: McpOAuthCredentialBundle): boolean {
+function isBuilderCredential(
+  credentials: McpOAuthCredentialAccessBundle,
+): boolean {
   return (
     resourceUrlsMatch(credentials.serverUrl, BUILDER_OAUTH_RESOURCE) &&
     credentials.clientInformation.issuer === BUILDER_OAUTH_ISSUER &&
@@ -413,6 +446,7 @@ export async function getBuilderOAuthSession(
   access: { forceRefresh?: boolean; orgOnly?: boolean } = {},
 ): Promise<BuilderOAuthSession | null> {
   let missingRequiredScope = false;
+  let transientRefreshFailure: McpOAuthRefreshUnavailableError | null = null;
   for (const options of await resolveBuilderOAuthOptions(ownerEmail, orgId, {
     forUse: true,
     orgOnly: access.orgOnly,
@@ -423,10 +457,22 @@ export async function getBuilderOAuthSession(
       `${options.scope}:${options.scopeId}`,
     );
     if (stored === null) continue;
-    const accessToken = await getMcpOAuthAccessToken({
-      ...options,
-      forceRefresh: access.forceRefresh,
-    });
+    let accessToken: string | null;
+    try {
+      accessToken = await getMcpOAuthAccessToken({
+        ...options,
+        ...(access.forceRefresh !== undefined
+          ? { forceRefresh: access.forceRefresh }
+          : {}),
+        throwOnTransientRefreshFailure: true,
+        shouldMarkReconnectRequiredOnRefreshFailure:
+          shouldMarkBuilderReconnectRequiredOnRefreshFailure,
+      });
+    } catch (error) {
+      if (!(error instanceof McpOAuthRefreshUnavailableError)) throw error;
+      transientRefreshFailure ??= error;
+      continue;
+    }
     if (!accessToken) continue;
     const credentials = await readMcpOAuthCredentials(options);
     if (!credentials || !isBuilderCredential(credentials)) continue;
@@ -440,8 +486,10 @@ export async function getBuilderOAuthSession(
       expiresAt: credentials.tokenExpiresAt,
       scopes,
       scope: options.scope,
+      connectionId: options.key,
     };
   }
+  if (transientRefreshFailure) throw transientRefreshFailure;
   if (requiredScope && missingRequiredScope) {
     throw new BuilderOAuthScopeError(requiredScope);
   }
@@ -477,6 +525,31 @@ export async function hasBuilderOAuthSession(
     ) {
       return true;
     }
+  }
+  return false;
+}
+
+/**
+ * Whether a grant `hasBuilderOAuthSession` would consider is stored at all,
+ * including one this deployment can no longer decrypt. Such a row is not
+ * custody, but it is why its owner's Builder requests fail, so status
+ * surfaces must ask them to reconnect rather than report never-connected.
+ */
+export async function hasStoredBuilderOAuthGrantForUse(
+  ownerEmail: string,
+  orgId?: string | null,
+  access: { orgOnly?: boolean } = {},
+): Promise<boolean> {
+  for (const options of await resolveBuilderOAuthOptions(ownerEmail, orgId, {
+    forUse: true,
+    orgOnly: access.orgOnly ?? false,
+  })) {
+    const stored = await getOAuthTokens(
+      "mcp",
+      options.key,
+      `${options.scope}:${options.scopeId}`,
+    );
+    if (stored !== null) return true;
   }
   return false;
 }
@@ -672,6 +745,86 @@ export async function resolveBuilderOAuthRequestAccess(input: {
   );
   if (!session) return null;
   return { ...session, ownerEmail: input.ownerEmail.trim().toLowerCase() };
+}
+
+export type BuilderOAuthRequestAccessState =
+  | { kind: "not_connected" }
+  | { kind: "unusable" }
+  /**
+   * Every stored grant is ciphertext this process's key cannot open. Signing in
+   * again would work, but so would the key that saved it, so it must not read
+   * as an expired sign-in.
+   */
+  | { kind: "unreadable" }
+  | { kind: "available"; access: ResolvedBuilderOAuthRequestAccess };
+
+/** Resolve grant custody and request access together for model dispatch. */
+export async function resolveBuilderOAuthRequestAccessState(input: {
+  ownerEmail: string;
+  requiredScope: BuilderOAuthPermissionScope;
+  orgId?: string | null;
+  forceRefresh?: boolean;
+  connectionId?: string;
+}): Promise<BuilderOAuthRequestAccessState> {
+  const ownerEmail = normalizeOwnerEmail(input.ownerEmail);
+  const options = await resolveBuilderOAuthOptions(ownerEmail, input.orgId, {
+    forUse: true,
+  });
+  const candidates =
+    input.connectionId !== undefined
+      ? options.filter((candidate) => candidate.key === input.connectionId)
+      : options;
+  let storedGrant = input.connectionId !== undefined;
+  let unreadable = false;
+  let unusable = false;
+
+  for (const candidate of candidates) {
+    const resolved = await resolveMcpOAuthCredentialAccess({
+      ...candidate,
+      forceRefresh: input.forceRefresh ?? false,
+    });
+    if (resolved.state.kind === "missing") continue;
+    storedGrant = true;
+    if (
+      resolved.state.kind === "malformed" &&
+      resolved.state.reason === "unreadable"
+    ) {
+      unreadable = true;
+      continue;
+    }
+    if (
+      resolved.state.kind !== "connected" ||
+      !resolved.accessToken ||
+      !isBuilderCredential(resolved.state.credential)
+    ) {
+      unusable = true;
+      continue;
+    }
+
+    const scopes = scopesFrom(resolved.state.credential);
+    if (!scopes.includes(input.requiredScope)) {
+      unusable = true;
+      continue;
+    }
+    return {
+      kind: "available",
+      access: {
+        accessToken: resolved.accessToken,
+        ...(resolved.state.credential.tokenExpiresAt !== undefined
+          ? { expiresAt: resolved.state.credential.tokenExpiresAt }
+          : {}),
+        scopes,
+        scope: candidate.scope,
+        connectionId: candidate.key,
+        ownerEmail,
+      },
+    };
+  }
+
+  if (!storedGrant) return { kind: "not_connected" };
+  return unreadable && !unusable
+    ? { kind: "unreadable" }
+    : { kind: "unusable" };
 }
 
 export async function deleteBuilderOAuthSession(

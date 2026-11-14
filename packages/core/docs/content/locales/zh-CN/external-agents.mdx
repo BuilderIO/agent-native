@@ -137,6 +137,8 @@ https://<your-app>.agent-native.com/mcp
 
 重新安装连接器或更改公开共享链接无法解决已确认的已连接账户权限拒绝问题。
 
+上传到非公开文档的图片以 `/api/private-media/<id>` 链接的形式保存在正文中，只有登录 Content 后才能加载。智能体通过 MCP 读取文档时，`get-document` 和 Markdown 格式的 `pull-document` 还会返回 `privateMediaLinks`：每个已保存的链接，以及一个无需登录即可在一小时内打开该图片的 URL。一次读取最多为 200 张图片提供链接，其余数量记在 `omitted` 中。需要新链接时请重新读取文档。编辑正文时请保留已保存的链接。
+
 <a id="access-tab"></a>
 
 ### 应用内的 MCP 设置 {#mcp-settings}
@@ -262,7 +264,7 @@ npx skills@latest add BuilderIO/agent-native --skill assets
 | -------- | ------------------ | ------------- |
 | `assets` | `image-generation` | 图像/视频生成 |
 
-默认客户端选择是所有支持的本地客户端；添加 `--client codex`、`--client claude-code` 或其他特定目标以缩小设置范围。内联主机（ChatGPT、Claude.ai、Claude 桌面主聊天）在聊天中呈现选择器/变体网格； CLI/仅链接主机（Codex、Claude 代码、Claude 桌面“代码”选项卡）返回“在…中打开”链接，用户在浏览器中选择并将交接摘要粘贴回该链接。
+默认客户端选择是所有支持的本地客户端；添加 `--client codex`、`--client claude-code` 或其他特定目标以缩小设置范围。内联主机（ChatGPT、网页版、桌面版和移动版 Claude 聊天，以及 Claude Desktop 的 Code 选项卡）在聊天中显示选择器或变体网格；CLI/仅链接主机（Codex CLI、Claude Code 终端、Cowork、claude.ai 网页版 Code）返回“在…中打开 →”链接。用户在浏览器中选择后，将交接摘要粘贴回聊天。 [Cowork 尚未声明支持 MCP Apps，在同一连接器上使用它可能会导致 Chat 中的内联应用消失，直到您重新连接该连接器。](https://github.com/anthropics/claude-code/issues/103924)
 
 当您确实需要一个独立的应用程序而不是 Dispatch 的工作区网关时，
 使用该应用程序的主机运行相同的命令：

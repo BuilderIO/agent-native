@@ -11,7 +11,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { typeRichEditorText } from "./comment-composer-test-utils";
 import type { MentionEntry } from "./comment-drafts";
-import { CommentComposer, type CommentAiDraft } from "./CommentComposer";
+import {
+  CommentComposer,
+  type CommentAiDraft,
+  type CommentDiscardKind,
+} from "./CommentComposer";
 
 const mentionMembers = vi.hoisted(() => ({
   current: {
@@ -82,10 +86,14 @@ describe("CommentComposer rich recipient", () => {
     initialAi = null,
     initialValue = "Review this",
     mentions = [],
+    confirmEscape = false,
+    suggestOnly = false,
   }: {
     initialAi?: CommentAiDraft | null;
     initialValue?: string;
     mentions?: MentionEntry[];
+    confirmEscape?: CommentDiscardKind | false;
+    suggestOnly?: boolean;
   }) {
     const [value, setValue] = useState(initialValue);
     const [aiDraft, setAiDraft] = useState<CommentAiDraft | null>(initialAi);
@@ -101,6 +109,7 @@ describe("CommentComposer rich recipient", () => {
         onChange={setValue}
         onSubmit={submit}
         onEscape={escape}
+        confirmEscape={confirmEscape}
         mentions={mentions}
         onMentionsChange={vi.fn()}
         onAiSubmit={aiSubmit}
@@ -110,6 +119,7 @@ describe("CommentComposer rich recipient", () => {
           setAiDraft(next);
         }}
         aiModelStorageKey="comment-ai:test"
+        aiSuggestOnly={suggestOnly}
       />
     );
   }
@@ -117,6 +127,7 @@ describe("CommentComposer rich recipient", () => {
   beforeEach(async () => {
     onModelChange.mockClear();
     onAiDraftChange.mockClear();
+    aiSubmit.mockClear();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     container = document.createElement("div");
     document.body.append(container);
@@ -200,13 +211,13 @@ describe("CommentComposer rich recipient", () => {
     const options = [...(popover?.querySelectorAll("button") ?? [])];
     // Each row is its label then its description; people carry a decorative
     // initial avatar until their photo loads.
+    // People come first, then each agent once, the selected one leading.
     expect(options.map((option) => option.textContent)).toEqual([
-      "AIGPT-5.6 Luna",
+      "AAlicealice@example.test",
       "GPT-5.6 LunaBuilder",
       "Claude Sonnet 5Anthropic",
-      "AAlicealice@example.test",
     ]);
-    expect(options[0]?.querySelector("img")).not.toBeNull();
+    expect(options[1]?.querySelector("img")).not.toBeNull();
     expect(popover?.textContent).toContain("Alice");
     expect(popover?.textContent).not.toContain("Files");
     expect(
@@ -304,11 +315,11 @@ describe("CommentComposer rich recipient", () => {
     );
     await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
 
-    await typeRichEditorText(editor(), "@");
+    await typeRichEditorText(editor(), "@ai");
     const aiOption = document.querySelector<HTMLButtonElement>(
       '[data-agent-native-composer-popover="true"] [data-mention-index="0"]',
     );
-    expect(aiOption?.textContent).toContain("AI");
+    expect(aiOption?.textContent).toContain("GPT-5.6 Luna");
     onAiDraftChange.mockClear();
 
     await act(async () => aiOption?.click());
@@ -418,6 +429,37 @@ describe("CommentComposer rich recipient", () => {
         '[data-mention-ref-type="content-comment-ai-recipient"]',
       ),
     ).toHaveLength(1);
+  });
+
+  it("lets the AI choose where a draft's Apply mode can't be sent", async () => {
+    await act(async () =>
+      root.render(
+        <Owner
+          key="suggest-only"
+          initialValue="Ask @GPT-5.6 Luna"
+          initialAi={{
+            selection: {
+              model: "gpt-5-6-luna",
+              engine: "builder",
+              provider: "Builder",
+            },
+            mode: "apply-resolve",
+          }}
+          suggestOnly
+        />,
+      ),
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+
+    const send = container.querySelector<HTMLButtonElement>(
+      "[data-comment-ai-send-mode]",
+    );
+    if (!send) throw new Error("Expected the AI send button.");
+    expect(send.dataset.commentAiSendMode).toBe("auto");
+    await act(async () => send.click());
+    expect(aiSubmit).toHaveBeenCalledWith(
+      expect.objectContaining({ intent: "auto" }),
+    );
   });
 
   it("restores a saved AI draft's chip past an @model in inline code", async () => {
@@ -692,6 +734,60 @@ describe("CommentComposer rich recipient", () => {
       },
       mode: "reply",
     });
+  });
+
+  it("closes the model menu on the first Escape, without asking to discard", async () => {
+    await act(async () =>
+      root.render(
+        <Owner
+          key="model-menu-escape"
+          initialValue="Ask @GPT-5.6 Luna"
+          initialAi={{
+            selection: {
+              model: "gpt-5-6-luna",
+              engine: "builder",
+              provider: "Builder",
+            },
+            mode: "suggest",
+          }}
+          confirmEscape="comment"
+        />,
+      ),
+    );
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 0)));
+    escape.mockClear();
+    const modelList = () =>
+      document.querySelector("[data-comment-ai-model-list]");
+    const confirmation = () => document.querySelector('[role="alertdialog"]');
+    const pressEscape = () =>
+      act(async () => {
+        editor().dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Escape",
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+    await act(async () =>
+      container
+        .querySelector<HTMLElement>(
+          '[data-mention-ref-type="content-comment-ai-recipient"]',
+        )
+        ?.click(),
+    );
+    expect(modelList()).not.toBeNull();
+
+    await pressEscape();
+    expect(modelList()).toBeNull();
+    expect(confirmation()).toBeNull();
+    expect(escape).not.toHaveBeenCalled();
+
+    await pressEscape();
+    expect(confirmation()).not.toBeNull();
+    expect(escape).not.toHaveBeenCalled();
   });
 
   it("supports caret selection and controlled recipient removal", async () => {

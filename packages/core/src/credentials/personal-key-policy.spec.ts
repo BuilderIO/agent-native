@@ -2,12 +2,14 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   readAppSecret: vi.fn(),
+  isMissingAppSecretsTableError: vi.fn(() => false),
   isRestricted: vi.fn(),
   settings: new Map<string, { value: unknown }>(),
 }));
 
 vi.mock("../secrets/storage.js", () => ({
   readAppSecret: mocks.readAppSecret,
+  isMissingAppSecretsTableError: mocks.isMissingAppSecretsTableError,
 }));
 vi.mock("../settings/store.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../settings/store.js")>()),
@@ -28,6 +30,7 @@ vi.mock(
   }),
 );
 
+import { CredentialStoreLookupError } from "../server/credential-provider.js";
 import { resolveCredential } from "./index.js";
 
 const EMAIL = "member@example.com";
@@ -82,7 +85,10 @@ describe("resolveCredential with personal API keys restricted", () => {
     await expect(
       resolveCredential("OPENAI_API_KEY", { userEmail: EMAIL }),
     ).resolves.toBeUndefined();
-    expect(mocks.isRestricted).toHaveBeenCalledWith({ email: EMAIL });
+    expect(mocks.isRestricted).toHaveBeenCalledWith({
+      email: EMAIL,
+      orgId: "org-1",
+    });
   });
 
   it("leaves other credentials and unrestricted callers alone", async () => {
@@ -101,10 +107,11 @@ describe("resolveCredential with personal API keys restricted", () => {
   });
 
   it("fails loudly when the restriction can't be read", async () => {
-    mocks.isRestricted.mockRejectedValue(new Error("settings unavailable"));
+    const cause = new Error("settings unavailable");
+    mocks.isRestricted.mockRejectedValue(cause);
     rows({ [`user:${EMAIL}:ANTHROPIC_API_KEY`]: "sk-ant-personal" });
-    await expect(
-      resolveCredential("ANTHROPIC_API_KEY", { userEmail: EMAIL }),
-    ).rejects.toThrow("settings unavailable");
+    const lookup = resolveCredential("ANTHROPIC_API_KEY", { userEmail: EMAIL });
+    await expect(lookup).rejects.toBeInstanceOf(CredentialStoreLookupError);
+    await expect(lookup).rejects.toMatchObject({ cause, retryable: false });
   });
 });

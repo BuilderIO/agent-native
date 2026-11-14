@@ -1,6 +1,7 @@
 import { expect, test, type Page } from "@playwright/test";
 
 import { ANNOTATE_LAB } from "../shared/labs";
+import { waitForEditorBoot } from "./editor-boot";
 import { appPath, enableLab, gotoEditor, readSeedDesignId } from "./helpers";
 
 test.use({ viewport: { width: 1440, height: 1000 } });
@@ -75,6 +76,7 @@ test.describe("Annotate lab off (the default)", () => {
     await page.goto(appPath(`/design/${designId}?tool=draw`), {
       waitUntil: "domcontentloaded",
     });
+    await waitForEditorBoot(page);
     await expect(mode(page, "edit")).toHaveAttribute("aria-pressed", "true");
 
     await expect(
@@ -144,10 +146,10 @@ test.describe("Annotate lab on", () => {
     await page.goto(appPath(`/design/${designId}?tool=draw`), {
       waitUntil: "domcontentloaded",
     });
+    await waitForEditorBoot(page);
     await expect(mode(page, "annotate")).toHaveAttribute(
       "aria-pressed",
       "true",
-      { timeout: 30_000 },
     );
     await expect(page.locator("[data-draw-overlay]")).toBeVisible();
 

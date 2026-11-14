@@ -1,6 +1,9 @@
 import { createHash } from "node:crypto";
 
-import type { ActionRunContext } from "@agent-native/core/action";
+import {
+  withoutWriteObservation,
+  type ActionRunContext,
+} from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import {
   AGENT_CLIENT_ID,
@@ -532,6 +535,7 @@ async function assertNoForeignCollaborators(
   }
 
   for (const row of rows.flat()) {
+    if (row.cleared) continue;
     if (row.clientId === AGENT_CLIENT_ID) continue;
     const email = parseAwarenessUserEmail(row.state);
     if (!email || !currentEmail || email !== currentEmail) {
@@ -1811,13 +1815,17 @@ export async function snapshotDesignBeforeAgentEdit(
   },
 ): Promise<DesignVersionCheckpointResult> {
   if (!context) return null;
-  return withDesignVersionLock(designId, () =>
-    snapshotDesignBeforeAgentEditInLock(
-      designId,
-      context,
-      undefined,
-      "auxiliary",
-      options?.allowCheckpointFailureSkip ?? false,
+  // A retry adds no second version: the turn's earlier version is found first,
+  // and a new one has a deterministic id and is skipped on a state-hash match.
+  return withoutWriteObservation(() =>
+    withDesignVersionLock(designId, () =>
+      snapshotDesignBeforeAgentEditInLock(
+        designId,
+        context,
+        undefined,
+        "auxiliary",
+        options?.allowCheckpointFailureSkip ?? false,
+      ),
     ),
   );
 }

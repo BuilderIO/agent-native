@@ -207,16 +207,12 @@ describe("PDF download", () => {
       exportTracking,
       fallbackExportName: (extension: string) => `design.${extension}`,
       pngExportingRef: ref,
-      renderPngBlob,
-      resolveSelectedScreensBounds: () => ({
-        x: 0,
-        y: 0,
+      renderPngCapture: async () => ({
+        blob: await renderPngBlob(),
         width: 100,
         height: 100,
+        scale: 2,
       }),
-      resolvePngCaptureTarget: () => {
-        throw new Error("selected-screen bounds skip the capture target");
-      },
       setPngExporting: () => undefined,
       showRasterCaptureError: () => undefined,
       t,
@@ -279,6 +275,7 @@ describe("All-screens PDF download", () => {
       exportTracking,
       fallbackExportName: (extension: string) => `design.${extension}`,
       overviewScreens,
+      leaseHydratedSource: async () => () => {},
       prepareScreenForExport: () => undefined,
       resolveSnapshotExportSource: () => null,
       releaseScreenFromExport: () => undefined,
@@ -296,6 +293,7 @@ describe("All-screens PDF download", () => {
       documentElement: {},
       images: [],
       defaultView: window,
+      querySelector: () => null,
     }));
     const download = args();
     await runDownloadAllScreensPdf(download);

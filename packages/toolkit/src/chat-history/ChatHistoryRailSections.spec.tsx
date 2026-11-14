@@ -273,7 +273,7 @@ describe("ChatHistoryRail sections", () => {
     expect(onLoadMore).toHaveBeenCalledOnce();
   });
 
-  it("renders owner and access basis on a shared row", () => {
+  it("keeps a shared row on one line with the owner mark", () => {
     renderRail([
       {
         id: "shared",
@@ -281,16 +281,24 @@ describe("ChatHistoryRail sections", () => {
           {
             id: "s1",
             title: "Roadmap",
+            ownerAvatar: <span>P</span>,
             ownerLabel: "Pat Lee",
             accessLabel: "Shared with your organization",
             accessBasis: "organization",
+            readOnly: true,
           },
         ],
       },
     ]);
-    const access = container.querySelector(".an-chat-history-row__access");
-    expect(access?.getAttribute("data-access-basis")).toBe("organization");
-    expect(access?.textContent).toBe("Pat LeeShared with your organization");
+    const row = container.querySelector(".an-chat-history-row")!;
+    expect(
+      row
+        .querySelector(".an-chat-history-row__owner-mark")
+        ?.getAttribute("data-access-basis"),
+    ).toBe("organization");
+    expect(row.querySelector(".an-chat-history-row__button")?.textContent).toBe(
+      "RoadmapP",
+    );
   });
 
   it("selecting a section row and New chat work as in the flat rail", () => {

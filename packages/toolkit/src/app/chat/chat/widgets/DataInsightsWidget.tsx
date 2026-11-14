@@ -1,6 +1,7 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { IconDatabase } from "@tabler/icons-react";
 
+import type { AgentChatDataChartLayout } from "../../../agentkit/react/data-chart-layout.js";
 import type { DataWidgetResult } from "./data-widget-types.js";
 import { DataChartWidget } from "./DataChartWidget.js";
 import { DataTableWidget } from "./DataTableWidget.js";
@@ -19,7 +20,13 @@ function SummaryPill({ label, value }: { label: string; value: unknown }) {
   );
 }
 
-export function DataInsightsWidget({ result }: { result: DataWidgetResult }) {
+export function DataInsightsWidget({
+  result,
+  layout,
+}: {
+  result: DataWidgetResult;
+  layout?: AgentChatDataChartLayout;
+}) {
   const t = useT();
   const title =
     result.display?.title ?? result.title ?? t("agentChat.widget.dataInsights");
@@ -49,7 +56,11 @@ export function DataInsightsWidget({ result }: { result: DataWidgetResult }) {
         </div>
       </div>
       {result.chartSeries ? (
-        <DataChartWidget chart={result.chartSeries} display={result.display} />
+        <DataChartWidget
+          chart={result.chartSeries}
+          display={result.display}
+          layout={layout}
+        />
       ) : null}
       {result.table ? (
         <DataTableWidget

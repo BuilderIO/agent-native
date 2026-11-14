@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import type { MotionAudioClip } from "@shared/motion-code";
 import { MOTION_TIMELINE_MAX_DURATION_MS } from "@shared/motion-timeline";
 import {
@@ -41,6 +42,8 @@ interface MotionAudioTracksProps {
   timelineDurationMs: number;
   timelineScaleDurationMs: number;
   readOnly?: boolean;
+  compactInspectorHeader?: boolean;
+  inspectorTitleClassName?: string;
   onClipsChange?: (clips: MotionAudioClip[]) => void;
   onDurationChange?: (durationMs: number) => void;
   onSeek?: (timelineMs: number) => void;
@@ -102,6 +105,8 @@ export function MotionAudioTracks({
   timelineDurationMs,
   timelineScaleDurationMs,
   readOnly = false,
+  compactInspectorHeader = false,
+  inspectorTitleClassName,
   onClipsChange,
   onDurationChange,
   onSeek,
@@ -220,7 +225,9 @@ export function MotionAudioTracks({
       if (message === "motion-audio-duration-unavailable") {
         toast.error(t("designEditor.motion.audioDurationUnavailable"));
       } else if (message.startsWith("Audio upload")) {
-        toast.error(t("designEditor.motion.audioUploadFailed"));
+        reportWriteFailure(error, {
+          label: t("designEditor.motion.audioUploadFailed"),
+        });
       } else if (message === "Only audio files can be uploaded.") {
         toast.error(t("designEditor.motion.unsupportedAudio"));
       } else {
@@ -352,6 +359,8 @@ export function MotionAudioTracks({
     return (
       <PanelSection
         title={t("designEditor.motion.audio")}
+        compactHeader={compactInspectorHeader}
+        titleClassName={inspectorTitleClassName}
         actions={
           <>
             <input

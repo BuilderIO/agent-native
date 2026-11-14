@@ -34,9 +34,7 @@ describe("DesignEditor pending source handoff", () => {
     expect(handler).toContain("HOST_TURN_START_TIMEOUT_MS");
     const chatState = source.slice(
       source.indexOf('if (data.type === "design:chatState")'),
-      source.indexOf(
-        "const selectionUndoStackRef = useRef<SelectionHistoryEntry[]>([]);",
-      ),
+      source.indexOf("const clearRedoStacks = useCallback(() => {"),
     );
     expect(chatState).toContain('stagedSourceHandoffRef.current = "running";');
     expect(chatState).toContain(

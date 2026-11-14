@@ -113,6 +113,7 @@ function resolvePrimitiveCreationHostLayout(args: {
     args.content,
     args.primitive,
     args.fileId === args.boardFileId,
+    preview.document,
   );
   if (!host) return { status: "stale" };
 
@@ -171,6 +172,7 @@ function readLiveHostChildSizes(args: {
     args.content,
     args.primitive,
     args.fileId === args.boardFileId,
+    preview.document,
   );
   const liveHost =
     host?.kind === "frame"

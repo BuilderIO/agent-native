@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   agentEnterDocument,
   agentLeaveDocument,
@@ -526,11 +526,20 @@ const intentSchema = z.preprocess(
             y: z.number(),
             width: z.number().nonnegative(),
             height: z.number().nonnegative(),
+            box: z
+              .object({
+                sizing: z.enum(["border-box", "content-box"]),
+                edges: z.object({
+                  width: z.number().nonnegative(),
+                  height: z.number().nonnegative(),
+                }),
+              })
+              .optional(),
           }),
         )
         .optional()
         .describe(
-          "Measured child rectangles relative to the container, required when disabling auto-layout.",
+          "Measured child rectangles relative to the container, required when disabling auto-layout. A child's box (computed box-sizing, padding plus border per axis) lets an inset-sized child with a relative size join the flow.",
         ),
       containerRect: z
         .object({
@@ -594,9 +603,10 @@ async function resolveEditableDesignFile(
   codeLayerSource: CodeLayerSource;
 }> {
   if (!source.fileId && !source.designId) {
-    throw new Error(
-      "source.designId or source.fileId is required for design-file.",
-    );
+    fail("source.designId or source.fileId is required for design-file.", {
+      errorCode: "source_target_missing",
+      statusCode: 400,
+    });
   }
 
   const db = getDb();
@@ -630,19 +640,33 @@ async function resolveEditableDesignFile(
     .limit(1);
 
   if (!file) {
-    throw new Error("Design HTML file not found.");
+    fail("Design HTML file not found.", {
+      errorCode: "source_file_not_found",
+      statusCode: 404,
+    });
   }
   if (file.fileType !== "html") {
-    throw new Error("Visual code-layer edits only support HTML files for now.");
+    fail("Visual code-layer edits only support HTML files for now.", {
+      errorCode: "source_file_not_html",
+      statusCode: 400,
+    });
   }
   if (source.designId && file.designId !== source.designId) {
-    throw new Error(
+    fail(
       `source.designId "${source.designId}" does not match file "${file.id}"`,
+      {
+        errorCode: "source_target_mismatch",
+        statusCode: 400,
+      },
     );
   }
   if (!source.fileId && source.filename && file.filename !== source.filename) {
-    throw new Error(
+    fail(
       `source.filename "${source.filename}" does not match file "${file.id}"`,
+      {
+        errorCode: "source_target_mismatch",
+        statusCode: 400,
+      },
     );
   }
 
@@ -893,7 +917,6 @@ export default defineAction({
     activeBreakpoint: z
       .enum(TAILWIND_PREFIXES)
       .optional()
-      .nullable()
       .describe(
         "Active canvas breakpoint prefix. When set and the intent is a 'class' edit, the change is written as a breakpoint-scoped Tailwind class (e.g. 'md:text-lg') instead of a global class. 'base' writes an unprefixed class (same as omitting this field). Takes priority over activeFrameWidthPx.",
       ),
@@ -902,7 +925,6 @@ export default defineAction({
       .int()
       .positive()
       .optional()
-      .nullable()
       .describe(
         "Active breakpoint frame width in pixels — matches the UI's breakpoint bar. For design-file sources whose design has a breakpoint set, 'class' AND 'style' intents are scoped Framer-style: overrides apply below the next-wider frame (max-[<bound>px]: classes, or managed @media rules for raw CSS values); the widest frame is the base and writes unscoped. When the design has no breakpoint set (or for inline-html sources) class edits fall back to the legacy min-width Tailwind prefix via widthToPrefix. Ignored when activeBreakpoint is provided.",
       ),
@@ -911,7 +933,6 @@ export default defineAction({
       .int()
       .positive()
       .optional()
-      .nullable()
       .describe(
         "Explicit Framer desktop-down bound (px): scope this edit to apply at viewport widths <= this value. Overrides activeBreakpoint/activeFrameWidthPx derivation. Applies to 'class' and 'style' intents.",
       ),

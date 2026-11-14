@@ -274,6 +274,21 @@ describe("db/client Postgres URL handling", () => {
     );
   });
 
+  it("uses only DATABASE_URL when an explicit database is required", async () => {
+    vi.stubEnv("APP_NAME", "plan");
+    vi.stubEnv("DATABASE_URL", "");
+    vi.stubEnv("PLAN_DATABASE_URL", "postgres://plan.example/db");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "postgres://netlify.example/db");
+    const { getDatabaseUrl } = await import("./client.js");
+
+    expect(getDatabaseUrl("", { explicitOnly: true })).toBe("");
+
+    vi.stubEnv("DATABASE_URL", "postgres://selected.example/db");
+    expect(getDatabaseUrl("", { explicitOnly: true })).toBe(
+      "postgres://selected.example/db",
+    );
+  });
+
   it("keeps app-specific database URLs ahead of Netlify's shared env", async () => {
     vi.stubEnv("APP_NAME", "plan");
     vi.stubEnv("DATABASE_URL", "");
@@ -1320,6 +1335,18 @@ describe("initClient hosted-runtime local database guard", () => {
 });
 
 describe("toPostgresParams", () => {
+  it("rewrites only generated SQL fragment bind markers", async () => {
+    const { toPostgresParams } = await import("./client.js");
+    const { getSqlFragmentParameterOffsets, sql } = await import("./sql.js");
+    const fragment = sql`SELECT payload ? 'key', payload ?| ARRAY['tag'], payload ?& ARRAY['tag'] FROM records WHERE id = ${sql.value("thread-1")}`;
+
+    expect(
+      toPostgresParams(fragment.sql, getSqlFragmentParameterOffsets(fragment)),
+    ).toBe(
+      "SELECT payload ? 'key', payload ?| ARRAY['tag'], payload ?& ARRAY['tag'] FROM records WHERE id = $1",
+    );
+  });
+
   it("converts placeholders while preserving question marks inside SQL literals", async () => {
     const { toPostgresParams } = await import("./client.js");
 
@@ -1344,6 +1371,16 @@ describe("toPostgresParams", () => {
     );
   });
 
+  it("does not treat dollar delimiters inside identifiers as dollar quotes", async () => {
+    const { toPostgresParams } = await import("./client.js");
+    const { getSqlFragmentParameterOffsets, sql } = await import("./sql.js");
+    const fragment = sql`SELECT foo$bar$col FROM records WHERE id = ${sql.value("record-1")}`;
+
+    expect(
+      toPostgresParams(fragment.sql, getSqlFragmentParameterOffsets(fragment)),
+    ).toBe("SELECT foo$bar$col FROM records WHERE id = $1");
+  });
+
   it("converts placeholders after a backslash SQL string literal", async () => {
     const { toPostgresParams } = await import("./client.js");
 
@@ -1354,6 +1391,16 @@ describe("toPostgresParams", () => {
     ).toBe(
       "SELECT * FROM org_members WHERE email LIKE $1 ESCAPE '\\' AND role = $2 LIMIT $3 OFFSET $4",
     );
+  });
+
+  it("converts fragment bind markers after escaped quotes in PostgreSQL E strings", async () => {
+    const { toPostgresParams } = await import("./client.js");
+    const { getSqlFragmentParameterOffsets, sql } = await import("./sql.js");
+    const fragment = sql`SELECT E'it\'s' WHERE id = ${sql.value("member-1")}`;
+
+    expect(
+      toPostgresParams(fragment.sql, getSqlFragmentParameterOffsets(fragment)),
+    ).toBe("SELECT E'it\\'s' WHERE id = $1");
   });
 });
 
@@ -1954,6 +2001,9 @@ describe("Neon foreground statement budgets", () => {
       if (sql.includes(";") && args !== undefined) {
         throw new Error("multi-command queries require the simple protocol");
       }
+      if (sql.includes("current_setting")) {
+        return { rows: [{ previous: "0", previous_ms: "0" }], rowCount: 1 };
+      }
       return sql === "SELECT 1"
         ? { rows: [{ value: 1 }], rowCount: 1 }
         : { rows: [], rowCount: 0 };
@@ -1991,11 +2041,18 @@ describe("Neon foreground statement budgets", () => {
       ),
     ).resolves.toEqual({ rows: [{ value: 1 }], rowsAffected: 1 });
 
-    expect(query.mock.calls.map(([sql]) => sql)).toEqual([
-      "BEGIN; SET LOCAL idle_in_transaction_session_timeout = 30000",
-      "SET LOCAL statement_timeout = 900",
-      "SELECT 1",
-      "COMMIT",
+    expect(query.mock.calls.map(([sql, args]) => [sql, args])).toEqual([
+      [
+        "BEGIN; SET LOCAL idle_in_transaction_session_timeout = 30000",
+        undefined,
+      ],
+      [
+        expect.stringContaining("current_setting('statement_timeout')"),
+        [900, "900ms"],
+      ],
+      ["SELECT 1", []],
+      ["SELECT set_config('statement_timeout', $1, true)", ["0"]],
+      ["COMMIT", []],
     ]);
     expect(client.release).toHaveBeenCalledWith(undefined);
   });
@@ -2191,66 +2248,12 @@ describe("Neon background HTTP statement budgets", () => {
   });
 });
 
-describe("isTransientDatabaseError", () => {
-  it("classifies Neon connection exhaustion as retryable", async () => {
-    const { isConnectionError, isTransientDatabaseError } =
-      await import("./client.js");
-    const error = {
-      code: "EMAXCONN",
-      message: "(EMAXCONN) max client connections reached, limit: 200",
-      stack:
-        "Co: (EMAXCONN) max client connections reached\n at drizzle-orm/neon-serverless",
-    };
-
-    expect(isConnectionError(error)).toBe(true);
-    expect(isTransientDatabaseError(error)).toBe(true);
-    expect(isTransientDatabaseError({ code: "EMAXCONN" })).toBe(true);
-  });
-
-  it("classifies statement timeouts without making them connection retries", async () => {
-    const { isTransientDatabaseError, isConnectionError } =
-      await import("./client.js");
-    const error = new Error("canceling statement due to statement timeout");
-
-    expect(isTransientDatabaseError(error)).toBe(true);
-    expect(isConnectionError(error)).toBe(false);
-  });
-
-  it("classifies pool checkout timeouts", async () => {
-    const { isTransientDatabaseError } = await import("./client.js");
-
-    expect(isTransientDatabaseError({ code: "ECHECKOUTTIMEOUT" })).toBe(true);
-  });
-
-  it("does not misclassify generic provider network failures", async () => {
-    const { isTransientDatabaseError } = await import("./client.js");
-
-    expect(
-      isTransientDatabaseError({
-        code: "ECONNRESET",
-        stack: "Error: socket hang up\n at providerFetch (gong.ts:42:7)",
-      }),
-    ).toBe(false);
-  });
-
-  it("classifies database-driver connection failures", async () => {
-    const { isTransientDatabaseError } = await import("./client.js");
-
-    expect(
-      isTransientDatabaseError({
-        code: "ECONNRESET",
-        stack: "Error: connection reset\n at @neondatabase/serverless/index.js",
-      }),
-    ).toBe(true);
-  });
-
-  it("does not classify ordinary database errors as transient", async () => {
-    const { isTransientDatabaseError } = await import("./client.js");
-
-    expect(isTransientDatabaseError(new Error("duplicate key value"))).toBe(
-      false,
-    );
-  });
+// oracle-change: classifier assertions move unchanged to db/errors.spec.ts with their extracted owner; public exports remain checked here.
+it("preserves the db/client error-classifier exports", async () => {
+  const client = await import("./client.js");
+  const errors = await import("./errors.js");
+  expect(client.isConnectionError).toBe(errors.isConnectionError);
+  expect(client.isTransientDatabaseError).toBe(errors.isTransientDatabaseError);
 });
 
 describe("annotateMissingTable", () => {
@@ -2375,6 +2378,168 @@ describe("db/client postgres-js request pool recovery", () => {
     Reflect.deleteProperty(globalThis as Record<string, unknown>, "__cf_env");
     Reflect.deleteProperty(globalThis as Record<string, unknown>, "__env__");
     vi.resetModules();
+  });
+
+  it("bounds a budgeted transaction statement on the server, and only that statement", async () => {
+    vi.stubEnv("DATABASE_URL", "postgres://db.test/app");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+    vi.stubGlobal("__env__", {});
+    const statements: string[] = [];
+    const txSql = {
+      unsafe: vi.fn((query: string, args?: unknown[]) => {
+        statements.push(args?.length ? `${query} [${args.join(", ")}]` : query);
+        return Promise.resolve(
+          Object.assign(
+            query.includes("current_setting")
+              ? [{ previous: "2s", previous_ms: "2000" }]
+              : [],
+            { count: 1 },
+          ),
+        );
+      }),
+    };
+    const postgres = vi.fn(() =>
+      Object.assign(() => undefined, {
+        unsafe: vi.fn(),
+        begin: vi.fn(async (fn: (tx: typeof txSql) => Promise<unknown>) =>
+          fn(txSql),
+        ),
+        end: vi.fn(async () => {}),
+      }),
+    );
+    vi.doMock("postgres", () => ({ default: postgres }));
+    const [{ getDbExec }, { runWithRequestDbPoolScope }] = await Promise.all([
+      import("./client.js"),
+      import("./request-pool-context.js"),
+    ]);
+
+    await runWithRequestDbPoolScope(true, undefined, () =>
+      getDbExec().transaction!(async (tx) => {
+        await tx.execute({
+          sql: "UPDATE agent_execution_leases SET updated_at = now()",
+          timeoutMs: 4_000,
+          maxAttempts: 1,
+        });
+        await tx.execute({ sql: "SELECT 1" });
+      }),
+    );
+
+    expect(statements).toEqual([
+      expect.stringMatching(
+        /current_setting\('statement_timeout'\)[\s\S]*set_config\([\s\S]*CAST\(\$1 AS BIGINT\)[\s\S]* \[3750, 3750ms\]$/,
+      ),
+      "UPDATE agent_execution_leases SET updated_at = now()",
+      "SELECT set_config('statement_timeout', $1, true) [2s]",
+      "SELECT 1",
+    ]);
+  });
+
+  it("tightens the server cap when the setup round trip ate into a short budget", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.stubEnv("DATABASE_URL", "postgres://db.test/app");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+    vi.stubGlobal("__env__", {});
+    const statements: string[] = [];
+    const txSql = {
+      unsafe: vi.fn((query: string, args?: unknown[]) => {
+        statements.push(args?.length ? `${query} [${args.join(", ")}]` : query);
+        if (query.includes("current_setting")) {
+          vi.advanceTimersByTime(200);
+          return Promise.resolve(
+            Object.assign([{ previous: "0", previous_ms: "0" }], { count: 1 }),
+          );
+        }
+        return Promise.resolve(Object.assign([], { count: 1 }));
+      }),
+    };
+    const postgres = vi.fn(() =>
+      Object.assign(() => undefined, {
+        unsafe: vi.fn(),
+        begin: vi.fn(async (fn: (tx: typeof txSql) => Promise<unknown>) =>
+          fn(txSql),
+        ),
+        end: vi.fn(async () => {}),
+      }),
+    );
+    vi.doMock("postgres", () => ({ default: postgres }));
+    const [{ getDbExec }, { runWithRequestDbPoolScope }] = await Promise.all([
+      import("./client.js"),
+      import("./request-pool-context.js"),
+    ]);
+
+    try {
+      await runWithRequestDbPoolScope(true, undefined, () =>
+        getDbExec().transaction!((tx) =>
+          tx.execute({ sql: "SELECT 1", timeoutMs: 1_000, maxAttempts: 1 }),
+        ),
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(statements.slice(1)).toEqual([
+      "SELECT set_config('statement_timeout', $1, true) [720ms]",
+      "SELECT 1",
+      "SELECT set_config('statement_timeout', $1, true) [0]",
+    ]);
+  });
+
+  it("never starts a statement whose budget the tightening round trip spent", async () => {
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.stubEnv("DATABASE_URL", "postgres://db.test/app");
+    vi.stubEnv("DATABASE_URL_UNPOOLED", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL", "");
+    vi.stubEnv("NETLIFY_DATABASE_URL_UNPOOLED", "");
+    vi.stubGlobal("__env__", {});
+    const statements: string[] = [];
+    const txSql = {
+      unsafe: vi.fn((query: string, args?: unknown[]) => {
+        statements.push(args?.length ? `${query} [${args.join(", ")}]` : query);
+        if (query.includes("set_config")) vi.advanceTimersByTime(300);
+        return Promise.resolve(
+          Object.assign(
+            query.includes("current_setting")
+              ? [{ previous: "0", previous_ms: "0" }]
+              : [],
+            { count: 1 },
+          ),
+        );
+      }),
+    };
+    const postgres = vi.fn(() =>
+      Object.assign(() => undefined, {
+        unsafe: vi.fn(),
+        begin: vi.fn(async (fn: (tx: typeof txSql) => Promise<unknown>) =>
+          fn(txSql),
+        ),
+        end: vi.fn(async () => {}),
+      }),
+    );
+    vi.doMock("postgres", () => ({ default: postgres }));
+    const [{ getDbExec }, { runWithRequestDbPoolScope }] = await Promise.all([
+      import("./client.js"),
+      import("./request-pool-context.js"),
+    ]);
+
+    try {
+      await expect(
+        runWithRequestDbPoolScope(true, undefined, () =>
+          getDbExec().transaction!((tx) =>
+            tx.execute({ sql: "SELECT 1", timeoutMs: 1_000, maxAttempts: 1 }),
+          ),
+        ),
+      ).rejects.toMatchObject({ code: "STATEMENT_BUDGET_EXHAUSTED" });
+    } finally {
+      vi.useRealTimers();
+    }
+    expect(statements).not.toContain("SELECT 1");
+    expect(statements.at(-1)).toBe(
+      "SELECT set_config('statement_timeout', $1, true) [0]",
+    );
   });
 
   it("keeps the shared facade stable after a request pool times out", async () => {

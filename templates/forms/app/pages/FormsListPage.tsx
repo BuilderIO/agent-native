@@ -1,11 +1,12 @@
 import { callAction } from "@agent-native/core/client/hooks";
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { buildSignInReturnHref } from "@agent-native/core/client/sign-in-return";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   useSetHeaderActions,
   useSetPageTitle,
 } from "@agent-native/toolkit/app-shell";
-import { VisibilityBadge } from "@agent-native/toolkit/sharing";
+import { VisibilityBadge } from "@agent-native/toolkit/app/sharing/VisibilityBadge";
 import {
   IconPlus,
   IconLoader2,
@@ -147,8 +148,8 @@ export function FormsListPage() {
           },
         },
       );
-    } catch {
-      toast.error(t("forms.duplicateFailed"));
+    } catch (error) {
+      reportWriteFailure(error, { label: t("forms.duplicateFailed") });
     }
   }
 

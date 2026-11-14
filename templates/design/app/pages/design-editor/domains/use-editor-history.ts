@@ -66,7 +66,6 @@ import {
   type GeometryHistoryEntry,
   type GeometryHistorySelection,
   type PendingTextCreationHistory,
-  type SelectionHistoryEntry,
   MAX_DESIGN_UNDO_STACK,
   mergeLocalContentHistoryFallback,
   removeRecentUndoRedoOrderKinds,
@@ -477,8 +476,8 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
   const replayPendingHistoryRef = useRef<
     ((direction: "undo" | "redo") => void) | null
   >(null);
-  const historyOrderRef = useRef<(UndoRedoOrderKind | "selection")[]>([]);
-  const redoOrderRef = useRef<(UndoRedoOrderKind | "selection")[]>([]);
+  const historyOrderRef = useRef<UndoRedoOrderKind[]>([]);
+  const redoOrderRef = useRef<UndoRedoOrderKind[]>([]);
   const clearPendingLiveEditState = useCallback(
     (options: { preserveDurableHandoff?: boolean } = {}) => {
       pendingLiveEditReloadedTargetsRef.current.clear();
@@ -796,10 +795,6 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     return channel.subscribe(handleDesignHostMessage);
   }, [builderHostProtocolActive]);
 
-  const selectionUndoStackRef = useRef<SelectionHistoryEntry[]>([]);
-  const selectionRedoStackRef = useRef<SelectionHistoryEntry[]>([]);
-  const selectionPushedAtRef = useRef(0);
-  const dragStartSelectionRef = useRef<SelectionHistoryEntry | null>(null);
   const clearRedoStacks = useCallback(() => {
     contentRedoStackRef.current = [];
     contentRedoSelectionStackRef.current = [];
@@ -811,7 +806,6 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     pendingLiveNonStyleRedoStackRef.current = [];
     clipboardPasteRedoStackRef.current = [];
     pendingStructureRedoReplayRef.current = undefined;
-    selectionRedoStackRef.current = [];
     if (pendingStructureRedoReplayTimerRef.current !== undefined) {
       window.clearTimeout(pendingStructureRedoReplayTimerRef.current);
       pendingStructureRedoReplayTimerRef.current = undefined;
@@ -917,8 +911,7 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
           (contentUndoStackRef.current.length > 0 ||
             geometryUndoStackRef.current.length > 0 ||
             fileCreationUndoStackRef.current.length > 0 ||
-            fileDeletionUndoStackRef.current.length > 0 ||
-            selectionUndoStackRef.current.length > 0)),
+            fileDeletionUndoStackRef.current.length > 0)),
       contentRedoStackRef.current.some(
         (entry) => "linkedComponent" in entry && entry.linkedComponent,
       ) ||
@@ -931,8 +924,7 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
           (contentRedoStackRef.current.length > 0 ||
             geometryRedoStackRef.current.length > 0 ||
             fileCreationRedoStackRef.current.length > 0 ||
-            fileDeletionRedoStackRef.current.length > 0 ||
-            selectionRedoStackRef.current.length > 0)),
+            fileDeletionRedoStackRef.current.length > 0)),
     );
   }, [publishUndoRedo]);
   useEffect(() => {
@@ -973,23 +965,6 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
           redoOrderRef.current,
           "content",
         );
-      }
-      const dragStartSelection = dragStartSelectionRef.current;
-      dragStartSelectionRef.current = null;
-      if (
-        dragStartSelection &&
-        historyOrderRef.current[historyOrderRef.current.length - 1] ===
-          "selection" &&
-        selectionUndoStackRef.current[
-          selectionUndoStackRef.current.length - 1
-        ] === dragStartSelection
-      ) {
-        // The selection a drag's pointerdown made belongs to that drag's step.
-        selectionUndoStackRef.current = selectionUndoStackRef.current.slice(
-          0,
-          -1,
-        );
-        historyOrderRef.current = historyOrderRef.current.slice(0, -1);
       }
       contentUndoStackRef.current = [
         ...contentUndoStackRef.current.slice(-(MAX_DESIGN_UNDO_STACK - 1)),
@@ -1169,8 +1144,6 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     fileDeletionRedoStackRef.current = [];
     fileHistoryMutationPendingRef.current = false;
     clearPendingHistoryDirections();
-    selectionUndoStackRef.current = [];
-    selectionRedoStackRef.current = [];
     clipboardPasteUndoStackRef.current = [];
     clipboardPasteRedoStackRef.current = [];
     latestClipboardMutationContentRef.current.clear();
@@ -1386,10 +1359,6 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
     replayPendingHistoryRef,
     historyOrderRef,
     redoOrderRef,
-    selectionUndoStackRef,
-    selectionRedoStackRef,
-    selectionPushedAtRef,
-    dragStartSelectionRef,
     clearRedoStacks,
     clearPendingHistoryDirections,
     historySourceReaderRef,

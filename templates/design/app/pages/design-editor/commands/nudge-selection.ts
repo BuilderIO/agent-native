@@ -1,6 +1,10 @@
 import type { CanvasFrameGeometryById } from "@shared/canvas-frames";
 import type { MoveNodeEditIntent } from "@shared/code-layer";
-import { applyVisualEdit } from "@shared/code-layer";
+import { applyVisualEdit, buildCodeLayerProjection } from "@shared/code-layer";
+import {
+  parseSvgShapeTranslate,
+  svgShapeTranslateAfterMove,
+} from "@shared/svg-shape-offset";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 
 import { trace } from "@/components/design/design-trace";
@@ -13,6 +17,7 @@ import {
   elementInfoFromCodeLayerNode,
   resolveCodeLayerNodeFromElementInfo,
 } from "@/pages/design-editor/code-layer-state";
+import type { LayoutMoveRefusal } from "@/pages/design-editor/commands/align-selection";
 import type { OverviewScreen } from "@/pages/design-editor/derive/overview-screens";
 import {
   cloneCanvasFrameGeometry,
@@ -72,6 +77,7 @@ export interface NudgeSelectionArgs {
     options?: { source?: "pointer" | "keyboard" },
   ) => void;
   hideSelectionChromeForNudge: () => void;
+  refuseMove: (refusal: LayoutMoveRefusal) => void;
   overviewScreens: OverviewScreen[];
   overviewSelectedScreenIds: string[];
   selectedElement: ElementInfo | null;
@@ -130,6 +136,7 @@ export function runNudgeSelection(
     getFreshActiveContent,
     handleGeometryCommit,
     hideSelectionChromeForNudge,
+    refuseMove,
     overviewScreens,
     overviewSelectedScreenIds,
     selectedElement,
@@ -203,6 +210,47 @@ export function runNudgeSelection(
     renderedElementInfoByLayerKeyRef.current,
   );
   if (!nudgeTarget?.selector) return;
+
+  if (nudgeTarget.svgShapeOffset !== undefined) {
+    // The render still reports the offset from before a quick previous tap;
+    // the source already holds it.
+    const sourceNode = !isRunningAppSource
+      ? resolveCodeLayerNodeFromElementInfo(
+          buildCodeLayerProjection(getFreshActiveContent(), {
+            source: { kind: "design-file", fileId: activeFile.id },
+          }),
+          nudgeTarget,
+        )
+      : null;
+    const authored = sourceNode?.style.translate;
+    const offset =
+      authored === undefined
+        ? nudgeTarget.svgShapeOffset
+        : parseSvgShapeTranslate(authored);
+    const translate = offset
+      ? svgShapeTranslateAfterMove(
+          offset,
+          nudgeTarget.positionContainingBlockTransform ?? {
+            a: 1,
+            b: 0,
+            c: 0,
+            d: 1,
+          },
+          { dx, dy },
+        )
+      : null;
+    if (!translate) {
+      refuseMove("unsupported-position");
+      return;
+    }
+    hideSelectionChromeForNudge();
+    commitVisualStyles(
+      nudgeTarget.selector,
+      { translate },
+      { elementInfo: nudgeTarget },
+    );
+    return;
+  }
 
   if (isRunningAppSource && canEditLiveScreen) {
     hideSelectionChromeForNudge();
@@ -284,14 +332,75 @@ export function runNudgeSelection(
   }
 
   hideSelectionChromeForNudge();
-  const left = parseFloat(nudgeTarget.computedStyles.left || "0") || 0;
-  const top = parseFloat(nudgeTarget.computedStyles.top || "0") || 0;
+  const rendered = {
+    left: parseFloat(nudgeTarget.computedStyles.left || "0") || 0,
+    top: parseFloat(nudgeTarget.computedStyles.top || "0") || 0,
+  };
+  const chain = continuedTranslateNudgeChain(
+    nudgeTarget.selector,
+    intent.sourcePosition,
+    rendered,
+  );
+  const base = chain?.positions[chain.positions.length - 1] ?? rendered;
+  const next = {
+    left: Math.round(base.left + intent.dx),
+    top: Math.round(base.top + intent.dy),
+  };
   commitVisualStyles(nudgeTarget.selector, {
     position:
       nudgeTarget.computedStyles.position === "static"
         ? "relative"
         : nudgeTarget.computedStyles.position || "relative",
-    left: `${Math.round(left + intent.dx)}px`,
-    top: `${Math.round(top + intent.dy)}px`,
+    left: `${next.left}px`,
+    top: `${next.top}px`,
   });
+  translateNudgeChain = {
+    selector: nudgeTarget.selector,
+    positions:
+      chain && !samePosition(rendered, base)
+        ? [...chain.positions, next]
+        : [rendered, next],
+  };
+}
+
+interface NudgePosition {
+  left: number;
+  top: number;
+}
+
+interface TranslateNudgeChain {
+  selector: string;
+  positions: NudgePosition[];
+}
+
+const samePosition = (a: NudgePosition, b: NudgePosition) =>
+  a.left === b.left && a.top === b.top;
+
+// A nudged layer's rendered position comes back from its iframe after the
+// commit, so a quick next tap still reads the position from before the last
+// one and would overwrite it. The chain continues from what this command wrote
+// only while the source still holds the last tap's position and the render is
+// one the chain passed through; any other edit (undo, a drag, a peer, a
+// breakpoint-scoped write) breaks that and the next tap reads the render again.
+let translateNudgeChain: TranslateNudgeChain | null = null;
+
+function continuedTranslateNudgeChain(
+  selector: string,
+  sourcePosition: NudgePosition | undefined,
+  rendered: NudgePosition,
+): TranslateNudgeChain | null {
+  const chain = translateNudgeChain;
+  const last = chain?.positions[chain.positions.length - 1];
+  if (
+    !chain ||
+    !last ||
+    chain.selector !== selector ||
+    !sourcePosition ||
+    !samePosition(sourcePosition, last)
+  ) {
+    return null;
+  }
+  return chain.positions.some((position) => samePosition(position, rendered))
+    ? chain
+    : null;
 }

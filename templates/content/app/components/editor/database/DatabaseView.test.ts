@@ -39,6 +39,7 @@ import {
   databaseBuilderProgressHighWater,
   databaseBuilderExecutionRequiresReconciliation,
   databaseBuilderReviewAfterExecutionError,
+  databaseBuilderReviewAuthoritativeChangeSetIds,
   databaseBuilderReviewBelongsToSource,
   databaseBuilderPreparedReviewSelection,
   databaseBuilderReviewExactSelectionIsValid,
@@ -59,6 +60,7 @@ import {
   databaseNextBuilderContinuationWatchdogSource,
   databaseNextBuilderHydrationSource,
   databasePreviewItem,
+  databaseItemCommentLink,
   databaseItemPagePath,
   orderDatabasePropertiesForView,
   reorderDatabaseViewProperty,
@@ -262,6 +264,28 @@ describe("database table loading", () => {
 });
 
 describe("database preview property saves", () => {
+  it("carries the view a row was opened from through full-page navigation", () => {
+    expect(
+      databaseItemPagePath("row-1", "database", "page", "view & one"),
+    ).toBe(
+      "/page/row-1?databaseId=database&databaseDocumentId=page&fromViewId=view+%26+one",
+    );
+  });
+
+  it("opens a full-page row on the Comment its link names", () => {
+    const path = databaseItemPagePath("row-1", "database", "page");
+    expect(databaseItemCommentLink(path, null)).toBe(path);
+    expect(databaseItemCommentLink(path, { threadId: "thread & one" })).toBe(
+      `${path}&comment=thread%20%26%20one`,
+    );
+    expect(databaseItemCommentLink(path, { propertyId: "status/1" })).toBe(
+      `${path}&commentProperty=status%2F1`,
+    );
+    expect(databaseItemCommentLink(path, { pageComment: true })).toBe(
+      `${path}&commentPage=1`,
+    );
+  });
+
   it("carries the database and its page through full-page navigation", () => {
     expect(
       databaseItemPagePath("row-1", "database & one", "database/page"),
@@ -982,6 +1006,49 @@ describe("Builder review source sessions", () => {
         "change-foreign",
       ]),
     ).toBeNull();
+  });
+
+  it("checks a review of a row past the loaded page against the complete or prepared ids", () => {
+    const pageWithoutRow = {
+      ...source,
+      changeSets: [],
+    } as ContentDatabaseSource;
+    const complete = {
+      rows: [{ changeSetId: "change-past-page" }],
+    } as ContentDatabaseSourceReviewPayload;
+    const prepared = {
+      rows: [{ changeSetId: "change-prepared" }],
+    } as ContentDatabaseSourceReviewPayload;
+
+    expect(
+      databaseBuilderReviewSelectedChangeSetIds(complete, pageWithoutRow, [
+        "change-past-page",
+      ]),
+    ).toBeNull();
+    expect(
+      databaseBuilderReviewSelectedChangeSetIds(
+        complete,
+        pageWithoutRow,
+        ["change-past-page"],
+        databaseBuilderReviewAuthoritativeChangeSetIds({
+          prepared: null,
+          preparedChangeSetIdMap: null,
+          completeChangeSetIds: ["change-past-page"],
+        }),
+      ),
+    ).toEqual(["change-past-page"]);
+    expect(
+      databaseBuilderReviewSelectedChangeSetIds(
+        prepared,
+        pageWithoutRow,
+        ["change-prepared"],
+        databaseBuilderReviewAuthoritativeChangeSetIds({
+          prepared,
+          preparedChangeSetIdMap: { "change-past-page": "change-prepared" },
+          completeChangeSetIds: ["change-past-page"],
+        }),
+      ),
+    ).toEqual(["change-prepared"]);
   });
 
   it("requires the prepared review to return exactly the selected ids", () => {

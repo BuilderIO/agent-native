@@ -1,5 +1,3 @@
-/** @jsxRuntime classic */
-
 import { frameworkRoutePrefix } from "@agent-native/core/client/api-path";
 import type { ResetPasswordPageProps } from "@agent-native/core/shared/auth-page-types";
 import { toPublicFrameworkPath } from "@agent-native/core/shared/framework-route-prefix";

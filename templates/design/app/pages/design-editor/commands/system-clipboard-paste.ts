@@ -7,9 +7,15 @@ import {
 } from "@/pages/design-editor/commands/pasted-image-files";
 
 export interface ContextMenuPasteArgs {
+  boardFileId?: string;
   canEditDesign: boolean;
   clipboardFiles: File[];
-  handlePasteSelection: (position?: { x: number; y: number }) => Promise<void>;
+  // A point with a fileId is local to that screen.
+  handlePasteSelection: (position?: {
+    x: number;
+    y: number;
+    fileId?: string;
+  }) => Promise<void>;
   handlePastedImageFiles: (
     files: File[],
     anchor?: PastedImageFilesClientAnchor,
@@ -29,6 +35,7 @@ export interface ContextMenuPasteArgs {
 
 export async function runContextMenuPaste(
   {
+    boardFileId,
     canEditDesign,
     clipboardFiles,
     handlePasteSelection,
@@ -40,9 +47,22 @@ export async function runContextMenuPaste(
 ) {
   const hasPoint = point?.canvasX !== undefined && point.canvasY !== undefined;
   if (!canEditDesign || clipboardFiles.length === 0) {
-    const boardPoint = point
-      ? resolveBoardPoint?.({ x: point.clientX, y: point.clientY })
-      : null;
+    const overScreen =
+      hasPoint && point!.screenId && point!.screenId !== boardFileId
+        ? point!.screenId
+        : null;
+    const boardPoint =
+      point && !overScreen
+        ? resolveBoardPoint?.({ x: point.clientX, y: point.clientY })
+        : null;
+    if (overScreen) {
+      await handlePasteSelection({
+        x: point!.canvasX!,
+        y: point!.canvasY!,
+        fileId: overScreen,
+      });
+      return;
+    }
     await handlePasteSelection(
       boardPoint ??
         (hasPoint ? { x: point!.canvasX!, y: point!.canvasY! } : undefined),

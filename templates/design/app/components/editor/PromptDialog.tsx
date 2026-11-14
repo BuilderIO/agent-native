@@ -1,5 +1,5 @@
 import { trackEvent } from "@agent-native/core/client/analytics";
-import { appBasePath } from "@agent-native/core/client/api-path";
+import { appApiPath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import { useOrg } from "@agent-native/core/client/org";
 import {
@@ -26,6 +26,7 @@ import {
   lazy,
   Suspense,
   type ComponentType,
+  type ReactNode,
   useState,
   useEffect,
   useCallback,
@@ -158,6 +159,7 @@ interface PromptPopoverProps {
   contextMenuItems?: ComposerContextMenuItem[];
   onRemoveContextItem?: (key: string) => void;
   onRetryContextItem?: (key: string) => void;
+  onPasteContext?: (clipboard: DataTransfer) => boolean;
   onSubmitError?: () => void;
   beforeSubmitContext?: (
     snapshot: ComposerContextSnapshot | undefined,
@@ -165,6 +167,10 @@ interface PromptPopoverProps {
   composerRef?: React.Ref<TiptapComposerHandle>;
   initialText?: string;
   initialTextKey?: number;
+  initialTextOverridesSavedDraft?: boolean;
+  onPromptTextChange?: (text: string) => void;
+  /** Row rendered inside the composer frame, above the editor. */
+  composerHeaderSlot?: ReactNode;
   disabled?: boolean;
   submissionDisabled?: boolean;
   showModelSelector?: boolean;
@@ -257,11 +263,15 @@ export default function PromptPopover({
   contextMenuItems,
   onRemoveContextItem,
   onRetryContextItem,
+  onPasteContext,
   onSubmitError,
   beforeSubmitContext,
   composerRef,
   initialText,
   initialTextKey,
+  initialTextOverridesSavedDraft = false,
+  onPromptTextChange,
+  composerHeaderSlot,
   disabled = false,
   submissionDisabled = false,
   showModelSelector,
@@ -404,7 +414,7 @@ export default function PromptPopover({
   }, [open]);
 
   const deleteUploadedFile = useCallback(async (file: UploadedFile) => {
-    const response = await fetch(`${appBasePath()}/api/uploads`, {
+    const response = await fetch(appApiPath("/api/uploads"), {
       method: "DELETE",
       headers: { "content-type": "application/json" },
       credentials: "include",
@@ -455,7 +465,7 @@ export default function PromptPopover({
         for (const batch of splitUploadBatches(preparedFiles)) {
           const formData = new FormData();
           batch.forEach(({ file }) => formData.append("files", file));
-          const res = await fetch(`${appBasePath()}/api/uploads`, {
+          const res = await fetch(appApiPath("/api/uploads"), {
             method: "POST",
             body: formData,
           });
@@ -684,6 +694,14 @@ export default function PromptPopover({
   const showCreativeContextPicker =
     Boolean(onCreativeContextChange) &&
     (creativeContextsLoading || creativeContexts.length > 0);
+  const creationModeToggle =
+    creationMode && onCreationModeChange ? (
+      <CreationModeToggle
+        mode={creationMode}
+        onChange={onCreationModeChange}
+        disabled={loading || uploading || submitting}
+      />
+    ) : null;
   const Composer = composerComponent ?? LazyPromptComposer;
   const promptComposer = (
     <Composer
@@ -705,6 +723,8 @@ export default function PromptPopover({
       submitting={submitting}
       layoutVariant={inline ? "hero" : undefined}
       className={inline ? "design-home-prompt-composer-area" : undefined}
+      voiceEnabled
+      voiceChatEnabled={false}
       composerRef={composerRef}
       ariaLabel={placeholder ?? t("home.describeBuild")}
       showModelSelector={showModelSelector}
@@ -716,10 +736,13 @@ export default function PromptPopover({
       onBeforeSubmit={onBeforeSubmit}
       onTextChange={(text) => {
         draftTextRef.current = text;
+        onPromptTextChange?.(text);
       }}
+      headerSlot={composerHeaderSlot}
       contextItems={contextItems}
       onRemoveContextItem={onRemoveContextItem}
       onRetryContextItem={onRetryContextItem}
+      onPasteContext={onPasteContext}
       onAttachmentsChange={handleAttachmentsChange}
       draftScope={orgScopedDraftScope}
       initialText={activeRestoredPrompt?.text ?? initialText}
@@ -728,26 +751,21 @@ export default function PromptPopover({
           ? `restore:${initialTextKey ?? 0}:${activeRestoredPrompt.revision}`
           : `seed:${initialTextKey ?? 0}`
       }
+      initialTextOverridesSavedDraft={initialTextOverridesSavedDraft}
       contextMenuItems={contextMenuItems ?? []}
+      // Inside the composer so an attached setup card above meets the box directly.
+      toolbarSlot={inline ? creationModeToggle : undefined}
     />
   );
 
   const content = (
     <>
-      {(!inline || creationMode) && (
+      {!inline && (
         <div className="flex items-center justify-between gap-2 px-3.5 pt-3 pb-2">
-          {!inline && (
-            <span className="text-sm font-medium text-foreground/90">
-              {title}
-            </span>
-          )}
-          {creationMode && onCreationModeChange ? (
-            <CreationModeToggle
-              mode={creationMode}
-              onChange={onCreationModeChange}
-              disabled={loading || uploading || submitting}
-            />
-          ) : null}
+          <span className="text-sm font-medium text-foreground/90">
+            {title}
+          </span>
+          {creationModeToggle}
         </div>
       )}
 
@@ -984,7 +1002,12 @@ export default function PromptPopover({
     </>
   );
 
-  if (inline) return <div data-design-inline-prompt>{content}</div>;
+  if (inline)
+    return (
+      <div data-design-inline-prompt data-agentkit-composer-size="large">
+        {content}
+      </div>
+    );
 
   return (
     <Popover open={open} onOpenChange={onOpenChange}>

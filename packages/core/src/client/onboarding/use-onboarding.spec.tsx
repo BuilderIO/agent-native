@@ -213,6 +213,119 @@ describe("useOnboarding — completeFirstRun failure handling", () => {
   });
 });
 
+describe("useOnboarding — first run completed by another instance", () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  const results = new Map<string, UseOnboardingResult>();
+  let completed = false;
+  let pendingStatus: ((firstRun: boolean) => void) | null = null;
+
+  function Gate() {
+    results.set("gate", useOnboarding({ initialFirstRun: true }));
+    return null;
+  }
+
+  function SidebarFallback() {
+    results.set("sidebar", useOnboarding({ firstRunSurface: true }));
+    return null;
+  }
+
+  function stubFetch({ holdStatus = false } = {}) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.includes("/onboarding/summary")) {
+          return jsonResponse({
+            steps: [],
+            dismissed: false,
+            profile: { appId: "app", appName: "App", capabilities: [] },
+          });
+        }
+        if (url.includes("/onboarding/first-run/status")) {
+          if (holdStatus) {
+            return new Promise<Response>((resolve) => {
+              pendingStatus = (firstRun) => resolve(jsonResponse({ firstRun }));
+            });
+          }
+          return jsonResponse({ firstRun: !completed });
+        }
+        if (url.includes("/onboarding/first-run/complete")) {
+          completed = true;
+          return jsonResponse({});
+        }
+        throw new Error(`Unexpected fetch: ${url}`);
+      }),
+    );
+  }
+
+  async function settle() {
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+  }
+
+  beforeEach(() => {
+    vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    document.cookie = "agent-native-first-run=1; path=/";
+    results.clear();
+    completed = false;
+    pendingStatus = null;
+    container = document.createElement("div");
+    document.body.appendChild(container);
+    root = createRoot(container);
+  });
+
+  afterEach(() => {
+    act(() => root.unmount());
+    container.remove();
+    document.cookie = "agent-native-first-run=; Max-Age=0; path=/";
+    vi.unstubAllGlobals();
+  });
+
+  it("closes the sidebar's first run when the gate's instance completes it", async () => {
+    stubFetch();
+    await act(async () => {
+      root.render(
+        <>
+          <Gate />
+          <SidebarFallback />
+        </>,
+      );
+    });
+    await settle();
+    expect(results.get("sidebar")?.firstRun).toBe(true);
+
+    await act(async () => {
+      await results.get("gate")!.completeFirstRun();
+    });
+
+    expect(results.get("gate")?.firstRun).toBe(false);
+    expect(results.get("sidebar")?.firstRun).toBe(false);
+  });
+
+  it("ignores a status read that was in flight when first run completed", async () => {
+    stubFetch({ holdStatus: true });
+    await act(async () => {
+      root.render(<SidebarFallback />);
+    });
+    await settle();
+    expect(pendingStatus).not.toBeNull();
+
+    await act(async () => {
+      window.dispatchEvent(new CustomEvent("agent-native:first-run-completed"));
+    });
+    await act(async () => {
+      pendingStatus!(true);
+    });
+    await settle();
+
+    expect(results.get("sidebar")?.firstRun).toBe(false);
+  });
+});
+
 describe("useOnboarding — summary timeout", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -405,6 +518,85 @@ describe("trackOnboardingEvent", () => {
       flow: "checklist",
       step_id: "choice",
     });
+  });
+
+  it("keeps an explicit experiment tag separate from the default first-run arm", () => {
+    setOnboardingExperiment({
+      id: "first_run_builder_credits",
+      variant: "control",
+    });
+    trackEventMock.mockClear();
+
+    trackOnboardingEvent("onboarding_experiment_exposed", {
+      flow: "first_run",
+      step_id: "choice",
+      experiment_id: "first_run_builder_credits_v2",
+      experiment_variant: "credits",
+    });
+    trackOnboardingEvent("onboarding_method_clicked", {
+      flow: "first_run",
+      step_id: "choice",
+    });
+
+    expect(trackEventMock).toHaveBeenNthCalledWith(
+      1,
+      "onboarding_experiment_exposed",
+      expect.objectContaining({
+        experiment_id: "first_run_builder_credits_v2",
+        experiment_variant: "credits",
+      }),
+    );
+    expect(trackEventMock).toHaveBeenNthCalledWith(
+      2,
+      "onboarding_method_clicked",
+      expect.objectContaining({
+        experiment_id: "first_run_builder_credits",
+        experiment_variant: "control",
+      }),
+    );
+  });
+
+  it("deduplicates exposure events separately for each experiment", () => {
+    setOnboardingExperiment({
+      id: "first_run_builder_credits",
+      variant: "control",
+    });
+    trackEventMock.mockClear();
+
+    trackOnboardingEvent("onboarding_experiment_exposed", {
+      flow: "first_run",
+      step_id: "choice",
+    });
+    trackOnboardingEvent("onboarding_experiment_exposed", {
+      flow: "first_run",
+      step_id: "choice",
+      experiment_id: "first_run_builder_credits_v2",
+      experiment_variant: "credits",
+    });
+    trackOnboardingEvent("onboarding_experiment_exposed", {
+      flow: "first_run",
+      step_id: "choice",
+      experiment_id: "first_run_builder_credits_v2",
+      experiment_variant: "credits",
+    });
+
+    expect(trackEventMock).toHaveBeenCalledTimes(2);
+    expect(trackEventMock).toHaveBeenNthCalledWith(
+      1,
+      "onboarding_experiment_exposed",
+      expect.objectContaining({
+        experiment_id: "first_run_builder_credits",
+        experiment_variant: "control",
+      }),
+    );
+    expect(trackEventMock).toHaveBeenNthCalledWith(
+      2,
+      "onboarding_experiment_exposed",
+      expect.objectContaining({
+        experiment_id: "first_run_builder_credits_v2",
+        experiment_variant: "credits",
+      }),
+    );
   });
 
   it("restores the exposed arm from storage after a page reload", () => {

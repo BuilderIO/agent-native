@@ -28,7 +28,10 @@ interface Group {
   segments: ContextSegmentViewData[];
 }
 
-function groupLabel(name: string, translate: ContextTranslate): string {
+export function contextGroupLabel(
+  name: string,
+  translate: ContextTranslate,
+): string {
   if (name === "Pinned")
     return translate("agentChat.contextXray.groups.pinned", {
       defaultValue: name,
@@ -86,7 +89,7 @@ function groupedSegments(
           : segment.group;
     const group = map.get(name) ?? {
       name,
-      label: groupLabel(name, translate),
+      label: contextGroupLabel(name, translate),
       tokens: 0,
       segments: [],
     };

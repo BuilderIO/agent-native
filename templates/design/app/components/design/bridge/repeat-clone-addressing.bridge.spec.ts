@@ -470,13 +470,15 @@ it(
         );
         await page.keyboard.type("!");
 
+        // Entering edit mode selects all of the text, so typing replaces
+        // the second row's label and leaves the first alone.
         expect(
           await page
             .locator("ul > li > span")
             .evaluateAll((labels) =>
               labels.slice(0, 2).map((label) => label.textContent),
             ),
-        ).toEqual(["row one", "row two!"]);
+        ).toEqual(["row one", "!"]);
       },
       { textEditing: true },
     );

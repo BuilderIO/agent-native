@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-
 import { describe, expect, it } from "vitest";
 
 import { appendAgentChatContextToMessage } from "../shared/agent-chat-context.js";
@@ -17,8 +15,10 @@ import {
   foldAssistantTurn,
   foldThreadRunSuggestions,
   foldUnstartedTurnFailure,
+  hasPrivateRunProjections,
   mergeThreadDataForClientSave,
   normalizeThreadRepository,
+  sanitizeThreadDataForPrivateActions,
   threadDataToEngineMessages,
   upsertAssistantMessage,
   upsertUserMessage,
@@ -595,6 +595,49 @@ describe("buildAssistantMessage", () => {
       result: "Error running send-email: connection reset",
     });
   });
+  it.each([
+    ["rejection", "Error running send-email: upstream rejected it"],
+    ["interruption", "Tool call timed out after 20 seconds"],
+  ] as const)(
+    "replays the recorded %s cause of an unknown outcome",
+    (unknownCause, result) => {
+      const message = buildAssistantMessage(
+        [
+          {
+            seq: 0,
+            event: {
+              type: "tool_start",
+              id: "email",
+              tool: "send-email",
+              input: {},
+            },
+          },
+          {
+            seq: 1,
+            event: {
+              type: "tool_done",
+              id: "email",
+              tool: "send-email",
+              result,
+              isError: true,
+              outcomeUnknown: true,
+              unknownCause,
+            },
+          },
+        ],
+        `cause-${unknownCause}`,
+      );
+      const stored = JSON.stringify(upsertAssistantMessage({}, message!));
+      const replayed = threadDataToEngineMessages(stored, {
+        includeToolCalls: true,
+      })
+        .flatMap(({ content }) => content)
+        .find((part) => part.type === "tool-result");
+
+      expect(replayed).toMatchObject({ outcome: "unknown", unknownCause });
+    },
+  );
+
   it("persists the resource scope used by the chat turn", () => {
     const message = buildAssistantMessage(
       [{ seq: 0, event: { type: "text", text: "Saved." } }],
@@ -1034,6 +1077,32 @@ describe("buildAssistantMessage", () => {
     ]);
   });
 
+  it("clears all rejected text across completed tools when requested", () => {
+    const events: RunEvent[] = [
+      { seq: 0, event: { type: "text", text: "Rejected earlier text" } },
+      {
+        seq: 1,
+        event: {
+          type: "tool_start",
+          tool: "query",
+          input: { sql: "select 1" },
+        },
+      },
+      { seq: 2, event: { type: "tool_done", tool: "query", result: "1" } },
+      { seq: 3, event: { type: "text", text: "Rejected later text" } },
+      { seq: 4, event: { type: "clear", allText: true } },
+      { seq: 5, event: { type: "text", text: "Corrected answer" } },
+    ];
+    expect(buildAssistantMessage(events, "run-clear-all")?.content).toEqual([
+      expect.objectContaining({
+        type: "tool-call",
+        toolName: "query",
+        result: "1",
+      }),
+      { type: "text", text: "Corrected answer" },
+    ]);
+  });
+
   it("ignores a trailing clear so a rebuild cannot wipe the transcript", () => {
     const events: RunEvent[] = [
       { seq: 0, event: { type: "text", text: "Here is the answer" } },
@@ -1138,6 +1207,43 @@ describe("buildAssistantMessage", () => {
         continued: true,
       },
     });
+  });
+
+  it("separates text blocks across an auto-continue boundary", () => {
+    const message = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "First block ends here." } },
+        { seq: 1, event: { type: "auto_continue", reason: "run_timeout" } },
+        { seq: 2, event: { type: "text", text: "Second block starts here." } },
+      ],
+      "run-sep",
+    );
+
+    expect(message?.content).toEqual([
+      {
+        type: "text",
+        text: "First block ends here.\n\nSecond block starts here.",
+      },
+    ]);
+  });
+
+  it("does not carry the separator past reasoning that follows auto-continue", () => {
+    const message = buildAssistantMessage(
+      [
+        { seq: 0, event: { type: "text", text: "First." } },
+        { seq: 1, event: { type: "auto_continue", reason: "run_timeout" } },
+        { seq: 2, event: { type: "thinking", text: "hmm" } },
+        { seq: 3, event: { type: "text", text: "Second " } },
+        { seq: 4, event: { type: "text", text: "block." } },
+      ],
+      "run-sep2",
+    );
+
+    expect(message?.content).toEqual([
+      { type: "text", text: "First." },
+      { type: "reasoning", text: "hmm" },
+      { type: "text", text: "Second block." },
+    ]);
   });
 
   it("persists partial output from suppressed loop-limit boundaries", () => {
@@ -1308,6 +1414,119 @@ describe("buildAssistantMessage", () => {
       }),
     ]);
   });
+
+  it("reconstructs private approval only from a server grant id", () => {
+    const askId = "agent-tool-approval-11111111-2222-4333-8444-555555555555";
+    const events = [
+      {
+        seq: 0,
+        event: {
+          type: "tool_start" as const,
+          id: "private-call",
+          tool: "send-email",
+          input: {},
+          executionStepId: "model-step:input-derived",
+          inputFingerprint: "input-derived-fingerprint",
+          omitFromPersistedHistory: true as const,
+        },
+      },
+      {
+        seq: 1,
+        event: {
+          type: "approval_required" as const,
+          tool: "send-email",
+          toolCallId: "private-call",
+          input: {},
+          approvalKey: "[Private approval unavailable]",
+          askId,
+          omitFromPersistedHistory: true as const,
+        },
+      },
+      {
+        seq: 2,
+        event: {
+          type: "tool_done" as const,
+          id: "private-call",
+          tool: "send-email",
+          input: {},
+          executionStepId: "model-step:input-derived",
+          inputFingerprint: "input-derived-fingerprint",
+          result: "[Private content omitted]",
+          approvalPause: true,
+          omitFromPersistedHistory: true as const,
+        },
+      },
+    ];
+    const resumed = buildAssistantMessage(events, "run-private-approval");
+    expect(resumed?.content).toEqual([
+      expect.objectContaining({
+        type: "tool-call",
+        approval: { approvalKey: askId, askId },
+      }),
+    ]);
+    expect(JSON.stringify(resumed)).not.toContain("model-step:input-derived");
+    expect(JSON.stringify(resumed)).not.toContain("input-derived-fingerprint");
+    const missingId = buildAssistantMessage(
+      events.map((item) =>
+        item.seq === 1
+          ? { ...item, event: { ...item.event, askId: undefined } }
+          : item,
+      ),
+      "run-private-approval-no-id",
+    );
+    expect(missingId?.content).toEqual([
+      expect.objectContaining({ type: "tool-call" }),
+    ]);
+    expect(missingId?.content[0]).not.toHaveProperty("approval");
+  });
+
+  it.each([
+    { boundary: "start", startPrivate: true, donePrivate: false },
+    { boundary: "completion", startPrivate: false, donePrivate: true },
+  ])(
+    "removes identity metadata when $boundary marks a tool private",
+    ({ startPrivate, donePrivate }) => {
+      const message = buildAssistantMessage(
+        [
+          {
+            seq: 0,
+            event: {
+              type: "tool_start",
+              id: "call-1",
+              tool: "private-write",
+              input: { secret: "private-input-sentinel" },
+              executionStepId: "model-step:input-derived",
+              inputFingerprint: "input-derived-fingerprint",
+              ...(startPrivate
+                ? { omitFromPersistedHistory: true as const }
+                : {}),
+            },
+          },
+          {
+            seq: 1,
+            event: {
+              type: "tool_done",
+              id: "call-1",
+              tool: "private-write",
+              input: { secret: "private-input-sentinel" },
+              result: "private result",
+              executionStepId: "model-step:input-derived",
+              inputFingerprint: "input-derived-fingerprint",
+              ...(donePrivate
+                ? { omitFromPersistedHistory: true as const }
+                : {}),
+            },
+          },
+        ],
+        "run-private-completion",
+      );
+      const stored = JSON.stringify(message);
+      expect(stored).not.toContain("private result");
+      expect(stored).not.toContain("private-input-sentinel");
+      expect(stored).not.toContain("model-step:input-derived");
+      expect(stored).not.toContain("input-derived-fingerprint");
+    },
+  );
 
   it("reconstructs the approval pause from legacy journals", () => {
     const message = buildAssistantMessage(
@@ -6604,6 +6823,26 @@ describe("upsertUserMessage", () => {
     expect(replay.repo.messages).toHaveLength(2);
   });
 
+  it("removes a same-ID queued retry when a direct run commits", () => {
+    const queued = { id: "message-direct-race", text: "Run once" };
+    const userMessage = buildUserMessage({
+      text: queued.text,
+      runId: "run-direct-race",
+      agentKitMessageId: queued.id,
+    });
+
+    const result = applySubmittedUserMessage(
+      { messages: [], queuedMessages: [queued] },
+      userMessage,
+    );
+
+    expect(result.status).toBe("submitted");
+    if (!("repo" in result)) throw new Error("Expected a submitted result.");
+    expect(result.repo.queuedMessages).toEqual([]);
+    expect(result.repo.messages).toHaveLength(1);
+    expect(result.repo._claimedQueuedMessageIds).toContain(queued.id);
+  });
+
   it("submits a background operation once and reports a later run as already claimed", () => {
     const operation = {
       kind: "background-operation" as const,
@@ -7083,42 +7322,8 @@ describe("upsertUserMessage", () => {
   });
 });
 
-describe("live-client twins", () => {
-  const sourceOf = (relativePath: string): string =>
-    readFileSync(new URL(relativePath, import.meta.url), "utf8");
-
-  const functionBody = (source: string, name: string): string => {
-    const start = source.indexOf(`function ${name}(`);
-    expect(start, `${name} not found`).toBeGreaterThan(-1);
-    const open = source.indexOf("{", start);
-    let depth = 0;
-    for (let i = open; i < source.length; i++) {
-      if (source[i] === "{") depth++;
-      else if (source[i] === "}" && --depth === 0) {
-        return source
-          .slice(open + 1, i)
-          .replace(/\/\/[^\n]*/g, "")
-          .replace(/\s+/g, " ")
-          .trim();
-      }
-    }
-    throw new Error(`unterminated body for ${name}`);
-  };
-
-  it("keeps clearAssistantDraftContent identical to the live client copy", () => {
-    expect(
-      functionBody(
-        sourceOf("./thread-data-builder.ts"),
-        "clearAssistantDraftContent",
-      ),
-    ).toBe(
-      functionBody(
-        sourceOf("../client/sse-event-processor.ts"),
-        "clearAssistantDraftContent",
-      ),
-    );
-  });
-
+// oracle-change: source-twin checks moved intact to the dedicated source-only spec; behavioral folding coverage remains here.
+describe("live-client marker", () => {
   it("keeps the interrupted-tool-result marker identical to the live client copy", async () => {
     const [{ INTERRUPTED_TOOL_RESULT }, { INTERRUPTED_TOOL_RESULT_MARKER }] =
       await Promise.all([
@@ -7127,5 +7332,43 @@ describe("live-client twins", () => {
       ]);
 
     expect(INTERRUPTED_TOOL_RESULT_MARKER).toBe(INTERRUPTED_TOOL_RESULT);
+  });
+});
+
+describe("private run projections survive snapshot sanitizing", () => {
+  it("still attributes a redacted server-projected reply to its private run", () => {
+    const message = buildAssistantMessage(
+      [
+        {
+          seq: 1,
+          event: {
+            type: "tool_start",
+            tool: "private-action",
+            input: {},
+            omitFromPersistedHistory: true,
+          },
+        },
+        {
+          seq: 2,
+          event: {
+            type: "text",
+            text: "done",
+            omitFromPersistedHistory: true,
+          },
+        },
+      ] as RunEvent[],
+      "run-1",
+    );
+    const repo = {
+      messages: [
+        { message: { id: "u1", role: "user", content: [] }, parentId: null },
+        { message, parentId: "u1" },
+      ],
+    };
+    const sanitized = sanitizeThreadDataForPrivateActions(
+      JSON.parse(JSON.stringify(repo)),
+      new Set(["private-action"]),
+    );
+    expect(hasPrivateRunProjections(sanitized, ["run-1"])).toBe(true);
   });
 });

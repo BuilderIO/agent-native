@@ -3,11 +3,87 @@
 All notable user-facing changes to Agent-Native Calendar are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-09
+
+### Improved
+
+- More save failures now say why, such as being offline or lacking permission.
+
+## 2026-11-05
+
+### Improved
+
+- Failed saves now show a clear error message instead of failing silently.
+
+### Fixed
+
+- Preserve event seconds and milliseconds when using a time zone.
+
+## 2026-11-04
+
+### Improved
+
+- The agent finds the right Calendar action more often when you talk about meetings, rescheduling, or booking pages in your own words.
+
+## 2026-11-03
+
+### Fixed
+
+- Calendar shows available events and avoids an incorrect 'Connect Google' prompt when a connected account has a temporary sign-in problem.
+- Events the agent creates now land at the time you asked for in your Calendar timezone instead of shifting by your UTC offset.
+- Find a time now counts events from all your connected Google accounts as busy time.
+
+## 2026-10-29
+
+### Improved
+
+- Sharing is one panel: invite people and your organization's agents from one field, see everyone with access in one list, and find Copy link and Send to at the bottom.
+
+## 2026-10-27
+
+### Fixed
+
+- Calendar keeps successful invitation rules applied while another rule is retried.
+
+## 2026-10-26
+
+### Improved
+
+- Calendar event rules can use OpenAI when Jev is unavailable.
+
+## 2026-10-25
+
+### Fixed
+
+- Moving one event in a recurring series keeps the series on the right weekday after a time-zone change and at the right local time across daylight-saving changes
+
+## 2026-10-22
+
+### Added
+
+- Outside assistants can open invite drafts in Calendar for review, with approval required before deleting all drafts.
+
+### Improved
+
+- Approval links from a connected agent, such as Claude Code, now open the review inside the app, in its own theme.
+
+## 2026-10-21
+
+### Fixed
+
+- Calendar skips notification approval for solo events while preserving it for guest invitations and cancellations.
+
 ## 2026-10-19
 
 ### Changed
 
 - Apps no longer keep server functions and databases warm by default; set `AGENT_NATIVE_ENABLE_KEEP_WARM=1` to opt in.
+
+## 2026-10-16
+
+### Improved
+
+- Booking links show localized visibility badges.
 
 ## 2026-10-08
 

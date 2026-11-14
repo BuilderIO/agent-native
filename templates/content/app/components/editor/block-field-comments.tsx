@@ -1,4 +1,5 @@
 import type { ResourceSuggestion } from "@agent-native/core/review";
+import { suggestionBlocksFieldId } from "@shared/blocks-field-suggestions";
 import {
   createContext,
   useCallback,
@@ -14,13 +15,19 @@ import {
 import type { CommentThread } from "@/hooks/use-comments";
 
 import {
+  commentRailThreads,
   commentThreadFieldId,
   openReviewCountsByField,
   type BlockFieldOpenCounts,
 } from "./block-field-comment-threads";
 import { blockFieldEditor, inHiddenBlockFieldPanel } from "./blockFieldTabs";
 import type { CommentTextAnchor } from "./comment-anchors";
+import {
+  commentThreadMarkSelector,
+  type CommentBlockTarget,
+} from "./comment-block-anchors";
 import type { PendingCommentSelection } from "./CommentsSidebar";
+import type { DraftSuggestion } from "./suggestions/draft-session";
 
 /**
  * The Blocks field tabs a page shows, as comments need them. A field id of
@@ -61,7 +68,7 @@ export function soloBlockFieldTabs(fieldId: string): BlockFieldTabs {
   };
 }
 
-type TextRange = { from: number; to: number };
+type TextRange = { from: number; to: number; blockId?: string };
 
 export type BlockFieldCommentHandler = (
   fieldId: string,
@@ -71,6 +78,12 @@ export type BlockFieldCommentHandler = (
   range?: TextRange,
 ) => void;
 
+export type BlockFieldBlockCommentHandler = (
+  fieldId: string,
+  target: CommentBlockTarget,
+  offsetTop: number,
+) => void;
+
 type BlockFieldEditorCommentsValue = {
   threads: readonly CommentThread[];
   activeThreadId: string | null;
@@ -78,6 +91,7 @@ type BlockFieldEditorCommentsValue = {
   pending: { fieldId: string; range: TextRange } | null;
   showCommentIndicators: boolean;
   onComment?: BlockFieldCommentHandler;
+  onBlockComment?: BlockFieldBlockCommentHandler;
   onActivateThread?: (threadId: string) => void;
 };
 
@@ -145,6 +159,17 @@ export function useBlockFieldEditorComments(fieldId: string) {
         : undefined,
     [canComment, fieldId],
   );
+  const onBlockCommentRef = useRef(value?.onBlockComment);
+  onBlockCommentRef.current = value?.onBlockComment;
+  const canCommentOnBlocks = !!value?.onBlockComment;
+  const onBlockComment = useMemo(
+    () =>
+      canCommentOnBlocks
+        ? (target: CommentBlockTarget, offsetTop: number) =>
+            onBlockCommentRef.current?.(fieldId, target, offsetTop)
+        : undefined,
+    [canCommentOnBlocks, fieldId],
+  );
   const allThreads = value?.threads ?? NO_THREADS;
   const commentThreads = useMemo(
     () =>
@@ -157,6 +182,7 @@ export function useBlockFieldEditorComments(fieldId: string) {
   if (!value) return null;
   return {
     onComment,
+    onBlockComment,
     commentThreads,
     activeThreadId: value.activeThreadId,
     hoveredThreadId: value.hoveredThreadId,
@@ -179,6 +205,7 @@ function reviewTarget(
   threads: readonly CommentThread[] | undefined,
   selectedThreadId: string | null,
   suggestionId: string | null,
+  suggestionFieldId: (suggestionId: string) => string | null,
 ): ReviewTarget | null {
   if (selectedThreadId) {
     const thread = threads?.find(
@@ -194,10 +221,9 @@ function reviewTarget(
     };
   }
   if (suggestionId) {
-    // Suggestions edit the page body only.
     return {
       key: `suggestion:${suggestionId}`,
-      fieldId: null,
+      fieldId: suggestionFieldId(suggestionId),
       attribute: "data-suggestion-id",
       id: suggestionId,
     };
@@ -222,7 +248,9 @@ function scrollToReviewTarget(
   requestAnimationFrame(() => {
     const editor = blockFieldEditor(container, target.fieldId ?? null);
     const highlight = editor?.querySelector<HTMLElement>(
-      `[${target.attribute}="${cssEscape(target.id)}"]`,
+      target.attribute === "data-comment-thread"
+        ? commentThreadMarkSelector(target.id)
+        : `[${target.attribute}="${cssEscape(target.id)}"]`,
     );
     if (highlight && !inHiddenBlockFieldPanel(highlight)) {
       highlight.scrollIntoView?.({ behavior: "smooth", block: "center" });
@@ -253,14 +281,17 @@ export function useBlockFieldComments({
   pendingComment,
   showCommentIndicators,
   onComment,
+  onBlockComment,
   onActivateThread,
   scrollContainerRef,
 }: {
   /** The page shows Blocks fields, so the body waits for them to load. */
   expectsBlockFields: boolean;
   threads: readonly CommentThread[] | undefined;
+  /** Every tab's suggestions, the body's included. */
   suggestions: readonly ResourceSuggestion[];
-  draftSuggestions: readonly unknown[];
+  draftSuggestions: readonly DraftSuggestion[];
+  /** The body's suggestions its editor shows. */
   anchoredSuggestionIds: readonly string[] | null | undefined;
   selectedThreadId: string | null;
   selectedSuggestionId: string | null;
@@ -271,6 +302,7 @@ export function useBlockFieldComments({
   // Required, so every tab's editor gets the same handlers as the body's;
   // undefined turns them off.
   onComment: BlockFieldCommentHandler | undefined;
+  onBlockComment: BlockFieldBlockCommentHandler | undefined;
   onActivateThread: ((threadId: string) => void) | undefined;
   scrollContainerRef: RefObject<HTMLElement | null>;
 }) {
@@ -288,6 +320,12 @@ export function useBlockFieldComments({
     threads,
     selectedThreadId,
     selectedSuggestionId ?? focusSuggestionId,
+    (suggestionId) => {
+      const suggestion =
+        suggestions.find((candidate) => candidate.id === suggestionId) ??
+        draftSuggestions.find((candidate) => candidate.id === suggestionId);
+      return suggestion ? suggestionBlocksFieldId(suggestion) : null;
+    },
   );
   const targetKey = target?.key ?? null;
   const targetFieldId = target?.fieldId;
@@ -353,15 +391,24 @@ export function useBlockFieldComments({
   }, [scrollContainerRef, tabs, targetFieldId, targetKey, targetSettled]);
 
   const allThreads = threads ?? NO_THREADS;
-  const railThreads = useMemo(() => {
-    if (openFieldId === null && !allThreads.some((thread) => thread.field)) {
-      return allThreads as CommentThread[];
-    }
-    return allThreads.filter(
-      (thread) =>
-        thread.property || commentThreadFieldId(thread) === openFieldId,
-    );
-  }, [allThreads, openFieldId]);
+  const railThreads = useMemo(
+    () => commentRailThreads(allThreads as CommentThread[], openFieldId),
+    [allThreads, openFieldId],
+  );
+  const railSuggestions = useMemo(
+    () =>
+      suggestions.filter(
+        (suggestion) => suggestionBlocksFieldId(suggestion) === openFieldId,
+      ),
+    [openFieldId, suggestions],
+  );
+  const railDraftSuggestions = useMemo(
+    () =>
+      draftSuggestions.filter(
+        (suggestion) => suggestionBlocksFieldId(suggestion) === openFieldId,
+      ),
+    [draftSuggestions, openFieldId],
+  );
 
   const pendingFieldId = pendingComment?.property
     ? undefined
@@ -399,6 +446,7 @@ export function useBlockFieldComments({
       pending: fieldPending,
       showCommentIndicators,
       onComment,
+      onBlockComment,
       onActivateThread,
     }),
     [
@@ -406,6 +454,7 @@ export function useBlockFieldComments({
       fieldPending,
       hoveredThreadId,
       onActivateThread,
+      onBlockComment,
       onComment,
       selectedThreadId,
       showCommentIndicators,
@@ -426,8 +475,9 @@ export function useBlockFieldComments({
     bodyPendingHighlight,
     /** The open tab's threads, and Property threads, for the margin. */
     railThreads,
-    /** Suggestions edit the body, so only its tab shows them in the margin. */
-    railShowsSuggestions: openFieldId === null,
+    /** The open tab's suggestions, for the margin. */
+    railSuggestions,
+    railDraftSuggestions,
     provider,
   };
 }

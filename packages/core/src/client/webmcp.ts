@@ -282,8 +282,84 @@ export function initializeAgentNativeWebMcp(): boolean {
   }
   if (isAgentNativeWebMcpSupported()) return true;
   if (typeof window === "undefined") return false;
-  initializeWebMCPPolyfill();
+  withThrottledPolyfillScans(() => initializeWebMCPPolyfill());
   return isAgentNativeWebMcpSupported();
+}
+
+const POLYFILL_SCAN_INTERVAL_MS = 500;
+
+/**
+ * The polyfill's declarative-form support rescans the whole document on every
+ * mutation batch, a full-DOM walk per frame while a transcript streams. Its
+ * callback ignores the records, so batches can coalesce into one idle scan per
+ * POLYFILL_SCAN_INTERVAL_MS. Only observers created during initialization are
+ * throttled; a shadow root observed later still scans directly.
+ */
+function withThrottledPolyfillScans(initialize: () => void): void {
+  const NativeMutationObserver = globalThis.MutationObserver;
+  if (typeof NativeMutationObserver !== "function") {
+    initialize();
+    return;
+  }
+  class ThrottledMutationObserver extends NativeMutationObserver {
+    private readonly cancelScan: () => void;
+    constructor(callback: MutationCallback) {
+      let observer: MutationObserver | undefined;
+      const scan = throttledIdleTask(() => {
+        if (observer) callback([], observer);
+      });
+      super((_records, self) => {
+        observer = self;
+        scan.schedule();
+      });
+      this.cancelScan = scan.cancel;
+    }
+    override disconnect(): void {
+      this.cancelScan();
+      super.disconnect();
+    }
+  }
+  globalThis.MutationObserver = ThrottledMutationObserver;
+  try {
+    initialize();
+  } finally {
+    globalThis.MutationObserver = NativeMutationObserver;
+  }
+}
+
+function throttledIdleTask(task: () => void): {
+  schedule: () => void;
+  cancel: () => void;
+} {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  let idle: number | undefined;
+  const run = () => {
+    idle = undefined;
+    task();
+  };
+  return {
+    schedule() {
+      if (timer !== undefined || idle !== undefined) return;
+      timer = setTimeout(() => {
+        timer = undefined;
+        if (typeof requestIdleCallback === "function") {
+          idle = requestIdleCallback(run, {
+            timeout: POLYFILL_SCAN_INTERVAL_MS,
+          });
+        } else {
+          run();
+        }
+      }, POLYFILL_SCAN_INTERVAL_MS);
+    },
+    cancel() {
+      if (timer !== undefined) clearTimeout(timer);
+      if (idle !== undefined && typeof cancelIdleCallback === "function") {
+        cancelIdleCallback(idle);
+      }
+      timer = undefined;
+      idle = undefined;
+    },
+  };
 }
 
 export function isAgentNativeWebMcpSupported(

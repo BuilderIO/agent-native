@@ -1,6 +1,8 @@
 {
   "extends": "@agent-native/core/tsconfig.base.json",
   "compilerOptions": {
+    "noUncheckedIndexedAccess": false,
+    "exactOptionalPropertyTypes": false,
     "ignoreDeprecations": "6.0",
     // The shared base targets ES2020, but `new Error(message, { cause })`
     // needs ErrorOptions from lib.es2022.error.d.ts (matches packages/core's

@@ -287,7 +287,7 @@ você mesmo. É o campo, não todo o tempo de execução do chat.
 
 ### Contexto preparado no compositor {#composer-context}
 
-`PromptComposer` e `TiptapComposer` aceitam `submissionDisabled` para bloquear o envio sem impedir a preparação do rascunho, dos arquivos e do contexto. A falta de configuração do provedor bloqueia o envio, não a preparação. `disabled` continua desativando todo o compositor.
+`PromptComposer` e `TiptapComposer` aceitam `submissionDisabled` para bloquear o envio sem impedir a preparação do rascunho, dos arquivos e do contexto. Com `requireAgentEngine`, a falta de configuração do provedor impede digitar no `PromptComposer` enquanto um cartão de configuração está na tela, e um clique nele aponta para o cartão. Sem cartão na tela, bloqueia apenas o envio. `disabled` continua desativando todo o compositor.
 
 `PromptComposer`, `TiptapComposer` e `AgentKitComposer` aceitam `contextItems` e `contextMenuItems`. Os aplicativos controlam as leituras das fontes e os rótulos traduzidos.
 
@@ -310,7 +310,11 @@ O aplicativo pode preparar contexto já autorizado e receber um retrato imutáve
 />
 ```
 
-As fontes de contexto registram `picker` em um `ComposerContextMenuItem`. `ComposerContextMenu` cuida de submenus conectados em cascata do shadcn/Radix, não de painéis que substituem o anterior: a raiz oferece upload de arquivo, depois Adicionar contexto → categorias do hospedeiro → seletores de fontes. Adicionar contexto é omitido quando não há entradas do hospedeiro. As setas e Escape percorrem a hierarquia. Voltar dentro de um seletor de links apenas retorna dos resultados à entrada do link no mesmo submenu. O seletor compartilhado cuida de busca, linhas, estados de carregamento, vazio e erro, tentativas, paginação e entrada de links. Os aplicativos fornecem dados autorizados e callbacks de seleção, não JSX próprio de seletor.
+As fontes registram ações diretas com nomes claros em `ComposerContextMenuItem`. O menu compartilhado apresenta Adicionar contexto, Integrações e Comandos como grupos acessíveis separados. Uma escolha abre o diálogo da fonte. Integrações do espaço de trabalho têm seu próprio grupo e Comandos contém modos de tarefas pouco frequentes. Os dados carregam no diálogo e as linhas da raiz permanecem estáveis. O menu oferece setas, busca por digitação e Escape. Os diálogos gerenciam busca, resultados agrupados, carregamento, estados vazios e erros, tentativas e restauração do foco.
+
+As contribuições usam `section: "context" | "integrations" | "commands"` e `order` crescente, com rótulo e id para desempatar. `renderLink(children)` preserva a navegação nativa. Apps com provedor de menções com escopo registram `referencePicker: { source, referenceType }`. A seleção insere uma referência normal do compositor. `referenceType` exclui os tipos próprios do app do diálogo compartilhado de busca do espaço de trabalho, evitando duplicações. O espaço registra via `resources.useWorkspaceMenu({ enabled, onSelectIntegration })`. Seu `scopeKey` redefine seletores e cancela solicitações quando a identidade muda. Falhas do provedor continuam sendo erros, não resultados vazios.
+
+Uma fonte como Figma permanece visível durante a verificação de acesso. O diálogo mostra carregamento ou erro com nova tentativa, um link real de conexão quando desconectada ou o seletor de URL autorizado quando conectada. Criar habilidade seleciona diretamente o modo de habilidade. Enviar arquivo de habilidade abre um diálogo de revisão e salvamento após o seletor nativo de arquivos.
 
 A configuração do seletor aceita:
 
@@ -333,6 +337,7 @@ const contextMenuItems: ComposerContextMenuItem[] = [
     label: labels.references,
     picker: {
       searchPlaceholder: labels.searchReferences,
+      presentation: { type: "dialog", mode: "single" },
       items: authorizedReferences,
       selectedIds,
       onSelect: stageReference,
@@ -406,7 +411,7 @@ As entradas de seletor não definem também `render` ou `onSelect` no nível da 
 
 O `footerAction` opcional permanece abaixo dos resultados mesmo durante o carregamento, erros ou uma lista vazia. Ele aceita um `label` localizado, `icon` e `disabled` opcionais e `onSelect()` ou `renderLink(children)`. Use um callback para um modal ou outro fluxo com estado: `false` mantém o menu aberto, `true` ou `void` o fecha, e uma rejeição exibe um erro com nova tentativa. Para navegação simples, `renderLink` retorna um `Link` real do React Router ou um link HTML; o menu compartilhado fornece a linha por `asChild`, preservando seu `href` e a navegação do navegador. Conecte fluxos existentes e autorizados, não ações fictícias.
 
-Passar `addAttachment` para `ComposerContextMenu` coloca a ação padrão de upload primeiro e preserva o callback de arquivos do hospedeiro.
+Passar `addAttachment` para `ComposerContextMenu` adiciona Arquivos e imagens à seção de anexos e preserva o callback de arquivos do hospedeiro.
 
 `PromptComposer` e `AgentKitComposer` aceitam `attachmentAdapter`, com o tipo público `AttachmentAdapter` de `@assistant-ui/react`. Forneça por esse adaptador as regras do hospedeiro para arquivos aceitos, validação de tamanho e preparação; omita-o para manter os adaptadores padrão. O compositor compartilhado continua responsável pelo controle de upload, seletor de arquivos, seletor de contexto e chips de anexos. Não substitua esses controles para personalizar a preparação dos arquivos.
 
@@ -725,3 +730,7 @@ raciocínio.
 - [**Actions**](/docs/actions-overview) — `defineAction()`, esquemas e a superfície de ações chamada por esses componentes
 - [**Real-Time Collaboration**](/docs/real-time-collaboration) — detalhes dos hooks de colaboração e componentes de presença
 - [**Sharing**](/docs/sharing) — configuração de `<ShareButton>` e `<ShareDialog>` para recursos com proprietário
+
+## Histórico dos seus chats
+
+A barra lateral pode usar `useOwnershipChatHistory()` e `OwnershipChatHistoryRail` de `@agent-native/toolkit/app/chat/ownership-history`. Seus chats e os compartilhados aparecem em seções separadas.

@@ -5,6 +5,7 @@ import {
   BACKGROUND_AUTOMATION_SOFT_TIMEOUT_HEADROOM_MS,
   RUN_NO_PROGRESS_HARD_TIMEOUT_MS,
 } from "../app-config/run-lifecycle-invariants.js";
+import { isDurableProgressEvent } from "../client/sse-event-processor.js";
 import { runWithRequestDbPoolScope } from "../db/request-pool-context.js";
 import { ServicePrincipalRefusedError } from "../org/service-principal-guard.js";
 import {
@@ -14,6 +15,7 @@ import {
 import { EngineError } from "./engine/types.js";
 import {
   currentExecutionFence,
+  StaleExecutionFenceError,
   withExecutionFence,
 } from "./execution-fence.js";
 import {
@@ -120,6 +122,25 @@ vi.mock("./run-store.js", () => ({
       }
     },
   ),
+  persistedRunEventData: (eventData: string) => {
+    const event = JSON.parse(eventData) as Record<string, unknown>;
+    if (event.omitFromPersistedHistory !== true) return eventData;
+    return JSON.stringify({
+      type: event.type,
+      omitFromPersistedHistory: true,
+      ...(event.type === "text" ? { text: "" } : {}),
+      ...(event.type === "error" ? { error: "Private content omitted" } : {}),
+      ...(event.type === "tool_start" ? { tool: event.tool, input: {} } : {}),
+      ...(event.type === "tool_done"
+        ? {
+            tool: event.tool,
+            input: {},
+            result: "[Private content omitted]",
+            ...(event.isError === true ? { isError: true } : {}),
+          }
+        : {}),
+    });
+  },
   updateRunStatus: vi.fn(() => Promise.resolve()),
   updateRunStatusIfRunning: vi.fn(() => Promise.resolve(true)),
   getRunStatus: vi.fn(() => Promise.resolve("running")),
@@ -128,6 +149,7 @@ vi.mock("./run-store.js", () => ({
   ),
   markRunAborted: vi.fn(() => Promise.resolve(true)),
   markRunAbortedAtSafeBoundary: vi.fn(() => Promise.resolve(false)),
+  markRunThreadProjectionPending: vi.fn(() => Promise.resolve()),
   markTurnAborted: vi.fn(() => Promise.resolve()),
   getRunTurnRef: vi.fn(() => Promise.resolve(null)),
   isRunAborted: vi.fn(() => Promise.resolve(false)),
@@ -191,6 +213,7 @@ vi.mock("./run-store.js", () => ({
   }),
   setRunError: vi.fn(() => Promise.resolve()),
   setRunTerminalReason: vi.fn(() => Promise.resolve()),
+  setRunTerminalReasonIfStatus: vi.fn(() => Promise.resolve(false)),
   persistRunCheckpointEvent: vi.fn(() => Promise.resolve()),
   recordRunDiagnostic: vi.fn(() => Promise.resolve()),
   RUN_DIAG_STAGE: { runBoundaryReached: "run_boundary_reached" },
@@ -238,14 +261,25 @@ vi.mock("./run-store.js", () => ({
 vi.mock("../tracking/registry.js", () => ({
   track: vi.fn(),
 }));
+vi.mock("../observability/metrics.js", async (importActual) => ({
+  ...(await importActual<typeof import("../observability/metrics.js")>()),
+  recordAgentRun: vi.fn(),
+}));
 vi.mock("../observability/tracking-identity.js", () => ({
   trackingIdentityProperties: vi.fn(() => ({ app: "test-app" })),
 }));
 
+import { recordAgentRun } from "../observability/metrics.js";
 import { registerErrorCaptureProvider } from "../server/capture-error.js";
 import { captureException } from "../tracking/error-capture.js";
 import { track } from "../tracking/registry.js";
+import { EXECUTION_LEASE_LOST_ABORT_REASON } from "./abort-reasons.js";
 import { isInBackgroundFunctionRuntime } from "./durable-background.js";
+import {
+  AGENT_RUN_NO_OUTPUT_ERROR_CODE,
+  IncompleteAgentRunError,
+  RUN_BUDGET_EXHAUSTED_ERROR_CODE,
+} from "./run-errors.js";
 import {
   abortRun,
   abortRunDurably,
@@ -312,6 +346,7 @@ import {
   bumpRunProgress,
   setRunError,
   setRunTerminalReason,
+  setRunTerminalReasonIfStatus,
   recordRunDiagnostic,
   reapIfStale,
   reapUnclaimedBackgroundRun,
@@ -417,9 +452,12 @@ describe("run manager soft timeout", () => {
     vi.mocked(updateRunStatusIfRunning).mockReset();
     vi.mocked(updateRunStatusIfRunning).mockResolvedValue(true);
     vi.mocked(cleanupOldRuns).mockClear();
-    vi.mocked(bumpRunProgress).mockClear();
+    vi.mocked(bumpRunProgress).mockReset();
+    vi.mocked(bumpRunProgress).mockResolvedValue(true);
     vi.mocked(setRunError).mockClear();
     vi.mocked(setRunTerminalReason).mockClear();
+    vi.mocked(setRunTerminalReasonIfStatus).mockReset();
+    vi.mocked(setRunTerminalReasonIfStatus).mockResolvedValue(false);
     vi.mocked(persistRunCheckpointEvent).mockReset();
     vi.mocked(persistRunCheckpointEvent).mockResolvedValue(undefined);
     vi.mocked(reapUnclaimedBackgroundRun).mockReset();
@@ -598,6 +636,46 @@ describe("run manager soft timeout", () => {
     );
   });
 
+  it("signals setup liveness handoff after the first successful lease renewal", async () => {
+    const renewal = Promise.withResolvers<void>();
+    vi.mocked(renewTurnExecutionLease).mockReturnValueOnce(renewal.promise);
+    const run = startRun(
+      "run-liveness-handoff",
+      "thread-liveness-handoff",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      {
+        softTimeoutMs: 0,
+        noProgressTimeoutMs: 0,
+        executionLease: true,
+      },
+    );
+    let livenessReady = false;
+    void run.livenessReady.then((ready) => {
+      livenessReady = ready;
+    });
+
+    await vi.advanceTimersByTimeAsync(1_500);
+    expect(renewTurnExecutionLease).toHaveBeenCalledWith({
+      threadId: "thread-liveness-handoff",
+      turnId: "run-liveness-handoff",
+      runId: "run-liveness-handoff",
+      generation: "1",
+    });
+    expect(livenessReady).toBe(false);
+
+    renewal.resolve();
+    await expect(run.livenessReady).resolves.toBe(true);
+    expect(livenessReady).toBe(true);
+
+    abortRun(run.runId, "user");
+    await run.finalized;
+  });
+
   it("does not start a run when an execution lease returns no fence", async () => {
     vi.mocked(claimTurnExecutionLease).mockResolvedValueOnce(
       undefined as never,
@@ -614,12 +692,18 @@ describe("run manager soft timeout", () => {
         executionLease: true,
       },
     );
+    let livenessReady = false;
+    void run.livenessReady.then((ready) => {
+      livenessReady = ready;
+    });
 
     await expect(run.finalized).rejects.toThrow(
       "Execution lease was requested without an execution fence",
     );
 
     expect(runBody).not.toHaveBeenCalled();
+    await expect(run.livenessReady).resolves.toBe(false);
+    expect(livenessReady).toBe(false);
   });
 
   it("does not start a leased run when abort wins during lease acquisition", async () => {
@@ -813,6 +897,35 @@ describe("run manager soft timeout", () => {
     );
     await vi.waitFor(() =>
       expectTerminalReasonWrite("run-soft-timeout", "run_timeout"),
+    );
+  });
+
+  it("uses a carried soft-timeout deadline when a run continues elsewhere", async () => {
+    const events: AgentChatEvent[] = [];
+    const deadlineAt = Date.now() + 25;
+    const run = startRun(
+      "run-carried-soft-timeout",
+      "thread-carried-soft-timeout",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", resolve, { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 1_000, softTimeoutDeadlineAt: deadlineAt },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+
+    await vi.advanceTimersByTimeAsync(26);
+    await run.finalized;
+
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "auto_continue", reason: "run_timeout" }),
+    );
+    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+      "run-carried-soft-timeout",
+      "truncated",
+      expect.objectContaining({ terminalReason: "run_timeout" }),
     );
   });
 
@@ -2128,6 +2241,49 @@ describe("run manager soft timeout", () => {
     });
   });
 
+  it("waits for the transactional admission check before starting the driver", async () => {
+    let releaseAdmission!: () => void;
+    let notifyAdmission!: () => void;
+    const admissionGate = new Promise<void>((resolve) => {
+      releaseAdmission = resolve;
+    });
+    const admissionStarted = new Promise<void>((resolve) => {
+      notifyAdmission = resolve;
+    });
+    const afterRunInsert = vi.fn(async () => {
+      notifyAdmission();
+      await admissionGate;
+    });
+    vi.mocked(insertRun).mockImplementationOnce(
+      async (_runId, _threadId, _turnId, options) => {
+        await options?.afterInsert?.({} as never);
+      },
+    );
+    const runFn = vi.fn(async () => {});
+    try {
+      const run = startRun(
+        "run-transactional-admission",
+        "thread-transactional-admission",
+        runFn,
+        undefined,
+        { softTimeoutMs: 0, executionLease: true, afterRunInsert },
+      );
+      await admissionStarted;
+      expect(runFn).not.toHaveBeenCalled();
+      releaseAdmission();
+      await run.finalized;
+      expect(insertRun).toHaveBeenCalledWith(
+        "run-transactional-admission",
+        "thread-transactional-admission",
+        undefined,
+        expect.objectContaining({ afterInsert: afterRunInsert }),
+      );
+      expect(runFn).toHaveBeenCalledOnce();
+    } finally {
+      releaseAdmission();
+    }
+  });
+
   it("waits for the run row before persisting and flushing a tool start", async () => {
     let releaseInsert!: () => void;
     vi.mocked(insertRun).mockReturnValueOnce(
@@ -2358,6 +2514,58 @@ describe("run manager soft timeout", () => {
       "done",
     );
     expect(finalized).toBe(true);
+  });
+
+  it.each([undefined, null, false])(
+    "rejects finalization and records an errored run when event persistence rejects with %s",
+    async (failure) => {
+      vi.mocked(insertRunEvent).mockRejectedValue(failure);
+      const run = startRun(
+        "run-falsy-event-failure",
+        "thread-falsy-event-failure",
+        async (send) => {
+          await send({ type: "text", text: "not persisted" }).catch(() => {});
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+
+      await expect(run.finalized).rejects.toBe(failure);
+      expect(run.status).toBe("errored");
+      expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+        run.runId,
+        "errored",
+      );
+      expect(setRunTerminalReason).toHaveBeenCalledWith(
+        run.runId,
+        "error:run_event_persistence_failed",
+      );
+    },
+  );
+
+  it("reports independent event and abort status failures even when they share an error", async () => {
+    const failure = new Error("shared persistence failure");
+    vi.mocked(insertRunEvent).mockRejectedValue(failure);
+    vi.mocked(markRunAborted).mockRejectedValue(failure);
+    const runId = "run-shared-finalization-failure";
+    const run = startRun(
+      runId,
+      "thread-shared-finalization-failure",
+      async (send) => {
+        await send({ type: "text", text: "not persisted" }).catch(() => {});
+        abortRun(runId, "user");
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    const result = await run.finalized.then(
+      () => null,
+      (error: unknown) => error,
+    );
+    expect(markRunAborted).toHaveBeenCalledWith(runId, "user");
+    expect(result).toBeInstanceOf(AggregateError);
+    expect((result as AggregateError).errors).toEqual([failure, failure]);
   });
 
   it("rejects finalized when terminal event persistence cannot be established", async () => {
@@ -2662,11 +2870,7 @@ describe("run manager soft timeout", () => {
       undefined,
       { softTimeoutMs: 0 },
     );
-    run.flushEvents = vi
-      .fn()
-      .mockRejectedValueOnce(terminalEventError)
-      .mockRejectedValueOnce(terminalEventError)
-      .mockResolvedValueOnce(undefined);
+    run.flushEvents = vi.fn().mockRejectedValue(terminalEventError);
     vi.mocked(markRunAborted).mockResolvedValueOnce(false);
     vi.mocked(getRunStatus).mockResolvedValueOnce("completed");
 
@@ -2685,6 +2889,242 @@ describe("run manager soft timeout", () => {
       "user",
     );
     await run.finalized;
+  });
+
+  it("retains the real event queue failure through a turn abort", async () => {
+    const terminalEventError = new AgentRunEventNotPersistedError(
+      "run-stop-real-queue",
+      0,
+      true,
+    );
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    vi.mocked(insertRunEvent).mockRejectedValueOnce(terminalEventError);
+    let eventFailed!: () => void;
+    const eventFailureObserved = new Promise<void>((resolve) => {
+      eventFailed = resolve;
+    });
+    const run = startRun(
+      "run-stop-real-queue",
+      "thread-stop-real-queue",
+      async (send, signal) => {
+        try {
+          await send({ type: "text", text: "not persisted" });
+        } catch (error) {
+          expect(error).toBe(terminalEventError);
+        }
+        eventFailed();
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    const finalized = expect(run.finalized).rejects.toBe(terminalEventError);
+
+    try {
+      await eventFailureObserved;
+      await expect(abortRunAndTurnDurably(run.runId, "user")).rejects.toBe(
+        terminalEventError,
+      );
+      expect(markTurnAborted).toHaveBeenCalledWith(
+        run.threadId,
+        run.turnId,
+        "user",
+      );
+      await finalized;
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it("reports a failed run marker as well as the terminal flush failure", async () => {
+    const terminalEventError = new AgentRunEventNotPersistedError(
+      "run-stop-run-marker-failure",
+      0,
+      true,
+    );
+    const markerError = new Error("run marker unavailable");
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const run = startRun(
+      "run-stop-run-marker-failure",
+      "thread-stop-run-marker-failure",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    run.flushEvents = vi.fn().mockRejectedValue(terminalEventError);
+    vi.mocked(markRunAborted).mockRejectedValueOnce(markerError);
+
+    try {
+      const error = await abortRunAndTurnDurably(run.runId, "user").catch(
+        (error) => error,
+      );
+      expect(error).toBeInstanceOf(AggregateError);
+      expect(error.errors).toEqual([terminalEventError, markerError]);
+      expect(markTurnAborted).not.toHaveBeenCalled();
+      await run.finalized;
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it("reports a failed turn marker even when it throws the same error as the flush", async () => {
+    const terminalEventError = new AgentRunEventNotPersistedError(
+      "run-stop-marker-failure",
+      0,
+      true,
+    );
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const run = startRun(
+      "run-stop-marker-failure",
+      "thread-stop-marker-failure",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", () => resolve(), { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    run.flushEvents = vi.fn().mockRejectedValue(terminalEventError);
+    vi.mocked(markTurnAborted).mockRejectedValueOnce(terminalEventError);
+
+    try {
+      const error = await abortRunAndTurnDurably(run.runId, "user").catch(
+        (error) => error,
+      );
+      expect(error).toBeInstanceOf(AggregateError);
+      expect(error.errors).toEqual([terminalEventError, terminalEventError]);
+      expect(markTurnAborted).toHaveBeenCalledWith(
+        run.threadId,
+        run.turnId,
+        "user",
+      );
+      await run.finalized;
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it("reports independent flush failures from other runs in the same turn", async () => {
+    const terminalEventError = new AgentRunEventNotPersistedError(
+      "run-stop-first",
+      0,
+      true,
+    );
+    const otherError = new AgentRunEventNotPersistedError(
+      "run-stop-second",
+      1,
+      true,
+    );
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const waitForAbort = async (_send: unknown, signal: AbortSignal) => {
+      await new Promise<void>((resolve) => {
+        signal.addEventListener("abort", () => resolve(), { once: true });
+      });
+    };
+    const run = startRun(
+      "run-stop-first",
+      "thread-stop-multiple",
+      waitForAbort,
+      undefined,
+      {
+        softTimeoutMs: 0,
+        turnId: "turn-stop-multiple",
+      },
+    );
+    const otherRun = startRun(
+      "run-stop-second",
+      "thread-stop-multiple",
+      waitForAbort,
+      undefined,
+      {
+        softTimeoutMs: 0,
+        turnId: "turn-stop-multiple",
+      },
+    );
+    run.flushEvents = vi.fn().mockRejectedValue(terminalEventError);
+    otherRun.flushEvents = vi.fn().mockRejectedValue(otherError);
+
+    try {
+      const error = await abortRunAndTurnDurably(run.runId, "user").catch(
+        (error) => error,
+      );
+      expect(error).toBeInstanceOf(AggregateError);
+      expect(error.errors).toEqual([terminalEventError, otherError]);
+      expect(markTurnAborted).toHaveBeenCalledWith(
+        run.threadId,
+        run.turnId,
+        "user",
+      );
+      await Promise.all([run.finalized, otherRun.finalized]);
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it("reports all concurrent turn flush failures without writing the marker after a retryable failure", async () => {
+    const terminalError = new AgentRunEventNotPersistedError(
+      "run-turn-terminal",
+      0,
+      true,
+    );
+    const retryableError = new Error("event store unavailable");
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => undefined);
+    const waitForAbort = async (_send: unknown, signal: AbortSignal) => {
+      await new Promise<void>((resolve) => {
+        signal.addEventListener("abort", () => resolve(), { once: true });
+      });
+    };
+    const run = startRun(
+      "run-turn-terminal",
+      "thread-turn-flushes",
+      waitForAbort,
+      undefined,
+      {
+        softTimeoutMs: 0,
+        turnId: "turn-flushes",
+      },
+    );
+    const otherRun = startRun(
+      "run-turn-retryable",
+      "thread-turn-flushes",
+      waitForAbort,
+      undefined,
+      {
+        softTimeoutMs: 0,
+        turnId: "turn-flushes",
+      },
+    );
+    run.flushEvents = vi.fn().mockRejectedValue(terminalError);
+    otherRun.flushEvents = vi.fn().mockRejectedValue(retryableError);
+
+    try {
+      const error = await abortTurnByRefDurably(run.threadId, run.turnId).catch(
+        (error) => error,
+      );
+      expect(error).toBeInstanceOf(AggregateError);
+      expect(error.errors).toEqual([terminalError, retryableError]);
+      expect(markTurnAborted).not.toHaveBeenCalled();
+      await Promise.all([run.finalized, otherRun.finalized]);
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 
   it("does not widen a refused safe-boundary stop to a turn abort", async () => {
@@ -2748,10 +3188,7 @@ describe("run manager soft timeout", () => {
       undefined,
       { softTimeoutMs: 0 },
     );
-    run.flushEvents = vi
-      .fn()
-      .mockRejectedValueOnce(terminalEventError)
-      .mockResolvedValue(undefined);
+    run.flushEvents = vi.fn().mockRejectedValue(terminalEventError);
     vi.mocked(markRunAbortedAtSafeBoundary).mockResolvedValueOnce(true);
 
     try {
@@ -2935,10 +3372,15 @@ describe("run manager soft timeout", () => {
 
   it("aborts the in-process run before a turn-reference abort resolves", async () => {
     let observedAbortReason: unknown;
+    let signalRunStarted!: () => void;
+    const runStarted = new Promise<void>((resolve) => {
+      signalRunStarted = resolve;
+    });
     const run = startRun(
       "run-turn-ref-abort",
       "thread-turn-ref-abort",
       async (_send, signal) => {
+        signalRunStarted();
         await new Promise<void>((resolve) => {
           signal.addEventListener(
             "abort",
@@ -2954,6 +3396,7 @@ describe("run manager soft timeout", () => {
       { softTimeoutMs: 0, turnId: "turn-ref-abort" },
     );
 
+    await runStarted;
     await abortTurnByRefDurably(
       "thread-turn-ref-abort",
       "turn-ref-abort",
@@ -3154,10 +3597,15 @@ describe("run manager soft timeout", () => {
       .spyOn(console, "error")
       .mockImplementation(() => undefined);
     let abortReason: unknown;
+    let signalRunStarted!: () => void;
+    const runStarted = new Promise<void>((resolve) => {
+      signalRunStarted = resolve;
+    });
     const run = startRun(
       "run-durable-abort-failure",
       "thread-durable-abort-failure",
       async (_send, signal) => {
+        signalRunStarted();
         await new Promise<void>((resolve) => {
           signal.addEventListener(
             "abort",
@@ -3173,6 +3621,7 @@ describe("run manager soft timeout", () => {
       { softTimeoutMs: 0 },
     );
 
+    await runStarted;
     try {
       await expect(
         abortRunDurably("run-durable-abort-failure", "user_stuck_retry"),
@@ -3328,11 +3777,16 @@ describe("run manager soft timeout", () => {
 
   it("persists the partial turn on a no-progress recovery abort", async () => {
     const onComplete = vi.fn();
+    let signalRunStarted!: () => void;
+    const runStarted = new Promise<void>((resolve) => {
+      signalRunStarted = resolve;
+    });
     const run = startRun(
       "run-no-progress-abort",
       "thread-no-progress-abort",
       async (send, signal) => {
-        send({ type: "text", text: "half an answer" });
+        await send({ type: "text", text: "half an answer" });
+        signalRunStarted();
         await new Promise<void>((resolve) => {
           signal.addEventListener("abort", () => resolve(), { once: true });
         });
@@ -3341,6 +3795,7 @@ describe("run manager soft timeout", () => {
       { softTimeoutMs: 0 },
     );
 
+    await runStarted;
     expect(abortRun("run-no-progress-abort", "no_progress")).toBe(true);
     await vi.advanceTimersByTimeAsync(0);
 
@@ -3403,11 +3858,70 @@ describe("run manager soft timeout", () => {
     expect(seen).toEqual([{ type: "done" }]);
   });
 
+  it.each([false, true])(
+    "checks a cross-isolate SQL abort before provider dispatch (lease=%s)",
+    async (executionLease) => {
+      const order: string[] = [];
+      vi.mocked(insertRun).mockImplementationOnce(async () => {
+        order.push("insert");
+      });
+      vi.mocked(getRunAbortState).mockImplementationOnce(async () => {
+        order.push("abort-state");
+        return { aborted: true, reason: "user" };
+      });
+      const runFn = vi.fn(async () => undefined);
+
+      const run = startRun(
+        executionLease
+          ? "run-startup-sql-abort-with-lease"
+          : "run-startup-sql-abort-without-lease",
+        executionLease
+          ? "thread-startup-sql-abort-with-lease"
+          : "thread-startup-sql-abort-without-lease",
+        runFn,
+        undefined,
+        { softTimeoutMs: 0, executionLease },
+      );
+
+      await run.finalized;
+
+      expect(order).toEqual(["insert", "abort-state"]);
+      expect(runFn).not.toHaveBeenCalled();
+      expect(run.abortReason).toBe("user");
+    },
+  );
+
+  it.each([false, true])(
+    "fails closed when the pre-dispatch SQL abort check fails (lease=%s)",
+    async (executionLease) => {
+      vi.mocked(getRunAbortState).mockRejectedValueOnce(
+        new Error("abort state unavailable"),
+      );
+      const runFn = vi.fn(async () => undefined);
+
+      const run = startRun(
+        executionLease
+          ? "run-startup-sql-abort-failure-with-lease"
+          : "run-startup-sql-abort-failure-without-lease",
+        executionLease
+          ? "thread-startup-sql-abort-failure-with-lease"
+          : "thread-startup-sql-abort-failure-without-lease",
+        runFn,
+        undefined,
+        { softTimeoutMs: 0, executionLease },
+      );
+
+      await run.finalized;
+
+      expect(runFn).not.toHaveBeenCalled();
+      expect(run.status).toBe("errored");
+    },
+  );
+
   it("observes cross-isolate SQL aborts even when the run is idle", async () => {
-    vi.mocked(getRunAbortState).mockResolvedValue({
-      aborted: true,
-      reason: "no_progress",
-    });
+    vi.mocked(getRunAbortState)
+      .mockResolvedValueOnce({ aborted: false })
+      .mockResolvedValue({ aborted: true, reason: "no_progress" });
     let abortReason: unknown;
 
     const run = startRun(
@@ -3513,6 +4027,126 @@ describe("run manager soft timeout", () => {
 
     expect(abortRun("run-identified-empty-prep-progress")).toBe(true);
     await vi.waitFor(() => expect(run.status).toBe("aborted"));
+  });
+
+  describe("server and browser progress predicates", () => {
+    // Keyed by every event type so a new type must be classified here.
+    const samples: Record<AgentChatEvent["type"], AgentChatEvent> = {
+      text: { type: "text", text: "hi" },
+      thinking: { type: "thinking", text: "hmm" },
+      suggestions: { type: "suggestions", suggestions: [] },
+      rich_event: {
+        type: "rich_event",
+        event: { kind: "k", id: "e" } as never,
+      },
+      activity: { type: "activity", label: "Searching" },
+      tool_input_start: { type: "tool_input_start", tool: "t" },
+      tool_input_delta: { type: "tool_input_delta", tool: "t", text: "{" },
+      stream_keepalive: { type: "stream_keepalive" },
+      model_stream: { type: "model_stream", status: "end" },
+      tool_start: { type: "tool_start", tool: "t", input: {} },
+      tool_done: { type: "tool_done", tool: "t", result: "ok" },
+      approval_required: {
+        type: "approval_required",
+        tool: "t",
+        input: {},
+        approvalKey: "k",
+      },
+      connection_required: {
+        type: "connection_required",
+        requestId: "r",
+        provider: "p",
+        reason: "connect",
+      },
+      agent_call: { type: "agent_call", agent: "a", status: "start" },
+      agent_call_progress: {
+        type: "agent_call_progress",
+        agent: "a",
+        state: "working",
+        elapsedSeconds: 1,
+      },
+      agent_call_text: { type: "agent_call_text", agent: "a", text: "t" },
+      agent_call_activity: {
+        type: "agent_call_activity",
+        agent: "a",
+        snapshot: {} as never,
+      },
+      agent_task: {
+        type: "agent_task",
+        taskId: "t",
+        threadId: "th",
+        description: "d",
+        status: "running",
+      },
+      agent_task_update: {
+        type: "agent_task_update",
+        taskId: "t",
+        preview: "p",
+      },
+      agent_task_complete: {
+        type: "agent_task_complete",
+        taskId: "t",
+        summary: "s",
+      },
+      done: { type: "done" },
+      error: { type: "error", error: "e" },
+      missing_api_key: { type: "missing_api_key" },
+      loop_limit: { type: "loop_limit" },
+      tripwire: { type: "tripwire", reason: "r" },
+      auto_continue: { type: "auto_continue", reason: "run_timeout" },
+      clear: { type: "clear" },
+    };
+    const cases: Array<[string, AgentChatEvent]> = [
+      ...Object.entries(samples),
+      [
+        "anonymous zero-byte preparation activity",
+        {
+          type: "activity",
+          label: "Preparing edit-design action",
+          tool: "edit-design",
+          progressBytes: 0,
+        },
+      ],
+    ];
+
+    // Terminal events end the run, so the server writes no progress for them
+    // and the browser's cursor no longer matters.
+    const terminal = new Set([
+      "done",
+      "error",
+      "missing_api_key",
+      "loop_limit",
+      "auto_continue",
+    ]);
+    const live = cases.filter(([, event]) => !terminal.has(event.type));
+
+    it("classifies every event type", () => {
+      expect(cases.length - live.length).toBe(terminal.size);
+    });
+
+    it.each(live)("agree on %s", async (name, event) => {
+      vi.setSystemTime(10_000);
+      const runId = `run-predicate-${name}`;
+      startRun(
+        runId,
+        `thread-${runId}`,
+        async (send, signal) => {
+          send(event);
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => resolve(), { once: true });
+          });
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+      await vi.advanceTimersByTimeAsync(5_000);
+      const serverPersistsProgress =
+        vi.mocked(bumpRunProgress).mock.calls.length > 0;
+      expect(isDurableProgressEvent(event as never)).toBe(
+        serverPersistsProgress,
+      );
+      abortRun(runId);
+    });
   });
 
   it("does not bump durable progress for clear events or lower-byte restarts", async () => {
@@ -3803,11 +4437,8 @@ describe("run manager soft timeout", () => {
       { softTimeoutMs: 0 },
     );
 
-    await vi.waitFor(() => expect(bumpRunProgress).toHaveBeenCalledTimes(1));
-    expect(bumpRunProgress).toHaveBeenNthCalledWith(
-      1,
-      "run-progress-insert-race",
-    );
+    await Promise.resolve();
+    expect(bumpRunProgress).not.toHaveBeenCalled();
 
     resolveInsert();
     await vi.waitFor(() => expect(bumpRunProgress).toHaveBeenCalledTimes(2));
@@ -3992,6 +4623,7 @@ describe("run manager soft timeout", () => {
     expect(abortRun("run-progress-rearms-after-failure")).toBe(true);
     await vi.advanceTimersByTimeAsync(0);
     expect(run.status).toBe("aborted");
+    await run.finalized;
   });
 
   it("waits for the SQL run row insert before writing terminal status", async () => {
@@ -4011,10 +4643,7 @@ describe("run manager soft timeout", () => {
       { softTimeoutMs: 0 },
     );
 
-    await Promise.resolve();
-    await Promise.resolve();
-
-    expect(run.status).toBe("completed");
+    await vi.waitFor(() => expect(run.status).toBe("completed"));
     expect(updateRunStatusIfRunning).not.toHaveBeenCalledWith(
       "run-insert-race",
       "completed",
@@ -4029,6 +4658,83 @@ describe("run manager soft timeout", () => {
       ),
     );
   });
+
+  it.each(["batch", "single"] as const)(
+    "waits for the initial run row before persisting early %s events",
+    async (writeMode) => {
+      vi.mocked(insertRunEvent).mockClear();
+      vi.mocked(insertRunEvents).mockClear();
+      let releaseInsert!: () => void;
+      let insertSettled = false;
+      const insertGate = new Promise<void>((resolve) => {
+        releaseInsert = () => {
+          insertSettled = true;
+          resolve();
+        };
+      });
+      vi.mocked(insertRun).mockReturnValueOnce(insertGate);
+
+      if (writeMode === "single") {
+        const insertEvent = vi.mocked(insertRunEvent).getMockImplementation()!;
+        vi.mocked(insertRunEvent).mockImplementationOnce(async (...args) => {
+          expect(insertSettled).toBe(true);
+          return insertEvent(...args);
+        });
+      } else {
+        const insertEvents = vi
+          .mocked(insertRunEvents)
+          .getMockImplementation()!;
+        vi.mocked(insertRunEvents).mockImplementationOnce(async (...args) => {
+          expect(insertSettled).toBe(true);
+          return insertEvents(...args);
+        });
+      }
+
+      const run = startRun(
+        `run-early-event-${writeMode}`,
+        `thread-early-event-${writeMode}`,
+        async (send) => {
+          await send({ type: "text", text: "early event" });
+        },
+        undefined,
+        {
+          softTimeoutMs: 0,
+          ...(writeMode === "single"
+            ? { persistEvent: async (write) => write() }
+            : {}),
+        },
+      );
+
+      try {
+        await vi.waitFor(() => expect(insertRun).toHaveBeenCalled());
+        await Promise.resolve();
+        expect(insertRunEvent).not.toHaveBeenCalled();
+        expect(insertRunEvents).not.toHaveBeenCalled();
+
+        releaseInsert();
+        await run.finalized;
+
+        if (writeMode === "single") {
+          expect(insertRunEvent).toHaveBeenCalledWith(
+            run.runId,
+            0,
+            JSON.stringify({ type: "text", text: "early event" }),
+            { eventAt: expect.any(Number), requireInserted: true },
+          );
+        } else {
+          expect(insertRunEvents).toHaveBeenCalledWith(run.runId, [
+            {
+              seq: 0,
+              eventAt: expect.any(Number),
+              eventData: JSON.stringify({ type: "text", text: "early event" }),
+            },
+          ]);
+        }
+      } finally {
+        releaseInsert();
+      }
+    },
+  );
 
   it("persists completed thread data before the terminal run status", async () => {
     const writeOrder: string[] = [];
@@ -4079,6 +4785,266 @@ describe("run manager soft timeout", () => {
     );
     expect(reconcileTerminalRunFromEvents).toHaveBeenCalledWith(
       "run-terminal-reconcile-fallback",
+    );
+  });
+
+  it("does not treat a reconciled terminal status as displacement", async () => {
+    vi.mocked(updateRunStatusIfRunning).mockRejectedValueOnce(
+      new Error("transient status write failure"),
+    );
+    vi.mocked(reconcileTerminalRunFromEvents).mockImplementationOnce(
+      async () => {
+        vi.mocked(getRunStatus).mockResolvedValue("completed");
+        await new Promise((resolve) => setTimeout(resolve, 5_000));
+        return true;
+      },
+    );
+
+    const run = startRun(
+      "run-reconciled-terminal",
+      "thread-reconciled-terminal",
+      async () => {},
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    await vi.advanceTimersByTimeAsync(6_000);
+    await run.finalized;
+
+    expect(run.status).toBe("completed");
+    expect(run.abortReason).toBeUndefined();
+  });
+
+  it.each([null, ""] as const)(
+    "confirms an ambiguously committed terminal status after reconciliation fails with reason %s",
+    async (initialTerminalReason) => {
+      let persistedTerminalReason: string | null = initialTerminalReason;
+      vi.mocked(getRunById).mockImplementation(async (id) => ({
+        id,
+        threadId: "thread-ambiguous-terminal-write",
+        status: "completed",
+        startedAt: Date.now(),
+        errorCode: null,
+        errorDetail: null,
+        terminalReason: persistedTerminalReason,
+      }));
+      vi.mocked(setRunTerminalReasonIfStatus).mockImplementationOnce(
+        async (_id, expectedStatus, terminalReason) => {
+          expect(expectedStatus).toBe("completed");
+          persistedTerminalReason = terminalReason;
+          return true;
+        },
+      );
+      vi.mocked(updateRunStatusIfRunning).mockImplementationOnce(async () => {
+        vi.mocked(getRunStatus).mockResolvedValue("completed");
+        throw new Error(
+          "terminal status write committed but its reply was lost",
+        );
+      });
+      vi.mocked(reconcileTerminalRunFromEvents).mockRejectedValueOnce(
+        new Error("terminal event reconciliation failed"),
+      );
+
+      const run = startRun(
+        "run-ambiguous-terminal-write",
+        "thread-ambiguous-terminal-write",
+        async () => {},
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+
+      await vi.advanceTimersByTimeAsync(6_000);
+      await run.finalized;
+
+      expect(run.status).toBe("completed");
+      expect(run.abortReason).toBeUndefined();
+      expect(getRunById).toHaveBeenCalledWith("run-ambiguous-terminal-write");
+      expect(setRunTerminalReasonIfStatus).toHaveBeenCalledWith(
+        "run-ambiguous-terminal-write",
+        "completed",
+        "done",
+      );
+      expect(persistedTerminalReason).toBe("done");
+    },
+  );
+
+  it("does not confirm an ambiguous status when another writer wins before the reason write", async () => {
+    let persistedStatus = "completed";
+    let persistedTerminalReason: string | null = null;
+    vi.mocked(getRunById).mockImplementation(async (id) => ({
+      id,
+      threadId: "thread-ambiguous-terminal-race",
+      status: persistedStatus,
+      startedAt: Date.now(),
+      errorCode: null,
+      errorDetail: null,
+      terminalReason: persistedTerminalReason,
+    }));
+    vi.mocked(setRunTerminalReasonIfStatus).mockImplementationOnce(
+      async (_id, expectedStatus, terminalReason) => {
+        persistedStatus = "errored";
+        persistedTerminalReason = "error:other_worker_failed";
+        if (persistedStatus !== expectedStatus || persistedTerminalReason) {
+          return false;
+        }
+        persistedTerminalReason = terminalReason;
+        return true;
+      },
+    );
+    vi.mocked(updateRunStatusIfRunning).mockImplementationOnce(async () => {
+      vi.mocked(getRunStatus).mockResolvedValue("completed");
+      throw new Error("terminal status write outcome is unknown");
+    });
+    vi.mocked(reconcileTerminalRunFromEvents).mockResolvedValueOnce(false);
+
+    const run = startRun(
+      "run-ambiguous-terminal-race",
+      "thread-ambiguous-terminal-race",
+      async () => {},
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    await vi.advanceTimersByTimeAsync(6_000);
+    await run.finalized;
+
+    expect(setRunTerminalReasonIfStatus).toHaveBeenCalledWith(
+      "run-ambiguous-terminal-race",
+      "completed",
+      "done",
+    );
+    expect(persistedStatus).toBe("errored");
+    expect(persistedTerminalReason).toBe("error:other_worker_failed");
+  });
+
+  it("confirms the checkpoint reason on an ambiguously committed truncated status", async () => {
+    let persistedStatus = "running";
+    let persistedTerminalReason: string | null = null;
+    vi.mocked(getRunById).mockImplementation(async (id) => ({
+      id,
+      threadId: "thread-ambiguous-checkpoint-status",
+      status: persistedStatus,
+      startedAt: Date.now(),
+      errorCode: null,
+      errorDetail: null,
+      terminalReason: persistedTerminalReason,
+    }));
+    vi.mocked(updateRunStatusIfRunning).mockImplementationOnce(
+      async (_id, status, options) => {
+        persistedStatus = status;
+        persistedTerminalReason = options?.terminalReason ?? null;
+        throw new Error("checkpoint status reply was lost");
+      },
+    );
+    vi.mocked(reconcileTerminalRunFromEvents).mockResolvedValueOnce(false);
+
+    const run = startRun(
+      "run-ambiguous-checkpoint-status",
+      "thread-ambiguous-checkpoint-status",
+      async (_send, signal) => {
+        await new Promise<void>((resolve) => {
+          signal.addEventListener("abort", resolve, { once: true });
+        });
+      },
+      undefined,
+      { softTimeoutMs: 10 },
+    );
+
+    await vi.advanceTimersByTimeAsync(11);
+    await run.finalized;
+
+    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+      "run-ambiguous-checkpoint-status",
+      "truncated",
+      expect.objectContaining({ terminalReason: "run_timeout" }),
+    );
+    expect(persistedStatus).toBe("truncated");
+    expect(persistedTerminalReason).toBe("run_timeout");
+    expect(setRunTerminalReason).not.toHaveBeenCalledWith(
+      "run-ambiguous-checkpoint-status",
+      "run_timeout",
+    );
+  });
+
+  it("does not report a rejected ambiguous status write as an abort-check failure", async () => {
+    const provider = vi.fn(() => "evt_terminal_status_write");
+    const unregister = registerErrorCaptureProvider(
+      "run-manager-terminal-status-abort-check-test",
+      provider,
+    );
+    const statusWrite = Promise.withResolvers<boolean>();
+    vi.mocked(getRunById).mockResolvedValue({
+      id: "run-ambiguous-terminal-abort-check",
+      threadId: "thread-ambiguous-terminal-abort-check",
+      status: "completed",
+      startedAt: Date.now(),
+      errorCode: null,
+      errorDetail: null,
+      terminalReason: "done",
+    });
+    vi.mocked(updateRunStatusIfRunning).mockImplementationOnce(() => {
+      vi.mocked(getRunStatus).mockResolvedValue("completed");
+      return statusWrite.promise;
+    });
+
+    try {
+      const run = startRun(
+        "run-ambiguous-terminal-abort-check",
+        "thread-ambiguous-terminal-abort-check",
+        async () => {},
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+
+      await vi.advanceTimersByTimeAsync(0);
+      await vi.advanceTimersByTimeAsync(7_501);
+      statusWrite.reject(new Error("terminal status response was lost"));
+      await run.finalized;
+
+      expect(provider).not.toHaveBeenCalledWith(
+        expect.any(Error),
+        expect.objectContaining({
+          tags: expect.objectContaining({
+            source: "agent-run-manager",
+            phase: "abort-check",
+          }),
+        }),
+      );
+    } finally {
+      unregister();
+    }
+  });
+
+  it("does not confirm an ambiguous terminal write when the persisted status differs", async () => {
+    vi.mocked(getRunById).mockResolvedValue({
+      id: "run-ambiguous-terminal-mismatch",
+      threadId: "thread-ambiguous-terminal-mismatch",
+      status: "errored",
+      startedAt: Date.now(),
+      errorCode: "other_worker_failed",
+      errorDetail: null,
+      terminalReason: "error:other_worker_failed",
+    });
+    vi.mocked(updateRunStatusIfRunning).mockRejectedValueOnce(
+      new Error("terminal status write outcome is unknown"),
+    );
+    vi.mocked(reconcileTerminalRunFromEvents).mockResolvedValueOnce(false);
+
+    const run = startRun(
+      "run-ambiguous-terminal-mismatch",
+      "thread-ambiguous-terminal-mismatch",
+      async () => {},
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    await run.finalized;
+
+    expect(run.status).toBe("completed");
+    expect(getRunById).toHaveBeenCalledWith("run-ambiguous-terminal-mismatch");
+    expect(setRunTerminalReason).not.toHaveBeenCalledWith(
+      "run-ambiguous-terminal-mismatch",
+      "done",
     );
   });
 
@@ -4699,6 +5665,62 @@ describe("run manager soft timeout", () => {
     }
   });
 
+  // raw-sql-ok: This test passes error codes and run IDs, not SQL.
+  it.each([
+    [
+      RUN_BUDGET_EXHAUSTED_ERROR_CODE,
+      "I ran out of time before finishing this step.",
+    ],
+    [AGENT_RUN_NO_OUTPUT_ERROR_CODE, "The agent run ended without output."],
+  ])(
+    "does not capture expected incomplete-run error %s to Sentry",
+    async (code, message) => {
+      const provider = vi.fn(() => "evt_run");
+      const unregister = registerErrorCaptureProvider(
+        `run-incomplete-${code}-no-capture`,
+        provider,
+      );
+      const events: AgentChatEvent[] = [];
+
+      try {
+        // raw-sql-ok: These interpolated values are run and thread IDs.
+        const run = startRun(
+          `run-incomplete-${code}-no-capture`,
+          `thread-incomplete-${code}-no-capture`,
+          async () => {
+            throw new IncompleteAgentRunError(
+              { code, message },
+              {
+                inputTokens: 0,
+                outputTokens: 0,
+                cacheReadTokens: 0,
+                cacheWriteTokens: 0,
+                model: "test-model",
+              },
+            );
+          },
+          undefined,
+          { softTimeoutMs: 0 },
+        );
+        run.subscribers.add((event) => events.push(event.event));
+
+        await run.finalized;
+
+        expect(run.status).toBe("errored");
+        expect(provider).not.toHaveBeenCalled();
+        expect(events).toContainEqual(
+          expect.objectContaining({
+            type: "error",
+            error: message,
+            errorCode: code,
+          }),
+        );
+      } finally {
+        unregister();
+      }
+    },
+  );
+
   it("emits terminal events only after the completion callback resolves", async () => {
     let resolveComplete!: () => void;
     const onComplete = vi.fn(
@@ -4897,6 +5919,39 @@ describe("run manager soft timeout", () => {
       "run-callback-terminal-override",
       "builder_gateway_internal_error",
       "Sorry, we ran into an issue. ERROR ID: 0f3c9ab21d7e",
+    );
+  });
+
+  it("does not auto-continue an explicitly settled empty final", async () => {
+    const events: AgentChatEvent[] = [];
+    const run = startRun(
+      "run-foreground-settled",
+      "thread-foreground-settled",
+      async (send) => {
+        await Promise.resolve();
+        send({
+          type: "tool_done",
+          tool: "save",
+          id: "call-1",
+          input: {},
+          result: "saved",
+          completedSideEffect: true,
+        });
+        send({ type: "done", reason: "action_settled" });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    run.subscribers.add((event) => events.push(event.event));
+    await run.finalized;
+    expect(events.at(-1)).toEqual({ type: "done", reason: "action_settled" });
+    expect(events).not.toContainEqual({
+      type: "auto_continue",
+      reason: "stream_ended",
+    });
+    expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+      "run-foreground-settled",
+      "completed",
     );
   });
 
@@ -5328,7 +6383,9 @@ describe("run manager soft timeout", () => {
   });
 
   it("normalizes missing SQL abort reasons to user aborts", async () => {
-    vi.mocked(getRunAbortState).mockResolvedValue({ aborted: true });
+    vi.mocked(getRunAbortState)
+      .mockResolvedValueOnce({ aborted: false })
+      .mockResolvedValue({ aborted: true });
     let abortReason: unknown;
 
     const run = startRun(
@@ -7519,6 +8576,56 @@ describe("run manager soft timeout", () => {
     expect(run.abortReason).toBe("displaced");
   });
 
+  it("does not treat its own terminal status write as displacement", async () => {
+    vi.mocked(updateRunStatusIfRunning).mockImplementationOnce(async () => {
+      vi.mocked(getRunStatus).mockResolvedValue("completed");
+      await new Promise((resolve) => setTimeout(resolve, 5_000));
+      return true;
+    });
+
+    const run = startRun(
+      "run-own-terminal",
+      "thread-own-terminal",
+      async () => {},
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+
+    await vi.advanceTimersByTimeAsync(6_000);
+    await run.finalized;
+
+    expect(run.status).toBe("completed");
+    expect(run.abortReason).toBeUndefined();
+  });
+
+  it("detects displacement while onComplete is pending", async () => {
+    const completionStarted = Promise.withResolvers<void>();
+    const completion = Promise.withResolvers<void>();
+    const run = startRun(
+      "run-displaced-during-completion",
+      "thread-displaced-during-completion",
+      async () => {},
+      async () => {
+        completionStarted.resolve();
+        await completion.promise;
+      },
+      { softTimeoutMs: 0 },
+    );
+
+    await completionStarted.promise;
+    vi.mocked(getRunStatus).mockResolvedValue("completed");
+    await vi.advanceTimersByTimeAsync(3001);
+
+    expect(run.abortReason).toBe("displaced");
+
+    completion.resolve();
+    await run.finalized;
+    expect(markRunAborted).toHaveBeenCalledWith(
+      "run-displaced-during-completion",
+      "displaced",
+    );
+  });
+
   it("uses the atomic abort write so a reaped row is not overwritten", async () => {
     vi.mocked(updateRunStatusIfRunning).mockResolvedValue(false);
     vi.mocked(getRunStatus).mockResolvedValue("errored");
@@ -7546,8 +8653,10 @@ describe("run manager soft timeout", () => {
     );
   });
 
-  it("keeps running to completion when every abort-state read fails", async () => {
-    vi.mocked(getRunAbortState).mockRejectedValue(new Error("read timeout"));
+  it("keeps running to completion when a background abort-state poll fails", async () => {
+    vi.mocked(getRunAbortState)
+      .mockResolvedValueOnce({ aborted: false })
+      .mockRejectedValue(new Error("read timeout"));
     vi.mocked(getRunStatus).mockRejectedValue(new Error("read timeout"));
 
     let abortFired = false;
@@ -7652,6 +8761,57 @@ describe("run manager soft timeout", () => {
     expect(data).toContain('"seq":0');
     expect(data).toContain('"eventId":"run-reconnect-during-persistence:0"');
     expect(data).toContain('"text":"durable before publish"');
+
+    await run.finalized;
+    await reader.cancel();
+  });
+
+  it("delivers a persisted event when a reconnect lands before live publication", async () => {
+    let releasePersistence!: () => void;
+    let markWriteStarted!: () => void;
+    const writeStarted = new Promise<void>((resolve) => {
+      markWriteStarted = resolve;
+    });
+    const persistenceGate = new Promise<void>((resolve) => {
+      releasePersistence = resolve;
+    });
+    const persisted = Promise.withResolvers<void>();
+    vi.mocked(insertRunEvent).mockImplementationOnce(async () => {
+      markWriteStarted();
+      await persistenceGate;
+      persisted.resolve();
+    });
+
+    const run = startRun(
+      "run-reconnect-after-persist-before-publish",
+      "thread-reconnect-after-persist-before-publish",
+      async (send) => {
+        await send({ type: "text", text: "persisted before reconnect" });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    await writeStarted;
+
+    releasePersistence();
+    await persisted.promise;
+    expect(run.events).toEqual([]);
+
+    const reader = subscribeToRun(
+      "run-reconnect-after-persist-before-publish",
+      0,
+    )!.getReader();
+    const ping = await reader.read();
+    expect(new TextDecoder().decode(ping.value)).toContain(": ping ");
+    const delivered = await reader.read();
+
+    expect(delivered.done).toBe(false);
+    const data = new TextDecoder().decode(delivered.value);
+    expect(data).toContain('"seq":0');
+    expect(data).toContain(
+      '"eventId":"run-reconnect-after-persist-before-publish:0"',
+    );
+    expect(data).toContain('"text":"persisted before reconnect"');
 
     await run.finalized;
     await reader.cancel();
@@ -7889,7 +9049,7 @@ describe("run manager soft timeout", () => {
     }
   });
 
-  it("drops queued events and closes the open batch when the run is terminal", async () => {
+  it("rejects later events and flushes after terminal batch persistence fails", async () => {
     const terminalEventError = new AgentRunEventNotPersistedError(
       "run-batch-terminal",
       0,
@@ -7938,7 +9098,7 @@ describe("run manager soft timeout", () => {
       await expect(run.flushEvents?.()).rejects.toBe(terminalEventError);
       releaseSecondPublication();
       await expect(run.finalized).rejects.toBe(terminalEventError);
-      expect(insertRunEvents).toHaveBeenCalledTimes(2);
+      expect(insertRunEvents).toHaveBeenCalledTimes(1);
       expect(publicationErrors).toEqual([
         terminalEventError,
         terminalEventError,
@@ -7951,7 +9111,7 @@ describe("run manager soft timeout", () => {
         type: "text",
         text: "also not persisted",
       });
-      await expect(run.flushEvents?.()).resolves.toBeUndefined();
+      await expect(run.flushEvents?.()).rejects.toBe(terminalEventError);
     } finally {
       if (priorInsertRunEvents) {
         vi.mocked(insertRunEvents).mockImplementation(priorInsertRunEvents);
@@ -8040,6 +9200,241 @@ describe("run manager soft timeout", () => {
     expect(durableOrder).toEqual([0, 1]);
     expect(publishedOrder.slice(0, 2)).toEqual([0, 1]);
     expect(writeBatches).toEqual([[0], [1]]);
+  });
+
+  it("completes private text and UI tool responses without an unwanted continuation", async () => {
+    for (const kind of ["text", "ui"] as const) {
+      const runId = `run-private-completion-${kind}`;
+      const run = startRun(
+        runId,
+        `thread-${runId}`,
+        async (send) => {
+          await send({
+            type: "tool_start",
+            tool: "read",
+            input: {},
+            omitFromPersistedHistory: true,
+          });
+          await send({
+            type: "tool_done",
+            tool: "read",
+            input: {},
+            result: "private result",
+            ...(kind === "ui"
+              ? { chatUI: { renderer: "core.inline-extension" } }
+              : {}),
+          });
+          if (kind === "text")
+            await send({ type: "text", text: "private final answer" });
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+      await run.finalized;
+      expect(updateRunStatusIfRunning).toHaveBeenCalledWith(runId, "completed");
+      expect(setRunTerminalReason).toHaveBeenCalledWith(runId, "done");
+      expect(JSON.stringify(run.events)).not.toContain("private final answer");
+      expect(
+        run.events.some(({ event }) => event.type === "auto_continue"),
+      ).toBe(false);
+    }
+  });
+
+  it("continues after a failed private UI result or a later unfinished tool", async () => {
+    for (const kind of ["failed-ui", "later-tool"] as const) {
+      const runId = `run-private-unfinished-${kind}`;
+      const run = startRun(
+        runId,
+        `thread-${runId}`,
+        async (send) => {
+          await send({
+            type: "tool_done",
+            tool: "render",
+            input: {},
+            result: "private",
+            chatUI: { renderer: "core.inline-extension" },
+            omitFromPersistedHistory: true,
+            ...(kind === "failed-ui" ? { isError: true } : {}),
+          });
+          if (kind === "later-tool") {
+            await send({
+              type: "text",
+              text: "private final before later tool",
+            });
+            await send({
+              type: "tool_done",
+              tool: "read",
+              input: {},
+              result: "private",
+            });
+          }
+        },
+        undefined,
+        { softTimeoutMs: 0 },
+      );
+      await run.finalized;
+      expect(updateRunStatusIfRunning).toHaveBeenCalledWith(
+        runId,
+        "truncated",
+        { terminalReason: "stream_ended" },
+      );
+    }
+  });
+
+  it("does not leak private persistence failures or error codes into diagnostics", async () => {
+    const sentinel = "private-persistence-sentinel";
+    const provider = vi.fn(() => "event-id");
+    const unregister = registerErrorCaptureProvider(
+      "private-persistence-test",
+      provider,
+    );
+    const writes: string[] = [];
+    let failOnce = true;
+    try {
+      const run = startRun(
+        "run-private-persistence-failure",
+        "thread-private-persistence-failure",
+        async (send) => {
+          await send({
+            type: "tool_start",
+            tool: "read",
+            input: { sentinel },
+            omitFromPersistedHistory: true,
+          });
+          await send({ type: "error", error: sentinel, errorCode: sentinel });
+        },
+        undefined,
+        {
+          softTimeoutMs: 0,
+          persistEvent: async (write, metadata) => {
+            writes.push(metadata.eventData);
+            if (failOnce) {
+              failOnce = false;
+              throw new Error(sentinel);
+            }
+            await write();
+          },
+        },
+      );
+      await run.finalized;
+      expect(provider).toHaveBeenCalled();
+      expect(
+        provider.mock.calls
+          .map(
+            ([error, context]) => `${error.message} ${JSON.stringify(context)}`,
+          )
+          .join(" "),
+      ).not.toContain(sentinel);
+      expect(writes.join(" ")).not.toContain(sentinel);
+      expect(setRunTerminalReason).toHaveBeenCalledWith(
+        "run-private-persistence-failure",
+        "error:private_content_omitted",
+      );
+      expect(setRunError).toHaveBeenCalledWith(
+        "run-private-persistence-failure",
+        "private_content_omitted",
+        "Private content omitted",
+      );
+    } finally {
+      unregister();
+    }
+  });
+
+  it("keeps private run events live but omits them from batches and retained state", async () => {
+    const body = "private-run-event-sentinel";
+    let releaseRun!: () => void;
+    const runBarrier = new Promise<void>((resolve) => {
+      releaseRun = resolve;
+    });
+    vi.mocked(insertRunEvents).mockClear();
+
+    const run = startRun(
+      "run-private-event-cache",
+      "thread-private-event-cache",
+      async (send) => {
+        await runBarrier;
+        await send({
+          type: "tool_input_start",
+          id: "private-call",
+          tool: "read-private-message",
+          omitFromPersistedHistory: true,
+        });
+        await send({ type: "text", text: `Summary: ${body}` });
+      },
+      undefined,
+      { softTimeoutMs: 0 },
+    );
+    const liveEvents: RunEvent[] = [];
+    run.subscribers.add((event) => liveEvents.push(event));
+    releaseRun();
+
+    await run.finalized;
+
+    expect(
+      liveEvents.find(({ event }) => event.type === "text")?.event,
+    ).toMatchObject({ type: "text", text: `Summary: ${body}` });
+    expect(JSON.stringify(run.events)).not.toContain(body);
+    const batchedEvents = vi
+      .mocked(insertRunEvents)
+      .mock.calls.flatMap(([, events]) =>
+        events.map(({ eventData }) => eventData),
+      );
+    expect(batchedEvents.join("\n")).not.toContain(body);
+    expect(batchedEvents).toContain(
+      JSON.stringify({
+        type: "text",
+        omitFromPersistedHistory: true,
+        text: "",
+      }),
+    );
+  });
+
+  it("omits private run failures from stored error details while preserving the live error", async () => {
+    const body = "private-run-error-sentinel";
+    const completionEvents: unknown[] = [];
+    vi.mocked(setRunError).mockClear();
+    const run = startRun(
+      "run-private-error",
+      "thread-private-error",
+      async (send) => {
+        await send({
+          type: "tool_start",
+          id: "private-call",
+          tool: "read-private-message",
+          input: { body },
+          omitFromPersistedHistory: true,
+        });
+        throw new Error(`Private read failed: ${body}`);
+      },
+      async (completedRun) => {
+        completionEvents.push(...completedRun.events);
+      },
+      { softTimeoutMs: 0 },
+    );
+    const liveEvents: RunEvent[] = [];
+    run.subscribers.add((event) => liveEvents.push(event));
+
+    await run.finalized;
+
+    expect(
+      liveEvents.find(({ event }) => event.type === "error")?.event,
+    ).toMatchObject({
+      type: "error",
+      error: `Private read failed: ${body}`,
+    });
+    expect(JSON.stringify(run.events)).not.toContain(body);
+    expect(JSON.stringify(completionEvents)).not.toContain(body);
+    expect(JSON.stringify(completionEvents)).toContain(
+      "Private content omitted",
+    );
+    expect(JSON.stringify(vi.mocked(setRunError).mock.calls)).not.toContain(
+      body,
+    );
+    expect(vi.mocked(setRunError).mock.calls).toContainEqual([
+      "run-private-error",
+      "private_content_omitted",
+      "Private content omitted",
+    ]);
   });
 
   it("retries a failed sequence before persisting later events", async () => {
@@ -8169,9 +9564,14 @@ describe("run manager soft timeout", () => {
     },
   );
 
-  it("keeps user cancellation when a pending event write permanently fails", async () => {
+  it("keeps user cancellation while reporting a permanent event write failure", async () => {
     let rejectFirstWrite!: (error: Error) => void;
     let seqZeroAttempts = 0;
+    let resolveAbort!: (persisted: boolean) => void;
+    const abortWrite = new Promise<boolean>((resolve) => {
+      resolveAbort = resolve;
+    });
+    vi.mocked(markRunAborted).mockReturnValueOnce(abortWrite);
     const writeError = new Error("permanent event persistence failure");
     const onComplete = vi.fn();
     vi.mocked(insertRunEvent).mockImplementation(async (_runId, seq) => {
@@ -8199,7 +9599,13 @@ describe("run manager soft timeout", () => {
     await vi.waitFor(() => expect(rejectFirstWrite).toBeTypeOf("function"));
     expect(abortRun(run.runId, "user")).toBe(true);
     rejectFirstWrite(writeError);
-    await run.finalized;
+    try {
+      await vi.waitFor(() => expect(markRunAborted).toHaveBeenCalled());
+      expect(onComplete).not.toHaveBeenCalled();
+    } finally {
+      resolveAbort(true);
+    }
+    await expect(run.finalized).rejects.toBe(writeError);
 
     expect(run.status).toBe("aborted");
     expect(onComplete).toHaveBeenCalledWith(
@@ -8470,8 +9876,11 @@ describe("run manager soft timeout", () => {
       const completionStarted = Promise.withResolvers<void>();
       vi.mocked(renewTurnExecutionLease).mockClear();
       vi.mocked(renewTurnExecutionLease).mockRejectedValueOnce(
-        Object.assign(new Error("lease transferred during completion"), {
-          code: "stale_execution_fence",
+        new StaleExecutionFenceError({
+          runId: "run-finalization-lease-loss",
+          threadId: "thread-finalization-lease-loss",
+          turnId: "turn-finalization-lease-loss",
+          generation: "1",
         }),
       );
 
@@ -8498,8 +9907,73 @@ describe("run manager soft timeout", () => {
       expect(run.status).toBe("completed");
       expect(markRunAborted).not.toHaveBeenCalledWith(
         "run-finalization-lease-loss",
-        "execution-lease-lost",
+        EXECUTION_LEASE_LOST_ABORT_REASON,
       );
+    });
+
+    it("does not attempt a fenced abort after the heartbeat loses the execution lease", async () => {
+      const runId = "run-heartbeat-lease-loss";
+      const threadId = "thread-heartbeat-lease-loss";
+      let releaseTool!: () => void;
+      let markStarted!: () => void;
+      const started = new Promise<void>((resolve) => {
+        markStarted = resolve;
+      });
+      const toolGate = new Promise<void>((resolve) => {
+        releaseTool = resolve;
+      });
+      vi.mocked(markRunAborted).mockClear();
+      vi.mocked(renewTurnExecutionLease).mockClear();
+      vi.mocked(renewTurnExecutionLease).mockRejectedValue(
+        new StaleExecutionFenceError({
+          runId,
+          threadId,
+          turnId: "turn-heartbeat-lease-loss",
+          generation: "1",
+        }),
+      );
+      const unregister = registerErrorCaptureProvider(
+        "heartbeat-lease-loss",
+        captureException,
+      );
+
+      const run = startRun(
+        runId,
+        threadId,
+        async (send) => {
+          await send({
+            type: "tool_start",
+            tool: "long-running-tool",
+            id: "call-heartbeat-lease-loss",
+            input: {},
+          });
+          markStarted();
+          await toolGate;
+        },
+        undefined,
+        {
+          softTimeoutMs: 0,
+          noProgressTimeoutMs: 0,
+          executionLease: true,
+        },
+      );
+
+      await started;
+      await vi.advanceTimersByTimeAsync(3 * 1_500);
+
+      expect(run.abort.signal.aborted).toBe(true);
+      expect(run.abortReason).toBe(EXECUTION_LEASE_LOST_ABORT_REASON);
+      expect(renewTurnExecutionLease).toHaveBeenCalledTimes(3);
+      expect(track).not.toHaveBeenCalledWith(
+        "$exception",
+        expect.anything(),
+        undefined,
+      );
+
+      releaseTool();
+      await run.finalized;
+      expect(markRunAborted).not.toHaveBeenCalledWith(runId, expect.anything());
+      unregister();
     });
 
     it("does NOT backstop a run with an agent_call in flight (status start, no done/error yet)", async () => {
@@ -8705,7 +10179,7 @@ describe("run manager soft timeout", () => {
       expect(run.status).toBe("completed");
     });
 
-    it("does NOT backstop a run with a model stream in flight, and re-arms when it ends", async () => {
+    it("does NOT backstop a run with a model stream in flight, then gives the completed call one grace window", async () => {
       const events: AgentChatEvent[] = [];
       let aborted = false;
       let abortReason: unknown;
@@ -8747,7 +10221,7 @@ describe("run manager soft timeout", () => {
       await vi.advanceTimersByTimeAsync(3_000);
       expect(aborted).toBe(false);
 
-      await vi.advanceTimersByTimeAsync(3_000);
+      await vi.advanceTimersByTimeAsync(5_000);
       expect(aborted).toBe(true);
       expect(abortReason).toBe("no_progress");
       expect(events).toContainEqual(
@@ -8756,6 +10230,130 @@ describe("run manager soft timeout", () => {
           reason: "no_progress",
         }),
       );
+    });
+
+    it("does not checkpoint a long silent model call whose result is then processed", async () => {
+      let aborted = false;
+      let finishCall: (() => void) | undefined;
+
+      const run = startRun(
+        "run-no-progress-silent-call-then-tool",
+        "thread-no-progress-silent-call-then-tool",
+        async (send, signal) => {
+          send({ type: "model_stream", status: "start" });
+          await new Promise<void>((resolve) => {
+            finishCall = resolve;
+            signal.addEventListener("abort", () => {
+              aborted = true;
+              resolve();
+            });
+          });
+          send({ type: "model_stream", status: "end" });
+          // Result processing takes a while before the first tool event.
+          await new Promise<void>((resolve) => setTimeout(resolve, 3_000));
+          send({ type: "tool_start", tool: "lookup", id: "call-1", input: {} });
+          send({ type: "tool_done", tool: "lookup", id: "call-1", result: "" });
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => resolve());
+          });
+        },
+        undefined,
+        { softTimeoutMs: 0, noProgressTimeoutMs: 5_000 },
+      );
+
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(aborted).toBe(false);
+      finishCall?.();
+      await vi.advanceTimersByTimeAsync(3_500);
+      expect(aborted).toBe(false);
+      expect(run.events.map((e) => e.event.type)).toContain("tool_start");
+
+      abortRun("run-no-progress-silent-call-then-tool");
+      await run.finalized;
+    });
+
+    it("grants processing grace after every completed silent model call", async () => {
+      let aborted = false;
+      const finishCalls: Array<() => void> = [];
+
+      const run = startRun(
+        "run-no-progress-two-silent-calls",
+        "thread-no-progress-two-silent-calls",
+        async (send, signal) => {
+          signal.addEventListener("abort", () => {
+            aborted = true;
+          });
+          // Two back-to-back long silent calls: the second must get its own
+          // processing grace even though no progress event separated them.
+          for (let call = 0; call < 2; call++) {
+            send({ type: "model_stream", status: "start" });
+            await new Promise<void>((resolve) => finishCalls.push(resolve));
+            send({ type: "model_stream", status: "end" });
+            await new Promise<void>((resolve) => setTimeout(resolve, 3_000));
+          }
+          send({ type: "tool_start", tool: "lookup", id: "call-1", input: {} });
+          send({ type: "tool_done", tool: "lookup", id: "call-1", result: "" });
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => resolve());
+          });
+        },
+        undefined,
+        { softTimeoutMs: 0, noProgressTimeoutMs: 5_000 },
+      );
+
+      await vi.advanceTimersByTimeAsync(30_000);
+      finishCalls[0]?.();
+      await vi.advanceTimersByTimeAsync(3_100);
+      await vi.advanceTimersByTimeAsync(30_000);
+      expect(aborted).toBe(false);
+      finishCalls[1]?.();
+      await vi.advanceTimersByTimeAsync(3_500);
+      expect(aborted).toBe(false);
+      expect(run.events.map((e) => e.event.type)).toContain("tool_done");
+
+      abortRun("run-no-progress-two-silent-calls");
+      await run.finalized;
+    });
+
+    it("backstops repeated completed model-stream brackets without answer progress", async () => {
+      const events: AgentChatEvent[] = [];
+      let aborted = false;
+      let abortReason: unknown;
+
+      const run = startRun(
+        "run-no-progress-completed-model-streams",
+        "thread-no-progress-completed-model-streams",
+        async (send, signal) => {
+          const streamTimer = setInterval(() => {
+            send({ type: "model_stream", status: "start" });
+            send({ type: "model_stream", status: "end" });
+          }, 1_000);
+          await new Promise<void>((resolve) => {
+            signal.addEventListener("abort", () => {
+              clearInterval(streamTimer);
+              aborted = true;
+              abortReason = signal.reason;
+              resolve();
+            });
+          });
+        },
+        undefined,
+        { softTimeoutMs: 0, noProgressTimeoutMs: 5_000 },
+      );
+      run.subscribers.add((event) => events.push(event.event));
+
+      await vi.advanceTimersByTimeAsync(6_000);
+
+      expect(aborted).toBe(true);
+      expect(abortReason).toBe("no_progress");
+      expect(events.some((event) => event.type === "model_stream")).toBe(true);
+      expect(events).toContainEqual(
+        expect.objectContaining({
+          type: "auto_continue",
+          reason: "no_progress",
+        }),
+      );
+      await run.finalized;
     });
 
     it("mirrors the SQL in-flight marker across the model-stream bracket", async () => {
@@ -8960,11 +10558,16 @@ describe("run manager soft timeout", () => {
     it("still ends the turn immediately on a user Stop", async () => {
       let turnAborted = false;
       let boundaryReason: string | null = "unset";
+      let signalRunStarted!: () => void;
+      const runStarted = new Promise<void>((resolve) => {
+        signalRunStarted = resolve;
+      });
 
       const run = startRun(
         "run-chunk-user-stop",
         "thread-chunk-user-stop",
         async (send, signal, control) => {
+          signalRunStarted();
           await new Promise<void>((resolve) => {
             signal.addEventListener("abort", () => resolve(), { once: true });
           });
@@ -8981,6 +10584,7 @@ describe("run manager soft timeout", () => {
       );
       run.subscribers.add(() => {});
 
+      await runStarted;
       expect(abortRun("run-chunk-user-stop")).toBe(true);
       await run.finalized;
 
@@ -9255,6 +10859,63 @@ describe("run manager soft timeout", () => {
       );
     });
 
+    it("tracks successful reconciliation when the event-derived state differs from the manager status", async () => {
+      const consoleError = vi
+        .spyOn(console, "error")
+        .mockImplementation(() => {});
+      const runId = "run-tracking-reconciled-event-state";
+      const threadId = "thread-tracking-reconciled-event-state";
+      vi.mocked(updateRunStatusIfRunning).mockRejectedValueOnce(
+        new Error("terminal status write outcome is unknown"),
+      );
+      vi.mocked(reconcileTerminalRunFromEvents).mockImplementationOnce(
+        async () => {
+          vi.mocked(getRunById).mockResolvedValue({
+            id: runId,
+            threadId,
+            status: "completed",
+            startedAt: Date.now(),
+            errorCode: null,
+            errorDetail: null,
+            terminalReason: "done",
+          });
+          return true;
+        },
+      );
+
+      try {
+        const run = startRun(
+          runId,
+          threadId,
+          async (send) => {
+            send({ type: "done" });
+          },
+          async () => {
+            throw new Error("thread_data write failed");
+          },
+          { softTimeoutMs: 0 },
+        );
+
+        await run.finalized;
+        await vi.waitFor(() => expect(track).toHaveBeenCalledTimes(1));
+
+        expect(reconcileTerminalRunFromEvents).toHaveBeenCalledWith(runId, {
+          threadProjectionPending: true,
+        });
+        expect(track).toHaveBeenCalledWith(
+          "agent_run_terminal",
+          expect.objectContaining({
+            run_id: runId,
+            status: "errored",
+            terminal_reason: "completion_error",
+          }),
+          expect.anything(),
+        );
+      } finally {
+        consoleError.mockRestore();
+      }
+    });
+
     it("emits exactly one agent_run_terminal event on a normal completion", async () => {
       startRun(
         "run-tracking-done",
@@ -9288,8 +10949,27 @@ describe("run manager soft timeout", () => {
       expect(properties).not.toHaveProperty("dispatch_mode");
     });
 
-    it("emits an aborted event with the abort reason, not a false completion", async () => {
+    it("attributes agent_run_terminal to the run's user", async () => {
       startRun(
+        "run-tracking-user",
+        "thread-tracking-user",
+        async (send) => {
+          send({ type: "text", text: "fast answer" });
+        },
+        undefined,
+        { softTimeoutMs: 0, userId: "ada@acme-corp.io" },
+      );
+
+      await vi.waitFor(() => expect(track).toHaveBeenCalledTimes(1));
+
+      const [name, , source] = vi.mocked(track).mock.calls[0];
+      expect(name).toBe("agent_run_terminal");
+      expect(source).toMatchObject({ userId: "ada@acme-corp.io" });
+    });
+
+    it("leaves an aborted run to the SQL write that ended it, never a false completion", async () => {
+      vi.mocked(recordAgentRun).mockClear();
+      const live = startRun(
         "run-tracking-abort",
         "thread-tracking-abort",
         async (send, signal) => {
@@ -9302,18 +10982,22 @@ describe("run manager soft timeout", () => {
       );
 
       expect(abortRun("run-tracking-abort")).toBe(true);
+      await live.finalized;
+      // The terminal send loads its provider lazily; let it land first.
+      await vi.dynamicImportSettled();
+      await Promise.resolve();
 
-      await vi.waitFor(() => expect(track).toHaveBeenCalledTimes(1));
-
-      expect(track).toHaveBeenCalledWith(
+      expect(track).not.toHaveBeenCalledWith(
         "agent_run_terminal",
-        expect.objectContaining({
-          run_id: "run-tracking-abort",
-          status: "aborted",
-          terminal_reason: "aborted:user",
-          abort_reason: "user",
-        }),
         expect.anything(),
+        expect.anything(),
+      );
+      // The run counter has no SQL-side writer, so this process still counts it.
+      expect(recordAgentRun).toHaveBeenCalledWith(
+        expect.objectContaining({
+          status: "aborted",
+          terminalReason: "aborted:user",
+        }),
       );
     });
 

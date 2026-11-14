@@ -339,6 +339,8 @@ export default createAuthPlugin({
 });
 ```
 
+사용자 지정 인증은 UI 기능과 브라우저 승인에 사용할 선택적 `AuthOptions.getBrowserSession` 콜백도 구성해야 합니다. 이 콜백은 `H3Event`를 받고 `getSession`처럼 `AuthSession | null`을 반환하지만, 브라우저 쿠키만 읽어야 하며 bearer 토큰, 쿼리 토큰 또는 다른 헤더는 절대 읽으면 안 됩니다. 이 명시적 훅이 없으면 브라우저 전용 작업은 `401`을 반환합니다.
+
 ## 공용 작업 공간 앱 {#public-workspace-apps}
 
 Workspace 앱은 기본적으로 내부용입니다. 익명의 방문자가 공개를 로드할 수 있도록 하려면
@@ -482,6 +484,20 @@ const state = encodeOAuthState({
 User-Agent의 Canary 표시는 가용성 힌트일 뿐 원격 증명이 아니며, 인증과 권한 부여는 이를 신뢰하지 않습니다.
 정식 호스팅 앱은 앱별 identity hub 환경 설정 없이 패키지된 Desktop SSO Canary 요청을 인식합니다. 일반 브라우저는 일반 앱별 로그인을 계속 사용합니다. 자체 호스팅 앱에는 남아 있는 명시적 Desktop 또는 서버 측 페더레이션 경로에만 `AGENT_NATIVE_IDENTITY_HUB_URL`이 필요합니다. 안정적인 Desktop 빌드는 이후 릴리스가 별도로 승인될 때까지 브로커를 초기화하지 않습니다.
 Canary는 익명 앱 로그인 탐색을 가로채지 않습니다. 사용자는 활성 등록 앱에 대해 Desktop 설정에서 워크스페이스 로그인을 명시적으로 선택해야 하며, 일반 앱 로그인은 기본 경로로 유지됩니다.
+
+## 인증 페이지 사용자 지정
+
+Chat 템플릿은 `server/plugins/auth.ts`에서 `marketing: false`를 설정합니다. marketing 객체를 지정하면 패널이 활성화되며 모바일에서는 양식 아래에 표시됩니다. `AuthMarketingProps`는 렌더링된 페이지 속성을 설명합니다. 플러그인은 아래 `marketing` 필드를 받습니다. `authHeadHtml`은 앱이 작성한 신뢰할 수 있는 HTML을 기본 스타일 뒤에 추가합니다. 사용자 입력을 전달하지 마세요.
+
+```ts filename="server/plugins/auth.ts"
+import { createToolkitAuthPlugin } from "@agent-native/toolkit/app/auth/server";
+
+export default createToolkitAuthPlugin({
+  rootAuth: true,
+  marketing: { appName: "My app", tagline: "Make work easier" },
+  authHeadHtml: "<style>.auth-root { font-family: sans-serif; }</style>",
+});
+```
 
 ## 관리 배포와 초대
 

@@ -254,6 +254,27 @@ const animationStyle = {
     },
   ],
 };
+const managedTrackSource = applyMotionReactSourceEdit({
+  currentSource: source,
+  expectedSource: source,
+  preview: { sourceHash: bridgeVersionHash },
+  modulePath: "app/routes/home.tsx",
+  timeline: {
+    id: "timeline-1",
+    designId: "design-1",
+    sourceRef: "screen-1",
+    filePath: "app/routes/home.tsx",
+    tracks: request.tracks,
+    durationMs: request.durationMs,
+    defaultEase: request.defaultEase,
+    compiledHash: null,
+    createdAt: "2026-10-11T00:00:00.000Z",
+    updatedAt: "2026-10-11T00:00:00.000Z",
+  },
+}).source;
+const managedTrackVersionHash = createHash("sha256")
+  .update(managedTrackSource)
+  .digest("hex");
 const managedStyleSource = applyMotionReactSourceEdit({
   currentSource: source,
   expectedSource: source,
@@ -382,7 +403,7 @@ describe("apply-motion-edit localhost React source", () => {
 
   it("writes versioned Motion source to the linked HTML route", async () => {
     const htmlSourcePath = "pages/home.html";
-    const htmlSource = `<!doctype html><html><head><script src="./app.js"></script></head><body><main><button data-agent-native-node-id="hero">Hello</button></main></body></html>`;
+    const htmlSource = `<!doctype html><html><head></head><body><main><button data-agent-native-node-id="hero">Hello</button></main></body></html>`;
     const htmlVersionHash = createHash("sha256")
       .update(htmlSource)
       .digest("hex");
@@ -450,7 +471,6 @@ describe("apply-motion-edit localhost React source", () => {
       expectedVersionHash: htmlVersionHash,
       requireExpectedVersionHash: true,
     });
-    expect(writtenSource).toContain('<script src="./app.js"></script>');
     expect(writtenSource).toContain(
       '<button data-agent-native-node-id="hero">Hello</button>',
     );
@@ -490,6 +510,159 @@ describe("apply-motion-edit localhost React source", () => {
     ).toMatchObject({
       status: "valid",
       document: { audioClips, durationMs: 1500 },
+    });
+  });
+
+  it("writes the first audio clip to a React source without Motion metadata", async () => {
+    const audioSource = `export default function Home() {
+  return (
+    <main>
+      <h1>Hello</h1>
+    </main>
+  );
+}
+`;
+    const audioSourceHash = createHash("sha256")
+      .update(audioSource)
+      .digest("hex");
+    const audioClips = [
+      {
+        id: "voiceover-track",
+        name: "voiceover.mp3",
+        sourceUrl: "/_agent-native/file-upload/audio/voiceover.mp3",
+        timelineStartMs: 0,
+        sourceTrimStartMs: 250,
+        durationMs: 900,
+        volume: 0.8,
+        muted: false,
+      },
+    ];
+    mocks.readLocal.mockResolvedValue({
+      content: audioSource,
+      versionHash: audioSourceHash,
+    });
+
+    const result = await action.run({
+      ...request,
+      localSource: {
+        ...request.localSource,
+        moduleVersionHash: audioSourceHash,
+        timelineVersionHash: audioSourceHash,
+        renderedNodeIds: [],
+      },
+      tracks: [],
+      audioClips,
+    });
+
+    expect(result).toMatchObject({
+      trackCount: 0,
+      audioClipCount: 1,
+      audioClips,
+      persisted: true,
+      sourcePatched: true,
+    });
+    expect(
+      readMotionReactSource(mocks.writeLocal.mock.calls[0]![0].content),
+    ).toMatchObject({
+      status: "valid",
+      targetNodeIds: [],
+      document: { tracks: [], audioClips, durationMs: 900 },
+    });
+  });
+
+  it.each([
+    ["style library", { animationStyles: [animationStyle] }],
+    [
+      "style library and easing variables",
+      {
+        animationStyles: [animationStyle],
+        easingVariables: [
+          { id: "gentle", name: "Gentle", value: "ease-in-out" },
+        ],
+      },
+    ],
+  ])(
+    "writes the first %s after the last React track is cleared",
+    async (_label, metadata) => {
+      mocks.readLocal.mockReset();
+      mocks.readLocal.mockResolvedValueOnce({ reachable: true });
+      mocks.readLocal.mockResolvedValue({
+        content: managedTrackSource,
+        versionHash: managedTrackVersionHash,
+      });
+
+      const result = await action.run({
+        ...request,
+        localSource: {
+          ...request.localSource,
+          moduleVersionHash: managedTrackVersionHash,
+          timelineVersionHash: managedTrackVersionHash,
+          renderedNodeIds: [],
+        },
+        tracks: [],
+        ...metadata,
+      });
+
+      const writtenSource = mocks.writeLocal.mock.calls[0]?.[0]
+        .content as string;
+      expect(result).toMatchObject({
+        trackCount: 0,
+        persisted: true,
+        sourcePatched: true,
+      });
+      expect(readMotionReactSource(writtenSource)).toMatchObject({
+        status: "valid",
+        targetNodeIds: [],
+        document: { tracks: [], ...metadata },
+      });
+    },
+  );
+
+  it("writes first animation style and easing metadata to React source without targets", async () => {
+    const metadataSource = `export default function Home() {
+  return (
+    <main>
+      <h1>Hello</h1>
+    </main>
+  );
+}
+`;
+    const metadataSourceHash = createHash("sha256")
+      .update(metadataSource)
+      .digest("hex");
+    const easingVariables = [
+      {
+        id: "ease-out",
+        name: "Ease out",
+        value: "spring(0.3, 0.8)",
+        collection: "Motion",
+      },
+    ];
+    mocks.readLocal.mockResolvedValue({
+      content: metadataSource,
+      versionHash: metadataSourceHash,
+    });
+
+    const result = await action.run({
+      ...request,
+      localSource: {
+        ...request.localSource,
+        moduleVersionHash: metadataSourceHash,
+        timelineVersionHash: metadataSourceHash,
+        renderedNodeIds: [],
+      },
+      tracks: [],
+      animationStyles: [animationStyle],
+      easingVariables,
+    });
+
+    expect(result).toMatchObject({ persisted: true, sourcePatched: true });
+    expect(
+      readMotionReactSource(mocks.writeLocal.mock.calls[0]![0].content),
+    ).toMatchObject({
+      status: "valid",
+      targetNodeIds: [],
+      document: { animationStyles: [animationStyle], easingVariables },
     });
   });
 
@@ -565,6 +738,59 @@ describe("apply-motion-edit localhost React source", () => {
     ).toMatchObject({
       status: "valid",
       document: { tracks: [], animationStyles: [animationStyle] },
+    });
+  });
+
+  it("clears an empty managed React Motion style without optional metadata", async () => {
+    const emptyTrackSource = applyMotionReactSourceEdit({
+      currentSource: managedTrackSource,
+      expectedSource: managedTrackSource,
+      preview: { sourceHash: managedTrackVersionHash },
+      modulePath: "app/routes/home.tsx",
+      timeline: {
+        id: "timeline-1",
+        designId: "design-1",
+        sourceRef: "screen-1",
+        filePath: "app/routes/home.tsx",
+        tracks: [],
+        durationMs: 800,
+        defaultEase: "ease",
+        compiledHash: null,
+        createdAt: "2026-10-11T00:00:00.000Z",
+        updatedAt: "2026-10-11T00:00:00.000Z",
+      },
+      easingVariables: [],
+    }).source;
+    const emptyTrackVersionHash = createHash("sha256")
+      .update(emptyTrackSource)
+      .digest("hex");
+    mocks.readLocal.mockResolvedValueOnce({
+      content: emptyTrackSource,
+      versionHash: emptyTrackVersionHash,
+    });
+
+    const result = await action.run({
+      ...request,
+      localSource: {
+        ...request.localSource,
+        moduleVersionHash: emptyTrackVersionHash,
+        timelineVersionHash: emptyTrackVersionHash,
+        renderedNodeIds: [],
+      },
+      tracks: [],
+    });
+
+    expect(result).toMatchObject({
+      trackCount: 0,
+      persisted: true,
+      sourcePatched: true,
+    });
+    expect(
+      readMotionReactSource(mocks.writeLocal.mock.calls[0]![0].content),
+    ).toMatchObject({
+      status: "valid",
+      targetNodeIds: [],
+      document: { tracks: [] },
     });
   });
 

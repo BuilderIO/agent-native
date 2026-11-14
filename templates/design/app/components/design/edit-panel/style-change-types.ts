@@ -98,9 +98,21 @@ export type SelectionColorChangeHandler = (
 
 export type ApplyLayoutFlowOutcome = "applied" | "unsupported" | "failed";
 
+/** Style patches keyed by node id; a null value removes the declaration. */
+export type LayoutNodePatches = ReadonlyMap<
+  string,
+  Readonly<Record<string, string | null>>
+>;
+
+/**
+ * Applies `containerStyles` as a layout flow change to the selection (or
+ * `nodeId`), then `nodePatches` as plain style edits, all as one history
+ * entry. Empty `containerStyles` applies only the patches.
+ */
 export type ApplyLayoutFlowHandler = (
   nodeId: string | null,
   containerStyles: Record<string, string>,
+  nodePatches?: LayoutNodePatches,
 ) => ApplyLayoutFlowOutcome;
 
 export type StylesChangeHandler = (

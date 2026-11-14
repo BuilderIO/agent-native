@@ -1,12 +1,7 @@
 import type { Page } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
-import {
-  layerRow,
-  openEditor,
-  postAction,
-  setBaseURL,
-} from "./drag-and-drop.shared";
+import { layerRow, openEditor, postAction } from "./drag-and-drop.shared";
 import {
   appPath,
   openAppMenuSubmenu,
@@ -98,10 +93,6 @@ async function openHistory(page: Page): Promise<void> {
   await page.getByRole("menuitem", { name: "Version history" }).click();
   await expect(page.getByRole("heading", { name: "History" })).toBeVisible();
 }
-
-test.beforeEach(async ({}, testInfo) => {
-  setBaseURL(testInfo);
-});
 
 test("an editor checkpoint survives reopening the editor, and restoring it brings Home back with its id and content and leaves the URL screen intact", async ({
   app,

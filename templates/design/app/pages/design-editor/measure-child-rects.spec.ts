@@ -2,7 +2,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { measureFreeformGeometry } from "./measure-child-rects";
+import { measureFrameElement } from "./measure-child-rects";
 
 function stubRect(element: Element, left: number, top: number) {
   element.getBoundingClientRect = () =>
@@ -15,7 +15,7 @@ function mountPreview(containerStyle: string) {
   iframe.setAttribute("data-design-preview-iframe", "");
   document.body.append(iframe);
   const doc = iframe.contentDocument!;
-  doc.body.innerHTML = `<div data-agent-native-node-id="box" style="${containerStyle}"><span data-agent-native-node-id="kid"></span></div>`;
+  doc.body.innerHTML = `<div data-agent-native-node-id="box" style="width:120px;height:80px;${containerStyle}"><span data-agent-native-node-id="kid"></span><i></i></div>`;
   const container = doc.querySelector('[data-agent-native-node-id="box"]')!;
   const child = doc.querySelector('[data-agent-native-node-id="kid"]')!;
   stubRect(container, 100, 50);
@@ -23,20 +23,26 @@ function mountPreview(containerStyle: string) {
   return { container, child };
 }
 
-describe("measureFreeformGeometry", () => {
+const kidRect = (container: Element) => {
+  const measured = measureFrameElement(container);
+  if (measured.status !== "measured") throw new Error(measured.reason);
+  return measured.children.find((child) => child.id === "kid")?.rect;
+};
+
+describe("measureFrameElement", () => {
   it("measures a child against an unbordered container's origin", () => {
-    mountPreview("position:relative");
-    expect(measureFreeformGeometry("box").children.kid).toMatchObject({
+    const { container } = mountPreview("position:relative");
+    expect(kidRect(container)).toMatchObject({
       x: 10,
       y: 20,
     });
   });
 
   it("measures from the padding box, which is where absolute offsets resolve", () => {
-    mountPreview(
+    const { container } = mountPreview(
       "position:relative;border-left-width:4px;border-top-width:6px;border-style:solid",
     );
-    expect(measureFreeformGeometry("box").children.kid).toMatchObject({
+    expect(kidRect(container)).toMatchObject({
       x: 6,
       y: 14,
     });
@@ -53,9 +59,78 @@ describe("measureFreeformGeometry", () => {
       writable: true,
     });
 
-    expect(measureFreeformGeometry("box").children.kid).toMatchObject({
+    expect(kidRect(container)).toMatchObject({
       x: 40,
       y: 35,
     });
+  });
+
+  it("reports each child's box sizing and the padding and border along each axis", () => {
+    const { container, child } = mountPreview("position:relative");
+    child.setAttribute(
+      "style",
+      "display:block;box-sizing:border-box;padding:4px 6px;border:1px solid",
+    );
+    const measured = measureFrameElement(container);
+    if (measured.status !== "measured") throw new Error(measured.reason);
+    expect(measured.children.find((kid) => kid.id === "kid")?.box).toEqual({
+      sizing: "border-box",
+      edges: { width: 14, height: 10 },
+    });
+  });
+
+  it("counts children no edit can address instead of dropping them", () => {
+    const { container } = mountPreview("position:relative");
+    const measured = measureFrameElement(container);
+    expect(measured).toMatchObject({
+      status: "measured",
+      size: { width: 120, height: 80 },
+      unidentifiedChildren: 1,
+    });
+  });
+
+  it("refuses a frame that is not rendered", () => {
+    const { container } = mountPreview("display:none");
+    (container as HTMLElement).style.width = "auto";
+    expect(measureFrameElement(container).status).toBe("unmeasurable");
+  });
+});
+
+describe("measureFrameElement under a transform", () => {
+  it("refuses a frame whose own transform scales or rotates its children", () => {
+    const { container } = mountPreview("transform: scale(2)");
+    expect(measureFrameElement(container)).toEqual({
+      status: "unmeasurable",
+      reason: "transformed",
+    });
+  });
+
+  it("refuses a frame inside a rotated ancestor", () => {
+    const { container } = mountPreview("");
+    (container.parentElement as HTMLElement).style.transform = "rotate(45deg)";
+    expect(measureFrameElement(container)).toMatchObject({
+      status: "unmeasurable",
+      reason: "transformed",
+    });
+  });
+
+  it("still measures a frame that is only translated", () => {
+    const { container } = mountPreview("transform: translate(12px, 4px)");
+    expect(kidRect(container)).toMatchObject({ x: 10, y: 20 });
+  });
+});
+
+describe("measureFrameElement with a transformed child", () => {
+  it("reports a rotated child's untransformed layout box, which its transform then moves", () => {
+    const { container, child } = mountPreview("position:relative");
+    (child as HTMLElement).style.transform = "rotate(45deg)";
+    Object.defineProperties(child, {
+      offsetParent: { get: () => container },
+      offsetLeft: { get: () => 30 },
+      offsetTop: { get: () => 12 },
+      offsetWidth: { get: () => 80 },
+      offsetHeight: { get: () => 20 },
+    });
+    expect(kidRect(container)).toEqual({ x: 30, y: 12, width: 80, height: 20 });
   });
 });

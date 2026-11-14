@@ -410,6 +410,7 @@ function normalizedSourceGap(source: string, from: number, to: number): string {
 }
 
 const TABLE_TAG = /<\/?(?:table|tr|td|th)\b[^>]*>/;
+const TABLE_TAG_AT = new RegExp(TABLE_TAG.source, "y");
 
 const ASCII_PUNCTUATION = /^[!-/:-@[-`{-~]$/; // L7 bridge
 
@@ -496,12 +497,26 @@ function mapStoredSourceRuns(
   let canonicalCursor = 0;
   const pieces: string[] = [];
   // An empty cell has no text to find, so it goes right after the first
-  // pipe that opens a cell, outside the delimiter row, where the gap before
-  // it matches. A row's closing pipe also reads as a row break, so a pipe
-  // opens a cell only when another pipe follows it on its line.
+  // syntax that opens a cell where the gap before it matches: an HTML
+  // table's cell tag, or a pipe outside the delimiter row. A row's closing
+  // pipe also reads as a row break, so a pipe opens a cell only when another
+  // pipe follows it on its line.
   const emptyCellStart = (canonicalTo: number) => {
-    for (let start = cursor + 1; start <= source.length; start += 1) {
-      if (!/[\s|:-]/.test(source[start - 1]!)) return -1;
+    let start = cursor;
+    while (start < source.length) {
+      TABLE_TAG_AT.lastIndex = start;
+      const tag = source[start] === "<" && TABLE_TAG_AT.exec(source);
+      if (tag) {
+        start += tag[0].length;
+        if (
+          /^<t[dh]\b/.test(tag[0]) &&
+          gapMatches(cursor, start, canonicalCursor, canonicalTo)
+        )
+          return start;
+        continue;
+      }
+      if (!/[\s|:-]/.test(source.charAt(start))) return -1;
+      start += 1;
       if (source[start - 1] !== "|") continue;
       const lineFrom = source.lastIndexOf("\n", start - 1) + 1;
       const lineTo = source.indexOf("\n", start);
@@ -650,12 +665,21 @@ function resolveVerbatimRun(
 export type SuggestionFormattingSlicePart =
   | { type: "text"; text: string; marks: NonNullable<PMNode["marks"]> }
   | { type: "break"; text: string }
-  | { type: "indent"; text: string };
+  | { type: "indent"; text: string }
+  | { type: "block"; text: string };
 
+const EMPTY_BLOCK = "<empty-block/>";
+// The syntax that opens a line's block: a heading, list item, task, or quote.
+const BLOCK_MARKER = /^(?:#{1,6} |(?:> )+|[-*+] (?:\[[ xX]\] )?|\d+[.)] )/;
+
+// `blocks` admits block syntax and empty paragraphs. Without it a gap holds
+// only line breaks and indentation, which is what places a zero-width
+// boundary on one side of a gap or the other.
 function structuralGapParts(
   source: string,
   from: number,
   to: number,
+  blocks = true,
 ): SuggestionFormattingSlicePart[] | null {
   const parts: SuggestionFormattingSlicePart[] = [];
   let offset = from;
@@ -678,15 +702,36 @@ function structuralGapParts(
         source.lastIndexOf("\r", offset - 1),
       ) + 1;
     const atLineStart = /^\t*$/.test(source.slice(lineStart, offset));
-    if (!atLineStart || source[offset] !== "\t") return null;
-    const indentFrom = offset;
-    while (offset < to && source[offset] === "\t") offset += 1;
-    parts.push({
-      type: "indent",
-      text: "⇥".repeat(offset - indentFrom),
-    });
-    const heading = /^(?:#{1,6}) /.exec(source.slice(offset, to));
-    if (heading) offset += heading[0].length;
+    if (!atLineStart) return null;
+    if (source[offset] === "\t") {
+      const indentFrom = offset;
+      while (offset < to && source[offset] === "\t") offset += 1;
+      parts.push({
+        type: "indent",
+        text: "⇥".repeat(offset - indentFrom),
+      });
+      const heading = /^(?:#{1,6}) /.exec(source.slice(offset, to));
+      if (heading) offset += heading[0].length;
+      continue;
+    }
+    if (!blocks) return null;
+    // An empty paragraph or a block's opening syntax has no text of its own,
+    // so it is shown as written: a pilcrow for the paragraph, the marker
+    // otherwise. A marker is only whole when the slice holds all of it.
+    const lineEnd = offset + EMPTY_BLOCK.length;
+    if (
+      source.startsWith(EMPTY_BLOCK, offset) &&
+      lineEnd <= to &&
+      (lineEnd === source.length || /[\r\n]/.test(source[lineEnd]!))
+    ) {
+      parts.push({ type: "block", text: "¶" });
+      offset = lineEnd;
+      continue;
+    }
+    const marker = BLOCK_MARKER.exec(source.slice(offset, to));
+    if (!marker) return null;
+    parts.push({ type: "block", text: marker[0] });
+    offset += marker[0].length;
   }
   return parts;
 }
@@ -894,7 +939,7 @@ export function suggestionFormattingSourceRange(
         sourceTo: run.sourceFrom,
         offset: run.from,
         structural: Boolean(
-          structuralGapParts(source, previousSourceTo, run.sourceFrom),
+          structuralGapParts(source, previousSourceTo, run.sourceFrom, false),
         ),
         afterText: index > 0,
         beforeText: true,
@@ -910,7 +955,7 @@ export function suggestionFormattingSourceRange(
       sourceTo: source.length,
       offset: previousTextTo,
       structural: Boolean(
-        structuralGapParts(source, previousSourceTo, source.length),
+        structuralGapParts(source, previousSourceTo, source.length, false),
       ),
       afterText: mapped.runs.length > 0,
       beforeText: false,
@@ -983,13 +1028,13 @@ export function suggestionFormattingSourceRange(
       if (
         gap.afterText &&
         offset > gap.sourceFrom &&
-        structuralGapParts(source, gap.sourceFrom, offset)
+        structuralGapParts(source, gap.sourceFrom, offset, false)
       )
         candidates.push({ offset: gap.offset, affinity: "left" });
       if (
         gap.beforeText &&
         offset < gap.sourceTo &&
-        (structuralGapParts(source, offset, gap.sourceTo) ||
+        (structuralGapParts(source, offset, gap.sourceTo, false) ||
           !/[\r\n]/.test(opening) ||
           (gap.beforeCode && /^[^\r\n]*\r?\n$/.test(opening)))
       )

@@ -44,6 +44,7 @@ export {
 export {
   ExportSettingsPanel,
   type ExportFormat,
+  type ExportSettingsPanelController,
   type ExportSettingsPanelLabels,
   type ExportSettingsPanelProps,
   type ExportSettingsValue,

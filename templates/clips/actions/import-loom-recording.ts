@@ -18,6 +18,11 @@ import { queueBuilderMediaCompression } from "../server/lib/builder-media-compre
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
 import { trackRecordingCreated } from "../server/lib/recording-created.js";
 import {
+  beginMediaProduction,
+  finishMediaProduction,
+  withRecordingMediaProduction,
+} from "../server/lib/recording-media-lifecycle.js";
+import {
   getCurrentOwnerEmail,
   getDefaultRecordingVisibility,
   nanoid,
@@ -184,6 +189,7 @@ async function fetchLoomOembed(shareUrl: string) {
 }
 
 export default defineAction({
+  mcpApp: { compactCatalog: true },
   description:
     "Import a public Loom share URL, a YouTube video URL, or a direct link to a video file, into Clips as a playable recording. YouTube links (watch, Shorts, youtu.be) create a ready clip that plays in YouTube's embedded player: nothing is downloaded, so frames, editing and transcription aren't available, and its transcript has to come from import-transcript. Loom links create the recording immediately and download/reupload Loom's public MP4 when available, or keep a playable Loom embed when Loom allows playback but not MP4 export; public transcripts are imported in the background. Other direct video links (e.g. an MP4/WebM/MOV hosted by another screen recorder) are downloaded and reuploaded synchronously without transcript metadata — use request-transcript afterward. If storage is not connected, creates a waiting recording that can be retried after storage setup.",
   schema: ImportLoomRecordingSchema,
@@ -353,6 +359,7 @@ export default defineAction({
       await releaseHostedClipRecording({
         recordingId: id,
         ownerEmail,
+        reason: "create_failed",
       });
     };
     const updateExistingRecording = async (values: Record<string, unknown>) => {
@@ -629,6 +636,10 @@ export default defineAction({
     // Set before the provider is called: once true, an object or session may
     // exist, so the reservation is no longer certain to be unused.
     let uploadAttempted = false;
+    const mediaActivity = await beginMediaProduction({
+      recordingId: id,
+      ownerEmail,
+    });
     try {
       if (reusableHostedUrl) {
         hostedVerifiedBytes = await verifyHostedClipMedia({
@@ -666,9 +677,13 @@ export default defineAction({
           recordAsset: false,
         };
         uploadAttempted = true;
-        upload = storage.provider
-          ? await storage.provider.upload(uploadInput)
-          : await uploadFile(uploadInput);
+        upload = await withRecordingMediaProduction(
+          { recordingId: id, ownerEmail, recordAsset: false },
+          () =>
+            storage.provider
+              ? storage.provider.upload(uploadInput)
+              : uploadFile(uploadInput),
+        );
 
         if (upload === null) {
           return await saveWaitingForStorage(media.sizeBytes);
@@ -817,6 +832,8 @@ export default defineAction({
           ),
         );
       throw error;
+    } finally {
+      await finishMediaProduction(mediaActivity, null);
     }
 
     await dispatchPostFinalizeJob({

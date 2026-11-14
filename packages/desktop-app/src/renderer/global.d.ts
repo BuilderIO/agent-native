@@ -252,6 +252,9 @@ type CodeAgentPromptAttachment = {
   type?: string;
   size?: number;
   text?: string;
+  totalChars?: number;
+  readError?: "read-failed" | "too-large" | "not-utf8";
+  dataUrl?: string;
 };
 
 type CodeAgentProjectCommand = {

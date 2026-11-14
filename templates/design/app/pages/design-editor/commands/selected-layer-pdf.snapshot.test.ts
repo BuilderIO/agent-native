@@ -52,9 +52,13 @@ vi.mock("@/pages/design-editor/png-export-render", async (importOriginal) => {
   };
 });
 vi.mock("sonner", () => ({ toast: { success: vi.fn() } }));
+vi.mock("@/lib/design-export-tracking", () => ({
+  trackBrowserDesignExported: vi.fn(),
+  browserDesignExportErrorType: (error: { code?: string }) => error.code,
+}));
 
 import { runDownloadPdf } from "./download-pdf";
-import { runRenderPngBlob } from "./render-png-blob";
+import { runRenderPngCapture } from "./render-png-blob";
 
 describe("selected-layer PDF export from runtime snapshots", () => {
   let toBlob: ReturnType<typeof vi.spyOn>;
@@ -83,6 +87,8 @@ describe("selected-layer PDF export from runtime snapshots", () => {
     mocks.renderExportDocumentCanvas.mockReset().mockResolvedValue({
       canvas: renderCanvas,
       scale: 2,
+      width: 80,
+      height: 40,
     });
     mocks.resolveBoardExportCropRect.mockReset().mockReturnValue(null);
     mocks.resolveExportCropRect.mockReset().mockReturnValue({
@@ -151,9 +157,7 @@ describe("selected-layer PDF export from runtime snapshots", () => {
       {
         fallbackExportName: () => "Design - selection.pdf",
         pngExportingRef: { current: false },
-        renderPngBlob: (arg) => runRenderPngBlob(renderArgs, arg),
-        resolveSelectedScreensBounds: () => null,
-        resolvePngCaptureTarget,
+        renderPngCapture: (arg) => runRenderPngCapture(renderArgs, arg),
         setPngExporting: vi.fn(),
         showRasterCaptureError,
         t: (key) => key,
@@ -164,7 +168,7 @@ describe("selected-layer PDF export from runtime snapshots", () => {
     );
 
     expect(resolvePngCaptureTarget).toHaveBeenCalledWith("element");
-    expect(mocks.prepareExportCaptureTarget).toHaveBeenCalledTimes(2);
+    expect(mocks.prepareExportCaptureTarget).toHaveBeenCalledTimes(1);
     expect(mocks.renderExportDocumentCanvas).toHaveBeenCalledWith(
       expect.objectContaining({
         doc: expect.any(Object),

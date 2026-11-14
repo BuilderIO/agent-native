@@ -1,4 +1,11 @@
 const messages = {
+  composerSources: {
+    reference: "引用录制内容…",
+    group: "录制内容",
+    authentication: "登录以添加引用。",
+    invalid: "发送前请选择有效的引用。",
+    unavailable: "所选引用已不可用。请移除或重新选择。",
+  },
   meetingAsk: { resizeOrDismissAnswers: "调整答案区域大小或关闭" },
   meetingBrowserConfirmation:
     "Clips 检测到此浏览器正在使用麦克风，但无法判断会议在哪个标签页中进行。",
@@ -208,6 +215,7 @@ const messages = {
     spaces: "空间",
     meetings: "会议",
     dictate: "听写",
+    fromContent: "来自 Content",
     archive: "归档",
     trash: "废纸篓",
     agent: "代理",
@@ -263,6 +271,10 @@ const messages = {
       title: "暂无归档的录制",
       body: "归档的 Clips 会一直保存在这里，直到你准备好将它们恢复。",
     },
+    fromContent: {
+      title: "还没有来自 Content 的上传",
+      body: "你上传到 Content 页面的视频会作为 Clips 保存在这里。",
+    },
     trash: {
       title: "废纸篓是空的",
       body: "删除的 Clips 会在这里保留 30 天，然后永久移除。",
@@ -290,6 +302,41 @@ const messages = {
     clipsRestoreFailed: "{{count}} 个剪辑无法恢复",
     clipsPermanentlyDeleted: "已永久删除 {{count}} 个剪辑",
     clipsDeleteFailed: "{{count}} 个剪辑无法删除",
+    deletedMediaPending: "视频已从 Clips 移除。正在进行删除检查。",
+    deletedMediaBlocked: "视频已从 Clips 移除。无法确认文件是否已删除。",
+    deletedMediaRetained: "录制已删除。其他录制仍在使用的媒体文件已保留。",
+    clipsDeletedMediaPending:
+      "已从 Clips 移除的视频：{{count}}。正在进行删除检查。",
+    clipsDeletedMediaBlocked:
+      "已从 Clips 移除的视频：{{count}}。无法确认文件是否已删除。",
+    clipsDeletedMediaRetained:
+      "已删除的录制：{{count}}。其他录制仍在使用的媒体文件已保留。",
+    deletedMediaFinalizing: "视频已从 Clips 移除。需要重试存储用量更新。",
+    clipsDeletedMediaFinalizing:
+      "已从 Clips 移除的视频：{{count}}。需要重试存储用量更新。",
+    mediaCleanupFinalizing: "需要重试存储用量更新",
+    mediaCleanupFinalizingHelp:
+      "文件移除检查已结束，但此视频可能仍计入你的存储限额。重试更新用量以更新存储总量。",
+    mediaCleanupListLabel: "媒体移除",
+    mediaCleanupPending: "正在进行删除检查",
+    mediaCleanupPendingHelp:
+      "Clips 会继续在后台检查。你可以离开此页面，稍后在回收站查看更新。",
+    mediaCleanupBlocked: "无法确认视频文件是否已删除",
+    mediaCleanupBlockedHelp:
+      "存储的视频文件可能仍然存在。重试移除会发起另一次尝试。你可以离开此页面，在回收站查看结果。",
+    mediaCleanupReconnect: "请重新连接存储以移除已删除录制的媒体文件",
+    mediaCleanupRetained: "已删除录制的共享媒体文件在其他录制使用期间会保留",
+    mediaCleanupHelp: "更多信息",
+    mediaCleanupRetryFiles: "重试移除",
+    mediaCleanupRetryingFiles: "正在重试删除视频文件",
+    mediaCleanupRetryUsage: "重试用量更新",
+    mediaCleanupRetryingUsage: "正在重试存储用量更新",
+    mediaCleanupRemoved: "媒体文件已移除",
+    mediaCleanupUsageUpdated: "存储用量已更新",
+    mediaCleanupStillBlocked: "仍无法确认视频文件是否已删除",
+    mediaCleanupStillFinalizing: "存储用量更新仍需重试",
+    mediaCleanupRetryFailed: "无法开始重试。请再试一次。",
+    mediaCleanupLoadFailed: "无法加载媒体移除状态",
   },
   recordingRoute: {
     pageTitle: "剪辑录制 · Clips",
@@ -324,6 +371,8 @@ const messages = {
     fillerCompleted: "填充词移除完成",
     workflowReady: "工作流已就绪",
     workflowFailed: "工作流生成失败",
+    workflowCancelled: "已取消工作流生成",
+    workflowTimedOut: "工作流生成已超时",
     transcriptionCompleted: "转录完成",
     transcriptNotReady: "成绩单尚未准备好",
     tryAfterTranscription: "转录完成后重试。",
@@ -336,6 +385,8 @@ const messages = {
     fillerQueued: "正在移除填充词…",
     silenceQueued: "正在移除静音…",
     workflowQueued: "正在生成工作流…",
+    workflowStillGenerating: "仍在生成工作流…",
+    workflowTakingLonger: "这比平时花的时间更长…",
     pageTitle: "剪辑录制·Clips",
     loomMissingUrl: "此 Loom 录音缺少其源 URL。",
     finalizeFailed: "完成失败 ({{status}})",
@@ -527,6 +578,7 @@ const messages = {
     them: "他们",
     me: "我",
     regeneratingNotes: "正在重新生成摘要",
+    notesAlreadyGenerating: "摘要已在生成中，完成后会显示在这里。",
     meetingRemoved: "会议已删除",
     couldNotRemoveMeeting: "无法删除会议",
     couldNotLoadMeeting: "无法加载该会议。",
@@ -552,6 +604,13 @@ const messages = {
     desktopHint:
       "要开始记录，请从菜单栏打开 Clips Desktop 并选择 Start Meeting Notes，或在提醒出现时点击 Start notes。Clips 会捕获麦克风和系统音频，并在这里写入文字记录。",
     getDesktopApp: "获取桌面应用程序",
+    earlierAudioAdded_one: "已添加开始前的 {{count}} 分钟",
+    earlierAudioAdded_other: "已添加开始前的 {{count}} 分钟",
+    earlierAudioUnreadable: "无法检查此转录是否包含开始前的音频",
+    removeEarlierAudioTitle: "移除开始前的音频吗？",
+    removeEarlierAudioDescription:
+      "这会将其从转录中移除，并重新生成摘要、待办事项和片段描述，即使描述是你自己写的也一样。自动生成的标题也会重新生成；你选择的标题会保留。章节也会被删除。",
+    couldNotRemoveEarlierAudio: "无法移除开始前的音频",
     generateNotesFailed: "无法生成摘要。再试一次。",
     attendee_one: "{{count}} 与会者",
     attendee_other: "{{count}} 与会者",
@@ -600,6 +659,9 @@ const messages = {
     noMatches: "没有匹配项。",
     noTranscript: "还没有文字记录。",
     noTranscriptCaptured: "没有捕获任何文字记录。",
+    unreadableDescription:
+      "已保存的转录文本已损坏。重新生成会根据片段的音频创建新的转录文本。",
+    partialTranscript: "部分文字记录：录制被截断，部分内容可能缺失。",
     backupFailed:
       "本地未捕获任何语音，备份转录未完成。重试或检查麦克风和语音权限。",
     backupNotSetup: "本地未捕获任何语音，且未设置备份转录。",
@@ -676,6 +738,10 @@ const messages = {
     saveThumbnail: "保存缩略图",
   },
   shareDialog: {
+    enterPassword: "输入密码",
+    showPassword: "显示密码",
+    hidePassword: "隐藏密码",
+    copyPassword: "复制密码",
     redactionsPendingTitle: "分享前完成遮挡处理",
     redactionsPendingBody:
       "待应用的遮挡：{{count}} 处。请先在编辑器中应用；视频中仍保留原始内容。",
@@ -700,7 +766,7 @@ const messages = {
     openInCodex: "在 Codex 中打开",
     copyAgentPrompt: "复制代理提示",
     agentPrompt:
-      "读取这个 Clips 代理上下文 URL：{{agentContextUrl}}。使用 apis.transcript 阅读完整转录，并将 recommendedFrames[].url（或带 atMs 的 apis.frame.urlTemplate）作为图像获取。请原样保留 id 和 agent_access。发生错误时，检查 JSON 中的 failureKind、error 和 nextStep。如果 failureKind=access，请说明此链接无法授予访问权限；对于私有剪辑，请让所有者在 Clips 分享菜单中选择 {{shareWithAgents}} 并发送生成的链接。如果转录可用但 failureKind=media，请说明无法获取存储的媒体，换链接无法解决。如果 failureKind=processing，请遵循 nextStep；这不表示剪辑缺失或链接无效。如果 failureKind=expired，请让所有者在分享菜单中延长或取消剪辑的过期时间并保存，然后选择 {{shareWithAgents}} 并发送新链接。报告问题时也请使用可用的 browserDiagnostics。",
+      "读取这个 Clips 代理上下文 URL：{{agentContextUrl}}。使用 apis.transcript 阅读完整转录，并将 recommendedFrames[].url（或带 atMs 的 apis.frame.urlTemplate）作为图像获取。请原样保留 id 和 agent_access。发生错误时，检查 JSON 中的 failureKind、error 和 nextStep。如果 failureKind=access，请说明此链接无法授予访问权限；对于私有剪辑，请让所有者在 Clips 分享菜单中选择 {{shareWithAgents}} 并发送生成的链接。如果转录可用但 failureKind=media，请说明无法获取存储的媒体，换链接无法解决。如果 failureKind=processing，请遵循 nextStep；这不表示剪辑缺失或链接无效。如果 failureKind=expired，请让所有者在分享菜单中延长或取消剪辑的过期时间并保存，然后选择 {{shareWithAgents}} 并发送新链接。报告问题时也请使用可用的 browserDiagnostics。如果你无法将帧 URL 作为图像打开，请在可用时使用此上下文 URL 中的录制 ID 调用 Clips 的 get-recording-frames 工具。如果不可用，请告诉用户在 {{connectUrl}} 连接 Clips 后你就能查看帧。",
     agentTokenDescription:
       "此剪辑未公开，因此提供供代理使用的临时只读链接。2 小时后过期。",
     agentPublicDescription: "供代理使用的只读链接。剪辑保持公开期间有效。",
@@ -714,12 +780,16 @@ const messages = {
     chooseFile: "选择文件",
     remove: "消除",
     downloadMp4: "下载MP4",
-    embedsNeedPublic: "嵌入需要公共剪辑",
-    embedPublicDescription:
-      "该剪辑当前为 {{visibility}}。嵌入式 iframe 会匿名加载，因此剪辑必须公开以供观看者观看。",
-    makingPublic: "公开…",
-    makePublic: "公开",
     askOwnerPublic: "请楼主公开一下。",
+    advanced: "高级",
+    passwordSet: "已设置密码",
+    noPassword: "无密码",
+    linkExpires: "链接过期时间",
+    expiresOn: "{{date}} 过期",
+    neverExpires: "永不过期",
+    embedNeedsLinkAccess:
+      "嵌入的播放器无需登录即可加载，因此只有在任何拥有链接的人都能查看时才能播放。",
+    changeGeneralAccess: "更改常规访问权限",
     responsive: "反应灵敏 (16:9)",
     fixedSize: "固定尺寸",
     embedIframeTitle: "Clips 视频",
@@ -1281,11 +1351,12 @@ const messages = {
     actionItems: "行动项",
     sharedContent: "共享内容",
     summaryIncluded: "摘要、要点和行动项",
-    includeTranscript: "包含完整转写",
-    includeTranscriptDescription: "任何有权访问此会议的人都可以阅读完整转写。",
     transcriptUnavailable: "转写尚未准备好。",
-    agentLinkDescription:
-      "此临时链接可让代理读取这些会议记录，而无需将其公开。两小时后过期。",
+    transcriptOnShareLink: "在分享链接中显示转写",
+    transcriptOnShareLinkDescription: "你邀请的人始终可以在 Clips 中查看转写。",
+    linkShowsTranscript: "链接包含转写",
+    linkShowsNotesOnly: "链接仅显示笔记",
+    copyAgentLink: "复制代理链接",
     transcript: "转写",
     copyTranscript: "复制转写",
     transcriptCopied: "已复制转写",
@@ -1406,6 +1477,7 @@ const messages = {
   transcriptBubbles: {
     listening: "正在聆听…",
     noTranscript: "还没有转录。",
+    unreadable: "无法读取此转录。",
     liveTranscriptDescription: "开始记录后，实时转录会显示在这里。",
     me: "我",
     them: "对方",
@@ -1594,10 +1666,10 @@ const messages = {
     openDesktopApp: "Open desktop app (已本地化)",
   },
   editableTitle: {
-    untitled: "Untitled Clip (已本地化)",
+    untitled: "无标题剪辑",
     renameFailed: "Failed to rename clip (已本地化)",
     emptyTitle: "Title cannot be empty (已本地化)",
-    generatingTitle: "Generating title (已本地化)",
+    generatingTitle: "生成标题",
     placeholder: "Clip title (已本地化)",
     editLabel: "Edit clip title (已本地化)",
   },
@@ -1874,6 +1946,7 @@ const messages = {
   recordRoute: {
     freeClipsLeft_one: "还剩 {{count}} 个免费片段",
     freeClipsLeft_other: "还剩 {{count}} 个免费片段",
+    activateBuilder: "激活 Builder.io",
     hostedClipsExhaustedTitle: "免费连接 Builder.io，继续录制",
     hostedClipsExhaustedDescription:
       "免费托管录制次数已用完。连接 Builder.io 存储，即可继续将片段保存到资料库。",
@@ -2068,6 +2141,11 @@ const messages = {
     flowOriginalTranscript: "显示原始转写文本",
     flowCleanupSkipped: "未整理文本，已保留原始文本",
     flowBacktrackSkipped: "未应用文本编辑，已保留识别结果",
+    flowAppleSpeechParakeetMissing: "Apple Speech · Parakeet 未下载",
+    flowAppleSpeechParakeetDownloading: "Apple Speech · Parakeet 下载中",
+    flowAppleSpeechParakeetLoading: "Apple Speech · Parakeet 加载中",
+    flowAppleSpeechParakeetBusy: "Apple Speech · Parakeet 正忙",
+    flowAppleSpeechParakeetFailed: "Apple Speech · Parakeet 加载失败",
     flowCancelDictation: "取消听写",
     flowCopying: "正在复制转写文本…",
     aiProcessed: "AI 已处理",
@@ -2196,6 +2274,8 @@ const messages = {
     goHome: "返回首页",
     testMic: "测试麦克风",
     archivePageTitle: "归档 · Clips",
+    fromContentPageTitle: "来自 Content · Clips",
+    openContentPage: "打开页面",
     insightsPageTitle: "洞察 · Clips",
     folderPageTitle: "文件夹 · Clips",
     spacePageTitle: "空间 · Clips",

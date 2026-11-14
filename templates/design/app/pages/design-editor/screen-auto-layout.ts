@@ -5,11 +5,9 @@ import {
   type CodeLayerProjection,
   type CodeLayerSource,
 } from "@shared/code-layer";
+import { inferFlowArrangement } from "@shared/layout-model";
 
-import {
-  inferAutoLayoutFromChildren,
-  type AlignableRect,
-} from "./layout-operations";
+import type { AlignableRect } from "./layout-operations";
 
 export type EnableInlineScreenAutoLayoutResult =
   | {
@@ -84,7 +82,19 @@ export function enableInlineScreenAutoLayout(args: {
     .map((childId) => nodes.get(childId))
     .filter((node): node is CodeLayerNode => Boolean(node))
     .map((node) => rectForNode(node));
-  const inferred = inferAutoLayoutFromChildren(targetRect, childRects);
+  const arrangement = inferFlowArrangement(
+    targetRect,
+    childRects.map((rect) => ({ id: rect.id, rect })),
+  );
+  // A screen keeps one even inset: its tightest side, so nothing shifts in.
+  const inferred = {
+    direction:
+      arrangement?.direction === "horizontal"
+        ? ("row" as const)
+        : ("column" as const),
+    gap: arrangement?.gap ?? 10,
+    padding: arrangement ? Math.min(...Object.values(arrangement.padding)) : 0,
+  };
   const autoLayoutPatch = applyVisualEdit(
     args.content,
     {

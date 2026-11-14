@@ -2,17 +2,16 @@ import fs from "fs";
 import os from "os";
 import path from "path";
 
-import { afterEach, describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { AGENT_NATIVE_TYPEGEN_ENV } from "../shared/runtime-config.js";
-import {
-  findReactRouterInvocation,
-  reactRouterTypegenEnv,
-} from "./react-router-command.js";
+// oracle-change: reactRouterTypegenEnv and its test are gone because
+// typecheck's typegen gets an empty Vite config, so no Core plugin reads it.
+import { findReactRouterInvocation } from "./react-router-command.js";
 
 const roots: string[] = [];
 
 afterEach(() => {
+  vi.restoreAllMocks();
   for (const root of roots.splice(0)) fs.rmSync(root, { recursive: true });
 });
 
@@ -58,6 +57,53 @@ describe("findReactRouterInvocation", () => {
     });
   });
 
+  it("runs the package entry with Node on Windows even when a shim exists", () => {
+    const root = makeRoot();
+    const shim = path.join(root, "node_modules/.bin/react-router");
+    const packageDir = path.join(root, "node_modules/@react-router/dev");
+    fs.mkdirSync(path.dirname(shim), { recursive: true });
+    fs.mkdirSync(packageDir, { recursive: true });
+    fs.writeFileSync(shim, "");
+    fs.writeFileSync(
+      path.join(packageDir, "package.json"),
+      JSON.stringify({
+        exports: { "./package.json": "./package.json" },
+        bin: { "react-router": "bin.cjs" },
+      }),
+    );
+    fs.writeFileSync(path.join(packageDir, "bin.cjs"), "");
+    vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+    expect(findReactRouterInvocation(["build"], root)).toEqual({
+      command: process.execPath,
+      args: [fs.realpathSync(path.join(packageDir, "bin.cjs")), "build"],
+      shell: false,
+    });
+  });
+
+  it("uses the local Windows package when its package.json is not exported", () => {
+    const root = makeRoot();
+    const shim = path.join(root, "node_modules/.bin/react-router");
+    const packageDir = path.join(root, "node_modules/@react-router/dev");
+    fs.mkdirSync(path.dirname(shim), { recursive: true });
+    fs.mkdirSync(packageDir, { recursive: true });
+    fs.writeFileSync(shim, "");
+    fs.writeFileSync(
+      path.join(packageDir, "package.json"),
+      JSON.stringify({
+        exports: {},
+        bin: { "react-router": "bin.cjs" },
+      }),
+    );
+    const entry = path.join(packageDir, "bin.cjs");
+    fs.writeFileSync(entry, "");
+    vi.spyOn(process, "platform", "get").mockReturnValue("win32");
+    expect(findReactRouterInvocation(["build"], root)).toEqual({
+      command: process.execPath,
+      args: [entry, "build"],
+      shell: false,
+    });
+  });
+
   it("keeps the command-name fallback when package.json is not exported", () => {
     const root = makeRoot();
     const packageDir = path.join(root, "node_modules/@react-router/dev");
@@ -74,18 +120,6 @@ describe("findReactRouterInvocation", () => {
       command: "react-router",
       args: ["build"],
       shell: process.platform === "win32",
-    });
-  });
-});
-
-describe("reactRouterTypegenEnv", () => {
-  it("uses development mode and preserves the caller's environment", () => {
-    expect(
-      reactRouterTypegenEnv({ NODE_ENV: "production", DATABASE_URL: "test" }),
-    ).toEqual({
-      NODE_ENV: "development",
-      DATABASE_URL: "test",
-      [AGENT_NATIVE_TYPEGEN_ENV]: "1",
     });
   });
 });

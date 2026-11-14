@@ -120,6 +120,33 @@ describe("Interact links bridge", () => {
       expect(event.defaultPrevented).toBe(true);
       expect(posted).toHaveLength(1);
     });
+
+    it("forwards an authored transition attribute with the navigation", () => {
+      const transition = JSON.stringify({
+        version: 1,
+        trigger: "click",
+        action: "navigate",
+        transition: "dissolve",
+        durationMs: 500,
+        ease: { kind: "preset", preset: "ease-out" },
+      });
+      const event = click(
+        anchor({
+          href: "/pricing",
+          "data-an-prototype-transition": transition,
+        }),
+      );
+
+      expect(event.defaultPrevented).toBe(true);
+      expect(posted).toEqual([
+        {
+          type: "prototype-navigate",
+          href: "/pricing",
+          screen: "pricing",
+          transition,
+        },
+      ]);
+    });
   });
 
   describe("an in-page link", () => {

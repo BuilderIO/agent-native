@@ -1,5 +1,5 @@
 import { IconDownload, IconPlus, IconX } from "@tabler/icons-react";
-import { useEffect, useState } from "react";
+import { useEffect, useImperativeHandle, useState, type Ref } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -38,6 +38,10 @@ export interface ExportSettingsPanelLabels {
   removeExport: string;
 }
 
+export interface ExportSettingsPanelController {
+  addRow: () => void;
+}
+
 export interface ExportSettingsPanelProps {
   value: ExportSettingsValue;
   onChange: (patch: Partial<ExportSettingsValue>) => void;
@@ -47,6 +51,8 @@ export interface ExportSettingsPanelProps {
   disabled?: boolean;
   exporting?: boolean;
   className?: string;
+  /** A host section that owns the title and "+" adds rows through this. */
+  controllerRef?: Ref<ExportSettingsPanelController>;
 }
 
 const DEFAULT_LABELS: ExportSettingsPanelLabels = {
@@ -162,6 +168,7 @@ export function ExportSettingsPanel({
   disabled = false,
   exporting = false,
   className,
+  controllerRef,
 }: ExportSettingsPanelProps) {
   const copy = { ...DEFAULT_LABELS, ...labels };
   const isDisabled = disabled || exporting;
@@ -205,6 +212,8 @@ export function ExportSettingsPanel({
     ]);
   }
 
+  useImperativeHandle(controllerRef, () => ({ addRow }));
+
   function removeRow(id: number) {
     setRows((prev) => {
       if (prev.length <= 1) return prev;
@@ -229,21 +238,22 @@ export function ExportSettingsPanel({
 
   return (
     <div className={cn("space-y-2", className)}>
-      {/* Section header: title left, "+" right — matches the design editor export header */}
-      <div className="flex h-6 items-center justify-between">
-        <span className="design-sidebar-field-label text-muted-foreground">
-          {copy.title}
-        </span>
-        <button
-          type="button"
-          aria-label={copy.addExport}
-          disabled={isDisabled}
-          className="flex size-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
-          onClick={addRow}
-        >
-          <IconPlus className="size-3.5" />
-        </button>
-      </div>
+      {controllerRef ? null : (
+        <div className="flex h-6 items-center justify-between">
+          <span className="design-sidebar-field-label text-muted-foreground">
+            {copy.title}
+          </span>
+          <button
+            type="button"
+            aria-label={copy.addExport}
+            disabled={isDisabled}
+            className="flex size-6 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-accent hover:text-foreground disabled:pointer-events-none disabled:opacity-50"
+            onClick={addRow}
+          >
+            <IconPlus className="size-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Export rows: [scale ▾] [format ▾] [suffix] [×] — design-editor compact inline layout */}
       {rows.map((row) => (

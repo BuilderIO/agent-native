@@ -1,5 +1,7 @@
 name: Verify docs production source freshness
-description: Check that queued docs inputs are still current on main.
+description: >-
+  Check that a docs source is the newest on main, or, with live-site-id, that it
+  is no older than the live deploy.
 inputs:
   source-ref:
     description: Exact commit SHA used to build or migrate docs.
@@ -8,6 +10,16 @@ inputs:
     description: Fail instead of skip when newer docs inputs are present.
     required: false
     default: "false"
+  live-site-id:
+    description: >-
+      Netlify site whose live deploy the source must not be older than. When
+      set, newer docs inputs on main do not make the source stale.
+    required: false
+    default: ""
+  netlify-auth-token:
+    description: Netlify token that can read live-site-id.
+    required: false
+    default: ""
 outputs:
   current:
     description: Whether the source is current for production docs deployment.
@@ -21,6 +33,8 @@ runs:
       env:
         SOURCE_REF: ${{ inputs.source-ref }}
         FAIL_ON_STALE: ${{ inputs.fail-on-stale }}
+        LIVE_SITE_ID: ${{ inputs.live-site-id }}
+        NETLIFY_AUTH_TOKEN: ${{ inputs.netlify-auth-token }}
       with:
         github-token: ${{ github.token }}
         script: |
@@ -28,6 +42,69 @@ runs:
           const sourceRef = process.env.SOURCE_REF.trim().toLowerCase();
           if (!/^[0-9a-f]{40}$/.test(sourceRef)) {
             core.setFailed("Docs production source must be a full 40-character commit SHA.");
+            return;
+          }
+
+          const liveSiteId = (process.env.LIVE_SITE_ID || "").trim();
+          if (liveSiteId) {
+            // A run that started from the newest source publishes unless the
+            // live deploy is already newer. Asking again for the newest on
+            // main after a build lets a busy main refuse every build.
+            let response;
+            for (let attempt = 1; attempt <= 3; attempt += 1) {
+              if (attempt > 1) await new Promise((resolve) => setTimeout(resolve, 2_000 * (attempt - 1)));
+              try {
+                response = await fetch(`https://api.netlify.com/api/v1/sites/${encodeURIComponent(liveSiteId)}`, {
+                  headers: { Authorization: `Bearer ${process.env.NETLIFY_AUTH_TOKEN}` },
+                });
+              } catch (error) {
+                if (attempt === 3) throw error;
+                continue;
+              }
+              if (response.ok || (response.status < 500 && response.status !== 429)) break;
+            }
+            if (!response.ok) {
+              core.setFailed(`Netlify site ${liveSiteId} lookup failed with HTTP ${response.status}.`);
+              return;
+            }
+            const live = (await response.json())?.published_deploy;
+            if (!live?.id) {
+              core.setFailed(`Netlify site ${liveSiteId} has no published deploy to compare against.`);
+              return;
+            }
+            // deploy-netlify-prebuilt titles its deploys "GitHub Actions prebuilt deploy <sha>".
+            const liveRef = (/\b([0-9a-f]{40})\b/i.exec(live.title || "") || [])[1]?.toLowerCase();
+            if (!liveRef) {
+              core.info(`Live deploy ${live.id} names no source commit; nothing to regress against.`);
+              core.setOutput("current", "true");
+              return;
+            }
+            if (liveRef !== sourceRef) {
+              const { status } = (await github.rest.repos.compareCommits({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                base: liveRef,
+                head: sourceRef,
+                per_page: 1,
+              })).data;
+              if (status === "behind") {
+                const message = `Docs source ${sourceRef} is older than the live deploy's ${liveRef}.`;
+                if (
+                  process.env.FAIL_ON_STALE === "true" ||
+                  context.eventName === "workflow_dispatch"
+                ) {
+                  core.setFailed(`Refusing to publish ${message}`);
+                } else {
+                  core.notice(`Skipping ${message}`);
+                }
+                return;
+              }
+              if (status !== "ahead") {
+                core.setFailed(`Docs source ${sourceRef} is ${status} from the live deploy's ${liveRef}.`);
+                return;
+              }
+            }
+            core.setOutput("current", "true");
             return;
           }
 
@@ -128,9 +205,14 @@ runs:
             "packages/recap-cli/**",
             "packages/toolkit/**",
             "scripts/netlify-prebuilt-target.ts",
+            "scripts/netlify-prebuilt-build.ts",
             "scripts/netlify-migration-url.ts",
+            "scripts/netlify-api-error.ts",
             "scripts/netlify-api-request.ts",
             "scripts/netlify-production-sites.json",
+            "scripts/check-function-size-baseline.mjs",
+            "scripts/ssr-boot-smoke.mjs",
+            "scripts/check-production-cache-contract.mjs",
             ".github/actions/docs-source-freshness/action.yml",
             ".github/workflows/deploy-docs-production.yml",
             ".github/workflows/deploy-netlify-prebuilt.yml",

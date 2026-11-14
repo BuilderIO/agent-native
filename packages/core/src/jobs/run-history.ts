@@ -8,7 +8,12 @@ import {
   withFencedExecutionWrite,
 } from "../agent/execution-fence.js";
 import { resolveBackgroundRunHardTimeoutMs } from "../agent/run-manager.js";
-import { getDbExec, type DbExec, type DbExecStatement } from "../db/client.js";
+import {
+  getDbExec,
+  getScopedDbExec,
+  type DbExec,
+  type DbExecStatement,
+} from "../db/client.js";
 import {
   ensureColumnExists,
   ensureIndexExists,
@@ -310,8 +315,16 @@ export function ensureTable(): Promise<void> {
 function toRun(row: Record<string, unknown>, now: number): AutomationRun {
   const stored = stringifyValue(row.status) as AutomationRunStatus;
   const startedAt = Number(row.started_at);
+  const dispatchPending = Number(row.dispatch_pending ?? 0) === 1;
+  const claimedAt = row.claimed_at == null ? null : Number(row.claimed_at);
+  // A queued "Run now" row keeps its enqueue time in started_at. When a worker
+  // claims it late, the claim lease — not the queue age — is what keeps it live.
+  const livenessFrom =
+    dispatchPending && claimedAt !== null && Number.isFinite(claimedAt)
+      ? claimedAt
+      : startedAt;
   const status: AutomationRunStatus =
-    stored === "running" && now - startedAt > resolveRunLivenessCeilingMs()
+    stored === "running" && now - livenessFrom > resolveRunLivenessCeilingMs()
       ? "interrupted"
       : stored;
   return {
@@ -339,8 +352,8 @@ function toRun(row: Record<string, unknown>, now: number): AutomationRun {
         : row.error_code == null
           ? null
           : stringifyValue(row.error_code),
-    dispatchPending: Number(row.dispatch_pending ?? 0) === 1,
-    claimedAt: row.claimed_at == null ? null : Number(row.claimed_at),
+    dispatchPending,
+    claimedAt,
   };
 }
 
@@ -979,7 +992,7 @@ export async function attachAutomationRunThread(
   runId: string,
   options: { requirePersisted?: boolean; expectedRunId?: string | null } = {},
 ): Promise<void> {
-  await ensureTable();
+  if (getScopedDbExec() === undefined) await ensureTable();
   const fence = currentExecutionFence();
   if (fence && (fence.runId !== runId || fence.threadId !== threadId)) {
     throw new StaleExecutionFenceError(fence);

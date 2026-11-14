@@ -132,8 +132,7 @@ export const enUSJourneyCanvasMessages: JourneyCanvasMessages = {
   recordingStarted: "Recording started",
   appBandHeading: "{app} · {count} sessions",
   journeyTitleSummary: "{app} · {from} to {to} · {count} sessions{partial}",
-  journeyTitleAppBandsSummary:
-    "{from} to {to} · separate per-app cohorts{partial}",
+  journeyTitleAppBandsSummary: "{from} to {to} · separate cohorts{partial}",
   sessionCount: "{count} sessions",
   otherPaths: "Other paths",
   otherBranchesShown: "Showing {shown} of {total} branches",

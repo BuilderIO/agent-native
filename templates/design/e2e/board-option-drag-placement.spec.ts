@@ -52,9 +52,7 @@ test("an Option-drag copy dropped on empty board space between layers lands at t
 }) => {
   const designId = await createBoardOnlyDesign(app);
   await page.goto(appPath(`/design/${designId}`));
-  await expect(page.locator("[data-design-bottom-toolbar]")).toBeVisible({
-    timeout: 30_000,
-  });
+  await expect(page.locator("[data-design-bottom-toolbar]")).toBeVisible();
   const board = page
     .locator("[data-board-surface-layer] iframe")
     .first()

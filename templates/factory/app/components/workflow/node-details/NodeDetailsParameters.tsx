@@ -1,4 +1,4 @@
-import { useState, type RefObject } from "react";
+import { useMemo, useState, type RefObject } from "react";
 
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -7,6 +7,7 @@ import { NodeInspector } from "@/components/workflow-canvas/inspector/NodeInspec
 import type { WorkflowEditor, WorkflowNode } from "@/lib/workflow-editor";
 
 import { NodeAuditPanel } from "../NodeAuditPanel";
+import { PickerScope } from "../pickers/picker-scope";
 import { TestStepButton } from "../TestStepButton";
 import { openingTab } from "../workflow-run-overlay";
 import { useWorkflowStrings } from "../workflow-strings";
@@ -54,6 +55,9 @@ export function NodeDetailsParameters({
   dirty,
   starting,
   onTestStep,
+  onTestRequest,
+  testingRequest = false,
+  onAskAgent,
 }: {
   sectionRef: RefObject<HTMLDivElement | null>;
   editor: WorkflowEditor;
@@ -78,8 +82,15 @@ export function NodeDetailsParameters({
   starting: boolean;
   /** Resolves to whether the run started. */
   onTestStep: (nodeId: string, sampleItemIds: string[]) => Promise<boolean>;
+  /** Set for an API request tested in the window: Test step sends it and the Output column shows the answer, instead of starting a run. */
+  onTestRequest?: () => void;
+  /** That test is running. */
+  testingRequest?: boolean;
+  /** Runs just before the History tab hands the step to the agent. */
+  onAskAgent: () => void;
 }) {
   const ws = useWorkflowStrings();
+  const pickerScope = useMemo(() => ({ factoryId }), [factoryId]);
 
   // A step whose run failed opens on its history. Another run can change that, so the tab follows it.
   const opening: ParametersTab =
@@ -131,10 +142,15 @@ export function NodeDetailsParameters({
               node={node}
               onServer={serverNodeIds.has(node.id)}
               dirty={dirty}
-              busy={starting}
-              onTest={(nodeId, sampleItemIds) =>
-                void testStep(nodeId, sampleItemIds)
-              }
+              busy={starting || testingRequest}
+              onTest={(nodeId, sampleItemIds) => {
+                if (onTestRequest) {
+                  onEngage();
+                  onTestRequest();
+                } else {
+                  void testStep(nodeId, sampleItemIds);
+                }
+              }}
             />
           </div>
         </div>
@@ -143,7 +159,9 @@ export function NodeDetailsParameters({
           className="mt-0 flex min-h-0 flex-1 flex-col"
           onBlur={onEngage}
         >
-          <NodeInspector editor={editor} node={node} quiet={quiet} />
+          <PickerScope.Provider value={pickerScope}>
+            <NodeInspector editor={editor} node={node} quiet={quiet} />
+          </PickerScope.Provider>
         </TabsContent>
         <TabsContent
           value="history"
@@ -159,6 +177,7 @@ export function NodeDetailsParameters({
               title={title}
               runId={runId ?? undefined}
               onClose={() => setTab("parameters")}
+              onAskAgent={onAskAgent}
             />
           )}
         </TabsContent>

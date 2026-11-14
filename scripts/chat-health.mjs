@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 
+import { execFileSync } from "node:child_process";
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { createRequire } from "node:module";
 import { dirname, resolve } from "node:path";
@@ -7,10 +8,29 @@ import { fileURLToPath } from "node:url";
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const TEMPLATES = resolve(HERE, "../templates");
+// .env files are gitignored, so a linked worktree (where scheduled sweeps run)
+// has none; fall back to the main checkout's copies.
+const MAIN_TEMPLATES = (() => {
+  try {
+    const common = execFileSync(
+      "git",
+      ["rev-parse", "--path-format=absolute", "--git-common-dir"],
+      { cwd: HERE, encoding: "utf8" },
+    ).trim();
+    const main = resolve(dirname(common), "templates");
+    return main === TEMPLATES || !existsSync(main) ? null : main;
+  } catch {
+    return null;
+  }
+})();
 
 function loadPostgres() {
-  for (const app of readdirSync(TEMPLATES).sort()) {
-    const pkg = `${TEMPLATES}/${app}/package.json`;
+  const roots = [TEMPLATES, MAIN_TEMPLATES].filter(Boolean);
+  for (const pkg of roots.flatMap((root) =>
+    readdirSync(root)
+      .sort()
+      .map((app) => `${root}/${app}/package.json`),
+  )) {
     if (!existsSync(pkg)) continue;
     try {
       return createRequire(pkg)("postgres");
@@ -43,9 +63,7 @@ function dbPressureWarnings(p) {
     );
   }
   if (p.trivial_query_ms > MAX_TRIVIAL_QUERY_MS) {
-    out.push(
-      `SELECT 1 took ${p.trivial_query_ms}ms — the database itself is slow, not the app`,
-    );
+    out.push(`SELECT 1 took ${p.trivial_query_ms}ms`);
   }
   if (p.max_same_query >= MAX_SAME_QUERY_CONCURRENCY) {
     out.push(
@@ -74,8 +92,11 @@ function discoverApps() {
   const apps = [];
   for (const name of readdirSync(TEMPLATES).sort()) {
     if (onlyApp && name !== onlyApp) continue;
-    const envPath = `${TEMPLATES}/${name}/.env`;
-    if (!existsSync(envPath)) continue;
+    const envPath = [TEMPLATES, MAIN_TEMPLATES]
+      .filter(Boolean)
+      .map((root) => `${root}/${name}/.env`)
+      .find(existsSync);
+    if (!envPath) continue;
     const url = /^DATABASE_URL=(.*)$/m
       .exec(readFileSync(envPath, "utf8"))?.[1]
       ?.trim()
@@ -205,14 +226,17 @@ async function measure({ name, url }, since) {
       a2a = null;
     }
     let dbPressure = null;
+    let dbPressureError = null;
     try {
       const t0 = Date.now();
+      await sql.unsafe("SELECT 1");
+      const trivialQueryMs = Date.now() - t0;
       const [p] = await sql.unsafe(DB_PRESSURE_SQL);
-      dbPressure = { ...p, trivial_query_ms: Date.now() - t0 };
-    } catch {
-      dbPressure = null;
+      dbPressure = { ...p, trivial_query_ms: trivialQueryMs };
+    } catch (error) {
+      dbPressureError = String(error?.message ?? error);
     }
-    return { name, ...totals, reasons, a2a, dbPressure };
+    return { name, ...totals, reasons, a2a, dbPressure, dbPressureError };
   } finally {
     await sql.end({ timeout: 5 });
   }
@@ -276,6 +300,11 @@ if (asJson) {
         fleet: { ...fleet, badRate: fleetRate },
         apps: scored,
         unreachable,
+        budgets: {
+          badRate: BAD_TURN_BUDGET,
+          stallRate: STALL_BUDGET,
+          a2aFailRate: A2A_FAIL_BUDGET,
+        },
       },
       null,
       2,
@@ -348,12 +377,18 @@ if (asJson) {
   const pressured = scored
     .map((r) => ({ name: r.name, warns: dbPressureWarnings(r.dbPressure) }))
     .filter((x) => x.warns.length > 0);
-  if (pressured.length > 0) {
+  const unmeasured = scored.filter((r) => r.dbPressureError !== null);
+  if (pressured.length > 0 || unmeasured.length > 0) {
     console.log(
       `\nDatabase pressure — the hour before an outage looks like this\n`,
     );
     for (const { name, warns } of pressured) {
       for (const w of warns) console.log(`! ${name.padEnd(11)} ${w}`);
+    }
+    for (const r of unmeasured) {
+      console.log(
+        `! ${r.name.padEnd(11)} database pressure unmeasured: ${r.dbPressureError}`,
+      );
     }
   }
 
@@ -362,7 +397,13 @@ if (asJson) {
   }
 }
 
-if (strict && scored.some((r) => dbPressureWarnings(r.dbPressure).length > 0)) {
+if (
+  strict &&
+  scored.some(
+    (r) =>
+      r.dbPressureError !== null || dbPressureWarnings(r.dbPressure).length > 0,
+  )
+) {
   process.exit(1);
 }
 if (unreachable.length > 0 && strict) process.exit(1);

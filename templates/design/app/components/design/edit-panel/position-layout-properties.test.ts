@@ -8,6 +8,8 @@ import {
   deriveConstraintsValue,
   measuredPositionValue,
   measuredPositionOffset,
+  positionFieldMode,
+  svgShapePositionPatch,
 } from "./position-layout-properties";
 
 function element(overrides: Partial<ElementInfo> = {}): ElementInfo {
@@ -247,6 +249,23 @@ describe("authoredPositionPatch", () => {
     });
   });
 
+  it("writes whole-pixel offsets when the measured box sits on a sub-pixel", () => {
+    const selected = element({
+      boundingRect: { x: 256.96, y: 301.29, width: 80, height: 40 },
+      parentBoundingRect: { x: 0.96, y: 0.29, width: 800, height: 600 },
+      positionReferenceRect: { x: 0, y: 0, width: 800, height: 600 },
+      positionContainingBlockOrigin: { x: 0.96, y: 0.29 },
+      computedStyles: { left: "256px", top: "301px" },
+    });
+
+    expect(authoredPositionPatch(selected, "x", 258)).toEqual({
+      left: "257px",
+    });
+    expect(authoredPositionPatch(selected, "y", 300)).toEqual({
+      top: "300px",
+    });
+  });
+
   it("updates both CSS axes when a transformed containing block rotates them", () => {
     const selected = element({
       boundingRect: { x: 120, y: 80, width: 40, height: 80 },
@@ -263,6 +282,75 @@ describe("authoredPositionPatch", () => {
     expect(authoredPositionPatch(selected, "y", 90)).toEqual({
       left: "110px",
       top: "80px",
+    });
+  });
+});
+
+describe("authoredPositionPatch under a rotated containing block", () => {
+  it("keeps the typed value exact where whole local pixels miss the screen grid", () => {
+    const half = Math.SQRT1_2;
+    const selected = element({
+      boundingRect: { x: 100, y: 100, width: 40, height: 40 },
+      positionReferenceRect: { x: 0, y: 0, width: 400, height: 300 },
+      positionContainingBlockOrigin: { x: 0, y: 0 },
+      positionContainingBlockTransform: { a: half, b: -half, c: half, d: half },
+      computedStyles: { left: "20px", top: "20px" },
+    });
+
+    // 10 screen px along X is 7.07 local px along both rotated axes.
+    expect(authoredPositionPatch(selected, "x", 110)).toEqual({
+      left: "27.07px",
+      top: "27.07px",
+    });
+  });
+});
+
+describe("positionFieldMode", () => {
+  it("places a Boolean operand by its own insets, never a relative offset", () => {
+    const operand = element({
+      tagName: "svg",
+      primitiveKind: "boolean-operand",
+      computedStyles: { position: "static", left: "20px", top: "20px" },
+      inlineStyles: { position: "absolute", left: "20px", top: "20px" },
+      childElementCount: 1,
+    });
+
+    expect(positionFieldMode(operand)).toEqual({ kind: "out-of-flow" });
+  });
+
+  it("moves a shape inside an SVG by its translate, never by CSS insets", () => {
+    const group = element({
+      tagName: "g",
+      computedStyles: { position: "static" },
+      childElementCount: 2,
+      svgShapeOffset: { x: 4, y: 0 },
+    });
+    expect(positionFieldMode(group)).toEqual({
+      kind: "svg-shape",
+      offset: { x: 4, y: 0 },
+    });
+    expect(positionFieldMode({ ...group, svgShapeOffset: null })).toEqual({
+      kind: "read-only",
+    });
+  });
+});
+
+describe("svgShapePositionPatch", () => {
+  it("lands a typed X on the canvas through the SVG's scale", () => {
+    // The shape sits at X 640 in an SVG drawn at twice its viewBox size.
+    const shape = element({
+      tagName: "rect",
+      boundingRect: { x: 640, y: 120, width: 120, height: 60 },
+      positionReferenceRect: { x: 0, y: 0, width: 1440, height: 900 },
+      positionContainingBlockTransform: { a: 2, b: 0, c: 0, d: 2 },
+      svgShapeOffset: { x: 10, y: 0 },
+    });
+
+    expect(svgShapePositionPatch(shape, { x: 10, y: 0 }, "x", 700)).toEqual({
+      translate: "40px 0px",
+    });
+    expect(svgShapePositionPatch(shape, { x: 10, y: 0 }, "y", 119)).toEqual({
+      translate: "10px -0.5px",
     });
   });
 });

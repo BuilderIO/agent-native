@@ -1,5 +1,8 @@
-import type { AgentThreadState } from "@agent-native/agentkit";
-import type { AgentEvent } from "@agent-native/agentkit/protocol";
+import type { AgentRunHandle, AgentThreadState } from "@agent-native/agentkit";
+import type {
+  AgentEvent,
+  AgentQueuedSubmissionStatus,
+} from "@agent-native/agentkit/protocol";
 import {
   ensureAgentEngineReadiness,
   getAgentEngineReadiness,
@@ -65,6 +68,23 @@ const NAVIGATE_POLL_TIMEOUT_MS = Math.max(
   10_000,
   NAVIGATE_POLL_INTERVAL_MS * 4,
 );
+const QUEUED_RECEIPT_POLL_INTERVAL_MS = 1_000;
+const QUEUED_RECEIPT_STATUS_TIMEOUT_MS = 10_000;
+
+function waitForQueuedReceiptPoll(signal: AbortSignal): Promise<void> {
+  if (signal.aborted) return Promise.resolve();
+  return new Promise((resolve) => {
+    let timer: ReturnType<typeof setTimeout>;
+    const finish = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", finish);
+      resolve();
+    };
+    timer = setTimeout(finish, QUEUED_RECEIPT_POLL_INTERVAL_MS);
+    signal.addEventListener("abort", finish, { once: true });
+    if (signal.aborted) finish();
+  });
+}
 /**
  * Bounds `call` so a hung request can't pin the poll's `inFlight` guard
  * forever. `call` keeps running if it loses the race, but nothing awaits it
@@ -79,6 +99,48 @@ function withPollTimeout<T>(call: Promise<T>, timeoutMs: number): Promise<T> {
     );
   });
   return Promise.race([call, timeout]).finally(() => clearTimeout(timer));
+}
+
+function withAbortablePollTimeout<T>(
+  call: (signal: AbortSignal) => Promise<T>,
+  signal: AbortSignal,
+  timeoutMs: number,
+): Promise<T> {
+  const controller = new AbortController();
+  let timer: ReturnType<typeof setTimeout>;
+  let abortHandler = () => {};
+  const aborted = new Promise<never>((_resolve, reject) => {
+    abortHandler = () => {
+      controller.abort();
+      const error = new Error("Poll aborted");
+      error.name = "AbortError";
+      reject(error);
+    };
+    if (signal.aborted) {
+      abortHandler();
+    } else {
+      signal.addEventListener("abort", abortHandler, { once: true });
+    }
+  });
+  const operation = Promise.resolve().then(() => {
+    if (controller.signal.aborted) {
+      const error = new Error("Poll aborted");
+      error.name = "AbortError";
+      throw error;
+    }
+    return call(controller.signal);
+  });
+  const timeout = new Promise<never>((_resolve, reject) => {
+    timer = setTimeout(() => {
+      controller.abort();
+      reject(new Error(`Poll timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+  });
+  return Promise.race([operation, timeout, aborted]).finally(() => {
+    clearTimeout(timer);
+    signal.removeEventListener("abort", abortHandler);
+    controller.abort();
+  });
 }
 
 export interface AgentChatSettings {
@@ -134,17 +196,50 @@ export interface AgentChatController {
 interface LiveTurn {
   abort: () => void;
   runId: string | null;
+  queued?: boolean;
 }
 
 interface ActiveTurnBuffer {
   generation: number;
   assistantId: string;
   runId: string | null;
+  processedEventIds?: Set<string>;
+  queuedMessageId?: string;
+  queuedRunCompleted?: () => void;
+  awaitingQueuedHandle?: boolean;
+  earlyQueuedEvents?: Map<string, AgentEvent[]>;
+  earlyQueuedRunIds?: Map<string, string>;
+  earlyRunEvents?: Map<string, AgentEvent[]>;
   state: ChatTurnState;
   dirty: boolean;
   sawTerminal: boolean;
   sawApproval: boolean;
   acceptEvents: boolean;
+}
+
+/**
+ * An HTTP 202 whose receipt could not be read. The server may already hold
+ * that submission under its reservation id, so it must not be sent again
+ * without checking the receipt first.
+ */
+function isUnreadableQueuedAcknowledgement(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "invalid_queued_submission_response" &&
+    "retryable" in error &&
+    error.retryable === true
+  );
+}
+
+function queuedMessageIdFromEvent(event: AgentEvent): string | null {
+  const custom = event.metadata?.custom;
+  if (!custom || typeof custom !== "object" || Array.isArray(custom)) {
+    return null;
+  }
+  const id = (custom as Record<string, unknown>).agentNativeQueuedMessageId;
+  return typeof id === "string" ? id : null;
 }
 
 interface PendingApproval {
@@ -290,6 +385,12 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
     ((pending: { messageId: string; text?: string }) => Promise<void>) | null
   >(null);
   const pendingForkRetryInFlightRef = useRef(false);
+  const pendingQueuedAckRef = useRef<{
+    threadId: string;
+    baseUrl: string;
+    client: MobileAgentKitSession["client"];
+    messageId: string;
+  } | null>(null);
   const runIdsRef = useRef(new Map<string, string>());
   const assistantIdsByRunRef = useRef(new Map<string, string>());
   const processedEventIdsRef = useRef(new Map<string, Set<string>>());
@@ -357,6 +458,142 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
     setState(nextState);
   }, []);
 
+  const processSessionEvent = useCallback(
+    (
+      session: MobileAgentKitSession,
+      event: AgentEvent,
+      targetBaseUrl: string,
+      targetThreadId: string,
+    ) => {
+      if (baseUrlRef.current !== targetBaseUrl) return;
+      const active = activeTurnBufferRef.current;
+      if (
+        !active ||
+        !active.acceptEvents ||
+        active.generation !== activeGenerationRef.current
+      ) {
+        return;
+      }
+      if (active.processedEventIds?.has(event.id)) return;
+      if (active.awaitingQueuedHandle) {
+        const eventQueuedMessageId = queuedMessageIdFromEvent(event);
+        const queuedMessageId =
+          eventQueuedMessageId ?? active.earlyQueuedRunIds?.get(event.runId);
+        if (eventQueuedMessageId) {
+          active.earlyQueuedRunIds ??= new Map();
+          active.earlyQueuedRunIds.set(event.runId, eventQueuedMessageId);
+        }
+        if (queuedMessageId) {
+          active.earlyQueuedEvents ??= new Map();
+          const events =
+            active.earlyQueuedEvents.get(queuedMessageId) ??
+            active.earlyRunEvents?.get(event.runId) ??
+            [];
+          events.push(event);
+          active.earlyQueuedEvents.set(queuedMessageId, events);
+          active.earlyRunEvents?.delete(event.runId);
+          return;
+        }
+        active.earlyRunEvents ??= new Map();
+        const events = active.earlyRunEvents.get(event.runId) ?? [];
+        events.push(event);
+        active.earlyRunEvents.set(event.runId, events);
+        return;
+      }
+      if (active.queuedMessageId) {
+        if (!active.runId) {
+          if (queuedMessageIdFromEvent(event) !== active.queuedMessageId) {
+            return;
+          }
+          active.runId = event.runId;
+          void trackMobileEvent(
+            "agent_chat_run_started",
+            {
+              chat_surface: "mobile",
+              thread_id: targetThreadId,
+              run_id: event.runId,
+            },
+            baseUrlRef.current,
+          );
+        } else if (active.runId !== event.runId) {
+          return;
+        }
+      }
+      const pendingApproval = pendingApprovalRef.current;
+      if (active.runId && active.runId !== event.runId) {
+        const resumedApproval =
+          event.type === "approval.resolved" &&
+          pendingApproval?.resolving &&
+          pendingApproval.runId === active.runId &&
+          pendingApproval.approvalId === event.approvalId;
+        if (!resumedApproval) return;
+        pendingApprovalRef.current = null;
+      } else if (
+        event.type === "approval.resolved" &&
+        pendingApproval?.resolving &&
+        pendingApproval.runId === event.runId &&
+        pendingApproval.approvalId === event.approvalId
+      ) {
+        pendingApprovalRef.current = null;
+      }
+      active.processedEventIds ??= new Set();
+      active.processedEventIds.add(event.id);
+      active.runId = event.runId;
+      if (event.type === "connection.requested") {
+        connectionSessionByRequestRef.current.set(event.request.id, {
+          session,
+          runId: event.runId,
+        });
+      } else if (
+        event.type === "connection.updated" &&
+        event.request.status !== "connecting"
+      ) {
+        connectionSessionByRequestRef.current.delete(event.request.id);
+      }
+      assistantIdsByRunRef.current.set(event.runId, active.assistantId);
+      runIdsRef.current.set(active.assistantId, event.runId);
+      if (liveTurnRef.current) liveTurnRef.current.runId = event.runId;
+      const wireEvent = mobileAgentKitEventToWireEvent(event);
+      if (!wireEvent) return;
+      const scopeValue = mobileChatScope(event.metadata);
+      const wire = scopeValue ? { ...wireEvent, scope: scopeValue } : wireEvent;
+      if (event.type === "approval.requested") {
+        pendingApprovalRef.current = {
+          approvalId: event.request.id,
+          runId: event.runId,
+          assistantId: active.assistantId,
+          threadId: event.threadId,
+          session,
+          resolving: false,
+        };
+        active.sawApproval = true;
+      }
+      if (
+        wire.type === "missing_api_key" ||
+        wire.errorCode === "missing_api_key"
+      ) {
+        invalidateAgentEngineReadiness(readinessSource);
+        void checkChatEligibility(true);
+      }
+      if (isTerminalWireEvent(wire)) active.sawTerminal = true;
+      active.state = annotateAssistantMessage(
+        applyWireEvent(active.state, wire, active.assistantId),
+        active.assistantId,
+        event,
+      );
+      active.dirty = true;
+      if (wire.type !== "connection_required" && isTerminalWireEvent(wire)) {
+        if (!active.awaitingQueuedHandle) {
+          activeTurnBufferRef.current = null;
+          liveTurnRef.current = null;
+        }
+        active.queuedRunCompleted?.();
+        active.queuedRunCompleted = undefined;
+      }
+    },
+    [checkChatEligibility, readinessSource],
+  );
+
   useEffect(() => {
     void checkChatEligibility(true);
   }, [baseUrl, checkChatEligibility]);
@@ -421,90 +658,13 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
         for (const event of thread.events) {
           if (processed.has(event.id)) continue;
           processed.add(event.id);
-          const active = activeTurnBufferRef.current;
-          if (
-            !active ||
-            !active.acceptEvents ||
-            active.generation !== activeGenerationRef.current
-          ) {
-            continue;
-          }
-          const pendingApproval = pendingApprovalRef.current;
-          if (active.runId && active.runId !== event.runId) {
-            const resumedApproval =
-              event.type === "approval.resolved" &&
-              pendingApproval?.resolving &&
-              pendingApproval.runId === active.runId &&
-              pendingApproval.approvalId === event.approvalId;
-            if (!resumedApproval) continue;
-            pendingApprovalRef.current = null;
-          } else if (
-            event.type === "approval.resolved" &&
-            pendingApproval?.resolving &&
-            pendingApproval.runId === event.runId &&
-            pendingApproval.approvalId === event.approvalId
-          ) {
-            pendingApprovalRef.current = null;
-          }
-          active.runId = event.runId;
-          if (event.type === "connection.requested") {
-            connectionSessionByRequestRef.current.set(event.request.id, {
-              session,
-              runId: event.runId,
-            });
-          } else if (
-            event.type === "connection.updated" &&
-            event.request.status !== "connecting"
-          ) {
-            connectionSessionByRequestRef.current.delete(event.request.id);
-          }
-          assistantIdsByRunRef.current.set(event.runId, active.assistantId);
-          runIdsRef.current.set(active.assistantId, event.runId);
-          if (liveTurnRef.current) liveTurnRef.current.runId = event.runId;
-          const wireEvent = mobileAgentKitEventToWireEvent(event);
-          if (!wireEvent) continue;
-          const scopeValue = mobileChatScope(event.metadata);
-          const wire = scopeValue
-            ? { ...wireEvent, scope: scopeValue }
-            : wireEvent;
-          if (event.type === "approval.requested") {
-            pendingApprovalRef.current = {
-              approvalId: event.request.id,
-              runId: event.runId,
-              assistantId: active.assistantId,
-              threadId: event.threadId,
-              session,
-              resolving: false,
-            };
-            active.sawApproval = true;
-          }
-          if (
-            wire.type === "missing_api_key" ||
-            wire.errorCode === "missing_api_key"
-          ) {
-            invalidateAgentEngineReadiness(readinessSource);
-            void checkChatEligibility(true);
-          }
-          if (isTerminalWireEvent(wire)) active.sawTerminal = true;
-          active.state = annotateAssistantMessage(
-            applyWireEvent(active.state, wire, active.assistantId),
-            active.assistantId,
-            event,
-          );
-          active.dirty = true;
-          if (
-            wire.type !== "connection_required" &&
-            isTerminalWireEvent(wire)
-          ) {
-            activeTurnBufferRef.current = null;
-            liveTurnRef.current = null;
-          }
+          processSessionEvent(session, event, targetBaseUrl, targetThreadId);
         }
       });
       sessionsRef.current.set(sessionKey, session);
       return session;
     },
-    [checkChatEligibility, readinessSource],
+    [processSessionEvent],
   );
   getSession(baseUrl);
 
@@ -674,13 +834,134 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
         }
       }, FLUSH_INTERVAL_MS);
 
+      let queuedMessageReservationId: string | undefined;
       try {
         const controller = new AbortController();
-        liveTurnRef.current = { abort: () => controller.abort(), runId: null };
+        let activeRunIdsBeforeSend = new Set<string>();
+        let sendPromise: Promise<AgentRunHandle> | undefined;
+        let sendHandle: AgentRunHandle | undefined;
+        let stopRequested = false;
+        let stopReconciliation: Promise<void> | undefined;
+        const reconcileStoppedDispatch = (): Promise<void> => {
+          stopRequested = true;
+          controller.abort();
+          if (!queuedMessageReservationId) return Promise.resolve();
+          if (!sendPromise) {
+            currentAgentKit.cancelQueuedMessageReservation?.(
+              activeThreadId,
+              queuedMessageReservationId,
+            );
+            return Promise.resolve();
+          }
+          if (stopReconciliation) return stopReconciliation;
+          stopReconciliation = (async () => {
+            let sendFailure: unknown;
+            try {
+              sendHandle ??= await sendPromise;
+            } catch (error) {
+              sendFailure = error;
+            }
+            const messageId = queuedMessageReservationId!;
+            const getStatus = session.client.getQueuedSubmissionStatus;
+            let status;
+            let statusFailure: unknown;
+            if (getStatus) {
+              try {
+                status = await getStatus.call(session.client, {
+                  threadId: activeThreadId,
+                  messageId,
+                });
+              } catch (error) {
+                statusFailure = error;
+              }
+            }
+            const directRunId =
+              sendHandle &&
+              "runId" in sendHandle &&
+              !activeRunIdsBeforeSend.has(sendHandle.runId)
+                ? sendHandle.runId
+                : undefined;
+            if (!status && directRunId) {
+              await session.client.cancelRun(activeThreadId, directRunId);
+              return;
+            }
+            if (!status || status.state === "queued") {
+              let removalFailure: unknown;
+              try {
+                await session.client.removeQueuedMessage(
+                  activeThreadId,
+                  messageId,
+                );
+              } catch (error) {
+                removalFailure = error;
+              }
+              if (getStatus) {
+                try {
+                  status = await getStatus.call(session.client, {
+                    threadId: activeThreadId,
+                    messageId,
+                  });
+                } catch (error) {
+                  status = undefined;
+                  statusFailure = error;
+                }
+              }
+              if (removalFailure && status?.state === "queued") {
+                throw new Error("The queued message could not be stopped.", {
+                  cause: removalFailure,
+                });
+              }
+            }
+            if (status?.state === "submitted") {
+              if (!status.submittedRunId) {
+                throw new Error("The queued message could not be stopped.");
+              }
+              await session.client.cancelRun(
+                activeThreadId,
+                status.submittedRunId,
+              );
+              return;
+            }
+            if (
+              status?.state === "removed" ||
+              status?.state === "expired" ||
+              status?.state === "blocked"
+            ) {
+              return;
+            }
+            throw new Error("The queued message could not be stopped.", {
+              cause: statusFailure ?? sendFailure,
+            });
+          })().catch((error: unknown) => {
+            if (activeGenerationRef.current !== currentGeneration) return;
+            turnBuffer.state = {
+              ...turnBuffer.state,
+              isStreaming: false,
+              activity: null,
+              error:
+                error instanceof Error
+                  ? error.message
+                  : "The queued message could not be stopped.",
+              errorCode: "queued_cancel_failed",
+            };
+            turnBuffer.sawTerminal = true;
+            turnBuffer.dirty = true;
+            stateRef.current = turnBuffer.state;
+            setState(turnBuffer.state);
+          });
+          return stopReconciliation;
+        };
+        liveTurnRef.current = {
+          abort: () => {
+            void reconcileStoppedDispatch();
+          },
+          runId: null,
+        };
 
         let loaded = await currentAgentKit.loadThread(activeThreadId, {
           signal: controller.signal,
         });
+        if (controller.signal.aborted) return;
         if (activeGenerationRef.current !== currentGeneration) return;
         const chatScope = [...loaded.messages]
           .reverse()
@@ -692,15 +973,38 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
           loaded = await currentAgentKit.loadThread(activeThreadId, {
             signal: controller.signal,
           });
+          if (controller.signal.aborted) return;
           if (activeGenerationRef.current !== currentGeneration) return;
         }
+        activeRunIdsBeforeSend = new Set(loaded.activeRunIds);
         markThreadEventsSeen(activeThreadId, loaded.events);
         turnBuffer.acceptEvents = true;
+        turnBuffer.awaitingQueuedHandle = true;
+        turnBuffer.earlyQueuedEvents = new Map();
+        turnBuffer.earlyQueuedRunIds = new Map();
+        turnBuffer.earlyRunEvents = new Map();
+        const reservation = currentAgentKit.reserveQueuedMessage?.({
+          threadId: activeThreadId,
+          text,
+        }) ?? {
+          id: nextLocalId("queued"),
+          threadId: activeThreadId,
+          text,
+          createdAt: new Date().toISOString(),
+        };
+        queuedMessageReservationId = reservation.id;
         const durableAttachments = await uploadMobileChatAttachments(
           currentAgentKit,
           activeThreadId,
           extra.attachments,
         );
+        if (controller.signal.aborted) {
+          currentAgentKit.cancelQueuedMessageReservation?.(
+            activeThreadId,
+            reservation.id,
+          );
+          return;
+        }
         const details = durableAttachments.map(
           ({ type, name, contentType, url }) => ({
             type,
@@ -709,10 +1013,11 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
             url,
           }),
         );
-        const runHandle = await currentAgentKit.sendMessage(
+        sendPromise = currentAgentKit.sendMessage(
           {
             threadId: activeThreadId,
             text,
+            queuedMessageReservationId: reservation.id,
             attachments: mobileAttachmentsToAgentKitFiles(durableAttachments),
             options: {
               ...(settingsRef.current.model
@@ -750,32 +1055,391 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
           },
           { signal: controller.signal },
         );
+        const runHandle = await sendPromise;
+        sendHandle = runHandle;
         reportDispatchResult(true);
+
+        if (stopRequested) {
+          await stopReconciliation;
+          return;
+        }
 
         if (activeGenerationRef.current !== currentGeneration) {
           return;
         }
 
+        const queuedRunHandle = "queuedMessageId" in runHandle;
+        const queuedHandle = queuedRunHandle ? runHandle : null;
+        const runId = "runId" in runHandle ? runHandle.runId : null;
         liveTurnRef.current = {
           abort: () => {
+            if (queuedHandle) {
+              const queuedRunId = turnBuffer.runId;
+              void (async () => {
+                if (queuedRunId && queuedRunId !== queuedHandle.activeRunId) {
+                  await session.client.cancelRun(activeThreadId, queuedRunId);
+                } else {
+                  await queuedHandle.cancel();
+                }
+                if (
+                  activeGenerationRef.current === currentGeneration &&
+                  !turnBuffer.sawTerminal
+                ) {
+                  turnBuffer.state = cancelTurnState(
+                    turnBuffer.state,
+                    assistantId,
+                  );
+                  turnBuffer.sawTerminal = true;
+                  turnBuffer.dirty = true;
+                  stateRef.current = turnBuffer.state;
+                  setState(turnBuffer.state);
+                }
+                controller.abort();
+              })().catch((error: unknown) => {
+                if (activeGenerationRef.current !== currentGeneration) return;
+                const message =
+                  error instanceof Error
+                    ? error.message
+                    : "The queued message could not be stopped.";
+                turnBuffer.state = {
+                  ...turnBuffer.state,
+                  error: message,
+                  errorCode: "queued_cancel_failed",
+                };
+                turnBuffer.dirty = true;
+                stateRef.current = turnBuffer.state;
+                setState(turnBuffer.state);
+              });
+              return;
+            }
             controller.abort();
-            void currentAgentKit.cancelRun(activeThreadId, runHandle.runId);
+            void runHandle.cancel();
           },
-          runId: runHandle.runId,
+          runId,
+          queued: queuedRunHandle,
         };
-        turnBuffer.runId = runHandle.runId;
-        assistantIdsByRunRef.current.set(runHandle.runId, assistantId);
-        runIdsRef.current.set(assistantId, runHandle.runId);
-        void trackMobileEvent(
-          "agent_chat_run_started",
-          {
-            chat_surface: "mobile",
-            thread_id: activeThreadId,
-            run_id: runHandle.runId,
-          },
-          baseUrlRef.current,
-        );
-        await runHandle.completed;
+        if ("queuedMessageId" in runHandle) {
+          turnBuffer.awaitingQueuedHandle = false;
+          turnBuffer.queuedMessageId = runHandle.queuedMessageId;
+          turnBuffer.runId =
+            [...(turnBuffer.earlyQueuedRunIds ?? [])].find(
+              ([, queuedMessageId]) =>
+                queuedMessageId === runHandle.queuedMessageId,
+            )?.[0] ?? null;
+          turnBuffer.sawTerminal = false;
+          turnBuffer.acceptEvents = true;
+          const earlyRunEvents = turnBuffer.earlyRunEvents;
+          for (const [earlyRunId, events] of earlyRunEvents ?? []) {
+            let priorAssistantId = assistantIdsByRunRef.current.get(earlyRunId);
+            if (!priorAssistantId) {
+              priorAssistantId = turnBuffer.state.messages.find(
+                (message) =>
+                  message.role === "assistant" &&
+                  messageRunId(message) === earlyRunId,
+              )?.id;
+            }
+            for (const event of events) {
+              if (turnBuffer.processedEventIds?.has(event.id)) continue;
+              const wireEvent = mobileAgentKitEventToWireEvent(event);
+              if (!wireEvent) continue;
+              priorAssistantId ??= nextLocalId("assistant");
+              if (
+                !turnBuffer.state.messages.some(
+                  (message) => message.id === priorAssistantId,
+                ) &&
+                wireEvent.type !== "activity" &&
+                wireEvent.type !== "done" &&
+                wireEvent.type !== "loop_limit" &&
+                wireEvent.type !== "auto_continue"
+              ) {
+                const messages = [...turnBuffer.state.messages];
+                const queuedUserIndex = messages.findIndex(
+                  (message) => message.id === userMessage.id,
+                );
+                messages.splice(
+                  queuedUserIndex < 0 ? messages.length : queuedUserIndex,
+                  0,
+                  {
+                    id: priorAssistantId,
+                    role: "assistant",
+                    parts: [],
+                    createdAt: Date.now(),
+                    metadata: { runId: earlyRunId },
+                  },
+                );
+                turnBuffer.state = { ...turnBuffer.state, messages };
+              }
+              if (
+                !turnBuffer.state.messages.some(
+                  (message) => message.id === priorAssistantId,
+                )
+              ) {
+                continue;
+              }
+              turnBuffer.processedEventIds ??= new Set();
+              turnBuffer.processedEventIds.add(event.id);
+              assistantIdsByRunRef.current.set(earlyRunId, priorAssistantId);
+              runIdsRef.current.set(priorAssistantId, earlyRunId);
+              const scopeValue = mobileChatScope(event.metadata);
+              const wire = scopeValue
+                ? { ...wireEvent, scope: scopeValue }
+                : wireEvent;
+              const current = turnBuffer.state;
+              const next = applyWireEvent(current, wire, priorAssistantId);
+              turnBuffer.state = annotateBufferedAssistantMessage(
+                {
+                  ...next,
+                  isStreaming: current.isStreaming,
+                  activity: current.activity,
+                  error: current.error,
+                  errorCode: current.errorCode,
+                  runId: turnBuffer.runId,
+                },
+                priorAssistantId,
+                event,
+              );
+              turnBuffer.dirty = true;
+            }
+          }
+          turnBuffer.earlyRunEvents = undefined;
+          turnBuffer.earlyQueuedRunIds = undefined;
+          const queuedEvents =
+            turnBuffer.earlyQueuedEvents?.get(runHandle.queuedMessageId) ?? [];
+          turnBuffer.earlyQueuedEvents = undefined;
+          if (
+            activeTurnBufferRef.current === null ||
+            activeTurnBufferRef.current === turnBuffer
+          ) {
+            activeTurnBufferRef.current = turnBuffer;
+          }
+          if (turnBuffer.runId) {
+            void trackMobileEvent(
+              "agent_chat_run_started",
+              {
+                chat_surface: "mobile",
+                thread_id: activeThreadId,
+                run_id: turnBuffer.runId,
+              },
+              baseUrlRef.current,
+            );
+          }
+          void runHandle.completed.catch(() => {});
+          let stopReceiptPolling = false;
+          const failQueueReceiptStatus = (error: string, errorCode: string) => {
+            if (
+              activeGenerationRef.current !== currentGeneration ||
+              controller.signal.aborted
+            ) {
+              return;
+            }
+            turnBuffer.state = applyWireEvent(
+              turnBuffer.state,
+              { type: "error", error, errorCode },
+              assistantId,
+            );
+            turnBuffer.sawTerminal = true;
+            turnBuffer.dirty = true;
+            turnBuffer.queuedRunCompleted?.();
+          };
+          const pollQueuedReceipt = async () => {
+            const getStatus = session.client.getQueuedSubmissionStatus;
+            if (!getStatus) {
+              failQueueReceiptStatus(
+                "Could not confirm whether this queued message will run. Check the queue before retrying.",
+                "queued_submission_status_unavailable",
+              );
+              return;
+            }
+            while (!stopReceiptPolling && !controller.signal.aborted) {
+              let receipt;
+              try {
+                receipt = await withAbortablePollTimeout(
+                  (signal) =>
+                    getStatus.call(
+                      session.client,
+                      {
+                        threadId: activeThreadId,
+                        messageId: runHandle.queuedMessageId,
+                      },
+                      { signal },
+                    ),
+                  controller.signal,
+                  QUEUED_RECEIPT_STATUS_TIMEOUT_MS,
+                );
+              } catch (error) {
+                if (controller.signal.aborted) return;
+                const status =
+                  error && typeof error === "object" && "status" in error
+                    ? error.status
+                    : undefined;
+                if (status === 404 || status === 501) {
+                  failQueueReceiptStatus(
+                    "Could not confirm whether this queued message will run. Check the queue before retrying.",
+                    "queued_submission_status_unavailable",
+                  );
+                  return;
+                }
+                const retryable =
+                  error && typeof error === "object" && "retryable" in error
+                    ? error.retryable
+                    : error instanceof TypeError;
+                if (retryable !== true) {
+                  if (status === 401) setAuthRequired(true);
+                  failQueueReceiptStatus(
+                    "Could not confirm whether this queued message will run. Check the queue before retrying.",
+                    "queued_submission_status_unavailable",
+                  );
+                  return;
+                }
+                await waitForQueuedReceiptPoll(controller.signal);
+                continue;
+              }
+              if (receipt === undefined) {
+                failQueueReceiptStatus(
+                  "Could not confirm whether this queued message will run. Check the queue before retrying.",
+                  "queued_submission_status_unavailable",
+                );
+                return;
+              }
+              if (receipt === null) {
+                failQueueReceiptStatus(
+                  "Could not confirm whether this queued message will run. Check the queue before retrying.",
+                  "queued_submission_status_unavailable",
+                );
+                return;
+              }
+              if (receipt?.state === "submitted") {
+                const submittedRunId = receipt.submittedRunId;
+                if (!submittedRunId) {
+                  failQueueReceiptStatus(
+                    "Could not confirm whether this queued message will run. Check the queue before retrying.",
+                    "queued_submission_status_unavailable",
+                  );
+                  return;
+                }
+                turnBuffer.runId = submittedRunId;
+                assistantIdsByRunRef.current.set(submittedRunId, assistantId);
+                runIdsRef.current.set(assistantId, submittedRunId);
+                const submittedEvents = session.client
+                  .getThread(activeThreadId)
+                  .events.filter((event) => event.runId === submittedRunId)
+                  .sort((left, right) => left.sequence - right.sequence);
+                for (const event of submittedEvents) {
+                  processSessionEvent(
+                    session,
+                    event,
+                    targetBaseUrl,
+                    activeThreadId,
+                  );
+                  if (stopReceiptPolling) return;
+                }
+                try {
+                  await session.client.resubscribeRun(
+                    activeThreadId,
+                    submittedRunId,
+                  );
+                } catch {
+                  if (!controller.signal.aborted && !stopReceiptPolling) {
+                    failQueueReceiptStatus(
+                      "The connection to the agent dropped before it finished. Retry to continue.",
+                      "stream_dropped",
+                    );
+                  }
+                  return;
+                }
+                if (controller.signal.aborted || stopReceiptPolling) return;
+                if (turnBuffer.sawTerminal || turnBuffer.sawApproval) {
+                  turnBuffer.queuedRunCompleted?.();
+                } else {
+                  failQueueReceiptStatus(
+                    "The connection to the agent dropped before it finished. Retry to continue.",
+                    "stream_dropped",
+                  );
+                }
+                return;
+              }
+              if (
+                receipt?.state === "expired" ||
+                receipt?.state === "blocked" ||
+                receipt?.state === "removed"
+              ) {
+                const error =
+                  receipt.state === "expired"
+                    ? "This queued message expired before it could run."
+                    : receipt.state === "removed"
+                      ? "This queued message was removed before it could run."
+                      : "This queued message could not be started.";
+                failQueueReceiptStatus(
+                  error,
+                  `queued_submission_${receipt.state}`,
+                );
+                return;
+              }
+              await waitForQueuedReceiptPoll(controller.signal);
+            }
+          };
+          await new Promise<void>((resolve) => {
+            let settled = false;
+            const finish = () => {
+              if (settled) return;
+              settled = true;
+              stopReceiptPolling = true;
+              controller.signal.removeEventListener("abort", finish);
+              if (turnBuffer.queuedRunCompleted === finish) {
+                turnBuffer.queuedRunCompleted = undefined;
+              }
+              resolve();
+            };
+            turnBuffer.queuedRunCompleted = finish;
+            if (controller.signal.aborted) {
+              finish();
+            } else {
+              controller.signal.addEventListener("abort", finish, {
+                once: true,
+              });
+            }
+            for (const event of queuedEvents) {
+              processSessionEvent(
+                session,
+                event,
+                targetBaseUrl,
+                activeThreadId,
+              );
+            }
+            if (!stopReceiptPolling) void pollQueuedReceipt();
+          });
+        } else if (runId) {
+          turnBuffer.awaitingQueuedHandle = false;
+          turnBuffer.runId = runId;
+          assistantIdsByRunRef.current.set(runId, assistantId);
+          runIdsRef.current.set(assistantId, runId);
+          void trackMobileEvent(
+            "agent_chat_run_started",
+            {
+              chat_surface: "mobile",
+              thread_id: activeThreadId,
+              run_id: runId,
+            },
+            baseUrlRef.current,
+          );
+          const runEvents = turnBuffer.earlyRunEvents?.get(runId) ?? [];
+          turnBuffer.earlyQueuedEvents = undefined;
+          turnBuffer.earlyQueuedRunIds = undefined;
+          turnBuffer.earlyRunEvents = undefined;
+          for (const event of runEvents) {
+            processSessionEvent(session, event, targetBaseUrl, activeThreadId);
+          }
+        } else {
+          turnBuffer.awaitingQueuedHandle = false;
+          turnBuffer.earlyQueuedEvents = undefined;
+          turnBuffer.earlyQueuedRunIds = undefined;
+          turnBuffer.earlyRunEvents = undefined;
+          turnBuffer.acceptEvents = false;
+          turnBuffer.sawTerminal = true;
+        }
+        if (!("queuedMessageId" in runHandle)) {
+          await runHandle.completed;
+        }
         if (activeGenerationRef.current === currentGeneration) {
           buffered = turnBuffer.state;
           if (
@@ -801,6 +1465,17 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
         reportDispatchResult(false);
         if (activeGenerationRef.current !== currentGeneration) {
           return;
+        }
+        if (
+          queuedMessageReservationId &&
+          isUnreadableQueuedAcknowledgement(error)
+        ) {
+          pendingQueuedAckRef.current = {
+            threadId: activeThreadId,
+            baseUrl: targetBaseUrl,
+            client: currentAgentKit,
+            messageId: queuedMessageReservationId,
+          };
         }
         const aborted = error instanceof Error && error.name === "AbortError";
         if (error instanceof AgentChatError && error.authRequired) {
@@ -835,6 +1510,12 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
       } finally {
         reportDispatchResult(false);
         clearInterval(flushTimer);
+        if (queuedMessageReservationId) {
+          currentAgentKit.cancelQueuedMessageReservation?.(
+            activeThreadId,
+            queuedMessageReservationId,
+          );
+        }
         if (activeGenerationRef.current === currentGeneration) {
           if (activeTurnBufferRef.current === turnBuffer) {
             activeTurnBufferRef.current = null;
@@ -848,6 +1529,7 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
     [
       getSession,
       markThreadEventsSeen,
+      processSessionEvent,
       checkChatEligibility,
       readinessSource,
       requireChatEligibility,
@@ -866,6 +1548,7 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
         return Promise.resolve(false);
       }
       pendingForkRetryRef.current = null;
+      pendingQueuedAckRef.current = null;
       lastPromptRef.current = trimmed;
       lastExtraRef.current = {
         ...(attachments?.length ? { attachments } : {}),
@@ -890,6 +1573,7 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
     const live = liveTurnRef.current;
     if (!live) return;
     live.abort();
+    if (live.queued) return;
     const active = activeTurnBufferRef.current;
     if (active) {
       active.state = cancelTurnState(active.state, active.assistantId);
@@ -1178,6 +1862,47 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
     ) {
       return;
     }
+    const pendingAck = pendingQueuedAckRef.current;
+    if (pendingAck) {
+      // The unreadable 202 may already be durable under this reservation id.
+      // Only a receipt that is definitively absent allows a fresh submission.
+      void (async () => {
+        let receipt: AgentQueuedSubmissionStatus | null | undefined;
+        try {
+          receipt = await pendingAck.client.getQueuedSubmissionStatus?.({
+            threadId: pendingAck.threadId,
+            messageId: pendingAck.messageId,
+          });
+        } catch {
+          receipt = undefined;
+        }
+        if (
+          pendingQueuedAckRef.current !== pendingAck ||
+          threadIdRef.current !== pendingAck.threadId ||
+          baseUrlRef.current !== pendingAck.baseUrl
+        ) {
+          return;
+        }
+        if (receipt === null) {
+          pendingQueuedAckRef.current = null;
+          void runTurn(prompt, extra, undefined, {
+            forceReadiness: true,
+            replaceFailedAttempt: true,
+          });
+          return;
+        }
+        const nextState = {
+          ...stateRef.current,
+          error: receipt
+            ? "This message was already received, so it was not sent again."
+            : "Could not confirm whether this queued message will run. Check the queue before retrying.",
+          errorCode: receipt ? null : "queued_submission_status_unavailable",
+        };
+        stateRef.current = nextState;
+        setState(nextState);
+      })();
+      return;
+    }
     void runTurn(prompt, extra, undefined, {
       forceReadiness: true,
       replaceFailedAttempt: true,
@@ -1193,6 +1918,7 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
       threadIdRef.current = nextThreadId;
       baseUrlRef.current = nextBaseUrl;
       pendingForkRetryRef.current = null;
+      pendingQueuedAckRef.current = null;
       void refreshChatEligibility();
       setThreadId(nextThreadId);
       setBaseUrl(nextBaseUrl);
@@ -1347,6 +2073,7 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
       baseUrlRef.current = resolvedBaseUrl;
       threadIdRef.current = nextThreadId;
       pendingForkRetryRef.current = null;
+      pendingQueuedAckRef.current = null;
       void refreshChatEligibility();
       setBaseUrl(resolvedBaseUrl);
       setThreadId(nextThreadId);
@@ -1529,6 +2256,7 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
       );
       openThread(forkedThread.id, targetBaseUrl);
       pendingForkRetryRef.current = null;
+      pendingQueuedAckRef.current = null;
       lastPromptRef.current = prompt;
       lastExtraRef.current = {};
     },
@@ -1620,4 +2348,28 @@ export function useAgentChat(settings: AgentChatSettings): AgentChatController {
     refreshChatEligibility: () => void refreshChatEligibility(),
     getRunId,
   };
+}
+
+function annotateBufferedAssistantMessage(
+  state: ChatTurnState,
+  assistantId: string,
+  event: AgentEvent,
+): ChatTurnState {
+  const index = state.messages.findIndex(
+    (message) => message.id === assistantId,
+  );
+  if (index < 0) return state;
+  const scope = mobileChatScope(event.metadata);
+  const turnId = eventTurnId(event);
+  const messages = [...state.messages];
+  messages[index] = {
+    ...messages[index]!,
+    metadata: {
+      ...messages[index]!.metadata,
+      runId: event.runId,
+      ...(turnId ? { turnId } : {}),
+      ...(scope ? { chatScope: scope } : {}),
+    },
+  };
+  return { ...state, messages };
 }

@@ -66,9 +66,11 @@ export interface BackgroundAgentTranscriptEvent {
     type:
       | "code-agent-transcript-event"
       | "agent-team-run-event"
-      | "agent-harness-run-event";
+      | "agent-harness-run-event"
+      | "agent-harness-session-event";
     id: string;
     seq?: number;
+    operationId?: string;
   };
   message: string;
   createdAt: string;

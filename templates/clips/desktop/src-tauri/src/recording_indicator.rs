@@ -1,4 +1,3 @@
-
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::Duration;
@@ -10,8 +9,10 @@ use tauri::{
 
 use crate::dlog;
 use crate::util::{
-    build_overlay_url, configure_overlay_behavior, raise_to_status_level, set_capture_excluded,
-    show_without_activation, start_topmost_reassert_loop, tray_monitor_physical_rect,
+    advance_loop_generation, build_overlay_url, configure_overlay_behavior,
+    configure_recording_overlay, is_current_loop_generation, raise_to_status_level,
+    set_capture_excluded, show_without_activation, start_topmost_reassert_loop,
+    tray_monitor_physical_rect,
 };
 
 const PILL_LABEL: &str = "recording-pill";
@@ -21,7 +22,7 @@ static PILL_DETACHED: AtomicBool = AtomicBool::new(false);
 static PILL_RIGHT_SIDE: AtomicBool = AtomicBool::new(false);
 static PILL_EXPANDED: AtomicBool = AtomicBool::new(false);
 
-static PILL_HOVER_TRACKING: AtomicBool = AtomicBool::new(false);
+static PILL_HOVER_GENERATION: AtomicU64 = AtomicU64::new(0);
 
 const PILL_W_LOGICAL: u32 = 38;
 const PILL_W_EXPANDED_LOGICAL: u32 = 480;
@@ -385,6 +386,8 @@ fn build_pill_window(app: &AppHandle, expanded: bool) -> Result<WebviewWindow, S
     let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(w, h)));
     let _ = win.set_position(PhysicalPosition::new(x, y));
     set_capture_excluded(&win);
+    // Prewarm builds the pill long before it is shown, so convert it at creation.
+    configure_recording_overlay(&win);
     Ok(win)
 }
 
@@ -430,7 +433,6 @@ pub async fn recording_pill_show(
 
     PILL_EXPANDED.store(false, Ordering::SeqCst);
     let win = build_pill_window(&app, false)?;
-    configure_overlay_behavior(&win);
     show_without_activation(&win);
     raise_to_status_level(&win);
     start_pill_hover_tracking(&app);
@@ -462,30 +464,29 @@ fn cursor_inside_pill_frame(window: &WebviewWindow) -> bool {
 }
 
 fn start_pill_hover_tracking(app: &AppHandle) {
-    if PILL_HOVER_TRACKING.swap(true, Ordering::SeqCst) {
-        return;
-    }
+    let generation = advance_loop_generation(&PILL_HOVER_GENERATION);
     let app = app.clone();
     tauri::async_runtime::spawn(async move {
         use tauri::Emitter;
-        let mut prev = false;
-        while PILL_HOVER_TRACKING.load(Ordering::Relaxed) {
+        // `None` so a replacement tracker always reports where the pointer is,
+        // even "not hovered": the one it replaced may have last said "hovered".
+        let mut prev: Option<bool> = None;
+        while is_current_loop_generation(&PILL_HOVER_GENERATION, generation) {
             let Some(win) = app.get_webview_window(PILL_LABEL) else {
                 break;
             };
             let inside = cursor_inside_pill_frame(&win);
-            if inside != prev {
-                prev = inside;
+            if prev != Some(inside) {
+                prev = Some(inside);
                 let _ = win.emit("clips:pill-hover", serde_json::json!({ "hovered": inside }));
             }
             tokio::time::sleep(Duration::from_millis(80)).await;
         }
-        PILL_HOVER_TRACKING.store(false, Ordering::SeqCst);
     });
 }
 
 fn stop_pill_hover_tracking() {
-    PILL_HOVER_TRACKING.store(false, Ordering::SeqCst);
+    advance_loop_generation(&PILL_HOVER_GENERATION);
 }
 
 #[tauri::command]

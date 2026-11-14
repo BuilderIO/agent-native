@@ -115,6 +115,8 @@ async function startAltMeasurement(
   });
   await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
   await select(page, "#selected");
+  // #hovered sits in an unnamed column; Cmd reaches it as Cmd+click does.
+  await page.keyboard.down("Meta");
   await page.keyboard.down("Alt");
   await page.mouse.move(520, 410, { steps: 3 });
   await page.waitForFunction(() => {
@@ -825,6 +827,8 @@ describe("editor chrome selection overlays", () => {
       </body></html>`);
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await select(page, "#selected");
+      // The hovered layer sits in an unnamed parent; Cmd reaches it.
+      await page.keyboard.down("Meta");
       await page.keyboard.down("Alt");
       await page.mouse.move(520, 410, { steps: 3 });
 
@@ -922,6 +926,8 @@ describe("editor chrome selection overlays", () => {
       </body></html>`);
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await select(page, "#selected");
+      // The hovered layer sits in an unnamed parent; Cmd reaches it.
+      await page.keyboard.down("Meta");
       await page.keyboard.down("Alt");
       await page.mouse.move(530, 410, { steps: 3 });
 
@@ -1066,7 +1072,18 @@ describe("editor chrome selection overlays", () => {
       });
 
       const before = await measurementBoundsReads(page);
-      await page.waitForTimeout(80);
+      // A fixed sleep can see zero animation frames on a loaded CI runner.
+      await page.waitForFunction(
+        (start) => {
+          const reads = (window as MeasurementTestWindow)
+            .__measurementBoundsReads!;
+          return (
+            reads.selected > start.selected && reads.hovered > start.hovered
+          );
+        },
+        before,
+        { timeout: 2_000 },
+      );
       const active = await measurementBoundsReads(page);
       expect(active.selected).toBeGreaterThan(before.selected);
       expect(active.hovered).toBeGreaterThan(before.hovered);
@@ -1471,6 +1488,8 @@ describe("editor chrome selection overlays", () => {
       </body></html>`);
       await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
       await select(page, "#selected");
+      // The hovered layer sits in an unnamed parent; Cmd reaches it.
+      await page.keyboard.down("Meta");
       await page.keyboard.down("Alt");
       await page.mouse.move(520, 410, { steps: 3 });
       await page.waitForFunction(() => {

@@ -153,6 +153,27 @@ async function startVisit(tab: {
 }
 
 /**
+ * The sidebar's link to a page, clicking "Show more" until the sidebar lists
+ * it. The sidebar lists 20 pages at a time, and the gate-on steps share one
+ * account, so pages an earlier step made can push this one past the first 20.
+ */
+async function sidebarLink(page: Page, documentId: string) {
+  const link = page.locator(`a[href$="/page/${documentId}"]`).first();
+  const showMore = page
+    .getByRole("button", { name: "Show more", exact: true })
+    .first();
+  while (!(await link.isVisible())) {
+    await expect(
+      link.or(showMore).first(),
+      `the sidebar lists no link to /page/${documentId} and offers no more pages`,
+    ).toBeVisible({ timeout: 15_000 });
+    if (await link.isVisible()) break;
+    await showMore.click();
+  }
+  return link;
+}
+
+/**
  * Wait for the visit's editor, let it settle, then require one editor node
  * that lived from its first frame to the end of the visit, and one mount
  * report of the expected kind.
@@ -294,8 +315,9 @@ test.describe(
       await expectEditorReady(tab.page);
       await tab.page.waitForTimeout(SETTLE_MS);
 
+      const link = await sidebarLink(tab.page, to);
       await startVisit(tab);
-      await tab.page.locator(`a[href$="/page/${to}"]`).first().click();
+      await link.click();
       await expect(tab.page).toHaveURL(new RegExp(`/page/${to}`));
       await expectOneMount(tab.page, tab.mounts, to, {
         outcome: "navigation",

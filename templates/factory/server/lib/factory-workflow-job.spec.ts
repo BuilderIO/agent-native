@@ -1,7 +1,4 @@
-import {
-  parseJobResource,
-  recoveredFactoryOwnerOrgId,
-} from "@agent-native/core/jobs/frontmatter";
+import { parseJobResource } from "@agent-native/core/jobs/frontmatter";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@agent-native/core/resources", async () => {
@@ -15,10 +12,12 @@ vi.mock("@agent-native/core/jobs", async (importActual) => {
 
 import * as kit from "../workflow-host/testing/workflow-actions-kit.js";
 import { buildGraph, STORY_GRAPHS } from "../workflow/story-graphs.fixture.js";
+import { readFactoryAutomationConfig } from "./factory-automation-config.js";
 import {
   findFactoryAutomationDefinition,
   listFactoryAutomationDefinitions,
 } from "./factory-automation-resources.js";
+import { factoryRepositoryFromSources } from "./factory-repository-scope.js";
 import { readAutomationFactoryId } from "./factory-scope.js";
 import {
   WorkflowJobError,
@@ -30,6 +29,7 @@ import {
   syncWorkflowJob,
   type WorkflowJobPlan,
 } from "./factory-workflow-job.js";
+import { WORKFLOW_JOB_APP_ID } from "./factory-workflow-runner.js";
 
 const NEW_YORK = "America/New_York";
 
@@ -93,8 +93,11 @@ const slackPoll = (extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 
+const noFallback = { sentryFallbackConfigured: false };
+const withFallback = { sentryFallbackConfigured: true };
+
 function planOf(graph: ReturnType<typeof graphWith>): WorkflowJobPlan {
-  const { plan, issues } = planWorkflowJob(graph);
+  const { plan, issues } = planWorkflowJob(graph, noFallback);
   expect(issues).toEqual([]);
   if (!plan) throw new Error("expected a plan");
   return plan;
@@ -108,7 +111,7 @@ describe("planWorkflowJob", () => {
   it.each(Object.entries(STORY_GRAPHS))(
     "plans the %s story with no issues",
     (_key, graph) => {
-      const { plan, issues } = planWorkflowJob(graph);
+      const { plan, issues } = planWorkflowJob(graph, noFallback);
       expect(issues).toEqual([]);
       expect(plan?.schedule.cron).toMatch(/^\S+ \S+ \S+ \S+ \S+$/);
     },
@@ -180,6 +183,93 @@ describe("planWorkflowJob", () => {
     });
   });
 
+  describe("the repository a workflow declares it acts on", () => {
+    const githubPoll = (scope?: string) => ({
+      source: "inbox-poll",
+      poller: "github",
+      takeLimit: 3,
+      ...(scope ? { filter: { scopes: [scope] } } : {}),
+    });
+    const declaring = (repository: unknown) => ({ extras: { repository } });
+
+    it("is the job's repository when the graph has no GitHub source, so the merge gate has one to allow", () => {
+      const plan = planOf(
+        graphWith([], { settings: declaring("Example-Org/example-repo") }),
+      );
+      expect(plan.config.repository).toBe("Example-Org/example-repo");
+    });
+
+    it("is normalized like a source's scope", () => {
+      const plan = planOf(
+        graphWith([], {
+          settings: declaring("https://github.com/Example-Org/example-repo"),
+        }),
+      );
+      expect(plan.config.repository).toBe("Example-Org/example-repo");
+    });
+
+    it("leaves the job without a repository when the graph declares none, never a default", () => {
+      for (const settings of [undefined, {}, { extras: {} }, declaring("")]) {
+        const plan = planOf(
+          graphWith([], settings === undefined ? {} : { settings }),
+        );
+        expect(plan.config.repository).toBeUndefined();
+      }
+    });
+
+    it("agrees with a GitHub source that polls the same repository, whatever the case", () => {
+      const plan = planOf(
+        graphWith([githubPoll("example-org/EXAMPLE-repo")], {
+          settings: declaring("Example-Org/example-repo"),
+        }),
+      );
+      expect(plan.config.repository).toBe("example-org/EXAMPLE-repo");
+    });
+
+    it("refuses a different repository than its GitHub source polls", () => {
+      const { plan, issues } = planWorkflowJob(
+        graphWith([githubPoll("example-org/other-repo")], {
+          settings: declaring("example-org/example-repo"),
+        }),
+        noFallback,
+      );
+      expect(plan).toBeNull();
+      expect(issues).toEqual([
+        expect.objectContaining({ code: "repository_conflict" }),
+      ]);
+    });
+
+    it.each([
+      ["text that is not a repository", "not a repository"],
+      ["a number", 42],
+      ["a list", ["example-org/example-repo"]],
+    ])(
+      "refuses %s rather than leave the gate with nothing",
+      (_label, value) => {
+        const { plan, issues } = planWorkflowJob(
+          graphWith([], { settings: declaring(value) }),
+          noFallback,
+        );
+        expect(plan).toBeNull();
+        expect(issues).toEqual([
+          expect.objectContaining({
+            code: "repository_invalid",
+            detail: expect.stringContaining('"owner/name"'),
+          }),
+        ]);
+      },
+    );
+
+    it("gives the Builder-to-merge story a repository the gate can allow", () => {
+      const { plan, issues } = planWorkflowJob(
+        STORY_GRAPHS["builder-to-merge"],
+        noFallback,
+      );
+      expect(issues).toEqual([]);
+      expect(plan?.config.repository).toBe("example-org/example-repo");
+    });
+  });
+
   it.each([
     [
       "more than one scope",
@@ -222,6 +312,16 @@ describe("planWorkflowJob", () => {
       "source_scope_unsupported",
     ],
     [
+      "a Sentry organization with no project",
+      {
+        source: "inbox-poll",
+        poller: "sentry",
+        takeLimit: 3,
+        filter: { scopes: ["builder/"] },
+      },
+      "source_scope_unsupported",
+    ],
+    [
       "an author filter on Sentry",
       {
         source: "inbox-poll",
@@ -232,16 +332,87 @@ describe("planWorkflowJob", () => {
       "source_filter_invalid",
     ],
   ])("refuses %s", (_label, source, code) => {
-    const { plan, issues } = planWorkflowJob(graphWith([source]));
+    const { plan, issues } = planWorkflowJob(graphWith([source]), withFallback);
     expect(plan).toBeNull();
     expect(issues).toEqual([
       expect.objectContaining({ code, nodeId: "poll1" }),
     ]);
   });
 
+  describe("a Sentry source", () => {
+    const sentry = (filter?: Record<string, unknown>) => [
+      { source: "inbox-poll", poller: "sentry", takeLimit: 3, filter },
+    ];
+
+    it("polls the project it names, with or without a factory setting", () => {
+      for (const options of [noFallback, withFallback]) {
+        const { plan, issues } = planWorkflowJob(
+          graphWith(sentry({ scopes: ["acme/web"] })),
+          options,
+        );
+        expect(issues).toEqual([]);
+        expect(plan?.config).toMatchObject({
+          sentryOrgSlug: "acme",
+          sentryProjectSlug: "web",
+        });
+      }
+    });
+
+    it.each([
+      ["no filter", undefined],
+      ["an empty scope list", { scopes: [] }],
+    ])(
+      "with %s falls back on the factory's Sentry settings when they exist",
+      (_label, filter) => {
+        const { plan, issues } = planWorkflowJob(
+          graphWith(sentry(filter)),
+          withFallback,
+        );
+        expect(issues).toEqual([]);
+        expect(plan?.config.sentryOrgSlug).toBeUndefined();
+        expect(plan?.config.sentryProjectSlug).toBeUndefined();
+      },
+    );
+
+    it.each([
+      ["no filter", undefined],
+      ["an empty scope list", { scopes: [] }],
+    ])(
+      "with %s is refused when the factory has no Sentry settings",
+      (_label, filter) => {
+        const { plan, issues } = planWorkflowJob(
+          graphWith(sentry(filter)),
+          noFallback,
+        );
+        expect(plan).toBeNull();
+        expect(issues).toEqual([
+          expect.objectContaining({
+            code: "source_scope_unsupported",
+            nodeId: "poll1",
+            detail: expect.stringContaining('"organization/project"'),
+          }),
+        ]);
+      },
+    );
+
+    it("refuses an organization with no project even when the factory has settings", () => {
+      const { plan, issues } = planWorkflowJob(
+        graphWith(sentry({ scopes: ["builder/"] })),
+        withFallback,
+      );
+      expect(plan).toBeNull();
+      expect(issues).toEqual([
+        expect.objectContaining({
+          code: "source_scope_unsupported",
+          detail: expect.stringContaining('"acme/web"'),
+        }),
+      ]);
+    });
+  });
+
   it("refuses two polls of the same kind and two different author filters", () => {
     expect(
-      planWorkflowJob(graphWith([slackPoll(), slackPoll()])).issues,
+      planWorkflowJob(graphWith([slackPoll(), slackPoll()]), noFallback).issues,
     ).toEqual([
       expect.objectContaining({
         code: "source_poller_duplicate",
@@ -259,6 +430,7 @@ describe("planWorkflowJob", () => {
             filter: { excludeAuthors: ["12345"] },
           },
         ]),
+        noFallback,
       ).issues,
     ).toEqual([
       expect.objectContaining({
@@ -270,7 +442,10 @@ describe("planWorkflowJob", () => {
 
   it("reports schedule problems as issues instead of guessing", () => {
     expect(
-      planWorkflowJob(graphWith([], { schedule: { daily: { at: "08:00" } } })),
+      planWorkflowJob(
+        graphWith([], { schedule: { daily: { at: "08:00" } } }),
+        noFallback,
+      ),
     ).toEqual({
       plan: null,
       issues: [
@@ -283,6 +458,7 @@ describe("planWorkflowJob", () => {
     expect(
       planWorkflowJob(
         graphWith([], { wait: true, settings: { checkCadenceMinutes: 45 } }),
+        noFallback,
       ).issues,
     ).toEqual([
       expect.objectContaining({ code: "schedule_cadence_unsupported" }),
@@ -291,7 +467,10 @@ describe("planWorkflowJob", () => {
 
   it("leaves a missing or doubled Trigger to the graph validator", () => {
     const none = buildGraph({ nodes: [], edges: [] });
-    expect(planWorkflowJob(none)).toEqual({ plan: null, issues: [] });
+    expect(planWorkflowJob(none, noFallback)).toEqual({
+      plan: null,
+      issues: [],
+    });
   });
 });
 
@@ -322,7 +501,7 @@ describe("createWorkflowJob", () => {
       enabled: false,
       triggerType: "schedule",
       domain: "factory",
-      appId: "factory",
+      appId: "factory-workflows",
       orgId: kit.ORG_ID,
       createdBy: kit.USER_EMAIL,
       runAs: "creator",
@@ -347,13 +526,40 @@ describe("createWorkflowJob", () => {
     expect(definition?.name).toMatch(
       /^factories\/support-triage\/workflow-bug-report-to-builder-/,
     );
+    expect(definition?.meta.appId).toBe(WORKFLOW_JOB_APP_ID);
+  });
+
+  it("writes the declared repository into the job file, which is where the merge gate reads it, and writes none when none is declared", async () => {
+    const created = async (settings?: Record<string, unknown>) => {
+      const { id } = await createWorkflowJob({
+        orgId: kit.ORG_ID,
+        factoryId: kit.FACTORY_ID,
+        ownerEmail: kit.USER_EMAIL,
+        name: "Builder to merge",
+        plan: planOf(graphWith([], settings === undefined ? {} : { settings })),
+      });
+      const definition = await findFactoryAutomationDefinition(
+        kit.ORG_ID,
+        kit.FACTORY_ID,
+        id,
+      );
+      if (!definition) throw new Error("expected the job file");
+      return readFactoryAutomationConfig(
+        definition.resource.content,
+        definition.name,
+      );
+    };
+
+    const declared = await created({
+      extras: { repository: "example-org/example-repo" },
+    });
+    expect(factoryRepositoryFromSources(declared.repository, null)).toBe(
+      "example-org/example-repo",
+    );
+    const undeclared = await created();
     expect(
-      recoveredFactoryOwnerOrgId(
-        definition!.meta,
-        path,
-        definition!.resource.owner,
-      ),
-    ).toBe(kit.ORG_ID);
+      factoryRepositoryFromSources(undeclared.repository, null),
+    ).toBeNull();
   });
 
   it("puts a workflow in the default Factory under the factory folder too", async () => {
@@ -424,6 +630,69 @@ describe("syncWorkflowJob", () => {
       runner: "workflow",
     });
     expect(Date.parse(meta.nextRun as string)).toBeGreaterThan(Date.now());
+  });
+
+  describe("a job file written before the workflow app id", () => {
+    const strip = (content: string, ...keys: string[]) =>
+      keys.reduce(
+        (next, key) => next.replace(new RegExp(`^${key}:.*\\n`, "m"), ""),
+        content,
+      );
+    const shapes: Array<[string, (content: string) => string]> = [
+      [
+        "an appId of factory",
+        (content) =>
+          content.replace('appId: "factory-workflows"', 'appId: "factory"'),
+      ],
+      ["no appId", (content) => strip(content, "appId")],
+      [
+        "no appId, trigger type, domain or organization",
+        (content) => strip(content, "appId", "triggerType", "domain", "orgId"),
+      ],
+    ];
+
+    it.each(shapes)(
+      "is still found with %s, reports the appId drift, and is migrated by a save",
+      async (_label, legacy) => {
+        const job = await setUp();
+        kit.seedJob(job.path, legacy(kit.readJob(job.path) as string));
+
+        const found = await findFactoryAutomationDefinition(
+          kit.ORG_ID,
+          kit.FACTORY_ID,
+          job.id,
+        );
+        expect(found?.meta.runner).toBe("workflow");
+        expect(summarizeWorkflowJob(found, { enabled: false }).drift).toContain(
+          "appId",
+        );
+
+        expect(await job.sync(undefined, true)).toMatchObject({
+          changed: true,
+        });
+        expect(metaOf(job.path)).toMatchObject({
+          appId: "factory-workflows",
+          triggerType: "schedule",
+          domain: "factory",
+          orgId: kit.ORG_ID,
+          runner: "workflow",
+          enabled: true,
+        });
+        expect(
+          summarizeWorkflowJob(
+            await findFactoryAutomationDefinition(
+              kit.ORG_ID,
+              kit.FACTORY_ID,
+              job.id,
+            ),
+            { enabled: true },
+          ).drift,
+        ).toEqual([]);
+        expect(await job.sync(undefined, true)).toMatchObject({
+          changed: false,
+        });
+      },
+    );
   });
 
   it("keeps the next run alone when nothing about the schedule moved", async () => {

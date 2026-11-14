@@ -57,6 +57,12 @@ export const ALL_SITES: BetaSite[] = readSites();
 
 export function selectedSites(): BetaSite[] {
   const raw = process.env.BETA_E2E_APPS?.trim();
+  const disposableChat = disposableChatSite();
+  if (disposableChat && raw?.toLowerCase() !== "chat") {
+    throw new Error(
+      "BETA_E2E_DISPOSABLE_CHAT_ORIGIN is only valid with BETA_E2E_APPS=chat.",
+    );
+  }
   const selectableSites = ALL_SITES.filter((site) => site.e2e !== false);
   if (!raw || raw === "all") return selectableSites;
   const wanted = raw
@@ -75,10 +81,19 @@ export function selectedSites(): BetaSite[] {
       `BETA_E2E_APPS names unknown app(s): ${unknown.join(", ")}. Known: ${[...known.keys()].join(", ")}`,
     );
   }
-  return wanted.map((id) => known.get(id)!);
+  return wanted.map((id) => {
+    if (id === "chat" && disposableChat) return disposableChat;
+    const site = known.get(id);
+    if (!site) throw new Error(`BETA_E2E_APPS contains unknown app: ${id}`);
+    return site;
+  });
 }
 
 export function siteById(id: string): BetaSite {
+  if (id === "chat") {
+    const disposableChat = disposableChatSite();
+    if (disposableChat) return disposableChat;
+  }
   const site = ALL_SITES.find((entry) => entry.id === id);
   if (!site) {
     throw new Error(
@@ -86,6 +101,38 @@ export function siteById(id: string): BetaSite {
     );
   }
   return site;
+}
+
+function disposableChatSite(): BetaSite | undefined {
+  const raw = process.env.BETA_E2E_DISPOSABLE_CHAT_ORIGIN?.trim();
+  if (!raw) return undefined;
+
+  let origin: URL;
+  try {
+    origin = new URL(raw);
+  } catch {
+    throw new Error(
+      "BETA_E2E_DISPOSABLE_CHAT_ORIGIN must be the isolated Netlify Chat origin.",
+    );
+  }
+  if (
+    origin.protocol !== "https:" ||
+    origin.hostname !== "an-deploy-ci-netlify-local.netlify.app" ||
+    origin.port ||
+    origin.pathname !== "/" ||
+    origin.search ||
+    origin.hash
+  ) {
+    throw new Error(
+      "BETA_E2E_DISPOSABLE_CHAT_ORIGIN must be exactly https://an-deploy-ci-netlify-local.netlify.app/.",
+    );
+  }
+  return {
+    id: "chat",
+    siteId: "an-deploy-ci-netlify-local",
+    host: origin.hostname,
+    e2e: true,
+  };
 }
 
 export function originFor(site: BetaSite | string): string {

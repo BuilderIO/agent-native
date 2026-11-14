@@ -455,7 +455,7 @@ export async function isWorkspaceSsoEnabledForSession(
   return isFeatureFlagEnabled(DESKTOP_WORKSPACE_SSO_FLAG, {
     userEmail: session.email,
     userKey: session.email,
-    orgId: session.orgId,
+    ...(session.orgId === undefined ? {} : { orgId: session.orgId }),
   }).catch(() => false);
 }
 

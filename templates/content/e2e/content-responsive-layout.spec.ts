@@ -4,7 +4,7 @@ import { presentUiCapability } from "./helpers";
 
 const ACTION_HEADERS = {
   "X-Agent-Native-Frontend": "1",
-  "X-Agent-Native-Client-Compatibility": "content-spaces-v1",
+  "X-Agent-Native-Client-Compatibility": "content-video-block-ids-v1",
   "X-Agent-Native-Build-Id": "development",
 };
 const SIDEBAR_COLLAPSED_KEY = "content.sidebar.collapsed";
@@ -21,6 +21,11 @@ const FIXTURE_BODY = [
   "",
   `- A list item that holds \`${LONG_CODE}_inside_a_list\``,
   "- A short list item",
+  "- A list item whose command sits on its own line:",
+  "",
+  `  \`${LONG_CODE}_on_its_own_line\``,
+  "",
+  "  The item's sentence continues after the command.",
   "",
   "| Name | Owner | Status | Notes | Due | Priority |",
   "| --- | --- | --- | --- | --- | --- |",
@@ -117,20 +122,59 @@ async function measureOverflow(page: Page) {
     }
 
     const wrapper = editor.querySelector<HTMLElement>(".tableWrapper");
-    const firstRowCells = Array.from(
-      editor.querySelectorAll<HTMLElement>("table tr:first-child > *"),
-    );
+    const table = wrapper?.querySelector("table") ?? null;
+    // A column sized to its content can be narrow, so readability is judged
+    // by the words: they may wrap at spaces and hyphens, never inside a word.
+    const brokenWords: string[] = [];
+    const walker = table
+      ? document.createTreeWalker(table, NodeFilter.SHOW_TEXT)
+      : null;
+    for (let node = walker?.nextNode(); node; node = walker?.nextNode()) {
+      const text = node.textContent ?? "";
+      const words = /[^\s-]+/g;
+      for (let word = words.exec(text); word; word = words.exec(text)) {
+        const range = document.createRange();
+        range.setStart(node, word.index);
+        range.setEnd(node, word.index + word[0].length);
+        const lines = new Set(
+          Array.from(range.getClientRects(), (rect) => Math.round(rect.top)),
+        );
+        if (lines.size > 1) brokenWords.push(word[0]);
+      }
+    }
+    // Every block of a list item starts where its first block does, in the
+    // text column. One left under the marker widens the marker's track.
+    const listBlocksOffColumn: string[] = [];
+    let multiBlockItems = 0;
+    for (const item of editor.querySelectorAll<HTMLElement>(
+      "ul:not(.content-task-list) > li, ol > li",
+    )) {
+      const [first, ...rest] = Array.from(item.children);
+      if (!first || rest.length === 0) continue;
+      multiBlockItems += 1;
+      const left = first.getBoundingClientRect().left;
+      for (const block of rest) {
+        const offset = block.getBoundingClientRect().left - left;
+        if (Math.abs(offset) > 1) {
+          listBlocksOffColumn.push(
+            `${block.tagName.toLowerCase()} ${Math.round(offset)}px from "${(
+              first.textContent ?? ""
+            ).slice(0, 40)}"`,
+          );
+        }
+      }
+    }
     const pre = editor.querySelector<HTMLElement>("pre");
     return {
       missing: false as const,
       scrollerOverflow: scroller.scrollWidth - scroller.clientWidth,
       offenders,
       tableScrolls: wrapper ? wrapper.scrollWidth > wrapper.clientWidth : null,
-      narrowestColumn: firstRowCells.length
-        ? Math.min(
-            ...firstRowCells.map((cell) => cell.getBoundingClientRect().width),
-          )
-        : null,
+      tableWidth: table?.getBoundingClientRect().width ?? null,
+      columnCount: table?.rows[0]?.cells.length ?? 0,
+      brokenWords,
+      listBlocksOffColumn,
+      multiBlockItems,
       preScrolls: pre ? pre.scrollWidth > pre.clientWidth : null,
     };
   });
@@ -234,12 +278,27 @@ test.describe("Content page responsive layout", () => {
             `${label}: page scrolls sideways`,
           ).toBeLessThanOrEqual(0);
           expect(
-            measured.narrowestColumn,
-            `${label}: table columns stay readable`,
+            measured.tableWidth,
+            `${label}: table rendered`,
           ).not.toBeNull();
-          expect(measured.narrowestColumn!).toBeGreaterThanOrEqual(90);
+          expect(
+            measured.brokenWords,
+            `${label}: table columns stay readable`,
+          ).toEqual([]);
+          expect(
+            measured.multiBlockItems,
+            `${label}: list item with several blocks rendered`,
+          ).toBeGreaterThan(0);
+          expect(
+            measured.listBlocksOffColumn,
+            `${label}: list item blocks share the text column`,
+          ).toEqual([]);
           if (width <= 560) {
             expect(measured.tableScrolls, `${label}: table scrolls`).toBe(true);
+            expect(
+              measured.tableWidth!,
+              `${label}: table keeps 96px per column`,
+            ).toBeGreaterThanOrEqual(96 * measured.columnCount - 1);
             expect(measured.preScrolls, `${label}: code block scrolls`).toBe(
               true,
             );

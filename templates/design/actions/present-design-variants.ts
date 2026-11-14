@@ -38,7 +38,7 @@ import {
   MAX_SANE_FRAME_DIMENSION_PX,
   visibleBreakpointWidths,
 } from "../shared/responsive-frame-layout.js";
-import { annotateScreenHtmlForPersist } from "../shared/screen-annotation.js";
+import { annotateAgentScreenHtmlForPersist } from "../shared/screen-annotation.js";
 import { hasSpecifiedDesignPrompt } from "../shared/specified-design-prompt.js";
 import { withGenerationAttempt } from "./_generation-tracking.js";
 
@@ -864,11 +864,11 @@ export default defineAction({
       .describe(
         "2-5 concise, visually distinct generated design options to place as overview screens (3 is the sweet spot). Prefer short label/description/features for each direction; include inline HTML content only when it is compact enough to finish.",
       ),
-    responsive: z
+    fixedCanvas: z
       .boolean()
       .optional()
       .describe(
-        "Whether generated app direction screens should include responsive breakpoint frames. Defaults to true for app surfaces; exact dimensions and static artwork such as ads suppress extra device frames.",
+        "Set true to make every direction one fixed canvas with no responsive breakpoint frames. App surfaces get breakpoint frames otherwise; exact dimensions and static artwork such as ads have none either way. False or left out changes nothing.",
       ),
     deleteSupersededSetIds: z
       .array(z.string())
@@ -900,6 +900,10 @@ export default defineAction({
     destructiveHint: true,
     openWorldHint: false,
   },
+  // No list here replaces a saved one: `deleteSupersededSetIds: []` deletes
+  // nothing and `features: []` gets the same default chips as leaving it out,
+  // so GPT-6 Luna's padded `[]` beside padded nulls can run as sent.
+  emptyListsEraseNothing: true,
   run: withGenerationAttempt(async (input, context, attempt) => {
     const {
       designId,
@@ -907,7 +911,7 @@ export default defineAction({
       brief,
       variants,
       deleteSupersededSetIds,
-      responsive,
+      fixedCanvas,
     } = input;
     await assertAccess("design", designId, "editor");
     attempt.start({
@@ -927,8 +931,10 @@ export default defineAction({
     const promptDimensions =
       canvasIntent.kind === "fixed" ? canvasIntent.dimensions : undefined;
     await snapshotDesignBeforeAgentEdit(designId, context);
+    // A switch that only `true` turns on: GPT-6 Luna pads unused booleans with
+    // `false`, so `responsive: false` used to make every padded call fixed.
     const useResponsiveFrames =
-      canvasIntent.kind !== "fixed" && responsive !== false;
+      canvasIntent.kind !== "fixed" && fixedCanvas !== true;
 
     const omittedContent = variants.filter(
       (variant) => !variant.content?.trim(),
@@ -964,7 +970,7 @@ export default defineAction({
       const candidate = variant.content?.trim();
       if (!candidate) continue;
       assertDesignHtmlWellFormed({
-        content: annotateScreenHtmlForPersist(candidate, "html"),
+        content: annotateAgentScreenHtmlForPersist(candidate, "html"),
         filename: `variant-${slugify(variant.label.trim(), "option")}.html`,
       });
     }
@@ -1020,7 +1026,7 @@ export default defineAction({
                 canvasIntent,
               )
             : initialSize;
-          const content = annotateScreenHtmlForPersist(rawContent, "html");
+          const content = annotateAgentScreenHtmlForPersist(rawContent, "html");
 
           await tx.insert(schema.designFiles).values({
             id: fileId,

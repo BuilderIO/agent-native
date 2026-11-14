@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import type { ElementInfo } from "../types";
-import { cssElementSize } from "./element-classification";
+import { measuredElementSize } from "./element-classification";
 import {
   clearAuthoredSizeStylesForCommit,
   patchAuthoredInlineStyles,
@@ -165,8 +165,8 @@ describe("elementWithInteractionStateStyles", () => {
       "font-size": "18px",
     });
 
-    expect(cssElementSize(projected, "horizontal")).toBe(240);
-    expect(cssElementSize(projected, "vertical")).toBe(64);
+    expect(measuredElementSize(projected, "horizontal")).toBe(240);
+    expect(measuredElementSize(projected, "vertical")).toBe(64);
     expect(authoredStyleValue(projected, "left")).toBe("32px");
     expect(authoredStyleValue(projected, "top")).toBe("48px");
     expect(projected.computedStyles.backgroundColor).toBe("red");

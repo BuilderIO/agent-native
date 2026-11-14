@@ -170,7 +170,7 @@ async function openDesignWithLocalNetworkPermission(page: Page): Promise<void> {
     .toBe("granted");
   await expect(
     page.getByRole("button", { name: "Move", exact: true }),
-  ).toBeVisible({ timeout: 30_000 });
+  ).toBeVisible();
   await expect(page.getByRole("tree", { name: "Layers" })).toBeVisible();
   await expect(
     page
@@ -769,7 +769,7 @@ test("promotes and edits a URL-backed React component through the live iframe", 
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(
     page.getByRole("button", { name: "Move", exact: true }),
-  ).toBeVisible({ timeout: 30_000 });
+  ).toBeVisible();
   await expect(
     page
       .getByRole("tree", { name: "Layers" })
@@ -851,7 +851,7 @@ test("promotes and edits a URL-backed React component through the live iframe", 
   await page.reload({ waitUntil: "domcontentloaded" });
   await expect(
     page.getByRole("button", { name: "Move", exact: true }),
-  ).toBeVisible({ timeout: 30_000 });
+  ).toBeVisible();
   await page
     .getByRole("tree", { name: "Layers" })
     .locator(`[data-layer-row-button][data-layer-node-id="${screenId}"]`)
@@ -949,7 +949,10 @@ test("duplicates a URL-backed React component through undo and redo", async ({
       ),
     );
   const box = (await original.boundingBox())!;
+  // Cmd+click reaches a nested layer; a plain click takes the top-level one.
+  await page.keyboard.down("ControlOrMeta");
   await page.mouse.click(box.x + box.width / 2, box.y + box.height / 2);
+  await page.keyboard.up("ControlOrMeta");
   await expect
     .poll(() => app.selectedLayers())
     .toEqual(["React Primary Button"]);

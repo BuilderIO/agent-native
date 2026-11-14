@@ -1,0 +1,104 @@
+slug: ai-kpi-dashboard
+app: analytics
+roles:
+  - founders
+  - finance
+title: "أنشئ لوحة مؤشرات أداء لشركتك الناشئة"
+seo_title: "لوحة مؤشرات أداء بالذكاء الاصطناعي لمؤسسي الشركات"
+meta_description: "صِف المقاييس التي تتابعها، فيبني Agent-Native Analytics لوحة مؤشرات الأداء لشركتك من Stripe وHubSpot وبيانات المنتج، ثم يخبرك بما تغيّر."
+updated: 2026-10-27
+hero:
+  body: "يجمع Agent-Native Analytics الإيراد الشهري المتكرر والتسرّب والتسجيلات في لوحة تحكم واحدة، من Stripe وHubSpot وبيانات المنتج. صِف ما تتابعه، فيبنيها الوكيل ويشرح سبب تغيّر أي رقم."
+  button:
+    label: "أنشئ لوحة التحكم"
+    url: https://analytics.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb23d4e197c9841e7b0eeaefc15090443
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F260764ee953f4b4f80f6a6cf631b2143
+    alt: "لوحة مؤشرات أداء لشركة ناشئة في Analytics، فيها بطاقات MRR والتسرّب والتسجيلات الجديدة والتفعيل فوق مخططات شهرية للـ MRR والتسجيلات. ويجيب الشريط الجانبي للوكيل عن الخطة التي قادت نمو الـ MRR هذا الربع، بجدول حسب الخطة."
+how_to:
+  heading: "كيف تنشئ لوحة مؤشرات أداء بالذكاء الاصطناعي"
+  steps:
+    - title: "اربط بيانات الإيرادات والمنتج"
+      body: "في صفحة **مصادر البيانات**، الصق المفتاح السري لـ Stripe، ثم أضف HubSpot وأداة تحليلات المنتج التي تستخدمها. اختر **اختبار الاتصال** من قائمة المصدر لتتأكد أن Analytics يستطيع قراءته."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F6ea7e1568d3b4afd9fc6a2a01bc969b0
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F78b97b8d077644f28c627377157f1331
+        alt: "لقطة مقرّبة لـ Stripe في صفحة Data Sources، بحالة Connected، ومفتاحه السري مضبوط، ورسالة «Connection successful» بعد اختبار الاتصال."
+    - title: "صِف لوحة التحكم التي تريدها"
+      body: "انقر على **لوحة تحكم جديدة** وصِف [مقاييس SaaS التي تتابعها](https://www.agent-native.com/articles/what-should-a-saas-metrics-dashboard-include/)، مثل «MRR والتسرّب من Stripe، والتسجيلات الجديدة والتفعيل من PostHog، شهرًا بشهر». قد يطرح الوكيل أسئلة أولًا، ثم يبني كل لوحة ويفتح لوحة التحكم."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fca8b7f3746ca419383e042cc0c142271
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fb167e98f0ac049fa8ad4b169e8f77ec9
+        alt: "لقطة مقرّبة لمربع New dashboard المفتوح من قائمة Dashboards في الشريط الجانبي، وفيه وصف مكتوب للوحة مؤشرات أداء لشركة ناشئة."
+    - title: "اسأل لماذا تغيّر رقم"
+      body: "اختر **الدردشة حول اللوحة** من قائمة المخطط واطرح سؤالًا، مثل «لماذا ارتفع التسرّب في سبتمبر؟». يجيب الوكيل من بياناتك المرتبطة، ويضيف لوحة إلى لوحة التحكم عندما تطلب ذلك."
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9b18fbf5a7cd4b4ba65d9efede75538b
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F9edee9cd613741e2ba670e414be767c7
+        alt: "لوحة التسرّب الشهري ومحادثة الوكيل بجانبها. عند سؤاله عن سبب ارتفاع التسرّب في سبتمبر، يفصّل الوكيل الارتفاع حسب الخطة: تضاعف تسرّب خطة Starter تقريبًا."
+features:
+  heading: "كل ما تحتاجه لمتابعة مؤشرات أداء شركتك الناشئة"
+  items:
+    - title: "الإيرادات والمسار والاستخدام معًا"
+      body: "الـ MRR من Stripe، والصفقات من HubSpot، والتسجيلات من PostHog أو Mixpanel، جنبًا إلى جنب في لوحة تحكم واحدة."
+    - title: "عدّل بنفسك أو اطلب"
+      body: "غيّر فلترًا بنفسك أو اطلب من الوكيل لوحة جديدة. يصل الاثنان إلى لوحة التحكم نفسها، وسجلّها يستعيد أي نسخة سابقة."
+    - title: "الاستعلام وراء كل رقم"
+      body: "انقر على أي نقطة في المخطط لترى السجلات وراءها، واستعلام SQL الذي وجدها، وتنزيل CSV."
+    - title: "تعريفك للـ MRR"
+      body: "اكتب في صفحة **الطبقة الدلالية** كيف تحسب شركتك الـ MRR أو المستخدم النشط، ويراجعه الوكيل قبل كتابة أي استعلام."
+    - title: "خاصة حتى تشاركها"
+      body: "لوحة التحكم الجديدة لك وحدك. شاركها مع شريكك المؤسس أو مع شركتك كلها عندما تجهز، للعرض أو للتعديل."
+    - title: "مؤشراتك بالبريد"
+      body: "تصلك الأرقام بنفسها: استلم لوحة التحكم بالبريد كل صباح، في الوقت الذي تختاره، لما يصل إلى خمسة أشخاص."
+integrations:
+  heading: "اربط Analytics بالأدوات التي تستخدمها بالفعل"
+  cards:
+    - title: "إيراداتك ومسار مبيعاتك"
+      logos:
+        - name: Stripe
+        - name: HubSpot
+      body: "يقرأ Analytics الاشتراكات والمدفوعات من Stripe والصفقات من HubSpot، فتأتي أرقام الإيرادات من مصدرها مباشرة."
+    - title: "استخدام منتجك"
+      logos:
+        - name: PostHog
+        - name: Mixpanel
+        - name: Amplitude
+        - name: Google Analytics
+        - name: BigQuery
+      body: "تأتي التسجيلات والمستخدمون النشطون والتفعيل من أداة تحليلات المنتج أو مستودع البيانات الذي تستخدمه أصلًا."
+    - title: "اربط أي أداة عبر MCP"
+      logos:
+        - name: Notion
+        - name: Intercom
+        - name: Linear
+      more: true
+      body: "اربط الأدوات التي يستخدمها فريقك عبر MCP، أو أضف أي خادم MCP بعنوان URL الخاص به."
+other_uses:
+  heading: "أشياء أخرى يمكنك فعلها مع Agent-Native Analytics"
+  cards:
+    - title: "اطرح أسئلتك على بياناتك بلغة عادية"
+      url: https://www.agent-native.com/use-cases/ask-your-database/
+      body: "اسأل عن بياناتك في BigQuery واحصل على الإجابة دون كتابة SQL."
+    - title: "اعرف أين يتوقف المستخدمون الجدد"
+      url: https://www.agent-native.com/use-cases/ai-funnel-analysis/
+      body: "اعرف أين يتوقف المستخدمون الجدد في خطوات التسجيل والتهيئة."
+    - title: "أعدّ تقرير التسويق الأسبوعي دون جداول بيانات"
+      url: https://www.agent-native.com/use-cases/weekly-marketing-report/
+      body: "أنشئ تقرير التسويق الأسبوعي مرة واحدة وتوقّف عن إعادة بنائه يدويًا."
+faqs:
+  heading: "لديك أسئلة؟ لدينا الإجابات"
+  items:
+    - q: "هل Agent-Native Analytics مجاني؟"
+      a: "نعم، Agent-Native Analytics مجاني ومفتوح المصدر. يعمل الوكيل على أرصدة Builder.io للذكاء الاصطناعي أو مفتاح النموذج الخاص بك، ويحتاج كل مصدر بيانات إلى بيانات اعتماده، مثل المفتاح السري لـ Stripe. لا يزال Analytics في مرحلة ألفا، فقد تتغيّر الشاشات والميزات."
+    - q: "من أي أدوات يمكن لـ Analytics سحب مؤشرات الأداء؟"
+      a: "يتصل Analytics بـ Stripe وHubSpot وPostHog وMixpanel وAmplitude وGoogle Analytics ‏(GA4) وBigQuery وأكثر من اثني عشر مصدرًا آخر. تضيف كلًا منها في [صفحة مصادر البيانات](https://www.agent-native.com/docs/template-analytics-connectors/) بمفتاحه الخاص، ويمكن للوحة تحكم واحدة الجمع بين عدة مصادر."
+    - q: "هل أحتاج إلى معرفة SQL لإنشاء لوحة مؤشرات أداء؟"
+      a: "لا. تصف لوحة التحكم أو تطرح سؤالًا بلغة عادية، فيكتب الوكيل SQL. ويبقى الاستعلام ظاهرًا وراء كل مخطط، فيستطيع من يعرف بياناتك مراجعته أو تعديله."
+    - q: "كيف أعرف أن الأرقام صحيحة؟"
+      a: "كل رقم في لوحة التحكم يأتي من استعلام شغّله الوكيل على بياناتك المرتبطة، ويمكنك فتح الاستعلام والسجلات وراء أي مخطط. وعندما يتعذّر على الوكيل تشغيل استعلام، يضع على الرقم علامة «Unverified». قارن بعض الأرقام بـ Stripe قبل أن تعتمد على لوحة التحكم."
+    - q: "من يمكنه رؤية لوحة مؤشرات الأداء الخاصة بي؟"
+      a: "أنت وحدك، حتى تشاركها. يمكنك [مشاركة لوحة التحكم](https://www.agent-native.com/docs/sharing/) مع زميل أو مع مؤسستك كلها كمشاهد أو محرر أو مسؤول. والفلاتر التي تغيّرها تنطبق عليك وحدك؛ احفظ عرضًا أو أرسل الرابط لتشاركها."
+    - q: "كيف يختلف Analytics عن الذكاء الاصطناعي في أداة التحليلات لديّ؟"
+      a: "المساعد الذكي داخل أداة تحليلات واحدة يعمل على بيانات تلك الأداة. أما Analytics فيعمل عبر Stripe ونظام CRM وبيانات منتجك، ووكيله يبني لوحة التحكم التي تراها ويعدّلها، فتصبح إجاباته لوحات تحتفظ بها. وهذا ما يجعل Analytics [تطبيقًا وكيليًا](https://www.agent-native.com/articles/what-is-an-agent-native-app/): ذكاء الوكيل وسهولة التطبيق."

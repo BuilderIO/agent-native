@@ -19,6 +19,7 @@ import {
 import {
   Fragment,
   useEffect,
+  useRef,
   useState,
   type CSSProperties,
   type ReactNode,
@@ -33,6 +34,7 @@ import {
 } from "@/components/ui/popover";
 import { Spinner } from "@/components/ui/spinner";
 import {
+  useRefreshAfterGitHubFolder,
   useSyncGitHubFolder,
   type SyncGitHubFolderResponse,
 } from "@/hooks/use-github-folder";
@@ -148,6 +150,131 @@ export function useCheckGitHubForUpdates(source: ContentDatabaseSource) {
         },
       ),
   };
+}
+
+/** How long a fill waits while the background sweep holds the sync. */
+const FILL_BUSY_RETRY_MS = 2_000;
+/**
+ * How long a fill waits after a sync that got no further or failed, doubling
+ * each time one does again, up to the most. The background sync, which gives
+ * a fill under way more time than this tab's syncs get, takes its turn then.
+ */
+const FILL_STALL_RETRY_MS = 60_000;
+const FILL_STALL_RETRY_MAX_MS = 5 * 60_000;
+
+/**
+ * Whether a sync that left part of the folder for later got further than the
+ * one before: it wrote pages, or left fewer files, as one that only skipped
+ * files does. `left` is null when nothing says how many were left before.
+ */
+function gotFurther(
+  result: SyncGitHubFolderResponse["sync"],
+  left: number | null,
+) {
+  return (
+    result.created + result.updated + result.renamed + result.trashed > 0 ||
+    left === null ||
+    result.remaining < left
+  );
+}
+
+/** A problem that only says pictures are missing: the pages still update. */
+function picturesOnly(code: string) {
+  return code === "storage_unavailable" || code === "storage_failed";
+}
+
+/**
+ * Keeps a folder filling while its collection is open: each sync starts as
+ * soon as the last returns, not at the next background sweep. It waits while
+ * the sweep holds the sync, and waits longer after a sync that got no further
+ * or failed. It pauses in a hidden tab and stops once the folder is current,
+ * or once the collection shows a problem that stops updates. A problem the
+ * sync can retry, like a rate limit, only makes it wait: a collection that
+ * opens with one waits before its first sync too. No toasts: the progress
+ * bar says it.
+ */
+function useKeepFilling(
+  databaseId: string,
+  filling: boolean,
+  remaining: number | null,
+  paused: boolean,
+) {
+  const { mutateAsync: syncNow } = useSyncGitHubFolder({ refresh: false });
+  const refresh = useRefreshAfterGitHubFolder();
+  const latest = useRef({ refresh, remaining, paused });
+  useEffect(() => {
+    latest.current = { refresh, remaining, paused };
+  });
+  useEffect(() => {
+    if (!filling) return;
+    let stopped = false;
+    let running = false;
+    let timer: number | undefined;
+    let stalls = 0;
+    // Files left as of the last answer, to tell a sync that got further.
+    let left = latest.current.remaining;
+    const wait = (ms: number) => {
+      timer = window.setTimeout(() => void step(), ms);
+    };
+    const step = async () => {
+      timer = undefined;
+      if (stopped || running || document.visibilityState === "hidden") return;
+      running = true;
+      let result: SyncGitHubFolderResponse["sync"] | null = null;
+      try {
+        ({ sync: result } = await syncNow({ databaseId }));
+      } catch {
+        // coercion-ok: no result reads as a failed sync below, which waits
+        // and refreshes, and the status line shows what went wrong then.
+      }
+      running = false;
+      if (stopped) return;
+      // The background sync has it, and nothing changed to show.
+      if (result?.state === "busy") return wait(FILL_BUSY_RETRY_MS);
+      const further = result?.state === "partial" && gotFurther(result, left);
+      // Only a part says how many files are left: an error answer counts none.
+      if (result?.state === "partial") left = result.remaining;
+      // A sync that got no further changed nothing worth showing.
+      if (further || result?.state !== "partial") {
+        latest.current.refresh("sync-github-folder");
+      }
+      if (result?.state === "synced" || result?.state === "unchanged") {
+        stopped = true;
+      } else if (
+        further &&
+        // Pictures waiting on storage, or that it couldn't save, don't stop
+        // the pages filling.
+        (!result?.problem || picturesOnly(result.problem.code))
+      ) {
+        stalls = 0;
+        void step();
+      } else {
+        // A problem that stops updates shows once the collection refreshes,
+        // and ends the fill, wait and all. Any other waits its turn.
+        wait(
+          Math.min(FILL_STALL_RETRY_MAX_MS, FILL_STALL_RETRY_MS * 2 ** stalls),
+        );
+        stalls += 1;
+      }
+    };
+    const resume = () => {
+      if (timer === undefined) void step();
+    };
+    // A problem the sync can retry already shows, so this waits a turn, as
+    // it would after the sync that hit it.
+    if (latest.current.paused) {
+      stalls = 1;
+      wait(FILL_STALL_RETRY_MS);
+    } else {
+      void step();
+    }
+    document.addEventListener("visibilitychange", resume);
+    return () => {
+      stopped = true;
+      window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", resume);
+    };
+  }, [databaseId, filling, syncNow]);
 }
 
 function DetailRow({
@@ -312,11 +439,14 @@ export function GitHubSourceStatusLine({
   documentId,
   canEdit,
   pageCount,
+  onOpenSource,
 }: {
   source: ContentDatabaseSource | null;
   documentId: string;
   canEdit: boolean;
   pageCount: number;
+  /** Opens the folder's page in Sources; without it, the folder is plain text. */
+  onOpenSource?: () => void;
 }) {
   const now = useNow();
   const [unlinkOpen, setUnlinkOpen] = useState(false);
@@ -334,6 +464,7 @@ export function GitHubSourceStatusLine({
       documentId={documentId}
       canEdit={canEdit}
       pageCount={pageCount}
+      onOpenSource={onOpenSource}
       detailsOpen={detailsOpen}
       onDetailsOpenChange={setDetailsOpen}
       unlinkOpen={unlinkOpen}
@@ -349,6 +480,7 @@ function GitHubStatusLineContent({
   documentId,
   canEdit,
   pageCount,
+  onOpenSource,
   detailsOpen,
   onDetailsOpenChange,
   unlinkOpen,
@@ -360,6 +492,7 @@ function GitHubStatusLineContent({
   documentId: string;
   canEdit: boolean;
   pageCount: number;
+  onOpenSource?: () => void;
   detailsOpen: boolean;
   onDetailsOpenChange: (open: boolean) => void;
   unlinkOpen: boolean;
@@ -371,9 +504,26 @@ function GitHubStatusLineContent({
   const actions = problem && stops ? problemActions(problem.code) : null;
   const syncing = !!status.pendingCommitSha && !!status.progress;
   // Pictures waiting on storage are a note, not a stop: the pages still update.
+  // Storage that failed still says so when another problem stopped the
+  // sync, unless storage has since gone missing, and missing storage still
+  // says so unless that sync found it set up. With no problem at all,
+  // storage is set up and the sync is still adding the pictures.
+  const storageFailed =
+    problem?.code === "storage_failed" ||
+    (problem?.code !== "storage_unavailable" &&
+      status.imagesFailed &&
+      status.imagesWaiting > 0);
   const picturesWaiting =
-    problem?.code === "storage_unavailable" || status.imagesWaiting > 0;
-  const paused = !!problem && !stops && problem.code !== "storage_unavailable";
+    problem?.code === "storage_unavailable" ||
+    storageFailed ||
+    (!!problem && status.imagesWaiting > 0 && !status.storageReady);
+  const paused = !!problem && !stops && !picturesOnly(problem.code);
+  useKeepFilling(
+    source.databaseId,
+    syncing && !stops,
+    status.progress ? status.progress.total - status.progress.done : null,
+    paused,
+  );
   const openUnlink = () => {
     onDetailsOpenChange(false);
     onUnlinkOpenChange(true);
@@ -387,8 +537,27 @@ function GitHubStatusLineContent({
       <div className="-m-px overflow-hidden p-px">
         <div className="-ms-3 flex min-w-0 flex-wrap items-center gap-y-1 text-muted-foreground">
           <Dotted>
-            <IconBrandGithub className="me-1.5 size-3.5 shrink-0" aria-hidden />
-            <FromFolder status={status} />
+            {onOpenSource ? (
+              <button
+                type="button"
+                onClick={onOpenSource}
+                className="inline-flex min-w-0 items-center rounded-sm text-start underline-offset-2 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
+              >
+                <IconBrandGithub
+                  className="me-1.5 size-3.5 shrink-0"
+                  aria-hidden
+                />
+                <FromFolder status={status} />
+              </button>
+            ) : (
+              <>
+                <IconBrandGithub
+                  className="me-1.5 size-3.5 shrink-0"
+                  aria-hidden
+                />
+                <FromFolder status={status} />
+              </>
+            )}
           </Dotted>
           {stops ? null : (
             <Dotted>
@@ -518,7 +687,9 @@ function GitHubStatusLineContent({
 
       {picturesWaiting ? (
         <div className="break-words text-muted-foreground">
-          {dbText("githubPicturesWaiting")}
+          {dbText(
+            storageFailed ? "githubPicturesNotSaved" : "githubPicturesWaiting",
+          )}
         </div>
       ) : null}
 

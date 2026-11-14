@@ -64,6 +64,8 @@ const ALLOWLIST_EXACT = new Set([
   "DATABASE_URL",
   "NODE_ENV",
   "CI",
+  // GitHub Actions job identity is CI routing metadata, not a credential.
+  "GITHUB_JOB",
   "DEBUG",
   "NETLIFY",
   "VERCEL",

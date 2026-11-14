@@ -192,6 +192,7 @@ export default createAgentChatPlugin({
   actions: loadActionsFromStaticRegistry(actionsRegistry),
   initialToolNames: INJECTED_INITIAL_TOOL_NAMES,
   mcp: {
+    appApprovalPage: true,
     connectorCatalog: [],
     externalAgents: { writes: "allowlisted" },
     instructions:

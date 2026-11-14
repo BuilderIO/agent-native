@@ -12,6 +12,8 @@ import {
   BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
   isBuilderGatewayInternalErrorMessage,
   isContextOverflowMessage,
+  isProviderTokenRateLimitMessage,
+  isRejectedRequestErrorCode,
   PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
 } from "../agent/engine/error-detail.js";
 import {
@@ -62,6 +64,8 @@ const CREDENTIAL_CHAT_MESSAGES: Record<CredentialErrorCode, string | null> = {
   http_401: PROVIDER_CREDENTIAL_REJECTED_MESSAGE,
   http_403: PROVIDER_CREDENTIAL_REJECTED_MESSAGE,
   builder_auth_error: BUILDER_AUTHENTICATION_ERROR,
+  builder_oauth_lookup_failed: BUILDER_AUTHENTICATION_ERROR,
+  builder_oauth_refresh_failed: null,
   builder_oauth_reauthorization_required: null,
   credential_missing: null,
   credential_rejected: null,
@@ -92,10 +96,6 @@ export const CHAT_CAPABILITY_UNAVAILABLE_MESSAGE =
   "We couldn't send your message right now. Please try again shortly.";
 export const CHAT_CAPABILITY_UNSUPPORTED_MESSAGE =
   "This app can't safely retry your saved prompt yet. Update the app, then try again.";
-const MALFORMED_REQUEST_CODES = new Set([
-  "invalid_request",
-  "invalid_request_error",
-]);
 const ATTACHMENT_REJECTION_PATTERN =
   /\b(?:file_url|image_url|file_data|input_file|media_type|mime\s?type|image\.source|document\s+block)\b/i;
 
@@ -438,6 +438,11 @@ export function normalizeChatError(
   }
   if (isServerChosenVisitorMessage(text)) return { message: text };
 
+  const providerDetail = providerPayload?.message ?? text;
+  if (isProviderTokenRateLimitMessage(providerDetail)) {
+    return { message: providerDetail };
+  }
+
   const providerMessage =
     providerPayload?.errorCode === "overloaded_error"
       ? "The model provider is overloaded right now. Wait a moment, then retry."
@@ -543,7 +548,7 @@ export function normalizeChatError(
     };
   }
 
-  if (MALFORMED_REQUEST_CODES.has(code) && !isContextOverflowMessage(text)) {
+  if (isRejectedRequestErrorCode(code) && !isContextOverflowMessage(text)) {
     return {
       message: ATTACHMENT_REJECTION_PATTERN.test(text)
         ? MALFORMED_REQUEST_ATTACHMENT_MESSAGE

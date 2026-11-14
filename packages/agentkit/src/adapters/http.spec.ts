@@ -27,6 +27,37 @@ const sseEvent = (sequence: number): AgentEvent => ({
 });
 
 describe("AgentKit HTTP adapter", () => {
+  it("reads the durable status for a queued submission receipt", async () => {
+    const getQueuedSubmissionStatus = vi.fn(async () => ({
+      state: "expired" as const,
+    }));
+    const handler = createAgentKitHttpHandler({
+      transport: {
+        async startRun() {
+          return { runId: "run-1" };
+        },
+        async *subscribeToRun() {},
+        async cancelRun() {},
+        getQueuedSubmissionStatus,
+      },
+    });
+    const transport = createAgentKitHttpTransport({
+      baseUrl: "https://agentkit.test/agentkit",
+      fetch: (input, init) => handler(new Request(input, init)),
+    });
+
+    await expect(
+      transport.getQueuedSubmissionStatus?.({
+        threadId: "thread-1",
+        messageId: "queued-1",
+      }),
+    ).resolves.toEqual({ state: "expired" });
+    expect(getQueuedSubmissionStatus).toHaveBeenCalledWith(
+      { threadId: "thread-1", messageId: "queued-1" },
+      expect.anything(),
+    );
+  });
+
   it("round-trips commands and resumable SSE through Fetch primitives", async () => {
     const events: AgentEvent[] = [
       {
@@ -1257,6 +1288,68 @@ describe("AgentKit HTTP adapter", () => {
       { threadId: "thread-1", messageId: "message-1" },
       expect.anything(),
     );
+  });
+
+  it("persists a whole-queue reorder through the protocol route", async () => {
+    const reorderQueuedMessages = vi.fn(async () => undefined);
+    const handler = createAgentKitHttpHandler({
+      transport: {
+        async startRun() {
+          return { runId: "run-1" };
+        },
+        async *subscribeToRun() {},
+        async cancelRun() {},
+        reorderQueuedMessages,
+      },
+    });
+    const transport = createAgentKitHttpTransport({
+      baseUrl: "https://agentkit.test/agentkit",
+      fetch: (input, init) => handler(new Request(input, init)),
+    });
+
+    await transport.reorderQueuedMessages?.({
+      threadId: "thread-1",
+      messageIds: ["b", "a"],
+    });
+
+    expect(reorderQueuedMessages).toHaveBeenCalledWith(
+      { threadId: "thread-1", messageIds: ["b", "a"] },
+      expect.anything(),
+    );
+  });
+
+  it("rejects a reorder that repeats an id or names another thread", async () => {
+    const reorderQueuedMessages = vi.fn(async () => undefined);
+    const handler = createAgentKitHttpHandler({
+      transport: {
+        async startRun() {
+          return { runId: "run-1" };
+        },
+        async *subscribeToRun() {},
+        async cancelRun() {},
+        reorderQueuedMessages,
+      },
+    });
+    const put = (threadId: string, body: unknown) =>
+      handler(
+        new Request(
+          `https://agentkit.test/agentkit/threads/${threadId}/queue`,
+          {
+            method: "PUT",
+            body: JSON.stringify(createAgentProtocolEnvelope("request", body)),
+          },
+        ),
+      );
+
+    expect(
+      (await put("thread-1", { threadId: "thread-1", messageIds: ["a", "a"] }))
+        .status,
+    ).toBe(400);
+    expect(
+      (await put("thread-1", { threadId: "thread-2", messageIds: ["a"] }))
+        .status,
+    ).toBe(400);
+    expect(reorderQueuedMessages).not.toHaveBeenCalled();
   });
 
   it("negotiates explicit capability status over the discovery endpoint", async () => {

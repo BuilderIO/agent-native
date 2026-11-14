@@ -46,6 +46,7 @@ export {
   resolveAgentHarnessApproval,
   sendAgentHarnessFollowUp,
   stopLiveAgentHarnessSession,
+  sweepExpiredAgentHarnessApprovalResolutions,
   sweepExpiredAgentHarnessSessions,
   type AgentHarnessLifecycleErrorCode,
   type AgentHarnessLifecycleResult,

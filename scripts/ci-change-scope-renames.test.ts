@@ -13,7 +13,9 @@ import test from "node:test";
 
 import {
   classifyChangedPaths,
+  readAddedPaths,
   readChangedPaths,
+  readDeletedPaths,
   readSameDirectoryPureDesignSpecRenames,
 } from "./ci-change-scope.ts";
 
@@ -62,10 +64,17 @@ test("filters only exact same-directory Design spec renames from diagnostics", (
         headSha,
         repoPath,
       );
+      const deletedPaths = readDeletedPaths(baseSha, headSha, repoPath);
       return {
         changedPaths,
         pureRenames,
-        scope: classifyChangedPaths(changedPaths, pureRenames),
+        deletedPaths,
+        scope: classifyChangedPaths(
+          changedPaths,
+          pureRenames,
+          repoPath,
+          deletedPaths,
+        ),
       };
     };
 
@@ -78,7 +87,7 @@ test("filters only exact same-directory Design spec renames from diagnostics", (
     assert.deepEqual(pureRename.scope.designCanvasE2eSpecs, [pureRenamePath]);
     assert.deepEqual(pureRename.scope.designCanvasE2eDiagnosticSpecs, []);
     assert.deepEqual(pureRename.changedPaths, [pureRenamePath]);
-    assert.equal(pureRename.scope.checks.design_canvas_core_regression, true);
+    assert.equal(pureRename.scope.checks.design_canvas_core_regression, false);
 
     const editedRenamePath = "templates/design/e2e/renamed-title.spec.ts";
     const editedRenameHead = commitFromBase(
@@ -159,6 +168,18 @@ test("filters only exact same-directory Design spec renames from diagnostics", (
     assert.deepEqual(titleEdit.scope.designCanvasE2eDiagnosticSpecs, [
       sourcePath,
     ]);
+
+    const deletedSpecHead = commitFromBase("delete Design spec", () => {
+      rmSync(sourceFile);
+    });
+    const deletedSpec = scopeFor(deletedSpecHead);
+    assert.deepEqual(deletedSpec.deletedPaths, [sourcePath]);
+    assert.deepEqual(deletedSpec.scope.designCanvasE2eSpecs, [sourcePath]);
+    assert.deepEqual(deletedSpec.scope.designCanvasE2eDiagnosticSpecs, [
+      sourcePath,
+    ]);
+    assert.equal(deletedSpec.scope.checks.design_canvas_broad_workflows, false);
+    assert.deepEqual(deletedSpec.scope.designCanvasBroadWorkflowShards, []);
   } finally {
     rmSync(repoPath, { recursive: true, force: true });
   }
@@ -188,8 +209,8 @@ test("classification retains the path but excludes supplied pure renames", () =>
   );
   assert.equal(
     pureRenameScope.checks.design_canvas_core_regression,
-    true,
-    "the required Design regression gate must still run for a renamed spec",
+    false,
+    "a pure spec rename should not launch the broad Design regression suite",
   );
   assert.equal(
     pureRenameScope.checks.design_canvas_broad_workflows,
@@ -228,4 +249,80 @@ test("only diagnostics use the filtered Design spec list", () => {
       "needs.change-scope.outputs.design_canvas_e2e_diagnostic_specs",
     ),
   );
+});
+
+test("runs the guards when docs add or rename a page browsers load", () => {
+  const repoPath = mkdtempSync(join(tmpdir(), "ci-change-scope-added-"));
+  const runGit = (...args: string[]) => {
+    const result = spawnSync("git", ["-C", repoPath, ...args], {
+      encoding: "utf8",
+    });
+    assert.equal(
+      result.status,
+      0,
+      `git ${args.join(" ")} failed: ${result.stderr}`,
+    );
+    return result.stdout.trim();
+  };
+
+  try {
+    runGit("init", "--quiet");
+    runGit("config", "user.name", "CI Change Scope Test");
+    runGit("config", "user.email", "ci-change-scope@example.invalid");
+    const pagePath = "packages/core/docs/content/actions.md";
+    mkdirSync(join(repoPath, "packages/core/docs/content"), {
+      recursive: true,
+    });
+    writeFileSync(join(repoPath, pagePath), "# Actions\n");
+    runGit("add", "--all");
+    runGit("commit", "--quiet", "-m", "add docs page");
+    const baseSha = runGit("rev-parse", "HEAD");
+
+    const scopeFor = (message: string, change: () => void) => {
+      runGit("reset", "--hard", baseSha);
+      change();
+      runGit("add", "--all");
+      runGit("commit", "--quiet", "-m", message);
+      const headSha = runGit("rev-parse", "HEAD");
+      const addedPaths = readAddedPaths(baseSha, headSha, repoPath);
+      const scope = classifyChangedPaths(
+        readChangedPaths(baseSha, headSha, repoPath),
+        [],
+        repoPath,
+        readDeletedPaths(baseSha, headSha, repoPath),
+        addedPaths,
+      );
+      return {
+        addedPaths,
+        docsOnly: scope.docsOnly,
+        guards: scope.checks.guards,
+      };
+    };
+
+    // An edit keeps the page's name.
+    assert.deepEqual(
+      scopeFor("edit docs page", () => {
+        writeFileSync(join(repoPath, pagePath), "# Actions\n\nMore.\n");
+      }),
+      { addedPaths: [], docsOnly: true, guards: false },
+    );
+    const renamedPath = "packages/core/docs/content/cookie-notice.md";
+    assert.deepEqual(
+      scopeFor("rename docs page", () => {
+        runGit("mv", pagePath, renamedPath);
+      }),
+      { addedPaths: [renamedPath], docsOnly: true, guards: true },
+    );
+    // Plans and other repo docs never reach a browser.
+    const planPath = "docs/plans/cookie-notice.md";
+    assert.deepEqual(
+      scopeFor("add plan", () => {
+        mkdirSync(join(repoPath, "docs/plans"), { recursive: true });
+        writeFileSync(join(repoPath, planPath), "# Plan\n");
+      }),
+      { addedPaths: [planPath], docsOnly: true, guards: false },
+    );
+  } finally {
+    rmSync(repoPath, { recursive: true, force: true });
+  }
 });

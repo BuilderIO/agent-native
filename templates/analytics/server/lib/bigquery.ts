@@ -2,9 +2,17 @@ import { createHash, randomUUID } from "crypto";
 
 import { lexAgentSql } from "@agent-native/core/agent-sql";
 import { getDbExec } from "@agent-native/core/db";
+import { retainRequestDbPoolScope } from "@agent-native/core/db/request-pool-context";
 
 import { DASHBOARD_SQL_VALIDATION_TIMEOUT_MS } from "../../shared/dashboard-report-timeouts.js";
 import type { SourceGenerationResult } from "../../shared/source-generation.js";
+import type { BigQueryUsageAccounting } from "../../shared/sql-query-contract";
+import {
+  newBigQueryJobUsage,
+  persistBigQueryJobUsage,
+  finalizeBigQueryJobUsage,
+  type BigQueryJobUsage,
+} from "./bigquery-usage";
 import { resolveCredential } from "./credentials";
 import {
   credentialCacheScope,
@@ -182,6 +190,46 @@ export class BigQueryMaximumBytesBilledError extends Error {
     super("BigQuery query exceeded its configured billed-byte limit");
     this.name = "BigQueryMaximumBytesBilledError";
     this.backendStatus = backendStatus;
+  }
+}
+
+// Only documented input/authorization rejections prove no job was created.
+// Other 4xx reasons can describe already-created jobs; 5xx/transport errors are ambiguous.
+// https://docs.cloud.google.com/bigquery/docs/error-messages
+function isDefiniteJobSubmissionRejection(
+  status: number,
+  body: string,
+): boolean {
+  const expectedStatus: Readonly<Record<string, number>> = {
+    invalid: 400,
+    invalidQuery: 400,
+    accessDenied: 403,
+    billingNotEnabled: 403,
+  };
+  try {
+    const parsed = JSON.parse(body) as {
+      jobReference?: unknown;
+      error?: { code?: unknown; errors?: unknown };
+    };
+    if (parsed.jobReference !== undefined) return false;
+    if (parsed.error?.code !== undefined && parsed.error.code !== status)
+      return false;
+    const errors = parsed.error?.errors;
+    return (
+      Array.isArray(errors) &&
+      errors.length > 0 &&
+      errors.every(
+        (entry: unknown) =>
+          entry !== null &&
+          typeof entry === "object" &&
+          "reason" in entry &&
+          typeof entry.reason === "string" &&
+          expectedStatus[entry.reason] === status,
+      )
+    );
+  } catch {
+    // coercion-ok: Unparseable errors are not confirmed rejections; the caller keeps submission unknown and throws the provider error.
+    return false;
   }
 }
 
@@ -510,7 +558,8 @@ function getCacheKey(
   // cached warehouse results across tenants that happen to query the same
   // project/table names.
   // Isolate fenced cache rows from old instances that still write unconditionally.
-  return `v2:${createHash("sha256")
+  // Old cache rows may contain zero substituted for missing provider byte metadata.
+  return `v3:${createHash("sha256")
     .update(`${cacheScope}\n${projectId}\n${sql}`)
     .digest("hex")}`;
 }
@@ -799,7 +848,8 @@ async function finishCacheQuery(
         key,
         sql,
         JSON.stringify(result),
-        result.bytesProcessed ?? 0,
+        // The legacy non-null column uses -1 for unknown; JSON keeps usage optional.
+        result.bytesProcessed ?? -1,
         now.toISOString(),
         expiresAt.toISOString(),
         fence.generation,
@@ -914,11 +964,19 @@ async function acquireCacheQuery(
   }
 }
 
+function queryBytesProcessed(value: unknown): number | undefined {
+  if (typeof value !== "string" || !/^\d+$/.test(value)) return undefined;
+  const bytes = Number(value);
+  return Number.isSafeInteger(bytes) ? bytes : undefined;
+}
+
 export interface QueryResult {
+  usageAccounting?: BigQueryUsageAccounting;
   rows: Record<string, unknown>[];
   totalRows: number;
   schema: { name: string; type: string }[];
-  bytesProcessed: number;
+  /** Absent when the provider omits usage or returns an invalid byte count. */
+  bytesProcessed?: number;
   cached?: boolean;
   truncated?: boolean;
   partial?: boolean;
@@ -976,6 +1034,7 @@ interface BigQueryGetQueryResultsResponse {
   schema?: { fields?: BigQueryField[] };
   rows?: { f: { v: unknown }[] }[];
   totalRows?: string;
+  nextPageToken?: string;
   jobComplete?: boolean;
   totalBytesProcessed?: string;
   cacheHit?: boolean;
@@ -1182,11 +1241,21 @@ async function readDryRunStatistics(
   };
 }
 
+/**
+ * BigQuery's verdict on the SQL: null when it is valid, else the error. A dry
+ * run that could not reach a verdict throws instead: a timeout, rejected
+ * credentials, a rate limit, or a BigQuery server error.
+ */
 export async function dryRunQuery(
   sql: string,
   options: DryRunQueryOptions = {},
 ): Promise<string | null> {
-  return (await dryRunQuerySchema(sql, options)).error;
+  const result = await dryRunQuerySchema(sql, options);
+  const status = result.status ?? 0;
+  if (result.timedOut || status === 401 || status === 429 || status >= 500) {
+    throw new Error(result.error ?? "BigQuery validation failed");
+  }
+  return result.error;
 }
 
 export async function dryRunQuerySchema(
@@ -1288,6 +1357,23 @@ class BigQueryDateRolloverError extends Error {}
 export async function runQuery(
   sql: string,
   options: RunQueryOptions = {},
+): Promise<QueryResult> {
+  // Acquire the lease before a panel can stop awaiting this query. Finalization
+  // may otherwise begin after its request has already closed the pool.
+  let start: (() => void) | undefined;
+  const work = new Promise<QueryResult>((resolve, reject) => {
+    start = () => {
+      void runQueryWithDateRetry(sql, options).then(resolve, reject);
+    };
+  });
+  const retained = retainRequestDbPoolScope(work);
+  start?.();
+  return retained;
+}
+
+async function runQueryWithDateRetry(
+  sql: string,
+  options: RunQueryOptions,
 ): Promise<QueryResult> {
   try {
     return await runQueryAttempt(sql, options, false);
@@ -1408,6 +1494,10 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
     }
   }
 
+  let usage: BigQueryJobUsage | null = null;
+  let usageStarted = false;
+  let usageAccounting: BigQueryUsageAccounting | undefined;
+  let completedResult: QueryResult | undefined;
   let jobId: string | null = null;
   let jobLocation: string | undefined;
   let jobCreatedAfter = 0;
@@ -1419,6 +1509,12 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
     assertDateUnchanged();
     jobId = `agent_native_${randomUUID().replace(/-/g, "")}`;
     jobCreatedAfter = Date.now();
+    usage = newBigQueryJobUsage(
+      projectId,
+      jobId,
+      requireRequestCredentialContext("BIGQUERY_PROJECT_ID"),
+    );
+    usageStarted = await persistBigQueryJobUsage(usage);
     const url = `https://bigquery.googleapis.com/bigquery/v2/projects/${projectId}/jobs`;
     const submissionTimeoutController = new AbortController();
     const submissionTimeoutAbortSignal = submissionTimeoutController.signal;
@@ -1454,10 +1550,16 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
       });
 
       if (!res.ok) {
+        usage.submissionState = "unknown";
         const text = await res.text();
         if (isMaximumBytesBilledError(res.status, text)) {
+          usage.submissionState = "rejected";
           jobId = null;
           throw new BigQueryMaximumBytesBilledError(res.status);
+        }
+        if (isDefiniteJobSubmissionRejection(res.status, text)) {
+          usage.submissionState = "rejected";
+          jobId = null;
         }
         throw new BigQueryBackendError(
           "submit",
@@ -1494,6 +1596,8 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
     }
     jobLocation = insertedJob.jobReference?.location;
     jobSubmissionResponseReceived = true;
+    usage.submissionState = "accepted";
+    usage.location = jobLocation;
 
     const locationQuery = jobLocation
       ? `?location=${encodeURIComponent(jobLocation)}`
@@ -1568,12 +1672,21 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
     }));
 
     const rows = data.rows ? rowsToObjects(data.rows, fields) : [];
-    const bytesProcessed = parseInt(data.totalBytesProcessed || "0", 10);
+    const bytesProcessed = queryBytesProcessed(data.totalBytesProcessed);
+    usage.bytesProcessed =
+      typeof data.totalBytesProcessed === "string" &&
+      /^\d+$/.test(data.totalBytesProcessed)
+        ? data.totalBytesProcessed
+        : null;
+    usage.providerCacheHit =
+      typeof data.cacheHit === "boolean" ? data.cacheHit : null;
 
-    const reportedTotal = Number.parseInt(data.totalRows || "", 10);
-    const totalRows = Number.isFinite(reportedTotal)
-      ? reportedTotal
-      : rows.length;
+    const reportedTotal = Number.parseInt(data.totalRows ?? "", 10);
+    const hasReportedTotal =
+      data.totalRows !== undefined &&
+      Number.isSafeInteger(reportedTotal) &&
+      reportedTotal >= 0;
+    const totalRows = hasReportedTotal ? reportedTotal : rows.length;
 
     const result: QueryResult = {
       rows,
@@ -1587,7 +1700,9 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
       ...(typeof data.cacheHit === "boolean"
         ? { providerCacheHit: data.cacheHit }
         : {}),
-      ...(totalRows > rows.length ? { truncated: true } : {}),
+      ...(data.nextPageToken || !hasReportedTotal || totalRows > rows.length
+        ? { truncated: true }
+        : {}),
       ...(data.errors?.length
         ? {
             partial: true,
@@ -1599,6 +1714,14 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
             })),
           }
         : {}),
+    };
+
+    // Cache the original job identity without implying a new billable job or
+    // claiming that deferred finalization has already persisted its metadata.
+    result.usageAccounting = {
+      projectId: usage.projectId,
+      jobId: usage.jobId,
+      status: usageStarted ? "pending" : "unavailable",
     };
 
     if (cacheFence) {
@@ -1617,7 +1740,7 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
     }
 
     // The cached copy stays unflagged: every read of it sets `cached: true`.
-    return { ...result, cached: false };
+    completedResult = { ...result, cached: false };
   } catch (error) {
     if (jobId) cancelJob = true;
     if (cancelJob && jobId && token) {
@@ -1655,5 +1778,21 @@ ${sourceGenerationCacheKey(options.sourceGeneration)}`
       await releaseCacheQuery(cacheKey, cacheFence);
     }
     throw error;
+  } finally {
+    if (usage && token) {
+      usage.location = jobLocation;
+      if (usage.submissionState === "attempted")
+        usage.submissionState = "unknown";
+      usageAccounting = await finalizeBigQueryJobUsage(
+        usage,
+        token,
+        usageStarted,
+        signal,
+      );
+    }
   }
+  return {
+    ...completedResult,
+    ...(usageAccounting ? { usageAccounting } : {}),
+  };
 }

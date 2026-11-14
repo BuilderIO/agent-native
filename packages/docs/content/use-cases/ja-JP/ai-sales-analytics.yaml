@@ -1,0 +1,101 @@
+slug: ai-sales-analytics
+app: analytics
+roles:
+  - revops
+  - sales
+title: HubSpotとGongのデータで営業パイプラインを確認
+seo_title: HubSpotとGong向けのAI営業分析
+meta_description: パイプラインレビューの前に、どの取引がなぜ停滞したのかを把握できます。Agent-Native AnalyticsにHubSpotとGongについて普段の言葉で質問し、回答をダッシュボードに残せます。
+updated: 2026-10-27
+hero:
+  body: Agent-Native Analyticsは、HubSpotの取引とGongの通話から、パイプラインレビューごとのダッシュボードを作ります。停滞した取引とその理由を普段の言葉で聞けば、エージェントが両方から答えます。
+  button:
+    label: パイプラインに質問する
+    url: https://analytics.agent-native.com
+  image:
+    dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe534007e491840cc86570110b7d00de4
+    light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F4780c6d1885541bcaf3d949dbdbc1eb7
+    alt: Analyticsの「週次パイプラインレビュー」ダッシュボード。ステージ別のオープンパイプライン、担当者別の取引、30日間停滞している取引のパネルが並んでいます。右側のエージェントチャットでは、停滞中の取引の1つがなぜ止まったのかを、HubSpotのステージ履歴と直近のGongの通話をもとに答えています。
+how_to:
+  heading: AIで営業パイプラインを分析する方法
+  steps:
+    - title: CRMと通話のデータを連携する
+      body: "**データソース**を開き、**CRM & Sales**にあるHubSpotの横の**接続する**をクリックします。HubSpotの設定で作成した非公開アプリのトークンを貼り付け、**認証情報の保存**をクリックします。Gongもアクセスキーとシークレットで同じように連携します。"
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fdeea3eb7d84048eca0f534b7b00390ee
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fd918aa95f46047559b1f30c42d89d62f
+        alt: データソースページ。HubSpotは「接続済み」に、Gongは「CRM & Sales」に表示されています。Gongの設定シートがアクセスキーシークレットの手順で開いていて、値が貼り付けられ、その下に「認証情報の保存」があります。
+    - title: パイプラインについて質問する
+      body: "**質問**で、「同じステージに30日以上とどまっているオープンな取引はどれ？」のように普段の言葉で質問します。エージェントがHubSpotの取引を検索し、並べ替えや追加の質問ができる表で答えます。"
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F7acaa378761c453bb79f9f246d8cab72
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2Fe66acdb3c24e41c7b5caef3e0251b17a
+        alt: 30日間停滞している取引について質問した「質問」チャット。エージェントは、6件のオープンな取引をステージ、担当者、金額、ステージ滞在日数とともに表で答えています。
+    - title: 回答をダッシュボードに保存する
+      body: エージェントに「これをパイプラインレビュー用のダッシュボードとして保存して」と頼みます。回答ごとにパネルが作られ、HubSpotの新しいデータで更新されます。パイプラインレビューの前に、ダッシュボードをチームと共有しましょう。
+      image:
+        dark: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F69b61731b5b74d61ad0e510f57522796
+        light: https://cdn.builder.io/api/v1/image/assets%2FYJIGb4i01jvw0SRdL5Bt%2F2720d0e5fd8f40bfa3b72c056270f174
+        alt: 「週次パイプラインレビュー」ダッシュボードを保存したと伝えるエージェントチャット。その横に、停滞中の取引の表とステージ別パイプラインのグラフを備えた新しいダッシュボードがあります。
+features:
+  heading: パイプラインレビューに必要な機能がすべて揃っています
+  items:
+    - title: 取引と通話をまとめて
+      body: 1つの質問で、HubSpotから取引のステージと担当者を、Gongから通話での購買担当者の発言を取り出せます。
+    - title: エージェントが編集するダッシュボード
+      body: 新しいパネル、担当者での絞り込み、別のグラフを頼めば、チームで共有しているダッシュボードをエージェントが更新します。
+    - title: 確かめられる回答
+      body: HubSpotやGongへのライブクエリから得たものではない数値には、エージェントがUnverifiedと印を付けるので、確認すべき点がわかります。
+    - title: パイプラインと売上を並べて
+      body: StripeとBigQueryも連携すれば、同じチャットで取引と並べて売上や製品の利用状況についても答えます。
+    - title: 自社のパイプラインの定義
+      body: 停滞中の取引や有望なパイプラインの意味を、管理者が**セマンティックレイヤー**ページに書いておけます。エージェントは回答前にそれを読みます。
+    - title: 毎日のパイプラインレポート
+      body: アプリを開かなくても、ダッシュボードを毎日、最大5人へのメールかSlackチャンネルで受け取れます。
+integrations:
+  heading: いつものツールとAnalyticsを連携
+  cards:
+    - title: CRMと通話
+      logos:
+        - name: HubSpot
+        - name: Gong
+      body: AnalyticsはHubSpotから取引、パイプライン、ステージ、担当者を、Gongから通話の録音と文字起こしを読み取ります。
+    - title: チームが見る場所で共有
+      logos:
+        - name: Slack
+        - name: Google Sheets
+      body: ダッシュボードをSlackチャンネルに投稿したり、取引の表を連携済みGoogleアカウントの新しいGoogle Sheetsに書き出したりできます。
+    - title: MCPであらゆるツールと連携
+      logos:
+        - name: Notion
+        - name: Granola
+        - name: Exa
+      more: true
+      body: チームが使っているツールをMCPで連携できます。URLを指定して任意のMCPサーバーを追加することもできます。
+other_uses:
+  heading: Agent-Native Analyticsでできるその他のこと
+  cards:
+    - title: スタートアップのKPIダッシュボードを作成
+      url: https://www.agent-native.com/use-cases/ai-kpi-dashboard/
+      body: スタートアップで追っているグラフを頼んで、1つのダッシュボードにまとめられます。
+    - title: 表計算なしで週次マーケティングレポートを作成
+      url: https://www.agent-native.com/use-cases/weekly-marketing-report/
+      body: Google AnalyticsとHubSpotをもとに1週間の成果を質問し、レポートとして残せます。
+    - title: 新規ユーザーの離脱ポイントを見つける
+      url: https://www.agent-native.com/use-cases/ai-funnel-analysis/
+      body: 新規ユーザーがどこで離脱したかを確認し、セッションを見てその理由を探れます。
+faqs:
+  heading: よくある質問
+  items:
+    - q: Agent-Native Analyticsは無料ですか？
+      a: はい、Agent-Native Analyticsは無料のオープンソースです。エージェントはBuilder.io AIクレジットかご自身のAIキーで動くため、AIを無制限に使えるわけではありません。通話についての質問ではGongのAPIクレジットも使うことがあり、管理者がオフにできます。Analyticsはアルファ版です。
+    - q: Agent-Native AnalyticsはどのCRMや通話ツールと連携できますか？
+      a: AnalyticsはCRMとしてHubSpotに、営業の通話としてGongに接続します。連絡先や企業のデータ向けにApolloとClayにも接続できます。それぞれ専用のキーを使って[データソースページで接続](https://www.agent-native.com/docs/template-analytics-connectors/)し、1つの質問でHubSpotとGongの両方を使えます。
+    - q: SQLを書く必要はありますか？
+      a: いいえ。普段の言葉で質問すれば、エージェントがHubSpotやGongからデータを探してクエリを実行し、数値、表、グラフで答えます。回答をダッシュボードに保存すると、各パネルが最新データを取得する方法もエージェントが設定します。
+    - q: 数値は信頼できますか？
+      a: はい、確認したうえでお使いください。エージェントはHubSpotとGongのライブデータから答え、ライブクエリで得たものではない数値にはUnverifiedと印を付けます。チームの[セマンティックレイヤーページの定義](https://www.agent-native.com/docs/template-analytics-dashboards/)にも従います。最初の回答はHubSpotと照らし合わせてから活用しましょう。
+    - q: Agent-Native Analyticsは、HubSpotやGongに付属するAIと何が違いますか？
+      a: HubSpotやGongのAIは、それぞれのツールに組み込まれたものです。Analyticsは1つの質問にHubSpotとGongの両方から答え、StripeやBigQueryも読み取り、チームが毎週開くダッシュボードとして回答を残します。HubSpotとGongはこれまでどおり使い続け、Analyticsはその両方からデータを読み取ります。
+    - q: ダッシュボードは誰が見られますか？
+      a: 共有するまでは自分だけです。ダッシュボードはチームメンバーや組織全体に、閲覧者、編集者、管理者として共有できます。チームメンバーは自分の接続か、管理者が組織用に設定した接続を通じてHubSpotとGongのデータを見ます。どちらもない場合、それらのパネルにはエラーが表示されます。

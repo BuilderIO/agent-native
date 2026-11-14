@@ -1,7 +1,11 @@
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 
-import { defineAction, fail } from "@agent-native/core/action";
+import {
+  defineAction,
+  fail,
+  type ActionRunContext,
+} from "@agent-native/core/action";
 import { resolveCredential } from "@agent-native/core/credentials";
 import { ssrfSafeFetch } from "@agent-native/core/extensions/url-safety";
 import { readAppSecret } from "@agent-native/core/secrets";
@@ -16,6 +20,11 @@ import { transcribeWithBuilder } from "@agent-native/core/transcription/builder"
 import { z } from "zod";
 
 import "../server/db/index.js";
+import { rewriteContentLiveCopyBody } from "../server/live-copy/write.js";
+import {
+  assertAgentsMayEditPageText,
+  serverSaveContext,
+} from "./_document-agent-lock.js";
 import {
   assertAudioHasAudibleSignal,
   prepareAudioOnlyTranscriptionMedia,
@@ -362,21 +371,25 @@ async function transcribeMedia(media: AudioOnlyTranscriptionMedia) {
   }
 }
 
-async function applyTranscriptToDocument({
+export async function applyTranscriptToDocument({
   documentId,
   mediaUrl,
   mediaType,
   placeholderText,
   transcript,
+  ctx,
 }: {
   documentId: string;
   mediaUrl: string;
   mediaType: MediaType;
   placeholderText?: string;
   transcript: string;
+  ctx: ActionRunContext | undefined;
 }): Promise<{ sqlUpdated: boolean; collabUpdated: boolean }> {
   const freshAccess = await assertAccess("document", documentId, "editor");
   const freshDoc = freshAccess.resource;
+  // Transcribing can take minutes, and the page may have been locked since.
+  assertAgentsMayEditPageText(freshDoc, ctx);
 
   const content = freshDoc.content ?? "";
   let nextContent: string | null = null;
@@ -393,7 +406,16 @@ async function applyTranscriptToDocument({
   }
 
   if (nextContent && nextContent !== content) {
-    await updateDocument.run({ id: documentId, content: nextContent });
+    const wroteLiveCopy = await rewriteContentLiveCopyBody(documentId, {
+      cause: { ctx, operation: "transcribe-media" },
+      base: content,
+      candidate: nextContent,
+    });
+    if (wroteLiveCopy) return { sqlUpdated: true, collabUpdated: true };
+    await updateDocument.run(
+      { id: documentId, content: nextContent },
+      serverSaveContext(ctx),
+    );
     return { sqlUpdated: true, collabUpdated: false };
   }
 
@@ -420,8 +442,9 @@ export default defineAction({
         "Exact placeholder text inside the already-created Transcript toggle. When provided, this action replaces it with the transcript.",
       ),
   }),
-  run: async ({ documentId, mediaUrl, mediaType, placeholderText }) => {
+  run: async ({ documentId, mediaUrl, mediaType, placeholderText }, ctx) => {
     const access = await assertAccess("document", documentId, "editor");
+    assertAgentsMayEditPageText(access.resource, ctx);
     assertMediaUrlInDocument({
       content: (access.resource.content as string | null) ?? "",
       mediaUrl,
@@ -448,6 +471,7 @@ export default defineAction({
       mediaType,
       placeholderText,
       transcript,
+      ctx,
     });
 
     return {

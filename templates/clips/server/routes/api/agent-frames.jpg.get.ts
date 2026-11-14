@@ -18,6 +18,8 @@ import {
   type H3Event,
 } from "h3";
 
+import { buildAgentEditedTimeline } from "../../lib/agent-edited-timeline.js";
+import type { RemoteFrameInput } from "../../lib/agent-frame-range.js";
 import {
   describeFrameFailure,
   frameFailureStatus,
@@ -32,6 +34,7 @@ import {
   clampFrameSheetRange,
   frameSheetReachesPast,
   parseFrameSheetRequest,
+  type FrameSheetRequest,
   planFrameSheet,
   type FrameSheetPlan,
   type FrameSheetResult,
@@ -83,15 +86,23 @@ function applySheetHeaders(event: H3Event, plan: FrameSheetPlan) {
 async function extractSheetWithStaleDurationRecovery({
   mediaPath,
   plan,
+  toSourcePlan,
   replan,
+  remote,
 }: {
   mediaPath: string;
+  remote?: RemoteFrameInput;
   plan: FrameSheetPlan;
+  toSourcePlan: (plan: FrameSheetPlan) => FrameSheetPlan;
   replan: (durationMs: number) => FrameSheetResult<FrameSheetPlan> | null;
 }): Promise<{ sheet: Uint8Array; plan: FrameSheetPlan }> {
   try {
     return {
-      sheet: await extractJpegFrameSheetFromFile({ mediaPath, plan }),
+      sheet: await extractJpegFrameSheetFromFile({
+        mediaPath,
+        remote,
+        plan: toSourcePlan(plan),
+      }),
       plan,
     };
   } catch (error) {
@@ -102,13 +113,17 @@ async function extractSheetWithStaleDurationRecovery({
     ) {
       throw error;
     }
-    const actualDurationMs = await probeMediaDurationMsFromFile(mediaPath);
+    const actualDurationMs = await probeMediaDurationMsFromFile(
+      mediaPath,
+      ...(remote ? [{ remote }] : []),
+    );
     const retry = actualDurationMs === null ? null : replan(actualDurationMs);
     if (!retry?.ok || retry.value.startMs >= plan.startMs) throw error;
     return {
       sheet: await extractJpegFrameSheetFromFile({
         mediaPath,
-        plan: retry.value,
+        remote,
+        plan: toSourcePlan(retry.value),
       }),
       plan: retry.value,
     };
@@ -137,33 +152,79 @@ export default defineEventHandler(async (event: H3Event) => {
     fps: queryString(query.fps),
   });
   if (!parsed.ok) return requestFailure(event, parsed);
-  const range = clampFrameSheetRange(parsed.value, recording.durationMs);
+  // Times in the request and the plan are on the edited timeline the context
+  // reports; only the extraction reads the original recording.
+  const timeline = buildAgentEditedTimeline(
+    recording.editsJson,
+    recording.durationMs,
+  );
+  const range = clampFrameSheetRange(parsed.value, timeline.durationMs);
   if (!range.ok) return requestFailure(event, range);
 
   // Plan against a duration: clamp the request to it, then lay out the grid.
-  const planWithin = (fps: number, durationMs: number | null) => {
+  const planWithin = (
+    fps: number,
+    durationMs: number | null,
+  ): FrameSheetResult<FrameSheetPlan> => {
     const clamped = clampFrameSheetRange(parsed.value, durationMs);
     if (!clamped.ok) return clamped;
-    return planFrameSheet({
-      request: clamped.value,
-      fps,
-      durationMs,
-      width: recording.width,
-      height: recording.height,
-    });
+    const planRequest = (request: FrameSheetRequest) =>
+      planFrameSheet({
+        request,
+        fps,
+        durationMs,
+        width: recording.width,
+        height: recording.height,
+      });
+    const planned = planRequest(clamped.value);
+    if (!planned.ok) return planned;
+    const cut = timeline.cutBoundariesMs.find(
+      (boundaryMs) =>
+        boundaryMs > planned.value.startMs && boundaryMs < planned.value.endMs,
+    );
+    if (cut === undefined) return planned;
+    if (parsed.value.endMs === null) {
+      return planRequest({ ...clamped.value, endMs: cut });
+    }
+    return {
+      ok: false,
+      error: `This range crosses a cut the owner made at ${cut} ms, and a frame sheet shows continuous footage.`,
+      nextStep: `Set endMs=${cut} to stop at the cut, then request the next sheet from startMs=${cut}.`,
+    };
+  };
+  const toSourcePlan = (plan: FrameSheetPlan): FrameSheetPlan => {
+    const startMs = timeline.toSourceMs(plan.startMs);
+    const shiftMs = startMs - plan.startMs;
+    return {
+      ...plan,
+      startMs,
+      endMs: plan.endMs + shiftMs,
+      frameTimesMs: plan.frameTimesMs.map((timeMs) => timeMs + shiftMs),
+    };
   };
   // With fps given, an oversized request fails before the media download.
   const earlyPlan =
     parsed.value.fps === null
       ? null
-      : planWithin(parsed.value.fps, recording.durationMs);
+      : planWithin(parsed.value.fps, timeline.durationMs);
   if (earlyPlan && !earlyPlan.ok) return requestFailure(event, earlyPlan);
 
   try {
     const media = await loadRecordingMediaFile(recording);
+    const probeEditedDurationMs = async (mediaPath: string) => {
+      const sourceMs = await probeMediaDurationMsFromFile(
+        mediaPath,
+        ...(media.remote ? [{ remote: media.remote }] : []),
+      );
+      return sourceMs === null ? null : timeline.fromSourceMs(sourceMs);
+    };
     try {
       const fps =
-        parsed.value.fps ?? (await probeFrameSheetFpsFromFile(media.path));
+        parsed.value.fps ??
+        (await probeFrameSheetFpsFromFile(
+          media.path,
+          ...(media.remote ? [media.remote] : []),
+        ));
       // A stored duration can understate the file. When the request reaches
       // past it, plan against the file's real duration so the sheet covers
       // the range that was asked for, not an earlier one. If the probe fails,
@@ -171,16 +232,21 @@ export default defineEventHandler(async (event: H3Event) => {
       const durationMs = frameSheetReachesPast(
         parsed.value,
         fps,
-        recording.durationMs,
+        timeline.durationMs,
       )
-        ? await probeMediaDurationMsFromFile(media.path)
-        : recording.durationMs;
+        ? await probeEditedDurationMs(media.path)
+        : timeline.durationMs;
       const plan = planWithin(fps, durationMs);
       if (!plan.ok) return requestFailure(event, plan);
       const result = await extractSheetWithStaleDurationRecovery({
         mediaPath: media.path,
+        remote: media.remote,
         plan: plan.value,
-        replan: (actualDurationMs) => planWithin(fps, actualDurationMs),
+        toSourcePlan,
+        replan: (actualSourceMs) =>
+          timeline.isVisibleSourceMs(actualSourceMs)
+            ? planWithin(fps, timeline.fromSourceMs(actualSourceMs))
+            : null,
       });
       applySheetHeaders(event, result.plan);
       return Buffer.from(result.sheet);

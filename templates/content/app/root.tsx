@@ -1,6 +1,13 @@
 import { configureTracking } from "@agent-native/core/client/analytics";
-import { appBasePath, appPath } from "@agent-native/core/client/api-path";
-import { createAgentNativeQueryClient } from "@agent-native/core/client/hooks";
+import {
+  agentNativePath,
+  appBasePath,
+  appPath,
+} from "@agent-native/core/client/api-path";
+import {
+  createAgentNativeQueryClient,
+  useSession,
+} from "@agent-native/core/client/hooks";
 import { getEmbedAuthToken } from "@agent-native/core/client/host";
 import {
   getLocaleInitScript,
@@ -10,18 +17,20 @@ import {
   useT,
 } from "@agent-native/core/client/i18n";
 import { getThemeInitScript } from "@agent-native/core/client/ui";
+import { hasSessionHint } from "@agent-native/core/client/use-session";
 import { resolveLocaleFromRequest } from "@agent-native/core/server";
-import { ErrorReportActions } from "@agent-native/toolkit/app/feedback";
 import { AppProviders } from "@agent-native/toolkit/app/providers";
 import { useCommandMenuShortcut } from "@agent-native/toolkit/app/shared";
 import { CommandMenu } from "@agent-native/toolkit/app/shared";
 import { RouteTransitionIndicator } from "@agent-native/toolkit/app/shared";
+import { buildContentPublicDocumentPath } from "@shared/agent-readable";
 import {
   IconDeviceDesktop,
   IconHierarchy2,
   IconMoon,
   IconSun,
 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
 import {
   lazy,
@@ -37,12 +46,10 @@ import {
   Outlet,
   Scripts,
   ScrollRestoration,
-  isRouteErrorResponse,
   useLoaderData,
   useLocation,
   useNavigate,
   useRouteLoaderData,
-  useRouteError,
 } from "react-router";
 import type {
   LinksFunction,
@@ -56,15 +63,19 @@ import { AppToolkitProvider } from "@/components/ui/toolkit-provider";
 
 import changelog from "../CHANGELOG.md?raw";
 import { ContentCommandSearchResults } from "./components/ContentCommandSearch";
+import { ContentErrorBoundaryBody } from "./components/ContentErrorBoundary";
 import { CONTENT_STARTUP_SIDEBAR_SCRIPT } from "./components/layout/content-layout";
 import { ContentStartupShell } from "./components/layout/ContentStartupShell";
 import { LocalFolderLiveSync } from "./components/LocalFolderLiveSync";
 import { useDbSync } from "./hooks/use-db-sync";
+import { prefetchDocumentTitles } from "./hooks/use-documents";
 import { useNavigationState } from "./hooks/use-navigation-state";
 import { i18nCatalog } from "./i18n";
 import { CONTENT_COMMAND_MENU_OPEN_EVENT } from "./lib/content-command-menu";
+import { registerContentDatabaseQueryDefaults } from "./lib/content-database-query-cache";
 import { startLoadReads } from "./lib/content-landing";
 import { CONTENT_STARTUP_PAGE_ICON_ROW_SCRIPT } from "./lib/page-icon-row-hint";
+import { startupPageReadScript } from "./lib/page-open-reads";
 import { CONTENT_STARTUP_PAGE_HINTS_SCRIPT } from "./lib/page-startup-hints";
 
 import stylesheet from "./global.css?url";
@@ -114,17 +125,38 @@ export function shouldRevalidate({
 
 const THEME_INIT_SCRIPT = getThemeInitScript("system", true);
 
-export function isContentEditorPath(pathname: string): boolean {
+function appPathname(pathname: string): string {
   const basePath = appBasePath();
-  const appPathname =
-    basePath && pathname.startsWith(`${basePath}/`)
-      ? pathname.slice(basePath.length)
-      : pathname;
-  return /^\/page\/[^/]+\/?$/.test(appPathname);
+  return basePath && pathname.startsWith(`${basePath}/`)
+    ? pathname.slice(basePath.length)
+    : pathname;
+}
+
+export function isContentEditorPath(pathname: string): boolean {
+  return /^\/page\/[^/]+\/?$/.test(appPathname(pathname));
+}
+
+export function isContentSuggestionReviewPath(pathname: string): boolean {
+  return /^\/suggestions\/[^/]+\/?$/.test(appPathname(pathname));
 }
 
 export function computeSessionBypass(pathname: string): boolean {
-  return isContentEditorPath(pathname) && Boolean(getEmbedAuthToken());
+  return (
+    (isContentEditorPath(pathname) ||
+      isContentSuggestionReviewPath(pathname)) &&
+    Boolean(getEmbedAuthToken())
+  );
+}
+
+// A signed-out visitor on a page's editor link goes to the page's public view
+// rather than sign-in. That view shows a public page, and sends everyone else
+// on to sign-in with this link, query and hash included, as the way back.
+export function signedOutPublicViewHref(): string | null {
+  const { pathname, search, hash } = window.location;
+  const id = /^\/page\/([^/]+)\/?$/.exec(appPathname(pathname))?.[1];
+  return id
+    ? `${appBasePath()}${buildContentPublicDocumentPath(id)}${search}${hash}`
+    : null;
 }
 
 // The startup shell draws before the i18n provider exists, so it reads its
@@ -233,6 +265,15 @@ export function Layout({ children }: { children: React.ReactNode }) {
               CONTENT_STARTUP_PAGE_HINTS_SCRIPT,
           }}
         />
+        <script
+          suppressHydrationWarning
+          dangerouslySetInnerHTML={{
+            __html: startupPageReadScript(
+              agentNativePath("/_agent-native/actions/get-page-open-read"),
+              appBasePath(),
+            ),
+          }}
+        />
         <meta name="theme-color" content="#10B981" />
         <meta name="mobile-web-app-capable" content="yes" />
         <meta
@@ -305,15 +346,18 @@ function ThemeToggleItem({ query }: { query: string }) {
   );
 }
 
+// The agent sidebar loads only for a signed-in reader. A visitor without an
+// account has no model to chat with, so they get the page alone.
 function PublicAgentShell({ children }: { children: React.ReactNode }) {
   const [mounted, setMounted] = useState(false);
   const t = useT();
+  const { status } = useSession();
 
   useEffect(() => setMounted(true), []);
 
   const content = <>{children}</>;
 
-  if (!mounted) {
+  if (!mounted || status !== "authenticated") {
     return (
       <div className="flex min-w-0 flex-1 h-screen overflow-hidden">
         <div className="flex min-w-0 flex-1 flex-col overflow-auto">
@@ -350,6 +394,8 @@ function PublicAgentShell({ children }: { children: React.ReactNode }) {
   );
 }
 
+const TITLE_PREFETCH_DELAY_MS = 4000;
+
 function ContentCommandMenu({
   open,
   onOpenChange,
@@ -361,6 +407,16 @@ function ContentCommandMenu({
 }) {
   const t = useT();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  // The first search of a visit ranks titles at once only if they're here
+  // before it. Waits for the page to settle, so opening a page never pays.
+  useEffect(() => {
+    if (!hasSessionHint()) return;
+    const timer = window.setTimeout(() => {
+      void prefetchDocumentTitles(queryClient);
+    }, TITLE_PREFETCH_DELAY_MS);
+    return () => window.clearTimeout(timer);
+  }, [queryClient]);
   return (
     <CommandMenu
       open={open}
@@ -402,7 +458,11 @@ function shouldHandleEditorCommandMenuShortcut(event: KeyboardEvent) {
 }
 
 export default function Root() {
-  const [queryClient] = useState(() => createAgentNativeQueryClient());
+  const [queryClient] = useState(() => {
+    const client = createAgentNativeQueryClient();
+    registerContentDatabaseQueryDefaults(client);
+    return client;
+  });
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const commandTrigger = useRef<HTMLElement | null>(null);
   const location = useLocation();
@@ -485,6 +545,7 @@ export default function Root() {
       <AppProviders
         queryClient={queryClient}
         sessionBypass={computeSessionBypass(location.pathname)}
+        signedOutHref={signedOutPublicViewHref}
         clientOnlyFallback={
           <ContentStartupShell
             pathname={location.pathname}
@@ -515,53 +576,6 @@ export default function Root() {
         <Outlet />
       </AppProviders>
     </AppToolkitProvider>
-  );
-}
-
-function ContentErrorBoundaryBody() {
-  const error = useRouteError();
-  let title = "Something went wrong";
-  let details = "An unexpected error occurred.";
-
-  if (isRouteErrorResponse(error)) {
-    if (error.status === 404) {
-      title = "Page not found";
-      details = "We couldn't find this page.";
-    } else {
-      title = `${error.status} Error`;
-      details = error.statusText || details;
-    }
-  } else if (error instanceof Error && error.message) {
-    details = error.message;
-  } else if (typeof error === "string" && error) {
-    details = error;
-  }
-
-  if (typeof console !== "undefined" && error) {
-    console.error("[ContentErrorBoundary]", error);
-  }
-
-  return (
-    <main className="flex min-h-screen items-center justify-center bg-background p-4 text-foreground">
-      <div className="flex max-w-md flex-col items-center text-center">
-        <h1 className="text-2xl font-semibold">{title}</h1>
-        <p className="mt-2 text-sm text-muted-foreground">{details}</p>
-        <a
-          href={appPath("/page")}
-          className="mt-6 inline-flex cursor-pointer items-center gap-1.5 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm hover:bg-primary/90"
-        >
-          Go to page list
-        </a>
-        <ErrorReportActions
-          appName="Content"
-          title={title}
-          details={details}
-          issueTitle={`Content error: ${title}`}
-          className="mt-4"
-          align="center"
-        />
-      </div>
-    </main>
   );
 }
 

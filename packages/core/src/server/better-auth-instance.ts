@@ -75,6 +75,7 @@ import {
   type IdentityRekeyDb,
 } from "../identity/rekey.js";
 import { saveOAuthTokens } from "../oauth-tokens/store.js";
+import { assignQuestionIntakeExperimentOnSignup } from "../observability/question-intake-experiment.js";
 import { acceptPendingInvitationsForEmail } from "../org/accept-pending.js";
 import {
   getAuthEmailForUserId,
@@ -90,6 +91,7 @@ import {
   isBootstrapAdmin,
 } from "../org/signup-admission.js";
 import { normalizeAnalyticsSessionId } from "../shared/analytics-session-id.js";
+import { normalizeCorsOrigin } from "../shared/cors-origin.js";
 import { isGoogleProfileImageUrl } from "../shared/google-profile-image.js";
 import { loadOptionalPeer } from "../shared/optional-peer.js";
 import {
@@ -109,7 +111,9 @@ import {
   signupAttributionContextFromCookieHeader,
   signupAttributionContextFromHeaders,
 } from "./attribution.js";
+import { requestAllowsConsentCategoryFromHeaders } from "./consent-route.js";
 import { resolveAuthCookieNamespace } from "./cookie-namespace.js";
+import { readCorsAllowedOrigins } from "./cors-origins.js";
 import {
   getMissingAuthSecretKey,
   MissingAuthSecretError,
@@ -136,6 +140,10 @@ import {
   withJwksRotationRecovery,
 } from "./jwks-secret-rotation.js";
 import { readMagicLinkSignupAttribution } from "./magic-link-attribution.js";
+import {
+  applyMcpSignupAttribution,
+  filterMcpSignupAttributionByConsent,
+} from "./mcp-signup-attribution.js";
 import {
   getConfiguredOriginAllowlist,
   requestForwardedOrigin,
@@ -275,7 +283,12 @@ function signupMethodFromRequestUrl(
 }
 
 export async function emitSignupEventForCreatedUser(
-  user: { id?: string; email?: string; name?: string | null },
+  user: {
+    id?: string;
+    email?: string;
+    name?: string | null;
+    emailVerified?: boolean;
+  },
   context?: BetterAuthUserCreateContext | null,
 ): Promise<void> {
   const email = user?.email;
@@ -283,9 +296,20 @@ export async function emitSignupEventForCreatedUser(
 
   const requestHeaders = context?.headers ?? context?.request?.headers ?? null;
   if (!requestHeaders) return;
-  const requestSessionId = normalizeAnalyticsSessionId(
-    requestHeaders.get("x-agent-native-session-id"),
+  const cookieHeader = requestHeaders.get("cookie");
+  const performanceAllowed = requestAllowsConsentCategoryFromHeaders(
+    requestHeaders,
+    "performance",
   );
+  const targetingAllowed = requestAllowsConsentCategoryFromHeaders(
+    requestHeaders,
+    "targeting",
+  );
+  const requestSessionId = performanceAllowed
+    ? normalizeAnalyticsSessionId(
+        requestHeaders.get("x-agent-native-session-id"),
+      )
+    : undefined;
 
   const scoped = hasContinuationLocalRequestContext()
     ? getRequestContext()
@@ -293,18 +317,43 @@ export async function emitSignupEventForCreatedUser(
   let attribution: Record<string, string> | undefined;
   let anonymousId: string | undefined;
   let sessionId: string | undefined;
+  let magicLinkAttribution:
+    | ReturnType<typeof readMagicLinkSignupAttribution>
+    | undefined;
+  let mcpSignupAttribution:
+    | ReturnType<typeof filterMcpSignupAttributionByConsent>
+    | undefined;
   try {
+    magicLinkAttribution = context?.request?.url?.includes("newUserCallbackURL")
+      ? readMagicLinkSignupAttribution(context.request.url, getAuthSecret())
+      : undefined;
+    if (magicLinkAttribution) {
+      mcpSignupAttribution = filterMcpSignupAttributionByConsent(
+        magicLinkAttribution.mcpSignupAttribution,
+        cookieHeader,
+        { performance: performanceAllowed, targeting: targetingAllowed },
+      );
+      const filteredMagicLinkAttribution = { ...magicLinkAttribution };
+      delete filteredMagicLinkAttribution.mcpSignupAttribution;
+      if (!performanceAllowed) {
+        delete filteredMagicLinkAttribution.anonymousId;
+        delete filteredMagicLinkAttribution.sessionId;
+      }
+      magicLinkAttribution = {
+        ...filteredMagicLinkAttribution,
+        ...(mcpSignupAttribution ? { mcpSignupAttribution } : {}),
+      };
+    }
     const browser =
-      (context?.request?.url?.includes("newUserCallbackURL")
-        ? readMagicLinkSignupAttribution(context.request.url, getAuthSecret())
-        : undefined) ??
+      magicLinkAttribution ??
       scoped?.signupAttribution ??
       signupAttributionContextFromHeaders(requestHeaders) ??
-      signupAttributionContextFromCookieHeader(requestHeaders.get("cookie"));
-    attribution = browser?.attribution;
-    anonymousId = browser?.anonymousId;
-    sessionId =
-      normalizeAnalyticsSessionId(browser?.sessionId) ?? requestSessionId;
+      signupAttributionContextFromCookieHeader(cookieHeader);
+    attribution = targetingAllowed ? browser?.attribution : undefined;
+    anonymousId = performanceAllowed ? browser?.anonymousId : undefined;
+    sessionId = performanceAllowed
+      ? (normalizeAnalyticsSessionId(browser?.sessionId) ?? requestSessionId)
+      : undefined;
   } catch (err) {
     console.error("[auth] failed to derive signup attribution", err);
   }
@@ -314,9 +363,20 @@ export async function emitSignupEventForCreatedUser(
   // must not inherit it.
   const actingUserId = context?.context?.session?.user?.id;
   const ownsSignupAttribution = !actingUserId || actingUserId === user.id;
-  const eventAttribution = ownsSignupAttribution ? attribution : undefined;
-  const eventAnonymousId = ownsSignupAttribution ? anonymousId : undefined;
-  const eventSessionId = ownsSignupAttribution ? sessionId : undefined;
+  const eventMcpSignupAttribution = ownsSignupAttribution
+    ? mcpSignupAttribution
+    : undefined;
+  const eventAttribution = ownsSignupAttribution
+    ? (applyMcpSignupAttribution(attribution, eventMcpSignupAttribution) as
+        | Record<string, string>
+        | undefined)
+    : undefined;
+  const eventAnonymousId = ownsSignupAttribution
+    ? (anonymousId ?? eventMcpSignupAttribution?.anonymousId)
+    : undefined;
+  const eventSessionId = ownsSignupAttribution
+    ? (sessionId ?? eventMcpSignupAttribution?.sessionId)
+    : undefined;
   if (user.id && eventAttribution) {
     try {
       await persistUserFirstTouchAttribution(user.id, eventAttribution);
@@ -334,10 +394,13 @@ export async function emitSignupEventForCreatedUser(
 
   await trackSignupEvent({
     authProvider: "better-auth",
-    origin: scoped?.signupOrigin ?? "browser_signup",
+    origin:
+      scoped?.signupOrigin ??
+      (eventMcpSignupAttribution ? "mcp_oauth" : "browser_signup"),
     signupMethod: signupMethodFromRequestUrl(context?.request?.url),
     authUserId: user.id,
     email,
+    emailVerified: user.emailVerified,
     name: user.name,
     attribution: eventAttribution,
     anonymousId: eventAnonymousId,
@@ -365,6 +428,7 @@ export async function trackSignupEvent({
   signupMethod,
   authUserId,
   email,
+  emailVerified,
   name,
   attribution,
   anonymousId,
@@ -375,6 +439,7 @@ export async function trackSignupEvent({
   signupMethod?: "google" | "magic_link" | "password";
   authUserId?: string;
   email: string;
+  emailVerified?: boolean;
   name?: string | null;
   /**
    * First-touch referral attribution derived from the visitor's `an_ft`
@@ -402,6 +467,7 @@ export async function trackSignupEvent({
       }
     }
   }
+  delete cleanAttribution.email_verified;
   track(
     "signup",
     {
@@ -411,6 +477,9 @@ export async function trackSignupEvent({
       ...(signupMethod ? { signup_method: signupMethod } : {}),
       ...(authUserId ? { auth_user_id: authUserId } : {}),
       ...cleanAttribution,
+      ...(typeof emailVerified === "boolean"
+        ? { email_verified: emailVerified }
+        : {}),
     },
     {
       userId: email,
@@ -1376,6 +1445,7 @@ export interface BetterAuthInternalAdapter {
       image?: string | null;
       emailVerified?: boolean;
       onboardingRole?: string | null;
+      createdAt?: Date | string;
     };
     accounts: Array<{ id: string; providerId: string; accountId: string }>;
   } | null>;
@@ -2009,6 +2079,61 @@ export async function ensureGoogleAuthIdentityWithAdapter(
   return false;
 }
 
+type BetterAuthInitContext = Parameters<
+  NonNullable<BetterAuthPlugin["init"]>
+>[0];
+
+/**
+ * Better Auth runs mail callbacks through `runInBackgroundOrAwait`, which logs
+ * and swallows their errors. Track the delivery promises so the runner can hand
+ * them back and a failed send fails the request.
+ */
+export function trackAuthEmailDeliveries(ctx: BetterAuthInitContext) {
+  const deliveries = new WeakSet<Promise<unknown>>();
+  const emailVerification = ctx.options.emailVerification;
+  const sendVerificationEmail = emailVerification?.sendVerificationEmail;
+  if (emailVerification && sendVerificationEmail) {
+    emailVerification.sendVerificationEmail = (...args) => {
+      const delivery = sendVerificationEmail(...args);
+      if (delivery instanceof Promise) deliveries.add(delivery);
+      return delivery;
+    };
+  }
+  const changeEmail = ctx.options.user?.changeEmail;
+  const sendChangeEmailConfirmation = changeEmail?.sendChangeEmailConfirmation;
+  if (changeEmail && sendChangeEmailConfirmation) {
+    changeEmail.sendChangeEmailConfirmation = (...args) => {
+      const delivery = sendChangeEmailConfirmation(...args);
+      if (delivery instanceof Promise) deliveries.add(delivery);
+      return delivery;
+    };
+  }
+  if (!sendVerificationEmail && !sendChangeEmailConfirmation) return;
+  const passwordOptions = ctx.options.emailAndPassword;
+  const onExistingUserSignUp = passwordOptions?.onExistingUserSignUp;
+  if (passwordOptions && onExistingUserSignUp) {
+    passwordOptions.onExistingUserSignUp = (...args) => {
+      const delivery = onExistingUserSignUp(...args);
+      deliveries.add(delivery);
+      return delivery;
+    };
+  }
+  const runInBackgroundOrAwait = ctx.runInBackgroundOrAwait.bind(ctx);
+  return {
+    context: {
+      runInBackgroundOrAwait(
+        task: Parameters<BetterAuthInitContext["runInBackgroundOrAwait"]>[0],
+      ) {
+        // Better Auth swallows even awaited task errors; verification and
+        // email-change mail must fail the request before the UI can claim
+        // mail was sent.
+        if (task instanceof Promise && deliveries.has(task)) return task;
+        return runInBackgroundOrAwait(task);
+      },
+    },
+  };
+}
+
 export async function resetBetterAuth(): Promise<void> {
   _authInitGeneration++;
   _auth = undefined;
@@ -2125,7 +2250,14 @@ async function createBetterAuthInstance(
   const secret = resolveAuthSecret();
 
   const appUrl = getAppProductionUrl();
-  const configuredOrigins = [...getConfiguredOriginAllowlist()];
+  // A UI served from another origin calls auth endpoints with credentials
+  // once CORS admits it, so Better Auth's origin check must admit it too.
+  const configuredOrigins = [
+    ...new Set([
+      ...getConfiguredOriginAllowlist(),
+      ...readCorsAllowedOrigins().map(normalizeCorsOrigin),
+    ]),
+  ];
   const cookieNamespace = resolveAuthCookieNamespace();
   const emailReadiness = getDeploymentEmailReadiness();
   const { requireEmailVerification, disableSignUp } =
@@ -2383,13 +2515,20 @@ async function createBetterAuthInstance(
         if (!request) return;
         const token = new URL(request.url).searchParams.get("token");
         if (!token) return;
-        const db = getDbExec();
         const emailChange = await verifiedEmailChangeFromToken(
           token,
           secret,
           user.email,
         );
-        if (!emailChange) return;
+        if (!emailChange) {
+          track(
+            "email_verified",
+            { ...resolveSignupTrackingProperties(), email_verified: true },
+            { userId: user.email, authUserId: user.id },
+          );
+          return;
+        }
+        const db = getDbExec();
         try {
           await executeIdentityRekey(
             identityRekeyDbFromExec(db),
@@ -2562,6 +2701,63 @@ async function createBetterAuthInstance(
 
             await emitSignupEventForCreatedUser(user, context);
 
+            const actingUserId = context?.context?.session?.user?.id;
+            if (user.id && (!actingUserId || actingUserId === user.id)) {
+              let experimentId: string | undefined;
+              try {
+                const questionIntakeConfig =
+                  getAppConfig().agent.questionIntake;
+                experimentId = questionIntakeConfig?.experimentId;
+                // raw-sql-ok: the assignment store binds the authenticated user ID as a query argument.
+                await assignQuestionIntakeExperimentOnSignup(
+                  questionIntakeConfig,
+                  user.id,
+                );
+              } catch (error) {
+                console.error(
+                  "[auth] question-intake assignment failed after retry",
+                  {
+                    code: "question_intake_assignment_failed",
+                    experimentId,
+                  },
+                );
+                if (experimentId) {
+                  try {
+                    track(
+                      "agent_experiment_assignment_failed",
+                      {
+                        experiment_id: experimentId,
+                        failure_stage: "signup",
+                        error_code: "question_intake_assignment_failed",
+                      },
+                      { authUserId: user.id, userId: email },
+                    );
+                  } catch {
+                    console.error(
+                      "[auth] failed to track question-intake assignment failure",
+                      { code: "question_intake_assignment_tracking_failed" },
+                    );
+                  }
+                }
+                try {
+                  const { captureError } = await import("./capture-error.js");
+                  captureError(error, {
+                    route: "auth.signup",
+                    tags: {
+                      failureClass: "question-intake-assignment",
+                      errorCode: "question_intake_assignment_failed",
+                    },
+                    extra: { experimentId },
+                  });
+                } catch {
+                  console.error(
+                    "[auth] failed to report question-intake assignment failure",
+                    { code: "question_intake_assignment_reporting_failed" },
+                  );
+                }
+              }
+            }
+
             if (user.emailVerified !== true) return;
 
             try {
@@ -2696,38 +2892,7 @@ async function createBetterAuthInstance(
             },
           ],
         },
-        init(ctx) {
-          const emailVerification = ctx.options.emailVerification;
-          if (!emailVerification?.sendVerificationEmail) return;
-          const sendVerificationEmail = emailVerification.sendVerificationEmail;
-          const deliveries = new WeakSet<Promise<unknown>>();
-          emailVerification.sendVerificationEmail = (...args) => {
-            const delivery = sendVerificationEmail(...args);
-            if (delivery instanceof Promise) deliveries.add(delivery);
-            return delivery;
-          };
-          const passwordOptions = ctx.options.emailAndPassword;
-          const onExistingUserSignUp = passwordOptions?.onExistingUserSignUp;
-          if (passwordOptions && onExistingUserSignUp) {
-            passwordOptions.onExistingUserSignUp = (...args) => {
-              const delivery = onExistingUserSignUp(...args);
-              deliveries.add(delivery);
-              return delivery;
-            };
-          }
-          const runInBackgroundOrAwait = ctx.runInBackgroundOrAwait.bind(ctx);
-          return {
-            context: {
-              runInBackgroundOrAwait(task) {
-                // Better Auth swallows even awaited task errors; verification
-                // must fail the request before the UI can claim mail was sent.
-                if (task instanceof Promise && deliveries.has(task))
-                  return task;
-                return runInBackgroundOrAwait(task);
-              },
-            },
-          };
-        },
+        init: trackAuthEmailDeliveries,
       },
     ],
   });

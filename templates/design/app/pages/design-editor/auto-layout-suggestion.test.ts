@@ -70,7 +70,7 @@ describe("inferAutoLayoutSuggestion", () => {
       gap: 20,
       padding: { top: 15, right: 100, bottom: 15, left: 20 },
       alignItems: "stretch",
-      horizontalSizing: "hug",
+      horizontalSizing: "fixed",
       verticalSizing: "hug",
       safeToApply: true,
     });

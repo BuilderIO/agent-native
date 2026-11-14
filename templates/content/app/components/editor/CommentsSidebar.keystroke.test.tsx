@@ -63,7 +63,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 vi.mock("@agent-native/toolkit/app/review", () => ({
-  InlineMarkdown: ({ content }: { content: string }) => content,
+  CommentBody: ({ body }: { body: string }) => body,
 }));
 
 function thread(id: string): CommentThread {
@@ -151,14 +151,14 @@ describe("comment sidebar keystroke cost", () => {
       constructor(callback: MutationCallback) {
         super(callback);
       }
-      observe(target: Node, options?: MutationObserverInit) {
+      override observe(target: Node, options?: MutationObserverInit) {
         if (target === scrollHost) {
           mutationObservers += 1;
           trackedObservers.add(this);
         }
         super.observe(target, options);
       }
-      disconnect() {
+      override disconnect() {
         if (trackedObservers.has(this)) mutationDisconnects += 1;
         super.disconnect();
       }

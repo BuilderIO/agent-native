@@ -101,6 +101,9 @@ function props({ generating }: { generating: boolean }): ExportMenuItemsProps {
     } as unknown as EditorActiveScreenAndGeometry,
     editorExportAndHandoff: {
       handleDownloadHtml: vi.fn(),
+      handleDownloadHubspotHtml: vi.fn(),
+      hubspotHtmlExporting: false,
+      canExportHubspotHtml: true,
       handleDownloadPng: vi.fn(),
       pngExporting: false,
       handleDownloadSvg: vi.fn(),
@@ -150,6 +153,7 @@ describe("Design export menu", () => {
   it("disables exports until a screen exists", () => {
     expect(disabledByLabel(0)).toEqual({
       "designEditor.downloadHtml": true,
+      "designEditor.exportHubspotHtml": true,
       "designEditor.downloadPng": true,
       "designEditor.downloadSvg": true,
       "designEditor.downloadFigmaSvg": true,
@@ -174,7 +178,7 @@ describe("Design export menu", () => {
     await mount(true);
     const items = document.querySelectorAll('[role="menuitem"]');
 
-    expect(items).toHaveLength(7);
+    expect(items).toHaveLength(8);
     expect(
       [...items].every((item) => item.getAttribute("aria-disabled") === "true"),
     ).toBe(true);
@@ -184,7 +188,7 @@ describe("Design export menu", () => {
     await mount(false);
     const items = document.querySelectorAll('[role="menuitem"]');
 
-    expect(items).toHaveLength(7);
+    expect(items).toHaveLength(8);
     expect(
       [...items].every((item) => item.getAttribute("aria-disabled") !== "true"),
     ).toBe(true);

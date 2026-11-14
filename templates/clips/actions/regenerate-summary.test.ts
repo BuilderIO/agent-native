@@ -1,36 +1,63 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const mockSelectRows = vi.hoisted(() => ({
-  queue: [] as Array<Array<Record<string, unknown>>>,
+const expiryAccess = vi.hoisted(() => ({
+  role: "editor",
+  expiresAt: null as string | null,
 }));
+
+type Rows = Array<Record<string, unknown>>;
+const mockSelectRows = vi.hoisted(() => ({
+  queue: [] as Array<Rows | (() => Rows)>,
+}));
+const mockRemoval = vi.hoisted(() => ({ at: null as string | null }));
 const mockUpdateSet = vi.hoisted(() => vi.fn(() => ({ where: vi.fn() })));
 const mockWriteAppState = vi.hoisted(() => vi.fn(async () => undefined));
 const mockCleanupTranscriptRun = vi.hoisted(() => vi.fn());
 
-const mockDb = vi.hoisted(() => ({
-  select: vi.fn(() => ({
-    from: vi.fn(() => ({
-      where: vi.fn(() => ({
-        limit: vi.fn(async () => mockSelectRows.queue.shift() ?? []),
+const mockDb = vi.hoisted(() => {
+  const db = {
+    select: vi.fn((projection?: Record<string, unknown>) => ({
+      from: vi.fn(() => ({
+        where: vi.fn(() => ({
+          limit: vi.fn(async () => {
+            if (projection && "removedAt" in projection) {
+              return [{ removedAt: mockRemoval.at }];
+            }
+            const next = mockSelectRows.queue.shift() ?? [];
+            return typeof next === "function" ? next() : next;
+          }),
+          for: vi.fn(async () => []),
+        })),
       })),
     })),
-  })),
-  update: vi.fn(() => ({ set: mockUpdateSet })),
-}));
+    update: vi.fn(() => ({ set: mockUpdateSet })),
+    transaction: vi.fn(async (run: (tx: unknown) => unknown) => run(db)),
+  };
+  return db;
+});
 
 vi.mock("@agent-native/core", () => ({
   defineAction: (options: unknown) => options,
+}));
+
+vi.mock("@agent-native/core/server", () => ({
+  resolveChatModelAvailability: async () => "available",
 }));
 
 vi.mock("@agent-native/core/application-state", () => ({
   writeAppState: (...args: unknown[]) => mockWriteAppState(...args),
 }));
 
-vi.mock("@agent-native/core/sharing", () => ({
-  assertAccess: vi.fn(async () => ({ role: "editor" })),
+vi.mock("@agent-native/core/sharing", async (original) => ({
+  ...(await original<typeof import("@agent-native/core/sharing")>()),
+  assertAccess: vi.fn(async () => ({
+    role: expiryAccess.role,
+    resource: { expiresAt: expiryAccess.expiresAt },
+  })),
 }));
 
-vi.mock("drizzle-orm", () => ({
+vi.mock("drizzle-orm", async (original) => ({
+  ...(await original<typeof import("drizzle-orm")>()),
   eq: vi.fn((column: unknown, value: unknown) => ({ column, value })),
 }));
 
@@ -65,13 +92,38 @@ import regenerateSummary from "./regenerate-summary";
 
 describe("regenerate-summary", () => {
   beforeEach(() => {
+    expiryAccess.role = "editor";
+    expiryAccess.expiresAt = null;
     vi.clearAllMocks();
     mockSelectRows.queue = [];
+    mockRemoval.at = null;
     mockCleanupTranscriptRun.mockResolvedValue({
       summaryMd: "A concise summary.",
       provider: "builder",
     });
   });
+
+  it.each([false, true])(
+    "rechecks summary expiry after cleanup (owner=%s)",
+    async (owner) => {
+      expiryAccess.role = owner ? "owner" : "editor";
+      mockSelectRows.queue = [
+        [{ id: "rec_1", title: "Fake Clip", description: "" }],
+        [{ status: "ready", fullText: "Fake transcript" }],
+      ];
+      mockCleanupTranscriptRun.mockImplementationOnce(async () => {
+        expiryAccess.expiresAt = "2000-01-01T00:00:00Z";
+        return { summaryMd: "Fake delayed summary", provider: "builder" };
+      });
+      const pending = regenerateSummary.run({ recordingId: "rec_1" });
+      if (owner)
+        await expect(pending).resolves.toMatchObject({ updated: true });
+      else {
+        await expect(pending).rejects.toMatchObject({ statusCode: 403 });
+        expect(mockUpdateSet).not.toHaveBeenCalled();
+      }
+    },
+  );
 
   it("uses the server cleanup path instead of starting an agent turn", async () => {
     mockSelectRows.queue = [
@@ -104,5 +156,96 @@ describe("regenerate-summary", () => {
       description: "A concise summary.",
       provider: "builder",
     });
+  });
+
+  const removedAt = "2026-11-03T10:00:00.000Z";
+
+  it("drops a summary of earlier audio removed while it was generated", async () => {
+    mockSelectRows.queue = [
+      [{ id: "rec_1", title: "A Clip", description: "" }],
+      [{ status: "ready", fullText: "Audio the user removes." }],
+    ];
+    mockCleanupTranscriptRun.mockImplementationOnce(async () => {
+      mockRemoval.at = removedAt;
+      return { summaryMd: "Summary of removed audio", provider: "builder" };
+    });
+
+    await expect(
+      regenerateSummary.run({ recordingId: "rec_1" }),
+    ).resolves.toMatchObject({
+      updated: false,
+      skipped: true,
+      reason: "transcript_changed",
+    });
+
+    expect(mockUpdateSet).not.toHaveBeenCalled();
+    expect(mockWriteAppState).not.toHaveBeenCalled();
+  });
+
+  it("drops a summary whose title was read just before a removal", async () => {
+    mockSelectRows.queue = [
+      () => {
+        mockRemoval.at = removedAt;
+        return [
+          { id: "rec_1", title: "Title from removed audio", description: "" },
+        ];
+      },
+      [
+        {
+          status: "ready",
+          fullText: "What remains.",
+          earlierAudioRemovedAt: removedAt,
+        },
+      ],
+    ];
+
+    await expect(
+      regenerateSummary.run({ recordingId: "rec_1" }),
+    ).resolves.toMatchObject({ updated: false, reason: "transcript_changed" });
+
+    expect(mockUpdateSet).not.toHaveBeenCalled();
+  });
+
+  it("queues no full-video request carrying text read before a removal", async () => {
+    const { readIncludeFullVideoInAi } =
+      await import("./lib/clips-ai-prefs.js");
+    vi.mocked(readIncludeFullVideoInAi).mockResolvedValueOnce(true);
+    mockSelectRows.queue = [
+      () => {
+        mockRemoval.at = removedAt;
+        return [
+          { id: "rec_1", title: "Title from removed audio", description: "" },
+        ];
+      },
+      [
+        {
+          status: "ready",
+          fullText: "What remains.",
+          earlierAudioRemovedAt: removedAt,
+        },
+      ],
+    ];
+
+    await expect(
+      regenerateSummary.run({ recordingId: "rec_1" }),
+    ).resolves.toMatchObject({ updated: false, reason: "transcript_changed" });
+  });
+
+  it("writes a summary built after an earlier removal", async () => {
+    mockRemoval.at = removedAt;
+    mockSelectRows.queue = [
+      [{ id: "rec_1", title: "A Clip", description: "" }],
+      [
+        {
+          status: "ready",
+          fullText: "What remains.",
+          earlierAudioRemovedAt: removedAt,
+        },
+      ],
+    ];
+
+    await expect(
+      regenerateSummary.run({ recordingId: "rec_1" }),
+    ).resolves.toMatchObject({ updated: true });
   });
 });

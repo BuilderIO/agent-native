@@ -4,6 +4,7 @@ import type { ContentDatabaseItemLayout } from "./api";
 import {
   contentDatabaseItemLayoutField,
   contentDatabaseItemLayoutPresets,
+  contentDatabaseViewsShowPageText,
   contentDatabaseItemLayoutReferenceErrors,
   dropDeletedContentDatabaseItemLayoutReferences,
   itemLayoutLine2Candidates,
@@ -85,7 +86,11 @@ describe("resolveContentDatabaseItemLayout", () => {
       all,
     );
     expect(resolved.leading).toEqual({ kind: "checkbox", property: done });
-    expect(resolved.line2).toEqual({ property: notes, lines: 2 });
+    expect(resolved.line2).toEqual({
+      property: notes,
+      pageText: false,
+      lines: 2,
+    });
     expect(resolved.line3).toEqual([due]);
     expect(resolved.trailing).toEqual([owner]);
   });
@@ -423,5 +428,72 @@ describe("saving item layouts", () => {
     expect(
       withSavedContentDatabaseItemLayout({ id: "other" }, savedViews),
     ).toEqual({ id: "other" });
+  });
+});
+
+describe("page text in line 2", () => {
+  const pageText: ContentDatabaseItemLayout = {
+    leading: { kind: "page_icon", propertyId: null },
+    titleWeight: "bold",
+    line2: { source: "page", propertyId: null, lines: 3 },
+    line3: ["due"],
+    trailing: [],
+  };
+
+  it("is read from a saved layout without a property beside it", () => {
+    expect(
+      normalizeContentDatabaseItemLayout({
+        ...pageText,
+        line2: { source: "page", propertyId: "pitch", lines: 3 },
+      })?.line2,
+    ).toEqual({ source: "page", propertyId: null, lines: 3 });
+    expect(
+      normalizeContentDatabaseItemLayout({
+        ...pageText,
+        line2: { source: "elsewhere", propertyId: "pitch", lines: 2 },
+      })?.line2,
+    ).toEqual({ propertyId: "pitch", lines: 2 });
+  });
+
+  it("resolves to page text instead of a property", () => {
+    expect(resolveContentDatabaseItemLayout(pageText, all).line2).toEqual({
+      property: null,
+      pageText: true,
+      lines: 3,
+    });
+    expect(
+      resolveContentDatabaseItemLayout(
+        startingContentDatabaseItemLayout(all),
+        all,
+      ).line2.pageText,
+    ).toBe(false);
+  });
+
+  it("stays through pruning, saving, and deleted properties", () => {
+    expect(pruneContentDatabaseItemLayout(pageText, all)).toEqual(pageText);
+    expect(savableContentDatabaseItemLayout(pageText, null, all)).toEqual(
+      pageText,
+    );
+    expect(
+      dropDeletedContentDatabaseItemLayoutReferences(pageText, []),
+    ).toEqual({ ...pageText, line3: [] });
+    expect(contentDatabaseItemLayoutReferenceErrors(pageText, all)).toEqual([]);
+    expect(matchingContentDatabaseItemLayoutPreset(pageText, all)).toBeNull();
+  });
+
+  it("makes list reads carry excerpts only while a List view shows it", () => {
+    expect(
+      contentDatabaseViewsShowPageText([
+        { type: "table" },
+        { type: "list", itemLayout: pageText },
+      ]),
+    ).toBe(true);
+    expect(
+      contentDatabaseViewsShowPageText([
+        { type: "list", itemLayout: startingContentDatabaseItemLayout(all) },
+        { type: "list", itemLayout: null },
+        { type: "board", itemLayout: pageText },
+      ]),
+    ).toBe(false);
   });
 });

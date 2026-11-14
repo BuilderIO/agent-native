@@ -62,6 +62,7 @@ Das ist es. Der Hauptteil ist eine Eingabeaufforderung, die der Agent bei jeder 
 | `runAs`      | `"creator"` \| `"shared"`     | `"creator"`      | `"creator"` wird mit der Identität des Jobeigentümers und `ANTHROPIC_API_KEY` ausgeführt. `"shared"` verwendet den Schlüssel der Organisation. |
 | `createdBy`  | E-Mail                        | _(auto)_         | Wird ausgefüllt, wenn der Job über den Agent-Ressourcen UI oder durch den Agenten erstellt wird.                                               |
 | `orgId`      | Zeichenfolge                  | _(auto)_         | Organisationsbereich; Von der aktiven Organisation des Erstellers geerbt.                                                                      |
+| `appId`      | Zeichenfolge                  | _(auto)_         | Die App, deren Planer den Job ausführt. Ein Planer überspringt Jobs, die eine andere App angeben.                                              |
 | `lastRun`    | ISO-Zeitstempel               | _(verwaltet)_    | Wird vom Planer nach jedem Lauf geschrieben.                                                                                                   |
 | `lastStatus` | `"success"` \| `"error"` \| … | _(verwaltet)_    | Neuestes Ergebnis.                                                                                                                             |
 | `lastError`  | Zeichenfolge                  | _(verwaltet)_    | Fehlermeldung, wenn der letzte Lauf fehlgeschlagen ist.                                                                                        |
@@ -231,6 +232,20 @@ Auf Netlify, Vercel und Cloudflare leert derselbe Tick außerdem die Warteschlan
 **`AGENT_NATIVE_DISABLE_RECURRING_JOBS` wird in zwei Bereichen gelesen.** Auf Netlify, Vercel und Cloudflare entscheidet die **Build**-Umgebung: Der Plattform-Auslöser feuert weiter, um Ereignis-Automatisierungen abzuarbeiten und Läufe aufzuräumen, aber ein Build mit aktiviertem Schalter überspringt geplante Jobs, unabhängig davon, was die bereitgestellte Umgebung sagt. Auf einem langlebigen Server steuert die **Laufzeit**-Umgebung den prozessinternen Timer. Setzen Sie die Variable dort, wo Ihr Host sie liest. Der Build speichert seine Entscheidung, sodass die Seite **Automations** anzeigen kann, dass Zeitpläne nie ausgeführt werden, statt ein Datum für die nächste Ausführung zu zeigen, das nichts einhalten wird.
 
 </Callout>
+
+### Jobs unter einer anderen `appId` ausführen {#additional-job-app-ids}
+
+Ein Planer führt einen Job aus, wenn dessen `appId` mit der `appId` der eigenen App übereinstimmt. Um auch Jobdateien mit einer anderen `appId` auszuführen, tragen Sie die zusätzlichen Labels in `additionalJobAppIds` ein:
+
+```ts filename="server/plugins/agent-chat.ts"
+export default createAgentChatPlugin({
+  appId: "my-app",
+  additionalJobAppIds: ["my-app-reports"],
+  // ...
+});
+```
+
+Ein Build, der das Label nicht aufführt, überspringt diese Dateien, ohne sie zu beanspruchen, auszuführen oder zu schreiben. So können zwei Deployments auf einer Datenbank ihre Jobs aufteilen. Die Option erweitert nur, welche Dateien diese App aufnimmt. Planer-Lease, Laufverlauf und Health-Zeilen bleiben unter `appId`, daher wechseln sich Deployments, die eine Datenbank teilen, weiterhin bei derselben Lease ab. Wenn die App **Run now** für diese Jobs in die Warteschlange stellt, übergeben Sie dieselbe Liste als `additionalJobAppIds` an `queueAutomationRunNow`.
 
 ## Debuggen eines Jobs {#debugging}
 

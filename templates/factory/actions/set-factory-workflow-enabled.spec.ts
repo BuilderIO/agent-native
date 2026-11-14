@@ -41,6 +41,11 @@ vi.mock("../server/lib/factory-definitions.js", async () => {
     await import("../server/workflow-host/testing/workflow-actions-kit.js");
   return kit.factoryDefinitionsModule;
 });
+vi.mock("../server/lib/factory-sentry-fallback.js", async () => {
+  const kit =
+    await import("../server/workflow-host/testing/workflow-actions-kit.js");
+  return kit.sentryFallbackModule;
+});
 
 import * as kit from "../server/workflow-host/testing/workflow-actions-kit.js";
 import { STORY_GRAPHS } from "../server/workflow/story-graphs.fixture.js";
@@ -80,6 +85,12 @@ function reportStatus(status: Record<string, string>) {
       status: status[provider] ?? "connected",
       connectWith: "workspace-connection",
       ...(status[provider] === "unknown" ? { detail: "vault down" } : {}),
+      ...(status[provider] === "unreadable"
+        ? {
+            detail:
+              "SLACK_BOT_TOKEN is saved but could not be decrypted here, so a slack read cannot run. Save it again under Keys in Settings.",
+          }
+        : {}),
     })),
   );
 }
@@ -123,6 +134,25 @@ describe("set-factory-workflow-enabled: connections", () => {
     const failure = await kit.failureOf(() => run(input, kit.agentContext));
 
     expect(failure.errorCode).toBe("connection_required");
+  });
+
+  it("refuses with connection_unreadable when a saved key cannot be decrypted, and changes nothing", async () => {
+    reportStatus({ slack: "unreadable" });
+    const created = await createDigest();
+    const jobBefore = kit.readJob(created.job.path);
+
+    const failure = await kit.failureOf(() => toggle(created.workflowId, true));
+
+    expect(failure).toMatchObject({
+      errorCode: "connection_unreadable",
+      statusCode: 412,
+      details: { providers: ["slack"] },
+    });
+    expect(failure.message).toContain("slack (used by post)");
+    expect(failure.message).toContain("SLACK_BOT_TOKEN is saved but");
+    expect(failure.message).not.toContain("request-workflow-connection");
+    expect((await stored(created.workflowId))?.enabled).toBe(false);
+    expect(kit.readJob(created.job.path)).toBe(jobBefore);
   });
 
   it("turns on with a warning when a connection could not be checked", async () => {
@@ -228,6 +258,53 @@ describe("set-factory-workflow-enabled: turning on", () => {
 
     expect(failure).toMatchObject({ errorCode: "graph_invalid" });
     expect((await stored(workflow.id))?.enabled).toBe(false);
+  });
+
+  describe("a workflow saved under an older rule", () => {
+    // Saved straight to the store: a save refuses these graphs today, an older
+    // one accepted them, and an enabled one of them still runs.
+    async function saved(graph: ReturnType<typeof kit.simpleGraph>) {
+      reportStatus({});
+      const store = kit.currentStore();
+      const workflow = await store.createWorkflow(scope, {
+        name: "Old",
+        graph,
+        ownerEmail: kit.USER_EMAIL,
+      });
+      await store.recordCleanDryRun(scope, {
+        workflowId: workflow.id,
+        version: 1,
+      });
+      return workflow.id;
+    }
+
+    it("turns on although a node reads a field its operation does not declare", async () => {
+      const workflowId = await saved(kit.graphReadingUndeclaredOutput());
+
+      const result = await toggle(workflowId, true);
+
+      expect(result.enabled).toBe(true);
+      expect((await stored(workflowId))?.enabled).toBe(true);
+    });
+
+    it("turns on a Sentry source that names no project when the factory's settings name an organization", async () => {
+      const workflowId = await saved(kit.graphWithUnscopedSentry());
+      kit.setSentryFallbackConfigured(true);
+
+      const result = await toggle(workflowId, true);
+
+      expect(result.enabled).toBe(true);
+    });
+
+    it("refuses that Sentry source when the factory has no Sentry settings, and changes nothing", async () => {
+      const workflowId = await saved(kit.graphWithUnscopedSentry());
+
+      const failure = await kit.failureOf(() => toggle(workflowId, true));
+
+      expect(failure.errorCode).toBe("graph_invalid");
+      expect(failure.message).toContain('"organization/project"');
+      expect((await stored(workflowId))?.enabled).toBe(false);
+    });
   });
 
   it("switches the store back off when the job file cannot be switched on", async () => {

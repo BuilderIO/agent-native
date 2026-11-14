@@ -17,7 +17,7 @@ import {
 } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
-import { bodyRevisionForContent } from "../server/lib/document-body-revision.js";
+import { lockLegacyBodyWrites } from "../server/lib/document-body-revision.js";
 import type {
   ContentDatabaseFilter,
   ContentDatabaseFilterMode,
@@ -59,6 +59,10 @@ import {
   propertyDefinitionsPositionScope,
   withPositionLock,
 } from "./_position-utils.js";
+import {
+  recordPropertyChangeIds,
+  type StoredPropertyChangeIds,
+} from "./_property-generations.js";
 import { withRelationTargets } from "./_relation-values.js";
 
 type DocumentRow = InferSelectModel<typeof schema.documents>;
@@ -619,6 +623,8 @@ export async function listPropertiesForDocument(
     requireDatabaseAccess?: boolean;
     /** The caller's own resolvePropertyDatabaseForDocument result. */
     database?: ContentDatabaseRow | null;
+    /** Filled with the change IDs of the value rows read. */
+    changeIds?: StoredPropertyChangeIds;
   } = {},
 ) {
   const database =
@@ -633,6 +639,7 @@ export async function listPropertiesForDocument(
   if (!database) return [];
   return listPropertiesForDatabase(database.id, document, {
     includeContainerDerivedValues: options.requireDatabaseAccess !== false,
+    changeIds: options.changeIds,
   });
 }
 
@@ -688,8 +695,10 @@ export async function listPropertiesForDatabase(
   options: {
     includeContainerDerivedValues?: boolean;
     propertySchema?: DatabasePropertySchema;
+    /** Filled with the change IDs of the value rows read. */
+    changeIds?: StoredPropertyChangeIds;
   } = {},
-) {
+): Promise<DocumentProperty[]> {
   const db = getDb();
   const { definitions, sourceManagedPropertyIds } =
     options.propertySchema ??
@@ -717,6 +726,7 @@ export async function listPropertiesForDatabase(
         ? blockFieldContentsForDocument(valueDocument.id)
         : new Map<string, string>(),
     ]);
+  if (options.changeIds) recordPropertyChangeIds(options.changeIds, values);
 
   const valueByPropertyId = new Map(
     values.map((value) => [value.propertyId, value]),
@@ -834,8 +844,8 @@ export async function listPropertiesForDatabase(
         : property,
     );
   }
-  const [withRollups] = await withRollupValues([evaluatedProperties]);
-  const [withTargets] = await withRelationTargets(db, [withRollups]);
+  const [withRollups = []] = await withRollupValues([evaluatedProperties]);
+  const [withTargets = []] = await withRelationTargets(db, [withRollups]);
   return withTargets;
 }
 
@@ -876,6 +886,8 @@ export async function listPropertiesForDatabaseDocuments(
      */
     includeBlocksFieldIdentity: boolean;
     propertySchema?: DatabasePropertySchema;
+    /** Filled with the change IDs of the value rows read. */
+    changeIds?: StoredPropertyChangeIds;
   },
 ): Promise<Map<string, DocumentProperty[]>> {
   const db = getDb();
@@ -943,6 +955,7 @@ export async function listPropertiesForDatabaseDocuments(
         ).then((groups) => groups.flat())
       : [],
   ]);
+  if (options.changeIds) recordPropertyChangeIds(options.changeIds, values);
   const valueByDocumentAndProperty = new Map(
     values.map((value) => [
       propertyValueKey(value.documentId, value.propertyId),
@@ -982,9 +995,11 @@ export async function listPropertiesForDatabaseDocuments(
       })
     : null;
 
+  // Parsed once and shared by every row: a select's options can be large.
+  const propertyDefinitions = definitions.map(serializePropertyDefinition);
   const propertyLists = valueDocuments.map((document) => {
-    const properties = definitions.map((definition) => {
-      const propertyDefinition = serializePropertyDefinition(definition);
+    const properties = definitions.map((definition, index) => {
+      const propertyDefinition = propertyDefinitions[index]!;
       const storedValue = valueByDocumentAndProperty.get(
         propertyValueKey(document.id, definition.id),
       );
@@ -1414,15 +1429,20 @@ export async function writePrimaryBlocksContent(args: {
   now: string;
 }): Promise<void> {
   await assertAccess("document", args.documentId, "editor");
-  const db = getDb();
-  await db
-    .update(schema.documents)
-    .set({
+  await getDb().transaction(async (tx) => {
+    const legacy = await lockLegacyBodyWrites(tx, [args.documentId], {
+      operation: "writePrimaryBlocksContent",
       content: args.content,
-      bodyRevision: bodyRevisionForContent(args.content),
-      updatedAt: args.now,
-    })
-    .where(eq(schema.documents.id, args.documentId));
+    });
+    await tx
+      .update(schema.documents)
+      .set({
+        content: args.content,
+        bodyRevision: legacy.bodyRevision(args.content),
+        updatedAt: args.now,
+      })
+      .where(eq(schema.documents.id, args.documentId));
+  });
 }
 
 export async function getPropertyDefinitionForDatabase(args: {

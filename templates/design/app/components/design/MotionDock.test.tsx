@@ -13,6 +13,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 
+import { createMotionNativeStyleIdentity } from "./motion-native-style-identity";
 import {
   formatCurveAxisValue,
   formatMotionRulerTick,
@@ -1240,13 +1241,34 @@ describe("MotionDock selected animation settings", () => {
       'button[aria-label="Linear"]',
     );
     expect(easingPicker).not.toBeNull();
-    await act(async () => easingPicker!.click());
+    if (!easingPicker) throw new Error("Linear easing picker was not rendered");
+    await act(async () => easingPicker.click());
+    const springTab = Array.from(
+      document.body.querySelectorAll<HTMLButtonElement>('button[role="tab"]'),
+    ).find((tab) => tab.textContent === "Spring");
+    expect(springTab).toBeDefined();
+    if (!springTab) throw new Error("Spring easing tab was not rendered");
+    await act(async () => {
+      springTab.dispatchEvent(
+        new MouseEvent("mousedown", {
+          bubbles: true,
+          button: 0,
+          ctrlKey: false,
+        }),
+      );
+    });
+    expect(onTracksChange).toHaveBeenCalledTimes(2);
+    await renderInteractive({
+      tracks: onTracksChange.mock.lastCall?.[0],
+      durationMs: 2000,
+      onTracksChange,
+    });
     const bouncyPreset = Array.from(
       document.body.querySelectorAll<HTMLButtonElement>("button"),
     ).find((button) => button.textContent?.trim() === "Bouncy");
     expect(bouncyPreset).toBeDefined();
     await act(async () => bouncyPreset!.click());
-    expect(onTracksChange).toHaveBeenCalledTimes(2);
+    expect(onTracksChange).toHaveBeenCalledTimes(3);
     expect(onTracksChange.mock.lastCall?.[0][0]?.keyframes[0]?.ease).toBe(
       "spring(0.69)",
     );
@@ -1553,6 +1575,269 @@ describe("MotionDock — timeline body anatomy", () => {
     ]);
   });
 
+  it("clears easing selection when an added native style is selected", async () => {
+    const onLiveStateChange = vi.fn();
+    await renderInteractive({
+      tracks: sampleTracks,
+      nativeStyles: [sampleNativeStyle],
+      onLiveStateChange,
+    });
+
+    const easingSegment = container.querySelector<HTMLButtonElement>(
+      "button[data-motion-easing-segment]",
+    );
+    if (!easingSegment) throw new Error("Easing segment was not rendered");
+    await act(async () => easingSegment.click());
+    expect(
+      onLiveStateChange.mock.lastCall?.[0].selectedEasingSegment,
+    ).not.toBeNull();
+
+    const addedStyle: MotionNativeStyleInstance = {
+      ...sampleNativeStyle,
+      styleKey: "Scale",
+      nameKey: "designEditor.motion.animationStyles.scale",
+    };
+    await renderInteractive({
+      tracks: sampleTracks,
+      nativeStyles: [sampleNativeStyle, addedStyle],
+      onLiveStateChange,
+    });
+
+    expect(
+      onLiveStateChange.mock.lastCall?.[0].selectedEasingSegment,
+    ).toBeNull();
+  });
+
+  it("clears the easing selection when selecting a native style row", async () => {
+    const onLiveStateChange = vi.fn();
+    await renderInteractive({
+      tracks: sampleTracks,
+      nativeStyles: [sampleNativeStyle],
+      onLiveStateChange,
+    });
+
+    const easingSegment = container.querySelector<HTMLButtonElement>(
+      "button[data-motion-easing-segment]",
+    );
+    if (!easingSegment) throw new Error("Easing segment was not rendered");
+    await act(async () => easingSegment.click());
+    expect(
+      onLiveStateChange.mock.lastCall?.[0].selectedEasingSegment,
+    ).not.toBeNull();
+
+    const nativeStyleButton = container.querySelector<HTMLButtonElement>(
+      "[data-motion-select-native-style]",
+    );
+    if (!nativeStyleButton)
+      throw new Error("Native style row was not rendered");
+    await act(async () => nativeStyleButton.click());
+
+    expect(
+      onLiveStateChange.mock.lastCall?.[0].selectedEasingSegment,
+    ).toBeNull();
+  });
+
+  it("clears easing selection when a native style is removed", async () => {
+    const onLiveStateChange = vi.fn();
+    await renderInteractive({
+      tracks: sampleTracks,
+      nativeStyles: [sampleNativeStyle],
+      onLiveStateChange,
+      onNativeStyleRemove: vi.fn(),
+    });
+
+    const easingSegment = container.querySelector<HTMLButtonElement>(
+      "button[data-motion-easing-segment]",
+    );
+    if (!easingSegment) throw new Error("Easing segment was not rendered");
+    await act(async () => easingSegment.click());
+    expect(
+      onLiveStateChange.mock.lastCall?.[0].selectedEasingSegment,
+    ).not.toBeNull();
+
+    const removeButton = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Remove animation Position"]',
+    );
+    if (!removeButton)
+      throw new Error("Native-style remove button was not rendered");
+    await act(async () => removeButton.click());
+
+    expect(
+      onLiveStateChange.mock.lastCall?.[0].selectedEasingSegment,
+    ).toBeNull();
+  });
+
+  it("keeps a selected native style row from another layer selected", async () => {
+    const otherLayerStyle: MotionNativeStyleInstance = {
+      ...sampleNativeStyle,
+      styleKey: "Scale",
+      nameKey: "designEditor.motion.animationStyles.scale",
+      targetNodeId: "other",
+    };
+    const onNativeStyleSelectionChange = vi.fn();
+    await renderInteractive({
+      nativeStyles: [sampleNativeStyle, otherLayerStyle],
+      onNativeStyleSelectionChange,
+      selectedTarget: { nodeId: "hero", label: "Hero" },
+    });
+
+    const otherLayerRow = container.querySelector<HTMLElement>(
+      '[data-motion-native-style-row="Scale"]',
+    )!;
+    await act(async () => {
+      otherLayerRow
+        .querySelector<HTMLButtonElement>("[data-motion-select-native-style]")!
+        .click();
+    });
+
+    expect(otherLayerRow.getAttribute("aria-selected")).toBe("true");
+    expect(onNativeStyleSelectionChange).toHaveBeenLastCalledWith(
+      createMotionNativeStyleIdentity(otherLayerStyle, 1),
+    );
+  });
+
+  it("synchronizes timeline selection for two styles on one layer", async () => {
+    const scaleStyle: MotionNativeStyleInstance = {
+      ...sampleNativeStyle,
+      styleKey: "Scale",
+      nameKey: "designEditor.motion.animationStyles.scale",
+      props: { type: "scaleIn", delay: 0 },
+    };
+    const nativeStyles = [sampleNativeStyle, scaleStyle];
+    const onNativeStyleSelectionChange = vi.fn();
+
+    await renderInteractive({ nativeStyles, onNativeStyleSelectionChange });
+
+    const positionRow = container.querySelector<HTMLElement>(
+      '[data-motion-native-style-row="Position"]',
+    )!;
+    const scaleRow = container.querySelector<HTMLElement>(
+      '[data-motion-native-style-row="Scale"]',
+    )!;
+    expect(positionRow.getAttribute("aria-selected")).toBe("false");
+    expect(scaleRow.getAttribute("aria-selected")).toBe("true");
+
+    await act(async () => {
+      positionRow
+        .querySelector<HTMLButtonElement>("[data-motion-select-native-style]")!
+        .click();
+    });
+    expect(positionRow.getAttribute("aria-selected")).toBe("true");
+    expect(scaleRow.getAttribute("aria-selected")).toBe("false");
+    expect(onNativeStyleSelectionChange).toHaveBeenCalledWith(
+      createMotionNativeStyleIdentity(sampleNativeStyle, 0),
+    );
+
+    await renderInteractive({
+      nativeStyles,
+      selectedNativeStyle: createMotionNativeStyleIdentity(scaleStyle, 1),
+    });
+    expect(positionRow.getAttribute("aria-selected")).toBe("false");
+    expect(scaleRow.getAttribute("aria-selected")).toBe("true");
+  });
+
+  it("keeps the selected native style when an earlier duplicate row is removed", async () => {
+    const first: MotionNativeStyleInstance = {
+      ...sampleNativeStyle,
+      timelineOffset: 0,
+    };
+    const second: MotionNativeStyleInstance = {
+      ...sampleNativeStyle,
+      timelineOffset: 0.4,
+    };
+    const nativeStyles = [first, second];
+    const onNativeStyleSelectionChange = vi.fn();
+
+    await renderInteractive({
+      nativeStyles,
+      onNativeStyleSelectionChange,
+      onNativeStyleRemove: vi.fn(),
+    });
+    const rows = Array.from(
+      container.querySelectorAll<HTMLElement>(
+        '[data-motion-native-style-row="Position"]',
+      ),
+    );
+    await act(async () => {
+      rows[1]!
+        .querySelector<HTMLButtonElement>("[data-motion-select-native-style]")!
+        .click();
+    });
+    await act(async () => {
+      rows[0]!
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Remove animation Position"]',
+        )!
+        .click();
+    });
+    await renderInteractive({
+      nativeStyles: [second],
+      onNativeStyleSelectionChange,
+      onNativeStyleRemove: vi.fn(),
+    });
+
+    expect(
+      container
+        .querySelector('[data-motion-native-style-row="Position"]')
+        ?.getAttribute("aria-selected"),
+    ).toBe("true");
+    expect(onNativeStyleSelectionChange).toHaveBeenLastCalledWith(
+      createMotionNativeStyleIdentity(second, 0),
+    );
+  });
+
+  it("does not change selection when removing a middle native style row", async () => {
+    const middle: MotionNativeStyleInstance = {
+      ...sampleNativeStyle,
+      styleKey: "Scale",
+      nameKey: "designEditor.motion.animationStyles.scale",
+    };
+    const last: MotionNativeStyleInstance = {
+      ...sampleNativeStyle,
+      styleKey: "Rotation",
+      nameKey: "designEditor.motion.animationStyles.rotation",
+    };
+    const nativeStyles = [sampleNativeStyle, middle, last];
+    const onNativeStyleSelectionChange = vi.fn();
+    const onNativeStyleRemove = vi.fn();
+    await renderInteractive({
+      nativeStyles,
+      onNativeStyleSelectionChange,
+      onNativeStyleRemove,
+    });
+
+    const rows = Array.from(
+      container.querySelectorAll<HTMLElement>("[data-motion-native-style-row]"),
+    );
+    await act(async () => {
+      rows[0]!
+        .querySelector<HTMLButtonElement>("[data-motion-select-native-style]")!
+        .click();
+    });
+    await act(async () => {
+      rows[1]!
+        .querySelector<HTMLButtonElement>(
+          'button[aria-label="Remove animation Scale"]',
+        )!
+        .click();
+    });
+    await renderInteractive({
+      nativeStyles: [sampleNativeStyle, last],
+      onNativeStyleSelectionChange,
+      onNativeStyleRemove,
+    });
+
+    const remainingRows = Array.from(
+      container.querySelectorAll<HTMLElement>("[data-motion-native-style-row]"),
+    );
+    expect(
+      remainingRows.map((row) => row.getAttribute("aria-selected")),
+    ).toEqual(["true", "false"]);
+    expect(onNativeStyleSelectionChange).toHaveBeenLastCalledWith(
+      createMotionNativeStyleIdentity(sampleNativeStyle, 0),
+    );
+  });
+
   it("shows native style visibility/removal actions and preserves source props", async () => {
     const onNativeStyleChange = vi.fn();
     const onNativeStyleRemove = vi.fn();
@@ -1784,6 +2069,7 @@ describe("MotionDock keyframe selection and deletion", () => {
       previewing: false,
       selectedTrackId: "legacy-track-0",
       selectedKeyframeIds: [JSON.stringify(["legacy-track-0", 0])],
+      selectedEasingSegment: null,
     });
 
     await act(async () => {
@@ -1798,6 +2084,7 @@ describe("MotionDock keyframe selection and deletion", () => {
       previewing: true,
       selectedTrackId: "legacy-track-0",
       selectedKeyframeIds: [JSON.stringify(["legacy-track-0", 0])],
+      selectedEasingSegment: null,
     });
 
     await act(async () => {
@@ -1809,7 +2096,63 @@ describe("MotionDock keyframe selection and deletion", () => {
       previewing: false,
       selectedTrackId: "legacy-track-0",
       selectedKeyframeIds: [JSON.stringify(["legacy-track-0", 0])],
+      selectedEasingSegment: null,
     });
+  });
+
+  it("publishes the selected easing segment and clears it when a keyframe is selected", async () => {
+    const onLiveStateChange = vi.fn();
+    await renderInteractive({ tracks: sampleTracks, onLiveStateChange });
+
+    const segments = container.querySelectorAll<HTMLButtonElement>(
+      "button[data-motion-easing-segment]",
+    );
+    await act(async () => segments[1]?.click());
+    expect(onLiveStateChange.mock.lastCall?.[0].selectedEasingSegment).toEqual({
+      trackId: "legacy-track-0",
+      targetNodeId: "hero",
+      property: "translate",
+      label: "Hero",
+      isTextAnimation: false,
+      fromT: 0.5,
+      toT: 1,
+      ease: "linear",
+    });
+
+    const laterKeyframe = container.querySelector<SVGElement>(
+      '[aria-label="Keyframe at 1000ms"]',
+    );
+    if (!laterKeyframe) throw new Error("Later keyframe was not rendered");
+    await clickKeyframe(laterKeyframe);
+    expect(
+      onLiveStateChange.mock.lastCall?.[0].selectedEasingSegment,
+    ).toBeNull();
+  });
+
+  it("clears the easing inspector selection when the inspector navigates back", async () => {
+    const onLiveStateChange = vi.fn();
+    let clearSelection: (() => void) | null = null;
+    await renderInteractive({
+      tracks: sampleTracks,
+      onLiveStateChange,
+      onRegisterEasingSelectionClear: (clear) => {
+        clearSelection = clear;
+      },
+    });
+
+    const segments = container.querySelectorAll<HTMLButtonElement>(
+      "button[data-motion-easing-segment]",
+    );
+    await act(async () => segments[1]?.click());
+    expect(onLiveStateChange.mock.lastCall?.[0].selectedEasingSegment).not.toBe(
+      null,
+    );
+
+    await act(async () => clearSelection?.());
+
+    expect(
+      onLiveStateChange.mock.lastCall?.[0].selectedEasingSegment,
+    ).toBeNull();
   });
 
   it("uses the latest playback mode in an active animation frame", async () => {
@@ -1896,9 +2239,8 @@ describe("MotionDock keyframe selection and deletion", () => {
       onTracksChange,
       onPlayheadChange,
     });
-    const row = container.querySelector<HTMLElement>(
-      "[data-motion-track-row]",
-    )!;
+    const row = container.querySelector<HTMLElement>("[data-motion-track-row]");
+    if (!row) throw new Error("Motion track row was not rendered");
     setElementRect(row, { x: 100, y: 100, width: 2000, height: 24 });
 
     await act(async () => {
@@ -1915,6 +2257,30 @@ describe("MotionDock keyframe selection and deletion", () => {
     expect(onTracksChange.mock.lastCall?.[0][0]?.keyframes).toContainEqual(
       expect.objectContaining({ t: 0.75, value: "0px 2px" }),
     );
+  });
+
+  it("does not insert a keyframe when double-clicking an easing segment", async () => {
+    const onTracksChange = vi.fn();
+    await renderInteractive({ tracks: sampleTracks, onTracksChange });
+    const row = container.querySelector<HTMLElement>("[data-motion-track-row]");
+    if (!row) throw new Error("Motion track row was not rendered");
+    setElementRect(row, { x: 100, y: 100, width: 2000, height: 24 });
+    const segment = container.querySelector<HTMLButtonElement>(
+      "[data-motion-easing-segment]",
+    );
+    if (!segment) throw new Error("Motion easing segment was not rendered");
+    onTracksChange.mockClear();
+
+    await act(async () => {
+      segment.dispatchEvent(
+        new MouseEvent("dblclick", {
+          bubbles: true,
+          clientX: 1350,
+        }),
+      );
+    });
+
+    expect(onTracksChange).not.toHaveBeenCalled();
   });
 
   it("double-clicks a keyframe to move the playhead to its timeline time", async () => {

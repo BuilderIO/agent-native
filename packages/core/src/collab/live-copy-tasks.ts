@@ -13,6 +13,13 @@ export const LIVE_COPY_TASK = {
   edit: "liveCopy.edit",
 } as const;
 
+/**
+ * Y.Map holding the saved-body revision a legacy page's live doc last took in,
+ * with that revision's Markdown. It is bookkeeping, not page content, so a live
+ * copy may hold it next to the field.
+ */
+export const SNAPSHOT_ADOPTION_MAP = "agentNativeSnapshotAdoption";
+
 export interface LiveCopyTaskRefusal {
   kind: "refused";
   reason: string;
@@ -157,10 +164,25 @@ function fieldHasContent(doc: Y.Doc, field: string): boolean {
  * Content outside the field would be invisible to derive, so the stored text
  * would silently omit it. Refuse instead.
  */
+/**
+ * Empties a legacy page's adoption marker. A live copy has no use for it, and
+ * a server from before the marker reads a live copy holding one as content
+ * outside the field and refuses it.
+ */
+function clearSnapshotAdoption(doc: Y.Doc): void {
+  if (!doc.share.has(SNAPSHOT_ADOPTION_MAP)) return;
+  const marker = doc.getMap(SNAPSHOT_ADOPTION_MAP);
+  if (marker.size === 0) return;
+  doc.transact(() => {
+    for (const key of [...marker.keys()]) marker.delete(key);
+  });
+}
+
 function assertOnlyField(doc: Y.Doc, field: string): void {
   const stray: string[] = [];
   for (const [name, type] of doc.share) {
-    if (name !== field && hasLiveContent(type)) stray.push(name);
+    if (name === field || name === SNAPSHOT_ADOPTION_MAP) continue;
+    if (hasLiveContent(type)) stray.push(name);
   }
   if (stray.length > 0) {
     fail(
@@ -466,6 +488,8 @@ export function defineLiveCopyTasks(
           await build(`edit ${input.edit}`, () =>
             edit(doc, input.field, input.input),
           );
+          // Switching a page to its live copy edits it, and leaves it clear.
+          clearSnapshotAdoption(doc);
         } finally {
           watch.stop();
         }

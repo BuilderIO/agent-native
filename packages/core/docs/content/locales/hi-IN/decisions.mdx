@@ -1,0 +1,121 @@
+---
+title: "निर्णय"
+description: "@agent-native/core/decisions के साथ क्षमता-जागरूक वर्गीकरण और स्कोरिंग।"
+---
+
+# निर्णय
+
+`@agent-native/core/decisions` पैकेज `decide({ ownerEmail, input, questions, options? }): Promise<DecisionResult>` निर्यात करता है। यह संरचित प्रश्नों के लिए क्षमता-जागरूक वर्गीकरण और स्कोरिंग करता है। यह कॉल करने वाले के निरीक्षण के लिए परिणाम लौटाता है। यह आगे की कोई कार्रवाई न तो करता है और न ही उसे अधिकृत करता है।
+
+## इनपुट और प्रश्न
+
+decide() ownerEmail, इनपुट भागों की सूची, नाम वाले प्रश्न और वैकल्पिक निष्पादन सेटिंग स्वीकार करता है। इनपुट भागों में टेक्स्ट, संरचित JSON या इमेज URL हो सकता है:
+
+input के रूप में सीधे एक string भी दे सकते हैं।
+
+```ts
+const input = [
+  { type: "text", text: "Please cancel Friday's lunch reservation." },
+  { type: "json", value: { reservationId: "reservation-123" } },
+  { type: "image", url: "https://example.com/reservation.png" },
+];
+```
+
+JSON में serialise किए गए `input` और `questions` का कुल आकार 256 KiB से अधिक नहीं होना चाहिए।
+
+हर प्रश्न का एक नाम और निर्देश होते हैं। प्रश्न का प्रकार अतिरिक्त फ़ील्ड तय करता है:
+
+| प्रकार      | अतिरिक्त फ़ील्ड                                 | उद्देश्य                       |
+| ----------- | ----------------------------------------------- | ------------------------------ |
+| `predicate` | कोई नहीं                                        | दिए गए कथन का मूल्यांकन करना   |
+| `choice`    | `choices`: विवरण के साथ टेक्स्ट मान             | दिए गए मानों में से चुनना      |
+| `score`     | `levels`: विवरण और लेबल वाले 2–10 क्रमबद्ध स्तर | इनपुट को दिए गए पैमाने पर रखना |
+
+choices के आइटम का आकार `{ value: string, description: string }` होता है। score स्तरों का आकार `{ label: string, description: string }` होता है।
+
+## API
+
+```ts
+import { decide } from "@agent-native/core/decisions";
+
+const result = await decide({
+  ownerEmail: "owner@example.com",
+  input: [{ type: "text", text: "Please cancel Friday's lunch reservation." }],
+  questions: [
+    {
+      type: "predicate",
+      name: "isCancellationRequest",
+      instructions: "Does the message ask to cancel a reservation?",
+    },
+  ],
+});
+
+if (result.status === "ok") {
+  const answer = result.answers["isCancellationRequest"];
+} else {
+  throw new Error(`Decision unavailable: ${result.status}`);
+}
+```
+
+यह उदाहरण एक ही कॉल में चयन प्रश्न और स्कोर प्रश्न पूछता है। स्कोर में पाँच क्रमबद्ध स्तर हैं, जो समर्थित 2–10 की सीमा में हैं।
+
+```ts
+import { decide } from "@agent-native/core/decisions";
+
+const triage = await decide({
+  ownerEmail: "owner@example.com",
+  input: [
+    { type: "text", text: "I have waited over a day for a refund update." },
+    { type: "json", value: { daysWaiting: 2, amount: 48 } },
+  ],
+  questions: [
+    {
+      type: "choice",
+      name: "queue",
+      instructions: "Choose the support queue that best fits the request.",
+      choices: [
+        { value: "billing", description: "Payments, refunds, or invoices" },
+        { value: "general", description: "Other customer questions" },
+      ],
+    },
+    {
+      type: "score",
+      name: "urgency",
+      instructions: "Score how soon a support agent should review the request.",
+      levels: [
+        { label: "low", description: "Can wait several business days" },
+        { label: "normal", description: "Review in the usual queue" },
+        { label: "elevated", description: "Review sooner than usual" },
+        { label: "high", description: "Review as soon as practical" },
+        { label: "urgent", description: "Needs immediate review" },
+      ],
+    },
+  ],
+  options: { timeoutMs: 15_000 },
+});
+
+if (triage.status !== "ok") {
+  throw new Error(`Decision unavailable: ${triage.status}`);
+}
+
+const queue = triage.answers["queue"];
+const urgency = triage.answers["urgency"];
+```
+
+आर्ग्युमेंट ऑब्जेक्ट में ये फ़ील्ड हैं:
+
+- **ownerEmail**: निर्णय कॉन्फ़िगरेशन पाने के लिए उपयोग किया गया वर्कस्पेस मालिक का ईमेल।
+- **input**: मूल्यांकन के लिए टेक्स्ट, JSON या इमेज URL भाग।
+- **questions**: predicate, choice या score प्रकार के नाम वाले प्रश्न।
+- **options**: वैकल्पिक signal, timeoutMs, providers या cacheKey सेटिंग।
+
+सफलता पर result.status ok होता है। परिणाम में provider, model और प्रश्न के नाम से indexed answers होते हैं; cached और usage वैकल्पिक हैं। not_configured में missing_credentials कारण और providers की सूची होती है। failed में typed कारण होता है और provider तथा questionNames वैकल्पिक रूप से हो सकते हैं। caching केवल cacheKey देने पर चालू होती है। cache का दायरा owner, संगठन, provider, model, cacheKey, input और questions से तय होता है। memory cache 60 सेकंड तक रहता है और इसमें अधिकतम 256 entries होती हैं। ok परिणाम में उन प्रश्नों के लिए questionFailures भी हो सकते हैं जिनके उत्तर गायब या अमान्य हैं। कॉलर को इन्हें नकारात्मक उत्तर नहीं, बल्कि विफल वर्गीकरण मानना चाहिए; सभी प्रश्न विफल होने पर answers खाली और questionFailures में सभी विफल प्रश्न हो सकते हैं।
+
+## क्षमता के अनुसार provider समर्थन
+
+प्रश्नों का समर्थन provider और model के अनुसार बदल सकता है। decide() क्षमता को ध्यान में रखता है, इसलिए यह न मानें कि हर provider हर प्रश्न प्रकार का समर्थन करता है। provider/model और प्रश्न प्रकार के संयोजन का विज्ञापन तभी करें जब उसे सत्यापित किया गया हो। सफल परिणाम बताता है कि किस provider और model ने उत्तर दिया।
+
+provider का डिफ़ॉल्ट क्रम deployment की साझा app configuration से आता है, हर workspace की अलग सेटिंग से नहीं। उस deployment द्वारा सेवा दिए जाने वाले सभी workspaces एक ही क्रम इस्तेमाल करते हैं, जब तक कोई call इसे `options.providers` से न बदल दे। डिफ़ॉल्ट रूप से Builder Jev, फिर personal Jev key और अंत में OpenAI आज़माए जाते हैं। अगर कोई provider कॉन्फ़िगर नहीं है, तो `decide()` `not_configured` लौटाता है। साझा app-config का `decisions.providerOrder` फ़ील्ड Jev और OpenAI का डिफ़ॉल्ट क्रम नियंत्रित करता है। `decisions.timeoutMs` एक निर्णय के लिए कुल समय बजट तय करता है। इसमें credentials की खोज और provider का execution शामिल है। सभी provider प्रयास इसी बजट को साझा करते हैं। इनके environment aliases `DECISIONS_PROVIDER_ORDER` (comma-separated) और `DECISIONS_TIMEOUT_MS` हैं। हर provider-विशिष्ट सीमा या कैश की कुंजी में provider और model दोनों शामिल करें, ताकि एक model का कैलिब्रेशन या परिणाम दूसरे के लिए दोबारा उपयोग न हो।
+प्रदाता की क्षमताएँ रूट पर निर्भर करती हैं। Builder Jev proxy `predicate`, `choice` और `score` प्रश्नों के लिए सत्यापित है। Jev `score` उत्तर proxy के `legend` और `probabilities` रिकॉर्ड का उपयोग करके OpenAI की तरह शून्य से शुरू होने वाला संभाव्यता-भारित अपेक्षित स्तर सूचकांक निकालते हैं। `getDecisionsStatus()` क्षमता सत्यापन की स्थिति और प्रत्येक क्षमता चालू है या नहीं, यह लौटाता है। स्थिति जाँच cancellation का सम्मान करती है और readiness जाँच के लिए कॉन्फ़िगर किया गया `decisions.timeoutMs` बजट इस्तेमाल करती है; समय पूरा होने पर जिन प्रदाताओं की जाँच जारी हो उन्हें `unknown` दिखाया जाता है। OpenAI Decisions API 2–10 क्रमबद्ध स्तरों वाले score प्रश्नों का समर्थन करती है; documented-shape fixtures अनुरोध और प्रतिक्रिया मैपिंग को कवर करते हैं।
+
+decide() वर्गीकरण या स्कोर लौटाता है जिसकी व्याख्या कॉल करने वाला करता है। ऐप डेटा में आगे कोई बदलाव करने के लिए अलग अधिकृत action का उपयोग करें।

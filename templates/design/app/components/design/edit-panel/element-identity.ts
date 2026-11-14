@@ -1,7 +1,6 @@
 import { useState } from "react";
 
 import type { ElementInfo } from "../types";
-import { roundToOneDecimal } from "./position-helpers";
 
 export function elementIdentityKey(element: ElementInfo): string {
   return [
@@ -52,7 +51,5 @@ export function deriveLockedAspectSize(
   px: number,
   ratio: number,
 ): number {
-  return axis === "width"
-    ? roundToOneDecimal(px / ratio)
-    : roundToOneDecimal(px * ratio);
+  return Math.round(axis === "width" ? px / ratio : px * ratio);
 }

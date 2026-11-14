@@ -3,10 +3,13 @@ import type { IncomingHttpHeaders } from "node:http";
 import {
   createError,
   getRequestHeader,
+  getRequestHeaders,
   getRequestIP,
   getRequestURL,
   type H3Event,
 } from "h3";
+
+import { isExplicitCorsAllowedOrigin } from "../shared/mcp-embed-headers.js";
 
 function isLoopbackAddress(address: string | undefined): boolean {
   return Boolean(
@@ -17,10 +20,24 @@ function isLoopbackAddress(address: string | undefined): boolean {
 }
 
 export function getForwardedRequestOrigin(event: H3Event): string {
-  const requestUrl = getRequestURL(event);
+  const headers: Partial<ReturnType<typeof getRequestHeaders>> =
+    getRequestHeaders(event);
+  return forwardedRequestOrigin(
+    getRequestURL(event),
+    headers["x-forwarded-host"],
+    headers["x-forwarded-proto"],
+    getRequestIP(event),
+  );
+}
+
+function forwardedRequestOrigin(
+  requestUrl: URL,
+  rawHost: string | undefined,
+  rawProto: string | undefined,
+  remoteAddress: string | undefined,
+): string {
   // Nitro does not pass Srvx's peer-checked proxy trust through to H3 events.
-  if (isLoopbackAddress(getRequestIP(event))) {
-    const rawHost = getRequestHeader(event, "x-forwarded-host");
+  if (isLoopbackAddress(remoteAddress)) {
     const headerHost = rawHost?.split(",")[0]?.trim();
     if (rawHost !== undefined && !headerHost) {
       throw createError({
@@ -28,7 +45,6 @@ export function getForwardedRequestOrigin(event: H3Event): string {
         statusMessage: "Invalid forwarded request origin",
       });
     }
-    const rawProto = getRequestHeader(event, "x-forwarded-proto");
     const defaultProto =
       process.env.NODE_ENV === "production"
         ? "https"
@@ -90,24 +106,19 @@ export function getForwardedRequestHostname(event: H3Event): string {
     .replace(/\.$/, "");
 }
 
-export function getForwardedRequestHostnameFromHeaders(
+export function getForwardedRequestOriginFromHeaders(
   headers: Headers | IncomingHttpHeaders,
   remoteAddress?: string,
+  protocol: "http:" | "https:" = "http:",
 ): string {
-  const forwardedHost = isLoopbackAddress(remoteAddress)
-    ? headers instanceof Headers
-      ? headers.get("x-forwarded-host")
-      : headers["x-forwarded-host"]
-    : undefined;
-  const rawHost =
-    forwardedHost ??
-    (headers instanceof Headers ? headers.get("host") : headers.host);
-  const firstHost = Array.isArray(rawHost)
-    ? rawHost[0]?.split(",")[0]?.trim()
-    : rawHost?.split(",")[0]?.trim();
-  if (!firstHost) throw new Error("Missing forwarded request hostname");
-
-  const origin = new URL(`https://${firstHost}`);
+  const header = (name: string) => {
+    const value =
+      headers instanceof Headers ? headers.get(name) : headers[name];
+    return Array.isArray(value) ? value.join(",") : (value ?? undefined);
+  };
+  const host = header("host");
+  if (!host) throw new Error("Missing request host");
+  const origin = new URL(`${protocol}//${host}`);
   if (
     origin.username ||
     origin.password ||
@@ -115,9 +126,14 @@ export function getForwardedRequestHostnameFromHeaders(
     origin.search ||
     origin.hash
   ) {
-    throw new Error("Invalid forwarded request hostname");
+    throw new Error("Invalid request host");
   }
-  return origin.hostname.toLowerCase().replace(/\.$/, "");
+  return forwardedRequestOrigin(
+    origin,
+    header("x-forwarded-host"),
+    header("x-forwarded-proto"),
+    remoteAddress,
+  );
 }
 
 function isLoopbackHost(host: string): boolean {
@@ -125,24 +141,48 @@ function isLoopbackHost(host: string): boolean {
 }
 
 /**
- * Stricter than `isSameOriginRequest`, for a POST that writes cookies: a
- * request with neither header, a navigation, or a desktop shell's origin
- * can't prove it came from this site's pages.
+ * An origin the operator listed in `CORS_ALLOWED_ORIGINS` is the app's own UI
+ * served from elsewhere (`runtime.apiBaseUrl`), so the first-party checks
+ * below admit it.
  */
-export function isSameOriginPost(event: H3Event): boolean {
+function isListedUiOrigin(event: H3Event): boolean {
+  const origin = getRequestHeader(event, "origin");
+  return !!origin && isExplicitCorsAllowedOrigin(origin);
+}
+
+/** Positive origin evidence must be paired with browser-cookie identity for UI proof. */
+export function hasSameOriginBrowserEvidence(event: H3Event): boolean {
+  if (isListedUiOrigin(event)) return true;
   const fetchSite = getRequestHeader(event, "sec-fetch-site");
   if (fetchSite) return fetchSite === "same-origin";
   const origin = getRequestHeader(event, "origin");
   return !!origin && origin === getForwardedRequestOrigin(event);
 }
 
+/** A cookie-writing POST requires positive origin evidence. */
+export function isSameOriginPost(event: H3Event): boolean {
+  return hasSameOriginBrowserEvidence(event);
+}
+
+function isDesktopAppOrigin(origin: string | undefined): boolean {
+  if (!origin || !URL.canParse(origin)) return false;
+  const parsed = new URL(origin);
+  return parsed.protocol === "tauri:" && parsed.hostname === "localhost";
+}
+
 export function isSameOriginRequest(event: H3Event): boolean {
+  if (isListedUiOrigin(event)) return true;
+  const origin = getRequestHeader(event, "origin");
+  const host = getRequestHeader(event, "host");
+  // WebKit marks every request from the desktop app's tauri:// page
+  // Sec-Fetch-Site: cross-site, so this origin is admitted before fetch
+  // metadata decides. No web page can send it: browsers set Origin themselves.
+  if (host && isDesktopAppOrigin(origin)) return true;
   const fetchSite = getRequestHeader(event, "sec-fetch-site");
   if (fetchSite) return fetchSite === "same-origin" || fetchSite === "none";
 
-  const host = getRequestHeader(event, "host");
-  const origin = getRequestHeader(event, "origin");
-  if (origin && host) {
+  if (origin) {
+    if (!host) return false;
     try {
       const parsed = new URL(origin);
       const forwardedProto = getRequestHeader(event, "x-forwarded-proto");
@@ -155,9 +195,6 @@ export function isSameOriginRequest(event: H3Event): boolean {
         : parsed.protocol === "https:" ||
           (parsed.protocol === "http:" && isLoopbackHost(host));
       if (parsed.host === host && matchesScheme) return true;
-      if (parsed.protocol === "tauri:" && parsed.hostname === "localhost") {
-        return true;
-      }
       if (
         (parsed.protocol === "http:" || parsed.protocol === "https:") &&
         parsed.hostname === "tauri.localhost" &&

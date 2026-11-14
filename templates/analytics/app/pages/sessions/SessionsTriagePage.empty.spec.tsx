@@ -505,6 +505,44 @@ describe("Sessions empty states", () => {
     expect(container.textContent).not.toContain("anon_test_browser_id");
   });
 
+  it("filters by traffic and marks each session with its own", async () => {
+    mocks.total = 3;
+    mocks.recordings = [
+      { ...recording("r1"), hostname: "beta.slides.agent-native.com" },
+      { ...recording("r2"), hostname: "slides.agent-native.com" },
+      { ...recording("r3"), hostname: null },
+    ];
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/sessions?environment=beta"]}>
+          <SessionsTriagePage />
+        </MemoryRouter>,
+      );
+    });
+
+    expect(listCalls().map(([, args]) => args.environment)).toContain("beta");
+    const rowText = (id: string) =>
+      container.querySelector(`a[href*="/sessions/${id}"]`)?.textContent;
+    expect(rowText("r1")).toContain("sessions.betaTraffic");
+    expect(rowText("r2")).toContain("sessions.productionTraffic");
+    expect(rowText("r3")).not.toContain("sessions.betaTraffic");
+    expect(rowText("r3")).not.toContain("sessions.productionTraffic");
+  });
+
+  it("ignores a traffic value it doesn't know", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/sessions?environment=staging"]}>
+          <SessionsTriagePage />
+        </MemoryRouter>,
+      );
+    });
+
+    expect(new Set(listCalls().map(([, args]) => args.environment))).toEqual(
+      new Set([undefined]),
+    );
+  });
+
   it("keeps the list and offers a retry when row friction fails to load", async () => {
     mocks.labEnabled = true;
     mocks.total = 1;
@@ -728,6 +766,29 @@ describe("Sessions empty states", () => {
     expect(
       Array.from(container.querySelectorAll("button")).some(
         (button) => button.textContent === "sessions.speed",
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps a shared unused filter out of the query while the Lab is off", async () => {
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={["/sessions?unused=slides"]}>
+          <SessionsTriagePage />
+        </MemoryRouter>,
+      );
+    });
+
+    for (const [, args] of mocks.useActionQuery.mock.calls as unknown as [
+      string,
+      Record<string, unknown>,
+    ][]) {
+      expect(args).not.toHaveProperty("unused", expect.anything());
+    }
+    expect(container.textContent).toContain("sessions.unusedFilterNeedsLab");
+    expect(
+      Array.from(container.querySelectorAll("button")).some(
+        (button) => button.textContent === "sessions.unusedOutputs",
       ),
     ).toBe(false);
   });

@@ -1,7 +1,14 @@
 import type { ResourceSuggestion } from "@agent-native/core/review";
 import { canonicalizeNfm } from "@shared/nfm";
-import { markdownSuggestionOperations } from "@shared/suggestion-diff";
-import { SuggestionFormattingMappingError } from "@shared/suggestion-formatting";
+import {
+  joinRewrittenParagraphs,
+  markdownSuggestionOperations,
+  type MarkdownSuggestionOperation,
+} from "@shared/suggestion-diff";
+import {
+  SuggestionFormattingMappingError,
+  suggestionSourceAlignment,
+} from "@shared/suggestion-formatting";
 import {
   resolveMarkdownSuggestionRange,
   resolveOutsideChange,
@@ -75,6 +82,18 @@ function intersects(left: Range, right: Range) {
     : left.from < right.to && left.to > right.from;
 }
 
+// An edit that only touches another, even an insertion at another insertion's
+// offset, still has one place beside it.
+function overlaps(left: Range, right: Range) {
+  return left.from < right.to && left.to > right.from;
+}
+
+// Acceptance holds every accepted range fixed and places a pending edit in the
+// first stretch of text between them that contains it.
+function placedAfter(change: Range, target: Range) {
+  return change.to <= target.from && change.from < target.to;
+}
+
 function reconstruct(before: string, changes: Change[]) {
   let cursor = 0;
   let result = "";
@@ -115,24 +134,42 @@ function verifiedTransition(transition: SuggestionPresentationTransition) {
 
 // Saved operations keep their identity across renders, and each one diffs a
 // full Page, so a Page with many suggestions reuses the result.
-const preciseOperationsBySaved = new WeakMap<
+const presentationOperationsBySaved = new WeakMap<
   object,
-  ReturnType<typeof computePreciseSuggestionPresentationOperations>
+  ReturnType<typeof computeSuggestionPresentationOperations>
 >();
 
+function suggestionPresentationOperations(operation: MarkdownOperation) {
+  const cached = presentationOperationsBySaved.get(operation);
+  if (cached !== undefined) return cached;
+  const computed = computeSuggestionPresentationOperations(operation);
+  presentationOperationsBySaved.set(operation, computed);
+  return computed;
+}
+
+/** A saved operation cut down to the words each of its changes touches. */
 export function preciseSuggestionPresentationOperations(
   operation: MarkdownOperation,
 ) {
-  if (preciseOperationsBySaved.has(operation))
-    return preciseOperationsBySaved.get(operation)!;
-  const precise = computePreciseSuggestionPresentationOperations(operation);
-  preciseOperationsBySaved.set(operation, precise);
-  return precise;
+  const computed = suggestionPresentationOperations(operation);
+  return computed ? computed.precise : null;
 }
 
-function computePreciseSuggestionPresentationOperations(
+/**
+ * The changes to draw for a saved operation: its precise changes, with each
+ * paragraph they mostly rewrite drawn as one. Storing joins such a paragraph,
+ * so drawing it split would show word pieces after all. Rebasing keeps the
+ * precise changes: a joined change also covers the words it keeps, so another
+ * edit to those words would seem to collide with it.
+ */
+export function drawnSuggestionPresentationOperations(
   operation: MarkdownOperation,
 ) {
+  const computed = suggestionPresentationOperations(operation);
+  return computed ? computed.drawn : null;
+}
+
+function computeSuggestionPresentationOperations(operation: MarkdownOperation) {
   const identity = operation as MarkdownOperation & {
     targetId?: unknown;
     kind?: unknown;
@@ -156,33 +193,41 @@ function computePreciseSuggestionPresentationOperations(
   )
     return null;
   try {
-    const precise = markdownSuggestionOperations(
+    const siblings =
+      (operation.anchor as { siblingRanges?: Range[] }).siblingRanges ?? [];
+    const spans = (pieces: MarkdownSuggestionOperation[]) => {
+      const changes = pieces.map((span) => ({
+        from: span.anchor.from,
+        to: span.anchor.to,
+        beforeText: span.before.changedText,
+        afterText: span.after.changedText,
+      }));
+      if (
+        pieces.length === 0 ||
+        changes.some(
+          (span) =>
+            span.from < checked.range.from || span.to > checked.range.to,
+        ) ||
+        reconstruct(checked.before.markdown, changes) !== checked.after.markdown
+      )
+        return null;
+      return pieces.map((span) => ({
+        ...span,
+        anchor: {
+          ...span.anchor,
+          siblingRanges: [...(span.anchor.siblingRanges ?? []), ...siblings],
+        },
+      }));
+    };
+    const pieces = markdownSuggestionOperations(
       checked.before.markdown,
       checked.after.markdown,
     );
-    const changes = precise.map((span) => ({
-      from: span.anchor.from,
-      to: span.anchor.to,
-      beforeText: span.before.changedText,
-      afterText: span.after.changedText,
-    }));
-    if (
-      precise.length === 0 ||
-      changes.some(
-        (span) => span.from < checked.range.from || span.to > checked.range.to,
-      ) ||
-      reconstruct(checked.before.markdown, changes) !== checked.after.markdown
-    )
-      return null;
-    const siblings =
-      (operation.anchor as { siblingRanges?: Range[] }).siblingRanges ?? [];
-    return precise.map((span) => ({
-      ...span,
-      anchor: {
-        ...span.anchor,
-        siblingRanges: [...(span.anchor.siblingRanges ?? []), ...siblings],
-      },
-    }));
+    const precise = spans(pieces);
+    if (!precise) return null;
+    const joined = joinRewrittenParagraphs(checked.before.markdown, pieces);
+    const drawn = joined === pieces ? precise : spans(joined);
+    return { precise, drawn: drawn ?? precise };
   } catch (error) {
     if (!(error instanceof SuggestionFormattingMappingError)) throw error;
     return null;
@@ -234,6 +279,40 @@ export function createObservedSuggestionPresentationTransition(
   return verifiedTransition(transition) ? transition : null;
 }
 
+// A draft's operations address the stored Page, but the editor shows them on
+// the Page's canonical form, which can differ, as a pipe table does.
+export function createDraftSuggestionPresentationTransition(
+  drafts: Array<Pick<ResourceSuggestion, "operations">>,
+  draftMarkdown: string,
+): SuggestionPresentationTransition | null {
+  const operations = drafts.flatMap((draft) => draft.operations);
+  const base =
+    operations[0] && checkedOperation(operations[0])?.before.markdown;
+  const alignment = base === undefined ? null : suggestionSourceAlignment(base);
+  if (!alignment) return null;
+  const changes: Change[] = [];
+  for (const operation of operations) {
+    const checked = checkedOperation(operation);
+    if (!checked || checked.before.markdown !== base) return null;
+    const from = alignment.map(checked.range.from, "stored");
+    const to = alignment.map(checked.range.to, "stored");
+    if (from === null || to === null) return null;
+    changes.push({
+      from,
+      to,
+      beforeText: alignment.canonical.slice(from, to),
+      afterText: checked.after.changedText,
+    });
+  }
+  changes.sort((left, right) => left.from - right.from || left.to - right.to);
+  const transition = {
+    before: alignment.canonical,
+    after: draftMarkdown,
+    changes,
+  };
+  return verifiedTransition(transition) ? transition : null;
+}
+
 function dependentOperation(
   operation: MarkdownOperation,
   transition: SuggestionPresentationTransition,
@@ -243,7 +322,7 @@ function dependentOperation(
   if (
     !checked ||
     checked.before.markdown !== transition.before ||
-    transition.changes.some((change) => intersects(checked.range, change))
+    transition.changes.some((change) => overlaps(checked.range, change))
   )
     return null;
   return checked;
@@ -356,6 +435,44 @@ export function retainCommittedSuggestionPresentationTransitions(
   return next;
 }
 
+function placesOnResult(
+  operation: MarkdownOperation,
+  transition: SuggestionPresentationTransition,
+) {
+  const precise = dependentPresentationOperations(operation, transition);
+  return (
+    precise !== null &&
+    precise.every(
+      (span) =>
+        resolveSuggestionPresentationRange(
+          transition.after,
+          span,
+          transition,
+        ) !== null,
+    )
+  );
+}
+
+// A piece can depend on several accepted edits at once, such as the rest of its
+// own edit and a neighboring one. None of them alone explains the Page then, but
+// together they can. Records that only repeat one another add no proof.
+function jointTransition(
+  operation: MarkdownOperation,
+  transitions: SuggestionPresentationTransition[],
+) {
+  const [first = null, ...rest] = transitions;
+  if (!first || rest.length === 0) return null;
+  const joint = rest.reduce<SuggestionPresentationTransition | null>(
+    (all, transition) => all && combinePresentationTransitions(all, transition),
+    first,
+  );
+  return joint &&
+    transitions.every(({ changes }) => joint.changes.length > changes.length) &&
+    placesOnResult(operation, joint)
+    ? joint
+    : null;
+}
+
 export function hydrateSuggestionPresentationTransitions(
   current: SuggestionPresentationTransitions,
   suggestions: PendingSuggestion[],
@@ -407,22 +524,13 @@ export function hydrateSuggestionPresentationTransitions(
   let next: Map<string, SuggestionPresentationTransition> | undefined;
   for (const suggestion of missing) {
     const operation = suggestion.operations[0]!;
-    const matching = candidates.filter((transition) => {
-      const precise = dependentPresentationOperations(operation, transition);
-      return (
-        precise &&
-        precise.every(
-          (span) =>
-            resolveSuggestionPresentationRange(
-              transition.after,
-              span,
-              transition,
-            ) !== null,
-        )
-      );
-    });
-    if (matching.length !== 1) continue;
-    const transition = matching[0]!;
+    const matching = candidates.filter((transition) =>
+      placesOnResult(operation, transition),
+    );
+    const [only, ...others] = matching;
+    const transition =
+      others.length === 0 ? only : jointTransition(operation, matching);
+    if (!transition) continue;
     const precise = dependentPresentationOperations(operation, transition)!;
     if (
       canonical !== canonicalizeNfm(transition.before) &&
@@ -480,7 +588,7 @@ export function resolveSuggestionPresentationRange(
     .sort((left, right) => left.from - right.from || left.to - right.to);
   const union: Range[] = [];
   for (const sibling of siblings) {
-    if (intersects(checked.range, sibling)) return null;
+    if (overlaps(checked.range, sibling)) return null;
     const previous = union[union.length - 1];
     if (previous && sibling.from <= previous.to)
       previous.to = Math.max(previous.to, sibling.to);
@@ -492,7 +600,7 @@ export function resolveSuggestionPresentationRange(
   });
   // Masked context must agree with the exact committed edits and unchanged target.
   const shift = transition.changes
-    .filter((change) => change.to <= checked.range.from)
+    .filter((change) => placedAfter(change, checked.range))
     .reduce(
       (delta, change) =>
         delta + change.afterText.length - change.beforeText.length,
@@ -551,4 +659,33 @@ export function resolveSuggestionPresentationRange(
       suffix: source.slice(projectedRange.to, projectedRange.to + 32),
     },
   });
+}
+
+// Text typed at a saved suggestion's spot splits the context that places it on
+// the draft, so place it on the draft's base and carry it across the draft's
+// edits. The editor maps a highlight past text typed at its position, so a
+// saved edit stays after a draft insertion at the same offset.
+export function resolveSuggestionPresentationRangeInDraft(
+  draft: SuggestionPresentationTransition,
+  operation: MarkdownOperation,
+  transition?: SuggestionPresentationTransition,
+  observedTransition?: SuggestionPresentationTransition,
+): Range | null {
+  if (!verifiedTransition(draft)) return null;
+  const range = resolveSuggestionPresentationRange(
+    draft.before,
+    operation,
+    transition,
+    observedTransition,
+  );
+  if (!range || draft.changes.some((change) => overlaps(range, change)))
+    return null;
+  const shift = draft.changes
+    .filter((change) => change.to <= range.from)
+    .reduce(
+      (delta, change) =>
+        delta + change.afterText.length - change.beforeText.length,
+      0,
+    );
+  return { from: range.from + shift, to: range.to + shift };
 }

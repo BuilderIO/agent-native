@@ -1,12 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { pathToFileURL } from "node:url";
 
 import { Client } from "@modelcontextprotocol/client";
 import { InMemoryTransport } from "@modelcontextprotocol/server";
 import { createApp } from "h3";
 import { vi } from "vitest";
 
+import { workspaceRoot } from "../../vitest.workspace-root.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
   coreActionLoaderEntries,
@@ -16,15 +17,13 @@ import { generateActionRegistryForProject } from "../vite/action-types-plugin.js
 import { createMCPServerForRequest, type MCPConfig } from "./build-server.js";
 import { getBuiltinCrossAppTools } from "./builtin-tools.js";
 
-export const repoRoot = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "../../../../",
-);
+export const repoRoot = workspaceRoot;
 
 export const LOAD_TIMEOUT_MS = 600_000;
 
 export interface AdvertisedTool {
   name: string;
+  _meta?: Record<string, unknown>;
   annotations: {
     readOnlyHint?: boolean;
     destructiveHint?: boolean;
@@ -273,8 +272,31 @@ function createCloseHooks() {
 
 export async function listAdvertised(
   config: MCPConfig,
-  request: { fullCatalog: boolean; fullSurface: boolean },
+  request: {
+    fullCatalog: boolean;
+    fullSurface: boolean;
+    inlineMcpApps?: boolean;
+  },
 ): Promise<{ tools: AdvertisedTool[]; instructions: string }> {
+  return withCatalogClient(config, request, async (client) => ({
+    tools: (await client.listTools()).tools.map((tool) => ({
+      name: tool.name,
+      annotations: { ...(tool.annotations ?? {}) },
+      ...(request.inlineMcpApps ? { _meta: tool._meta } : {}),
+    })),
+    instructions: client.getInstructions() ?? "",
+  }));
+}
+
+export async function withCatalogClient<T>(
+  config: MCPConfig,
+  request: {
+    fullCatalog: boolean;
+    fullSurface: boolean;
+    inlineMcpApps?: boolean;
+  },
+  inspect: (client: Client) => Promise<T>,
+): Promise<T> {
   const server = await createMCPServerForRequest(
     config,
     {
@@ -285,7 +307,7 @@ export async function listAdvertised(
     },
     {
       transport: "http",
-      inlineMcpApps: false,
+      inlineMcpApps: request.inlineMcpApps ?? false,
       ...(request.fullCatalog ? { fullCatalog: true } : {}),
       ...(request.fullSurface ? { fullSurface: true } : {}),
     },
@@ -297,13 +319,12 @@ export async function listAdvertised(
     client.connect(clientTransport),
     server.connect(serverTransport),
   ]);
-  const tools = (await client.listTools()).tools.map((tool) => ({
-    name: tool.name,
-    annotations: { ...(tool.annotations ?? {}) },
-  }));
-  const instructions = client.getInstructions() ?? "";
-  await client.close();
-  return { tools, instructions };
+  try {
+    return await inspect(client);
+  } finally {
+    await client.close();
+    await server.close();
+  }
 }
 
 // Runs the app's plugin once under the surface's environment and returns the
@@ -396,6 +417,11 @@ export async function loadAppCatalogs(
 ): Promise<AppCatalog[]> {
   await assertCoreActionLoadersAreValid();
   stubPluginSideEffects();
+  // Each mount's default-plugin bootstrap runs unawaited, so they overlap, and
+  // overlapping first imports of a mocked module can resolve the real one. The
+  // real integrations plugin starts retry timers that outlive each app's
+  // database, so resolve its mock once before any plugin runs.
+  await import("../integrations/plugin.js");
   const results: AppCatalog[] = [];
   try {
     for (const appId of templateIdsWithAgentChat()) {

@@ -35,7 +35,7 @@ function rewriteUrlIdReferences(value: string, idMap: Map<string, string>) {
 
 export function reassignClonedAuthoredIds(
   root: Element,
-  createId: () => string,
+  createId: (previousId: string) => string,
   isTaken: (id: string) => boolean = () => true,
 ): Map<string, string> {
   const elements = allElements(root);
@@ -49,7 +49,7 @@ export function reassignClonedAuthoredIds(
       keptIds.add(previousId);
       continue;
     }
-    const nextId = createId();
+    const nextId = createId(previousId);
     element.setAttribute("id", nextId);
     if (!idMap.has(previousId) && !keptIds.has(previousId)) {
       idMap.set(previousId, nextId);

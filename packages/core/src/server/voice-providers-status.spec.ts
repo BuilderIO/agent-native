@@ -1,7 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { sessionResolutionFailure } from "./session-resolution-errors.js";
+
 const mockGetSession = vi.fn();
-const mockResolveHasCompleteBuilderConnection = vi.fn();
+const mockResolveBuilderGatewayAuth = vi.fn();
 const mockResolveSecret = vi.fn();
 const mockPrefetchSecrets = vi.fn();
 const mockGetOrgContext = vi.fn();
@@ -24,8 +26,8 @@ vi.mock("./auth.js", () => ({
 
 vi.mock("./credential-provider.js", () => ({
   prefetchSecrets: (...args: any[]) => mockPrefetchSecrets(...args),
-  resolveHasCompleteBuilderConnection: (...args: any[]) =>
-    mockResolveHasCompleteBuilderConnection(...args),
+  resolveBuilderGatewayAuth: (...args: any[]) =>
+    mockResolveBuilderGatewayAuth(...args),
   resolveSecret: (...args: any[]) => mockResolveSecret(...args),
   // The Gemini key resolves through the alias resolver, which reads each name
   // in detail. Same answers as `resolveSecret`, so one mock drives both.
@@ -73,7 +75,7 @@ describe("voice providers status route", () => {
     mockGetSession.mockResolvedValue({ email: "voice+qa@example.com" });
     mockResolveSecret.mockResolvedValue(null);
     mockPrefetchSecrets.mockResolvedValue(undefined);
-    mockResolveHasCompleteBuilderConnection.mockResolvedValue(false);
+    mockResolveBuilderGatewayAuth.mockResolvedValue(null);
     mockGetOrgContext.mockResolvedValue({ orgId: "org-123" });
     mockResolveGoogleRealtimeCredentials.mockResolvedValue(null);
     mockReadServiceProviderChoice.mockResolvedValue(null);
@@ -87,8 +89,34 @@ describe("voice providers status route", () => {
     }
   });
 
+  it.each([
+    { code: "57014", status: 503 },
+    { code: "42501", status: 500 },
+  ])(
+    "preserves org lookup failure $code before scoped work",
+    async ({ code, status }) => {
+      const cause = Object.assign(new Error("Fake membership lookup failure"), {
+        code,
+      });
+      const error = sessionResolutionFailure(cause);
+      mockGetOrgContext.mockRejectedValue(error);
+
+      await expect(createVoiceProvidersStatusHandler()(event())).rejects.toBe(
+        error,
+      );
+      expect(error).toMatchObject({ statusCode: status, cause });
+      expect(mockResolveSecret).not.toHaveBeenCalled();
+      expect(mockPrefetchSecrets).not.toHaveBeenCalled();
+      expect(mockReadServiceProviderChoice).not.toHaveBeenCalled();
+    },
+  );
+
   it("reports user secrets and fallback credentials without returning key material", async () => {
-    mockResolveHasCompleteBuilderConnection.mockResolvedValue(true);
+    mockResolveBuilderGatewayAuth.mockResolvedValue({
+      authorization: "Bearer bpk-secret",
+      spaceId: "space-1",
+      userId: null,
+    });
     mockResolveSecret.mockImplementation(async (key: string) =>
       key === "OPENAI_API_KEY"
         ? "sk-openai-secret"
@@ -170,7 +198,7 @@ describe("voice providers status route", () => {
     });
   });
 
-  it("suppresses Google realtime when the configured credential path is unreadable", async () => {
+  it("flags Google realtime as unread when the configured credential path is unreadable", async () => {
     mockResolveGoogleRealtimeCredentials.mockRejectedValue(
       new Error("unreadable"),
     );
@@ -180,6 +208,38 @@ describe("voice providers status route", () => {
 
     expect(result).toMatchObject({
       googleRealtime: false,
+      credentialLookupFailed: ["googleRealtime"],
+    });
+  });
+
+  it("counts a Builder OAuth sign-in the way the voice route does", async () => {
+    // An OAuth session has an access token and no stored key pair.
+    mockResolveBuilderGatewayAuth.mockResolvedValue({
+      authorization: "Bearer oauth-access-token",
+      spaceId: null,
+      userId: null,
+    });
+
+    const result = await createVoiceProvidersStatusHandler()(event());
+
+    expect(result).toMatchObject({ builder: true });
+    expect(result).not.toHaveProperty("credentialLookupFailed");
+    expect(JSON.stringify(result)).not.toContain("oauth-access-token");
+  });
+
+  it("flags an unreadable Builder credential instead of reporting it disconnected", async () => {
+    mockResolveBuilderGatewayAuth.mockRejectedValue(new Error("db timeout"));
+    mockResolveSecret.mockImplementation(async (key: string) => {
+      if (key === "OPENAI_API_KEY") throw new Error("vault down");
+      return null;
+    });
+
+    const result = await createVoiceProvidersStatusHandler()(event());
+
+    expect(result).toMatchObject({
+      builder: false,
+      openai: false,
+      credentialLookupFailed: expect.arrayContaining(["builder", "openai"]),
     });
   });
 

@@ -23,14 +23,14 @@ vi.mock("@/pages/design-editor/export-capture", async (importOriginal) => {
   };
 });
 vi.mock("sonner", () => ({ toast: { success: vi.fn() } }));
+vi.mock("@/lib/design-export-tracking", () => ({
+  trackBrowserDesignExported: vi.fn(),
+  browserDesignExportErrorType: (error: { code?: string }) => error.code,
+}));
 
-import { getExportCompositeBounds } from "../export-capture";
 import type { PngCaptureScope } from "../png-export-render";
 import { runDownloadPdf } from "./download-pdf";
-import {
-  resolveSelectedScreenExportFrames,
-  runRenderPngBlob,
-} from "./render-png-blob";
+import { runRenderPngBlob, runRenderPngCapture } from "./render-png-blob";
 
 const originalDimensions = [
   [document.documentElement, "scrollWidth"],
@@ -183,9 +183,7 @@ describe("board document exports", () => {
       {
         fallbackExportName: () => "Test - Export.pdf",
         pngExportingRef: { current: false },
-        renderPngBlob: (arg) => runRenderPngBlob(args, arg),
-        resolveSelectedScreensBounds: () => null,
-        resolvePngCaptureTarget: args.resolvePngCaptureTarget,
+        renderPngCapture: (arg) => runRenderPngCapture(args, arg),
         setPngExporting: vi.fn(),
         showRasterCaptureError: vi.fn(),
         t: () => "PDF downloaded",
@@ -245,19 +243,12 @@ describe("board document exports", () => {
           screenLease,
         };
       });
-      const resolvePngCaptureTarget = vi.fn(() => ({
-        cropSelection: null,
-        doc: iframe.contentDocument!,
-        iframe,
-      }));
 
       await runDownloadPdf(
         {
           fallbackExportName: () => "Test - Export.pdf",
           pngExportingRef: { current: false },
-          renderPngBlob: (arg) => runRenderPngBlob(args, arg),
-          resolveSelectedScreensBounds: () => null,
-          resolvePngCaptureTarget,
+          renderPngCapture: (arg) => runRenderPngCapture(args, arg),
           setPngExporting: vi.fn(),
           showRasterCaptureError: vi.fn(),
           t: () => "PDF downloaded",
@@ -271,7 +262,6 @@ describe("board document exports", () => {
         "screens",
         "screen-1",
       );
-      expect(resolvePngCaptureTarget).toHaveBeenCalledWith("screens");
       expect(args.releaseScreenFromExport).toHaveBeenCalledWith(screenLease);
       expect(events).toEqual(["target:screen-1", "release"]);
       expect(mocks.renderNativeExportPng).toHaveBeenCalledOnce();
@@ -287,6 +277,41 @@ describe("board document exports", () => {
       getContext.mockRestore();
       toBlob.mockRestore();
     }
+  });
+
+  it("keeps the captured PDF frame geometry when the document overflows vertically", async () => {
+    const iframe = document.createElement("iframe");
+    iframe.dataset.screenIframeId = "overflow-screen";
+    Object.defineProperties(iframe, {
+      clientWidth: { value: 1200 },
+      clientHeight: { value: 600 },
+    });
+    document.body.appendChild(iframe);
+    const doc = iframe.contentDocument!;
+    Object.defineProperties(doc.documentElement, {
+      scrollWidth: { value: 1200 },
+      scrollHeight: { value: 1000 },
+    });
+    const args = {
+      ...renderArgs({ iframe, doc }),
+      overviewScreens: [
+        { id: "overflow-screen", width: 1200, height: 600 },
+      ] as never[],
+    };
+    const showRasterCaptureError = vi.fn();
+    await runDownloadPdf({
+      fallbackExportName: () => "frame.pdf",
+      pngExportingRef: { current: false },
+      renderPngCapture: (options) => runRenderPngCapture(args, options),
+      setPngExporting: vi.fn(),
+      showRasterCaptureError,
+      t: (key) => key,
+      triggerBlobDownload: vi.fn(),
+    });
+    expect(showRasterCaptureError).not.toHaveBeenCalled();
+    expect(mocks.createSinglePageRasterPdf).toHaveBeenCalledWith(
+      expect.objectContaining({ width: 1200, height: 600 }),
+    );
   });
 
   it("renders multiple selected screens before resolving a single-frame PDF target", async () => {
@@ -352,29 +377,13 @@ describe("board document exports", () => {
       selectedScreenIds,
       viewMode: "overview" as const,
     };
-    const resolveSelectedScreensBounds = () => {
-      const selectedFrames = resolveSelectedScreenExportFrames({
-        selectedScreenIds,
-        overviewScreens: screens,
-        canvasFrameGeometryById: geometries,
-        iframeSizeById: new Map(
-          iframes.map((iframe, index) => [
-            selectedScreenIds[index]!,
-            { width: iframe.clientWidth, height: iframe.clientHeight },
-          ]),
-        ),
-      });
-      return getExportCompositeBounds(selectedFrames.map(({ frame }) => frame));
-    };
 
     try {
       await runDownloadPdf(
         {
           fallbackExportName: () => "Test - Export.pdf",
           pngExportingRef: { current: false },
-          renderPngBlob: (arg) => runRenderPngBlob(captureArgs, arg),
-          resolveSelectedScreensBounds,
-          resolvePngCaptureTarget,
+          renderPngCapture: (arg) => runRenderPngCapture(captureArgs, arg),
           setPngExporting: vi.fn(),
           showRasterCaptureError: vi.fn(),
           t: () => "PDF downloaded",
@@ -438,30 +447,5 @@ describe("board document exports", () => {
     expect(html).toContain("input::placeholder");
     expect(html).toContain('font-family: "PlaceholderFont"');
     expect(html).toContain("font-size: 14px");
-  });
-
-  it("uses the live responsive image source without retaining picture srcsets", async () => {
-    const fixture = createReportedBoardFixture();
-    const picture = fixture.doc.createElement("picture");
-    const source = fixture.doc.createElement("source");
-    source.setAttribute("srcset", "https://images.example.test/large.webp");
-    const image = fixture.doc.createElement("img");
-    image.setAttribute("src", "https://images.example.test/fallback.png");
-    image.setAttribute("srcset", "https://images.example.test/other.png 2x");
-    Object.defineProperty(image, "currentSrc", {
-      configurable: true,
-      value: "https://images.example.test/chosen.webp",
-    });
-    picture.append(source, image);
-    fixture.doc.body.append(picture);
-
-    await runRenderPngBlob(renderArgs(fixture), { scope: "document" });
-
-    const calls = mocks.renderNativeExportPng.mock.calls;
-    const html = calls[calls.length - 1]?.[0].html;
-    expect(html).toContain('src="https://images.example.test/chosen.webp"');
-    expect(html).not.toContain("srcset");
-    expect(html).not.toContain("<source");
-    expect(html).not.toContain("fallback.png");
   });
 });

@@ -1,4 +1,5 @@
 import type { ReasoningEffort } from "../../shared/reasoning-effort.js";
+import type { UnknownWriteCause } from "../types.js";
 
 export class EngineError extends Error {
   readonly errorCode?: string;
@@ -45,11 +46,13 @@ export interface EngineTool {
     [key: string]: unknown;
   };
   providerOptions?: Record<string, unknown>;
+  eagerInputStreaming?: boolean;
 }
 
 export interface EngineTextPart {
   type: "text";
   text: string;
+  omitFromPersistedHistory?: true;
 }
 
 export interface EngineImagePart {
@@ -72,6 +75,7 @@ export interface EngineToolCallPart {
   input: unknown;
   executionStepId?: string;
   inputFingerprint?: string;
+  omitFromPersistedHistory?: true;
 }
 
 export interface EngineToolResultImagePart {
@@ -93,7 +97,10 @@ export interface EngineToolResultPart {
   approvalPause?: boolean;
   approvalAskId?: string;
   outcome?: "unknown";
+  /** With `outcome`: what its event recorded left it unknown. */
+  unknownCause?: UnknownWriteCause;
   images?: EngineToolResultImagePart[];
+  omitFromPersistedHistory?: true;
 }
 
 export interface EngineThinkingPart {

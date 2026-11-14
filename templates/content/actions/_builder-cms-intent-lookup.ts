@@ -67,6 +67,8 @@ export async function lookupBuilderCmsSafeModelIntent(args: {
   marker?: string;
   exactTitle?: string;
   intendedFields?: Record<string, unknown>;
+  expectedSourceSpace?: string | null;
+  expectedSourceConnectionId?: string | null;
 }) {
   if (!args.marker && !args.exactTitle) {
     throw new Error("Provide an exact execution marker or exact title.");
@@ -74,8 +76,10 @@ export async function lookupBuilderCmsSafeModelIntent(args: {
   const result = await readBuilderCmsContentEntries({
     model: BUILDER_CMS_SAFE_WRITE_MODEL,
     rawData: true,
-    requirePrivateKey: true,
+    requireBoundOAuth: true,
     limit: 10_000,
+    expectedSourceSpace: args.expectedSourceSpace,
+    expectedSourceConnectionId: args.expectedSourceConnectionId,
   });
   if (result.state !== "live" || result.progress.partial) {
     throw new Error(

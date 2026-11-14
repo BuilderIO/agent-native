@@ -1,0 +1,260 @@
+#!/usr/bin/env node
+// Proves a fix: the given command passes on HEAD and fails with the fix's
+// non-test changes put back to what they were before it.
+//
+//   node scripts/fix-proof.ts --fix <commit> -- <command...>   one report's fix
+//   node scripts/fix-proof.ts [--base <ref>] -- <command...>   the whole branch
+//
+// Run from the repo root. A check helper this branch adds and the command
+// runs (`node scripts/check-x.ts`) stays at HEAD, like tests.
+//
+// Exit 0: proven (green on HEAD, red on base). Exit 1: not proven (red on
+// HEAD, or the check still passes without the fix). Exit 2: could not run
+// (dirty tree, no source changes, git failure, check missing on base).
+// A test-only change has nothing to prove; the feedback gate passes it.
+// Only a command the gate can re-run gets a `fix-proof: proven` line.
+import { spawnSync } from "node:child_process";
+import {
+  chmodSync,
+  lstatSync,
+  mkdirSync,
+  readdirSync,
+  realpathSync,
+  rmdirSync,
+  symlinkSync,
+  unlinkSync,
+  writeFileSync,
+} from "node:fs";
+import { dirname } from "node:path";
+
+import { parseProofCommand, TEST_PATH } from "./feedback-fix-proof.ts";
+
+const argv = process.argv.slice(2);
+const dash = argv.indexOf("--");
+const opts = dash === -1 ? argv : argv.slice(0, dash);
+const command = dash === -1 ? [] : argv.slice(dash + 1);
+const baseFlag = opts.indexOf("--base");
+const fixFlag = opts.indexOf("--fix");
+
+function couldNotRun(message: string): never {
+  console.error(`fix-proof: could not run: ${message}`);
+  process.exit(2);
+}
+
+function tryGit(...args: string[]) {
+  return spawnSync("git", args, { encoding: "utf8", maxBuffer: 64 << 20 });
+}
+
+function git(...args: string[]): string {
+  const r = tryGit(...args);
+  if (r.status !== 0) couldNotRun(`git ${args.join(" ")}: ${r.stderr.trim()}`);
+  return r.stdout;
+}
+
+function run(): {
+  status: number;
+  signal: string | null;
+  error?: Error;
+  output: string;
+  tail: string;
+} {
+  const env = { ...process.env };
+  delete env.NODE_TEST_CONTEXT;
+  const r = spawnSync(command[0], command.slice(1), {
+    env,
+    encoding: "utf8",
+    maxBuffer: 256 << 20,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  const out = `${r.stdout ?? ""}${r.stderr ?? ""}`.trimEnd().split("\n");
+  return {
+    status: r.status ?? 127,
+    signal: r.signal,
+    ...(r.error ? { error: r.error } : {}),
+    output: out.join("\n"),
+    tail: out.slice(-12).join("\n"),
+  };
+}
+
+function isTestCommand(): boolean {
+  return (
+    (command[0] === "node" && command[1] === "--test") ||
+    ((command[0] === "pnpm" ||
+      (command[0] === "corepack" && command[1] === "pnpm")) &&
+      command.includes("vitest"))
+  );
+}
+
+function hasTestFailureEvidence(output: string): boolean {
+  const plain = output.replace(/\u001b\[[0-9;]*m/g, "");
+  if (
+    /ERR_MODULE_NOT_FOUND|Cannot find (?:module|package)|Failed to resolve (?:import|entry)|Failed to load config|No test files found/i.test(
+      plain,
+    )
+  ) {
+    return false;
+  }
+  if (command[0] === "node")
+    return (
+      /^(?:not ok \d+ - |# fail [1-9]\d*\b)/m.test(plain) ||
+      /\b(?:AssertionError|ERR_ASSERTION)\b/.test(plain)
+    );
+  return /(?:Tests|Test Files)\s+[^\n]*\b[1-9]\d*\s+failed\b/i.test(plain);
+}
+
+if (command.length === 0) couldNotRun("pass the check after `--`");
+// The proof line joins the command with spaces and CI splits it back, so an
+// empty argument or one with whitespace would re-run as a different check.
+if (command.some((arg) => arg === "" || /\s/.test(arg)))
+  couldNotRun(
+    "an argument is empty or contains whitespace, which the proof line can't carry; use a pattern without spaces or a script",
+  );
+if (
+  realpathSync(git("rev-parse", "--show-toplevel").trim()) !==
+  realpathSync(process.cwd())
+)
+  couldNotRun("run from the repo root");
+// Untracked files are ignored: git never touches them, and checks often
+// write build output.
+const trackedChanges = () => git("status", "--porcelain", "-uno").trim();
+if (trackedChanges()) couldNotRun("commit or set aside local changes first");
+
+const head = git("rev-parse", "HEAD").trim();
+const fix = fixFlag === -1 ? null : git("rev-parse", opts[fixFlag + 1]).trim();
+// With --fix, only that commit's files go back, to their state before it.
+const base = fix
+  ? git("rev-parse", `${fix}^`).trim()
+  : baseFlag === -1
+    ? git("merge-base", "HEAD", "origin/main").trim()
+    : git("rev-parse", opts[baseFlag + 1]).trim();
+// --no-renames reports a rename as an add plus a delete, so the old path
+// comes back on the red run too.
+const changes = git("diff", "--name-status", "--no-renames", base, fix ?? head)
+  .split("\n")
+  .filter(Boolean)
+  .map((line) => {
+    const [status, path] = line.split("\t");
+    return { status, path };
+  });
+const added = new Set(
+  changes.filter(({ status }) => status === "A").map(({ path }) => path),
+);
+// Only the script the command runs (its first or second word, when the fix
+// adds it) stays at HEAD; any other argument is input and must be reverted.
+const entryPoint = command
+  .slice(0, 2)
+  .map((arg) => arg.replace(/^\.\//, ""))
+  .find((arg) => added.has(arg) && /\.([cm]?[jt]sx?|sh|py)$/.test(arg));
+const source = changes.filter(
+  ({ path }) => !TEST_PATH.test(path) && path !== entryPoint,
+);
+if (source.length === 0)
+  couldNotRun(
+    `no non-test changes between ${base.slice(0, 9)} and HEAD; a test-only change needs no fix proof`,
+  );
+const all = source.map(({ path }) => path);
+
+function removePath(path: string) {
+  if (!lstatSync(path, { throwIfNoEntry: false })) return;
+  unlinkSync(path);
+  for (let dir = dirname(path); dir !== "."; dir = dirname(dir)) {
+    if (readdirSync(dir).length) break;
+    rmdirSync(dir);
+  }
+}
+
+// Files are written from git's blobs with fs, never `git checkout` or
+// `git rm`, so the index stays at HEAD and sandboxes that block those
+// commands can still run the proof. Unlinking first replaces a symlink
+// instead of writing through it. Every failure is recorded rather than
+// thrown so the restore at the end still runs.
+const gitErrors: string[] = [];
+function putAt(ref: string): boolean {
+  const listed = tryGit("ls-tree", "-r", "-z", ref, "--", ...all);
+  if (listed.status !== 0) {
+    gitErrors.push(`git ls-tree ${ref}: ${listed.stderr.trim()}`);
+    return false;
+  }
+  const entries = new Map<string, { mode: string; oid: string }>();
+  for (const record of listed.stdout.split("\0").filter(Boolean)) {
+    const tab = record.indexOf("\t");
+    const [mode, type, oid] = record.slice(0, tab).split(" ");
+    if (type === "blob") entries.set(record.slice(tab + 1), { mode, oid });
+  }
+  try {
+    for (const path of all) {
+      const entry = entries.get(path);
+      removePath(path);
+      if (!entry) continue;
+      const blob = spawnSync("git", ["cat-file", "blob", entry.oid], {
+        maxBuffer: 256 << 20,
+      });
+      if (blob.status !== 0) {
+        gitErrors.push(`git cat-file ${entry.oid}: ${blob.stderr}`.trim());
+        return false;
+      }
+      mkdirSync(dirname(path), { recursive: true });
+      if (entry.mode === "120000") symlinkSync(blob.stdout.toString(), path);
+      else {
+        writeFileSync(path, blob.stdout);
+        chmodSync(path, entry.mode === "100755" ? 0o755 : 0o644);
+      }
+    }
+  } catch (error) {
+    gitErrors.push(`writing ${ref}'s files: ${(error as Error).message}`);
+    return false;
+  }
+  return true;
+}
+
+// The handlers keep a signal from killing this process before the restore
+// runs (spawnSync defers them until the check exits). A check that a Ctrl-C
+// stopped exits 130 or 143, or by signal, and counts as could not run below.
+for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const)
+  process.on(signal, () => {});
+// With --fix, both runs differ only by that commit: green at the fix, red at
+// its parent, so later edits to the same files can't decide the result.
+const greenAt = fix ?? head;
+const green = fix && fix !== head && !putAt(fix) ? undefined : run();
+const red = green?.status === 0 && putAt(base) ? run() : undefined;
+putAt(head);
+const left = trackedChanges();
+if (gitErrors.length || left)
+  couldNotRun(
+    `${left ? `the tree did not return to HEAD ${head.slice(0, 9)}; restore it with \`git checkout ${head.slice(0, 9)} -- .\`\n` : ""}${[...gitErrors, left].filter(Boolean).join("\n")}`,
+  );
+if (!green) couldNotRun("the green run did not happen");
+for (const r of [green, red])
+  if (r?.signal || r?.status === 130 || r?.status === 143)
+    couldNotRun(
+      `the check was interrupted (${r.signal ?? `exit ${r.status}`})`,
+    );
+for (const r of [green, red])
+  if (r?.error) couldNotRun(`the check could not start: ${r.error.message}`);
+if (green.status !== 0) {
+  console.log(
+    `fix-proof: NOT PROVEN, the check fails with the fix at ${greenAt.slice(0, 9)}\n${green.tail}`,
+  );
+  process.exit(1);
+}
+if (!red) couldNotRun("the red run did not happen");
+if (red.status === 127)
+  couldNotRun(`\`${command[0]}\` is missing without the fix\n${red.tail}`);
+if (red.status === 0) {
+  console.log(
+    `fix-proof: NOT PROVEN, the check also passes without the fix (${source.length} source files at ${base.slice(0, 9)})\n${red.tail}`,
+  );
+  process.exit(1);
+}
+if (isTestCommand() && !hasTestFailureEvidence(red.output))
+  couldNotRun(
+    `the red test run did not report a test failure; this is not proof the fix caused the result\n${red.tail}`,
+  );
+// The feedback gate re-runs only test commands; a `proven` line for any other
+// check fails CI, so it gets a line the gate doesn't read as proof.
+const verdict = parseProofCommand(command.join(" "))
+  ? "fix-proof: proven"
+  : "fix-proof: proven locally only (CI's feedback gate re-runs just `pnpm [--filter <pkg>] exec vitest run <test-file>` or `node --test <test-file>`, so this is not a PR proof line; prove the fix with a test)";
+console.log(
+  `${verdict}, red at ${base.slice(0, 9)} (exit ${red.status}), green at ${greenAt.slice(0, 9)}: ${command.join(" ")}\n--- red output ---\n${red.tail}`,
+);

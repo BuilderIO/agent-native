@@ -193,50 +193,9 @@ A2A](/docs/a2a-protocol) للحصول على الشرح الكامل.
 
 ### إثبات مكالمات CRM
 
-تحتاج أدوات CRM في بعض الأحيان إلى إثبات أن مكالمة حدثت، دون التسجيل الكامل.
-يُسلّم المقاطع فقط معرّف مقطع غامض ورابطًا دائمًا، ولا يُسلّم الفيديو أو النص
-أبدًا. يعمل هذا فقط لتسجيل يمكنك رؤيته مسبقًا، وفقط عندما تطلب ذلك أو تُشغّله
-أتمتة معتمدة.
+تحتاج أدوات CRM في بعض الأحيان إلى إثبات أن مكالمة حدثت، دون التسجيل الكامل. يُسلّم المقاطع فقط معرّف مقطع غامض ورابطًا دائمًا، ولا يُسلّم الفيديو أو النص أبدًا. يعمل هذا فقط لتسجيل يمكنك رؤيته مسبقًا، وفقط عندما تطلب ذلك.
 
-<Diagram id="doc-block-clips-crm" title="إثبات مكالمات CRM" summary={"تُسلّم أتمتة clip.created سير عمل CRM رابطًا دائمًا، لا الوسائط نفسها أبدًا."}>
-
-```html
-<div class="diagram-flow">
-  <div class="diagram-node">التسجيل جاهز</div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-box" data-rough>
-    clip.created<br /><small class="diagram-muted">أتمتة معتمدة</small>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-panel center">
-    <span class="diagram-pill accent">رابط الإثبات</span
-    ><small class="diagram-muted">id + /r/&lt;id&gt;</small>
-  </div>
-  <div class="diagram-arrow diagram-muted" aria-hidden="true">&rarr;</div>
-  <div class="diagram-box">سجل CRM</div>
-</div>
-```
-
-```css
-.diagram-flow {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-wrap: wrap;
-}
-.diagram-flow .center {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 4px;
-}
-.diagram-flow .diagram-arrow {
-  font-size: 18px;
-  line-height: 1;
-}
-```
-
-</Diagram>
+إعداد أتمتة المكالمات من CRM إلى Clips غير متاح بعد.
 
 ### التفويض بلغة طبيعية عبر Dispatch
 

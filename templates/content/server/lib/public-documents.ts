@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { getCookie, getHeader, setCookie, type H3Event } from "h3";
 
 const PUBLIC_VIEWER_COOKIE = "content_public_viewer";
+const PUBLIC_VIEWER_OWNER = /^public-[0-9a-f-]{36}@agent-native\.local$/i;
 const PUBLIC_VIEWER_COOKIE_MAX_AGE = 60 * 60 * 24 * 365;
 export const PUBLIC_DOCUMENT_CONTEXT_EXCERPT_CHARS = 2_400;
 
@@ -111,6 +112,11 @@ async function getPublicDocumentForEvent(event: H3Event) {
     .limit(1);
 
   return doc ?? null;
+}
+
+/** Whether a request's owner is the anonymous viewer of a public page. */
+export function isPublicViewerOwner(email: string | null | undefined): boolean {
+  return typeof email === "string" && PUBLIC_VIEWER_OWNER.test(email.trim());
 }
 
 export async function resolvePublicViewerOwner(

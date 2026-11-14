@@ -94,6 +94,7 @@ describe("copying a runtime-projected layer", () => {
       copiedLayerEntriesRef,
       copiedLayerHtmlRef,
       copiedScreenEntriesRef,
+      designData: {},
       designSourceType: "localhost",
       files: [file],
       getScreenContent: () => file.content!,
@@ -182,6 +183,7 @@ describe("copying a runtime-projected layer", () => {
       copiedLayerEntriesRef,
       copiedLayerHtmlRef,
       copiedScreenEntriesRef,
+      designData: {},
       designSourceType: "inline",
       files: [file],
       getScreenContent: () => file.content!,
@@ -266,6 +268,7 @@ describe("copying a runtime-projected layer", () => {
       copiedLayerEntriesRef,
       copiedLayerHtmlRef,
       copiedScreenEntriesRef,
+      designData: {},
       designSourceType: "inline",
       files: [file],
       getScreenContent: () => file.content!,
@@ -379,6 +382,7 @@ describe("copying a runtime-projected layer", () => {
       copiedLayerEntriesRef,
       copiedLayerHtmlRef,
       copiedScreenEntriesRef,
+      designData: {},
       designSourceType: "localhost",
       files: [file],
       getScreenContent: () => liveUrl,
@@ -424,6 +428,7 @@ describe("copying a runtime-projected layer", () => {
       copiedScreenEntriesRef: ref<DesignClipboardScreenEntry[] | undefined>(
         undefined,
       ),
+      designData: {},
       designSourceType: "inline",
       files: [],
       getScreenContent: () => "",
@@ -517,6 +522,7 @@ describe("copying a layer whose selection carries no style snapshot", () => {
       copiedScreenEntriesRef: ref<DesignClipboardScreenEntry[] | undefined>(
         undefined,
       ),
+      designData: {},
       designSourceType: "inline",
       files: [file],
       getScreenContent: () => file.content!,
@@ -669,6 +675,7 @@ describe("copying one instance of a repeated list", () => {
       copiedScreenEntriesRef: ref<DesignClipboardScreenEntry[] | undefined>(
         undefined,
       ),
+      designData: {},
       designSourceType: "inline",
       files: [file],
       getScreenContent: () => file.content!,
@@ -695,6 +702,44 @@ describe("copying one instance of a repeated list", () => {
     );
   });
 
+  it("refuses to copy a partial screen selection while a source is unavailable", async () => {
+    const file: DesignFile = {
+      id: "screen-a",
+      filename: "index.html",
+      fileType: "html",
+      content: "<p>Home</p>",
+      createdAt: "1",
+      updatedAt: "1",
+    };
+    const previousWrites = clipboard.writeDesignClipboard.mock.calls.length;
+    const result = await runCopySelection({
+      canvasFrameGeometryById: {},
+      copiedLayerEntriesRef: ref([]),
+      copiedLayerHtmlRef: ref(null),
+      copiedScreenEntriesRef: ref(undefined),
+      designData: {},
+      designSourceType: "inline",
+      files: [file],
+      getScreenContent: () => file.content,
+      getSelectedLayerSnapshots: () => [],
+      lastWrittenClipboardMarkerRef: ref(null),
+      lastWrittenClipboardPlainTextRef: ref(null),
+      liveScreenSnapshotsById: {},
+      overviewScreens: [],
+      overviewSelectedScreenIds: ["screen-a", "screen-b"],
+      pasteCascadeRef: ref(0),
+      readPortableStyleSnapshot: noFrameAnswers,
+      runtimeLayerSnapshotsById: {},
+      setHasCanvasClipboard: () => {},
+      t: (key) => key,
+      viewModeRef: ref<"single" | "overview">("overview"),
+    });
+    expect(result).toEqual({ copied: false, written: false });
+    expect(clipboard.writeDesignClipboard).toHaveBeenCalledTimes(
+      previousWrites,
+    );
+  });
+
   it("records which screen each copied screen came from so paste can find it again", async () => {
     const file: DesignFile = {
       id: "screen-a",
@@ -714,6 +759,7 @@ describe("copying one instance of a repeated list", () => {
       copiedLayerEntriesRef: ref<CanvasLayerClipboardEntry[]>([]),
       copiedLayerHtmlRef: ref<string | null>(null),
       copiedScreenEntriesRef,
+      designData: {},
       designSourceType: "inline",
       files: [file],
       getScreenContent: () => file.content!,
@@ -744,6 +790,54 @@ describe("copying one instance of a repeated list", () => {
       )?.screens?.[0]?.sourceScreenId,
     ).toBe("screen-a");
   });
+
+  it.each(["hubspot-email", "web"] as const)(
+    "carries a stored %s frame type so paste recreates it",
+    async (frameType) => {
+      const file: DesignFile = {
+        id: "email",
+        filename: "email.html",
+        fileType: "html",
+        content: "<!doctype html><html><body><table></table></body></html>",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      };
+      const copiedScreenEntriesRef = ref<
+        DesignClipboardScreenEntry[] | undefined
+      >(undefined);
+
+      await runCopySelection({
+        canvasFrameGeometryById: {},
+        copiedLayerEntriesRef: ref<CanvasLayerClipboardEntry[]>([]),
+        copiedLayerHtmlRef: ref<string | null>(null),
+        copiedScreenEntriesRef,
+        designData: { screenMetadata: { email: { frameType } } },
+        designSourceType: "inline",
+        files: [file],
+        getScreenContent: () => file.content!,
+        getSelectedLayerSnapshots: () => [],
+        lastWrittenClipboardMarkerRef: ref<string | null>(null),
+        lastWrittenClipboardPlainTextRef: ref<string | null>(null),
+        liveScreenSnapshotsById: {},
+        overviewScreens: [],
+        overviewSelectedScreenIds: ["email"],
+        pasteCascadeRef: ref(0),
+        readPortableStyleSnapshot: noFrameAnswers,
+        runtimeLayerSnapshotsById: {},
+        setHasCanvasClipboard: () => {},
+        t: (key) => key,
+        viewModeRef: ref<"single" | "overview">("overview"),
+      });
+
+      expect(copiedScreenEntriesRef.current?.[0]?.frameType).toBe(frameType);
+      expect(
+        parseDesignClipboardMarker(
+          clipboard.writeDesignClipboard.mock.lastCall?.[0].html,
+          "local-clipboard-token",
+        )?.screens?.[0]?.frameType,
+      ).toBe(frameType);
+    },
+  );
 });
 
 it("keeps text-derived clipboard names dynamic and authored names fixed", async () => {
@@ -766,6 +860,7 @@ it("keeps text-derived clipboard names dynamic and authored names fixed", async 
       copiedLayerEntriesRef,
       copiedLayerHtmlRef: ref(null),
       copiedScreenEntriesRef: ref(undefined),
+      designData: {},
       designSourceType: "inline",
       files: [file],
       getScreenContent: () => html,
@@ -806,4 +901,124 @@ it("keeps text-derived clipboard names dynamic and authored names fixed", async 
       )?.layerName,
     ).toBe(authoredName ?? "Second title");
   }
+});
+
+describe("copying a layer's place on the canvas", () => {
+  beforeEach(() => {
+    clipboard.writeDesignClipboard.mockClear();
+  });
+
+  async function copyFrom(file: DesignFile, layerId: string) {
+    const snapshots = runGetSelectedLayerSnapshots({
+      activeFile: file,
+      designSourceType: "inline",
+      files: [file],
+      getFreshActiveContent: () => file.content!,
+      getScreenContent: () => file.content!,
+      liveScreenSnapshotsById: {},
+      overviewScreens: [],
+      runtimeLayerSnapshotsById: {},
+      selectedElement: null,
+      selectedElementLayerId: null,
+      selectedLayerIdsState: [layerId],
+    });
+    expect(snapshots).toHaveLength(1);
+    const copiedLayerEntriesRef = ref<CanvasLayerClipboardEntry[]>([]);
+    await runCopySelection({
+      boardFileId: "board",
+      canvasFrameGeometryById: {
+        "screen-a": { x: 1000, y: 500, width: 390, height: 844 },
+      },
+      copiedLayerEntriesRef,
+      copiedLayerHtmlRef: ref<string | null>(null),
+      copiedScreenEntriesRef: ref<DesignClipboardScreenEntry[] | undefined>(
+        undefined,
+      ),
+      designData: {},
+      designSourceType: "inline",
+      files: [file],
+      getScreenContent: () => file.content!,
+      getSelectedLayerSnapshots: () => snapshots,
+      lastWrittenClipboardMarkerRef: ref<string | null>(null),
+      lastWrittenClipboardPlainTextRef: ref<string | null>(null),
+      liveScreenSnapshotsById: {},
+      overviewScreens: [
+        {
+          id: "screen-a",
+          filename: "index.html",
+          content: file.content!,
+          updatedAt: file.updatedAt,
+          heightPinned: false,
+          width: 390,
+          height: 844,
+        } as OverviewScreen,
+      ],
+      overviewSelectedScreenIds: [],
+      pasteCascadeRef: ref(0),
+      readPortableStyleSnapshot: noFrameAnswers,
+      runtimeLayerSnapshotsById: {},
+      setHasCanvasClipboard: () => {},
+      t: (key) => key,
+      viewModeRef: ref<"single" | "overview">("overview"),
+    });
+    return parseDesignClipboardMarker(
+      clipboard.writeDesignClipboard.mock.calls[0]?.[0].html,
+      "local-clipboard-token",
+    )?.entries[0];
+  }
+
+  function screenFile(id: string, body: string): DesignFile {
+    return {
+      id,
+      filename: id === "board" ? "__board__.html" : "index.html",
+      fileType: "html",
+      content: `<!doctype html><html><body>${body}</body></html>`,
+      createdAt: "2026-01-01T00:00:00.000Z",
+      updatedAt: "2026-01-01T00:00:00.000Z",
+    };
+  }
+
+  it("writes a screen layer's canvas box, offset by its screen, in whole pixels", async () => {
+    const entry = await copyFrom(
+      screenFile(
+        "screen-a",
+        '<div data-agent-native-node-id="badge" style="position:absolute;left:40.4px;top:120.6px;width:200.5px;height:100px">Badge</div>',
+      ),
+      "badge",
+    );
+
+    expect(entry?.sourceCanvasRect).toEqual({
+      x: 1040,
+      y: 621,
+      width: 201,
+      height: 100,
+    });
+  });
+
+  it("writes a board layer's canvas box as authored", async () => {
+    const entry = await copyFrom(
+      screenFile(
+        "board",
+        '<div data-agent-native-node-id="note" style="position:absolute;left:0px;top:0px;width:120px;height:60px">Note</div>',
+      ),
+      "note",
+    );
+
+    expect(entry?.sourceCanvasRect).toEqual({
+      x: 0,
+      y: 0,
+      width: 120,
+      height: 60,
+    });
+  });
+
+  it("leaves the canvas box out when the layer has no authored position", async () => {
+    const entry = await copyFrom(
+      screenFile("screen-a", '<p data-agent-native-node-id="flow">In flow</p>'),
+      "flow",
+    );
+
+    expect(entry).toBeDefined();
+    expect(entry).not.toHaveProperty("sourceCanvasRect");
+  });
 });

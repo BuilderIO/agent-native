@@ -419,17 +419,56 @@ export function LegacyJsonEditSurface({
   });
 }
 
+/** A block as the clipboard HTML declares it, with the source it carries. */
+export interface PastedRegistryBlock {
+  blockType: string;
+  blockId: string;
+  sourceBlockId: string | null;
+  source: string;
+}
+
+export interface PastedRegistryBlockSource {
+  source: string;
+  title: string | null;
+  summary: string | null;
+}
+
 export interface CreateRegistryBlockNodeOptions {
   nodeName: string;
   dataTag: string;
   mintId: (blockType: string) => string;
   group?: string;
+  /**
+   * Reads a pasted block back from the source its clipboard HTML carries.
+   * Return the block as the app parsed it, or null when the source isn't
+   * exactly one block of the declared type and id; the paste then drops the
+   * block, as it drops one pasted with no source. Without it, a pasted block
+   * keeps no source.
+   */
+  readPastedSource?: (
+    pasted: PastedRegistryBlock,
+  ) => PastedRegistryBlockSource | null;
+}
+
+// Clipboard HTML can come from any page, and a block's type and id reach the
+// agent's context as written.
+const PASTED_BLOCK_TYPE = /^[a-z][a-z0-9_-]{0,63}$/;
+const PASTED_BLOCK_ID = /^[A-Za-z0-9][A-Za-z0-9_.:-]{0,127}$/;
+
+function pastedBlockId(value: string | null): string | null {
+  return value && PASTED_BLOCK_ID.test(value) ? value : null;
 }
 
 export function createRegistryBlockNode(
   options: CreateRegistryBlockNodeOptions,
 ) {
-  const { nodeName, dataTag, mintId, group = "block" } = options;
+  const {
+    nodeName,
+    dataTag,
+    mintId,
+    group = "block",
+    readPastedSource,
+  } = options;
   const dedupeKey = new PluginKey(`${nodeName}DedupeIds`);
   const keyboardGuardKey = new PluginKey(`${nodeName}KeyboardGuard`);
 
@@ -511,13 +550,17 @@ export function createRegistryBlockNode(
     isolating: true,
 
     addAttributes() {
+      // Only the parse rule's getAttrs reads pasted HTML. Tiptap otherwise
+      // reads each attribute from the HTML attribute of the same name and
+      // lays it over getAttrs, so `blockid` or `__raw` would skip its checks.
+      const fromRule = () => null;
       return {
-        blockType: { default: "" },
-        blockId: { default: "" },
-        title: { default: null },
-        summary: { default: null },
-        sourceBlockId: { default: null },
-        __raw: { default: null, rendered: false },
+        blockType: { default: "", parseHTML: fromRule },
+        blockId: { default: "", parseHTML: fromRule },
+        title: { default: null, parseHTML: fromRule },
+        summary: { default: null, parseHTML: fromRule },
+        sourceBlockId: { default: null, parseHTML: fromRule },
+        __raw: { default: null, rendered: false, parseHTML: fromRule },
       };
     },
 
@@ -527,22 +570,57 @@ export function createRegistryBlockNode(
           tag: `div[${dataTag}]`,
           getAttrs: (element) => {
             const node = element as HTMLElement;
+            const blockType = node.getAttribute("data-block-type") ?? "";
+            if (!PASTED_BLOCK_TYPE.test(blockType)) return false;
+            // A malformed id is replaced: the dedupe plugin mints a fresh one.
+            const blockId =
+              pastedBlockId(node.getAttribute("data-block-id")) ?? "";
+            const sourceBlockId = pastedBlockId(
+              node.getAttribute("data-source-block-id"),
+            );
+            if (!readPastedSource) {
+              return {
+                blockType,
+                blockId,
+                title: node.getAttribute("data-title") || null,
+                summary: node.getAttribute("data-summary") || null,
+                sourceBlockId,
+                __raw: null,
+              };
+            }
+            // Without a source the block would save as nothing.
+            const source = node.getAttribute("data-block-source");
+            if (!source) return false;
+            const pasted = readPastedSource({
+              blockType,
+              blockId,
+              sourceBlockId,
+              source,
+            });
+            if (!pasted) return false;
             return {
-              blockType: node.getAttribute("data-block-type") || "",
-              blockId: node.getAttribute("data-block-id") || "",
-              title: node.getAttribute("data-title") || null,
-              summary: node.getAttribute("data-summary") || null,
-              sourceBlockId: node.getAttribute("data-source-block-id") || null,
+              blockType,
+              blockId,
+              title: pasted.title,
+              summary: pasted.summary,
+              sourceBlockId,
+              __raw: pasted.source,
             };
           },
         },
       ];
     },
 
-    renderHTML({ HTMLAttributes }) {
+    renderHTML({ node, HTMLAttributes }) {
       return [
         "div",
         mergeAttributes(HTMLAttributes, {
+          // The clipboard carries a block only as this HTML, so a pasted copy
+          // without its source would lose its data and drop out of the save.
+          "data-block-source":
+            typeof node.attrs.__raw === "string" && node.attrs.__raw
+              ? node.attrs.__raw
+              : undefined,
           [dataTag]: "",
           "data-block-type": HTMLAttributes.blockType ?? "",
           "data-block-id": HTMLAttributes.blockId ?? "",

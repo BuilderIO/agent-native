@@ -112,6 +112,7 @@ describe("AgentEngine registry", () => {
     vi.doUnmock("../../server/chatgpt-subscription-oauth.js");
     vi.doUnmock("../../server/request-context.js");
     vi.doUnmock("../../extensions/url-safety.js");
+    vi.doUnmock("node:dns/promises");
     vi.doUnmock("../../secrets/storage.js");
     vi.doUnmock("../../db/client.js");
     vi.doUnmock("../../org/context.js");
@@ -1656,7 +1657,7 @@ describe("AgentEngine registry", () => {
 
     it("does not select builder from the Builder-credits pair in hosted production", async () => {
       vi.stubEnv("NODE_ENV", "production");
-      vi.stubEnv("FUSION_ENVIRONMENT", "cloud-v2");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
       process.env.BUILDER_GATEWAY_TOKEN = "btk-site-token"; // guard:allow-env-credential — fixture: hosted requests must ignore deployment model credentials
       process.env.BUILDER_GATEWAY_SPACE_ID = "space-abc"; // guard:allow-env-credential — fixture: hosted requests must ignore deployment model credentials
       vi.doMock("../../db/client.js", () => ({
@@ -1998,7 +1999,7 @@ describe("AgentEngine registry", () => {
       ).resolves.toBe(true);
     });
 
-    it("does not report Builder usable from deploy credentials in a Fusion preview", async () => {
+    it("reports the builder engine as runnable in a preview", async () => {
       vi.stubEnv("NODE_ENV", "production");
       vi.stubEnv("FUSION_ENVIRONMENT", "cloud-v2");
       process.env.BUILDER_GATEWAY_TOKEN = "btk-preview-token"; // guard:allow-env-credential — fixture: the preview pod's Builder-credits pair is the credential under test
@@ -2014,7 +2015,7 @@ describe("AgentEngine registry", () => {
 
       await expect(
         isStoredEngineUsableForRequest({ engine: "builder" }, entry),
-      ).resolves.toBe(false);
+      ).resolves.toBe(true);
     });
 
     it("runs the builder engine on OAuth custody with no key pair stored", async () => {
@@ -3585,7 +3586,7 @@ describe("AgentEngine registry", () => {
       vi.doMock("../../secrets/storage.js", () => {
         const readAppSecret = vi.fn(async ({ key }: { key: string }) => {
           if (key === "OPENAI_BASE_URL") {
-            return { key, value: "https://gateway.example/v1///" };
+            return { key, value: "https://93.184.216.34/v1///" };
           }
           return null;
         });
@@ -3617,7 +3618,7 @@ describe("AgentEngine registry", () => {
       expect(openAiCreate).toHaveBeenCalledWith({
         apiKey: undefined,
         allowEnvFallback: false,
-        baseUrl: "https://gateway.example/v1",
+        baseUrl: "https://93.184.216.34/v1",
         requestFetch: expect.any(Function),
       });
       expect(resolved).toBe(openAiEngine);
@@ -3720,6 +3721,9 @@ describe("AgentEngine registry", () => {
       expect(create).toHaveBeenCalledWith(
         expect.objectContaining({ apiKey: "openai-test-key" }),
       );
+      const { getEngineLlmConnectionSource } =
+        await import("./credential-owner.js");
+      expect(getEngineLlmConnectionSource(engine)).toBe("app_secrets");
     });
 
     it.each([
@@ -4081,6 +4085,14 @@ describe("AgentEngine registry", () => {
     });
 
     it("does not treat the first-party OpenAI endpoint as a custom gateway", async () => {
+      vi.doMock("node:dns/promises", () => ({
+        lookup: vi.fn(async (hostname: string) => {
+          if (hostname === "api.openai.com") {
+            return [{ address: "93.184.216.34", family: 4 }];
+          }
+          throw new Error(`Unexpected DNS lookup for ${hostname}`);
+        }),
+      }));
       vi.doMock("../../server/request-context.js", () => ({
         getRequestContext: () => undefined,
         getRequestUserEmail: () => "steve@example.com",
@@ -4132,6 +4144,9 @@ describe("AgentEngine registry", () => {
         requestFetch: expect.any(Function),
       });
       expect(resolved).toBe(openAiEngine);
+      const { getEngineCredentialOwner } =
+        await import("./credential-owner.js");
+      expect(getEngineCredentialOwner(resolved)).toBe("customer");
     });
 
     it("does not replace an unreadable endpoint with deploy configuration", async () => {
@@ -4574,5 +4589,143 @@ describe("AgentEngine registry", () => {
       expect(builderCreate).toHaveBeenCalled();
       expect(resolved).toBe(builderEngine);
     });
+  });
+});
+
+describe("credentialOwnerForEntry", () => {
+  const entry = (name: string, requiredEnvVars: string[] = []) =>
+    ({ name, requiredEnvVars }) as any;
+
+  const anthropic = entry("anthropic", ["ANTHROPIC_API_KEY"]);
+  let savedKey: string | undefined;
+  beforeEach(() => {
+    savedKey = process.env.ANTHROPIC_API_KEY; // guard:allow-env-credential — restores the deploy key fixture
+    delete process.env.ANTHROPIC_API_KEY; // guard:allow-env-credential — test setup clears env to assert fallback ownership
+  });
+  afterEach(() => {
+    if (savedKey === undefined) {
+      delete process.env.ANTHROPIC_API_KEY; // guard:allow-env-credential — restores the deploy key fixture
+    } else {
+      process.env.ANTHROPIC_API_KEY = savedKey; // guard:allow-env-credential — restores the deploy key fixture
+    }
+  });
+
+  it("tags the Builder gateway engine as builder-owned", async () => {
+    const { credentialOwnerForEntry } = await import("./registry.js");
+    expect(
+      credentialOwnerForEntry(
+        entry("builder"),
+        "sk-test",
+        { scope: "user", scopeId: "steve@example.com" },
+        {},
+      ),
+    ).toBe("builder");
+  });
+
+  it("tags a deployment-scoped key as deployment-owned", async () => {
+    const { credentialOwnerForEntry } = await import("./registry.js");
+    expect(
+      credentialOwnerForEntry(
+        anthropic,
+        "sk-test",
+        { scope: "deployment" },
+        {},
+      ),
+    ).toBe("deployment");
+  });
+
+  it("tags a host key only when it is the deployment's own", async () => {
+    process.env.ANTHROPIC_API_KEY = "sk-deploy"; // guard:allow-env-credential — deploy key fixture
+    const { credentialOwnerForEntry } = await import("./registry.js");
+    expect(credentialOwnerForEntry(anthropic, "sk-deploy", undefined, {})).toBe(
+      "deployment",
+    );
+    expect(
+      credentialOwnerForEntry(anthropic, "sk-host", undefined, {}),
+    ).toBeUndefined();
+  });
+
+  it("tags a scoped key holding the deployment's value as deployment-owned", async () => {
+    process.env.ANTHROPIC_API_KEY = "sk-deploy"; // guard:allow-env-credential — deploy key fixture
+    const { credentialOwnerForEntry } = await import("./registry.js");
+    expect(
+      credentialOwnerForEntry(
+        anthropic,
+        "sk-deploy",
+        { scope: "user", scopeId: "steve@example.com" },
+        {},
+      ),
+    ).toBe("deployment");
+  });
+
+  it("tags a missing key by whether a deployment fallback exists", async () => {
+    const { credentialOwnerForEntry } = await import("./registry.js");
+    expect(
+      credentialOwnerForEntry(anthropic, undefined, undefined, {}),
+    ).toBeUndefined();
+    process.env.ANTHROPIC_API_KEY = "sk-deploy"; // guard:allow-env-credential — deploy key fixture
+    expect(credentialOwnerForEntry(anthropic, undefined, undefined, {})).toBe(
+      "deployment",
+    );
+    expect(
+      credentialOwnerForEntry(anthropic, undefined, undefined, {
+        allowEnvFallback: false,
+      }),
+    ).toBeUndefined();
+  });
+
+  it("leaves engines without a provider key unowned", async () => {
+    const { credentialOwnerForEntry } = await import("./registry.js");
+    expect(
+      credentialOwnerForEntry(entry("ollama"), undefined, undefined, {}),
+    ).toBeUndefined();
+  });
+
+  it("tags the user's ChatGPT plan engine as customer-owned", async () => {
+    const { credentialOwnerForEntry } = await import("./registry.js");
+    expect(
+      credentialOwnerForEntry(
+        entry("chatgpt-subscription"),
+        undefined,
+        undefined,
+        {},
+      ),
+    ).toBe("customer");
+  });
+
+  it("leaves a missing key unowned when the engine cannot fall back", async () => {
+    const { credentialOwnerForEntry } = await import("./registry.js");
+    expect(
+      credentialOwnerForEntry(
+        entry("anthropic", ["ANTHROPIC_API_KEY"]),
+        undefined,
+        undefined,
+        { allowEnvFallback: false },
+      ),
+    ).toBeUndefined();
+  });
+
+  it("does not tag a scoped vault value dropped for the deployment key as customer-owned", async () => {
+    const { credentialOwnerForEntry } = await import("./registry.js");
+    expect(
+      credentialOwnerForEntry(
+        entry("anthropic", ["ANTHROPIC_API_KEY"]),
+        undefined,
+        { scope: "user", scopeId: "steve@example.com" },
+        { allowEnvFallback: false },
+      ),
+    ).not.toBe("customer");
+  });
+
+  it("tags a scoped stored key as customer-owned", async () => {
+    const { credentialOwnerForEntry } = await import("./registry.js");
+    expect(
+      credentialOwnerForEntry(
+        entry("anthropic", ["ANTHROPIC_API_KEY"]),
+        "sk-test",
+        { scope: "org", scopeId: "org-1" },
+        {},
+      ),
+    ).toBe("customer");
   });
 });

@@ -68,14 +68,21 @@ describe("AgentSuggestionBar", () => {
     expect(buttons).toHaveLength(2);
     expect(bar?.className).toContain("py-2");
     expect(bar?.className).toContain("min-w-0");
-    expect(buttons[0]?.className).toContain("rounded-full");
+    expect(buttons[0]?.className).toContain(
+      "rounded-[var(--agent-kit-radius-xs,0.25rem)]",
+    );
     expect(buttons[0]?.className).toContain("whitespace-nowrap");
     expect(buttons[0]?.className).not.toContain("max-w-");
-    expect(buttons[0]?.className).toContain("text-foreground/80");
+    expect(buttons[0]?.className).toContain("text-foreground");
+    expect(buttons[0]?.className).not.toContain("text-foreground/80");
+    expect(buttons[0]?.className).toContain("border-border");
+    expect(buttons[0]?.className).toContain("hover:bg-accent");
+    expect(buttons[0]?.className).toContain("focus-visible:ring-inset");
     expect(buttons[0]?.querySelector("span")?.className).not.toContain(
       "truncate",
     );
-    expect(buttons[0]?.className).toContain("bg-muted/55");
+    expect(buttons[0]?.className).toContain("bg-transparent");
+    expect(buttons[0]?.className).not.toContain("bg-muted/55");
     const scroller = container.querySelector(
       '[data-agent-suggestion-scroller="true"]',
     );
@@ -84,6 +91,88 @@ describe("AgentSuggestionBar", () => {
 
     act(() => buttons[0]?.click());
     expect(onSelect).toHaveBeenCalledWith(suggestion);
+  });
+
+  it("uses comfortable dimensions when the host requests them", () => {
+    act(() => {
+      root.render(
+        <AgentSuggestionBar
+          ariaLabel="Suggested prompts"
+          suggestions={["Explore this data"]}
+          onSelect={() => {}}
+          size="comfortable"
+        />,
+      );
+    });
+
+    const button = container.querySelector("button");
+    expect(button?.className).toContain("h-8");
+    expect(button?.className).toContain("px-3");
+    expect(button?.className).toContain("text-sm");
+  });
+
+  it("keeps tracked home suggestions as centered compact chips and reports clicks", () => {
+    const onSelect = vi.fn();
+    const onHomeSuggestionClick = vi.fn();
+    act(() => {
+      root.render(
+        <AgentSuggestionBar
+          ariaLabel="Suggested prompts"
+          suggestions={[
+            { id: "first", label: "First prompt", prompt: "Build the first" },
+            {
+              id: "second",
+              label: "Second prompt",
+              prompt: "Build the second in full",
+            },
+          ]}
+          homeTracking={{ appId: "design", role: "marketing" }}
+          onHomeSuggestionClick={onHomeSuggestionClick}
+          layout="single-line"
+          onSelect={onSelect}
+        />,
+      );
+    });
+
+    const buttons = container.querySelectorAll("button");
+    expect(
+      container
+        .querySelector('[data-agent-suggestion-bar="true"]')
+        ?.getAttribute("data-home-suggestion-app-id"),
+    ).toBe("design");
+    expect(buttons[1]?.getAttribute("data-agent-suggestion-position")).toBe(
+      "2",
+    );
+    expect(buttons[1]?.getAttribute("data-home-suggestion-id")).toBe("second");
+    const track = container.querySelector<HTMLElement>(
+      '[data-agent-suggestion-track="true"]',
+    );
+    expect(track?.className).toContain("h-6");
+    expect(track?.className).toContain("w-max");
+    expect(track?.className).toContain("flex-nowrap");
+    expect(track?.className).toContain("items-center");
+    expect(track?.className).not.toContain("flex-wrap");
+    expect(buttons[1]?.className).toContain("h-6");
+    expect(buttons[1]?.className).toContain("px-2.5");
+    expect(buttons[1]?.className).toContain("text-center");
+    expect(buttons[1]?.className).toContain("whitespace-nowrap");
+    expect(buttons[1]?.className).toContain("justify-center");
+    expect(buttons[1]?.querySelector("span")?.textContent).toBe(
+      "Second prompt",
+    );
+    act(() => buttons[1]?.click());
+
+    expect(onHomeSuggestionClick).toHaveBeenCalledExactlyOnceWith({
+      appId: "design",
+      role: "marketing",
+      suggestionId: "second",
+      position: 2,
+    });
+    expect(onSelect).toHaveBeenCalledWith({
+      id: "second",
+      label: "Second prompt",
+      prompt: "Build the second in full",
+    });
   });
 
   it("reserves a single row with skeleton chips while suggestions load", () => {
@@ -112,7 +201,7 @@ describe("AgentSuggestionBar", () => {
       container.querySelectorAll('[data-agent-suggestion-placeholder="true"]'),
     ).toHaveLength(3);
     expect(track?.className).toContain("flex-nowrap");
-    expect(track?.className).toContain("h-7");
+    expect(track?.className).toContain("h-6");
     expect(container.querySelectorAll("button")).toHaveLength(0);
   });
 
@@ -132,6 +221,6 @@ describe("AgentSuggestionBar", () => {
       '[data-agent-suggestion-track="true"]',
     );
     expect(track?.className).toContain("flex-nowrap");
-    expect(track?.className).toContain("h-7");
+    expect(track?.className).toContain("h-6");
   });
 });

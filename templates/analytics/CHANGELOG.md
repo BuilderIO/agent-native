@@ -3,7 +3,150 @@
 All notable user-facing changes to Agent-Native Analytics are documented here. Open it any
 time from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-10
+
+### Fixed
+
+- Grafana and Prometheus connections can reach private endpoints when an administrator explicitly trusts their origins in server configuration.
+
+### Security
+
+- Configured Grafana, Prometheus, and Gong endpoints now block private destinations by default and reject unsafe redirects.
+- Chart images now use unique filenames so one chart cannot replace another user's image.
+
+## 2026-11-09
+
+### Improved
+
+- Share controls use a consistent compact layout.
+- More save failures now say why, such as being offline or lacking permission.
+
+## 2026-11-08
+
+### Improved
+
+- Feature flag changes can apply to this organization or to every organization, and the panel shows when an organization's own rule overrides the rule for all organizations.
+
+## 2026-11-07
+
+### Fixed
+
+- Charts now give a row with no x value its own "No value" label, so later values stay on the right dates and categories.
+
+## 2026-11-06
+
+### Added
+
+- Compare Design Builder signup cohorts through first design and retention
+
+## 2026-11-05
+
+### Improved
+
+- Failed saves now show a clear error message instead of failing silently.
+- Reference saved dashboards directly from the composer
+
+## 2026-11-04
+
+### Added
+
+- Sessions and Errors can show just production or beta traffic, and each session in the list says which it came from.
+
+### Improved
+
+- Usage dashboards can be filtered to production or beta traffic, new dashboards start on production, and a count shows events with no known environment.
+- The agent finds the dashboard editing action more often when you ask to add or change a chart.
+
+## 2026-10-31
+
+### Improved
+
+- The Content dashboard shows each article's pageviews, search clicks and impressions, and charts pageviews and search clicks per day.
+
+## 2026-10-29
+
+### Improved
+
+- Sharing is one panel: invite people and your organization's agents from one field, see everyone with access in one list, and find Copy link and Send to at the bottom.
+
+### Fixed
+
+- Filtering sessions by events they did or didn't track no longer times out on large workspaces.
+
+## 2026-10-28
+
+### Improved
+
+- The agent can no longer save a chart drill-down that filters with a list variable, which failed every click while nothing was selected; it gets the filter pattern to use instead, and a drill-down saved earlier with one stops opening records until it's rewritten
+
+## 2026-10-27
+
+### Fixed
+
+- Clicking a chart point before its tooltip appears opens that point's records, not the first point's
+
+## 2026-10-24
+
+### Added
+
+- Pick dashboard panels for the agent with the Select button in the chat composer.
+
+### Improved
+
+- An empty Ask page shows the large composer, and the agent panel opens on the app's default model
+- The Content dashboard ranks articles by signups, adds Authors, New and rising, and Sources tabs, and names missing data sources in one notice.
+- Organization roster searches now find row-level dbt membership data more reliably.
+
+### Fixed
+
+- Analytics now clearly indicates incomplete Gong user lists and HubSpot deal pages.
+- Date columns in dashboard tables no longer show the previous day in time zones west of UTC.
+- Gong transcript reads preserve the transcript alias for existing callers.
+- Phones can open the agent from the top bar on every page outside Ask
+- HubSpot and Gong searches keep their filters and page totals visible.
+- Analytics avoids showing partial warehouse results when a metric or plan request is ambiguous.
+- Analytics preserves verified results from successful time ranges when another requested range is unavailable.
+- Analytics uses a warehouse fallback for a failed metric only when requested and supported by a complete metric definition and result.
+- Analytics respects requested time periods without mistaking metric names for time breakdowns.
+
+## 2026-10-23
+
+### Improved
+
+- Metric tiles can show their change from the period before, tables give the spare width to their first text column and right-align numbers, and callouts read as a list with a severity icon per row, in dashboards and emailed reports.
+
+### Fixed
+
+- Content pageviews use their own GA4 property without changing other dashboards.
+- Content signup collection keeps actual query usage and the configured cap, including when collection fails
+- External agents need approval before changing recurring index builds.
+- Query cost tracking distinguishes unknown BigQuery usage from zero-byte results.
+- Analytics figures require complete, scope-matched warehouse evidence
+- Analytics keeps malformed metric values out of verified summaries
+- Analytics keeps verified metrics available when another requested dbt metric is unavailable
+- Analytics now rejects partial or constant warehouse results as verified metric figures
+- Analytics only shows warehouse fallback figures when a complete matching query supports them
+- Analytics only shows warehouse figures when each value matches the named metric, scope, and result row.
+- Analytics withholds warehouse figures when an owner-defined dbt metric query fails.
+- Warehouse figures stay hidden when a failed dbt query cannot verify the calculation.
+
+## 2026-10-22
+
+### Added
+
+- Outside assistants can open the Traffic dashboard in Analytics.
+- Tables, metric tiles and charts can show a number of seconds as a duration such as 16 min or 7.4 hours, and duration columns sort by time.
+
+### Improved
+
+- Approval links from a connected agent, such as Claude Code, now open the review inside the app, in its own theme.
+- Extension panels on dashboards are as tall as their content, so a one-line extension no longer leaves an empty band below it
+
 ## 2026-10-21
+
+### Added
+
+- You can pin a shared chat just for yourself, or hide it from your list and undo that from the toast.
 
 ### Improved
 
@@ -12,9 +155,14 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Session replay quotas count the compressed size Analytics stores, so recordings from other sites no longer use up the daily limit early
 - Preserve unknown replay availability in partial journeys
 
 ## 2026-10-20
+
+### Added
+
+- Custom SQL charts can open configured record details on click
 
 ### Fixed
 
@@ -73,6 +221,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Added
 
+- Owned and shared chats appear in separate history sections, with each shared chat's owner shown as an avatar and a Copy link action on every chat.
 - In Edit mode, rename or delete a multi-select filter's group from its dropdown while that group is selected.
 - The Content dashboard can show signups per blog article, collected once a day behind a BigQuery cost cap that a dry run measures first
 - Click a table row to see its numbers broken down by app, or another column, in a side panel.
@@ -95,6 +244,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- The activation funnel counts visitors who decline analytics cookies and then sign up in the same visit
 - A key-date marker opens its card on hover even where a chart's hovered point sits on top of it.
 - Alert polls enforce a query byte limit and report evaluations that exceed it as errors.
 - All-time dashboard panels keep their historical label when you edit a title or description
@@ -134,6 +284,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Added
 
+- Sessions can find people who made a Slides deck but didn't present or export it within 7 days, and the event catalog flags apps with no "used it" event (Sessions triage Lab)
 - A Content dashboard lists every blog article with its author, pageviews, and search clicks, and says when a source failed or isn't set up instead of showing zero
 - Data sources has a Google Search Console card that shows the service account to grant and turns on daily collection
 - Analytics can collect daily GA4 pageviews and Search Console clicks and impressions for each blog article
@@ -1373,154 +1524,5 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 - Dashboard email reports are more reliable and use cleaner header copy.
 - Fixed Ask composer spacing so the chat field has a comfortable side inset.
 - Session replays now render captured styling and keep the event timeline out of compact layouts.
-
-## 2026-06-29
-
-### Added
-
-- Agents can search and read connected GitHub repositories when auditing tracking events.
-- Dashboards can now include extension panels that embed a sandboxed extension inline instead of a SQL chart
-- Set up session replay storage from settings: use Builder.io or add S3-compatible storage
-
-### Improved
-
-- Analytics pages now sit closer under the header with tighter content padding.
-
-### Fixed
-
-- Analytics agents can now place new charts into requested dashboard rows.
-- Analytics queries now report failed source-query errors instead of falling back to a vague no-data message.
-- Charts can now be dropped between full dashboard rows to create wider rows.
-- Dashboard email reports include the full dashboard image without an extra image border.
-- The main dashboard surface border now reaches the top edge and keeps its rounded corners.
-- Session replay now records playable sessions in production and shows them to your whole workspace
-- Sessions and explorer dashboard layouts now adapt cleanly when the agent sidebar narrows the app.
-
-## 2026-06-28
-
-### Improved
-
-- Dashboard email reports now use cleaner light-mode snapshots with direct subscription settings links.
-- The left sidebar now collapses into an animated icon rail with quieter footer controls.
-
-### Fixed
-
-- The Ask tab now matches the darker background used across the rest of Analytics.
-- Sessions now show only signed-in recordings with playable replay events.
-- The Sessions page shows scoped recordings even when replay events are unavailable, with a cleaner setup snippet.
-
-## 2026-06-27
-
-### Added
-
-- Dashboards can now nest under a parent in the sidebar via a parentId field
-
-### Improved
-
-- Dashboard charts drag smoothly when rearranging panels.
-- Improved mobile navigation chrome and sidebar drawer motion.
-
-### Fixed
-
-- Anonymous replay recordings remain visible in session lists when signed-in replay is disabled.
-- Dashboard email reports still send when the live screenshot renderer fails.
-- Fixed dashboard edits so charts no longer briefly snap back to an old layout after agent updates or drag-and-drop.
-- Session replay lists now show only signed-in recordings with real activity and reliable durations.
-- Sidebar loading placeholders are visible in light mode.
-- Traditional Chinese copy now uses Taiwan terminology and clearer technical wording.
-
-## 2026-06-26
-
-### Added
-
-- Dashboards can now send scheduled daily email reports with inline screenshots of the live dashboard.
-- Session replay browser sessions can now be reviewed from a Sessions page and opened from first-party dashboard rows.
-
-### Improved
-
-- Agents can now edit dashboards through a typed mutation script API for faster, more reliable multi-step changes.
-- Dashboard chart moves are now handled by panel id, making simple reorders faster and more reliable for the agent.
-- Dashboard charts show a refresh spinner while keeping existing data visible.
-- Dashboard email reports queue immediate sends through the background sender for more reliable delivery.
-- Dashboard templates are tucked into settings and show simpler, clearer cards.
-- Explorer dashboards now drag charts with a stable preview and smoother placement.
-- Session replay playback can now be toggled by clicking the replay preview.
-- Session replays now open from the full row and play with timeline controls, speed settings, inactivity skipping, and an agent prompt popover.
-
-### Fixed
-
-- Dashboard bar chart hovers stay subtle in dark mode.
-- Dashboard charts drag smoothly with stable cards, inactive chart hovers, and reliable blue placement lines.
-- Dashboard edits stay stable while chart order and deletions save.
-- Session replay uploads now accept compressed payloads so larger recordings ingest more reliably.
-- SQL chart tooltips now stay stable while moving across dense charts.
-- The Ask tab uses a softer dark-gray canvas while sidebar chat stays black.
-- The Sessions page shows a single page title instead of repeating itself.
-
-## 2026-06-25
-
-### Improved
-
-- First-party dashboards use indexed event dates for faster date-range charts.
-- SQL dashboard panels now offer refresh and clearer SQL formatting feedback.
-- The sidebar footer and command palette now open language settings directly.
-
-### Fixed
-
-- Dashboard cards now stay in their row when deleted and show a blue placement line while dragging.
-- Dashboard charts no longer refresh in the background during agent activity and load more steadily on large dashboards.
-- Dashboard charts now show reliable blue placement lines while dragging.
-- First-party dashboard charts avoid surprise reloads and use faster retention queries.
-- Fixed HubSpot data source status so private app tokens, legacy tokens, and shared workspace grants show as ready consistently.
-- Per-template activity charts now exclude unattributed telemetry so CLI events no longer appear as Unknown.
-- Referrer dashboard panels now show external domains without SQL parameter placeholder errors.
-- Retention and active-user dashboard panels now exclude docs traffic, smooth retention cohorts, and use clearer signed-in visitor labels.
-
-### Removed
-
-- Analytics now opens directly to Ask instead of the old Overview page.
-- The sidebar footer no longer shows a sign-out shortcut.
-
-## 2026-06-24
-
-### Added
-
-- Added a language picker and localized app chrome for supported languages.
-- Dashboard traffic tables now show top URLs and shared Clips with clickable links.
-- First-party template dashboards now show key activity, signup, retention, DAU, and WAU trends over time by template.
-- Retention charts now break out 1-day and 7-day return rates by template.
-
-### Improved
-
-- Analytics navigation, command palette, and settings now honor the selected interface language.
-- Dashboard charts now fill sparse template time series, support legend toggles, and sort tooltip values by impact.
-- Dashboard rows now auto-fit panels so one, two, or three charts fill the row naturally.
-- Settings now link directly to Agent settings for model, API key, automation, and voice preferences.
-- SQL panel editors now highlight query syntax and keep one-click formatting available.
-
-### Fixed
-
-- Active-user dashboard panels classify templates more accurately instead of overusing the unknown bucket.
-- Daily dashboard charts now show the in-progress day as a dashed segment.
-- Dashboard filters now apply consistently to first-party traffic panels and unsafe table links render as plain text.
-- Dashboard loading placeholders now span the available page width.
-- Dashboard panel deletes now stay deleted after refresh.
-- First-party dashboard dates now align to Pacific time for daily activity and retention panels.
-- First-party signup and pageview dashboard panels now use the selected time range and email filters consistently.
-
-## 2026-06-23
-
-### Added
-
-- Build large first-party analytics dashboards in one fast call by naming metrics
-- Open any dashboard chart full screen in a modal from the panel's three-dots menu
-
-### Improved
-
-- The Dashboards and Analyses sidebar settings buttons now stay hidden until you hover the section, for a cleaner sidebar
-
-### Fixed
-
-- Long dashboard and analysis names in the sidebar now truncate with an ellipsis instead of being clipped
 
 For the full list of updates, see the [changelog folder](./changelog/).

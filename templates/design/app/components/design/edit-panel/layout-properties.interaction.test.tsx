@@ -72,6 +72,85 @@ describe("LayoutContextProperties interactions", () => {
     container.remove();
   });
 
+  it("Resize to fit lands the frame and the children it freezes as one layout edit", async () => {
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
+    const onStylesChange = vi.fn();
+    const onApplyLayoutFlow = vi.fn().mockReturnValue("applied");
+    const element = {
+      tagName: "div",
+      classes: [],
+      primitiveKind: "frame",
+      computedStyles: {
+        display: "flex",
+        flexDirection: "row",
+        width: "320px",
+        height: "60px",
+      },
+      authoredSizeStyles: { width: "320px", height: "60px" },
+      boundingRect: { x: 0, y: 0, width: 320, height: 60 },
+      isFlexChild: false,
+      isFlexContainer: true,
+      childElementCount: 1,
+      childLayouts: {
+        complete: true,
+        looseText: false,
+        children: [
+          {
+            nodeId: "grow",
+            tagName: "div",
+            position: "static",
+            display: "block",
+            flexGrow: "1",
+            alignSelf: "auto",
+            justifySelf: "auto",
+            float: "none",
+            width: "auto",
+            height: "20px",
+            rect: { x: 0, y: 0, width: 320, height: 20 },
+          },
+        ],
+      },
+      sourceId: "row",
+    } as ElementInfo;
+
+    await act(async () => {
+      root.render(
+        <LayoutContextProperties
+          element={element}
+          onStyleChange={vi.fn()}
+          onStylesChange={onStylesChange}
+          onApplyLayoutFlow={onApplyLayoutFlow}
+        />,
+      );
+    });
+
+    const resize = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="Resize to fit"]',
+    );
+    expect(resize).not.toBeNull();
+    await act(async () => resize?.click());
+
+    expect(onStylesChange).not.toHaveBeenCalled();
+    expect(onApplyLayoutFlow).toHaveBeenCalledTimes(1);
+    const [nodeId, containerStyles, patches] = onApplyLayoutFlow.mock.calls[0]!;
+    expect(nodeId).toBe("row");
+    expect(containerStyles).toEqual({});
+    expect(Object.fromEntries(patches)).toEqual({
+      row: { width: "fit-content", height: "fit-content" },
+      grow: {
+        width: "320px",
+        flexGrow: "0",
+        flexShrink: "0",
+        flexBasis: "auto",
+      },
+    });
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
   it("re-clicking Grid on an existing grid invokes no command at all, preserving authored custom tracks untouched", async () => {
     const container = document.createElement("div");
     document.body.append(container);

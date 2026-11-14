@@ -119,6 +119,7 @@ describe("runTextContentChange selected live element", () => {
       isFlexChild: false,
       isFlexContainer: false,
     };
+    selectedElement.current = sourceIdentityInfo;
 
     expect(
       runTextContentChange(
@@ -173,6 +174,7 @@ describe("runTextContentChange selected live element", () => {
         nodes: [{ path: [], styles: { fontSize: "Mixed" } }],
       },
     };
+    selectedElement.current = liveElementInfo;
     const selectionArgs: TextContentChangeArgs = {
       ...args,
       setSelectedElement: (update) => {
@@ -237,5 +239,96 @@ describe("runTextContentChange rejected live-snapshot write", () => {
     );
 
     expect(confirm).not.toHaveBeenCalled();
+  });
+});
+
+describe("runTextContentChange after the selection moved on", () => {
+  const content = `<body><div data-agent-native-node-id="t1">Before</div><div data-agent-native-node-id="t2">Other</div></body>`;
+  const editedInfo: ElementInfo = {
+    tagName: "div",
+    sourceId: "t1",
+    selector: '[data-agent-native-node-id="t1"]',
+    classes: [],
+    computedStyles: {},
+    boundingRect: { x: 0, y: 0, width: 100, height: 24 },
+    isFlexChild: false,
+    isFlexContainer: false,
+  };
+  const otherInfo: ElementInfo = {
+    ...editedInfo,
+    sourceId: "t2",
+    selector: '[data-agent-native-node-id="t2"]',
+  };
+
+  function commitWithSelection(
+    selection: { element: ElementInfo | null; layerIds: string[] },
+    isPendingCreation = false,
+  ) {
+    const { args, nodeId, getContent } = buildArgs(content, isPendingCreation);
+    const state = { ...selection };
+    const status = runTextContentChange(
+      {
+        ...args,
+        setSelectedElement: (update) => {
+          state.element =
+            typeof update === "function" ? update(state.element) : update;
+        },
+        setSelectedLayerIdsState: (update) => {
+          state.layerIds =
+            typeof update === "function" ? update(state.layerIds) : update;
+        },
+      },
+      editedInfo.selector!,
+      "After",
+      editedInfo,
+    );
+    const otherNodeId = buildCodeLayerProjection(getContent(), {
+      source: { kind: "design-file", fileId: "index.html" },
+    }).nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "t2",
+    )!.id;
+    return { status, state, nodeId, otherNodeId, getContent };
+  }
+
+  it("re-selects the edited layer while it is still selected", () => {
+    const { nodeId } = buildArgs(content, false);
+    const { status, state, getContent } = commitWithSelection({
+      element: editedInfo,
+      layerIds: [nodeId],
+    });
+
+    expect(status).toBe("accepted");
+    expect(getContent()).toContain("After");
+    expect(state.layerIds).toEqual([nodeId]);
+    expect(state.element?.textContent).toBe("After");
+  });
+
+  it("stays deselected when an empty-canvas click cleared the selection", () => {
+    const { status, state, getContent } = commitWithSelection({
+      element: null,
+      layerIds: [],
+    });
+
+    expect(status).toBe("accepted");
+    expect(getContent()).toContain("After");
+    expect(state.element).toBeNull();
+    expect(state.layerIds).toEqual([]);
+  });
+
+  it("keeps the layer the user selected while the edit was open", () => {
+    const otherId = buildCodeLayerProjection(content, {
+      source: { kind: "design-file", fileId: "index.html" },
+    }).nodes.find(
+      (node) => node.dataAttributes["data-agent-native-node-id"] === "t2",
+    )!.id;
+    const { status, state, getContent } = commitWithSelection({
+      element: otherInfo,
+      layerIds: [otherId],
+    });
+
+    expect(status).toBe("accepted");
+    expect(getContent()).toContain("After");
+    expect(state.element).toBe(otherInfo);
+    expect(state.layerIds).toEqual([otherId]);
   });
 });

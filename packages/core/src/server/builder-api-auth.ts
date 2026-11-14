@@ -16,9 +16,11 @@ import {
   toHttpServerConfigAsync,
   type RemoteMcpScope,
 } from "../mcp-client/remote-store.js";
+import { AppSecretDecryptionError } from "../secrets/errors.js";
 import {
   getBuilderOAuthSession,
   hasBuilderOAuthSession,
+  hasStoredBuilderOAuthGrantForUse,
   type BuilderOAuthPermissionScope,
 } from "./builder-oauth.js";
 import {
@@ -31,6 +33,16 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "./request-context.js";
+
+export function isBuilderReauthorizationRequired(error: unknown): boolean {
+  return (
+    (error instanceof ActionContractError &&
+      error.errorCode === "builder_oauth_reauthorization_required") ||
+    error instanceof AppSecretDecryptionError ||
+    (error instanceof CredentialStoreUnavailableError &&
+      error.cause instanceof AppSecretDecryptionError)
+  );
+}
 
 function getBuilderCredentialScope(): {
   orgId: string | null;
@@ -46,11 +58,14 @@ function getBuilderCredentialScope(): {
     : { orgId: storageOrgId, storageOnly: true };
 }
 
-async function readCredentialStore<T>(read: () => Promise<T>): Promise<T> {
+async function readCredentialStore<T>(
+  read: () => Promise<T>,
+  context?: { source: "database" },
+): Promise<T> {
   try {
     return await read();
   } catch (err) {
-    if (isTransientDatabaseError(err)) {
+    if (isTransientDatabaseError(err, context)) {
       throw new CredentialStoreUnavailableError(err);
     }
     throw err;
@@ -62,10 +77,12 @@ async function readOAuthCustody(
   orgId?: string | null,
   orgOnly = false,
 ): Promise<boolean> {
-  return readCredentialStore(() =>
-    orgOnly
-      ? hasBuilderOAuthSession(ownerEmail, orgId, { orgOnly: true })
-      : hasBuilderOAuthSession(ownerEmail, orgId),
+  return readCredentialStore(
+    () =>
+      orgOnly
+        ? hasBuilderOAuthSession(ownerEmail, orgId, { orgOnly: true })
+        : hasBuilderOAuthSession(ownerEmail, orgId),
+    { source: "database" },
   );
 }
 
@@ -93,9 +110,33 @@ export interface BuilderRequestAuthorization {
   authorization: string;
   source: "oauth" | "legacy";
   oauthScope?: RemoteMcpScope;
+  oauthResource?: "general" | "publish";
+  oauthConnectionId?: string;
+  /**
+   * Space selected during Builder OAuth. This is only a request locator; the
+   * provider must verify the token and reject a different apiKey.
+   */
+  oauthSelectedPublicKey?: string;
   legacyCredentialKey?: BuilderLegacyCredentialKey;
   legacyPublicKey?: string;
   userId?: string;
+}
+
+function selectedPublicKeyFromBuilderAccessToken(token: string) {
+  const payload = token.split(".")[1];
+  if (!payload) return undefined;
+  try {
+    const decoded = JSON.parse(
+      Buffer.from(payload, "base64url").toString("utf8"),
+    ) as Record<string, unknown>;
+    return typeof decoded.org === "string" && decoded.org.trim()
+      ? decoded.org.trim()
+      : undefined;
+  } catch {
+    // coercion-ok: an opaque or malformed optional locator claim is absent;
+    // authorization remains the provider's signed-token responsibility.
+    return undefined;
+  }
 }
 
 async function resolveBuilderPublishAuthorization(
@@ -182,6 +223,7 @@ async function resolveBuilderPublishAuthorization(
       authorization: `Bearer ${match[1]}`,
       source: "oauth",
       oauthScope: candidate.scope,
+      oauthResource: "publish",
     };
   }
   if (ownerEmail) {
@@ -257,6 +299,7 @@ export async function resolveBuilderRequestAuthorization(
           {
             errorCode: "builder_oauth_reauthorization_required",
             statusCode: 400,
+            details: { reason: "missing_scope", scope: input.requiredScope },
           },
         );
       }
@@ -277,6 +320,7 @@ export async function resolveBuilderRequestAuthorization(
         {
           errorCode: "builder_oauth_reauthorization_required",
           statusCode: 400,
+          details: { reason: "missing_scope", scope: input.requiredScope },
         },
       );
     }
@@ -285,6 +329,13 @@ export async function resolveBuilderRequestAuthorization(
       authorization: `Bearer ${session.accessToken}`,
       source: "oauth",
       oauthScope: session.scope,
+      oauthResource: "general",
+      ...(session.connectionId
+        ? { oauthConnectionId: session.connectionId }
+        : {}),
+      oauthSelectedPublicKey: selectedPublicKeyFromBuilderAccessToken(
+        session.accessToken,
+      ),
     };
   }
 
@@ -371,6 +422,18 @@ export async function hasBuilderApiCredentialCustody(): Promise<boolean> {
     return true;
   }
   return !!(await resolveBuilderCredential("BUILDER_PRIVATE_KEY"));
+}
+
+/** A Builder OAuth grant is stored for this request, readable or not. */
+export async function hasStoredBuilderApiOAuthGrant(): Promise<boolean> {
+  const ownerEmail = getRequestUserEmail();
+  if (!ownerEmail) return false;
+  const { orgId, storageOnly } = getBuilderCredentialScope();
+  return readCredentialStore(() =>
+    storageOnly
+      ? hasStoredBuilderOAuthGrantForUse(ownerEmail, orgId, { orgOnly: true })
+      : hasStoredBuilderOAuthGrantForUse(ownerEmail, orgId),
+  );
 }
 
 export async function canAuthorizeBuilderApiRequest(

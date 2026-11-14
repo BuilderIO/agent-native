@@ -61,7 +61,7 @@ export default {
     recordingStarted: "录制开始时间",
     appBandHeading: "{app} · {count} 个会话",
     journeyTitleSummary: "{app} · {from} 至 {to} · {count} 个会话{partial}",
-    journeyTitleAppBandsSummary: "{from} 至 {to} · 各应用独立队列{partial}",
+    journeyTitleAppBandsSummary: "{from} 至 {to} · 独立群组{partial}",
     sessionCount: "{count} 个会话",
     otherPaths: "其他路径",
     otherBranchesShown: "已显示 {shown}/{total} 个分支",
@@ -224,6 +224,23 @@ export default {
     expandSidebar: "展开侧边栏",
     collapseSidebar: "收起侧边栏",
   },
+  gettingStarted: {
+    title: "开始使用",
+    progress: "已完成 {{completeCount}}/{{totalCount}}",
+    collapse: "收起",
+    expand: "展开",
+    completed: "已完成",
+    loadError: "无法加载清单",
+    retry: "重试",
+    steps: {
+      createDesign: "创建你的第一个设计",
+      addBrand: "添加你的品牌",
+      useRealData: "使用你的真实数据",
+      shareFeedback: "分享以获取反馈",
+      inviteTeammate: "邀请队友",
+      saveTemplate: "将设计保存为模板",
+    },
+  },
   settings: {
     agentTitle: "管理代理",
     agentDescription: "管理代理的模型、API 密钥、自动化、语音和其他控制项。",
@@ -285,6 +302,9 @@ export default {
       chooseFrame: "选择画框",
       inspect: "检查",
       exportSvg: "导出 SVG",
+      moreActions: "更多操作",
+      askAboutFile: "询问此文件",
+      askAboutFilePrompt: "询问有关此关联设计文件的问题。{{url}}",
       actionsPrefill: "检查后发送",
       retry: "重试",
       currentDesign: "当前 Design",
@@ -304,6 +324,7 @@ export default {
   common: {
     loading: "正在加载...",
     genericError: "出了点问题",
+    linkedSourceSizeLimit: "此关联组件编辑超出了源代码大小限制。",
   },
   editPanel: {
     colorInputLabel: "颜色",
@@ -400,6 +421,7 @@ export default {
       font: "字体",
       baseSize: "底座尺寸",
       size: "尺寸",
+      fontSizes: "字号阶梯",
       weight: "重量",
       color: "颜色",
       align: "对齐",
@@ -432,6 +454,7 @@ export default {
       image: "图片",
       style: "样式",
       rotation: "旋转",
+      length: "长度",
       flipHorizontal: "水平翻转",
       flipVertical: "垂直翻转",
       shadow: "阴影",
@@ -448,7 +471,6 @@ export default {
       showGrid: "显示网格",
       hideGrid: "隐藏网格",
       reorderLayer: "重新排序图层",
-      stylesComingSoon: "样式 — 即将推出",
       linkSides: "链接四边",
       unlinkSides: "取消链接四边",
       allSides: "全部",
@@ -848,6 +870,9 @@ export default {
       bottom: "乙",
       left: "L",
     },
+    fontPicker: {
+      catalogUnavailable: "无法加载完整字体库。",
+    },
     fontFamilies: {
       inherit: "继承",
       sansSerif: "无衬线字体",
@@ -998,6 +1023,8 @@ export default {
     },
   },
   designEditor: {
+    sourceLoadFailed: "无法加载此屏幕。",
+    selectionPublishFailed: "智能体可能看不到你最新的选择。请重新选择。",
     liveCollaboration: {
       title: "实时协作",
       description:
@@ -1171,6 +1198,14 @@ export default {
         animation: "动画",
         distance: "距离",
         amount: "数值",
+        axis: "轴",
+        axisBoth: "两者",
+        axisX: "X",
+        axisY: "Y",
+        startWidth: "起始宽度",
+        endWidth: "结束宽度",
+        startHeight: "起始高度",
+        endHeight: "结束高度",
         delay: "延迟",
         easing: "缓动",
         editCurve: "编辑缓动曲线",
@@ -1354,7 +1389,8 @@ export default {
       size: "大小",
       sourceReadUnavailable: "Motion 无法在不改变其行为的情况下读取此动画。",
       sourceWriteUnavailable: "目前，Motion 代码只能写入内嵌 HTML 设计。",
-      unresolvedStylesheets: "请先解决外部样式表，再编辑或添加 Motion。",
+      unresolvedStylesheets:
+        "请先处理外部或运行时生成的样式，再编辑或添加 Motion。",
       sourceConflict:
         "时间轴有未保存更改时，Motion 源代码发生了变化。重新加载代码会丢弃这些更改并使用当前源代码。",
       reloadFromSource: "从代码重新加载",
@@ -1561,30 +1597,17 @@ export default {
       editColor: "编辑 {{name}} 的颜色",
     },
     import: {
-      title: "导入",
       description: "将 Figma 剪贴板 HTML 或独立 HTML 导入为 Design 屏幕。",
-      figmaUrlTitle: "Figma 画框 URL",
-      figmaUrlDescription: "从 Figma 链接导入画框或文件。",
       figmaUrlLabel: "Figma 画框或文件 URL",
       figmaUrlPlaceholder: "https://www.figma.com/design/…",
-      figmaConnectionChecking: "正在检查 Figma 连接…",
-      figmaConnected: "Figma 已连接",
-      figmaConnectedWithSuffix: "Figma 已连接 · ••••{{suffix}}",
       figmaTokenLabel: "Figma 访问令牌",
       figmaTokenDocs: "获取令牌",
       figmaTokenPlaceholder: "粘贴您的 Figma 个人访问令牌",
-      figmaTokenDescription:
-        "安全保存以用于 Figma 导入和代理聊天。令牌绝不会加入聊天。",
-      importFigmaUrl: "从 Figma 导入",
-      saveKeyAndImport: "保存密钥并导入",
       figmaUrlSuccess: "已从 Figma 导入。",
       figmaImageFallbackWarning:
         "图像回退：{{count}}。外观会保留，但这些图层无法完全编辑。",
       figmaApproximationWarning:
         "近似图层：{{count}}。HTML/CSS 无法精确表示所有 Figma 属性。",
-      figmaPasteTitle: "从 Figma 粘贴",
-      figmaPasteDescription:
-        "在 Figma 中复制画框或图层，然后粘贴到 Design 画布。Design 会导入可见的剪贴板 HTML。",
       figmaPasteTarget: "粘贴到画布",
       figmaPasteApiKeyHint: "连接您的 Figma 访问令牌以获得精确的节点导入。",
       figmaPasteAccessDenied:
@@ -1592,10 +1615,10 @@ export default {
       figmaPasteMatchGuidance:
         "无法匹配到特定的 Figma 节点。请改为粘贴画框链接以进行精确导入。",
       figmaPasteUnreadable:
-        "剪贴板中没有复制的 Figma 图层。请在 Figma 中选中画框，按 Cmd+C 复制后再粘贴，或从导入面板导入 Figma 链接。",
+        "剪贴板中没有复制的 Figma 图层。请在 Figma 中选中画框，按 Cmd+C 复制后再粘贴，或在聊天中粘贴该画框的链接。",
       figmaPasteRestLabel: "通过 Figma API 导入",
       figmaPasteHtmlLabel: "从剪贴板预览导入",
-      figmaPasteLocalKiwiLabel: "已在未登录状态下导入 — 仅包含几何与文字",
+      figmaPasteLocalKiwiLabel: "已从 Figma 剪贴板导入",
       figmaPasteImagesNeedToken:
         "{{count}} 张图片{{plural}}需要 Figma 访问权限才能加载。",
       figmaPasteImagesDontShowAgain: "不再显示",
@@ -1626,71 +1649,27 @@ export default {
         "{{count}} image{{plural}} filled in from the .fig file.",
       figmaHydrationInvalidFig: "Choose a .fig file exported from Figma.",
       figmaHydrationFigError: "Couldn't read images from that .fig file.",
-      figUploadTitle: "上传 .fig",
       figUploadDescription:
         "实验性功能：Figma 的 .fig 格式为专有格式且可能变化。支持的图层会转换为可编辑屏幕，部分功能可能有所不同。最大 {{max}} MB。",
-      chooseFigFile: "选择 .fig 文件",
       figUploadUploading: "正在上传 {{progress}}%",
       figUploadProcessing: "正在转换…",
-      figImportWarningTitle: "大型 .fig 导入",
-      figImportWarningDescription:
-        "此文件包含 {{frames}} 个画框和 {{nodes}} 个图层。全部导入可能会让编辑器变慢。请选择需要的页面。",
-      figImportFrameCount: "已选择 {{selected}} / {{total}} 个画框",
-      figImportSelectAll: "全选",
-      figImportClearAll: "全部清除",
-      figImportCancel: "取消",
-      figImportSelected: "导入已选择的 {{count}} 个",
-      figImportAll: "全部导入",
       figImportAnalyzing: "正在分析…",
       figImportSaving: "正在保存 {{saved}} / {{total}} 个画框",
-      figImportFrameLimit: "所选页面的画框总数不能超过 {{max}} 个。",
       figImportFramesSkippedWarning:
         "已跳过 {{count}} 个过于复杂、无法导入的画框：{{names}}",
-      figUploadLimits: "最大 {{size}} GB · 每次导入最多 {{frames}} 个画框",
-      figUploadDescriptionShort:
-        "本地导入 — 不使用 Figma API 配额。会包含受支持的嵌入图片。",
       figUploadImagesSkippedWarning:
         "Skipped embedded images ({{count}}) because browser uploads have a per-image limit.",
-      figmaPasteBodyUnlimited:
-        "Works without a Figma token — geometry, layout, and text import immediately.",
-      figmaPasteBodyImages:
-        "Image fills may be missing without a token. Upload the .fig file to include embedded images.",
-      quotaCooldownTitle: "Design 已暂停此导入",
-      quotaCooldownBody:
-        "达到配额上限后，Design 正在限制自身的 Figma 请求速率。配额将自动重置。",
-      rateLimitTitle: "Figma paused this import",
-      rateLimitLowSeat:
-        "Your seat type (Viewer/Collab) has a limited Figma API quota for file imports — up to 6 requests per month per the official Figma docs.",
-      rateLimitGeneric:
-        "Figma rate-limited this import. The quota resets automatically.",
-      rateLimitRetryIn: "Try again in {{time}}.",
-      rateLimitAlternatives: "No-quota alternatives:",
-      rateLimitUsePaste: "Paste from Figma — unlimited",
-      rateLimitUseFig: "Upload .fig — unlimited",
-      rateLimitUpgrade: "View Figma plan options →",
-      htmlTitle: "导入 HTML",
       htmlDescription:
         "粘贴或上传独立 HTML。Design 会将其保存为新屏幕，不会注入到此编辑器界面。",
-      htmlPlaceholder: "<main>在此粘贴独立 HTML...</main>",
-      importHtml: "导入 HTML",
-      chooseHtmlFile: "选择 HTML 文件",
       allSupportedFiles: "所有支持的文件",
-      githubTitle: "GitHub",
       githubDescription: "即将推出：直接从仓库导入屏幕和组件。",
-      localTitle: "本地 app",
       localDescription: "使用 /visual-edit 连接任何正在运行的本地 app。",
-      visualEditGuidance:
-        "安装 /visual-edit skill，启动任意本地 app，然后在该 app repo 中运行桥接命令，让代理添加 URL 屏幕。",
-      comingSoon: "即将推出",
       warningsToast: "导入完成但有警告",
       figmaSuccess: "已导入 Figma 粘贴内容",
       htmlSuccess: "已导入 HTML",
       uploadSuccess: "已导入文件",
-      lastImport: "上次导入",
       errors: {
         figmaTokenMustBeToken: "请粘贴 Figma 访问令牌，而不是 Figma 文件链接。",
-        figmaUrlRequired: "请粘贴 Figma 画框或文件 URL。",
-        invalidFigmaUrl: "请输入有效的 figma.com 画框或文件 URL。",
         figmaImportFailed: "无法从 Figma 导入",
         notHtml: "请粘贴或选择有效的 HTML 进行导入。",
         importFailed: "导入失败",
@@ -1698,9 +1677,11 @@ export default {
         uploadFailed: "文件上传失败",
         invalidFigFile: "请选择以 .fig 结尾的文件。",
         unsupportedFileType: "请选择 .fig、.html 或 .htm 文件。",
-        importBusy: "另一个导入正在进行。请先完成或取消。",
+        importBusy: "另一个导入正在进行。请在其完成后重试。",
         figFileTooLarge:
-          "该 .fig 文件太大 — 上传上限为 {{max}} MB。请在 Figma 中将需要导入的画板复制到新文件，然后导出该文件为 .fig，或改用“从 Figma 粘贴”。",
+          "此文件太大，无法在此导入。请改为粘贴 Figma 页面或画框的链接。",
+        figFileUnreadable:
+          "无法将此文件读取为 .fig 文件。请从 Figma 保存新的本地副本并导入。",
       },
     },
     generationMayHaveStopped:
@@ -1721,7 +1702,6 @@ export default {
       "请求已记录。获得批准后，你就可以打开此设计。",
     signInToRequestAccessTitle: "登录以请求访问",
     signInToRequestAccessDescription: "登录或创建账户，向所有者请求访问权限。",
-    signInOrSignUp: "登录或注册",
     accessCheckFailed: "无法检查此设计的访问权限。",
     retryAccessCheck: "重试",
     saveAsTemplate: "保存为模板…",
@@ -1753,9 +1733,12 @@ export default {
       pendingEditsBlocked: "复制前，请先应用或放弃待处理的可视化编辑。",
       allDesigns: "所有设计",
       rename: "重命名",
+      builtFrom: "基于 {{title}} 创建",
+      builtFromPage: "基于 Content 页面创建",
       duplicate: "复制",
       versionHistory: "版本历史",
       import: "导入…",
+      connectLocalApp: "连接本地应用",
       delete: "删除",
       deleteError: "无法删除此设计",
     },
@@ -1796,7 +1779,7 @@ export default {
       ellipse: "椭圆",
       polygon: "多边形",
       star: "星形",
-      imageVideo: "图片/视频...",
+      imageVideo: "图片/视频…",
       text: "Text",
       pen: "Pen",
       hand: "Hand",
@@ -1817,8 +1800,10 @@ export default {
         small: "小距离",
         big: "大距离",
         unit: "px",
-        description:
-          "方向键以小距离移动，Shift 方向键以大距离移动。在自动布局框架内，方向键改为调整图层顺序。",
+        close: "关闭微调距离",
+        done: "完成",
+        smallDescription: "设置使用方向键时对象移动的像素数。",
+        bigDescription: "设置使用 Shift + 方向键时对象移动的像素数。",
       },
       keys: {
         or: "或",
@@ -1846,7 +1831,7 @@ export default {
         essential: "基本",
         tools: "工具",
         view: "View",
-        zoom: "飞涨",
+        zoom: "缩放",
         text: "Text",
         shape: "形状",
         selection: "选择",
@@ -1856,6 +1841,7 @@ export default {
         arrange: "排列",
         components: "组件",
         layout: "布局",
+        code: "代码",
       },
       commands: {
         showShortcuts: "键盘快捷键",
@@ -1872,14 +1858,16 @@ export default {
         drawTool: "绘制",
         showLayers: "图层",
         showAssets: "资源",
-        toggleUi: "View",
+        toggleUi: "显示或隐藏界面",
         toggleMinimalUi: "极简界面",
         toggleComments: "固定评论",
         zoomIn: "放大",
         zoomOut: "缩小",
-        zoomReset: "飞涨 100%",
+        zoomReset: "缩放至 100%",
         zoomFit: "适合屏幕",
-        zoomSelection: "飞涨: 选择",
+        zoomSelection: "缩放至所选内容",
+        bold: "粗体",
+        italic: "斜体",
         underline: "下划线",
         strikethrough: "删除线",
         rectangle: "Rectangle",
@@ -1894,7 +1882,8 @@ export default {
         previousSibling: "← 选择",
         nextScreen: "屏幕 →",
         previousScreen: "← 屏幕",
-        toggleLayoutGrids: "布局网格: View",
+        toggleLayoutGrids: "显示或隐藏布局网格",
+        toggleRulers: "显示或隐藏标尺",
         nudge: "Move",
         nudgeLarge: "大距离",
         copy: "复制",
@@ -1927,7 +1916,15 @@ export default {
         ungroup: "取消编组",
         frameSelection: "创建画框",
         autoLayout: "自动布局",
-        imageVideo: "图片/视频...",
+        removeAutoLayout: "移除自动布局",
+        toggleHidden: "显示或隐藏所选内容",
+        toggleLocked: "锁定或解锁所选内容",
+        alignHorizontalCenters: "水平居中对齐",
+        alignVerticalCenters: "垂直居中对齐",
+        distributeHorizontal: "水平均匀分布",
+        distributeVertical: "垂直均匀分布",
+        setOpacity: "设置不透明度",
+        imageVideo: "图片/视频…",
       },
     },
     undo: "撤消",
@@ -1948,7 +1945,7 @@ export default {
       tablet: "药片",
       mobile: "移动的",
     },
-    zoom: "飞涨",
+    zoom: "缩放",
     zoomOut: "缩小",
     zoomIn: "放大",
     more: "更多的",
@@ -1956,6 +1953,15 @@ export default {
     pinComment: "固定评论",
     export: "出口",
     downloadHtml: "下载 HTML",
+    exportHubspotHtml: "导出 HubSpot HTML",
+    hubspotConversion: {
+      title: "转换为 HubSpot 邮件？",
+      description: "{{name}} 需要调整为邮件兼容格式。原始画框将保留。",
+      convert: "让智能体转换",
+      cancel: "取消",
+      prompt:
+        "创建此画框的 HubSpot 邮件版本，保留内容和品牌风格，并保留原始画框。验证 HTML 导出并打开新画框。",
+    },
     downloadPng: "下载 PNG",
     downloadSvg: "下载 SVG",
     downloadFigmaSvg: "下载用于 Figma 的 SVG",
@@ -2092,6 +2098,18 @@ export default {
       added: "已添加屏幕",
       addFailed: "无法添加屏幕",
     },
+    localhostConsent: {
+      approvedTitle: "已批准 — 请重新运行编辑",
+      approvedDescription:
+        "文件写入权限有效期为 8 小时。请求访问权限的那次编辑未保存。",
+      retryInChat: "在聊天中重新运行",
+      retryPrompt:
+        "已批准对 {{rootPath}} 的文件写入。请重新运行需要此权限的编辑。",
+      unavailableTitle: "此写入请求已不再待处理",
+      unavailableDescription: "重新运行编辑以请求访问权限。",
+      close: "关闭",
+      prepareSignInError: "无法在登录前保存此请求。请重试。",
+    },
     nodeRewrite: {
       composerTitle: "询问或更改所选内容",
       send: "发送",
@@ -2139,9 +2157,16 @@ export default {
         "另一位协作者有待应用的更改。请先应用或清除这些更改，再发送新更改。",
       codingHandoffCopied: "编码交接已复制",
       clipboardBlocked: "剪贴板被阻止",
+      pasteMediaTooMany_other:
+        "{{count}} 个文件未粘贴。一次最多可粘贴 {{limit}} 个文件。",
+      pasteMediaTooLarge_other:
+        "{{count}} 个文件因超过 {{limitMb}} MB 而未粘贴。",
       htmlCreateError: "无法创建 HTML 下载",
       htmlDownloaded: "HTML 已下载",
       htmlExportError: "无法导出 HTML",
+      hubspotHtmlExporting: "正在准备 HubSpot HTML…",
+      hubspotHtmlDownloaded: "已下载 HubSpot HTML",
+      hubspotHtmlExportError: "无法导出 HubSpot HTML",
       zipCreateError: "无法创建 ZIP 下载",
       zipDownloaded: "ZIP 已下载",
       zipExportError: "无法导出 ZIP",
@@ -2204,6 +2229,7 @@ export default {
       redoSkippedConcurrentEdit: "已跳过重做 — 其他人移动了该内容",
       saveConflict: "此屏幕已在其他位置更改。上次编辑未保存。",
       versionHistoryUnavailable: "此设计暂无法使用版本历史。您的编辑已保存。",
+      removeAutoLayoutFailed: "无法移除自动布局",
       autoLayoutScreensUnsupported: "自动布局不适用于屏幕",
       booleanSubtractUnsupported:
         "请选择相邻且使用纯色填充的矩形或椭圆以执行减去操作。",
@@ -2218,7 +2244,18 @@ export default {
       vectorEditUnsupported: "此形状或变换目前无法进行向量编辑。",
       imageUploading: "正在上传图片…",
       pasteReplaceFailed: "无法替换该图层",
+      pasteTargetUnmeasured: "无法测量所选图层，因此无法粘贴到其中",
+      pasteClipboardUnreadable: "请允许访问剪贴板以在此处粘贴",
+      pasteClipboardUntrusted: "无法粘贴从其他网站上的 Design 复制的图层",
       swapFillStrokeLayeredFill: "多个填充或图片填充暂时无法移到描边",
+      alignNeedsTwoLayers: "选择两个或更多图层以对齐",
+      alignNeedsTwoScreens: "选择两个或更多屏幕以对齐",
+      layoutUnmeasurable: "无法测量所选图层。请确认它在画布上可见，然后重试。",
+      layoutAutoLayoutChildren:
+        "这些图层由自动布局定位。从其框架中移除自动布局即可自由移动。",
+      layoutUnsupportedPosition: "粘性图层和 SVG 内的形状无法以这种方式移动",
+      layoutMovesNestedLayers: "移动此图层会使其内部定位的图层发生偏移",
+      layoutMoveFailed: "无法移动所选图层",
     },
     commenterRoleLabel: "评论者",
     commenterRoleDescription: "可以查看并添加审阅评论",
@@ -2242,6 +2279,7 @@ export default {
     order: "排序",
     createComponent: "创建组件",
     addAutoLayout: "添加自动布局",
+    removeAutoLayout: "移除自动布局",
     copyAs: "复制/粘贴为",
     copyProps: "复制属性",
     pasteProps: "粘贴属性",
@@ -2262,13 +2300,15 @@ export default {
     allScreens: "所有屏幕",
     thumbnail: "缩略图",
     addScreen: "添加屏幕",
-    searchPlaceholder: "搜索图层...",
+    searchPlaceholder: "搜索图层",
     empty: "没有图层",
     noMatches: "没有匹配的图层",
     designLayers: "设计图层",
     codeLayers: "代码图层",
     elementLayers: "元素图层",
     collapse: "折叠图层",
+    collapseAll: "折叠所有图层",
+    clearSearch: "清除搜索",
     expand: "展开图层",
     lock: "锁定图层",
     unlock: "解锁图层",
@@ -2451,6 +2491,8 @@ export default {
     changesSaveWhenReconnected: "重新连接时将保存更改",
     changesDiscarded: "部分更改因文件不存在而无法保存，已被丢弃。",
     offline: "离线",
+    unsaved: "未保存",
+    saveRetrying: "无法保存你的更改，正在自动重试。",
     saving: "正在保存...",
     clearedAllAnnotations: "已清除所有批注",
     annotationsDiscardedOnViewChange:
@@ -2505,32 +2547,50 @@ export default {
   },
   homeContext: {
     websiteReference: "添加网站",
+    websiteReferenceMenu: "添加网站…",
     websiteUrlLabel: "网站 URL",
     websiteUrl: "粘贴网站 URL",
-    figmaUrlLabel: "Figma 链接",
     invalidFigmaUrl: "请输入有效的 figma.com 画框或文件 URL。",
     tooMany: "最多选择 20 个参考。",
     invalidWebsiteUrl: "请输入有效的 HTTP 或 HTTPS URL。",
     createSystem: "创建设计系统",
     noSystems: "你还没有设计系统。可以从网站、文件或 Figma 创建。",
     searchSystems: "搜索设计系统…",
-    searchFrames: "搜索 Figma 画框…",
     searchDesigns: "搜索设计…",
     searchPresentations: "搜索演示文稿…",
+    searchPages: "搜索页面…",
     searchDesign: "搜索设计…",
     useDesignSystem: "使用设计系统",
     notReady: "提示尚未准备好提交。请检查所选上下文和连接，然后重试。",
     search: "搜索上下文…",
-    figmaUrl: "粘贴 Figma 链接",
-    browse: "浏览画框",
     loadFailed: "无法加载此参考。",
     retry: "重试",
     empty: "没有匹配的参考。",
     none: "无",
-    design: "设计",
+    design: "设计参考",
     slides: "幻灯片",
     referenceDesign: "参考设计",
-    figmaReference: "添加 Figma",
+    contentPage: "Content 页面",
+    connectFigma: "连接 Figma",
+    figmaReference: "Figma 设计…",
+    figmaDialogTitle: "添加 Figma 设计",
+    figmaDropTitle: "拖入 .fig 文件",
+    figmaChooseFile: "选择文件",
+    figmaPasteHint: "你也可以把复制的框架直接粘贴到提示中。",
+    figmaAddToPrompt: "添加到提示",
+    figmaLinkNeedsConnection:
+      "链接需要已连接的 Figma 账户。请改为拖入 .fig 文件或粘贴复制的框架。",
+    figmaReferenceMore: "{{name}} 等 {{count}} 个",
+    figmaReferenceEmpty: "没有收到任何框架。请在 Figma 中复制一个框架后重试。",
+    figmaSelection: "Figma 选区",
+    figmaFileTooLarge:
+      "此文件太大，无法在这里读取。请改为粘贴其页面或框架的链接。",
+    figmaSearch: "搜索页面和框架",
+    figmaSelectedCount: "已选择 {{count}} 项",
+    figmaShowFrames: "显示 {{name}} 中的框架",
+    figmaLinkNotFrame: "请链接到 Figma 页面或框架。",
+    figmaPageFrameCap:
+      "添加前 {{limit}} 个框架。勾选框架可自行选择要添加哪些。",
     referenceDeck: "参考演示文稿",
     quickSaas: "创建 SaaS 落地页",
     quickDashboard: "创建仪表盘",
@@ -2540,12 +2600,162 @@ export default {
   },
   home: {
     suggestedPrompts: "推荐提示",
+    suggestions: {
+      product: {
+        analyticsDashboard:
+          "设计一个产品分析仪表板，包含KPI卡片、转化图表和活动表格，整体采用自信的数据驱动风格。",
+        roadmapWorkspace:
+          "设计一个路线图工作区，包含季度时间线、优先级标签和客户反馈面板，整体采用平和协作的风格。",
+        onboardingFlow:
+          "设计一个预算应用的引导流程，包含进度步骤、目标选择和账户设置，整体采用令人安心的风格。",
+        featureComparison:
+          "设计一个SaaS功能对比页面，包含套餐卡片、功能矩阵和常见问题，整体采用直接且注重转化的风格。",
+        feedbackPortal:
+          "设计一个客户反馈门户，包含需求看板、投票控件和状态筛选，整体采用开放的社区风格。",
+        releaseNotes:
+          "设计一个版本更新中心，包含版本时间线、功能亮点和迁移说明，整体采用简洁的编辑风格。",
+        projectWorkspace:
+          "设计一个产品团队工作区，包含看板列、负责人标签和里程碑，整体采用专注效率的风格。",
+        launchWaitlist:
+          "设计一个产品发布候补名单页面，包含主视觉、客户证明和报名表单，整体采用乐观的风格。",
+      },
+      design: {
+        portfolioHome:
+          "设计一个设计师作品集首页，包含简短介绍、案例网格、个人简介和联系入口，整体采用精致的编辑风格。",
+        designSystem:
+          "设计一个设计系统参考页，包含颜色与字体令牌、组件画廊和使用说明，整体采用精准的文档风格。",
+        bankingApp:
+          "设计一个手机银行应用首页，包含余额卡片、交易列表和储蓄目标，整体采用平静可信的风格。",
+        travelBooking:
+          "设计一个旅行预订搜索页面，包含目的地筛选、行程卡片和地图面板，整体采用轻盈冒险的风格。",
+        coffeeShop:
+          "设计一个咖啡店网店，包含精选咖啡、产地故事和订阅入口，整体采用温暖细腻的风格。",
+        musicFestival:
+          "设计一个音乐节活动页面，包含演出阵容、日程和场地地图，整体采用充满活力的海报风格。",
+        accessibilityAudit:
+          "设计一个无障碍审查仪表板，包含评分摘要、问题列表和筛选控件，整体采用清晰高对比风格。",
+        artBook:
+          "设计一个艺术书编辑页面，包含沉浸式作品、重点引言和章节导航，整体采用克制的画廊风格。",
+      },
+      developer: {
+        apiDocs:
+          "设计一个API文档门户，包含侧边导航、代码示例和请求构建器，整体采用精准的技术风格。",
+        deploymentDashboard:
+          "设计一个部署仪表板，包含环境卡片、实时日志和回滚控件，整体采用平静的运维风格。",
+        componentPlayground:
+          "设计一个组件试验场，包含属性控件、状态变体和代码面板，整体采用清爽的开发者风格。",
+        databaseConsole:
+          "设计一个数据库控制台，包含查询编辑器、结构树和结果表格，整体采用克制的技术风格。",
+        issueTriage:
+          "设计一个问题分诊看板，包含筛选、优先级徽标和负责人队列，整体采用清晰专注的风格。",
+        authSettings:
+          "设计一个身份验证设置页，包含服务商卡片、回调网址和权限列表，整体采用安全安心的风格。",
+        workflowBuilder:
+          "设计一个CI工作流构建器，包含步骤节点、运行历史和分支选择，整体采用精准的技术风格。",
+        developerPortfolio:
+          "设计一个开发者作品集，包含项目卡片、工具栈和时间线，整体采用沉稳的深色风格。",
+      },
+      marketing: {
+        campaignLanding:
+          "设计一个营销落地页，包含醒目主视觉、核心优势、客户证明和报名入口，整体采用活力风格。",
+        emailBuilder:
+          "设计一个邮件营销编辑器，包含主题预览、内容区块和受众摘要，整体采用清晰友好的风格。",
+        socialCalendar:
+          "设计一个社交内容日历，包含渠道标签、定时帖子和效果指标，整体采用明亮的编辑风格。",
+        brandCampaign:
+          "设计一个品牌活动页面，包含标题、艺术指导和素材画廊，整体采用自信统一的风格。",
+        webinarRegistration:
+          "设计一个网络研讨会报名页，包含讲者卡片、议程和报名表单，整体采用可信亲切的风格。",
+        seoBrief:
+          "设计一个SEO内容简报，包含关键词组、内容提纲和竞品备注，整体采用专注研究的风格。",
+        launchMetrics:
+          "设计一个发布指标仪表板，包含渠道卡片、转化图表和活动表格，整体采用分析型风格。",
+        newsletterSignup:
+          "设计一个 newsletter 订阅页，包含编辑预览、主题选择和邮箱输入框，整体采用温暖简洁的风格。",
+      },
+      sales: {
+        leadWorkspace:
+          "设计一个销售线索工作区，包含联系信息、活动时间线和资格字段，整体采用果断专业的风格。",
+        accountBrief:
+          "设计一个客户账户研究简报，包含公司概况、相关人员和近期动态，整体采用清晰的管理层风格。",
+        productDemo:
+          "设计一个产品演示页，包含场景标签、产品截图和客户证明，整体采用自信有说服力的风格。",
+        proposalBuilder:
+          "设计一个提案构建器，包含范围章节、价格卡片和时间安排，整体采用精致的顾问风格。",
+        pipelineDashboard:
+          "设计一个销售管道仪表板，包含阶段列、商机金额和预测图表，整体采用简洁商务风格。",
+        meetingBooking:
+          "设计一个会议预约页，包含日历时段、议程预览和表单，整体采用专业亲切的风格。",
+        customerStory:
+          "设计一个客户案例页面，包含挑战、成果、引言和指标，整体采用基于证据的编辑风格。",
+        accountHandoff:
+          "设计一个账户交接工作区，包含客户目标、联系人和待办事项，整体采用平静协作的风格。",
+      },
+      ops: {
+        inventoryDashboard:
+          "设计一个库存仪表板，包含库存水平、补货提醒和类别筛选，整体采用实用的运维风格。",
+        staffScheduler:
+          "设计一个员工排班表，包含班次网格、可用时间和请假申请，整体做到一目了然。",
+        vendorPortal:
+          "设计一个供应商入驻门户，包含检查清单、文件上传状态和联系人，整体采用清晰安心的风格。",
+        incidentResponse:
+          "设计一个事故响应页面，包含严重程度横幅、事件时间线和负责人面板，整体采用冷静专注的风格。",
+        expenseApprovals:
+          "设计一个费用审批队列，包含收据预览、政策提醒和金额汇总，整体采用中性高效的风格。",
+        warehouseReceiving:
+          "设计一个仓库收货页面，包含货运详情、扫描状态和商品列表，整体做到清晰易懂。",
+        automationControl:
+          "设计一个工作流控制面板，包含自动化卡片、运行历史和失败提醒，整体采用可靠的运维风格。",
+        helpdeskQueue:
+          "设计一个内部帮助台队列，包含请求卡片、状态筛选和分配控件，整体采用清晰友好的风格。",
+      },
+      individual: {
+        personalPortfolio:
+          "设计一个个人作品集，包含简短简介、精选作品、技能和联系方式，整体采用温暖的编辑风格。",
+        mealPlanner:
+          "设计一个餐食规划应用页面，包含每周食谱、购物清单和饮食筛选，整体采用实用友好的风格。",
+        homeBudget:
+          "设计一个家庭预算仪表板，包含月度摘要、分类图表和账单清单，整体采用平静支持的风格。",
+        tripPlanner:
+          "设计一个旅行规划器，包含行程时间线、地图和预订卡片，整体采用轻盈冒险的风格。",
+        readingJournal:
+          "设计一个阅读日志，包含书籍封面、进度笔记和星级评分，整体采用安静的文学风格。",
+        invoiceTracker:
+          "设计一个自由职业发票追踪器，包含客户列表、付款状态和到期日期，整体采用整洁专业的风格。",
+        habitTracker:
+          "设计一个习惯追踪应用，包含每日打卡、连续记录卡片和进度图表，整体采用温和激励的风格。",
+        neighborhoodEvents:
+          "设计一个社区活动页面，包含活动卡片、本地筛选和报名控件，整体采用热情友好的社区风格。",
+      },
+      general: {
+        saasHomepage:
+          "设计一个SaaS首页，包含主视觉、功能板块和客户证明，整体采用清晰亲切的风格。",
+        analyticsDashboard:
+          "设计一个分析仪表板，包含KPI卡片、趋势图表和活动表格，整体采用平静的数据驱动风格。",
+        habitApp:
+          "设计一个习惯应用手机首页，包含每日目标、进度环和提醒，整体采用友好鼓励的风格。",
+        onlineStore:
+          "设计一个网店首页，包含精选商品、类别卡片和客户评价，整体采用温暖精致的风格。",
+        creativePortfolio:
+          "设计一个创意作品集页面，包含简短介绍、项目网格和个人简介，整体采用富有表现力的编辑风格。",
+        bookingPage:
+          "设计一个服务预约页，包含可预约日历、服务卡片和评价摘录，整体采用清晰可信的风格。",
+        adminDashboard:
+          "设计一个管理仪表板，包含侧边导航、摘要卡片和近期活动，整体采用克制实用的风格。",
+        communityEvent:
+          "设计一个社区活动页面，包含活动安排、场地信息和演讲者，整体采用欢迎庆祝的风格。",
+      },
+    },
+    nextStepBar: {
+      ariaLabel: "后续步骤",
+      refineWithPrompt: "使用提示词优化",
+      export: "导出",
+      shareLink: "分享链接",
+      dismiss: "关闭",
+    },
     import: "导入",
-    importOptions: "导入选项",
-    figmaLink: "Figma 链接",
     importFromFigma: "从 Figma 导入",
     figmaFile: "Figma 文件 (.fig)",
-    figmaFileMaxSize: "最大 {{max}} GB",
     openImport: "打开导入",
     importSelectedFile: "导入所选文件",
     starterSaasPrompt:
@@ -2616,6 +2826,89 @@ export default {
     paginationPrevious: "上一页",
     paginationNext: "下一页",
     paginationPage: "第 {{page}} / {{totalPages}} 页",
+
+    suggestionLabels: {
+      product: {
+        analyticsDashboard: "产品分析仪表板",
+        roadmapWorkspace: "路线图工作区",
+        onboardingFlow: "预算应用的引导流程",
+        featureComparison: "SaaS功能对比页面",
+        feedbackPortal: "客户反馈门户",
+        releaseNotes: "版本更新中心",
+        projectWorkspace: "产品团队工作区",
+        launchWaitlist: "产品发布候补名单页面",
+      },
+      design: {
+        portfolioHome: "设计师作品集首页",
+        designSystem: "设计系统参考页",
+        bankingApp: "手机银行应用首页",
+        travelBooking: "旅行预订搜索页面",
+        coffeeShop: "咖啡店网店",
+        musicFestival: "音乐节活动页面",
+        accessibilityAudit: "无障碍审查仪表板",
+        artBook: "艺术书编辑页面",
+      },
+      developer: {
+        apiDocs: "API文档门户",
+        deploymentDashboard: "部署仪表板",
+        componentPlayground: "组件试验场",
+        databaseConsole: "数据库控制台",
+        issueTriage: "问题分诊看板",
+        authSettings: "身份验证设置页",
+        workflowBuilder: "CI工作流构建器",
+        developerPortfolio: "开发者作品集",
+      },
+      marketing: {
+        campaignLanding: "营销落地页",
+        emailBuilder: "邮件营销编辑器",
+        socialCalendar: "社交内容日历",
+        brandCampaign: "品牌活动页面",
+        webinarRegistration: "网络研讨会报名页",
+        seoBrief: "SEO内容简报",
+        launchMetrics: "发布指标仪表板",
+        newsletterSignup: "电子报订阅",
+      },
+      sales: {
+        leadWorkspace: "销售线索工作区",
+        accountBrief: "客户账户研究简报",
+        productDemo: "产品演示页",
+        proposalBuilder: "提案构建器",
+        pipelineDashboard: "销售管道仪表板",
+        meetingBooking: "会议预约页",
+        customerStory: "客户案例页面",
+        accountHandoff: "账户交接工作区",
+      },
+      ops: {
+        inventoryDashboard: "库存仪表板",
+        staffScheduler: "员工排班表",
+        vendorPortal: "供应商入驻门户",
+        incidentResponse: "事故响应页面",
+        expenseApprovals: "费用审批队列",
+        warehouseReceiving: "仓库收货页面",
+        automationControl: "工作流控制面板",
+        helpdeskQueue: "内部帮助台队列",
+      },
+      individual: {
+        personalPortfolio: "个人作品集",
+        mealPlanner: "餐食规划应用页面",
+        homeBudget: "家庭预算仪表板",
+        tripPlanner: "旅行规划器",
+        readingJournal: "阅读日志",
+        invoiceTracker: "自由职业发票追踪器",
+        habitTracker: "习惯追踪应用",
+        neighborhoodEvents: "社区活动页面",
+      },
+      general: {
+        saasHomepage: "SaaS首页",
+        analyticsDashboard: "分析仪表板",
+        habitApp: "习惯应用手机首页",
+        onlineStore: "网店首页",
+        creativePortfolio: "创意作品集页面",
+        bookingPage: "服务预约页",
+        adminDashboard: "管理仪表板",
+        communityEvent: "社区活动页面",
+      },
+    },
   },
   visualEdit: {
     eyebrow: "视觉编辑",
@@ -2966,6 +3259,7 @@ export default {
     updateFailed: "无法更新评论",
     commentsInCluster: "群组中的评论：{{count}}",
     moreActions: "更多操作",
+    moreActionsFor: "{{author}} 的更多操作",
     copyLink: "复制链接",
     linkCopied: "链接已复制",
     copyLinkFailed: "无法复制链接",
@@ -2985,6 +3279,7 @@ export default {
     addEmoji: "添加表情",
     mention: "提及某人",
     noMentions: "未找到人员",
+    mentionsFailed: "无法加载人员",
     reopen: "重新打开",
     reopening: "正在重新打开…",
     undo: "撤消",
@@ -3011,6 +3306,62 @@ export default {
     searching: "搜索中…",
     reactionFailed: "无法更新反应",
     moveFailed: "无法移动评论",
+    threadTitle: "评论",
+    agentBadge: "智能体",
+    closeThread: "关闭讨论",
+    deleteThread: "删除讨论",
+    deleteThreadTitle: "删除讨论？",
+    deleteThreadDescription: "这会从审阅中移除该讨论。",
+    pin: {
+      thread_other: "{{authors}} 的讨论，{{count}} 条评论",
+      authorsOther_other: "另外 {{count}} 人",
+      unread: "未读",
+      resolved: "已解决",
+      draft: "草稿评论",
+    },
+    reaction: {
+      label_other: "{{emoji}}，{{count}} 个回应",
+      labelMine_other: "{{emoji}}，{{count}} 个回应，包括你的",
+    },
+    filtersActive: "已应用筛选",
+    suggestChanges: "建议修改",
+    applyChangesAndResolve: "应用修改并解决",
+    agent: {
+      sectionLabel: "智能体",
+      queued: "{{agent}} 排队中",
+      working: "{{agent}} 正在工作…",
+      replied: "{{agent}} 已回复",
+      suggested: "{{agent}} 已提出修改建议",
+      applied: "{{agent}} 已应用修改并解决讨论",
+      needsInput: "{{agent}} 需要你的输入",
+      failed: "{{agent}} 无法完成",
+      cancelled: "已停止",
+      cancel: "取消",
+      openChat: "打开聊天",
+      retry: "重试",
+      fallbackName: "AI",
+      setupRequired: "连接 AI 模型后才能使用智能体",
+      startFailed: "无法启动智能体",
+      cancelFailed: "无法停止智能体",
+      busy: "已有智能体正在处理此讨论",
+      error: {
+        engineNotConfigured: "未连接 AI 模型",
+        noResult: "智能体未作答即已结束",
+        timeout: "智能体未及时响应",
+        permission: "你已没有编辑权限",
+        threadUnavailable: "此讨论已不再开放",
+        targetChanged: "智能体工作时设计已发生变化",
+        applyUnavailable: "智能体无法编辑此画面",
+        applyIncomplete: "设计已编辑，但讨论未解决。请检查修改。",
+        cancelledAfterEdit: "设计编辑后已停止。请检查修改。",
+        generic: "出错了",
+      },
+    },
+    newThread: "新讨论",
+    threadsCount_other: "{{count}} 个讨论",
+    boardGroup: "画布",
+    send: "发送",
+    pinLabel_other: "包含 {{count}} 条评论的讨论",
     status: {
       draft: "草稿",
       in_review: "审阅中",

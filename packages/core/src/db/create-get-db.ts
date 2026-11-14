@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 
 import { sql } from "drizzle-orm";
+import { QueryBuilder } from "drizzle-orm/pg-core";
 import type { PgDatabase, PgQueryResultHKT } from "drizzle-orm/pg-core";
 
 import {
@@ -31,11 +32,13 @@ import {
   postgresStatementTimeoutMs,
   assertHostedRuntimeDatabase,
 } from "./client.js";
-import type { DbExec, DbExecStatement } from "./client.js";
+import type { DbExec, DbExecInput } from "./client.js";
+import { noteSqlStatement } from "./note-sql-statement.js";
 import {
   assertPoolConnectionAvailable,
   runHoldingPoolConnection,
 } from "./pool-self-deadlock.js";
+import { getSqlFragmentParameterOffsets, isSqlFragment } from "./sql.js";
 
 let _pgDrizzle: Promise<{ drizzle: any; postgres: any }> | undefined;
 function getPgDrizzle() {
@@ -269,11 +272,17 @@ function scopeDrizzlePreparedQuery(
         (prop === "execute" || prop === "all" || prop === "values") &&
         typeof value === "function"
       ) {
-        return (...args: unknown[]) =>
-          withDrizzleTransactionQuery(queue, () => {
+        return (...args: unknown[]) => {
+          // A driver-level hook cannot see this: inside a transaction the
+          // driver is handed a raw client, so the statement is read here.
+          noteSqlStatement(
+            (prepareArgs[0] as { sql?: unknown } | undefined)?.sql,
+          );
+          return withDrizzleTransactionQuery(queue, () => {
             const current = resolvePrepared(target);
             return current[prop].apply(current, args);
           });
+        };
       }
       return typeof value === "function" ? value.bind(target) : value;
     },
@@ -306,12 +315,14 @@ function scopeDrizzleSessionQueries(
         (prop === "query" || prop === "queryObjects") &&
         typeof value === "function"
       ) {
-        return (...args: unknown[]) =>
-          withDrizzleTransactionQuery(queue, () => {
+        return (...args: unknown[]) => {
+          noteSqlStatement(args[0]);
+          return withDrizzleTransactionQuery(queue, () => {
             const activeScope = activeDrizzleTransactionScopeForQueue(queue);
             const querySession = activeScope?.transaction.session ?? target;
             return querySession[prop].apply(querySession, args);
           });
+        };
       }
       return typeof value === "function" ? value.bind(receiver) : value;
     },
@@ -529,14 +540,17 @@ function drizzleTransactionExec(
   transaction: any,
   queryQueue = createDrizzleTransactionQueryQueue(),
 ): DbExec {
+  // raw-sql-ok: bind fragment values before adapter execution.
   const executeStatement = async (
-    statement: DbExecStatement,
+    statement: DbExecInput,
     remainingMs: () => number,
     timedOut: () => boolean,
   ) => {
     const query =
       typeof statement === "string" ? { sql: statement, args: [] } : statement;
-    const postgresSql = toPostgresParams(query.sql);
+    const postgresSql = isSqlFragment(statement)
+      ? toPostgresParams(query.sql, getSqlFragmentParameterOffsets(statement))
+      : toPostgresParams(query.sql);
     const args = (query.args ?? []).map((arg) => arg ?? null);
     const prepared = drizzleRawQuery(postgresSql, args);
 
@@ -593,7 +607,8 @@ function drizzleTransactionExec(
     return queryResult;
   };
 
-  const execute = async (statement: DbExecStatement) => {
+  // raw-sql-ok: this is the typed-fragment execution boundary.
+  const execute = async (statement: DbExecInput) => {
     const query = typeof statement === "string" ? statement : statement.sql;
     const { timeoutMs } = dbExecQueryBudget(statement);
     const startedAt = Date.now();
@@ -1125,6 +1140,32 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
     });
   }
 
+  // A select chain embedded as a subquery only needs its SQL, which a
+  // connection-less QueryBuilder of the same dialect can build. Anything else
+  // (inserts, relational queries, ...) cannot be answered offline.
+  function replayChainOffline(
+    chain: Array<{ prop: string | symbol; args?: unknown[] }>,
+  ): Record<string | symbol, unknown> | undefined {
+    const first = chain[0]?.prop;
+    if (
+      first !== "select" &&
+      first !== "selectDistinct" &&
+      first !== "selectDistinctOn"
+    ) {
+      return undefined;
+    }
+    let result: unknown = new QueryBuilder();
+    for (const step of chain) {
+      if (step.prop === "execute") return undefined;
+      if (result == null || !(step.prop in Object(result))) return undefined;
+      const target = result as Record<string | symbol, unknown>;
+      const val = target[step.prop];
+      result =
+        typeof val === "function" ? val.apply(target, step.args ?? []) : val;
+    }
+    return result as Record<string | symbol, unknown> | undefined;
+  }
+
   function createLazyProxy(
     ready: Promise<any>,
     chain: Array<{ prop: string | symbol; args?: any[] }>,
@@ -1145,12 +1186,16 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
           return (promise as any)[prop].bind(promise);
         }
         if (prop === "getSQL" || prop === "shouldOmitSQLParens") {
+          const replayed = replayChainOffline(chain);
+          const member = replayed?.[prop];
+          if (typeof member === "function") return member.bind(replayed);
+          // Drizzle calls shouldOmitSQLParens optionally; absent on selects.
+          if (replayed && prop === "shouldOmitSQLParens") return undefined;
           throw new Error(
             "getDb(): accessed an unresolved query chain synchronously " +
-              `(reading '${String(prop)}'). This chain was embedded as a raw ` +
-              "value instead of being awaited first — e.g. a subquery passed " +
-              "straight into another expression. Await the chain before " +
-              "using its result.",
+              `(reading '${String(prop)}'). Only select-style query chains ` +
+              "can be embedded as a subquery before the database is ready; " +
+              "await this chain before using its result.",
           );
         }
         return createLazyProxy(ready, [...chain, { prop }]);

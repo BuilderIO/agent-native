@@ -2,13 +2,25 @@ import { parseHTML } from "linkedom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ActionMcpAppResourceConfig } from "../action.js";
+import { fetchTransport } from "../client/fetch-transport.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
+import {
+  FETCH_TRANSPORT_CHANGED_EVENT,
+  EMBED_SESSION_RENEWAL_WINDOW_KEY,
+  MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
+} from "../shared/embed-auth.js";
 import {
   MCP_APP_HOST_FILL_ATTRIBUTE,
   MCP_APP_PANE_FILL_MAX_HEIGHT,
   mcpAppHostFillsContainer,
 } from "../shared/mcp-app-display.js";
+import {
+  embedTokenStorageKey,
+  mcpChatBridgeStorageKey,
+  resolveMcpAppEmbedBasePath,
+} from "../shared/mcp-app-widget-embed.js";
 import { embedApp, MCP_APP_REQUEST_ORIGIN_CSP_SOURCE } from "./embed-app.js";
+import { HIDDEN_EMBED_URL } from "./embed-redaction.js";
 
 describe("embedApp", () => {
   it("transplants app documents in ChatGPT and Claude MCP sandboxes", async () => {
@@ -117,6 +129,10 @@ describe("embedApp", () => {
     expect(html).not.toContain("/_agent-native/embed/runtime.js");
     expect(html).toContain("__AGENT_NATIVE_EXTERNAL_EMBED");
     expect(html).toContain("window.history.replaceState");
+    expect(html).toContain("resolveMcpAppEmbedBasePath");
+    expect(html).toContain(
+      "workspaceAppMountPaths: appConfig.workspaceAppMountPaths",
+    );
     expect(html).toContain("mountTransplantedHtml");
     expect(html).toContain(
       "function importHeadChildrenWithBase(source, baseHref)",
@@ -132,7 +148,7 @@ describe("embedApp", () => {
     expect(html).not.toContain("document.head.prepend(base)");
     expect(html).toContain("resolveTransplantAppDocumentSource");
     expect(html).toContain('"X-Agent-Native-Embed-Transplant": "1"');
-    expect(html).toContain('Accept: "application/json"');
+    expect(html).toContain('Accept: "text/html"');
     expect(html).toContain("const data = await response.json()");
     expect(html).toContain('typeof data.location === "string"');
     expect(html).toContain("moduleCodeToClassicAsync");
@@ -236,6 +252,534 @@ describe("embedApp", () => {
     expect(csp?.baseUriDomains).toEqual([MCP_APP_REQUEST_ORIGIN_CSP_SOURCE]);
   });
 
+  it("writes child workspace credentials before running child config scripts", async () => {
+    const resource = embedApp();
+    const html =
+      typeof resource.html === "function"
+        ? resource.html({ actionName: "open_app", appId: "demo" })
+        : resource.html;
+    const functionSource = (name: string) => {
+      const source = html.match(
+        new RegExp(
+          `    (?:async )?function ${name}\\([^)]*\\) \\{[\\s\\S]*?\\n    \\}\\n`,
+        ),
+      )?.[0];
+      expect(source, name).toBeTruthy();
+      return source as string;
+    };
+    const appConfigValue = {
+      workspaceRuntime: true,
+      workspaceAppPath: "/",
+      workspaceAppMountPaths: ["/deck"],
+      explicitRootPath: true,
+      frameworkRoutePrefix: "/_platform",
+    };
+    const configScript = {
+      textContent:
+        "window.__AGENT_NATIVE_CONFIG__=Object.assign({},window.__AGENT_NATIVE_CONFIG__," +
+        JSON.stringify(appConfigValue) +
+        ");",
+      getAttribute: () => null,
+    };
+    const parsed = {
+      querySelector: () => configScript,
+      querySelectorAll: () => [configScript],
+      documentElement: {},
+      head: {},
+      body: {},
+    };
+    const windowObject: Record<string, unknown> = {
+      history: { state: null, replaceState: vi.fn() },
+    };
+    const locationObject = {
+      pathname: "/deck/_platform/auth/session",
+      href: "https://app.example/deck/_platform/auth/session",
+    };
+    const stored = new Map<string, string>();
+    const sessionStorageObject = {
+      setItem: (key: string, value: string) => stored.set(key, value),
+    };
+    const order: string[] = [];
+    const appOriginConfigForDocument = new Function(
+      `${functionSource("appOriginConfigForDocument")}; return appOriginConfigForDocument;`,
+    )() as (document: unknown) => Record<string, unknown>;
+    const localPathFromUrl = (url: URL, includeToken: boolean) => {
+      const next = new URL(url.href);
+      if (!includeToken) next.searchParams.delete("__an_embed_token");
+      return next.pathname + next.search + next.hash;
+    };
+    const embedConfigForAppUrl = new Function(
+      "localPathFromUrl",
+      "chatBridgeParam",
+      `${functionSource("embedConfigForAppUrl")}; return embedConfigForAppUrl;`,
+    )(localPathFromUrl, MCP_APP_CHAT_BRIDGE_QUERY_PARAM) as (
+      appUrl: URL,
+      appConfig: Record<string, unknown>,
+    ) => Record<string, unknown>;
+    const resolverSource = `var resolveMcpAppEmbedBasePath = ${resolveMcpAppEmbedBasePath.toString()};`;
+    const installRuntimeSource = functionSource(
+      "installExternalEmbedRuntime",
+    ).replace(
+      resolverSource,
+      `var resolveMcpAppEmbedBasePath = function(_mode, target, options) {
+        var pathname = String(target).split(/[?#]/, 1)[0] || "/";
+        var mounts = Array.isArray(options.workspaceAppMountPaths)
+          ? options.workspaceAppMountPaths
+          : [];
+        var match = mounts
+          .filter(function (mount) { return pathname === mount || pathname.startsWith(mount + "/"); })
+          .sort(function (left, right) { return right.length - left.length; })[0];
+        if (match) return match;
+        if (options.explicitRootPath === true) return "";
+        return undefined;
+      };`,
+    );
+    expect(installRuntimeSource).toContain(
+      "var resolveMcpAppEmbedBasePath = function(_mode",
+    );
+    const installRuntime = new Function(
+      "window",
+      "location",
+      "sessionStorage",
+      "installReactRefreshPreambleFallback",
+      "fetch",
+      "XMLHttpRequest",
+      "EventSource",
+      `${installRuntimeSource}; return installExternalEmbedRuntime;`,
+    )(
+      windowObject,
+      locationObject,
+      sessionStorageObject,
+      () => {},
+      undefined,
+      undefined,
+      undefined,
+    ) as (config: Record<string, unknown>) => void;
+    const installBeforeChildScript = (config: Record<string, unknown>) => {
+      expect(windowObject.__AGENT_NATIVE_CONFIG__).toBeUndefined();
+      order.push("install");
+      installRuntime(config);
+    };
+    const mountTransplantedHtml = new Function(
+      "DOMParser",
+      "document",
+      "rewriteRootRelativeHtmlUrls",
+      "removeHtmlCspMeta",
+      "appOriginConfigForDocument",
+      "embedConfigForAppUrl",
+      "installExternalEmbedRuntime",
+      "copyDocumentElementAttributes",
+      "importHeadChildrenWithBase",
+      "importChildren",
+      "installExternalOpenControl",
+      "isRunnableClassicScript",
+      "runClassicScript",
+      "isModuleScript",
+      "runModuleScriptAsClassic",
+      `${functionSource("mountTransplantedHtml")}; return mountTransplantedHtml;`,
+    )(
+      class {
+        parseFromString() {
+          return parsed;
+        }
+      },
+      { body: {} },
+      (source: string) => source,
+      (source: string) => source,
+      appOriginConfigForDocument,
+      embedConfigForAppUrl,
+      installBeforeChildScript,
+      () => {},
+      () => {},
+      () => {},
+      () => {},
+      () => true,
+      (script: { textContent: string }) => {
+        order.push("child-script");
+        new Function("window", script.textContent)(windowObject);
+      },
+      () => false,
+      () => {},
+    ) as (source: string, appUrl: URL) => Promise<void>;
+
+    const appUrl = new URL("https://app.example/deck/_platform/auth/session");
+    appUrl.searchParams.set("__an_embed_token", "child-token");
+    appUrl.searchParams.set(MCP_APP_CHAT_BRIDGE_QUERY_PARAM, "1");
+    await mountTransplantedHtml("<html></html>", appUrl);
+
+    expect(order).toEqual(["install", "child-script"]);
+    expect(windowObject.__AGENT_NATIVE_CONFIG__).toEqual(appConfigValue);
+    expect(stored.get(embedTokenStorageKey("/deck", true))).toBe("child-token");
+    expect(stored.get(mcpChatBridgeStorageKey("/deck", true))).toBe(
+      "child-token",
+    );
+
+    installRuntime({
+      origin: "https://app.example",
+      target: "/reports/detail",
+      token: "root-token",
+      chatBridgeActive: true,
+      appConfig: { workspaceRuntime: true, explicitRootPath: true },
+    });
+
+    expect(stored.get(embedTokenStorageKey("", true))).toBe("root-token");
+    expect(stored.get(mcpChatBridgeStorageKey("", true))).toBe("root-token");
+    expect(stored.has(embedTokenStorageKey("/reports", true))).toBe(false);
+
+    const storedBeforeUnresolvedTarget = [...stored.entries()];
+    installRuntime({
+      origin: "https://app.example",
+      target: "/reports/detail",
+      token: "unresolved-token",
+      chatBridgeActive: true,
+      appConfig: {
+        workspaceRuntime: true,
+        workspaceAppMountPaths: ["/mail"],
+      },
+    });
+
+    expect([...stored.entries()]).toEqual(storedBeforeUnresolvedTarget);
+  });
+
+  it("forwards transplanted workspace credentials only within the target mount", async () => {
+    const resource = embedApp();
+    const html =
+      typeof resource.html === "function"
+        ? resource.html({ actionName: "open_app", appId: "demo" })
+        : resource.html;
+    const installRuntimeSource = html.match(
+      /    function installExternalEmbedRuntime\(config\) \{[\s\S]*?\n    \}\n/,
+    )?.[0];
+    expect(installRuntimeSource).toBeTruthy();
+    const resolverSource = `var resolveMcpAppEmbedBasePath = ${resolveMcpAppEmbedBasePath.toString()};`;
+    const runtimeSource = (installRuntimeSource as string).replace(
+      resolverSource,
+      `var resolveMcpAppEmbedBasePath = function(_mode, target, options) {
+        var pathname = String(target).split(/[?#]/, 1)[0] || "/";
+        var mounts = Array.isArray(options.workspaceAppMountPaths)
+          ? options.workspaceAppMountPaths
+          : [];
+        var match = mounts
+          .filter(function (mount) { return pathname === mount || pathname.startsWith(mount + "/"); })
+          .sort(function (left, right) { return right.length - left.length; })[0];
+        if (match) return match;
+        if (options.explicitRootPath === true) return "";
+        return undefined;
+      };`,
+    );
+    expect(runtimeSource).toContain(
+      "var resolveMcpAppEmbedBasePath = function(_mode",
+    );
+
+    const locationObject = {
+      href: "https://host.example/deck/reports",
+      origin: "https://host.example",
+      pathname: "/deck/reports",
+      search: "",
+    };
+    const announced: string[] = [];
+    const windowObject: Record<string, unknown> = {
+      dispatchEvent: (event: Event) => announced.push(event.type),
+      location: locationObject,
+      history: {
+        state: null,
+        replaceState: (_state: unknown, _title: string, path: string) => {
+          const next = new URL(path, locationObject.href);
+          locationObject.href = next.href;
+          locationObject.origin = next.origin;
+          locationObject.pathname = next.pathname;
+          locationObject.search = next.search;
+        },
+      },
+    };
+    const forwarded: Array<{ input: unknown; init?: RequestInit }> = [];
+    const fetch = vi.fn(async (input: unknown, init?: RequestInit) => {
+      forwarded.push({ input, init });
+      return new Response("ok");
+    });
+    const eventSourceUrls: string[] = [];
+    function MockEventSource(this: { url: string }, url: string) {
+      this.url = url;
+      eventSourceUrls.push(url);
+    }
+    class MockXMLHttpRequest {
+      headers = new Map<string, string>();
+      url = "";
+
+      open(_method: string, url: string) {
+        this.url = url;
+      }
+
+      send() {}
+
+      setRequestHeader(name: string, value: string) {
+        this.headers.set(name.toLowerCase(), value);
+      }
+    }
+    const sessionStorageObject = { setItem: vi.fn() };
+    const installRuntime = new Function(
+      "window",
+      "location",
+      "sessionStorage",
+      "installReactRefreshPreambleFallback",
+      "fetch",
+      "XMLHttpRequest",
+      "EventSource",
+      `${runtimeSource}; return installExternalEmbedRuntime;`,
+    )(
+      windowObject,
+      locationObject,
+      sessionStorageObject,
+      () => {},
+      fetch,
+      MockXMLHttpRequest,
+      MockEventSource,
+    ) as (config: Record<string, unknown>) => void;
+
+    installRuntime({
+      origin: "https://app.example",
+      target: "/deck/reports",
+      token: "deck-token",
+      embedTokenParam: "__an_embed_token",
+      embedTargetHeader: "X-Agent-Native-Embed-Target",
+      appConfig: {
+        workspaceRuntime: true,
+        workspaceAppMountPaths: ["/deck", "/mail"],
+      },
+    });
+
+    // The app reads its session again over the runtime's fetch.
+    expect(announced).toEqual([FETCH_TRANSPORT_CHANGED_EVENT]);
+    const installedFetch = windowObject.fetch as (
+      input: string | Request,
+      init?: RequestInit,
+    ) => Promise<Response>;
+    // On the target's mount its reads are signed: a transport of their own.
+    const signedTransport = fetchTransport(installedFetch as typeof fetch);
+    expect(typeof signedTransport).toBe("object");
+    await installedFetch(
+      new Request("https://host.example/deck/_agent-native/actions/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: "draft-1" }),
+      }),
+    );
+    const requestWrite = forwarded.pop();
+    expect(requestWrite?.input).toBe(
+      "https://app.example/deck/_agent-native/actions/save",
+    );
+    expect(requestWrite?.init?.method).toBe("POST");
+    expect(requestWrite?.init?.body).toBeInstanceOf(ArrayBuffer);
+    expect(
+      new TextDecoder().decode(requestWrite?.init?.body as ArrayBuffer),
+    ).toBe('{"id":"draft-1"}');
+    expect(new Headers(requestWrite?.init?.headers).get("Authorization")).toBe(
+      "Bearer deck-token",
+    );
+
+    await installedFetch(
+      new Request("https://host.example/deck/_agent-native/actions/read"),
+    );
+    const requestRead = forwarded.pop();
+    expect(requestRead?.init?.method).toBe("GET");
+    expect(requestRead?.init).not.toHaveProperty("body");
+
+    await installedFetch(
+      new Request("https://host.example/deck/_agent-native/actions/read", {
+        cache: "no-store",
+        integrity: "sha256-abc",
+        referrerPolicy: "no-referrer",
+      }),
+    );
+    expect(forwarded.pop()?.init).toMatchObject({
+      cache: "no-store",
+      integrity: "sha256-abc",
+      referrerPolicy: "no-referrer",
+    });
+
+    const spent = new Request(
+      "https://host.example/deck/_agent-native/actions/save",
+      { method: "POST", body: "old" },
+    );
+    await spent.text();
+    await installedFetch(spent, { body: "new" });
+    const replaced = forwarded.pop();
+    expect(replaced?.init?.method).toBe("POST");
+    expect(replaced?.init?.body).toBe("new");
+
+    await installedFetch("/deck/_agent-native/actions/action");
+    const sameMountHeaders = new Headers(forwarded[0]?.init?.headers);
+    expect(sameMountHeaders.get("Authorization")).toBe("Bearer deck-token");
+    expect(sameMountHeaders.get("X-Agent-Native-Embed-Target")).toBe(
+      "/deck/reports",
+    );
+
+    const sameMountXhr = new MockXMLHttpRequest();
+    sameMountXhr.open("GET", "/deck/_agent-native/actions/action");
+    sameMountXhr.send();
+    expect(sameMountXhr.headers.get("authorization")).toBe("Bearer deck-token");
+    expect(sameMountXhr.headers.get("x-agent-native-embed-target")).toBe(
+      "/deck/reports",
+    );
+
+    const installedEventSource = windowObject.EventSource as (
+      url: string,
+    ) => unknown;
+    installedEventSource("/deck/_agent-native/events");
+    expect(
+      new URL(eventSourceUrls[0] as string).searchParams.get(
+        "__an_embed_token",
+      ),
+    ).toBe("deck-token");
+
+    await installedFetch("/mail/_agent-native/actions/action");
+    const siblingRequestHeaders = new Headers(forwarded[1]?.init?.headers);
+    expect(siblingRequestHeaders.has("Authorization")).toBe(false);
+    expect(siblingRequestHeaders.has("X-Agent-Native-Embed-Target")).toBe(
+      false,
+    );
+
+    const siblingRequestXhr = new MockXMLHttpRequest();
+    siblingRequestXhr.open("GET", "/mail/_agent-native/actions/action");
+    siblingRequestXhr.send();
+    expect(siblingRequestXhr.headers.has("authorization")).toBe(false);
+    expect(siblingRequestXhr.headers.has("x-agent-native-embed-target")).toBe(
+      false,
+    );
+
+    installedEventSource("/mail/_agent-native/events");
+    expect(
+      new URL(eventSourceUrls[1] as string).searchParams.has(
+        "__an_embed_token",
+      ),
+    ).toBe(false);
+
+    locationObject.pathname = "/mail/settings";
+    locationObject.href = "https://host.example/mail/settings";
+    locationObject.search = "";
+
+    await installedFetch("/api/action");
+    const siblingMountHeaders = new Headers(forwarded[2]?.init?.headers);
+    expect(siblingMountHeaders.has("Authorization")).toBe(false);
+    expect(siblingMountHeaders.has("X-Agent-Native-Embed-Target")).toBe(false);
+
+    const siblingMountXhr = new MockXMLHttpRequest();
+    siblingMountXhr.open("GET", "/api/action");
+    siblingMountXhr.send();
+    expect(siblingMountXhr.headers.has("authorization")).toBe(false);
+    expect(siblingMountXhr.headers.has("x-agent-native-embed-target")).toBe(
+      false,
+    );
+
+    installedEventSource("/_agent-native/events");
+    expect(
+      new URL(eventSourceUrls[2] as string).searchParams.has(
+        "__an_embed_token",
+      ),
+    ).toBe(false);
+
+    // Off the target's mount its reads go out unsigned, still without
+    // cookies: neither the signed transport nor the page's.
+    const unsignedTransport = fetchTransport(installedFetch as typeof fetch);
+    expect(unsignedTransport).not.toBe(signedTransport);
+    expect(unsignedTransport).not.toBe(fetch);
+    expect(typeof unsignedTransport).toBe("object");
+
+    locationObject.pathname = "/deck/reports";
+    locationObject.href = "https://host.example/deck/reports";
+    expect(fetchTransport(installedFetch as typeof fetch)).toBe(
+      signedTransport,
+    );
+  });
+
+  it("tells a blocked tab from an opened one", () => {
+    const resource = embedApp({ title: "Dashboard" });
+    const html =
+      typeof resource.html === "function"
+        ? resource.html({ actionName: "open_app", appId: "mail" })
+        : resource.html;
+    const source = html.match(
+      /    function openBlankTab\(url\) \{[\s\S]*?\n    \}\n/,
+    )?.[0];
+    expect(source).toBeTruthy();
+    const open = vi.fn();
+    const openBlankTab = new Function(
+      "window",
+      `${source} return openBlankTab;`,
+    )({ open }) as (url: string) => boolean;
+
+    const tab = { opener: {} };
+    open.mockReturnValueOnce(tab);
+    expect(openBlankTab("https://app.example/x")).toBe(true);
+    expect(tab.opener).toBeNull();
+    expect(open).toHaveBeenCalledWith("https://app.example/x", "_blank");
+
+    open.mockReturnValueOnce(null);
+    expect(openBlankTab("https://app.example/x")).toBe(false);
+  });
+
+  it("renews a session in place through the host, within its attempts", async () => {
+    const resource = embedApp({ title: "Dashboard" });
+    const html =
+      typeof resource.html === "function"
+        ? resource.html({ actionName: "open_app", appId: "mail" })
+        : resource.html;
+    const source = html.match(
+      /    async function renewTransplantedEmbedSession\(\) \{[\s\S]*?\n    \}\n/,
+    )?.[0];
+    expect(source).toBeTruthy();
+    expect(html).toContain(
+      `window[${JSON.stringify(EMBED_SESSION_RENEWAL_WINDOW_KEY)}] =`,
+    );
+
+    const makeRenew = (
+      args: Record<string, unknown>,
+      data: Record<string, unknown> | Error,
+    ) => {
+      const callTool = vi.fn(async () => {
+        if (data instanceof Error) throw data;
+        return data;
+      });
+      const argsFor = vi.fn((..._params: unknown[]) => args);
+      const renew = new Function(
+        "embedSessionArgsFor",
+        "callEmbedSessionTool",
+        "parseToolResult",
+        `let embedSessionRefreshAttempts = 0;
+         const maxEmbedSessionRefreshAttempts = 2;
+         const openStartUrl = "/start";
+         const openUrl = "/open";
+         const activeEmbedSessionTicket = "ticket";
+         ${source}
+         return renewTransplantedEmbedSession;`,
+      )(argsFor, callTool, (value: unknown) => value) as () => Promise<boolean>;
+      return { renew, callTool, argsFor };
+    };
+
+    const scoped = { sourceTicket: "ticket", renewInPlace: true };
+    const renewed = makeRenew(scoped, { renewed: true });
+    await expect(renewed.renew()).resolves.toBe(true);
+    await expect(renewed.renew()).resolves.toBe(true);
+    await expect(renewed.renew()).resolves.toBe(true);
+    expect(renewed.callTool).toHaveBeenCalledTimes(3);
+    expect(renewed.callTool).toHaveBeenCalledWith(scoped);
+    // It renews the session in use, not the one the tool result first opened.
+    expect(renewed.argsFor).toHaveBeenCalledWith("/start", true, "ticket");
+
+    const refused = makeRenew(scoped, { renewed: false });
+    await expect(refused.renew()).resolves.toBe(false);
+    await expect(refused.renew()).resolves.toBe(false);
+    await expect(refused.renew()).resolves.toBe(false);
+    expect(refused.callTool).toHaveBeenCalledTimes(2);
+
+    const failed = makeRenew(scoped, new Error("host refused"));
+    await expect(failed.renew()).resolves.toBe(false);
+
+    const unscoped = makeRenew({ url: "/open" }, { renewed: true });
+    await expect(unscoped.renew()).resolves.toBe(false);
+    expect(unscoped.callTool).not.toHaveBeenCalled();
+  });
+
   it("prefers canonical metadata when legacy open-link fields conflict", () => {
     const resource = embedApp({ title: "Dashboard" });
     const html =
@@ -299,6 +843,38 @@ describe("embedApp", () => {
         },
       ),
     ).toBe("https://canonical.example/target");
+  });
+
+  it("never picks the hidden-embed-URL placeholder as the open link", () => {
+    const resource = embedApp({ title: "Dashboard" });
+    const html =
+      typeof resource.html === "function"
+        ? resource.html({ actionName: "open_app", appId: "analytics" })
+        : resource.html;
+    const hiddenEmbedUrl = html.match(/const hiddenEmbedUrl = ("[^"]*");/)?.[1];
+    expect(hiddenEmbedUrl).toBe(JSON.stringify(HIDDEN_EMBED_URL));
+    const pickerSource = html.match(
+      /(function firstNonEmbedStartUrl\(values\) \{[\s\S]*?\n    \})/,
+    )?.[1];
+    expect(pickerSource).toBeDefined();
+
+    const firstNonEmbedStartUrl = new Function(
+      "hiddenEmbedUrl",
+      "isEmbedStartUrl",
+      `${pickerSource}; return firstNonEmbedStartUrl;`,
+    )(HIDDEN_EMBED_URL, (value: string) =>
+      value.includes("/_agent-native/embed/start"),
+    ) as (values: unknown[]) => string;
+
+    expect(
+      firstNonEmbedStartUrl([
+        "",
+        HIDDEN_EMBED_URL,
+        "/_agent-native/embed/start?ticket=x",
+        "/inbox/thread-1",
+      ]),
+    ).toBe("/inbox/thread-1");
+    expect(firstNonEmbedStartUrl([HIDDEN_EMBED_URL])).toBe("");
   });
 
   it("leaves dev runtime module URLs untokenized in transplanted app documents", () => {
@@ -872,12 +1448,13 @@ describe("embedApp", () => {
       };
 
       const renewalHarness = (options: {
+        catalogMode?: "directory" | "app";
         frame: { contentWindow: object; src?: string };
         documentState: { loadGeneration: number };
         callEmbedSessionTool: ReturnType<typeof vi.fn>;
         sendToAppFrame: ReturnType<typeof vi.fn>;
       }) => {
-        const html = htmlFor("directory");
+        const html = htmlFor(options.catalogMode ?? "directory");
         const source = functionSource(html, "renewExpiredEmbedSession");
         return new Function(
           "appFrame",
@@ -904,10 +1481,12 @@ describe("embedApp", () => {
           "appFrameReady",
           "appFrameLoadTimer",
           "lastFrameSrc",
+          "objectValue",
+          "toolResponseMetadata",
           `${source}; return { renewExpiredEmbedSession, state: () => ({ openStartUrl, appFrameReady, appFrameLoadTimer, lastFrameSrc }) };`,
         )(
           options.frame,
-          { dataset: { catalogMode: "directory" } },
+          { dataset: { catalogMode: options.catalogMode ?? "directory" } },
           "https://app.example/slides/deck-1",
           "https://app.example/_agent-native/embed/start?ticket=old",
           "mounted-current-ticket",
@@ -934,6 +1513,8 @@ describe("embedApp", () => {
           true,
           null,
           "https://app.example/_agent-native/embed/start?ticket=old",
+          objectValue,
+          { "agent-native/widgetSource": { sourceTicket: "old-source" } },
         ) as {
           renewExpiredEmbedSession: (
             requestId: string,
@@ -944,50 +1525,54 @@ describe("embedApp", () => {
         };
       };
 
-      it("renews a write session in place to preserve pending editor state", async () => {
-        const frame = {
-          contentWindow: {},
-          src: "https://app.example/design/d1",
-        };
-        const documentState = { loadGeneration: 3 };
-        const sendToAppFrame = vi.fn();
-        const callEmbedSessionTool = vi.fn(async () => ({
-          renewed: true,
-          expiresAt: Date.now() + 60_000,
-        }));
-        const harness = renewalHarness({
-          frame,
-          documentState,
-          callEmbedSessionTool,
-          sendToAppFrame,
-        });
+      it.each(["directory", "app"] as const)(
+        "renews a %s write session in place to preserve pending editor state",
+        async (catalogMode) => {
+          const frame = {
+            contentWindow: {},
+            src: "https://app.example/design/d1",
+          };
+          const documentState = { loadGeneration: 3 };
+          const sendToAppFrame = vi.fn();
+          const callEmbedSessionTool = vi.fn(async () => ({
+            renewed: true,
+            expiresAt: Date.now() + 60_000,
+          }));
+          const harness = renewalHarness({
+            catalogMode,
+            frame,
+            documentState,
+            callEmbedSessionTool,
+            sendToAppFrame,
+          });
 
-        await harness.renewExpiredEmbedSession("renew-1", frame, 3);
+          await harness.renewExpiredEmbedSession("renew-1", frame, 3);
 
-        expect(callEmbedSessionTool).toHaveBeenCalledWith({
-          sourceTicket: "mounted-current-ticket",
-          renewInPlace: true,
-        });
-        expect(frame.src).toBe("https://app.example/design/d1");
-        expect(sendToAppFrame).toHaveBeenCalledWith({
-          type: "agentNative.embedSessionRenewed",
-          data: {
-            requestId: "renew-1",
-            ok: true,
-          },
-        });
-        expect(JSON.stringify(sendToAppFrame.mock.calls)).not.toContain(
-          "startUrl",
-        );
-        expect(JSON.stringify(sendToAppFrame.mock.calls)).not.toContain(
-          "ticket=",
-        );
-        expect(harness.state()).toMatchObject({
-          openStartUrl:
-            "https://app.example/_agent-native/embed/start?ticket=old",
-          appFrameReady: true,
-        });
-      });
+          expect(callEmbedSessionTool).toHaveBeenCalledWith({
+            sourceTicket: "mounted-current-ticket",
+            renewInPlace: true,
+          });
+          expect(frame.src).toBe("https://app.example/design/d1");
+          expect(sendToAppFrame).toHaveBeenCalledWith({
+            type: "agentNative.embedSessionRenewed",
+            data: {
+              requestId: "renew-1",
+              ok: true,
+            },
+          });
+          expect(JSON.stringify(sendToAppFrame.mock.calls)).not.toContain(
+            "startUrl",
+          );
+          expect(JSON.stringify(sendToAppFrame.mock.calls)).not.toContain(
+            "ticket=",
+          );
+          expect(harness.state()).toMatchObject({
+            openStartUrl:
+              "https://app.example/_agent-native/embed/start?ticket=old",
+            appFrameReady: true,
+          });
+        },
+      );
 
       it("does not acknowledge a renewal after the app document navigates", async () => {
         const frame = {
@@ -1769,6 +2354,290 @@ return requestFullscreenOnFirstInteraction;`;
     });
   });
 
+  describe("app tools on the open view", () => {
+    const viewToolsFor = (options: {
+      href: string;
+      pageHelper?: unknown;
+      frameSrc?: string;
+      modelContext?: unknown;
+      app?: unknown;
+    }) => {
+      const resource = embedApp({ title: "Mail" });
+      const html =
+        typeof resource.html === "function"
+          ? resource.html({ actionName: "open_app", appId: "mail" })
+          : resource.html;
+      const source = html.match(
+        /const readViewToolName = [\s\S]*?(?=\n    function createNativeMcpAppsBridge\(\))/,
+      )?.[0];
+      expect(source).toBeTruthy();
+      const { window } = parseHTML(
+        "<html><head><title>Inbox</title></head><body><main>Invoice from Acme   due Friday</main></body></html>",
+      );
+      const pushed: Array<{ state: unknown; url: string }> = [];
+      const popstates: unknown[] = [];
+      const fakeWindow = {
+        location: { href: options.href },
+        history: {
+          state: { usr: null, key: "a", idx: 3 },
+          pushState(state: unknown, _title: string, url: string) {
+            pushed.push({ state, url });
+            this.state = state;
+          },
+        },
+        dispatchEvent(event: { type: string }) {
+          popstates.push(event.type);
+          return true;
+        },
+        getSelection: () => "",
+        __agentNativeWebMcp: options.pageHelper,
+      };
+      const objectValue = (value: unknown) =>
+        value && typeof value === "object" && !Array.isArray(value)
+          ? value
+          : {};
+      const localPathFromUrl = (url: URL) =>
+        url.pathname + url.search + url.hash;
+      class FakePopStateEvent {
+        constructor(readonly type: string) {}
+      }
+      if (options.modelContext) {
+        Object.assign(window.document, { modelContext: options.modelContext });
+      }
+      const appFrame = options.frameSrc ? { src: options.frameSrc } : null;
+      return new Function(
+        "window",
+        "document",
+        "objectValue",
+        "localPathFromUrl",
+        "PopStateEvent",
+        "appFrame",
+        "lastFrameSrc",
+        "app",
+        `${source}; return { listViewTools, callViewTool, watchPageTools };`,
+      )(
+        fakeWindow,
+        window.document,
+        objectValue,
+        localPathFromUrl,
+        FakePopStateEvent,
+        appFrame,
+        "https://labs.example.com/_agent-native/embed/start?t=1",
+        options.app ?? null,
+      ) as {
+        watchPageTools(): void;
+        listViewTools(): Promise<Array<{ name: string }>>;
+        callViewTool(params: unknown): Promise<{
+          isError?: boolean;
+          content: Array<{ text: string }>;
+          structuredContent?: Record<string, unknown>;
+        }>;
+      } & { pushed: typeof pushed; popstates: typeof popstates };
+    };
+
+    it("lists read and navigate tools plus the page's own tools", async () => {
+      const pageHelper = {
+        tools: async () => [
+          {
+            name: "select_thread",
+            description: "Select a thread",
+            required: ["id"],
+            readOnly: false,
+          },
+        ],
+        describe: async () => ({
+          name: "select_thread",
+          description: "Select a thread in the list",
+          inputSchema: {
+            type: "object",
+            properties: { id: { type: "string" } },
+            required: ["id"],
+          },
+        }),
+        call: async (name: string, args: unknown) => ({
+          id: "1",
+          state: "done",
+          ok: true,
+          tool: name,
+          attempts: 1,
+          result: { selected: args },
+        }),
+      };
+      const tools = viewToolsFor({
+        href: "https://labs.example.com/mail/inbox",
+        pageHelper,
+      });
+
+      const listed = await tools.listViewTools();
+      expect(listed.map((tool) => tool.name)).toEqual([
+        "read_view",
+        "navigate_view",
+        "select_thread",
+      ]);
+      expect(listed[2]).toMatchObject({
+        description: "Select a thread in the list",
+        inputSchema: { required: ["id"] },
+      });
+
+      const called = await tools.callViewTool({
+        name: "select_thread",
+        arguments: { id: "t1" },
+      });
+      expect(called.isError).toBeUndefined();
+      expect(called.structuredContent).toEqual({ selected: { id: "t1" } });
+    });
+
+    it("calls a page tool on the origin it was listed from", async () => {
+      const calls: unknown[] = [];
+      const tools = viewToolsFor({
+        href: "https://labs.example.com/mail/inbox",
+        pageHelper: {
+          tools: async () => [
+            { name: "archive", origin: "https://labs.example.com" },
+            { name: "archive", origin: "https://widgets.example.com" },
+          ],
+          call: async (name: string, _args: unknown, options: unknown) => {
+            calls.push(options);
+            return { state: "done", ok: true, tool: name, result: "ok" };
+          },
+        },
+      });
+
+      const listed = await tools.listViewTools();
+      expect(listed.filter((tool) => tool.name === "archive")).toHaveLength(1);
+      await tools.callViewTool({ name: "archive", arguments: {} });
+      expect(calls).toEqual([
+        { waitMs: 40000, origin: "https://labs.example.com" },
+      ]);
+    });
+
+    it("re-announces its tools once the page registers them", async () => {
+      vi.useFakeTimers();
+      try {
+        let notified = 0;
+        const listeners: Array<() => void> = [];
+        const tools = viewToolsFor({
+          href: "https://labs.example.com/mail/inbox",
+          app: { sendToolListChanged: () => notified++ },
+          modelContext: {
+            addEventListener: (_type: string, listener: () => void) =>
+              listeners.push(listener),
+          },
+        });
+
+        tools.watchPageTools();
+        expect(notified).toBe(1);
+        expect(listeners).toHaveLength(1);
+
+        listeners[0]!();
+        await vi.advanceTimersByTimeAsync(300);
+        expect(notified).toBe(2);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it("reads what the open page shows", async () => {
+      const tools = viewToolsFor({
+        href: "https://labs.example.com/mail/inbox?q=acme",
+      });
+      const read = await tools.callViewTool({ name: "read_view" });
+      expect(read.structuredContent).toEqual({
+        path: "/mail/inbox?q=acme",
+        title: "Inbox",
+        visibleText: "Invoice from Acme due Friday",
+      });
+    });
+
+    it("moves the transplanted app in place and refuses other origins", async () => {
+      const tools = viewToolsFor({
+        href: "https://labs.example.com/mail/inbox",
+      });
+      const moved = await tools.callViewTool({
+        name: "navigate_view",
+        arguments: { path: "/mail/inbox?q=invoice" },
+      });
+      expect(moved.structuredContent).toEqual({
+        path: "/mail/inbox?q=invoice",
+      });
+
+      for (const path of ["//evil.example/x", "https://evil.example/x", ""]) {
+        const refused = await tools.callViewTool({
+          name: "navigate_view",
+          arguments: { path },
+        });
+        expect(refused.isError).toBe(true);
+      }
+    });
+
+    it("leaves a nested app frame where its session started", async () => {
+      const tools = viewToolsFor({
+        href: "https://sandbox.example/shell",
+        frameSrc: "https://labs.example.com/calendar/week",
+      });
+      const moved = await tools.callViewTool({
+        name: "navigate_view",
+        arguments: { path: "/calendar/event/e1" },
+      });
+      expect(moved.isError).toBe(true);
+      expect(moved.content[0]!.text).toContain("nested frame");
+      const read = await tools.callViewTool({ name: "read_view" });
+      expect(read.isError).toBe(true);
+      expect(read.content[0]!.text).toContain("nested frame");
+      expect(await tools.listViewTools()).toEqual([]);
+    });
+
+    it("tells the host its tool list changed when a nested frame mounts", () => {
+      const resource = embedApp({ title: "Mail" });
+      const html =
+        typeof resource.html === "function"
+          ? resource.html({ actionName: "open_app", appId: "mail" })
+          : resource.html;
+      const renderFrameSource = html.match(
+        /    function renderFrame\([^)]*\) \{[\s\S]*?\n    \}\n/,
+      )?.[0];
+      expect(renderFrameSource).toBeTruthy();
+      let notified = 0;
+      const mount = new Function(
+        "document",
+        "body",
+        "stage",
+        "notifyViewToolsChanged",
+        `let appFrame = null;
+let appFrameReady = true;
+let lastFrameSrc = "";
+let appFrameLoadTimer = null;
+const appFrameDocumentState = { loadGeneration: 0 };
+const frameLoadTimeoutMs = 1000;
+const noop = () => {};
+const rememberActiveEmbedSessionTicket = noop;
+const clearFrameReadyTimer = noop;
+const clearFrameLoadTimer = noop;
+const notifyHostHeight = noop;
+const renderFrameFallback = noop;
+const setTimeout = () => 0;
+${renderFrameSource}
+return (src) => { renderFrame(src); return appFrame; };`,
+      )(
+        { createElement: () => ({ addEventListener() {} }) },
+        { dataset: {} },
+        { replaceChildren() {} },
+        () => notified++,
+      ) as (src: string) => { src: string } | null;
+
+      const frame = mount("https://labs.example.com/calendar/week");
+      expect(frame?.src).toBe("https://labs.example.com/calendar/week");
+      expect(notified).toBe(1);
+    });
+
+    it("asks Claude to open the view in its side panel", () => {
+      const resource = embedApp({ title: "Mail" });
+      expect(resource._meta).toEqual({
+        ui: { preferredDisplayMode: "fullscreen" },
+      });
+    });
+  });
+
   it("provides a local MCP App payload fixture for renderer tests", async () => {
     const fixture = await createLocalMcpAppEmbedHarness({
       actionName: "open_app",
@@ -1945,8 +2814,9 @@ const WIDGET_CHAT_BRIDGE = "__an_mcp_chat_bridge=1";
  * Runs the real directory shell script against a linkedom document and a
  * ChatGPT-style `window.openai` bridge that replays a persisted tool result.
  */
-async function mountRestoredDirectoryWidget(
+async function mountRestoredWidget(
   callTool: (name: string, args: Record<string, unknown>) => Promise<unknown>,
+  catalogMode: "directory" | "app" = "directory",
 ) {
   const resource = embedApp({ title: "Slides" });
   const html =
@@ -1954,7 +2824,7 @@ async function mountRestoredDirectoryWidget(
       ? resource.html({
           actionName: "create-deck",
           appId: "slides",
-          catalogMode: "directory",
+          catalogMode,
           startToolName: "create_embed_session",
         })
       : resource.html;
@@ -2071,103 +2941,111 @@ async function mountRestoredDirectoryWidget(
   };
 }
 
-describe("embedApp directory widget restored after a chat reload", () => {
-  beforeEach(() => {
-    vi.useFakeTimers();
-  });
-  afterEach(() => {
-    vi.useRealTimers();
-  });
+describe.each(["directory", "app"] as const)(
+  "embedApp %s widget restored after a chat reload",
+  (catalogMode) => {
+    const mountRestoredDirectoryWidget = (
+      callTool: Parameters<typeof mountRestoredWidget>[0],
+    ) => mountRestoredWidget(callTool, catalogMode);
+    beforeEach(() => {
+      vi.useFakeTimers();
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+    });
 
-  const renewed = async () => ({
-    structuredContent: {
-      startUrl: WIDGET_RENEWED_START,
-      targetPath: "/deck/deck-1",
-      expiresAt: Date.now() + 15 * 60 * 1000,
-    },
-  });
-
-  it.each([WIDGET_APP_ORIGIN, "null"])(
-    "renews from the persisted source ticket when the spent start URL answers with the expiry page (origin %s)",
-    async (origin) => {
-      const shell = await mountRestoredDirectoryWidget(renewed);
-
-      expect(shell.frame()?.src).toBe(
-        `${WIDGET_SPENT_START}&${WIDGET_CHAT_BRIDGE}`,
-      );
-      expect(shell.bridge.callTool).not.toHaveBeenCalled();
-
-      await shell.postExpiredFrom(origin);
-
-      expect(shell.bridge.callTool).toHaveBeenCalledTimes(1);
-      expect(shell.bridge.callTool).toHaveBeenCalledWith(
-        "create_embed_session",
-        { sourceTicket: "spent-ticket" },
-      );
-      expect(shell.frame()?.src).toBe(
-        `${WIDGET_RENEWED_START}&${WIDGET_CHAT_BRIDGE}`,
-      );
-    },
-  );
-
-  it("renews from a start URL the server sends in _meta", async () => {
-    const shell = await mountRestoredDirectoryWidget(async () => ({
+    const renewed = async () => ({
       structuredContent: {
+        startUrl: WIDGET_RENEWED_START,
         targetPath: "/deck/deck-1",
         expiresAt: Date.now() + 15 * 60 * 1000,
       },
-      _meta: { "agent-native/embedStart": { startUrl: WIDGET_RENEWED_START } },
-    }));
+    });
 
-    await shell.postExpiredFrom(WIDGET_APP_ORIGIN);
+    it.each([WIDGET_APP_ORIGIN, "null"])(
+      "renews from the persisted source ticket when the spent start URL answers with the expiry page (origin %s)",
+      async (origin) => {
+        const shell = await mountRestoredDirectoryWidget(renewed);
 
-    expect(shell.bridge.callTool).toHaveBeenCalledTimes(1);
-    expect(shell.frame()?.src).toBe(
-      `${WIDGET_RENEWED_START}&${WIDGET_CHAT_BRIDGE}`,
+        expect(shell.frame()?.src).toBe(
+          `${WIDGET_SPENT_START}&${WIDGET_CHAT_BRIDGE}`,
+        );
+        expect(shell.bridge.callTool).not.toHaveBeenCalled();
+
+        await shell.postExpiredFrom(origin);
+
+        expect(shell.bridge.callTool).toHaveBeenCalledTimes(1);
+        expect(shell.bridge.callTool).toHaveBeenCalledWith(
+          "create_embed_session",
+          { sourceTicket: "spent-ticket" },
+        );
+        expect(shell.frame()?.src).toBe(
+          `${WIDGET_RENEWED_START}&${WIDGET_CHAT_BRIDGE}`,
+        );
+      },
     );
-  });
 
-  it("does not replay the spent start URL when the host re-syncs after recovery", async () => {
-    const shell = await mountRestoredDirectoryWidget(renewed);
-    await shell.postExpiredFrom(WIDGET_APP_ORIGIN);
-
-    await shell.resync("pip");
-
-    expect(shell.bridge.callTool).toHaveBeenCalledTimes(1);
-    expect(shell.frame()?.src).toBe(
-      `${WIDGET_RENEWED_START}&${WIDGET_CHAT_BRIDGE}`,
-    );
-  });
-
-  it("stops at the refresh cap and says so when every renewed session also expires", async () => {
-    const shell = await mountRestoredDirectoryWidget(renewed);
-
-    await shell.postExpiredFrom(WIDGET_APP_ORIGIN);
-    await shell.postExpiredFrom(WIDGET_APP_ORIGIN);
-    await shell.postExpiredFrom(WIDGET_APP_ORIGIN);
-
-    expect(shell.bridge.callTool).toHaveBeenCalledTimes(2);
-    expect(shell.stageText()).toContain("Reopen the app");
-  });
-
-  it("shows the server's refusal instead of a blank or stale frame", async () => {
-    const shell = await mountRestoredDirectoryWidget(async () => ({
-      isError: true,
-      content: [
-        {
-          type: "text",
-          text: "Error: Embed session ticket creation was revoked by logout.",
+    it("renews from a start URL the server sends in _meta", async () => {
+      const shell = await mountRestoredDirectoryWidget(async () => ({
+        structuredContent: {
+          targetPath: "/deck/deck-1",
+          expiresAt: Date.now() + 15 * 60 * 1000,
         },
-      ],
-    }));
+        _meta: {
+          "agent-native/embedStart": { startUrl: WIDGET_RENEWED_START },
+        },
+      }));
 
-    await shell.postExpiredFrom(WIDGET_APP_ORIGIN);
+      await shell.postExpiredFrom(WIDGET_APP_ORIGIN);
 
-    expect(shell.stageText()).toContain("App did not load");
-    expect(shell.stageText()).toContain("revoked by logout");
-    expect(shell.frame()).toBeNull();
-  });
-});
+      expect(shell.bridge.callTool).toHaveBeenCalledTimes(1);
+      expect(shell.frame()?.src).toBe(
+        `${WIDGET_RENEWED_START}&${WIDGET_CHAT_BRIDGE}`,
+      );
+    });
+
+    it("does not replay the spent start URL when the host re-syncs after recovery", async () => {
+      const shell = await mountRestoredDirectoryWidget(renewed);
+      await shell.postExpiredFrom(WIDGET_APP_ORIGIN);
+
+      await shell.resync("pip");
+
+      expect(shell.bridge.callTool).toHaveBeenCalledTimes(1);
+      expect(shell.frame()?.src).toBe(
+        `${WIDGET_RENEWED_START}&${WIDGET_CHAT_BRIDGE}`,
+      );
+    });
+
+    it("stops at the refresh cap and says so when every renewed session also expires", async () => {
+      const shell = await mountRestoredDirectoryWidget(renewed);
+
+      await shell.postExpiredFrom(WIDGET_APP_ORIGIN);
+      await shell.postExpiredFrom(WIDGET_APP_ORIGIN);
+      await shell.postExpiredFrom(WIDGET_APP_ORIGIN);
+
+      expect(shell.bridge.callTool).toHaveBeenCalledTimes(2);
+      expect(shell.stageText()).toContain("Reopen the app");
+    });
+
+    it("shows the server's refusal instead of a blank or stale frame", async () => {
+      const shell = await mountRestoredDirectoryWidget(async () => ({
+        isError: true,
+        content: [
+          {
+            type: "text",
+            text: "Error: Embed session ticket creation was revoked by logout.",
+          },
+        ],
+      }));
+
+      await shell.postExpiredFrom(WIDGET_APP_ORIGIN);
+
+      expect(shell.stageText()).toContain("App did not load");
+      expect(shell.stageText()).toContain("revoked by logout");
+      expect(shell.frame()).toBeNull();
+    });
+  },
+);
 
 interface LocalMcpAppEmbedHarnessOptions {
   actionName?: string;

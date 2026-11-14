@@ -11,6 +11,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useLab } from "@agent-native/core/client/labs";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   CreativeContextShareSheet,
   parseCreativeContexts,
@@ -25,8 +26,15 @@ import {
 import {
   PromptHome,
   TemplateLibraryGrid,
+  createHomeSuggestionRandom,
+  normalizeHomeSuggestionRole,
+  pickHomeSuggestions,
+  useHomeSuggestionRole,
+  useHomeSuggestionSeed,
+  useFirstPaintPromptDraft,
   useHomeSearchShortcut,
   useSetPageTitle,
+  writeHomeSuggestionRole,
 } from "@agent-native/toolkit/app-shell";
 import { BuilderSetupCard } from "@agent-native/toolkit/app/chat/chat/run-recovery";
 import {
@@ -35,14 +43,16 @@ import {
   type PromptComposerSubmitOptions,
   type TiptapComposerHandle,
 } from "@agent-native/toolkit/app/chat/composer/index";
+import { useFirstRunOnboardingGateOwnsSurface } from "@agent-native/toolkit/app/onboarding";
 import { ClientOnly } from "@agent-native/toolkit/app/shared";
+import { OwnershipFilter } from "@agent-native/toolkit/app/sharing/OwnershipFilter";
+import type { DesignBrief } from "@shared/design-briefs";
 import { designTemplateRetryKey } from "@shared/design-template-retry";
 import { FULL_APP_BUILDING_LAB } from "@shared/labs";
 import { derivePromptTitle } from "@shared/prompt-title";
 import {
   IconArrowRight,
   IconChecks,
-  IconChevronDown,
   IconChevronLeft,
   IconChevronRight,
   IconPlus,
@@ -55,13 +65,28 @@ import {
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
 import { nanoid } from "nanoid";
-import { useState, useRef, useCallback, useEffect, useMemo } from "react";
-import { useNavigate, Link, useSearchParams } from "react-router";
+import {
+  useState,
+  useRef,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+} from "react";
+import {
+  useLocation,
+  useNavigate,
+  Link,
+  useNavigationType,
+  useSearchParams,
+} from "react-router";
 import { toast } from "sonner";
 
 import { trace } from "@/components/design/design-trace";
 import { DesignThumbnail } from "@/components/design/DesignThumbnail";
 import { designSystemPickerOptions } from "@/components/editor/design-start-pickers";
+import { useDetectedFigmaComposerLink } from "@/components/editor/FigmaLinkComposerBubble";
+import { HomeFigmaLinkBubble } from "@/components/editor/HomeFigmaLinkBubble";
 import { useHomePromptContext } from "@/components/editor/HomePromptContext";
 import PromptPopover from "@/components/editor/PromptDialog";
 import type {
@@ -72,6 +97,7 @@ import {
   DesignHomeLibrary,
   type DesignHomeLibraryTab,
 } from "@/components/home/DesignHomeLibrary";
+import { DesignRecentSkeleton } from "@/components/home/DesignRecentSkeleton";
 import { QueryErrorState } from "@/components/QueryErrorState";
 import { DesignTemplateLibrary } from "@/components/templates/DesignTemplateLibrary";
 import {
@@ -91,8 +117,6 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -102,6 +126,10 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import {
+  DESIGN_HOME_SUGGESTION_POOLS,
+  trackDesignHomeSuggestionClick,
+} from "@/home-suggestions";
 import { useDesignSystemWorkflows } from "@/hooks/use-design-system-workflows";
 import { useDesignSystems } from "@/hooks/use-design-systems";
 import { sendToDesignAgentChat } from "@/lib/agent-chat";
@@ -119,6 +147,13 @@ import {
   writePendingGeneration,
 } from "@/lib/pending-generation";
 import { cn } from "@/lib/utils";
+
+import {
+  clearDesignHomeLibraryTabSelection,
+  readDesignHomeLibraryInitialState,
+  subscribeToDesignHomeLibraryTab,
+  writeHomeLibraryHasRecents,
+} from "../home-library-state";
 
 type ProjectType = "prototype" | "other";
 interface Design {
@@ -145,70 +180,16 @@ interface DesignListResult {
 }
 
 const DESIGN_PAGE_SIZE = 50;
-const HOME_LIBRARY_HAS_RECENTS_STORAGE_KEY = "design-home-has-recents";
-
-function readHomeLibraryHasRecents():
-  | { status: "available"; value: boolean | null }
-  | { status: "unavailable" } {
-  if (typeof window === "undefined") return { status: "unavailable" };
-
-  try {
-    const value = window.localStorage.getItem(
-      HOME_LIBRARY_HAS_RECENTS_STORAGE_KEY,
-    );
-    return {
-      status: "available",
-      value: value === "true" ? true : value === "false" ? false : null,
-    };
-  } catch {
-    return { status: "unavailable" };
-  }
-}
-
-function writeHomeLibraryHasRecents(
-  value: boolean,
-): { status: "available" } | { status: "unavailable" } {
-  if (typeof window === "undefined") return { status: "unavailable" };
-  try {
-    window.localStorage.setItem(
-      HOME_LIBRARY_HAS_RECENTS_STORAGE_KEY,
-      String(value),
-    );
-    return { status: "available" };
-  } catch {
-    return { status: "unavailable" };
-  }
-}
-
-interface HomeSuggestion {
-  id?: string;
-  label: string;
-  prompt: string;
-}
-
-type HomeSuggestionsResult =
-  | { status: "ready"; suggestions: HomeSuggestion[] }
-  | {
-      status: "unavailable";
-      reason:
-        | "missing_credentials"
-        | "timeout"
-        | "agent_engine_settings_unavailable";
-      suggestions: [];
-    };
-
-const HOME_SUGGESTIONS_UI_TIMEOUT_MS = 12_000;
-
-function isReadyHomeSuggestions(
-  result: HomeSuggestionsResult | undefined,
-): result is Extract<HomeSuggestionsResult, { status: "ready" }> {
-  return result?.status === "ready" && result.suggestions.length === 3;
-}
+const HOME_TEMPLATE_LIMIT = 8;
 
 export default function Index() {
   const t = useT();
+  const location = useLocation();
+  const navigationType = useNavigationType();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
+  const isSaveTemplateGettingStarted =
+    searchParams.get("gettingStarted") === "save-template";
   const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const [designFilter, setDesignFilter] = useState<DesignFilter>(
@@ -220,16 +201,24 @@ export default function Index() {
   const [selectedDesignIds, setSelectedDesignIds] = useState<Set<string>>(
     () => new Set(),
   );
-  const [storedHasAccessibleDesigns] = useState(readHomeLibraryHasRecents);
-  const [homeSection, setHomeSection] = useState<DesignHomeLibraryTab>(
-    storedHasAccessibleDesigns.status === "available" &&
-      storedHasAccessibleDesigns.value === true
-      ? "recent"
-      : "templates",
+  const [initialHomeLibraryState] = useState(() =>
+    readDesignHomeLibraryInitialState(isSaveTemplateGettingStarted),
   );
-  const homeLibraryTabWasSelectedRef = useRef(false);
+  const [homeSection, setHomeSection] = useState<DesignHomeLibraryTab>(
+    initialHomeLibraryState.tab,
+  );
+  const homeLibraryTabWasSelectedRef = useRef(
+    initialHomeLibraryState.userSelected,
+  );
+  const checklistSearch = searchParams.toString();
+  const previousChecklistLocationRef = useRef({
+    isSaveTemplateGettingStarted,
+    search: checklistSearch,
+    hash: location.hash,
+  });
   const designFilterWasSelectedRef = useRef(false);
   const composerRef = useRef<TiptapComposerHandle>(null);
+  const focusComposer = useCallback(() => composerRef.current?.focus(), []);
   const [quickStartPending, setQuickStartPending] = useState(false);
   const quickStartRef = useRef(false);
   const submissionErrorRef = useRef(false);
@@ -240,12 +229,57 @@ export default function Index() {
     null,
   );
   const [newTemplateId, setNewTemplateId] = useState<string | null>(null);
-  const [newDesignMode, setNewDesignMode] = useState<"design" | "app">(
-    "design",
-  );
+  const [newDesignMode] = useState<"design" | "app">("design");
   const [renameId, setRenameId] = useState<string | null>(null);
   const [renameDraft, setRenameDraft] = useState("");
   const [contextDesigns, setContextDesigns] = useState<Design[]>([]);
+
+  useLayoutEffect(() => {
+    const unsubscribe = subscribeToDesignHomeLibraryTab((tab) => {
+      homeLibraryTabWasSelectedRef.current = true;
+      setHomeSection(tab);
+      clearDesignHomeLibraryTabSelection();
+    });
+    clearDesignHomeLibraryTabSelection();
+    return unsubscribe;
+  }, []);
+
+  useEffect(() => {
+    const previousLocation = previousChecklistLocationRef.current;
+    const checklistQueryReplace =
+      navigationType === "REPLACE" &&
+      previousLocation.isSaveTemplateGettingStarted &&
+      isSaveTemplateGettingStarted &&
+      previousLocation.search !== checklistSearch;
+    previousChecklistLocationRef.current = {
+      isSaveTemplateGettingStarted,
+      search: checklistSearch,
+      hash: location.hash,
+    };
+
+    if (isSaveTemplateGettingStarted && !checklistQueryReplace) {
+      homeLibraryTabWasSelectedRef.current = true;
+      setHomeSection("recent");
+    }
+
+    const targetId = location.hash.slice(1);
+    if (
+      !targetId ||
+      (checklistQueryReplace && previousLocation.hash === location.hash)
+    ) {
+      return;
+    }
+    const frame = window.requestAnimationFrame(() => {
+      document.getElementById(targetId)?.scrollIntoView({ block: "start" });
+    });
+    return () => window.cancelAnimationFrame(frame);
+  }, [
+    isSaveTemplateGettingStarted,
+    checklistSearch,
+    location.hash,
+    location.key,
+    navigationType,
+  ]);
 
   const skipToEditorPendingRef = useRef(false);
   const newDesignSystemWasChosenRef = useRef(false);
@@ -317,18 +351,20 @@ export default function Index() {
 
     writeHomeLibraryHasRecents(hasAccessibleDesigns);
     if (!hasAccessibleDesigns) {
-      setHomeSection("templates");
+      if (isSaveTemplateGettingStarted || hasSearchResultsSection) return;
       homeLibraryTabWasSelectedRef.current = false;
+      setHomeSection("templates");
       return;
     }
     if (homeLibraryTabWasSelectedRef.current) return;
 
     setHomeSection("recent");
-    homeLibraryTabWasSelectedRef.current = true;
   }, [
     accessibleDesignCount,
     accessibleDesignsSummary.isSuccess,
     hasAccessibleDesigns,
+    hasSearchResultsSection,
+    isSaveTemplateGettingStarted,
   ]);
   useEffect(() => {
     if (hasSearchResultsSection) setHomeSection("recent");
@@ -348,9 +384,13 @@ export default function Index() {
     "create-design-from-template",
   );
   const createFusionAppMutation = useActionMutation("create-builder-app");
-  const deleteMutation = useActionMutation("delete-design");
+  const deleteMutation = useActionMutation("delete-design", {
+    errorNotification: "shared",
+  });
   const duplicateMutation = useActionMutation("duplicate-design");
-  const updateMutation = useActionMutation("update-design");
+  const updateMutation = useActionMutation("update-design", {
+    errorNotification: "shared",
+  });
   const generateTitleMutation = useActionMutation("generate-design-title");
   const userRenamedDesignIdsRef = useRef<Set<string>>(new Set());
   const {
@@ -363,7 +403,10 @@ export default function Index() {
   const agentEngineConfigured = agentEngine.canChat;
   const agentEngineMissing = agentEngine.missing;
   const [setupCardBouncePulse, setSetupCardBouncePulse] = useState(0);
-  const bounceSetupCard = () => {
+  // Portaled menus (the model picker) bubble their events through React to
+  // this wrapper; only a click or focus inside its own DOM should bounce.
+  const bounceSetupCard = (event: React.SyntheticEvent) => {
+    if (!event.currentTarget.contains(event.target as Node)) return;
     if (agentEngineMissing) setSetupCardBouncePulse((pulse) => pulse + 1);
   };
   const retryAgentEngineStatus = useCallback(() => {
@@ -379,164 +422,145 @@ export default function Index() {
     suggestionSession?.orgId ?? "",
   ];
   const homeSuggestionsIdentityScope = JSON.stringify(homeSuggestionsIdentity);
+  const homeSuggestionRoleScope =
+    suggestionSession?.authUserId || suggestionSession?.userId
+      ? JSON.stringify([
+          suggestionSession.authUserId ?? suggestionSession.userId,
+          suggestionSession.orgId ?? "",
+        ])
+      : null;
+  const homeSuggestionDraftScope = homeSuggestionRoleScope ?? "anonymous";
+  const firstPaintPromptDraft = useFirstPaintPromptDraft(
+    "design",
+    homeSuggestionDraftScope,
+  );
+  const firstPaintPrompt =
+    firstPaintPromptDraft.status === "present"
+      ? firstPaintPromptDraft.draft
+      : null;
+  const [homePromptInitialText, setHomePromptInitialText] = useState(
+    () => firstPaintPrompt?.text,
+  );
+  const [homePromptInitialTextKey, setHomePromptInitialTextKey] = useState(
+    () => firstPaintPrompt?.revision,
+  );
+  const homeSuggestionPromptSourceRef = useRef(
+    firstPaintPrompt?.source === "home_suggestion",
+  );
+  const homeSuggestionPromptTextRef = useRef(
+    firstPaintPrompt?.source === "home_suggestion"
+      ? firstPaintPrompt.text
+      : null,
+  );
+  const { link: detectedFigmaLink, onComposerTextChange: detectFigmaLink } =
+    useDetectedFigmaComposerLink();
+  const handleHomePromptTextChange = useCallback(
+    (text: string) => {
+      detectFigmaLink(text);
+      if (
+        homeSuggestionPromptSourceRef.current &&
+        homeSuggestionPromptTextRef.current !== null &&
+        homeSuggestionPromptTextRef.current !== text
+      ) {
+        homeSuggestionPromptSourceRef.current = false;
+        homeSuggestionPromptTextRef.current = null;
+      }
+    },
+    [detectFigmaLink],
+  );
+  const homeSuggestionSeed = useHomeSuggestionSeed();
+  const shellSuggestionRole = useHomeSuggestionRole();
+  const firstRunOwnsSurface = useFirstRunOnboardingGateOwnsSurface();
   const homeSuggestionsProfile = useActionQuery<{
     onboardingRole?: string | null;
   }>(
     "get-user-profile",
     {},
     {
-      enabled: quickActionsEnabled,
       queryKeyScope: [homeSuggestionsIdentityScope],
       staleTime: 0,
     },
   );
-  const homeSuggestionsProfileReady =
-    quickActionsEnabled &&
-    (homeSuggestionsProfile.data !== undefined ||
-      homeSuggestionsProfile.isError);
-  const homeSuggestionsCacheScope = JSON.stringify([
-    ...homeSuggestionsIdentity,
-    homeSuggestionsProfile.data?.onboardingRole ?? null,
-  ]);
-  const fallbackHomeSuggestions = useMemo(
-    () =>
-      [
-        t("chat.suggestionLandingPage"),
-        t("chat.suggestionBrandMatch"),
-        t("chat.suggestionMobile"),
-      ].map((prompt, index) => ({
-        id: `design-home-generic-${index}`,
-        label: prompt,
-        prompt,
-      })),
-    [t],
-  );
-  const [homeSuggestionsSnapshotState, setHomeSuggestionsSnapshotState] =
-    useState<{
-      scope: string;
-      suggestions: HomeSuggestion[];
-    } | null>(null);
-  const homeSuggestionsSnapshot =
-    homeSuggestionsProfileReady &&
-    homeSuggestionsSnapshotState?.scope === homeSuggestionsIdentityScope
-      ? homeSuggestionsSnapshotState.suggestions
-      : null;
-  const homeSuggestionsQuery = useActionQuery<HomeSuggestionsResult>(
-    "generate-home-suggestions",
-    {},
-    {
-      enabled: homeSuggestionsProfileReady && homeSuggestionsSnapshot === null,
-      queryKeyScope: [homeSuggestionsCacheScope],
-      retry: false,
-      staleTime: (query) =>
-        isReadyHomeSuggestions(query.state.data) ? Number.POSITIVE_INFINITY : 0,
-      gcTime: Number.POSITIVE_INFINITY,
-      refetchOnMount: (query) => !isReadyHomeSuggestions(query.state.data),
-      refetchOnWindowFocus: (query) =>
-        !isReadyHomeSuggestions(query.state.data),
-      refetchOnReconnect: (query) => !isReadyHomeSuggestions(query.state.data),
-    },
-  );
-  const readyHomeSuggestions =
-    homeSuggestionsProfileReady &&
-    homeSuggestionsQuery.data?.status === "ready" &&
-    homeSuggestionsQuery.data.suggestions.length === 3
-      ? homeSuggestionsQuery.data.suggestions
-      : null;
-  const homeSuggestionsQueryUnavailable =
-    !homeSuggestionsQuery.isFetching &&
-    quickActionsEnabled &&
-    (homeSuggestionsQuery.isError ||
-      homeSuggestionsQuery.data?.status === "unavailable" ||
-      (homeSuggestionsQuery.data?.status === "ready" &&
-        homeSuggestionsQuery.data.suggestions.length !== 3));
-  const [homeSuggestionsTimeout, setHomeSuggestionsTimeout] = useState({
-    scope: homeSuggestionsIdentityScope,
-    timedOut: false,
-  });
-  if (homeSuggestionsTimeout.scope !== homeSuggestionsIdentityScope) {
-    setHomeSuggestionsTimeout({
-      scope: homeSuggestionsIdentityScope,
-      timedOut: false,
-    });
-  }
-  const homeSuggestionsTimedOut =
-    quickActionsEnabled &&
-    homeSuggestionsTimeout.scope === homeSuggestionsIdentityScope &&
-    homeSuggestionsTimeout.timedOut;
+  useEffect(() => {
+    const handleFirstRunCompleted = () => void homeSuggestionsProfile.refetch();
+    window.addEventListener(
+      "agent-native:first-run-completed",
+      handleFirstRunCompleted,
+    );
+    return () =>
+      window.removeEventListener(
+        "agent-native:first-run-completed",
+        handleFirstRunCompleted,
+      );
+  }, [homeSuggestionsProfile.refetch]);
+  const homeSuggestionRole =
+    homeSuggestionsProfile.data !== undefined
+      ? normalizeHomeSuggestionRole(homeSuggestionsProfile.data.onboardingRole)
+      : (shellSuggestionRole ?? "general");
+  useEffect(() => {
+    if (homeSuggestionsProfile.data === undefined) return;
+    writeHomeSuggestionRole(
+      "design",
+      homeSuggestionsProfile.data.onboardingRole,
+      homeSuggestionRoleScope,
+    );
+  }, [homeSuggestionRoleScope, homeSuggestionsProfile.data]);
+  const firstPaintSubmitRevisionRef = useRef<number | null>(null);
   useEffect(() => {
     if (
+      !firstPaintPrompt?.submitted ||
+      !firstPaintPrompt.text.trim() ||
       !quickActionsEnabled ||
-      homeSuggestionsSnapshot !== null ||
-      readyHomeSuggestions !== null ||
-      homeSuggestionsQueryUnavailable
+      firstRunOwnsSurface ||
+      firstPaintSubmitRevisionRef.current === firstPaintPrompt.revision
     ) {
-      setHomeSuggestionsTimeout({
-        scope: homeSuggestionsIdentityScope,
-        timedOut: false,
-      });
       return;
     }
-    const timer = window.setTimeout(
-      () =>
-        setHomeSuggestionsTimeout({
-          scope: homeSuggestionsIdentityScope,
-          timedOut: true,
-        }),
-      HOME_SUGGESTIONS_UI_TIMEOUT_MS,
-    );
-    return () => window.clearTimeout(timer);
+    const composer = composerRef.current;
+    if (!composer) return;
+    firstPaintSubmitRevisionRef.current = firstPaintPrompt.revision;
+    submissionErrorRef.current = false;
+    void (async () => {
+      try {
+        for (const file of firstPaintPrompt.files ?? []) {
+          await composer.addAttachment(file);
+        }
+        const accepted = await composer.submitWithText(firstPaintPrompt.text);
+        if (!accepted && !submissionErrorRef.current) {
+          toast.error(t("homeContext.notReady"));
+        }
+      } catch {
+        if (!submissionErrorRef.current) {
+          toast.error(t("home.failedToCreateDesign"));
+        }
+      } finally {
+        homeSuggestionPromptSourceRef.current = false;
+        homeSuggestionPromptTextRef.current = null;
+      }
+    })();
   }, [
+    firstPaintPrompt?.revision,
+    firstPaintPrompt?.submitted,
+    firstPaintPrompt?.text,
+    firstPaintPrompt?.files,
+    firstRunOwnsSurface,
     quickActionsEnabled,
-    homeSuggestionsSnapshot,
-    readyHomeSuggestions,
-    homeSuggestionsQueryUnavailable,
-    homeSuggestionsIdentityScope,
+    t,
   ]);
-  const homeSuggestionsUnavailable =
-    homeSuggestionsQueryUnavailable || homeSuggestionsTimedOut;
-  useEffect(() => {
-    if (homeSuggestionsSnapshot !== null) return;
-    const result = homeSuggestionsQuery.data;
-    if (
-      quickActionsEnabled &&
-      homeSuggestionsProfileReady &&
-      result?.status === "ready" &&
-      result.suggestions.length === 3
-    ) {
-      setHomeSuggestionsSnapshotState({
-        scope: homeSuggestionsIdentityScope,
-        suggestions: result.suggestions,
-      });
-    } else if (
-      quickActionsEnabled &&
-      homeSuggestionsProfileReady &&
-      homeSuggestionsQueryUnavailable
-    ) {
-      setHomeSuggestionsSnapshotState({
-        scope: homeSuggestionsIdentityScope,
-        suggestions: fallbackHomeSuggestions,
-      });
-    }
-  }, [
-    homeSuggestionsQuery.data,
-    homeSuggestionsSnapshot,
-    homeSuggestionsCacheScope,
-    homeSuggestionsIdentityScope,
-    quickActionsEnabled,
-    homeSuggestionsProfileReady,
-    homeSuggestionsQueryUnavailable,
-    fallbackHomeSuggestions,
-  ]);
-  const homeSuggestions =
-    homeSuggestionsSnapshot ??
-    readyHomeSuggestions ??
-    (homeSuggestionsUnavailable ? fallbackHomeSuggestions : []);
-  const homeSuggestionsLoading =
-    homeSuggestionsSnapshot === null &&
-    readyHomeSuggestions === null &&
-    !homeSuggestionsTimedOut &&
-    (homeSuggestionsQuery.isFetching || !homeSuggestionsUnavailable);
+  const selectedHomeSuggestionKeys = useMemo(
+    () =>
+      pickHomeSuggestions(
+        DESIGN_HOME_SUGGESTION_POOLS,
+        homeSuggestionRole,
+        createHomeSuggestionRandom(homeSuggestionSeed),
+      ),
+    [homeSuggestionsIdentityScope, homeSuggestionRole, homeSuggestionSeed],
+  );
+  const homeSuggestions = selectedHomeSuggestionKeys.map(
+    ({ id, label, prompt }) => {
+      return { id, label: t(label), prompt: t(prompt ?? label) };
+    },
+  );
   const designSystemOptions = useMemo(
     () => designSystemPickerOptions(designSystems),
     [designSystems],
@@ -587,11 +611,20 @@ export default function Index() {
           pinnedPackId: null,
         })
         .catch((error) => {
-          toast.error(t("creativeContext.stateSaveFailed"));
+          reportWriteFailure(error, {
+            label: t("creativeContext.stateSaveFailed"),
+          });
           throw error;
         });
     },
     [creativeContextState, t],
+  );
+  const homeTemplates = useMemo(
+    () =>
+      templateOptions
+        .filter((template) => template.isBuiltIn)
+        .slice(0, HOME_TEMPLATE_LIMIT),
+    [templateOptions],
   );
   const selectedTemplate =
     templateOptions.find((template) => template.id === newTemplateId) ?? null;
@@ -608,11 +641,6 @@ export default function Index() {
       ? chosenDesignSystemId
       : templateDesignSystemId;
 
-  const ownerFilterLabels: Record<DesignFilter, string> = {
-    all: t("home.ownedByAnyone"),
-    mine: t("home.ownedByMe"),
-    "not-mine": t("home.sharedWithMe"),
-  };
   const showAuthors = designFilter !== "mine";
   const selectedDesignCount = selectedDesignIds.size;
   const isSelectingDesigns = selectedDesignCount > 0;
@@ -633,6 +661,7 @@ export default function Index() {
       const next = new URLSearchParams(searchParams);
       if (templateId) next.set("templateId", templateId);
       else next.delete("templateId");
+      if (next.toString() === searchParams.toString()) return;
       setSearchParams(next, { replace: true });
     },
     [searchParams, setSearchParams],
@@ -663,6 +692,11 @@ export default function Index() {
     systemsError: designSystemsError,
     retrySystems: () => void refetchDesignSystems(),
   });
+  const { briefsFor: homeBriefsFor } = homeContext;
+  // Submitting navigates away, and unmounting discards every Figma
+  // attachment the context still holds; accepting hands the sent ones over.
+  const acceptHomeContext = useRef(homeContext.submissionAccepted);
+  acceptHomeContext.current = homeContext.submissionAccepted;
 
   const resolveAppDesignSystemId = useCallback(async () => {
     const linkedSystemId = selectedTemplate?.designSystemId;
@@ -735,17 +769,19 @@ export default function Index() {
     );
   }, []);
 
-  const handleDesignFilterChange = useCallback((next: string) => {
-    if (next !== "all" && next !== "mine" && next !== "not-mine") return;
-    designFilterWasSelectedRef.current = true;
-    const nextFilter: DesignFilter = next;
-    setDesignFilter(nextFilter);
-    writeStoredDesignFilter(nextFilter);
-    setPage(1);
-    setSelectedDesignIds((current) =>
-      current.size === 0 ? current : new Set(),
-    );
-  }, []);
+  const handleDesignFilterChange = useCallback(
+    (next: "all" | "mine" | "shared") => {
+      designFilterWasSelectedRef.current = true;
+      const nextFilter: DesignFilter = next === "shared" ? "not-mine" : next;
+      setDesignFilter(nextFilter);
+      writeStoredDesignFilter(nextFilter);
+      setPage(1);
+      setSelectedDesignIds((current) =>
+        current.size === 0 ? current : new Set(),
+      );
+    },
+    [],
+  );
 
   useEffect(() => {
     if (
@@ -789,6 +825,7 @@ export default function Index() {
       title: string,
       designSystemId: string | null | undefined,
       creationMethod: "prompt" | "blank",
+      briefs: readonly DesignBrief[] = [],
     ): { id: string; title: string; ready: Promise<void> } => {
       const id = nanoid();
       const projectType: ProjectType = "prototype";
@@ -837,6 +874,7 @@ export default function Index() {
           projectType,
           ...(designSystemId !== undefined ? { designSystemId } : {}),
           creationMethod,
+          ...(briefs.length ? { briefs } : {}),
         } as any)
         .then(() => {
           void queryClient.invalidateQueries({
@@ -892,9 +930,10 @@ export default function Index() {
       options: PromptComposerSubmitOptions,
       pendingOptions?: { skipQuestions?: boolean; fromSkip?: boolean },
     ) => {
-      const promptSource = quickStartRef.current
-        ? "suggestion_chip"
-        : "composer";
+      const promptSource =
+        quickStartRef.current || homeSuggestionPromptSourceRef.current
+          ? "home_suggestion"
+          : "composer";
       await creativeContextPersistRef.current?.catch(() => {});
       const trimmedPrompt = prompt.trim();
       const templateCopyDesignSystemId =
@@ -932,11 +971,13 @@ export default function Index() {
         const title = trimmedPrompt
           ? derivePromptTitle(trimmedPrompt)
           : selectedTemplate.title;
+        const templateBriefs = homeBriefsFor(options.contextItems);
         const retryKey = designTemplateRetryKey({
           templateId: selectedTemplate.id,
           title,
           designSystemId,
           prompt,
+          briefs: templateBriefs,
         });
         const previousRetry = templateCopyIdsRef.current.get(
           selectedTemplate.id,
@@ -955,6 +996,7 @@ export default function Index() {
             retryKey,
             ...(designSystemId !== undefined ? { designSystemId } : {}),
             ...(trimmedPrompt ? { prompt } : {}),
+            ...(templateBriefs.length ? { briefs: templateBriefs } : {}),
           });
           if (!result.id) {
             throw new Error("Template copy did not return a design ID");
@@ -1000,6 +1042,8 @@ export default function Index() {
               queryKey: ["action", "list-designs"],
             })
             .catch(() => {});
+          if (result.adaptationPending && options.contextItems)
+            acceptHomeContext.current(options.contextItems);
           reportPromptSubmitted(result.id);
           void navigate(`/design/${result.id}`);
           return;
@@ -1020,6 +1064,7 @@ export default function Index() {
         derivedTitle,
         designSystemId,
         "prompt",
+        homeBriefsFor(options.contextItems),
       );
       // The title action needs the saved design, and create-design is still in flight.
       void ready.then(
@@ -1038,7 +1083,7 @@ export default function Index() {
             designSystemId,
             message: error instanceof Error ? error.message : String(error),
           });
-          toast.error(t("home.failedToCreateDesign"));
+          reportWriteFailure(error, { label: t("home.failedToCreateDesign") });
           throw error;
         }
         void createFusionAppMutation
@@ -1094,12 +1139,19 @@ export default function Index() {
             designSystemId,
             message: error instanceof Error ? error.message : String(error),
           });
-          toast.error(t("home.failedToCreateDesign"));
+          reportWriteFailure(error, { label: t("home.failedToCreateDesign") });
           throw error;
         }
       }
 
+      if (
+        !(fullAppBuildingEnabled && newDesignMode === "app") &&
+        options.contextItems
+      )
+        acceptHomeContext.current(options.contextItems);
       reportPromptSubmitted(id);
+      homeSuggestionPromptSourceRef.current = false;
+      homeSuggestionPromptTextRef.current = null;
       trace("persist", "new-design-handoff", { id, designSystemId });
       setNewDesignHandoffPending(true);
       void navigate(`/design/${id}`);
@@ -1111,6 +1163,7 @@ export default function Index() {
       designSystems,
       fullAppBuildingEnabled,
       handleGenerateDesignTitle,
+      homeBriefsFor,
       navigate,
       newDesignMode,
       newDesignSystemId,
@@ -1141,7 +1194,7 @@ export default function Index() {
     } catch (error) {
       skipToEditorPendingRef.current = false;
       setNewDesignHandoffPending(false);
-      toast.error(t("home.failedToCreateDesign"));
+      reportWriteFailure(error, { label: t("home.failedToCreateDesign") });
       throw error;
     }
   }, [
@@ -1358,19 +1411,14 @@ export default function Index() {
       />
     </div>
   );
-  const showHomeSuggestions =
-    quickActionsEnabled &&
-    (homeSuggestionsLoading ||
-      homeSuggestionsUnavailable ||
-      readyHomeSuggestions !== null ||
-      homeSuggestionsSnapshot !== null);
-
   return (
     <>
       {newDesignHandoffPending ? <NewDesignHandoffOverlay /> : null}
+      {homeContext.dialogs}
       <PromptHome
         title={t("home.designPromptTitle")}
-        connectionAttached={agentEngineMissing}
+        focusComposer={focusComposer}
+        connectionAttached={agentEngine.state !== "configured"}
         connection={
           agentEngineConfigured ? null : agentEngineMissing ? (
             <BuilderSetupCard
@@ -1384,6 +1432,7 @@ export default function Index() {
         }
         composer={
           <div
+            id="design-home-composer"
             data-design-home-composer
             className={
               agentEngineMissing
@@ -1404,7 +1453,18 @@ export default function Index() {
               requireAgentEngine
               showMissingApiKeySetup={false}
               title={t("home.newDesignLower")}
-              draftScope="design:new:0"
+              draftScope={`design:new:0:${homeSuggestionDraftScope}`}
+              initialText={homePromptInitialText}
+              initialTextKey={homePromptInitialTextKey}
+              initialTextOverridesSavedDraft={
+                homePromptInitialText !== undefined
+              }
+              onPromptTextChange={handleHomePromptTextChange}
+              composerHeaderSlot={
+                detectedFigmaLink ? (
+                  <HomeFigmaLinkBubble link={detectedFigmaLink} />
+                ) : null
+              }
               placeholder={
                 selectedTemplate
                   ? t("promptDialog.templatePromptPlaceholder", {
@@ -1424,6 +1484,7 @@ export default function Index() {
                 submissionErrorRef.current = true;
               }}
               beforeSubmitContext={homeContext.prepareSubmission}
+              onPasteContext={homeContext.onPasteContext}
               submissionIdentity={homeContext.identity}
               contextItems={homeContext.contextItems}
               contextMenuItems={homeContext.menuItems}
@@ -1452,85 +1513,79 @@ export default function Index() {
                 creativeContextEnabled ? handleCreativeContextChange : undefined
               }
               loading={newDesignHandoffPending}
-              creationMode={fullAppBuildingEnabled ? newDesignMode : undefined}
-              onCreationModeChange={
-                fullAppBuildingEnabled ? setNewDesignMode : undefined
-              }
             />
           </div>
         }
         quickActions={
-          showHomeSuggestions || !selectedTemplate ? (
-            <div
-              data-home-prompt-actions
-              className="flex w-full min-w-0 items-center justify-between gap-1"
-            >
-              {showHomeSuggestions ? (
-                <AgentSuggestionBar
-                  loading={homeSuggestionsLoading}
-                  announceUpdates
-                  layout="single-line"
-                  suggestions={homeSuggestions.map((suggestion, index) => ({
-                    ...suggestion,
-                    id: suggestion.id ?? `design-home-${index}`,
-                    disabled:
-                      !quickActionsEnabled ||
-                      newDesignHandoffPending ||
-                      quickStartPending,
-                  }))}
-                  ariaLabel={t("home.suggestedPrompts")}
-                  className="min-w-0 flex-1 px-0 py-0"
-                  onSelect={async (suggestion) => {
-                    if (
-                      !quickActionsEnabled ||
-                      quickStartRef.current ||
-                      !composerRef.current
-                    )
-                      return;
-                    quickStartRef.current = true;
-                    submissionErrorRef.current = false;
-                    setQuickStartPending(true);
-                    try {
-                      const accepted = await composerRef.current.submitWithText(
-                        agentSuggestionPrompt(suggestion),
-                      );
-                      if (!accepted && !submissionErrorRef.current) {
-                        toast.error(t("homeContext.notReady"));
-                      }
-                    } finally {
-                      quickStartRef.current = false;
-                      setQuickStartPending(false);
+          <div
+            data-home-prompt-actions
+            className="flex w-full min-w-0 items-center justify-between gap-1"
+          >
+            <AgentSuggestionBar
+              announceUpdates
+              layout="single-line"
+              homeTracking={{
+                appId: "design",
+                role: homeSuggestionRole,
+                seed: homeSuggestionSeed,
+              }}
+              onHomeSuggestionClick={trackDesignHomeSuggestionClick}
+              suggestions={homeSuggestions.map((suggestion) => ({
+                ...suggestion,
+                disabled: newDesignHandoffPending || quickStartPending,
+              }))}
+              ariaLabel={t("home.suggestedPrompts")}
+              className="min-w-0 flex-1 px-0 py-0"
+              onSelect={(suggestion) => {
+                if (quickStartRef.current || !composerRef.current) return;
+                if (!quickActionsEnabled) {
+                  homeSuggestionPromptSourceRef.current = true;
+                  const prompt = agentSuggestionPrompt(suggestion);
+                  homeSuggestionPromptTextRef.current = prompt;
+                  setHomePromptInitialText(prompt);
+                  setHomePromptInitialTextKey(Date.now());
+                  composerRef.current.setText(prompt);
+                  composerRef.current.focus();
+                  return;
+                }
+                quickStartRef.current = true;
+                submissionErrorRef.current = false;
+                setQuickStartPending(true);
+                void composerRef.current
+                  .submitWithText(agentSuggestionPrompt(suggestion))
+                  .then((accepted) => {
+                    if (!accepted && !submissionErrorRef.current) {
+                      toast.error(t("homeContext.notReady"));
                     }
-                  }}
-                />
-              ) : (
-                <span className="min-w-0 flex-1" />
-              )}
-              {!selectedTemplate ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="xs"
-                  disabled={newDesignHandoffPending}
-                  className="h-7 shrink-0 px-2 font-normal text-muted-foreground hover:text-foreground"
-                  data-testid="design-home-skip-prompt"
-                  onClick={() => {
-                    // startBlankDesign shows the failure toast before rejecting.
-                    void handleSkipToEditor().catch((error: unknown) => {
-                      trace("persist", "skip-to-editor-failed", {
-                        message:
-                          error instanceof Error
-                            ? error.message
-                            : String(error),
-                      });
+                  })
+                  .finally(() => {
+                    quickStartRef.current = false;
+                    setQuickStartPending(false);
+                  });
+              }}
+            />
+            {!selectedTemplate ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                disabled={newDesignHandoffPending}
+                className="h-7 min-w-[85px] shrink-0 justify-center px-2 font-normal text-muted-foreground hover:text-foreground"
+                data-testid="design-home-skip-prompt"
+                onClick={() => {
+                  // startBlankDesign shows the failure toast before rejecting.
+                  void handleSkipToEditor().catch((error: unknown) => {
+                    trace("persist", "skip-to-editor-failed", {
+                      message:
+                        error instanceof Error ? error.message : String(error),
                     });
-                  }}
-                >
-                  {t("promptDialog.skipPrompt")}
-                </Button>
-              ) : null}
-            </div>
-          ) : null
+                  });
+                }}
+              >
+                {t("promptDialog.skipPrompt")}
+              </Button>
+            ) : null}
+          </div>
         }
       >
         {accessibleDesignsSummary.isError ? (
@@ -1549,13 +1604,19 @@ export default function Index() {
             onValueChange={(value) => {
               homeLibraryTabWasSelectedRef.current = true;
               setHomeSection(value);
+              clearDesignHomeLibraryTabSelection();
             }}
             labels={{
               templates: t("navigation.templates"),
               recent: t("home.recent"),
             }}
             browseAll={
-              <Button variant="ghost" size="sm" asChild>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="min-w-[111px] justify-center"
+                asChild
+              >
                 <Link to="/templates">
                   {t("home.browseAllTemplates")}
                   <IconArrowRight />
@@ -1564,51 +1625,10 @@ export default function Index() {
             }
             search={searchInput}
             recentActions={
-              <DropdownMenu>
-                <DropdownMenuTrigger asChild>
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    aria-label={ownerFilterLabels[designFilter]}
-                    className="h-9 shrink-0 gap-2"
-                  >
-                    <span className="grid">
-                      {Object.entries(ownerFilterLabels).map(
-                        ([filter, label]) => (
-                          <span
-                            key={filter}
-                            aria-hidden="true"
-                            className="invisible col-start-1 row-start-1 whitespace-nowrap"
-                          >
-                            {label}
-                          </span>
-                        ),
-                      )}
-                      <span className="col-start-1 row-start-1 whitespace-nowrap">
-                        {ownerFilterLabels[designFilter]}
-                      </span>
-                    </span>
-                    <IconChevronDown className="size-4" aria-hidden="true" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
-                  <DropdownMenuRadioGroup
-                    value={designFilter}
-                    onValueChange={handleDesignFilterChange}
-                  >
-                    <DropdownMenuRadioItem value="all" indicator="check">
-                      {ownerFilterLabels.all}
-                    </DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="mine" indicator="check">
-                      {ownerFilterLabels.mine}
-                    </DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="not-mine" indicator="check">
-                      {ownerFilterLabels["not-mine"]}
-                    </DropdownMenuRadioItem>
-                  </DropdownMenuRadioGroup>
-                </DropdownMenuContent>
-              </DropdownMenu>
+              <OwnershipFilter
+                value={designFilter === "not-mine" ? "shared" : designFilter}
+                onChange={handleDesignFilterChange}
+              />
             }
             templates={
               templatesError ? (
@@ -1618,17 +1638,16 @@ export default function Index() {
                 />
               ) : (
                 <DesignTemplateLibrary
-                  templates={templateOptions.filter(
-                    (template) => template.isBuiltIn,
-                  )}
+                  templates={homeTemplates}
                   loading={templatesLoading}
+                  previewParam="previewTemplateId"
                 />
               )
             }
             recent={
               <>
                 {isLoading || (isFetching && designs.length === 0) ? (
-                  <LoadingSkeleton />
+                  <DesignRecentSkeleton />
                 ) : isError ? (
                   <QueryErrorState
                     onRetry={() => void refetch()}
@@ -2030,27 +2049,6 @@ function NewDesignHandoffOverlay() {
         {t("home.openingDesign")}
       </div>
     </div>
-  );
-}
-
-function LoadingSkeleton() {
-  return (
-    <>
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-        {Array.from({ length: 8 }).map((_, i) => (
-          <div
-            key={i}
-            className="rounded-xl border border-border bg-card overflow-hidden"
-          >
-            <div className="aspect-video bg-muted/50 animate-pulse" />
-            <div className="p-4 space-y-2">
-              <div className="h-4 w-3/4 rounded bg-muted animate-pulse" />
-              <div className="h-3 w-1/2 rounded bg-muted animate-pulse" />
-            </div>
-          </div>
-        ))}
-      </div>
-    </>
   );
 }
 

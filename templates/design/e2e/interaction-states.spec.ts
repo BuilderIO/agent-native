@@ -57,7 +57,10 @@ async function openWithAlphaSelected(app: App, html: string) {
     rect.x + rect.width / 2,
     rect.y + rect.height / 2,
   );
+  // Cmd+click reaches a nested layer; a plain click takes the top-level one.
+  await app.page.keyboard.down("ControlOrMeta");
   await app.page.mouse.click(center.x, center.y);
+  await app.page.keyboard.up("ControlOrMeta");
   await expect.poll(() => app.selectedLayers()).toStrictEqual(["Alpha"]);
   await expect(stateTrigger(app.page)).toHaveAttribute(
     "data-interaction-state",

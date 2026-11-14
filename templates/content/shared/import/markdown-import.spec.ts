@@ -652,6 +652,75 @@ describe("Markdown import", () => {
     expectEditorAccepts(page);
   });
 
+  it("reads a Toggle saved with a Markdown title as saved Markdown", () => {
+    const page = importMarkdown(
+      [
+        '<details markdown="1">',
+        "<summary>**Known** issues</summary>",
+        "\tLarge PDFs export slowly.",
+        "</details>",
+      ].join("\n"),
+    );
+
+    expect(page.dialect).toBe("nfm");
+    expect(nodesOfType(page.doc, "notionToggle")).toEqual([
+      expect.objectContaining({
+        content: [
+          {
+            type: "notionToggleSummary",
+            content: [
+              { type: "text", text: "Known", marks: [{ type: "bold" }] },
+              { type: "text", text: " issues" },
+            ],
+          },
+          expect.anything(),
+        ],
+      }),
+    ]);
+    expectEditorAccepts(page);
+  });
+
+  it.each([
+    '<details markdown="1" open>',
+    '<details markdown="1" color="blue">',
+  ])("reads %s as saved Markdown", (opening) => {
+    const page = importMarkdown(
+      [opening, "<summary>**Plan**</summary>", "\tBody", "</details>"].join(
+        "\n",
+      ),
+    );
+
+    expect(page.dialect).toBe("nfm");
+    expect(nodesOfType(page.doc, "notionToggle")).toEqual([
+      expect.objectContaining({
+        content: [
+          expect.objectContaining({ type: "notionToggleSummary" }),
+          expect.anything(),
+        ],
+      }),
+    ]);
+    expectEditorAccepts(page);
+  });
+
+  it.each([
+    ['{asset="asset-1"}', {}],
+    ['{color="red" asset="asset-1"}', { color: "red" }],
+    ['{asset="asset-1" color="red"}', { color: "red" }],
+  ])("reads an image saved with %s as saved Markdown", (suffix, color) => {
+    const page = importMarkdown(
+      `![Hero](https://example.com/hero.png) ${suffix}`,
+    );
+
+    expect(page.dialect).toBe("nfm");
+    expect(nodesOfType(page.doc, "image")).toEqual([
+      expect.objectContaining({
+        attrs: expect.objectContaining({ assetId: "asset-1", ...color }),
+      }),
+    ]);
+    expect(JSON.stringify(page.doc)).not.toContain("{asset=");
+    expectEditorAccepts(page);
+  });
+
   it("indents an untabbed NFM container body instead of dropping it", () => {
     const page = importMarkdown(UNTABBED_CALLOUT_NFM);
 
@@ -670,10 +739,12 @@ describe("Markdown import", () => {
     const page = importMarkdown(source);
 
     expect(page.dialect).toBe("nfm");
-    expect(page.content.length).toBeLessThan(source.length);
-    expect(noteKinds(page)).toEqual(
-      expect.arrayContaining(["unsupported-markdown", "text-not-landed"]),
+    expect(page.content).toContain("Deep body");
+    const deepestIndent = Math.max(
+      ...page.content.split("\n").map((line) => /^\t*/.exec(line)![0].length),
     );
+    expect(deepestIndent).toBeLessThanOrEqual(33);
+    expect(noteKinds(page)).toContain("unsupported-markdown");
   });
 
   it.each([

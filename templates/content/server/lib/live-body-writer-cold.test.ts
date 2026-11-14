@@ -24,7 +24,8 @@ it("initializes settings on the normal gate read before any settings write", asy
   const executor = getDbExec();
   await executor.execute(`CREATE TABLE documents (
     id TEXT PRIMARY KEY, live_body_switched_at TEXT, body_revision INTEGER,
-    collab_body_revision INTEGER, live_copy_version INTEGER, owner_email TEXT, org_id TEXT
+    collab_body_revision INTEGER, live_copy_version INTEGER, owner_email TEXT, org_id TEXT,
+    source_mode TEXT
   )`);
   await executor.execute(
     "CREATE TABLE _collab_docs (doc_id TEXT PRIMARY KEY, version INTEGER)",

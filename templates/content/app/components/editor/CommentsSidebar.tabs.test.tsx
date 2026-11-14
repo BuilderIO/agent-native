@@ -2,6 +2,7 @@
 
 import type { ResourceSuggestion } from "@agent-native/core/review";
 import type { DocumentProperty } from "@shared/api";
+import { CONTENT_BLOCKS_FIELD_SUGGESTION_ADAPTER } from "@shared/blocks-field-suggestions";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, useEffect } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -73,7 +74,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
     options?.name === undefined ? key : `${key}:${options.name}`,
 }));
 vi.mock("@agent-native/toolkit/app/review", () => ({
-  InlineMarkdown: ({ content }: { content: string }) => content,
+  CommentBody: ({ body }: { body: string }) => body,
 }));
 vi.mock("sonner", () => ({ toast: { error: vi.fn() } }));
 
@@ -170,8 +171,28 @@ function suggestion(id: string): ResourceSuggestion {
   } as ResourceSuggestion;
 }
 
+/** A suggested edit to another Blocks field tab than the body. */
+function tabSuggestion(id: string, fieldId: string): ResourceSuggestion {
+  return {
+    ...suggestion(id),
+    adapterKind: CONTENT_BLOCKS_FIELD_SUGGESTION_ADAPTER,
+    baseRevision: `blocks-field:${fieldId}:1`,
+    operations: [
+      {
+        id: `${id}-op`,
+        ordinal: 0,
+        kind: "replace_text",
+        targetId: fieldId,
+        before: { markdown: "Filler notes." },
+        after: { markdown: "Filler notes, edited." },
+      },
+    ],
+  } as ResourceSuggestion;
+}
+
 const commentAi = {
   requests: [],
+  serverRequests: [],
   startingThreadIds: new Set<string>(),
   stoppingRequestIds: new Set<string>(),
   continuations: new Map(),
@@ -195,6 +216,7 @@ type Options = {
   pending?: PendingCommentSelection | null;
   commentAi?: CommentAiController;
   scrollContainer?: HTMLDivElement;
+  canDecideFieldSuggestions?: boolean;
 };
 
 let replies: ReturnType<typeof useCommentReplyDrafts>;
@@ -226,6 +248,8 @@ function Owner({
       currentUserEmail="reviewer@example.test"
       canComment
       canResolve
+      canDecideSuggestions
+      canDecideFieldSuggestions={options.canDecideFieldSuggestions ?? true}
       alignToAnchors={false}
       scrollContainerRef={
         options.scrollContainer
@@ -295,15 +319,17 @@ describe("comments across Blocks field tabs", () => {
   }
 
   async function openFilterMenu() {
-    const trigger = [...container.querySelectorAll("button")].find(
-      (button) => button.textContent === "comments.filter",
+    const trigger = container.querySelector<HTMLButtonElement>(
+      "[data-discussion-filter-trigger]",
     )!;
-    await act(async () => {
-      trigger.dispatchEvent(
-        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
-      );
-    });
+    await act(async () => trigger.click());
   }
+
+  const tabOptions = () => [
+    ...document.querySelectorAll<HTMLButtonElement>(
+      '[data-discussion-filter-group="tab"] [data-discussion-filter-option]',
+    ),
+  ];
 
   const tabThreads = [
     thread("notes-1", "notes", "Notes"),
@@ -316,10 +342,12 @@ describe("comments across Blocks field tabs", () => {
       documentProperties: twoFields,
       suggestions: [suggestion("edit-1")],
     });
+    // In page order, text with a known offset comes before a suggested edit
+    // whose place isn't measured.
     expect(feed()).toEqual([
       "# Content",
-      "edit-1",
       "body-1",
+      "edit-1",
       "# Notes",
       "notes-1",
       "# comments.fieldRemoved:Old notes",
@@ -338,10 +366,7 @@ describe("comments across Blocks field tabs", () => {
       suggestions: [suggestion("edit-1")],
     });
     await openFilterMenu();
-    const options = [
-      ...container.querySelectorAll("[data-comments-tab-filter] [role]"),
-    ].map((option) => option.textContent);
-    expect(options).toEqual([
+    expect(tabOptions().map((option) => option.textContent)).toEqual([
       "comments.allTabs",
       "Content",
       "Notes",
@@ -349,17 +374,71 @@ describe("comments across Blocks field tabs", () => {
     ]);
 
     await act(async () =>
-      container
-        .querySelector<HTMLElement>('[data-comments-tab-option="notes"]')!
+      tabOptions()
+        .find((option) => option.dataset.discussionFilterOption === "notes")!
         .click(),
     );
     expect(feed()).toEqual(["# Notes", "notes-1"]);
+    expect(
+      tabOptions().map((option) => option.getAttribute("aria-pressed")),
+    ).toEqual(["false", "false", "true", "false"]);
 
     act(() => replies.setHistoryFilters({ tab: "" }));
-    expect(feed()).toEqual(["# Content", "edit-1", "body-1"]);
+    expect(feed()).toEqual(["# Content", "body-1", "edit-1"]);
 
     act(() => replies.setHistoryFilters({ tab: null }));
     expect(feed()).toHaveLength(7);
+  });
+
+  it("lists a tab's suggested edit under its tab, and filters it with that tab (CMT-2)", () => {
+    render(tabThreads, {
+      documentProperties: twoFields,
+      suggestions: [suggestion("edit-1"), tabSuggestion("notes-edit", "notes")],
+    });
+    expect(feed()).toEqual([
+      "# Content",
+      "body-1",
+      "edit-1",
+      "# Notes",
+      "notes-1",
+      "notes-edit",
+      "# comments.fieldRemoved:Old notes",
+      "gone-1",
+    ]);
+
+    act(() => replies.setHistoryFilters({ tab: "notes" }));
+    expect(feed()).toEqual(["# Notes", "notes-1", "notes-edit"]);
+
+    act(() => replies.setHistoryFilters({ tab: "" }));
+    expect(feed()).toEqual(["# Content", "body-1", "edit-1"]);
+  });
+
+  it("offers accepting a tab's suggestion only to the Collection's editors", () => {
+    const decisions = (id: string) =>
+      [
+        ...container.querySelectorAll<HTMLButtonElement>(
+          `[data-suggestion-id="${id}"] button[data-suggestion-decision]`,
+        ),
+      ].map(
+        (button) =>
+          `${button.dataset.suggestionDecision}${button.disabled ? " (off)" : ""}`,
+      );
+    const suggestions = [
+      suggestion("edit-1"),
+      tabSuggestion("notes-edit", "notes"),
+    ];
+
+    // Rejecting writes nothing, so whoever decides on the page can reject.
+    render(tabThreads, {
+      documentProperties: twoFields,
+      suggestions,
+      canDecideFieldSuggestions: false,
+    });
+    expect(decisions("edit-1")).toEqual(["accepted", "rejected"]);
+    expect(decisions("notes-edit")).toEqual(["accepted (off)", "rejected"]);
+
+    render(tabThreads, { documentProperties: twoFields, suggestions });
+    expect(decisions("notes-edit")).toEqual(["accepted", "rejected"]);
   });
 
   it("shows every tab again when the chosen one is gone", () => {
@@ -377,8 +456,12 @@ describe("comments across Blocks field tabs", () => {
     });
     expect(feed()).toEqual(["body-1", "body-22"]);
     await openFilterMenu();
-    expect(container.textContent).toContain("comments.authorFilter");
-    expect(container.querySelector("[data-comments-tab-filter]")).toBeNull();
+    expect(
+      document.querySelector('[data-discussion-filter-group="person"]'),
+    ).not.toBeNull();
+    expect(
+      document.querySelector('[data-discussion-filter-group="tab"]'),
+    ).toBeNull();
   });
 
   it("lists a deleted tab's threads under its name even with one field left", () => {
@@ -454,15 +537,15 @@ describe("comments across Blocks field tabs", () => {
     expect(actions.create.mock.calls[0]?.[0]).not.toHaveProperty("fieldId");
   });
 
-  it("offers Ask AI only on the page body's threads", () => {
+  it("offers Ask AI on a tab's threads, as on the page body's", () => {
     render([thread("notes-1", "notes", "Notes")], {
       presentation: "inline",
       selected: "notes-1",
       commentAi,
     });
     expect(richEditor(container)).not.toBeNull();
-    expect(actions.aiEnabled.length).toBeGreaterThan(0);
-    expect(actions.aiEnabled.every((enabled) => !enabled)).toBe(true);
+    // oracle-change: a tab's thread now offers Ask AI, so it is enabled rather than disabled everywhere.
+    expect(actions.aiEnabled).toContain(true);
 
     actions.aiEnabled.length = 0;
     render([thread("body-1", null)], {
@@ -473,14 +556,14 @@ describe("comments across Blocks field tabs", () => {
     expect(actions.aiEnabled).toContain(true);
   });
 
-  it("offers Ask AI only on new comments in the page body", () => {
+  it("offers Ask AI on new comments in a tab, as in the page body", () => {
     render([], {
       presentation: "inline",
       pending: { quotedText: "Notes", offsetTop: 0, fieldId: "notes" },
       commentAi,
     });
     expect(richEditor(container)).not.toBeNull();
-    expect(actions.aiEnabled.every((enabled) => !enabled)).toBe(true);
+    expect(actions.aiEnabled).toContain(true);
 
     actions.aiEnabled.length = 0;
     render([], {

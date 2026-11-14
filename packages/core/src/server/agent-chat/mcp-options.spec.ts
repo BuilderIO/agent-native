@@ -14,6 +14,7 @@ describe("resolveAgentChatMcpOptions", () => {
     expect(resolved.connectorCatalog).toBeUndefined();
     expect(resolved.externalAgents).toBeUndefined();
     expect(resolved.builtinCrossAppTools).toBeUndefined();
+    expect(resolved.appApprovalPage).toBe(false);
   });
 
   it("reads the nested `mcp` option", () => {
@@ -26,6 +27,7 @@ describe("resolveAgentChatMcpOptions", () => {
         title: "Mail",
         widgetDomain: "https://mail.agent-native.com",
         instructions: "Call view-screen before editing.",
+        appApprovalPage: true,
       },
     });
     expect(resolved.enabled).toBe(false);
@@ -35,6 +37,7 @@ describe("resolveAgentChatMcpOptions", () => {
     expect(resolved.title).toBe("Mail");
     expect(resolved.widgetDomain).toBe("https://mail.agent-native.com");
     expect(resolved.instructions).toBe("Call view-screen before editing.");
+    expect(resolved.appApprovalPage).toBe(true);
   });
 
   it("accepts the deprecated top-level keys and warns", () => {

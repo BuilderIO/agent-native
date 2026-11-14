@@ -78,15 +78,15 @@ test("numeric inspector matches unary and exponent precedence", async ({
   const { id, before } = await openTarget(app);
   const page = app.page;
   const x = page.getByRole("textbox", { name: "X-position", exact: true });
-  for (const [expression, expected] of [
-    ["-2^2", "-4"],
-    ["-(2+3)", "-5"],
-    ["2^-2", "-5"],
-    ["2^(-2)", "0.25"],
+  for (const [expression, expected, shown] of [
+    ["-2^2", "-4", "-4"],
+    ["-(2+3)", "-5", "-5"],
+    ["2^-2", "-5", "-5"],
+    ["8*2^(-2)", "2", "2"],
   ] as const) {
     await x.fill(expression);
     await x.press("Enter");
-    await expect(x).toHaveValue(`${expected}px`);
+    await expect(x).toHaveValue(shown);
     await expect
       .poll(async () => (await liveBox(app)).left)
       .toBe(`${expected}px`);
@@ -94,17 +94,17 @@ test("numeric inspector matches unary and exponent precedence", async ({
   const y = page.getByRole("textbox", { name: "Y-position", exact: true });
   await y.fill("0.75");
   await y.press("Enter");
-  await expect(y).toHaveValue("0.75px");
+  await expect(y).toHaveValue("1");
 
   await expect
     .poll(() => savedBox(app, id))
-    .toEqual({ width: "120px", height: "80px", left: "0.25px", top: "0.75px" });
+    .toEqual({ width: "120px", height: "80px", left: "2px", top: "1px" });
   await app.settled();
   expectOnlyChanged(before, await app.savedNodes(id), [TARGET_ID]);
 
   await page.reload();
   await selectByText(page, "Numeric save target");
-  await expect(x).toHaveValue("0.25px");
-  await expect(y).toHaveValue("0.75px");
-  expect((await liveBox(app)).left).toBe("0.25px");
+  await expect(x).toHaveValue("2");
+  await expect(y).toHaveValue("1");
+  expect((await liveBox(app)).left).toBe("2px");
 });

@@ -11,6 +11,8 @@ import {
   type OperationField,
 } from "@/lib/workflow-editor";
 
+import type { PickerKind } from "../../workflow/pickers/picker-kinds";
+import { ProviderOptionCombobox } from "../../workflow/pickers/ProviderOptionCombobox";
 import {
   useWorkflowCanvasStrings,
   type WorkflowCanvasStrings,
@@ -25,6 +27,7 @@ import {
   TemplateInput,
 } from "./fields";
 import { useInvalidMark } from "./issue-marks";
+import { useMapTarget } from "./map-target";
 
 type Mode = FieldBinding["mode"];
 
@@ -47,7 +50,7 @@ function bindingForMode(
   };
 }
 
-function JsonValueInput({
+export function JsonValueInput({
   id,
   value,
   onChange,
@@ -99,18 +102,84 @@ function JsonValueInput({
   );
 }
 
+/** A resource the connection can list, still a drop target for a path the way a typed template is. */
+function PickerControl({
+  id,
+  kind,
+  value,
+  onChange,
+}: {
+  id: string;
+  kind: PickerKind;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  const mapTarget = useMapTarget("template", value, onChange);
+  return (
+    <ProviderOptionCombobox
+      id={id}
+      kind={kind}
+      value={value}
+      onChange={onChange}
+      mapTarget={mapTarget}
+    />
+  );
+}
+
+/**
+ * A text field that is a dropdown while it holds a plain resource. Once its
+ * value has held `{{ }}` it stays a text box: deleting a brace mid-edit must
+ * not swap the box for a dropdown under the cursor.
+ */
+function ResourceControl({
+  id,
+  picker,
+  text,
+  context,
+  placeholder,
+  onChange,
+}: {
+  id: string;
+  picker?: PickerKind | undefined;
+  text: string;
+  context: FormContext;
+  placeholder?: string | undefined;
+  onChange: (value: string) => void;
+}) {
+  const [template, setTemplate] = useState(() => text.includes("{{"));
+  if (!template && text.includes("{{")) setTemplate(true);
+  if (picker && !template) {
+    return (
+      <PickerControl id={id} kind={picker} value={text} onChange={onChange} />
+    );
+  }
+  return (
+    <TemplateInput
+      id={id}
+      value={text}
+      context={context}
+      {...(placeholder === undefined ? {} : { placeholder })}
+      onChange={onChange}
+    />
+  );
+}
+
 function FixedControl({
   id,
   field,
   value,
   onChange,
   context,
+  picker,
+  placeholder,
 }: {
   id: string;
   field: OperationField;
   value: unknown;
   onChange: (value: unknown) => void;
   context: FormContext;
+  picker?: PickerKind;
+  placeholder?: string | undefined;
 }) {
   switch (field.type) {
     case "boolean":
@@ -155,10 +224,12 @@ function FixedControl({
       );
     default:
       return (
-        <TemplateInput
+        <ResourceControl
           id={id}
-          value={typeof value === "string" ? value : ""}
+          picker={picker}
+          text={typeof value === "string" ? value : ""}
           context={context}
+          placeholder={placeholder}
           onChange={onChange}
         />
       );
@@ -171,11 +242,23 @@ export function BindingField({
   binding,
   onChange,
   context,
+  picker,
+  modes,
+  placeholder,
+  label,
 }: {
   field: OperationField;
   binding: FieldBinding | undefined;
+  /** The field's name as the form words it, when that is not the catalog's. */
+  label?: string;
   onChange: (next: FieldBinding | undefined) => void;
   context: FormContext;
+  /** What a connection can list for this field, when it holds one of its resources. */
+  picker?: PickerKind;
+  /** The ways to fill the field, when its form offers fewer than the field would on its own. */
+  modes?: readonly Mode[];
+  /** Shown while a typed text field is empty. */
+  placeholder?: string;
 }) {
   const s = useWorkflowCanvasStrings();
 
@@ -186,7 +269,7 @@ export function BindingField({
       label={
         <span className="flex w-full items-center justify-between gap-2">
           <span>
-            {field.label ?? field.name}
+            {label ?? field.label ?? field.name}
             {field.required && (
               <span className="ms-1 text-muted-foreground/70">
                 {s.inspector.required}
@@ -217,9 +300,9 @@ export function BindingField({
           if (mode) onChange(bindingForMode(s, mode as Mode, field, binding));
         }}
         className="justify-start"
-        aria-label={field.label ?? field.name}
+        aria-label={label ?? field.label ?? field.name}
       >
-        {offeredModes(field, binding).map((mode) => (
+        {(modes ?? offeredModes(field, binding)).map((mode) => (
           <ToggleGroupItem key={mode} value={mode}>
             {s.inspector.mode[mode]}
           </ToggleGroupItem>
@@ -234,6 +317,8 @@ export function BindingField({
           field={field}
           value={binding.value}
           context={context}
+          picker={picker}
+          placeholder={placeholder}
           onChange={(value) => onChange({ mode: "fixed", value })}
         />
       )}

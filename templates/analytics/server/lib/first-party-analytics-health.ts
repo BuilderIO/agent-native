@@ -90,6 +90,15 @@ export interface FirstPartyAnalyticsBackendStatus {
   setupLink: string;
 }
 
+export type FirstPartyAnalyticsBigQueryStatus =
+  FirstPartyAnalyticsBackendStatus & { id: "bigquery"; role: "warehouse" };
+
+function isBigQueryStatus<T extends { id: string }>(
+  backend: T,
+): backend is T & { id: "bigquery"; role: "warehouse" } {
+  return backend.id === "bigquery";
+}
+
 export interface FirstPartyAnalyticsHealth {
   status: FirstPartyAnalyticsHealthStatus;
   recommendation: FirstPartyAnalyticsRecommendation;
@@ -123,7 +132,7 @@ export interface FirstPartyAnalyticsHealth {
   };
   thresholds: typeof FIRST_PARTY_ANALYTICS_PRESSURE_THRESHOLDS;
   delivery: FirstPartyAnalyticsDeliveryHealth | null;
-  bigQuery: FirstPartyAnalyticsBackendStatus;
+  bigQuery: FirstPartyAnalyticsBigQueryStatus;
 }
 
 interface QueryPressureEvent {
@@ -449,9 +458,7 @@ export async function getFirstPartyAnalyticsHealth(
       deliveryPromise,
     ]);
 
-  const bigQuery = externalBackends.find(
-    (backend) => backend.id === "bigquery",
-  );
+  const bigQuery = externalBackends.find(isBigQueryStatus);
   if (!bigQuery) throw new Error("BigQuery backend status is missing");
 
   const rollup = (rollupRows[0] ?? {}) as Record<string, unknown>;
@@ -570,9 +577,7 @@ export function unavailableFirstPartyAnalyticsHealth(
     missingRequiredKeys: [],
     setupLink: definition.setupLink,
   }));
-  const bigQuery = externalBackends.find(
-    (backend) => backend.id === "bigquery",
-  );
+  const bigQuery = externalBackends.find(isBigQueryStatus);
   if (!bigQuery) throw new Error("BigQuery backend status is missing");
 
   return {

@@ -66,7 +66,7 @@ describe("plan block registry — callout", () => {
     const source = calloutContent();
     const folder = await exportPlanContentToMdxFolder({
       content: source,
-      title: source.title,
+      title: source.title ?? "",
       brief: source.brief,
     });
 

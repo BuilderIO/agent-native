@@ -1,7 +1,8 @@
+import { randomUUID } from "node:crypto";
 import { writeFileSync, readFileSync, existsSync } from "node:fs";
 import { join } from "path";
 
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, noteExternalWrite } from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
 import { track } from "@agent-native/core/tracking";
 import type { ChartConfiguration, ChartType } from "chart.js";
@@ -45,7 +46,7 @@ interface SeriesData {
 
 function filenameStem(title: string, explicitFilename?: string): string {
   const stem = slugify(explicitFilename || title) || "chart";
-  return explicitFilename ? stem : `${stem}-${Date.now()}`;
+  return `${stem}-${randomUUID()}`;
 }
 
 function chartUrl(filename: string): string {
@@ -272,7 +273,8 @@ export default defineAction({
         backgroundColour: theme.background,
       });
       const buffer = await canvas.renderToBuffer(chartConfig);
-      writeFileSync(pngFilepath, buffer);
+      noteExternalWrite("local-disk");
+      writeFileSync(pngFilepath, buffer, { flag: "wx" });
 
       track(
         "chart_created",
@@ -309,7 +311,11 @@ export default defineAction({
         primaryColor,
         stacked: isStacked,
       });
-      writeFileSync(join(mediaDir, svgFilename), svg, "utf8");
+      noteExternalWrite("local-disk");
+      writeFileSync(join(mediaDir, svgFilename), svg, {
+        encoding: "utf8",
+        flag: "wx",
+      });
 
       track(
         "chart_created",

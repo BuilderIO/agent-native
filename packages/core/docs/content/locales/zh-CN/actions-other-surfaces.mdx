@@ -64,7 +64,49 @@ flag 的效果是一样的:
 pnpm action reply-to-email --emailId thread-123 --body "Thanks!"
 ```
 
-这对代理开发循环、脚本和定时任务都很有用。
+对于 `defineAction()` 调用，CLI 会使用已准备、解析并应用架构默认值的参数以及调用方 `cli` 来评估 `needsApproval`。如果 stdin 和 stdout 都是 TTY，它会显示 action 名称和参数，并提示 `y/N`。只有 `y` 或 `yes` 才会执行 action。
+
+如果缺少任一 TTY，CLI 会要求代理向本人请求批准。本人批准这次具体调用后，使用完全相同的原始 `pnpm action` 参数重新运行，并在末尾加上 `--approved`：
+
+```bash
+pnpm action reply-to-email --emailId thread-123 --body "Thanks!" --approved
+```
+
+`--approved` 是保留的 CLI 元数据，会在解析输入前移除。它不接受值：后面跟着除另一个标志或 JSON 对象之外的内容时，调用会被拒绝；名为 `approved` 的输入要写成 `--approved=<value>`。对无需审批的 action 使用它没有影响。CLI 无法确认是谁加上了它：代理不经询问就加上它，便会跳过确认。这个标志让审批显示在本人批准的命令中，也显示在审计日志里，审计日志会将其标为未验证。在没有 POSIX `SHELL` 的 Windows 上，拒绝信息会给出 PowerShell 用的命令；引号规则不同时，还会给出 cmd.exe 用的命令。在 Windows 上，无论从哪个 shell 运行，pnpm 都会经由 cmd.exe 传递 action 参数，而 cmd.exe 即使在引号内也会展开 `%NAME%`。参数中含有这类变量时，拒绝信息不会给出带 `--approved` 的重跑命令：由本人在终端中运行命令，并在确认提示中核对参数值。如果参数中同时含有引号和 `&`、`|`、`<`、`>`、`^` 之一，pnpm 无法把它们原样传给 cmd.exe，因此拒绝信息不会给出任何命令，由本人在应用中批准这次调用。Windows PowerShell 5.1 会删除参数中的每个 `"`，因此在没有 POSIX `SHELL` 的 Windows 上，含双引号的参数也会改走确认提示，而不是带 `--approved` 的重跑命令。
+
+本地开发桥接会在 JSON 请求体中将审批元数据放在 `input` 之外：
+
+```ts
+{ name, input, approved: true, approvalSource: "flag" }
+```
+
+对于尚未获批的受限调用，桥接返回 HTTP `409`：
+
+```ts
+{
+  ok: false,
+  errorCode: "approval_required",
+  error: 'Action "<name>" requires human approval. Ask the person, then rerun with --approved.',
+  arguments: preparedArgs,
+  argumentsHash: prepared.argumentsHash,
+}
+```
+
+在 TTY 中确认后，CLI 会使用审批请求响应中的 `argumentsHash` 重试：
+
+```ts
+{
+  name,
+  input,
+  approved: true,
+  approvalSource: "prompt",
+  approvalArgumentsHash: challenge.argumentsHash,
+}
+```
+
+桥接只会执行一次本人审阅过的那次调用，因此每次调用都会变化的默认值（例如时间戳）会保留本人看到的值。没有可执行的保留调用的确认（已执行过、已过 10 分钟或开发服务器已重启）会收到 HTTP `409` 和 `errorCode: "approval_expired"`。请重新运行命令进行审阅。
+
+`arguments` 包含准备好的参数。本地开发桥接的这一约定不会改变[公共 HTTP action API 的审批规则](/docs/actions-access-control#needs-approval)。获批的受限 CLI 调用会在该 action 自己的审计记录中写入 `approval: "cli-prompt"` 或 `approval: "cli-flag"`，调用方为 `cli`。由于只有 CLI 能看到确认提示，审计日志会将两者都显示为未验证。
 
 ## 从另一个代理调用它(A2A) {#a2a}
 

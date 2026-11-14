@@ -6,7 +6,6 @@ import path from "node:path";
 import { assertValidComputerCommandEnvelope } from "../integrations/computer-supervision.js";
 import { serializeBoundedRemoteJson } from "../integrations/remote-json-safety.js";
 import type {
-  ComputerCommandEnvelope,
   RemoteComputerCapabilities,
   RemoteExecutionCapabilities,
 } from "../integrations/remote-types.js";

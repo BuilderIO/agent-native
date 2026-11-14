@@ -9,6 +9,7 @@ import {
 } from "@playwright/test";
 
 import { e2eBaseURL } from "./base-url";
+import { waitForEditorBoot } from "./editor-boot";
 import { FIXTURE_HTML, SEED_TITLE } from "./global-setup";
 
 export async function readSeedDesignId(): Promise<string> {
@@ -49,6 +50,35 @@ async function postAction(
     );
   }
   return res.json();
+}
+
+export async function grantLocalhostWriteConsent(
+  page: Page,
+  input: { designId: string; connectionId: string },
+): Promise<void> {
+  const url = appPath("/_agent-native/actions/grant-localhost-write-consent");
+  expect(new URL(page.url()).origin, "consent setup needs the app page").toBe(
+    new URL(url).origin,
+  );
+  const result = await page.evaluate(
+    async ({ url, input }) => {
+      const response = await fetch(url, {
+        method: "POST",
+        credentials: "same-origin",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Agent-Native-Frontend": "1",
+        },
+        body: JSON.stringify(input),
+      });
+      return { status: response.status, body: await response.text() };
+    },
+    { url, input },
+  );
+  expect(
+    result.status,
+    `grant-localhost-write-consent failed: ${result.body}`,
+  ).toBe(200);
 }
 
 export async function createFixtureDesign(
@@ -142,9 +172,7 @@ export async function enableFeatureFlag(
 const DESIGN_PREVIEW_IFRAME_SELECTOR = "iframe[data-design-preview-iframe]";
 const DESIGN_SCREEN_IFRAME_SELECTOR = `${DESIGN_PREVIEW_IFRAME_SELECTOR}[data-screen-iframe-id]`;
 const BOARD_SURFACE_IFRAME_SELECTOR = `[data-board-surface-layer] ${DESIGN_PREVIEW_IFRAME_SELECTOR}`;
-const E2E_BASE_URL =
-  process.env.E2E_BASE_URL ??
-  `http://127.0.0.1:${process.env.E2E_PORT ?? "9333"}`;
+const E2E_BASE_URL = e2eBaseURL();
 const E2E_BASE_PATH = (() => {
   try {
     return new URL(E2E_BASE_URL).pathname.replace(/\/$/, "");
@@ -429,7 +457,7 @@ export async function expandAllLayers(page: Page): Promise<void> {
     .getByRole("tree", { name: "Layers" })
     .getByRole("treeitem")
     .first()
-    .waitFor({ timeout: 30_000 });
+    .waitFor();
   for (let depth = 0; depth < 128; depth += 1) {
     const expand = page.getByRole("button", { name: "Expand layer" }).first();
     if ((await expand.count()) === 0) return;
@@ -526,18 +554,20 @@ export async function openAppMenuSubmenu(
 
 export async function gotoEditor(page: Page, designId: string): Promise<void> {
   await resetPersistedCanvasState(page);
+  const startedAt = Date.now();
   await page.goto(appPath(`/design/${designId}`), {
     waitUntil: "domcontentloaded",
   });
+  await waitForEditorBoot(page, startedAt);
   const designMode = page.locator(
     '[data-design-top-bar] [data-design-mode="edit"]',
   );
-  await expect(designMode).toBeVisible({ timeout: 30_000 });
+  await expect(designMode).toBeVisible();
   await expect(designMode).toHaveAttribute("aria-pressed", "true");
-  await waitForDesignBridgeReady(page);
+  await waitForDesignPreviewReady(page);
 }
 
-async function waitForDesignBridgeReady(page: Page): Promise<void> {
+export async function waitForDesignPreviewReady(page: Page): Promise<void> {
   await expect(
     page.locator(DESIGN_PREVIEW_IFRAME_SELECTOR).first(),
   ).toBeVisible();
@@ -602,7 +632,7 @@ export async function enterDirectMode(
     await allScreens.click();
     await expect(allScreens).toHaveAttribute("aria-current", "page");
   }
-  await waitForDesignBridgeReady(page);
+  await waitForDesignPreviewReady(page);
   // The board surface iframe carries no data-screen-iframe-id, so a `screen=`
   // URL that targets the board never matches a Screen iframe.
   const targetsBoard =

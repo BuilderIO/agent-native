@@ -6,11 +6,17 @@ import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq, inArray } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
+import {
+  registerMemoryPrivateBlobProvider,
+  storedExecutionPayload,
+} from "./_builder-private-blob.test-fixture";
+
 const TEST_DB_PATH = join(
   tmpdir(),
   `cancel-prepared-builder-${process.pid}-${Date.now()}.pglite`,
 );
 const OWNER = "owner@example.com";
+const privateBlobs = registerMemoryPrivateBlobProvider();
 
 let getDb: () => any;
 let schema: typeof import("../server/db/schema.js");
@@ -34,6 +40,7 @@ beforeAll(async () => {
 }, 60_000);
 
 afterAll(() => {
+  privateBlobs.unregister();
   rmSync(TEST_DB_PATH, { force: true, recursive: true });
 });
 
@@ -294,6 +301,66 @@ describe("cancel-prepared-builder-source-update", () => {
       expect(persisted.claims).toHaveLength(1);
     },
   );
+
+  it("cancels a blocked execution with validated live preflight evidence", async () => {
+    const seeded = await seed({
+      executions: [
+        {
+          state: "blocked",
+          payload: {
+            livePreflight: {
+              checkedAt: "2026-07-13T20:01:00.000Z",
+              exists: false,
+              published: null,
+              lastUpdated: null,
+              blocksHash: null,
+              id: "builder-entry-1",
+            },
+          },
+        },
+      ],
+    });
+
+    const response = await cancel(seeded);
+    const persisted = await persistedState(seeded);
+
+    expect(response.cancellation.status).toBe("cancelled");
+    expect(persisted.changeSet.state).toBe("rejected");
+    expect(persisted.executions[0]).toMatchObject({
+      state: "blocked",
+      summary: "Cancelled before Builder dispatch.",
+      attemptToken: null,
+    });
+  });
+
+  it("cancels a definitively rejected write while preserving its response evidence", async () => {
+    const seeded = await seed({
+      executions: [
+        {
+          state: "blocked",
+          attemptToken: "finished-attempt",
+          payload: {
+            request: { method: "PATCH" },
+            response: { ok: false, status: 409, error: "Source changed" },
+          },
+        },
+      ],
+    });
+
+    const response = await cancel(seeded);
+    const persisted = await persistedState(seeded);
+
+    expect(response.cancellation.status).toBe("cancelled");
+    expect(persisted.changeSet.state).toBe("rejected");
+    expect(persisted.executions[0]).toMatchObject({
+      state: "blocked",
+      summary: "Cancelled before Builder dispatch.",
+      attemptToken: null,
+    });
+    expect(JSON.parse(persisted.executions[0]!.payloadJson)).toMatchObject({
+      response: { ok: false, status: 409 },
+    });
+  });
 
   it.each([
     ["running", {}, "running"],
@@ -633,7 +700,71 @@ describe("cancel-prepared-builder-source-update", () => {
         eq(schema.contentDatabaseSourceExecutions.changeSetId, revisionId),
       );
     expect(execution).toBeTruthy();
-    expect(JSON.parse(execution.payloadJson).changeSetId).toBe(revisionId);
+    expect((await storedExecutionPayload(execution)).changeSetId).toBe(
+      revisionId,
+    );
+  });
+
+  it("approves one revision when two reviews of the same changed diff are prepared at once", async () => {
+    const seeded = await seed({
+      titleDiff: { remote: "Remote title", local: "Local title" },
+      syntheticChangeSetId: true,
+    });
+    await cancel(seeded);
+    await getDb()
+      .update(schema.documents)
+      .set({ title: "Changed local title" })
+      .where(eq(schema.documents.id, seeded.itemDocumentId));
+    const snapshot = await getWriteSnapshot(
+      {
+        id: seeded.databaseId,
+        documentId: seeded.documentId,
+      } as never,
+      seeded.sourceId,
+    );
+    const changed = snapshot?.changeSets.find(
+      (changeSet) => changeSet.state === "pending_push",
+    );
+    if (!changed) throw new Error("No pending change set to prepare.");
+
+    const prepare = () =>
+      asUser(OWNER, () =>
+        prepareReview.run({
+          documentId: seeded.documentId,
+          sourceId: seeded.sourceId,
+          changeSetIds: [changed.id],
+          pushModeConfirmation: "autosave",
+        }),
+      );
+    // The execution both share can still turn one away, as a retryable
+    // conflict rather than a failed insert.
+    const results = await Promise.allSettled([prepare(), prepare()]);
+    const prepared = results.flatMap((result) =>
+      result.status === "fulfilled" ? [result.value] : [],
+    );
+    expect(prepared.length).toBeGreaterThan(0);
+    for (const result of results) {
+      if (result.status === "rejected") {
+        expect(result.reason).toMatchObject({ statusCode: 409 });
+      }
+    }
+    const revisionId = prepared[0].review.rows[0]?.changeSetId;
+    expect(revisionId).toMatch(
+      new RegExp(`^${seeded.changeSetId}-revision-[a-f0-9]{16}$`),
+    );
+    for (const result of prepared) {
+      expect(result.review.rows[0]?.changeSetId).toBe(revisionId);
+    }
+
+    const approved = (
+      await getDb()
+        .select()
+        .from(schema.contentDatabaseSourceChangeSets)
+        .where(
+          eq(schema.contentDatabaseSourceChangeSets.sourceId, seeded.sourceId),
+        )
+    ).filter((changeSet) => changeSet.state === "approved");
+    expect(approved.map((changeSet) => changeSet.id)).toEqual([revisionId]);
   });
 
   it("prepares a corrected diff separately from a failed non-refreshable gate", async () => {

@@ -60,6 +60,31 @@ export const parityMatrix: ParityRow[] = [
     ],
   },
   {
+    id: "sidebar.command-menu-title-list",
+    surface: "sidebar",
+    label: "Rank page titles in the command menu on every keystroke",
+    uiEntrypoints: [
+      "app/components/ContentCommandSearch.tsx",
+      "app/hooks/use-documents.ts",
+      "app/root.tsx",
+    ],
+    durableEffect: null,
+    uiImplementation:
+      "The command menu ranks titles in the browser from a compact list of every page the caller can search, then merges search-documents results for the current query.",
+    status: "action-backed",
+    actions: ["list-document-titles"],
+    exception:
+      "list-document-titles is hidden with agentTool: false because it is a lean UI projection for ranking on each keystroke, not an agent capability limit; agents use search-documents and list-documents.",
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/list-document-titles.db.test.ts",
+      "app/lib/content-command-search.test.ts",
+    ],
+  },
+  {
     id: "sidebar.document-tree-crud",
     surface: "sidebar",
     label:
@@ -260,21 +285,25 @@ export const parityMatrix: ParityRow[] = [
     durableEffect:
       "Document content, title, icon, image metadata, and text replacements are saved to the same document source.",
     uiImplementation:
-      "The editor autosaves through update-document, checks browser save receipts after interrupted delivery, and seeds an empty live editor from the saved body; agents can use update-document, edit-document, pull-document, and media-specific helpers.",
+      "The editor autosaves through update-document, checks browser save receipts after interrupted delivery, seeds an empty live editor from the saved body, and takes a newer saved body into open live editors exactly once; agents can use update-document, edit-document, pull-document, and media-specific helpers.",
     status: "action-backed",
     actions: [
+      "adopt-document-snapshot",
+      "convert-page-to-live-copy-if-due",
       "edit-document",
       "get-document-save-attempt",
       "pull-document",
+      "record-editor-merge",
       "record-editor-mount",
       "record-live-body-parity",
       "seed-document-collab",
       "set-image-alt-text",
+      "set-live-body-switch",
       "transcribe-media",
       "update-document",
     ],
     exception:
-      "Save-attempt receipt lookup, live collaboration seeding, editor mount counts, and the flag-gated live-body parity count are browser-only editor support actions hidden from agent tools with agentTool: false.",
+      "Save-attempt receipt lookup, live collaboration seeding and snapshot adoption, editor mount and merge counts, the flag-gated live-body parity count, and the per-page switch for the flag-gated live-copy writer and its backfill on an editor's open are browser-only editor support actions hidden from agent tools with agentTool: false.",
     reliabilityRisk: "none",
     spinePriority: "P0",
     testCoverage: "covered",
@@ -283,11 +312,38 @@ export const parityMatrix: ParityRow[] = [
       "actions/content-database-lifecycle.db.test.ts",
       "actions/update-document.db.test.ts",
       "actions/_local-file-documents.test.ts",
+      "actions/record-editor-merge.test.ts",
       "actions/record-editor-mount.test.ts",
+      "app/components/editor/editor-merge-telemetry.test.ts",
       "app/components/editor/editor-mount-telemetry.test.ts",
+      "app/components/editor/VisualEditor.merge-telemetry.test.tsx",
       "app/components/editor/VisualEditor.mount-telemetry.test.tsx",
+      "server/live-copy/live-copy.test.ts",
+      "server/live-copy/backfill.db.test.ts",
     ],
     evalScenarioIds: ["document-search-edit"],
+  },
+  {
+    id: "editor.page-open-read",
+    surface: "editor",
+    label: "Open a page, with a collection page's first rows, in one read",
+    uiEntrypoints: ["app/root.tsx", "app/hooks/use-documents.ts"],
+    durableEffect: null,
+    uiImplementation:
+      "Opening a page reads it once with get-page-open-read, which returns get-document's answer and, for a collection's own page, the collection, the reader's personal view and the first rows of the opening view.",
+    status: "action-backed",
+    actions: ["get-page-open-read"],
+    exception:
+      "Hidden from agent tools with agentTool: false because it only bundles reads for the browser's first paint; agents read the same data with get-document, get-content-database and query-content-database-items.",
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/get-page-open-read.db.test.ts",
+      "app/lib/page-open-collection.test.tsx",
+      "app/hooks/use-documents.page-open.test.tsx",
+    ],
   },
   {
     id: "editor.private-image-icons",
@@ -343,6 +399,73 @@ export const parityMatrix: ParityRow[] = [
       "actions/resolve-content-links.db.test.ts",
       "app/hooks/use-content-links.test.ts",
       "app/components/editor/DocumentToolbar.breadcrumb.test.tsx",
+    ],
+  },
+  {
+    id: "editor.clip-embeds",
+    surface: "editor",
+    label:
+      "Turn a pasted Clips link into a Clip block, play it, and comment on its moments in the page's margin",
+    uiEntrypoints: [
+      "app/components/editor/extensions/VideoLinkForm.tsx",
+      "app/components/editor/clip-embed/ClipEmbedBlock.tsx",
+      "app/routes/p.$id.tsx",
+    ],
+    durableEffect:
+      "The page body stores a ClipEmbed tag naming the recording; playback grants and comment threads are fetched from Clips per view and never stored. A Clip's comments are saved in Clips through add-clip-comment and resolve-clip-comment, never in Content.",
+    uiImplementation:
+      "The video block's Link tab reads where Clips lives through get-clips-links and inserts the ClipEmbed block; the player reads get-clip-playback and list-clip-comments, which check document access before asking Clips. The page's comment margin shows each open Clip thread as a card at its moment, and posts, replies, and resolves through add-clip-comment and resolve-clip-comment, which also need page comment access. Agents write the same ClipEmbed tag with edit-document, read a Clip's threads with list-clip-comments, comment with add-clip-comment, and view-screen names the recording of a selected Clip.",
+    status: "action-backed",
+    actions: [
+      "get-clips-links",
+      "get-clip-playback",
+      "list-clip-comments",
+      "add-clip-comment",
+      "resolve-clip-comment",
+    ],
+    exception:
+      "get-clips-links and get-clip-playback are hidden with agentTool: false because they feed the player short-lived media URLs; agents read the ClipEmbed tag with get-document and the selected Clip with view-screen.",
+    reliabilityRisk: "none",
+    spinePriority: "P2",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/clip-embed-actions.test.ts",
+      "app/components/editor/clip-embed/ClipEmbedBlock.test.tsx",
+      "app/components/editor/extensions/VideoLinkForm.test.tsx",
+    ],
+  },
+  {
+    id: "editor.clip-uploads",
+    surface: "editor",
+    label: "Upload a video into a page as a Clip while Clips in pages is on",
+    uiEntrypoints: [
+      "app/components/editor/extensions/VideoBlock.tsx",
+      "app/components/editor/clip-embed/ClipUploadGate.tsx",
+      "app/components/editor/clip-embed/ClipEmbedBlock.tsx",
+      "app/components/editor/VisualEditor.tsx",
+    ],
+    durableEffect:
+      "Clips saves the file as a private Clip bound to the page, and the page body stores the ClipEmbed tag naming it. The file is held only in the uploading tab's memory and never passes through Content.",
+    uiImplementation:
+      "The Upload tab reads where the Clip would be saved through get-clip-upload-status. Picking, dropping, or pasting a video calls create-clip-upload, which checks edit access and the flag before asking Clips for a ticket; the browser then posts the chunks straight to Clips. view-screen reports this tab's uploads and whether each is sending, being made, or failed. An outside agent holding a video file calls create-video-upload over MCP: it runs the same check and start, hands the agent the chunk URL and the ClipEmbed tag, and the agent posts the chunks to Clips and writes the tag with edit-document.",
+    status: "action-backed",
+    actions: [
+      "get-clip-upload-status",
+      "create-clip-upload",
+      "create-video-upload",
+    ],
+    exception:
+      "get-clip-upload-status and create-clip-upload are hidden with agentTool: false because they serve the editor's Upload tab and the file its tab holds. create-video-upload is MCP-only (agentTool: false, mcpTool: true): an outside agent can read a local file and post it to Clips, but the app's own agent has no files to send. Agents see the editor's uploads through view-screen and link an existing Clip by writing the ClipEmbed tag with edit-document.",
+    reliabilityRisk: "none",
+    spinePriority: "P2",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/clip-upload-actions.test.ts",
+      "server/lib/clips-peer.test.ts",
+      "app/components/editor/extensions/video-block-clip-upload.test.tsx",
+      "app/components/editor/clip-embed/clip-uploads.test.ts",
     ],
   },
   {
@@ -444,17 +567,48 @@ export const parityMatrix: ParityRow[] = [
     status: "action-backed",
     actions: [
       "export-document",
+      "read-composer-source",
       "reveal-local-source-file",
       "set-document-discoverability",
       "share-local-file-document",
     ],
-    exception: null,
+    exception:
+      "read-composer-source is MCP-only (agentTool: false, mcpTool: true): Design's and Slides' prompt boxes call it over A2A to attach a page as a reference, under the caller's own access. Content's own UI has no entry point for it, and its agent reads pages with list-documents, search-documents and get-document.",
     reliabilityRisk: "none",
     spinePriority: "P0",
     testCoverage: "covered",
     followUpPR: null,
-    coverageRefs: ["actions/_local-file-documents.test.ts"],
+    coverageRefs: [
+      "actions/_local-file-documents.test.ts",
+      "actions/read-composer-source.db.test.ts",
+    ],
     evalScenarioIds: ["local-file-source-truth"],
+  },
+  {
+    id: "sharing.agent-text-lock",
+    surface: "sharing",
+    label: "Lock a page's text against agents",
+    uiEntrypoints: [
+      "app/components/editor/DocumentToolbar.tsx",
+      "app/components/editor/AgentsShareTab.tsx",
+    ],
+    durableEffect:
+      "The lock is stored on the document, and every action that writes a page's text refuses an agent's call while it is on. The exception is a GitHub folder sync an agent starts: pages following a GitHub file are view-only in Content anyway, and it doesn't name one page.",
+    uiImplementation:
+      "The Share panel's Agents tab calls the set-document-agent-text-lock Action: Can comment turns the lock on and Can edit turns it off.",
+    status: "action-backed",
+    actions: ["set-document-agent-text-lock"],
+    exception:
+      "set-document-agent-text-lock is hidden with agentTool: false because the lock has to hold against agents, so only a person can change it.",
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/agent-text-lock.db.test.ts",
+      "app/components/editor/AgentLevel.ui.test.tsx",
+      "app/components/editor/AgentsShareTab.ui.test.tsx",
+    ],
   },
   {
     id: "header.import-markdown-files",
@@ -691,6 +845,32 @@ export const parityMatrix: ParityRow[] = [
     evalScenarioIds: ["database-source-scope"],
   },
   {
+    id: "database.change-webhooks",
+    surface: "database",
+    label:
+      "Register, list, and remove webhooks that send a signed event when a property changes or a comment is created or resolved",
+    uiEntrypoints: [],
+    durableEffect:
+      "content_webhooks stores the URL, scope, event filter, and a reference to the signing secret in app secrets; each change writes content_webhook_deliveries rows in the same transaction, which are sent right after commit and retried by the recurring sweep with the same event ID. Only edits to a value send property.changed: deleting a property, a type change that clears values, deleting rows or pages, imports, source syncs, and row migrations send no events.",
+    uiImplementation:
+      "No UI yet: agents and MCP clients manage webhooks through the actions; a settings panel would call the same actions.",
+    status: "action-backed",
+    actions: [
+      "create-content-webhook",
+      "list-content-webhooks",
+      "delete-content-webhook",
+    ],
+    exception: null,
+    reliabilityRisk: "none",
+    spinePriority: "P1",
+    testCoverage: "covered",
+    followUpPR: null,
+    coverageRefs: [
+      "actions/content-webhooks.db.test.ts",
+      "server/lib/content-webhook-signature.test.ts",
+    ],
+  },
+  {
     id: "source-sync.database-source-bindings",
     surface: "source-sync",
     label:
@@ -755,13 +935,14 @@ export const parityMatrix: ParityRow[] = [
       "Review, stage, validate, cancel, and execute Builder CMS source writes",
     uiEntrypoints: [
       "app/components/editor/DocumentDatabase.tsx",
+      "app/components/editor/DocumentProperties.tsx",
       "app/components/editor/database/DatabaseView.tsx",
       "app/components/editor/database-sources/BuilderSourceReviewDialog.tsx",
     ],
     durableEffect:
-      "Builder source write mode, staged reviews, pre-dispatch cancellations, validation records, and bounded execution records are created through guarded actions.",
+      "Builder source write mode, staged publish and unpublish picks, staged reviews, pre-dispatch cancellations, validation records, and bounded execution records are created through guarded actions.",
     uiImplementation:
-      "Builder source dialogs call review, write-mode, validation, staging, and execution actions.",
+      "Builder source dialogs call review, write-mode, validation, staging, and execution actions; the Builder status property's picker calls set-builder-entry-status.",
     status: "action-backed",
     actions: [
       "cancel-prepared-builder-source-update",
@@ -771,6 +952,7 @@ export const parityMatrix: ParityRow[] = [
       "prepare-builder-source-review",
       "preview-builder-source-review",
       "review-content-database-source-change-set",
+      "set-builder-entry-status",
       "set-content-database-source-write-mode",
       "stage-builder-source-bulk-update",
       "stage-builder-revision",
@@ -785,6 +967,7 @@ export const parityMatrix: ParityRow[] = [
       "actions/builder-source-review-gates.db.test.ts",
       "actions/cancel-prepared-builder-source-update.db.test.ts",
       "actions/execute-builder-source-execution.test.ts",
+      "actions/set-builder-entry-status.db.test.ts",
       "actions/stage-builder-source-bulk-update.db.test.ts",
     ],
     evalScenarioIds: ["builder-source-review-readonly"],

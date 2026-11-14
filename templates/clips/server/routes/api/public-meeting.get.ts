@@ -19,9 +19,11 @@ import {
 import {
   normalizeTranscriptSegments,
   parseTranscriptSegments,
+  storedSegmentsUnreadable,
 } from "../../../shared/transcript-segments.js";
 import { resolveTranscriptPresentation } from "../../../shared/transcript-status.js";
 import { getDb, schema } from "../../db/index.js";
+import { loadMeetingRecordingContent } from "../../lib/meeting-recording-access.js";
 
 interface Bullet {
   text: string;
@@ -70,8 +72,8 @@ export default defineEventHandler(async (event) => {
 
   const session = await getSession(event).catch(() => null);
   const accessContext = {
-    userEmail: session?.email,
-    orgId: session?.orgId,
+    ...(session?.email ? { userEmail: session.email } : {}),
+    ...(session?.orgId ? { orgId: session.orgId } : {}),
   };
 
   return runWithRequestContext(accessContext, async () => {
@@ -94,7 +96,7 @@ export default defineEventHandler(async (event) => {
     }
 
     db ??= getDb();
-    const [participants, actionItems, transcriptRows] = await Promise.all([
+    const [participants, actionItems, linked] = await Promise.all([
       db
         .select({
           email: schema.meetingParticipants.email,
@@ -112,32 +114,25 @@ export default defineEventHandler(async (event) => {
         })
         .from(schema.meetingActionItems)
         .where(eq(schema.meetingActionItems.meetingId, meetingId)),
-      meeting.shareTranscript && meeting.recordingId
-        ? db
-            .select({
-              status: schema.recordingTranscripts.status,
-              language: schema.recordingTranscripts.language,
-              fullText: schema.recordingTranscripts.fullText,
-              failureReason: schema.recordingTranscripts.failureReason,
-              segmentsJson: schema.recordingTranscripts.segmentsJson,
-              updatedAt: schema.recordingTranscripts.updatedAt,
-            })
-            .from(schema.recordingTranscripts)
-            .where(
-              eq(schema.recordingTranscripts.recordingId, meeting.recordingId),
-            )
-            .limit(1)
-        : Promise.resolve([]),
+      meeting.shareTranscript
+        ? loadMeetingRecordingContent(meeting, session?.email)
+        : Promise.resolve(null),
     ]);
 
-    const transcript = transcriptRows[0] ?? null;
+    const transcript = linked?.transcript ?? null;
     const transcriptPresentation = resolveTranscriptPresentation(transcript);
-    const transcriptSegments = transcript
-      ? normalizeTranscriptSegments({
-          segments: parseTranscriptSegments(transcript.segmentsJson),
-          fullText: transcript.fullText,
-        })
-      : [];
+    // Lines built from the full text would read as the transcript with its
+    // speakers gone; readers get that text as saved instead.
+    const segmentsUnreadable = storedSegmentsUnreadable(
+      transcript?.segmentsJson,
+    );
+    const transcriptSegments =
+      transcript && !segmentsUnreadable
+        ? normalizeTranscriptSegments({
+            segments: parseTranscriptSegments(transcript.segmentsJson),
+            fullText: transcript.fullText,
+          })
+        : [];
     const role = access.role;
 
     const ownerEmailIsPublic = participants.some(
@@ -167,6 +162,9 @@ export default defineEventHandler(async (event) => {
                     language: transcript.language,
                     fullText: transcript.fullText,
                     segments: transcriptSegments,
+                    ...(segmentsUnreadable
+                      ? { segmentsUnreadable: true as const }
+                      : {}),
                   }
                 : null,
             }

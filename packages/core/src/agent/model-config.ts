@@ -85,7 +85,18 @@ const DEFAULT_CONTEXT_WINDOW = 128_000;
  * integer.
  */
 export function getContextWindowForModel(modelId: string): number {
-  if (!modelId) return DEFAULT_CONTEXT_WINDOW;
+  return getKnownContextWindowForModel(modelId) ?? DEFAULT_CONTEXT_WINDOW;
+}
+
+/**
+ * The context window from the table or a family heuristic, or undefined when
+ * neither knows the model. Surfaces that show the window to a person use this,
+ * so a custom id never reads as a confident 128K.
+ */
+export function getKnownContextWindowForModel(
+  modelId: string,
+): number | undefined {
+  if (!modelId) return undefined;
 
   const exact = MODEL_CONTEXT_WINDOWS[modelId];
   if (exact !== undefined) return exact;
@@ -118,7 +129,7 @@ export function getContextWindowForModel(modelId: string): number {
 
   if (id.startsWith("glm-5") || id.includes("/glm-5")) return 1_048_576;
 
-  return DEFAULT_CONTEXT_WINDOW;
+  return undefined;
 }
 
 const MODEL_MAX_OUTPUT_TOKENS: Record<string, number> = {

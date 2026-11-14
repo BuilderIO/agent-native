@@ -116,7 +116,6 @@ function LocalComponentInputEditor({
         ...liveNode.attrs,
         ...nextAttrs,
       });
-      tr.setMeta(LOCAL_FILE_USER_EDIT_META, true);
       editor.view.dispatch(tr);
       return;
     }

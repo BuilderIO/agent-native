@@ -4,6 +4,7 @@ import type {
 } from "@agent-native/core/server";
 import { splitAgentChatContextFromMessage } from "@agent-native/core/shared";
 
+import { DESIGN_OUTPUT_ACTIONS } from "../../shared/generation-output-receipt.js";
 import { DESIGN_MUTATION_REQUIRED_DIRECTIVE } from "../../shared/mutation-turn.js";
 import {
   isRepromptSelectionMessage,
@@ -35,6 +36,7 @@ const DESIGN_MUTATION_ACTIONS = new Set([
   "insert-asset",
   "insert-design-native-asset",
   "insert-figma-library-asset",
+  "move-design-element",
   "present-design-variants",
   "update-design",
   "update-file",
@@ -109,12 +111,40 @@ function matchSpans(pattern: RegExp, text: string): Array<[number, number]> {
  * this app it is far more often the noun. Let it supply the verb only where a
  * verb can stand: opening the message or a clause, or after a request lead-in,
  * and never in front of a finite verb of its own ("design is ..." is a
- * statement about designs). Every other mutation verb is unambiguous.
+ * statement about designs). Prohibited and conditional verbs do not require
+ * a write merely because a verification request mentions them.
  */
 function suppliesMutationVerb(
   text: string,
   [start, end]: [number, number],
 ): boolean {
+  const before = text.slice(0, start);
+  const after = text.slice(end);
+  const prohibitionScope = before
+    .split(/[.!?;,\n]|\b(?:but|then|also)\b/i)
+    .pop()!;
+  if (
+    /\b(?:\w+n['’]t|not(?!\s+only\b)|never|avoid|without|rather\s+than|instead\s+of)\b/i.test(
+      prohibitionScope,
+    )
+  )
+    return false;
+  const conditionScope = before
+    .split(/[.!?;\n]|\b(?:and|but|then|also)\b/i)
+    .pop()!;
+  const suffix = after.split(/[.!?;\n]|\b(?:and|but|then|also)\b/i)[0];
+  if (
+    /\b(?:if|unless)\b/i.test(conditionScope) ||
+    /\b(?:if|unless)\b|\b(?:as|when|where)\s+(?:needed|necessary|appropriate|required)\b/i.test(
+      suffix,
+    )
+  )
+    return false;
+  if (
+    /^mak(?:e|ing)$/i.test(text.slice(start, end)) &&
+    /^\s+(?:sure|certain)\b/i.test(after)
+  )
+    return false;
   if (!DESIGN_AMBIGUOUS_VERB.test(text.slice(start, end))) return true;
   if (DESIGN_FINITE_VERB_FOLLOWS.test(text.slice(end))) return false;
   const prefix = text.slice(0, start).replace(/\s+$/, "");
@@ -262,6 +292,8 @@ function hasSuccessfulMutation(
         parsed.stale !== true
       );
     }
+
+    if (name === "move-design-element") return parsed.moved === true;
 
     if (name === "update-file") {
       return parsed.updated === true && parsed.skippedStaleMirror !== true;
@@ -549,7 +581,19 @@ export function designFinalResponseGuard(
   const requestText =
     context.requestText?.trim() || latestUserText(context.messages);
   if (!requiresPersistedDesignOutput(requestText)) return null;
-  if (hasSuccessfulMutation(context.toolResults)) return null;
+  // A verified, changed receipt from a Design output action is the same proof
+  // the editor's output check trusts; receipts from other writers are not.
+  if (
+    context.receipts?.some(
+      (receipt) =>
+        DESIGN_OUTPUT_ACTIONS.has(receipt.tool) &&
+        receipt.changed &&
+        receipt.verified === true,
+    ) ||
+    hasSuccessfulMutation(context.toolResults)
+  ) {
+    return null;
+  }
 
   return {
     retryMessage:

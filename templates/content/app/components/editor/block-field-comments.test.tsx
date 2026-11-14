@@ -1,6 +1,9 @@
 // @vitest-environment happy-dom
 
-import type { ResourceSuggestion } from "@agent-native/core/review";
+import type {
+  ResourceSuggestion,
+  SuggestionOperation,
+} from "@agent-native/core/review";
 import { act, createElement, useRef } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter, useLocation } from "react-router";
@@ -15,7 +18,10 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, options?: { count?: number }) =>
     options?.count === undefined ? key : `${key}:${options.count}`,
 }));
-vi.mock("@/hooks/use-document-properties", () => ({
+vi.mock("@/hooks/use-document-properties", async (importOriginal) => ({
+  documentPropertiesReadFailed: (
+    await importOriginal<typeof import("@/hooks/use-document-properties")>()
+  ).documentPropertiesReadFailed,
   documentPropertiesPlaceholder: () => undefined,
   documentPropertiesResponseMatchesScope: (
     documentId: string,
@@ -57,6 +63,8 @@ vi.mock("./VisualEditor", async () => {
     },
   };
 });
+
+import { CONTENT_BLOCKS_FIELD_SUGGESTION_ADAPTER } from "@shared/blocks-field-suggestions";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { CommentThread } from "@/hooks/use-comments";
@@ -132,6 +140,17 @@ function thread(
     resolved: false,
     comments: [],
     ...extra,
+  };
+}
+
+function notesOperation(): SuggestionOperation {
+  return {
+    kind: "replace_text",
+    ordinal: 0,
+    schemaVersion: 1,
+    targetId: "notes",
+    before: { markdown: "Notes.", changedText: "Notes" },
+    after: { markdown: "Tab notes.", changedText: "Tab notes" },
   };
 }
 
@@ -262,6 +281,8 @@ describe("comment tabs", () => {
         thread("body-resolved", null, { resolved: true }),
         thread("notes-1", "notes"),
         propertyThread(),
+        // A comment on the whole page is in no tab, as the margin shows it.
+        thread("page-1", null, { quotedText: null }),
       ],
       suggestions: [
         suggestion("single"),
@@ -273,8 +294,17 @@ describe("comment tabs", () => {
         suggestion("embedded", {
           metadata: { sourceThreadId: "body-1", commentAiRequestId: "request" },
         }),
+        // A tab's suggestions count in its tab; its editor, not the body's,
+        // shows them.
+        suggestion("notes-edit", {
+          adapterKind: CONTENT_BLOCKS_FIELD_SUGGESTION_ADAPTER,
+          operations: [notesOperation()],
+        }),
       ],
-      draftSuggestions: [{}],
+      draftSuggestions: [
+        { operations: [{ targetId: "body" }] },
+        { operations: [notesOperation()] },
+      ],
       anchoredSuggestionIds: [
         "single",
         "accepted",
@@ -285,7 +315,8 @@ describe("comment tabs", () => {
     });
     // Two threads, one suggestion, one proposal, one draft.
     expect(counts.get(null)).toBe(5);
-    expect(counts.get("notes")).toBe(1);
+    // A thread, a suggestion, and a draft.
+    expect(counts.get("notes")).toBe(3);
     expect(counts.has("status")).toBe(false);
   });
 });
@@ -306,11 +337,13 @@ describe("useBlockFieldComments", () => {
 
   function Harness({
     threads,
+    suggestions = [],
     selectedThreadId = null,
     focusSuggestionId = null,
     pendingComment = null,
   }: {
     threads: CommentThread[];
+    suggestions?: ResourceSuggestion[];
     selectedThreadId?: string | null;
     focusSuggestionId?: string | null;
     pendingComment?: PendingCommentSelection | null;
@@ -319,7 +352,7 @@ describe("useBlockFieldComments", () => {
     const comments = useBlockFieldComments({
       expectsBlockFields: true,
       threads,
-      suggestions: [],
+      suggestions,
       draftSuggestions: [],
       anchoredSuggestionIds: null,
       selectedThreadId,
@@ -329,6 +362,7 @@ describe("useBlockFieldComments", () => {
       pendingComment,
       showCommentIndicators: true,
       onComment,
+      onBlockComment: undefined,
       onActivateThread,
       scrollContainerRef,
     });
@@ -451,14 +485,21 @@ describe("useBlockFieldComments", () => {
     vi.unstubAllGlobals();
   });
 
-  it("shows only the open tab's threads in the margin, and Property threads on every tab (CMT-1)", async () => {
-    await render({ threads });
+  it("shows only the open tab's threads and suggestions in the margin, and Property threads on every tab (CMT-1, CMT-2)", async () => {
+    const suggestions = [
+      suggestion("body-edit"),
+      suggestion("notes-edit", {
+        adapterKind: CONTENT_BLOCKS_FIELD_SUGGESTION_ADAPTER,
+        operations: [notesOperation()],
+      }),
+    ];
+    await render({ threads, suggestions });
     expect(rail()).toEqual(["body-1", "property-thread"]);
-    expect(latest.railShowsSuggestions).toBe(true);
+    expect(latest.railSuggestions.map(({ id }) => id)).toEqual(["body-edit"]);
 
     await clickTab("notes");
     expect(rail()).toEqual(["notes-1", "property-thread"]);
-    expect(latest.railShowsSuggestions).toBe(false);
+    expect(latest.railSuggestions.map(({ id }) => id)).toEqual(["notes-edit"]);
     // Each editor highlights only its own threads.
     expect(
       container.querySelector('[data-visual-editor="Notes text"]')?.innerHTML,
@@ -511,6 +552,20 @@ describe("useBlockFieldComments", () => {
     expect(selectedTab()).toBe("content");
   });
 
+  it("opens a tab's suggestion in its tab (CMT-2)", async () => {
+    const suggestions = [
+      suggestion("notes-edit", {
+        adapterKind: CONTENT_BLOCKS_FIELD_SUGGESTION_ADAPTER,
+        operations: [notesOperation()],
+      }),
+    ];
+    await render({ threads, suggestions });
+    expect(selectedTab()).toBe("content");
+
+    await render({ threads, suggestions, focusSuggestionId: "notes-edit" });
+    expect(selectedTab()).toBe("notes");
+  });
+
   it("opens the tab only once, so another tab can be opened while the thread stays selected", async () => {
     await render({ threads, selectedThreadId: "notes-1" });
     expect(selectedTab()).toBe("notes");
@@ -556,7 +611,12 @@ describe("useBlockFieldComments", () => {
   });
 
   it("opens a thread's tab once fields that failed to load are read", async () => {
-    mocks.query = { data: undefined, isError: true, isRefetching: false };
+    mocks.query = {
+      data: undefined,
+      isError: true,
+      isRefetching: false,
+      fetchStatus: "idle",
+    };
     await render({ threads, selectedThreadId: "notes-1" });
     expect(latest.tabSwitchPending).toBe(true);
 

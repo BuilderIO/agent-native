@@ -164,6 +164,23 @@ export default {
     expandSidebar: "Expand sidebar",
     collapseSidebar: "Collapse sidebar",
   },
+  gettingStarted: {
+    title: "Getting started",
+    progress: "{{completeCount}} of {{totalCount}} complete",
+    collapse: "Collapse",
+    expand: "Expand",
+    completed: "Completed",
+    loadError: "Couldn't load your checklist",
+    retry: "Retry",
+    steps: {
+      createDesign: "Create your first design",
+      addBrand: "Add your brand",
+      useRealData: "Use your real data",
+      shareFeedback: "Share for feedback",
+      inviteTeammate: "Invite a teammate",
+      saveTemplate: "Save a design as a template",
+    },
+  },
   settings: {
     agentTitle: "Manage agent",
     agentDescription:
@@ -229,6 +246,9 @@ export default {
       chooseFrame: "Choose frame",
       inspect: "Inspect",
       exportSvg: "Export SVG",
+      moreActions: "More actions",
+      askAboutFile: "Ask about this file",
+      askAboutFilePrompt: "Ask about this linked design file. {{url}}",
       actionsPrefill: "Review, then send",
       retry: "Retry",
       currentDesign: "the current Design",
@@ -248,6 +268,8 @@ export default {
   common: {
     loading: "Loading...",
     genericError: "Something went wrong",
+    linkedSourceSizeLimit:
+      "This linked component edit exceeds the source size limit.",
   },
   editPanel: {
     colorInputLabel: "color",
@@ -344,6 +366,7 @@ export default {
       font: "Font",
       baseSize: "Base Size",
       size: "Size",
+      fontSizes: "Type scale",
       weight: "Weight",
       color: "Color",
       align: "Align",
@@ -376,6 +399,7 @@ export default {
       image: "Image",
       style: "Style",
       rotation: "Rotation",
+      length: "Length",
       flipHorizontal: "Flip horizontal",
       flipVertical: "Flip vertical",
       shadow: "Shadow",
@@ -392,7 +416,6 @@ export default {
       showGrid: "Show grid",
       hideGrid: "Hide grid",
       reorderLayer: "Reorder layer",
-      stylesComingSoon: "Styles — Coming soon",
       linkSides: "Link sides",
       unlinkSides: "Unlink sides",
       allSides: "All",
@@ -793,6 +816,9 @@ export default {
       bottom: "B",
       left: "L",
     },
+    fontPicker: {
+      catalogUnavailable: "Couldn't load the full font library.",
+    },
     fontFamilies: {
       inherit: "Inherit",
       sansSerif: "Sans Serif",
@@ -943,6 +969,9 @@ export default {
     },
   },
   designEditor: {
+    sourceLoadFailed: "Could not load this screen.",
+    selectionPublishFailed:
+      "The agent may not see your latest selection. Select it again.",
     liveCollaboration: {
       title: "Live collaboration",
       description:
@@ -1127,6 +1156,14 @@ export default {
         animation: "Animation",
         distance: "Distance",
         amount: "Amount",
+        axis: "Axis",
+        axisBoth: "Both",
+        axisX: "X",
+        axisY: "Y",
+        startWidth: "Start width",
+        endWidth: "End width",
+        startHeight: "Start height",
+        endHeight: "End height",
         delay: "Delay",
         easing: "Easing",
         editCurve: "Edit easing curve",
@@ -1442,7 +1479,7 @@ export default {
       sourceWriteUnavailable:
         "Motion code can currently be written only to inline HTML designs.",
       unresolvedStylesheets:
-        "Resolve external stylesheets before editing or adding Motion.",
+        "Resolve external or runtime-generated styles before editing or adding Motion.",
       sourceConflict:
         "Motion source changed while this timeline had unsaved edits. Reload from code to discard those edits and use the current source.",
       reloadFromSource: "Reload from code",
@@ -1528,31 +1565,18 @@ export default {
       editColor: "Edit color for {{name}}",
     },
     import: {
-      title: "Import",
       description:
         "Bring in Figma clipboard HTML or standalone HTML as Design screens.",
-      figmaUrlTitle: "Figma frame URL",
-      figmaUrlDescription: "Import a frame or file from a Figma link.",
       figmaUrlLabel: "Figma frame or file URL",
       figmaUrlPlaceholder: "https://www.figma.com/design/…",
-      figmaConnectionChecking: "Checking Figma connection…",
-      figmaConnected: "Figma connected",
-      figmaConnectedWithSuffix: "Figma connected · ••••{{suffix}}",
       figmaTokenLabel: "Figma access token",
       figmaTokenDocs: "Get a token",
       figmaTokenPlaceholder: "Paste your Figma personal access token",
-      figmaTokenDescription:
-        'Needs "File content" and "Current user" scopes. Saved securely — never added to chat.',
-      importFigmaUrl: "Import from Figma",
-      saveKeyAndImport: "Save key and import",
       figmaUrlSuccess: "Imported from Figma.",
       figmaImageFallbackWarning:
         "Image fallbacks: {{count}}. Appearance is preserved, but these layers are not fully editable.",
       figmaApproximationWarning:
         "Approximated layers: {{count}}. HTML/CSS cannot represent every Figma property exactly.",
-      figmaPasteTitle: "Paste from Figma",
-      figmaPasteDescription:
-        "Copy a frame or layer in Figma, then paste into the Design canvas. Design imports the visible clipboard HTML.",
       figmaPasteTarget: "Paste into the canvas",
       figmaPasteApiKeyHint:
         "Connect your Figma access token for exact node imports.",
@@ -1561,11 +1585,10 @@ export default {
       figmaPasteMatchGuidance:
         "Couldn't match this to specific Figma nodes. Paste a frame link instead for an exact import.",
       figmaPasteUnreadable:
-        "That clipboard has no copied Figma layers in it. Select a frame in Figma, copy it with Cmd+C, and paste again — or import a Figma link from the Import panel.",
+        "That clipboard has no copied Figma layers in it. Select a frame in Figma, copy it with Cmd+C, and paste again, or paste a link to the frame in the chat.",
       figmaPasteRestLabel: "Imported via Figma API",
       figmaPasteHtmlLabel: "Imported from clipboard preview",
-      figmaPasteLocalKiwiLabel:
-        "Imported without token — geometry and text only",
+      figmaPasteLocalKiwiLabel: "Imported from the Figma clipboard",
       figmaPasteImagesNeedToken:
         "{{count}} image{{plural}} need Figma access to load.",
       figmaPasteImagesDontShowAgain: "Don't show again",
@@ -1597,74 +1620,29 @@ export default {
         "{{count}} image{{plural}} filled in from the .fig file.",
       figmaHydrationInvalidFig: "Choose a .fig file exported from Figma.",
       figmaHydrationFigError: "Couldn't read images from that .fig file.",
-      figUploadTitle: "Upload .fig",
       figUploadDescription:
         "Local import using Figma's .fig format — no API quota. Embedded images are included. Format may change between Figma versions. Maximum {{max}} MB.",
-      chooseFigFile: "Choose .fig file",
       figUploadUploading: "Uploading {{progress}}%",
       figUploadProcessing: "Converting…",
-      figImportWarningTitle: "Large .fig import",
-      figImportWarningDescription:
-        "This file contains {{frames}} frames and {{nodes}} layers. Importing everything may slow the editor. Choose the pages you need.",
-      figImportFrameCount: "{{selected}} of {{total}} frames selected",
-      figImportSelectAll: "Select all",
-      figImportClearAll: "Clear all",
-      figImportCancel: "Cancel",
-      figImportSelected: "Import {{count}} selected",
-      figImportAll: "Import all",
       figImportAnalyzing: "Analyzing…",
       figImportSaving: "Saving {{saved}} of {{total}} frames",
-      figImportFrameLimit:
-        "Choose pages with {{max}} frames or fewer in total.",
       figImportFramesSkippedWarning:
         "Skipped {{count}} frames that were too complex to import: {{names}}",
-      figUploadLimits: "Up to {{size}} GB · {{frames}} frames per import",
-      figUploadDescriptionShort:
-        "Local import — no Figma API quota used. Supported embedded images are included.",
       figUploadImagesSkippedWarning:
         "Skipped embedded images ({{count}}) because browser uploads have a per-image limit.",
-      figmaPasteBodyUnlimited:
-        "Works without a Figma token — geometry, layout, and text import immediately.",
-      figmaPasteBodyImages:
-        "Image fills may be missing without a token. Upload the .fig file to include embedded images.",
-      quotaCooldownTitle: "Design paused this import",
-      quotaCooldownBody:
-        "Design is pacing its own Figma requests after hitting a quota limit. This resets automatically.",
-      rateLimitTitle: "Figma paused this import",
-      rateLimitLowSeat:
-        "Your seat type (Viewer/Collab) has a limited Figma API quota for file imports — up to 6 requests per month per the official Figma docs.",
-      rateLimitGeneric:
-        "Figma rate-limited this import. The quota resets automatically.",
-      rateLimitRetryIn: "Try again in {{time}}.",
-      rateLimitAlternatives: "No-quota alternatives:",
-      rateLimitUsePaste: "Paste from Figma — unlimited",
-      rateLimitUseFig: "Upload .fig — unlimited",
-      rateLimitUpgrade: "View Figma plan options →",
-      htmlTitle: "Import HTML",
       htmlDescription:
         "Paste or upload standalone HTML. Design stores it as a new screen without injecting it into this editor UI.",
-      htmlPlaceholder: "<main>Paste standalone HTML here...</main>",
-      importHtml: "Import HTML",
-      chooseHtmlFile: "Choose HTML file",
       allSupportedFiles: "All supported files",
-      githubTitle: "GitHub",
       githubDescription:
         "Coming soon: import screens and components directly from a repository.",
-      localTitle: "Local app",
       localDescription: "Connect any running local app with /visual-edit.",
-      visualEditGuidance:
-        "Install the /visual-edit skill, start any local app, then run the bridge command from that app repo so your agent can add URL-backed screens.",
-      comingSoon: "Coming soon",
       warningsToast: "Import completed with warnings",
       figmaSuccess: "Figma paste imported",
       htmlSuccess: "HTML imported",
       uploadSuccess: "File imported",
-      lastImport: "Last import",
       errors: {
         figmaTokenMustBeToken:
           "Paste a Figma access token, not a Figma file URL.",
-        figmaUrlRequired: "Paste a Figma frame or file URL.",
-        invalidFigmaUrl: "Enter a valid figma.com frame or file URL.",
         figmaImportFailed: "Couldn’t import from Figma",
         notHtml: "Paste or choose valid HTML to import.",
         importFailed: "Import failed",
@@ -1672,9 +1650,12 @@ export default {
         uploadFailed: "File upload failed",
         invalidFigFile: "Choose a file ending in .fig.",
         unsupportedFileType: "Choose a .fig, .html, or .htm file.",
-        importBusy: "Another import is in progress. Finish or cancel it first.",
+        importBusy:
+          "Another import is in progress. Try again when it finishes.",
         figFileTooLarge:
-          "That .fig is too large — uploads are limited to {{max}} MB. In Figma, copy just the frame you want into a new file and export that as .fig, or use Paste from Figma instead.",
+          "This file is too large to import here. Paste a link to the Figma page or frame instead.",
+        figFileUnreadable:
+          "This file can’t be read as a .fig file. Save a new local copy from Figma and import that.",
       },
     },
     generationMayHaveStopped:
@@ -1701,7 +1682,6 @@ export default {
     signInToRequestAccessTitle: "Sign in to request access",
     signInToRequestAccessDescription:
       "Sign in or create an account to request access from the owner.",
-    signInOrSignUp: "Sign in or sign up",
     accessCheckFailed: "Could not check access to this design.",
     retryAccessCheck: "Try again",
     saveAsTemplate: "Save as template…",
@@ -1735,9 +1715,12 @@ export default {
         "Apply or discard your pending visual edits before duplicating.",
       allDesigns: "All designs",
       rename: "Rename",
+      builtFrom: "Built from {{title}}",
+      builtFromPage: "Built from a Content page",
       duplicate: "Duplicate",
       versionHistory: "Version history",
       import: "Import…",
+      connectLocalApp: "Connect local app",
       delete: "Delete",
       deleteError: "Could not delete this design",
     },
@@ -1778,7 +1761,7 @@ export default {
       ellipse: "Ellipse",
       polygon: "Polygon",
       star: "Star",
-      imageVideo: "Image/video...",
+      imageVideo: "Image/video…",
       text: "Text",
       pen: "Pen",
       hand: "Hand",
@@ -1799,8 +1782,12 @@ export default {
         small: "Small nudge",
         big: "Big nudge",
         unit: "px",
-        description:
-          "Arrow keys move by the small amount and Shift arrow by the big one. Inside an auto layout frame, arrows reorder the layer instead of moving it.",
+        close: "Close nudge amount",
+        done: "Done",
+        smallDescription:
+          "Sets the number of pixels an object is moved when using arrow keys.",
+        bigDescription:
+          "Sets the number of pixels an object is moved when using shift + arrow keys.",
       },
       keys: {
         or: "or",
@@ -1838,6 +1825,7 @@ export default {
         arrange: "Arrange",
         components: "Components",
         layout: "Layout",
+        code: "Code",
       },
       commands: {
         showShortcuts: "Show keyboard shortcuts",
@@ -1850,11 +1838,11 @@ export default {
         handTool: "Hand tool",
         scaleTool: "Scale tool",
         eyedropper: "Eyedropper",
-        commentTool: "Comment tool",
+        commentTool: "Pin comment",
         drawTool: "Draw tool",
         showLayers: "Show layers",
         showAssets: "Show assets",
-        toggleUi: "Show/Hide UI",
+        toggleUi: "Show or hide UI",
         toggleMinimalUi: "Minimal UI",
         toggleComments: "Show or hide comments",
         zoomIn: "Zoom in",
@@ -1862,6 +1850,8 @@ export default {
         zoomReset: "Zoom to 100%",
         zoomFit: "Zoom to fit",
         zoomSelection: "Zoom to selection",
+        bold: "Bold",
+        italic: "Italic",
         underline: "Underline",
         strikethrough: "Strikethrough",
         rectangle: "Rectangle",
@@ -1876,7 +1866,8 @@ export default {
         previousSibling: "Previous sibling",
         nextScreen: "Next screen",
         previousScreen: "Previous screen",
-        toggleLayoutGrids: "Show/hide layout grids",
+        toggleLayoutGrids: "Show or hide layout grids",
+        toggleRulers: "Show or hide rulers",
         nudge: "Nudge",
         nudgeLarge: "Big nudge",
         copy: "Copy",
@@ -1909,7 +1900,15 @@ export default {
         ungroup: "Ungroup selection",
         frameSelection: "Frame selection",
         autoLayout: "Add auto layout",
-        imageVideo: "Image/video...",
+        removeAutoLayout: "Remove auto layout",
+        toggleHidden: "Show or hide selection",
+        toggleLocked: "Lock or unlock selection",
+        alignHorizontalCenters: "Align horizontal centers",
+        alignVerticalCenters: "Align vertical centers",
+        distributeHorizontal: "Distribute horizontal spacing",
+        distributeVertical: "Distribute vertical spacing",
+        setOpacity: "Set opacity",
+        imageVideo: "Image/video…",
       },
     },
     undo: "Undo",
@@ -1938,6 +1937,16 @@ export default {
     pinComment: "Pin comment",
     export: "Export",
     downloadHtml: "Download HTML",
+    exportHubspotHtml: "Export HubSpot HTML",
+    hubspotConversion: {
+      title: "Convert for HubSpot?",
+      description:
+        "{{name}} needs email-safe changes. The original frame will be preserved.",
+      convert: "Convert with agent",
+      cancel: "Cancel",
+      prompt:
+        "Create a HubSpot email version of this frame, keeping its content and branding and preserving the original. Validate the HTML export and open the new frame.",
+    },
     downloadPng: "Download PNG",
     downloadSvg: "Download SVG",
     downloadFigmaSvg: "Download for Figma (SVG)",
@@ -2080,6 +2089,19 @@ export default {
       added: "Screen added",
       addFailed: "Could not add screen",
     },
+    localhostConsent: {
+      approvedTitle: "Approved — run the edit again",
+      approvedDescription:
+        "File writes are allowed for 8 hours. The edit that asked for access wasn't saved.",
+      retryInChat: "Run again in chat",
+      retryPrompt:
+        "File writes are approved for {{rootPath}}. Run the edit that needed them again.",
+      unavailableTitle: "This write request is no longer pending",
+      unavailableDescription: "Run the edit again to ask for access.",
+      close: "Close",
+      prepareSignInError:
+        "Couldn't save this request before sign-in. Try again.",
+    },
     nodeRewrite: {
       composerTitle: "Ask or change selection",
       send: "Send",
@@ -2132,6 +2154,9 @@ export default {
       htmlCreateError: "Could not create HTML download",
       htmlDownloaded: "HTML downloaded",
       htmlExportError: "Could not export HTML",
+      hubspotHtmlExporting: "Preparing HubSpot HTML…",
+      hubspotHtmlDownloaded: "HubSpot HTML downloaded",
+      hubspotHtmlExportError: "Could not export HubSpot HTML",
       zipCreateError: "Could not create ZIP download",
       zipDownloaded: "ZIP downloaded",
       zipExportError: "Could not export ZIP",
@@ -2206,6 +2231,7 @@ export default {
         "This screen changed elsewhere. Your last edit was not saved.",
       versionHistoryUnavailable:
         "Version history is unavailable for this design. Your edit was still saved.",
+      removeAutoLayoutFailed: "Couldn't remove auto layout",
       autoLayoutScreensUnsupported: "Add auto layout doesn't apply to screens",
       booleanSubtractUnsupported:
         "Select adjacent rectangles or ellipses with solid fills to subtract them.",
@@ -2222,8 +2248,32 @@ export default {
         "Vector editing isn't available for this shape or transform.",
       imageUploading: "Uploading image…",
       pasteReplaceFailed: "Could not replace that layer",
+      pasteTargetUnmeasured:
+        "Could not measure the selected layer to paste into it",
+      pasteClipboardUnreadable: "Allow clipboard access to paste here",
+      pasteClipboardUntrusted:
+        "Can't paste layers copied from Design on another site",
+      pasteMediaTooMany_one:
+        "{{count}} file wasn't pasted. You can paste up to {{limit}} files at once.",
+      pasteMediaTooMany_other:
+        "{{count}} files weren't pasted. You can paste up to {{limit}} files at once.",
+      pasteMediaTooLarge_one:
+        "{{count}} file wasn't pasted because it's over {{limitMb}} MB.",
+      pasteMediaTooLarge_other:
+        "{{count}} files weren't pasted because they're over {{limitMb}} MB.",
       swapFillStrokeLayeredFill:
         "Multiple or image fills can't move to a stroke yet",
+      alignNeedsTwoLayers: "Select two or more layers to align them",
+      alignNeedsTwoScreens: "Select two or more screens to align them",
+      layoutUnmeasurable:
+        "Couldn't measure a selected layer. Make sure it's visible on the canvas and try again.",
+      layoutAutoLayoutChildren:
+        "Auto layout positions these layers. Remove auto layout from their frame to move them freely.",
+      layoutUnsupportedPosition:
+        "Sticky layers and shapes inside an SVG can't be moved this way",
+      layoutMovesNestedLayers:
+        "Moving this layer would shift the layers positioned inside it",
+      layoutMoveFailed: "Couldn't move the selected layers",
     },
     commenterRoleLabel: "Commenter",
     commenterRoleDescription: "Can view and add review comments",
@@ -2247,6 +2297,7 @@ export default {
     order: "Order",
     createComponent: "Create component",
     addAutoLayout: "Add auto layout",
+    removeAutoLayout: "Remove auto layout",
     copyAs: "Copy/Paste as",
     copyProps: "Copy properties",
     pasteProps: "Paste properties",
@@ -2267,13 +2318,15 @@ export default {
     allScreens: "All screens",
     thumbnail: "Thumbnail",
     addScreen: "Add screen",
-    searchPlaceholder: "Search layers...",
+    searchPlaceholder: "Search layers",
     empty: "No layers",
     noMatches: "No layers match",
     designLayers: "Design layers",
     codeLayers: "Code layers",
     elementLayers: "Element layers",
     collapse: "Collapse layer",
+    collapseAll: "Collapse all layers",
+    clearSearch: "Clear search",
     expand: "Expand layer",
     lock: "Lock layer",
     unlock: "Unlock layer",
@@ -2462,6 +2515,8 @@ export default {
     changesDiscarded:
       "Some changes couldn't be saved because the file no longer exists and were discarded.",
     offline: "Offline",
+    unsaved: "Not saved",
+    saveRetrying: "Couldn't save your changes. Retrying automatically.",
     saving: "Saving...",
     clearedAllAnnotations: "Cleared all annotations",
     annotationsDiscardedOnViewChange:
@@ -2517,9 +2572,9 @@ export default {
   },
   homeContext: {
     websiteReference: "Add website",
+    websiteReferenceMenu: "Add website…",
     websiteUrlLabel: "Website URL",
     websiteUrl: "Paste a website URL",
-    figmaUrlLabel: "Figma link",
     invalidFigmaUrl: "Enter a valid figma.com frame or file URL.",
     tooMany: "Choose up to 20 references.",
     invalidWebsiteUrl: "Enter a valid HTTP or HTTPS URL.",
@@ -2527,24 +2582,44 @@ export default {
     noSystems:
       "You don’t have a design system yet. Create one from website, files, or Figma.",
     searchSystems: "Search design systems…",
-    searchFrames: "Search Figma frames…",
     searchDesigns: "Search designs…",
     searchPresentations: "Search presentations…",
+    searchPages: "Search pages…",
     searchDesign: "Search design…",
     useDesignSystem: "Use a design system",
     notReady:
       "The prompt is not ready to submit. Check the selected context and connection, then try again.",
     search: "Search context…",
-    figmaUrl: "Paste a Figma link",
-    browse: "Browse frames",
     loadFailed: "Could not load this reference.",
     retry: "Retry",
     empty: "No matching references.",
     none: "None",
-    design: "Design",
+    design: "Design references",
     slides: "Slides",
     referenceDesign: "Reference a design",
-    figmaReference: "Add Figma",
+    contentPage: "Content page",
+    connectFigma: "Connect Figma",
+    figmaReference: "Figma design…",
+    figmaDialogTitle: "Add Figma design",
+    figmaDropTitle: "Drop a .fig file",
+    figmaChooseFile: "Choose file",
+    figmaPasteHint:
+      "You can also paste a copied frame straight into the prompt.",
+    figmaAddToPrompt: "Add to prompt",
+    figmaLinkNeedsConnection:
+      "Links need a connected Figma account. Drop a .fig file or paste a copied frame instead.",
+    figmaReferenceMore: "{{name}} and {{count}} more",
+    figmaReferenceEmpty:
+      "No frames came through. Copy a frame in Figma and try again.",
+    figmaSelection: "Figma selection",
+    figmaFileTooLarge:
+      "This file is too large to read here. Paste a link to its page or frame instead.",
+    figmaSearch: "Search pages and frames",
+    figmaSelectedCount: "{{count}} selected",
+    figmaShowFrames: "Show frames in {{name}}",
+    figmaLinkNotFrame: "Link to a Figma page or frame.",
+    figmaPageFrameCap:
+      "Adds the first {{limit}} frames. Select frames to choose which ones.",
     referenceDeck: "Reference a presentation",
     quickSaas: "Create a SaaS landing page",
     quickDashboard: "Create a dashboard",
@@ -2554,12 +2629,162 @@ export default {
   },
   home: {
     suggestedPrompts: "Suggested prompts",
+    suggestions: {
+      product: {
+        analyticsDashboard:
+          "Build a product analytics dashboard with KPI cards, a conversion chart, an activity table, and a confident data-led tone.",
+        roadmapWorkspace:
+          "Design a roadmap workspace with a quarter timeline, priority tags, a customer feedback panel, and a calm collaborative tone.",
+        onboardingFlow:
+          "Create a budgeting app onboarding flow with progress steps, goal choices, account setup, and a reassuring tone.",
+        featureComparison:
+          "Create a SaaS feature comparison page with plan cards, a feature matrix, an FAQ, and a direct conversion-focused tone.",
+        feedbackPortal:
+          "Design a customer feedback portal with a request board, voting controls, status filters, and an open community tone.",
+        releaseNotes:
+          "Build a release notes hub with a version timeline, feature highlights, migration notes, and a crisp editorial tone.",
+        projectWorkspace:
+          "Create a product team workspace with kanban columns, owner chips, milestones, and a focused productivity tone.",
+        launchWaitlist:
+          "Design a product launch waitlist page with a hero, proof points, signup form, and an optimistic tone.",
+      },
+      design: {
+        portfolioHome:
+          "Design a designer portfolio homepage with a concise intro, case study grid, about section, contact CTA, and a polished editorial tone.",
+        designSystem:
+          "Build a design system reference page with color and type tokens, a component gallery, usage notes, and a precise documentation tone.",
+        bankingApp:
+          "Create a mobile banking app home screen with a balance card, transaction list, savings goals, and a calm trustworthy tone.",
+        travelBooking:
+          "Design a travel booking search screen with destination filters, itinerary cards, a map panel, and an airy adventurous tone.",
+        coffeeShop:
+          "Create a coffee shop storefront with featured blends, origin stories, a subscription CTA, and a warm tactile tone.",
+        musicFestival:
+          "Design a music festival event page with a lineup, schedule, venue map, and an energetic poster-inspired tone.",
+        accessibilityAudit:
+          "Build an accessibility audit dashboard with a score summary, issue list, filter controls, and a clear high-contrast tone.",
+        artBook:
+          "Design an art book editorial page with immersive artwork, a pull quote, chapter navigation, and a restrained gallery tone.",
+      },
+      developer: {
+        apiDocs:
+          "Build an API docs portal with left navigation, code samples, a request builder, a version badge, and a precise technical tone.",
+        deploymentDashboard:
+          "Design a deployment dashboard with environment cards, live logs, rollback controls, and a calm operational tone.",
+        componentPlayground:
+          "Create a component playground with prop controls, state variants, a code panel, and a clean developer-focused tone.",
+        databaseConsole:
+          "Build a database console with a query editor, schema tree, results table, and a restrained technical tone.",
+        issueTriage:
+          "Design an issue triage board with filters, priority badges, an owner queue, and a clear focused tone.",
+        authSettings:
+          "Create an auth settings page with provider cards, a callback URL, a permission list, and a secure reassuring tone.",
+        workflowBuilder:
+          "Build a CI workflow builder with step nodes, run history, a branch selector, and a precise technical tone.",
+        developerPortfolio:
+          "Design a developer portfolio with project cards, a tool stack, a timeline, and a dark focused tone.",
+      },
+      marketing: {
+        campaignLanding:
+          "Design a campaign landing page with a sharp hero, benefit blocks, customer proof, a signup CTA, and an energetic tone.",
+        emailBuilder:
+          "Build an email campaign editor with a subject preview, content blocks, audience summary, and a clear friendly tone.",
+        socialCalendar:
+          "Create a social content calendar with channel tabs, scheduled posts, performance cues, and a bright editorial tone.",
+        brandCampaign:
+          "Design a brand campaign page with a headline, art direction, asset gallery, and a confident cohesive tone.",
+        webinarRegistration:
+          "Build a webinar registration page with speaker cards, an agenda, a signup form, and a credible inviting tone.",
+        seoBrief:
+          "Create an SEO content brief with keyword groups, outline sections, competitor notes, and a focused research tone.",
+        launchMetrics:
+          "Design a launch metrics dashboard with channel cards, a conversion chart, a campaign table, and an analytical tone.",
+        newsletterSignup:
+          "Create a newsletter signup page with an editorial preview, topic choices, an email field, and a warm concise tone.",
+      },
+      sales: {
+        leadWorkspace:
+          "Build a sales lead workspace with contact details, an activity timeline, qualification fields, and a decisive professional tone.",
+        accountBrief:
+          "Design an account research brief with a company snapshot, stakeholders, recent signals, and a clear executive tone.",
+        productDemo:
+          "Create a product demo page with use-case tabs, product screenshots, customer proof, and a confident persuasive tone.",
+        proposalBuilder:
+          "Build a proposal builder with scope sections, pricing cards, a timeline, and a polished consultative tone.",
+        pipelineDashboard:
+          "Design a pipeline dashboard with stage columns, deal values, a forecast chart, and a crisp business tone.",
+        meetingBooking:
+          "Create a meeting booking page with calendar slots, an agenda preview, a form, and a welcoming professional tone.",
+        customerStory:
+          "Design a customer story page with the challenge, results, a quote, and metrics in an evidence-led editorial tone.",
+        accountHandoff:
+          "Build an account handoff workspace with customer goals, contacts, open actions, and a calm collaborative tone.",
+      },
+      ops: {
+        inventoryDashboard:
+          "Build an inventory dashboard with stock levels, reorder alerts, category filters, and a practical operational tone.",
+        staffScheduler:
+          "Design a staff scheduler with a shift grid, availability badges, time-off requests, and an easy-to-scan tone.",
+        vendorPortal:
+          "Create a vendor onboarding portal with a checklist, document upload states, contact details, and a clear reassuring tone.",
+        incidentResponse:
+          "Build an incident response screen with a severity banner, event timeline, owner panel, and a focused calm tone.",
+        expenseApprovals:
+          "Design an expense approval queue with receipt previews, policy flags, totals, and a neutral efficient tone.",
+        warehouseReceiving:
+          "Create a warehouse receiving app screen with shipment details, scan status, an item list, and a high-clarity tone.",
+        automationControl:
+          "Build a workflow control panel with automation cards, run history, failure alerts, and a confident operational tone.",
+        helpdeskQueue:
+          "Design an internal helpdesk queue with request cards, status filters, assignee controls, and a clear helpful tone.",
+      },
+      individual: {
+        personalPortfolio:
+          "Design a personal portfolio with a short bio, selected work, skills, and contact links, using a warm editorial tone.",
+        mealPlanner:
+          "Create a meal planning app screen with weekly recipes, a grocery list, dietary filters, and a friendly practical tone.",
+        homeBudget:
+          "Build a home budget dashboard with a monthly summary, category chart, bill list, and a calm supportive tone.",
+        tripPlanner:
+          "Design a trip planner with an itinerary timeline, map, reservation cards, and an airy adventurous tone.",
+        readingJournal:
+          "Create a reading journal with book covers, progress notes, star ratings, and a quiet literary tone.",
+        invoiceTracker:
+          "Build a freelance invoice tracker with a client list, payment status, due dates, and a tidy professional tone.",
+        habitTracker:
+          "Design a habit tracker app with daily check-ins, streak cards, a progress chart, and a gentle motivating tone.",
+        neighborhoodEvents:
+          "Create a neighborhood events page with event cards, local filters, RSVP controls, and a welcoming community tone.",
+      },
+      general: {
+        saasHomepage:
+          "Create a SaaS homepage with a hero, feature sections, customer proof, and a clear inviting tone.",
+        analyticsDashboard:
+          "Design an analytics dashboard with KPI cards, a trend chart, an activity table, and a calm data-led tone.",
+        habitApp:
+          "Build a mobile habit app home screen with daily goals, progress rings, reminders, and a friendly encouraging tone.",
+        onlineStore:
+          "Create an online store homepage with featured products, category cards, customer reviews, and a warm polished tone.",
+        creativePortfolio:
+          "Design a creative portfolio page with a short intro, project grid, about section, and an expressive editorial tone.",
+        bookingPage:
+          "Build a service booking page with an availability calendar, service cards, review snippets, and a clear trustworthy tone.",
+        adminDashboard:
+          "Create an admin dashboard with side navigation, summary cards, recent activity, and a restrained practical tone.",
+        communityEvent:
+          "Design a community event page with an event schedule, venue details, speakers, and a welcoming celebratory tone.",
+      },
+    },
+    nextStepBar: {
+      ariaLabel: "Next steps",
+      refineWithPrompt: "Refine with a prompt",
+      export: "Export",
+      shareLink: "Share link",
+      dismiss: "Dismiss",
+    },
     import: "Import",
-    importOptions: "Import options",
-    figmaLink: "Figma link",
     importFromFigma: "Import from Figma",
     figmaFile: "Figma file (.fig)",
-    figmaFileMaxSize: "Up to {{max}} GB",
     openImport: "Open import",
     importSelectedFile: "Import selected file",
     starterSaasPrompt:
@@ -2631,6 +2856,89 @@ export default {
     paginationPrevious: "Previous",
     paginationNext: "Next",
     paginationPage: "Page {{page}} of {{totalPages}}",
+
+    suggestionLabels: {
+      product: {
+        analyticsDashboard: "Product Analytics Dashboard",
+        roadmapWorkspace: "Roadmap Workspace",
+        onboardingFlow: "Budgeting App Onboarding Flow",
+        featureComparison: "SaaS Feature Comparison Page",
+        feedbackPortal: "Customer Feedback Portal",
+        releaseNotes: "Release Notes Hub",
+        projectWorkspace: "Product Team Workspace",
+        launchWaitlist: "Product Launch Waitlist Page",
+      },
+      design: {
+        portfolioHome: "Designer Portfolio Homepage",
+        designSystem: "Design System Reference Page",
+        bankingApp: "Mobile Banking App Home",
+        travelBooking: "Travel Booking Search Screen",
+        coffeeShop: "Coffee Shop Storefront",
+        musicFestival: "Music Festival Event Page",
+        accessibilityAudit: "Accessibility Audit Dashboard",
+        artBook: "Art Book Editorial Page",
+      },
+      developer: {
+        apiDocs: "API Docs Portal",
+        deploymentDashboard: "Deployment Dashboard",
+        componentPlayground: "Component Playground",
+        databaseConsole: "Database Console",
+        issueTriage: "Issue Triage Board",
+        authSettings: "Auth Settings Page",
+        workflowBuilder: "CI Workflow Builder",
+        developerPortfolio: "Developer Portfolio",
+      },
+      marketing: {
+        campaignLanding: "Campaign Landing Page",
+        emailBuilder: "Email Campaign Editor",
+        socialCalendar: "Social Content Calendar",
+        brandCampaign: "Brand Campaign Page",
+        webinarRegistration: "Webinar Registration Page",
+        seoBrief: "SEO Content Brief",
+        launchMetrics: "Launch Metrics Dashboard",
+        newsletterSignup: "Newsletter Signup Page",
+      },
+      sales: {
+        leadWorkspace: "Sales Lead Workspace",
+        accountBrief: "Account Research Brief",
+        productDemo: "Product Demo Page",
+        proposalBuilder: "Proposal Builder",
+        pipelineDashboard: "Pipeline Dashboard",
+        meetingBooking: "Meeting Booking Page",
+        customerStory: "Customer Story Page",
+        accountHandoff: "Account Handoff Workspace",
+      },
+      ops: {
+        inventoryDashboard: "Inventory Dashboard",
+        staffScheduler: "Staff Scheduler",
+        vendorPortal: "Vendor Onboarding Portal",
+        incidentResponse: "Incident Response Screen",
+        expenseApprovals: "Expense Approval Queue",
+        warehouseReceiving: "Warehouse Receiving App Screen",
+        automationControl: "Workflow Control Panel",
+        helpdeskQueue: "Internal Helpdesk Queue",
+      },
+      individual: {
+        personalPortfolio: "Personal Portfolio",
+        mealPlanner: "Meal Planning App Screen",
+        homeBudget: "Home Budget Dashboard",
+        tripPlanner: "Trip Planner",
+        readingJournal: "Reading Journal",
+        invoiceTracker: "Freelance Invoice Tracker",
+        habitTracker: "Habit Tracker App",
+        neighborhoodEvents: "Neighborhood Events Page",
+      },
+      general: {
+        saasHomepage: "SaaS Homepage",
+        analyticsDashboard: "Analytics Dashboard",
+        habitApp: "Mobile Habit App Home",
+        onlineStore: "Online Store Homepage",
+        creativePortfolio: "Creative Portfolio Page",
+        bookingPage: "Service Booking Page",
+        adminDashboard: "Admin Dashboard",
+        communityEvent: "Community Event Page",
+      },
+    },
   },
   visualEdit: {
     eyebrow: "Visual edit",
@@ -3000,6 +3308,7 @@ export default {
     updateFailed: "Could not update the comment",
     commentsInCluster: "Comments in cluster: {{count}}",
     moreActions: "More actions",
+    moreActionsFor: "More actions for {{author}}",
     copyLink: "Copy link",
     linkCopied: "Link copied",
     copyLinkFailed: "Could not copy link",
@@ -3019,6 +3328,7 @@ export default {
     addEmoji: "Add emoji",
     mention: "Mention someone",
     noMentions: "No people found",
+    mentionsFailed: "Couldn't load people",
     reopen: "Reopen",
     reopening: "Reopening…",
     undo: "Undo",
@@ -3047,6 +3357,70 @@ export default {
     searching: "Searching…",
     reactionFailed: "Could not update the reaction",
     moveFailed: "Could not move the comment",
+    threadTitle: "Comment",
+    agentBadge: "Agent",
+    closeThread: "Close thread",
+    deleteThread: "Delete thread",
+    deleteThreadTitle: "Delete thread?",
+    deleteThreadDescription: "This removes the thread from the review.",
+    pin: {
+      thread_one: "Thread by {{authors}}, {{count}} comment",
+      thread_other: "Thread by {{authors}}, {{count}} comments",
+      authorsOther_one: "{{count}} other",
+      authorsOther_other: "{{count}} others",
+      unread: "unread",
+      resolved: "resolved",
+      draft: "Draft comment",
+    },
+    reaction: {
+      label_one: "{{emoji}}, {{count}} reaction",
+      label_other: "{{emoji}}, {{count}} reactions",
+      labelMine_one: "{{emoji}}, {{count}} reaction, including you",
+      labelMine_other: "{{emoji}}, {{count}} reactions, including you",
+    },
+    filtersActive: "Filters applied",
+    suggestChanges: "Suggest changes",
+    applyChangesAndResolve: "Apply changes and resolve",
+    agent: {
+      sectionLabel: "Agents",
+      queued: "{{agent}} is queued",
+      working: "{{agent}} is working…",
+      replied: "{{agent}} replied",
+      suggested: "{{agent}} suggested changes",
+      applied: "{{agent}} applied changes and resolved",
+      needsInput: "{{agent}} needs your input",
+      failed: "{{agent}} couldn’t finish",
+      cancelled: "Stopped",
+      cancel: "Cancel",
+      openChat: "Open chat",
+      retry: "Try again",
+      fallbackName: "AI",
+      setupRequired: "Connect an AI model to use agents",
+      startFailed: "Could not start the agent",
+      cancelFailed: "Could not stop the agent",
+      busy: "An agent is already working on this thread",
+      error: {
+        engineNotConfigured: "No AI model is connected",
+        noResult: "The agent finished without answering",
+        timeout: "The agent did not respond in time",
+        permission: "You no longer have edit access",
+        threadUnavailable: "This thread is no longer open",
+        targetChanged: "The design changed while the agent worked",
+        applyUnavailable: "An agent can’t edit this screen",
+        applyIncomplete:
+          "The design was edited but the thread wasn’t resolved. Review the change.",
+        cancelledAfterEdit:
+          "Stopped after the design was edited. Review the change.",
+        generic: "Something went wrong",
+      },
+    },
+    newThread: "New thread",
+    threadsCount_one: "{{count}} thread",
+    threadsCount_other: "{{count}} threads",
+    boardGroup: "Board",
+    send: "Send",
+    pinLabel_one: "Comment thread with {{count}} comment",
+    pinLabel_other: "Comment thread with {{count}} comments",
     status: {
       draft: "Draft",
       in_review: "In review",

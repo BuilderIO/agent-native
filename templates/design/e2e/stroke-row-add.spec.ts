@@ -31,7 +31,10 @@ async function select(app: App, nodeId: Rectangle) {
     box.x + box.width / 2,
     box.y + box.height / 2,
   );
+  // Cmd+click reaches a nested layer; a plain click takes the top-level one.
+  await app.page.keyboard.down("ControlOrMeta");
   await app.page.mouse.click(point.x, point.y);
+  await app.page.keyboard.up("ControlOrMeta");
   await expect.poll(() => app.selectedLayers()).toEqual([NAMES[nodeId]]);
 }
 

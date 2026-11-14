@@ -7,6 +7,21 @@ import { and, eq, inArray, or } from "drizzle-orm";
 
 import { getDb, schema } from "../db/index.js";
 
+const filesTitle = (title: string) => title.trim() || "Untitled";
+
+/**
+ * The title `propagateDocumentTitle` leaves on the page that backs
+ * `database`: the page of a Files space is never blank.
+ */
+export function propagatedPageTitle(
+  title: string,
+  database: { systemRole: string | null; spaceId: string | null } | undefined,
+): string {
+  return database?.systemRole === "files" && database.spaceId
+    ? filesTitle(title)
+    : title;
+}
+
 export async function propagateDocumentTitle(args: {
   db: ReturnType<typeof getDb>;
   documentId: string;
@@ -49,9 +64,7 @@ export async function propagateDocumentTitle(args: {
   if (!database) return;
 
   const title =
-    database.systemRole === "files"
-      ? args.title.trim() || "Untitled"
-      : args.title;
+    database.systemRole === "files" ? filesTitle(args.title) : args.title;
   await args.db
     .update(schema.contentDatabases)
     .set({ title, updatedAt: args.updatedAt })

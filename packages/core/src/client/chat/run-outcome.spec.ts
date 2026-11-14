@@ -14,6 +14,9 @@ import {
   decideAfterStreamClosed,
   runOutcomeForCode,
   runOutcomeOfEvents,
+  transition,
+  type RunPhase,
+  type RunPhaseEvent,
   type RunAuthorityRead,
   type ServerRunState,
   type StreamClosedContext,
@@ -36,11 +39,117 @@ const read = (state: ServerRunState): RunAuthorityRead => ({
 
 const DRAINED = { runId: "run-1", attempts: 1, readToEnd: true };
 
+describe("run lifecycle transitions", () => {
+  const error = { code: "stale_run", message: "interrupted" };
+  const cases: { name: string; events: RunPhaseEvent[]; expected: RunPhase }[] =
+    [
+      {
+        name: "closed stream and successor",
+        events: [
+          { type: "streamEnded" },
+          { type: "streamOpened" },
+          { type: "terminal" },
+        ],
+        expected: { type: "terminal" },
+      },
+      {
+        name: "failed stream and retry",
+        events: [{ type: "streamFailed" }, { type: "streamOpened" }],
+        expected: { type: "streaming" },
+      },
+      {
+        name: "held interruption and successor",
+        events: [
+          { type: "interrupted", error },
+          { type: "followSuccessor" },
+          { type: "streamOpened" },
+        ],
+        expected: { type: "streaming" },
+      },
+      {
+        name: "held interruption without successor",
+        events: [{ type: "interrupted", error }, { type: "terminal" }],
+        expected: { type: "terminal" },
+      },
+      {
+        name: "connection continuation",
+        events: [
+          { type: "awaitContinuation", streamClosed: true },
+          { type: "continuationResumed" },
+        ],
+        expected: { type: "streaming" },
+      },
+      {
+        name: "failed cancel restores interruption",
+        events: [
+          { type: "interrupted", error },
+          { type: "cancelStarted" },
+          { type: "cancelFailed" },
+        ],
+        expected: { type: "holdingInterruption", error },
+      },
+      {
+        name: "failed cancel restores pause",
+        events: [
+          { type: "awaitContinuation", streamClosed: false },
+          { type: "cancelStarted" },
+          { type: "cancelFailed" },
+        ],
+        expected: { type: "awaitingContinuation", streamClosed: false },
+      },
+      {
+        name: "competing terminal does not release a pending cancellation",
+        events: [{ type: "cancelStarted" }, { type: "terminal" }],
+        expected: { type: "cancelling", previous: { type: "streaming" } },
+      },
+      {
+        name: "failed cancel restores the previous phase after a competing terminal",
+        events: [
+          { type: "cancelStarted" },
+          { type: "terminal" },
+          { type: "cancelFailed" },
+        ],
+        expected: { type: "streaming" },
+      },
+      {
+        name: "successful cancel becomes terminal",
+        events: [{ type: "cancelStarted" }, { type: "cancelSucceeded" }],
+        expected: { type: "terminal" },
+      },
+      {
+        name: "dispose wins over late cancellation",
+        events: [
+          { type: "cancelStarted" },
+          { type: "dispose" },
+          { type: "cancelFailed" },
+          { type: "streamOpened" },
+          { type: "terminal" },
+        ],
+        expected: { type: "disposed" },
+      },
+      {
+        name: "terminal ignores late continuation",
+        events: [
+          { type: "terminal" },
+          { type: "awaitContinuation", streamClosed: true },
+          { type: "continuationResumed" },
+        ],
+        expected: { type: "terminal" },
+      },
+    ];
+  it.each(cases)("$name", ({ events, expected }) => {
+    expect(events.reduce<RunPhase>(transition, { type: "streaming" })).toEqual(
+      expected,
+    );
+  });
+});
+
 describe("run outcome codes", () => {
   it("maps every legacy 'the agent stopped' code into the closed outcome set", () => {
     // The incident codes users reported as one state: "the agent stopped / is
     // stuck". Each must stay mapped; a code the table forgets is a type error.
     const reported = [
+      "agent_run_stream_ended",
       "stream_ended",
       "action_not_started",
       "background_run_lost",
@@ -71,6 +180,10 @@ describe("run outcome codes", () => {
     expect(runOutcomeForCode("run_subscription_poll_failed")).toBe(
       "unverified",
     );
+  });
+
+  it("classifies a server-confirmed stream cut as interrupted", () => {
+    expect(runOutcomeForCode("agent_run_stream_ended")).toBe("interrupted");
   });
 
   it("reports an unmapped code as a real failure, never a success", () => {

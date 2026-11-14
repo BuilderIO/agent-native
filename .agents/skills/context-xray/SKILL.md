@@ -25,6 +25,7 @@ counts, then lets the user or agent pin, evict, or restore individual segments.
 | `context-evict` | Exclude a stale or irrelevant segment from future model calls. Eviction is reversible and never deletes chat history. |
 | `context-restore` | Undo a pin, evict, or summarize directive for a segment. |
 | `context-report` | External hosts can report their visible context inventory. These manifests are advisory unless Agent-Native owns the emitted content. |
+| `context-compact` | Compact the thread now: fold every not-yet-compacted message into observational memory instead of waiting for the post-turn threshold. Takes effect on the next model call; the transcript is unchanged. |
 
 ## System Sections
 

@@ -12,6 +12,7 @@ import {
   findPendingCommentPosition,
   findThreadPosition,
   getAiCommentSource,
+  highlightedQuote,
   layoutCommentThreads,
   scrollToCommentAnchor,
 } from "./CommentsSidebar";
@@ -48,19 +49,21 @@ describe("comments sidebar layout", () => {
       source.indexOf("const historyThreads ="),
       source.indexOf("const pendingFocus ="),
     );
-    expect(
-      history.indexOf('if (historyKind === "suggestions") return [];'),
-    ).toBeLessThan(
-      history.indexOf("if (selectedThreadId === thread.threadId) return true;"),
+    // The selected thread passes every filter, Type included.
+    const selected = history.indexOf("thread.threadId === selectedThreadId ||");
+    const kind = history.indexOf(
+      'if (historyKind === "suggestions") return false;',
     );
-    expect(
-      history.indexOf("if (selectedThreadId === thread.threadId) return true;"),
-    ).toBeLessThan(
+    expect(selected).toBeGreaterThan(-1);
+    expect(selected).toBeLessThan(kind);
+    expect(kind).toBeLessThan(
       history.indexOf('if (historyStatus === "open" && thread.resolved)'),
     );
-    expect(history).toMatch(/threads,\s+selectedThreadId,?\s*\]/);
+    expect(history).toMatch(
+      /threads,\s+selectedThreadId,\s+postedThreadIds,?\s*\]/,
+    );
     expect(source).toContain(
-      '(presentation === "inline" &&\n            (thread.threadId === selectedThreadId ||',
+      '(presentation === "inline" &&\n              (thread.threadId === selectedThreadId ||',
     );
     const resolve = source.slice(
       source.indexOf("const handleResolve ="),
@@ -111,7 +114,9 @@ describe("comments sidebar layout", () => {
       "utf8",
     );
     expect(source).toContain("replyDrafts.revealHistory(");
-    expect(source).toContain("setRevealedStatus({ documentId, accountKey })");
+    expect(source).toContain(
+      "setRevealed({ documentId, accountKey, status: true, filters: true })",
+    );
     expect(source).toContain("Number(right.id === activeConflictId)");
   });
   it("lays out mixed suggestion and comment identities in one collision flow", () => {
@@ -200,6 +205,54 @@ describe("comments sidebar layout", () => {
       documentTop: 116,
       layoutTop: 76,
     });
+  });
+
+  it("measures a highlight from its start, and flags the rest as partial", () => {
+    document.body.innerHTML =
+      '<div id="scroll"><div data-document-scroll-content><span id="hidden" data-comment-thread="thread-1">old</span><span id="shown" data-comment-thread="thread-1">new</span></div></div><div id="rail"></div>';
+    const scroll = document.getElementById("scroll") as HTMLElement;
+    const content = scroll.querySelector(
+      "[data-document-scroll-content]",
+    ) as HTMLElement;
+    const rail = document.getElementById("rail") as HTMLElement;
+    const hidden = document.getElementById("hidden") as HTMLElement;
+    const shown = document.getElementById("shown") as HTMLElement;
+    const nowhere = () => [] as unknown as DOMRectList;
+    content.getBoundingClientRect = () => rect(40) as DOMRect;
+    rail.getBoundingClientRect = () => rect(80) as DOMRect;
+    hidden.getBoundingClientRect = () => rect(0) as DOMRect;
+    hidden.getClientRects = nowhere;
+    shown.getBoundingClientRect = () => rect(156) as DOMRect;
+
+    expect(findThreadPosition("thread-1", null, scroll, rail)).toEqual({
+      documentTop: 116,
+      layoutTop: 76,
+      partial: true,
+    });
+    hidden.getClientRects = () => [rect(0)] as unknown as DOMRectList;
+    expect(findThreadPosition("thread-1", null, scroll, rail)).toEqual({
+      documentTop: -40,
+      layoutTop: -80,
+    });
+    hidden.getClientRects = nowhere;
+    // While an accepted edit settles, all of its text can be hidden at once.
+    shown.getClientRects = nowhere;
+    expect(findThreadPosition("thread-1", null, scroll, rail)).toBe(
+      "unrendered",
+    );
+  });
+
+  it("reads a quote across blocks with a space where its highlight crosses", () => {
+    document.body.innerHTML =
+      '<div class="ProseMirror"><p>Alpha <span data-comment-thread="t">ends <strong>here.</strong></span></p><ul><li><p><span data-comment-thread="t">Bravo</span> starts</p></li></ul></div>';
+    const marked = document.querySelectorAll('[data-comment-thread="t"]');
+
+    expect(highlightedQuote(marked, "ends here.Bravo")).toBe(
+      "ends here. Bravo",
+    );
+    // One block reads as stored, and text edited since no longer matches.
+    expect(highlightedQuote([marked[0]!], "ends here.")).toBeNull();
+    expect(highlightedQuote(marked, "ends there.Bravo")).toBeNull();
   });
 
   it("positions pending comments from the pending highlight rect", () => {
@@ -354,7 +407,9 @@ describe("comments sidebar layout", () => {
     const globalStyles = readFileSync("app/global.css", { encoding: "utf8" });
 
     expect(source).not.toContain('container.addEventListener("scroll"');
-    expect(source.match(/scrollIntoView/g)).toHaveLength(1);
+    // The second brings an opened comment stack's selected card into view;
+    // CommentsSidebar.stacks.test.tsx covers it.
+    expect(source.match(/scrollIntoView/g)).toHaveLength(2);
     expect(source).toMatch(
       /if \(!focusRequested\) return;[\s\S]*?requestAnimationFrame[\s\S]*?target\.scrollIntoView/,
     );
@@ -493,16 +548,18 @@ describe("comments sidebar layout", () => {
       encoding: "utf8",
     });
 
-    expect(source.match(/t\("comments.filter"\)/g)).toHaveLength(1);
-    expect(source).toContain("DropdownMenuCheckboxItem");
+    // The filter button lives in the Discussion toolbar; the rendered panel
+    // tests in CommentsSidebar.discussion.test.tsx cover it.
+    expect(source).toContain("<DiscussionToolbar");
+    expect(source).not.toContain('t("comments.filter")');
     expect(source).toContain('"all" | "comments" | "suggestions"');
-    expect(source).toContain('historyKind === "comments"');
+    expect(source).toContain('historyKind !== "comments"');
     expect(source).toContain('historyKind === "suggestions"');
     expect(source).toContain('t("comments.typeFilter")');
     expect(source).not.toContain("aria-pressed={historyKind === kind}");
     expect(source).toContain('t("comments.statusFilter")');
     expect(source).toContain('t("comments.authorFilter")');
-    expect(source).toContain("event.preventDefault()");
+    expect(source).toContain('t("comments.targetFilter")');
     expect(source).toContain('["open", "resolved", "all"] as const');
     expect(source).toContain("historySuggestions.map((suggestion)");
     expect(source).toContain("renderSuggestionCard(thread.suggestion)");
@@ -529,7 +586,8 @@ describe("comments sidebar layout", () => {
     });
 
     expect(source).toContain('suggestion.status === "pending"');
-    expect(source).toContain("!anchoredSuggestionIds?.includes(suggestion.id)");
+    expect(source).toContain("anchoredSuggestionIds?.includes(member.id)");
+    expect(source).toContain("anchored.length === 0");
     expect(source).toContain('t("comments.unanchored")');
   });
 
@@ -538,10 +596,9 @@ describe("comments sidebar layout", () => {
       encoding: "utf8",
     });
 
-    expect(source).toContain('target?.closest("[data-comment-thread]")');
-    expect(source).toContain("onPointerOverCapture");
-    expect(source).toContain("onPointerOutCapture");
-    expect(source).toContain("setHoveredThreadId(threadId)");
+    expect(source).toContain("commentThreadAt(");
+    // oracle-change: the pointer lookup and hover capture moved into commentThreadAt and commentThreadHoverHandlers, whose behaviour comment-block-anchors.test.ts covers
+    expect(source).toContain("commentThreadHoverHandlers(");
     expect(source).toContain("activateCommentThread(threadId)");
     expect(source).toContain("data-comments-flow-lane");
     expect(source).toContain("commentLaneRef");
@@ -558,21 +615,14 @@ describe("comments sidebar layout", () => {
     expect(source).toContain(
       "const mutationObserver = new MutationObserver(update)",
     );
-    expect(source).toContain('className="pointer-events-none absolute z-30"');
+    // Its own layer keeps Safari from painting the sticky tab row across it.
+    expect(source).toContain(
+      'className="pointer-events-none absolute z-30 [transform:translateZ(0)]"',
+    );
     expect(source).toContain("data-comments-anchored-popover");
     expect(source).toContain(
       "const commentSurfaces = shellCommentSurfaces ?? measuredCommentSurfaces;",
-    );
-    expect(source).toMatch(
-      /const showUtilityPanelOffColumn = documentEditorShowsUtilityPanelSheet\(\{\s+utilityPanel,\s+commentsHistoryDrawerOpen: showCommentsHistoryDrawer,\s+hasUtilityRailSpace,\s+hasInlineCommentSpace,\s+selectedSuggestionId,/,
-    );
-    expect(source).toContain(
-      `showUtilityPanelOffColumn &&
-    (commentSurfaces.list === "sheet" ||
-      (utilityPanel === "comments" && shellLayout?.agentPanel === "overlay"))`,
-    );
-    expect(source).toContain(
-      'showUtilityPanelOffColumn && commentSurfaces.list === "region-list"',
+      // oracle-change: the shell's comment surfaces and rail hold are gone with the one page panel.
     );
     expect(source).not.toContain("CONTENT_COMMENTS_UI_CLEANUP_FLAG");
   });
@@ -602,7 +652,7 @@ describe("comments sidebar layout", () => {
     expect(submit).toContain("ambiguousCreate()");
     expect(submit).toContain("const id = pendingComment.id;");
     expect(submit).toMatch(
-      /onPendingChange\(id, \(\) => \(\{ submitting: true \}\)\)[\s\S]*?const result = await createComment\.mutateAsync\([\s\S]*?onPendingDone\(id, result\.threadId\);[\s\S]*?catch \(error\)/,
+      /onPendingChange\(id, \(\) => \(\{ submitting: true \}\)\)[\s\S]*?const result = [\s\S]*?await createComment\.mutateAsync\([\s\S]*?onPendingDone\(id, result\.threadId\);[\s\S]*?catch \(error\)/,
     );
     expect(failure).toContain(
       "onPendingChange(id, () => ({ submitting: false }));",
@@ -626,7 +676,7 @@ describe("comments sidebar layout", () => {
       encoding: "utf8",
     });
     expect(source).toContain(
-      'if (presentation !== "history") onActivateSuggestion?.(suggestion.id)',
+      'if (presentation !== "history") onActivateSuggestion?.(activated.id)',
     );
   });
 
