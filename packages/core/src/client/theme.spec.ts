@@ -305,15 +305,8 @@ describe("getThemeInitScript", () => {
   });
 
   it("keeps Vite dev recovery deterministic in browsers without process", () => {
-    // A browser has no `process`; the recovery decision must not depend on it.
-    // The stub is an object without `env` rather than a full removal, because
-    // Vitest implements `import.meta.env` on top of `process` — stubbing it to
-    // undefined makes every `import.meta.env` read throw, which is a harness
-    // artifact and not the behaviour under test (measured 11/6: a bare
-    // `import.meta.env.DEV` read fails the same way). The assertion is unchanged:
-    // in a dev build the recovery script is still inline.
     const originalProcess = globalThis.process;
-    vi.stubGlobal("process", { env: { ...process.env } });
+    vi.stubGlobal("process", undefined);
 
     try {
       expect(getThemeInitScript()).toContain("__an_optimize_reload");
