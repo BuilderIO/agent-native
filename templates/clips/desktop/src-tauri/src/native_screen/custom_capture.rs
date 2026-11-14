@@ -897,6 +897,7 @@ struct CustomScreenCaptureOutputHandler {
     recording_enabled: Arc<AtomicBool>,
     mic_ready: Option<Arc<AtomicBool>>,
     audio_level_tick: Arc<AtomicU32>,
+    mic_meter_gain: Arc<AtomicU32>,
     watch: Arc<CaptureWatch>,
 }
 
@@ -1162,6 +1163,7 @@ impl CustomScreenCaptureOutputHandler {
             recording_enabled: Arc::clone(&self.recording_enabled),
             mic_ready: self.mic_ready.clone(),
             audio_level_tick: Arc::clone(&self.audio_level_tick),
+            mic_meter_gain: Arc::clone(&self.mic_meter_gain),
             watch: Arc::clone(&self.watch),
         }
     }
@@ -1182,16 +1184,16 @@ impl CustomScreenCaptureOutputHandler {
     }
 
     fn emit_microphone_level(&self, samples: &[f32]) {
-        let tick = self.audio_level_tick.fetch_add(1, Ordering::Relaxed);
-        if tick % 3 != 0 || samples.is_empty() {
+        if samples.is_empty() {
             return;
         }
-        let level = samples
-            .iter()
-            .copied()
-            .map(f32::abs)
-            .fold(0.0_f32, f32::max)
-            .min(1.0);
+        // Track the gain on every buffer, so it follows the voice even on the
+        // buffers that are not sent.
+        let level = metered_mic_level(samples, &self.mic_meter_gain);
+        let tick = self.audio_level_tick.fetch_add(1, Ordering::Relaxed);
+        if tick % 3 != 0 {
+            return;
+        }
         let _ = self.app.emit(
             "voice:audio-level",
             serde_json::json!({ "level": level, "source": "mic" }),
@@ -2176,6 +2178,42 @@ fn one_pole_coefficient(tau_seconds: f32, sample_rate: i32) -> f32 {
         return 1.0;
     }
     -(-1.0 / (tau_seconds * sample_rate as f32)).exp_m1()
+}
+
+/// The mic level the recording bar shows. A quiet mic is boosted up to
+/// `MIC_AGC_MAX_GAIN` in the recording (see `MicAutoGain`), so the meter
+/// applies a matching gain: otherwise a mic that records fine looks silent
+/// and the bar warns "No mic sound". Digital silence stays at zero.
+pub(crate) fn next_meter_gain(gain: f32, rms: f32) -> f32 {
+    if !gain.is_finite() || gain < MIC_AGC_MIN_GAIN {
+        return MIC_AGC_MIN_GAIN;
+    }
+    if rms < MIC_AGC_NOISE_FLOOR_RMS {
+        return gain;
+    }
+    let target = (MIC_AGC_TARGET_RMS / rms).clamp(MIC_AGC_MIN_GAIN, MIC_AGC_MAX_GAIN);
+    if target < gain {
+        target
+    } else {
+        gain + (target - gain) * 0.1
+    }
+}
+
+/// Peak level of `samples` after the meter gain, which it also updates.
+pub(crate) fn metered_mic_level(samples: &[f32], gain_cell: &AtomicU32) -> f32 {
+    if samples.is_empty() {
+        return 0.0;
+    }
+    let mut peak = 0.0_f32;
+    let mut sum = 0.0_f32;
+    for sample in samples {
+        peak = peak.max(sample.abs());
+        sum += sample * sample;
+    }
+    let rms = (sum / samples.len() as f32).sqrt();
+    let gain = next_meter_gain(f32::from_bits(gain_cell.load(Ordering::Relaxed)), rms);
+    gain_cell.store(gain.to_bits(), Ordering::Relaxed);
+    (peak * gain).min(1.0)
 }
 
 struct MicAutoGain {
@@ -4202,6 +4240,7 @@ pub(crate) fn start_custom_screencapturekit_backend_at(
         recording_enabled: Arc::clone(&recording_enabled),
         mic_ready: mic_ready.clone(),
         audio_level_tick: Arc::new(AtomicU32::new(0)),
+        mic_meter_gain: Arc::new(AtomicU32::new(1.0_f32.to_bits())),
         watch: Arc::clone(&watch),
     };
 
@@ -4720,5 +4759,42 @@ mod fragment_fence_tests {
             &second_system,
             &second_microphone,
         ]);
+    }
+}
+
+#[cfg(test)]
+mod mic_meter_tests {
+    use super::*;
+
+    #[test]
+    fn a_quiet_voice_is_boosted_like_the_recording() {
+        let gain = AtomicU32::new(1.0_f32.to_bits());
+        // A soft mic: speech around rms 0.004, peaks near 0.01, below the
+        // bar's 0.012 "audible" line before any gain.
+        let speech: Vec<f32> = (0..480)
+            .map(|i| if i % 2 == 0 { 0.004 } else { -0.004 })
+            .chain([0.01])
+            .collect();
+        let mut level = 0.0;
+        for _ in 0..60 {
+            level = metered_mic_level(&speech, &gain);
+        }
+        assert!(level >= 0.05, "level {level}");
+        assert!(f32::from_bits(gain.load(Ordering::Relaxed)) <= MIC_AGC_MAX_GAIN);
+    }
+
+    #[test]
+    fn digital_silence_stays_silent() {
+        let gain = AtomicU32::new(1.0_f32.to_bits());
+        let silence = vec![0.0_f32; 480];
+        for _ in 0..60 {
+            assert_eq!(metered_mic_level(&silence, &gain), 0.0);
+        }
+    }
+
+    #[test]
+    fn a_loud_voice_is_not_boosted() {
+        assert_eq!(next_meter_gain(4.0, 0.3), MIC_AGC_MIN_GAIN);
+        assert_eq!(next_meter_gain(f32::NAN, 0.01), MIC_AGC_MIN_GAIN);
     }
 }

@@ -450,12 +450,37 @@
 .record-pill-audio-warning {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
-  width: 18px;
+  gap: 4px;
   height: 18px;
+  padding: 0 7px 0 3px;
   border-radius: 999px;
   background: var(--status-warn);
   color: var(--pill-chrome);
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.record-pill-audio-warning__icon {
+  display: inline-flex;
+}
+
+/* The meter slot is a fixed 18px; a warning needs room for its words. */
+.recording-playhead__meter-wrap:has(.record-pill-audio-warning) {
+  width: auto;
+}
+
+/* The vertical bar is too narrow for words: keep only the icon there. */
+.recording-playhead[data-orientation="vertical"] .record-pill-audio-warning {
+  width: 18px;
+  padding: 0;
+  justify-content: center;
+}
+
+.recording-playhead[data-orientation="vertical"]
+  .record-pill-audio-warning__text {
+  display: none;
 }
 
 .record-pill-card-in {

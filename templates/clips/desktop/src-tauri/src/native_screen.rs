@@ -4823,6 +4823,7 @@ pub(crate) fn start_screencapturekit_backend_at(
         let app_cb = app.clone();
         let level_tick = Arc::new(AtomicU32::new(0));
         let level_tick_cb = Arc::clone(&level_tick);
+        let meter_gain = AtomicU32::new(1.0_f32.to_bits());
         stream.add_output_handler(
             move |sample, of_type| {
                 if matches!(of_type, SCStreamOutputType::Microphone) {
@@ -4831,12 +4832,8 @@ pub(crate) fn start_screencapturekit_backend_at(
                     let tick = level_tick_cb.fetch_add(1, Ordering::Relaxed);
                     if tick % 3 == 0 {
                         if let Some(samples) = extract_mono_audio(&sample, "recording-mic") {
-                            let level = samples
-                                .iter()
-                                .copied()
-                                .map(f32::abs)
-                                .fold(0.0_f32, f32::max)
-                                .min(1.0);
+                            let level =
+                                custom_capture::metered_mic_level(&samples, &meter_gain);
                             let _ = app_cb.emit(
                                 "voice:audio-level",
                                 RecorderAudioLevelPayload {
