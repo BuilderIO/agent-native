@@ -1372,8 +1372,9 @@ async function buildPage(
     },
     "apply",
   );
-  // Only images this sync stored bind to the page: a link the file itself
-  // spells out to some other private image never gains readers this way.
+  // Only images this collection's syncs stored, in this run or an earlier
+  // one, bind to the page: a link the file itself spells out to some other
+  // private image never gains readers this way.
   const mediaIds = [
     ...new Set(
       [...urls.values()].flatMap((url) => {
