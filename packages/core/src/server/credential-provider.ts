@@ -276,6 +276,13 @@ const APP_PROVIDED_DEPLOY_CREDENTIAL_KEYS = new Set([
   "SLACK_BOT_TOKEN",
   // Signs events from the deployed Slack app, not the integration owner's identity.
   "SLACK_SIGNING_SECRET",
+  // The bot the app deployed, documented as environment variables.
+  "TELEGRAM_BOT_TOKEN",
+  "TELEGRAM_WEBHOOK_SECRET",
+  "WHATSAPP_ACCESS_TOKEN",
+  "WHATSAPP_PHONE_NUMBER_ID",
+  "MICROSOFT_TEAMS_APP_ID",
+  "MICROSOFT_TEAMS_APP_PASSWORD",
   "RESEND_API_KEY",
   "SENDGRID_API_KEY",
 ]);
