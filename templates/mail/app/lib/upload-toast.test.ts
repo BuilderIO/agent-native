@@ -2,11 +2,21 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { UploadError } from "./upload";
-import { toastStorageSetupFailure, toastUploadFailure } from "./upload-toast";
+import {
+  reportImageUploadFailure,
+  toastStorageSetupFailure,
+  toastUploadFailure,
+} from "./upload-toast";
 
-const mocks = vi.hoisted(() => ({ error: vi.fn() }));
+const mocks = vi.hoisted(() => ({
+  error: vi.fn(),
+  reportWriteFailure: vi.fn(),
+}));
 
 vi.mock("sonner", () => ({ toast: { error: mocks.error } }));
+vi.mock("@agent-native/core/client/write-failure", () => ({
+  reportWriteFailure: mocks.reportWriteFailure,
+}));
 
 const labels = {
   builderRefused: "Builder.io refused the connection (translated).",
@@ -205,5 +215,37 @@ describe("toastStorageSetupFailure", () => {
       ),
     ).toBe(false);
     expect(mocks.error).not.toHaveBeenCalled();
+  });
+});
+
+describe("reportImageUploadFailure", () => {
+  afterEach(() => {
+    mocks.error.mockReset();
+    mocks.reportWriteFailure.mockReset();
+  });
+
+  it("gives a member who inserts an image the storage fix they can make", () => {
+    reportImageUploadFailure(
+      new UploadError("Server text in English.", "builder-refused"),
+      "Failed to upload image",
+      labels,
+      false,
+    );
+
+    const [message, options] = mocks.error.mock.lastCall ?? [];
+    expect(message).toBe(labels.builderRefusedAskAdmin);
+    expect(options?.action?.label).toBe(labels.reconnectBuilder);
+    expect(mocks.reportWriteFailure).not.toHaveBeenCalled();
+  });
+
+  it("reports any other failure under the image label", () => {
+    const error = new TypeError("Failed to fetch");
+
+    reportImageUploadFailure(error, "Failed to upload image", labels, false);
+
+    expect(mocks.error).not.toHaveBeenCalled();
+    expect(mocks.reportWriteFailure).toHaveBeenCalledWith(error, {
+      label: "Failed to upload image",
+    });
   });
 });

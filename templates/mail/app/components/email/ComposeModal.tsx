@@ -60,11 +60,12 @@ import {
 import { useSettings } from "@/hooks/use-emails";
 import { useIsMobile } from "@/hooks/use-mobile";
 import { useScheduleEmail } from "@/hooks/use-scheduled-jobs";
+import { useStorageSetupLabels } from "@/hooks/use-storage-setup-labels";
 import { canUseAgentGenerate } from "@/lib/agent-generate";
 import { expandAliasTokens } from "@/lib/alias-utils";
 import { openFilePicker, uploadFile, uploadFiles } from "@/lib/upload";
 import {
-  toastStorageSetupFailure,
+  reportImageUploadFailure,
   toastUploadFailure,
 } from "@/lib/upload-toast";
 import { cn } from "@/lib/utils";
@@ -246,6 +247,7 @@ export function ComposeModal({
 }: ComposeModalProps) {
   const t = useT();
   const canManageStorage = useCanManageStorage();
+  const storageSetupLabels = useStorageSetupLabels();
   const formatters = useFormatters();
   const isMobile = useIsMobile();
   const isCard = presentation === "card";
@@ -786,19 +788,6 @@ export function ComposeModal({
     onUpdate(activeId, partial);
   };
 
-  const storageSetupLabels = {
-    builderRefused: t("mail.toasts.storageBuilderRefused"),
-    storageRefused: t("mail.toasts.storageRefused"),
-    storageNotConfigured: t("mail.toasts.storageNotConfigured"),
-    openStorageSettings: t("mail.toasts.openStorageSettings"),
-    reconnectBuilder: t("mail.toasts.reconnectBuilderStorage"),
-    useOwnStorage: t("mail.toasts.useOwnStorage"),
-    builderRefusedAskAdmin: t("mail.toasts.storageBuilderRefusedAskAdmin"),
-    storageRefusedAskAdmin: t("mail.toasts.storageRefusedAskAdmin"),
-    storageNotConfiguredAskAdmin: t("mail.toasts.storageNotConfiguredAskAdmin"),
-    connectBuilder: t("mail.toasts.connectBuilderStorage"),
-  };
-
   const handleAttachFiles = async (files: File[]) => {
     if (!activeId || !activeDraft || files.length === 0) return;
     try {
@@ -820,13 +809,12 @@ export function ComposeModal({
       const result = await uploadFile(file);
       return result.url;
     } catch (err) {
-      if (
-        !toastStorageSetupFailure(err, storageSetupLabels, canManageStorage)
-      ) {
-        reportWriteFailure(err, {
-          label: t("mail.toasts.failedToUploadImage"),
-        });
-      }
+      reportImageUploadFailure(
+        err,
+        t("mail.toasts.failedToUploadImage"),
+        storageSetupLabels,
+        canManageStorage,
+      );
       throw err;
     }
   };

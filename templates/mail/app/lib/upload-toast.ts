@@ -1,5 +1,6 @@
 import { appPath } from "@agent-native/core/client/api-path";
 import { buildSettingsRoute } from "@agent-native/core/client/navigation";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { toast } from "sonner";
 
 import { UploadError } from "./upload";
@@ -108,4 +109,19 @@ export function toastUploadFailure(
 ): void {
   if (toastStorageSetupFailure(error, labels, canManageStorage)) return;
   toast.error(error instanceof Error ? error.message : fallback);
+}
+
+/**
+ * Shows why an image upload failed, in the composer or a signature: a storage
+ * setup failure gets the fix the viewer can make, and anything else is
+ * reported under `label`.
+ */
+export function reportImageUploadFailure(
+  error: unknown,
+  label: string,
+  labels: StorageSetupLabels,
+  canManageStorage: boolean,
+): void {
+  if (toastStorageSetupFailure(error, labels, canManageStorage)) return;
+  reportWriteFailure(error, { label });
 }
