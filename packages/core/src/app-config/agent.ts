@@ -3,6 +3,18 @@ import { z } from "zod";
 export const agentConfig = z.object({
   promptSkills: z
     .object({
+      maxEntries: z.number().int().positive().max(500).default(40).meta({
+        doc: "Maximum included entries per bounded prompt skill listing, including supporting files when enabled.",
+      }),
+      maxDescriptionChars: z
+        .number()
+        .int()
+        .positive()
+        .max(1000)
+        .default(180)
+        .meta({
+          doc: "Character limit for normalized prompt skill descriptions before sentence punctuation.",
+        }),
       includeSupportingFiles: z.boolean().default(true).meta({
         doc: "Include supporting files, such as references and scripts, when presenting skills to the agent.",
       }),

@@ -6661,6 +6661,13 @@ function PageEditorSessionBody({
       if (error !== undefined) throw error.error;
     },
   };
+  const flushParticipantMountedRef = useRef(false);
+  useEffect(() => {
+    flushParticipantMountedRef.current = true;
+    return () => {
+      flushParticipantMountedRef.current = false;
+    };
+  }, []);
   const flushParticipantRef = useRef<ReturnType<
     typeof createDocumentFlushParticipant
   > | null>(null);
@@ -6668,6 +6675,7 @@ function PageEditorSessionBody({
     flushParticipantRef.current = createDocumentFlushParticipant({
       documentId: () => currentDocumentRef.current.id,
       identity: () =>
+        !flushParticipantMountedRef.current ||
         collabClientIdRef.current === null
           ? null
           : {

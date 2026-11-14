@@ -166,7 +166,6 @@ export function compactPromptLine(value: string, maxChars: number): string {
 const SHARED_RESOURCE_INDEX_LIMIT = 40;
 const PROMPT_SKILL_SUMMARY_LIMIT = 40;
 const PROMPT_SKILL_READ_BATCH_SIZE = 40;
-const PROMPT_SKILL_MAX_READ_BATCHES = 5;
 const PROMPT_SKILL_READ_BUDGET_MS = 2_000;
 const PROMPT_INSTRUCTION_SUMMARY_LIMIT = 20;
 const PROMPT_SUMMARY_DESCRIPTION_MAX_CHARS = 180;
@@ -444,12 +443,16 @@ function ensureSentence(value: string): string {
 export function buildCompactSkillsSummary(
   skills: ReadonlyArray<{ meta: { name: string; description?: string } }>,
   skillReadTool: string | null,
+  options?: { maxEntries?: number; maxDescriptionChars?: number },
 ): string | null {
   if (skills.length === 0 || !skillReadTool) return null;
-  const listedSkills = skills.slice(0, PROMPT_SKILL_SUMMARY_LIMIT);
+  const listedSkills = skills.slice(
+    0,
+    options?.maxEntries ?? PROMPT_SKILL_SUMMARY_LIMIT,
+  );
   const lines = listedSkills.map((s) => {
     const description = s.meta.description?.trim()
-      ? ` - ${ensureSentence(compactPromptLine(s.meta.description, PROMPT_SUMMARY_DESCRIPTION_MAX_CHARS))}`
+      ? ` - ${ensureSentence(compactPromptLine(s.meta.description, options?.maxDescriptionChars ?? PROMPT_SUMMARY_DESCRIPTION_MAX_CHARS))}`
       : "";
     return `- \`${s.meta.name}\`${description} Read with \`${skillReadTool} --slug "${skillDocsSlug(s.meta.name)}"\` before starting a task it applies to; reuse that page for the rest of the conversation.`;
   });
@@ -786,8 +789,12 @@ class RequiredSkillReadError extends Error {
 
 async function loadResourceSkillPromptEntries(
   owner: string,
-  orgId?: string | null,
-  includeSupportingFiles = true,
+  orgId: string | null | undefined,
+  {
+    includeSupportingFiles,
+    maxEntries,
+    maxDescriptionChars,
+  }: ReturnType<typeof getAppConfig>["agent"]["promptSkills"],
 ): Promise<{
   entries: ResourceSkillPromptEntry[];
   total: number;
@@ -838,11 +845,13 @@ async function loadResourceSkillPromptEntries(
     let metadataRead = 0;
     let hasOmittedSkills = false;
     const deadlineAt = Date.now() + PROMPT_SKILL_READ_BUDGET_MS;
+    const maxReadBatches =
+      Math.ceil(maxEntries / PROMPT_SKILL_READ_BATCH_SIZE) + 4;
     for (
       let batch = 0;
-      batch < PROMPT_SKILL_MAX_READ_BATCHES &&
+      batch < maxReadBatches &&
       metadataRead < sorted.length &&
-      entries.length < PROMPT_SKILL_SUMMARY_LIMIT &&
+      entries.length < maxEntries &&
       (batch === 0 || Date.now() < deadlineAt);
       batch++
     ) {
@@ -902,7 +911,7 @@ async function loadResourceSkillPromptEntries(
         ) {
           continue;
         }
-        if (entries.length >= PROMPT_SKILL_SUMMARY_LIMIT) {
+        if (entries.length >= maxEntries) {
           hasOmittedSkills = true;
           continue;
         }
@@ -910,7 +919,7 @@ async function loadResourceSkillPromptEntries(
         const scope = resourceScopeForOwner(resource.owner, owner);
         const description = compactPromptLine(
           meta.description || "(no description)",
-          PROMPT_SUMMARY_DESCRIPTION_MAX_CHARS,
+          maxDescriptionChars,
         );
         entries.push({ resource, full, name, description, scope });
       }
@@ -930,19 +939,19 @@ async function loadResourceSkillPromptEntries(
 
 async function loadResourceSkillsPromptBlock(
   owner: string,
-  orgId?: string | null,
-  runtimeToolHints = true,
-  includeSupportingFiles = true,
+  orgId: string | null | undefined,
+  runtimeToolHints: boolean,
+  promptSkills: ReturnType<typeof getAppConfig>["agent"]["promptSkills"],
 ): Promise<string | null> {
   const { entries, total, metadataRead, hasOmittedSkills } =
-    await loadResourceSkillPromptEntries(owner, orgId, includeSupportingFiles);
+    await loadResourceSkillPromptEntries(owner, orgId, promptSkills);
   const inspectionLimited = total > metadataRead;
   const inspectionNotice = inspectionLimited
     ? `Skill inspection is incomplete after ${metadataRead} candidate read attempts; uninspected candidates remain.`
     : null;
   if (!runtimeToolHints) {
     const blocks = entries
-      .slice(0, PROMPT_SKILL_SUMMARY_LIMIT)
+      .slice(0, promptSkills.maxEntries)
       .map(({ resource, full, scope }) =>
         promptResourceBlock({
           name: resource.path,
@@ -967,7 +976,7 @@ async function loadResourceSkillsPromptBlock(
     return blocks.join("\n\n") || null;
   }
   const lines = entries
-    .slice(0, PROMPT_SKILL_SUMMARY_LIMIT)
+    .slice(0, promptSkills.maxEntries)
     .map(
       ({ resource, name, description, scope }) =>
         `- \`${name}\` at resource \`${resource.path}\` (${scope}) - ${ensureSentence(description)} ${resourceToolHint(
@@ -1995,7 +2004,8 @@ export async function loadResourcesForPrompt(
     promptPreloadDeadlineAt?: number;
   },
 ): Promise<string> {
-  const { includeSupportingFiles } = getAppConfig().agent.promptSkills;
+  const promptSkills = getAppConfig().agent.promptSkills;
+  const { includeSupportingFiles } = promptSkills;
   const promptPreloadDeadlineAt =
     opts?.promptPreloadDeadlineAt ?? Date.now() + JEV_PRELOAD_BUDGET_MS;
   await ensurePersonalDefaults(owner);
@@ -2069,7 +2079,9 @@ export async function loadResourcesForPrompt(
     });
     addSection(skillsBlock);
   } else if (skillReadTool) {
-    addSection(buildCompactSkillsSummary(runtimeSkills, skillReadTool));
+    addSection(
+      buildCompactSkillsSummary(runtimeSkills, skillReadTool, promptSkills),
+    );
   } else if (!runtimeToolHints) {
     for (const skill of runtimeSkills) {
       addSection(
@@ -2232,7 +2244,7 @@ export async function loadResourcesForPrompt(
     owner,
     orgId,
     runtimeToolHints,
-    includeSupportingFiles,
+    promptSkills,
   );
   addSection(resourceSkillsBlock);
 

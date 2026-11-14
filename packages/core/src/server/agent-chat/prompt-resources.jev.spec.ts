@@ -184,7 +184,219 @@ describe("resource skill reference selection and bounded refill", () => {
     );
   }
 
-  it("filters supporting paths before hydration while preserving flat Markdown skills and invocation-time config", async () => {
+  it.each([1, 3, 60, 240, 500])(
+    "applies a resource ceiling of %i and stops when full",
+    async (maxEntries) => {
+      defineAppConfig({ agent: { promptSkills: { maxEntries } } });
+      const entries = Array.from({ length: maxEntries + 41 }, (_, index) =>
+        candidate(index),
+      );
+      catalog(entries);
+      const prompt = await loadResourcesForPrompt("user@example.test");
+      expect(skillNames(prompt)).toEqual(
+        entries.slice(0, maxEntries).map((entry) => entry.id),
+      );
+      const attempts = Math.ceil(maxEntries / 40) * 40;
+      expect(mocks.resourceGet).toHaveBeenCalledTimes(attempts);
+      expect(prompt).toContain(
+        `incomplete after ${attempts} candidate read attempts`,
+      );
+      expect(prompt.includes("more skills omitted")).toBe(
+        maxEntries % 40 !== 0,
+      );
+    },
+  );
+
+  it.each([
+    [100, 160, 280],
+    [240, 160, 400],
+  ])(
+    "retains refill headroom for target %i after %i exclusions",
+    async (maxEntries, excluded, attempts) => {
+      defineAppConfig({ agent: { promptSkills: { maxEntries } } });
+      const entries = Array.from({ length: attempts }, (_, index) =>
+        candidate(index, index < excluded ? "scope: dev" : ""),
+      );
+      catalog(entries);
+      const prompt = await loadResourcesForPrompt("user@example.test");
+      expect(skillNames(prompt)).toEqual(
+        entries.slice(excluded, excluded + maxEntries).map((entry) => entry.id),
+      );
+      expect(mocks.resourceGet).toHaveBeenCalledTimes(attempts);
+      expect(prompt).not.toContain("uninspected candidates remain");
+      expect(prompt.includes("more skills omitted")).toBe(
+        excluded + maxEntries < attempts,
+      );
+    },
+  );
+
+  it.each([
+    [1, 200],
+    [100, 280],
+    [240, 400],
+  ])(
+    "exhausts the additive guard for target %i at %i attempts",
+    async (maxEntries, attempts) => {
+      defineAppConfig({ agent: { promptSkills: { maxEntries } } });
+      const entries = Array.from({ length: attempts + 41 }, (_, index) =>
+        candidate(index, "scope: dev"),
+      );
+      catalog(entries);
+      const prompt = await loadResourcesForPrompt("user@example.test");
+      expect(mocks.resourceGet).toHaveBeenCalledTimes(attempts);
+      expect(skillNames(prompt)).toEqual([]);
+      expect(prompt).toContain(
+        `incomplete after ${attempts} candidate read attempts; uninspected candidates remain.`,
+      );
+      expect(prompt).not.toContain("more skills omitted");
+      expect(prompt).not.toContain(
+        "The following workspace skills are available",
+      );
+    },
+  );
+
+  it.each([1, 8, 500])(
+    "applies description limit %i to normalized and missing descriptions at invocation time",
+    async (maxDescriptionChars) => {
+      const entries = [candidate(0), candidate(1), candidate(2)];
+      entries[0].content = entries[0].content.replace(
+        "Short workflow.",
+        `  ${"x".repeat(240)}   tail  `,
+      );
+      entries[1].content = entries[1].content.replace(
+        "description: Short workflow.\n",
+        "",
+      );
+      entries[2].content = entries[2].content.replace(
+        "Short workflow.",
+        "Read   this   carefully!",
+      );
+      catalog(entries);
+      const defaultPrompt = await loadResourcesForPrompt("user@example.test");
+      expect(defaultPrompt).toContain(`${"x".repeat(179)}….`);
+      defineAppConfig({
+        agent: { promptSkills: { maxEntries: 3, maxDescriptionChars } },
+      });
+      const prompt = await loadResourcesForPrompt("user@example.test");
+      const expected =
+        maxDescriptionChars === 500
+          ? `${"x".repeat(240)} tail.`
+          : `${"x".repeat(maxDescriptionChars - 1)}….`;
+      expect(prompt).toContain(` - ${expected} Use`);
+      expect(prompt).toContain(
+        maxDescriptionChars === 500
+          ? " - (no description). Use"
+          : maxDescriptionChars === 1
+            ? " - …. Use"
+            : " - (no des…. Use",
+      );
+      if (maxDescriptionChars === 500)
+        expect(prompt).toContain(" - Read this carefully! Use");
+      expect(skillNames(prompt)).toEqual(entries.map((entry) => entry.id));
+    },
+  );
+
+  it("filters supporting paths before the configured ceiling and hydration budget", async () => {
+    defineAppConfig({
+      agent: { promptSkills: { maxEntries: 1, includeSupportingFiles: false } },
+    });
+    const references = Array.from({ length: 240 }, (_, index) => ({
+      ...candidate(index),
+      path: `skills/topic/references/${index}.md`,
+    }));
+    const entry = candidate(240);
+    catalog([...references, entry]);
+    const prompt = await loadResourcesForPrompt("user@example.test");
+    expect(skillNames(prompt)).toEqual([entry.id]);
+    expect(mocks.resourceGet).toHaveBeenCalledExactlyOnceWith(entry.id, {
+      orgId: null,
+    });
+    expect(prompt).not.toContain("uninspected candidates remain");
+  });
+
+  it("keeps readerless bodies above 40 with the independent 6000-character body budget", async () => {
+    defineAppConfig({
+      agent: { promptSkills: { maxEntries: 45, maxDescriptionChars: 1 } },
+    });
+    const entries = Array.from({ length: 46 }, (_, index) => candidate(index));
+    entries[0].content = "a".repeat(6000) + "BODY_TAIL";
+    catalog(entries);
+    const prompt = await loadResourcesForPrompt(
+      "user@example.test",
+      false,
+      undefined,
+      null,
+      { runtimeToolHints: false, skillReadTool: null },
+    );
+    expect(prompt.match(/scope="personal"/g)).toHaveLength(45);
+    expect(prompt).toContain("a".repeat(6000));
+    expect(prompt).toContain("truncated after 6,000 characters");
+    expect(prompt).not.toContain("BODY_TAIL");
+    expect(prompt).toContain(`Body ${entries[44].id}`);
+    expect(prompt).not.toContain(`Body ${entries[45].id}`);
+    expect(prompt).toContain("more skills omitted");
+    expect(prompt).not.toContain("uninspected candidates remain");
+    for (const tool of ["`resources`", "docs-search", "tool-search"])
+      expect(prompt).not.toContain(tool);
+  });
+
+  it("gives compact bundled and resource listings separate configured ceilings and descriptions", async () => {
+    defineAppConfig({
+      agent: { promptSkills: { maxEntries: 2, maxDescriptionChars: 5 } },
+    });
+    mocks.getRuntimeSkillsForUser.mockResolvedValue(
+      Array.from({ length: 3 }, (_, index) => ({
+        meta: { name: `bundled-${index}`, description: "Bundled workflow" },
+      })),
+    );
+    const entries = [candidate(0), candidate(1), candidate(2)];
+    catalog(entries);
+    const prompt = await loadResourcesForPrompt("user@example.test", true);
+    expect([...prompt.matchAll(/^- `bundled-\d`/gm)]).toHaveLength(2);
+    expect(prompt).toContain("Bund….");
+    expect(prompt).toContain("Shor….");
+    expect(prompt).toContain("1 more codebase skills");
+    expect(skillNames(prompt)).toEqual(
+      entries.slice(0, 2).map((entry) => entry.id),
+    );
+  });
+
+  it("leaves full bundled and readerless fallback listings uncapped", async () => {
+    defineAppConfig({
+      agent: { promptSkills: { maxEntries: 1, maxDescriptionChars: 1 } },
+    });
+    const skills = Array.from({ length: 45 }, (_, index) => ({
+      meta: {
+        name: `bundled-${index}`,
+        description: "Full bundled description",
+      },
+      dir: `.agents/skills/bundled-${index}`,
+      content: `BUNDLED_BODY_${index}`,
+      extraFiles: [],
+      files: {},
+    }));
+    mocks.getRuntimeSkillsForUser.mockResolvedValue(skills);
+    const actual = await vi.importActual<typeof import("../agents-bundle.js")>(
+      "../agents-bundle.js",
+    );
+    mocks.generateSkillsPromptBlock.mockImplementation(
+      actual.generateSkillsPromptBlock,
+    );
+    const full = await loadResourcesForPrompt("user@example.test");
+    expect(full.match(/Full bundled description/g)).toHaveLength(45);
+    expect(full).toContain("`bundled-44`");
+    const readerless = await loadResourcesForPrompt(
+      "user@example.test",
+      false,
+      undefined,
+      null,
+      { runtimeToolHints: false, skillReadTool: null },
+    );
+    expect(readerless.match(/scope="template-skill"/g)).toHaveLength(45);
+    expect(readerless).toContain("BUNDLED_BODY_44");
+  });
+
+  it("shares one entry ceiling with supporting files and filters them before hydration when disabled", async () => {
     const reference = {
       ...candidate(0),
       path: "skills/topic/references/guide.md",
@@ -192,24 +404,23 @@ describe("resource skill reference selection and bounded refill", () => {
     const flat = { ...candidate(1), path: "skills/legacy.md" };
     const nested = candidate(2);
     catalog([reference, flat, nested]);
+    defineAppConfig({ agent: { promptSkills: { maxEntries: 2 } } });
     const defaultPrompt = await loadResourcesForPrompt(
       "user@example.test",
       true,
     );
-    expect(skillNames(defaultPrompt)).toEqual([
-      reference.id,
-      flat.id,
-      nested.id,
-    ]);
+    expect(skillNames(defaultPrompt)).toEqual([reference.id, flat.id]);
+    expect(defaultPrompt).toContain("more skills omitted");
     expect(mocks.resourceGet).toHaveBeenCalledTimes(3);
     expect(mocks.generateSkillsPromptBlock).not.toHaveBeenCalled();
 
     defineAppConfig({
-      agent: { promptSkills: { includeSupportingFiles: false } },
+      agent: { promptSkills: { maxEntries: 2, includeSupportingFiles: false } },
     });
     mocks.resourceGet.mockClear();
     const filteredPrompt = await loadResourcesForPrompt("user@example.test");
     expect(skillNames(filteredPrompt)).toEqual([flat.id, nested.id]);
+    expect(filteredPrompt).not.toContain("more skills omitted");
     expect(mocks.resourceGet).toHaveBeenCalledTimes(2);
     expect(mocks.resourceGet).not.toHaveBeenCalledWith(
       reference.id,
@@ -766,6 +977,7 @@ describe("resource skill reference selection and bounded refill", () => {
 });
 
 describe("preloadJevContextForPrompt", () => {
+  afterEach(() => resetAppConfigForTests());
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.useRealRanker.value = false;
@@ -1354,6 +1566,34 @@ describe("preloadJevContextForPrompt", () => {
     );
     expect(mocks.resourceList).not.toHaveBeenCalled();
     expect(mocks.resourceListAccessible).not.toHaveBeenCalled();
+  });
+
+  it("keeps Jev descriptions at 180 independently of prompt skill options", async () => {
+    defineAppConfig({
+      agent: { promptSkills: { maxEntries: 1, maxDescriptionChars: 1000 } },
+    });
+    mocks.getRuntimeSkills.mockReturnValue([
+      {
+        meta: { name: "long", description: "x".repeat(240) },
+        dir: ".agents/skills/long",
+        content: "Body",
+      },
+    ]);
+    mocks.rankJevCandidates.mockResolvedValue([]);
+    await preloadJevContextForPrompt({
+      request: "long",
+      apiKey: "jev-test-key",
+    });
+    expect(mocks.rankJevCandidates).toHaveBeenCalledWith(
+      expect.objectContaining({
+        candidateStateKey: "candidate_skill",
+        candidates: [
+          expect.objectContaining({
+            description: `long - ${"x".repeat(172)}…`,
+          }),
+        ],
+      }),
+    );
   });
 
   it("filters Lab-gated skills from JEV candidates per user", async () => {

@@ -233,4 +233,58 @@ describe("buildCompactSkillsSummary", () => {
       '5 more codebase skills. Use `read-skill --query "<topic>"`',
     );
   });
+
+  it.each([1, 60])(
+    "uses a custom ceiling of %i without reordering skills",
+    (maxEntries) => {
+      const many = Array.from({ length: 65 }, (_, index) => ({
+        meta: { name: `skill-${index}` },
+      }));
+      const summary = buildCompactSkillsSummary(many, "read-skill", {
+        maxEntries,
+      });
+      expect(
+        [...String(summary).matchAll(/^- `([^`]+)`/gm)].map(
+          (match) => match[1],
+        ),
+      ).toEqual(many.slice(0, maxEntries).map((skill) => skill.meta.name));
+      expect(summary).toContain(`${65 - maxEntries} more codebase skills`);
+    },
+  );
+
+  it.each([
+    [undefined, `${"x".repeat(179)}….`],
+    [1, "…."],
+    [5, "xxxx…."],
+    [500, `${"x".repeat(240)}.`],
+  ])(
+    "shortens descriptions before punctuation with limit %s",
+    (maxDescriptionChars, expected) => {
+      const summary = buildCompactSkillsSummary(
+        [{ meta: { name: "long", description: "x".repeat(240) } }],
+        "read-skill",
+        { maxDescriptionChars },
+      );
+      expect(summary).toContain(` - ${expected} Read with`);
+    },
+  );
+
+  it("normalizes whitespace and composes both helper options", () => {
+    const summary = buildCompactSkillsSummary(
+      [
+        {
+          meta: {
+            name: "normalized",
+            description: "  Read\n  this\t carefully! ",
+          },
+        },
+        { meta: { name: "omitted" } },
+      ],
+      "read-skill",
+      { maxEntries: 1, maxDescriptionChars: 100 },
+    );
+    expect(summary).toContain(" - Read this carefully! Read with");
+    expect(summary).toContain("1 more codebase skills");
+    expect(summary).not.toContain('slug "skill-omitted"');
+  });
 });

@@ -6,9 +6,11 @@ describe("agent prompt-skills config", () => {
   it.each([{}, { promptSkills: {} }])(
     "includes supporting files by default for %j",
     (input) => {
-      expect(agentConfig.parse(input).promptSkills.includeSupportingFiles).toBe(
-        true,
-      );
+      expect(agentConfig.parse(input).promptSkills).toEqual({
+        includeSupportingFiles: true,
+        maxEntries: 40,
+        maxDescriptionChars: 180,
+      });
     },
   );
 
@@ -17,6 +19,62 @@ describe("agent prompt-skills config", () => {
       agentConfig.parse({ promptSkills: { includeSupportingFiles: false } })
         .promptSkills.includeSupportingFiles,
     ).toBe(false);
+  });
+
+  it.each([
+    [
+      { maxEntries: 100 },
+      {
+        maxEntries: 100,
+        maxDescriptionChars: 180,
+        includeSupportingFiles: true,
+      },
+    ],
+    [
+      { maxDescriptionChars: 1000 },
+      {
+        maxEntries: 40,
+        maxDescriptionChars: 1000,
+        includeSupportingFiles: true,
+      },
+    ],
+    [
+      {
+        maxEntries: 500,
+        maxDescriptionChars: 1,
+        includeSupportingFiles: false,
+      },
+      {
+        maxEntries: 500,
+        maxDescriptionChars: 1,
+        includeSupportingFiles: false,
+      },
+    ],
+    [
+      {
+        maxEntries: 1,
+        maxDescriptionChars: 1000,
+        includeSupportingFiles: true,
+      },
+      {
+        maxEntries: 1,
+        maxDescriptionChars: 1000,
+        includeSupportingFiles: true,
+      },
+    ],
+  ])("composes partial prompt limits %j", (promptSkills, expected) => {
+    expect(agentConfig.parse({ promptSkills }).promptSkills).toEqual(expected);
+  });
+
+  it.each([
+    ["maxEntries", 500],
+    ["maxDescriptionChars", 1000],
+  ] as const)("rejects invalid %s limits", (field, maximum) => {
+    for (const value of [0, -1, 1.5, NaN, Infinity, -Infinity, maximum + 1]) {
+      expect(
+        agentConfig.safeParse({ promptSkills: { [field]: value } }).success,
+      ).toBe(false);
+    }
   });
 });
 
