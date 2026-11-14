@@ -653,6 +653,46 @@ describe("createAgentKitProtocolAdapter", () => {
     }
   });
 
+  it("shows a run-code program that exited nonzero as a failed call", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {
+      yield {
+        type: "tool-done",
+        toolCallId: "code-failed",
+        toolName: "run-code",
+        status: "completed",
+        resultText:
+          "exitCode: 1\n\nstderr:\nUnhandled error: Cannot read properties of null",
+      };
+      yield {
+        type: "tool-done",
+        toolCallId: "code-ok",
+        toolName: "run-code",
+        status: "completed",
+        resultText: "stdout:\nexitCode: 1 is just text here",
+      };
+      yield { type: "done", reason: "complete" };
+    }
+    const transport = createAgentKitProtocolAdapter(createRuntime(events));
+    const { runId } = await transport.startRun({
+      threadId: "thread-1",
+      messages: [userMessage("Run it")],
+    });
+    const tools = Object.fromEntries(
+      (await drain(transport.subscribeToRun({ threadId: "thread-1", runId })))
+        .flatMap((event) => (event.type === "tool.updated" ? [event] : []))
+        .map((event) => [event.toolCall.id, event.toolCall]),
+    );
+    expect(tools["code-failed"]).toMatchObject({
+      status: "failed",
+      error: {
+        code: "program_failed",
+        message: "Cannot read properties of null",
+      },
+    });
+    expect(tools["code-ok"]).toMatchObject({ status: "completed" });
+    expect(tools["code-ok"]?.error).toBeUndefined();
+  });
+
   it("resumes a durable runtime stream from the last observed event cursor", async () => {
     async function* disconnected(): AsyncIterable<AgentChatRuntimeEvent> {
       yield {

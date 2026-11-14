@@ -3,36 +3,73 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
-## 2026-11-10
+## 2026-11-14
 
 ### Improved
 
 - The command menu (Cmd+K) now opens as a short list for the page you're on: search inside it, copy its link, pin it, move it or add a sub-page, followed by your recent pages. Start typing and it widens into search, with filters and a preview of the highlighted result. Before you type, press Tab to search only the open page; Backspace goes back to the whole workspace. When nothing fits, the last row asks the agent.
 
+## 2026-11-10
+
+### Fixed
+
+- Content's agent is now told to keep a Mermaid diagram's source when asked to draw it, instead of replacing it with an image.
+- Images you pick from Assets now show for everyone who can read the page, not only people with access to your Assets library.
+
 ## 2026-11-09
 
 ### Improved
 
+- Share controls use a consistent compact layout.
 - More save failures now say why, such as being offline or lacking permission.
 
 ### Fixed
 
+- When someone else types in the paragraph you're typing in, your cursor stays after your own last letter, so your words no longer get mixed into theirs.
 - Keep app loading and offline caching compatible with privacy-safe script names
 
 ## 2026-11-08
 
+### Improved
+
+- Ask AI works on comments in every Blocks field tab, and its edits there are suggestions on that tab
+- Builder sources now read and write only through your Builder.io connection, so deploy keys no longer reach them; the Builder docs sync still uses keys.
+- Collection sort menus name each direction for the column's values: Old → new for dates, Low → high for numbers, A → Z for text, and Unchecked → checked for checkboxes.
+
 ### Fixed
 
+- An open collection row page now updates when that row is edited elsewhere, such as by an agent or in another tab, and a retried row edit returns the first result instead of a conflict error
+- Pages created over MCP now appear in the Files sidebar without a reload.
+- Sorting a collection by a checkbox keeps empty boxes with the unchecked rows, and ascending lists unchecked rows first.
+- Suggested edits from an agent or a collaborator now reach a page you have open within seconds, instead of at its next idle check or your next reload.
 - A suggested replacement reads clearly: the old text stays struck through while selected, the new words start a little apart from it, and the card shows the new text whole instead of underlining scattered letters.
 
 ## 2026-11-07
 
+### Added
+
+- Collection row menus now offer Copy link and Comment, view menus offer Copy link to view, and the row ⋯ and add-view + show on touch screens.
+- Pick "This page" in the search menu to search the open page and everything inside it: its sub-pages, its collections, and their rows.
+
+### Improved
+
+- A row's hidden properties now sit behind one line that opens in place, replacing the separate Hidden in this view line and Hidden properties menu.
+- Search answers much faster, most of all for queries with several common words.
+- The search menu shows matching page titles as you type, without waiting for the server.
+
 ### Fixed
 
+- A brief failure loading a collection row's Properties no longer flashes an error or replaces the editor, and Retry now keeps the row open.
+- A search could fail with an error if it was the first thing a newly started server was asked to do.
+- Accepting a suggestion no longer fails with "The Page is busy" while other pages in Content are being created, edited, moved or deleted.
 - A truncated collection column header shows its full name again when you reach it with the keyboard, not only on hover.
 - An AI reply in a comment thread shows as soon as the AI finishes, and so does a change it applied to the page, without waiting for another comment or a reload.
 
 ## 2026-11-06
+
+### Added
+
+- Columns have widths you can drag or set with the arrow keys, the slash menu inserts two, three or four columns, and a column set left with one column turns back into ordinary blocks.
 
 ### Fixed
 
@@ -124,6 +161,10 @@ time from the command menu (Cmd+K → "What's new").
 ### Added
 
 - Public pages have a reader view for people without an account, with the page's path, links to its public sub-pages, and a way to sign up or sign in
+
+### Fixed
+
+- A copied link to a page that isn't public no longer calls it a public document in the browser tab or in link previews.
 
 ## 2026-10-29
 
@@ -1264,23 +1305,5 @@ time from the command menu (Cmd+K → "What's new").
 - Builder-sourced database rows now open with sync protection immediately and keep source-field columns stable during background refreshes.
 - Database rows and pages open faster from recently loaded data.
 - Preview panels close reliably, narrow sidebar row actions stay reachable, and adding properties now shows progress.
-
-## 2026-07-01
-
-### Added
-
-- Builder source rows can be staged in bulk with a reviewable diff before writeback.
-
-### Improved
-
-- Builder database sources keep loading rows in the background with clearer progress and page-opening feedback.
-- Builder source components now show clearer preservation and review states during readable body sync; previously hydrated Builder bodies may need refresh before guarded push.
-- Builder source refreshes now show progress and keep large docs/blog databases usable while large row sets load incrementally.
-
-### Fixed
-
-- Builder source attachment now starts with a usable first batch of rows while larger docs/blog collections continue loading.
-- Builder source attachment now stays connected after large collections finish attaching.
-- Database pages now delete to Trash without leaving the app on a failed page route.
 
 For the full list of updates, see the [changelog folder](./changelog/).

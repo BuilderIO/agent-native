@@ -7,6 +7,7 @@ import {
 import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { mcpIntegrationLogo } from "@agent-native/core/client/resources/mcp-integration-logos";
 import {
+  composerSourceListSchema,
   composerSourceReferenceSchema,
   type ComposerSourceRequest,
 } from "@agent-native/core/shared";
@@ -22,8 +23,18 @@ import {
   type ComposerContextPickerItem,
 } from "@agent-native/toolkit/app/chat/composer/index";
 import { COMPOSER_CONTEXT_MAX_BYTES } from "@agent-native/toolkit/composer";
+import {
+  DESIGN_BRIEF_LIMIT,
+  designBriefSchema,
+  type DesignBrief,
+} from "@shared/design-briefs";
 import { parseFigmaFileKey, parseFigmaNodeId } from "@shared/figma-url";
-import { IconLayoutGrid, IconPalette, IconWorld } from "@tabler/icons-react";
+import {
+  IconFileText,
+  IconLayoutGrid,
+  IconPalette,
+  IconWorld,
+} from "@tabler/icons-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link } from "react-router";
 import { toast } from "sonner";
@@ -61,6 +72,7 @@ type SourceItem = { id: string; title: string; url?: string | undefined };
 const sourceSchema = z.enum([
   "design",
   "slides",
+  "content",
   "figma",
   "website",
   "integration",
@@ -76,6 +88,19 @@ function referenceKey(reference: Reference) {
         ? reference.url
         : "";
   return `design-home-reference:${reference.source}:${scope ?? ""}:${reference.id}`;
+}
+
+function contentBrief(
+  reference: Reference,
+  result: { id: string; url?: string | undefined },
+): DesignBrief | undefined {
+  if (reference.source !== "content") return undefined;
+  const brief = designBriefSchema.safeParse({
+    source: "content",
+    id: result.id,
+    url: result.url,
+  });
+  return brief.success ? brief.data : undefined;
 }
 
 /** A Figma chip in the composer and what it has staged on the server. */
@@ -217,6 +242,9 @@ export function useHomePromptContext({
   const requests = useRef(
     new Map<string, { reference: Reference; revision: number }>(),
   );
+  // Content pages read for this prompt, by context key, so the new design can
+  // link back to its brief.
+  const contentBriefs = useRef(new Map<string, DesignBrief>());
   const requestRevision = useRef(0);
   const figmaSources = useRef(new Map<string, FigmaChip>());
   const discardFigmaKey = (key: string) =>
@@ -270,6 +298,7 @@ export function useHomePromptContext({
     if (previousIdentity.current === identity) return;
     previousIdentity.current = identity;
     requests.current.clear();
+    contentBriefs.current.clear();
     figmaLinkContexts.current.clear();
     for (const key of figmaSources.current.keys()) discardFigmaKey(key);
     figmaSources.current.clear();
@@ -321,6 +350,8 @@ export function useHomePromptContext({
             requests.current.get(key)?.revision !== revision
           )
             return;
+          const brief = contentBrief(reference, result);
+          if (brief) contentBriefs.current.set(key, brief);
           if (reference.source === "figma")
             figmaLinkContexts.current.set(key, result.context);
           setItems((current) =>
@@ -693,6 +724,52 @@ export function useHomePromptContext({
       };
     },
   };
+  const contentPicker: ComposerContextPickerConfig = {
+    scopeKey: identity,
+    refreshKey,
+    presentation: {
+      type: "dialog",
+      mode: "multiple",
+      onAttach: (items: readonly ComposerContextPickerItem[]) =>
+        attachBatch(
+          items.map((item) => ({
+            title: item.title,
+            ...(item.url ? { url: item.url } : {}),
+            id: item.id,
+            source: "content" as const,
+          })),
+        ),
+    },
+    searchPlaceholder: t("homeContext.searchPages"),
+    emptyMessage: t("homeContext.empty"),
+    selectedIds: [...requests.current.values()]
+      .filter(({ reference }) => reference.source === "content")
+      .map(({ reference }) => reference.id),
+    load: async ({ search, page, cursor, signal }) => {
+      try {
+        const result = composerSourceListSchema.safeParse(
+          await callAction(
+            "read-composer-source",
+            { source: "content", operation: "list", search, page, cursor },
+            { method: "GET", signal },
+          ),
+        );
+        if (!result.success) throw new Error(loadFailed);
+        const { items, hasMore, nextCursor } = result.data;
+        return {
+          items: items.map(({ id, title, url }) => ({
+            id,
+            title,
+            ...(url ? { url } : {}),
+          })),
+          hasMore,
+          ...(nextCursor === undefined ? {} : { nextCursor }),
+        };
+      } catch (error) {
+        throw new Error(actionErrorMessage(error) ?? loadFailed);
+      }
+    },
+  };
   const menuItems: ComposerContextMenuItem[] = [
     {
       id: "figma-reference",
@@ -720,6 +797,15 @@ export function useHomePromptContext({
       picker: designPicker,
     },
   ];
+  menuItems.push({
+    id: "content-reference",
+    referenceType: "content",
+    order: 25,
+    icon: <IconFileText />,
+    label: t("homeContext.contentPage"),
+    intent: "add-context",
+    picker: contentPicker,
+  });
   if (systemsEnabled)
     menuItems.push({
       id: "system",
@@ -805,6 +891,7 @@ export function useHomePromptContext({
       return;
     }
     requests.current.delete(key);
+    contentBriefs.current.delete(key);
     discardFigmaKey(key);
     const wasLink = figmaLinkContexts.current.delete(key);
     const wasFigma = figmaSources.current.delete(key);
@@ -880,6 +967,8 @@ export function useHomePromptContext({
               reference.source === "figma"
                 ? clampFigmaContext(result.context, figmaContextShare())
                 : result.context;
+            const brief = contentBrief(reference, result);
+            if (brief) contentBriefs.current.set(item.key, brief);
           }
           if (identityRef.current !== submittedIdentity)
             throw new Error(loadFailed);
@@ -987,6 +1076,21 @@ export function useHomePromptContext({
     )
       onSystemChange(null);
   };
+  /**
+   * The Content pages among submitted context items, for the new design. Only
+   * the first few are kept as its "Built from" links; every attached page still
+   * reaches the prompt.
+   */
+  const briefsFor = useCallback(
+    (submitted: readonly { key: string }[] | undefined) =>
+      (submitted ?? [])
+        .flatMap((item) => {
+          const brief = contentBriefs.current.get(item.key);
+          return brief ? [brief] : [];
+        })
+        .slice(0, DESIGN_BRIEF_LIMIT),
+    [],
+  );
   const readFigmaLink = async (url: string, pagesOnly = false) => {
     const result = figmaLinkSchema.parse(
       await callAction(
@@ -1109,6 +1213,7 @@ export function useHomePromptContext({
   return {
     contextItems,
     menuItems: active ? menuItems : [],
+    briefsFor,
     onPasteContext,
     dialogs,
     remove,

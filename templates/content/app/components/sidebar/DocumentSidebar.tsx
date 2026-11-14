@@ -273,14 +273,24 @@ export async function retryCreateAfterDraftRead<T>(
   return { created, draft: await read() };
 }
 
+/**
+ * Re-sends a pending page's create only when the server doesn't have the page.
+ * The tab that created it clears the intent before it frees the create lock,
+ * but the next tab can still read the cleared intent: localStorage reaches
+ * other tabs asynchronously, and nothing orders it with the lock hand-off.
+ */
 export function retryCreateAfterIntentWrite<T>(
   scope: DocumentCreateIntentScope,
   intent: DocumentCreateIntent,
   read: DraftRead,
+  readCommitted: () => Promise<Document>,
   create: () => Promise<T>,
-): Promise<{ created: T; draft: PageDraftJournalEntry | null }> {
+): Promise<{ created: Document | T; draft: PageDraftJournalEntry | null }> {
   writeDocumentCreateIntentBestEffort(scope, { ...intent, status: "pending" });
-  return retryCreateAfterDraftRead(read, create);
+  return retryCreateAfterDraftRead(read, async () => {
+    const resolution = await readDocumentBeforeCreateDiscard(readCommitted);
+    return resolution.kind === "committed" ? resolution.document : create();
+  });
 }
 
 /**
@@ -2265,6 +2275,12 @@ export function DocumentSidebar({
                   scope,
                   currentIntent,
                   read,
+                  () =>
+                    callAction<Document>(
+                      "get-document",
+                      { id: currentIntent.id },
+                      { method: "GET" },
+                    ),
                   () =>
                     createDocumentAsync({
                       id: currentIntent.id,

@@ -15,6 +15,7 @@ import { AgentSuggestionBar } from "../../composer/AgentSuggestionBar.js";
 import type { PromptComposerProps } from "../../composer/index.js";
 import type { TiptapComposerHandle } from "../../composer/TiptapComposer.js";
 import { Button } from "../../ui/button.js";
+import { FIRST_RUN_PENDING_ATTRIBUTE } from "../onboarding/first-run-first-paint.js";
 import { AppSidebar, AppSidebarFooter } from "./AppSidebar.js";
 import { ClientOnly } from "./ClientOnly.js";
 
@@ -1598,7 +1599,30 @@ export function AppShellSkeleton({
     ),
     welcome: <WelcomeLayout />,
   };
-  const content = layout ? layouts[layout] : null;
+  const layoutContent = layout ? layouts[layout] : null;
+  // A first-paint home is the app's real home. When first run may start, the
+  // role question comes next, so the plain skeleton stands in for it.
+  const content =
+    firstPaintHome && layout === "prompt-library" ? (
+      <>
+        <div
+          data-agent-native-first-paint-home=""
+          style={{ display: "contents" }}
+        >
+          {layoutContent}
+        </div>
+        <div
+          data-agent-native-first-run-skeleton=""
+          role="status"
+          aria-label={ariaLabel}
+          style={{ display: "none" }}
+        >
+          <PromptLibraryLayout />
+        </div>
+      </>
+    ) : (
+      layoutContent
+    );
 
   return (
     <div
@@ -1618,6 +1642,12 @@ export function AppShellSkeleton({
       <style>{`
         html[${MCP_APP_WIDGET_EMBED_ATTRIBUTE}] [data-agent-native-app-skeleton] > :not(style) {
           display: none !important;
+        }
+        html[${FIRST_RUN_PENDING_ATTRIBUTE}] [data-agent-native-first-paint-home] {
+          display: none !important;
+        }
+        html[${FIRST_RUN_PENDING_ATTRIBUTE}] [data-agent-native-first-run-skeleton] {
+          display: contents !important;
         }
         [data-agent-native-skeleton-block] {
           animation: an-app-shell-skeleton-pulse 1.2s ease-in-out infinite;

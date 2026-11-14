@@ -359,6 +359,12 @@ AUTH_REQUIRE_EMAIL_VERIFICATION=1
 
 Ersetze die Beispieladresse durch die verifizierte Adresse der ersten Admin-Person in jedem Arbeitsbereich. Bei einer leeren Datenbank meldet sie sich zuerst an, wird Eigentümer der ersten Organisation und kann das Team unter Settings → Organization → Members einladen. Der vollständige Bootstrap-Ablauf steht unter [Administrierte Deployments](/docs/administered-deployments).
 
+## Deterministische Funktions-ZIPs {#workspace-netlify-function-zips}
+
+Netlify bildet den Hash über das gesamte ZIP jeder Funktion, und sein Bundler schreibt die Einträge bei jedem Lauf in anderer Reihenfolge, daher werden unveränderte Funktionen bei jedem Deploy neu hochgeladen. Veröffentliche mit `npx @agent-native/core@latest netlify-deploy`, statt `netlify deploy` selbst aufzurufen. Der Befehl packt die Funktionen mit dem Bundler der installierten Netlify CLI, schreibt jedes ZIP mit sortierten Einträgen und festem Zeitstempel neu, erzeugt das Funktions-Manifest und führt im selben Befehl `netlify deploy` aus. Routen, Zeitpläne und Hintergrund-Einstellungen bleiben erhalten. Eigene `netlify deploy`-Argumente folgen nach dem Befehl; Standard ist `--prod --dir=dist --functions=.netlify/functions-internal`.
+
+Die CLI liest dieses Manifest nur zwei Minuten lang. Ist es beim Start der CLI älter oder verwirft die CLI es, gibt der Befehl eine `manifest-expired`-Zeile aus und beendet sich mit einem Fehlercode, statt stillschweigend mit instabilen ZIPs zu deployen.
+
 ## Was kommt als nächstes?
 
 - [**Bereitstellung**](/docs/deployment) — wählen Sie eine persistente Datenbank, eine Nitro-Voreinstellung und eine Plattform, bevor Sie einen Arbeitsbereich bereitstellen

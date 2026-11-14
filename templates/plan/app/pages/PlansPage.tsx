@@ -6258,7 +6258,7 @@ function PlanShareControl({
         generalAccessLabel={t("plansPage.share.generalAccess", { noun })}
         accessNote={buildShareAccessNote(t, noun)}
         visibilityCopy={buildShareVisibilityCopy(t, noun)}
-        triggerClassName="pointer-events-auto h-8 px-2"
+        triggerClassName="pointer-events-auto"
         onOpenChange={onOpenChange}
         onShareSuccess={onShareSuccess}
       />

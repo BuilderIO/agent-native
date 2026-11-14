@@ -1471,12 +1471,12 @@
     --agentkit-composer-primary-control-size,
     var(--agent-kit-composer-control-size)
   );
-  border-radius: 999px;
+  border-radius: var(--agent-kit-radius-sm, 0.5rem);
 }
 
 .agent-composer-root:not(.agent-composer-root--hero)
   .agent-composer-send-button {
-  border-radius: 999px;
+  border-radius: var(--agent-kit-radius-sm, 0.5rem);
 }
 
 /* 12px text: plain muted-foreground misses 4.5:1 on dark composer surfaces. */

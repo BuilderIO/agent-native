@@ -68,6 +68,9 @@ export function createBlockFieldSaveController(args: {
         lastError = null;
         hasSavedLocally = true;
         inFlight = null;
+        // An edit made while this save was on its way, repeating the text it
+        // wrote, left a timer with nothing to save.
+        if (pending === lastSaved) clearTimer();
         kick();
         settled();
       })
