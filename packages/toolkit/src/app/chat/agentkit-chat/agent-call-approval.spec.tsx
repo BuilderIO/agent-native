@@ -39,7 +39,7 @@ const approval = {
   taskId: "task-child",
 };
 const widget: AgentWidget = {
-  id: "call-1:approval:approval-1",
+  id: "Slides:approval:approval-1",
   kind: AGENT_CALL_APPROVAL_WIDGET_KIND,
   data: approval,
 };

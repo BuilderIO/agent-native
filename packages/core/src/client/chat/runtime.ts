@@ -4697,7 +4697,9 @@ function mapAgentNativeEvent(
       });
     }
     // A peer waiting on the person's approval in that app shows a card that
-    // opens its approval page and then continues the same task.
+    // opens its approval page and then continues the same task. The card is
+    // keyed by the approval, not the call: a later call that finds the same
+    // approval still pending updates that card instead of adding a second.
     const approval = agentCallApproval(ev, agent);
     if (approval) {
       events.push({
@@ -4705,7 +4707,7 @@ function mapAgentNativeEvent(
         ...base,
         operation: "create",
         widget: {
-          id: `${participantId}:approval:${approval.id}`,
+          id: `${agent}:approval:${approval.id}`,
           kind: AGENT_CALL_APPROVAL_WIDGET_KIND,
           state: "ready",
           data: approval,

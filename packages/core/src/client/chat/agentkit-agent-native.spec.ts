@@ -1052,7 +1052,7 @@ describe("createAgentNativeAgentKitTransport", () => {
           {
             messageId: "assistant-1",
             widget: {
-              id: "call-1:approval:approval-1",
+              id: "Slides:approval:approval-1",
               kind: AGENT_CALL_APPROVAL_WIDGET_KIND,
               state: "ready",
               data: approval,
@@ -1062,7 +1062,7 @@ describe("createAgentNativeAgentKitTransport", () => {
           {
             messageId: "assistant-1",
             widget: {
-              id: "call-2:approval:approval-2",
+              id: "Slides:approval:approval-2",
               kind: AGENT_CALL_APPROVAL_WIDGET_KIND,
               data: { ...approval, id: "approval-2", taskId: undefined },
             },
@@ -1075,7 +1075,7 @@ describe("createAgentNativeAgentKitTransport", () => {
       {
         messageId: "assistant-1",
         widget: {
-          id: "call-1:approval:approval-1",
+          id: "Slides:approval:approval-1",
           kind: AGENT_CALL_APPROVAL_WIDGET_KIND,
           data: approval,
         },

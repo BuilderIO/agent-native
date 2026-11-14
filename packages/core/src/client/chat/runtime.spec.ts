@@ -5463,6 +5463,16 @@ describe("createAgentNativeChatRuntime", () => {
           approval: { ...approval, url: "javascript:alert(1)" },
           seq: 3,
         },
+        // A later call on the same task that finds the approval still pending.
+        {
+          type: "agent_call",
+          agent: "Slides",
+          status: "pending",
+          agentCallId: "call-2",
+          taskId: "task-child",
+          approval,
+          seq: 4,
+        },
         { type: "done" },
       ]),
     );
@@ -5476,16 +5486,19 @@ describe("createAgentNativeChatRuntime", () => {
     );
     const widgets = events.filter((event) => event.type === "widget");
 
-    expect(widgets).toHaveLength(1);
-    expect(widgets[0]).toMatchObject({
+    const card = {
       operation: "create",
       widget: {
-        id: "call-1:approval:approval-1",
+        id: "Slides:approval:approval-1",
         kind: AGENT_CALL_APPROVAL_WIDGET_KIND,
         state: "ready",
         data: { agent: "Slides", ...approval, taskId: "task-child" },
       },
-    });
+    };
+    // Both calls write the same card.
+    expect(widgets).toHaveLength(2);
+    expect(widgets[0]).toMatchObject(card);
+    expect(widgets[1]).toMatchObject(card);
   });
 
   it("surfaces native and MCP action renderers as composable widgets", async () => {
