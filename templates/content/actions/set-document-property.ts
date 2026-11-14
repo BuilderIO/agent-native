@@ -537,10 +537,7 @@ export default defineAction({
         );
         // The caller proved freshness for the storage it read: a page token
         // can't guard a field, and a field revision can't guard the body.
-        if (
-          target !== checkedTarget &&
-          (isOutsideCaller || baseRevision !== undefined)
-        ) {
+        if (target !== checkedTarget) {
           throw new ActionContractError(
             "Property storage changed before the operation completed.",
             { errorCode: "PROPERTY_STORAGE_CHANGED", statusCode: 409 },

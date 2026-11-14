@@ -716,9 +716,12 @@ describe.skipIf(!POSTGRES_URL)(
       120_000,
     );
 
-    it(
-      "refuses a field-revision write to a field that becomes the main field while the write waits",
-      () =>
+    it.each([
+      ["an outside", ctx],
+      ["the app's", { caller: "frontend" as const, userEmail: OWNER }],
+    ])(
+      "refuses %s field-revision write to a field that becomes the main field while the write waits",
+      (_writer, writerCtx) =>
         runWithRequestContext({ userEmail: OWNER }, async () => {
           const row = await switchedRowOwnedBySource({
             switched: false,
@@ -784,7 +787,7 @@ describe.skipIf(!POSTGRES_URL)(
                     value: WRITTEN,
                     expectedBlocksFieldRevision: revision,
                   },
-                  ctx,
+                  writerCtx,
                 ),
               ),
             );

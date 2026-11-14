@@ -2548,16 +2548,21 @@ describe("update-document compare-and-swap", () => {
           statusCode: 400,
         });
       }
-      await expect(write({ baseUpdatedAt: "" })).resolves.toMatchObject({
-        conflict: true,
-      });
+      const row = await documentRow(documentId);
+      const refused = {
+        errorCode: "DOCUMENT_REVISION_CONFLICT",
+        statusCode: 409,
+        details: {
+          currentRevision: documentRevisionToken(row.bodyRevision, row.content),
+        },
+      };
+      await expect(write({ baseUpdatedAt: "" })).rejects.toMatchObject(refused);
       expect((await documentRow(documentId)).content).toBe("original");
       await expect(
         write({ baseRevision: documentRevisionToken(0, "An older body") }),
-      ).resolves.toMatchObject({ conflict: true });
+      ).rejects.toMatchObject(refused);
       expect((await documentRow(documentId)).content).toBe("original");
 
-      const row = await documentRow(documentId);
       await write({
         baseRevision: documentRevisionToken(row.bodyRevision, row.content),
       });

@@ -203,7 +203,8 @@ callers use the revisioned `edit-document` protocol for every body change. A
 script, CLI call or automation that replaces the body passes the `baseRevision`
 `get-document` returned: without it the write refuses with
 `BASE_REVISION_REQUIRED` (400), and if the page changed since that read it
-returns `conflict: true` and writes nothing.
+fails with `DOCUMENT_REVISION_CONFLICT` (409), carrying the page's
+`details.currentRevision`, and writes nothing.
 
 ```bash
 pnpm action update-document --id abc123 --title "New Title"

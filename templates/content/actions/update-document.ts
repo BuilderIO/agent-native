@@ -813,12 +813,12 @@ const updateDocumentAction = defineAction({
           { errorCode: "INVALID_BROWSER_SAVE_ATTEMPT", statusCode: 400 },
         );
       }
-      if (
+      const isOutsideBodyWrite =
         args.content !== undefined &&
         ctx !== undefined &&
         ctx.caller !== "frontend" &&
-        !isScopedWidgetDocumentWriter(ctx, id)
-      ) {
+        !isScopedWidgetDocumentWriter(ctx, id);
+      if (isOutsideBodyWrite) {
         if (isExternalCaller) {
           throw new ActionContractError(
             "External document body updates require get-document followed by edit-document with baseRevision and idempotencyKey.",
@@ -2001,6 +2001,22 @@ const updateDocumentAction = defineAction({
               throw new ActionContractError(
                 "Document update conflicted; no changes were saved. Read get-document and retry against its current metadata.",
                 { errorCode: "DOCUMENT_UPDATE_CONFLICT", statusCode: 409 },
+              );
+            }
+            // A script or automation treats any answered request as a save.
+            if (isOutsideBodyWrite) {
+              throw new ActionContractError(
+                "The page changed after it was read; nothing was saved. Read it again with get-document and retry with its baseRevision.",
+                {
+                  errorCode: "DOCUMENT_REVISION_CONFLICT",
+                  details: {
+                    currentRevision: documentRevisionToken(
+                      current.bodyRevision,
+                      current.content,
+                    ),
+                  },
+                  statusCode: 409,
+                },
               );
             }
             return respond(
