@@ -40,6 +40,11 @@ export interface ReviewCommentDraftState {
   draft: ReviewCommentDraft;
   /** Whether this key holds a draft of its own rather than `initial`. */
   saved: boolean;
+  /**
+   * Which draft this is, for its person, account, resource and key, or null
+   * with no draft. Give it to the box as `imageTarget`.
+   */
+  target: string | null;
   setText: (text: string) => void;
   setMentions: (mentions: ReviewMention[]) => void;
   setImages: (images: ReviewCommentImage[]) => void;
@@ -336,10 +341,10 @@ function setStoredDraft(
 /**
  * A comment box's draft, kept in the browser so it survives a reload. Give
  * each box its own `key`: `new` for a new thread, `reply:<threadId>`, or
- * `edit:<commentId>` with the comment as `initial`. A draft that's empty, or
- * back to `initial`, isn't kept, and one whose `initial` has changed since,
- * such as an edit to a comment changed elsewhere, is dropped. With a null
- * `key` the box has no draft.
+ * `edit:<commentId>` with the comment as `initial`. A draft back to
+ * `initial`, or empty when `initial` is, isn't kept, and one whose `initial`
+ * has changed since, such as an edit to a comment changed elsewhere, is
+ * dropped. With a null `key` the box has no draft.
  */
 export function useReviewCommentDraft(
   scope: ReviewCommentDraftScope | null,
@@ -391,13 +396,12 @@ export function useReviewCommentDraft(
       if ("context" in change && change.context === undefined)
         delete next.context;
       draftRef.current = next;
-      setStoredDraft(
-        id,
-        persisted,
-        draftKey,
-        isEmptyDraft(next) || sameDraft(next, initialRef.current) ? null : next,
-        base,
-      );
+      // An edit emptied of its text is kept, so the comment's text doesn't
+      // come back into the box.
+      const unchanged =
+        sameDraft(next, initialRef.current) ||
+        (isEmptyDraft(next) && isEmptyDraft(initialRef.current));
+      setStoredDraft(id, persisted, draftKey, unchanged ? null : next, base);
     },
     [base, draftKey, id, persisted],
   );
@@ -406,6 +410,7 @@ export function useReviewCommentDraft(
     () => ({
       draft,
       saved: savedDraft !== undefined,
+      target: draftKey === null ? null : JSON.stringify([id, draftKey]),
       setText: (text) => update({ text }),
       setMentions: (mentions) => update({ mentions }),
       setImages: (images) => update({ images }),

@@ -106,6 +106,11 @@ export interface ReviewCommentComposerProps {
    * attachments the server counts toward its five.
    */
   maxImages?: number | undefined;
+  /**
+   * The draft the images go to, its `target`, for a box that moves between
+   * drafts: an image still uploading when it changes isn't added to the next.
+   */
+  imageTarget?: string | null | undefined;
   attachImageLabel?: string | undefined;
   removeImageLabel?: string | undefined;
   imageUploadFailedLabel?: string | undefined;
@@ -168,6 +173,7 @@ export function ReviewCommentComposer({
   uploadImage,
   onImageUploadError,
   maxImages,
+  imageTarget,
   attachImageLabel = "Attach image",
   removeImageLabel = "Remove image",
   imageUploadFailedLabel = "Couldn't upload the image",
@@ -207,6 +213,7 @@ export function ReviewCommentComposer({
       onImageUploadError ?? (() => toast.error(imageUploadFailedLabel)),
     disabled,
     maxImages,
+    target: imageTarget,
   });
   const imageInputRef = useRef<HTMLInputElement>(null);
   // An image is a comment on its own, once it's uploaded.

@@ -156,6 +156,21 @@ describe("useReviewCommentDraft", () => {
     expect(stored()).toBeNull();
   });
 
+  it("keeps an edit emptied of its text, rather than putting the comment back", async () => {
+    const initial = { text: "Original", mentions: [], images: [] };
+    const states = mount([{ key: "edit:c1", initial }]);
+    act(() => states[0]!.setText(""));
+    expect(states[0]!.draft.text).toBe("");
+    expect(states[0]!.saved).toBe(true);
+
+    await reload();
+    const after = mount([{ key: "edit:c1", initial: { ...initial } }]);
+    expect(after[0]!.draft.text).toBe("");
+
+    act(() => after[0]!.setText("Original"));
+    expect(stored()).toBeNull();
+  });
+
   it("drops an edit's draft once the comment it started from changes", async () => {
     const initial = { text: "Original", mentions: [], images: [] };
     const states = mount([{ key: "edit:c1", initial }]);
@@ -250,7 +265,21 @@ describe("useReviewCommentDraft", () => {
     });
     expect(states[0]!.draft.text).toBe("");
     expect(states[1]!.draft.text).toBe("");
+    expect(states[0]!.target).toBeNull();
+    expect(states[1]!.target).toBeNull();
     expect(window.localStorage.length).toBe(0);
+  });
+
+  it("names each draft's target apart, by key and by account", () => {
+    const states = mount([
+      { key: "reply:t1" },
+      { key: "reply:t1" },
+      { key: "reply:t2" },
+      { key: "reply:t1", scope: { ...scope, orgId: "o1" } },
+    ]);
+    expect(states[0]!.target).toBe(states[1]!.target);
+    expect(states[2]!.target).not.toBe(states[0]!.target);
+    expect(states[3]!.target).not.toBe(states[0]!.target);
   });
 
   it("keeps a person's drafts for each account apart", () => {

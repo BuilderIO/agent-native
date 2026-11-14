@@ -3244,6 +3244,7 @@ export function ReviewCanvasPins({
                     MAX_REVIEW_COMMENT_IMAGES - editHiddenAttachments.length,
                   )}
                   onEditImagesChange={editDraftState.setImages}
+                  editImageTarget={editDraftState.target}
                   onEditCancel={() => {
                     editDraftState.clear();
                     setEditCandidate(null);
@@ -3291,6 +3292,7 @@ export function ReviewCanvasPins({
                   mentionFailed={mentionFailed}
                   replyAttachments={replyAttachments}
                   onReplyAttachmentsChange={replyDraftState.setImages}
+                  replyImageTarget={replyDraftState.target}
                   onReplyDraftChange={replyDraftState.setText}
                   onReplyMentionsChange={replyDraftState.setMentions}
                   onClose={dismissActiveThread}
@@ -4031,6 +4033,7 @@ function ReviewThreadPopover({
   editImages,
   editMaxImages,
   onEditImagesChange,
+  editImageTarget,
   updating,
   onEdit,
   onEditDraftChange,
@@ -4059,6 +4062,7 @@ function ReviewThreadPopover({
   mentionFailed,
   replyAttachments,
   onReplyAttachmentsChange,
+  replyImageTarget,
   onReplyDraftChange,
   onReplyMentionsChange,
   onClose,
@@ -4080,6 +4084,7 @@ function ReviewThreadPopover({
   editImages: readonly ReviewCommentImage[];
   editMaxImages: number;
   onEditImagesChange: (images: ReviewCommentImage[]) => void;
+  editImageTarget: string | null;
   updating: boolean;
   onEdit: (comment: ReviewComment) => void;
   onEditDraftChange: (value: string) => void;
@@ -4112,6 +4117,7 @@ function ReviewThreadPopover({
   mentionFailed: boolean;
   replyAttachments: readonly ReviewCommentImage[];
   onReplyAttachmentsChange: (attachments: ReviewCommentImage[]) => void;
+  replyImageTarget: string | null;
   onReplyDraftChange: (value: string) => void;
   onReplyMentionsChange: (mentions: ReviewMention[]) => void;
   onClose: () => void;
@@ -4206,6 +4212,7 @@ function ReviewThreadPopover({
             images={editImages}
             maxImages={editMaxImages}
             onImagesChange={onEditImagesChange}
+            imageTarget={editImageTarget}
             {...reviewImageLabels(t)}
             textareaProps={{ "aria-label": t("review.editComment") }}
             autoFocus
@@ -4303,6 +4310,7 @@ function ReviewThreadPopover({
               showCommentTools
               images={replyAttachments}
               onImagesChange={onReplyAttachmentsChange}
+              imageTarget={replyImageTarget}
               {...reviewImageLabels(t)}
               emojiLabel={t("review.addEmoji")}
               mentionLabel={t("review.mention")}

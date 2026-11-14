@@ -186,7 +186,9 @@ sent, so a reload or a closed thread doesn't lose it. Give each box its own
 key, such as `new`, `reply:<threadId>` or `edit:<commentId>`, and call
 `clear()` once the comment is saved. Drafts are kept per person, account and
 resource, and only the newest 50 are kept. Without a signed-in person nothing
-is stored, and a draft lasts while a box on the resource is open.
+is stored, and a draft lasts while a box on the resource is open. Give the box
+the draft's `target` as `imageTarget`, so an image still uploading when the
+box moves to another thread or account isn't added to that one's draft.
 
 ```tsx
 const reply = useReviewCommentDraft(
@@ -201,6 +203,7 @@ const reply = useReviewCommentDraft(
   onMentionsChange={reply.setMentions}
   images={reply.draft.images}
   onImagesChange={reply.setImages}
+  imageTarget={reply.target}
   onSubmit={async () => {
     await replyToThread({
       body: reply.draft.text,

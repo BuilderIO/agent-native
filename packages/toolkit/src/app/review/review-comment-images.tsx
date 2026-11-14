@@ -180,7 +180,8 @@ export interface ReviewCommentImageUploadState {
 
 /**
  * Uploads picked, pasted or dropped images and adds them to `images` as each
- * batch finishes. A batch that loses a file still adds the rest.
+ * batch finishes. A batch that loses a file still adds the rest, and one
+ * still uploading when `target` changes is left out.
  */
 export function useReviewCommentImageUpload({
   images,
@@ -189,6 +190,7 @@ export function useReviewCommentImageUpload({
   onUploadError,
   disabled = false,
   maxImages = MAX_REVIEW_COMMENT_IMAGES,
+  target,
 }: {
   images: readonly ReviewCommentImage[];
   onImagesChange: ((images: ReviewCommentImage[]) => void) | undefined;
@@ -197,17 +199,29 @@ export function useReviewCommentImageUpload({
   disabled?: boolean | undefined;
   /** At most this many images, up to five. */
   maxImages?: number | undefined;
+  /**
+   * What the images are for, such as a draft's `target`. An image still
+   * uploading when it changes was for the one before, so it isn't added.
+   */
+  target?: string | null | undefined;
 }): ReviewCommentImageUploadState {
-  const [pending, setPending] = useState(0);
+  const [pending, setPending] = useState({ target, count: 0 });
   const limit = Math.max(0, Math.min(MAX_REVIEW_COMMENT_IMAGES, maxImages));
   // The images as of the last change, which a batch finishing before the
   // next render adds to, so two batches never overwrite each other.
   const imagesRef = useRef(images);
   imagesRef.current = images;
-  const latest = useRef({ onImagesChange, upload, onUploadError, limit });
-  latest.current = { onImagesChange, upload, onUploadError, limit };
-  // Files still uploading, so a second batch doesn't take their places.
-  const pendingRef = useRef(0);
+  const latest = useRef({
+    onImagesChange,
+    upload,
+    onUploadError,
+    limit,
+    target,
+  });
+  latest.current = { onImagesChange, upload, onUploadError, limit, target };
+  // Files still uploading for `target`, so a second batch doesn't take their
+  // places. Ones for an earlier target don't count.
+  const pendingRef = useRef({ target, count: 0 });
   const mountedRef = useRef(true);
   useEffect(() => {
     mountedRef.current = true;
@@ -216,25 +230,37 @@ export function useReviewCommentImageUpload({
     };
   }, []);
 
-  const remaining = Math.max(0, limit - images.length - pending);
+  const pendingCount = pending.target === target ? pending.count : 0;
+  const remaining = Math.max(0, limit - images.length - pendingCount);
 
   const addFiles = (files: readonly File[]): boolean => {
     if (disabled || !latest.current.onImagesChange) return false;
-    const room = limit - imagesRef.current.length - pendingRef.current;
+    const batchTarget = latest.current.target;
+    if (pendingRef.current.target !== batchTarget)
+      pendingRef.current = { target: batchTarget, count: 0 };
+    const room = limit - imagesRef.current.length - pendingRef.current.count;
     const selected = files
       .filter((file) => file.type.startsWith("image/"))
       .slice(0, Math.max(0, room));
     // Images past the limit are still taken, so they don't paste as text.
     if (!selected.length)
       return files.some((file) => file.type.startsWith("image/"));
-    pendingRef.current += selected.length;
+    pendingRef.current = {
+      target: batchTarget,
+      count: pendingRef.current.count + selected.length,
+    };
     setPending(pendingRef.current);
     void Promise.allSettled(
       selected.map((file) => latest.current.upload(file)),
     ).then((results) => {
-      pendingRef.current -= selected.length;
+      if (pendingRef.current.target === batchTarget)
+        pendingRef.current = {
+          target: batchTarget,
+          count: pendingRef.current.count - selected.length,
+        };
       if (!mountedRef.current) return;
       setPending(pendingRef.current);
+      if (latest.current.target !== batchTarget) return;
       const uploaded = results.flatMap((result) =>
         result.status === "fulfilled" ? [result.value] : [],
       );
@@ -255,7 +281,7 @@ export function useReviewCommentImageUpload({
     return true;
   };
 
-  return { uploading: pending > 0, remaining, addFiles };
+  return { uploading: pendingCount > 0, remaining, addFiles };
 }
 
 export function ReviewCommentImageStrip({
