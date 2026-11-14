@@ -57,6 +57,9 @@ function readEntries(zip: Buffer): ZipEntry[] {
     ) {
       throw new Error("zip64 entries are not supported");
     }
+    if (pos + 46 + nameLen > eocd) {
+      throw new Error("corrupt zip: central directory entry runs past its end");
+    }
     const name = Buffer.from(zip.subarray(pos + 46, pos + 46 + nameLen));
     if (zip.readUInt32LE(localOffset) !== LOC_SIG) {
       throw new Error("corrupt zip: bad local header signature");

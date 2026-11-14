@@ -45,8 +45,7 @@ export function assertStatusOutputEnabled(args: string[]): void {
     args.some(
       (arg) =>
         arg === "--config" ||
-        arg === "-c" ||
-        arg.startsWith("-c=") ||
+        (arg.startsWith("-c") && !arg.startsWith("--")) ||
         arg.startsWith("--config="),
     )
   ) {

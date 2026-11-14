@@ -62,6 +62,7 @@ describe("netlify-deploy status output", () => {
       /--config/,
     );
     expect(() => assertStatusOutputEnabled(["-c=x.toml"])).toThrow(/--config/);
+    expect(() => assertStatusOutputEnabled(["-cx.toml"])).toThrow(/--config/);
     expect(() => assertStatusOutputEnabled(["--prod"])).not.toThrow();
   });
 });
