@@ -76,6 +76,43 @@ export function threadPropertyId(
   return thread?.property?.propertyId ?? null;
 }
 
+const PENDING_COMMENT_WAIT_MS = 5_000;
+
+/**
+ * Brings a new Comment's box into view once it's drawn. Info may still be
+ * reading its Properties when it asks the Comment back, so a box not there yet
+ * is revealed when it appears, unless that takes more than a few seconds.
+ * Returns a cleanup that stops a reveal still waiting.
+ */
+export function revealPendingComment(
+  scope: Document | HTMLElement | null | undefined,
+  selector: string,
+  reveal: (composer: HTMLElement) => void,
+): (() => void) | undefined {
+  if (!scope) return undefined;
+  const drawn = scope.querySelector<HTMLElement>(selector);
+  if (drawn) {
+    reveal(drawn);
+    return undefined;
+  }
+  const observer = new MutationObserver(() => {
+    const composer = scope.querySelector<HTMLElement>(selector);
+    if (!composer) return;
+    stop();
+    reveal(composer);
+  });
+  const timer = setTimeout(
+    () => observer.disconnect(),
+    PENDING_COMMENT_WAIT_MS,
+  );
+  const stop = () => {
+    observer.disconnect();
+    clearTimeout(timer);
+  };
+  observer.observe(scope, { childList: true, subtree: true });
+  return stop;
+}
+
 /**
  * Threads anchored in the page body's text, which its editor highlights: not
  * those on a Property value or in another Blocks field tab.

@@ -22,6 +22,7 @@ import {
   PropertyCommentsContext,
   openThreadsByProperty,
   propertyThreadTarget,
+  revealPendingComment,
   threadPropertyId,
   type PropertyCommentsValue,
 } from "./property-comments";
@@ -517,6 +518,76 @@ describe("threadPropertyId", () => {
     expect(threadPropertyId(threads, "body")).toBeNull();
     expect(threadPropertyId(threads, null)).toBeNull();
     expect(threadPropertyId(undefined, "open")).toBeNull();
+  });
+});
+
+describe("revealPendingComment", () => {
+  const selector = '[data-property-threads="a"] [data-comment-pending]';
+  let scope: HTMLElement;
+
+  function drawBox() {
+    const threads = document.createElement("div");
+    threads.setAttribute("data-property-threads", "a");
+    const box = document.createElement("div");
+    box.setAttribute("data-comment-pending", "");
+    threads.append(box);
+    scope.append(threads);
+    return box;
+  }
+
+  /** Lets the page deliver anything it was going to tell an observer. */
+  function nextTask() {
+    return new Promise((resolve) => setTimeout(resolve, 0));
+  }
+
+  beforeEach(() => {
+    scope = document.createElement("div");
+    document.body.append(scope);
+  });
+
+  afterEach(() => {
+    scope.remove();
+    vi.useRealTimers();
+  });
+
+  it("reveals a box already drawn at once", () => {
+    const box = drawBox();
+    const reveal = vi.fn();
+
+    expect(revealPendingComment(scope, selector, reveal)).toBeUndefined();
+    expect(reveal).toHaveBeenCalledWith(box);
+  });
+
+  it("reveals a box once Info draws it after reading its Properties", async () => {
+    const reveal = vi.fn();
+    const stop = revealPendingComment(scope, selector, reveal);
+    expect(reveal).not.toHaveBeenCalled();
+
+    const box = drawBox();
+    await vi.waitFor(() => expect(reveal).toHaveBeenCalledWith(box));
+
+    drawBox();
+    await nextTask();
+    expect(reveal).toHaveBeenCalledTimes(1);
+    stop?.();
+  });
+
+  it("stops waiting after a few seconds, or when cleaned up", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    const late = vi.fn();
+    revealPendingComment(scope, selector, late);
+    vi.advanceTimersByTime(5_000);
+    vi.useRealTimers();
+    drawBox();
+    await nextTask();
+    expect(late).not.toHaveBeenCalled();
+
+    scope.replaceChildren();
+    const cancelled = vi.fn();
+    revealPendingComment(scope, selector, cancelled)?.();
+    drawBox();
+    await nextTask();
+    expect(cancelled).not.toHaveBeenCalled();
   });
 });
 

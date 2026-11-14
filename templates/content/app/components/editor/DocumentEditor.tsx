@@ -373,6 +373,7 @@ import {
   bodyCommentThreads,
   openThreadsByProperty,
   PropertyCommentsContext,
+  revealPendingComment,
   threadPropertyId,
   type PropertyCommentsValue,
 } from "./property-comments";
@@ -9899,26 +9900,29 @@ function PageEditorSessionBody({
   useEffect(() => {
     if (!pendingReveal) return;
     const { propertyId } = pendingReveal;
+    let stopWaiting: (() => void) | undefined;
     // The line opens, or the panel changes, a render later.
     let frame = requestAnimationFrame(() => {
       frame = requestAnimationFrame(() => {
-        const composer =
+        stopWaiting = revealPendingComment(
+          propertyId === null ? globalThis.document : pagePanelRef.current,
           propertyId === null
-            ? globalThis.document.querySelector<HTMLElement>(
-                "[data-comment-pending]",
-              )
-            : pagePanelRef.current?.querySelector<HTMLElement>(
-                `[data-property-threads="${CSS.escape(propertyId)}"] [data-comment-pending]`,
-              );
-        if (!composer) return;
-        composer.scrollIntoView({ block: "nearest" });
-        pulseShownSubject([composer]);
-        composer
-          .querySelector<HTMLElement>('[contenteditable="true"]')
-          ?.focus({ preventScroll: true });
+            ? "[data-comment-pending]"
+            : `[data-property-threads="${CSS.escape(propertyId)}"] [data-comment-pending]`,
+          (composer) => {
+            composer.scrollIntoView({ block: "nearest" });
+            pulseShownSubject([composer]);
+            composer
+              .querySelector<HTMLElement>('[contenteditable="true"]')
+              ?.focus({ preventScroll: true });
+          },
+        );
       });
     });
-    return () => cancelAnimationFrame(frame);
+    return () => {
+      cancelAnimationFrame(frame);
+      stopWaiting?.();
+    };
   }, [pendingReveal]);
   // Info keeps a Property's Comments under its row, so starting one, opening
   // its threads, or replying leaves Info open.
