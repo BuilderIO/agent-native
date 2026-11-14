@@ -3715,6 +3715,11 @@ describe("generate-design: rejected input in the agent loop", () => {
   it.each([
     ["fileId", { fileId: "opaque-missing-id" }, "opaque-missing-id"],
     ["filename", { filename: "missing.html" }, "missing.html"],
+    [
+      "fileId with a matching filename",
+      { fileId: "opaque-missing-id", filename: "new-screen.html" },
+      "new-screen.html",
+    ],
   ])(
     "rejects an unknown canvasFrames %s before any writes",
     async (_kind, target, missingTarget) => {
@@ -3738,9 +3743,11 @@ describe("generate-design: rejected input in the agent loop", () => {
           ],
           canvasFrames: [{ ...target, x: 0, y: 0, width: 100, height: 100 }],
         }),
-      ).rejects.toThrow(
-        `canvasFrames entry did not match a design file: ${missingTarget}`,
-      );
+      ).rejects.toMatchObject({
+        name: "NoWriteError",
+        noWrite: true,
+        message: `canvasFrames entry did not match a design file: ${missingTarget}`,
+      });
 
       expect.soft(mocks.insert).not.toHaveBeenCalled();
       expect.soft(mocks.fileUpdateChain.set).not.toHaveBeenCalled();
@@ -3749,6 +3756,89 @@ describe("generate-design: rejected input in the agent loop", () => {
       expect.soft(mocks.mutateDesignData).not.toHaveBeenCalled();
     },
   );
+
+  it.each([
+    ["a new filename", { filename: "new-screen.html" }, "new"],
+    ["an existing filename", { filename: "index.html" }, "existing"],
+    ["an existing fileId", { fileId: "file-1" }, "existing"],
+    [
+      "an existing fileId over a conflicting filename",
+      { fileId: "file-1", filename: "new-screen.html" },
+      "existing",
+    ],
+  ])("places %s", async (_kind, target, expectedFile) => {
+    setExistingFile("<html><body>Old screen</body></html>");
+    const result = await action.run({
+      designId: "design-1",
+      prompt: "Add a screen",
+      files: [
+        {
+          filename: "new-screen.html",
+          fileType: "html",
+          content: "<html><body>New screen</body></html>",
+        },
+      ],
+      canvasFrames: [{ ...target, x: 3000, y: 2400, width: 100, height: 100 }],
+    });
+
+    const fileId =
+      expectedFile === "existing" ? "file-1" : result.savedFiles[0]?.id;
+    expect(fileId).toEqual(expect.any(String));
+    if (fileId === undefined) throw new Error("Expected a saved file ID");
+    expect(mocks.getDesignData().canvasFrames).toMatchObject({
+      [fileId]: { x: 3000, y: 2400, width: 100, height: 100 },
+    });
+  });
+
+  it("lets a corrected call run after an unknown canvas frame is rejected", async () => {
+    const { runAgentLoop } = await import("@agent-native/core/server");
+    const base = {
+      designId: "design-1",
+      prompt: "Make a design",
+      files: JSON.stringify([
+        {
+          filename: "index.html",
+          fileType: "html",
+          content: "<main>Hi</main>",
+        },
+      ]),
+    };
+    const events: Array<Record<string, unknown>> = [];
+    await runAgentLoop({
+      engine: scriptedEngine([
+        {
+          ...base,
+          canvasFrames: JSON.stringify([{ fileId: "missing", x: 0 }]),
+        },
+        {
+          ...base,
+          canvasFrames: JSON.stringify([{ filename: "index.html", x: 0 }]),
+        },
+      ]) as never,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [
+        { role: "user", content: [{ type: "text", text: "Make a design" }] },
+      ],
+      actions: { "generate-design": action as never },
+      send: (event) => events.push(event as unknown as Record<string, unknown>),
+      signal: new AbortController().signal,
+    });
+
+    const done = events.filter((event) => event.type === "tool_done");
+    expect(done[0]).toMatchObject({
+      isError: true,
+      completedSideEffect: false,
+      errorClass: "rejected",
+      result: expect.stringContaining(
+        "canvasFrames entry did not match a design file: missing",
+      ),
+    });
+    expect(done[1]).toMatchObject({ completedSideEffect: true });
+    expect(events.some((event) => event.outcomeUnknown === true)).toBe(false);
+    expect(mocks.snapshotDesignBeforeAgentEdit).toHaveBeenCalledOnce();
+  });
 
   it("preflights locked layers in every file before checkpointing or saving any file", async () => {
     setExistingFile(

@@ -852,6 +852,24 @@ const generateDesignAction = defineAction({
       .from(schema.designFiles)
       .where(eq(schema.designFiles.designId, designId));
 
+    const existingFileIds = new Set(existingFiles.map((file) => file.id));
+    const availableFilenames = new Set([
+      ...existingFiles.map((file) => file.filename),
+      ...requestedFilenames,
+    ]);
+    for (const placement of canvasFrames ?? []) {
+      const matches = placement.fileId
+        ? existingFileIds.has(placement.fileId)
+        : Boolean(
+            placement.filename && availableFilenames.has(placement.filename),
+          );
+      if (!matches) {
+        throw new NoWriteError(
+          `canvasFrames entry did not match a design file: ${placement.filename ?? placement.fileId}`,
+        );
+      }
+    }
+
     let hasRenderableFile = files.some(isRenderableDesignFile);
     if (!hasRenderableFile) {
       const renderable = await db
