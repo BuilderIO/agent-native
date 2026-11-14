@@ -4,7 +4,7 @@ import {
   SIGN_IN_ENTRY_PATH,
   signInJourney,
 } from "../shared/sign-in-journey.js";
-import { apiBaseUrl, appBasePath, appPath } from "./api-path.js";
+import { apiBaseUrl, appBasePath } from "./api-path.js";
 import { serverSignInHref } from "./sign-in-return.js";
 
 /**
@@ -19,7 +19,9 @@ export function signInLandingLoader(
     typeof homePathOrArgs === "string" ? homePathOrArgs : undefined;
   if (homePath === "/") return null;
   const base = apiBaseUrl();
-  if (!base) return redirectDocument(appPath(SIGN_IN_ENTRY_PATH));
+  // React Router adds its basename to single-fetch redirects; the SSR handler
+  // adds the mount to document Location headers after the router responds.
+  if (!base) return redirectDocument(SIGN_IN_ENTRY_PATH);
 
   const uiOrigin =
     (
