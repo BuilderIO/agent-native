@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -1327,7 +1328,9 @@ describe("GitHub folder source", () => {
       );
       expect(followed?.documentId).not.toBe(faq.documentId);
       expect(followed?.content).toContain("Answers moved to the forum.");
-      expect(followed?.content).toContain("chart.png");
+      expect(followed?.content).toContain(
+        `![Chart](${github.uploadedPath(uploads + 1)})`,
+      );
       const [released] = await getDb()
         .select({ content: schema.documents.content })
         .from(schema.documents)
@@ -2051,12 +2054,8 @@ describe("GitHub folder source", () => {
         before.map((row) => row.documentId).sort(),
       );
       const content = after.map((row) => row.content).join("\n");
-      expect(content).toMatch(
-        /https:\/\/files\.example\.test\/\d+\/diagram\.png/,
-      );
-      expect(content).toMatch(
-        /https:\/\/files\.example\.test\/\d+\/chart\.png/,
-      );
+      expect(content).toContain(`![Diagram](${github.uploadedPath(4)})`);
+      expect(content).toContain(`![Chart](${github.uploadedPath(3)})`);
       const healthy = await as(() =>
         getSource.run({ databaseId: database.id }),
       );
@@ -2121,9 +2120,7 @@ describe("GitHub folder source", () => {
       const poster = (await liveRows(database.id)).find(
         (row) => row.sourcePath === "docs/a-poster.md",
       )!;
-      expect(poster.content).toMatch(
-        /https:\/\/files\.example\.test\/\d+\/poster\.png/,
-      );
+      expect(poster.content).toContain(`![Poster](${github.uploadedPath(3)})`);
     } finally {
       warn.mockRestore();
     }
@@ -2514,8 +2511,11 @@ describe("GitHub folder source", () => {
       problem: null,
     });
     const pages = await liveRows(database.id);
-    const content = (path: string) =>
-      pages.find((row) => row.sourcePath === path)!.content;
+    const content = (path: string) => {
+      const page = pages.find((row) => row.sourcePath === path);
+      assert(page);
+      return page.content;
+    };
     expect(content("docs/a-poster.md")).not.toContain("/api/private-media/");
     expect(content("docs/b-poster-again.md")).not.toContain(
       "/api/private-media/",
@@ -2534,7 +2534,8 @@ describe("GitHub folder source", () => {
       linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
     );
     const [chart] = await liveRows(database.id);
-    expect(await boundImages(chart!.documentId)).toEqual([github.mediaId(1)]);
+    assert(chart);
+    expect(await boundImages(chart.documentId)).toEqual([github.mediaId(1)]);
 
     // An edit that adds the link to a page already there binds nothing new.
     github.commit({
@@ -2542,7 +2543,7 @@ describe("GitHub folder source", () => {
       "docs/images/chart.png": "PNGCHART",
     });
     await as(() => syncFolder.run({ databaseId: database.id }));
-    expect(await boundImages(chart!.documentId)).toEqual([github.mediaId(1)]);
+    expect(await boundImages(chart.documentId)).toEqual([github.mediaId(1)]);
   });
 
   it("lets readers of a new page load an image an earlier sync stored for another", async () => {
@@ -2565,7 +2566,9 @@ describe("GitHub folder source", () => {
     expect(github.state.uploads).toBe(1);
     const live = await liveRows(database.id);
     expect(live.map((row) => row.sourcePath)).toEqual(["docs/c.md"]);
-    expect(live[0]!.content).toContain(github.uploadedPath(1));
+    expect(live.map((row) => row.content).join("\n")).toContain(
+      github.uploadedPath(1),
+    );
     const { canReadPrivateMediaThroughDocument } =
       await import("../server/lib/private-media-references.js");
     expect(
@@ -2597,7 +2600,7 @@ describe("GitHub folder source", () => {
       await getDb()
         .update(schema.documents)
         .set({
-          content: row.content!.replaceAll(github.uploadedPath(1), legacyUrl),
+          content: row.content.replaceAll(github.uploadedPath(1), legacyUrl),
         })
         .where(eq(schema.documents.id, row.documentId));
       await getDb()
@@ -2613,10 +2616,11 @@ describe("GitHub folder source", () => {
       .from(schema.contentDatabaseSourceRows)
       .where(eq(schema.contentDatabaseSourceRows.sourceId, id));
     for (const row of sourceRows) {
+      assert(row.sourceValuesJson);
       await getDb()
         .update(schema.contentDatabaseSourceRows)
         .set({
-          sourceValuesJson: row.sourceValuesJson!.replaceAll(
+          sourceValuesJson: row.sourceValuesJson.replaceAll(
             github.uploadedPath(1),
             legacyUrl,
           ),
@@ -2634,11 +2638,13 @@ describe("GitHub folder source", () => {
     // the public copy; the page that didn't change keeps what it had.
     expect(github.state.uploads).toBe(2);
     const [a, b] = await liveRows(database.id);
-    expect(a!.content).toContain(github.uploadedPath(2));
-    expect(a!.content).not.toContain(legacyUrl);
-    expect(await boundImages(a!.documentId)).toEqual([github.mediaId(2)]);
-    expect(b!.content).toContain(legacyUrl);
-    expect(await boundImages(b!.documentId)).toEqual([]);
+    assert(a);
+    assert(b);
+    expect(a.content).toContain(github.uploadedPath(2));
+    expect(a.content).not.toContain(legacyUrl);
+    expect(await boundImages(a.documentId)).toEqual([github.mediaId(2)]);
+    expect(b.content).toContain(legacyUrl);
+    expect(await boundImages(b.documentId)).toEqual([]);
   });
 
   it("stops saying storage failed once a sync found it gone before another problem stopped it", async () => {
@@ -2819,9 +2825,7 @@ describe("GitHub folder source", () => {
       const poster = (await liveRows(database.id)).find(
         (row) => row.sourcePath === "docs/a-poster.md",
       )!;
-      expect(poster.content).toMatch(
-        /https:\/\/files\.example\.test\/\d+\/poster\.png/,
-      );
+      expect(poster.content).toContain(`![Poster](${github.uploadedPath(2)})`);
     } finally {
       warn.mockRestore();
     }

@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { createHash, randomUUID } from "node:crypto";
 
 import {
@@ -2039,10 +2040,11 @@ async function insertNewPages(tx: Db, run: SyncRun, pages: BuiltFile[]) {
   });
   await bindStoredImages(
     tx,
-    pages.map(({ mediaIds }, index) => ({
-      documentId: documentIds[index]!,
-      mediaIds,
-    })),
+    pages.map(({ mediaIds }, index) => {
+      const documentId = documentIds[index];
+      assert(documentId, "A synced page has no document id.");
+      return { documentId, mediaIds };
+    }),
   );
   // Every page's values fit the columns before any are written, and each
   // column's new select options are added in one write.

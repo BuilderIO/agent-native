@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -569,7 +570,9 @@ describe("import-content", () => {
     expect(page.content).toMatch(PRIVATE_IMAGE_LINK);
     expect(page.content).not.toContain(deleted);
     // The page's own image is bound to it, so its readers can load it.
-    const [kept] = page.content.match(PRIVATE_IMAGE_LINK)!;
+    const match = page.content.match(PRIVATE_IMAGE_LINK);
+    assert(match);
+    const [kept] = match;
     expect(await boundImages(page.id)).toEqual([kept.split("/").pop()]);
   });
 
@@ -665,8 +668,13 @@ describe("import-content", () => {
     );
     const pages = await importedChildren();
     expect(pages).toHaveLength(2);
-    const [link] = pages[0]!.content.match(PRIVATE_IMAGE_LINK)!;
-    const mediaId = link.split("/").pop()!;
+    const [first] = pages;
+    assert(first);
+    const match = first.content.match(PRIVATE_IMAGE_LINK);
+    assert(match);
+    const [link] = match;
+    const mediaId = link.split("/").pop();
+    assert(mediaId);
     for (const page of pages) {
       expect(page.content).toContain(link);
       expect(await boundImages(page.id)).toEqual([mediaId]);
@@ -733,9 +741,10 @@ describe("import-content", () => {
       .select()
       .from(schema.documents)
       .where(eq(schema.documents.parentId, otherParent));
-    expect(copied!.content).toContain(`/api/private-media/${theirs.id}`);
+    assert(copied);
+    expect(copied.content).toContain(`/api/private-media/${theirs.id}`);
     // Nobody who can read the page gains the image by linking it.
-    expect(await boundImages(copied!.id)).toEqual([]);
+    expect(await boundImages(copied.id)).toEqual([]);
   });
 
   it("binds a key to one set of files when two applies with different files race", async () => {
