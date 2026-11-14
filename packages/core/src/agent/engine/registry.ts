@@ -1247,13 +1247,17 @@ async function engineCreateConfigForEntry(
     matchingApiKeyProvenance,
     config,
   );
+  // A personal run on its org's Builder connection is paid for by that org.
+  const builderOrgId =
+    entry.name === "builder" && isPersonalRunBuilderLookup(credentialIdentity)
+      ? await resolvePersonalRunBuilderOrgId(credentialIdentity)
+      : undefined;
   return {
     config,
     credentialOwner,
-    credentialOrgId: credentialOrgIdFor(
-      credentialOwner,
-      matchingApiKeyProvenance,
-    ),
+    credentialOrgId:
+      builderOrgId ??
+      credentialOrgIdFor(credentialOwner, matchingApiKeyProvenance),
     connectionSource:
       connectionSource ??
       (matchingApiKey === undefined &&

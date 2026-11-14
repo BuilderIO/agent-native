@@ -1478,6 +1478,8 @@ async function personalRunBuilderFallbackOrgId(
   if (await hasStoredBuilderOAuthGrantForUse(candidate.email, null)) {
     return undefined;
   }
+  // So is a single `bpk-` key, which single-key setups still authenticate on.
+  if ((await resolveBuilderPrivateKey(identity))?.trim()) return undefined;
   return candidate.orgId;
 }
 

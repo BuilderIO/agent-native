@@ -370,6 +370,18 @@ describe("a personal automation whose provider key is saved at organization scop
     expect(resolved).toMatchObject({ ok: false, code: "owner_unverifiable" });
   });
 
+  it("retries later when the membership read fails for another reason", async () => {
+    store.orgMembersFailure = Object.assign(
+      new Error("permission denied for table org_members"),
+      { code: "42501" },
+    );
+    secret("user", MEMBER, "ANTHROPIC_API_KEY", "sk-ant-member");
+
+    const { resolved } = await credentialCheckFor(MEMBER);
+
+    expect(resolved).toMatchObject({ ok: false, code: "owner_unverifiable" });
+  });
+
   it("keeps running on personal keys when the deployment has no organization tables", async () => {
     store.orgMembersFailure = Object.assign(
       new Error('relation "org_members" does not exist'),
@@ -624,6 +636,52 @@ describe("a personal automation whose Builder.io connection is the organization'
       authorization: "Bearer bpk-member",
       spaceId: "pub-member",
     });
+  });
+
+  it("keeps the creator's own single Builder private key", async () => {
+    secret("user", MEMBER, "BUILDER_PRIVATE_KEY", "bpk-member");
+    store.builderGrants.set(`org:${ORG}`, "bat-org");
+    secret("org", ORG, "BUILDER_PRIVATE_KEY", "bpk-org");
+    secret("org", ORG, "BUILDER_PUBLIC_KEY", "pub-org");
+
+    expect(await builderAuthForRun(MEMBER)).toEqual({
+      authorization: "Bearer bpk-member",
+      spaceId: null,
+      userId: null,
+    });
+  });
+
+  it("keeps the deployment's Builder credits pair", async () => {
+    vi.stubEnv("BUILDER_GATEWAY_TOKEN", "bgt-deploy");
+    vi.stubEnv("BUILDER_GATEWAY_SPACE_ID", "space-deploy");
+    store.builderGrants.set(`org:${ORG}`, "bat-org");
+    secret("org", ORG, "BUILDER_PRIVATE_KEY", "bpk-org");
+    secret("org", ORG, "BUILDER_PUBLIC_KEY", "pub-org");
+
+    expect(await builderAuthForRun(MEMBER)).toMatchObject({
+      authorization: "Bearer bgt-deploy",
+      spaceId: "space-deploy",
+    });
+  });
+
+  it("charges a run on the organization's Builder connection to the organization", async () => {
+    store.builderGrants.set(`org:${ORG}`, "bat-org");
+
+    const { check } = await credentialCheckFor(MEMBER);
+
+    expect(check).toMatchObject({ ok: true });
+    expect(getEngineCredentialOrgId((check as any).engine)).toBe(ORG);
+  });
+
+  it("charges a run on the creator's own Builder connection to no organization", async () => {
+    secret("user", MEMBER, "BUILDER_PRIVATE_KEY", "bpk-member");
+    secret("user", MEMBER, "BUILDER_PUBLIC_KEY", "pub-member");
+    store.builderGrants.set(`org:${ORG}`, "bat-org");
+
+    const { check } = await credentialCheckFor(MEMBER);
+
+    expect(check).toMatchObject({ ok: true });
+    expect(getEngineCredentialOrgId((check as any).engine)).toBeUndefined();
   });
 
   it("keeps the creator's own Builder sign-in", async () => {

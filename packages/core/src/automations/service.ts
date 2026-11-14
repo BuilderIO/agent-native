@@ -24,6 +24,7 @@ import { applyJobResourceEdit } from "../jobs/update-job-resource.js";
 import { automationOutcomeMessagesForUser } from "../localization/automation-outcome-messages.js";
 import { resolveUserSchedulingTimezone } from "../localization/user-timezone.js";
 import { resolveMembershipOrgScope } from "../org/context.js";
+import { isMissingOrganizationTableError } from "../org/membership.js";
 import {
   organizationIdFromResourceOwner,
   organizationResourceOwner,
@@ -1561,6 +1562,19 @@ export async function resolveAutomationExecutionIdentity(
       };
     }
     const membership = await resolveMembershipOrgScope(userEmail);
+    // An unreadable membership could hide the org's key or its "Restrict
+    // personal API keys" rule, so retry rather than run as if there were no
+    // org. A deployment without organization tables has none.
+    if (
+      membership.status === "unknown" &&
+      !isMissingOrganizationTableError(membership.cause)
+    ) {
+      return {
+        ok: false,
+        reason: `Could not read the organization membership of automation creator "${userEmail}".`,
+        code: "owner_unverifiable",
+      };
+    }
     return {
       ok: true,
       identity: {
