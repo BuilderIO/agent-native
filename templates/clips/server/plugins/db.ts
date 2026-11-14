@@ -1418,22 +1418,23 @@ export const migrations = runMigrations(
     },
     {
       version: 103,
-      name: "multipart-staging-chunks",
-      // Bytes waiting for a 5 MiB S3 multipart part live in the database
-      // instead of a staging object that every chunk downloaded and re-uploaded.
-      sql: `CREATE TABLE IF NOT EXISTS multipart_staging_chunks (
+      name: "multipart-staging-parts",
+      // References to pending S3 multipart chunks staged as their own objects
+      // in the upload's bucket; the bytes never live in SQL.
+      sql: `CREATE TABLE IF NOT EXISTS multipart_staging_parts (
         staging_key TEXT NOT NULL,
+        upload_id TEXT NOT NULL,
         byte_offset BIGINT NOT NULL,
         byte_length INTEGER NOT NULL,
-        data TEXT NOT NULL,
+        object_key TEXT NOT NULL,
+        target_key TEXT NOT NULL,
+        storage_fingerprint TEXT NOT NULL,
+        created_at TEXT NOT NULL,
         updated_at TEXT NOT NULL,
-        PRIMARY KEY (staging_key, byte_offset)
-      )`,
-    },
-    {
-      version: 104,
-      name: "multipart-staging-updated-at-index",
-      sql: `CREATE INDEX IF NOT EXISTS multipart_staging_updated_at_idx ON multipart_staging_chunks (updated_at)`,
+        PRIMARY KEY (staging_key, upload_id, byte_offset)
+      );
+      CREATE INDEX IF NOT EXISTS multipart_staging_parts_sweep_idx
+        ON multipart_staging_parts (storage_fingerprint, updated_at)`,
     },
   ]),
   { table: "clips_migrations" },
