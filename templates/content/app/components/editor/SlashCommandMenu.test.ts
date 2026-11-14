@@ -199,6 +199,14 @@ describe("slash command menu trigger", () => {
     ).toBe(true);
   });
 
+  it("finds a heading by its short name", () => {
+    expect(
+      buildHeadingCommands("set")
+        .slice(0, 3)
+        .map((item) => item.searchText),
+    ).toEqual(["h1", "h2", "h3"]);
+  });
+
   it("limits a writable directory widget to local document-formatting commands", () => {
     const commands = [
       { title: "Bulleted list", directoryWidgetSafe: true },

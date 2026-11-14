@@ -1065,7 +1065,7 @@ class MarkdownConverter {
       "before" in closedInHead
         ? closedInHead.before
         : opening.slice(openingTag.length);
-    let summary = "";
+    let title: PMNode[] = [];
     const summaryOpen = /<summary\b[^<>]*>/i.exec(head);
     if (summaryOpen) {
       // One search from the first `<summary>`, not one lazy regex, so many
@@ -1075,9 +1075,7 @@ class MarkdownConverter {
       summaryClose.lastIndex = textStart;
       const close = summaryClose.exec(head);
       if (close) {
-        summary = collapseWhitespace(
-          htmlVisibleText(head.slice(textStart, close.index)),
-        );
+        title = this.toggleTitle(head.slice(textStart, close.index));
         head =
           head.slice(0, summaryOpen.index) +
           head.slice(close.index + close[0].length);
@@ -1125,12 +1123,40 @@ class MarkdownConverter {
     return {
       node: {
         type: "notionToggle",
-        attrs: { summary, ...(open ? { open: true } : {}) },
-        content: children,
+        ...(open ? { attrs: { open: true } } : {}),
+        content: [
+          title.length
+            ? { type: "notionToggleSummary", content: title }
+            : { type: "notionToggleSummary" },
+          ...children,
+        ],
       },
       end,
       after,
     };
+  }
+
+  /**
+   * A `<summary>`'s text on the one line a title has, with its formatting and
+   * links. A summary holding blocks keeps only its text.
+   */
+  private toggleTitle(html: string): PMNode[] {
+    const pieces = this.htmlFragment(html);
+    const inline: PMNode[] = [];
+    for (const piece of pieces) {
+      if ("block" in piece || "paragraphBreak" in piece) {
+        const text = collapseWhitespace(htmlVisibleText(html));
+        return text ? [{ type: "text", text }] : [];
+      }
+      if (piece.type === "hardBreak") {
+        inline.push({ type: "text", text: " " });
+      } else if (piece.text) {
+        inline.push({ ...piece, text: piece.text.replace(/\s+/g, " ") });
+      } else {
+        inline.push(piece);
+      }
+    }
+    return normalizeInline(inline);
   }
 
   private inline(

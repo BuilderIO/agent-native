@@ -69,6 +69,7 @@ import {
   EDITOR_NON_EDIT_META,
 } from "../editor-transaction-meta";
 import { uploadVideoFile, videoUploadErrorMessage } from "../image-upload";
+import { useEditorEditable } from "../useEditorEditable";
 import { VideoLinkForm } from "./VideoLinkForm";
 import type { ContentVideoOptions } from "./VideoNode";
 
@@ -192,7 +193,8 @@ export function VideoBlock({
   const canMutateMediaNow = () =>
     editor.isEditable && (options.canMutateMedia?.() ?? true);
   const deleteNode = () => deleteNodeFromMenu({ editor, getPos, node });
-  const isEditable = canMutateMediaNow();
+  const isEditable =
+    useEditorEditable(editor) && (options.canMutateMedia?.() ?? true);
   const src = node.attrs.src as string;
   const sourcePanelOpen = node.attrs.sourcePanelOpen === true;
   const sourceTab: VideoSourceTab =

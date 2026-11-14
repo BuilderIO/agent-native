@@ -51,6 +51,19 @@ function nodesOfType(doc: PMDoc | PMNode, type: string): PMNode[] {
   return found;
 }
 
+/** A Toggle's title, wherever it keeps it, and the text under it. */
+function toggleParts(toggle: PMNode | undefined) {
+  if (!toggle) throw new Error("no Toggle");
+  const [first, ...rest] = toggle.content ?? [];
+  if (first?.type !== "notionToggleSummary") {
+    return { title: String(toggle.attrs?.summary), body: textOf(toggle) };
+  }
+  return {
+    title: textOf(first),
+    body: rest.map((child) => textOf(child)).join(""),
+  };
+}
+
 function textOf(node: PMDoc | PMNode): string {
   if ("text" in node && node.text) return node.text;
   return (node.content ?? []).map((child) => textOf(child)).join("");
@@ -136,8 +149,12 @@ describe("Markdown import", () => {
     );
 
     const [toggle] = nodesOfType(page.doc, "notionToggle");
-    expect(toggle.attrs?.summary).toBe("Known issues");
-    expect(textOf(toggle)).toBe("Large PDFs export slowly.");
+    expect(toggle?.content?.[0]?.type).toBe("notionToggleSummary");
+    expect(toggle?.attrs?.summary).toBe("");
+    expect(toggleParts(toggle)).toEqual({
+      title: "Known issues",
+      body: "Large PDFs export slowly.",
+    });
 
     expect(page.content).toContain("Press `Ctrl`+`S` to save.\\[1\\]");
     expect(page.content.endsWith("---\n1. Saving also triggers a sync.")).toBe(
@@ -375,6 +392,61 @@ describe("Markdown import", () => {
     expect(notes["github-alert-to-callout"]).toEqual(["warning"]);
     expect(notes["inline-image-moved-to-own-line"]).toEqual(["Project logo"]);
     expect(page.report.coverage.missingCharacters).toBe(0);
+    expectEditorAccepts(page);
+  });
+
+  it("keeps the formatting and links in a toggle's title", () => {
+    const page = importMarkdown(
+      [
+        "<details>",
+        '<summary><strong>Bold</strong>  and <a href="https://example.com">a link</a></summary>',
+        "",
+        "Inside",
+        "",
+        "</details>",
+      ].join("\n"),
+    );
+
+    const [toggle] = nodesOfType(page.doc, "notionToggle");
+    expect(toggle?.content?.[0]?.type).toBe("notionToggleSummary");
+    expect(toggle?.content?.[0]?.content).toEqual([
+      { type: "text", text: "Bold", marks: [{ type: "bold" }] },
+      { type: "text", text: " and " },
+      {
+        type: "text",
+        text: "a link",
+        marks: [
+          {
+            type: "link",
+            attrs: expect.objectContaining({ href: "https://example.com" }),
+          },
+        ],
+      },
+    ]);
+    expectEditorAccepts(page);
+  });
+
+  it("keeps a toggle title on one line and links only to safe addresses", () => {
+    const page = importMarkdown(
+      '<details><summary>One<br>two <a href="javascript:alert(1)">three</a></summary>Inside</details>',
+    );
+
+    const [toggle] = nodesOfType(page.doc, "notionToggle");
+    expect(toggle?.content?.[0]?.content).toEqual([
+      { type: "text", text: "One two three" },
+    ]);
+    expectEditorAccepts(page);
+  });
+
+  it("keeps the text of a toggle title that holds a block", () => {
+    const page = importMarkdown(
+      "<details><summary><pre>Code</pre> <strong>Title</strong></summary>Inside</details>",
+    );
+
+    const [toggle] = nodesOfType(page.doc, "notionToggle");
+    expect(toggle?.content?.[0]?.content).toEqual([
+      { type: "text", text: "Code Title" },
+    ]);
     expectEditorAccepts(page);
   });
 
@@ -728,7 +800,7 @@ describe("Markdown import", () => {
     expect(textOf(nodesOfType(page.doc, "notionCallout")[0])).toBe(
       "Remember to tab-indent callout bodies.",
     );
-    expect(textOf(nodesOfType(page.doc, "notionToggle")[0])).toBe(
+    expect(toggleParts(nodesOfType(page.doc, "notionToggle")[0]).body).toBe(
       "Hidden detail",
     );
     expect(page.report.status).toBe("preserved");
@@ -933,7 +1005,7 @@ describe("Markdown import", () => {
     expect(
       page.doc.content.map((node) =>
         node.type === "notionToggle"
-          ? `${node.attrs?.summary}: ${textOf(node)}`
+          ? `${toggleParts(node).title}: ${toggleParts(node).body}`
           : textOf(node),
       ),
     ).toEqual([
@@ -1154,7 +1226,7 @@ ${"<span>".repeat(70)}deep
     expect(
       page.doc.content.map((node) =>
         node.type === "notionToggle"
-          ? `${node.attrs?.summary}: ${textOf(node).trim()}`
+          ? `${toggleParts(node).title}: ${toggleParts(node).body.trim()}`
           : textOf(node),
       ),
     ).toEqual(["One: Inside one", "After"]);
@@ -1187,10 +1259,7 @@ ${"<span>".repeat(70)}deep
 
     expect(page.content).toContain("Visible after");
     const [toggle] = nodesOfType(page.doc, "notionToggle");
-    expect([toggle?.attrs?.summary, textOf(toggle).trim()]).toEqual([
-      dotted,
-      "Inside",
-    ]);
+    expect(toggleParts(toggle)).toEqual({ title: dotted, body: "Inside" });
     expect(noteKinds(page)).not.toContain("text-not-landed");
   });
 
@@ -1327,7 +1396,7 @@ ${"<span>".repeat(70)}deep
     expect(
       page.doc.content.map((node) =>
         node.type === "notionToggle"
-          ? `${node.attrs?.summary}: ${textOf(node).trim()}`
+          ? `${toggleParts(node).title}: ${toggleParts(node).body.trim()}`
           : textOf(node),
       ),
     ).toEqual(["One: Inside one", "shown"]);

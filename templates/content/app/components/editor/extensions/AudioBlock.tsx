@@ -48,6 +48,7 @@ import {
 
 import { deleteNodeFromMenu } from "../editor-transaction-meta";
 import { audioUploadErrorMessage, uploadAudioFile } from "../image-upload";
+import { useEditorEditable } from "../useEditorEditable";
 import type { ContentAudioOptions } from "./AudioNode";
 
 type AudioSourceTab = "upload" | "link";
@@ -174,7 +175,8 @@ export function AudioBlock({
   const canMutateMediaNow = () =>
     editor.isEditable && (options.canMutateMedia?.() ?? true);
   const deleteNode = () => deleteNodeFromMenu({ editor, getPos, node });
-  const isEditable = canMutateMediaNow();
+  const editorEditable = useEditorEditable(editor);
+  const isEditable = editorEditable && (options.canMutateMedia?.() ?? true);
   const src = node.attrs.src as string;
   const isUploading = Boolean(node.attrs.uploadId);
   const width = normalizedAudioWidth(node.attrs.width);
@@ -802,7 +804,7 @@ export function AudioBlock({
               </Popover>
             </div>
           </>
-        ) : editor.isEditable && options.onAudioComment ? (
+        ) : editorEditable && options.onAudioComment ? (
           <div
             className="media-block__toolbar"
             data-visible={isHovered ? "true" : undefined}
