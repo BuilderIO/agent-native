@@ -882,7 +882,15 @@ export async function handleUpdateResource(event: any) {
     // The old file goes only if it's still the version just copied. If
     // another write changed or removed it meanwhile, take the copy back, so
     // the newer version isn't lost to a copy of the older one.
-    if (!(await resourceDeleteIfCurrent(existing))) {
+    let oldDeleted: boolean;
+    try {
+      oldDeleted = await resourceDeleteIfCurrent(existing);
+    } catch (error) {
+      // The old file couldn't be deleted, so take the copy back too.
+      await resourceDeleteIfCurrent(moved.resource);
+      throw error;
+    }
+    if (!oldDeleted) {
       await resourceDeleteIfCurrent(moved.resource);
       setResponseStatus(event, 409);
       return { error: "Resource changed before it could be renamed" };

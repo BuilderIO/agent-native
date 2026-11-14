@@ -1699,6 +1699,29 @@ Legacy webhook.`,
       expect(mockResourceDelete).not.toHaveBeenCalled();
     });
 
+    it("takes the copy back when the old local file can't be deleted", async () => {
+      mockIsLocalWorkspaceResourceId.mockReturnValue(true);
+      mockCanWriteLocalWorkspaceResourcePath.mockResolvedValue(true);
+      mockResourceGet.mockResolvedValue(localSkill("draft"));
+      const moved = { ...localSkill("review"), content: "draft" };
+      mockResourcePutIfSnapshot.mockResolvedValue({
+        before: null,
+        resource: moved,
+      });
+      mockResourceDeleteIfCurrent
+        .mockRejectedValueOnce(new Error("EACCES: permission denied"))
+        .mockResolvedValueOnce(true);
+
+      await expect(
+        handleUpdateResource({
+          _params: { id: "local-workspace-resource:skills/draft/SKILL.md" },
+          _body: { path: "skills/review/SKILL.md" },
+          context: {},
+        }),
+      ).rejects.toThrow("EACCES: permission denied");
+      expect(mockResourceDeleteIfCurrent).toHaveBeenNthCalledWith(2, moved);
+    });
+
     it("refuses a local rename when another write takes the path first", async () => {
       mockIsLocalWorkspaceResourceId.mockReturnValue(true);
       mockCanWriteLocalWorkspaceResourcePath.mockResolvedValue(true);
