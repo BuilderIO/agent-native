@@ -43,6 +43,7 @@ const vitestBaseConfig: ViteUserConfig = {
   // App tests import server modules that load `?bounded-task` sources.
   plugins: [boundedTaskSourcePlugin()],
   test: {
+    server: { deps: { inline: [/@agent-native\//] } },
     maxWorkers: resolveMaxWorkers(),
     // Vitest's 5 s default only holds while a worker has a core to itself.
     // With every core busy, booting PGlite or importing a generated server

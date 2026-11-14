@@ -11,7 +11,7 @@ const gateCalls = vi.hoisted(() => [] as Record<string, any>[]);
 const providerMock = vi.hoisted(() => vi.fn());
 const readInputs = vi.hoisted(() => [] as Record<string, unknown>[]);
 
-vi.mock("../../../../packages/core/dist/audit/store.js", async (original) => ({
+vi.mock("@factory-test/audit-store", async (original) => ({
   ...(await original<object>()),
   insertAuditEvent: async (event: Record<string, any>) => {
     auditRows.push(event);
