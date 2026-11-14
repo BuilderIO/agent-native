@@ -22,20 +22,22 @@ export function isMarkdownMirrorFetch(event: H3Event): boolean {
 }
 
 function inventoryPathForAsset(assetPath: string): string | undefined {
+  let segments: string[];
   try {
-    const segments = assetPath.split("/").map(decodeURIComponent);
-    if (
-      segments.some(
-        (segment) =>
-          segment === "." || segment === ".." || /[/\\%]/.test(segment),
-      )
-    ) {
-      return undefined;
-    }
-    return segments.join("/");
-  } catch {
+    segments = assetPath.split("/").map(decodeURIComponent);
+  } catch (error) {
+    if (error instanceof URIError) return undefined;
+    throw error;
+  }
+  if (
+    segments.some(
+      (segment) =>
+        segment === "." || segment === ".." || /[/\\%]/.test(segment),
+    )
+  ) {
     return undefined;
   }
+  return segments.join("/");
 }
 
 export async function fetchMarkdownMirror(

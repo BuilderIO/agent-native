@@ -151,6 +151,20 @@ describe("markdown mirror recursion guard", () => {
     },
   );
 
+  it("propagates unexpected decoder errors without fetching", async () => {
+    const event = eventWithHeaders({});
+    const error = new Error("decoder failed unexpectedly");
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
+    vi.spyOn(globalThis, "decodeURIComponent").mockImplementation(() => {
+      throw error;
+    });
+
+    await expect(
+      fetchMarkdownMirror("docs/actions-overview.md", event),
+    ).rejects.toBe(error);
+    expect(fetchSpy).not.toHaveBeenCalled();
+  });
+
   it.each([
     "examples/self-hosted-chat/%ZZREADME.md",
     "examples/self-hosted-chat/%52EADME%2.md",
