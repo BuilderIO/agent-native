@@ -1,4 +1,5 @@
 import type { ActionRunContext } from "@agent-native/core/action";
+import { nextFreeName } from "@agent-native/core/free-name";
 import {
   decryptSecretValue,
   encryptSecretValue,
@@ -93,10 +94,19 @@ export function crmApiSlug(value: string): string {
   return slug || "list";
 }
 
+/**
+ * A free api_slug for a new list on this connection: `base`, then `base_2`,
+ * `base_3`. It's picked from the slugs the caller can see, but the unique
+ * index covers every list on the connection, including other people's private
+ * ones, and another create can take the slug at the same moment. So the
+ * insert that claims it can still find it taken; create-crm-list then asks
+ * again, passing the slugs it found taken as `alsoTaken`.
+ */
 export async function uniqueCrmListSlug(
   db: CrmDb,
   connectionId: string,
   base: string,
+  alsoTaken: ReadonlySet<string> = new Set(),
 ): Promise<string> {
   const rows = await db
     .select({ apiSlug: schema.crmLists.apiSlug })
@@ -110,15 +120,9 @@ export async function uniqueCrmListSlug(
     )
     .limit(MAX_LIST_LIMIT);
   const taken = new Set(rows.map((row) => row.apiSlug));
-  if (!taken.has(base)) return base;
-  for (let suffix = 2; suffix <= MAX_LIST_LIMIT + 1; suffix += 1) {
-    const candidate = `${base}_${suffix}`;
-    if (!taken.has(candidate)) return candidate;
-  }
-  throw new CrmListError(
-    "crm-list-slug-exhausted",
-    `Could not derive a free api_slug from "${base}". Rename the list.`,
-  );
+  return nextFreeName(base, (slug) => taken.has(slug) || alsoTaken.has(slug), {
+    separator: "_",
+  });
 }
 
 export type CrmListRow = typeof schema.crmLists.$inferSelect;

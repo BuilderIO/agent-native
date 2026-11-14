@@ -1,4 +1,5 @@
 import { defineAction, type ActionRunContext } from "@agent-native/core/action";
+import { isUniqueViolation } from "@agent-native/core/db";
 import { accessFilter } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
@@ -23,6 +24,9 @@ const DEFAULT_STAGE_OPTIONS = [
   { value: "won", title: "Won", celebrate: true },
   { value: "lost", title: "Lost" },
 ] as const;
+
+/** How many slugs a create tries before giving up on a run of clashes. */
+const SLUG_CLAIM_ATTEMPTS = 3;
 
 const DEFAULT_CURRENCY_CONFIG = JSON.stringify({ currency: { code: "USD" } });
 
@@ -166,11 +170,8 @@ export default defineAction({
     const ownership = requireCrmScope(ctx);
     const db = getDb();
     const connectionId = await resolveConnectionId(db, args.connectionId);
-    const apiSlug = await uniqueCrmListSlug(
-      db,
-      connectionId,
-      crmApiSlug(args.name),
-    );
+    const baseSlug = crmApiSlug(args.name);
+    let apiSlug = await uniqueCrmListSlug(db, connectionId, baseSlug);
     const listId = crypto.randomUUID();
     const now = new Date().toISOString();
 
@@ -256,76 +257,100 @@ export default defineAction({
     const stageAttributeId =
       attributes.find((seed) => seed.attributeType === "status")?.id ?? null;
 
-    await db.transaction(async (tx) => {
-      await tx.insert(schema.crmLists).values({
-        id: listId,
-        connectionId,
-        name: args.name,
-        apiSlug,
-        parentObjectType: args.parentObjectType,
-        description: args.description ?? "",
-        defaultViewId: null,
-        archived: false,
-        position: args.position ?? 0,
-        source: "local",
-        ...ownership,
-        createdAt: now,
-        updatedAt: now,
-      });
+    // The insert claims the slug. A unique violation means a list this caller
+    // can't see has it, or another create took it at the same moment, so pick
+    // the next free one and try again.
+    const takenSlugs = new Set<string>();
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        await db.transaction(async (tx) => {
+          await tx.insert(schema.crmLists).values({
+            id: listId,
+            connectionId,
+            name: args.name,
+            apiSlug,
+            parentObjectType: args.parentObjectType,
+            description: args.description ?? "",
+            defaultViewId: null,
+            archived: false,
+            position: args.position ?? 0,
+            source: "local",
+            ...ownership,
+            createdAt: now,
+            updatedAt: now,
+          });
 
-      if (!attributes.length) return;
+          if (!attributes.length) return;
 
-      await tx.insert(schema.crmFieldPolicies).values(
-        attributes.map((seed) => ({
-          id: seed.id,
+          await tx.insert(schema.crmFieldPolicies).values(
+            attributes.map((seed) => ({
+              id: seed.id,
+              connectionId,
+              objectType: listId,
+              fieldName: seed.apiSlug,
+              label: seed.label,
+              description: seed.description,
+              valueType: legacyValueTypeFor(seed.attributeType, false),
+              storagePolicy: "local-authoritative" as const,
+              sensitive: false,
+              readable: true,
+              createable: true,
+              updateable: true,
+              required: false,
+              attributeType: seed.attributeType,
+              target: "list" as const,
+              targetId: listId,
+              apiSlug: seed.apiSlug,
+              configJson: seed.configJson,
+              multi: false,
+              authority: "local-authoritative" as const,
+              historyTracked: true,
+              uniqueValue: false,
+              archived: false,
+              position: seed.position,
+              ...ownership,
+              createdAt: now,
+              updatedAt: now,
+            })),
+          );
+
+          const options = attributes.flatMap((seed) =>
+            seed.options.map((option, index) => ({
+              id: crypto.randomUUID(),
+              attributeId: seed.id,
+              value: option.value,
+              title: option.title,
+              color: option.color,
+              position: index,
+              archived: false,
+              targetDays: option.targetDays,
+              celebrate: option.celebrate,
+              ...ownership,
+              createdAt: now,
+              updatedAt: now,
+            })),
+          );
+          if (options.length)
+            await tx.insert(schema.crmAttributeOptions).values(options);
+        });
+        break;
+      } catch (error) {
+        if (!isUniqueViolation(error)) throw error;
+        if (attempt >= SLUG_CLAIM_ATTEMPTS) {
+          throw new CrmListError(
+            "crm-list-slug-taken",
+            `Other lists kept taking each free api_slug for "${baseSlug}" while this list was being created, so nothing was created. Try again.`,
+          );
+        }
+        takenSlugs.add(apiSlug);
+        apiSlug = await uniqueCrmListSlug(
+          db,
           connectionId,
-          objectType: listId,
-          fieldName: seed.apiSlug,
-          label: seed.label,
-          description: seed.description,
-          valueType: legacyValueTypeFor(seed.attributeType, false),
-          storagePolicy: "local-authoritative" as const,
-          sensitive: false,
-          readable: true,
-          createable: true,
-          updateable: true,
-          required: false,
-          attributeType: seed.attributeType,
-          target: "list" as const,
-          targetId: listId,
-          apiSlug: seed.apiSlug,
-          configJson: seed.configJson,
-          multi: false,
-          authority: "local-authoritative" as const,
-          historyTracked: true,
-          uniqueValue: false,
-          archived: false,
-          position: seed.position,
-          ...ownership,
-          createdAt: now,
-          updatedAt: now,
-        })),
-      );
-
-      const options = attributes.flatMap((seed) =>
-        seed.options.map((option, index) => ({
-          id: crypto.randomUUID(),
-          attributeId: seed.id,
-          value: option.value,
-          title: option.title,
-          color: option.color,
-          position: index,
-          archived: false,
-          targetDays: option.targetDays,
-          celebrate: option.celebrate,
-          ...ownership,
-          createdAt: now,
-          updatedAt: now,
-        })),
-      );
-      if (options.length)
-        await tx.insert(schema.crmAttributeOptions).values(options);
-    });
+          baseSlug,
+          takenSlugs,
+        );
+      }
+    }
 
     const [list] = await db
       .select()

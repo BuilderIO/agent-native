@@ -237,6 +237,49 @@ describe("create-crm-list", () => {
     expect(first.apiSlug).toBe("pipeline");
     expect(second.apiSlug).toBe("pipeline_2");
   });
+
+  it("takes the next slug when a list the caller can't see holds it", async () => {
+    const now = new Date().toISOString();
+    await getDb().insert(schema.crmLists).values({
+      id: "list_hidden_pipeline",
+      connectionId: CONNECTION_ID,
+      name: "Hidden Pipeline",
+      apiSlug: "hidden_pipeline",
+      parentObjectType: "companies",
+      description: "",
+      defaultViewId: null,
+      archived: false,
+      position: 0,
+      source: "local",
+      ownerEmail: OTHER,
+      orgId: null,
+      visibility: "private",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const list = await newList("Hidden Pipeline");
+    expect(list.apiSlug).toBe("hidden_pipeline_2");
+    expect(list.ownerEmail).toBe(OWNER);
+  });
+
+  it("gives creates made at the same moment their own slugs", async () => {
+    const lists = await Promise.all([
+      newList("Board Race"),
+      newList("Board Race"),
+      newList("Board Race"),
+    ]);
+    expect(
+      lists
+        .map((list: any) => list.apiSlug as string)
+        .sort((a, b) => a.localeCompare(b)),
+    ).toEqual(["board_race", "board_race_2", "board_race_3"]);
+    const rows = await getDb()
+      .select({ id: schema.crmLists.id })
+      .from(schema.crmLists)
+      .where(eq(schema.crmLists.name, "Board Race"));
+    expect(rows).toHaveLength(3);
+  });
 });
 
 describe("list membership", () => {

@@ -9,7 +9,9 @@ import { createError } from "h3";
 
 import { fail, isActionContractError } from "../action.js";
 import { canUpdateAutomationResource } from "../automations/service.js";
+import { isUniqueViolation } from "../db/client.js";
 import { uploadFile } from "../file-upload/index.js";
+import { nameTaken, nextFreeName } from "../free-name/server.js";
 import { parseJobResource } from "../jobs/frontmatter.js";
 import { getOrgContext } from "../org/context.js";
 import { getSession } from "../server/auth.js";
@@ -66,6 +68,7 @@ import {
   SHARED_OWNER,
   WORKSPACE_OWNER,
   type ResourceMeta,
+  type ResourceResolutionOptions,
 } from "./store.js";
 
 function isSameSkillUpload(
@@ -636,6 +639,59 @@ export async function handleCreateResource(event: any) {
   return resource;
 }
 
+/** How many numbered paths a rename refusal looks at for a free one. */
+const FREE_PATH_PROBES = 50;
+
+/**
+ * A free path next to `path` for `owner`: the file's name numbered the way
+ * `nextFreeName` numbers it ("notes/todo-2.md"), or for a skill its folder
+ * ("skills/review-2/SKILL.md").
+ */
+async function freeResourcePath(
+  owner: string,
+  path: string,
+  options: ResourceResolutionOptions,
+): Promise<string> {
+  const skill = /^skills\/([^/]+)\/SKILL\.md$/.exec(path);
+  const folder = path.slice(0, path.lastIndexOf("/") + 1);
+  const base = skill ? skill[1]! : path.slice(folder.length);
+  const pathFor = (name: string) =>
+    skill ? `skills/${name}/SKILL.md` : `${folder}${name}`;
+  const taken = new Set([base]);
+  for (let probe = 0; probe < FREE_PATH_PROBES; probe += 1) {
+    const name = nextFreeName(base, taken);
+    if (!(await resourceGetByPath(owner, pathFor(name), options))) {
+      return pathFor(name);
+    }
+    taken.add(name);
+  }
+  return pathFor(nextFreeName(base, taken));
+}
+
+/**
+ * The refusal for a rename onto a path another resource already has: a 409
+ * `name_taken` carrying a free path, in the shape actions send, so the
+ * browser reads it with `isNameTaken` the same way. Nothing has been written.
+ */
+async function resourcePathTaken(
+  event: any,
+  owner: string,
+  path: string,
+  options: ResourceResolutionOptions,
+) {
+  const refusal = nameTaken(
+    "resource",
+    path,
+    await freeResourcePath(owner, path, options),
+  );
+  setResponseStatus(event, 409);
+  return {
+    error: refusal.message,
+    errorCode: refusal.errorCode,
+    details: refusal.details,
+  };
+}
+
 export async function handleUpdateResource(event: any) {
   const id = getRouterParam(event, "id") || event.context.params?.id;
   if (!id) {
@@ -701,6 +757,12 @@ export async function handleUpdateResource(event: any) {
       writeOptions,
     );
     if (!resource) {
+      if (nextPath !== existing.path) {
+        return resourcePathTaken(event, activeSharedOwner, nextPath, {
+          userEmail: email,
+          orgId,
+        });
+      }
       setResponseStatus(event, 409);
       return { error: `A resource already exists at path "${nextPath}"` };
     }
@@ -725,8 +787,33 @@ export async function handleUpdateResource(event: any) {
     };
   }
 
+  if (nextPath !== existing.path) {
+    // A rename never writes over another resource. Moving a row onto a taken
+    // path trips the (path, owner) index, and for a local workspace file the
+    // write below would replace the file already there.
+    const occupant = await resourceGetByPath(existing.owner, nextPath, {
+      userEmail: email,
+      orgId,
+    });
+    if (occupant && occupant.id !== existing.id) {
+      return resourcePathTaken(event, existing.owner, nextPath, {
+        userEmail: email,
+        orgId,
+      });
+    }
+  }
+
   if (!isLocalWorkspaceResource && body.path && body.path !== existing.path) {
-    await resourceMove(id, body.path);
+    try {
+      await resourceMove(id, body.path);
+    } catch (error) {
+      // Another write took the path between the check and the move.
+      if (!isUniqueViolation(error)) throw error;
+      return resourcePathTaken(event, existing.owner, body.path, {
+        userEmail: email,
+        orgId,
+      });
+    }
   }
 
   const writeOptions =

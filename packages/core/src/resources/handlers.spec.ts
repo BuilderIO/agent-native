@@ -1364,6 +1364,144 @@ Legacy webhook.`,
       expect(mockResourceMove).toHaveBeenCalledWith("r1", "new.md");
     });
 
+    it("refuses a rename onto a taken path and suggests a free one", async () => {
+      mockResourceGet.mockResolvedValue({
+        id: "r1",
+        path: "notes/draft.md",
+        owner: "test@test.com",
+        content: "content",
+        mimeType: "text/markdown",
+      });
+      const taken = new Set(["notes/todo.md", "notes/todo-2.md"]);
+      mockResourceGetByPath.mockImplementation(
+        async (_owner: string, path: string) =>
+          taken.has(path) ? { id: `at:${path}`, path } : null,
+      );
+
+      const result = await handleUpdateResource({
+        _params: { id: "r1" },
+        _body: { path: "notes/todo.md" },
+        context: {},
+      });
+
+      expect(lastStatus).toBe(409);
+      expect(result).toEqual({
+        error:
+          'A resource named "notes/todo.md" already exists. Pick another name, such as "notes/todo-3.md", which is free.',
+        errorCode: "name_taken",
+        details: { name: "notes/todo.md", suggestion: "notes/todo-3.md" },
+      });
+      expect(mockResourceMove).not.toHaveBeenCalled();
+      expect(mockResourcePut).not.toHaveBeenCalled();
+    });
+
+    it("suggests a skill's next folder rather than renaming its SKILL.md", async () => {
+      mockResourceGet.mockResolvedValue({
+        id: "r1",
+        path: "skills/draft/SKILL.md",
+        owner: "test@test.com",
+        content: "content",
+        mimeType: "text/markdown",
+      });
+      mockResourceGetByPath.mockImplementation(
+        async (_owner: string, path: string) =>
+          path === "skills/review/SKILL.md" ? { id: "r2", path } : null,
+      );
+
+      const result = await handleUpdateResource({
+        _params: { id: "r1" },
+        _body: { path: "skills/review/SKILL.md" },
+        context: {},
+      });
+
+      expect(lastStatus).toBe(409);
+      expect(result).toMatchObject({
+        errorCode: "name_taken",
+        details: {
+          name: "skills/review/SKILL.md",
+          suggestion: "skills/review-2/SKILL.md",
+        },
+      });
+    });
+
+    it("refuses a rename when another write takes the path during the move", async () => {
+      mockResourceGet.mockResolvedValue({
+        id: "r1",
+        path: "old.md",
+        owner: "test@test.com",
+        content: "content",
+        mimeType: "text/markdown",
+      });
+      mockResourceMove.mockRejectedValueOnce(
+        Object.assign(
+          new Error('duplicate key value violates unique constraint "x"'),
+          { code: "23505" },
+        ),
+      );
+
+      const result = await handleUpdateResource({
+        _params: { id: "r1" },
+        _body: { path: "new.md" },
+        context: {},
+      });
+
+      expect(lastStatus).toBe(409);
+      expect(result).toMatchObject({
+        errorCode: "name_taken",
+        details: { name: "new.md", suggestion: "new-2.md" },
+      });
+      expect(mockResourcePut).not.toHaveBeenCalled();
+    });
+
+    it("still fails a move that breaks for another reason", async () => {
+      mockResourceGet.mockResolvedValue({
+        id: "r1",
+        path: "old.md",
+        owner: "test@test.com",
+        content: "content",
+        mimeType: "text/markdown",
+      });
+      mockResourceMove.mockRejectedValueOnce(new Error("connection reset"));
+
+      await expect(
+        handleUpdateResource({
+          _params: { id: "r1" },
+          _body: { path: "new.md" },
+          context: {},
+        }),
+      ).rejects.toThrow("connection reset");
+      expect(mockResourcePut).not.toHaveBeenCalled();
+    });
+
+    it("refuses to move a local workspace file onto one that exists, instead of replacing it", async () => {
+      mockIsLocalWorkspaceResourceId.mockReturnValue(true);
+      mockCanWriteLocalWorkspaceResourcePath.mockResolvedValue(true);
+      mockResourceGet.mockResolvedValue({
+        id: "local-workspace-resource:skills/draft/SKILL.md",
+        path: "skills/draft/SKILL.md",
+        owner: "__workspace__",
+        content: "draft",
+        mimeType: "text/markdown",
+      });
+      mockResourceGetByPath.mockImplementation(
+        async (_owner: string, path: string) =>
+          path === "skills/review/SKILL.md"
+            ? { id: "local-workspace-resource:skills/review/SKILL.md", path }
+            : null,
+      );
+
+      const result = await handleUpdateResource({
+        _params: { id: "local-workspace-resource:skills/draft/SKILL.md" },
+        _body: { path: "skills/review/SKILL.md" },
+        context: {},
+      });
+
+      expect(lastStatus).toBe(409);
+      expect(result).toMatchObject({ errorCode: "name_taken" });
+      expect(mockResourcePut).not.toHaveBeenCalled();
+      expect(mockResourceDelete).not.toHaveBeenCalled();
+    });
+
     it("updates local workspace resources", async () => {
       const existing = {
         id: "local-workspace-resource:agents",
@@ -1533,8 +1671,16 @@ Legacy webhook.`,
 
       expect(lastStatus).toBe(409);
       expect(result).toEqual({
-        error: 'A resource already exists at path "renamed.md"',
+        error:
+          'A resource named "renamed.md" already exists. Pick another name, such as "renamed-2.md", which is free.',
+        errorCode: "name_taken",
+        details: { name: "renamed.md", suggestion: "renamed-2.md" },
       });
+      expect(mockResourceGetByPath).toHaveBeenCalledWith(
+        "__organization__:org-1",
+        "renamed-2.md",
+        { userEmail: "test@test.com", orgId: "org-1" },
+      );
       expect(mockResourcePut).not.toHaveBeenCalled();
       expect(mockResourcePutIfAbsent).toHaveBeenCalledWith(
         "__organization__:org-1",
