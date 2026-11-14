@@ -264,7 +264,10 @@ describe("agent model config catalog", () => {
       .supportedModels as readonly string[];
     expect(groqModels).not.toContain("llama-3.1-70b-versatile");
     expect(groqModels).not.toContain("mixtral-8x7b-32768");
-    expect(groqModels).toContain("llama-3.3-70b-versatile");
+    expect(groqModels).not.toContain("llama-3.3-70b-versatile");
+    expect(groqModels).not.toContain("llama3-8b-8192");
+    expect(groqModels).not.toContain("llama-3.1-8b-instant");
+    expect(groqModels).toContain("openai/gpt-oss-120b");
   });
 
   it("uses the current cohere model ID as default", () => {

@@ -410,12 +410,8 @@ export const AGENT_MODEL_CONFIG = {
       ],
     },
     groq: {
-      defaultModel: "llama-3.3-70b-versatile",
-      supportedModels: [
-        "llama-3.3-70b-versatile",
-        "llama3-8b-8192",
-        "llama-3.1-8b-instant",
-      ],
+      defaultModel: "openai/gpt-oss-120b",
+      supportedModels: ["openai/gpt-oss-120b", "openai/gpt-oss-20b"],
     },
     mistral: {
       defaultModel: "mistral-large-latest",

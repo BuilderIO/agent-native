@@ -14,6 +14,8 @@ const state = vi.hoisted(() => ({
   secrets: {} as Record<string, string>,
   orgVoiceProvider: null as string | null,
   orgVoiceProviderError: null as Error | null,
+  // A transcript to clean up, sent in place of the audio.
+  transcript: null as string | null,
 }));
 const getSession = vi.hoisted(() =>
   vi.fn(async (..._args: unknown[]) => null as { email: string } | null),
@@ -29,7 +31,9 @@ vi.mock("h3", () => ({
     event?.node?.req?.emit?.("close");
     return [
       { name: "provider", data: Buffer.from(state.provider) },
-      { name: "audio", data: Buffer.from([1, 2, 3]), type: "audio/webm" },
+      state.transcript === null
+        ? { name: "audio", data: Buffer.from([1, 2, 3]), type: "audio/webm" }
+        : { name: "text", data: Buffer.from(state.transcript) },
     ];
   }),
   setResponseStatus: (_event: unknown, status: number) => {
@@ -419,6 +423,64 @@ describe("transcribe-voice organization Voice input choice", () => {
     expect(state.status).toBe(503);
     expect(result.error).toContain("voice input provider");
     expect(transcribeWithBuilder).not.toHaveBeenCalled();
+  });
+});
+
+describe("transcribe-voice transcript cleanup request", () => {
+  const fetchMock = vi.fn();
+
+  beforeEach(() => {
+    state.status = 0;
+    state.transcript = "um hello there";
+    state.hasGatewayCredential = false;
+    state.secrets = {
+      GROQ_API_KEY: "gsk-test-key",
+      OPENAI_API_KEY: "sk-test-key",
+    };
+    fetchMock.mockReset();
+    fetchMock.mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          choices: [{ message: { content: "Hello there." } }],
+        }),
+        { status: 200 },
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  afterEach(() => {
+    state.transcript = null;
+    state.secrets = {};
+    vi.unstubAllGlobals();
+  });
+
+  function sentRequest() {
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    const [url, init] = fetchMock.mock.calls[0]!;
+    const body: Record<string, unknown> = JSON.parse(
+      String((init as RequestInit).body),
+    );
+    return { url: String(url), body };
+  }
+
+  it("asks Groq's gpt-oss model for low reasoning effort", async () => {
+    state.provider = "groq";
+
+    await expect(post()).resolves.toEqual({ text: "Hello there." });
+    const { url, body } = sentRequest();
+    expect(url).toBe("https://api.groq.com/openai/v1/chat/completions");
+    expect(body.model).toBe("openai/gpt-oss-120b");
+    expect(body.reasoning_effort).toBe("low");
+  });
+
+  it("sends OpenAI's cleanup without a reasoning effort", async () => {
+    state.provider = "openai";
+
+    await expect(post()).resolves.toEqual({ text: "Hello there." });
+    const { url, body } = sentRequest();
+    expect(url).toBe("https://api.openai.com/v1/chat/completions");
+    expect(body).not.toHaveProperty("reasoning_effort");
   });
 });
 

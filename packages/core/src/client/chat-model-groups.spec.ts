@@ -308,7 +308,7 @@ describe("buildChatModelGroups", () => {
         {
           name: "ai-sdk:groq",
           label: "Groq",
-          supportedModels: ["llama-3.3-70b-versatile"],
+          supportedModels: ["openai/gpt-oss-120b"],
           requiredEnvVars: ["GROQ_API_KEY"],
         },
         {
@@ -395,12 +395,12 @@ describe("buildChatModelGroups", () => {
   it("keeps a hidden provider visible when it is the current engine", () => {
     const groups = buildChatModelGroups({
       currentEngineName: "ai-sdk:groq",
-      currentModel: "llama-3.3-70b-versatile",
+      currentModel: "openai/gpt-oss-120b",
       engines: [
         {
           name: "ai-sdk:groq",
           label: "Groq",
-          supportedModels: ["llama-3.3-70b-versatile"],
+          supportedModels: ["openai/gpt-oss-120b"],
           requiredEnvVars: ["GROQ_API_KEY"],
         },
       ],
@@ -410,7 +410,7 @@ describe("buildChatModelGroups", () => {
       {
         engine: "ai-sdk:groq",
         label: "Groq",
-        models: ["llama-3.3-70b-versatile"],
+        models: ["openai/gpt-oss-120b"],
         configured: false,
       },
     ]);
