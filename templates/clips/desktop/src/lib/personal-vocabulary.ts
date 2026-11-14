@@ -130,7 +130,10 @@ function editDistance(a: string, b: string): number {
  * within the watch window used to be learned, which taught rules like
  * "Test -> He" that then rewrote every later dictation.
  */
-export function isPlausibleCorrection(term: string, replacement: string): boolean {
+export function isPlausibleCorrection(
+  term: string,
+  replacement: string,
+): boolean {
   if (term.length < 3 || replacement.length < 3) return false;
   const a = term.toLowerCase();
   const b = replacement.toLowerCase();
@@ -210,15 +213,21 @@ export function hasPendingVocabularySuggestion(): boolean {
 }
 
 /** Saves a term; true only when the server accepted it. */
-async function saveVocabularyTerm(term: string, replacement: string): Promise<boolean> {
+async function saveVocabularyTerm(
+  term: string,
+  replacement: string,
+): Promise<boolean> {
   if (!serverUrl) return false;
   try {
-    const res = await fetch(`${serverUrl}/_agent-native/actions/add-vocabulary-term`, {
-      method: "POST",
-      credentials: "include",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ term, replacement, confidence: 0.7 }),
-    });
+    const res = await fetch(
+      `${serverUrl}/_agent-native/actions/add-vocabulary-term`,
+      {
+        method: "POST",
+        credentials: "include",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ term, replacement, confidence: 0.7 }),
+      },
+    );
     if (!res.ok) {
       console.error("[personal-vocabulary] save rejected:", res.status);
       return false;
@@ -243,7 +252,10 @@ export async function answerVocabularySuggestion(
   if (!suggestion) return;
   pendingSuggestions.delete(id);
   if (!accept) return;
-  const saved = await saveVocabularyTerm(suggestion.term, suggestion.replacement);
+  const saved = await saveVocabularyTerm(
+    suggestion.term,
+    suggestion.replacement,
+  );
   void emit(VOCAB_SUGGESTION_SAVED_EVENT, { id, saved }).catch(() => {});
 }
 

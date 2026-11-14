@@ -21,7 +21,10 @@ vi.mock("@tauri-apps/api/event", () => ({
 const proposed = () =>
   events.emit.mock.calls
     .filter(([name]) => name === "voice:vocab-suggestion")
-    .map(([, payload]) => payload as { id: number; term: string; replacement: string });
+    .map(
+      ([, payload]) =>
+        payload as { id: number; term: string; replacement: string },
+    );
 
 const entry = (id: string) => ({
   id,
@@ -163,7 +166,10 @@ describe("personal vocabulary", () => {
     // Nothing is saved until the user accepts the suggestion.
     expect(learnCalls()).toHaveLength(0);
     const suggestion = proposed().at(-1)!;
-    expect(suggestion).toMatchObject({ term: "kublectl", replacement: "kubectl" });
+    expect(suggestion).toMatchObject({
+      term: "kublectl",
+      replacement: "kubectl",
+    });
     vocabulary.answerVocabularySuggestion(suggestion.id, true);
     await vi.advanceTimersByTimeAsync(0);
     expect(learnCalls()).toHaveLength(1);
@@ -265,7 +271,10 @@ describe("diffSingleWord", () => {
 
   it("does not learn a swapped word", () => {
     expect(
-      diffSingleWord("Dit is een test om te kijken", "Dit is een He om te kijken"),
+      diffSingleWord(
+        "Dit is een test om te kijken",
+        "Dit is een He om te kijken",
+      ),
     ).toBeNull();
   });
 });

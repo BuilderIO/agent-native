@@ -216,7 +216,9 @@ describe("FlowBar", () => {
       name: "voice:vocab-suggestion-answer",
       payload: { id: 7, accept: true },
     });
-    expect(host.textContent).not.toContain("dictateRoute.flowLearnWordQuestion");
+    expect(host.textContent).not.toContain(
+      "dictateRoute.flowLearnWordQuestion",
+    );
     expect(host.textContent).toContain("dictateRoute.flowLearnWordSaving");
 
     const onSaved = mocks.listeners.get("voice:vocab-suggestion-saved");
@@ -234,7 +236,9 @@ describe("FlowBar", () => {
 
     // A newer suggestion drops the earlier save: its late result is ignored.
     await act(async () => {
-      onSuggestion?.({ payload: { id: 8, term: "Nevel", replacement: "Nevil" } });
+      onSuggestion?.({
+        payload: { id: 8, term: "Nevel", replacement: "Nevil" },
+      });
       await Promise.resolve();
     });
     await act(async () => {

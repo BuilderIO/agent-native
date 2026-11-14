@@ -182,20 +182,19 @@ export function FlowBar() {
           setSaveStatus(event.payload.saved ? "saved" : "failed");
         },
       ),
-    ])
-      .then(([suggestionResult, savedResult]) => {
-        const stops = [suggestionResult, savedResult].flatMap((result) =>
-          result.status === "fulfilled" ? [result.value] : [],
-        );
-        // A partial setup or an unmounted bar keeps no listener alive.
-        if (disposed || stops.length < 2) {
-          for (const stop of stops) stop();
-          return;
-        }
-        [unlisten, unlistenSaved] = stops;
-        // Both listeners are live: a waiting suggestion can be sent again.
-        void emit(VOCAB_SUGGESTION_READY_EVENT).catch(() => {});
-      });
+    ]).then(([suggestionResult, savedResult]) => {
+      const stops = [suggestionResult, savedResult].flatMap((result) =>
+        result.status === "fulfilled" ? [result.value] : [],
+      );
+      // A partial setup or an unmounted bar keeps no listener alive.
+      if (disposed || stops.length < 2) {
+        for (const stop of stops) stop();
+        return;
+      }
+      [unlisten, unlistenSaved] = stops;
+      // Both listeners are live: a waiting suggestion can be sent again.
+      void emit(VOCAB_SUGGESTION_READY_EVENT).catch(() => {});
+    });
     return () => {
       disposed = true;
       unlisten?.();
@@ -225,7 +224,9 @@ export function FlowBar() {
   useEffect(() => {
     if (!suggestion) return;
     const timer = window.setTimeout(() => {
-      setSuggestion((current) => (current?.id === suggestion.id ? null : current));
+      setSuggestion((current) =>
+        current?.id === suggestion.id ? null : current,
+      );
     }, VOCAB_SUGGESTION_TIMEOUT_MS);
     return () => window.clearTimeout(timer);
   }, [suggestion]);
@@ -442,16 +443,16 @@ export function FlowBar() {
 
         {!suggestionVisible &&
           (payload.state === "recording" || payload.state === "idle") && (
-          <div className="flow-bar-recording">
-            <LiveWaveform
-              className="flow-bar-meter"
-              sources="mic"
-              runId={payload.runId}
-              bars={14}
-              barGap={3}
-            />
-          </div>
-        )}
+            <div className="flow-bar-recording">
+              <LiveWaveform
+                className="flow-bar-meter"
+                sources="mic"
+                runId={payload.runId}
+                bars={14}
+                barGap={3}
+              />
+            </div>
+          )}
 
         {payload.state === "processing" ? (
           <div className="flow-bar-processing" aria-label={processingLabel}>

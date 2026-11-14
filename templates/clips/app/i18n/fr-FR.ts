@@ -2305,6 +2305,13 @@ const messages = {
     flowCancelled: "Dictée annulée",
     flowRetryHistory: "Réessayer l’enregistrement dans l’historique",
     flowDismiss: "Fermer",
+    flowLearnWordQuestion: "Mémoriser cette correction ?",
+    flowLearnWordAdd: "Ajouter",
+    flowLearnWordIgnore: "Ignorer",
+    flowLearnWordSaving: "Enregistrement…",
+    flowLearnWordSaved: "Ajouté à votre dictionnaire",
+    flowLearnWordFailed:
+      "Impossible d’enregistrer le mot. Ajoutez-le dans les Réglages.",
     flowTranscriptRecovery: "Récupération de la transcription",
     flowOriginalTranscript: "Afficher la transcription d’origine",
     flowCleanupSkipped: "Nettoyage ignoré, texte d’origine conservé",
