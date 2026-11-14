@@ -622,6 +622,149 @@ describe("AppSyncState read through other people's resources", () => {
     expect(resolveAccess).toHaveBeenCalledTimes(2);
   });
 
+  it("passes a change whose checks miss their deadline twice in a row", async () => {
+    vi.useFakeTimers();
+    const rows = durableRows([
+      { resourceType: "document", resourceId: "a" },
+      { resourceType: "document", resourceId: "b" },
+    ]);
+    // Checks of "a" never answer; "b" is shared with the reader.
+    const resolveAccess = vi.fn((_type: string, id: string) =>
+      id === "a" ? new Promise(() => {}) : Promise.resolve(viewerOf(id)),
+    );
+    const state = stateReading(rows, {
+      resolveAccess,
+      accessAllowTtlMs: 300_000,
+    });
+    const readIds = async () =>
+      (
+        await state.getDurableChangesSinceForUser(
+          5,
+          "reader@example.com",
+          undefined,
+          { version: 5, id: "" },
+        )
+      ).events.map((event) => event.resourceId);
+
+    // The read stops at "a" while its check runs, and after the first
+    // deadline it checks "a" again.
+    expect(await readIds()).toEqual([]);
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(await readIds()).toEqual([]);
+    // The second check misses its deadline too, so "a" fails closed, as a
+    // check that throws does, and reads move past it.
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(await readIds()).toEqual(["b"]);
+  });
+
+  it("starts the count of missed deadlines over after an answer", async () => {
+    vi.useFakeTimers();
+    const never = () => new Promise(() => {});
+    const resolveAccess = vi
+      .fn()
+      .mockImplementationOnce(never)
+      .mockImplementationOnce(async () => viewerOf("a"))
+      .mockImplementation(never);
+    const state = stateReading([], { resolveAccess, accessAllowTtlMs: 1_000 });
+    const visibility = () =>
+      state.getChangeVisibilityForUser(
+        {
+          owner: "writer@example.com",
+          resourceType: "document",
+          resourceId: "a",
+        },
+        "reader@example.com",
+        undefined,
+      );
+
+    expect(visibility()).toBe("pending");
+    await vi.advanceTimersByTimeAsync(30_000);
+    // The first check missed its deadline, and the second answers.
+    expect(visibility()).toBe("pending");
+    await vi.advanceTimersByTimeAsync(0);
+    expect(visibility()).toBe("visible");
+
+    // Once that answer is stale, a third check misses its deadline. It's the
+    // first miss since the answer, so the change is checked again, not hidden.
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(visibility()).toBe("pending");
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(visibility()).toBe("pending");
+    expect(resolveAccess).toHaveBeenCalledTimes(4);
+  });
+
+  it("starts the count of missed deadlines over when sharing changes", async () => {
+    vi.useFakeTimers();
+    const resolveAccess = vi.fn(() => new Promise(() => {}));
+    const state = stateReading([], { resolveAccess });
+    const event = {
+      owner: "writer@example.com",
+      resourceType: "document",
+      resourceId: "a",
+    };
+    const visibility = () =>
+      state.getChangeVisibilityForUser(event, "reader@example.com", undefined);
+
+    expect(visibility()).toBe("pending");
+    await vi.advanceTimersByTimeAsync(30_000);
+    // The first check missed its deadline, so a second one starts.
+    expect(visibility()).toBe("pending");
+    await vi.advanceTimersByTimeAsync(10_000);
+    // Sharing changes while the second check runs. The count starts over, and
+    // the second check's miss no longer counts, so a third check's miss is
+    // the first under the new sharing: the change is checked again.
+    state.invalidateCollabAccessCache("document", "a");
+    expect(visibility()).toBe("pending");
+    await vi.advanceTimersByTimeAsync(30_000);
+    expect(visibility()).toBe("pending");
+    expect(resolveAccess).toHaveBeenCalledTimes(4);
+  });
+
+  it("counts no missed deadline for a resource its batch answered in time", async () => {
+    vi.useFakeTimers();
+    const never = () => new Promise(() => {});
+    // "b" is answered once; its later checks never answer, nor do any of "a".
+    const checkB = vi.fn().mockResolvedValueOnce(viewerOf("b"));
+    checkB.mockImplementation(never);
+    const resolveAccess = vi.fn((_type: string, id: string) =>
+      id === "a" ? never() : checkB(),
+    );
+    const rows = durableRows([
+      { resourceType: "document", resourceId: "a" },
+      { resourceType: "document", resourceId: "b" },
+    ]);
+    const state = stateReading(rows, {
+      resolveAccess,
+      accessAllowTtlMs: 1_000,
+    });
+    const visibilityOfB = () =>
+      state.getChangeVisibilityForUser(
+        {
+          owner: "writer@example.com",
+          resourceType: "document",
+          resourceId: "b",
+        },
+        "reader@example.com",
+        undefined,
+      );
+
+    // One batch checks both. It answers "b", then misses its deadline on "a".
+    await state.getDurableChangesSinceForUser(
+      5,
+      "reader@example.com",
+      undefined,
+      { version: 5, id: "" },
+    );
+    await vi.advanceTimersByTimeAsync(30_000);
+    // The answer about "b" is stale now, and its next check never answers.
+    expect(visibilityOfB()).toBe("pending");
+    await vi.advanceTimersByTimeAsync(30_000);
+    // That is the first deadline a check of "b" missed, so "b" is checked
+    // again instead of hidden.
+    expect(visibilityOfB()).toBe("pending");
+    expect(checkB).toHaveBeenCalledTimes(3);
+  });
+
   it("does not count a reset's old checks against the instance's limit", async () => {
     const rows = durableRows(othersDocuments(300));
     let finishEarly!: (visible: Set<string>) => void;

@@ -110,6 +110,11 @@ const ACCESS_IN_FLIGHT_MAX = 1_000;
 // How long an access check may run before the resources it hasn't answered go
 // back unchecked, for a later read to check again.
 const ACCESS_CHECK_TIMEOUT_MS = 30_000;
+// How many deadlines in a row one resource's checks may miss. After the first,
+// the next read checks it again, so one slow check doesn't cost a change. At
+// the limit it fails closed, as a check that throws does: its change is hidden
+// and reads move past it, instead of stopping there on every poll.
+const ACCESS_CHECK_TIMEOUTS_MAX = 2;
 const ACCESS_CHECK_WAIT_MS = 1_000;
 const SCREEN_REFRESH_KEY = "__screen_refresh__";
 const SCREEN_REFRESH_QUERY_LIMIT = 256;
@@ -696,6 +701,8 @@ export class AppSyncState {
     { allowed: boolean; checkedAt: number }
   >();
   private readonly accessInFlight = new Map<string, Promise<void>>();
+  // Deadlines missed in a row, by cache key. An answer clears its count.
+  private readonly accessTimeouts = new Map<string, number>();
   // Resources covered by batch checks whose resolver work hasn't ended, past
   // any deadline or invalidation. They count against ACCESS_IN_FLIGHT_MAX.
   private accessChecksRunning = 0;
@@ -1050,9 +1057,13 @@ export class AppSyncState {
     for (const key of Array.from(this.accessInFlight.keys())) {
       if (key.endsWith(suffix)) this.accessInFlight.delete(key);
     }
+    for (const key of Array.from(this.accessTimeouts.keys())) {
+      if (key.endsWith(suffix)) this.accessTimeouts.delete(key);
+    }
   }
 
   private setAccessCache(key: string, allowed: boolean, now: number): void {
+    this.accessTimeouts.delete(key);
     this.accessCache.delete(key);
     this.accessCache.set(key, { allowed, checkedAt: now });
     if (this.accessCache.size > ACCESS_CACHE_MAX) {
@@ -1256,33 +1267,68 @@ export class AppSyncState {
    * Registers a check as running for `keys` until `work` ends or
    * ACCESS_CHECK_TIMEOUT_MS passes, whichever comes first. A resolver that
    * never answers would otherwise hold these resources pending, and every
-   * read stuck behind them, for good. The check starts on the next microtask,
-   * so it is registered before any of it runs, and its `finally` always finds
-   * it there.
+   * read stuck behind them, for good. A resource it leaves unanswered is
+   * checked again by the next read, and fails closed once its checks miss
+   * ACCESS_CHECK_TIMEOUTS_MAX deadlines in a row. The check starts on the next
+   * microtask, so it is registered before any of it runs, and its `finally`
+   * always finds it there.
    */
   private trackAccessCheck(keys: string[], work: Promise<void>): Promise<void> {
+    const startedAt = Date.now();
     const check: Promise<void> = Promise.resolve().then(async () => {
       let timer: ReturnType<typeof setTimeout> | undefined;
+      let timedOut = false;
       try {
         await Promise.race([
           work,
           new Promise<void>((resolve) => {
-            timer = setTimeout(resolve, ACCESS_CHECK_TIMEOUT_MS);
+            timer = setTimeout(() => {
+              timedOut = true;
+              resolve();
+            }, ACCESS_CHECK_TIMEOUT_MS);
             (timer as { unref?: () => void }).unref?.();
           }),
         ]);
       } finally {
         clearTimeout(timer);
-        for (const key of keys) this.endAccessCheck(key, check);
+        for (const key of keys) {
+          // A key the check still owns wasn't invalidated meanwhile.
+          if (timedOut && this.accessInFlight.get(key) === check) {
+            this.noteAccessTimeout(key, startedAt);
+          }
+          this.endAccessCheck(key, check);
+        }
       }
     });
     for (const key of keys) this.accessInFlight.set(key, check);
     return check;
   }
 
+  /**
+   * Counts a missed deadline for `key`, unless its check answered it before
+   * running out of time. At ACCESS_CHECK_TIMEOUTS_MAX in a row, caches a
+   * denial, so reads pass its change instead of checking it on every poll.
+   */
+  private noteAccessTimeout(key: string, startedAt: number): void {
+    const cached = this.accessCache.get(key);
+    if (cached && cached.checkedAt >= startedAt) return;
+    const missed = (this.accessTimeouts.get(key) ?? 0) + 1;
+    this.accessTimeouts.delete(key);
+    if (missed >= ACCESS_CHECK_TIMEOUTS_MAX) {
+      this.setAccessCache(key, false, Date.now());
+      return;
+    }
+    this.accessTimeouts.set(key, missed);
+    if (this.accessTimeouts.size > ACCESS_CACHE_MAX) {
+      const oldestKey = this.accessTimeouts.keys().next().value;
+      if (oldestKey !== undefined) this.accessTimeouts.delete(oldestKey);
+    }
+  }
+
   __resetAccessCacheForTests(): void {
     this.accessCache.clear();
     this.accessInFlight.clear();
+    this.accessTimeouts.clear();
     this.accessChecksRunning = 0;
     this.accessGeneration++;
     this.accessInvalidationEpoch.clear();
