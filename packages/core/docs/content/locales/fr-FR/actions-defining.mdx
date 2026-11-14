@@ -127,7 +127,7 @@ Le framework découvre automatiquement chaque fichier de `actions/` et le monte 
           type: "boolean | ((input) => boolean)",
           optional: true,
           description:
-            "Lorsque true (ou lorsque le prédicat renvoie true), une écriture rejetée est un échec connu que le modèle peut corriger puis réessayer, au lieu de bloquer l’outil pour le reste du tour actuel. Réservez-le aux actions sûres à relancer après n’importe quelle erreur. Pour un refus avant la première écriture, préférez NoWriteError ou noWrite(). Voir Écritures sûres à réessayer ci-dessous.",
+            "Lorsque true (ou lorsque le prédicat renvoie true), un échec après la propre écriture de cette action est un échec connu que le modèle peut corriger puis réessayer, au lieu de bloquer l’outil pour le reste du tour actuel. Réservez-le aux actions sûres à relancer après n’importe quelle erreur. Un refus avant toute écriture n’a pas besoin de cette option. Voir Écritures sûres à réessayer ci-dessous.",
         },
         {
           name: "agentTool",
@@ -447,13 +447,14 @@ Les appelants agents ne voient pas le statut. L’agent exécute `run()` en proc
 
 ## Écritures sûres à réessayer {#retry-safe}
 
-Pour un refus levé avant la première écriture de l’action, comme une modification qui ne correspond à rien, une cible manquante ou un refus de validation 422, levez `NoWriteError` ou appelez `noWrite()` de `defineActionErrors`. Toute l’action n’a pas à être sûre à relancer. L’agent réessaie alors avec des arguments corrigés au lieu de s’arrêter sur une écriture dont le résultat est inconnu. Ne le levez qu’avant la première écriture. Le framework refuse l’affirmation lorsqu’une action d’écriture imbriquée est entrée dans son handler, mais il ne voit pas les écritures propres du handler. La règle d’auteur est le point `NoWriteError` de `.agents/skills/actions/SKILL.md`. Voir [Déclarer des codes d’erreur](#error-codes) pour `noWrite()`.
+Le framework classe une action d’écriture en échec d’après les écritures qu’il a vu l’appel effectuer : chaque écriture en base de données et chaque `fetch` dont la méthode n’est pas GET, HEAD ou OPTIONS. Un refus levé avant l’une d’elles, comme une modification qui ne correspond à rien, une cible manquante ou un refus de validation 422, est un échec connu, quelle que soit la façon dont il est levé : `fail()`, une simple `Error` ou une erreur de bibliothèque. Le modèle reçoit l’erreur, corrige ses arguments et réessaie.
 
-Réservez `retrySafe` aux actions sûres à relancer après **n’importe quelle** erreur, pas seulement un refus avant écriture.
+Lorsqu’un appel échoue après une écriture qu’il a faite, la boucle de l’agent enregistre un résultat inconnu et bloque cet outil pour le reste du **tour actuel**. Le modèle voit l’erreur, mais il ne peut pas rappeler la même action dans ce tour pour corriger ses arguments. Le message suivant de l’utilisateur exécute l’outil normalement.
 
-Par défaut, lorsque le handler d’une action d’écriture rejette, qu’il lève une erreur ou appelle `fail()`, la boucle de l’agent enregistre un résultat inconnu et bloque cet outil pour le reste du **tour actuel**. Le modèle voit l’erreur, mais il ne peut pas rappeler la même action dans ce tour pour corriger ses arguments. Le message suivant de l’utilisateur exécute l’outil normalement.
+- Avant une écriture que le framework ne voit pas, comme une écriture sur disque, un processus enfant, une requête `node:http` ou un appel au SDK d’un fournisseur, appelez `noteExternalWrite(channel)` de `@agent-native/core/action`, par exemple `noteExternalWrite("local-disk")`. Sans cela, un appel qui échoue après cette écriture semble n’avoir rien enregistré.
+- `NoWriteError`, ou `noWrite()` de `defineActionErrors`, est une dérogation, pas une obligation. Utilisez-le lorsque la seule écriture avant le refus est une écriture qu’un nouvel essai répète sans dommage, comme une requête que le serveur a refusée avec un 4xx avant d’agir, ou un envoi de fichier que rien ne référence encore. Le framework ne l’accepte que si aucune action d’écriture imbriquée n’est entrée dans le handler de l’appel. La règle d’auteur est le point `NoWriteError` de `.agents/skills/actions/SKILL.md`. Voir [Déclarer des codes d’erreur](#error-codes) pour `noWrite()`.
 
-Définissez `retrySafe: true` (ou un prédicat sur l’entrée) lorsque relancer après n’importe quelle erreur ne peut ni dupliquer ni corrompre de données : l’action valide avant d’écrire, ou elle fixe un état final, comme un remplacement par id. Un appel rejeté reste alors un échec connu. Le modèle reçoit l’erreur, corrige ses arguments et réessaie.
+Définissez `retrySafe: true` (ou un prédicat sur l’entrée) lorsque relancer après n’importe quelle erreur ne peut ni dupliquer ni corrompre de données : l’action valide avant d’écrire, ou elle fixe un état final, comme un remplacement par id. Un appel qui échoue après sa propre écriture reste alors un échec connu. Le modèle reçoit l’erreur, corrige ses arguments et réessaie.
 
 ```ts
 export default defineAction({

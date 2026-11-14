@@ -123,7 +123,7 @@ description: "defineAction() 的结构:schema、run,以及 HTTP 配置,还有如
           type: "boolean | ((input) => boolean)",
           optional: true,
           description:
-            "为 true（或谓词返回 true）时，被拒绝的写入是模型可以纠正并重试的已知失败，而不会在当前回合剩余时间里阻塞该工具。仅当 action 在任意错误后都可安全重跑时再设置。写入前的拒绝应优先使用 NoWriteError 或 noWrite()。见下文的可安全重试的写入。",
+            "为 true（或谓词返回 true）时，在该 action 自身写入之后的失败是模型可以纠正并重试的已知失败，而不会在当前回合剩余时间里阻塞该工具。仅当 action 在任意错误后都可安全重跑时再设置。在任何写入之前的拒绝不需要这个选项。见下文的可安全重试的写入。",
         },
         {
           name: "agentTool",
@@ -442,13 +442,14 @@ const reply = useActionMutation("reply-to-email", {
 
 ## 可安全重试的写入 {#retry-safe}
 
-对于在 action 第一次写入之前就提出的拒绝，例如编辑未匹配到任何内容、目标不存在，或 422 校验拒绝，应抛出 `NoWriteError`，或调用 `defineActionErrors` 的 `noWrite()`。不必让整个 action 在任意错误后都可安全重跑。代理随后会带上修正后的参数重试，而不是把一次写入当成结果未知而停下。只在第一次写入之前抛出它。若嵌套的写入 action 已经进入处理函数，框架会拒绝这一声明，但它看不到处理函数自己的写入。作者规则见 `.agents/skills/actions/SKILL.md` 中的 `NoWriteError` 条目。`noWrite()` 见[声明错误码](#error-codes)。
+框架根据它观察到调用执行过的写入，对失败的写入类 action 进行分类：每一次数据库写入，以及每一个不是 GET、HEAD 或 OPTIONS 的 `fetch`。在这些写入之前提出的拒绝，例如编辑未匹配到任何内容、目标不存在，或 422 校验拒绝，无论以何种方式抛出（`fail()`、普通的 `Error` 或库抛出的错误），都是已知失败。模型拿到错误，修正参数，然后重试。
 
-把 `retrySafe` 留给那些在**任意**错误后都可安全重跑的 action，而不仅仅是写入前的拒绝。
+当调用在它自己执行的写入之后失败时，agent 循环会记录一个未知结果，并在**当前回合**剩余时间里阻塞这个工具。模型能看到错误，但无法在本回合再次调用同一个 action 来修正参数。用户的下一条消息会正常运行该工具。
 
-默认情况下，当写入类 action 自身的处理函数拒绝时，无论是抛出异常还是调用 `fail()`，agent 循环都会记录一个未知结果，并在**当前回合**剩余时间里阻塞这个工具。模型能看到错误，但无法在本回合再次调用同一个 action 来修正参数。用户的下一条消息会正常运行该工具。
+- 在框架看不到的写入之前，例如磁盘写入、子进程、`node:http` 请求或供应商 SDK 调用，调用 `@agent-native/core/action` 的 `noteExternalWrite(channel)`，例如 `noteExternalWrite("local-disk")`。否则，在那次写入之后失败的调用看起来就像什么都没保存。
+- `NoWriteError`，或 `defineActionErrors` 的 `noWrite()`，是一种覆盖手段，而不是必需项。当拒绝之前唯一的写入是重试时可以无害重复的写入（例如服务器在执行任何操作之前就以 4xx 拒绝的请求，或尚未被任何内容引用的上传）时使用它。只有当没有嵌套的写入 action 进入该调用的处理函数时，框架才会接受它。作者规则见 `.agents/skills/actions/SKILL.md` 中的 `NoWriteError` 条目。`noWrite()` 见[声明错误码](#error-codes)。
 
-当在任意错误后重新运行都不会重复或损坏数据时，设置 `retrySafe: true`（或一个基于输入的谓词）：action 在写入前先做校验，或者它设置的是一个终态，比如按 id 替换。这样被拒绝的调用就保持为已知失败。模型拿到错误，修正参数，然后重试。
+当在任意错误后重新运行都不会重复或损坏数据时，设置 `retrySafe: true`（或一个基于输入的谓词）：action 在写入前先做校验，或者它设置的是一个终态，比如按 id 替换。这样在自身写入之后失败的调用也保持为已知失败。模型拿到错误，修正参数，然后重试。
 
 ```ts
 export default defineAction({

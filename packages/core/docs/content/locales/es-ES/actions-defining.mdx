@@ -127,7 +127,7 @@ El framework descubre automáticamente cada archivo en `actions/` y lo monta al 
           type: "boolean | ((input) => boolean)",
           optional: true,
           description:
-            "Cuando es true (o cuando el predicado devuelve true), una escritura rechazada es un fallo conocido que el modelo puede corregir y reintentar, en lugar de bloquear la herramienta durante el resto del turno actual. Resérvalo para acciones que sean seguras de volver a ejecutar tras cualquier error. Para un rechazo anterior a la primera escritura, prefiere NoWriteError o noWrite(). Consulta Escrituras seguras para reintentar más abajo.",
+            "Cuando es true (o cuando el predicado devuelve true), un fallo tras la propia escritura de esta acción es un fallo conocido que el modelo puede corregir y reintentar, en lugar de bloquear la herramienta durante el resto del turno actual. Resérvalo para acciones que sean seguras de volver a ejecutar tras cualquier error. Un rechazo antes de cualquier escritura no necesita esta opción. Consulta Escrituras seguras para reintentar más abajo.",
         },
         {
           name: "agentTool",
@@ -447,13 +447,14 @@ Quien llama desde el agente no ve el estado. El agente ejecuta `run()` en proces
 
 ## Escrituras seguras para reintentar {#retry-safe}
 
-Para un rechazo planteado antes de la primera escritura de la acción, como una edición que no coincide con nada, un destino que falta o un rechazo de validación 422, lanza `NoWriteError` o llama a `noWrite()` de `defineActionErrors`. No hace falta que toda la acción sea segura de volver a ejecutar. El agente reintenta entonces con argumentos corregidos en lugar de detenerse ante una escritura de resultado desconocido. Lánzalo solo antes de la primera escritura. El framework rechaza la afirmación cuando una acción de escritura anidada ya entró en su handler, pero no puede ver las escrituras propias del handler. La regla para autores es el punto de `NoWriteError` en `.agents/skills/actions/SKILL.md`. Consulta [Declarar códigos de error](#error-codes) para `noWrite()`.
+El framework clasifica una acción de escritura fallida según las escrituras que vio hacer a la llamada: cada escritura en la base de datos y cada `fetch` que no sea GET, HEAD ni OPTIONS. Un rechazo planteado antes de cualquiera de ellas, como una edición que no coincide con nada, un destino que falta o un rechazo de validación 422, es un fallo conocido se lance como se lance: `fail()`, un `Error` simple o un error de una biblioteca. El modelo recibe el error, corrige sus argumentos y reintenta.
 
-Reserva `retrySafe` para acciones que sean seguras de volver a ejecutar tras **cualquier** error, no solo un rechazo anterior a la escritura.
+Cuando una llamada falla después de una escritura que hizo, el bucle del agente registra un resultado desconocido y bloquea esa herramienta durante el resto del **turno actual**. El modelo ve el error, pero no puede volver a llamar a la misma acción en este turno para corregir sus argumentos. El siguiente mensaje del usuario ejecuta la herramienta con normalidad.
 
-Por defecto, cuando el propio handler de una acción de escritura rechaza, ya sea lanzando o llamando a `fail()`, el bucle del agente registra un resultado desconocido y bloquea esa herramienta durante el resto del **turno actual**. El modelo ve el error, pero no puede volver a llamar a la misma acción en este turno para corregir sus argumentos. El siguiente mensaje del usuario ejecuta la herramienta con normalidad.
+- Antes de una escritura que el framework no puede ver, como una escritura en disco, un proceso hijo, una petición `node:http` o una llamada al SDK de un proveedor, llama a `noteExternalWrite(channel)` de `@agent-native/core/action`, por ejemplo `noteExternalWrite("local-disk")`. Sin esa llamada, una llamada que falla después de esa escritura parece no haber guardado nada.
+- `NoWriteError`, o `noWrite()` de `defineActionErrors`, es una anulación, no un requisito. Úsalo cuando la única escritura anterior al rechazo sea una que un reintento repite sin daño, como una petición que el servidor rechazó con un 4xx antes de actuar, o una subida a la que todavía nada hace referencia. El framework lo acepta solo cuando ninguna acción de escritura anidada entró en el handler de la llamada. La regla para autores es el punto de `NoWriteError` en `.agents/skills/actions/SKILL.md`. Consulta [Declarar códigos de error](#error-codes) para `noWrite()`.
 
-Define `retrySafe: true` (o un predicado sobre la entrada) cuando volver a ejecutar tras cualquier error no pueda duplicar ni corromper datos: la acción valida antes de escribir, o establece un estado final, como reemplazar por id. Así, una llamada rechazada sigue siendo un fallo conocido. El modelo recibe el error, corrige sus argumentos y reintenta.
+Define `retrySafe: true` (o un predicado sobre la entrada) cuando volver a ejecutar tras cualquier error no pueda duplicar ni corromper datos: la acción valida antes de escribir, o establece un estado final, como reemplazar por id. Así, una llamada que falla tras su propia escritura sigue siendo un fallo conocido. El modelo recibe el error, corrige sus argumentos y reintenta.
 
 ```ts
 export default defineAction({

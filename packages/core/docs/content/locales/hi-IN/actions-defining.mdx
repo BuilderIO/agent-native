@@ -127,7 +127,7 @@ description: "defineAction() की संरचना: schema, run, और HTTP
           type: "boolean | ((input) => boolean)",
           optional: true,
           description:
-            "जब true हो (या predicate true लौटाए), तो rejected write एक ज्ञात failure होता है जिसे model सुधारकर दोबारा आज़मा सकता है, वर्तमान टर्न के बाकी समय tool को block करने के बजाय। इसे उन actions के लिए आरक्षित रखें जो किसी भी error के बाद सुरक्षित रूप से फिर चल सकें। पहली write से पहले के इनकार के लिए NoWriteError या noWrite() को प्राथमिकता दें। नीचे पुनःप्रयास-सुरक्षित लेखन देखें।",
+            "जब true हो (या predicate true लौटाए), तो इस action की अपनी write के बाद का failure एक ज्ञात failure होता है जिसे model सुधारकर दोबारा आज़मा सकता है, वर्तमान टर्न के बाकी समय tool को block करने के बजाय। इसे उन actions के लिए आरक्षित रखें जो किसी भी error के बाद सुरक्षित रूप से फिर चल सकें। किसी भी write से पहले के इनकार के लिए इस विकल्प की ज़रूरत नहीं। नीचे पुनःप्रयास-सुरक्षित लेखन देखें।",
         },
         {
           name: "agentTool",
@@ -447,13 +447,14 @@ const reply = useActionMutation("reply-to-email", {
 
 ## पुनःप्रयास-सुरक्षित लेखन {#retry-safe}
 
-action की पहली write से पहले उठाए गए इनकार के लिए, जैसे कोई edit जिससे कुछ मेल न खाए, कोई अनुपस्थित लक्ष्य, या 422 validation इनकार, `NoWriteError` throw करें या `defineActionErrors` से `noWrite()` कॉल करें। पूरे action को दोबारा चलाना सुरक्षित होना ज़रूरी नहीं। एजेंट तब अज्ञात परिणाम वाली write पर रुकने के बजाय सुधारे गए arguments के साथ फिर कोशिश करता है। इसे सिर्फ़ पहली write से पहले throw करें। अगर कोई nested write action अपने handler में घुस चुका हो तो framework इस दावे को अस्वीकार कर देता है, लेकिन handler की अपनी writes वह देख नहीं सकता। लेखक नियम `.agents/skills/actions/SKILL.md` का `NoWriteError` बुलेट है। `noWrite()` के लिए [Error codes घोषित करना](#error-codes) देखें।
+Framework किसी failed write action को उन writes के आधार पर वर्गीकृत करता है जो उसने call को करते देखीं: हर database write और हर `fetch` जो GET, HEAD या OPTIONS नहीं है। इनमें से किसी से पहले उठाया गया इनकार, जैसे कोई edit जिससे कुछ मेल न खाए, कोई अनुपस्थित लक्ष्य, या 422 validation इनकार, एक ज्ञात failure है, चाहे वह कैसे भी throw हो: `fail()`, एक साधारण `Error`, या किसी library का error। Model को error मिलता है, वह अपने arguments सुधारता है, और दोबारा कोशिश करता है।
 
-`retrySafe` को उन actions के लिए आरक्षित रखें जो **किसी भी** error के बाद सुरक्षित रूप से फिर चल सकें, न कि केवल write से पहले के इनकार के लिए।
+जब कोई call अपनी की हुई write के बाद fail होता है, तो agent loop एक अज्ञात परिणाम (unknown outcome) दर्ज करता है और **वर्तमान टर्न** के बाकी समय के लिए उस tool को block कर देता है। Model error देखता है, लेकिन इस टर्न में अपने arguments ठीक करने के लिए उसी action को दोबारा कॉल नहीं कर सकता। उपयोगकर्ता का अगला संदेश उस tool को सामान्य रूप से चलाता है।
 
-डिफ़ॉल्ट रूप से, जब किसी write action का अपना handler reject करता है, चाहे वह throw करे या `fail()` कॉल करे, तो agent loop एक अज्ञात परिणाम (unknown outcome) दर्ज करता है और **वर्तमान टर्न** के बाकी समय के लिए उस tool को block कर देता है। Model error देखता है, लेकिन इस टर्न में अपने arguments ठीक करने के लिए उसी action को दोबारा कॉल नहीं कर सकता। उपयोगकर्ता का अगला संदेश उस tool को सामान्य रूप से चलाता है।
+- ऐसी write से पहले जिसे framework देख नहीं सकता, जैसे disk write, child process, `node:http` request, या किसी vendor SDK की call, `@agent-native/core/action` से `noteExternalWrite(channel)` कॉल करें, जैसे `noteExternalWrite("local-disk")`। इसके बिना, उस write के बाद fail होने वाला call ऐसा लगता है जैसे उसने कुछ save नहीं किया।
+- `NoWriteError`, या `defineActionErrors` से `noWrite()`, एक override है, अनिवार्यता नहीं। इसे तब इस्तेमाल करें जब इनकार से पहले की एकमात्र write ऐसी हो जिसे retry बिना नुकसान दोहराता है, जैसे कोई request जिसे server ने कुछ करने से पहले 4xx के साथ अस्वीकार कर दिया हो, या कोई upload जिसे अभी कुछ भी refer नहीं करता। Framework इसे तभी स्वीकार करता है जब कोई nested write action call के handler में प्रवेश न कर चुका हो। लेखक नियम `.agents/skills/actions/SKILL.md` का `NoWriteError` बुलेट है। `noWrite()` के लिए [Error codes घोषित करना](#error-codes) देखें।
 
-जब किसी भी error के बाद दोबारा चलाने से data duplicate या corrupt नहीं हो सकता, तब `retrySafe: true` (या input पर एक predicate) सेट करें: action लिखने से पहले validate करता है, या वह कोई end state सेट करता है, जैसे id से replace करना। तब rejected call एक ज्ञात failure ही रहता है। Model को error मिलता है, वह अपने arguments सुधारता है, और दोबारा कोशिश करता है।
+जब किसी भी error के बाद दोबारा चलाने से data duplicate या corrupt नहीं हो सकता, तब `retrySafe: true` (या input पर एक predicate) सेट करें: action लिखने से पहले validate करता है, या वह कोई end state सेट करता है, जैसे id से replace करना। तब अपनी write के बाद fail होने वाला call एक ज्ञात failure ही रहता है। Model को error मिलता है, वह अपने arguments सुधारता है, और दोबारा कोशिश करता है।
 
 ```ts
 export default defineAction({
