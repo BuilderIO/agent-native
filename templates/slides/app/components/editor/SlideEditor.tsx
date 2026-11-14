@@ -2173,6 +2173,7 @@ export default function SlideEditor({
   const [selectionRect, setSelectionRect] = useState<DOMRect | null>(null);
   const [selectionViewportRect, setSelectionViewportRect] =
     useState<DOMRect | null>(null);
+  const selectionViewportRectRef = useRef<DOMRect | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   // Mounted for Excalidraw and HTML slides alike, so the once-run listener
   // effect below finds it whichever kind of slide the editor opened on.
@@ -2428,6 +2429,23 @@ export default function SlideEditor({
     max: MAX_CANVAS_ZOOM,
   });
 
+  const updateSelectionViewportRect = useCallback(() => {
+    const scrollContainer = scrollContainerRef.current;
+    if (!scrollContainer) return;
+    const next = scrollContainer.getBoundingClientRect();
+    const previous = selectionViewportRectRef.current;
+    if (
+      previous?.top === next.top &&
+      previous.right === next.right &&
+      previous.bottom === next.bottom &&
+      previous.left === next.left
+    ) {
+      return;
+    }
+    selectionViewportRectRef.current = next;
+    setSelectionViewportRect(next);
+  }, []);
+
   // Selection outlines are portaled to the document so their viewport
   // coordinates stay aligned with the zoomed/scrolling slide. Keep a live
   // viewport rect so that portal can clip itself to the central canvas when
@@ -2436,25 +2454,31 @@ export default function SlideEditor({
     const scrollContainer = scrollContainerRef.current;
     if (!scrollContainer) return;
 
-    const updateViewportRect = () => {
-      setSelectionViewportRect(scrollContainer.getBoundingClientRect());
+    let frame: number | null = null;
+    const scheduleViewportRect = () => {
+      if (frame !== null) return;
+      frame = requestAnimationFrame(() => {
+        frame = null;
+        updateSelectionViewportRect();
+      });
     };
 
-    updateViewportRect();
+    updateSelectionViewportRect();
     const observer =
       typeof ResizeObserver === "undefined"
         ? null
-        : new ResizeObserver(updateViewportRect);
+        : new ResizeObserver(updateSelectionViewportRect);
     observer?.observe(scrollContainer);
-    window.addEventListener("resize", updateViewportRect);
-    window.addEventListener("scroll", updateViewportRect, true);
+    window.addEventListener("resize", updateSelectionViewportRect);
+    window.addEventListener("scroll", scheduleViewportRect, true);
 
     return () => {
+      if (frame !== null) cancelAnimationFrame(frame);
       observer?.disconnect();
-      window.removeEventListener("resize", updateViewportRect);
-      window.removeEventListener("scroll", updateViewportRect, true);
+      window.removeEventListener("resize", updateSelectionViewportRect);
+      window.removeEventListener("scroll", scheduleViewportRect, true);
     };
-  }, []);
+  }, [updateSelectionViewportRect]);
 
   useEffect(() => {
     const scrollContainer = scrollContainerRef.current;
@@ -5297,7 +5321,7 @@ export default function SlideEditor({
     if (!scrollContainer) return;
 
     const update = () => {
-      setSelectionViewportRect(scrollContainer.getBoundingClientRect());
+      updateSelectionViewportRect();
       if (selectedImg) setSelectionRect(selectedImg.getBoundingClientRect());
       if (multiSelection.size > 0) {
         refreshMultiSelectionRects(
@@ -5348,6 +5372,7 @@ export default function SlideEditor({
     selectedElementPath,
     selectedElementSelector,
     selectedImg,
+    updateSelectionViewportRect,
   ]);
 
   // Keep cached rects fresh on scroll/resize so outlines + chip stay aligned.

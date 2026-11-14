@@ -7,7 +7,7 @@ import {
   render,
   waitFor,
 } from "@testing-library/react";
-import type { ReactNode } from "react";
+import { Profiler, type ReactNode } from "react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -57,8 +57,15 @@ beforeEach(() => {
   });
 });
 
-afterEach(() => {
+afterEach(async () => {
   cleanup();
+  if (vi.isFakeTimers()) {
+    // Deferred app-state requests must run before the fetch mock is restored.
+    await act(async () => {
+      await vi.runOnlyPendingTimersAsync();
+    });
+  }
+  vi.useRealTimers();
   vi.unstubAllGlobals();
   vi.restoreAllMocks();
   Reflect.deleteProperty(document, "elementsFromPoint");
@@ -73,6 +80,112 @@ function Providers({ children }: { children: ReactNode }) {
 }
 
 describe("SlideEditor with a newer version of the edited slide", () => {
+  it("coalesces captured scroll measurements and skips unchanged viewport updates", () => {
+    vi.useFakeTimers();
+    vi.stubGlobal("fetch", () => new Promise(() => {}));
+    let frameId = 0;
+    const frames = new Map<number, FrameRequestCallback>();
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => {
+      const id = frameId++;
+      frames.set(id, callback);
+      return id;
+    });
+    vi.stubGlobal("cancelAnimationFrame", (id: number) => frames.delete(id));
+    const observers: {
+      callback: () => void;
+      disconnect: ReturnType<typeof vi.fn>;
+    }[] = [];
+    vi.stubGlobal(
+      "ResizeObserver",
+      class {
+        disconnect = vi.fn();
+        constructor(callback: () => void) {
+          observers.push({ callback, disconnect: this.disconnect });
+        }
+        observe() {}
+      },
+    );
+    const flushFrame = () =>
+      act(() => {
+        const callbacks = [...frames.values()];
+        frames.clear();
+        callbacks.forEach((callback) => callback(0));
+      });
+    const onRender = vi.fn();
+    const noop = () => {};
+    const view = render(
+      <Profiler id="editor" onRender={onRender}>
+        <SlideEditor
+          slide={
+            {
+              id: "viewport-test",
+              layout: "blank",
+              content: '<div class="fmd-slide">Slide</div>',
+            } as Slide
+          }
+          onUpdateSlide={() => undefined}
+          onGenerateImage={noop}
+          onOpenAssetLibrary={noop}
+          onUploadImage={noop}
+          onToggleObjectFit={noop}
+          onChangeObjectPosition={noop}
+        />
+      </Profiler>,
+      { wrapper: Providers },
+    );
+    flushFrame();
+    const viewport = view.container.querySelector<HTMLElement>(
+      '[data-slide-editor-viewport="true"]',
+    );
+    if (!viewport) throw new Error("Slide editor viewport is missing");
+    const measure = vi
+      .spyOn(viewport, "getBoundingClientRect")
+      .mockImplementation(() => new DOMRect(20, 30, 800, 600));
+    const scrollBurst = () =>
+      act(() => {
+        for (let i = 0; i < 20; i++) {
+          viewport.dispatchEvent(new Event("scroll", { bubbles: false }));
+        }
+      });
+
+    scrollBurst();
+    expect(measure).not.toHaveBeenCalled();
+    flushFrame();
+    expect(measure).toHaveBeenCalledTimes(1);
+    measure.mockClear();
+    scrollBurst();
+    onRender.mockClear();
+    flushFrame();
+    expect(measure).toHaveBeenCalledTimes(1);
+    expect(onRender).not.toHaveBeenCalled();
+
+    scrollBurst();
+    measure.mockImplementation(() => new DOMRect(40, 50, 700, 500));
+    fireEvent(window, new Event("resize"));
+    expect(measure).toHaveBeenCalledTimes(2);
+    expect(onRender).toHaveBeenCalled();
+    act(() => observers.forEach(({ callback }) => callback()));
+    expect(measure.mock.calls.length).toBeGreaterThan(2);
+    measure.mockClear();
+    onRender.mockClear();
+    flushFrame();
+    expect(measure).toHaveBeenCalledTimes(1);
+    expect(onRender).not.toHaveBeenCalled();
+
+    scrollBurst();
+    measure.mockClear();
+    expect(frames.size).toBe(1);
+    view.unmount();
+    expect(frames.size).toBe(0);
+    expect(
+      observers.every(({ disconnect }) => disconnect.mock.calls.length > 0),
+    ).toBe(true);
+    flushFrame();
+    window.dispatchEvent(new Event("scroll"));
+    window.dispatchEvent(new Event("resize"));
+    expect(measure).not.toHaveBeenCalled();
+  });
+
   it("keeps an undo selection visible but disables handles until AutoFit settles", () => {
     vi.stubGlobal("fetch", () => new Promise(() => {}));
     let animationFrameId = 0;
