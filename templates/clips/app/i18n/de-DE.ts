@@ -2297,6 +2297,13 @@ const messages = {
     flowCancelled: "Diktat abgebrochen",
     flowRetryHistory: "Verlauf erneut speichern",
     flowDismiss: "Schließen",
+    flowLearnWordQuestion: "Diese Korrektur merken?",
+    flowLearnWordAdd: "Hinzufügen",
+    flowLearnWordIgnore: "Ignorieren",
+    flowLearnWordSaving: "Wird gespeichert…",
+    flowLearnWordSaved: "Zu deinem Wörterbuch hinzugefügt",
+    flowLearnWordFailed:
+      "Das Wort konnte nicht gespeichert werden. Füge es in den Einstellungen hinzu.",
     flowTranscriptRecovery: "Transkript wiederherstellen",
     flowOriginalTranscript: "Originaltranskript anzeigen",
     flowCleanupSkipped:

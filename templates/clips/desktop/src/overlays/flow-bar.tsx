@@ -11,6 +11,14 @@ import { emit, listen } from "@tauri-apps/api/event";
 import { useEffect, useRef, useState } from "react";
 
 import { LiveWaveform } from "../components/live-waveform";
+import {
+  VOCAB_SUGGESTION_ANSWER_EVENT,
+  VOCAB_SUGGESTION_EVENT,
+  VOCAB_SUGGESTION_READY_EVENT,
+  VOCAB_SUGGESTION_SAVED_EVENT,
+  VOCAB_SUGGESTION_TIMEOUT_MS,
+  type VocabularySuggestion,
+} from "../lib/personal-vocabulary";
 
 type FlowState =
   | "idle"
@@ -80,6 +88,15 @@ export function FlowBar() {
   const [recoveryCopyFailed, setRecoveryCopyFailed] = useState(false);
   const [retrying, setRetrying] = useState(false);
   const latestRunIdRef = useRef(0);
+  const [suggestion, setSuggestion] = useState<VocabularySuggestion | null>(
+    null,
+  );
+  // After Add: waiting for the save, or its outcome shown briefly.
+  const [saveStatus, setSaveStatus] = useState<
+    "saving" | "saved" | "failed" | null
+  >(null);
+  const activeSaveIdRef = useRef<number | null>(null);
+  const latestSuggestionIdRef = useRef(0);
   const transcript = payload.transcript?.trim() ?? "";
   const recoveryVisible =
     payload.state === "error" && payload.recoverable === true && !!transcript;
@@ -114,6 +131,7 @@ export function FlowBar() {
       setRecoveryCopyFailed(false);
       if (next.state === "recording") {
         setStartedAtMs(next.startedAtMs ?? Date.now());
+        setSuggestion(null);
       }
       if (
         next.state === "error" ||
@@ -136,6 +154,116 @@ export function FlowBar() {
       unlisten?.();
     };
   }, []);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+    let disposed = false;
+    let unlistenSaved: (() => void) | undefined;
+    void Promise.allSettled([
+      listen<VocabularySuggestion>(VOCAB_SUGGESTION_EVENT, (event) => {
+        const next = event.payload;
+        if (!next || !Number.isSafeInteger(next.id)) return;
+        // Ids only grow: an older or repeated suggestion (a late event or a
+        // replay of one already shown) never replaces the current one.
+        if (next.id <= latestSuggestionIdRef.current) return;
+        latestSuggestionIdRef.current = next.id;
+        // A newer suggestion replaces any earlier save still in flight.
+        activeSaveIdRef.current = null;
+        setSaveStatus(null);
+        setSuggestion(next);
+      }),
+      listen<{ id: number; saved: boolean }>(
+        VOCAB_SUGGESTION_SAVED_EVENT,
+        (event) => {
+          // Only the save this bar is waiting for may change what it shows.
+          // A late result still lands, also after the bar gave up waiting.
+          if (event.payload?.id !== activeSaveIdRef.current) return;
+          activeSaveIdRef.current = null;
+          setSaveStatus(event.payload.saved ? "saved" : "failed");
+        },
+      ),
+    ]).then(([suggestionResult, savedResult]) => {
+      const stops = [suggestionResult, savedResult].flatMap((result) =>
+        result.status === "fulfilled" ? [result.value] : [],
+      );
+      // A partial setup or an unmounted bar keeps no listener alive.
+      if (disposed || stops.length < 2) {
+        for (const stop of stops) stop();
+        return;
+      }
+      [unlisten, unlistenSaved] = stops;
+      // Both listeners are live: a waiting suggestion can be sent again.
+      void emit(VOCAB_SUGGESTION_READY_EVENT).catch(() => {});
+    });
+    return () => {
+      disposed = true;
+      unlisten?.();
+      unlistenSaved?.();
+    };
+  }, []);
+
+  // Show the save outcome briefly, then let the bar hide.
+  // A save that never reports back counts as failed, so "Saving…" can't stick.
+  useEffect(() => {
+    if (saveStatus !== "saving") return;
+    // The id stays tracked, so a late result can still correct this.
+    const timer = window.setTimeout(() => setSaveStatus("failed"), 10_000);
+    return () => window.clearTimeout(timer);
+  }, [saveStatus]);
+
+  useEffect(() => {
+    if (saveStatus !== "saved" && saveStatus !== "failed") return;
+    const timer = window.setTimeout(
+      () => setSaveStatus(null),
+      saveStatus === "failed" ? 4_000 : 1_500,
+    );
+    return () => window.clearTimeout(timer);
+  }, [saveStatus]);
+
+  // No answer in time means ignore: hide the bar unless a dictation took over.
+  useEffect(() => {
+    if (!suggestion) return;
+    const timer = window.setTimeout(() => {
+      setSuggestion((current) =>
+        current?.id === suggestion.id ? null : current,
+      );
+    }, VOCAB_SUGGESTION_TIMEOUT_MS);
+    return () => window.clearTimeout(timer);
+  }, [suggestion]);
+
+  const suggestionVisible =
+    (suggestion !== null || saveStatus !== null) &&
+    payload.state !== "recording" &&
+    payload.state !== "processing";
+
+  // When an answered or expired suggestion leaves an idle bar, hide it.
+  const hadSuggestionRef = useRef(false);
+  useEffect(() => {
+    if (suggestion !== null || saveStatus !== null) {
+      hadSuggestionRef.current = true;
+      return;
+    }
+    if (!hadSuggestionRef.current) return;
+    hadSuggestionRef.current = false;
+    if (payload.state === "idle") {
+      void invoke("hide_flow_bar").catch(() => {});
+    }
+  }, [suggestion, saveStatus, payload.state]);
+
+  const answerSuggestion = (accept: boolean) => {
+    if (!suggestion) return;
+    void emit(VOCAB_SUGGESTION_ANSWER_EVENT, {
+      id: suggestion.id,
+      accept,
+    }).catch(() => {
+      if (accept) setSaveStatus("failed");
+    });
+    if (accept) {
+      activeSaveIdRef.current = suggestion.id;
+      setSaveStatus("saving");
+    }
+    setSuggestion(null);
+  };
 
   useEffect(() => {
     void invoke("set_flow_bar_expanded", { expanded: recoveryVisible }).catch(
@@ -260,20 +388,71 @@ export function FlowBar() {
       aria-live="polite"
     >
       <div
-        className={`flow-bar flow-bar-${payload.state}${payload.state === "recording" ? " flow-bar-listening" : ""}${recoveryVisible ? " flow-bar-recovery" : ""}`}
+        className={`flow-bar flow-bar-${suggestionVisible ? "complete" : payload.state}${payload.state === "recording" ? " flow-bar-listening" : ""}${recoveryVisible ? " flow-bar-recovery" : ""}`}
         aria-label={stateLabel || undefined}
       >
-        {(payload.state === "recording" || payload.state === "idle") && (
-          <div className="flow-bar-recording">
-            <LiveWaveform
-              className="flow-bar-meter"
-              sources="mic"
-              runId={payload.runId}
-              bars={14}
-              barGap={3}
-            />
+        {suggestionVisible && !suggestion && saveStatus ? (
+          <div
+            className="flow-bar-complete-content flow-bar-suggestion"
+            role={saveStatus === "failed" ? "alert" : undefined}
+          >
+            {saveStatus === "failed" ? (
+              <IconAlertTriangle size={14} stroke={2} aria-hidden="true" />
+            ) : (
+              <IconCheck size={14} stroke={2.25} aria-hidden="true" />
+            )}
+            <div className="flow-bar-result-copy">
+              <strong>
+                {saveStatus === "saving"
+                  ? t("dictateRoute.flowLearnWordSaving")
+                  : saveStatus === "saved"
+                    ? t("dictateRoute.flowLearnWordSaved")
+                    : t("dictateRoute.flowLearnWordFailed")}
+              </strong>
+            </div>
           </div>
-        )}
+        ) : null}
+
+        {suggestionVisible && suggestion ? (
+          <div className="flow-bar-complete-content flow-bar-suggestion">
+            <div className="flow-bar-result-copy">
+              <strong>{t("dictateRoute.flowLearnWordQuestion")}</strong>
+              <span>
+                {suggestion.term} → {suggestion.replacement}
+              </span>
+            </div>
+            <div className="flow-bar-suggestion-actions">
+              <button
+                type="button"
+                className="flow-bar-action"
+                onClick={() => answerSuggestion(false)}
+              >
+                {t("dictateRoute.flowLearnWordIgnore")}
+              </button>
+              <button
+                type="button"
+                className="flow-bar-action flow-bar-copy-action"
+                onClick={() => answerSuggestion(true)}
+              >
+                <IconCheck size={14} aria-hidden="true" />
+                {t("dictateRoute.flowLearnWordAdd")}
+              </button>
+            </div>
+          </div>
+        ) : null}
+
+        {!suggestionVisible &&
+          (payload.state === "recording" || payload.state === "idle") && (
+            <div className="flow-bar-recording">
+              <LiveWaveform
+                className="flow-bar-meter"
+                sources="mic"
+                runId={payload.runId}
+                bars={14}
+                barGap={3}
+              />
+            </div>
+          )}
 
         {payload.state === "processing" ? (
           <div className="flow-bar-processing" aria-label={processingLabel}>
@@ -281,7 +460,8 @@ export function FlowBar() {
           </div>
         ) : null}
 
-        {payload.state === "complete" || payload.state === "copied" ? (
+        {!suggestionVisible &&
+        (payload.state === "complete" || payload.state === "copied") ? (
           <div className="flow-bar-complete-content">
             <IconCheck size={14} stroke={2.25} aria-hidden="true" />
             <div className="flow-bar-result-copy">
@@ -401,7 +581,7 @@ export function FlowBar() {
           </div>
         ) : null}
 
-        {payload.state === "cancelled" ? (
+        {!suggestionVisible && payload.state === "cancelled" ? (
           <div className="flow-bar-complete">
             <span>{t("dictateRoute.flowCancelled")}</span>
             <button

@@ -4165,6 +4165,12 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
   font-size: 11px;
 }
 
+.flow-bar-suggestion-actions {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+}
+
 .flow-bar-dismiss {
   display: inline-flex;
   width: 26px;

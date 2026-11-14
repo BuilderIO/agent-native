@@ -2279,6 +2279,13 @@ const messages = {
     flowCancelled: "Ditado cancelado",
     flowRetryHistory: "Tentar salvar o histórico novamente",
     flowDismiss: "Fechar",
+    flowLearnWordQuestion: "Lembrar esta correção?",
+    flowLearnWordAdd: "Adicionar",
+    flowLearnWordIgnore: "Ignorar",
+    flowLearnWordSaving: "Salvando…",
+    flowLearnWordSaved: "Adicionada ao seu dicionário",
+    flowLearnWordFailed:
+      "Não foi possível salvar a palavra. Adicione-a nas Configurações.",
     flowTranscriptRecovery: "Recuperação da transcrição",
     flowOriginalTranscript: "Mostrar transcrição original",
     flowCleanupSkipped: "Ajuste do texto ignorado; texto original mantido",
