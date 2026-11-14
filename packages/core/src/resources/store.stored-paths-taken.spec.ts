@@ -143,6 +143,20 @@ describe("resourceStoredPathsTaken", () => {
         ),
       ).toBe("# Review");
 
+      // A free path is claimed whole, with no temp file left beside it.
+      const created = await resourcePutIfSnapshot({
+        previous: null,
+        owner: WORKSPACE_OWNER,
+        path: "skills/fresh/SKILL.md",
+        content: "# Fresh",
+      });
+      if (!created) throw new Error("the free path wasn't written");
+      const { absolutePath } = JSON.parse(
+        String(created.resource.metadata),
+      ) as { absolutePath: string };
+      expect(fs.readFileSync(absolutePath, "utf8")).toBe("# Fresh");
+      expect(fs.readdirSync(path.dirname(absolutePath))).toEqual(["SKILL.md"]);
+
       await expect(
         isSameLocalWorkspaceFile({
           path: "skills/review/SKILL.md",

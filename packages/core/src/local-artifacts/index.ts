@@ -1383,6 +1383,42 @@ export async function isSameLocalWorkspaceFile(
   }
 }
 
+/** Errors a disk gives when it can't make hard links. */
+const HARD_LINK_UNSUPPORTED_CODES = new Set(["EPERM", "ENOTSUP", "ENOSYS"]);
+
+/**
+ * Moves a finished temp file to a path that must still be free. A rename
+ * would replace a file another process made there after the caller's check;
+ * a hard link, or an exclusive copy where the disk has no hard links, fails
+ * instead, with `EEXIST`.
+ */
+async function moveTempFileToFreePath(
+  tempPath: string,
+  absolutePath: string,
+  resourcePath: string,
+): Promise<void> {
+  try {
+    try {
+      await fs.link(tempPath, absolutePath);
+    } catch (error) {
+      const code = errorCode(error);
+      if (code === undefined || !HARD_LINK_UNSUPPORTED_CODES.has(code)) {
+        throw error;
+      }
+      await fs.copyFile(tempPath, absolutePath, fs.constants.COPYFILE_EXCL);
+    }
+  } catch (error) {
+    if (errorCode(error) === "EEXIST") {
+      throw Object.assign(new Error(`File "${resourcePath}" already exists`), {
+        code: "EEXIST",
+      });
+    }
+    throw error;
+  } finally {
+    await fs.rm(tempPath, { force: true });
+  }
+}
+
 export async function writeLocalWorkspaceResource(
   options: WriteLocalWorkspaceResourceOptions,
 ): Promise<LocalWorkspaceResourceMeta> {
@@ -1427,7 +1463,11 @@ export async function writeLocalWorkspaceResource(
       `.${path.basename(absolutePath)}.${process.pid}.${crypto.randomUUID()}.tmp`,
     );
     await fs.writeFile(tempPath, options.content, "utf8");
-    await fs.rename(tempPath, absolutePath);
+    if (options.ifNotExists) {
+      await moveTempFileToFreePath(tempPath, absolutePath, resourcePath);
+    } else {
+      await fs.rename(tempPath, absolutePath);
+    }
     const stat = await fs.stat(absolutePath);
     return localWorkspaceResourceMeta(
       resourcePath,

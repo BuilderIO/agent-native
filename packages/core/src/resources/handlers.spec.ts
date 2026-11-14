@@ -1663,9 +1663,8 @@ Legacy webhook.`,
       expect(mockResourceDeleteIfCurrent).toHaveBeenCalledWith(
         localSkill("draft"),
       );
-      expect(mockResourceDelete).toHaveBeenCalledWith(
-        "local-workspace-resource:skills/draft/SKILL.md",
-      );
+      // Only the file it copied: a copy in the other skill root wasn't read.
+      expect(mockResourceDelete).not.toHaveBeenCalled();
     });
 
     it("keeps a local file that changed during its rename, and takes the copy back", async () => {

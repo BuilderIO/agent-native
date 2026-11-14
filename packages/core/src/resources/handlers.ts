@@ -887,9 +887,6 @@ export async function handleUpdateResource(event: any) {
       setResponseStatus(event, 409);
       return { error: "Resource changed before it could be renamed" };
     }
-    // A copy of the same skill in the other skill root would bring the old
-    // name back, so it goes too, as it did before.
-    await resourceDelete(id);
     return moved.resource;
   }
   const resource = writeOptions
