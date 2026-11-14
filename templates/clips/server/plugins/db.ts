@@ -1418,7 +1418,7 @@ export const migrations = runMigrations(
       sql: `ALTER TABLE recording_transcripts ADD COLUMN IF NOT EXISTS earlier_audio_removed_at TEXT`,
     },
     {
-      version: 103,
+      version: 104,
       name: "team-vocabulary-unique-term",
       sql: TEAM_VOCABULARY_UNIQUE_TERM_SQL,
     },
