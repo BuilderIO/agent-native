@@ -754,6 +754,13 @@ export async function saveMessagingChannelCredentials(
         details: { key },
       });
     }
+    const validationError = adapter.validateCredential?.(key, value);
+    if (validationError) {
+      fail(validationError, {
+        errorCode: "invalid_channel_credentials",
+        details: { key },
+      });
+    }
     writes.push([key, value]);
   }
   const targets = await Promise.all(
@@ -935,9 +942,18 @@ export async function registerMessagingChannelWebhook(
   }
   const registration = await mounted.registerWebhook(platform, baseUrl);
   if (registration.ok === false) {
+    const details: Record<string, unknown> = {
+      ...(registration.upstreamStatus !== undefined
+        ? { upstreamStatus: registration.upstreamStatus }
+        : {}),
+      ...(registration.retryAfterSeconds !== undefined
+        ? { retryAfterSeconds: registration.retryAfterSeconds }
+        : {}),
+    };
     fail(registration.error, {
       statusCode: registration.statusCode,
       errorCode: "webhook_registration_failed",
+      ...(Object.keys(details).length > 0 ? { details } : {}),
     });
   }
   const channel = await readChannelStatus(mounted, adapter, access, baseUrl);

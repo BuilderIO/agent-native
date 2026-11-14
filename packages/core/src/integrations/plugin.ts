@@ -987,6 +987,14 @@ export function createIntegrationsPlugin(
               "TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET must be configured before webhook setup.",
           };
         }
+        if (!/^[A-Za-z0-9_-]{1,256}$/.test(webhookSecret)) {
+          return {
+            ok: false,
+            statusCode: 400,
+            error:
+              "TELEGRAM_WEBHOOK_SECRET must be 1–256 characters and contain only letters, digits, '_' and '-'.",
+          };
+        }
         try {
           const res = await fetch(
             `https://api.telegram.org/bot${token}/setWebhook`,
@@ -997,12 +1005,18 @@ export function createIntegrationsPlugin(
                 url: webhookUrl,
                 secret_token: webhookSecret,
               }),
+              signal: AbortSignal.timeout(10_000),
             },
           );
           const body = await res.text();
           type TelegramSetWebhookResponse = {
             ok?: boolean;
             description?: string;
+            error_code?: number;
+            parameters?: {
+              retry_after?: number;
+              [key: string]: unknown;
+            };
             [key: string]: unknown;
           };
           let data: TelegramSetWebhookResponse | null = null;
@@ -1015,16 +1029,52 @@ export function createIntegrationsPlugin(
             // Keep provider and proxy failures distinguishable from a successful setup.
             data = null;
           }
+          const isMalformedPayload =
+            data === null || typeof data.ok !== "boolean";
           if (!res.ok || data?.ok !== true) {
+            console.error(
+              `[telegram] setWebhook failed (${res.status}): ${data?.description ?? body}`,
+            );
+            const isRateLimit = res.status === 429 || data?.error_code === 429;
+            const isDependencyFailure =
+              res.status >= 500 ||
+              res.status === 408 ||
+              isMalformedPayload ||
+              (typeof data?.error_code === "number" && data.error_code >= 500);
+            const statusCode = isRateLimit
+              ? 429
+              : isDependencyFailure
+                ? 424
+                : 422;
+            const upstreamStatus =
+              isRateLimit || isDependencyFailure ? res.status : undefined;
+            const retryAfterSeconds =
+              typeof data?.parameters?.retry_after === "number" &&
+              Number.isInteger(data.parameters.retry_after) &&
+              data.parameters.retry_after > 0
+                ? data.parameters.retry_after
+                : undefined;
+            const description =
+              data?.description ??
+              (isMalformedPayload && res.ok
+                ? "invalid response"
+                : `HTTP ${res.status}`);
             return {
               ok: false,
-              statusCode: 502,
-              error: `Telegram setWebhook failed: ${data?.description ?? `HTTP ${res.status}`}`,
+              statusCode,
+              error: `Telegram setWebhook failed: ${description}`,
+              ...(upstreamStatus !== undefined ? { upstreamStatus } : {}),
+              ...(retryAfterSeconds !== undefined ? { retryAfterSeconds } : {}),
             };
           }
           return { ok: true, webhookUrl, result: data };
         } catch (err: any) {
-          return { ok: false, statusCode: 500, error: err.message };
+          console.error(`[telegram] setWebhook request error: ${err.message}`);
+          return {
+            ok: false,
+            statusCode: 424,
+            error: "Telegram setWebhook request failed",
+          };
         }
       },
     };
@@ -3623,7 +3673,27 @@ export function createIntegrationsPlugin(
           );
           if (registration.ok === false) {
             setResponseStatus(event, registration.statusCode);
-            return { error: registration.error };
+            if (
+              registration.statusCode === 429 &&
+              typeof registration.retryAfterSeconds === "number" &&
+              Number.isInteger(registration.retryAfterSeconds) &&
+              registration.retryAfterSeconds > 0
+            ) {
+              setResponseHeader(
+                event,
+                "Retry-After",
+                String(registration.retryAfterSeconds),
+              );
+            }
+            return {
+              error: registration.error,
+              ...(registration.upstreamStatus !== undefined
+                ? { upstreamStatus: registration.upstreamStatus }
+                : {}),
+              ...(registration.retryAfterSeconds !== undefined
+                ? { retryAfterSeconds: registration.retryAfterSeconds }
+                : {}),
+            };
           }
           return { platform, ...registration };
         }
