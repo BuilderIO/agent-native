@@ -26,12 +26,7 @@ function optionValue(
   for (let i = 0; i < args.length; i++) {
     const arg = args[i] ?? "";
     if (arg.startsWith(`${long}=`)) values.push(arg.slice(long.length + 1));
-    else if (arg.startsWith(`${short}=`))
-      values.push(arg.slice(short.length + 1));
     else if (arg === long || arg === short) values.push(args[i + 1] ?? "");
-    else if (arg.startsWith(short) && !arg.startsWith("--")) {
-      values.push(arg.slice(short.length));
-    }
   }
   if (values.length > 1) {
     throw new Error(`${long} was given more than once; pass it a single time`);
@@ -51,6 +46,14 @@ export function assertStatusOutputEnabled(args: string[]): void {
   ) {
     throw new Error(
       "--config selects a netlify.toml this command does not inspect for unsupported functions settings; use the default netlify.toml",
+    );
+  }
+  // Commander reads -fx, -f=x and -pf x differently from this wrapper, which
+  // would let the manifest and the deploy disagree about the functions dir.
+  const grouped = args.find((arg) => /^-[^-\s].+/.test(arg));
+  if (grouped) {
+    throw new Error(
+      `${grouped} is a combined or attached short option; write short options separately, for example "-p -f dir"`,
     );
   }
   if (args.includes("--skip-functions-cache")) {
