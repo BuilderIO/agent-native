@@ -319,7 +319,7 @@ function AgentPanelThreadMenuContent({
 export function AgentPanelThreadSwitcher({
   triggerClassName,
   ...props
-}: AgentPanelThreadNavProps & { triggerClassName?: string }) {
+}: AgentPanelThreadNavProps & { triggerClassName?: string | undefined }) {
   const active = props.items.find((item) => item.active) ?? props.items.at(0);
   return (
     <DropdownMenu>
@@ -460,7 +460,7 @@ export function AgentPanelThreadNav({
 }: AgentPanelThreadNavProps & {
   layout: AgentPanelTabLayout;
   /** Classes for the switcher's button; tabs ignore it. */
-  triggerClassName?: string;
+  triggerClassName?: string | undefined;
 }) {
   return layout === "switcher" ? (
     <AgentPanelThreadSwitcher {...props} triggerClassName={triggerClassName} />

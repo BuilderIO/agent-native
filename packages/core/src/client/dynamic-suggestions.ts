@@ -36,11 +36,11 @@ export interface AgentDynamicSuggestionsResult {
 }
 
 interface UseAgentDynamicSuggestionsOptions {
-  staticSuggestions?: readonly string[];
-  dynamicSuggestions?: AgentDynamicSuggestionsOption;
-  browserTabId?: string;
-  scope?: ChatThreadScope | null;
-  enabled?: boolean;
+  staticSuggestions?: readonly string[] | undefined;
+  dynamicSuggestions?: AgentDynamicSuggestionsOption | undefined;
+  browserTabId?: string | undefined;
+  scope?: ChatThreadScope | null | undefined;
+  enabled?: boolean | undefined;
 }
 
 interface NormalizedAgentDynamicSuggestionsConfig {

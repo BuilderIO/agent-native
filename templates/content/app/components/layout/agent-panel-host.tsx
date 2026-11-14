@@ -84,15 +84,17 @@ export function useHoldAgentPanel(enabled = true) {
   );
 }
 
+type SlotRef = RefObject<HTMLElement | null>;
+
 /**
  * A page's half: the chat draws inside `slotRef`, and its tools inside
  * `headSlotRef`, while this is mounted. Says whether there is a chat to draw,
  * which there is not outside the app shell.
  */
 export function useAgentPanelSlot(
-  slotRef: RefObject<HTMLElement | null>,
+  slotRef: SlotRef,
   enabled: boolean,
-  headSlotRef?: RefObject<HTMLElement | null>,
+  headSlotRef?: SlotRef,
 ) {
   const host = useContext(AgentPanelHostContext);
   useHoldAgentPanel(enabled);
