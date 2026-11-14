@@ -529,20 +529,21 @@ function ProvidersInner({
   settingsShortcut: boolean;
   children: React.ReactNode;
 }) {
-  // The banner and the failure toasts read the app's locale, so they sit
-  // inside the same provider.
+  // The toaster shares the app's locale but must remain outside session gates.
   const localizedChildren =
     i18n === false ? (
       <>
         {children}
         {ownsDocument ? <ConsentBanner /> : null}
         <WriteFailureToaster />
+        {toaster}
       </>
     ) : (
       <AgentNativeI18nProvider {...(i18n ?? {})}>
         {children}
         {ownsDocument ? <ConsentBanner /> : null}
         <WriteFailureToaster />
+        {toaster}
       </AgentNativeI18nProvider>
     );
 
@@ -563,7 +564,6 @@ function ProvidersInner({
       {showEnvironmentBadge ? (
         <EnvironmentBadge showProduction={showProductionEnvironmentBadge} />
       ) : null}
-      {toaster}
     </TooltipProvider>
   );
 
