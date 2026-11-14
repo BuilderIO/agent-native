@@ -63,7 +63,7 @@ export async function resolveA2ACallerAuth(options?: {
     addApiKeyAttempt(
       await signA2AToken(
         userEmail,
-        options?.userIdentityOnly ? undefined : orgDomain?.trim() || undefined,
+        options.userIdentityOnly ? undefined : orgDomain?.trim() || undefined,
         undefined,
         {
           expiresIn: options?.expiresIn ?? DEFAULT_A2A_CALLER_TOKEN_TTL,

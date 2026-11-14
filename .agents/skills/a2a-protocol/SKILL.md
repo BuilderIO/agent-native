@@ -447,7 +447,10 @@ completes the same task. `call-agent` keeps the approval only when that page is
 on the peer's own origin and names that approval, and passes it on the
 `agent_call` event. The chat then shows a card that opens the page and, once
 the person returns, asks the agent to call `call-agent` again with the same
-`taskId` and no message, which returns the approved action's result.
+`taskId` and no message, which returns the approved action's result. The card
+is an `agent-native/agent-call-approval` widget saved with the thread, so it
+survives a reload; it closes once the person continues or cancels, or once that
+task finishes.
 
 ## JSON-RPC Methods
 

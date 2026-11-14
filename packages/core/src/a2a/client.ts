@@ -2192,10 +2192,7 @@ async function buildA2AApiKeyAttempts(
         opts.userEmail,
         opts.orgDomain?.trim() || undefined,
         undefined,
-        {
-          preferGlobalSecret: true,
-          audience,
-        },
+        { preferGlobalSecret: true, ...(audience ? { audience } : {}) },
       ),
     );
   }

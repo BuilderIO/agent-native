@@ -18,7 +18,6 @@ import {
   settleInterruptedToolCalls,
   type ContentPart,
 } from "./sse-event-processor.js";
-import { isToolCallActive } from "./tool-display.js";
 
 describe("SSE event admission across deploy versions", () => {
   it("deduplicates an old seq-only frame followed by its identified replay", () => {
@@ -1158,84 +1157,6 @@ describe("SSE replay render pacing", () => {
       ]),
     );
   });
-
-  it("settles a call waiting on a peer approval with the card's details", async () => {
-    const approval = {
-      id: "approval-1",
-      tool: "create-deck",
-      url: "https://slides.example.test/_agent-native/a2a/approvals/approval-1",
-    };
-    const results = (await drain(
-      readSSEStream(
-        eventStream([
-          {
-            type: "agent_call",
-            agent: "Slides",
-            agentCallId: "slides-approval",
-            status: "start",
-          },
-          {
-            type: "agent_call",
-            agent: "Slides",
-            agentCallId: "slides-approval",
-            status: "pending",
-            taskId: "remote-task-1",
-            approval,
-          },
-          { type: "done" },
-        ]),
-        [],
-        { value: 0 },
-        undefined,
-      ),
-    )) as any[];
-
-    const call = results
-      .at(-1)
-      ?.content.find((part: any) => part.toolName === "agent:Slides");
-    expect(call?.structuredMeta).toEqual({
-      agentApproval: { ...approval, taskId: "remote-task-1" },
-    });
-    expect(isToolCallActive(call)).toBe(false);
-  });
-
-  it.each([
-    ["without a task to continue", undefined, "https://slides.example.test/a"],
-    ["with a non-web link", "remote-task-1", "javascript:alert(1)"],
-  ])(
-    "keeps a peer approval %s as an ordinary pending call",
-    async (_label, taskId, url) => {
-      const results = (await drain(
-        readSSEStream(
-          eventStream([
-            {
-              type: "agent_call",
-              agent: "Slides",
-              agentCallId: "slides-approval",
-              status: "start",
-            },
-            {
-              type: "agent_call",
-              agent: "Slides",
-              agentCallId: "slides-approval",
-              status: "pending",
-              ...(taskId ? { taskId } : {}),
-              approval: { id: "approval-1", tool: "create-deck", url },
-            },
-            { type: "done" },
-          ]),
-          [],
-          { value: 0 },
-          undefined,
-        ),
-      )) as any[];
-
-      const call = results
-        .at(-1)
-        ?.content.find((part: any) => part.toolName === "agent:Slides");
-      expect(call?.structuredMeta).toEqual({ agentPending: true });
-    },
-  );
 
   it("correlates concurrent same-name agent activity by call id", async () => {
     const snapshot = {

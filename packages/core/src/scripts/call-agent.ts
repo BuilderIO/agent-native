@@ -232,7 +232,7 @@ function connectionRequestProvider(task: unknown): string | undefined {
 // The receiver's agent-chat plugin sets this when one of its actions waits for
 // a person to approve it in that app.
 function peerApprovalRequest(task: unknown): A2APeerApproval | undefined {
-  const request = (task as Task | undefined)?.status?.message?.metadata
+  const request = (task as Partial<Task> | undefined)?.status?.message?.metadata
     ?.agentNativeApproval as Partial<A2APeerApproval> | undefined;
   if (!request || typeof request !== "object") return undefined;
   const id = typeof request.id === "string" ? request.id.trim() : "";

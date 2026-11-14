@@ -13,6 +13,7 @@ import {
   CONTINUE_OF_RUN_METADATA_KEY,
 } from "../../agent/auto-continue.js";
 import type {
+  A2APeerApproval,
   AgentChatStructuredContentPart,
   AgentChatStructuredMessage,
 } from "../../agent/types.js";
@@ -3942,6 +3943,35 @@ function agentNativeAgentReference(
   return { id: agent, kind: "agent", label: agent };
 }
 
+/** The widget a paused peer call shows while it waits on the person's approval in that app. */
+export const AGENT_CALL_APPROVAL_WIDGET_KIND =
+  "agent-native/agent-call-approval";
+
+/** The approval page to open, and the paused task to continue once approved. */
+export interface AgentCallApprovalWidgetData extends A2APeerApproval {
+  agent: string;
+  taskId: string;
+}
+
+function agentCallApproval(
+  ev: SSEEvent,
+  agent: string,
+): AgentCallApprovalWidgetData | undefined {
+  const approval = ev.approval;
+  const taskId = typeof ev.taskId === "string" ? ev.taskId.trim() : "";
+  if (ev.status !== "pending" || !approval || !taskId) return undefined;
+  const { id, tool, url } = approval;
+  if (!id || !tool || !url) return undefined;
+  try {
+    const { protocol } = new URL(url);
+    if (protocol !== "https:" && protocol !== "http:") return undefined;
+  } catch {
+    // coercion-ok: the card needs an absolute page link; the reply text remains.
+    return undefined;
+  }
+  return { agent, id, tool, url, taskId };
+}
+
 // The renderer swaps this label for its localized working label. An app name or
 // a raw A2A state in an activity label prints beside the participant chip that
 // already names the app.
@@ -4663,6 +4693,22 @@ function mapAgentNativeEvent(
             durationMs: ev.durationMs,
             terminalCode: ev.terminalCode,
           }),
+        },
+      });
+    }
+    // A peer waiting on the person's approval in that app shows a card that
+    // opens its approval page and then continues the same task.
+    const approval = agentCallApproval(ev, agent);
+    if (approval) {
+      events.push({
+        type: "widget",
+        ...base,
+        operation: "create",
+        widget: {
+          id: `${participantId}:approval:${approval.id}`,
+          kind: AGENT_CALL_APPROVAL_WIDGET_KIND,
+          state: "ready",
+          data: approval,
         },
       });
     }

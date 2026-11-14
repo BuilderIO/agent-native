@@ -30,6 +30,7 @@ import { createAgentNativeAgentKitTransport as createAgentNativeAgentKitTranspor
 import { AGENT_NATIVE_PROTOCOL_METADATA_KEY } from "./agentkit-protocol.js";
 import type { RunOutcomeReport } from "./run-outcome.js";
 import {
+  AGENT_CALL_APPROVAL_WIDGET_KIND,
   createAgentNativeChatRuntime,
   createHttpAgentChatRuntime,
   type AgentChatRuntime,
@@ -999,6 +1000,87 @@ describe("createAgentNativeAgentKitTransport", () => {
       messageId: "assistant-after-continuation",
       widget: { id: "tool-1:chat-ui", kind: "release.summary" },
     });
+    await transport.dispose();
+  });
+
+  it("keeps a peer's approval card in the saved thread", async () => {
+    const threadId = "snapshot-agent-call-approval";
+    const approval = {
+      agent: "Slides",
+      id: "approval-1",
+      tool: "delete-deck",
+      url: "https://slides.example.com/_agent-native/a2a/approvals/approval-1",
+      taskId: "task-child",
+    };
+    let savedThreadData: string | undefined;
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        if (url.includes(`/threads/${threadId}`) && init?.method === "PUT") {
+          savedThreadData = JSON.parse(String(init.body)).threadData;
+          return json({ ok: true });
+        }
+        if (url.includes(`/threads/${threadId}`)) {
+          return json({
+            id: threadId,
+            threadData: JSON.stringify({ agentKit: { messages: [] } }),
+          });
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      apiUrl: "/_agent-native/agent-chat",
+      fetch: fetcher as typeof fetch,
+    });
+
+    await transport.persistThreadSnapshot?.({
+      threadId,
+      snapshot: {
+        id: threadId,
+        createdAt: "2026-10-01T00:00:00.000Z",
+        updatedAt: "2026-10-01T00:00:00.000Z",
+        messages: [
+          {
+            id: "assistant-1",
+            role: "assistant",
+            status: "complete",
+            parts: [{ type: "text", text: "Slides needs your approval." }],
+          },
+        ],
+        widgets: [
+          {
+            messageId: "assistant-1",
+            widget: {
+              id: "call-1:approval:approval-1",
+              kind: AGENT_CALL_APPROVAL_WIDGET_KIND,
+              state: "ready",
+              data: approval,
+            },
+          },
+          // Without the task to continue, the card could not do anything.
+          {
+            messageId: "assistant-1",
+            widget: {
+              id: "call-2:approval:approval-2",
+              kind: AGENT_CALL_APPROVAL_WIDGET_KIND,
+              data: { ...approval, id: "approval-2", taskId: undefined },
+            },
+          },
+        ],
+      },
+    });
+
+    expect(JSON.parse(savedThreadData ?? "{}").agentKit.widgets).toEqual([
+      {
+        messageId: "assistant-1",
+        widget: {
+          id: "call-1:approval:approval-1",
+          kind: AGENT_CALL_APPROVAL_WIDGET_KIND,
+          data: approval,
+        },
+      },
+    ]);
     await transport.dispose();
   });
 
