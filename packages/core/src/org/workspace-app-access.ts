@@ -215,7 +215,7 @@ function workspaceAppsFromResponse(
   return apps as WorkspaceAppRegistryEntry[];
 }
 
-function workspaceAppsFromManifest(
+export function workspaceAppsFromManifest(
   appsJson: string | undefined,
 ): WorkspaceAppRegistryEntry[] | null {
   if (appsJson === undefined) return null;
@@ -240,6 +240,42 @@ function workspaceAppsFromManifest(
     );
   }
   return apps;
+}
+
+/**
+ * The Access settings list follows the runtime gateway registry, not only
+ * the startup manifest. Unavailable discovery must not hide a live app.
+ */
+export async function currentWorkspaceAppIdsForAccessList(
+  context: WorkspaceAppAccessContext,
+): Promise<ReadonlySet<string> | null> {
+  const directory = configuredWorkspaceDirectory();
+  if (directory) {
+    const auth = await resolveHostedWorkspaceAppAuth(
+      directory,
+      context,
+      normalizedEmail(context.email),
+    );
+    if (isWorkspaceAppAccessUnavailable(auth)) {
+      throw new Error(`Workspace app inventory unavailable: ${auth.reason}`);
+    }
+    const inventoryUrl = new URL(auth.url);
+    inventoryUrl.searchParams.set("orgAccessInventory", "true");
+    const registry = await getHostedWorkspaceAppRegistry({
+      ...auth,
+      url: inventoryUrl,
+      requestKey: `${auth.requestKey}:org-access-inventory`,
+    });
+    if (registry.status === "unavailable") {
+      throw new Error(
+        `Workspace app inventory unavailable: ${registry.reason}`,
+      );
+    }
+    return new Set(registry.apps.map((app) => app.id.trim()));
+  }
+
+  const manifest = workspaceAppsFromManifest(getAppConfig().workspace.appsJson);
+  return manifest ? new Set(manifest.map((app) => app.id.trim())) : null;
 }
 
 function workspaceAppIsDisabled(app: WorkspaceAppRegistryEntry): boolean {

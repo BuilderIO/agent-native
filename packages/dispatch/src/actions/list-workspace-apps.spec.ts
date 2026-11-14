@@ -2,10 +2,13 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   listWorkspaceApps: vi.fn(),
+  listWorkspaceAppsForOrgAccessInventory: vi.fn(),
 }));
 
 vi.mock("../server/lib/app-creation-store.js", () => ({
   listWorkspaceApps: mocks.listWorkspaceApps,
+  listWorkspaceAppsForOrgAccessInventory:
+    mocks.listWorkspaceAppsForOrgAccessInventory,
 }));
 
 import type { ActionRunContext } from "@agent-native/core/action";
@@ -74,6 +77,19 @@ describe("list-workspace-apps", () => {
     ]);
 
     expect(mocks.listWorkspaceApps).toHaveBeenCalledTimes(5);
+  });
+
+  it("routes an access-management inventory request through the admin-only path", async () => {
+    const apps = [{ id: "disabled-mounted", orgEnabled: false }];
+    mocks.listWorkspaceAppsForOrgAccessInventory.mockResolvedValue(apps);
+    await expect(
+      action.run(
+        { ...input, orgAccessInventory: true },
+        context("admin@example.com", "org-1"),
+      ),
+    ).resolves.toEqual(apps);
+    expect(mocks.listWorkspaceAppsForOrgAccessInventory).toHaveBeenCalledOnce();
+    expect(mocks.listWorkspaceApps).not.toHaveBeenCalled();
   });
 
   it("returns mounted workspace apps regardless of the built-in app config", async () => {
