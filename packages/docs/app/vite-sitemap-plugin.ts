@@ -6,7 +6,9 @@ import { fileURLToPath } from "url";
 import type { Plugin } from "vite";
 
 import {
+  buildAgentWebStaticFiles,
   buildSitemapXml as buildAgentWebSitemapXml,
+  normalizeAgentWebConfig,
   type AgentWebPage,
 } from "../../core/src/agent-web/index";
 import {
@@ -14,7 +16,10 @@ import {
   isLocaleCode,
   normalizeLocaleCode,
 } from "../../core/src/localization/shared";
-import { createAgentWebVitePlugin } from "../../core/src/vite/agent-web-plugin";
+import {
+  createAgentWebVitePlugin,
+  type AgentWebVitePluginOptions,
+} from "../../core/src/vite/agent-web-plugin";
 import { docsBodyToMarkdownMirror } from "../lib/docs-markdown-export";
 import {
   docSourceSlugFromFilename,
@@ -59,12 +64,11 @@ function gitLastmod(filePath: string): Date {
   return fs.statSync(filePath).mtime;
 }
 
-export function sitemapPlugin(): Plugin {
-  const rootDir = path.resolve(__dirname, "..");
+function siteGeneratorOptions(rootDir: string): AgentWebVitePluginOptions {
   const pkg = JSON.parse(
     fs.readFileSync(path.resolve(rootDir, "package.json"), "utf8"),
   );
-  return createAgentWebVitePlugin({
+  return {
     siteName: "Agent-Native",
     siteUrl: SITE_URL,
     description:
@@ -151,7 +155,43 @@ export function sitemapPlugin(): Plugin {
         addressCountry: "US",
       },
     },
-  }) as unknown as Plugin;
+  };
+}
+
+export function sitemapPlugin(): Plugin {
+  return createAgentWebVitePlugin(
+    siteGeneratorOptions(path.resolve(__dirname, "..")),
+  ) as unknown as Plugin;
+}
+
+export function buildMarkdownInventory(rootDir: string): string[] {
+  const options = siteGeneratorOptions(rootDir);
+  const pages =
+    typeof options.pages === "function" ? options.pages() : options.pages;
+  const config = normalizeAgentWebConfig(options.agentWeb ?? {}, {
+    hasPublicRoutes: pages.length > 0,
+  });
+  const generated = config.discoverable
+    ? buildAgentWebStaticFiles({ ...options, pages, config }).map(
+        (file) => file.path,
+      )
+    : [];
+  const publicDir = path.join(rootDir, "public");
+  function publicFiles(dir: string): string[] {
+    return fs.readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+      const absolutePath = path.join(dir, entry.name);
+      if (entry.isDirectory()) return publicFiles(absolutePath);
+      if (entry.isSymbolicLink()) {
+        throw new Error(
+          `Cannot inventory symlinked public asset: ${absolutePath}`,
+        );
+      }
+      return entry.isFile()
+        ? [path.relative(publicDir, absolutePath).split(path.sep).join("/")]
+        : [];
+    });
+  }
+  return [...new Set([...generated, ...publicFiles(publicDir)])].sort();
 }
 
 export function sitemapGroupForPage(page: AgentWebPage): string {

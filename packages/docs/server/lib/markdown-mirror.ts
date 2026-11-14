@@ -1,5 +1,8 @@
 import { getAppProductionUrl } from "@agent-native/core/server";
 import { getRequestHeader, type H3Event } from "h3";
+import inventory from "virtual:docs-markdown-inventory";
+
+const knownAssets = inventory === null ? null : new Set(inventory);
 
 const MIRROR_FETCH_HEADER = "x-agent-native-md-mirror";
 
@@ -23,6 +26,14 @@ export async function fetchMarkdownMirror(
   event: H3Event,
 ): Promise<MarkdownMirrorResult> {
   if (isMarkdownMirrorFetch(event)) return { kind: "absent" };
+  if (
+    relativePath.endsWith(".md") &&
+    !relativePath.includes("%") &&
+    knownAssets &&
+    !knownAssets.has(relativePath.replace(/^\/+/, ""))
+  ) {
+    return { kind: "absent" };
+  }
 
   const staticUrl = new URL(
     getAppProductionUrl(undefined, { fallback: DOCS_PUBLIC_ORIGIN }),

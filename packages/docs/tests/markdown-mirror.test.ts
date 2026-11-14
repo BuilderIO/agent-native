@@ -8,7 +8,7 @@ import {
 
 function eventWithHeaders(
   headers: Record<string, string>,
-  url = "https://www.agent-native.com/docs/actions.md",
+  url = "https://www.agent-native.com/docs/actions-overview.md",
 ): H3Event {
   return {
     url: new URL(url),
@@ -30,7 +30,7 @@ describe("markdown mirror recursion guard", () => {
 
     expect(isMarkdownMirrorFetch(event)).toBe(true);
     await expect(
-      fetchMarkdownMirror("docs/actions.md", event),
+      fetchMarkdownMirror("docs/actions-overview.md", event),
     ).resolves.toEqual({ kind: "absent" });
     expect(fetchSpy).not.toHaveBeenCalled();
   });
@@ -45,16 +45,16 @@ describe("markdown mirror recursion guard", () => {
     );
     const event = eventWithHeaders(
       { "x-forwarded-host": "attacker.example.test" },
-      "https://attacker.example.test/docs/actions.md",
+      "https://attacker.example.test/docs/actions-overview.md",
     );
 
     await expect(
-      fetchMarkdownMirror("docs/actions.md", event),
+      fetchMarkdownMirror("docs/actions-overview.md", event),
     ).resolves.toEqual({ kind: "found", content: "# Actions" });
 
     const [, init] = fetchSpy.mock.calls[0] ?? [];
     expect(String(fetchSpy.mock.calls[0]?.[0])).toBe(
-      "https://docs.example.test/docs/actions.md",
+      "https://docs.example.test/docs/actions-overview.md",
     );
     const headers = (init?.headers ?? {}) as Record<string, string>;
     expect(headers["x-agent-native-md-mirror"]).toBe("1");
@@ -84,14 +84,14 @@ describe("markdown mirror recursion guard", () => {
     );
     const event = eventWithHeaders(
       { "x-forwarded-host": "attacker.example.test" },
-      "https://attacker.example.test/docs/actions.md",
+      "https://attacker.example.test/docs/actions-overview.md",
     );
 
     await expect(
-      fetchMarkdownMirror("docs/actions.md", event),
+      fetchMarkdownMirror("docs/actions-overview.md", event),
     ).resolves.toEqual({ kind: "found", content: "# Actions" });
     expect(String(fetchSpy.mock.calls[0]?.[0])).toBe(
-      "https://www.agent-native.com/docs/actions.md",
+      "https://www.agent-native.com/docs/actions-overview.md",
     );
   });
 
@@ -101,16 +101,35 @@ describe("markdown mirror recursion guard", () => {
     );
     const event = eventWithHeaders({});
 
-    await expect(fetchMarkdownMirror("docs/nope.md", event)).resolves.toEqual({
+    await expect(
+      fetchMarkdownMirror("docs/actions-overview.md", event),
+    ).resolves.toEqual({
       kind: "absent",
     });
+  });
+
+  it.each([
+    "examples/self-hosted-chat/README.md",
+    "examples/self-hosted-chat/%52EADME.md",
+    "llms.txt",
+  ])("still fetches public asset %s", async (relativePath) => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockRejectedValue(new Error("timed out"));
+    await expect(
+      fetchMarkdownMirror(relativePath, eventWithHeaders({})),
+    ).resolves.toMatchObject({
+      kind: "unreadable",
+      reason: expect.stringContaining("timed out"),
+    });
+    expect(fetchSpy).toHaveBeenCalledOnce();
   });
 
   it("keeps an unreadable mirror distinct from an absent one", async () => {
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("timed out"));
     const event = eventWithHeaders({});
 
-    const result = await fetchMarkdownMirror("docs/actions.md", event);
+    const result = await fetchMarkdownMirror("docs/actions-overview.md", event);
     expect(result.kind).toBe("unreadable");
     expect(result).toMatchObject({
       reason: expect.stringContaining("timed out"),
