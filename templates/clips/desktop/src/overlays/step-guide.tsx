@@ -226,7 +226,11 @@ type Status =
   | { kind: "done"; text: string }
   | { kind: "error"; text: string };
 
-export function StepGuideEditor({ sessionId }: { sessionId?: string }) {
+export function StepGuideEditor({
+  sessionId,
+}: {
+  sessionId?: string | undefined;
+}) {
   const [loaded, setLoaded] = useState<LoadedGuide | null>(null);
   const [status, setStatus] = useState<Status>({ kind: "idle" });
   const saveTimer = useRef<number | undefined>(undefined);
@@ -371,7 +375,7 @@ export function StepGuideEditor({ sessionId }: { sessionId?: string }) {
         </span>
         <button
           type="button"
-          onClick={reveal}
+          onClick={() => void reveal()}
           disabled={busy}
           className="inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-sm text-foreground hover:bg-accent hover:text-accent-foreground disabled:opacity-50 [&_svg]:size-4"
         >
@@ -379,7 +383,7 @@ export function StepGuideEditor({ sessionId }: { sessionId?: string }) {
         </button>
         <button
           type="button"
-          onClick={share}
+          onClick={() => void share()}
           disabled={busy}
           className="inline-flex h-8 items-center gap-1.5 rounded-md border border-input px-3 text-sm text-foreground hover:bg-accent hover:text-accent-foreground disabled:opacity-50 [&_svg]:size-4"
         >
@@ -387,7 +391,7 @@ export function StepGuideEditor({ sessionId }: { sessionId?: string }) {
         </button>
         <button
           type="button"
-          onClick={exportPdf}
+          onClick={() => void exportPdf()}
           disabled={busy}
           className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-3 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50 [&_svg]:size-4"
         >

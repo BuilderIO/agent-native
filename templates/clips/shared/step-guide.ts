@@ -30,7 +30,8 @@ export function parseStepTitle(title: string): {
 } {
   const match = STEP_PREFIX.exec(title);
   if (!match) return { stepNumber: null, title: title.trim() };
-  return { stepNumber: Number(match[1]), title: match[2] };
+  const [, stepNumber = "", rest = ""] = match;
+  return { stepNumber: Number(stepNumber), title: rest };
 }
 
 /** Order `recordings`, given oldest first, into guide steps. */

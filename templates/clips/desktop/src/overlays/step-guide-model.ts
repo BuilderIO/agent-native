@@ -100,8 +100,7 @@ export function moveItem(
   const target = index + offset;
   if (target < 0 || target >= items.length) return items;
   const next = items.slice();
-  const [item] = next.splice(index, 1);
-  next.splice(target, 0, item);
+  next.splice(target, 0, ...next.splice(index, 1));
   return next;
 }
 

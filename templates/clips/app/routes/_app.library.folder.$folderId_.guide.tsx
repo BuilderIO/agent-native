@@ -35,15 +35,15 @@ export default function LibraryFolderGuideRoute() {
 
   const { data: organizations } = useOrganizations();
   const currentOrganizationId =
-    organizations?.currentId ?? organizations?.organizations?.[0]?.id;
+    organizations.currentId ?? organizations.organizations.at(0)?.id;
   const { data: folders } = useFolders({
     organizationId: currentOrganizationId,
   });
   const folderPath = useMemo(
-    () => getFolderAncestorPath(folders?.folders ?? [], folderId),
+    () => getFolderAncestorPath(folders.folders, folderId),
     [folders, folderId],
   );
-  const folder = folderPath[folderPath.length - 1];
+  const folder = folderPath.at(-1);
   const folderName = folder?.name ?? t("navigation.folder");
 
   const {
@@ -58,7 +58,7 @@ export default function LibraryFolderGuideRoute() {
   } = useInfiniteRecordings({
     view: "library",
     kind: "image",
-    folderId,
+    folderId: folderId ?? null,
     sort: "oldest",
     limit: GUIDE_PAGE_SIZE,
   });
@@ -139,7 +139,7 @@ export default function LibraryFolderGuideRoute() {
                 {t("libraryGrid.loadFailedBody")}
               </p>
               <Button
-                onClick={() => refetch()}
+                onClick={() => void refetch()}
                 disabled={isRefetching}
                 size="sm"
               >
