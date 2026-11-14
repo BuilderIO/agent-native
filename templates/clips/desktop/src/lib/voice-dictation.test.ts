@@ -2128,6 +2128,55 @@ describe("desktop voice dictation runs", () => {
       },
     );
   });
+
+  describe("clips://dictate links", () => {
+    const calls = (command: string) =>
+      tauri.invoke.mock.calls.filter(([c]) => c === command).length;
+
+    async function install(
+      mode: "push-to-talk" | "toggle",
+      shortcut: "fn" | "both" = "both",
+    ) {
+      setPlatform("MacIntel");
+      const { installDesktopVoiceDictation } = await import("./voice-dictation");
+      dispose = installDesktopVoiceDictation({
+        enabled: true,
+        serverUrl: "https://clips.test",
+        shortcut,
+        mode,
+        engine: "native",
+        polish: "off",
+      });
+      await settle();
+    }
+
+    it("push-to-talk link runs between down and up, even in toggle mode", async () => {
+      await install("toggle", "fn");
+      await dispatch("voice:shortcut-start", { source: "link" });
+      await vi.advanceTimersByTimeAsync(SHORT_TAP_MS);
+      expect(calls("native_speech_start")).toBe(1);
+      await dispatch("voice:shortcut-stop", { source: "link" });
+      await vi.advanceTimersByTimeAsync(RELEASE_TAIL_MS);
+      expect(calls("native_speech_stop")).toBe(1);
+    });
+
+    it("hands-free link keeps going past a key-up and stops on the next press", async () => {
+      await install("push-to-talk");
+      await dispatch("voice:shortcut-start", { source: "link-hands-free" });
+      await vi.advanceTimersByTimeAsync(SHORT_TAP_MS);
+      expect(calls("native_speech_start")).toBe(1);
+      expect(tauri.invoke).toHaveBeenCalledWith("set_dictation_escape_active", {
+        active: true,
+      });
+      await dispatch("voice:shortcut-stop", { source: "fn" });
+      await vi.advanceTimersByTimeAsync(RELEASE_TAIL_MS);
+      expect(calls("native_speech_stop")).toBe(0);
+      await dispatch("voice:shortcut-start", { source: "link-hands-free" });
+      await vi.advanceTimersByTimeAsync(RELEASE_TAIL_MS);
+      expect(calls("native_speech_stop")).toBe(1);
+      expect(calls("native_speech_start")).toBe(1);
+    });
+  });
 });
 
 describe("parakeetUnavailableReason", () => {

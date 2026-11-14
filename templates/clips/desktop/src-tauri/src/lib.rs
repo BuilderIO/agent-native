@@ -6,6 +6,7 @@ mod capture_graph;
 mod clips;
 mod config;
 mod debug;
+mod deep_links;
 mod echo_guard;
 mod eventkit;
 mod logfile;
@@ -183,6 +184,22 @@ fn present_popover(app: &tauri::AppHandle) {
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
+/// Control links (pause, stop, dictate) act without opening the popover, so
+/// the app in front keeps focus; every other link opens it as before.
+fn route_deep_links(app: &tauri::AppHandle, urls: Vec<String>) {
+    let mut for_popover = Vec::new();
+    for url in urls {
+        match deep_links::parse_control_link(&url) {
+            Some(link) => deep_links::handle_control_link(app, link),
+            None => for_popover.push(url),
+        }
+    }
+    if !for_popover.is_empty() {
+        present_popover(app);
+        let _ = app.emit("clips:deep-link", for_popover);
+    }
+}
+
 pub fn run() {
     sentry_report::init();
 
@@ -477,8 +494,7 @@ pub fn run() {
                 app.deep_link().on_open_url(move |event| {
                     let urls: Vec<String> = event.urls().iter().map(|u| u.to_string()).collect();
                     dlog!("[clips-tray] deep link opened: {:?}", urls);
-                    present_popover(&dl_handle);
-                    let _ = dl_handle.emit("clips:deep-link", urls);
+                    route_deep_links(&dl_handle, urls);
                 });
                 #[cfg(any(windows, target_os = "linux"))]
                 if let Err(err) = app.deep_link().register_all() {
@@ -487,8 +503,7 @@ pub fn run() {
                 if let Ok(Some(urls)) = app.deep_link().get_current() {
                     let url_strings: Vec<String> = urls.iter().map(|u| u.to_string()).collect();
                     dlog!("[clips-tray] deep link cold start: {:?}", url_strings);
-                    present_popover(app.handle());
-                    let _ = app.handle().emit("clips:deep-link", url_strings);
+                    route_deep_links(app.handle(), url_strings);
                 }
             }
 
