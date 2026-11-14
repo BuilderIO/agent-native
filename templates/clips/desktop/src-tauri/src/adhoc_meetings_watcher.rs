@@ -30,6 +30,17 @@ const POLL_SECS: u64 = 2;
 
 const MIC_DWELL: Duration = Duration::from_secs(3);
 
+/// Slack also captures audio for voice and video messages. Those never play
+/// audio while recording, so Slack must capture and play at once
+/// (`call_app_uses_duplex_audio`), and hold that for longer than a native call
+/// app before it counts as a huddle.
+const SLACK_MIC_DWELL: Duration = Duration::from_secs(15);
+
+/// Platforms whose app records more than calls: they need capture and
+/// playback together, a longer dwell, and get no foreground fallback (Slack
+/// sits in front all day without being in a huddle).
+const DUPLEX_AUDIO_PLATFORMS: &[&str] = &["slack"];
+
 const FRONT_DWELL: Duration = Duration::from_secs(9);
 
 const JOIN_GRACE: Duration = Duration::from_secs(20);
@@ -61,6 +72,11 @@ const STRONG_VC_BUNDLES: &[(&str, &str, &str)] = &[
     ("us.zoom.ZoomClips", "zoom", "Zoom meeting detected"),
     ("com.microsoft.teams2", "teams", "Teams meeting detected"),
     ("com.microsoft.teams", "teams", "Teams meeting detected"),
+    (
+        "com.tinyspeck.slackmacgap",
+        "slack",
+        "Slack huddle detected",
+    ),
 ];
 
 const BROWSER_PLATFORM_TITLES: &[(&str, &str)] = &[
@@ -166,9 +182,26 @@ struct CallEvidence {
     call_ended: bool,
     mic_abstained: bool,
     mic_was_authoritative: bool,
+    /// Overrides `MIC_DWELL` for platforms that need a longer confirmation.
+    mic_dwell: Option<Duration>,
+}
+
+fn requires_duplex_audio(platform: &str) -> bool {
+    DUPLEX_AUDIO_PLATFORMS.contains(&platform)
 }
 
 impl CallEvidence {
+    fn for_platform(platform: &str) -> Self {
+        CallEvidence {
+            mic_dwell: requires_duplex_audio(platform).then_some(SLACK_MIC_DWELL),
+            ..Default::default()
+        }
+    }
+
+    fn dwell(&self) -> Duration {
+        self.mic_dwell.unwrap_or(MIC_DWELL)
+    }
+
     fn observe(&mut self, now: Instant, mic: Option<bool>, frontmost: bool) {
         if frontmost {
             self.front_since.get_or_insert(now);
@@ -234,7 +267,7 @@ impl CallEvidence {
         let (Some(since), Some(last)) = (self.mic_since, self.mic_last_true) else {
             return false;
         };
-        if last.saturating_duration_since(since) < MIC_DWELL {
+        if last.saturating_duration_since(since) < self.dwell() {
             return false;
         }
         if self
@@ -251,7 +284,7 @@ impl CallEvidence {
     fn classify(&self, now: Instant, mic: Option<bool>, frontmost: bool) -> CallState {
         if self.mic_live(now, mic) {
             let since = self.mic_since.unwrap_or(now);
-            return if now.saturating_duration_since(since) >= MIC_DWELL {
+            return if now.saturating_duration_since(since) >= self.dwell() {
                 CallState::Live
             } else {
                 CallState::Pending
@@ -695,8 +728,14 @@ async fn tick_macos(
     let mut confirmed: Option<(&'static str, &'static str, Option<&'static str>)> = None;
     let mut deferred: Vec<&'static str> = Vec::new();
     for (platform, fallback) in platform_titles() {
-        let mic = crate::call_activity::call_app_uses_microphone(&bundles_for_platform(platform));
-        let frontmost = front_platform == Some(platform);
+        let duplex = requires_duplex_audio(platform);
+        let bundles = bundles_for_platform(platform);
+        let mic = if duplex {
+            crate::call_activity::call_app_uses_duplex_audio(&bundles)
+        } else {
+            crate::call_activity::call_app_uses_microphone(&bundles)
+        };
+        let frontmost = !duplex && front_platform == Some(platform);
 
         let state = app
             .try_state::<AdhocMeetingsWatcherState>()
@@ -705,7 +744,10 @@ async fn tick_macos(
         g.retain_live_cooldowns(now_ts);
 
         let (call_state, call_ended, mic_abstained, mic_live, mic_authoritative) = {
-            let evidence = g.evidence.entry(platform.to_string()).or_default();
+            let evidence = g
+                .evidence
+                .entry(platform.to_string())
+                .or_insert_with(|| CallEvidence::for_platform(platform));
             evidence.observe(now, mic, frontmost);
             (
                 evidence.classify(now, mic, frontmost),
@@ -1123,9 +1165,101 @@ mod tests {
     #[test]
     fn every_platform_is_sampled_once() {
         let platforms = platform_titles();
-        assert_eq!(platforms.len(), 2);
+        assert_eq!(platforms.len(), 3);
         assert!(platforms.iter().any(|(p, _)| *p == "zoom"));
         assert!(platforms.iter().any(|(p, _)| *p == "teams"));
+        assert!(platforms.iter().any(|(p, _)| *p == "slack"));
+    }
+
+    #[test]
+    fn slack_desktop_is_a_native_call_app() {
+        assert_eq!(
+            match_vc_bundle("com.tinyspeck.slackmacgap"),
+            Some(("slack", "Slack huddle detected"))
+        );
+        assert_eq!(
+            bundles_for_platform("slack"),
+            vec!["com.tinyspeck.slackmacgap".to_string()]
+        );
+        assert!(requires_duplex_audio("slack"));
+        assert!(!requires_duplex_audio("zoom"));
+        assert!(!requires_duplex_audio("teams"));
+    }
+
+    #[test]
+    fn a_slack_huddle_confirms_after_the_longer_dwell() {
+        let start = Instant::now();
+        let mut evidence = CallEvidence::for_platform("slack");
+        for secs in (0..=14).step_by(2) {
+            let at = start + Duration::from_secs(secs);
+            evidence.observe(at, Some(true), false);
+            assert_eq!(
+                evidence.classify(at, Some(true), false),
+                CallState::Pending,
+                "still pending at {secs}s"
+            );
+        }
+        let at = start + Duration::from_secs(16);
+        evidence.observe(at, Some(true), false);
+        assert_eq!(evidence.classify(at, Some(true), false), CallState::Live);
+        assert_eq!(SLACK_MIC_DWELL, Duration::from_secs(15));
+    }
+
+    #[test]
+    fn a_short_slack_voice_message_never_becomes_a_huddle() {
+        // A 10 s voice message that somehow reads as duplex audio (e.g. a
+        // notification sound while recording) still falls short of the dwell.
+        let start = Instant::now();
+        let mut evidence = CallEvidence::for_platform("slack");
+        for secs in (0..=10).step_by(2) {
+            evidence.observe(start + Duration::from_secs(secs), Some(true), false);
+        }
+        for secs in (12..=60).step_by(2) {
+            let at = start + Duration::from_secs(secs);
+            evidence.observe(at, Some(false), false);
+            assert_ne!(
+                evidence.classify(at, Some(false), false),
+                CallState::Live,
+                "no huddle at {secs}s"
+            );
+        }
+    }
+
+    #[test]
+    fn the_same_short_burst_is_a_call_for_zoom() {
+        let start = Instant::now();
+        let mut evidence = CallEvidence::for_platform("zoom");
+        for secs in (0..=10).step_by(2) {
+            evidence.observe(start + Duration::from_secs(secs), Some(true), false);
+        }
+        let at = start + Duration::from_secs(10);
+        assert_eq!(evidence.classify(at, Some(true), false), CallState::Live);
+    }
+
+    #[test]
+    fn slack_recording_without_playback_stays_idle() {
+        // A long voice or video message: Slack captures but never plays, so
+        // the duplex probe reads `Some(false)` the whole time.
+        let start = Instant::now();
+        let mut evidence = CallEvidence::for_platform("slack");
+        for secs in (0..=300).step_by(2) {
+            let at = start + Duration::from_secs(secs);
+            evidence.observe(at, Some(false), false);
+            assert_eq!(evidence.classify(at, Some(false), false), CallState::Idle);
+        }
+    }
+
+    #[test]
+    fn slack_in_front_with_unreadable_audio_is_not_a_huddle() {
+        // The watcher never passes `frontmost` for Slack, so the foreground
+        // fallback that native call apps get cannot fire.
+        let start = Instant::now();
+        let mut evidence = CallEvidence::for_platform("slack");
+        for secs in (0..=60).step_by(2) {
+            let at = start + Duration::from_secs(secs);
+            evidence.observe(at, None, false);
+            assert_eq!(evidence.classify(at, None, false), CallState::Idle);
+        }
     }
 
     #[test]
@@ -2060,6 +2194,7 @@ async fn create_adhoc_meeting(
         "teams" => "Teams meeting",
         "meet" => "Google Meet meeting",
         "webex" => "Webex meeting",
+        "slack" => "Slack huddle",
         _ => "Meeting",
     };
     let scheduled_start = chrono::Utc::now().to_rfc3339();

@@ -1416,6 +1416,46 @@ export const migrations = runMigrations(
       name: "recording-transcript-earlier-audio-removed-at",
       sql: `ALTER TABLE recording_transcripts ADD COLUMN IF NOT EXISTS earlier_audio_removed_at TEXT`,
     },
+    {
+      version: 106,
+      name: "slack-huddle-participants",
+      // Per-user Slack connections for huddles and
+      // the huddles Slack reported, so a recorded huddle gets its participants.
+      // The user token is in app_secrets; slack_user_connections only names it.
+      // dateStart/dateEnd are Unix seconds, as Slack sends them.
+      sql: [
+        `CREATE TABLE IF NOT EXISTS slack_user_connections (
+          id TEXT PRIMARY KEY,
+          owner_email TEXT NOT NULL,
+          org_id TEXT,
+          team_id TEXT NOT NULL,
+          team_name TEXT,
+          slack_user_id TEXT NOT NULL,
+          token_secret_ref TEXT NOT NULL,
+          scope TEXT,
+          status TEXT NOT NULL DEFAULT 'connected',
+          last_error TEXT,
+          created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+          updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+        )`,
+        `CREATE UNIQUE INDEX IF NOT EXISTS slack_user_connections_team_user_unique_idx ON slack_user_connections (team_id, slack_user_id)`,
+        `CREATE INDEX IF NOT EXISTS slack_user_connections_owner_idx ON slack_user_connections (owner_email)`,
+        `CREATE TABLE IF NOT EXISTS slack_huddles (
+          id TEXT PRIMARY KEY,
+          team_id TEXT NOT NULL,
+          channel_id TEXT NOT NULL,
+          message_ts TEXT NOT NULL,
+          date_start BIGINT NOT NULL,
+          date_end BIGINT,
+          started_by TEXT,
+          participant_ids_json TEXT NOT NULL DEFAULT '[]',
+          created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
+          updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
+        )`,
+        `CREATE UNIQUE INDEX IF NOT EXISTS slack_huddles_message_unique_idx ON slack_huddles (team_id, channel_id, message_ts)`,
+        `CREATE INDEX IF NOT EXISTS slack_huddles_team_start_idx ON slack_huddles (team_id, date_start)`,
+      ].join("; "),
+    },
   ]),
   { table: "clips_migrations" },
 );
