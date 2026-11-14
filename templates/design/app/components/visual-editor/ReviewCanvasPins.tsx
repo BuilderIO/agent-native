@@ -2722,7 +2722,9 @@ export function ReviewCanvasPins({
         {
           onSuccess: (comment) => {
             cancelDraft();
-            sentDraft.clear();
+            // A failed reprompt posted as a comment never was the screen's
+            // kept comment, so that stays.
+            if (pin.metadata.mode !== "reprompt") sentDraft.clear();
             if (pin.resolutionTarget === "agent") {
               onDispatchCommentToAgent?.(comment);
             }

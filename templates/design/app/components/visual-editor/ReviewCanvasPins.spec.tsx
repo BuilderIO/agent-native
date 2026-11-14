@@ -5380,56 +5380,77 @@ describe("ReviewCanvasPins persisted thread popover", () => {
             ),
         );
 
-      it("keeps a reprompt whose send failed out of the screen's kept comment, and the comment when it's dismissed", async () => {
-        const keptComment = {
-          [`new:${JSON.stringify(["screen-1", "screen-1"])}`]:
-            "Make the background darker",
-        };
-        await renderPins({ ...signedIn, active: true });
-        await placePin();
-        await act(async () =>
-          document
-            .querySelector<HTMLButtonElement>("[data-review-test-type]")
-            ?.click(),
-        );
-        expect(storedDraftTexts()).toEqual(keptComment);
-
-        mocks.sendToAgent.mockResolvedValueOnce({
-          delivered: false,
-          reason: "The agent is busy",
-        });
-        await renderPins({
-          ...signedIn,
-          active: true,
-          sourceType: "inline",
-          sourceVersionHash: "hash-1",
-          repromptDraftRequest: {
-            nonce: 1,
-            fileId: "screen-1",
-            target: { nodeId: "src:1" },
-            point: { xPct: 50, yPct: 50 },
-            instruction: "Make it blue",
-            submit: true,
-          },
-        });
-        await act(async () => {});
-        expect(mocks.sendToAgent).toHaveBeenCalled();
-        const field = document.querySelector<HTMLTextAreaElement>(
-          "[data-review-test-textarea]",
-        );
-        expect(field?.value).toBe("Make it blue");
-        expect(storedDraftTexts()).toEqual(keptComment);
-
-        await act(async () => {
-          field?.dispatchEvent(
-            new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+      it.each(["dismissed", "posted as a comment"])(
+        "keeps a reprompt whose send failed out of the screen's kept comment, and the comment when it's %s",
+        async (ending) => {
+          const keptComment = {
+            [`new:${JSON.stringify(["screen-1", "screen-1"])}`]:
+              "Make the background darker",
+          };
+          await renderPins({ ...signedIn, active: true });
+          await placePin();
+          await act(async () =>
+            document
+              .querySelector<HTMLButtonElement>("[data-review-test-type]")
+              ?.click(),
           );
-        });
-        expect(
-          document.querySelector("[data-review-test-textarea]"),
-        ).toBeNull();
-        expect(storedDraftTexts()).toEqual(keptComment);
-      });
+          expect(storedDraftTexts()).toEqual(keptComment);
+
+          mocks.sendToAgent.mockResolvedValueOnce({
+            delivered: false,
+            reason: "The agent is busy",
+          });
+          await renderPins({
+            ...signedIn,
+            active: true,
+            sourceType: "inline",
+            sourceVersionHash: "hash-1",
+            repromptDraftRequest: {
+              nonce: 1,
+              fileId: "screen-1",
+              target: { nodeId: "src:1" },
+              point: { xPct: 50, yPct: 50 },
+              instruction: "Make it blue",
+              submit: true,
+            },
+          });
+          await act(async () => {});
+          expect(mocks.sendToAgent).toHaveBeenCalled();
+          const field = document.querySelector<HTMLTextAreaElement>(
+            "[data-review-test-textarea]",
+          );
+          expect(field?.value).toBe("Make it blue");
+          expect(storedDraftTexts()).toEqual(keptComment);
+
+          if (ending === "dismissed") {
+            await act(async () => {
+              field?.dispatchEvent(
+                new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+              );
+            });
+          } else {
+            await act(async () =>
+              document
+                .querySelector<HTMLButtonElement>("[data-review-test-submit]")
+                ?.click(),
+            );
+            expect(mocks.createMutate.mock.calls[0]?.[0]).toMatchObject({
+              body: "Make it blue",
+            });
+            await act(async () =>
+              mocks.createMutate.mock.calls[0]?.[1]?.onSuccess({
+                ...comment,
+                id: "comment-2",
+                threadId: "thread-2",
+              }),
+            );
+          }
+          expect(
+            document.querySelector("[data-review-test-textarea]"),
+          ).toBeNull();
+          expect(storedDraftTexts()).toEqual(keptComment);
+        },
+      );
 
       it("keeps a new comment's draft on its own screen when the screen changes as you type", async () => {
         await renderPins({ ...signedIn, active: true });
