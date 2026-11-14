@@ -1282,13 +1282,10 @@ export class AppSyncState {
       let timer: ReturnType<typeof setTimeout> | undefined;
       let timedOut = false;
       try {
-        await Promise.race([
-          work,
-          new Promise<void>((resolve) => {
-            timer = setTimeout(() => {
-              timedOut = true;
-              resolve();
-            }, ACCESS_CHECK_TIMEOUT_MS);
+        timedOut = await Promise.race([
+          work.then(() => false),
+          new Promise<boolean>((resolve) => {
+            timer = setTimeout(() => resolve(true), ACCESS_CHECK_TIMEOUT_MS);
             (timer as { unref?: () => void }).unref?.();
           }),
         ]);
