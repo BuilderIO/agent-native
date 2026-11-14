@@ -746,6 +746,7 @@
         "@agent-native/core/client/use-settings-shortcut",
         "@agent-native/core/client/webmcp",
         "@agent-native/core/client/write-failure",
+        "@agent-native/core/config",
         "@agent-native/core/notifications/types",
         "@agent-native/core/shared/document-title",
         "@agent-native/core/shared/mcp-app-widget-embed",
