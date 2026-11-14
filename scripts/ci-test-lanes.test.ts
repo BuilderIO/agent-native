@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   assertFullCoverage,
   catalogContractCoreSpecs,
+  cliEntryCoreSpecs,
   partitionTargetedWeighted,
   partitionWeighted,
   requiresFullCoreFastTests,
@@ -96,6 +97,31 @@ test("falls back to all core tests for fixture, config, and instruction changes"
     requiresFullCoreFastTests(["packages/core/docs/content/deployment.mdx"]),
     false,
   );
+});
+
+test("includes disk-referenced CLI tests for Core source and launcher changes", () => {
+  const specs = [
+    "src/cli/create-tui.spec.ts",
+    "src/cli/telemetry-routing.spec.ts",
+    "src/cli/typecheck-ancestor.spec.ts",
+    "src/cli/typecheck-command.spec.ts",
+    "src/cli/typecheck-path-permissions.spec.ts",
+  ];
+  for (const changed of [
+    "packages/core/src/cli/index.ts",
+    "packages/core/src/cli/process.ts",
+    "packages/core/src/cli/react-router-command.ts",
+    "packages/core/src/shared/optional-peer.ts",
+    "packages/core/bin/agent-native.js",
+  ]) {
+    assert.deepEqual(cliEntryCoreSpecs([changed]), specs, changed);
+  }
+  assert.deepEqual(
+    cliEntryCoreSpecs(["packages/core/src/cli/index.spec.ts"]),
+    [],
+  );
+  assert.deepEqual(cliEntryCoreSpecs(["packages/other/src/index.ts"]), []);
+  assert.equal(requiresFullCoreFastTests(["packages/core/package.json"]), true);
 });
 
 test("runs the catalog contract specs for any workspace source change", () => {

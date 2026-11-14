@@ -2667,6 +2667,9 @@ importers:
       cron-parser:
         specifier: ^5.5.0
         version: 5.6.0
+      cross-spawn:
+        specifier: 7.0.6
+        version: 7.0.6
       diff:
         specifier: ^9.0.0
         version: 9.0.0
@@ -2866,6 +2869,9 @@ importers:
       '@tanstack/react-query':
         specifier: 5.101.2
         version: 5.101.2(react@19.2.7)
+      '@types/cross-spawn':
+        specifier: 6.0.6
+        version: 6.0.6
       '@types/diff-match-patch':
         specifier: ^1.0.36
         version: 1.0.36
@@ -16772,6 +16778,9 @@ packages:
 
   '@types/connect@3.4.38':
     resolution: {integrity: sha512-K6uROf1LD88uDQqJCktA4yzL1YYAK6NgfsI0v/mTgyPKWsX1CnJ0XPSDhViejru1GcRkLWb8RlzFYJRqGUbaug==}
+
+  '@types/cross-spawn@6.0.6':
+    resolution: {integrity: sha512-fXRhhUkG4H3TQk5dBhQ7m/JDdSNHKwR2BBia62lhwEIq9xGiQKLxd6LymNhn47SjXhsUEPmxi+PKw2OkW4LLjA==}
 
   '@types/css-font-loading-module@0.0.7':
     resolution: {integrity: sha512-nl09VhutdjINdWyXxHWN/w9zlNCfr60JUqJbd24YXUuCwgeL0TpFSdElCwb6cxfB6ybE19Gjj4g0jsgkXxKv1Q==}
@@ -34421,6 +34430,10 @@ snapshots:
       '@types/har-format': 1.2.16
 
   '@types/connect@3.4.38':
+    dependencies:
+      '@types/node': 25.9.3
+
+  '@types/cross-spawn@6.0.6':
     dependencies:
       '@types/node': 25.9.3
 

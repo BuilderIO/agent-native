@@ -222,6 +222,27 @@ export function requiresFullCoreFastTests(paths: readonly string[]): boolean {
   });
 }
 
+// These specs launch or read the CLI entry from disk, outside Vitest's import graph.
+const CLI_ENTRY_CORE_SPECS = [
+  "src/cli/create-tui.spec.ts",
+  "src/cli/telemetry-routing.spec.ts",
+  "src/cli/typecheck-ancestor.spec.ts",
+  "src/cli/typecheck-command.spec.ts",
+  "src/cli/typecheck-path-permissions.spec.ts",
+] as const;
+
+export function cliEntryCoreSpecs(paths: readonly string[]): readonly string[] {
+  return paths.some((path) => {
+    const normalized = normalizeChangedPath(path);
+    return (
+      /^packages\/core\/(?:src|bin)\/.+\.[cm]?[jt]sx?$/u.test(normalized) &&
+      !TEST_FILE_RE.test(normalized)
+    );
+  })
+    ? CLI_ENTRY_CORE_SPECS
+    : [];
+}
+
 // These specs build every app's MCP catalog by running each template's real
 // agent-chat plugin, which reaches template code, framework tools, and tools
 // that workspace packages register through dynamic imports `vitest --changed`
@@ -669,6 +690,7 @@ function main(): void {
         ...readCoreFastTestFiles(fullCore ? undefined : baseSha),
         ...(fullCore ? [] : catalogContractCoreSpecs(changedPaths)),
         ...(fullCore ? [] : toolSearchBenchmarkCoreSpecs(changedPaths)),
+        ...(fullCore ? [] : cliEntryCoreSpecs(changedPaths)),
       ]),
     ];
     coreFiles = coreTestFiles.length;
