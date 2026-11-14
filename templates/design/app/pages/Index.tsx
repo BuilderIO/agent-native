@@ -215,6 +215,7 @@ export default function Index() {
     isSaveTemplateGettingStarted,
     search: checklistSearch,
     hash: location.hash,
+    key: location.key,
   });
   const designFilterWasSelectedRef = useRef(false);
   const composerRef = useRef<TiptapComposerHandle>(null);
@@ -251,13 +252,22 @@ export default function Index() {
       previousLocation.isSaveTemplateGettingStarted &&
       isSaveTemplateGettingStarted &&
       previousLocation.search !== checklistSearch;
+    const locationChanged =
+      previousLocation.key !== location.key ||
+      previousLocation.search !== checklistSearch ||
+      previousLocation.hash !== location.hash;
     previousChecklistLocationRef.current = {
       isSaveTemplateGettingStarted,
       search: checklistSearch,
       hash: location.hash,
+      key: location.key,
     };
 
-    if (isSaveTemplateGettingStarted && !checklistQueryReplace) {
+    if (
+      isSaveTemplateGettingStarted &&
+      !checklistQueryReplace &&
+      (locationChanged || !homeLibraryTabWasSelectedRef.current)
+    ) {
       homeLibraryTabWasSelectedRef.current = true;
       setHomeSection("recent");
     }

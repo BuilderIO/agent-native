@@ -53,10 +53,6 @@ export function writeHomeLibraryHasRecents(
 export function readDesignHomeLibraryInitialState(
   isSaveTemplateGettingStarted: boolean,
 ): DesignHomeLibraryInitialState {
-  if (isSaveTemplateGettingStarted) {
-    return { tab: "recent", userSelected: false };
-  }
-
   if (typeof document !== "undefined") {
     const shellSelection = document.documentElement.getAttribute(
       HOME_LIBRARY_TAB_ATTRIBUTE,
@@ -64,6 +60,10 @@ export function readDesignHomeLibraryInitialState(
     if (shellSelection === "templates" || shellSelection === "recent") {
       return { tab: shellSelection, userSelected: true };
     }
+  }
+
+  if (isSaveTemplateGettingStarted) {
+    return { tab: "recent", userSelected: false };
   }
 
   const storedHasAccessibleDesigns = readHomeLibraryHasRecents();

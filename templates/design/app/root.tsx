@@ -47,7 +47,7 @@ import {
 } from "@tabler/icons-react";
 import { QueryClientProvider, useQueryClient } from "@tanstack/react-query";
 import { useTheme } from "next-themes";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Links,
   Meta,
@@ -177,17 +177,27 @@ function DesignFirstPaintLibrary({
   messages: typeof designEnglish;
 }) {
   const location = useLocation();
-  const [value, setValue] = useState<DesignHomeLibraryTab>(
+  const [isSaveTemplateGettingStarted] = useState(
     () =>
-      readDesignHomeLibraryInitialState(
-        new URLSearchParams(location.search).get("gettingStarted") ===
-          "save-template",
-      ).tab,
+      new URLSearchParams(location.search).get("gettingStarted") ===
+      "save-template",
   );
+  const [value, setValue] = useState<DesignHomeLibraryTab>("templates");
+  const userSelectedRef = useRef(false);
+
+  useEffect(() => {
+    if (!userSelectedRef.current) {
+      setValue(
+        readDesignHomeLibraryInitialState(isSaveTemplateGettingStarted).tab,
+      );
+    }
+  }, [isSaveTemplateGettingStarted]);
+
   return (
     <DesignHomeLibrary
       value={value}
       onValueChange={(nextValue) => {
+        userSelectedRef.current = true;
         setValue(nextValue);
         setDesignHomeLibraryTab(nextValue);
       }}
