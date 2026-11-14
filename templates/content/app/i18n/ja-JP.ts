@@ -1489,6 +1489,13 @@ const exactEnglish = {
     suggestionAmendmentResolved:
       "この提案は別の場所で変更されました。未保存の下書きはここに残っています。",
     discardSuggestionDraft: "下書きを破棄",
+    mermaid: {
+      source: "Mermaid",
+      done: "完了",
+      doneShortcut: "ソースを閉じる (Esc)",
+      editDiagram: "図を編集",
+      cantDraw: "この図を描画できません",
+    },
     failedToCreatePage: "ページを作成できませんでした",
     slash: {
       blockEquation: "ブロック数式",

@@ -1482,6 +1482,13 @@ const exactEnglish = {
     suggestionAmendmentResolved:
       "تم تغيير هذا الاقتراح في مكان آخر. لا تزال مسودتك غير المحفوظة هنا.",
     discardSuggestionDraft: "تجاهل المسودة",
+    mermaid: {
+      source: "Mermaid",
+      done: "تم",
+      doneShortcut: "إغلاق المصدر (Esc)",
+      editDiagram: "تعديل المخطط",
+      cantDraw: "تعذر رسم هذا المخطط",
+    },
     failedToCreatePage: "تعذر إنشاء الصفحة",
     slash: {
       blockEquation: "معادلة مستقلة",

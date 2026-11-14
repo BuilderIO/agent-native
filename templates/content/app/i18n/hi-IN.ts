@@ -1456,6 +1456,13 @@ const exactEnglish = {
     suggestionAmendmentResolved:
       "यह सुझाव कहीं और बदल दिया गया है। आपका सेव न किया गया ड्राफ़्ट अभी भी यहाँ है।",
     discardSuggestionDraft: "ड्राफ़्ट हटाएँ",
+    mermaid: {
+      source: "Mermaid",
+      done: "हो गया",
+      doneShortcut: "सोर्स बंद करें (Esc)",
+      editDiagram: "डायग्राम संपादित करें",
+      cantDraw: "यह डायग्राम नहीं बनाया जा सका",
+    },
     failedToCreatePage: "पेज नहीं बनाया जा सका",
     slash: {
       blockEquation: "ब्लॉक समीकरण",
