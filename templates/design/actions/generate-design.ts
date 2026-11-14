@@ -852,6 +852,37 @@ const generateDesignAction = defineAction({
       .from(schema.designFiles)
       .where(eq(schema.designFiles.designId, designId));
 
+    const existingFileIds = new Set(existingFiles.map((file) => file.id));
+    const existingByName = new Map(
+      existingFiles.map((file) => [file.filename, file]),
+    );
+    const seenPlacementIds = new Set<string>();
+    const availableFilenames = new Set([
+      ...existingFiles.map((file) => file.filename),
+      ...requestedFilenames,
+    ]);
+    for (const placement of canvasFrames ?? []) {
+      const matches = placement.fileId
+        ? existingFileIds.has(placement.fileId)
+        : Boolean(
+            placement.filename && availableFilenames.has(placement.filename),
+          );
+      if (!matches) {
+        throw new NoWriteError(
+          `canvasFrames entry did not match a design file: ${placement.fileId || placement.filename}`,
+        );
+      }
+      const fileId =
+        placement.fileId ||
+        (placement.filename && existingByName.get(placement.filename)?.id);
+      if (fileId && seenPlacementIds.has(fileId)) {
+        throw new NoWriteError(
+          `canvasFrames entry duplicates the target already placed (fileId ${fileId}). Pass exactly one placement per screen.`,
+        );
+      }
+      if (fileId) seenPlacementIds.add(fileId);
+    }
+
     let hasRenderableFile = files.some(isRenderableDesignFile);
     if (!hasRenderableFile) {
       const renderable = await db
@@ -910,8 +941,6 @@ const generateDesignAction = defineAction({
         }),
       ),
     });
-
-    const existingByName = new Map(existingFiles.map((f) => [f.filename, f]));
 
     const accessedDesignData = parseDesignDataBlob(
       (designAccess.resource as { data?: unknown }).data,
