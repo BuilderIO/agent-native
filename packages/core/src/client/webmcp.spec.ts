@@ -278,12 +278,120 @@ describe("WebMCP client", () => {
     });
     expect(executeTool).toHaveBeenCalledWith(
       registeredTool,
-      '{"id":"order-1"}',
+      { id: "order-1" },
       {},
     );
   });
 
-  it("passes object input to the Codex page adapter", async () => {
+  it.each([
+    ["Chrome/148.0.0.0", "object"],
+    ["Chrome/149.0.0.0", "string"],
+    [
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154.0.0.0 Safari/537.36 Edg/154.0.0.0",
+      "string",
+    ],
+    ["Chrome/154.0.0.0", "string"],
+    ["Chrome/155.0.0.0", "object"],
+    [
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/149.0.0.0 Safari/537.36",
+      "string",
+    ],
+    [
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/154.0.0.0 Safari/537.36",
+      "string",
+    ],
+    [
+      "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) HeadlessChrome/155.0.0.0 Safari/537.36",
+      "object",
+    ],
+    ["Chrome/156.0.0.0", "object"],
+    ["Firefox/154.0", "object"],
+  ])(
+    "uses the document browser input contract for %s",
+    async (userAgent, inputType) => {
+      const registeredTool = {
+        name: "update-order",
+        description: "Update an order",
+        window,
+        origin: "https://shop.example",
+      };
+      const executeTool = vi.fn(async (_tool: unknown, input: unknown) => {
+        expect(typeof input).toBe(inputType);
+        expect(typeof input === "string" ? JSON.parse(input) : input).toEqual({
+          id: "order-1",
+        });
+        return "updated";
+      });
+      const doc = {
+        defaultView: { navigator: { userAgent } },
+        modelContext: {
+          registerTool: vi.fn(),
+          getTools: vi.fn(async () => [registeredTool]),
+          executeTool,
+        },
+      } as unknown as Document;
+      const client = createAgentNativeWebMcpClient({ document: doc });
+      await expect(
+        client.executeTool({ name: "update-order" }, { id: "order-1" }),
+      ).resolves.toBe("updated");
+      expect(executeTool).toHaveBeenCalledOnce();
+    },
+  );
+
+  it("does not use the ambient browser version for a detached document", async () => {
+    const userAgent = vi
+      .spyOn(navigator, "userAgent", "get")
+      .mockReturnValue("Chrome/149.0.0.0");
+    try {
+      const registeredTool = {
+        name: "update-order",
+        description: "Update",
+        window,
+        origin: "https://shop.example",
+      };
+      const executeTool = vi.fn(async () => "updated");
+      const client = createAgentNativeWebMcpClient({
+        document: documentWithModelContext({
+          registerTool: vi.fn(),
+          getTools: vi.fn(async () => [registeredTool]),
+          executeTool,
+        }),
+      });
+      await client.executeTool({ name: "update-order" }, { id: "order-1" });
+      expect(executeTool).toHaveBeenCalledWith(
+        registeredTool,
+        { id: "order-1" },
+        {},
+      );
+    } finally {
+      userAgent.mockRestore();
+    }
+  });
+
+  it("does not retry an execution that reports an input parse error", async () => {
+    const registeredTool = {
+      name: "update-order",
+      description: "Update",
+      window,
+      origin: "https://shop.example",
+    };
+    const executeTool = vi.fn(async () => {
+      throw new Error("Failed to parse input after updating order");
+    });
+    const client = createAgentNativeWebMcpClient({
+      document: documentWithModelContext({
+        registerTool: vi.fn(),
+        getTools: vi.fn(async () => [registeredTool]),
+        executeTool,
+      }),
+    });
+    await expect(client.executeTool({ name: "update-order" })).rejects.toThrow(
+      "Failed to parse input",
+    );
+    expect(executeTool).toHaveBeenCalledOnce();
+  });
+
+  it("passes JSON text input to the WebMCP polyfill", async () => {
     const registeredTool = {
       name: "get-order",
       description: "Read an order",
@@ -293,24 +401,62 @@ describe("WebMCP client", () => {
     };
     const executeTool = vi.fn(async () => ({ status: "shipped" }));
     const client = createAgentNativeWebMcpClient({
-      document: documentWithModelContext({
-        registerTool: vi.fn(async () => {}),
-        getTools: vi.fn(async () => [registeredTool]),
-        executeTool,
-        codexExecuteTool: vi.fn(),
-      }),
+      document: {
+        defaultView: { navigator: { userAgent: "Chrome/155.0.0.0" } },
+        modelContext: {
+          registerTool: vi.fn(async () => {}),
+          getTools: vi.fn(async () => [registeredTool]),
+          executeTool,
+          __isWebMCPPolyfill: true,
+        },
+      } as unknown as Document,
     });
-
     const [tool] = await client.listTools();
-    await expect(client.executeTool(tool, { id: "order-1" })).resolves.toEqual({
-      status: "shipped",
-    });
+
+    await client.executeTool(tool, { id: "order-1" });
     expect(executeTool).toHaveBeenCalledWith(
       registeredTool,
-      { id: "order-1" },
+      '{"id":"order-1"}',
       {},
     );
   });
+
+  it.each(["codexExecuteTool", "codexGetTools"])(
+    "passes object input to the Codex page adapter with %s",
+    async (adapterMethod) => {
+      const registeredTool = {
+        name: "get-order",
+        description: "Read an order",
+        inputSchema: { type: "object" },
+        window,
+        origin: "https://shop.example",
+      };
+      const executeTool = vi.fn(async () => ({ status: "shipped" }));
+      const client = createAgentNativeWebMcpClient({
+        document: {
+          defaultView: { navigator: { userAgent: "Chrome/149.0.0.0" } },
+          modelContext: {
+            registerTool: vi.fn(async () => {}),
+            getTools: vi.fn(async () => [registeredTool]),
+            executeTool,
+            [adapterMethod]: vi.fn(),
+          },
+        } as unknown as Document,
+      });
+
+      const [tool] = await client.listTools();
+      await expect(
+        client.executeTool(tool, { id: "order-1" }),
+      ).resolves.toEqual({
+        status: "shipped",
+      });
+      expect(executeTool).toHaveBeenCalledWith(
+        registeredTool,
+        { id: "order-1" },
+        {},
+      );
+    },
+  );
 
   it("refreshes the live descriptor and preserves structured results", async () => {
     const staleTool = {
@@ -343,7 +489,7 @@ describe("WebMCP client", () => {
     await expect(client.executeTool(tool)).resolves.toEqual({
       title: "Fresh order",
     });
-    expect(executeTool).toHaveBeenCalledWith(freshTool, "{}", {});
+    expect(executeTool).toHaveBeenCalledWith(freshTool, {}, {});
   });
 
   it("executes the approved descriptor after a concurrent listing", async () => {
@@ -376,7 +522,7 @@ describe("WebMCP client", () => {
     await client.listTools();
 
     await expect(client.executeListedTool(approvedTool)).resolves.toBe("first");
-    expect(executeTool).toHaveBeenCalledWith(firstTool, "{}", {});
+    expect(executeTool).toHaveBeenCalledWith(firstTool, {}, {});
   });
 
   it("rejects duplicate tool names from the same origin", async () => {
@@ -1019,7 +1165,7 @@ describe("WebMCP page helper", () => {
     });
     expect(executeTool).toHaveBeenCalledWith(
       registeredTool,
-      '{"id":"order-1"}',
+      { id: "order-1" },
       {},
     );
   });
@@ -1773,7 +1919,7 @@ describe("WebMCP page helper", () => {
       { origin: "https://b.example" },
     );
     expect(scoped).toMatchObject({ ok: true, result: "shipped" });
-    expect(executeTool).toHaveBeenCalledWith(toolB, "{}", {});
+    expect(executeTool).toHaveBeenCalledWith(toolB, {}, {});
   });
   it("does not replay an action failure worded like a stale descriptor", async () => {
     readyStatus(1);
@@ -1848,7 +1994,7 @@ describe("WebMCP page helper", () => {
     expect(getTools).toHaveBeenLastCalledWith({
       fromOrigins: ["https://b.example"],
     });
-    expect(executeTool).toHaveBeenCalledWith(toolB, "{}", {});
+    expect(executeTool).toHaveBeenCalledWith(toolB, {}, {});
   });
 
   it("shares one in-flight listing across concurrent tools() and describe() calls", async () => {
