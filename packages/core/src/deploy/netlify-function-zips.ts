@@ -210,7 +210,10 @@ function findFunctionsKeys(
     const next = [...trail, key];
     // Only the plain [build] functions directory is supported; the same key
     // at the root or in a context-scoped build table changes what is deployed.
-    if (key === "functions" && !(trail.length === 1 && trail[0] === "build")) {
+    // [dev] functions only locates functions for local development.
+    const supported =
+      trail.length === 1 && (trail[0] === "build" || trail[0] === "dev");
+    if (key === "functions" && !supported) {
       found.push(next.join("."));
     }
     findFunctionsKeys(value, next, found);

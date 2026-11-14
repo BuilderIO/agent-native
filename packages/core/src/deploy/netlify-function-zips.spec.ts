@@ -295,6 +295,15 @@ describe("netlify.toml dotted and inline forms", () => {
     }
   });
 
+  it("allows [dev] functions, which only affects local development", () => {
+    const root = tmp();
+    fs.writeFileSync(
+      path.join(root, "netlify.toml"),
+      "[dev]\nfunctions = 'netlify/fns'\n",
+    );
+    expect(() => assertNoFunctionsConfig(root)).not.toThrow();
+  });
+
   it("fails loudly on unparseable TOML", () => {
     const root = tmp();
     fs.writeFileSync(path.join(root, "netlify.toml"), "[build\n");
