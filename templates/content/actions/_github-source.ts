@@ -1078,8 +1078,12 @@ interface SyncRun {
    * one leave it out without trying again, so one image counts once.
    */
   failedAssetShas: Set<string>;
-  /** Blob SHAs of images storage refused as not the image they claim to be. */
-  rejectedAssetShas: Set<string>;
+  /**
+   * Images storage refused as not the image they claim to be: a file by its
+   * blob SHA and the type its name claims, a data URL by its hash, which
+   * covers its type. The same bytes named as another type are tried again.
+   */
+  rejectedAssets: Set<string>;
   /** Private images this run stored; see `deleteUnboundImages`. */
   storedMediaIds: Set<string>;
   /** Set once an upload finds no file storage, so later images skip the read. */
@@ -1201,7 +1205,7 @@ async function uploadAsset(
     const sha = hash(request.dataUrl);
     const cached = run.assetUrlBySha.get(sha);
     if (cached) return { sha, url: cached };
-    if (run.rejectedAssetShas.has(sha)) return null;
+    if (run.rejectedAssets.has(sha)) return null;
     if (run.failedAssetShas.has(sha)) return "failed";
     if (storageDown(run)) return "no-storage";
     await beforeUpload();
@@ -1212,7 +1216,7 @@ async function uploadAsset(
       mimeType: request.mediaType,
     });
     if (stored === "rejected") {
-      run.rejectedAssetShas.add(sha);
+      run.rejectedAssets.add(sha);
       return null;
     }
     if (stored === "failed") {
@@ -1231,7 +1235,8 @@ async function uploadAsset(
   }
   const cached = run.assetUrlBySha.get(entry.sha);
   if (cached) return { sha: entry.sha, url: cached };
-  if (run.rejectedAssetShas.has(entry.sha)) return null;
+  const rejectedKey = `${entry.sha} ${mimeType}`;
+  if (run.rejectedAssets.has(rejectedKey)) return null;
   if (run.failedAssetShas.has(entry.sha)) return "failed";
   if (storageDown(run)) return "no-storage";
   await beforeUpload();
@@ -1250,7 +1255,7 @@ async function uploadAsset(
     mimeType,
   });
   if (stored === "rejected") {
-    run.rejectedAssetShas.add(entry.sha);
+    run.rejectedAssets.add(rejectedKey);
     return null;
   }
   if (stored === "failed") {
@@ -2474,7 +2479,7 @@ export async function syncGitHubSource(
       documentIdByPath: new Map(),
       assetUrlBySha,
       failedAssetShas: new Set(),
-      rejectedAssetShas: new Set(),
+      rejectedAssets: new Set(),
       storedMediaIds,
       storageMissing: false,
       storageFailed: false,
@@ -2895,8 +2900,13 @@ async function deleteUnboundImages(
   mediaIds: Set<string>,
 ) {
   if (mediaIds.size === 0) return;
+  const warn = (what: string, error: unknown) =>
+    console.warn(
+      `[github-source] couldn't ${what}:`,
+      error instanceof Error ? error.message : String(error),
+    );
+  const bound = new Set<string>();
   try {
-    const bound = new Set<string>();
     for (const ids of chunks([...mediaIds], 500)) {
       const rows = await getDb()
         .selectDistinct({ mediaId: schema.privateMediaReferences.mediaId })
@@ -2904,15 +2914,18 @@ async function deleteUnboundImages(
         .where(inArray(schema.privateMediaReferences.mediaId, ids));
       for (const row of rows) bound.add(row.mediaId);
     }
-    for (const id of mediaIds) {
-      if (bound.has(id)) continue;
-      await asLinker(state, orgId, () => deletePrivateMedia(id));
-    }
   } catch (error) {
-    console.warn(
-      "[github-source] couldn't delete images no page took:",
-      error instanceof Error ? error.message : String(error),
-    );
+    warn("check which stored images a page took", error);
+    return;
+  }
+  // One delete storage refuses doesn't keep the rest.
+  for (const id of mediaIds) {
+    if (bound.has(id)) continue;
+    try {
+      await asLinker(state, orgId, () => deletePrivateMedia(id));
+    } catch (error) {
+      warn(`delete image ${id}, which no page took`, error);
+    }
   }
 }
 
