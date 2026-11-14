@@ -2939,4 +2939,135 @@ describe("CommandMenu", () => {
       portalContainer.querySelector('[role="dialog"]'),
     );
   });
+
+  it("runs a keep-open command without closing and returns focus to the search field", () => {
+    const onSelect = vi.fn();
+    renderAppCommands({
+      groups: [
+        {
+          id: "scope",
+          order: 1,
+          commands: [
+            {
+              id: "search-here",
+              order: 1,
+              label: "Search in this page",
+              closeOnSelect: false,
+              onSelect,
+            },
+          ],
+        },
+      ],
+    });
+
+    const row = document.querySelector<HTMLElement>(
+      '[cmdk-item][data-value="app-command:scope:search-here"]',
+    );
+    expect(row).toBeTruthy();
+    act(() => row!.click());
+
+    expect(onSelect).toHaveBeenCalledOnce();
+    expect(onOpenChange).not.toHaveBeenCalledWith(false);
+    expect(document.activeElement).toBe(document.querySelector("[cmdk-input]"));
+  });
+
+  it("shows an app adornment in the search field and lets the app handle input keys first", () => {
+    const onInputKeyDown = vi.fn((event: React.KeyboardEvent) => {
+      if (event.key === "Tab") event.preventDefault();
+    });
+    act(() => {
+      root.render(
+        <CommandMenu
+          open
+          onOpenChange={() => undefined}
+          showAgentFallback={false}
+          initialSelection="none"
+          inputAdornment={<span data-testid="scope-chip">In Roadmap</span>}
+          onInputKeyDown={onInputKeyDown}
+        >
+          <CommandMenu.Group heading="Pages">
+            <CommandMenu.Item value="roadmap" onSelect={() => undefined}>
+              Roadmap
+            </CommandMenu.Item>
+          </CommandMenu.Group>
+        </CommandMenu>,
+      );
+    });
+
+    const input = document.querySelector<HTMLInputElement>("[cmdk-input]");
+    const wrapper = input?.closest("[cmdk-input-wrapper]");
+    expect(wrapper?.querySelector('[data-testid="scope-chip"]')).toBeTruthy();
+    expect(wrapper?.querySelector("svg")).toBeTruthy();
+
+    act(() => {
+      input!.dispatchEvent(
+        new KeyboardEvent("keydown", {
+          key: "Tab",
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
+    });
+    expect(onInputKeyDown).toHaveBeenCalledOnce();
+
+    // An arrow key the app leaves alone still turns on selection.
+    act(() => {
+      input!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+    });
+    expect(onInputKeyDown).toHaveBeenCalledTimes(2);
+    expect(
+      document
+        .querySelector('[cmdk-item][data-value="roadmap"]')
+        ?.getAttribute("aria-disabled"),
+    ).not.toBe("true");
+  });
+
+  it("tells custom content which row is highlighted", () => {
+    const seen: string[] = [];
+    act(() => {
+      root.render(
+        <CommandMenu
+          open
+          onOpenChange={() => undefined}
+          showAgentFallback={false}
+          showSettingsCommand={false}
+          showSignOutCommand={false}
+          renderContent={({ renderList, selectedValue }) => {
+            seen.push(selectedValue);
+            return (
+              <>
+                {renderList(
+                  <CommandMenu.Group heading="Pages">
+                    <CommandMenu.Item value="page:a" onSelect={() => undefined}>
+                      Alpha
+                    </CommandMenu.Item>
+                    <CommandMenu.Item value="page:b" onSelect={() => undefined}>
+                      Beta
+                    </CommandMenu.Item>
+                  </CommandMenu.Group>,
+                )}
+                <output data-testid="preview">{selectedValue}</output>
+              </>
+            );
+          }}
+        >
+          {null}
+        </CommandMenu>,
+      );
+    });
+
+    const preview = () =>
+      document.querySelector('[data-testid="preview"]')?.textContent;
+    expect(preview()).toBe("page:a");
+    const input = document.querySelector<HTMLInputElement>("[cmdk-input]");
+    act(() => {
+      input!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+    });
+    expect(preview()).toBe("page:b");
+    expect(seen).toContain("page:b");
+  });
 });
