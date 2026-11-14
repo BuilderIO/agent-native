@@ -1,3 +1,4 @@
+import type { H3Event } from "h3";
 /**
  * "Restrict personal API keys": an organization policy that stops members from
  * using or adding their own model provider keys and personal Builder.io
@@ -9,14 +10,13 @@
  * `isPersonalProviderKeyUseRestricted`. Keep it the only place that decides.
  */
 
-import type { H3Event } from "h3";
-
 import {
   OLLAMA_BASE_URL_ENV_VAR,
   OPENAI_BASE_URL_ENV_VAR,
   PROVIDER_ENV_VARS,
 } from "../agent/engine/provider-env-vars.js";
 import { getDbExec } from "../db/client.js";
+import { withDatabaseErrorProvenance } from "../db/errors.js";
 import type { OrgRole } from "../org/types.js";
 import { getOrgSetting, mutateOrgSetting } from "../settings/org-settings.js";
 import { BUILDER_CREDENTIAL_KEYS } from "./builder-credential-keys.js";
@@ -174,13 +174,15 @@ export async function readOrgMemberRole(
 ): Promise<OrgRole | null> {
   if (isDelegatedRequestIdentityMismatch(orgId, email)) return null;
   const normalizedEmail = email.trim().toLowerCase();
-  const { rows } = await getDbExec().execute({
-    sql: `SELECT role FROM org_members
+  const { rows } = await withDatabaseErrorProvenance(async () =>
+    getDbExec().execute({
+      sql: `SELECT role FROM org_members
           WHERE org_id = ? AND LOWER(email) = ?
             AND federation_removal_pending_at IS NULL
           LIMIT 1`,
-    args: [orgId, normalizedEmail],
-  });
+      args: [orgId, normalizedEmail],
+    }),
+  );
   return effectiveOrgMemberRole(rows[0]?.role, orgId, email);
 }
 

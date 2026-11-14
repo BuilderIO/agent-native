@@ -40,7 +40,6 @@ import {
   IconPlus,
   IconRefresh,
   IconPencil,
-  IconUserPlus,
   IconX,
 } from "@tabler/icons-react";
 import { useQueryClient } from "@tanstack/react-query";
@@ -686,7 +685,6 @@ function ToolbarBreadcrumbMenuEntry({
   return (
     <DropdownMenuItem
       ref={itemRef}
-      className="gap-2"
       disabled={menuItem.id === currentDocumentId}
       onSelect={() => onOpen(menuItem.id, menuItem.filesDatabaseId)}
     >
@@ -912,8 +910,6 @@ const TOOLBAR_SHARE_FOLD = TOOLBAR_FOLD_ROOMS.length;
 // A phone's bar, whatever room it has: Share lives in the menu, and the tabs
 // and the menu are 44 px touch targets.
 const TOOLBAR_PHONE_FOLD = TOOLBAR_SHARE_FOLD + 1;
-
-const WIDGET_SHARE_CONTROL_SIZE = "sm" as const;
 
 /**
  * How far the toolbar folds its controls at `width`, when `reserved` of it
@@ -1627,14 +1623,7 @@ export function DocumentToolbar({
     [documentContent, documentId, documentTitle, exportDocument, t],
   );
 
-  // A widget keeps the joined, filled control: it has no tabs to sit beside.
-  const shareLabel = inWidget ? (
-    <span className="hidden @min-[40rem]/toolbar:inline">
-      {t("editor.toolbar.share")}
-    </span>
-  ) : (
-    t("editor.toolbar.share")
-  );
+  const shareLabel = t("editor.toolbar.share");
   const unopenedShareControl = (
     <JoinedShareControl
       appearance={inWidget ? "joined" : "plain"}
@@ -1642,16 +1631,7 @@ export function DocumentToolbar({
         <ShareTrigger
           aria-expanded={false}
           aria-label={t("editor.toolbar.share")}
-          label={
-            inWidget ? (
-              <span className="flex items-center gap-2">
-                <IconUserPlus aria-hidden="true" />
-                {shareLabel}
-              </span>
-            ) : (
-              shareLabel
-            )
-          }
+          label={shareLabel}
           intent={inWidget ? "primary" : undefined}
           emphasis={inWidget ? "solid" : "ghost"}
           onPress={() => setShareRequested(true)}
@@ -1660,7 +1640,6 @@ export function DocumentToolbar({
       copyLabel={t("editor.toolbar.copyPageLink")}
       copiedLabel={t("editor.toolbar.copiedPageLink")}
       onCopy={handleCopyPageLink}
-      size={inWidget ? WIDGET_SHARE_CONTROL_SIZE : undefined}
     />
   );
   const openInAgentNativeLabel = t("editor.toolbar.openInAgentNative");
@@ -1673,9 +1652,9 @@ export function DocumentToolbar({
 
   return (
     <>
-      {/* As the toolbar narrows, the Edited label goes first, then controls
-          fold by `toolbarFoldLevel`; the breadcrumb folds its ancestors before
-          the page title drops below a readable width. */}
+      {/* As the toolbar narrows, the Edited label goes first, then the Suggesting label, then controls fold by `toolbarFoldLevel`;
+          the breadcrumb folds its ancestors before the page title drops below
+          a readable width. */}
       <div
         ref={toolbarRef}
         className={cn(
@@ -1824,19 +1803,11 @@ export function DocumentToolbar({
                     shareUrl={shareUrl}
                     mobileSheet
                     triggerContent={shareLabel}
-                    // ShareButton wraps the label in a span gapped from its
-                    // icon; the gap goes with the label.
-                    triggerClassName={
-                      inWidget
-                        ? "[&>span]:gap-0 @min-[40rem]/toolbar:[&>span]:gap-2"
-                        : undefined
-                    }
                     showShareLinks={false}
                     quickCopy={{
                       label: t("editor.toolbar.copyPageLink"),
                       copiedLabel: t("editor.toolbar.copiedPageLink"),
                       onCopy: handleCopyPageLink,
-                      size: inWidget ? WIDGET_SHARE_CONTROL_SIZE : undefined,
                       appearance: inWidget ? "joined" : "plain",
                     }}
                     basicSharingOnly={inWidget}
@@ -2146,7 +2117,7 @@ export function DocumentToolbar({
               ) : null}
               {isLocalFileDocument ? (
                 <DropdownMenuGroup>
-                  <DropdownMenuLabel className="text-xs text-muted-foreground">
+                  <DropdownMenuLabel className="text-muted-foreground">
                     {t("editor.toolbar.localFile")}
                   </DropdownMenuLabel>
                   <DropdownMenuItem disabled className="min-w-0">

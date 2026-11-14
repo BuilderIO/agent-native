@@ -1282,6 +1282,7 @@ const rawLiterals = {
     rename: "Renomear",
     duplicate: "Duplicar",
     moveTo: "Mover para",
+    addSubPage: "Adicionar subpágina",
     moveToTrash: "Mover para a lixeira",
     lastEditedBy: "Última edição por {{name}}",
     lastEdited: "Última edição",
@@ -1518,6 +1519,13 @@ const exactEnglish = {
     suggestionAmendmentResolved:
       "Esta sugestão foi alterada em outro lugar. Seu rascunho não salvo continua aqui.",
     discardSuggestionDraft: "Descartar rascunho",
+    mermaid: {
+      source: "Mermaid",
+      done: "Concluído",
+      doneShortcut: "Fechar o código-fonte (Esc)",
+      editDiagram: "Editar diagrama",
+      cantDraw: "Não foi possível desenhar este diagrama",
+    },
     failedToCreatePage: "Não foi possível criar a página",
     slash: {
       blockEquation: "Equação em bloco",
@@ -1734,9 +1742,21 @@ const overrides = {
     commandDatabasesHeading: "Coleções",
     commandLocalFilesHeading: "Arquivos locais",
     commandDatabaseResultDescription: "Abrir página da coleção",
-    commandAppearance: "Aparência",
     openAgent: "Abrir agente",
     toggleTheme: "Alternar tema",
+    commandOnPage: "Em “{{title}}”",
+    commandSearchInPage: "Pesquisar nesta página",
+    commandSearchInPageDescription:
+      "Somente esta página e as páginas dentro dela",
+    commandScopeChip: "Em “{{title}}”",
+    commandClearScope: "Pesquisar em todo o espaço",
+    commandAskAgent: "Perguntar ao agente: “{{query}}”",
+    commandAskAgentDescription:
+      "O agente pode pesquisar, ler e resumir para você",
+    commandPreview: "Pré-visualização",
+    commandHintNavigate: "Navegar",
+    commandHintOpen: "Abrir",
+    commandHintClose: "Fechar",
   },
   theme: {
     system: "Tema do sistema",

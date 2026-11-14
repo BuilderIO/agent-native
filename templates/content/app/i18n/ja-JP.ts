@@ -1267,6 +1267,7 @@ const rawLiterals = {
     rename: "名前を変更",
     duplicate: "複製",
     moveTo: "移動先",
+    addSubPage: "サブページを追加",
     moveToTrash: "ゴミ箱に移動",
     lastEditedBy: "最終編集者: {{name}}",
     lastEdited: "最終編集",
@@ -1493,6 +1494,13 @@ const exactEnglish = {
     suggestionAmendmentResolved:
       "この提案は別の場所で変更されました。未保存の下書きはここに残っています。",
     discardSuggestionDraft: "下書きを破棄",
+    mermaid: {
+      source: "Mermaid",
+      done: "完了",
+      doneShortcut: "ソースを閉じる (Esc)",
+      editDiagram: "図を編集",
+      cantDraw: "この図を描画できません",
+    },
     failedToCreatePage: "ページを作成できませんでした",
     slash: {
       blockEquation: "ブロック数式",
@@ -1701,9 +1709,20 @@ const overrides = {
     commandDatabasesHeading: "コレクション",
     commandLocalFilesHeading: "ローカルファイル",
     commandDatabaseResultDescription: "コレクションページを開く",
-    commandAppearance: "外観",
     openAgent: "エージェントを開く",
     toggleTheme: "テーマを切り替え",
+    commandOnPage: "「{{title}}」",
+    commandSearchInPage: "このページ内を検索",
+    commandSearchInPageDescription: "このページとその中のページのみ",
+    commandScopeChip: "「{{title}}」内",
+    commandClearScope: "ワークスペース全体を検索",
+    commandAskAgent: "エージェントに質問:「{{query}}」",
+    commandAskAgentDescription:
+      "エージェントが検索、閲覧、要約を代わりに行います",
+    commandPreview: "プレビュー",
+    commandHintNavigate: "移動",
+    commandHintOpen: "開く",
+    commandHintClose: "閉じる",
   },
   theme: {
     system: "システムテーマ",

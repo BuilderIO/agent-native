@@ -1745,7 +1745,6 @@ export default {
     signInToRequestAccessTitle: "로그인하여 액세스 요청",
     signInToRequestAccessDescription:
       "로그인하거나 계정을 만들어 소유자에게 액세스를 요청하세요.",
-    signInOrSignUp: "로그인 또는 가입",
     accessCheckFailed: "이 디자인에 대한 액세스를 확인할 수 없습니다.",
     retryAccessCheck: "다시 시도",
     saveAsTemplate: "템플릿으로 저장…",
@@ -1779,6 +1778,8 @@ export default {
         "복제하기 전에 보류 중인 시각적 편집을 적용하거나 취소하세요.",
       allDesigns: "모든 디자인",
       rename: "이름 바꾸기",
+      builtFrom: "{{title}}에서 만듦",
+      builtFromPage: "Content 페이지에서 만듦",
       duplicate: "복제",
       versionHistory: "버전 기록",
       import: "가져오기…",
@@ -2211,6 +2212,10 @@ export default {
         "다른 공동 작업자의 변경 사항이 적용 대기 중입니다. 새 변경 사항을 보내기 전에 적용하거나 지워 주세요.",
       codingHandoffCopied: "코딩 인계가 복사됨",
       clipboardBlocked: "클립보드가 차단됨",
+      pasteMediaTooMany_other:
+        "파일 {{count}}개를 붙여넣지 못했습니다. 한 번에 최대 {{limit}}개의 파일을 붙여넣을 수 있습니다.",
+      pasteMediaTooLarge_other:
+        "{{limitMb}} MB를 넘어 파일 {{count}}개를 붙여넣지 못했습니다.",
       htmlCreateError: "HTML 다운로드를 만들 수 없음",
       htmlDownloaded: "HTML 다운로드됨",
       htmlExportError: "HTML을 내보낼 수 없음",
@@ -2640,6 +2645,7 @@ export default {
     searchSystems: "디자인 시스템 검색…",
     searchDesigns: "디자인 검색…",
     searchPresentations: "프레젠테이션 검색…",
+    searchPages: "페이지 검색…",
     searchDesign: "디자인 검색…",
     useDesignSystem: "디자인 시스템 사용",
     notReady:
@@ -2652,6 +2658,7 @@ export default {
     design: "디자인 참조",
     slides: "슬라이드",
     referenceDesign: "디자인 참조",
+    contentPage: "Content 페이지",
     connectFigma: "Figma 연결",
     figmaReference: "Figma 디자인…",
     figmaDialogTitle: "Figma 디자인 추가",

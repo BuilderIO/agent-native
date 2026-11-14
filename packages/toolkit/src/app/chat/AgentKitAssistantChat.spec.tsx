@@ -32,7 +32,10 @@ import {
 } from "vitest";
 
 import { AgentSuggestionBar } from "../../composer/AgentSuggestionBar.js";
-import { AgentInteractionItem } from "../agentkit/react/components.js";
+import {
+  AgentCollaborationFeed,
+  AgentInteractionItem,
+} from "../agentkit/react/components.js";
 import { AgentKitProvider } from "../agentkit/react/context.js";
 import {
   clearToolRenderersForTests,
@@ -658,7 +661,7 @@ vi.mock("./agentkit-chat/index.js", async () => {
         ),
       );
     },
-    GuidedQuestionFlow: (props: unknown) => {
+    GuidedQuestionCard: (props: unknown) => {
       chatMocks.guidedFlowProps = props;
       return null;
     },
@@ -679,6 +682,7 @@ vi.mock("./agentkit-chat/index.js", async () => {
       chatMocks.guidedOptions = options;
       return { questions: chatMocks.guidedQuestions };
     },
+    useRefetchGuidedQuestionsWhenAsked: () => undefined,
   };
 });
 
@@ -7731,22 +7735,34 @@ describe("AgentKitAssistantChat host behavior", () => {
     ).completed;
     await mount(baseProps());
 
-    const { registry, labels } = chatMocks.rootProps;
+    const { formatAgentInteractionDetail, labels } = chatMocks.rootProps;
     const [started, failed] = client.getThread("thread-delegated")
       .agentInteractions as AgentInteraction[];
-    const row = (value: AgentInteraction) => {
-      const Renderer =
-        registry.agentInteractions[value.kind] ?? AgentInteractionItem;
-      return renderToStaticMarkup(
+    const row = (value: AgentInteraction) =>
+      renderToStaticMarkup(
         <AgentKitProvider
           controller={client}
           threadId="thread-delegated"
           labels={labels}
+          formatAgentInteractionDetail={formatAgentInteractionDetail}
         >
-          <Renderer value={value} threadId="thread-delegated" />
+          <AgentInteractionItem value={value} threadId="thread-delegated" />
         </AgentKitProvider>,
       );
-    };
+    const step = renderToStaticMarkup(
+      <AgentKitProvider
+        controller={client}
+        threadId="thread-delegated"
+        labels={labels}
+        formatAgentInteractionDetail={formatAgentInteractionDetail}
+      >
+        <AgentCollaborationFeed runId="run-delegated" />
+      </AgentKitProvider>,
+    );
+    expect(step.match(/Brain/g)).toHaveLength(1);
+    expect(step).toMatch(
+      /class="agentkit-activity-error"[^>]*>agentChat\.agent\.failureReason\.setup</,
+    );
 
     const failedRow = row(failed!);
     expect(failedRow.match(/Brain/g)).toHaveLength(1);
@@ -7818,15 +7834,15 @@ describe("AgentKitAssistantChat host behavior", () => {
       await (
         await client.sendMessage({ threadId: "thread-delegated", text: "Ask" })
       ).completed;
-      const { registry, labels } = chatMocks.rootProps;
-      const Renderer = registry.agentInteractions.failed;
+      const { formatAgentInteractionDetail, labels } = chatMocks.rootProps;
       return renderToStaticMarkup(
         <AgentKitProvider
           controller={client}
           threadId="thread-delegated"
           labels={labels}
+          formatAgentInteractionDetail={formatAgentInteractionDetail}
         >
-          <Renderer
+          <AgentInteractionItem
             threadId="thread-delegated"
             value={
               client.getThread("thread-delegated")

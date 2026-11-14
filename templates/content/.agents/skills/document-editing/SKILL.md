@@ -77,9 +77,13 @@ the returned document `id`, then call `view-screen` and compare its document ID
 with the create result. Navigation is asynchronous: if `view-screen` still
 reports the previous Page, repeat `navigate` and `view-screen` up to two more
 times. Say the Page is open only after the IDs match. If they never match, say
-the Page was created but navigation could not be verified, and provide the
-stable Page link from the create result. Do not navigate for background, batch,
-or API creation unless the caller explicitly asked to open the result.
+the Page was created but navigation could not be verified. Do not navigate for
+background, batch, or API creation unless the caller explicitly asked to open
+the result.
+
+Whether or not you navigate, link every Page you created in your reply, by its
+title and the `urlPath` from the result (`[Meeting Notes](/page/<id>)`). Content
+sends a reply that leaves one out back to you once with the exact links.
 
 When the user names a workspace ("in my Foobar workspace"), pass `spaceName`
 (or a `spaceId` from `list-content-spaces`). A named workspace that does not
@@ -442,6 +446,22 @@ $$
   unsupported expressions remain visible as source so they can be repaired.
 - Markdown exports preserve these delimiters. HTML and PDF-ready exports render
   the equation.
+
+### Diagrams
+
+A Mermaid diagram is a fenced code block whose language is `mermaid`. Its
+source is the diagram, so it stays the editable copy.
+
+- Write a new diagram as a `mermaid` code block, and change a diagram by
+  editing its source.
+- Never replace a diagram's source with a picture: no image you render,
+  generate or upload (SVG, PNG, screenshot), and no other block type. Don't add
+  a title or caption the source doesn't have. Swap the source out only when the
+  user asks for an image instead of the diagram.
+- The editor draws a Mermaid code block as its diagram and opens the source
+  when the user clicks it, so a diagram the user asks to see only needs valid
+  source. If the source has a syntax error, the block shows it beside the
+  source; fix it there. Public pages show the source as code.
 
 ## Parent-Child Hierarchy
 

@@ -21,7 +21,10 @@ export function isLoopbackRequest(event: H3Event): boolean {
   return isLoopbackAddress(ip);
 }
 
-export function isDirectLoopbackRequest(event: H3Event): boolean {
+export function isDirectLoopbackRequest(
+  event: H3Event,
+  options: { behindDevProxy?: boolean } = {},
+): boolean {
   const request = event.node?.req;
   const headers = request?.headers;
   const host = headers?.host;
@@ -50,9 +53,14 @@ export function isDirectLoopbackRequest(event: H3Event): boolean {
   const originValue = `http://${host}`;
   if (!URL.canParse(originValue)) return false;
   const origin = new URL(originValue);
+  // `agent-native dev` serves the app from a worker behind the Vite proxy, so
+  // Host carries the proxy's port and the worker's socket never matches it.
+  const hostPortIsListenPort =
+    Number(origin.port) === socket.localPort ||
+    (options.behindDevProxy === true && process.env.NODE_ENV === "development");
   return (
     origin.hostname === "127.0.0.1" &&
-    Number(origin.port) === socket.localPort &&
+    hostPortIsListenPort &&
     origin.port !== "0" &&
     origin.pathname === "/" &&
     origin.search === "" &&

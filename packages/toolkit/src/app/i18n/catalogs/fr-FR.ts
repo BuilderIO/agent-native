@@ -49,10 +49,13 @@ const messages: ToolkitAgentChatTranslation = {
   "activity.groupLabel": "Activité de l’agent",
   "activity.agents": "Collaboration entre agents",
   "activity.tasks": "Tâches des agents",
+  "activity.tasksProgress": "{{completed}} sur {{total}} terminées",
   "agent.started": "a commencé à travailler",
   "agent.resumed": "a repris le travail",
   "agent.messaged": "a envoyé un message",
   "agent.delegated": "a délégué le travail",
+  "agent.working": "en cours",
+  "agent.workedFor": "a travaillé {{duration}}",
   "agent.paused": "a mis le travail en pause",
   "agent.queued": "en attente",
   "agent.completed": "a terminé",
@@ -168,7 +171,8 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderCredits": "Inclus avec les crédits gratuits Builder.io",
   "onboarding.builderIncludedFreeWithAccount":
     "Inclus gratuitement avec un compte Builder.io",
-  "onboarding.builderMonthlyCredits": "60 Agent Credits par mois",
+  "onboarding.builderMonthlyCredits":
+    "15 crédits gratuits par jour, jusqu’à 60 par mois",
   "onboarding.builderIncludedFree": "Inclus gratuitement",
   "onboarding.builderMoreServices": "+ {{count}} services supplémentaires",
   "onboarding.builderLlmCredits": "Crédits LLM",
@@ -200,9 +204,10 @@ const messages: ToolkitAgentChatTranslation = {
   "onboarding.builderPrivacy": "Politique de confidentialité",
   "onboarding.builderConsentAnd": "et",
   "onboarding.builderExistingAccount": "J’ai un compte Builder.io",
-  "onboarding.creditsTitle": "Essayez avec 60 crédits Agent gratuits par mois",
+  "onboarding.creditsTitle":
+    "Essayez avec 15 crédits gratuits par jour, jusqu’à 60 par mois",
   "onboarding.creditsTitleClips":
-    "Essayez avec du stockage vidéo gratuit et 60 crédits Agent par mois",
+    "Essayez avec du stockage vidéo gratuit et 15 crédits par jour, jusqu’à 60 par mois",
   "onboarding.creditsActivate": "Activer les crédits gratuits",
   "onboarding.creditsFinePrint":
     "Ceci créera un compte Builder.io gratuit. En continuant, vous acceptez nos",
@@ -463,6 +468,7 @@ const messages: ToolkitAgentChatTranslation = {
   "composer.attachmentTooLarge": "Le fichier dépasse 8 Mo",
   "composer.attachmentNotUtf8": "Le fichier n'est pas du texte UTF-8",
   "composer.scrollToBottom": "Faire défiler jusqu’en bas",
+  "composer.skipToMessageBox": "Aller au champ de message",
   "composer.suggestedPrompts": "Prompts suggérés",
   "composer.stopResponse": "Arrêter la réponse",
   "composer.subAgentReadOnly":
@@ -1335,6 +1341,7 @@ const messages: ToolkitAgentChatTranslation = {
   "pastedText.remove": "Supprimer le texte collé",
   "pastedText.title": "Texte collé",
   "voice.dictation.start": "Dicter ({{shortcut}})",
+  "voice.dictation.startPlain": "Dicter",
   "voice.dictation.stopRecording": "Arrêter l'enregistrement",
   "voice.dictation.transcribing": "Transcription en cours…",
   "voiceMode.errors.channelDisconnected":
@@ -1717,6 +1724,36 @@ const messages: ToolkitAgentChatTranslation = {
   "featureFlags.builderCreditReferrals.name": "Parrainages de crédits Builder",
   "featureFlags.builderCreditReferrals.description":
     "Afficher les détails de parrainage de l’espace de travail Builder connecté dans Utilisation.",
+  "featureFlags.scope.appliesTo": "S’applique à",
+  "featureFlags.scope.org": "Cette organisation",
+  "featureFlags.scope.global": "Toutes les organisations",
+  "featureFlags.scope.setForOrg": "Défini pour cette organisation",
+  "featureFlags.scope.setForGlobal": "Défini pour toutes les organisations",
+  "featureFlags.scope.overridesGlobal":
+    "Remplace la règle de toutes les organisations",
+  "featureFlags.scope.overridesGlobalTooltip":
+    "La règle propre à cette organisation remplace la règle de toutes les organisations, qui est : {{audience}}.",
+  "featureFlags.scope.unreadable": "Lecture impossible",
+  "featureFlags.scope.enableForMeOrg":
+    "Vous ajoute à la règle de cette organisation",
+  "featureFlags.scope.enableForMeGlobal":
+    "Vous ajoute à la règle de toutes les organisations",
+  "featureFlags.scope.turnOffOrg": "Désactiver pour cette organisation",
+  "featureFlags.scope.turnOffGlobal":
+    "Désactiver pour toutes les organisations",
+  "featureFlags.scope.turnOffOrgTitle":
+    "Désactiver {{name}} pour cette organisation ?",
+  "featureFlags.scope.turnOffGlobalTitle":
+    "Désactiver {{name}} pour toutes les organisations ?",
+  "featureFlags.scope.turnOffOrgDescription":
+    "L’accès est immédiatement retiré à toutes les personnes de cette organisation. Vous pourrez configurer un nouveau déploiement plus tard.",
+  "featureFlags.scope.turnOffGlobalDescription":
+    "L’accès est immédiatement retiré dans toutes les organisations qui n’ont pas leur propre règle. Vous pourrez configurer un nouveau déploiement plus tard.",
+  "featureFlags.scope.summaryOrg": "Dans cette organisation : {{audience}}.",
+  "featureFlags.scope.summaryGlobal":
+    "Dans toutes les organisations : {{audience}}.",
+  "featureFlags.scope.orgKeepsOwnRule":
+    "Cette organisation conserve sa propre règle.",
   "usage.inviteFriends": "Inviter des amis",
   "usage.inviteCredits":
     "Gagnez {{amount}} crédits Builder lorsqu’un ami s’abonne.",
@@ -3076,6 +3113,97 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsResources.skills.upload": "Importer un fichier de compétence",
   "settingsResources.skills.describePlaceholder":
     "Une compétence qui vérifie les pull requests à la recherche de failles de sécurité",
+  "settingsResources.skills.personalHint": "Vous seul les avez.",
+  "settingsResources.skills.orgHint":
+    "Partagées avec tout le monde chez {{org}}. Vos interrupteurs ne concernent que vous.",
+  "settingsResources.skills.orgAdminHint":
+    "Partagées avec tout le monde chez {{org}}. En tant qu'admin, vous choisissez comment chacune démarre pour les autres.",
+  "settingsResources.skills.dispatchHint":
+    "Dispatch est l'endroit où votre espace de travail garde les compétences partagées par toutes les apps. En désactiver une ici ne change que {{app}}.",
+  "settingsResources.skills.thisApp": "cette app",
+  "settingsResources.skills.forEveryone": "Pour tous",
+  "settingsResources.skills.forYou": "Pour vous",
+  "settingsResources.skills.markRecommended": "Recommandée",
+  "settingsResources.skills.markRecommendedHint":
+    "Activée sauf si quelqu'un la désactive.",
+  "settingsResources.skills.markOptional": "Facultative",
+  "settingsResources.skills.markOptionalHint":
+    "Désactivée sauf si quelqu'un l'active.",
+  "settingsResources.skills.markRequired": "Obligatoire",
+  "settingsResources.skills.markRequiredHint":
+    "Activée pour tout le monde. Personne ne peut la désactiver ni utiliser sa propre version.",
+  "settingsResources.skills.recommendedBy": "Recommandée par {{org}}",
+  "settingsResources.skills.requiredBy": "Imposée par {{org}}",
+  "settingsResources.skills.requiredHidesOwn":
+    "Non utilisée : {{org}} impose à tous la version partagée",
+  "settingsResources.skills.optionalOff":
+    "Facultative : désactivée jusqu'à ce que vous l'activiez",
+  "settingsResources.skills.optionalOn": "Facultative : vous l'avez activée",
+  "settingsResources.skills.switchedOffOn":
+    "Vous l'avez désactivée le {{date}}",
+  "settingsResources.skills.alwaysOn": "Toujours activée",
+  "settingsResources.skills.requiredLockHint":
+    "Imposée par {{org}}, donc toujours activée",
+  "settingsResources.skills.dispatchClash":
+    "Dispatch a aussi une compétence {{name}}. L'agent utilise celle-ci et ignore celle de Dispatch. Renommez-en une pour utiliser les deux.",
+  "settingsResources.skills.dispatchClashRequired":
+    "La compétence {{name}} de Dispatch est obligatoire, donc l'agent l'utilise et ignore celle-ci. Renommez-en une pour utiliser les deux.",
+  "settingsResources.skills.choicesLoadFailed":
+    "Impossible de charger les compétences activées pour vous, donc les interrupteurs sont masqués. Rechargez la page pour réessayer.",
+  "settingsResources.skills.requireChecking":
+    "Vérification des personnes concernées…",
+  "settingsResources.skills.requireCountsFailed":
+    "Impossible de vérifier qui est concerné.",
+  "settingsResources.skills.requireTitle": "Rendre {{name}} obligatoire ?",
+  "settingsResources.skills.makeRequired": "Rendre obligatoire",
+  "settingsResources.skills.switchFailed":
+    "Impossible d'enregistrer votre choix pour {{name}}.",
+  "settingsResources.skills.markFailed":
+    "Impossible de changer comment {{name}} démarre pour les autres.",
+  "settingsResources.skills.addForMe": "Ajouter pour moi",
+  "settingsResources.skills.addForEveryone": "Ajouter pour tous",
+  "settingsResources.skills.offFor_one":
+    "Désactivée pour {{off}} sur {{count}} personne",
+  "settingsResources.skills.offFor_many":
+    "Désactivée pour {{off}} sur {{count}} personnes",
+  "settingsResources.skills.offFor_other":
+    "Désactivée pour {{off}} sur {{count}} personnes",
+  "settingsResources.skills.onFor_one":
+    "Activée pour {{on}} sur {{count}} personne",
+  "settingsResources.skills.onFor_many":
+    "Activée pour {{on}} sur {{count}} personnes",
+  "settingsResources.skills.onFor_other":
+    "Activée pour {{on}} sur {{count}} personnes",
+  "settingsResources.skills.ownVersions_one":
+    "{{count}} personne a sa propre version",
+  "settingsResources.skills.ownVersions_many":
+    "{{count}} personnes ont leur propre version",
+  "settingsResources.skills.ownVersions_other":
+    "{{count}} personnes ont leur propre version",
+  "settingsResources.skills.requireTurnsBackOn_one":
+    "Elle se réactive pour la {{count}} personne qui l'avait désactivée.",
+  "settingsResources.skills.requireTurnsBackOn_many":
+    "Elle se réactive pour les {{count}} personnes qui l'avaient désactivée.",
+  "settingsResources.skills.requireTurnsBackOn_other":
+    "Elle se réactive pour les {{count}} personnes qui l'avaient désactivée.",
+  "settingsResources.skills.requireTurnsOn_one":
+    "Elle s'active pour la {{count}} personne qui ne l'avait pas activée.",
+  "settingsResources.skills.requireTurnsOn_many":
+    "Elle s'active pour les {{count}} personnes qui ne l'avaient pas activée.",
+  "settingsResources.skills.requireTurnsOn_other":
+    "Elle s'active pour les {{count}} personnes qui ne l'avaient pas activée.",
+  "settingsResources.skills.requireOwnVersions_one":
+    "La {{count}} personne qui a sa propre version reçoit le texte de {{org}} à la place. Sa version est conservée et revient si vous changez cela plus tard.",
+  "settingsResources.skills.requireOwnVersions_many":
+    "Les {{count}} personnes qui ont leur propre version reçoivent le texte de {{org}} à la place. Leurs versions sont conservées et reviennent si vous changez cela plus tard.",
+  "settingsResources.skills.requireOwnVersions_other":
+    "Les {{count}} personnes qui ont leur propre version reçoivent le texte de {{org}} à la place. Leurs versions sont conservées et reviennent si vous changez cela plus tard.",
+  "settingsResources.skills.requireOwnVersionsDispatch_one":
+    "La {{count}} personne qui a sa propre version reçoit le texte de Dispatch à la place. Sa version est conservée et revient si vous changez cela plus tard.",
+  "settingsResources.skills.requireOwnVersionsDispatch_many":
+    "Les {{count}} personnes qui ont leur propre version reçoivent le texte de Dispatch à la place. Leurs versions sont conservées et reviennent si vous changez cela plus tard.",
+  "settingsResources.skills.requireOwnVersionsDispatch_other":
+    "Les {{count}} personnes qui ont leur propre version reçoivent le texte de Dispatch à la place. Leurs versions sont conservées et reviennent si vous changez cela plus tard.",
   "settingsResources.files.empty":
     "Ajoutez un fichier pour donner plus de contexte à votre agent.",
   "settingsResources.files.emptyTitle": "Aucun fichier pour l'instant",
@@ -3587,6 +3715,14 @@ const messages: ToolkitAgentChatTranslation = {
   "guided.otherDescription":
     "Dites précisément à l’agent ce que vous voulez dire.",
   "guided.recommended": "Recommandé",
+  "guided.question": "Question",
+  "guided.questionProgress": "{{current}}/{{total}}",
+  "guided.questionProgressLabel": "{{current}} sur {{total}}",
+  "guided.ownResponse": "Ou rédigez votre propre réponse",
+  "guided.next": "Suivant",
+  "guided.send": "Envoyer",
+  "guided.dismiss": "Ignorer les questions",
+  "guided.chooseFiles": "Choisir des fichiers…",
   "guided.typeAnswer": "Saisissez votre réponse…",
   "guided.typeCustomAnswer": "Saisissez une réponse personnalisée…",
   "guided.dropFiles": "Faites glisser des fichiers ici ou",
@@ -3625,6 +3761,10 @@ const messages: ToolkitAgentChatTranslation = {
   "toolCells.showMoreLines": "Afficher {{count}} lignes de plus",
   "toolCells.partial": "Partiel",
   "toolCells.timedOut": "Délai dépassé",
+  "toolCells.exitCode": "Code de sortie {{code}}",
+  "toolCells.copyOutput": "Copier la sortie",
+  "toolCells.lineAdded": "Ajouté",
+  "toolCells.lineRemoved": "Supprimé",
   "codeRequired.requestFailed": "Échec de la requête ({{status}})",
   "chatFirst.chats": "Discussions",
   "chatFirst.noChats": "Aucune discussion pour l’instant.",
@@ -3743,6 +3883,7 @@ const messages: ToolkitAgentChatTranslation = {
   "mentions.noCommands": "Aucune commande",
   "mentions.noMatches": "Aucun résultat",
   "queue.dragToReorder": "Faites glisser pour réorganiser",
+  "queue.attachedImage": "Image jointe",
   "queue.moveUp": "Monter",
   "queue.moveDown": "Descendre",
   "queue.movedToPosition": "Déplacé en position {{position}} sur {{count}}",
@@ -3801,6 +3942,10 @@ const messages: ToolkitAgentChatTranslation = {
   "workSteps.readPagesOther": "{{count}} pages lues",
   "workSteps.fetchedOne": "1 URL récupérée",
   "workSteps.fetchedOther": "{{count}} URL récupérées",
+  "workSteps.sourcesOne": "1 source utilisée",
+  "workSteps.sourcesOther": "{{count}} sources utilisées",
+  "workSteps.frameworkFrames": "{{count}} frames du framework",
+  "workSteps.copyStackTrace": "Copier la trace de la pile",
   "workSteps.readFilesOne": "1 fichier lu",
   "workSteps.readFilesOther": "{{count}} fichiers lus",
   "workSteps.editedOne": "1 fichier modifié",

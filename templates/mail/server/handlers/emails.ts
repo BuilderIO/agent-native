@@ -11,6 +11,7 @@ import {
   ACTION_BROWSER_PERSIST_ALLOW,
   ACTION_BROWSER_PERSIST_HEADER,
 } from "@agent-native/core/shared";
+import { composeAttachmentLink } from "@shared/compose-attachments.js";
 import {
   gmailReadState,
   GMAIL_QUOTA_COOLDOWN_ERROR_CODE,
@@ -1729,7 +1730,7 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
               filename: att.originalName,
               mimeType: att.mimeType,
               size: att.size,
-              url: att.url,
+              url: composeAttachmentLink(att),
             })),
           }
         : {}),

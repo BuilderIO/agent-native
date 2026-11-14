@@ -63,6 +63,7 @@ import {
   getBuilderConnectErrorKey,
   type BuilderOwnerContext,
 } from "./core-routes-plugin.js";
+import { SessionResolutionUnavailableError } from "./session-resolution-errors.js";
 
 const OWNER = "owner@example.com";
 const SESSION_TOKEN = "session-token-example";
@@ -705,7 +706,7 @@ describe("automatic signup receipt custody", () => {
   );
   it("does not read receipts when organization membership cannot be checked", async () => {
     mocks.getOrgContext.mockRejectedValue(
-      new Error("membership read unavailable"),
+      new SessionResolutionUnavailableError(),
     );
     mocks.hasCompletedAutomaticBuilderSignup.mockClear();
     const app = createApp();
@@ -720,7 +721,7 @@ describe("automatic signup receipt custody", () => {
       })),
     );
     const r = await app.fetch(new Request(ORIGIN + "/receipt"));
-    expect(await r.json()).toEqual({ recovered: false });
+    expect(r.status).toBe(503);
     expect(mocks.hasCompletedAutomaticBuilderSignup).not.toHaveBeenCalled();
   });
 });

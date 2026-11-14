@@ -127,6 +127,7 @@ export {
   type AuthOptions,
 } from "./auth.js";
 export { hasSameOriginBrowserEvidence } from "./request-origin.js";
+export { declaredLinkOrigin } from "./origin-allowlist.js";
 export { getEmbedSessionOrigin } from "./embed-request-origin.js";
 export {
   handleIdentitySso,
@@ -709,6 +710,7 @@ export {
 
 export {
   CredentialStoreUnavailableError,
+  CredentialStoreLookupError,
   FeatureNotConfiguredError,
   hasBuilderPrivateKey,
   isBuilderEnvManaged,

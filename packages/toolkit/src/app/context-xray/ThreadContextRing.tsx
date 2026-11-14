@@ -5,10 +5,10 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/use-action";
 import {
-  contextGroupColor,
+  contextGroupFill,
   contextGroupLabel,
-  ContextUsagePanelView,
-  ContextUsageRingView,
+  ContextUsagePanel,
+  ContextUsageRing,
   type ContextCompactState,
   type ContextUsageSegmentView,
 } from "@agent-native/toolkit/context-ui";
@@ -75,7 +75,7 @@ export function ThreadContextRing({
       segment.kind === SYSTEM_CONTEXT_KIND
         ? t("agentChat.contextRing.system", { defaultValue: "System" })
         : contextGroupLabel(segment.kind, t),
-    colorClass: contextGroupColor(
+    color: contextGroupFill(
       segment.kind === SYSTEM_CONTEXT_KIND ? "System · required" : segment.kind,
     ),
   }));
@@ -118,14 +118,14 @@ export function ThreadContextRing({
   };
 
   return (
-    <ContextUsageRingView
+    <ContextUsageRing
       usedTokens={usage.usedTokens}
       windowTokens={usage.windowTokens}
       open={open}
       onOpenChange={setOpen}
       translate={t}
     >
-      <ContextUsagePanelView
+      <ContextUsagePanel
         usedTokens={usage.usedTokens}
         windowTokens={usage.windowTokens}
         segments={segments}
@@ -134,6 +134,6 @@ export function ThreadContextRing({
         onCompact={threadId ? runCompact : undefined}
         translate={t}
       />
-    </ContextUsageRingView>
+    </ContextUsageRing>
   );
 }

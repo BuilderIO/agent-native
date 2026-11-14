@@ -1,6 +1,6 @@
 {
   "name": "@agent-native/core",
-  "version": "0.227.0",
+  "version": "0.228.2",
   "description": "The agentic application framework for building autonomous agents with intuitive UIs",
   "homepage": "https://github.com/BuilderIO/agent-native#readme",
   "bugs": {
@@ -146,6 +146,14 @@
     "./save-conflict/server": {
       "types": "./dist/save-conflict/server.d.ts",
       "default": "./dist/save-conflict/server.js"
+    },
+    "./free-name": {
+      "types": "./dist/free-name/index.d.ts",
+      "default": "./dist/free-name/index.js"
+    },
+    "./free-name/server": {
+      "types": "./dist/free-name/server.d.ts",
+      "default": "./dist/free-name/server.js"
     },
     "./authorization": {
       "types": "./dist/authorization/index.d.ts",
@@ -596,6 +604,7 @@
     "./client/resources/use-builtin-capabilities": "./dist/client/resources/use-builtin-capabilities.js",
     "./client/resources/use-mcp-servers": "./dist/client/resources/use-mcp-servers.js",
     "./client/resources/use-resources": "./dist/client/resources/use-resources.js",
+    "./client/resources/use-skill-choices": "./dist/client/resources/use-skill-choices.js",
     "./client/review/use-review": "./dist/client/review/use-review.js",
     "./client/settings": "./dist/client/tombstone/settings.js",
     "./client/sharing/share-controller-helpers": "./dist/client/sharing/share-controller-helpers.js",
@@ -775,6 +784,7 @@
     "react-i18next": "17.0.8",
     "run": "2.0.1",
     "safe-regex2": "5.1.1",
+    "smol-toml": "1.9.1",
     "turndown": "^7.2.4",
     "undici": "^7.28.0",
     "ws": "^8.22.0",

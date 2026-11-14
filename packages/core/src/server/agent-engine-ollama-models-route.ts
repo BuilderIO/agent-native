@@ -31,7 +31,7 @@ async function resolveRequestIdentity(
 ): Promise<{ userEmail: string | undefined; orgId: string | undefined }> {
   // coercion-ok: a session lookup failure here degrades to the unauthenticated
   // path (401, same as no session at all) rather than 500ing this route.
-  const session = await getSession(event).catch(() => null);
+  const session = await getSession(event);
   const userEmail = session?.email;
   if (!userEmail) return { userEmail: undefined, orgId: undefined };
   try {

@@ -373,6 +373,7 @@ import {
   bodyCommentThreads,
   openThreadsByProperty,
   PropertyCommentsContext,
+  revealPendingComment,
   threadPropertyId,
   type PropertyCommentsValue,
 } from "./property-comments";
@@ -3325,6 +3326,8 @@ function PageEditorSessionBody({
   const isLocalFileDocument = document.source?.mode === "local-files";
   // Pages that follow a GitHub file are written by sync; edit the file instead.
   const isGitHubSourceDocument = document.source?.mode === "github";
+  // Files and GitHub write the body back out, so their images stay public.
+  const privateImageUploads = !isLocalFileDocument && !isGitHubSourceDocument;
   useConvertPageToLiveCopyOnOpen(
     documentId,
     backfillLiveCopy &&
@@ -3402,8 +3405,9 @@ function PageEditorSessionBody({
       createContentBlockRenderContext({
         documentId,
         canEdit: documentCanonicalMutationsEnabled(canEdit, isSuggesting),
+        privateImageUploads,
       }),
-    [documentId, canEdit, isSuggesting],
+    [documentId, canEdit, isSuggesting, privateImageUploads],
   );
   const [isSubmittingSuggestions, setIsSubmittingSuggestions] = useState(false);
   const [suggestionDraftSaveFailed, setSuggestionDraftSaveFailed] =
@@ -3855,6 +3859,31 @@ function PageEditorSessionBody({
     () => authoredContentBaseRef.current.base(lastSavedContentRef.current),
     [],
   );
+  // Whether a body is the saved one. Another writer's body can spell the same
+  // page differently, as an agent's write keeps a blank line between blocks,
+  // and the editor holds what it adopts one block per line.
+  const savedBodySpellingRef = useRef<{ saved: string; held: string } | null>(
+    null,
+  );
+  const bodyMatchesSaved = useCallback((body: string) => {
+    const saved = lastSavedContentRef.current.content;
+    if (body === saved) return true;
+    let spelling = savedBodySpellingRef.current;
+    if (spelling?.saved !== saved) {
+      spelling = { saved, held: canonicalizeNfm(saved) };
+      savedBodySpellingRef.current = spelling;
+    }
+    return body === spelling.held;
+  }, []);
+  // The body a save sends: the saved one when the editor holds it in its own
+  // spelling, so saving an unedited page asks for no body change. The server
+  // refuses a browser save that replaces another writer's body with an
+  // unedited copy of it.
+  const bodyToSave = useCallback(
+    (body: string) =>
+      bodyMatchesSaved(body) ? lastSavedContentRef.current.content : body,
+    [bodyMatchesSaved],
+  );
   const ownContentSaveLineageRef = useRef<OwnContentSaveLineage>(new Map());
   const editorSessionIdRef = useRef<string | null>(null);
   if (editorSessionIdRef.current === null) {
@@ -4086,6 +4115,9 @@ function PageEditorSessionBody({
       if (bodyWritesThroughLiveCopyRef.current) return;
       const scope = journalScope();
       if (!scope) return;
+      // Recovery compares a journaled body with the stored one exactly, so the
+      // editor's spelling of an unedited body would come back as a body edit.
+      content = bodyToSave(content);
       const authored =
         prepared?.authoredContentIntent ??
         (authoredContentIntentRef.current?.editGeneration === editGeneration
@@ -4132,7 +4164,13 @@ function PageEditorSessionBody({
         }
       }
     },
-    [isLinkedLocalSourceDocument, isLocalFileDocument, journalScope, t],
+    [
+      bodyToSave,
+      isLinkedLocalSourceDocument,
+      isLocalFileDocument,
+      journalScope,
+      t,
+    ],
   );
   const clearConfirmedDraftJournal = useCallback(
     (editGeneration: number) => {
@@ -5049,6 +5087,7 @@ function PageEditorSessionBody({
         return { contentPersisted: false, outcome: "abandoned" };
       if (bodyWritesThroughLiveCopyRef.current)
         return saveWithLiveCopyBody(title, options);
+      content = bodyToSave(content);
       options = {
         ...options,
         editorSnapshotTitle: title,
@@ -5411,6 +5450,7 @@ function PageEditorSessionBody({
       };
     },
     [
+      bodyToSave,
       documentId,
       autoSync,
       canEditWithoutCollaboration,
@@ -5916,8 +5956,8 @@ function PageEditorSessionBody({
     const fieldsMatchingSaved: (keyof DocumentUpdates)[] = [];
     if (localTitleRef.current === lastSavedTitleRef.current.title)
       fieldsMatchingSaved.push("title");
-    if (localContentRef.current === lastSavedContentRef.current.content)
-      fieldsMatchingSaved.push("content");
+    const bodySaved = bodyMatchesSaved(localContentRef.current);
+    if (bodySaved) fieldsMatchingSaved.push("content");
     settleRevertedDocumentPersistence(
       persistenceErrorsRef.current,
       fieldsMatchingSaved,
@@ -5942,11 +5982,13 @@ function PageEditorSessionBody({
         recoveryDraftRef.current !== null ||
         readPrimaryPersistenceError() !== undefined,
       localTitle: localTitleRef.current,
-      localContent: localContentRef.current,
+      localContent: bodySaved
+        ? lastSavedContentRef.current.content
+        : localContentRef.current,
       savedTitle: lastSavedTitleRef.current,
       savedContent: lastSavedContentRef.current,
     });
-  }, [readPrimaryPersistenceError]);
+  }, [bodyMatchesSaved, readPrimaryPersistenceError]);
   publishEditorSaveStateRef.current = () => {
     const awareness = collabAwarenessRef.current;
     if (!awareness || isLocalFileDocument || isLinkedLocalSourceDocument)
@@ -6331,7 +6373,7 @@ function PageEditorSessionBody({
         historySessionId: historySessionRef.current.activity(documentId),
         editorSessionId: editorSessionIdRef.current!,
         title,
-        content,
+        content: bodyToSave(content),
         save: queueDocumentSave,
         canEditWhenQueued: canEditRef.current,
         contentEditVersion: contentEditVersionRef.current,
@@ -6371,6 +6413,7 @@ function PageEditorSessionBody({
       publishEditorSaveStateRef.current();
     },
     [
+      bodyToSave,
       flushPendingDocumentSave,
       isLinkedLocalSourceDocument,
       journalCurrentDraft,
@@ -9862,26 +9905,29 @@ function PageEditorSessionBody({
   useEffect(() => {
     if (!pendingReveal) return;
     const { propertyId } = pendingReveal;
+    let stopWaiting: (() => void) | undefined;
     // The line opens, or the panel changes, a render later.
     let frame = requestAnimationFrame(() => {
       frame = requestAnimationFrame(() => {
-        const composer =
+        stopWaiting = revealPendingComment(
+          propertyId === null ? globalThis.document : pagePanelRef.current,
           propertyId === null
-            ? globalThis.document.querySelector<HTMLElement>(
-                "[data-comment-pending]",
-              )
-            : pagePanelRef.current?.querySelector<HTMLElement>(
-                `[data-property-threads="${CSS.escape(propertyId)}"] [data-comment-pending]`,
-              );
-        if (!composer) return;
-        composer.scrollIntoView({ block: "nearest" });
-        pulseShownSubject([composer]);
-        composer
-          .querySelector<HTMLElement>('[contenteditable="true"]')
-          ?.focus({ preventScroll: true });
+            ? "[data-comment-pending]"
+            : `[data-property-threads="${CSS.escape(propertyId)}"] [data-comment-pending]`,
+          (composer) => {
+            composer.scrollIntoView({ block: "nearest" });
+            pulseShownSubject([composer]);
+            composer
+              .querySelector<HTMLElement>('[contenteditable="true"]')
+              ?.focus({ preventScroll: true });
+          },
+        );
       });
     });
-    return () => cancelAnimationFrame(frame);
+    return () => {
+      cancelAnimationFrame(frame);
+      stopWaiting?.();
+    };
   }, [pendingReveal]);
   // Info keeps a Property's Comments under its row, so starting one, opening
   // its threads, or replying leaves Info open.
@@ -10409,11 +10455,11 @@ function PageEditorSessionBody({
     }
 
     const title = localTitleRef.current;
-    const content = localContentRef.current;
+    const content = bodyToSave(localContentRef.current);
     const savesThroughLiveCopy = bodyWritesThroughLiveCopyRef.current;
     const contentUnsaved = () =>
       !bodyWritesThroughLiveCopyRef.current &&
-      localContentRef.current !== lastSavedContentRef.current.content;
+      !bodyMatchesSaved(localContentRef.current);
     const hasUnsavedPrimaryEdit =
       title !== lastSavedTitleRef.current.title || contentUnsaved();
     if (!canEditRef.current && hasUnsavedPrimaryEdit) {
@@ -10473,6 +10519,8 @@ function PageEditorSessionBody({
       throw new Error(t("editor.pageSaveBeforeNavigationFailed"));
     }
   }, [
+    bodyMatchesSaved,
+    bodyToSave,
     documentId,
     documentReconcileConflict,
     flushSuggestionDraft,
@@ -12224,10 +12272,7 @@ function PageEditorSessionBody({
                                 }
                                 suggesting={isSuggesting}
                                 localFileMode={isLocalFileDocument}
-                                privateImageUploads={
-                                  !isLocalFileDocument &&
-                                  !isGitHubSourceDocument
-                                }
+                                privateImageUploads={privateImageUploads}
                                 localFilePath={
                                   isLocalFileDocument
                                     ? document.source?.path
@@ -12322,6 +12367,7 @@ function PageEditorSessionBody({
                                 }
                                 primaryEditor={primaryEditor}
                                 primaryContent={exportContent}
+                                privateImageUploads={privateImageUploads}
                                 onFieldTabChange={
                                   blockFieldComments.onFieldTabChange
                                 }

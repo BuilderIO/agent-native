@@ -57,7 +57,7 @@ Given preferred styling fails, when rendering, then Mermaid fallback runs before
 
 ## Current evidence
 
-`app/blocks/contentBlockRegistry.tsx` is the Mermaid donor; `app/components/editor/extensions/CodeBlockNode.tsx` supplies Code identity. Fence mapping, SSR, accessibility, and export remain gaps.
+`app/components/editor/extensions/CodeBlockNode.tsx` keeps Code identity and draws `language = mermaid` blocks through `MermaidCodeBlockView.tsx`, which reuses the toolkit Mermaid renderer (Excalidraw style, then plain Mermaid, then source and error). At rest the block shows only the drawing; clicking it, or Enter on the selected block, opens the source above a live drawing, and Escape or Done closes it. Unreadable source stays open beside its error. `mermaid-code-block.spec.ts` covers the rest view, Enter and Escape, arrow selection, the error path, read-only drawing and the plain code fallback; `nfm-editor.roundtrip.test.ts` covers the fence round trip. Public pages turn drawing off and show source, so they never run it; a pinned static rendering for public pages and exports, and SSR, remain gaps.
 
 ## Proof plan
 
