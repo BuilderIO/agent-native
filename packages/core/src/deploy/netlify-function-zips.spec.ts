@@ -272,15 +272,11 @@ describe("assertNoFunctionsConfig", () => {
       path.join(root, "netlify.toml"),
       "[functions]\nnode_bundler='esbuild'\n",
     );
-    expect(() => assertNoFunctionsConfig(root)).toThrow(
-      /\[functions\] options/,
-    );
+    expect(() => assertNoFunctionsConfig(root)).toThrow(/functions options/);
     fs.writeFileSync(
       path.join(root, "netlify.toml"),
       "[functions.\"x\"]\nincluded_files=['a']\n",
     );
-    expect(() => assertNoFunctionsConfig(root)).toThrow(
-      /\[functions\] options/,
-    );
+    expect(() => assertNoFunctionsConfig(root)).toThrow(/functions options/);
   });
 });

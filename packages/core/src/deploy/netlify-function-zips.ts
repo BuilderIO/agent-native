@@ -173,9 +173,24 @@ export interface PreparedFunctionZip {
 export function assertNoFunctionsConfig(siteRoot: string): void {
   const tomlPath = path.join(siteRoot, "netlify.toml");
   if (!fs.existsSync(tomlPath)) return;
-  if (/^\s*\[(\[)?functions[\].]/m.test(fs.readFileSync(tomlPath, "utf-8"))) {
+  const unsupported = fs
+    .readFileSync(tomlPath, "utf-8")
+    .split("\n")
+    .map((line) => line.trim())
+    .some((line) => {
+      if (line.startsWith("#")) return false;
+      if (line.startsWith("[")) {
+        const segments = line
+          .replace(/^\[+|\]+\s*(#.*)?$/g, "")
+          .split(".")
+          .map((segment) => segment.trim().replace(/^["']|["']$/g, ""));
+        return segments.includes("functions");
+      }
+      return /^["']?functions["']?\s*[.=]/.test(line);
+    });
+  if (unsupported) {
     throw new Error(
-      `${tomlPath} sets [functions] options that the deterministic zip step does not apply; remove them or deploy with plain \`netlify deploy\``,
+      `${tomlPath} sets functions options (a [functions] table, a context-scoped one, or a functions key) that the deterministic zip step does not apply; remove them or deploy with plain \`netlify deploy\``,
     );
   }
 }

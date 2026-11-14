@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   assertStatusOutputEnabled,
+  createManifestWatcher,
   functionsDirOf,
   withPathDefaults,
 } from "./netlify-deploy.js";
@@ -57,5 +58,25 @@ describe("netlify-deploy status output", () => {
       /ignore the deterministic functions manifest/,
     );
     expect(() => assertStatusOutputEnabled(["--prod"])).not.toThrow();
+  });
+});
+
+describe("createManifestWatcher", () => {
+  it("finds a marker followed by lots of trailing output in one chunk", () => {
+    let stopped = 0;
+    const watcher = createManifestWatcher(() => stopped++);
+    watcher.push(
+      `Ignored invalid or expired functions cache\n${"x".repeat(500)}`,
+    );
+    expect(watcher.rejected).toMatch(/^Ignored/);
+    expect(stopped).toBe(1);
+  });
+
+  it("finds a marker split across chunks and a confirmation", () => {
+    const watcher = createManifestWatcher(() => {});
+    watcher.push("Deploying functions fr");
+    watcher.push("om cache (use --skip-functions-cache to override)\nmore");
+    expect(watcher.consumed).toBe(true);
+    expect(watcher.rejected).toBeUndefined();
   });
 });

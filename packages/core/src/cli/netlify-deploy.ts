@@ -67,6 +67,39 @@ export function functionsDirOf(args: string[]): string {
 }
 
 /**
+ * Scans the CLI's output for the status lines that say whether it used the
+ * manifest. The whole chunk is searched along with a carry-over of the previous
+ * one, so a marker is found wherever it falls and whatever follows it.
+ */
+export function createManifestWatcher(onRejected: () => void) {
+  const keep =
+    Math.max(
+      NETLIFY_MANIFEST_USED_MESSAGE.length,
+      ...NETLIFY_MANIFEST_REJECTED_MESSAGES.map((m) => m.length),
+    ) - 1;
+  let carry = "";
+  const state: { rejected?: string; consumed: boolean } = { consumed: false };
+  return {
+    get rejected() {
+      return state.rejected;
+    },
+    get consumed() {
+      return state.consumed;
+    },
+    push(text: string): void {
+      const window = carry + text;
+      carry = window.slice(-keep);
+      if (window.includes(NETLIFY_MANIFEST_USED_MESSAGE)) state.consumed = true;
+      if (state.rejected) return;
+      state.rejected = NETLIFY_MANIFEST_REJECTED_MESSAGES.find((m) =>
+        window.includes(m),
+      );
+      if (state.rejected) onRejected();
+    },
+  };
+}
+
+/**
  * `agent-native netlify-deploy [netlify deploy args]`: zips the workspace
  * functions deterministically and runs `netlify deploy` in the same command, so
  * the CLI reads the manifest well inside its TTL. Unchanged functions then keep
@@ -80,7 +113,7 @@ export async function runNetlifyDeploy(rawArgs: string[]): Promise<void> {
 
   const cli = findNetlifyCli();
   const { zipIt, version } = await loadCliZipIt(cli);
-  const { manifestPath, functions } = await prepareNetlifyFunctionZips({
+  const { functions } = await prepareNetlifyFunctionZips({
     siteRoot,
     functionsDir,
     zipIt,
@@ -100,28 +133,17 @@ export async function runNetlifyDeploy(rawArgs: string[]): Promise<void> {
       [cli.entryPoint, "deploy", ...deployArgs],
       { cwd: siteRoot, stdio: ["inherit", "pipe", "pipe"] },
     );
-    let rejected: string | undefined;
-    let consumed = false;
-    const watch = (stream: NodeJS.ReadableStream, sink: NodeJS.WriteStream) => {
-      let tail = "";
+    const watcher = createManifestWatcher(() => child.kill("SIGTERM"));
+    const watch = (stream: NodeJS.ReadableStream, sink: NodeJS.WriteStream) =>
       stream.on("data", (chunk: Buffer) => {
         sink.write(chunk);
-        tail = (tail + chunk.toString()).slice(
-          -(NETLIFY_MANIFEST_USED_MESSAGE.length * 2),
-        );
-        if (tail.includes(NETLIFY_MANIFEST_USED_MESSAGE)) consumed = true;
-        if (!rejected) {
-          rejected = NETLIFY_MANIFEST_REJECTED_MESSAGES.find((m) =>
-            tail.includes(m),
-          );
-          if (rejected) child.kill("SIGTERM");
-        }
+        watcher.push(chunk.toString());
       });
-    };
     watch(child.stdout, process.stdout);
     watch(child.stderr, process.stderr);
     child.on("error", reject);
     child.on("close", (code) => {
+      const { rejected, consumed } = watcher;
       if (rejected) {
         const reason = rejected.startsWith("Ignored")
           ? "manifest-expired netlify-cli discarded the manifest as invalid or older than its 2 minute TTL"
