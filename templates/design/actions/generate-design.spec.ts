@@ -298,7 +298,6 @@ import {
 } from "../../../packages/core/src/agent/production-agent.js";
 import { MAX_SANE_FRAME_DIMENSION_PX } from "../shared/responsive-frame-layout.js";
 import action from "./generate-design.js";
-
 function resetDesignDataMutation() {
   mocks.setDesignData({ concurrentSibling: { keep: true } });
   mocks.mutateDesignData.mockImplementation(
@@ -339,6 +338,14 @@ function setExistingFile(
     },
   ]);
 }
+
+export const placementTestFixtures = {
+  action,
+  mocks,
+  resetDesignDataMutation,
+  setExistingFile,
+  track,
+};
 
 describe("generate-design action tool schema", () => {
   const html = "<!doctype html><html><body>Hello</body></html>";
@@ -3758,46 +3765,6 @@ describe("generate-design: rejected input in the agent loop", () => {
   );
 
   it.each([
-    [
-      { fileId: "file-1", x: 100 },
-      { filename: "index.html", x: 200 },
-    ],
-    [
-      { filename: "index.html", x: 100 },
-      { fileId: "file-1", x: 200 },
-    ],
-  ])(
-    "rejects mixed references to the same screen before writes",
-    async (first, second) => {
-      setExistingFile("<html><body>Old screen</body></html>");
-
-      await expect(
-        action.run({
-          designId: "design-1",
-          prompt: "Add a screen",
-          files: [
-            {
-              filename: "new-screen.html",
-              fileType: "html",
-              content: "<main>New screen</main>",
-            },
-          ],
-          canvasFrames: [first, second],
-        }),
-      ).rejects.toMatchObject({
-        name: "NoWriteError",
-        noWrite: true,
-        message: expect.stringContaining("duplicates the target"),
-      });
-      expect.soft(mocks.insert).not.toHaveBeenCalled();
-      expect.soft(mocks.fileUpdateChain.set).not.toHaveBeenCalled();
-      expect.soft(mocks.seededCollabText.size).toBe(0);
-      expect.soft(mocks.snapshotDesignBeforeAgentEdit).not.toHaveBeenCalled();
-      expect.soft(mocks.mutateDesignData).not.toHaveBeenCalled();
-    },
-  );
-
-  it.each([
     ["a new filename", { filename: "new-screen.html" }, "new"],
     ["an existing filename", { filename: "index.html" }, "existing"],
     ["an existing fileId", { fileId: "file-1" }, "existing"],
@@ -3828,26 +3795,6 @@ describe("generate-design: rejected input in the agent loop", () => {
     expect(mocks.getDesignData().canvasFrames).toMatchObject({
       [fileId]: { x: 3000, y: 2400, width: 100, height: 100 },
     });
-  });
-
-  it("uses fileId precedence when checking mixed placements for duplicates", async () => {
-    setExistingFile("<html><body>Old screen</body></html>");
-    const result = await action.run({
-      designId: "design-1",
-      prompt: "Add a screen",
-      files: [
-        {
-          filename: "new-screen.html",
-          fileType: "html",
-          content: "<main>New screen</main>",
-        },
-      ],
-      canvasFrames: [
-        { fileId: "file-1", filename: "new-screen.html", x: 100 },
-        { filename: "new-screen.html", x: 200 },
-      ],
-    });
-    expect(result.savedFiles).toHaveLength(1);
   });
 
   it("lets a corrected call run after an unknown canvas frame is rejected", async () => {
