@@ -930,8 +930,8 @@ export interface MultiTabAssistantChatHeaderProps {
   closeAllTabs: () => void;
   clearActiveTab: () => void;
   /** Open the history popover */
-  showHistory?: boolean;
-  toggleHistory?: () => void;
+  showHistory?: boolean | undefined;
+  toggleHistory?: (() => void) | undefined;
   /** Number of open tabs (useful for triggering scroll on tab count change) */
   tabCount: number;
 }

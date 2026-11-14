@@ -134,6 +134,7 @@ const chatMocks = vi.hoisted(() => ({
   omitSnapshotPersistenceResult: false,
   snapshotPersistenceUnavailable: false,
   omitSuggestionsSlot: false,
+  dynamicSuggestionsLoading: false,
   runtime: { kind: "runtime" },
   transport: {
     kind: "transport",
@@ -737,6 +738,7 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => {
       return {
         suggestions: (options as { staticSuggestions?: string[] })
           .staticSuggestions,
+        isLoading: chatMocks.dynamicSuggestionsLoading,
       };
     },
     ExternalAgentNudge: () => null,
@@ -1130,6 +1132,7 @@ beforeEach(() => {
   chatMocks.omitSnapshotPersistenceResult = false;
   chatMocks.snapshotPersistenceUnavailable = false;
   chatMocks.omitSuggestionsSlot = false;
+  chatMocks.dynamicSuggestionsLoading = false;
   chatMocks.control.sendMessage.mockReset().mockResolvedValue(undefined);
   chatMocks.control.queueMessage.mockReset().mockResolvedValue(undefined);
   chatMocks.control.resolveConnectionRequest
@@ -3237,6 +3240,91 @@ describe("AgentKitAssistantChat host behavior", () => {
       ).toEqual([suggestion]);
     },
   );
+
+  it("wraps host suggestions onto more lines when asked", async () => {
+    seedFollowup();
+    await useRealComposer();
+    chatMocks.omitSuggestionsSlot = true;
+    await mount(baseProps({ suggestionLayout: "wrap" }));
+
+    const slot = container.querySelector(
+      "[data-agentkit-host-suggestions-slot]",
+    );
+    expect(slot?.getAttribute("data-agentkit-host-suggestions-layout")).toBe(
+      "wrap",
+    );
+    expect(
+      slot?.querySelector('[data-agent-suggestion-track="true"]')?.className,
+    ).toContain("flex-wrap");
+  });
+
+  describe("settling", () => {
+    it("says it has settled once its first suggestions are in", async () => {
+      chatMocks.dynamicSuggestionsLoading = true;
+      const onSettledChange = vi.fn();
+      const props = baseProps({
+        suggestionPlacement: "context-chips",
+        onSettledChange,
+      });
+      await mount(props);
+      expect(onSettledChange).toHaveBeenLastCalledWith(false);
+
+      chatMocks.dynamicSuggestionsLoading = false;
+      await act(async () => root.render(<AgentKitAssistantChat {...props} />));
+      expect(onSettledChange).toHaveBeenLastCalledWith(true);
+    });
+
+    it("waits for a restored thread", async () => {
+      chatMocks.history = { isRestoring: true };
+      const onSettledChange = vi.fn();
+      await mount(baseProps({ onSettledChange }));
+
+      expect(onSettledChange).toHaveBeenLastCalledWith(false);
+    });
+
+    it("waits to hear whether it can chat", async () => {
+      chatMocks.readiness = {
+        canChat: false,
+        missing: false,
+        state: "unknown",
+      };
+      const onSettledChange = vi.fn();
+      await mount(baseProps({ onSettledChange }));
+
+      expect(onSettledChange).toHaveBeenLastCalledWith(false);
+    });
+
+    it("does not wait for suggestions it shows only after the agent replies", async () => {
+      chatMocks.dynamicSuggestionsLoading = true;
+      const onSettledChange = vi.fn();
+      await mount(
+        baseProps({
+          suggestionPlacement: "context-chips",
+          suggestionVisibility: "after-agent-response",
+          onSettledChange,
+        }),
+      );
+
+      expect(onSettledChange).toHaveBeenLastCalledWith(true);
+    });
+
+    it("does not wait for suggestions it will not show", async () => {
+      chatMocks.dynamicSuggestionsLoading = true;
+      const onSettledChange = vi.fn();
+      await mount(
+        baseProps({ suggestionPlacement: "hidden", onSettledChange }),
+      );
+
+      expect(onSettledChange).toHaveBeenLastCalledWith(true);
+    });
+
+    it("leaves it to the chat in view", async () => {
+      const onSettledChange = vi.fn();
+      await mount(baseProps({ isActiveComposer: false, onSettledChange }));
+
+      expect(onSettledChange).not.toHaveBeenCalled();
+    });
+  });
 
   it("disables host suggestions while async submission is pending", async () => {
     const suggestion = seedFollowup();

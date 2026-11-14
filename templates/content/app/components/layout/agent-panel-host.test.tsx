@@ -16,19 +16,39 @@ import {
 ).IS_REACT_ACT_ENVIRONMENT = true;
 
 let panelHost: HTMLElement | null | undefined;
+let panelHeadHost: HTMLElement | null | undefined;
 
 function Shell({ children }: { children: ReactNode }) {
-  const { host, panelHost: element } = useAgentPanelHost();
+  const {
+    host,
+    panelHost: element,
+    panelHeadHost: headElement,
+  } = useAgentPanelHost();
   panelHost = element;
+  panelHeadHost = headElement;
   return (
     <AgentPanelHostProvider value={host}>{children}</AgentPanelHostProvider>
   );
 }
 
-function Page({ id, enabled = true }: { id: string; enabled?: boolean }) {
+function Page({
+  id,
+  enabled = true,
+  head = false,
+}: {
+  id: string;
+  enabled?: boolean;
+  head?: boolean;
+}) {
   const slot = useRef<HTMLDivElement>(null);
-  const shown = useAgentPanelSlot(slot, enabled);
-  return <div ref={slot} data-slot={id} data-shown={String(shown)} />;
+  const headSlot = useRef<HTMLDivElement>(null);
+  const shown = useAgentPanelSlot(slot, enabled, head ? headSlot : undefined);
+  return (
+    <>
+      {head ? <div ref={headSlot} data-head-slot={id} /> : null}
+      <div ref={slot} data-slot={id} data-shown={String(shown)} />
+    </>
+  );
 }
 
 function Skeleton() {
@@ -45,9 +65,12 @@ describe("the agent's panel host", () => {
 
   const slot = (id: string) =>
     container.querySelector<HTMLElement>(`[data-slot="${id}"]`);
+  const headSlot = (id: string) =>
+    container.querySelector<HTMLElement>(`[data-head-slot="${id}"]`);
 
   beforeEach(() => {
     panelHost = undefined;
+    panelHeadHost = undefined;
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
@@ -61,6 +84,7 @@ describe("the agent's panel host", () => {
   it("leaves the chat to the shell's sidebar while no page holds it", () => {
     render(null);
     expect(panelHost).toBeUndefined();
+    expect(panelHeadHost).toBeUndefined();
   });
 
   it("puts the chat in a page's slot", () => {
@@ -77,6 +101,32 @@ describe("the agent's panel host", () => {
     render(<Page key="two" id="two" />);
     expect(panelHost).toBe(element);
     expect(element?.parentElement).toBe(slot("two"));
+  });
+
+  it("puts the chat's tools in the head of a page's panel", () => {
+    render(<Page id="one" head />);
+    expect(panelHeadHost).toBeInstanceOf(HTMLElement);
+    expect(panelHeadHost).not.toBe(panelHost);
+    expect(panelHeadHost?.parentElement).toBe(headSlot("one"));
+    expect(panelHost?.parentElement).toBe(slot("one"));
+  });
+
+  it("moves the same tools between pages along with the chat", () => {
+    render(<Page key="one" id="one" head />);
+    const element = panelHeadHost;
+
+    render(<Page key="two" id="two" head />);
+    expect(panelHeadHost).toBe(element);
+    expect(element?.parentElement).toBe(headSlot("two"));
+  });
+
+  it("leaves the tools out of a page whose panel has no head for them", () => {
+    render(<Page key="one" id="one" head />);
+    const element = panelHeadHost;
+
+    render(<Page key="two" id="two" />);
+    expect(panelHost?.parentElement).toBe(slot("two"));
+    expect(element?.parentElement).toBeNull();
   });
 
   it("holds the chat through a loading page", () => {

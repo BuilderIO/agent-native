@@ -2886,17 +2886,19 @@ const AgentKitAssistantChatBody = forwardRef<
     () => props.suggestions?.map(agentSuggestionPrompt),
     [props.suggestions],
   );
-  const { suggestions: dynamicSuggestionPrompts } =
-    useAgentDynamicSuggestionsResult({
-      staticSuggestions: staticSuggestionPrompts,
-      dynamicSuggestions: props.dynamicSuggestions,
-      browserTabId: props.browserTabId,
-      scope: props.contextScope,
-      enabled:
-        canChat &&
-        thread.messages.length === 0 &&
-        Object.keys(thread.runs).length === 0,
-    });
+  const {
+    suggestions: dynamicSuggestionPrompts,
+    isLoading: dynamicSuggestionsLoading,
+  } = useAgentDynamicSuggestionsResult({
+    staticSuggestions: staticSuggestionPrompts,
+    dynamicSuggestions: props.dynamicSuggestions,
+    browserTabId: props.browserTabId,
+    scope: props.contextScope,
+    enabled:
+      canChat &&
+      thread.messages.length === 0 &&
+      Object.keys(thread.runs).length === 0,
+  });
   const isInitialThread =
     thread.messages.length === 0 && Object.keys(thread.runs).length === 0;
   const suggestions = isInitialThread
@@ -2911,6 +2913,22 @@ const AgentKitAssistantChatBody = forwardRef<
     !isSubmissionInFlight &&
     !isRunning &&
     (!isInitialThread || props.suggestionVisibility !== "after-agent-response");
+  // Settled once the restored thread, the engine's answer and a new chat's
+  // first suggestions, where it shows them, are all in, so a host can reveal
+  // them together.
+  const waitsForFirstSuggestions =
+    isInitialThread &&
+    props.suggestionPlacement !== "hidden" &&
+    props.suggestionVisibility !== "after-agent-response";
+  const settled =
+    !isRestoring &&
+    providerStatus !== "unknown" &&
+    !(waitsForFirstSuggestions && dynamicSuggestionsLoading);
+  const onSettledChange = props.onSettledChange;
+  const reportsSettled = props.isActiveComposer !== false;
+  useEffect(() => {
+    if (reportsSettled) onSettledChange?.(settled);
+  }, [onSettledChange, reportsSettled, settled]);
 
   const clearPendingSelection = useCallback(() => {
     const selectionRevision = ++selectionRevisionRef.current;
@@ -5906,6 +5924,9 @@ function AgentKitComposerSurface({
         <div
           className="agentkit-host-suggestions-slot"
           data-agentkit-host-suggestions-slot="true"
+          data-agentkit-host-suggestions-layout={
+            props.suggestionLayout === "wrap" ? "wrap" : undefined
+          }
         >
           {showSuggestions && suggestions.length > 0 ? (
             <AgentKitSuggestedPrompts
@@ -5919,7 +5940,7 @@ function AgentKitComposerSurface({
               }
               onSelect={submitSuggestion}
               className="agentkit-host-suggestions"
-              layout="single-line"
+              layout={props.suggestionLayout ?? "single-line"}
             />
           ) : null}
         </div>

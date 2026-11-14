@@ -3556,6 +3556,23 @@
     padding-block: 0;
   }
 
+  /* Wrapped, the row grows a line for each line of chips instead of cutting
+     the last one off, and keeps at least the one-line height. */
+  .agentkit-host-suggestions-slot[data-agentkit-host-suggestions-layout="wrap"] {
+    block-size: auto;
+    min-block-size: 3.5rem;
+  }
+
+  .agentkit-host-suggestions-slot[data-agentkit-host-suggestions-layout="wrap"]
+    [data-agent-suggestion-scroller="true"] {
+    block-size: auto;
+  }
+
+  .agentkit-host-suggestions-slot[data-agentkit-host-suggestions-layout="wrap"]
+    [data-agent-suggestion-track="true"] {
+    max-inline-size: 100%;
+  }
+
   .agentkit-composer-stack [data-agent-composer-slot="area"],
   .agentkit-composer-stack [data-agent-composer-slot="workflow"],
   .agentkit-composer-stack [data-agent-composer-slot="root"],

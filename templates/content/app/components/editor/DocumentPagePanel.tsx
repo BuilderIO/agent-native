@@ -23,6 +23,7 @@ export function DocumentPagePanel({
   spacerRef,
   headingRef,
   agentSlotRef,
+  agentHeadSlotRef,
   panelId = DOCUMENT_PAGE_PANEL_ID,
   onClose,
   children,
@@ -36,6 +37,8 @@ export function DocumentPagePanel({
   spacerRef: RefObject<HTMLDivElement | null>;
   headingRef: RefObject<HTMLHeadingElement | null>;
   agentSlotRef?: RefObject<HTMLDivElement | null> | undefined;
+  /** Where the agent puts its chat picker, New chat and Chat history. */
+  agentHeadSlotRef?: RefObject<HTMLDivElement | null> | undefined;
   panelId?: string | undefined;
   onClose: () => void;
   children: ReactNode;
@@ -48,6 +51,9 @@ export function DocumentPagePanel({
       : tab === "info"
         ? t("editor.toolbar.info")
         : t("comments.discussion");
+  // The agent's chat picker stands in for the title, which stays for screen
+  // readers and as the place a key puts focus.
+  const agentHead = tab === "agent" && Boolean(agentHeadSlotRef);
 
   return (
     <>
@@ -101,10 +107,23 @@ export function DocumentPagePanel({
           <h2
             ref={headingRef}
             tabIndex={-1}
-            className="min-w-0 truncate text-sm font-semibold outline-none"
+            className={cn(
+              "min-w-0 truncate text-sm font-semibold outline-none",
+              agentHead && "sr-only",
+            )}
           >
             {title}
           </h2>
+          {agentHeadSlotRef ? (
+            <div
+              ref={agentHeadSlotRef}
+              className={cn(
+                "-ms-1.5 min-w-0 flex-1 items-center",
+                agentHead ? "flex" : "hidden",
+              )}
+              data-document-panel-agent-head
+            />
+          ) : null}
           <button
             type="button"
             className="ms-auto flex size-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
