@@ -1,3 +1,4 @@
+import { useIsMcpAppWidgetEmbed } from "@agent-native/core/client/mcp-app-host";
 import type {
   ContentDatabaseItem,
   ContentDatabaseSource,
@@ -481,6 +482,7 @@ function DatabaseTimelineCard({
   onOpenPage: () => void;
 }) {
   const visibleProperties = properties.slice(0, 2);
+  const inWidget = useIsMcpAppWidgetEmbed();
 
   return (
     <div
@@ -534,7 +536,7 @@ function DatabaseTimelineCard({
             </span>
           ) : null}
         </div>
-        {databaseItemHasRowMenu(item, canEdit) ? (
+        {databaseItemHasRowMenu(item, canEdit, inWidget) ? (
           <RowActionsCell
             item={item}
             databaseDocumentId={databaseDocumentId}

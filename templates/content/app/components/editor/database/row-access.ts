@@ -24,11 +24,14 @@ export function databaseItemHasViewerAccess(item: ContentDatabaseItem) {
 // Without edit access the menu holds only Open page, Copy link and Comment,
 // which all need a page the reader can open. Rows in a source's attach preview
 // aren't pages yet, and a collection can list rows whose pages it doesn't share.
+// An MCP App widget's session is scoped to the widget's own resource, so it
+// gives readers no menu, as its page toolbar gives no page menu.
 export function databaseItemHasRowMenu(
   item: ContentDatabaseItem,
   canEditDatabase: boolean,
+  inWidget: boolean,
 ) {
-  return canEditDatabase || databaseItemHasViewerAccess(item);
+  return canEditDatabase || (!inWidget && databaseItemHasViewerAccess(item));
 }
 
 export function databaseItemCanDuplicate(

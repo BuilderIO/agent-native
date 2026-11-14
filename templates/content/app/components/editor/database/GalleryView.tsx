@@ -1,3 +1,4 @@
+import { useIsMcpAppWidgetEmbed } from "@agent-native/core/client/mcp-app-host";
 import type { ContentDatabaseItem, DocumentProperty } from "@shared/api";
 import { IconLayoutGrid, IconPlus } from "@tabler/icons-react";
 import { useRef, useState } from "react";
@@ -253,6 +254,7 @@ function DatabaseGalleryCard({
   onOpenPage: () => void;
 }) {
   const visibleProperties = properties.slice(0, 4);
+  const inWidget = useIsMcpAppWidgetEmbed();
 
   return (
     <div
@@ -305,7 +307,7 @@ function DatabaseGalleryCard({
           </span>
         ) : null}
       </div>
-      {databaseItemHasRowMenu(item, canEdit) ? (
+      {databaseItemHasRowMenu(item, canEdit, inWidget) ? (
         <div className="flex justify-end border-t border-border/70 px-2 py-1">
           <RowActionsCell
             item={item}

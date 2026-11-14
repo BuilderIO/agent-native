@@ -94,9 +94,12 @@ describe("database row access", () => {
       } as ContentDatabaseItem["document"],
     });
 
-    expect(databaseItemHasRowMenu(visibleItem, false)).toBe(true);
-    expect(databaseItemHasRowMenu(item(), false)).toBe(false);
-    expect(databaseItemHasRowMenu(item(), true)).toBe(true);
+    expect(databaseItemHasRowMenu(visibleItem, false, false)).toBe(true);
+    expect(databaseItemHasRowMenu(item(), false, false)).toBe(false);
+    expect(databaseItemHasRowMenu(item(), true, false)).toBe(true);
+    // A widget gives readers no menu, but leaves an editor theirs.
+    expect(databaseItemHasRowMenu(visibleItem, false, true)).toBe(false);
+    expect(databaseItemHasRowMenu(item(), true, true)).toBe(true);
   });
 
   it("offers duplication only for visible non-workspace pages", () => {

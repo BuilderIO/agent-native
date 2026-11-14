@@ -1,3 +1,4 @@
+import { useIsMcpAppWidgetEmbed } from "@agent-native/core/client/mcp-app-host";
 import type {
   ContentDatabaseItem,
   ContentDatabaseItemLayout,
@@ -350,7 +351,8 @@ function DatabaseListRow({
   onPreview: () => void;
   onOpenPage: () => void;
 }) {
-  const actions = databaseItemHasRowMenu(item, canEdit) ? (
+  const inWidget = useIsMcpAppWidgetEmbed();
+  const actions = databaseItemHasRowMenu(item, canEdit, inWidget) ? (
     <RowActionsCell
       item={item}
       databaseDocumentId={databaseDocumentId}
