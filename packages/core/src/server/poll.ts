@@ -1197,7 +1197,10 @@ export class AppSyncState {
     );
     // An answer counts only while this batch still owns the resource's
     // check. Past the deadline a newer check may have answered since, and a
-    // late answer must not overwrite it.
+    // late answer must not overwrite it. Once it counts, the batch lets the
+    // resource go: the batch's deadline no longer counts against it, even if
+    // the cache drops the answer, and a read can check it again without
+    // waiting for the rest of the batch.
     const cacheUnlessInvalidated = (resourceId: string, allowed: boolean) => {
       const key = keys.get(resourceId);
       const epoch =
@@ -1207,6 +1210,7 @@ export class AppSyncState {
       if (!key || epoch !== epochs.get(resourceId)) return;
       if (this.accessInFlight.get(key) !== check) return;
       this.setAccessCache(key, allowed, Date.now());
+      this.endAccessCheck(key, check);
     };
     const ids = [...keys.keys()];
     const answeredIds = new Set<string>();
@@ -1274,7 +1278,6 @@ export class AppSyncState {
    * always finds it there.
    */
   private trackAccessCheck(keys: string[], work: Promise<void>): Promise<void> {
-    const startedAt = Date.now();
     const check: Promise<void> = Promise.resolve().then(async () => {
       let timer: ReturnType<typeof setTimeout> | undefined;
       let timedOut = false;
@@ -1292,9 +1295,10 @@ export class AppSyncState {
       } finally {
         clearTimeout(timer);
         for (const key of keys) {
-          // A key the check still owns wasn't invalidated meanwhile.
+          // A key the check still owns was neither answered nor invalidated
+          // meanwhile.
           if (timedOut && this.accessInFlight.get(key) === check) {
-            this.noteAccessTimeout(key, startedAt);
+            this.noteAccessTimeout(key);
           }
           this.endAccessCheck(key, check);
         }
@@ -1305,13 +1309,11 @@ export class AppSyncState {
   }
 
   /**
-   * Counts a missed deadline for `key`, unless its check answered it before
-   * running out of time. At ACCESS_CHECK_TIMEOUTS_MAX in a row, caches a
-   * denial, so reads pass its change instead of checking it on every poll.
+   * Counts a missed deadline for `key`. At ACCESS_CHECK_TIMEOUTS_MAX in a row,
+   * caches a denial, so reads pass its change instead of checking it on every
+   * poll.
    */
-  private noteAccessTimeout(key: string, startedAt: number): void {
-    const cached = this.accessCache.get(key);
-    if (cached && cached.checkedAt >= startedAt) return;
+  private noteAccessTimeout(key: string): void {
     const missed = (this.accessTimeouts.get(key) ?? 0) + 1;
     this.accessTimeouts.delete(key);
     if (missed >= ACCESS_CHECK_TIMEOUTS_MAX) {

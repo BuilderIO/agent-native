@@ -690,6 +690,8 @@ describe("AppSyncState read through other people's resources", () => {
     expect(visibility()).toBe("pending");
     await vi.advanceTimersByTimeAsync(30_000);
     expect(visibility()).toBe("pending");
+    // A check asks its resolver on the next microtask.
+    await vi.advanceTimersByTimeAsync(0);
     expect(resolveAccess).toHaveBeenCalledTimes(4);
   });
 
@@ -717,51 +719,61 @@ describe("AppSyncState read through other people's resources", () => {
     expect(visibility()).toBe("pending");
     await vi.advanceTimersByTimeAsync(30_000);
     expect(visibility()).toBe("pending");
+    // A check asks its resolver on the next microtask.
+    await vi.advanceTimersByTimeAsync(0);
     expect(resolveAccess).toHaveBeenCalledTimes(4);
   });
 
-  it("counts no missed deadline for a resource its batch answered in time", async () => {
+  it("counts no missed deadline for a resource its batch answered, once the cache drops the answer", async () => {
     vi.useFakeTimers();
     const never = () => new Promise(() => {});
     // "b" is answered once; its later checks never answer, nor do any of "a".
+    // Every other document is shared with the reader.
     const checkB = vi.fn().mockResolvedValueOnce(viewerOf("b"));
     checkB.mockImplementation(never);
     const resolveAccess = vi.fn((_type: string, id: string) =>
-      id === "a" ? never() : checkB(),
+      id === "a"
+        ? never()
+        : id === "b"
+          ? checkB()
+          : Promise.resolve(viewerOf(id)),
     );
     const rows = durableRows([
       { resourceType: "document", resourceId: "a" },
       { resourceType: "document", resourceId: "b" },
     ]);
-    const state = stateReading(rows, {
-      resolveAccess,
-      accessAllowTtlMs: 1_000,
-    });
-    const visibilityOfB = () =>
+    const state = stateReading(rows, { resolveAccess });
+    const visibilityOf = (resourceId: string) =>
       state.getChangeVisibilityForUser(
-        {
-          owner: "writer@example.com",
-          resourceType: "document",
-          resourceId: "b",
-        },
+        { owner: "writer@example.com", resourceType: "document", resourceId },
         "reader@example.com",
         undefined,
       );
 
-    // One batch checks both. It answers "b", then misses its deadline on "a".
+    // One batch checks both. It answers "b" and keeps waiting on "a".
     await state.getDurableChangesSinceForUser(
       5,
       "reader@example.com",
       undefined,
       { version: 5, id: "" },
     );
+    await vi.advanceTimersByTimeAsync(0);
+    // Answers about 5,000 other documents fill the cache, which drops the
+    // oldest answer, about "b".
+    for (let i = 0; i < 5_000; i++) visibilityOf(`other-${i}`);
+    await vi.advanceTimersByTimeAsync(0);
+    expect(visibilityOf("other-0")).toBe("visible");
+
+    // The batch misses its deadline on "a". "b" isn't cached any more, and
+    // its next check never answers.
     await vi.advanceTimersByTimeAsync(30_000);
-    // The answer about "b" is stale now, and its next check never answers.
-    expect(visibilityOfB()).toBe("pending");
+    expect(visibilityOf("b")).toBe("pending");
     await vi.advanceTimersByTimeAsync(30_000);
     // That is the first deadline a check of "b" missed, so "b" is checked
     // again instead of hidden.
-    expect(visibilityOfB()).toBe("pending");
+    expect(visibilityOf("b")).toBe("pending");
+    // A check asks its resolver on the next microtask.
+    await vi.advanceTimersByTimeAsync(0);
     expect(checkB).toHaveBeenCalledTimes(3);
   });
 
