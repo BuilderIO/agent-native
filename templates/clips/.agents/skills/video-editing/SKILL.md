@@ -167,7 +167,7 @@ The player team may have its own copy of some of these. If so, consolidate on
 | -------------------- | ---------------------------------------- | ------------------------------------------------- |
 | `set-thumbnail`      | `thumbnailUrl` / `animatedThumbnailUrl` / `editsJson.thumbnail` | Three modes: upload / frame / gif |
 | `set-chapters`       | `chaptersJson`                           | Overwrites the chapter array                      |
-| `stitch-recordings`  | new `recordings` row                     | Insert as `processing`; server job concats + uploads |
+| `stitch-recordings`  | new `recordings` row                     | Insert as `processing` with a durable job; the worker concats + uploads |
 | `set-recording-trims` | `editsJson.trims`                       | Replaces the list; needs `expectedRevision` from `recording.trimsRevision`, and returns `save_conflict` with the current trims if they moved |
 | `undo-edit`          | `editsJson.trims`                        | Pop the last excluded range (no redo)             |
 | `clear-edits`        | `editsJson`                              | Reset to defaults (chapters/thumbnailUrl kept)    |
@@ -223,19 +223,31 @@ Flow:
 
 1. `stitch-manager.tsx` collects the ordered list of source recordings and
    calls `stitch-recordings` without a `videoUrl`.
-2. The action checks the caller owns every source, inserts the new row with
-   `status: "processing"` and `editsJson.stitchedFrom`, returns its id, and
-   starts `server/lib/stitch-job.ts` in the background. The user may close
-   the tab.
-3. The job streams each source to a temp dir, ffprobes them and concatenates:
-   `-c copy` with the concat demuxer when every source is an H.264/HEVC + AAC
-   MP4 with the same codec, profile, size, pixel format and audio layout;
-   otherwise a libx264/AAC re-encode scaled and padded to the largest size
-   (`-threads 4`). Missing audio becomes silence.
-4. The MP4 goes up in parts through the storage provider's multipart upload,
-   then the row turns `ready` (thumbnail + transcript dispatched as after
-   finalize) or `failed` with a short `failureReason`. On server start,
-   stitch rows still `processing` after 2 hours are marked failed.
+2. The action checks the caller owns every source and that the server has
+   room (at most 3 queued or running stitches per person, 25 in all), then in
+   one transaction inserts the new row with `status: "processing"`,
+   `storageMode: "own"` and `editsJson.stitchedFrom` plus a
+   `clips_stitch_jobs` row, and dispatches the `stitch` post-finalize job (a
+   durable background function on serverless hosts). The user may close the
+   tab. Without own video storage (hosted Clips storage) or ffmpeg, the editor
+   falls back to the browser stitch.
+3. The worker claims the job with a 5-minute lease it renews while it works
+   (at most 2 stitches run at once). A worker that dies leaves the lease to
+   run out; the recovery sweep (`server/plugins/stitch-job-recovery.ts`)
+   dispatches the job again, up to 3 attempts, then marks it failed. Settling
+   writes check the lease token, so a late worker cannot overwrite the result.
+4. The job streams each source to a temp dir (per-source and total byte
+   limits, stall and time limits), ffprobes them and concatenates: `-c copy`
+   with the concat demuxer when every source is an H.264/HEVC + AAC MP4 with
+   the same codec, profile, size, pixel format and audio layout; otherwise a
+   libx264/AAC re-encode scaled and padded to the largest size
+   (`-threads 4`). The re-encode keeps each source's audio offset against its
+   video (late audio is delayed, early audio trimmed). Missing audio becomes
+   silence.
+5. The MP4 goes up in parts through the destination recording's provider
+   (each part with a timeout), then the row turns `ready` (thumbnail +
+   transcript dispatched as after finalize) or `failed` with a short
+   `failureReason`.
 
 Passing an already-combined `videoUrl` still creates the row `ready` at once.
 

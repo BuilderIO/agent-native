@@ -1,34 +1,46 @@
 /**
- * Server stitches run in this process (server/lib/stitch-job.ts), so a
- * restart drops any that were running. Shortly after start, stitched
- * recordings still `processing` after two hours are marked failed instead of
- * spinning forever. The sweep repeats every 30 minutes, so a stitch dropped
- * by a deploy does not wait for the next restart to be cleaned up.
+ * Recovers server stitches (server/lib/stitch-job.ts): dispatches queued
+ * stitches and stitches whose worker died once their lease ran out, and fails
+ * those that ran out of attempts. Serverless hosts run it on the recurring
+ * sweep tick; long-lived servers, which do not run that tick, every minute.
  */
-import { defineNitroPlugin } from "@agent-native/core/server";
+import {
+  defineNitroPlugin,
+  registerRecurringSweepHandler,
+} from "@agent-native/core/server";
 
-import { failStaleStitchJobs } from "../lib/stitch-job.js";
+import { recoverStitchJobs } from "../lib/stitch-job.js";
 
 const STARTUP_DELAY_MS = 30_000;
-const SWEEP_INTERVAL_MS = 30 * 60_000;
+const SWEEP_INTERVAL_MS = 60_000;
 
-function sweep(): void {
-  failStaleStitchJobs()
-    .then((count) => {
-      if (count > 0) {
-        console.log(`[stitch-job] marked ${count} stale stitch(es) failed`);
-      }
-    })
-    .catch((error: unknown) => {
-      console.warn("[stitch-job] stale stitch recovery failed", {
-        error: error instanceof Error ? error.message : String(error),
-      });
+let inFlight = false;
+
+async function sweep(): Promise<void> {
+  if (inFlight) return;
+  inFlight = true;
+  try {
+    const { dispatched, failed } = await recoverStitchJobs();
+    if (dispatched > 0 || failed > 0) {
+      console.log("[stitch-job] recovery sweep", { dispatched, failed });
+    }
+  } catch (error: unknown) {
+    console.warn("[stitch-job] recovery sweep failed", {
+      error: error instanceof Error ? error.message : String(error),
     });
+  } finally {
+    inFlight = false;
+  }
 }
 
 export default defineNitroPlugin(() => {
-  const timer = setTimeout(sweep, STARTUP_DELAY_MS);
+  registerRecurringSweepHandler("clips-stitch-jobs", async () => {
+    await recoverStitchJobs();
+  });
+  const timer = setTimeout(() => {
+    void sweep();
+    const interval = setInterval(() => void sweep(), SWEEP_INTERVAL_MS);
+    interval.unref();
+  }, STARTUP_DELAY_MS);
   timer.unref();
-  const interval = setInterval(sweep, SWEEP_INTERVAL_MS);
-  interval.unref();
 });

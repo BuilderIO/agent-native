@@ -12,6 +12,7 @@ const mockDispatchPostFinalizeJob = vi.hoisted(() => vi.fn());
 const mockRunWithRequestContext = vi.hoisted(() => vi.fn());
 const mockVerifyShortLivedToken = vi.hoisted(() => vi.fn());
 const mockRunLoomImportJob = vi.hoisted(() => vi.fn());
+const mockRunDurableStitchJob = vi.hoisted(() => vi.fn());
 const mockFinalizeRun = vi.hoisted(() => vi.fn());
 const mockFinalizeEndedMeetingsForRecording = vi.hoisted(() => vi.fn());
 const mockEnsureRecordingThumbnail = vi.hoisted(() => vi.fn());
@@ -138,6 +139,10 @@ vi.mock("../../../db/index.js", () => ({
 
 vi.mock("../../../../actions/lib/loom-import-job.js", () => ({
   runLoomImportJob: (...args: unknown[]) => mockRunLoomImportJob(...args),
+}));
+
+vi.mock("../../../lib/stitch-job.js", () => ({
+  runDurableStitchJob: (...args: unknown[]) => mockRunDurableStitchJob(...args),
 }));
 
 vi.mock("../../../lib/post-finalize-dispatch.js", async (original) => ({
@@ -417,6 +422,44 @@ describe("post-finalize worker", () => {
       ownerEmail: "owner@example.test",
       claimId: expect.any(String),
     });
+  });
+
+  it("runs a stitch through its durable job for a processing recording", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "stitch",
+      token: "valid-token",
+    });
+    mockRunDurableStitchJob.mockResolvedValue({ status: "ready" });
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: true,
+      recordingId: "rec-1",
+      kind: "stitch",
+      result: { status: "ready" },
+    });
+    expect(mockRunDurableStitchJob).toHaveBeenCalledWith("rec-1");
+    expect(mockRunWithRequestContext).toHaveBeenCalledWith(
+      { userEmail: "owner@example.test", orgId: "org-1" },
+      expect.any(Function),
+    );
+  });
+
+  it("skips a stitch whose recording is no longer processing", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "stitch",
+      token: "valid-token",
+    });
+    mockRecordingWithStatus("ready");
+
+    await expect(handler({} as any)).resolves.toMatchObject({
+      ok: true,
+      kind: "stitch",
+      skipped: true,
+      reason: "recording-ready",
+    });
+    expect(mockRunDurableStitchJob).not.toHaveBeenCalled();
   });
 
   it("does not claim a taken-down Loom import", async () => {

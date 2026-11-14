@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 
 import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
+import { getActiveFileUploadProviderForRequest } from "@agent-native/core/file-upload";
 import { getRequestOrgId } from "@agent-native/core/server";
 import { z } from "zod";
 
@@ -13,12 +14,18 @@ import {
   getDefaultRecordingVisibility,
 } from "../server/lib/recordings.js";
 import { isS3ObjectUrlBoundToRecording } from "../server/lib/s3-upload-provider.js";
-// Without a videoUrl the server combines the clips.
 import {
+  assertStitchCapacity,
+  insertStitchJob,
+  StitchQueueFullError,
+} from "../server/lib/stitch-job-store.js";
+// Without a videoUrl the server combines the clips in a durable job.
+import {
+  dispatchStitchJob,
   isFfprobeAvailable,
   loadOwnedStitchSources,
   parseSourceRecordingIds,
-  startStitchJob,
+  StitchLimitError,
 } from "../server/lib/stitch-job.js";
 import { isFfmpegAvailable } from "../server/lib/video-remux.js";
 
@@ -70,11 +77,30 @@ export default defineAction({
     }
 
     const ids = parseSourceRecordingIds(args.sourceRecordingIds);
-    const ordered = await loadOwnedStitchSources(ids, ownerEmail);
+    // The size limits bound what the server downloads; a stitch combined in
+    // the browser (videoUrl) downloads nothing here.
+    const ordered = await loadOwnedStitchSources(ids, ownerEmail, {
+      checkSizes: !videoUrl,
+    }).catch((error: unknown) => {
+      if (!(error instanceof StitchLimitError)) throw error;
+      fail(error.message, { errorCode: "stitch_too_large", statusCode: 413 });
+    });
     if (!videoUrl && (!isFfmpegAvailable() || !isFfprobeAvailable())) {
       fail(
         "Recordings are combined with ffmpeg, which is not available on this server.",
         { errorCode: "stitch_ffmpeg_unavailable", statusCode: 424 },
+      );
+    }
+    // The stitched video is saved with the destination's own provider, which
+    // the job resolves again from the recording's storage mode. Hosted Clips
+    // storage keeps the browser stitch, as before.
+    const storageProvider = videoUrl
+      ? null
+      : await getActiveFileUploadProviderForRequest();
+    if (!videoUrl && !storageProvider) {
+      fail(
+        "Combining recordings on the server needs your own video storage, which is not available on this server.",
+        { errorCode: "stitch_storage_unavailable", statusCode: 424 },
       );
     }
     const organizationId = ordered[0].organizationId;
@@ -108,7 +134,7 @@ export default defineAction({
     edits.stitchedFrom = ids;
     edits.mediaStorageLayout = "external";
 
-    await db.insert(schema.recordings).values({
+    const recordingValues = {
       id,
       organizationId,
       orgId: organizationId,
@@ -131,7 +157,38 @@ export default defineAction({
       // A server stitch gets its own thumbnail once the video is ready.
       thumbnailUrl: videoUrl ? (ordered[0].thumbnailUrl ?? null) : null,
       thumbnailStatus: videoUrl ? undefined : "pending",
-    } as any);
+      ...(videoUrl ? {} : { storageMode: "own" }),
+    } as any;
+
+    if (videoUrl) {
+      await db.insert(schema.recordings).values(recordingValues);
+    } else {
+      // The recording and its job are one unit: a recording left processing
+      // without a job row would never be picked up.
+      try {
+        await db.transaction(async (tx) => {
+          await assertStitchCapacity(ownerEmail, tx);
+          await tx.insert(schema.recordings).values(recordingValues);
+          await insertStitchJob(
+            {
+              recordingId: id,
+              ownerEmail,
+              orgId: getRequestOrgId() ?? organizationId ?? null,
+              sourceRecordingIds: ids,
+              storageProviderId: storageProvider?.id ?? null,
+            },
+            tx,
+          );
+        });
+      } catch (error) {
+        if (!(error instanceof StitchQueueFullError)) throw error;
+        fail(error.message, {
+          errorCode: "stitch_queue_full",
+          statusCode: 429,
+          details: { scope: error.scope },
+        });
+      }
+    }
 
     if (videoUrl && !ordered[0].thumbnailUrl) {
       await dispatchPostFinalizeJob({
@@ -143,9 +200,8 @@ export default defineAction({
 
     if (!videoUrl) {
       // The upload state is only a progress hint for the UI; the recording
-      // row is the source of truth. Write it before the job starts, so a fast
-      // job failure (which writes "failed") always lands after it, and never
-      // let it block the job: the row is committed and must get its job.
+      // row is the source of truth. Write it before the job is dispatched, so
+      // a fast job failure (which writes "failed") always lands after it.
       await writeAppState(`recording-upload-${id}`, {
         recordingId: id,
         status: "processing",
@@ -158,14 +214,24 @@ export default defineAction({
           error: error instanceof Error ? error.message : String(error),
         });
       });
-      startStitchJob({
-        recordingId: id,
-        ownerEmail,
-        orgId: getRequestOrgId() ?? organizationId,
-        sourceRecordingIds: ids,
+      // The job row is committed: when this dispatch is lost, the recovery
+      // sweep dispatches the job, so a failure here must not fail the action.
+      await dispatchStitchJob(id).catch((error: unknown) => {
+        console.warn("[stitch-recordings] stitch dispatch failed", {
+          recordingId: id,
+          error: error instanceof Error ? error.message : String(error),
+        });
       });
     }
-    await writeAppState("refresh-signal", { ts: Date.now() });
+    // Only a hint for open lists; the recording already exists.
+    await writeAppState("refresh-signal", { ts: Date.now() }).catch(
+      (error: unknown) => {
+        console.warn("[stitch-recordings] refresh signal failed", {
+          recordingId: id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      },
+    );
 
     console.log(
       `Created stitched recording ${id} from ${ids.length} sources (${totalDuration}ms)`,

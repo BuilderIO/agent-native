@@ -2,38 +2,48 @@
  * "Stitch clips" used to run in the browser with ffmpeg.wasm: it downloaded
  * every source, re-encoded them single-threaded and uploaded the result, so a
  * long stitch sat at 0% for many minutes and died when the tab closed. Now
- * `stitch-recordings` creates the new recording as `processing` right away and
- * this in-process job does the work on the server:
+ * `stitch-recordings` creates the new recording as `processing`, stores a
+ * `clips_stitch_jobs` row and dispatches the post-finalize worker (a durable
+ * background function on serverless hosts). The worker claims the row with a
+ * lease (server/lib/stitch-job-store.ts) and runs this job:
  *
  *  1. re-checks the caller owns every source,
- *  2. streams each source video to a temp dir,
+ *  2. streams each source video to a temp dir, within per-source and total
+ *     byte, stall and time limits,
  *  3. ffprobes them; when every stream matches it concatenates with the concat
  *     demuxer and `-c copy`, otherwise it re-encodes (libx264 veryfast, aac,
- *     scale/pad to the largest size, `-threads 4`),
- *  4. uploads the mp4 in parts through the storage provider's multipart upload,
+ *     scale/pad to the largest size, `-threads 4`), keeping each source's
+ *     audio offset against its video,
+ *  4. uploads the mp4 in parts through the destination recording's storage
+ *     provider, each part with a timeout,
  *  5. marks the recording ready the way finalize does, or failed with a reason.
  *
- * Kept in one file so the weekly upstream merge stays easy.
+ * A worker that dies leaves its lease to run out; the recovery sweep
+ * (recoverStitchJobs) dispatches the job again, up to STITCH_MAX_ATTEMPTS.
  */
 import { spawn, spawnSync } from "node:child_process";
 import { createWriteStream, existsSync } from "node:fs";
 import { mkdtemp, open, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { Readable } from "node:stream";
+import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 import type { ReadableStream as NodeReadableStream } from "node:stream/web";
 
 import { writeAppState } from "@agent-native/core/application-state";
-import {
-  getActiveFileUploadProviderForRequest,
-  type FileUploadResult,
+import type {
+  FileUploadProvider,
+  FileUploadResult,
+  ResumableUploadSession,
 } from "@agent-native/core/file-upload";
-import { runWithRequestContext } from "@agent-native/core/server";
-import { and, eq, inArray, isNull, like, lt, notInArray } from "drizzle-orm";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 
 import { markRecordingSeekable } from "../../actions/lib/ensure-seekable-video.js";
 import { assertNativeRecordingMedia } from "../../actions/lib/native-media.js";
+import {
+  formatUploadBytes,
+  MAX_UPLOAD_BYTES,
+} from "../../shared/upload-limits.js";
 import { getDb, schema } from "../db/index.js";
 import { dispatchPostFinalizeJob } from "./post-finalize-dispatch.js";
 import {
@@ -45,15 +55,24 @@ import { deleteStoredMediaUrl } from "./recording-media-cleanup.js";
 import { withRecordingMediaProduction } from "./recording-media-lifecycle.js";
 import { ownerEmailMatches } from "./recordings.js";
 import { isS3ObjectUrlBoundToRecording } from "./s3-upload-provider.js";
-import { uploadRecordingMedia } from "./upload-recording-media.js";
+import {
+  claimStitchJob,
+  planStitchRecovery,
+  pruneSettledStitchJobs,
+  renewStitchLease,
+  settleStitchJob,
+  STITCH_LEASE_RENEW_MS,
+  STITCH_MAX_ATTEMPTS,
+  stitchJobSourceIds,
+  type StitchClaim,
+} from "./stitch-job-store.js";
 import {
   isFfmpegAvailable,
   resolveFfmpegCommand,
   runFfmpegWithProgress,
 } from "./video-remux.js";
+import { resolveClipsVideoStorage } from "./video-storage.js";
 
-/** Stitch recordings stuck in `processing` this long are marked failed. */
-export const STALE_STITCH_MS = 2 * 60 * 60 * 1000;
 /** Most recordings one stitch accepts; each one is downloaded and probed. */
 export const MAX_STITCH_SOURCES = 20;
 export const STITCH_FAILURE_CODE = "stitch_failed";
@@ -96,12 +115,16 @@ export interface StitchVideoStream {
   width: number;
   height: number;
   pixFmt: string | null;
+  /** The stream's `start_time`; null when ffprobe does not report one. */
+  startMs?: number | null;
 }
 
 export interface StitchAudioStream {
   codec: string;
   sampleRate: number;
   channels: number;
+  /** The stream's `start_time`; null when ffprobe does not report one. */
+  startMs?: number | null;
 }
 
 export interface StitchSourceProbe {
@@ -148,6 +171,12 @@ function num(value: unknown): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+function startMsOf(stream: Record<string, unknown> | undefined): number | null {
+  // ffprobe prints "N/A" when a stream has no start time.
+  const seconds = num(stream?.start_time);
+  return seconds === null ? null : Math.round(seconds * 1000);
+}
+
 /** Parses `ffprobe -print_format json -show_format -show_streams` output. */
 export function parseFfprobeOutput(raw: unknown): StitchSourceProbe {
   const root = asRecord(raw) ?? {};
@@ -176,6 +205,7 @@ export function parseFfprobeOutput(raw: unknown): StitchSourceProbe {
           width,
           height,
           pixFmt: str(videoStream.pix_fmt),
+          startMs: startMsOf(videoStream),
         }
       : null;
 
@@ -184,6 +214,7 @@ export function parseFfprobeOutput(raw: unknown): StitchSourceProbe {
         codec: str(audioStream.codec_name) ?? "unknown",
         sampleRate: num(audioStream.sample_rate) ?? 0,
         channels: num(audioStream.channels) ?? 0,
+        startMs: startMsOf(audioStream),
       }
     : null;
 
@@ -338,14 +369,46 @@ export interface ReencodeInput {
   hasAudio: boolean;
   /** Used to size the silence for a source without audio. */
   durationMs: number | null;
+  /** Stream start times from ffprobe, to keep the audio offset. */
+  videoStartMs?: number | null;
+  audioStartMs?: number | null;
+}
+
+const AUDIO_FORMAT = "aformat=sample_fmts=fltp:channel_layouts=stereo";
+
+function seconds(ms: number): string {
+  return (ms / 1000).toFixed(3);
+}
+
+/**
+ * The audio chain for one source, timed against its video. Every segment's
+ * video is reset to start at 0, so audio must be shifted by the same amount:
+ * audio that starts later than the video is delayed by the gap, and audio
+ * that starts earlier loses the part before the first video frame. Resetting
+ * audio to its own start instead would pull late audio forward and push
+ * early audio back, out of sync for the whole segment.
+ */
+export function sourceAudioFilter(source: ReencodeInput, index: number) {
+  const videoStart = source.videoStartMs ?? null;
+  const audioStart = source.audioStartMs ?? null;
+  const offsetMs =
+    videoStart !== null && audioStart !== null ? audioStart - videoStart : 0;
+  const steps = [`[${index}:a]`];
+  if (offsetMs < 0 && videoStart !== null) {
+    steps.push(`atrim=start=${seconds(videoStart)},`);
+  }
+  steps.push(`aresample=48000,${AUDIO_FORMAT},asetpts=PTS-STARTPTS`);
+  if (offsetMs > 0) {
+    steps.push(`,adelay=delays=${offsetMs}|${offsetMs}`);
+  }
+  steps.push(`[a${index}]`);
+  return steps.join("");
 }
 
 /** Silence for a source without audio; concat pads any shortfall itself. */
 function silenceSeconds(durationMs: number | null): string {
   return durationMs && durationMs > 0 ? (durationMs / 1000).toFixed(3) : "0.1";
 }
-
-const AUDIO_FORMAT = "aformat=sample_fmts=fltp:channel_layouts=stereo";
 
 export function buildReencodeArgs(input: {
   inputs: readonly ReencodeInput[];
@@ -371,9 +434,7 @@ export function buildReencodeArgs(input: {
       return;
     }
     if (source.hasAudio) {
-      filters.push(
-        `[${i}:a]aresample=48000,${AUDIO_FORMAT},asetpts=PTS-STARTPTS[a${i}]`,
-      );
+      filters.push(sourceAudioFilter(source, i));
     } else {
       filters.push(
         `anullsrc=channel_layout=stereo:sample_rate=48000,` +
@@ -520,6 +581,17 @@ export interface ConcatResult {
   sizeBytes: number;
 }
 
+export interface ConcatOptions {
+  onProgress?: (fraction: number) => void;
+  /** Kills ffmpeg when aborted. */
+  signal?: AbortSignal;
+  /**
+   * Wall-clock budget for all ffmpeg work. A failed or timed-out stream copy
+   * leaves the re-encode only what is left of it.
+   */
+  budgetMs?: number;
+}
+
 /**
  * Concatenates local video files into one mp4 at `outputPath`. Tries a stream
  * copy when the sources match and falls back to a re-encode if that fails.
@@ -527,8 +599,9 @@ export interface ConcatResult {
 export async function concatVideoFiles(
   sources: readonly StitchSourceFile[],
   outputPath: string,
-  options: { onProgress?: (fraction: number) => void } = {},
+  options: ConcatOptions = {},
 ): Promise<ConcatResult> {
+  const { signal } = options;
   // One ffprobe at a time: probes are quick and the host is shared.
   const probes: Awaited<ReturnType<typeof probeStitchSource>>[] = [];
   for (const source of sources) {
@@ -540,7 +613,17 @@ export async function concatVideoFiles(
   );
   const totalMs = durations.reduce<number>((sum, d) => sum + (d ?? 0), 0);
   const onProgress = options.onProgress ?? (() => {});
-  const timeoutMs = stitchFfmpegTimeoutMs(totalMs);
+  const budgetMs = options.budgetMs ?? stitchFfmpegTimeoutMs(totalMs);
+  const deadline = Date.now() + budgetMs;
+  const remainingMs = () => {
+    const left = deadline - Date.now();
+    if (left <= 0) {
+      throw new Error(
+        `Combining the videos took longer than ${Math.round(budgetMs / 60_000)} minutes.`,
+      );
+    }
+    return left;
+  };
 
   let mode: "copy" | "reencode" = plan.mode;
   if (plan.mode === "copy") {
@@ -557,7 +640,13 @@ export async function concatVideoFiles(
           outputPath,
           hasAudio: plan.hasAudio,
         }),
-        { timeoutMs, label: "stitch copy", totalMs, onProgress },
+        {
+          timeoutMs: remainingMs(),
+          label: "stitch copy",
+          totalMs,
+          onProgress,
+          signal,
+        },
       );
       const out = await probeStitchSource(outputPath);
       const tolerance = COPY_DURATION_TOLERANCE_MS_PER_SOURCE * sources.length;
@@ -573,6 +662,7 @@ export async function concatVideoFiles(
         );
       }
     } catch (error) {
+      if (signal?.aborted) throw error;
       console.warn("[stitch-job] stream copy failed, re-encoding instead", {
         error: error instanceof Error ? error.message : String(error),
       });
@@ -591,13 +681,21 @@ export async function concatVideoFiles(
           path: source.path,
           hasAudio: Boolean(probes[i]?.audio),
           durationMs: durations[i] ?? null,
+          videoStartMs: probes[i]?.video?.startMs ?? null,
+          audioStartMs: probes[i]?.audio?.startMs ?? null,
         })),
         width,
         height,
         audio,
         outputPath,
       }),
-      { timeoutMs, label: "stitch re-encode", totalMs, onProgress },
+      {
+        timeoutMs: remainingMs(),
+        label: "stitch re-encode",
+        totalMs,
+        onProgress,
+        signal,
+      },
     );
   }
 
@@ -616,6 +714,67 @@ export async function concatVideoFiles(
     hasAudio: Boolean(out.audio),
     sizeBytes: info.size,
   };
+}
+
+// ---------------------------------------------------------------------------
+// Limits
+// ---------------------------------------------------------------------------
+
+/** Largest single source a stitch downloads: the upload limit. */
+export const STITCH_SOURCE_MAX_BYTES = MAX_UPLOAD_BYTES;
+/** All sources of one stitch together, and the combined video. */
+export const STITCH_TOTAL_MAX_BYTES = 8 * 1024 * 1024 * 1024;
+/** A transfer that sends no bytes this long is stopped. */
+export const STITCH_TRANSFER_STALL_MS = 60_000;
+/** Most time one source download may take. */
+export const STITCH_SOURCE_TRANSFER_MAX_MS = 30 * 60_000;
+/** Most time the storage provider may take to accept one upload part. */
+export const STITCH_UPLOAD_PART_TIMEOUT_MS = 2 * 60_000;
+/** Most time the whole upload may take. */
+export const STITCH_UPLOAD_MAX_MS = 60 * 60_000;
+/** Providers without multipart upload get the file in memory, up to this. */
+export const STITCH_BUFFERED_UPLOAD_MAX_BYTES = 256 * 1024 * 1024;
+
+/** A stitch that went over one of the limits above; not worth retrying. */
+export class StitchLimitError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "StitchLimitError";
+  }
+}
+
+/** The worker lost its job lease; another worker owns the stitch now. */
+export class StitchLeaseLostError extends Error {
+  constructor() {
+    super("Another worker took over this stitch.");
+    this.name = "StitchLeaseLostError";
+  }
+}
+
+function withTimeout<T>(
+  work: Promise<T>,
+  ms: number,
+  message: string,
+  signal?: AbortSignal,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const onAbort = () =>
+      reject(
+        signal?.reason instanceof Error
+          ? signal.reason
+          : new Error("The stitch was stopped."),
+      );
+    if (signal?.aborted) {
+      onAbort();
+      return;
+    }
+    const timer = setTimeout(() => reject(new Error(message)), ms);
+    signal?.addEventListener("abort", onAbort, { once: true });
+    work.then(resolve, reject).finally(() => {
+      clearTimeout(timer);
+      signal?.removeEventListener("abort", onAbort);
+    });
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -642,12 +801,15 @@ export function parseSourceRecordingIds(value: string | string[]): string[] {
 
 /**
  * The caller's own recordings, in the requested order. Throws when one is
- * missing, not theirs, or not a Clips-hosted video.
+ * missing, not theirs, not a Clips-hosted video, or the set is over the
+ * stitch size limits.
  */
 export async function loadOwnedStitchSources(
   ids: readonly string[],
   ownerEmail: string,
+  options: { checkSizes?: boolean } = {},
 ): Promise<RecordingRow[]> {
+  const checkSizes = options.checkSizes ?? true;
   if (ids.length < 2) {
     throw new Error("stitch-recordings needs at least 2 sourceRecordingIds");
   }
@@ -676,6 +838,7 @@ export async function loadOwnedStitchSources(
     const source = byId.get(id);
     return source ? [source] : [];
   });
+  let totalBytes = 0;
   for (const source of ordered) {
     assertNativeRecordingMedia(source);
     if (source.trashedAt) {
@@ -686,6 +849,18 @@ export async function loadOwnedStitchSources(
         `Recording "${source.title}" does not have a ready video yet.`,
       );
     }
+    const size = source.videoSizeBytes ?? 0;
+    if (checkSizes && size > STITCH_SOURCE_MAX_BYTES) {
+      throw new StitchLimitError(
+        `Recording "${source.title}" is ${formatUploadBytes(size, "up")}; a stitch takes recordings up to ${formatUploadBytes(STITCH_SOURCE_MAX_BYTES, "down")}.`,
+      );
+    }
+    totalBytes += size;
+  }
+  if (checkSizes && totalBytes > STITCH_TOTAL_MAX_BYTES) {
+    throw new StitchLimitError(
+      `These recordings add up to ${formatUploadBytes(totalBytes, "up")}; one stitch takes up to ${formatUploadBytes(STITCH_TOTAL_MAX_BYTES, "down")}.`,
+    );
   }
   return ordered;
 }
@@ -697,33 +872,122 @@ function isLocalRecordingBlob(videoUrl: string): boolean {
   );
 }
 
-/** Streams one source video to disk; never holds a stored video in memory. */
-async function downloadSource(
-  recording: RecordingRow,
+/** Bytes the remaining sources of one stitch may still download. */
+export interface StitchByteBudget {
+  remaining: number;
+}
+
+function sourceLimitError(
+  title: string,
+  perSourceLimit: number,
+  budget: StitchByteBudget,
+): StitchLimitError {
+  return budget.remaining < perSourceLimit
+    ? new StitchLimitError(
+        `The recordings add up to more than the ${formatUploadBytes(STITCH_TOTAL_MAX_BYTES, "down")} one stitch can download.`,
+      )
+    : new StitchLimitError(
+        `Recording "${title}" is larger than the ${formatUploadBytes(perSourceLimit, "down")} a stitch downloads per recording.`,
+      );
+}
+
+/**
+ * Streams one source video to disk; never holds a stored video in memory.
+ * Stops when the source goes over its byte limit or the stitch's remaining
+ * budget, stops sending data for STITCH_TRANSFER_STALL_MS, or takes longer
+ * than STITCH_SOURCE_TRANSFER_MAX_MS.
+ */
+export async function downloadStitchSource(
+  recording: Pick<
+    RecordingRow,
+    "id" | "title" | "videoUrl" | "storageMode" | "videoSizeBytes"
+  >,
   path: string,
-): Promise<void> {
+  budget: StitchByteBudget,
+  options: {
+    signal?: AbortSignal;
+    perSourceLimit?: number;
+    stallMs?: number;
+    maxMs?: number;
+  } = {},
+): Promise<number> {
+  const perSourceLimit = options.perSourceLimit ?? STITCH_SOURCE_MAX_BYTES;
+  const limit = Math.min(perSourceLimit, budget.remaining);
   const videoUrl = recording.videoUrl ?? "";
   if (isLocalRecordingBlob(videoUrl)) {
     // Dev-only blobs in application state are small and already in memory.
     const media = await loadRecordingMediaBytes(
       recording as PublicAgentRecording,
     );
+    if (media.bytes.byteLength > limit) {
+      throw sourceLimitError(recording.title, perSourceLimit, budget);
+    }
     // observed-write-ok: temp-only copy of the source inside the job's temp dir
     await writeFile(path, media.bytes);
-    return;
+    budget.remaining -= media.bytes.byteLength;
+    return media.bytes.byteLength;
   }
-  const response = await fetchRecordingMediaResponse(videoUrl, {
-    recordingId: recording.id,
-    storageMode: recording.storageMode,
-  });
-  if (!response.body) {
-    throw new Error(`Recording "${recording.title}" has no video data.`);
-  }
-  await pipeline(
-    Readable.fromWeb(response.body as unknown as NodeReadableStream),
-    // observed-write-ok: temp-only copy of the source inside the job's temp dir
-    createWriteStream(path, { flags: "wx" }),
+
+  const controller = new AbortController();
+  const stallMs = options.stallMs ?? STITCH_TRANSFER_STALL_MS;
+  const stall = setTimeout(
+    () =>
+      controller.abort(
+        new Error(
+          `The download stopped sending data for ${Math.round(stallMs / 1000)} seconds.`,
+        ),
+      ),
+    stallMs,
   );
+  const onParentAbort = () => controller.abort(options.signal?.reason);
+  if (options.signal?.aborted) onParentAbort();
+  options.signal?.addEventListener("abort", onParentAbort, { once: true });
+  let received = 0;
+  try {
+    const response = await fetchRecordingMediaResponse(videoUrl, {
+      recordingId: recording.id,
+      storageMode: recording.storageMode,
+      timeoutMs: options.maxMs ?? STITCH_SOURCE_TRANSFER_MAX_MS,
+      signal: controller.signal,
+    });
+    if (!response.body) {
+      throw new Error(`Recording "${recording.title}" has no video data.`);
+    }
+    const declared = Number(response.headers.get("content-length"));
+    if (Number.isFinite(declared) && declared > limit) {
+      await response.body.cancel().catch(() => {});
+      throw sourceLimitError(recording.title, perSourceLimit, budget);
+    }
+    stall.refresh();
+    const meter = new Transform({
+      transform(chunk: Buffer, _encoding, callback) {
+        received += chunk.length;
+        if (received > limit) {
+          callback(sourceLimitError(recording.title, perSourceLimit, budget));
+          return;
+        }
+        stall.refresh();
+        callback(null, chunk);
+      },
+    });
+    await pipeline(
+      Readable.fromWeb(response.body as unknown as NodeReadableStream),
+      meter,
+      // observed-write-ok: temp-only copy of the source inside the job's temp dir
+      createWriteStream(path, { flags: "wx" }),
+      { signal: controller.signal },
+    );
+  } catch (error) {
+    if (error instanceof StitchLimitError) throw error;
+    const reason: unknown = controller.signal.reason;
+    if (controller.signal.aborted && reason instanceof Error) throw reason;
+    throw error;
+  } finally {
+    clearTimeout(stall);
+    options.signal?.removeEventListener("abort", onParentAbort);
+  }
+  budget.remaining -= received;
+  return received;
 }
 
 // ---------------------------------------------------------------------------
@@ -731,35 +995,92 @@ async function downloadSource(
 // ---------------------------------------------------------------------------
 
 /**
- * Uploads the stitched file. Uses the provider's multipart upload in parts so
- * a long video never sits in memory; falls back to a single upload for a
- * provider without one.
+ * The upload provider of the destination recording, as its persisted storage
+ * mode resolves it now. The action pinned the stitch to own storage and noted
+ * the provider; a provider that changed since is refused rather than silently
+ * writing the video somewhere else.
  */
-async function uploadStitchedFile(input: {
+export async function resolveStitchDestinationProvider(input: {
+  recordingId: string;
+  ownerEmail: string;
+  expectedProviderId: string | null;
+}): Promise<FileUploadProvider> {
+  const storage = await resolveClipsVideoStorage({
+    intent: "existing",
+    recordingId: input.recordingId,
+    email: input.ownerEmail,
+  });
+  if (storage.mode === "hosted") {
+    throw new StitchLimitError(
+      "Server stitching saves to your own video storage, and this recording uses hosted Clips storage.",
+    );
+  }
+  if (storage.mode !== "own" || !storage.provider) {
+    throw new StitchLimitError(
+      "No video storage is connected. Connect Builder.io or S3-compatible storage and stitch again.",
+    );
+  }
+  if (
+    input.expectedProviderId &&
+    storage.provider.id !== input.expectedProviderId
+  ) {
+    throw new StitchLimitError(
+      "Your video storage changed after this stitch was started. Stitch the recordings again.",
+    );
+  }
+  return storage.provider;
+}
+
+/**
+ * Uploads the stitched file through the destination's provider: in parts
+ * through its multipart upload, so a long video never sits in memory, each
+ * part with a timeout. A provider without one gets the file in a single
+ * upload, only up to STITCH_BUFFERED_UPLOAD_MAX_BYTES.
+ */
+export async function uploadStitchedFile(input: {
   recordingId: string;
   ownerEmail: string;
   path: string;
   sizeBytes: number;
+  provider: FileUploadProvider;
+  signal?: AbortSignal;
+  partTimeoutMs?: number;
 }): Promise<FileUploadResult> {
-  const { recordingId, ownerEmail, path, sizeBytes } = input;
+  const { recordingId, ownerEmail, path, sizeBytes, provider, signal } = input;
+  const partTimeoutMs = input.partTimeoutMs ?? STITCH_UPLOAD_PART_TIMEOUT_MS;
   const filename = `${recordingId}.mp4`;
   const mimeType = "video/mp4";
-  const provider = await getActiveFileUploadProviderForRequest();
+  const deadline = Date.now() + STITCH_UPLOAD_MAX_MS;
+  const timeLeft = () => {
+    const left = deadline - Date.now();
+    if (left <= 0) {
+      throw new Error(
+        `Uploading the combined video took longer than ${STITCH_UPLOAD_MAX_MS / 60_000} minutes.`,
+      );
+    }
+    return left;
+  };
 
-  if (provider?.resumable) {
-    const resumable = provider.resumable;
+  const resumable = provider.resumable;
+  if (resumable) {
     return withRecordingMediaProduction(
       { recordingId, ownerEmail, recordAsset: false },
       async () => {
-        let session = await resumable.startSession(
-          filename,
-          mimeType,
-          sizeBytes,
-        );
+        // Opened before the session starts, so a missing file never leaves
+        // an open multipart upload behind.
         const file = await open(path, "r");
+        let started: ResumableUploadSession | null = null;
         try {
+          started = await withTimeout(
+            resumable.startSession(filename, mimeType, sizeBytes),
+            Math.min(partTimeoutMs, timeLeft()),
+            "Storage did not start the upload in time.",
+            signal,
+          );
+          let session: ResumableUploadSession = started;
           const buffer = Buffer.alloc(STITCH_UPLOAD_PART_BYTES);
           let offset = 0;
+          let part = 0;
           while (offset < sizeBytes) {
             const length = Math.min(
               STITCH_UPLOAD_PART_BYTES,
@@ -769,33 +1090,46 @@ async function uploadStitchedFile(input: {
             if (bytesRead !== length) {
               throw new Error("The combined video changed while uploading.");
             }
+            part += 1;
             // A copy: providers may keep a reference to the part.
-            const part = new Uint8Array(buffer.subarray(0, length));
-            const result = await resumable.relayChunk(
-              session,
-              stitchPartContentRange(offset, length, sizeBytes),
-              part,
-              { mimeType },
+            const bytes = new Uint8Array(buffer.subarray(0, length));
+            const current: ResumableUploadSession = session;
+            const result = await withTimeout(
+              resumable.relayChunk(
+                current,
+                stitchPartContentRange(offset, length, sizeBytes),
+                bytes,
+                { mimeType },
+              ),
+              Math.min(partTimeoutMs, timeLeft()),
+              `Storage did not accept part ${part} of the combined video within ${Math.round(partTimeoutMs / 1000)} seconds.`,
+              signal,
             );
             if (!result.ok) {
               throw new Error(`Storage refused a part (${result.status}).`);
             }
             if (result.updatedMeta) {
               session = {
-                ...session,
-                meta: { ...session.meta, ...result.updatedMeta },
+                ...current,
+                meta: { ...current.meta, ...result.updatedMeta },
               };
+              started = session;
             }
             offset += length;
           }
-          const url = await resumable.completeSession(session, filename, {
-            stableUrl: true,
-            recordAsset: false,
-          });
+          const url = await withTimeout(
+            resumable.completeSession(session, filename, {
+              stableUrl: true,
+              recordAsset: false,
+            }),
+            Math.min(partTimeoutMs, timeLeft()),
+            "Storage did not finish the upload in time.",
+            signal,
+          );
           return { url, provider: provider.id };
         } catch (error) {
-          if (resumable.abortSession) {
-            await resumable.abortSession(session).catch((abortError) => {
+          if (started && resumable.abortSession) {
+            await resumable.abortSession(started).catch((abortError) => {
               console.warn(
                 "[stitch-job] could not abort the multipart upload",
                 {
@@ -816,22 +1150,29 @@ async function uploadStitchedFile(input: {
     );
   }
 
-  const data = new Uint8Array(await readFile(path));
-  const uploaded = await uploadRecordingMedia({
-    recordingId,
-    ownerEmail,
-    data,
-    filename,
-    mimeType,
-    stableUrl: true,
-    recordAsset: false,
-  });
-  if (!uploaded?.url) {
-    throw new Error(
-      "No video storage is connected. Connect Builder.io or S3-compatible storage and try again.",
+  if (sizeBytes > STITCH_BUFFERED_UPLOAD_MAX_BYTES) {
+    throw new StitchLimitError(
+      `The combined video is ${formatUploadBytes(sizeBytes, "up")}, and your storage provider takes it in one piece, up to ${formatUploadBytes(STITCH_BUFFERED_UPLOAD_MAX_BYTES, "down")}.`,
     );
   }
-  return uploaded;
+  const data = new Uint8Array(await readFile(path));
+  return withRecordingMediaProduction(
+    { recordingId, ownerEmail, recordAsset: false },
+    () =>
+      withTimeout(
+        provider.upload({
+          data,
+          filename,
+          mimeType,
+          ownerEmail,
+          stableUrl: true,
+          recordAsset: false,
+        }),
+        timeLeft(),
+        `Uploading the combined video took longer than ${STITCH_UPLOAD_MAX_MS / 60_000} minutes.`,
+        signal,
+      ),
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -841,12 +1182,10 @@ async function uploadStitchedFile(input: {
 export interface StitchJobInput {
   recordingId: string;
   ownerEmail: string;
-  orgId?: string | null;
   sourceRecordingIds: string[];
+  /** The destination's provider when the stitch was accepted. */
+  storageProviderId: string | null;
 }
-
-/** One stitch at a time per container: the host is shared with other apps. */
-let queue: Promise<unknown> = Promise.resolve();
 
 function shortReason(error: unknown): string {
   const message = error instanceof Error ? error.message : String(error ?? "");
@@ -1003,8 +1342,33 @@ async function afterStitchReady(input: {
   }
 }
 
-export async function runStitchJob(input: StitchJobInput): Promise<void> {
+/**
+ * A thumbnail the stitched recording may point at. A hosted thumbnail is
+ * deleted when its own recording replaces it, so only own-storage ones are
+ * shared; otherwise the stitch gets its own.
+ */
+function shareableThumbnail(source: RecordingRow | undefined): string | null {
+  if (!source?.thumbnailUrl || source.storageMode === "hosted") return null;
+  return source.thumbnailUrl;
+}
+
+export type StitchJobOutcome =
+  | { status: "ready" }
+  | { status: "failed"; reason: string }
+  | { status: "lost" };
+
+/**
+ * Does the stitch for a claimed job. Every write that settles it checks the
+ * lease token; when the lease is lost it stops and leaves the recording and
+ * any upload to the worker that took over (the upload key is shared, so
+ * deleting it could delete that worker's video).
+ */
+export async function runStitchJob(
+  input: StitchJobInput,
+  lease: { token: string; signal: AbortSignal },
+): Promise<StitchJobOutcome> {
   const { recordingId, ownerEmail } = input;
+  const { token, signal } = lease;
   const started = Date.now();
   let dir: string | null = null;
   let uploadedUrl: string | null = null;
@@ -1018,14 +1382,22 @@ export async function runStitchJob(input: StitchJobInput): Promise<void> {
     if (!isFfmpegAvailable() || !isFfprobeAvailable()) {
       throw new Error("ffmpeg is not available on this server.");
     }
+    const provider = await resolveStitchDestinationProvider({
+      recordingId,
+      ownerEmail,
+      expectedProviderId: input.storageProviderId,
+    });
 
+    const budget: StitchByteBudget = { remaining: STITCH_TOTAL_MAX_BYTES };
     const files: StitchSourceFile[] = [];
     for (const [i, source] of sources.entries()) {
+      signal.throwIfAborted();
       const extension = source.videoFormat === "mp4" ? "mp4" : "webm";
       const path = join(dir, `src${i}.${extension}`);
       try {
-        await downloadSource(source, path);
+        await downloadStitchSource(source, path, budget, { signal });
       } catch (error) {
+        if (error instanceof StitchLimitError || signal.aborted) throw error;
         throw new Error(
           `Could not download "${source.title}": ${shortReason(error)}`,
         );
@@ -1037,6 +1409,7 @@ export async function runStitchJob(input: StitchJobInput): Promise<void> {
     const outputPath = join(dir, "stitched.mp4");
     let lastLogged = 0;
     const result = await concatVideoFiles(files, outputPath, {
+      signal,
       onProgress: (fraction) => {
         const now = Date.now();
         if (now - lastLogged < 60_000) return;
@@ -1046,6 +1419,11 @@ export async function runStitchJob(input: StitchJobInput): Promise<void> {
         );
       },
     });
+    if (result.sizeBytes > STITCH_TOTAL_MAX_BYTES) {
+      throw new StitchLimitError(
+        `The combined video is ${formatUploadBytes(result.sizeBytes, "up")}; a stitch can save up to ${formatUploadBytes(STITCH_TOTAL_MAX_BYTES, "down")}.`,
+      );
+    }
     const encodedAt = Date.now();
 
     const upload = await uploadStitchedFile({
@@ -1053,6 +1431,8 @@ export async function runStitchJob(input: StitchJobInput): Promise<void> {
       ownerEmail,
       path: outputPath,
       sizeBytes: result.sizeBytes,
+      provider,
+      signal,
     });
     uploadedUrl = upload.url;
     const bound = await isS3ObjectUrlBoundToRecording(upload.url, recordingId);
@@ -1062,13 +1442,16 @@ export async function runStitchJob(input: StitchJobInput): Promise<void> {
       );
     }
 
+    if (!(await renewStitchLease(recordingId, token))) {
+      throw new StitchLeaseLostError();
+    }
     const ready = {
       recordingId,
       ownerEmail,
       videoUrl: upload.url,
       result,
       now: new Date().toISOString(),
-      thumbnailUrl: sources[0]?.thumbnailUrl ?? null,
+      thumbnailUrl: shareableThumbnail(sources[0]),
     };
     if (!(await promoteStitch(ready))) {
       throw new Error(
@@ -1077,6 +1460,7 @@ export async function runStitchJob(input: StitchJobInput): Promise<void> {
     }
     // The row now points at the upload: never delete it from here on.
     uploadedUrl = null;
+    await settleStitchJob({ recordingId, token, state: "ready" });
     // The recording is ready and playable now. The bookkeeping below only
     // queues the thumbnail and transcript; a failure there is logged and the
     // video stays ready (the thumbnail and transcript can be made again).
@@ -1091,7 +1475,15 @@ export async function runStitchJob(input: StitchJobInput): Promise<void> {
         `${result.durationMs}ms, ${result.sizeBytes} bytes — download ${((downloadedAt - started) / 1000).toFixed(1)}s, ` +
         `encode ${((encodedAt - downloadedAt) / 1000).toFixed(1)}s, upload ${((Date.now() - encodedAt) / 1000).toFixed(1)}s`,
     );
+    return { status: "ready" };
   } catch (error) {
+    if (
+      error instanceof StitchLeaseLostError ||
+      signal.reason instanceof StitchLeaseLostError
+    ) {
+      console.warn(`[stitch-job] ${recordingId} lease lost; stopping`);
+      return { status: "lost" };
+    }
     const reason = shortReason(error);
     console.warn(`[stitch-job] ${recordingId} failed:`, reason);
     if (uploadedUrl) {
@@ -1107,6 +1499,23 @@ export async function runStitchJob(input: StitchJobInput): Promise<void> {
         },
       );
     }
+    const settled = await settleStitchJob({
+      recordingId,
+      token,
+      state: "failed",
+      error: reason,
+    }).catch((settleError: unknown) => {
+      console.error("[stitch-job] could not settle the failed job", {
+        recordingId,
+        error:
+          settleError instanceof Error
+            ? settleError.message
+            : String(settleError),
+      });
+      // Still mark the recording: a failed job row is recovered by the sweep.
+      return true;
+    });
+    if (!settled) return { status: "lost" };
     await failStitch(recordingId, reason).catch((failError) => {
       console.error("[stitch-job] could not mark the stitch failed", {
         recordingId,
@@ -1114,6 +1523,7 @@ export async function runStitchJob(input: StitchJobInput): Promise<void> {
           failError instanceof Error ? failError.message : String(failError),
       });
     });
+    return { status: "failed", reason };
   } finally {
     if (dir) {
       // The stitch result is already settled here (ready or failed); a
@@ -1132,68 +1542,140 @@ export async function runStitchJob(input: StitchJobInput): Promise<void> {
   }
 }
 
-/**
- * Recordings this process has queued or is stitching. The stale sweep skips
- * them, so a long stitch is never marked failed while it still runs.
- */
-const activeStitchIds = new Set<string>();
+const EXHAUSTED_REASON = `Stitching was interrupted ${STITCH_MAX_ATTEMPTS} times before it finished, for example by server restarts. Stitch the recordings again.`;
 
-/** Runs the job in the background, as the owner, one stitch at a time. */
-export function startStitchJob(input: StitchJobInput): void {
-  activeStitchIds.add(input.recordingId);
-  const next = queue.then(() =>
-    runWithRequestContext(
+/** Fails a job, and its recording, after its last attempt ran out. */
+async function failExhaustedStitch(recordingId: string): Promise<boolean> {
+  const settled = await settleStitchJob({
+    recordingId,
+    state: "failed",
+    error: EXHAUSTED_REASON,
+  });
+  if (settled) await failStitch(recordingId, EXHAUSTED_REASON);
+  return settled;
+}
+
+export type DurableStitchResult =
+  | StitchJobOutcome
+  | {
+      status: "skipped";
+      reason: Exclude<
+        Extract<StitchClaim, { claimed: false }>["reason"],
+        "exhausted"
+      >;
+    };
+
+/**
+ * The post-finalize worker's entry point: claims the job, keeps its lease
+ * alive while the stitch runs and stops the stitch (ffmpeg included) if the
+ * lease is lost. Safe to call more than once for the same recording: only one
+ * worker holds the lease, and a settled job is skipped.
+ */
+export async function runDurableStitchJob(
+  recordingId: string,
+): Promise<DurableStitchResult> {
+  const claim = await claimStitchJob(recordingId);
+  if (!claim.claimed) {
+    if (claim.reason === "exhausted") {
+      await failExhaustedStitch(recordingId);
+      return { status: "failed", reason: EXHAUSTED_REASON };
+    }
+    return { status: "skipped", reason: claim.reason };
+  }
+  const { token, job } = claim;
+  console.log("[stitch-job] claimed", {
+    recordingId,
+    attempt: job.attempts,
+  });
+  const controller = new AbortController();
+  let renewing: Promise<void> | null = null;
+  const heartbeat = setInterval(() => {
+    if (renewing || controller.signal.aborted) return;
+    renewing = renewStitchLease(recordingId, token)
+      .then((held) => {
+        if (!held) controller.abort(new StitchLeaseLostError());
+      })
+      .catch((error: unknown) => {
+        // A failed renewal is retried on the next beat; the lease outlasts
+        // several of them.
+        console.warn("[stitch-job] lease renewal failed", {
+          recordingId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      })
+      .finally(() => {
+        renewing = null;
+      });
+  }, STITCH_LEASE_RENEW_MS);
+  heartbeat.unref?.();
+  try {
+    return await runStitchJob(
       {
-        userEmail: input.ownerEmail,
-        ...(input.orgId ? { orgId: input.orgId } : {}),
+        recordingId,
+        ownerEmail: job.ownerEmail,
+        sourceRecordingIds: stitchJobSourceIds(job),
+        storageProviderId: job.storageProviderId,
       },
-      () => runStitchJob(input),
-    ),
-  );
-  queue = next
-    .catch((error) => {
-      console.error("[stitch-job] unexpected failure", {
-        recordingId: input.recordingId,
+      { token, signal: controller.signal },
+    );
+  } finally {
+    clearInterval(heartbeat);
+    await renewing;
+    // Start the next waiting stitch now instead of at the next sweep.
+    await recoverStitchJobs().catch((error: unknown) => {
+      console.warn("[stitch-job] could not start the next stitch", {
         error: error instanceof Error ? error.message : String(error),
       });
-    })
-    .finally(() => {
-      activeStitchIds.delete(input.recordingId);
     });
+  }
+}
+
+/** Hands the job to the post-finalize worker (a durable background function on serverless). */
+export async function dispatchStitchJob(recordingId: string): Promise<void> {
+  await dispatchPostFinalizeJob({
+    recordingId,
+    kind: "stitch",
+    awaitDurableAcceptance: true,
+  });
 }
 
 /**
- * Stitch jobs run in this process, so a restart loses them. Called on server
- * start and every 30 minutes: stitched recordings still `processing` after
- * STALE_STITCH_MS, and not queued or running in this process, are marked
- * failed so they don't spin forever.
+ * The recovery sweep, run every minute on long-lived servers and on the
+ * recurring sweep tick on serverless ones. Dispatches queued jobs and jobs
+ * whose worker died (their lease ran out), as far as there are free slots;
+ * fails jobs whose attempts are used up or whose recording is gone; prunes
+ * settled job rows.
  */
-export async function failStaleStitchJobs(
-  now: number = Date.now(),
-): Promise<number> {
-  const cutoff = new Date(now - STALE_STITCH_MS).toISOString();
-  // guard:allow-unscoped — system recovery sweep over orphaned stitch jobs.
-  const stale = await getDb()
-    .update(schema.recordings)
-    .set({
-      status: "failed",
-      failureReason:
-        "The server restarted while these recordings were being combined. Stitch them again.",
-      failureCode: STITCH_FAILURE_CODE,
-      updatedAt: new Date(now).toISOString(),
-    })
-    .where(
-      and(
-        eq(schema.recordings.status, "processing"),
-        isNull(schema.recordings.videoUrl),
-        // guard:allow-blob-predicate — stale sweep runs once at boot, already narrowed to processing rows
-        like(schema.recordings.editsJson, '%"stitchedFrom"%'),
-        lt(schema.recordings.createdAt, cutoff),
-        activeStitchIds.size > 0
-          ? notInArray(schema.recordings.id, [...activeStitchIds])
-          : undefined,
-      ),
-    )
-    .returning({ id: schema.recordings.id });
-  return stale.length;
+export async function recoverStitchJobs(now: number = Date.now()): Promise<{
+  dispatched: number;
+  failed: number;
+}> {
+  const plan = await planStitchRecovery(now);
+  let failed = 0;
+  for (const job of plan.orphaned) {
+    const settled = await settleStitchJob({
+      recordingId: job.recordingId,
+      state: "failed",
+      error: "The stitched recording was deleted or is no longer processing.",
+      now,
+    });
+    if (settled) failed += 1;
+  }
+  for (const job of plan.exhausted) {
+    if (await failExhaustedStitch(job.recordingId)) failed += 1;
+  }
+  let dispatched = 0;
+  for (const job of plan.dispatch) {
+    try {
+      await dispatchStitchJob(job.recordingId);
+      dispatched += 1;
+    } catch (error) {
+      console.warn("[stitch-job] recovery dispatch failed", {
+        recordingId: job.recordingId,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+  await pruneSettledStitchJobs(now);
+  return { dispatched, failed };
 }
