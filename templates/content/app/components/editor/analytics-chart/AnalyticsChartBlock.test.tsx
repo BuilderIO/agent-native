@@ -38,15 +38,14 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string, options?: Record<string, unknown>) =>
     options ? `${key} ${JSON.stringify(options)}` : key,
   useLocale: () => ({ locale: "en-US" }),
+  useFormatters: () => ({
+    formatNumber: (value: number) => value.toLocaleString("en-US"),
+  }),
 }));
 
 const tracked = vi.hoisted(() => vi.fn());
 vi.mock("@agent-native/core/client/analytics", () => ({
   trackEvent: tracked,
-}));
-
-vi.mock("next-themes", () => ({
-  useTheme: () => ({ resolvedTheme: "light" }),
 }));
 
 const toasts = vi.hoisted(() => ({
@@ -81,7 +80,7 @@ function chart(
       ["2026-10-05", 120],
       ["2026-10-12", 140],
     ],
-    series: [{ label: "Users" }],
+    chart: { xKey: "week", yKeys: ["Users"] },
     truncated: false,
     capturedAt: "2026-11-07T16:40:00.000Z",
     ...overrides,
@@ -126,6 +125,32 @@ beforeEach(() => {
   hooks.callAction.mockReset();
   tracked.mockReset();
   for (const fn of Object.values(toasts)) fn.mockReset();
+  // Recharts draws nothing into a box with no size.
+  vi.stubGlobal(
+    "ResizeObserver",
+    class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+  );
+  Object.defineProperty(HTMLElement.prototype, "offsetWidth", {
+    configurable: true,
+    value: 640,
+  });
+  Object.defineProperty(HTMLElement.prototype, "offsetHeight", {
+    configurable: true,
+    value: 320,
+  });
+  HTMLElement.prototype.getBoundingClientRect = () =>
+    ({
+      width: 640,
+      height: 320,
+      top: 0,
+      left: 0,
+      right: 640,
+      bottom: 320,
+    }) as DOMRect;
   container = document.createElement("div");
   document.body.append(container);
   root = createRoot(container);
@@ -135,23 +160,84 @@ afterEach(() => {
   act(() => root?.unmount());
   container.remove();
   root = null;
+  vi.unstubAllGlobals();
 });
 
 describe("AnalyticsChart for readers", () => {
-  it("draws the kept numbers as an image described for screen readers", () => {
+  it("draws the kept rows with Analytics' chart, described for screen readers", () => {
     renderRead(chart());
     const figure = defined(container.querySelector("figure"));
     const titleId = defined(figure.getAttribute("aria-labelledby"));
     expect(document.getElementById(titleId)?.textContent).toBe(
       "Weekly active users",
     );
-    const img = defined(container.querySelector("img"));
-    expect(img.getAttribute("src")).toMatch(/^data:image\/svg\+xml/);
-    expect(img.getAttribute("alt")).toContain("Weekly active users");
-    expect(img.getAttribute("alt")).toContain("140");
-    // Nothing from the chart runs in the page.
-    expect(container.querySelector("svg script, script")).toBeNull();
+    expect(container.querySelector(".recharts-wrapper")).not.toBeNull();
+    const body = defined(container.querySelector('[role="figure"]'));
+    expect(body.getAttribute("aria-label")).toContain("Weekly active users");
+    expect(body.getAttribute("aria-label")).toContain("Users 140");
     expect(container.textContent).toContain("Time range: Last 90 days");
+  });
+
+  it("marks the key dates kept with the chart", () => {
+    renderRead(
+      chart("line", {
+        chart: {
+          xKey: "week",
+          yKeys: ["Users"],
+          events: [{ date: "2026-10-12", label: "Launch" }],
+        },
+      }),
+    );
+    expect(container.querySelectorAll("[data-event-marker]")).toHaveLength(1);
+  });
+
+  it("draws a pivoted copy's series from its raw rows", () => {
+    renderRead(
+      chart("bar", {
+        columns: ["week", "plan", "users"],
+        rows: [
+          ["2026-10-05", "Free", 100],
+          ["2026-10-05", "Pro", 20],
+          ["2026-10-12", "Free", 110],
+        ],
+        chart: {
+          pivot: { xKey: "week", seriesKey: "plan", valueKey: "users" },
+        },
+      }),
+    );
+    const body = defined(container.querySelector('[role="figure"]'));
+    expect(body.getAttribute("aria-label")).toContain("2 points");
+    expect(body.getAttribute("aria-label")).toContain("Free 110");
+  });
+
+  it("fills a pivoted line's time range up to the day of the copy", () => {
+    renderRead(
+      chart("line", {
+        columns: ["day", "plan", "users"],
+        rows: [
+          ["2026-11-05", "Free", 100],
+          ["2026-11-06", "Free", 110],
+        ],
+        chart: {
+          pivot: { xKey: "day", seriesKey: "plan", valueKey: "users" },
+        },
+        timeRange: 7,
+      }),
+    );
+    const body = defined(container.querySelector('[role="figure"]'));
+    expect(body.getAttribute("aria-label")).toContain(
+      "7 points from 2026-11-01 to 2026-11-07",
+    );
+  });
+
+  it("says a copy it can't read can't be drawn, and draws nothing", () => {
+    renderRead(
+      chart("line", {
+        chart: { xKey: "week", yKeys: ["Users"], colors: ["url(#x)"] },
+      }),
+    );
+    expect(container.textContent).toContain("analyticsChart.unreadable");
+    expect(container.querySelector(".recharts-wrapper")).toBeNull();
   });
 
   it("links back to the panel in Analytics", () => {
@@ -174,16 +260,17 @@ describe("AnalyticsChart for readers", () => {
       chart("metric", {
         columns: ["Users"],
         rows: [[1234]],
-        series: undefined,
+        chart: {},
         display: { value: "1,234", comparison: "+12% vs previous period" },
       }),
     );
-    expect(container.querySelector("img")).toBeNull();
     expect(container.textContent).toContain("1,234");
-    expect(container.textContent).toContain("+12% vs previous period");
+    expect(
+      container.querySelector('[role="figure"]')?.getAttribute("aria-label"),
+    ).toContain("1,234, +12% vs previous period");
   });
 
-  it("shows a table as a table with a caption", () => {
+  it("shows a table as a table, described for screen readers", () => {
     renderRead(
       chart("table", {
         columns: ["Account", "Seats"],
@@ -191,17 +278,17 @@ describe("AnalyticsChart for readers", () => {
           ["Acme", 12],
           ["Globex", 1500],
         ],
-        series: undefined,
+        chart: {},
       }),
     );
     const table = defined(container.querySelector("table"));
-    expect(table.querySelector("caption")?.textContent).toContain(
-      "Weekly active users",
-    );
+    const head = defined(table.querySelector("thead")).textContent;
+    expect(head).toContain("Account");
+    expect(head).toContain("Seats");
+    expect(table.textContent).toContain("Globex");
     expect(
-      [...table.querySelectorAll("th")].map((cell) => cell.textContent),
-    ).toEqual(["Account", "Seats"]);
-    expect(table.textContent).toContain("1,500");
+      container.querySelector('[role="figure"]')?.getAttribute("aria-label"),
+    ).toContain("2 rows of Account, Seats");
   });
 
   it("says when the panel returned more rows than the copy keeps", () => {
@@ -339,6 +426,16 @@ describe("AnalyticsChart for editors", () => {
       expect.objectContaining({ acknowledgeWiderAudience: true }),
     );
     expect(onChange).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows a copy it can't read without asking Analytics about it", () => {
+    renderEdit(
+      chart("line", {
+        chart: { xKey: "week", yKeys: ["Users"], colors: ["url(#x)"] },
+      }),
+    );
+    expect(container.textContent).toContain("analyticsChart.unreadable");
+    expect(hooks.options).not.toHaveProperty("get-analytics-chart-status");
   });
 
   it("keeps the copy and says why when a refresh fails", async () => {

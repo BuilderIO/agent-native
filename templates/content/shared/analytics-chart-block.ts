@@ -5,17 +5,23 @@ import {
   type BlockSpec,
 } from "@agent-native/core/blocks/server";
 import {
+  analyticsCaptureRecords,
   analyticsPanelCaptureSchema,
   checkEmbedAudience,
   type AnalyticsPanelCapture,
   type EmbedAudienceCheck,
   type EmbedVisibility,
 } from "@agent-native/core/shared";
+import { planPanelRender } from "@agent-native/toolkit/dashboard/panel-render-contract";
+import type {
+  SqlPanel,
+  SqlPanelConfig,
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 
 /**
- * A copy of one Analytics dashboard panel kept in a page: the numbers it
- * showed when someone added or refreshed it, how to draw them, and the link
- * back. Content never queries the data source; the copy changes only when an
+ * A copy of one Analytics dashboard panel kept in a page: the rows it
+ * showed when someone added or refreshed it, the chart settings the
+ * dashboard draws them with, and the link back. Content never queries the data source; the copy changes only when an
  * editor refreshes it, so readers see exactly what the page says.
  */
 export const ANALYTICS_CHART_BLOCK_TYPE = "analytics-chart";
@@ -49,36 +55,34 @@ export const analyticsChartMdx: BlockMdxConfig<AnalyticsChartData> = {
     panel: data.panel,
     filters: data.filters,
     filterSummary: data.filterSummary,
+    chart: data.chart,
     columns: data.columns,
+    timeRange: data.timeRange,
     rows: data.rows,
-    series: data.series,
-    stacked: data.stacked,
-    keyDates: data.keyDates,
     display: data.display,
     truncated: data.truncated,
     capturedAt: data.capturedAt,
   }),
-  fromAttrs: (attrs) => ({
-    dashboard:
-      attrs.object<AnalyticsChartData["dashboard"]>("dashboard") ??
-      MISSING_DASHBOARD,
-    panel: attrs.object<AnalyticsChartData["panel"]>("panel") ?? MISSING_PANEL,
-    filters: attrs.object<Record<string, string>>("filters") ?? {},
-    filterSummary: attrs.string("filterSummary"),
-    columns: attrs.array<string>("columns") ?? [],
-    rows: attrs.array<AnalyticsChartData["rows"][number]>("rows") ?? [],
-    series:
-      attrs.array<NonNullable<AnalyticsChartData["series"]>[number]>("series"),
-    stacked: attrs.bool("stacked"),
-    keyDates:
-      attrs.array<NonNullable<AnalyticsChartData["keyDates"]>[number]>(
-        "keyDates",
-      ),
-    display:
-      attrs.object<NonNullable<AnalyticsChartData["display"]>>("display"),
-    truncated: attrs.bool("truncated") ?? false,
-    capturedAt: attrs.string("capturedAt") ?? "",
-  }),
+  fromAttrs: (attrs) => {
+    const timeRange = attrs.number("timeRange");
+    return {
+      dashboard:
+        attrs.object<AnalyticsChartData["dashboard"]>("dashboard") ??
+        MISSING_DASHBOARD,
+      panel:
+        attrs.object<AnalyticsChartData["panel"]>("panel") ?? MISSING_PANEL,
+      filters: attrs.object<Record<string, string>>("filters") ?? {},
+      filterSummary: attrs.string("filterSummary"),
+      chart: attrs.object<AnalyticsChartData["chart"]>("chart") ?? {},
+      ...(timeRange === undefined ? {} : { timeRange }),
+      columns: attrs.array<string>("columns") ?? [],
+      rows: attrs.array<AnalyticsChartData["rows"][number]>("rows") ?? [],
+      display:
+        attrs.object<NonNullable<AnalyticsChartData["display"]>>("display"),
+      truncated: attrs.bool("truncated") ?? false,
+      capturedAt: attrs.string("capturedAt") ?? "",
+    };
+  },
 };
 
 const ServerReadStub = () => null;
@@ -92,7 +96,7 @@ export const analyticsChartBlockConfig: BlockSpec<AnalyticsChartData> =
     placement: ["block"],
     label: "Analytics chart",
     description:
-      "A copy of one Analytics dashboard panel (chart, metric or table) with the numbers it showed when it was added or last refreshed, and a link back to the dashboard. Add or refresh one with capture-analytics-chart; never write its numbers by hand.",
+      "A copy of one Analytics dashboard panel (chart, metric or table) with the rows it showed when it was added or last refreshed, drawn as the dashboard draws them, and a link back to the dashboard. Add or refresh one with capture-analytics-chart; never write its numbers by hand.",
   });
 
 export function readAnalyticsChartData(
@@ -162,6 +166,49 @@ const TYPE_NAMES: Record<AnalyticsChartData["panel"]["type"], string> = {
   table: "Table",
 };
 
+/** The dashboard panel a copy draws as: its type, source and chart settings. */
+export function analyticsChartPanel(data: AnalyticsChartData): SqlPanel {
+  return {
+    id: data.panel.id,
+    title: data.panel.title,
+    sql: "",
+    source: data.panel.source ?? "first-party",
+    chartType: data.panel.type,
+    width: 1,
+    config: data.chart as SqlPanelConfig,
+  };
+}
+
+/**
+ * How a copy plans its rows: a pivot fills the dashboard's time range,
+ * ending on the day of the copy rather than today.
+ */
+export function analyticsChartPlanOptions(data: AnalyticsChartData): {
+  timeRange?: number;
+  today?: string;
+} {
+  const capturedAt = new Date(data.capturedAt);
+  return {
+    ...(data.timeRange === undefined ? {} : { timeRange: data.timeRange }),
+    ...(Number.isNaN(capturedAt.getTime())
+      ? {}
+      : { today: capturedAt.toISOString().slice(0, 10) }),
+  };
+}
+
+/** A list's item at `index`, or undefined past its ends. */
+function itemAt<T>(list: readonly T[], index: number): T | undefined {
+  return list[index];
+}
+
+function describeValue(value: unknown): string {
+  return typeof value === "number"
+    ? value.toLocaleString("en-US")
+    : typeof value === "string"
+      ? value
+      : JSON.stringify(value);
+}
+
 /**
  * A one-sentence description of the copy for screen readers and anyone who
  * can't see the chart: what it shows, over which range, and the last value.
@@ -175,24 +222,26 @@ export function describeAnalyticsChart(data: AnalyticsChartData): string {
   if (data.panel.type === "table") {
     return `${what}${filters}. ${data.rows.length} rows of ${data.columns.join(", ")}.`;
   }
-  const { rows } = data;
-  const first = rows.length > 0 ? rows[0] : null;
-  const last = rows.length > 0 ? rows[rows.length - 1] : null;
+  // The points the chart draws, after any pivot, as the dashboard plans them.
+  const { rows, xKey, yKeys } = planPanelRender(
+    analyticsCaptureRecords(data),
+    analyticsChartPanel(data),
+    analyticsChartPlanOptions(data),
+  );
+  const first = itemAt(rows, 0);
+  const last = itemAt(rows, rows.length - 1);
   const range =
-    first && last && first.length > 0 && last.length > 0
-      ? ` ${rows.length} points from ${String(first[0])} to ${String(last[0])}.`
+    first && last
+      ? ` ${rows.length} points from ${describeValue(first[xKey])} to ${describeValue(last[xKey])}.`
       : "";
   const latest = last
-    ? data.columns
-        .slice(1)
-        .map((column, index) => {
-          const value = index + 1 < last.length ? last[index + 1] : null;
-          return value === null
-            ? null
-            : `${column} ${typeof value === "number" ? value.toLocaleString("en-US") : String(value)}`;
-        })
-        .filter((part): part is string => part !== null)
+    ? yKeys
+        .filter((key) => last[key] !== null && last[key] !== undefined)
         .slice(0, 4)
+        .map(
+          (key) =>
+            `${data.chart.seriesLabels?.[key] ?? key} ${describeValue(last[key])}`,
+        )
         .join(", ")
     : "";
   return `${what}${filters}.${range}${latest ? ` Latest: ${latest}.` : ""}`;

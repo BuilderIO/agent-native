@@ -23,7 +23,7 @@ const CAPTURE_RESULT_MARGIN_CHARS = 1_000;
 
 export default defineAction({
   description:
-    "Read-only. Run one saved dashboard panel as the signed-in user, with the dashboard page's filters and key dates, and return its numbers as labeled rows for another app to keep, such as a chart in a Content page. Also returns who can open the dashboard and a fingerprint that changes when the panel's query or chart settings change. Supports line, area, bar, combo, pie, funnel, metric and table panels.",
+    "Read-only. Run one saved dashboard panel as the signed-in user, with the dashboard page's filters and key dates, and return its rows with the chart settings the dashboard draws them with, for another app to keep and draw with toolkit's dashboard charts, such as a chart in a Content page. Also returns who can open the dashboard and a fingerprint that changes when the panel's query or chart settings change. Supports line, area, bar, combo, pie, funnel, metric and table panels.",
   schema: analyticsPanelCaptureRequestSchema,
   outputSchema: analyticsPanelCaptureSchema,
   http: { method: "POST" },
@@ -60,7 +60,8 @@ export default defineAction({
           template_name: "analytics",
           panel_type: capture.panel.type,
           row_count: capture.rows.length,
-          series_count: capture.series?.length ?? 0,
+          column_count: capture.columns.length,
+          event_count: capture.chart.events?.length ?? 0,
           truncated: capture.truncated,
           dashboard_visibility: capture.dashboard.visibility,
         },

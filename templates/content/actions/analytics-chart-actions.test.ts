@@ -82,7 +82,7 @@ function chart(
             ["2026-10-05", 120],
             ["2026-10-12", 140],
           ],
-    ...(type === "line" ? { series: [{ label: "Users" }] } : {}),
+    chart: {},
     truncated: false,
     capturedAt: "2026-11-07T16:40:00.000Z",
   };

@@ -3323,6 +3323,7 @@ export function TimeSeriesRenderer({
   stacked,
   panel,
   onDatumClick,
+  todayKey,
 }: {
   rows: Record<string, unknown>[];
   xKey: string;
@@ -3333,6 +3334,8 @@ export function TimeSeriesRenderer({
   stacked?: boolean;
   panel: SqlPanel;
   onDatumClick?: DatumClickHandler | undefined;
+  /** The day drawn as partial, as `sqlChartLocalDateKey` gives it; today by default. */
+  todayKey?: string | undefined;
 }) {
   const renderDataNoteBands = useRenderDataNoteBands();
   const xLabelFormatter = useCallback(
@@ -3372,7 +3375,7 @@ export function TimeSeriesRenderer({
   const { rows: chartRows, series } = useMemo(
     () =>
       splitPartialDay
-        ? splitCurrentDayTimeSeriesRows(rows, xKey, yKeys)
+        ? splitCurrentDayTimeSeriesRows(rows, xKey, yKeys, todayKey)
         : {
             rows,
             series: yKeys.map((key) => ({
@@ -3381,7 +3384,7 @@ export function TimeSeriesRenderer({
               partialKey: null,
             })),
           },
-    [rows, xKey, yKeys, splitPartialDay],
+    [rows, xKey, yKeys, splitPartialDay, todayKey],
   );
   const drilldownItems = useChartDrilldownItems(
     chartRows,

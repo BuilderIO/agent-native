@@ -16,6 +16,7 @@ const en = {
   shareDetailUnread:
     "This page has Analytics charts not yet checked against their dashboards. Everyone who can open the page will see their numbers.",
   truncated: "Shows part of the panel's rows.",
+  unreadable: "This chart's saved copy can't be read, so it isn't drawn.",
   adding: "Adding the chart from Analytics…",
   added: "Chart added",
   addFailed: "This chart couldn't be added.",
@@ -55,6 +56,8 @@ const translations: Record<
     shareDetailUnread:
       "Esta página tiene gráficos de Analytics que aún no se han comprobado con sus paneles. Todos los que puedan abrir la página verán sus datos.",
     truncated: "Muestra parte de las filas del panel.",
+    unreadable:
+      "No se puede leer la copia guardada de este gráfico, así que no se muestra.",
     adding: "Añadiendo el gráfico desde Analytics…",
     added: "Gráfico añadido",
     addFailed: "No se pudo añadir este gráfico.",
@@ -88,6 +91,8 @@ const translations: Record<
     shareDetailUnread:
       "Cette page contient des graphiques Analytics pas encore vérifiés par rapport à leurs tableaux de bord. Toutes les personnes qui peuvent ouvrir la page verront leurs chiffres.",
     truncated: "Affiche une partie des lignes du panneau.",
+    unreadable:
+      "La copie enregistrée de ce graphique est illisible, il n'est donc pas affiché.",
     adding: "Ajout du graphique depuis Analytics…",
     added: "Graphique ajouté",
     addFailed: "Ce graphique n'a pas pu être ajouté.",
@@ -121,6 +126,8 @@ const translations: Record<
     shareDetailUnread:
       "Diese Seite enthält Analytics-Diagramme, die noch nicht mit ihren Dashboards abgeglichen wurden. Alle, die die Seite öffnen können, sehen ihre Zahlen.",
     truncated: "Zeigt einen Teil der Zeilen des Panels.",
+    unreadable:
+      "Die gespeicherte Kopie dieses Diagramms ist nicht lesbar und wird daher nicht angezeigt.",
     adding: "Diagramm wird aus Analytics hinzugefügt…",
     added: "Diagramm hinzugefügt",
     addFailed: "Dieses Diagramm konnte nicht hinzugefügt werden.",
@@ -153,6 +160,8 @@ const translations: Record<
     shareDetailUnread:
       "Esta página tem gráficos do Analytics ainda não verificados com seus painéis. Todos que podem abrir a página verão os números deles.",
     truncated: "Mostra parte das linhas do painel.",
+    unreadable:
+      "Não é possível ler a cópia salva deste gráfico, por isso ele não é exibido.",
     adding: "Adicionando o gráfico do Analytics…",
     added: "Gráfico adicionado",
     addFailed: "Não foi possível adicionar este gráfico.",
@@ -183,6 +192,7 @@ const translations: Record<
     shareDetailUnread:
       "此页面包含尚未与其仪表板核对的 Analytics 图表。所有能打开此页面的人都会看到它们的数据。",
     truncated: "仅显示该面板的部分行。",
+    unreadable: "无法读取此图表保存的副本，因此不显示。",
     adding: "正在从 Analytics 添加图表…",
     added: "图表已添加",
     addFailed: "无法添加此图表。",
@@ -213,6 +223,7 @@ const translations: Record<
     shareDetailUnread:
       "此頁面有尚未與其儀表板核對的 Analytics 圖表。所有能開啟此頁面的人都會看到它們的數字。",
     truncated: "僅顯示該面板的部分列。",
+    unreadable: "無法讀取此圖表儲存的副本，因此不顯示。",
     adding: "正在從 Analytics 新增圖表…",
     added: "圖表已新增",
     addFailed: "無法新增此圖表。",
@@ -245,6 +256,8 @@ const translations: Record<
     shareDetailUnread:
       "このページには、まだダッシュボードと照合していない Analytics のグラフがあります。ページを開ける全員がその数値を見られるようになります。",
     truncated: "パネルの行の一部を表示しています。",
+    unreadable:
+      "このグラフの保存済みコピーを読み取れないため、表示されません。",
     adding: "Analytics からグラフを追加しています…",
     added: "グラフを追加しました",
     addFailed: "このグラフを追加できませんでした。",
@@ -277,6 +290,7 @@ const translations: Record<
     shareDetailUnread:
       "이 페이지에는 아직 대시보드와 대조하지 않은 Analytics 차트가 있습니다. 페이지를 열 수 있는 모든 사람이 그 수치를 보게 됩니다.",
     truncated: "패널의 행 중 일부만 표시합니다.",
+    unreadable: "이 차트의 저장된 사본을 읽을 수 없어 표시하지 않습니다.",
     adding: "Analytics에서 차트를 추가하는 중…",
     added: "차트를 추가했습니다",
     addFailed: "이 차트를 추가할 수 없습니다.",
@@ -309,6 +323,8 @@ const translations: Record<
     shareDetailUnread:
       "इस पेज में Analytics के ऐसे चार्ट हैं जिन्हें अभी उनके डैशबोर्ड से जाँचा नहीं गया है। पेज खोल सकने वाले सभी लोग उनके आँकड़े देखेंगे।",
     truncated: "पैनल की कुछ ही पंक्तियाँ दिखाता है।",
+    unreadable:
+      "इस चार्ट की सहेजी गई कॉपी पढ़ी नहीं जा सकती, इसलिए यह नहीं दिखाया गया है।",
     adding: "Analytics से चार्ट जोड़ा जा रहा है…",
     added: "चार्ट जोड़ा गया",
     addFailed: "यह चार्ट नहीं जोड़ा जा सका।",
@@ -340,6 +356,7 @@ const translations: Record<
     shareDetailUnread:
       "تحتوي هذه الصفحة على مخططات من Analytics لم يتم التحقق منها بعد مقابل لوحاتها. سيرى كل من يمكنه فتح الصفحة أرقامها.",
     truncated: "يعرض جزءًا من صفوف اللوحة.",
+    unreadable: "تعذّرت قراءة النسخة المحفوظة من هذا المخطط، لذا لا يُعرض.",
     adding: "جارٍ إضافة المخطط من Analytics…",
     added: "تمت إضافة المخطط",
     addFailed: "تعذّرت إضافة هذا المخطط.",

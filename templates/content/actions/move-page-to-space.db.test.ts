@@ -179,6 +179,7 @@ async function dashboardTable(
       url: "https://analytics.example.test/dashboards/accounts?tile=top",
     },
     filters: {},
+    chart: {},
     columns: ["Account", "Seats"],
     rows: [["Acme", 12]],
     truncated: false,

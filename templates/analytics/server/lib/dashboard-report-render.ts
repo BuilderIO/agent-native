@@ -830,20 +830,6 @@ function renderCalloutHtml(
   };
 }
 
-/** The columns a table panel shows: its visible configured ones, else every column. */
-export function reportTableColumns(
-  panel: SqlPanel,
-  rows: Array<Record<string, unknown>>,
-): TableColumnConfig[] {
-  const rowKeys = new Set(Object.keys(rows[0] ?? {}));
-  const configured = (panel.config?.columns ?? []).filter(
-    (column) => !column.hidden && rowKeys.has(column.key),
-  );
-  return configured.length
-    ? configured
-    : Object.keys(rows[0] ?? {}).map((key) => ({ key }));
-}
-
 function renderTableHtml(
   panel: SqlPanel,
   rows: Array<Record<string, unknown>>,
@@ -851,7 +837,13 @@ function renderTableHtml(
   if (rows.length === 0) {
     return { html: noteHtml("No rows returned."), text: "No rows returned." };
   }
-  const columns = reportTableColumns(panel, rows);
+  const rowKeys = new Set(Object.keys(rows[0]));
+  const configured = (panel.config?.columns ?? []).filter(
+    (column) => !column.hidden && rowKeys.has(column.key),
+  );
+  const columns: TableColumnConfig[] = configured.length
+    ? configured
+    : Object.keys(rows[0]).map((key) => ({ key }));
 
   const configLimit = panel.config?.limit;
   const limit = Math.min(

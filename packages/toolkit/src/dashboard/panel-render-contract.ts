@@ -1021,7 +1021,7 @@ export interface PanelRenderPlan {
 export function planPanelRender(
   rawRows: Record<string, unknown>[],
   panel: RenderPanel,
-  opts?: { timeRange?: number },
+  opts?: { timeRange?: number; today?: string },
 ): PanelRenderPlan {
   const config = panel.config;
   const rawColumns = rawRows.length > 0 ? Object.keys(rawRows[0]) : [];
@@ -1030,6 +1030,7 @@ export function planPanelRender(
       ? pivotRows(rawRows, config.pivot, {
           fillDateGaps: panel.chartType !== "bar",
           timeRange: opts?.timeRange,
+          today: opts?.today,
         })
       : null;
   const rows = pivoted ? pivoted.rows : rawRows;

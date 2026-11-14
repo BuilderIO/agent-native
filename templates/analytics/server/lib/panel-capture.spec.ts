@@ -133,17 +133,20 @@ describe("captureDashboardPanel", () => {
         id: "signups",
         title: "Signups",
         type: "line",
+        source: "bigquery",
         url: "https://analytics.example.test/dashboards/growth?f_timeRange=90d&tile=signups",
       },
       filters: { timeRange: "90d" },
       filterSummary: "Range: Last 90 days",
+      chart: { xKey: "week", yKey: "signups", colors: ["#0284C7"] },
       columns: ["week", "signups"],
-      series: [{ label: "signups", color: "#0284C7" }],
       truncated: false,
       capturedAt: "2026-11-07T17:00:00.000Z",
     });
     expect(capture.rows.map((row) => row[1])).toEqual([10, 12]);
     expect(capture.panel.fingerprint).toMatch(/^[a-f0-9]{12}$/);
+    // Only a pivot fills its days across the dashboard's range.
+    expect(capture).not.toHaveProperty("timeRange");
     const [call] = mocks.resolvePanel.mock.calls;
     expect(call?.[0].query).toContain("r = '90d'");
   });
@@ -281,6 +284,345 @@ describe("captureDashboardPanel", () => {
     expect(capture.columns).toEqual(["name", "seats"]);
     expect(capture.rows).toHaveLength(50);
     expect(capture.truncated).toBe(true);
+  });
+
+  it("keeps a pivoted panel's rows as its query returns them, with the pivot that draws them", async () => {
+    mocks.getDashboard.mockResolvedValue(
+      dashboard([
+        {
+          ...SIGNUPS,
+          chartType: "bar",
+          config: {
+            pivot: { xKey: "week", seriesKey: "plan", valueKey: "signups" },
+            stacked: true,
+          },
+        },
+      ]),
+    );
+    mocks.resolvePanel.mockResolvedValue(
+      result([
+        { week: "2026-10-27", plan: "Free", signups: 7 },
+        { week: "2026-10-27", plan: "Pro", signups: 3 },
+        { week: "2026-11-03", plan: "Free", signups: 9 },
+      ]),
+    );
+
+    const capture = await captureDashboardPanel(
+      { dashboardId: "growth", panelId: "signups" },
+      CTX,
+    );
+
+    expect(capture.columns).toEqual(["week", "plan", "signups"]);
+    expect(capture.rows).toEqual([
+      ["2026-10-27", "Free", 7],
+      ["2026-10-27", "Pro", 3],
+      ["2026-11-03", "Free", 9],
+    ]);
+    expect(capture.chart).toEqual({
+      pivot: { xKey: "week", seriesKey: "plan", valueKey: "signups" },
+      stacked: true,
+    });
+  });
+
+  it("keeps only the chart settings that change the drawing", async () => {
+    mocks.getDashboard.mockResolvedValue(
+      dashboard([
+        {
+          ...SIGNUPS,
+          config: {
+            xKey: "week",
+            yKey: "signups",
+            yFormatter: "percent",
+            seriesLabels: { signups: "New signups" },
+            // Not a color the contract allows, so the page draws its own.
+            colors: ["url(#shadow)"],
+            description: "d".repeat(2500),
+            drilldown: { sql: "SELECT * FROM t WHERE week = '{{drillX}}'" },
+            breakdowns: [{ key: "plan", label: "Plan" }],
+          },
+        },
+      ]),
+    );
+
+    const capture = await captureDashboardPanel(
+      { dashboardId: "growth", panelId: "signups" },
+      CTX,
+    );
+
+    expect(capture.chart).toEqual({
+      xKey: "week",
+      yKey: "signups",
+      yFormatter: "percent",
+      seriesLabels: { signups: "New signups" },
+      description: "d".repeat(2000),
+    });
+  });
+
+  it("marks the panel's events and the dashboard's key dates that land on its chart", async () => {
+    mocks.getDashboard.mockResolvedValue(
+      dashboard([
+        {
+          ...SIGNUPS,
+          config: {
+            ...SIGNUPS.config,
+            events: [{ date: "2026-10-28", label: "Pricing page" }],
+          },
+        },
+      ]),
+    );
+    mocks.listKeyDateSets.mockResolvedValue([
+      {
+        id: "launches",
+        dates: [
+          { date: "2026-11-03", label: "Launch week", time: "09:00" },
+          { date: "2025-01-01", label: "Long before the chart" },
+        ],
+      },
+    ]);
+
+    const capture = await captureDashboardPanel(
+      { dashboardId: "growth", panelId: "signups" },
+      CTX,
+    );
+
+    expect(capture.chart.events).toEqual([
+      { date: "2026-10-28", label: "Pricing page" },
+      { date: "2026-11-03", time: "09:00", label: "Launch week" },
+    ]);
+  });
+
+  it("keeps only the columns its chart draws", async () => {
+    mocks.resolvePanel.mockResolvedValue(
+      result([
+        { week: "2026-10-27", signups: 10, email: "ada@example.com" },
+        { week: "2026-11-03", signups: 12, email: "grace@example.com" },
+      ]),
+    );
+    const named = await captureDashboardPanel(
+      { dashboardId: "growth", panelId: "signups" },
+      CTX,
+    );
+    expect(named.columns).toEqual(["week", "signups"]);
+    expect(JSON.stringify(named)).not.toContain("example.com");
+    expect(named.truncated).toBe(false);
+
+    // Keys the chart finds for itself count the same way.
+    mocks.getDashboard.mockResolvedValue(
+      dashboard([{ ...SIGNUPS, config: {} }]),
+    );
+    const found = await captureDashboardPanel(
+      { dashboardId: "growth", panelId: "signups" },
+      CTX,
+    );
+    expect(found.columns).toEqual(["week", "signups"]);
+  });
+
+  it("keeps a table's shown columns, not its hidden ones", async () => {
+    const hidden = Array.from({ length: 24 }, (_, index) => ({
+      key: `h${index}`,
+      hidden: true,
+    }));
+    mocks.getDashboard.mockResolvedValue(
+      dashboard([
+        {
+          id: "accounts",
+          title: "Accounts",
+          source: "bigquery",
+          chartType: "table",
+          width: 2,
+          sql: "SELECT * FROM accounts",
+          config: { columns: [{ key: "name", label: "Account" }, ...hidden] },
+        },
+      ]),
+    );
+    mocks.resolvePanel.mockResolvedValue(
+      result([
+        {
+          name: "Globex",
+          ...Object.fromEntries(hidden.map((column) => [column.key, 1])),
+        },
+      ]),
+    );
+
+    const capture = await captureDashboardPanel(
+      { dashboardId: "growth", panelId: "accounts" },
+      CTX,
+    );
+
+    expect(capture.columns).toEqual(["name"]);
+    expect(capture.chart.columns).toEqual([{ key: "name", label: "Account" }]);
+    expect(capture.truncated).toBe(false);
+  });
+
+  it("keeps the first columns a chart draws when it draws too many", async () => {
+    const wide = Object.fromEntries([
+      ["day", "2026-11-03"],
+      ...Array.from({ length: 30 }, (_, index) => [`c${index}`, index]),
+    ]);
+    mocks.getDashboard.mockResolvedValue(
+      dashboard([{ ...SIGNUPS, chartType: "bar", config: { xKey: "day" } }]),
+    );
+    mocks.resolvePanel.mockResolvedValue(result([wide]));
+
+    const capture = await captureDashboardPanel(
+      { dashboardId: "growth", panelId: "signups" },
+      CTX,
+    );
+
+    expect(capture.columns).toHaveLength(24);
+    expect(capture.columns[0]).toBe("day");
+    expect(capture.truncated).toBe(true);
+  });
+
+  it("keeps whole dates of a pivoted chart when it keeps fewer rows", async () => {
+    const plans = ["Free", "Pro", "Team"];
+    const start = Date.parse("2025-01-01T00:00:00.000Z");
+    // 334 dates of three rows each: 1,002 rows, two more than a page keeps.
+    const rows = Array.from({ length: 334 }, (_, day) =>
+      plans.map((plan) => ({
+        day: new Date(start + day * 86_400_000).toISOString().slice(0, 10),
+        plan,
+        signups: day + 1,
+      })),
+    ).flat();
+    mocks.getDashboard.mockResolvedValue(
+      dashboard([
+        {
+          ...SIGNUPS,
+          chartType: "bar",
+          config: {
+            pivot: { xKey: "day", seriesKey: "plan", valueKey: "signups" },
+          },
+        },
+      ]),
+    );
+    mocks.resolvePanel.mockResolvedValue(result(rows));
+    const rowsPerDay = (kept: unknown[][]) => {
+      const perDay = new Map<unknown, number>();
+      for (const row of kept) perDay.set(row[0], (perDay.get(row[0]) ?? 0) + 1);
+      return new Set(perDay.values());
+    };
+
+    // With room to spare, the row limit cuts the oldest date whole.
+    const capture = await captureDashboardPanel(
+      { dashboardId: "growth", panelId: "signups" },
+      { ...CTX, maxChars: 200_000 },
+    );
+    expect(capture.truncated).toBe(true);
+    expect(capture.rows).toHaveLength(999);
+    expect(capture.rows[0]).toEqual(["2025-01-02", "Free", 2]);
+    expect(rowsPerDay(capture.rows)).toEqual(new Set([3]));
+
+    // An answer cut to fit its size keeps whole dates as well.
+    const fitted = await captureDashboardPanel(
+      { dashboardId: "growth", panelId: "signups" },
+      CTX,
+    );
+    expect(fitted.rows.length).toBeLessThan(999);
+    expect(fitted.rows[fitted.rows.length - 1]).toEqual([
+      "2025-11-30",
+      "Team",
+      334,
+    ]);
+    expect(rowsPerDay(fitted.rows)).toEqual(new Set([3]));
+  });
+
+  it("keeps the newest whole times of a pivot whose rows come one series after another", async () => {
+    const start = Date.parse("2026-11-07T10:00:00.000Z");
+    // Prometheus returns each series' points in turn: 3 series of 400 points.
+    const rows = ["Total", "Used", "Free"].flatMap((series) =>
+      Array.from({ length: 400 }, (_, index) => ({
+        timestamp: new Date(start + index * 15_000).toISOString(),
+        series,
+        value: index,
+      })),
+    );
+    mocks.getDashboard.mockResolvedValue(
+      dashboard([
+        {
+          ...SIGNUPS,
+          source: "prometheus",
+          chartType: "area",
+          config: {
+            xKey: "timestamp",
+            yKey: "value",
+            pivot: {
+              xKey: "timestamp",
+              seriesKey: "series",
+              valueKey: "value",
+            },
+          },
+        },
+      ]),
+    );
+    mocks.resolvePanel.mockResolvedValue(result(rows));
+
+    const capture = await captureDashboardPanel(
+      { dashboardId: "growth", panelId: "signups" },
+      { ...CTX, maxChars: 200_000 },
+    );
+
+    expect(capture.truncated).toBe(true);
+    expect(capture.rows).toHaveLength(999);
+    const times = new Set(capture.rows.map((row) => row[0]));
+    expect(times.size).toBe(333);
+    expect(times.has(new Date(start + 399 * 15_000).toISOString())).toBe(true);
+    expect(times.has(new Date(start + 66 * 15_000).toISOString())).toBe(false);
+  });
+
+  it("keeps a pivoted line's time range, ending on the day it was kept", async () => {
+    mocks.getDashboard.mockResolvedValue(
+      dashboard([
+        {
+          ...SIGNUPS,
+          config: {
+            pivot: { xKey: "week", seriesKey: "plan", valueKey: "signups" },
+          },
+        },
+      ]),
+    );
+    mocks.resolvePanel.mockResolvedValue(
+      result([
+        { week: "2026-11-02", plan: "Free", signups: 7 },
+        { week: "2026-11-03", plan: "Free", signups: 9 },
+      ]),
+    );
+    // Before the panel's first row, but inside the dashboard's 30 days.
+    mocks.listKeyDateSets.mockResolvedValue([
+      { id: "launches", dates: [{ date: "2026-10-20", label: "Beta" }] },
+    ]);
+
+    const capture = await captureDashboardPanel(
+      { dashboardId: "growth", panelId: "signups" },
+      CTX,
+    );
+
+    expect(capture.timeRange).toBe(30);
+    expect(capture.chart.events).toEqual([
+      { date: "2026-10-20", label: "Beta" },
+    ]);
+  });
+
+  it("refuses a metric that adds up more rows than a page keeps", async () => {
+    mocks.getDashboard.mockResolvedValue(
+      dashboard([
+        {
+          id: "total",
+          title: "Total signups",
+          source: "bigquery",
+          chartType: "metric",
+          width: 1,
+          sql: "SELECT signups FROM t",
+        },
+      ]),
+    );
+    mocks.resolvePanel.mockResolvedValue(
+      result(Array.from({ length: 1001 }, () => ({ signups: 1 }))),
+    );
+
+    await expect(
+      captureDashboardPanel({ dashboardId: "growth", panelId: "total" }, CTX),
+    ).rejects.toMatchObject({ errorCode: "panel_not_supported" });
   });
 });
 

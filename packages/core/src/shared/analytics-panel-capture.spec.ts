@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  analyticsCaptureRecords,
   analyticsPanelCaptureSchema,
   parseAnalyticsPanelLink,
 } from "./analytics-panel-capture.js";
@@ -83,12 +84,17 @@ describe("analyticsPanelCaptureSchema", () => {
       url: "https://analytics.agent-native.com/dashboards/pod-1-key-levers?tile=wau-over-time",
     },
     filters: { timeRange: "90d" },
+    chart: {
+      xKey: "date",
+      yKeys: ["visitors"],
+      colors: ["#0284C7"],
+      events: [{ date: "2026-10-30", label: "Launch" }],
+    },
     columns: ["date", "visitors"],
     rows: [
       ["2026-10-27", 1234],
       ["2026-11-03", 1290],
     ],
-    series: [{ label: "visitors", color: "#0284C7" }],
     truncated: false,
     capturedAt: "2026-11-03T17:40:00.000Z",
   };
@@ -97,13 +103,65 @@ describe("analyticsPanelCaptureSchema", () => {
     expect(analyticsPanelCaptureSchema.parse(capture)).toEqual(capture);
   });
 
-  it("refuses a series color that isn't a hex color", () => {
+  it("takes series colors as plain colors or theme colors, and nothing else", () => {
+    const withColors = (colors: string[]) =>
+      analyticsPanelCaptureSchema.safeParse({
+        ...capture,
+        chart: { ...capture.chart, colors },
+      }).success;
+    expect(
+      withColors([
+        "#0284c7",
+        "var(--brand-blue)",
+        "rgb(2, 132, 199)",
+        "hsl(200 98% 39% / 0.5)",
+        "teal",
+      ]),
+    ).toBe(true);
+    expect(withColors(["url(#x)"])).toBe(false);
+    expect(withColors(["var(--a);background:url(x)"])).toBe(false);
+    expect(withColors(["rgb(var(--x))"])).toBe(false);
+    expect(withColors(["red;fill:url(#x)"])).toBe(false);
+  });
+
+  it("names the panel's data source only from the known ones", () => {
+    const withSource = (source: string) =>
+      analyticsPanelCaptureSchema.safeParse({
+        ...capture,
+        panel: { ...capture.panel, source },
+      }).success;
+    expect(withSource("prometheus")).toBe(true);
+    expect(withSource("somewhere-else")).toBe(false);
+  });
+
+  it("keeps a time range of whole days", () => {
+    const withRange = (timeRange: number) =>
+      analyticsPanelCaptureSchema.safeParse({ ...capture, timeRange }).success;
+    expect(withRange(30)).toBe(true);
+    expect(withRange(0)).toBe(false);
+    expect(withRange(1.5)).toBe(false);
+    expect(withRange(10_000)).toBe(false);
+  });
+
+  it("refuses a key date that isn't a calendar date", () => {
     expect(
       analyticsPanelCaptureSchema.safeParse({
         ...capture,
-        series: [{ label: "visitors", color: "url(#x)" }],
+        chart: { ...capture.chart, events: [{ date: "soon", label: "x" }] },
       }).success,
     ).toBe(false);
+  });
+
+  it("reads a capture's rows as records keyed by column", () => {
+    expect(
+      analyticsCaptureRecords({
+        columns: ["date", "visitors"],
+        rows: [["2026-10-27", 1234], ["2026-11-03"]],
+      }),
+    ).toEqual([
+      { date: "2026-10-27", visitors: 1234 },
+      { date: "2026-11-03", visitors: null },
+    ]);
   });
 
   it("refuses unsupported panel types and non-http links", () => {

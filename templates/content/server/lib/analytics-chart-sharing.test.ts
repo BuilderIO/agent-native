@@ -48,7 +48,7 @@ function chart(
     filters: {},
     columns: type === "table" ? ["Account", "Seats"] : ["week", "Seats"],
     rows: type === "table" ? [["Acme", 12]] : [["2026-10-05", 12]],
-    ...(type === "line" ? { series: [{ label: "Seats" }] } : {}),
+    chart: {},
     truncated: false,
     capturedAt: "2026-11-07T16:40:00.000Z",
   };

@@ -24,6 +24,7 @@ import {
   isTableLikeChartType,
   MetricRenderer,
   PieRenderer,
+  sqlChartLocalDateKey,
   TABLE_PLACEHOLDER_MIN_HEIGHT_CLASS,
   TableRenderer,
   TimeSeriesRenderer,
@@ -36,7 +37,13 @@ export interface DashboardPanelChartProps {
   /** The panel query's rows, already loaded: this component runs no query. */
   rows: Record<string, unknown>[];
   /** The dashboard's time range in days, which only a pivot reads. */
-  timeRange?: number;
+  timeRange?: number | undefined;
+  /**
+   * When the rows were read, as an ISO date-time, for rows kept to draw
+   * later: the chart's "today", which a pivot's time range ends on and a
+   * daily line draws as partial. The current time by default.
+   */
+  asOf?: string | undefined;
   /** Hears the point, bar or slice a reader picks. */
   onDatumClick?: DatumClickHandler;
 }
@@ -51,17 +58,21 @@ export function DashboardPanelChart({
   panel,
   rows: rawRows,
   timeRange,
+  asOf,
   onDatumClick,
 }: DashboardPanelChartProps) {
   const t = useT();
+  const asOfDate = useMemo(() => {
+    const date = asOf === undefined ? null : new Date(asOf);
+    return date && !Number.isNaN(date.getTime()) ? date : null;
+  }, [asOf]);
   const plan = useMemo(
     () =>
-      planPanelRender(
-        rawRows,
-        panel,
-        timeRange === undefined ? {} : { timeRange },
-      ),
-    [rawRows, panel, timeRange],
+      planPanelRender(rawRows, panel, {
+        ...(timeRange === undefined ? {} : { timeRange }),
+        ...(asOfDate ? { today: asOfDate.toISOString().slice(0, 10) } : {}),
+      }),
+    [rawRows, panel, timeRange, asOfDate],
   );
   const { rows, xKey, yKeys } = plan;
   const chartType: ChartType =
@@ -239,6 +250,7 @@ export function DashboardPanelChart({
             stacked={panel.config?.stacked === true}
             panel={panel}
             onDatumClick={onDatumClick}
+            todayKey={asOfDate ? sqlChartLocalDateKey(asOfDate) : undefined}
           />,
         ),
       );

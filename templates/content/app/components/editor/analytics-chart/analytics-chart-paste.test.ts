@@ -44,7 +44,7 @@ const chart: AnalyticsChartData = {
   filters: { timeRange: "90d" },
   columns: ["week", "Users"],
   rows: [["2026-10-05", 120]],
-  series: [{ label: "Users" }],
+  chart: {},
   truncated: false,
   capturedAt: "2026-11-07T16:40:00.000Z",
 };

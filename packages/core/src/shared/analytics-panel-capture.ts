@@ -4,7 +4,7 @@ import { z } from "zod";
  * The contract between Analytics and an app that keeps a frozen copy of one
  * dashboard panel, such as a chart in a Content page. Analytics owns the
  * query, access and chart semantics; the other app stores the returned
- * numbers and draws them with toolkit's report chart renderer.
+ * rows and draws them with toolkit's dashboard charts.
  */
 
 /** Panels drawn as charts from the stored rows. */
@@ -29,13 +29,36 @@ export type AnalyticsCaptureChartType =
 export type AnalyticsCapturePanelType =
   (typeof ANALYTICS_CAPTURE_PANEL_TYPES)[number];
 
-/** Most rows a capture keeps; enough for a daily chart over a year. */
-export const ANALYTICS_CAPTURE_MAX_ROWS = 400;
+/**
+ * Most rows a capture keeps. A pivoted chart's query returns one row per
+ * date and series, so a year of daily points over a few series fits.
+ */
+export const ANALYTICS_CAPTURE_MAX_ROWS = 1000;
 /** Most rows a table capture keeps, matching what a report email shows. */
 export const ANALYTICS_CAPTURE_MAX_TABLE_ROWS = 50;
 export const ANALYTICS_CAPTURE_MAX_COLUMNS = 24;
+/** Most key dates a capture marks on its chart. */
+export const ANALYTICS_CAPTURE_MAX_EVENTS = 100;
+/** Most series colors a capture keeps: a pivot can draw more series than columns. */
+export const ANALYTICS_CAPTURE_MAX_COLORS = 100;
+/** The longest dashboard time range, in days, a pivoted chart fills against. */
+export const ANALYTICS_CAPTURE_MAX_TIME_RANGE_DAYS = 800;
+
+/** The data source types a dashboard panel reads, as toolkit names them. */
+export const ANALYTICS_CAPTURE_SOURCES = [
+  "bigquery",
+  "ga4",
+  "amplitude",
+  "first-party",
+  "demo",
+  "prometheus",
+  "program",
+] as const;
+export type AnalyticsCaptureSource = (typeof ANALYTICS_CAPTURE_SOURCES)[number];
 const MAX_FILTERS = 40;
 const MAX_CELL_TEXT = 500;
+const MAX_KEY = 200;
+const MAX_LABEL = 200;
 
 const idSchema = z
   .string()
@@ -69,6 +92,18 @@ const colorSchema = z
   .string()
   .regex(/^#(?:[\da-f]{3,4}|[\da-f]{6}|[\da-f]{8})$/i, "Expected a hex color.");
 
+/**
+ * A series color: hex, an RGB or HSL function with numbers only, a color name,
+ * or a theme color as `var(--name)`. Nothing else, so a page can't carry
+ * other CSS, such as a `url()`, into the chart.
+ */
+const seriesColorSchema = z
+  .string()
+  .regex(
+    /^(?:#(?:[\da-f]{3,4}|[\da-f]{6}|[\da-f]{8})|var\(--[\w-]{1,64}\)|(?:rgb|hsl)a?\([\d\s.,%/]{1,60}\)|[a-z]{3,30})$/i,
+    "Expected a hex, RGB, HSL or named color, or var(--name).",
+  );
+
 export const analyticsCaptureCellSchema = z.union([
   z.string().max(MAX_CELL_TEXT),
   z.number(),
@@ -77,26 +112,116 @@ export const analyticsCaptureCellSchema = z.union([
 ]);
 export type AnalyticsCaptureCell = z.infer<typeof analyticsCaptureCellSchema>;
 
-export const analyticsCaptureSeriesSchema = z.object({
-  label: z.string().max(200),
-  color: colorSchema.optional(),
-  axis: z.enum(["left", "right"]).optional(),
-  formatter: z.enum(["number", "currency", "percent", "duration"]).optional(),
-  /** Combo charts only: draw this series as bars or as a line. */
-  mark: z.enum(["bar", "line"]).optional(),
-});
-export type AnalyticsCaptureSeries = z.infer<
-  typeof analyticsCaptureSeriesSchema
->;
+const columnKeySchema = z.string().max(MAX_KEY);
+const columnKeysSchema = z
+  .array(columnKeySchema)
+  .max(ANALYTICS_CAPTURE_MAX_COLUMNS);
+const labelsSchema = z
+  .record(columnKeySchema, z.string().max(MAX_LABEL))
+  .refine((value) => Object.keys(value).length <= 100, {
+    message: "At most 100 labels.",
+  });
+const valueFormatterSchema = z.enum([
+  "number",
+  "currency",
+  "percent",
+  "duration",
+]);
 
-export const analyticsCaptureKeyDateSchema = z.object({
-  /** The x value (first column) the date falls on. */
-  x: z.string().max(200),
-  label: z.string().max(200),
+/** A key date the chart marks, as dashboard panels store them. */
+export const analyticsCaptureEventSchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Expected YYYY-MM-DD."),
+  time: z
+    .string()
+    .regex(/^\d{2}:\d{2}$/, "Expected HH:MM.")
+    .optional(),
+  timeZone: z.string().max(64).optional(),
+  label: z.string().max(MAX_LABEL),
   color: colorSchema.optional(),
 });
-export type AnalyticsCaptureKeyDate = z.infer<
-  typeof analyticsCaptureKeyDateSchema
+export type AnalyticsCaptureEvent = z.infer<typeof analyticsCaptureEventSchema>;
+
+/**
+ * The chart settings of the dashboard panel a capture came from, so another
+ * app draws its rows exactly as the dashboard does. Only settings that
+ * change the drawing are kept: no query, drilldown, breakdown or extension.
+ * The panel's own key dates and its dashboard's key-date sets both arrive as
+ * `events`.
+ */
+export const analyticsCaptureChartConfigSchema = z.object({
+  xKey: columnKeySchema.optional(),
+  yKey: columnKeySchema.optional(),
+  yKeys: columnKeysSchema.optional(),
+  rightYKeys: columnKeysSchema.optional(),
+  barKeys: columnKeysSchema.optional(),
+  colors: z
+    .array(seriesColorSchema)
+    .max(ANALYTICS_CAPTURE_MAX_COLORS)
+    .optional(),
+  yFormatter: valueFormatterSchema.optional(),
+  rightYFormatter: valueFormatterSchema.optional(),
+  seriesLabels: labelsSchema.optional(),
+  valueLabels: labelsSchema.optional(),
+  description: z.string().max(2000).optional(),
+  pivot: z
+    .object({
+      xKey: columnKeySchema,
+      seriesKey: columnKeySchema,
+      valueKey: columnKeySchema,
+      seriesOrder: z.array(z.string().max(MAX_LABEL)).max(100).optional(),
+    })
+    .optional(),
+  funnelOutcomes: z
+    .object({
+      completedKey: columnKeySchema,
+      leftKey: columnKeySchema,
+      skippedKey: columnKeySchema.optional(),
+      optionalKey: columnKeySchema.optional(),
+    })
+    .optional(),
+  stacked: z.boolean().optional(),
+  legend: z.boolean().optional(),
+  sortable: z.boolean().optional(),
+  comparison: z
+    .object({
+      previousKey: columnKeySchema.optional(),
+      periodKey: columnKeySchema.optional(),
+      label: z.string().max(MAX_LABEL).optional(),
+      better: z.enum(["higher", "lower", "neither"]).optional(),
+    })
+    .optional(),
+  columns: z
+    .array(
+      z.object({
+        key: columnKeySchema,
+        label: z.string().max(MAX_LABEL).optional(),
+        format: z
+          .enum([
+            "number",
+            "currency",
+            "percent",
+            "date",
+            "link",
+            "text",
+            "delta",
+            "duration",
+          ])
+          .optional(),
+        linkKey: columnKeySchema.optional(),
+        hidden: z.boolean().optional(),
+        width: z.number().int().min(1).max(4000).optional(),
+      }),
+    )
+    .max(ANALYTICS_CAPTURE_MAX_COLUMNS)
+    .optional(),
+  limit: z.number().int().min(1).max(10_000).optional(),
+  events: z
+    .array(analyticsCaptureEventSchema)
+    .max(ANALYTICS_CAPTURE_MAX_EVENTS)
+    .optional(),
+});
+export type AnalyticsCaptureChartConfig = z.infer<
+  typeof analyticsCaptureChartConfigSchema
 >;
 
 export const analyticsPanelCaptureRequestSchema = z.object({
@@ -126,6 +251,8 @@ export const analyticsPanelCaptureSchema = z.object({
     id: idSchema,
     title: z.string().max(300),
     type: z.enum(ANALYTICS_CAPTURE_PANEL_TYPES),
+    /** The panel's data source, which decides how some series labels read. */
+    source: z.enum(ANALYTICS_CAPTURE_SOURCES).optional(),
     /** Changes when the panel's saved query or chart settings change. */
     fingerprint: z.string().regex(/^[a-f0-9]{12}$/),
     url: httpUrlSchema,
@@ -134,26 +261,27 @@ export const analyticsPanelCaptureSchema = z.object({
   filters: filtersSchema,
   /** The same filters as one short line for people, e.g. "Last 90 days". */
   filterSummary: z.string().max(500).optional(),
+  /** How the dashboard draws these rows. */
+  chart: analyticsCaptureChartConfigSchema,
   /**
-   * Charts: the x value first, then one column per series. Metric: one
-   * column. Table: the panel's visible columns.
+   * Pivoted charts only: the dashboard's time range in days. A pivot fills
+   * the days with no rows across it, ending on the day of `capturedAt`
+   * rather than today, so the copy keeps the days the dashboard drew.
    */
-  columns: z
-    .array(z.string().max(200))
+  timeRange: z
+    .number()
+    .int()
     .min(1)
-    .max(ANALYTICS_CAPTURE_MAX_COLUMNS),
+    .max(ANALYTICS_CAPTURE_MAX_TIME_RANGE_DAYS)
+    .optional(),
+  /** The query's columns the chart draws, as the chart settings name them. */
+  columns: z.array(columnKeySchema).min(1).max(ANALYTICS_CAPTURE_MAX_COLUMNS),
+  /** The query's rows as the panel returned them, one cell per column. */
   rows: z
     .array(
       z.array(analyticsCaptureCellSchema).max(ANALYTICS_CAPTURE_MAX_COLUMNS),
     )
     .max(ANALYTICS_CAPTURE_MAX_ROWS),
-  /** Charts only: how to draw each column after the first. */
-  series: z
-    .array(analyticsCaptureSeriesSchema)
-    .max(ANALYTICS_CAPTURE_MAX_COLUMNS)
-    .optional(),
-  stacked: z.boolean().optional(),
-  keyDates: z.array(analyticsCaptureKeyDateSchema).max(100).optional(),
   /** Metric only: the value as the dashboard shows it, and its comparison. */
   display: z
     .object({
@@ -161,11 +289,22 @@ export const analyticsPanelCaptureSchema = z.object({
       comparison: z.string().max(300).optional(),
     })
     .optional(),
-  /** True when the panel returned more rows than the capture keeps. */
+  /** True when the panel returned more rows or columns than the capture keeps. */
   truncated: z.boolean(),
   capturedAt: z.string().datetime(),
 });
 export type AnalyticsPanelCapture = z.infer<typeof analyticsPanelCaptureSchema>;
+
+/** A capture's rows as records keyed by column, as a dashboard panel reads them. */
+export function analyticsCaptureRecords(
+  capture: Pick<AnalyticsPanelCapture, "columns" | "rows">,
+): Record<string, AnalyticsCaptureCell>[] {
+  return capture.rows.map((row) =>
+    Object.fromEntries(
+      capture.columns.map((column, index) => [column, row[index] ?? null]),
+    ),
+  );
+}
 
 export const analyticsPanelStatusRequestSchema = z.object({
   dashboardId: idSchema.describe("Dashboard id."),

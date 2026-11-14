@@ -467,8 +467,8 @@ source is the diagram, so it stays the editable copy.
 
 An `<AnalyticsChart … />` block is a copy of one Analytics dashboard panel (a
 line, area, bar, combo, pie or funnel chart, a metric, or a table) with the
-numbers Analytics returned for the editor who added or last refreshed it.
-Readers see only those numbers; Content never queries a data source, and the
+rows Analytics returned for the editor who added or last refreshed it, drawn
+with the dashboard's own chart. Readers see only those numbers; Content never queries a data source, and the
 block links back to the panel. When people paste a panel's copied link
 (Copy link on the panel in Analytics) into a page they can edit, Content does
 the same steps below for them.
