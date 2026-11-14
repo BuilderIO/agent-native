@@ -44,6 +44,8 @@ const github = vi.hoisted(() => {
     uploadFailures: 0,
     /** The file name of every upload tried, in order. */
     uploadAttempts: [] as string[],
+    /** Every stored image a sync deleted, in order. */
+    deletedMedia: [] as string[],
     /** Runs once, during the next blob read, to race something against a sync. */
     duringBlobRead: null as null | (() => Promise<void>),
     /** Runs once, right after the next upload succeeds. */
@@ -101,6 +103,7 @@ const github = vi.hoisted(() => {
       state.invalidFilename = null;
       state.uploadFailures = 0;
       state.uploadAttempts = [];
+      state.deletedMedia = [];
       state.duringBlobRead = null;
       state.afterUpload = null;
       state.hangAfterBlobReads = null;
@@ -380,6 +383,10 @@ vi.mock("@agent-native/core/private-media", async (importOriginal) => {
         size: input.data.byteLength,
         createdAt: Date.now(),
       };
+    },
+    deletePrivateMedia: async (id: string) => {
+      github.state.deletedMedia.push(id);
+      return true;
     },
   };
 });
@@ -2369,7 +2376,7 @@ describe("GitHub folder source", () => {
     expect(github.state.uploadAttempts).toEqual(["y.png", "x.png"]);
   });
 
-  it("keeps counting an image whose page failed to save after it uploaded", async () => {
+  it("keeps counting an image whose page failed to save after it uploaded, and deletes that copy", async () => {
     github.state.storageDown = true;
     github.commit({
       "docs/a-poster.md": "# Poster\n\n![Poster](images/poster.png)\n",
@@ -2402,6 +2409,8 @@ describe("GitHub folder source", () => {
       });
       const status = await as(() => getSource.run({ databaseId: database.id }));
       expect(status.source?.metadata.github?.imagesWaiting).toBe(1);
+      // No saved page shows the copy that run stored, so it's gone.
+      expect(github.state.deletedMedia).toEqual([github.mediaId(1)]);
 
       const filled = await as(() =>
         syncGitHubSource({ sourceId: id, budgetMs: 30_000 }),
@@ -2411,6 +2420,11 @@ describe("GitHub folder source", () => {
         updated: 1,
         imagesWaiting: 0,
       });
+      // The copy the saved page shows stays.
+      const [poster] = await liveRows(database.id);
+      assert(poster);
+      expect(await boundImages(poster.documentId)).toEqual([github.mediaId(2)]);
+      expect(github.state.deletedMedia).toEqual([github.mediaId(1)]);
     } finally {
       (failWrite as { mockRestore(): void } | null)?.mockRestore();
       warn.mockRestore();

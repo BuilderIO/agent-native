@@ -336,19 +336,22 @@ async function incompleteImportError(
   const reason = contract
     ? error.message
     : "The server hit an unexpected error.";
-  return new ActionContractError(
-    `${landed}: ${reason} Import again with the same idempotencyKey to finish, or undo-content-import to move the imported pages to Trash.`,
-    {
-      errorCode: "IMPORT_INCOMPLETE",
-      statusCode: contract ? error.statusCode : 500,
-      details: {
-        importId: input.importId,
-        documentIds,
-        documentIdsComplete,
-        cause: contract ? error.errorCode : "unexpected",
-      },
+  // The same key carries the same image, so importing again with it can't
+  // get past a bad one.
+  const next =
+    contract && error.errorCode === "IMPORT_IMAGE_INVALID"
+      ? "Use undo-content-import to move the imported pages to Trash, then import the fixed files with a new idempotencyKey."
+      : "Import again with the same idempotencyKey to finish, or undo-content-import to move the imported pages to Trash.";
+  return new ActionContractError(`${landed}: ${reason} ${next}`, {
+    errorCode: "IMPORT_INCOMPLETE",
+    statusCode: contract ? error.statusCode : 500,
+    details: {
+      importId: input.importId,
+      documentIds,
+      documentIdsComplete,
+      cause: contract ? error.errorCode : "unexpected",
     },
-  );
+  });
 }
 
 async function resolveImportDestination(

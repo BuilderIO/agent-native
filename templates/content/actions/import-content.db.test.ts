@@ -812,6 +812,54 @@ describe("import-content", () => {
     expect(await importedChildren()).toHaveLength(2);
   });
 
+  it("doesn't offer the same key again when a retry stops at a bad image", async () => {
+    const files = [
+      { name: "a.md", text: "# A\n\nFirst." },
+      {
+        name: "b.md",
+        text: "# B\n\n![Chart](data:image/png;base64,iVBORw0KGgo=)",
+      },
+    ];
+    const request = {
+      files,
+      parentId: PARENT_ID,
+      dryRun: false,
+      idempotencyKey: "partial-bad-image",
+    };
+    blobs.put.mockImplementationOnce(storedBlob);
+    blobs.put.mockImplementationOnce(async () => null as never);
+    const stopped = await asOwner(() => importContent.run(request)).catch(
+      (error: unknown) => error,
+    );
+    expect(stopped).toMatchObject({ errorCode: "IMPORT_INCOMPLETE" });
+
+    // Storage now refuses the image the first try stored, as it would one
+    // stored before images were checked.
+    const { PrivateMediaValidationError } =
+      await import("@agent-native/core/private-media");
+    uploads.upload.mockImplementationOnce(async () => {
+      throw new PrivateMediaValidationError(
+        "The file's contents don't match its image type.",
+        415,
+      );
+    });
+    const retried = await asOwner(() => importContent.run(request)).catch(
+      (error: unknown) => error,
+    );
+    expect(retried).toMatchObject({
+      errorCode: "IMPORT_INCOMPLETE",
+      message: expect.stringContaining("with a new idempotencyKey"),
+      details: {
+        documentIds: [expect.any(String)],
+        cause: "IMPORT_IMAGE_INVALID",
+      },
+    });
+    expect((retried as Error).message).not.toContain(
+      "same idempotencyKey to finish",
+    );
+    expect(await importedChildren()).toHaveLength(1);
+  });
+
   it("reports an unexpected stop without its raw message, even when the page lookup fails", async () => {
     const files = [
       { name: "a.md", text: "# A\n\nFirst." },

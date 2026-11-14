@@ -7,6 +7,7 @@ import {
 } from "@agent-native/core/action";
 import { isPrivateBlobConfiguredForRequest } from "@agent-native/core/private-blob";
 import {
+  deletePrivateMedia,
   PrivateMediaStorageUnavailableError,
   PrivateMediaValidationError,
   putPrivateMedia,
@@ -1079,6 +1080,8 @@ interface SyncRun {
   failedAssetShas: Set<string>;
   /** Blob SHAs of images storage refused as not the image they claim to be. */
   rejectedAssetShas: Set<string>;
+  /** Private images this run stored; see `deleteUnboundImages`. */
+  storedMediaIds: Set<string>;
   /** Set once an upload finds no file storage, so later images skip the read. */
   storageMissing: boolean;
   /** Set once an upload fails, so the status says storage couldn't save images. */
@@ -1126,6 +1129,7 @@ async function storeImage(
         orgId: run.database.orgId,
       }),
     );
+    run.storedMediaIds.add(media.id);
     run.uploadFailuresInARow = 0;
     return { url: privateMediaPath(media.id) };
   } catch (error) {
@@ -2350,6 +2354,7 @@ export async function syncGitHubSource(
   if (options.signal?.aborted) endBudget();
   options.signal?.addEventListener("abort", endBudget, { once: true });
   const outOfTime = () => Date.now() >= deadline || budget.signal.aborted;
+  const storedMediaIds = new Set<string>();
   try {
     // Pages left without images get rebuilt once storage is set up, even
     // when the branch hasn't moved.
@@ -2470,6 +2475,7 @@ export async function syncGitHubSource(
       assetUrlBySha,
       failedAssetShas: new Set(),
       rejectedAssetShas: new Set(),
+      storedMediaIds,
       storageMissing: false,
       storageFailed: false,
       uploadFailuresInARow: 0,
@@ -2872,6 +2878,41 @@ export async function syncGitHubSource(
   } finally {
     clearTimeout(budgetTimer);
     options.signal?.removeEventListener("abort", endBudget);
+    await deleteUnboundImages(state, database.orgId, storedMediaIds);
+  }
+}
+
+/**
+ * Deletes the images a run stored that no page it wrote took, such as those
+ * of a page whose write failed or that turned out too long, so retries don't
+ * pile up copies nobody can open. A later sync stores them again. A page's
+ * images bind in the write that saves the page, so once the run is over, an
+ * image without a binding was never shown by a saved page.
+ */
+async function deleteUnboundImages(
+  state: GitHubSourceState,
+  orgId: string | null,
+  mediaIds: Set<string>,
+) {
+  if (mediaIds.size === 0) return;
+  try {
+    const bound = new Set<string>();
+    for (const ids of chunks([...mediaIds], 500)) {
+      const rows = await getDb()
+        .selectDistinct({ mediaId: schema.privateMediaReferences.mediaId })
+        .from(schema.privateMediaReferences)
+        .where(inArray(schema.privateMediaReferences.mediaId, ids));
+      for (const row of rows) bound.add(row.mediaId);
+    }
+    for (const id of mediaIds) {
+      if (bound.has(id)) continue;
+      await asLinker(state, orgId, () => deletePrivateMedia(id));
+    }
+  } catch (error) {
+    console.warn(
+      "[github-source] couldn't delete images no page took:",
+      error instanceof Error ? error.message : String(error),
+    );
   }
 }
 
