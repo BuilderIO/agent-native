@@ -2289,10 +2289,9 @@ function persistedHistoryEvents(events: AgentEvent[] = []): AgentEvent[] {
       continue;
     }
     if (
-      (event.type === "task.created" ||
-        event.type === "task.updated" ||
-        event.type === "task.completed") &&
-      event.task.assignedAgentId
+      event.type === "task.created" ||
+      event.type === "task.updated" ||
+      event.type === "task.completed"
     ) {
       persisted.push({
         ...base(),

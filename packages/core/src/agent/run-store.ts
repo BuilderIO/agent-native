@@ -5829,8 +5829,9 @@ function isReadableJournalEvent(value: unknown): value is AgentChatEvent {
         value.status as string,
       );
     case "agent_task":
-      return ["running", "completed", "errored"].includes(
-        value.status as string,
+      return (
+        ["running", "completed", "errored"].includes(value.status as string) &&
+        (value.name === undefined || typeof value.name === "string")
       );
     case "connection_required":
       return ["connect", "grant", "reauthorize", "admin_required"].includes(
