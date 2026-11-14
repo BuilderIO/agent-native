@@ -3285,6 +3285,8 @@ function PageEditorSessionBody({
   const isLocalFileDocument = document.source?.mode === "local-files";
   // Pages that follow a GitHub file are written by sync; edit the file instead.
   const isGitHubSourceDocument = document.source?.mode === "github";
+  // Files and GitHub write the body back out, so their images stay public.
+  const privateImageUploads = !isLocalFileDocument && !isGitHubSourceDocument;
   useConvertPageToLiveCopyOnOpen(
     documentId,
     backfillLiveCopy &&
@@ -3362,8 +3364,9 @@ function PageEditorSessionBody({
       createContentBlockRenderContext({
         documentId,
         canEdit: documentCanonicalMutationsEnabled(canEdit, isSuggesting),
+        privateImageUploads,
       }),
-    [documentId, canEdit, isSuggesting],
+    [documentId, canEdit, isSuggesting, privateImageUploads],
   );
   const [isSubmittingSuggestions, setIsSubmittingSuggestions] = useState(false);
   const [suggestionDraftSaveFailed, setSuggestionDraftSaveFailed] =
@@ -11853,10 +11856,7 @@ function PageEditorSessionBody({
                                 }
                                 suggesting={isSuggesting}
                                 localFileMode={isLocalFileDocument}
-                                privateImageUploads={
-                                  !isLocalFileDocument &&
-                                  !isGitHubSourceDocument
-                                }
+                                privateImageUploads={privateImageUploads}
                                 localFilePath={
                                   isLocalFileDocument
                                     ? document.source?.path
@@ -11951,6 +11951,7 @@ function PageEditorSessionBody({
                                 }
                                 primaryEditor={primaryEditor}
                                 primaryContent={exportContent}
+                                privateImageUploads={privateImageUploads}
                                 onFieldTabChange={
                                   blockFieldComments.onFieldTabChange
                                 }
