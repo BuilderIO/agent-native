@@ -4496,6 +4496,43 @@ export async function isRunAborted(runId: string): Promise<boolean> {
   return (await getRunAbortState(runId)).aborted;
 }
 
+export async function isExecutionLeaseRevokedByAbort(
+  fence: ExecutionFence,
+  reason: string,
+): Promise<boolean> {
+  await ensureRunTables();
+  const { rows } = await getDbExec().execute({
+    sql: `SELECT (SELECT event_data FROM agent_run_events
+                   WHERE run_id = run.id ORDER BY seq DESC LIMIT 1) AS event_data
+          FROM agent_runs AS run
+          JOIN agent_execution_leases AS lease
+            ON lease.thread_id = run.thread_id
+           AND lease.turn_id = COALESCE(run.turn_id, run.id)
+          WHERE run.id = ? AND run.thread_id = ?
+            AND COALESCE(run.turn_id, run.id) = ?
+            AND run.status = 'aborted' AND run.abort_reason = ?
+            AND run.terminal_reason = ?
+            AND run.worker_generation = CAST(? AS BIGINT)
+            AND lease.owner_run_id = ? AND lease.generation = CAST(? AS BIGINT)
+            AND lease.lease_expires_at <= clock_timestamp()`,
+    args: [
+      fence.runId,
+      fence.threadId,
+      fence.turnId,
+      reason,
+      `aborted:${reason}`,
+      fence.generation,
+      fence.runId,
+      fence.generation,
+    ],
+  });
+  return (
+    rows.length === 1 &&
+    (rows[0] as { event_data?: unknown }).event_data ===
+      JSON.stringify(terminalEventForAbortReason(reason))
+  );
+}
+
 export async function getRunAbortState(
   runId: string,
 ): Promise<{ aborted: boolean; reason?: string }> {
