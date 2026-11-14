@@ -240,6 +240,23 @@ function documentConflictResponse(
   };
 }
 
+// A script or automation treats any answered request as a save.
+function staleBaseRevisionError(doc: {
+  bodyRevision: number;
+  content: string;
+}) {
+  return new ActionContractError(
+    "The page changed after it was read; nothing was saved. Read it again with get-document and retry with its baseRevision.",
+    {
+      errorCode: "DOCUMENT_REVISION_CONFLICT",
+      details: {
+        currentRevision: documentRevisionToken(doc.bodyRevision, doc.content),
+      },
+      statusCode: 409,
+    },
+  );
+}
+
 function isFavoriteOnlyUpdate(args: {
   isFavorite?: boolean;
   title?: string;
@@ -840,6 +857,16 @@ const updateDocumentAction = defineAction({
           );
         }
       }
+      const parsedBaseRevision =
+        args.baseRevision === undefined
+          ? null
+          : parseDocumentRevisionToken(args.baseRevision);
+      if (args.baseRevision !== undefined && !parsedBaseRevision) {
+        throw new ActionContractError(
+          "baseRevision is not a valid document revision token.",
+          { errorCode: "INVALID_BASE_REVISION", statusCode: 400 },
+        );
+      }
 
       const isAgentCaller =
         ctx?.caller === "tool" ||
@@ -852,6 +879,15 @@ const updateDocumentAction = defineAction({
         : await assertDocumentMutationAccess(id, "editor", "id");
       let existing = access.resource;
       let ownerEmail = existing.ownerEmail as string;
+      // A write that changes nothing never reaches the commit's check.
+      if (
+        isOutsideBodyWrite &&
+        args.baseRevision !== undefined &&
+        args.baseRevision !==
+          documentRevisionToken(existing.bodyRevision, existing.content)
+      ) {
+        throw staleBaseRevisionError(existing);
+      }
 
       const observeSaveBase = (snapshot: {
         bodyRevision: number;
@@ -1574,16 +1610,6 @@ const updateDocumentAction = defineAction({
             lockedContentChanged ||
             lockedDescriptionChanged ||
             lockedIconChanged;
-          const parsedBaseRevision =
-            args.baseRevision === undefined
-              ? null
-              : parseDocumentRevisionToken(args.baseRevision);
-          if (args.baseRevision !== undefined && !parsedBaseRevision) {
-            throw new ActionContractError(
-              "baseRevision is not a valid document revision token.",
-              { errorCode: "INVALID_BASE_REVISION", statusCode: 400 },
-            );
-          }
           if (
             lockedContentChanged &&
             args.baseRevision &&
@@ -2009,22 +2035,7 @@ const updateDocumentAction = defineAction({
                 { errorCode: "DOCUMENT_UPDATE_CONFLICT", statusCode: 409 },
               );
             }
-            // A script or automation treats any answered request as a save.
-            if (isOutsideBodyWrite) {
-              throw new ActionContractError(
-                "The page changed after it was read; nothing was saved. Read it again with get-document and retry with its baseRevision.",
-                {
-                  errorCode: "DOCUMENT_REVISION_CONFLICT",
-                  details: {
-                    currentRevision: documentRevisionToken(
-                      current.bodyRevision,
-                      current.content,
-                    ),
-                  },
-                  statusCode: 409,
-                },
-              );
-            }
+            if (isOutsideBodyWrite) throw staleBaseRevisionError(current);
             return respond(
               documentConflictResponse(
                 current,

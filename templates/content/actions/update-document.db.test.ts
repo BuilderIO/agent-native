@@ -2572,6 +2572,18 @@ describe("update-document compare-and-swap", () => {
         }),
       ).rejects.toMatchObject(refused);
       expect((await documentRow(documentId)).content).toBe("original");
+      await expect(
+        write({ baseRevision: "not-a-revision", content: "original" }),
+      ).rejects.toMatchObject({
+        errorCode: "INVALID_BASE_REVISION",
+        statusCode: 400,
+      });
+      await expect(
+        write({
+          baseRevision: documentRevisionToken(0, "An older body"),
+          content: "original",
+        }),
+      ).rejects.toMatchObject(refused);
 
       await write({
         baseRevision: documentRevisionToken(row.bodyRevision, row.content),
@@ -3581,17 +3593,15 @@ describe("update-document save outcome counts", () => {
               { caller: "http", userEmail: OWNER },
             ),
           );
-          if (bodyChanges)
-            await expect(saved).rejects.toMatchObject({
-              errorCode: "INVALID_BASE_REVISION",
-            });
-          else expect((await saved).content).toBe("Body");
+          await expect(saved).rejects.toMatchObject({
+            errorCode: "INVALID_BASE_REVISION",
+          });
         },
         {
-          outcome: bodyChanges ? "refused" : "unchanged",
+          outcome: "refused",
           stale_base: "unknown",
           history_effect: "none",
-          ...(bodyChanges ? { reason_code: "INVALID_BASE_REVISION" } : {}),
+          reason_code: "INVALID_BASE_REVISION",
         },
       );
       expect(await documentRow(id)).toEqual(before);
