@@ -247,10 +247,15 @@ export async function prepareNetlifyFunctionZips(opts: {
   const now = opts.now ?? Date.now;
   const dest = path.join(opts.siteRoot, ".netlify", "functions");
   const manifestPath = path.join(dest, "manifest.json");
-  const rel = path.relative(dest, opts.functionsDir);
-  if (rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel))) {
+  const inside = (parent: string, child: string) => {
+    const rel = path.relative(parent, child);
+    return rel === "" || (!rel.startsWith("..") && !path.isAbsolute(rel));
+  };
+  // Either direction overlaps: the output dir is wiped, and zipping a source
+  // dir that contains the output would bundle the previous zips.
+  if (inside(dest, opts.functionsDir) || inside(opts.functionsDir, dest)) {
     throw new Error(
-      `functions directory ${opts.functionsDir} is inside the output directory ${dest}, which is cleaned before zipping; use a different --functions directory (default .netlify/functions-internal)`,
+      `functions directory ${opts.functionsDir} overlaps the output directory ${dest}, which is cleaned before zipping; use a different --functions directory (default .netlify/functions-internal)`,
     );
   }
   fs.rmSync(dest, { recursive: true, force: true });

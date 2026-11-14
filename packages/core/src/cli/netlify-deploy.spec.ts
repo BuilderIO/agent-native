@@ -32,6 +32,7 @@ describe("netlify-deploy argument handling", () => {
   it("reads the functions dir from any supported form", () => {
     expect(functionsDirOf(["-d", "build", "-f", "custom"])).toBe("custom");
     expect(functionsDirOf(["--functions=a/b"])).toBe("a/b");
+    expect(functionsDirOf(["-fcustom"])).toBe("custom");
     expect(functionsDirOf(["--functions", "c"])).toBe("c");
     expect(functionsDirOf([])).toBe(".netlify/functions-internal");
   });

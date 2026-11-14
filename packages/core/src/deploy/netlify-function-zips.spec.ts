@@ -167,7 +167,11 @@ describe("prepareNetlifyFunctionZips", () => {
       },
     };
     await expect(
-      prepareNetlifyFunctionZips({ siteRoot: root, functionsDir: root, zipIt }),
+      prepareNetlifyFunctionZips({
+        siteRoot: root,
+        functionsDir: path.join(root, "fns"),
+        zipIt,
+      }),
     ).rejects.toThrow(/was not zipped/);
   });
 });
@@ -204,6 +208,17 @@ describe("assertSupportedZipItVersion", () => {
 });
 
 describe("prepareNetlifyFunctionZips input safety", () => {
+  it("refuses a functions dir that contains the output dir", async () => {
+    const root = tmp();
+    await expect(
+      prepareNetlifyFunctionZips({
+        siteRoot: root,
+        functionsDir: root,
+        zipIt: fakeZipIt("forward", "2025-01-01T00:00:00Z"),
+      }),
+    ).rejects.toThrow(/overlaps the output directory/);
+  });
+
   it("refuses a functions dir inside the cleaned output dir", async () => {
     const root = tmp();
     const functionsDir = path.join(root, ".netlify", "functions");
@@ -215,7 +230,7 @@ describe("prepareNetlifyFunctionZips input safety", () => {
         functionsDir,
         zipIt: fakeZipIt("forward", "2025-01-01T00:00:00Z"),
       }),
-    ).rejects.toThrow(/inside the output directory/);
+    ).rejects.toThrow(/overlaps the output directory/);
     expect(fs.existsSync(path.join(functionsDir, "keep.mjs"))).toBe(true);
   });
 });
@@ -320,5 +335,15 @@ describe("readBuildFunctionsDir", () => {
       "[build]\npublish='dist'\nfunctions = 'netlify/fns'\n[other]\nfunctions='no'\n",
     );
     expect(readBuildFunctionsDir(root)).toBe("netlify/fns");
+  });
+});
+
+describe("normalizeZip bounds", () => {
+  it("rejects a truncated archive instead of reading past it", async () => {
+    const zip = await zipOf(FILES, new Date());
+    const cd = zip.readUInt32LE(zip.length - 22 + 16);
+    const broken = Buffer.from(zip);
+    broken.writeUInt32LE(cd - 40, zip.length - 22 + 16);
+    expect(() => normalizeZip(broken)).toThrow(/corrupt zip/);
   });
 });

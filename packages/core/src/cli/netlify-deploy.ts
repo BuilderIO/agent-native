@@ -29,6 +29,9 @@ function optionValue(
     else if (arg.startsWith(`${short}=`))
       values.push(arg.slice(short.length + 1));
     else if (arg === long || arg === short) values.push(args[i + 1] ?? "");
+    else if (arg.startsWith(short) && !arg.startsWith("--")) {
+      values.push(arg.slice(short.length));
+    }
   }
   if (values.length > 1) {
     throw new Error(`${long} was given more than once; pass it a single time`);

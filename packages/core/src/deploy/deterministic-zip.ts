@@ -64,6 +64,11 @@ function readEntries(zip: Buffer): ZipEntry[] {
     const localNameLen = zip.readUInt16LE(localOffset + 26);
     const localExtraLen = zip.readUInt16LE(localOffset + 28);
     const dataStart = localOffset + 30 + localNameLen + localExtraLen;
+    if (dataStart + compressedSize > centralOffset) {
+      throw new Error(
+        "corrupt zip: entry data runs past the central directory",
+      );
+    }
     entries.push({
       name,
       method,
