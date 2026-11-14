@@ -13,6 +13,7 @@ import type { InferSelectModel } from "drizzle-orm";
 
 import { ensureDocumentFilesMembership } from "../../actions/_content-files.js";
 import {
+  assertAgentsMayCommentOnPageId,
   assertAgentsMayEditPagesText,
   type CallProvenance,
   isAgentTextLockRefusal,
@@ -788,7 +789,11 @@ async function syncChildPagesFromPulledContent(args: {
 export async function unlinkDocumentFromNotion(
   owner: string,
   documentId: string,
+  ctx?: CallProvenance,
 ) {
+  // Unlinking deletes the comments Notion brought in, which agents can't do on
+  // a page set to Can view.
+  await assertAgentsMayCommentOnPageId(documentId, ctx);
   const db = getDb();
   await db
     .delete(schema.documentSyncLinks)

@@ -36,6 +36,7 @@ import {
   contentSuggestionReviewPath,
 } from "../shared/suggestion-link.js";
 import { resolveDocumentAccess } from "./_document-access.js";
+import { assertAgentsMayCommentOnPage } from "./_document-agent-lock.js";
 import { documentRevisionToken } from "./_document-edit-mutation.js";
 
 const ANCHOR_CONTEXT_CHARS = 32;
@@ -570,6 +571,8 @@ export default defineAction({
       }
     }
 
+    // After the receipts, so a retry of a suggestion that landed first replays.
+    assertAgentsMayCommentOnPage(existing, ctx);
     const edit = { find: args.find, replace: args.replace ?? "" };
     const resolved = (await isLiveBodyWriterPage(id))
       ? resolveOnStoredForm(content, edit)

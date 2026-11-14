@@ -20,6 +20,7 @@ import {
   privateMediaAgentLinks,
   readsWithoutSessionCookie,
 } from "../server/lib/private-media-agent-links.js";
+import { agentLevelFromStored } from "../shared/agent-level.js";
 import { favoriteDocumentIds } from "./_content-favorites.js";
 import {
   getDatabaseByDocumentId,
@@ -459,6 +460,7 @@ export default defineAction({
       isFavorite: favoriteIds.has(doc.id),
       hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
       agentTextLocked: Boolean(doc.agentTextLocked),
+      agentLevel: agentLevelFromStored(doc.agentTextLocked),
       visibility: doc.visibility,
       source,
       accessRole: access.role,

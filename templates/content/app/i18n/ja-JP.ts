@@ -1156,6 +1156,13 @@ const editor = {
     agentLevelNote: "エージェントはコメント可",
     agentLevelNoteHint:
       "エージェントはこのページにコメントできます。「シェアする」から変更できます。",
+    agentLevelViewDescription:
+      "このページを閲覧できます。コメント、提案、編集はできません。",
+    agentLevelViewConfirm:
+      "エージェントはこのページの閲覧のみできるようになりました。",
+    agentLevelViewNote: "エージェントは閲覧のみ",
+    agentLevelViewNoteHint:
+      "エージェントはこのページを閲覧のみできます。「シェアする」から変更できます。",
     sendPageToAgent: "このページをエージェントに送信",
     connectAgentOverMcp: "MCP でエージェントを接続",
     importingFromNotion: "Notion からインポートしています...",

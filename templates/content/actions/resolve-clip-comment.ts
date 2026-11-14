@@ -38,8 +38,8 @@ export default defineAction({
     ),
   }),
   outputSchema: answerSchema,
-  run: async ({ documentId, recordingId, threadId, resolved }) => {
-    const reader = await authorizeClipCommenter(documentId);
+  run: async ({ documentId, recordingId, threadId, resolved }, ctx) => {
+    const reader = await authorizeClipCommenter(documentId, ctx);
     const result = await writeClipComment({
       reader,
       documentId,

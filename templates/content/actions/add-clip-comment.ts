@@ -74,14 +74,17 @@ export default defineAction({
       ONE_TARGET,
     ),
   outputSchema: answerSchema,
-  run: async ({
-    documentId,
-    recordingId,
-    content,
-    videoTimestampMs,
-    threadId,
-    idempotencyKey,
-  }) => {
+  run: async (
+    {
+      documentId,
+      recordingId,
+      content,
+      videoTimestampMs,
+      threadId,
+      idempotencyKey,
+    },
+    ctx,
+  ) => {
     const write: ClipCommentWrite | null =
       threadId !== undefined
         ? { operation: "reply", commentId: threadId, content }
@@ -89,7 +92,7 @@ export default defineAction({
           ? { operation: "add", content, videoTimestampMs }
           : null;
     if (!write) fail(ONE_TARGET, { errorCode: "clip_comment_target" });
-    const reader = await authorizeClipCommenter(documentId);
+    const reader = await authorizeClipCommenter(documentId, ctx);
     const result = await writeClipComment({
       reader,
       documentId,

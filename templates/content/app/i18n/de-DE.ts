@@ -1179,6 +1179,12 @@ const editor = {
     agentLevelNote: "Agenten können kommentieren",
     agentLevelNoteHint:
       "Agenten können auf dieser Seite kommentieren. Ändere das unter Teilen.",
+    agentLevelViewDescription:
+      "Können diese Seite lesen, aber nicht kommentieren, vorschlagen oder bearbeiten.",
+    agentLevelViewConfirm: "Agenten können diese Seite jetzt nur noch lesen.",
+    agentLevelViewNote: "Agenten können nur ansehen",
+    agentLevelViewNoteHint:
+      "Agenten können diese Seite nur ansehen. Ändere das unter Teilen.",
     sendPageToAgent: "Diese Seite an einen Agenten senden",
     connectAgentOverMcp: "Agenten über MCP verbinden",
     importingFromNotion: "Aus Notion importieren...",

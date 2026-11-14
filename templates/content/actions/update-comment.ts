@@ -27,6 +27,7 @@ import {
   enqueueCommentWebhooks,
   scheduleContentWebhookDelivery,
 } from "./_content-webhooks.js";
+import { assertAgentsMayCommentOnPage } from "./_document-agent-lock.js";
 
 export default defineAction({
   description:
@@ -89,6 +90,7 @@ export default defineAction({
     );
     // guard:allow-bare-error — invariant: assertAccess refuses a signed-out caller
     if (!userEmail) throw new Error("no authenticated user");
+    assertAgentsMayCommentOnPage(access.resource, ctx);
 
     const updatedAt = new Date().toISOString();
     const mentions =

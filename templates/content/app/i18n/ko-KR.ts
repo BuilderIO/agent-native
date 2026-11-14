@@ -1148,6 +1148,12 @@ const editor = {
     agentLevelNote: "에이전트 댓글 가능",
     agentLevelNoteHint:
       "에이전트는 이 페이지에 댓글을 달 수 있습니다. 공유에서 변경하세요.",
+    agentLevelViewDescription:
+      "이 페이지를 읽을 수 있습니다. 댓글, 제안, 편집은 할 수 없습니다.",
+    agentLevelViewConfirm: "이제 에이전트는 이 페이지를 읽기만 할 수 있습니다.",
+    agentLevelViewNote: "에이전트 보기만 가능",
+    agentLevelViewNoteHint:
+      "에이전트는 이 페이지를 보기만 할 수 있습니다. 공유에서 변경하세요.",
     sendPageToAgent: "이 페이지를 에이전트에게 보내기",
     connectAgentOverMcp: "MCP로 에이전트 연결",
     importingFromNotion: "Notion에서 가져오는 중...",

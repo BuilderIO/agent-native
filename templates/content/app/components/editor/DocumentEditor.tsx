@@ -11244,7 +11244,10 @@ function PageEditorSessionBody({
             canShare={!mcpDirectoryWidgetReadOnly || canEdit}
             readOnly={mcpDirectoryWidgetReadOnly}
             hideFromSearch={document.hideFromSearch}
-            agentTextLocked={Boolean(document.agentTextLocked)}
+            agentLevel={
+              document.agentLevel ??
+              (document.agentTextLocked ? "comment" : "edit")
+            }
             canManageAgentTextLock={Boolean(document.canManage)}
             source={document.source}
             canDelete={canDelete}
