@@ -873,6 +873,7 @@ describe("mountA2A auth", () => {
       email: "owner@example.com",
       orgId: "org-team",
     });
+    getApprovalMock.mockResolvedValue(approval);
     claimApprovalMock.mockResolvedValueOnce(approval);
     const executeApproval = vi.fn(async () => ({
       status: "completed" as const,
