@@ -20,7 +20,6 @@ import { scheduleAfterPaint } from "@agent-native/core/client/use-after-paint";
 import { useAgentEngineConfigured } from "@agent-native/core/client/use-agent-engine-configured";
 import { useSession } from "@agent-native/core/client/use-session";
 import { SettingsShortcut } from "@agent-native/core/client/use-settings-shortcut";
-import type { AgentNativeConfig } from "@agent-native/core/config";
 import {
   isHumanReadableDocumentTitle,
   normalizeDocumentTitle,
@@ -59,7 +58,9 @@ import {
 import { WriteFailureToaster } from "../shared/WriteFailureToaster.js";
 import { BuilderSignupStartupGate } from "./BuilderSignupActivation.js";
 
-declare const __AGENT_NATIVE_APP_CONFIG__: AgentNativeConfig | undefined;
+declare const __AGENT_NATIVE_APP_CONFIG__: Parameters<
+  typeof isFirstRunOnboardingEnabled
+>[1];
 
 export interface AppProvidersProps {
   queryClient: QueryClient;
@@ -528,20 +529,21 @@ function ProvidersInner({
   settingsShortcut: boolean;
   children: React.ReactNode;
 }) {
-  // The banner and the failure toasts read the app's locale, so they sit
-  // inside the same provider.
+  // The toaster shares the app's locale but must remain outside session gates.
   const localizedChildren =
     i18n === false ? (
       <>
         {children}
         {ownsDocument ? <ConsentBanner /> : null}
         <WriteFailureToaster />
+        {toaster}
       </>
     ) : (
       <AgentNativeI18nProvider {...(i18n ?? {})}>
         {children}
         {ownsDocument ? <ConsentBanner /> : null}
         <WriteFailureToaster />
+        {toaster}
       </AgentNativeI18nProvider>
     );
 
@@ -562,7 +564,6 @@ function ProvidersInner({
       {showEnvironmentBadge ? (
         <EnvironmentBadge showProduction={showProductionEnvironmentBadge} />
       ) : null}
-      {toaster}
     </TooltipProvider>
   );
 
