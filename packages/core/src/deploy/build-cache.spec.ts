@@ -427,6 +427,11 @@ describe("build cache input and output integrity", () => {
     expect(
       hashBuildEnv({ ...env, NODE_PATH: "/modules/one" }, ignored),
     ).not.toBe(baseline);
+    for (const stable of ["GITHUB_REPOSITORY", "GITHUB_REF"]) {
+      expect(hashBuildEnv({ ...ci, [stable]: "two" }, ignored)).not.toBe(
+        hashBuildEnv({ ...ci, [stable]: "one" }, ignored),
+      );
+    }
     expect(hashBuildEnv({ ...ci, RUNNER_ARCH: "ARM64" }, ignored)).not.toBe(
       hashBuildEnv({ ...ci, RUNNER_ARCH: "X64" }, ignored),
     );

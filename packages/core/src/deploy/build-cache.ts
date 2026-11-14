@@ -77,7 +77,9 @@ const VOLATILE_ENV_PREFIXES = [
   "lc_",
   "vscode_",
   "claude",
-  // GitHub Actions per-run state. GITHUB_CLIENT_* are build inputs and stay in the key.
+  // GitHub Actions values that change every run or step. No build reads the commit
+  // through GITHUB_SHA: a build that embeds one uses AGENT_NATIVE_BUILD_ID, which
+  // stays in the key. GITHUB_REPOSITORY, GITHUB_REF and GITHUB_CLIENT_* stay too.
   // RUNNER_OS and RUNNER_ARCH identify the platform that built the output and stay in the key.
   "runner_temp",
   "runner_tool",
@@ -91,26 +93,16 @@ const VOLATILE_ENV_PREFIXES = [
   "actions_",
   "github_run_",
   "github_sha",
-  "github_ref",
   "github_event",
   "github_action",
   "github_step",
   "github_job",
-  "github_workflow",
   "github_actor",
   "github_triggering",
-  "github_head_ref",
-  "github_base_ref",
-  "github_workspace",
   "github_env",
   "github_output",
   "github_path",
   "github_state",
-  "github_server",
-  "github_api",
-  "github_graphql",
-  "github_repository",
-  "github_retention",
   // The cache's own switches must not change the key they select.
   "agent_native_deploy_cache",
 ];
