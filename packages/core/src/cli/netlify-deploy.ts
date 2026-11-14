@@ -78,7 +78,10 @@ export function createManifestWatcher(onRejected: () => void) {
       ...NETLIFY_MANIFEST_REJECTED_MESSAGES.map((m) => m.length),
     ) - 1;
   let carry = "";
-  const state: { rejected?: string; consumed: boolean } = { consumed: false };
+  const state: { rejected: string | undefined; consumed: boolean } = {
+    rejected: undefined,
+    consumed: false,
+  };
   return {
     get rejected() {
       return state.rejected;
