@@ -144,6 +144,11 @@ export function frozenBlocksFieldMessage(field: FrozenBlocksField) {
   return `The ${field.fieldName} tab can't change while ${field.keyPropertyName} is ${field.optionName}: a rule on this collection freezes it. Move ${field.keyPropertyName} off ${field.optionName} to edit it, or comment on the page instead.`;
 }
 
+/** What an agent or person reads when removing a row would erase a frozen tab. */
+export function frozenRowRemovalMessage(field: FrozenBlocksField) {
+  return `This row can't leave the collection while ${field.keyPropertyName} is ${field.optionName}: removing it deletes its ${field.fieldName} tab, which a rule on this collection freezes. Move ${field.keyPropertyName} off ${field.optionName} first.`;
+}
+
 /**
  * The rule after one option of a key column is checked or unchecked in a tab's
  * menu. Checking an option of another column starts a rule on that column, and

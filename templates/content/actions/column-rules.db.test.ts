@@ -83,6 +83,7 @@ let upsertRow: typeof import("./upsert-database-item-by-key.js").default;
 let setProperty: typeof import("./set-document-property.js").default;
 let listBlocks: typeof import("./list-content-database-blocks.js").default;
 let mutateBlock: typeof import("./mutate-content-database-block.js").default;
+let removeRows: typeof import("./remove-database-items.js").default;
 
 const asOwner = <T>(run: () => Promise<T>) =>
   runWithRequestContext({ userEmail: OWNER, orgId: null }, run);
@@ -100,6 +101,7 @@ beforeAll(async () => {
   setProperty = (await import("./set-document-property.js")).default;
   listBlocks = (await import("./list-content-database-blocks.js")).default;
   mutateBlock = (await import("./mutate-content-database-block.js")).default;
+  removeRows = (await import("./remove-database-items.js")).default;
   ({ getDb, schema } = await import("../server/db/index.js"));
   const plugin = (await import("../server/plugins/db.js")).default;
   await plugin(undefined as never);
@@ -427,6 +429,30 @@ describe("a tab frozen while Status is Approved", () => {
       };
       await setStatus(row, "approved");
       expect(locked).toEqual([[row.documentId]]);
+    });
+  });
+
+  it("keeps the row in its collection, since removing it deletes the tab's text", async () => {
+    await asOwner(async () => {
+      const row = await specRow();
+      await freezeAt(row);
+      await setStatus(row, "approved");
+      const remove = () =>
+        removeRows.run(
+          { databaseId: row.databaseId, itemIds: [row.itemId] },
+          agent,
+        );
+
+      await expect(remove()).rejects.toMatchObject(frozen);
+      await expect(remove()).rejects.toThrow(
+        "This row can't leave the collection while Status is Approved: removing it deletes its Spec tab, which a rule on this collection freezes. Move Status off Approved first.",
+      );
+      expect((await fieldText(row, row.specId)).text).toBe(
+        "Ship the approved spec",
+      );
+
+      await setStatus(row, "draft", agent);
+      expect((await remove()).removedCount).toBe(1);
     });
   });
 });

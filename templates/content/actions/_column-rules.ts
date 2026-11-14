@@ -1,5 +1,5 @@
 import { ActionContractError } from "@agent-native/core";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import { firstRow } from "../server/lib/first-row.js";
@@ -9,6 +9,7 @@ import {
   freezeRuleOf,
   frozenBlocksFieldMessage,
   frozenBlocksFields,
+  frozenRowRemovalMessage,
   tabsFrozenBy,
   type ColumnRuleDefinition,
 } from "../shared/column-rules.js";
@@ -17,6 +18,7 @@ import {
   parsePropertyValue,
   type DocumentPropertyOption,
 } from "../shared/properties.js";
+import { lockDocumentRows } from "./_row-lock-order.js";
 
 type Db = Pick<ReturnType<typeof getDb>, "select">;
 
@@ -98,6 +100,63 @@ export async function assertBlocksFieldNotFrozen(
       optionId: frozen.optionId,
     },
   });
+}
+
+/**
+ * Refuses removing rows from a collection while any of them has a frozen tab:
+ * removal deletes a row's tab text for good. Trash keeps it, so moving a page
+ * to Trash isn't refused. Call it under the collection's and the memberships'
+ * locks, so the rules can't change; it takes the rows' page locks, which a
+ * change to a rule's column takes too, only when the collection has a rule.
+ */
+export async function assertNoFrozenTabsOnRemovedRows(
+  db: ReturnType<typeof getDb>,
+  target: { databaseId: string; documentIds: readonly string[] },
+) {
+  if (target.documentIds.length === 0) return;
+  const definitions = await columnRuleDefinitions(db, target.databaseId);
+  const keys = [...freezeRuleKeys(definitions).keys()];
+  if (keys.length === 0) return;
+  await lockDocumentRows(db, target.documentIds);
+  // guard:allow-unscoped — callers have checked access to these rows; this reads the rules' values.
+  const stored = await db
+    .select({
+      documentId: schema.documentPropertyValues.documentId,
+      propertyId: schema.documentPropertyValues.propertyId,
+      valueJson: schema.documentPropertyValues.valueJson,
+    })
+    .from(schema.documentPropertyValues)
+    .where(
+      and(
+        inArray(schema.documentPropertyValues.documentId, [
+          ...target.documentIds,
+        ]),
+        inArray(schema.documentPropertyValues.propertyId, keys),
+      ),
+    );
+  for (const documentId of target.documentIds) {
+    const frozen = firstRow(
+      frozenBlocksFields(definitions, (propertyId) => {
+        const value = stored.find(
+          (row) =>
+            row.documentId === documentId && row.propertyId === propertyId,
+        );
+        return value ? parsePropertyValue(value.valueJson) : null;
+      }),
+    );
+    if (!frozen) continue;
+    throw new ActionContractError(frozenRowRemovalMessage(frozen), {
+      errorCode: COLUMN_RULE_FROZEN,
+      statusCode: 403,
+      details: {
+        databaseId: target.databaseId,
+        documentId,
+        propertyId: frozen.propertyId,
+        keyPropertyId: frozen.keyPropertyId,
+        optionId: frozen.optionId,
+      },
+    });
+  }
 }
 
 export function isColumnRuleRefusal(
