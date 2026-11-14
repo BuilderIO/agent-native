@@ -398,3 +398,167 @@ describe("ordinary database setup", () => {
     }
   });
 });
+
+describe("system collection properties", () => {
+  // The Files sidebar filters on the properties the app gives Files alone, so
+  // every path that adds an ordinary one there has to refuse it.
+  async function filesCollection() {
+    const rows = await getDb()
+      .select({
+        id: schema.contentDatabases.id,
+        documentId: schema.contentDatabases.documentId,
+      })
+      .from(schema.contentDatabases)
+      .where(
+        and(
+          eq(schema.contentDatabases.spaceId, spaceId),
+          eq(schema.contentDatabases.systemRole, "files"),
+        ),
+      );
+    for (const files of rows) return files;
+    throw new Error("The space has no Files collection.");
+  }
+
+  async function ordinaryFilesProperties(databaseId: string) {
+    const rows = await getDb()
+      .select({
+        id: schema.documentPropertyDefinitions.id,
+        name: schema.documentPropertyDefinitions.name,
+        systemRole: schema.documentPropertyDefinitions.systemRole,
+      })
+      .from(schema.documentPropertyDefinitions)
+      .where(eq(schema.documentPropertyDefinitions.databaseId, databaseId));
+    return rows.filter((row) => !row.systemRole);
+  }
+
+  it("refuses a new ordinary property on Files through the editor's setup path", async () => {
+    const configure = (await import("./configure-document-property.js"))
+      .default;
+    const files = await filesCollection();
+    const before = await ordinaryFilesProperties(files.id);
+
+    await expect(
+      as(owner, () =>
+        configure.run({
+          documentId: files.documentId,
+          databaseId: files.id,
+          name: "Status",
+          type: "select",
+        }),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "SYSTEM_DATABASE_UNSUPPORTED",
+      statusCode: 400,
+    });
+    expect(await ordinaryFilesProperties(files.id)).toEqual(before);
+  });
+
+  it("refuses a property from a source field on Files", async () => {
+    const addSourceField = (
+      await import("./add-content-database-source-field-property.js")
+    ).default;
+    const files = await filesCollection();
+    const before = await ordinaryFilesProperties(files.id);
+
+    await expect(
+      as(owner, () =>
+        addSourceField.run({
+          databaseId: files.id,
+          sourceFieldId: "any-source-field",
+        }),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "SYSTEM_DATABASE_UNSUPPORTED",
+      statusCode: 400,
+    });
+    expect(await ordinaryFilesProperties(files.id)).toEqual(before);
+  });
+
+  it("refuses duplicating a leftover Files property but still lets it be renamed", async () => {
+    const configure = (await import("./configure-document-property.js"))
+      .default;
+    const duplicate = (await import("./duplicate-document-property.js"))
+      .default;
+    const files = await filesCollection();
+    const now = new Date().toISOString();
+    const propertyId = `prop_files_leftover_${runId}`;
+    await getDb().insert(schema.documentPropertyDefinitions).values({
+      id: propertyId,
+      ownerEmail: owner,
+      databaseId: files.id,
+      name: "Leftover",
+      type: "text",
+      visibility: "always_show",
+      optionsJson: "{}",
+      position: 100,
+      createdAt: now,
+      updatedAt: now,
+    });
+    const before = await ordinaryFilesProperties(files.id);
+
+    await expect(
+      as(owner, () =>
+        duplicate.run({
+          documentId: files.documentId,
+          databaseId: files.id,
+          propertyId,
+        }),
+      ),
+    ).rejects.toMatchObject({
+      errorCode: "SYSTEM_DATABASE_UNSUPPORTED",
+      statusCode: 400,
+    });
+    expect(await ordinaryFilesProperties(files.id)).toEqual(before);
+
+    await as(owner, () =>
+      configure.run({
+        id: propertyId,
+        documentId: files.documentId,
+        databaseId: files.id,
+        name: "Renamed leftover",
+        type: "text",
+      }),
+    );
+    expect(
+      (await ordinaryFilesProperties(files.id)).find(
+        (row) => row.id === propertyId,
+      )?.name,
+    ).toBe("Renamed leftover");
+  });
+
+  it("tells the editor that Files refuses new properties while an ordinary collection takes them", async () => {
+    const listProperties = (await import("./list-document-properties.js"))
+      .default;
+    const files = await filesCollection();
+    const created = await as(owner, () =>
+      create.run({
+        spaceId,
+        title: "Takes properties",
+        idempotencyKey: "system-properties-ordinary",
+      }),
+    );
+
+    await expect(
+      as(owner, () =>
+        listProperties.run({
+          documentId: files.documentId,
+          databaseId: files.id,
+        }),
+      ),
+    ).resolves.toMatchObject({
+      canManageSchema: true,
+      canAddProperties: false,
+    });
+    await expect(
+      as(owner, () =>
+        listProperties.run({
+          documentId: created.database.documentId,
+          databaseId: created.database.id,
+        }),
+      ),
+    ).resolves.toMatchObject({
+      canManageSchema: true,
+      canAddProperties: true,
+    });
+  });
+});

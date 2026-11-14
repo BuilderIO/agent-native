@@ -372,6 +372,11 @@ export interface DocumentPropertiesResponse {
   databaseId: string | null;
   canEditValues?: boolean;
   canManageSchema?: boolean;
+  /**
+   * False where schema rights can't add a property: a system collection such
+   * as Files keeps only the ones the app gives it.
+   */
+  canAddProperties?: boolean;
   properties: DocumentProperty[];
 }
 
