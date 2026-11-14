@@ -2,6 +2,7 @@
 
 import { AgentKitClient } from "@agent-native/agentkit";
 import type {
+  AgentParticipant,
   AgentTask,
   AgentTransport,
   AgentWidget,
@@ -60,7 +61,10 @@ afterEach(async () => {
   vi.restoreAllMocks();
 });
 
-async function threadClient(tasks: AgentTask[] = []) {
+async function threadClient(
+  tasks: AgentTask[] = [],
+  agents: AgentParticipant[] = [],
+) {
   const transport: AgentTransport = {
     async startRun() {
       return { runId: "run-1" };
@@ -74,6 +78,7 @@ async function threadClient(tasks: AgentTask[] = []) {
         updatedAt: "2026-11-14T00:00:00.000Z",
         messages: [],
         tasks,
+        agents,
       };
     },
   };
@@ -184,18 +189,54 @@ describe("AgentKitAgentCallApproval", () => {
     expect(container.textContent).toBe("");
   });
 
-  it.each(["completed", "failed", "cancelled"] as const)(
-    "stays hidden once the delegated task is %s",
-    async (status) => {
-      await renderCard(
-        await threadClient([
+  it("still shows after the chat's own turn ends with the task paused", async () => {
+    // The chat settles a paused task when its turn ends; the peer is still
+    // waiting on the approval.
+    await renderCard(
+      await threadClient(
+        [
           {
             id: "task-child",
             title: "Slides",
             kind: "delegated-agent",
-            status,
+            status: "completed",
           },
-        ]),
+        ],
+        [
+          {
+            id: "call-1",
+            name: "Slides",
+            status: "waiting",
+            activeTaskId: "task-child",
+          },
+        ],
+      ),
+    );
+
+    expect(container.textContent).toContain("Slides needs your approval");
+  });
+
+  it.each(["completed", "failed"] as const)(
+    "stays hidden once a later call on the task has %s",
+    async (status) => {
+      await renderCard(
+        await threadClient(
+          [],
+          [
+            {
+              id: "call-1",
+              name: "Slides",
+              status: "waiting",
+              activeTaskId: "task-child",
+            },
+            {
+              id: "call-2",
+              name: "Slides",
+              status,
+              activeTaskId: "task-child",
+            },
+          ],
+        ),
       );
 
       expect(container.textContent).toBe("");

@@ -76,15 +76,15 @@ export function AgentKitAgentCallApproval({
   const thread = useAgentThread(threadId);
   const approval = readApproval(widget.data);
   if (!approval) return null;
-  // Once the continued task has finished, there is nothing left to approve.
-  const task = thread.tasks[approval.taskId];
-  if (
-    task?.status === "completed" ||
-    task?.status === "failed" ||
-    task?.status === "cancelled"
-  ) {
-    return null;
-  }
+  // A later call on the same task that finished means the approved action
+  // already ran, or the task ended. The task's own status can't tell: the chat
+  // settles a paused task as soon as its own turn ends.
+  const finished = Object.values(thread.agents).some(
+    (agent) =>
+      agent.activeTaskId === approval.taskId &&
+      (agent.status === "completed" || agent.status === "failed"),
+  );
+  if (finished) return null;
   return <AgentCallApprovalCard key={approval.id} approval={approval} />;
 }
 

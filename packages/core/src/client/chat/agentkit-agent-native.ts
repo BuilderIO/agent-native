@@ -2676,7 +2676,7 @@ function persistedActionWidgets(
   widgets: AgentWidgetSnapshot[] = [],
   messageIds: ReadonlySet<string>,
 ): AgentWidgetSnapshot[] {
-  return widgets.flatMap(({ messageId, widget }) => {
+  return widgets.flatMap(({ messageId, widget }): AgentWidgetSnapshot[] => {
     if (!messageIds.has(messageId)) return [];
     const data = asRecord(widget.data);
     // A peer's approval card has no tool call; it keeps the page to open and
