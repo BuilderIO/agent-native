@@ -363,6 +363,6 @@ Analytics 範本旨在進行分叉和擴充功能。一切都存在於 `template
 
 要新增新資料來源，請在 `actions/` 中放置一個指令碼，該指令碼呼叫提供者並透過 `output()` 幫助程式返回結果。它立即可供代理使用，並且可以在儀表板面板內使用（如果您透過伺服器處理常式公開結果）。
 
-要新增新的圖表型別，請在`app/pages/adhoc/sql-dashboard/types.ts`中擴充功能`ChartType`聯合，在`SqlChartCard.tsx`中進行處理，代理可以在任何面板中使用它。
+要新增新的圖表型別，請在`packages/toolkit/src/dashboard/sql-dashboard-types.ts`中擴充功能`ChartType`聯合，在`SqlChartCard.tsx`中進行處理，代理可以在任何面板中使用它。
 
 有關擴充功能範本的更廣泛模式，請參閱 [Skills guide](/docs/skills-guide) 和 [Actions](/docs/actions-overview)。

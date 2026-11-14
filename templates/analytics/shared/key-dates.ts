@@ -1,10 +1,11 @@
+import { LEGACY_CHART_TYPE_ALIASES } from "@agent-native/toolkit/dashboard/panel-render-contract";
 import type {
   DashboardAnnotations,
   PanelEvent,
   SqlPanel,
-} from "../app/pages/adhoc/sql-dashboard/types";
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
+
 import { hiddenDataNotesIssue } from "./data-notes";
-import { LEGACY_CHART_TYPE_ALIASES } from "./panel-render-contract";
 
 export interface KeyDate {
   id: string;

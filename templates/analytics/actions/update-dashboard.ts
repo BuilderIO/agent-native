@@ -7,6 +7,16 @@ import {
   buildDeepLink,
 } from "@agent-native/core/server";
 import { track } from "@agent-native/core/tracking";
+import { normalizeDashboardConfig } from "@agent-native/toolkit/dashboard/dashboard-config-normalization";
+import {
+  panelLabel,
+  stableStringify,
+} from "@agent-native/toolkit/dashboard/panel-render-contract";
+import {
+  MAX_PANEL_HEIGHT,
+  MIN_PANEL_HEIGHT,
+  PANEL_HEIGHT_UNIT_PX,
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import { z } from "zod";
 
 import {
@@ -20,11 +30,6 @@ import {
   interpolate,
   interpolateDashboardPanelSql,
 } from "../app/pages/adhoc/sql-dashboard/interpolate";
-import {
-  MAX_PANEL_HEIGHT,
-  MIN_PANEL_HEIGHT,
-  PANEL_HEIGHT_UNIT_PX,
-} from "../app/pages/adhoc/sql-dashboard/types";
 import { dryRunQuery } from "../server/lib/bigquery";
 import {
   dashboardNoopReceipt,
@@ -54,10 +59,8 @@ import { parseDemoDescriptor } from "../server/lib/demo-source";
 import { FirstPartyAnalyticsUnsupportedSqlError } from "../server/lib/first-party-analytics-backend.js";
 import { validateFirstPartyAnalyticsSqlForScope } from "../server/lib/first-party-analytics.js";
 import { builtinDashboardIdFor } from "../shared/builtin-dashboard-ids.js";
-import { normalizeDashboardConfig } from "../shared/dashboard-config-normalization";
 import { DASHBOARD_SQL_VALIDATION_TIMEOUT_MS } from "../shared/dashboard-report-timeouts.js";
 import { dashboardAnnotationsIssue } from "../shared/key-dates";
-import { panelLabel, stableStringify } from "../shared/panel-render-contract";
 import {
   isTrafficFilterValue,
   TRAFFIC_FILTER_ID,

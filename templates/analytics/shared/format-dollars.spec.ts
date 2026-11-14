@@ -1,6 +1,5 @@
+import { formatDollars } from "@agent-native/toolkit/dashboard/format-dollars";
 import { describe, expect, it } from "vitest";
-
-import { formatDollars } from "./format-dollars";
 
 describe("formatDollars", () => {
   it("puts the sign before the dollar sign", () => {

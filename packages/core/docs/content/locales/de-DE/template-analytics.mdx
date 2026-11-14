@@ -363,6 +363,6 @@ Die Analytics-Vorlage soll gespalten und erweitert werden. Alles lebt in `templa
 
 Um eine neue Datenquelle hinzuzufügen, legen Sie ein Skript in `actions/` ab, das den Anbieter aufruft und Ergebnisse über den `output()`-Helfer zurückgibt. Es steht dem Agenten sofort zur Verfügung und kann in Dashboard-Panels verwendet werden (wenn Sie das Ergebnis über einen Server-Handler verfügbar machen).
 
-Um einen neuen Diagrammtyp hinzuzufügen, erweitern Sie die `ChartType`-Vereinigung in `app/pages/adhoc/sql-dashboard/types.ts`, verarbeiten Sie sie in `SqlChartCard.tsx`, und der Agent kann sie in jedem Panel verwenden.
+Um einen neuen Diagrammtyp hinzuzufügen, erweitern Sie die `ChartType`-Vereinigung in `packages/toolkit/src/dashboard/sql-dashboard-types.ts`, verarbeiten Sie sie in `SqlChartCard.tsx`, und der Agent kann sie in jedem Panel verwenden.
 
 Das allgemeinere Muster zum Erweitern von Vorlagen finden Sie in [Skills guide](/docs/skills-guide) und [Actions](/docs/actions-overview).

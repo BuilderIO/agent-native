@@ -1,7 +1,7 @@
+import type { SqlPanel } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import { describe, expect, it } from "vitest";
 
 import { listReportablePanelIds } from "./report-panel-window";
-import type { SqlPanel } from "./types";
 
 function panel(
   id: string,

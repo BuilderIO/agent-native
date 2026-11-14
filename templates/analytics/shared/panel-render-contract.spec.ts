@@ -1,6 +1,3 @@
-import { describe, expect, it } from "vitest";
-
-import { validateFirstPartyAnalyticsSql } from "../server/lib/first-party-analytics";
 import {
   PANEL_CHART_TYPES,
   PANEL_TOP_LEVEL_KEYS,
@@ -17,12 +14,15 @@ import {
   stableStringify,
   unknownPanelConfigKeys,
   validatePanelContract,
-} from "./panel-render-contract";
+} from "@agent-native/toolkit/dashboard/panel-render-contract";
 import {
   APP_SERIES_COLORS,
   NON_APP_SERIES_COLORS,
   UNKNOWN_APP_COLOR,
-} from "./tokens/app-series-colors";
+} from "@agent-native/toolkit/dashboard/tokens/app-series-colors";
+import { describe, expect, it } from "vitest";
+
+import { validateFirstPartyAnalyticsSql } from "../server/lib/first-party-analytics";
 
 const wideRows = [
   { week: "2026-09-01", app_a: 3, app_b: 4, viral_coefficient: 0.3 },

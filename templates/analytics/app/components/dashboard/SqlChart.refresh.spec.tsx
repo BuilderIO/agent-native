@@ -80,7 +80,7 @@ import {
   formatSqlChartError,
   limitChartRows,
   SqlChart,
-} from "./SqlChart";
+} from "./SqlChartQuery";
 
 describe("limitChartRows", () => {
   it("keeps tables untouched and bounds chart point rendering", () => {

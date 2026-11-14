@@ -363,6 +363,6 @@ Analytics テンプレートはフォークおよび拡張されることを目�
 
 新しいデータ ソースを追加するには、プロバイダーを呼び出し、`output()` ヘルパー経由で結果を返すスクリプトを `actions/` にドロップします。エージェントはすぐに利用できるようになり、ダッシュボード パネル内で使用できます (サーバー ハンドラー経由で結果を公開する場合)。
 
-新しいグラフ タイプを追加するには、`app/pages/adhoc/sql-dashboard/types.ts` で `ChartType` ユニオンを拡張し、それを `SqlChartCard.tsx` で処理します。これにより、エージェントは任意のパネルでそれを使用できるようになります。
+新しいグラフ タイプを追加するには、`packages/toolkit/src/dashboard/sql-dashboard-types.ts` で `ChartType` ユニオンを拡張し、それを `SqlChartCard.tsx` で処理します。これにより、エージェントは任意のパネルでそれを使用できるようになります。
 
 テンプレートの拡張に関する広範なパターンについては、[Skills guide](/docs/skills-guide) および [Actions](/docs/actions-overview) を参照してください。

@@ -114,8 +114,9 @@ vi.mock("@/components/ui/tooltip", () => {
   };
 });
 
+import type { SqlPanel } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
+
 import { SqlChartCard } from "./SqlChartCard";
-import type { SqlPanel } from "./types";
 
 class FakeIntersectionObserver {
   static instances: FakeIntersectionObserver[] = [];

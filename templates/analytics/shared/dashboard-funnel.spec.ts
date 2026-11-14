@@ -1,11 +1,10 @@
-import { describe, expect, it } from "vitest";
-
 import {
   describeFunnelOutcomeProblems,
   funnelOutcomeKeys,
   funnelOutcomeShare,
   resolveDashboardFunnelRows,
-} from "./dashboard-funnel";
+} from "@agent-native/toolkit/dashboard/dashboard-funnel";
+import { describe, expect, it } from "vitest";
 
 describe("resolveDashboardFunnelRows", () => {
   it("keeps SQL stage order and calculates conversion metadata", () => {

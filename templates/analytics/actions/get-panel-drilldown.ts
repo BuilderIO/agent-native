@@ -1,9 +1,9 @@
 import { defineAction, fail } from "@agent-native/core/action";
+import { PANEL_DRILLDOWN_MAX_SQL_LENGTH } from "@agent-native/toolkit/dashboard/panel-drilldown";
 import { z } from "zod";
 
 import { getFirstPartyDrilldown } from "../server/lib/first-party-metric-catalog";
 import { assertRecordTemplateLiteralContexts } from "../server/lib/read-only-sql";
-import { PANEL_DRILLDOWN_MAX_SQL_LENGTH } from "../shared/panel-drilldown";
 
 export default defineAction({
   agentTool: false,

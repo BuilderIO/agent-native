@@ -1,16 +1,24 @@
 import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { isValidPanelEvent } from "@agent-native/toolkit/dashboard/panel-events";
+import { timeRangeDays } from "@agent-native/toolkit/dashboard/pivot";
+import type {
+  DashboardAnnotations,
+  DataSourceType,
+  ChartType,
+  PanelEvent,
+  SqlPanel,
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import {
   DATA_NOTE_KINDS,
   DATA_NOTE_STATUSES,
   type DataNote,
 } from "@shared/data-notes";
-import { isValidPanelEvent } from "@shared/panel-events";
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { ResolvedAnnotationsProvider } from "@/components/dashboard/dashboard-annotations-context";
 import { DataNoteRangeProvider } from "@/components/dashboard/data-note-bands";
-import { SqlChart } from "@/components/dashboard/SqlChart";
+import { SqlChart } from "@/components/dashboard/SqlChartQuery";
 import Markdown from "@/components/Markdown";
 import type { SqlQueryResult } from "@/lib/sql-query";
 import {
@@ -23,14 +31,6 @@ import {
   panelTimeRange,
 } from "@/pages/adhoc/sql-dashboard/interpolate";
 import { serializePanelSql } from "@/pages/adhoc/sql-dashboard/panel-sql";
-import { timeRangeDays } from "@/pages/adhoc/sql-dashboard/pivot";
-import type {
-  DashboardAnnotations,
-  DataSourceType,
-  ChartType,
-  PanelEvent,
-  SqlPanel,
-} from "@/pages/adhoc/sql-dashboard/types";
 import LegacyFusionAnalysis, {
   isLegacyFusionAnalysis,
 } from "@/pages/analyses/LegacyFusionAnalysis";

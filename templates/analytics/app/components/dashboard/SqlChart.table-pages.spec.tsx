@@ -1,10 +1,9 @@
 // @vitest-environment happy-dom
 
+import type { SqlPanel } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-
-import type { SqlPanel } from "@/pages/adhoc/sql-dashboard/types";
 
 vi.mock("@agent-native/core/client/hooks", () => ({
   useSession: () => ({
@@ -38,7 +37,7 @@ vi.mock("@agent-native/toolkit/app/extensions", () => ({
   isExtensionApiPath: () => false,
 }));
 
-import { SqlChart } from "./SqlChart";
+import { SqlChart } from "./SqlChartQuery";
 
 const TABLE: SqlPanel = {
   id: "p",

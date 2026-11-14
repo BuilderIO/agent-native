@@ -59,6 +59,13 @@ const legacyAliases = [
   ["agentPanel.voiceMode", "voiceMode"],
   ["contextXray", "contextXray"],
   ["mcpIntegrations", "mcpIntegrations"],
+  // Dashboard charts read these at the root, as Analytics names them.
+  ["common.noData", "common.noData"],
+  ["common.rowsPerPage", "common.rowsPerPage"],
+  ["dashboardMode.columnResizePersonal", "dashboardMode.columnResizePersonal"],
+  ["dashboardMode.columnResizeShared", "dashboardMode.columnResizeShared"],
+  ["sessions.watchReplay", "sessions.watchReplay"],
+  ["sqlDashboard", "sqlDashboard"],
 ] as const;
 
 function setNestedMessage(

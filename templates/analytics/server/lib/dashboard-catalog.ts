@@ -1,4 +1,5 @@
-import type { SqlDashboardConfig } from "../../app/pages/adhoc/sql-dashboard/types";
+import type { SqlDashboardConfig } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
+
 import { repairKnownFirstPartyDashboardQueries } from "./canonical-first-party-dashboard-repair";
 import { loadDashboardSeed } from "./dashboard-seeds";
 import {
