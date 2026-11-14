@@ -295,8 +295,145 @@ describe("prepareRecordingTranscriptionAudio", () => {
           ),
         },
       }),
-    ).rejects.toThrow(/too large to transcribe/);
+    ).rejects.toMatchObject({
+      code: "MEDIA_TOO_LARGE",
+      message:
+        "This video is too large to transcribe. It is 10 GB, over the 2 GB limit.",
+    });
     expect(seen).toHaveLength(0);
+  });
+
+  it("refuses a download that won't fit in temp space before saving any of it", async () => {
+    const seen: SeenInput[] = [];
+    const freeSpace = vi.fn(async () => 512 * 1024 ** 2);
+    let bodyRead = false;
+    // A zero high-water mark pulls only when something reads the body.
+    const body = new ReadableStream(
+      {
+        pull(controller) {
+          bodyRead = true;
+          controller.close();
+        },
+      },
+      { highWaterMark: 0 },
+    );
+
+    await expect(
+      prepareRecordingTranscriptionAudio({
+        recordingId: "rec-big",
+        videoUrl: "https://videos.example.test/big.mp4",
+        timeouts,
+        extractor: recordingExtractor(seen),
+        fetchers: {
+          app: unusedFetcher(),
+          safe: fetcherReturning(
+            () =>
+              new Response(body, {
+                headers: { "content-length": String(600 * 1024 ** 2) },
+              }),
+          ),
+        },
+        freeSpace,
+      }),
+    ).rejects.toMatchObject({
+      code: "MEDIA_TOO_LARGE",
+      message:
+        "This video is too large to transcribe. It is 600 MB, and the server has room for 480 MB.",
+    });
+    expect(freeSpace).toHaveBeenCalledWith(
+      expect.stringContaining("clips-transcription-source-"),
+    );
+    expect(bodyRead).toBe(false);
+    expect(seen).toHaveLength(0);
+  });
+
+  it("checks hosted media against temp space too", async () => {
+    mockFetchS3ObjectByUrl.mockResolvedValueOnce(
+      new Response("x", {
+        headers: { "content-length": String(500 * 1024 ** 2) },
+      }),
+    );
+
+    await expect(
+      prepareRecordingTranscriptionAudio({
+        recordingId: "rec-hosted-big",
+        videoUrl: "https://private-storage.example.test/clips/rec-hosted-big",
+        storageMode: "hosted",
+        timeouts,
+        extractor: recordingExtractor([]),
+        fetchers: { app: unusedFetcher(), safe: unusedFetcher() },
+        freeSpace: async () => 500 * 1024 ** 2,
+      }),
+    ).rejects.toMatchObject({ code: "MEDIA_TOO_LARGE" });
+  });
+
+  it("downloads a video that fits with room left for the audio", async () => {
+    const seen: SeenInput[] = [];
+
+    await prepareRecordingTranscriptionAudio({
+      recordingId: "rec-fits",
+      videoUrl: "https://videos.example.test/fits.mp4",
+      timeouts,
+      extractor: recordingExtractor(seen),
+      fetchers: {
+        app: unusedFetcher(),
+        safe: fetcherReturning(
+          () => new Response("fits", { headers: { "content-length": "4" } }),
+        ),
+      },
+      freeSpace: async () => 33 * 1024 ** 2,
+    });
+
+    expect(seen[0].fileBytes).toBe("fits");
+  });
+
+  it("downloads anyway when the free space can't be read", async () => {
+    const seen: SeenInput[] = [];
+
+    await prepareRecordingTranscriptionAudio({
+      recordingId: "rec-unknown-space",
+      videoUrl: "https://videos.example.test/clip.mp4",
+      timeouts,
+      extractor: recordingExtractor(seen),
+      fetchers: {
+        app: unusedFetcher(),
+        safe: fetcherReturning(
+          () => new Response("clip", { headers: { "content-length": "4" } }),
+        ),
+      },
+      freeSpace: async () => null,
+    });
+
+    expect(seen[0].fileBytes).toBe("clip");
+  });
+
+  it("reports running out of disk while saving as too large, not a raw ENOSPC", async () => {
+    const diskFull = Object.assign(
+      new Error("ENOSPC: no space left on device, write"),
+      { code: "ENOSPC" },
+    );
+    const body = new ReadableStream({
+      pull(controller) {
+        controller.error(diskFull);
+      },
+    });
+
+    await expect(
+      prepareRecordingTranscriptionAudio({
+        recordingId: "rec-disk-full",
+        videoUrl: "https://videos.example.test/no-length.mp4",
+        timeouts,
+        extractor: recordingExtractor([]),
+        fetchers: {
+          app: unusedFetcher(),
+          safe: fetcherReturning(() => new Response(body)),
+        },
+      }),
+    ).rejects.toMatchObject({
+      code: "MEDIA_TOO_LARGE",
+      message:
+        "This video is too large to transcribe. The server ran out of temporary space while saving it.",
+    });
   });
 
   it("transcodes dev scratch uploads from their stashed bytes", async () => {

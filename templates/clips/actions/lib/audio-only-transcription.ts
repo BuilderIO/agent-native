@@ -26,7 +26,8 @@ export type AudioOnlyExtractionErrorCode =
   | "NO_SPEECH_DETECTED"
   | "FFMPEG_UNAVAILABLE"
   | "EXTRACTION_FAILED"
-  | "TIMEOUT";
+  | "TIMEOUT"
+  | "MEDIA_TOO_LARGE";
 
 export class AudioOnlyExtractionError extends Error {
   code: AudioOnlyExtractionErrorCode;
