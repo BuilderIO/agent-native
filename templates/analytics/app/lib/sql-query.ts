@@ -580,7 +580,9 @@ export function useSqlQuery(
       return result;
     },
     enabled,
-    refetchInterval: options?.refetchInterval,
+    ...(options?.refetchInterval === undefined
+      ? {}
+      : { refetchInterval: options.refetchInterval }),
     refetchOnMount: options?.refetchOnMount ?? Boolean(options?.rerunPartial),
     refetchOnReconnect: options?.refetchOnReconnect ?? false,
     refetchOnWindowFocus: options?.refetchOnWindowFocus ?? false,
