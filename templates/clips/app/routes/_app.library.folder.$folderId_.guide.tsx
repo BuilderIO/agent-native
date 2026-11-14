@@ -29,13 +29,17 @@ export function meta() {
 /** Screenshots fetched per page; the guide reads every page. */
 const GUIDE_PAGE_SIZE = 500;
 
+function lastEntry<T>(items: readonly T[]): T | undefined {
+  return items.length > 0 ? items[items.length - 1] : undefined;
+}
+
 export default function LibraryFolderGuideRoute() {
   const t = useT();
   const { folderId } = useParams<{ folderId: string }>();
 
   const { data: organizations } = useOrganizations();
   const currentOrganizationId =
-    organizations.currentId ?? organizations.organizations.at(0)?.id;
+    organizations.currentId ?? organizations.organizations[0]?.id;
   const { data: folders } = useFolders({
     organizationId: currentOrganizationId,
   });
@@ -43,7 +47,7 @@ export default function LibraryFolderGuideRoute() {
     () => getFolderAncestorPath(folders.folders, folderId),
     [folders, folderId],
   );
-  const folder = folderPath.at(-1);
+  const folder = lastEntry(folderPath);
   const folderName = folder?.name ?? t("navigation.folder");
 
   const {
