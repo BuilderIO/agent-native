@@ -5316,6 +5316,54 @@ describe("ReviewCanvasPins persisted thread popover", () => {
         expect(document.querySelectorAll("[data-review-pin]")).toHaveLength(1);
       });
 
+      it("opens a reprompt asked for with comment mode rather than the kept new comment", async () => {
+        await renderPins({ ...signedIn, active: true });
+        await placePin();
+        await act(async () =>
+          document
+            .querySelector<HTMLButtonElement>("[data-review-test-type]")
+            ?.click(),
+        );
+
+        await reload();
+        await renderPins({ ...signedIn, active: false });
+        await renderPins({
+          ...signedIn,
+          active: true,
+          repromptDraftRequest: {
+            nonce: 1,
+            fileId: "screen-1",
+            target: { nodeId: "src:1" },
+            point: { xPct: 50, yPct: 50 },
+            instruction: "Make it blue",
+          },
+        });
+        expect(
+          document.querySelector<HTMLTextAreaElement>(
+            "[data-review-test-textarea]",
+          )?.value,
+        ).toBe("Make it blue");
+      });
+
+      it("takes a personal account's unsent pin off the canvas when it switches to an organization", async () => {
+        mocks.session = { email: "reviewer@example.com" };
+        await renderPins({ ...signedIn, active: true });
+        await placePin();
+        await act(async () =>
+          document
+            .querySelector<HTMLButtonElement>("[data-review-test-type]")
+            ?.click(),
+        );
+        expect(document.querySelectorAll("[data-review-pin]")).toHaveLength(2);
+
+        mocks.session = { email: "reviewer@example.com", orgId: "org-b" };
+        await renderPins({ ...signedIn, active: true });
+        expect(document.querySelectorAll("[data-review-pin]")).toHaveLength(1);
+        expect(
+          document.querySelector("[data-review-test-textarea]"),
+        ).toBeNull();
+      });
+
       // Each stored draft's text, by its box's key, across every account.
       const storedDraftTexts = () =>
         Object.fromEntries(

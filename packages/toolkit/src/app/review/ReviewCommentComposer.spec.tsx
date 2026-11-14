@@ -672,6 +672,34 @@ describe("ReviewCommentComposer", () => {
       expect(shownImages()).toEqual([]);
     });
 
+    it("still counts an upload as running when an earlier one for its draft finishes", async () => {
+      const finishers = new Map<string, () => void>();
+      const uploadImage = vi.fn(
+        (file: File) =>
+          new Promise<ReviewCommentImage>((resolve) => {
+            finishers.set(file.name, () => resolve(uploaded(file)));
+          }),
+      );
+      const box = (imageTarget: string) => (
+        <ImageHarness
+          initialValue="See this"
+          uploadImage={uploadImage}
+          imageTarget={imageTarget}
+        />
+      );
+      await render(box("reply:t1"));
+      paste([imageFile("first.png")]);
+      await render(box("reply:t2"));
+      paste([imageFile("other.png")]);
+      await render(box("reply:t1"));
+      paste([imageFile("second.png")]);
+
+      await act(async () => finishers.get("first.png")?.());
+      expect(sendButton().disabled).toBe(true);
+      await act(async () => finishers.get("second.png")?.());
+      expect(sendButton().disabled).toBe(false);
+    });
+
     it("takes no more images than maxImages leaves room for", async () => {
       const uploadImage = vi.fn(async (file: File) => uploaded(file));
       await render(<ImageHarness uploadImage={uploadImage} maxImages={2} />);

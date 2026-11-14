@@ -2202,24 +2202,34 @@ export function ReviewCanvasPins({
   // stays kept for the account it was written in and leaves the canvas, and
   // the effect below brings back this account's. It leaves before the new
   // account's first paint, so not even a frame of it shows. The session
-  // settling after the page loads isn't a change of account.
-  const draftAccountRef = useRef({ currentUserEmail, sessionOrgId });
+  // loading after the page does isn't a change of account, but a personal
+  // account switching to an organization is.
+  const sessionLoaded = Boolean(session);
+  const draftAccountRef = useRef({
+    currentUserEmail,
+    sessionOrgId,
+    sessionLoaded,
+  });
   useLayoutEffect(() => {
     const previous = draftAccountRef.current;
-    draftAccountRef.current = { currentUserEmail, sessionOrgId };
+    draftAccountRef.current = { currentUserEmail, sessionOrgId, sessionLoaded };
     const sameEmail = previous.currentUserEmail === currentUserEmail;
     if (sameEmail && previous.sessionOrgId === sessionOrgId) return;
     if (!previous.currentUserEmail) return;
-    if (sameEmail && previous.sessionOrgId === undefined) return;
+    if (sameEmail && !previous.sessionLoaded) return;
     leftDraftPinRef.current = draftPinRef.current;
     cancelDraft();
-  }, [cancelDraft, currentUserEmail, sessionOrgId]);
+  }, [cancelDraft, currentUserEmail, sessionLoaded, sessionOrgId]);
 
   // In comment mode, a new comment kept on this screen comes back on its pin,
   // closed, as a pin left with text does. Leaving comment mode hides it and
-  // keeps it. It runs after the resets above.
+  // keeps it. It runs after the resets above, and gives way to a reprompt
+  // asked for with comment mode, which opens its own pin.
+  const repromptDraftRequestRef = useRef(repromptDraftRequest);
+  repromptDraftRequestRef.current = repromptDraftRequest;
   useEffect(() => {
     if (hidden || !active) return;
+    if (repromptDraftRequestRef.current?.fileId === targetId) return;
     const { draft, saved } = newDraftRef.current;
     const pin = saved ? storedReviewDraftPin(draft.context) : null;
     if (!pin) return;

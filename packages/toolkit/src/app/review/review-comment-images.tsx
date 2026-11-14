@@ -205,7 +205,7 @@ export function useReviewCommentImageUpload({
    */
   target?: string | null | undefined;
 }): ReviewCommentImageUploadState {
-  const [pending, setPending] = useState({ target, count: 0 });
+  const [pending, setPending] = useState({ target, round: 0, count: 0 });
   const limit = Math.max(0, Math.min(MAX_REVIEW_COMMENT_IMAGES, maxImages));
   // The images as of the last change, which a batch finishing before the
   // next render adds to, so two batches never overwrite each other.
@@ -220,8 +220,9 @@ export function useReviewCommentImageUpload({
   });
   latest.current = { onImagesChange, upload, onUploadError, limit, target };
   // Files still uploading for `target`, so a second batch doesn't take their
-  // places. Ones for an earlier target don't count.
-  const pendingRef = useRef({ target, count: 0 });
+  // places. Ones for an earlier target don't count, even once it's back: a
+  // new `round` starts each time the count does.
+  const pendingRef = useRef({ target, round: 0, count: 0 });
   const mountedRef = useRef(true);
   useEffect(() => {
     mountedRef.current = true;
@@ -237,7 +238,11 @@ export function useReviewCommentImageUpload({
     if (disabled || !latest.current.onImagesChange) return false;
     const batchTarget = latest.current.target;
     if (pendingRef.current.target !== batchTarget)
-      pendingRef.current = { target: batchTarget, count: 0 };
+      pendingRef.current = {
+        target: batchTarget,
+        round: pendingRef.current.round + 1,
+        count: 0,
+      };
     const room = limit - imagesRef.current.length - pendingRef.current.count;
     const selected = files
       .filter((file) => file.type.startsWith("image/"))
@@ -245,17 +250,18 @@ export function useReviewCommentImageUpload({
     // Images past the limit are still taken, so they don't paste as text.
     if (!selected.length)
       return files.some((file) => file.type.startsWith("image/"));
+    const { round } = pendingRef.current;
     pendingRef.current = {
-      target: batchTarget,
+      ...pendingRef.current,
       count: pendingRef.current.count + selected.length,
     };
     setPending(pendingRef.current);
     void Promise.allSettled(
       selected.map((file) => latest.current.upload(file)),
     ).then((results) => {
-      if (pendingRef.current.target === batchTarget)
+      if (pendingRef.current.round === round)
         pendingRef.current = {
-          target: batchTarget,
+          ...pendingRef.current,
           count: pendingRef.current.count - selected.length,
         };
       if (!mountedRef.current) return;
