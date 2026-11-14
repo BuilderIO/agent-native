@@ -232,9 +232,13 @@ const CLI_ENTRY_CORE_SPECS = [
 ] as const;
 
 export function cliEntryCoreSpecs(paths: readonly string[]): readonly string[] {
-  return paths.some(
-    (path) => normalizeChangedPath(path) === "packages/core/src/cli/index.ts",
-  )
+  return paths.some((path) => {
+    const normalized = normalizeChangedPath(path);
+    return (
+      /^packages\/core\/(?:src|bin)\/.+\.[cm]?[jt]sx?$/u.test(normalized) &&
+      !TEST_FILE_RE.test(normalized)
+    );
+  })
     ? CLI_ENTRY_CORE_SPECS
     : [];
 }
