@@ -421,6 +421,9 @@ describe("build cache input and output integrity", () => {
     expect(
       hashBuildEnv({ ...env, NODE_PATH: "/modules/one" }, ignored),
     ).not.toBe(baseline);
+    expect(hashBuildEnv({ ...ci, RUNNER_ARCH: "ARM64" }, ignored)).not.toBe(
+      hashBuildEnv({ ...ci, RUNNER_ARCH: "X64" }, ignored),
+    );
     expect(
       hashBuildEnv(Object.fromEntries(Object.entries(env).reverse()), ignored),
     ).toBe(baseline);

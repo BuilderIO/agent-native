@@ -78,7 +78,13 @@ const VOLATILE_ENV_PREFIXES = [
   "vscode_",
   "claude",
   // GitHub Actions per-run state. GITHUB_CLIENT_* are build inputs and stay in the key.
-  "runner_",
+  // RUNNER_OS and RUNNER_ARCH identify the platform that built the output and stay in the key.
+  "runner_temp",
+  "runner_tool",
+  "runner_workspace",
+  "runner_name",
+  "runner_environment",
+  "runner_debug",
   "actions_",
   "github_run_",
   "github_sha",
