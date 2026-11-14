@@ -3496,6 +3496,10 @@ export default {
     markedUnread: "Marqué comme non lu",
     markUnreadFailed: "Impossible de marquer comme non lu",
     attachImage: "Joindre une image",
+    removeImage: "Retirer l’image",
+    imageUploadFailed: "Impossible d’envoyer l’image",
+    editChanged:
+      "Ce commentaire a changé depuis que vous avez commencé à le modifier. Enregistrez à nouveau pour le remplacer.",
     searching: "Recherche…",
     reactionFailed: "Impossible de modifier la réaction",
     moveFailed: "Impossible de déplacer le commentaire",

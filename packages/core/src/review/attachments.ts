@@ -1,6 +1,8 @@
+import { fail } from "../action.js";
 import { getActiveFileUploadProviderForRequest } from "../file-upload/registry.js";
 
-const MAX_REVIEW_IMAGE_ATTACHMENTS = 5;
+/** As many images as one comment keeps. */
+export const MAX_REVIEW_IMAGE_ATTACHMENTS = 5;
 
 interface ReviewAttachmentRecord {
   url: string;
@@ -55,6 +57,88 @@ export async function sanitizeReviewCommentMetadata(
   );
   if (attachments.length > 0) next.attachments = attachments;
   return next;
+}
+
+/**
+ * The attachments an edit gives a comment, in the edit's order. Ones the
+ * comment already keeps stay as stored, without their checks running again,
+ * so a change of upload provider since never drops them. New ones are checked
+ * as a new comment's are.
+ *
+ * An edit only takes out what its author could see. A stored attachment that
+ * fails the checks now is left out of every comment list, so no one editing
+ * can have taken it out: it stays, after the edit's own. A comment still keeps
+ * at most five, and an edit that would leave more is refused.
+ */
+export async function sanitizeReviewCommentAttachmentEdit(
+  attachments: readonly unknown[],
+  storedMetadata: Record<string, unknown> | null | undefined,
+): Promise<Record<string, unknown>[]> {
+  const stored = attachmentsByUrl(storedMetadata?.attachments);
+  const sanitized = await sanitizeReviewCommentMetadata({
+    attachments: attachments.filter((value) => {
+      const url = attachmentUrl(value);
+      return url !== null && !stored.has(url);
+    }),
+  });
+  const checked = attachmentsByUrl(sanitized?.attachments);
+  const next: Record<string, unknown>[] = [];
+  const taken = new Set<string>();
+  for (const value of attachments) {
+    const url = attachmentUrl(value);
+    const attachment = url ? (stored.get(url) ?? checked.get(url)) : undefined;
+    if (!url || !attachment || taken.has(url)) continue;
+    taken.add(url);
+    next.push(attachment);
+  }
+  // The stored ones a comment list shows, as `list-review-comments` reads them.
+  const listed = attachmentsByUrl(
+    (await sanitizeReviewCommentMetadata({ attachments: [...stored.values()] }))
+      ?.attachments,
+  );
+  for (const [url, attachment] of stored) {
+    if (!listed.has(url) && !taken.has(url)) next.push(attachment);
+  }
+  if (next.length > MAX_REVIEW_IMAGE_ATTACHMENTS) {
+    fail(
+      `A comment keeps at most ${MAX_REVIEW_IMAGE_ATTACHMENTS} images, counting ones it already has that can't be shown.`,
+      { errorCode: "too_many_images" },
+    );
+  }
+  return next;
+}
+
+function attachmentUrl(value: unknown): string | null {
+  if (!value || typeof value !== "object") return null;
+  const url = (value as Record<string, unknown>).url;
+  return typeof url === "string" && url.trim() ? url.trim() : null;
+}
+
+function attachmentsByUrl(
+  values: unknown,
+): Map<string, Record<string, unknown>> {
+  const byUrl = new Map<string, Record<string, unknown>>();
+  if (!Array.isArray(values)) return byUrl;
+  for (const value of values) {
+    const url = attachmentUrl(value);
+    if (url && !byUrl.has(url)) {
+      byUrl.set(url, value as Record<string, unknown>);
+    }
+  }
+  return byUrl;
+}
+
+/**
+ * Refuses a comment with nothing in it: no text, and no image left once its
+ * attachments were checked. An image is a comment on its own.
+ */
+export function assertReviewCommentHasContent(
+  body: string,
+  metadata: Record<string, unknown> | null,
+): void {
+  const images = metadata?.attachments;
+  if (body.trim() || (Array.isArray(images) && images.length > 0)) return;
+  fail("A comment needs text or an image.", { errorCode: "empty_comment" });
 }
 
 function isReviewImageAttachmentContentType(

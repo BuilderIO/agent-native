@@ -1365,12 +1365,14 @@
         "react",
         "react-markdown",
         "remark-gfm",
+        "sonner",
         "tailwind-merge"
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
         "@agent-native/core/client/i18n",
         "@agent-native/core/client/review/use-review",
+        "@agent-native/core/client/uploads",
         "@agent-native/core/client/use-avatar",
         "@agent-native/core/review/markdown",
         "@agent-native/core/review/plain-text",

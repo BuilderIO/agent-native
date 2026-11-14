@@ -1,7 +1,12 @@
 // @vitest-environment happy-dom
 
 import type { ReviewComment, ReviewMention } from "@agent-native/core/review";
-import { act, Profiler, useState } from "react";
+import {
+  ReviewCommentImageStrip,
+  useReviewCommentImageUpload,
+  type ReviewCommentImage,
+} from "@agent-native/toolkit/app/review";
+import { act, Profiler, useRef, useState } from "react";
 import type { TextareaHTMLAttributes } from "react";
 import { flushSync } from "react-dom";
 import { createRoot, type Root } from "react-dom/client";
@@ -38,7 +43,7 @@ const mocks = vi.hoisted(() => ({
   agentMarkSurfaceUsed: vi.fn(),
   useRealComposer: false,
   useRealThreads: false,
-  session: null as { email: string; name?: string } | null,
+  session: null as { email: string; name?: string; orgId?: string } | null,
   uploadImage: vi.fn().mockResolvedValue({
     src: "https://cdn.example.com/review.png",
   }),
@@ -218,6 +223,11 @@ function MockReviewCommentComposer(props: {
   showCommentTools?: boolean;
   commentToolsEnd?: React.ReactNode;
   attachments?: React.ReactNode;
+  images?: readonly ReviewCommentImage[];
+  onImagesChange?: (images: ReviewCommentImage[]) => void;
+  maxImages?: number;
+  attachImageLabel?: string;
+  removeImageLabel?: string;
   variant?: "expanded" | "reply";
   placeholder?: string;
   commentLabel?: string;
@@ -230,12 +240,27 @@ function MockReviewCommentComposer(props: {
   enterSubmitTarget?: "human" | "agent";
   textareaProps?: TextareaHTMLAttributes<HTMLTextAreaElement>;
 }) {
+  // Images go through the kit's own upload, as the real box's do.
+  const imageUpload = useReviewCommentImageUpload({
+    images: props.images ?? [],
+    onImagesChange: props.onImagesChange,
+    disabled: props.disabled,
+    maxImages: props.maxImages,
+  });
+  const imageInputRef = useRef<HTMLInputElement>(null);
+  const canSubmit =
+    (Boolean(props.value.trim()) || Boolean(props.images?.length)) &&
+    !props.disabled &&
+    !imageUpload.uploading;
   const submit = (target: "human" | "agent") => {
-    if (!props.value.trim() || props.disabled) return;
+    if (!canSubmit) return;
     props.onSubmit(target);
   };
   return (
-    <div data-review-test-composer={props.variant ?? "expanded"}>
+    <div
+      data-review-test-composer={props.variant ?? "expanded"}
+      data-review-test-images-left={imageUpload.remaining}
+    >
       {props.contextLabel ? <span>{props.contextLabel}</span> : null}
       <textarea
         {...props.textareaProps}
@@ -260,12 +285,23 @@ function MockReviewCommentComposer(props: {
           }
         }}
       />
+      <ReviewCommentImageStrip
+        images={props.images ?? []}
+        removeLabel={props.removeImageLabel}
+        onRemove={(index) =>
+          props.onImagesChange?.(
+            (props.images ?? []).filter((_, current) => current !== index),
+          )
+        }
+      />
       {props.attachments}
       <span data-review-test-mention-options>
         {(props.mentionOptions ?? []).map((option) => option.label).join("|")}
       </span>
       <span data-review-test-agents-label>{props.agentsLabel}</span>
-      {props.showCommentTools || props.commentToolsEnd ? (
+      {props.showCommentTools ||
+      props.commentToolsEnd ||
+      props.onImagesChange ? (
         <div data-review-comment-tools>
           {props.showCommentTools ? (
             <>
@@ -297,6 +333,29 @@ function MockReviewCommentComposer(props: {
               />
             </>
           ) : null}
+          {props.onImagesChange ? (
+            <>
+              <button
+                type="button"
+                data-review-image-button
+                aria-label={props.attachImageLabel}
+                disabled={props.disabled || imageUpload.remaining === 0}
+                onClick={() => imageInputRef.current?.click()}
+              />
+              <input
+                ref={imageInputRef}
+                type="file"
+                data-review-image-input
+                tabIndex={-1}
+                className="hidden"
+                onChange={(event) =>
+                  imageUpload.addFiles(
+                    Array.from(event.currentTarget.files ?? []),
+                  )
+                }
+              />
+            </>
+          ) : null}
           {props.commentToolsEnd ? (
             <div data-review-comment-tools-end>{props.commentToolsEnd}</div>
           ) : null}
@@ -317,7 +376,7 @@ function MockReviewCommentComposer(props: {
           type="button"
           data-review-test-submit
           aria-label={props.commentLabel}
-          disabled={!props.value.trim() || props.disabled}
+          disabled={!canSubmit}
           onClick={() => submit("human")}
         >
           {props.commentLabel}
@@ -445,6 +504,8 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     mocks.useRealComposer = false;
     mocks.useRealThreads = false;
     mocks.session = null;
+    // Comment boxes keep drafts in the browser; each test starts with none.
+    window.localStorage.clear();
     mocks.createMutate.mockReset();
     mocks.replyMutate.mockReset();
     mocks.reactMutate.mockReset();
@@ -1090,9 +1151,7 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       document.querySelector<HTMLButtonElement>("[data-review-test-submit]")
         ?.disabled,
     ).toBe(true);
-    expect(
-      document.querySelector("[data-review-attachment-button]"),
-    ).not.toBeNull();
+    expect(document.querySelector("[data-review-image-button]")).not.toBeNull();
     await act(async () => {
       clickPlane?.dispatchEvent(
         new MouseEvent("click", {
@@ -1117,7 +1176,7 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     expect(
       document
         .querySelector("[data-review-comment-tools]")
-        ?.querySelector("[data-review-attachment-button]"),
+        ?.querySelector("[data-review-image-button]"),
     ).not.toBeNull();
     await act(async () => {
       document
@@ -3040,7 +3099,7 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     expect(mocks.createMutate).not.toHaveBeenCalled();
 
     const input = document.querySelector<HTMLInputElement>(
-      "[data-review-attachment-input]",
+      "[data-review-image-input]",
     );
     const files = Array.from(
       { length: 6 },
@@ -3060,12 +3119,12 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     });
 
     expect(mocks.uploadImage).toHaveBeenCalledTimes(5);
-    expect(document.querySelectorAll("[data-review-attachment]")).toHaveLength(
-      5,
-    );
+    expect(
+      document.querySelectorAll("[data-review-composer-image]"),
+    ).toHaveLength(5);
     expect(
       document.querySelector(
-        '[data-review-attachment-button][aria-label="review.attachImage"]',
+        '[data-review-image-button][aria-label="review.attachImage"]',
       ),
     ).not.toBeNull();
     await act(async () => {
@@ -3084,7 +3143,9 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     ).toBe(true);
   });
 
-  describe("hidden image input", () => {
+  // The kit's tests check the image button and its file input; these check
+  // that both of Design's boxes take images, labelled in Design's words.
+  describe("image button", () => {
     const renderPins = async (active: boolean) => {
       await act(async () => {
         root.render(
@@ -3101,55 +3162,21 @@ describe("ReviewCanvasPins persisted thread popover", () => {
         );
       });
     };
-    const input = () =>
-      document.querySelector<HTMLInputElement>(
-        "[data-review-attachment-input]",
+    const imageButtons = () =>
+      document.querySelectorAll(
+        '[data-review-image-button][aria-label="review.attachImage"]',
       );
-    // What a Tab key walks through: every control not taken out of the order.
-    const tabStops = () =>
-      Array.from(
-        document.querySelectorAll<HTMLElement>(
-          "button, input, textarea, [tabindex]",
-        ),
-      ).filter((element) => element.tabIndex >= 0);
-    const expectOutOfTreeAndTabOrder = async () => {
-      const attachInput = input();
-      if (!attachInput) throw new Error("the image input did not render");
-      expect(attachInput.type).toBe("file");
-      // `hidden` (display: none) leaves the accessibility tree: an unnamed file
-      // input there fails axe's `label` rule, and a named one would repeat the
-      // image button's name.
-      expect(attachInput.classList.contains("hidden")).toBe(true);
-      expect(attachInput.classList.contains("sr-only")).toBe(false);
-      expect(attachInput.getAttribute("tabindex")).toBe("-1");
-      expect(tabStops()).not.toContain(attachInput);
 
-      // The visible image button is the one named control and the keyboard
-      // route to the input.
-      const named = document.querySelectorAll(
-        '[aria-label="review.attachImage"]',
-      );
-      expect(named).toHaveLength(1);
-      const button = document.querySelector<HTMLButtonElement>(
-        "[data-review-attachment-button]",
-      );
-      expect(named[0]).toBe(button);
-      expect(tabStops()).toContain(button);
-      const pickFiles = vi.spyOn(attachInput, "click");
-      await act(async () => button?.click());
-      expect(pickFiles).toHaveBeenCalledTimes(1);
-    };
-
-    it("is out of the accessibility tree and tab order in an open thread's reply composer", async () => {
+    it("is in an open thread's reply box", async () => {
       await renderPins(false);
       await act(async () => {
         document.querySelector<HTMLButtonElement>("[data-review-pin]")?.click();
       });
 
-      await expectOutOfTreeAndTabOrder();
+      expect(imageButtons()).toHaveLength(1);
     });
 
-    it("is out of the accessibility tree and tab order in the new-comment composer", async () => {
+    it("is in a new comment's box", async () => {
       await renderPins(true);
       await act(async () => {
         document
@@ -3162,17 +3189,12 @@ describe("ReviewCanvasPins persisted thread popover", () => {
             }),
           );
       });
-      await act(async () => {
-        document
-          .querySelector<HTMLButtonElement>("[data-review-test-type]")
-          ?.click();
-      });
 
-      await expectOutOfTreeAndTabOrder();
+      expect(imageButtons()).toHaveLength(1);
     });
   });
 
-  it("keeps comment actions disabled until an image upload settles", async () => {
+  it("keeps a comment from posting until its image upload settles", async () => {
     let resolveUpload: ((value: { src: string }) => void) | undefined;
     mocks.uploadImage.mockImplementation(
       () =>
@@ -3212,7 +3234,7 @@ describe("ReviewCanvasPins persisted thread popover", () => {
     });
 
     const input = document.querySelector<HTMLInputElement>(
-      "[data-review-attachment-input]",
+      "[data-review-image-input]",
     );
     Object.defineProperty(input, "files", {
       configurable: true,
@@ -3231,10 +3253,11 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       "[data-review-test-submit]",
     );
     expect(submit?.disabled).toBe(true);
+    // The text can still change while the image uploads.
     expect(
       document.querySelector<HTMLTextAreaElement>("[data-review-test-textarea]")
         ?.disabled,
-    ).toBe(true);
+    ).toBe(false);
 
     await act(async () => {
       resolveUpload?.({ src: "https://cdn.example.com/pending.png" });
@@ -3396,9 +3419,9 @@ describe("ReviewCanvasPins persisted thread popover", () => {
       "[data-review-comment-tools]",
     );
     expect(
-      tools
-        ?.querySelector("[data-review-comment-tools-end]")
-        ?.querySelector("[data-review-attachment-button]"),
+      tools?.querySelector(
+        '[data-review-image-button][aria-label="review.attachImage"]',
+      ),
     ).not.toBeNull();
     expect(
       tools?.querySelector('[aria-label="review.mention"]'),
@@ -5140,6 +5163,613 @@ describe("ReviewCanvasPins persisted thread popover", () => {
           expect.objectContaining({ commentId: "comment-1" }),
           expect.any(Object),
         );
+      });
+    });
+
+    describe("drafts and images", () => {
+      const signedIn = { currentUserEmail: "reviewer@example.com" };
+      // A reload: the overlay goes away and a new one reads the drafts.
+      const reload = async () => {
+        await act(async () => root.unmount());
+        root = createRoot(container);
+      };
+      const replyInput = () =>
+        document.querySelector<HTMLTextAreaElement>(
+          "[data-review-reply-input]",
+        );
+      const typeInto = async (
+        field: HTMLTextAreaElement | null | undefined,
+        text: string,
+      ) => {
+        await act(async () => {
+          Object.getOwnPropertyDescriptor(
+            HTMLTextAreaElement.prototype,
+            "value",
+          )?.set?.call(field, text);
+          field?.dispatchEvent(new Event("input", { bubbles: true }));
+        });
+      };
+      const pickImage = async (name: string) => {
+        const input = document.querySelector<HTMLInputElement>(
+          "[data-review-image-input]",
+        );
+        Object.defineProperty(input, "files", {
+          configurable: true,
+          value: [new File(["image"], name, { type: "image/png" })],
+        });
+        await act(async () => {
+          input?.dispatchEvent(new Event("change", { bubbles: true }));
+          await Promise.resolve();
+          await Promise.resolve();
+        });
+      };
+      const placePin = async () => {
+        await act(async () => {
+          document
+            .querySelector<HTMLElement>("[data-review-click-plane]")
+            ?.dispatchEvent(
+              new MouseEvent("click", {
+                bubbles: true,
+                clientX: 200,
+                clientY: 180,
+              }),
+            );
+        });
+      };
+      const submit = (within: ParentNode = document) =>
+        within.querySelector<HTMLButtonElement>("[data-review-test-submit]");
+
+      it("keeps an unsent reply through a reload, and forgets it once sent", async () => {
+        await renderPins(signedIn);
+        await openFirstThread();
+        await typeInto(replyInput(), "Half a thought");
+
+        await reload();
+        await renderPins(signedIn);
+        await openFirstThread();
+        expect(replyInput()?.value).toBe("Half a thought");
+
+        await act(async () => submit()?.click());
+        expect(mocks.replyMutate.mock.calls[0]?.[0]).toMatchObject({
+          body: "Half a thought",
+        });
+        await act(async () =>
+          mocks.replyMutate.mock.calls[0]?.[1]?.onSuccess(
+            makeReply({ body: "Half a thought" }),
+          ),
+        );
+        expect(replyInput()?.value).toBe("");
+
+        await reload();
+        await renderPins(signedIn);
+        await openFirstThread();
+        expect(replyInput()?.value).toBe("");
+      });
+
+      it("posts a new comment that's only an image", async () => {
+        await renderPins({ ...signedIn, active: true });
+        await placePin();
+        expect(submit()?.disabled).toBe(true);
+
+        await pickImage("shot.png");
+        expect(submit()?.disabled).toBe(false);
+        await act(async () => submit()?.click());
+        expect(mocks.createMutate.mock.calls[0]?.[0]).toMatchObject({
+          body: "",
+          metadata: {
+            attachments: [
+              {
+                url: "https://cdn.example.com/review.png",
+                name: "shot.png",
+                contentType: "image/png",
+              },
+            ],
+          },
+        });
+      });
+
+      it("brings an unsent new comment back on its pin in comment mode after a reload", async () => {
+        await renderPins({ ...signedIn, active: true });
+        await placePin();
+        await act(async () =>
+          document
+            .querySelector<HTMLButtonElement>("[data-review-test-type]")
+            ?.click(),
+        );
+        await pickImage("shot.png");
+
+        await reload();
+        await renderPins({ ...signedIn, active: false });
+        expect(document.querySelectorAll("[data-review-pin]")).toHaveLength(1);
+
+        await renderPins({ ...signedIn, active: true });
+        const pins =
+          document.querySelectorAll<HTMLButtonElement>("[data-review-pin]");
+        expect(pins).toHaveLength(2);
+        expect(
+          document.querySelector("[data-review-test-textarea]"),
+        ).toBeNull();
+        await act(async () => pins[1]?.click());
+        expect(
+          document.querySelector<HTMLTextAreaElement>(
+            "[data-review-test-textarea]",
+          )?.value,
+        ).toBe("Make the background darker");
+        expect(
+          document.querySelectorAll("[data-review-composer-image]"),
+        ).toHaveLength(1);
+
+        await act(async () => submit()?.click());
+        expect(mocks.createMutate.mock.calls[0]?.[0]).toMatchObject({
+          body: "Make the background darker",
+          anchor: { screenId: "screen-1" },
+        });
+        await act(async () =>
+          mocks.createMutate.mock.calls[0]?.[1]?.onSuccess({
+            ...comment,
+            id: "comment-2",
+            threadId: "thread-2",
+          }),
+        );
+        await reload();
+        await renderPins({ ...signedIn, active: true });
+        expect(document.querySelectorAll("[data-review-pin]")).toHaveLength(1);
+      });
+
+      it("opens a reprompt asked for with comment mode rather than the kept new comment", async () => {
+        await renderPins({ ...signedIn, active: true });
+        await placePin();
+        await act(async () =>
+          document
+            .querySelector<HTMLButtonElement>("[data-review-test-type]")
+            ?.click(),
+        );
+
+        await reload();
+        await renderPins({ ...signedIn, active: false });
+        await renderPins({
+          ...signedIn,
+          active: true,
+          repromptDraftRequest: {
+            nonce: 1,
+            fileId: "screen-1",
+            target: { nodeId: "src:1" },
+            point: { xPct: 50, yPct: 50 },
+            instruction: "Make it blue",
+          },
+        });
+        expect(
+          document.querySelector<HTMLTextAreaElement>(
+            "[data-review-test-textarea]",
+          )?.value,
+        ).toBe("Make it blue");
+      });
+
+      it("takes a personal account's unsent pin off the canvas when it switches to an organization", async () => {
+        mocks.session = { email: "reviewer@example.com" };
+        await renderPins({ ...signedIn, active: true });
+        await placePin();
+        await act(async () =>
+          document
+            .querySelector<HTMLButtonElement>("[data-review-test-type]")
+            ?.click(),
+        );
+        expect(document.querySelectorAll("[data-review-pin]")).toHaveLength(2);
+
+        mocks.session = { email: "reviewer@example.com", orgId: "org-b" };
+        await renderPins({ ...signedIn, active: true });
+        expect(document.querySelectorAll("[data-review-pin]")).toHaveLength(1);
+        expect(
+          document.querySelector("[data-review-test-textarea]"),
+        ).toBeNull();
+      });
+
+      // Each stored draft's text, by its box's key, across every account.
+      const storedDraftTexts = () =>
+        Object.fromEntries(
+          Object.keys(window.localStorage)
+            .filter((key) => key.startsWith("agent-native-review-drafts:"))
+            .flatMap((key) =>
+              Object.entries(
+                (
+                  JSON.parse(window.localStorage.getItem(key) ?? "{}") as {
+                    drafts?: Record<string, { text: string }>;
+                  }
+                ).drafts ?? {},
+              ).map(([draftKey, draft]) => [draftKey, draft.text]),
+            ),
+        );
+
+      it.each(["dismissed", "posted as a comment"])(
+        "keeps a reprompt whose send failed out of the screen's kept comment, and the comment when it's %s",
+        async (ending) => {
+          const keptComment = {
+            [`new:${JSON.stringify(["screen-1", "screen-1"])}`]:
+              "Make the background darker",
+          };
+          await renderPins({ ...signedIn, active: true });
+          await placePin();
+          await act(async () =>
+            document
+              .querySelector<HTMLButtonElement>("[data-review-test-type]")
+              ?.click(),
+          );
+          expect(storedDraftTexts()).toEqual(keptComment);
+
+          mocks.sendToAgent.mockResolvedValueOnce({
+            delivered: false,
+            reason: "The agent is busy",
+          });
+          await renderPins({
+            ...signedIn,
+            active: true,
+            sourceType: "inline",
+            sourceVersionHash: "hash-1",
+            repromptDraftRequest: {
+              nonce: 1,
+              fileId: "screen-1",
+              target: { nodeId: "src:1" },
+              point: { xPct: 50, yPct: 50 },
+              instruction: "Make it blue",
+              submit: true,
+            },
+          });
+          await act(async () => {});
+          expect(mocks.sendToAgent).toHaveBeenCalled();
+          const field = document.querySelector<HTMLTextAreaElement>(
+            "[data-review-test-textarea]",
+          );
+          expect(field?.value).toBe("Make it blue");
+          expect(storedDraftTexts()).toEqual(keptComment);
+
+          if (ending === "dismissed") {
+            await act(async () => {
+              field?.dispatchEvent(
+                new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+              );
+            });
+          } else {
+            await act(async () =>
+              document
+                .querySelector<HTMLButtonElement>("[data-review-test-submit]")
+                ?.click(),
+            );
+            expect(mocks.createMutate.mock.calls[0]?.[0]).toMatchObject({
+              body: "Make it blue",
+            });
+            await act(async () =>
+              mocks.createMutate.mock.calls[0]?.[1]?.onSuccess({
+                ...comment,
+                id: "comment-2",
+                threadId: "thread-2",
+              }),
+            );
+          }
+          expect(
+            document.querySelector("[data-review-test-textarea]"),
+          ).toBeNull();
+          expect(storedDraftTexts()).toEqual(keptComment);
+        },
+      );
+
+      it("takes a pin brought back before the session loaded off the canvas when the session loads into an organization", async () => {
+        await renderPins({ ...signedIn, active: true });
+        await placePin();
+        await act(async () =>
+          document
+            .querySelector<HTMLButtonElement>("[data-review-test-type]")
+            ?.click(),
+        );
+        await reload();
+        await renderPins({ ...signedIn, active: true });
+        expect(document.querySelectorAll("[data-review-pin]")).toHaveLength(2);
+
+        mocks.session = { email: "reviewer@example.com", orgId: "org-b" };
+        await renderPins({ ...signedIn, active: true });
+        expect(document.querySelectorAll("[data-review-pin]")).toHaveLength(1);
+        expect(storedDraftTexts()).toEqual({
+          [`new:${JSON.stringify(["screen-1", "screen-1"])}`]:
+            "Make the background darker",
+        });
+      });
+
+      it("keeps a new comment's draft on its own screen when the screen changes as you type", async () => {
+        await renderPins({ ...signedIn, active: true });
+        await placePin();
+        await typeInto(
+          document.querySelector<HTMLTextAreaElement>(
+            "[data-review-test-textarea]",
+          ),
+          "Tighten the header",
+        );
+        // The last keystroke and the move to the next screen land in one render.
+        await act(async () => {
+          document
+            .querySelector<HTMLButtonElement>("[data-review-test-type]")
+            ?.click();
+          root.render(
+            <ReviewAgentProvider controller={null}>
+              <ReviewCanvasPins
+                active
+                onClose={vi.fn()}
+                canvasSelector=".review-test-canvas"
+                resourceType="design"
+                resourceId="design-1"
+                targetId="screen-2"
+                canPost
+                canResolve
+                {...signedIn}
+              />
+            </ReviewAgentProvider>,
+          );
+        });
+
+        expect(storedDraftTexts()).toEqual({
+          [`new:${JSON.stringify(["screen-1", "screen-1"])}`]:
+            "Tighten the header",
+        });
+        expect(
+          document.querySelector("[data-review-test-textarea]"),
+        ).toBeNull();
+      });
+
+      it("keeps each account's drafts apart", async () => {
+        mocks.session = { email: "reviewer@example.com", orgId: "org-a" };
+        await renderPins({ ...signedIn, active: true });
+        await placePin();
+        await act(async () =>
+          document
+            .querySelector<HTMLButtonElement>("[data-review-test-type]")
+            ?.click(),
+        );
+
+        await reload();
+        mocks.session = { email: "reviewer@example.com", orgId: "org-b" };
+        await renderPins({ ...signedIn, active: true });
+        expect(document.querySelectorAll("[data-review-pin]")).toHaveLength(1);
+
+        await reload();
+        mocks.session = { email: "reviewer@example.com", orgId: "org-a" };
+        await renderPins({ ...signedIn, active: true });
+        expect(document.querySelectorAll("[data-review-pin]")).toHaveLength(2);
+      });
+
+      it("takes an account's unsent pin off the canvas when the account changes in place, and keeps it for that account", async () => {
+        const storedScopes = () =>
+          Object.keys(window.localStorage).filter(
+            (key) =>
+              key.startsWith("agent-native-review-drafts:") &&
+              Object.keys(
+                (
+                  JSON.parse(window.localStorage.getItem(key) ?? "{}") as {
+                    drafts?: Record<string, unknown>;
+                  }
+                ).drafts ?? {},
+              ).length > 0,
+          );
+        mocks.session = { email: "reviewer@example.com", orgId: "org-a" };
+        await renderPins({ ...signedIn, active: true });
+        await placePin();
+        await act(async () =>
+          document
+            .querySelector<HTMLButtonElement>("[data-review-test-type]")
+            ?.click(),
+        );
+        expect(document.querySelectorAll("[data-review-pin]")).toHaveLength(2);
+
+        // The organization switches with the canvas still open.
+        mocks.session = { email: "reviewer@example.com", orgId: "org-b" };
+        await renderPins({ ...signedIn, active: true });
+        expect(document.querySelectorAll("[data-review-pin]")).toHaveLength(1);
+        expect(
+          document.querySelector("[data-review-test-textarea]"),
+        ).toBeNull();
+        expect(storedScopes()).toHaveLength(1);
+
+        mocks.session = { email: "reviewer@example.com", orgId: "org-a" };
+        await renderPins({ ...signedIn, active: true });
+        expect(document.querySelectorAll("[data-review-pin]")).toHaveLength(2);
+      });
+
+      it("sends an edit's images only when they change, against the comment's revision", async () => {
+        reviewComments = [
+          {
+            ...comment,
+            revision: 3,
+            metadata: {
+              attachments: [
+                {
+                  url: "https://cdn.builder.io/api/v1/image/old",
+                  name: "old.png",
+                  contentType: "image/png",
+                },
+              ],
+            },
+          },
+        ];
+        await renderPins(signedIn);
+        await openFirstThread();
+        await openCommentMenu("comment-1");
+        await act(async () => menuItem("review.editComment")?.click());
+        const editing = () =>
+          document.querySelector<HTMLElement>("[data-review-comment-editing]");
+        expect(
+          editing()?.querySelectorAll("[data-review-composer-image]"),
+        ).toHaveLength(1);
+
+        await typeInto(editing()?.querySelector("textarea"), "Keep this open");
+        await act(async () => submit(editing()!)?.click());
+        expect(mocks.updateMutate.mock.calls[0]?.[0]).toMatchObject({
+          body: "Keep this open",
+          expectedRevision: 3,
+        });
+        expect(mocks.updateMutate.mock.calls[0]?.[0]).not.toHaveProperty(
+          "attachments",
+        );
+
+        await act(async () =>
+          editing()
+            ?.querySelector<HTMLButtonElement>(
+              '[aria-label="review.removeImage: old.png"]',
+            )
+            ?.click(),
+        );
+        await act(async () => submit(editing()!)?.click());
+        expect(mocks.updateMutate.mock.calls[1]?.[0]).toMatchObject({
+          body: "Keep this open",
+          attachments: [],
+        });
+      });
+
+      it("keeps an edit's text when the comment changed meanwhile, and saves it against the comment as it is now", async () => {
+        reviewComments = [{ ...comment, revision: 3 }];
+        mocks.updateMutate.mockImplementationOnce(
+          (_input, options?: { onError?: (error: unknown) => void }) => {
+            // The list then loads the comment as it is now.
+            reviewComments = [{ ...comment, revision: 4 }];
+            options?.onError?.(
+              Object.assign(new Error("Comment changed since it was read"), {
+                errorCode: "revision_conflict",
+                details: { commentId: "comment-1", currentRevision: 4 },
+              }),
+            );
+          },
+        );
+        await renderPins(signedIn);
+        await openFirstThread();
+        await openCommentMenu("comment-1");
+        await act(async () => menuItem("review.editComment")?.click());
+        const editing = () =>
+          document.querySelector<HTMLElement>("[data-review-comment-editing]");
+        await typeInto(editing()?.querySelector("textarea"), "Keep this open");
+
+        await act(async () => submit(editing()!)?.click());
+        expect(mocks.updateMutate.mock.calls[0]?.[0]).toMatchObject({
+          expectedRevision: 3,
+        });
+        expect(mocks.toastError).toHaveBeenCalledWith("review.editChanged");
+        expect(mocks.reportWriteFailure).not.toHaveBeenCalled();
+        expect(editing()?.querySelector("textarea")?.value).toBe(
+          "Keep this open",
+        );
+
+        await act(async () => submit(editing()!)?.click());
+        expect(mocks.updateMutate.mock.calls[1]?.[0]).toMatchObject({
+          body: "Keep this open",
+          expectedRevision: 4,
+        });
+      });
+
+      it("saves an edit's image changes onto the comment's images as they are now, once it changed", async () => {
+        const old = {
+          url: "https://cdn.builder.io/api/v1/image/old",
+          name: "old.png",
+          contentType: "image/png",
+        };
+        const elsewhere = {
+          url: "https://cdn.builder.io/api/v1/image/elsewhere",
+          name: "elsewhere.png",
+          contentType: "image/png",
+        };
+        const opened = {
+          ...comment,
+          revision: 3,
+          metadata: { attachments: [old] },
+        };
+        reviewComments = [opened];
+        mocks.updateMutate.mockImplementationOnce(
+          (_input, options?: { onError?: (error: unknown) => void }) => {
+            // Another tab added an image meanwhile.
+            reviewComments = [
+              {
+                ...opened,
+                revision: 4,
+                metadata: { attachments: [old, elsewhere] },
+              },
+            ];
+            options?.onError?.(
+              Object.assign(new Error("Comment changed since it was read"), {
+                errorCode: "revision_conflict",
+                details: { commentId: "comment-1", currentRevision: 4 },
+              }),
+            );
+          },
+        );
+        await renderPins(signedIn);
+        await openFirstThread();
+        await openCommentMenu("comment-1");
+        await act(async () => menuItem("review.editComment")?.click());
+        const editing = () =>
+          document.querySelector<HTMLElement>("[data-review-comment-editing]");
+        await act(async () =>
+          editing()
+            ?.querySelector<HTMLButtonElement>(
+              '[aria-label="review.removeImage: old.png"]',
+            )
+            ?.click(),
+        );
+        await act(async () => submit(editing()!)?.click());
+        expect(mocks.updateMutate.mock.calls[0]?.[0]).toMatchObject({
+          attachments: [],
+          expectedRevision: 3,
+        });
+
+        await act(async () => submit(editing()!)?.click());
+        expect(mocks.updateMutate.mock.calls[1]?.[0]).toMatchObject({
+          attachments: [elsewhere],
+          expectedRevision: 4,
+        });
+      });
+
+      it("keeps the attachments a card doesn't show when an edit changes its images", async () => {
+        const stored = {
+          url: "https://uploads.s3.amazonaws.com/review/stored.png",
+          name: "stored.png",
+          contentType: "image/png",
+          provider: "s3",
+        };
+        reviewComments = [
+          {
+            ...comment,
+            metadata: {
+              attachments: [
+                stored,
+                {
+                  url: "https://cdn.builder.io/api/v1/image/old",
+                  name: "old.png",
+                  contentType: "image/png",
+                },
+              ],
+            },
+          },
+        ];
+        await renderPins(signedIn);
+        await openFirstThread();
+        await openCommentMenu("comment-1");
+        await act(async () => menuItem("review.editComment")?.click());
+        const editing = () =>
+          document.querySelector<HTMLElement>("[data-review-comment-editing]");
+        expect(
+          editing()?.querySelectorAll("[data-review-composer-image]"),
+        ).toHaveLength(1);
+        // The stored image counts toward the five the server keeps.
+        expect(
+          editing()
+            ?.querySelector("[data-review-test-composer]")
+            ?.getAttribute("data-review-test-images-left"),
+        ).toBe("3");
+
+        await act(async () =>
+          editing()
+            ?.querySelector<HTMLButtonElement>(
+              '[aria-label="review.removeImage: old.png"]',
+            )
+            ?.click(),
+        );
+        await act(async () => submit(editing()!)?.click());
+        expect(mocks.updateMutate.mock.calls[0]?.[0]).toMatchObject({
+          attachments: [stored],
+        });
       });
     });
 

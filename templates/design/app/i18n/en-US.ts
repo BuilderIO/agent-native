@@ -3366,6 +3366,10 @@ export default {
     markedUnread: "Marked as unread",
     markUnreadFailed: "Could not mark as unread",
     attachImage: "Attach image",
+    removeImage: "Remove image",
+    imageUploadFailed: "Could not upload the image",
+    editChanged:
+      "This comment changed after you started editing. Save again to replace it.",
     searching: "Searching…",
     reactionFailed: "Could not update the reaction",
     moveFailed: "Could not move the comment",
