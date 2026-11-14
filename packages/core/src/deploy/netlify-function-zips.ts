@@ -4,6 +4,8 @@ import { createRequire } from "module";
 import path from "path";
 import { pathToFileURL } from "url";
 
+import { parse as parseToml } from "smol-toml";
+
 import { normalizeZip } from "./deterministic-zip.js";
 
 /**
@@ -170,52 +172,64 @@ export interface PreparedFunctionZip {
  * node_bundler, ...), and the CLI trusts the prebuilt manifest instead of
  * applying them, so a project that sets any must not use this path.
  */
-/** The `[build] functions = "dir"` setting from netlify.toml, if any. */
-export function readBuildFunctionsDir(siteRoot: string): string | undefined {
+function readNetlifyToml(
+  siteRoot: string,
+): Record<string, unknown> | undefined {
   const tomlPath = path.join(siteRoot, "netlify.toml");
   if (!fs.existsSync(tomlPath)) return undefined;
-  let inBuild = false;
-  for (const raw of fs.readFileSync(tomlPath, "utf-8").split("\n")) {
-    const line = raw.trim();
-    if (line.startsWith("[")) {
-      inBuild = /^\[\s*build\s*\]/.test(line);
-      continue;
-    }
-    const match = inBuild
-      ? /^functions\s*=\s*["']([^"']+)["']/.exec(line)
-      : null;
-    if (match) return match[1];
+  try {
+    return parseToml(fs.readFileSync(tomlPath, "utf-8"));
+  } catch (error) {
+    throw new Error(
+      `could not parse ${tomlPath}: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+}
+
+/** The `[build] functions = "dir"` setting from netlify.toml, if any. */
+export function readBuildFunctionsDir(siteRoot: string): string | undefined {
+  const build = readNetlifyToml(siteRoot)?.build;
+  if (build && typeof build === "object" && "functions" in build) {
+    const dir = (build as { functions: unknown }).functions;
+    return typeof dir === "string" ? dir : undefined;
   }
   return undefined;
 }
 
+function findFunctionsKeys(
+  node: unknown,
+  trail: string[],
+  found: string[],
+): void {
+  if (Array.isArray(node)) {
+    for (const item of node) findFunctionsKeys(item, trail, found);
+    return;
+  }
+  if (!node || typeof node !== "object") return;
+  for (const [key, value] of Object.entries(node)) {
+    const next = [...trail, key];
+    // Only the plain [build] functions directory is supported; the same key
+    // at the root or in a context-scoped build table changes what is deployed.
+    if (key === "functions" && !(trail.length === 1 && trail[0] === "build")) {
+      found.push(next.join("."));
+    }
+    findFunctionsKeys(value, next, found);
+  }
+}
+
+/**
+ * zip-it receives no netlify.toml `[functions]` settings here (included_files,
+ * node_bundler, ...), and the CLI trusts the prebuilt manifest instead of
+ * applying them, so a project that sets any must not use this path.
+ */
 export function assertNoFunctionsConfig(siteRoot: string): void {
-  const tomlPath = path.join(siteRoot, "netlify.toml");
-  if (!fs.existsSync(tomlPath)) return;
-  // A `functions` key is only the bundling config at the document root;
-  // under [build] it is the plain functions-directory setting.
-  let table: string[] = [];
-  const unsupported = fs
-    .readFileSync(tomlPath, "utf-8")
-    .split("\n")
-    .map((line) => line.trim())
-    .some((line) => {
-      if (line.startsWith("#")) return false;
-      if (line.startsWith("[")) {
-        table = line
-          .replace(/^\[+|\]+\s*(#.*)?$/g, "")
-          .split(".")
-          .map((segment) => segment.trim().replace(/^["']|["']$/g, ""));
-        return table.includes("functions");
-      }
-      if (!/^["']?functions["']?\s*[.=]/.test(line)) return false;
-      // Only a plain [build] functions directory is supported; the same key at
-      // the root or in a context-scoped build table changes what is deployed.
-      return !(table.length === 1 && table[0] === "build");
-    });
-  if (unsupported) {
+  const config = readNetlifyToml(siteRoot);
+  if (!config) return;
+  const found: string[] = [];
+  findFunctionsKeys(config, [], found);
+  if (found.length > 0) {
     throw new Error(
-      `${tomlPath} sets functions options (a [functions] table, a context-scoped one, or a functions key) that the deterministic zip step does not apply; remove them or deploy with plain \`netlify deploy\``,
+      `netlify.toml sets functions options (${found.join(", ")}) that the deterministic zip step does not apply; remove them or deploy with plain \`netlify deploy\``,
     );
   }
 }

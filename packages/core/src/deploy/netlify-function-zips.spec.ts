@@ -282,6 +282,26 @@ describe("assertNoFunctionsConfig", () => {
   });
 });
 
+describe("netlify.toml dotted and inline forms", () => {
+  it("reads build.functions written as a dotted key or inline table", () => {
+    for (const toml of [
+      "build.functions = 'netlify/fns'\n",
+      "build = { functions = 'netlify/fns' }\n",
+    ]) {
+      const root = tmp();
+      fs.writeFileSync(path.join(root, "netlify.toml"), toml);
+      expect(readBuildFunctionsDir(root)).toBe("netlify/fns");
+      expect(() => assertNoFunctionsConfig(root)).not.toThrow();
+    }
+  });
+
+  it("fails loudly on unparseable TOML", () => {
+    const root = tmp();
+    fs.writeFileSync(path.join(root, "netlify.toml"), "[build\n");
+    expect(() => assertNoFunctionsConfig(root)).toThrow(/could not parse/);
+  });
+});
+
 describe("readBuildFunctionsDir", () => {
   it("reads only [build] functions", () => {
     const root = tmp();
