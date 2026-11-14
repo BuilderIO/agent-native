@@ -12,6 +12,11 @@ import {
  * someone who manages the collection. The first kind freezes a tab (a Blocks
  * field other than the page body) while the row's status is one of chosen
  * values, for people and agents alike.
+ *
+ * A freeze protects a row's text, not the row: its page can still go to Trash,
+ * and from there be deleted for good, which takes full access to the page and
+ * a person's approval. Removing a row from its collection is refused instead,
+ * because the page stays while the tab's text is deleted.
  */
 export const COLUMN_RULE_FROZEN = "COLUMN_RULE_FROZEN";
 
