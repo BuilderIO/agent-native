@@ -8,7 +8,7 @@
 use std::ffi::c_void;
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 use core_foundation::base::CFRelease;
@@ -101,8 +101,22 @@ fn deliver(
     };
     let level = peak_level(&pcm.samples);
     let n = tally.note_buffer(level);
+    tally.note_timing(
+        buffer_start_secs(sample_buffer),
+        pcm.samples.len() as f64 / pcm.sample_rate,
+    );
     on_samples(&pcm.samples, pcm.sample_rate);
     Some((level, n))
+}
+
+/// The buffer's presentation time in seconds, or `None` when AVFoundation did
+/// not stamp it.
+fn buffer_start_secs(sample_buffer: &CMSampleBuffer) -> Option<f64> {
+    // SAFETY: a valid sample buffer from the capture delegate.
+    let pts = unsafe { sample_buffer.presentation_time_stamp() };
+    let (value, timescale, flags) = (pts.value, pts.timescale, pts.flags);
+    // kCMTimeFlags_Valid is bit 0.
+    (timescale > 0 && flags.0 & 1 == 1).then(|| value as f64 / timescale as f64)
 }
 
 impl MicSampleDelegate {
@@ -156,6 +170,9 @@ impl MicCapture {
             ProtocolObject::from_ref(&*delegate),
             "com.clips.mic.capture",
         )?;
+        // The late-start clock begins once the session runs: opening the
+        // device is not audio the microphone dropped.
+        delegate.ivars().tally.mark_started();
         eprintln!("[mic-capture] capturing from {device_name} ({device_uid}) via AVCaptureSession");
         Ok(Self {
             session,
@@ -201,6 +218,16 @@ impl MicCapture {
         if let Some(reason) = &summary.unreadable_reason {
             eprintln!("[mic-capture] first unreadable buffer: {reason}");
         }
+        let loss = summary.loss();
+        eprintln!(
+            "[mic-capture] startup latency {} ms (first buffer); {:.2} s lost in {} gaps",
+            summary
+                .timeline
+                .first_buffer_after
+                .map_or_else(|| "-".to_string(), |d| d.as_millis().to_string()),
+            loss.missing_secs,
+            summary.timeline.gaps,
+        );
         Some(summary)
     }
 }
@@ -240,6 +267,42 @@ struct CaptureTally {
     peak_bits: AtomicU32,
     unreadable: AtomicU64,
     unreadable_reason: OnceLock<String>,
+    timeline: Mutex<Timeline>,
+    started: OnceLock<Instant>,
+}
+
+/// Holes in the buffer timestamps. On a busy Mac AVFoundation drops audio
+/// buffers that the delegate queue cannot take in time; the timestamps of the
+/// buffers that do arrive show how much audio went missing.
+#[derive(Default, Debug, Clone, Copy, PartialEq)]
+struct Timeline {
+    /// When the next buffer should start if nothing was dropped.
+    expected_next: Option<f64>,
+    /// Audio between buffers that never arrived, in seconds.
+    missing: f64,
+    gaps: u32,
+    /// Time from the session start to the first buffer.
+    first_buffer_after: Option<Duration>,
+}
+
+/// A hole shorter than this is timestamp jitter, not lost audio.
+const GAP_TOLERANCE_SECS: f64 = 0.02;
+
+impl Timeline {
+    fn note(&mut self, start: Option<f64>, length: f64) {
+        let Some(start) = start else {
+            self.expected_next = None;
+            return;
+        };
+        if let Some(expected) = self.expected_next {
+            let hole = start - expected;
+            if hole > GAP_TOLERANCE_SECS {
+                self.missing += hole;
+                self.gaps += 1;
+            }
+        }
+        self.expected_next = Some(start + length);
+    }
 }
 
 impl CaptureTally {
@@ -249,6 +312,25 @@ impl CaptureTally {
     fn note_buffer(&self, level: f32) -> u64 {
         self.peak_bits.fetch_max(level.to_bits(), Ordering::Relaxed);
         self.buffers.fetch_add(1, Ordering::Relaxed)
+    }
+
+    fn mark_started(&self) {
+        let _ = self.started.set(Instant::now());
+    }
+
+    fn note_timing(&self, start: Option<f64>, length: f64) {
+        let Ok(mut timeline) = self.timeline.lock() else {
+            return;
+        };
+        if timeline.first_buffer_after.is_none() {
+            // A buffer that arrives before `startRunning` returned is on time.
+            timeline.first_buffer_after = Some(
+                self.started
+                    .get()
+                    .map_or(Duration::ZERO, Instant::elapsed),
+            );
+        }
+        timeline.note(start, length);
     }
 
     fn note_unreadable(&self, reason: String) {
@@ -263,6 +345,7 @@ impl CaptureTally {
             peak: f32::from_bits(self.peak_bits.load(Ordering::Relaxed)),
             unreadable: self.unreadable.load(Ordering::Relaxed),
             unreadable_reason: self.unreadable_reason.get().cloned(),
+            timeline: self.timeline.lock().map(|t| *t).unwrap_or_default(),
         }
     }
 }
@@ -274,6 +357,24 @@ struct CaptureSummary {
     peak: f32,
     unreadable: u64,
     unreadable_reason: Option<String>,
+    timeline: Timeline,
+}
+
+/// How much of a capture's audio never arrived: holes between buffers whose
+/// timestamps prove audio was dropped. A slow first buffer is startup latency
+/// (device warm-up, callback scheduling) and is logged, not counted here.
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
+struct CaptureLoss {
+    /// Seconds dropped between buffers.
+    missing_secs: f64,
+}
+
+impl CaptureSummary {
+    fn loss(&self) -> CaptureLoss {
+        CaptureLoss {
+            missing_secs: self.timeline.missing,
+        }
+    }
 }
 
 fn capture_verdict(device_name: &str, summary: &CaptureSummary) -> Result<(), String> {
@@ -813,6 +914,7 @@ mod tests {
             peak,
             unreadable: u64::from(reason.is_some()),
             unreadable_reason: reason.map(str::to_owned),
+            timeline: Timeline::default(),
         }
     }
 
@@ -843,5 +945,35 @@ mod tests {
         assert!(capture_verdict("AirPods", &summary(40, 0.0001, None)).is_ok());
         // A few unreadable buffers among readable ones are logged, not fatal.
         assert!(capture_verdict("AirPods", &summary(40, 0.2, Some("big-endian PCM"))).is_ok());
+    }
+
+    #[test]
+    fn counts_holes_between_buffer_timestamps_as_lost_audio() {
+        let mut timeline = Timeline::default();
+        // 10 ms buffers; one 5 ms jitter, then 400 ms and 100 ms dropped.
+        for start in [0.0, 0.01, 0.025, 0.035, 0.445, 0.455, 0.565] {
+            timeline.note(Some(start), 0.01);
+        }
+        assert_eq!(timeline.gaps, 2);
+        assert!((timeline.missing - 0.5).abs() < 1e-9, "{}", timeline.missing);
+    }
+
+    #[test]
+    fn an_unstamped_buffer_restarts_the_timeline() {
+        let mut timeline = Timeline::default();
+        timeline.note(Some(0.0), 0.01);
+        timeline.note(None, 0.01);
+        timeline.note(Some(5.0), 0.01);
+        assert_eq!(timeline.gaps, 0);
+        assert_eq!(timeline.missing, 0.0);
+    }
+
+    #[test]
+    fn a_late_first_buffer_is_startup_latency_not_lost_audio() {
+        let mut s = summary(10, 0.2, None);
+        s.timeline.first_buffer_after = Some(Duration::from_millis(1_800));
+        assert_eq!(s.loss().missing_secs, 0.0);
+        s.timeline.missing = 0.25;
+        assert!((s.loss().missing_secs - 0.25).abs() < 1e-9);
     }
 }
