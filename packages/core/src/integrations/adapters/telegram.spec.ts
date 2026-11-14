@@ -143,9 +143,89 @@ describe("telegramAdapter parseIncomingMessage", () => {
     expect(msg).toBeNull();
   });
 
-  it("returns null for a non-text message (e.g. photo only)", async () => {
+  it("keeps a photo and its caption, using the largest size", async () => {
     const msg = await telegramAdapter().parseIncomingMessage(
-      eventWithBody(update({ text: undefined, photo: [{ file_id: "x" }] })),
+      eventWithBody(
+        update({
+          text: undefined,
+          caption: "  my pay stub  ",
+          photo: [
+            { file_id: "example-thumbnail", width: 90, height: 60 },
+            { file_id: "example-photo", width: 1280, height: 853 },
+          ],
+        }),
+      ),
+    );
+    expect(msg?.text).toBe("my pay stub");
+    expect(msg?.files).toEqual([
+      expect.objectContaining({ id: "example-photo", mimetype: "image/jpeg" }),
+    ]);
+  });
+
+  it("strips a leading bot command from a caption, as it does for text", async () => {
+    const msg = await telegramAdapter().parseIncomingMessage(
+      eventWithBody(
+        update({
+          text: undefined,
+          caption: "/ask what is this",
+          photo: [{ file_id: "example-photo", width: 1280, height: 853 }],
+        }),
+      ),
+    );
+    expect(msg?.text).toBe("what is this");
+    expect(msg?.files).toHaveLength(1);
+  });
+
+  it("keeps a document sent without a caption", async () => {
+    const msg = await telegramAdapter().parseIncomingMessage(
+      eventWithBody(
+        update({
+          text: undefined,
+          document: {
+            file_id: "example-document",
+            file_name: "example.pdf",
+            mime_type: "application/pdf",
+            file_size: 42,
+          },
+        }),
+      ),
+    );
+    expect(msg?.text).toBe("");
+    expect(msg?.files).toEqual([
+      {
+        id: "example-document",
+        name: "example.pdf",
+        mimetype: "application/pdf",
+        size: 42,
+      },
+    ]);
+  });
+
+  it("keeps a voice note", async () => {
+    const msg = await telegramAdapter().parseIncomingMessage(
+      eventWithBody(
+        update({
+          text: undefined,
+          voice: { file_id: "example-voice", mime_type: "audio/ogg" },
+        }),
+      ),
+    );
+    expect(msg?.files).toEqual([
+      expect.objectContaining({ id: "example-voice", mimetype: "audio/ogg" }),
+    ]);
+  });
+
+  it("leaves a text message without files", async () => {
+    const msg = await telegramAdapter().parseIncomingMessage(
+      eventWithBody(update({ text: "hello" })),
+    );
+    expect(msg?.text).toBe("hello");
+    expect(msg?.files ?? []).toEqual([]);
+  });
+
+  it("returns null for an unsupported sticker message", async () => {
+    const msg = await telegramAdapter().parseIncomingMessage(
+      eventWithBody(update({ text: undefined, sticker: { file_id: "x" } })),
     );
     expect(msg).toBeNull();
   });

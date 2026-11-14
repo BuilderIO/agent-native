@@ -315,6 +315,11 @@ Telegram forum topics and private-chat topics keep `message_thread_id` in the
 canonical conversation identity. Replies preserve both the topic and the
 inbound message through Bot API `reply_parameters`.
 
+A photo, document, or voice note reaches the agent as its caption plus a file
+reference: the file name, or the Telegram `file_id` when there is no name, and
+the file type. The agent cannot read the file itself, because the adapter does
+not download it.
+
 ## Set up Email {#email}
 
 Email is the most powerful integration — your agent gets its own address, replies in-thread, can be CC'd on conversations, and uses the sender's email as their identity. No `/link` command needed.
