@@ -530,6 +530,62 @@ describe("frames", () => {
     ]);
   });
 
+  it.each([false, true])(
+    "returns a sanitized structured cleanup failure after frames succeed (partial: %s)",
+    async (partial) => {
+      const log = vi.spyOn(console, "error").mockImplementation(() => {});
+      try {
+        if (partial)
+          mockLoadAgentFrame.mockRejectedValueOnce(new Error("frame failed"));
+        mockMediaCleanup.mockRejectedValueOnce(
+          Object.assign(new Error("too large /private/temp/path"), {
+            code: "EACCES",
+          }),
+        );
+        const error = await failureOf(
+          run({ recordingId: "rec-1", atMs: [1000, 2000] }),
+        );
+        expect(error.errorCode).toBe("frame_extraction_failed");
+        expect(error.statusCode).toBe(502);
+        expect(error.message).toContain("Recording media cleanup failed.");
+        expect(JSON.stringify(error)).not.toContain("/private/temp/path");
+        expect(log.mock.calls).toEqual([
+          ["[agent-frame] Media cleanup failed.", "EACCES"],
+        ]);
+        expect(mockMediaCleanup).toHaveBeenCalledOnce();
+      } finally {
+        log.mockRestore();
+      }
+    },
+  );
+
+  it("preserves the frame failure when cleanup also fails", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const { RecordingMediaFetchError } =
+        await import("../server/lib/public-agent-context.js");
+      mockLoadAgentFrame.mockRejectedValueOnce(
+        new RecordingMediaFetchError("gone", 404),
+      );
+      mockMediaCleanup.mockRejectedValueOnce(
+        Object.assign(new Error("/private/temp/path"), { code: "EACCES" }),
+      );
+      const error = await failureOf(
+        run({ recordingId: "rec-1", atMs: [1000] }),
+      );
+      expect(error.errorCode).toBe("media_unavailable");
+      expect(error.statusCode).toBe(404);
+      expect(error.message).toContain("gone");
+      expect(JSON.stringify(error)).not.toContain("/private/temp/path");
+      expect(log.mock.calls).toEqual([
+        ["[agent-frame] Media cleanup failed.", "EACCES"],
+      ]);
+      expect(mockMediaCleanup).toHaveBeenCalledOnce();
+    } finally {
+      log.mockRestore();
+    }
+  });
+
   it("fails the call when no frame could be produced", async () => {
     const { RecordingMediaFetchError } =
       await import("../server/lib/public-agent-context.js");
