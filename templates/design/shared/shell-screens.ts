@@ -1,3 +1,5 @@
+import { nextFreeName } from "@agent-native/core/free-name";
+
 import type { CanvasFramePlacement } from "./canvas-frames.js";
 
 export const SHELL_CANVAS_PATH = "/visual-edit/shell";
@@ -43,13 +45,7 @@ function titleFromPath(path: string): string {
 }
 
 function uniqueFilename(path: string, used: Set<string>): string {
-  const base = `${slugForPath(path)}.html`;
-  let filename = base;
-  let suffix = 2;
-  while (used.has(filename)) {
-    filename = `${base.replace(/\.html$/, "")}-${suffix}.html`;
-    suffix += 1;
-  }
+  const filename = nextFreeName(`${slugForPath(path)}.html`, used);
   used.add(filename);
   return filename;
 }

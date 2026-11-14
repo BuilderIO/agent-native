@@ -454,9 +454,10 @@ source is the diagram, so it stays the editable copy.
   generate or upload (SVG, PNG, screenshot), and no other block type. Don't add
   a title or caption the source doesn't have. Swap the source out only when the
   user asks for an image instead of the diagram.
-- Content shows Mermaid code blocks as code; it doesn't draw them yet. When
-  asked to draw or show one as a diagram, say so and leave the source in place.
-  If the source has a syntax error, fix it there.
+- The editor draws a Mermaid code block as its diagram and opens the source
+  when the user clicks it, so a diagram the user asks to see only needs valid
+  source. If the source has a syntax error, the block shows it beside the
+  source; fix it there. Public pages show the source as code.
 
 ## Parent-Child Hierarchy
 

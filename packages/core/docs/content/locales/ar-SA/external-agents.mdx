@@ -679,7 +679,7 @@ export default defineAction({
     "name": "to",
     "in": "query",
     "type": "string",
-    "description": "Optional explicit same-origin relative redirect target. Falls back to `/<view>`, then a per-template `resolveOpenPath`."
+    "description": "Optional explicit same-origin relative redirect target. Falls back to a per-template `resolveOpenPath`, then `/<view>`."
   },
   {
     "name": "compose",
@@ -711,7 +711,7 @@ Resolves the browser session, writes a one-shot `navigate` application-state com
 1. حل جلسة **المتصفح** عبر `getSession` (يتجاوز حارس المصادقة المسار الدقيق `/_agent-native/open`).
 2. إذا لم تتم مصادقته، فإنه يخدم تسجيل الدخول الذي تم تكوينه HTML **في نفس URL**; يقوم معالج نجاح النموذج بإعادة تحميل `window.location`، وإعادة إدخال المسار المصادق عليه - بدون سباكة `?next=`.
 3. يكتب أمر حالة التطبيق `navigate` الموجود مرة واحدة (الحمولة = كل معلمة استعلام غير محجوزة + `view`) الذي يتم تحديد نطاقه على البريد الإلكتروني لجلسة المتصفح باستخدام `requestSource: "deep-link"`، ويفك تشفير مسودة `compose` base64url إلى مفتاح `compose-<id>`.
-4. 302-يعيد التوجيه إلى مسار نسبي آمن من نفس الأصل (`to=`، أو `/<view>`، أو `resolveOpenPath` لكل قالب)، وإعادة توجيه معلمات مرشح `f_*` بحيث يتم فتح القوائم/لوحات المعلومات بعد تصفيتها مسبقًا قبل استنزاف أمر `navigate`.
+4. 302-يعيد التوجيه إلى مسار نسبي آمن من نفس الأصل (`to=`، أو `resolveOpenPath` لكل قالب، أو `/<view>`)، وإعادة توجيه معلمات مرشح `f_*` بحيث يتم فتح القوائم/لوحات المعلومات بعد تصفيتها مسبقًا قبل استنزاف أمر `navigate`.
 
 يتم رفض عمليات إعادة توجيه `//host` ذات الأصل المشترك والنسبية للمخطط وحرف التحكم (حارس إعادة التوجيه المفتوح). يمكن تعطيل المسار لكل تطبيق عبر `disableOpenRoute`.
 

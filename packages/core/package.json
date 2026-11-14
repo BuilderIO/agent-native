@@ -147,6 +147,14 @@
       "types": "./dist/save-conflict/server.d.ts",
       "default": "./dist/save-conflict/server.js"
     },
+    "./free-name": {
+      "types": "./dist/free-name/index.d.ts",
+      "default": "./dist/free-name/index.js"
+    },
+    "./free-name/server": {
+      "types": "./dist/free-name/server.d.ts",
+      "default": "./dist/free-name/server.js"
+    },
     "./authorization": {
       "types": "./dist/authorization/index.d.ts",
       "default": "./dist/authorization/index.js"
