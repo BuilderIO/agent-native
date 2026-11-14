@@ -582,7 +582,16 @@ export const meetings = table("clips_meetings", {
   captureStopRevision: integer("capture_stop_revision").notNull().default(0),
   endReason: text("end_reason"),
   platform: text("platform", {
-    enum: ["zoom", "meet", "teams", "webex", "phone", "adhoc", "other"],
+    enum: [
+      "zoom",
+      "meet",
+      "teams",
+      "webex",
+      "slack",
+      "phone",
+      "adhoc",
+      "other",
+    ],
   })
     .notNull()
     .default("adhoc"),
