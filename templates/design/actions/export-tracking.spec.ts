@@ -214,7 +214,10 @@ describe("export png", () => {
   it("records exactly one completed export", async () => {
     mocks.takeDesignScreenshotRun.mockResolvedValue(screenshot);
 
-    await exportPng.run({ designId: "design-1", filename: "index.html" }, ctx);
+    await exportPng.run(
+      { designId: "design-1", filename: "index.html", width: 1440 },
+      ctx,
+    );
 
     expect(exportEvents()).toHaveLength(1);
     expect(exportEvents()[0]![1]).toMatchObject({
@@ -233,7 +236,7 @@ describe("export png", () => {
     });
 
     const result = await exportPng.run(
-      { designId: "design-1", filename: "index.html" },
+      { designId: "design-1", filename: "index.html", width: 1440 },
       ctx,
     );
 
@@ -247,7 +250,10 @@ describe("export png", () => {
     });
 
     mocks.track.mockClear();
-    await exportPng.run({ fileId: "file-1", filename: "index.html" }, ctx);
+    await exportPng.run(
+      { fileId: "file-1", filename: "index.html", width: 1440 },
+      ctx,
+    );
     expect(exportEvents()).toHaveLength(1);
     expect(exportEvents()[0]![1]).not.toHaveProperty("output_id");
 
@@ -255,7 +261,12 @@ describe("export png", () => {
     // the passed design id was never checked against it.
     mocks.track.mockClear();
     await exportPng.run(
-      { designId: "design-other", fileId: "file-1", filename: "index.html" },
+      {
+        designId: "design-other",
+        fileId: "file-1",
+        filename: "index.html",
+        width: 1440,
+      },
       ctx,
     );
     expect(exportEvents()).toHaveLength(1);
@@ -269,7 +280,10 @@ describe("export png", () => {
     });
 
     await expect(
-      exportPng.run({ designId: "design-1", filename: "index.html" }, ctx),
+      exportPng.run(
+        { designId: "design-1", filename: "index.html", width: 1440 },
+        ctx,
+      ),
     ).rejects.toMatchObject({
       name: "NoWriteError",
       errorCode: "file_storage_not_configured",
@@ -300,7 +314,7 @@ describe("export png", () => {
     });
 
     const attemptedExport = exportPng.run(
-      { designId: "design-1", filename: "index.html" },
+      { designId: "design-1", filename: "index.html", width: 1440 },
       ctx,
     );
     await expect(attemptedExport).rejects.toMatchObject({

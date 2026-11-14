@@ -633,8 +633,11 @@ export default defineAction({
     // Claude models through the Builder gateway reject a screenshot sent as a
     // URL ("internal error"), so the agent gets the pixels inline. Model
     // providers downscale wide images anyway, and 2x often exceeds the inline
-    // limit, so the agent's capture is 1x.
-    const forAgent = ctx?.caller === "tool";
+    // limit, so the agent's capture is 1x. export-png runs this action with its
+    // own ctx and returns no inline image to the model: its file is for a
+    // person, so it keeps the 2x export scale even when the agent asked.
+    const exportingPng = ctx?.actionName === "export-png";
+    const forAgent = ctx?.caller === "tool" && !exportingPng;
     const inlineAgentImages = new Map<ScreenshotResult, InlineAgentImage>();
     const oversizeForAgent: number[] = [];
 
@@ -781,7 +784,7 @@ export default defineAction({
           if (
             screenshots.length === 1 &&
             ctx?.caller === "mcp" &&
-            ctx.actionName === "export-png"
+            exportingPng
           ) {
             screenshotPngs.set(screenshot, png);
           }
