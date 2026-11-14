@@ -38,12 +38,12 @@ import type {
 } from "./first-party-metric-catalog.js";
 import {
   estimateOnboardingJourneyEventQueryCost,
+  ONBOARDING_COST_ESTIMATE_DEADLINE_MS,
   OnboardingJourneyCostError,
 } from "./onboarding-journey-cost.js";
 import {
   ONBOARDING_EVENTS_DEFAULT_MAX_TOTAL_BYTES_BILLED,
   ONBOARDING_EVENTS_MAX_TOTAL_BYTES_BILLED,
-  ONBOARDING_EVENT_READ_DEADLINE_MS,
 } from "./onboarding-journey.js";
 
 const scope = { userEmail: "caller@example.test", orgId: "org-1" };
@@ -215,7 +215,7 @@ describe("estimateOnboardingJourneyEventQueryCost", () => {
   it("returns explicitly incomplete estimates when the total deadline expires", async () => {
     vi.useFakeTimers();
     mocks.dryRunQuerySchema.mockImplementationOnce(async () => {
-      await vi.advanceTimersByTimeAsync(ONBOARDING_EVENT_READ_DEADLINE_MS);
+      await vi.advanceTimersByTimeAsync(ONBOARDING_COST_ESTIMATE_DEADLINE_MS);
       throw new DOMException("The operation was aborted", "AbortError");
     });
 
