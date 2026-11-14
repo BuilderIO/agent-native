@@ -87,10 +87,15 @@ export function findNetlifyCli(
         if (parent === current) break;
         current = parent;
       }
-      const sibling = readCliPackage(
+      // Project-local installs put the shim in node_modules/.bin, one level
+      // below node_modules/netlify-cli.
+      for (const candidate of [
         path.join(dir, "node_modules", "netlify-cli"),
-      );
-      if (sibling) return sibling;
+        path.join(dir, "..", "netlify-cli"),
+      ]) {
+        const sibling = readCliPackage(candidate);
+        if (sibling) return sibling;
+      }
     }
   }
   throw new Error(

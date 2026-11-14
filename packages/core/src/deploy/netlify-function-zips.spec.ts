@@ -237,3 +237,23 @@ describe("findNetlifyCli", () => {
     expect(cli.entryPoint).toBe(path.join(pkg, "bin", "run.js"));
   });
 });
+
+describe("findNetlifyCli project-local", () => {
+  it("finds netlify-cli from node_modules/.bin/netlify.cmd", () => {
+    const nm = path.join(tmp(), "node_modules");
+    fs.mkdirSync(path.join(nm, ".bin"), { recursive: true });
+    fs.mkdirSync(path.join(nm, "netlify-cli"));
+    fs.writeFileSync(
+      path.join(nm, "netlify-cli", "package.json"),
+      JSON.stringify({
+        name: "netlify-cli",
+        version: "27.16.1",
+        bin: "bin/run.js",
+      }),
+    );
+    fs.writeFileSync(path.join(nm, ".bin", "netlify.cmd"), "@echo off");
+    expect(findNetlifyCli(path.join(nm, ".bin")).packageDir).toBe(
+      path.join(nm, "netlify-cli"),
+    );
+  });
+});
