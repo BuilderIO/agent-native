@@ -132,6 +132,34 @@ describe("Content Files membership reconciliation", () => {
     });
   });
 
+  it("refuses a Files tree read from outside its space with a typed not found, so the browser drops what it showed", async () => {
+    const queryContentDatabaseItemsAction = (
+      await import("./query-content-database-items.js")
+    ).default;
+    const filesDatabase = await getFilesDatabase(personalContentSpaceId(OWNER));
+    const read = {
+      databaseId: filesDatabase.id,
+      navigation: { parentId: null },
+    };
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        queryContentDatabaseItemsAction.run(read, { userEmail: OWNER } as any),
+      ),
+    ).resolves.toHaveProperty("items");
+    await expect(
+      runWithRequestContext({ userEmail: VIEWER, orgId: ORG_ID }, () =>
+        queryContentDatabaseItemsAction.run(read, {
+          userEmail: VIEWER,
+        } as any),
+      ),
+    ).rejects.toMatchObject({
+      message: `Database "${filesDatabase.id}" not found`,
+      errorCode: "DATABASE_NOT_FOUND",
+      statusCode: 404,
+    });
+  });
+
   it("removes the retired Parent default from legacy personal Files views", async () => {
     const { putUserSetting, deleteUserSetting } =
       await import("@agent-native/core/settings");

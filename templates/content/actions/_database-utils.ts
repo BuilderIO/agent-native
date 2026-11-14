@@ -582,7 +582,14 @@ export async function resolveContentDatabaseRead(args: {
       canRead = false;
     }
   }
-  if (!canRead) throw new Error(`Database "${databaseId}" not found`);
+  // A reader without access gets the same typed 404 as a missing database, so
+  // the browser treats it as a refusal and drops what it showed.
+  if (!canRead) {
+    fail(`Database "${databaseId}" not found`, {
+      errorCode: "DATABASE_NOT_FOUND",
+      statusCode: 404,
+    });
+  }
 
   if (database.deletedAt) {
     return {
