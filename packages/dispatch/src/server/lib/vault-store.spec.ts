@@ -136,6 +136,24 @@ beforeAll(async () => {
   })({});
   await closeDbExec();
   current = await boot();
+  // A database upgraded from before the table was retired still holds it;
+  // fresh installs no longer create it.
+  await current.exec.execute({
+    sql: `CREATE TABLE vault_secrets (
+      id TEXT PRIMARY KEY,
+      owner_email TEXT NOT NULL,
+      org_id TEXT,
+      name TEXT NOT NULL,
+      credential_key TEXT NOT NULL,
+      value TEXT NOT NULL,
+      provider TEXT,
+      description TEXT,
+      created_by TEXT NOT NULL,
+      created_at BIGINT NOT NULL,
+      updated_at BIGINT NOT NULL
+    )`,
+    args: [],
+  });
 });
 
 afterAll(async () => {
