@@ -424,6 +424,389 @@ describe("TiptapComposer model picker", () => {
     expect(row!.querySelector(".agent-kit-caption-copy")).toBeNull();
   });
 
+  it("does not claim an empty settled catalog is disconnected or validate its default", async () => {
+    const onRequired = vi.fn();
+    act(() =>
+      root.render(
+        <Harness
+          availableModels={[]}
+          modelListLoading={false}
+          selectedModel="claude-opus-5-5"
+          selectedEngine="anthropic"
+          selectedEffort="high"
+          onConnectProvider={vi.fn()}
+          onModelConnectionRequiredChange={onRequired}
+        />,
+      ),
+    );
+    const trigger = container.querySelector<HTMLButtonElement>(
+      '[data-agent-composer-slot="model-button"]',
+    )!;
+    expect(trigger.textContent).toBe("Model");
+    expect(trigger.getAttribute("aria-label")).not.toContain("Connect agent");
+    expect(trigger.getAttribute("aria-label")).not.toContain("Opus");
+    expect(trigger.getAttribute("aria-label")).not.toContain("Effort");
+    expect(onRequired).not.toHaveBeenCalledWith(true);
+    const menu = await openPicker();
+    expect(topLevelRows(menu)).toEqual([]);
+    expect(menu.textContent).toContain("Add your own keys");
+  });
+
+  it("offers retry instead of connection setup when discovery is unavailable", async () => {
+    const retry = vi.fn();
+    const onRequired = vi.fn();
+    act(() =>
+      root.render(
+        <Harness
+          availableModels={[]}
+          modelListUnavailable
+          onRetryModelList={retry}
+          selectedModel="claude-opus-5-5"
+          selectedEngine="anthropic"
+          onConnectProvider={vi.fn()}
+          onModelConnectionRequiredChange={onRequired}
+        />,
+      ),
+    );
+    const menu = await openPicker();
+    expect(menu.textContent).toContain("Couldn't load models.");
+    expect(menu.textContent).not.toMatch(/Use Builder.io|Add your own keys/);
+    expect(onRequired).not.toHaveBeenCalledWith(true);
+    const retryItem = Array.from(
+      menu.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.includes("Retry"))!;
+    await act(async () => retryItem.click());
+    expect(retry).toHaveBeenCalledTimes(1);
+  });
+
+  it("disables an empty failed picker when the host owns retry, but keeps agent choices usable", async () => {
+    const render = (
+      availableAgents?: React.ComponentProps<
+        typeof TiptapComposer
+      >["availableAgents"],
+    ) =>
+      root.render(
+        <Harness
+          availableModels={[]}
+          modelListUnavailable
+          availableAgents={availableAgents}
+        />,
+      );
+    act(() => render());
+    const trigger = container.querySelector<HTMLButtonElement>(
+      '[data-agent-composer-slot="model-button"]',
+    )!;
+    expect(trigger.disabled).toBe(true);
+    await act(async () => trigger.click());
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+
+    act(() =>
+      render([
+        { id: "default", label: "Default" },
+        { id: "codex", label: "Codex", configured: true },
+      ]),
+    );
+    expect(trigger.disabled).toBe(false);
+    const menu = await openPicker();
+    expect(menu.textContent).not.toContain("Couldn't load models.");
+    expect(
+      menu.querySelector('[data-agent-composer-model-section="agent"]'),
+    ).not.toBeNull();
+    await act(async () => trigger.click());
+
+    act(() =>
+      root.render(
+        <Harness availableModels={builderGroups} modelListUnavailable />,
+      ),
+    );
+    expect(trigger.disabled).toBe(false);
+    const retainedMenu = await openPicker();
+    expect(topLevelRows(retainedMenu).length).toBeGreaterThan(0);
+    expect(retainedMenu.textContent).not.toContain("Couldn't load models.");
+    act(() => render());
+    expect(document.querySelector('[role="menu"]')).toBeNull();
+    act(() =>
+      root.render(
+        <Harness availableModels={builderGroups} modelListUnavailable />,
+      ),
+    );
+    expect(trigger.getAttribute("aria-expanded")).toBe("false");
+  });
+
+  it("does not treat stale unconfigured providers as missing after refresh fails", async () => {
+    const retry = vi.fn();
+    const onRequired = vi.fn();
+    const groups: Groups = [
+      {
+        engine: "anthropic",
+        label: "Claude",
+        models: ["claude-sonnet-5-5"],
+        configured: false,
+      },
+    ];
+    const render = (unavailable: boolean) =>
+      root.render(
+        <Harness
+          availableModels={groups}
+          selectedModel="claude-sonnet-5-5"
+          selectedEngine="anthropic"
+          onConnectProvider={vi.fn()}
+          onModelConnectionRequiredChange={onRequired}
+          modelListUnavailable={unavailable}
+          onRetryModelList={retry}
+        />,
+      );
+    act(() => render(false));
+    const trigger = container.querySelector<HTMLButtonElement>(
+      '[data-agent-composer-slot="model-button"]',
+    )!;
+    expect(trigger.textContent).toBe("Connect agent");
+    expect(onRequired).toHaveBeenLastCalledWith(true);
+
+    act(() => render(true));
+    expect(trigger.textContent).toBe("Model");
+    expect(onRequired).toHaveBeenLastCalledWith(false);
+    const menu = await openPicker();
+    expect(menu.textContent).toContain("Couldn't load models.");
+    expect(menu.textContent).not.toMatch(
+      /Use Builder.io|Add your own keys|Connect agent/,
+    );
+    const retryItem = Array.from(
+      menu.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent?.includes("Retry"))!;
+    await act(async () => retryItem.click());
+    expect(retry).toHaveBeenCalledTimes(1);
+
+    act(() => render(false));
+    expect(trigger.textContent).toBe("Connect agent");
+    expect(onRequired).toHaveBeenLastCalledWith(true);
+  });
+
+  it("keeps previously loaded models selectable when refresh fails", async () => {
+    const retry = vi.fn();
+    act(() =>
+      root.render(
+        <Harness
+          availableModels={builderGroups}
+          modelListUnavailable
+          onRetryModelList={retry}
+        />,
+      ),
+    );
+    const menu = await openPicker();
+    expect(topLevelRows(menu).length).toBeGreaterThan(0);
+    expect(menu.textContent).toContain("Couldn't load models.");
+    expect(menu.textContent).not.toContain("Add your own keys");
+  });
+
+  it("keeps an Auto-only configured provider usable beside unconfigured providers", async () => {
+    const onRequired = vi.fn();
+    act(() =>
+      root.render(
+        <Harness
+          availableModels={[
+            {
+              engine: "builder",
+              label: "Builder.io",
+              models: ["auto"],
+              configured: true,
+            },
+            {
+              engine: "anthropic",
+              label: "Claude",
+              models: ["claude-sonnet-5-5"],
+              configured: false,
+            },
+          ]}
+          selectedModel="auto"
+          selectedEngine="builder"
+          onConnectProvider={vi.fn()}
+          onModelConnectionRequiredChange={onRequired}
+        />,
+      ),
+    );
+    const trigger = container.querySelector<HTMLButtonElement>(
+      '[data-agent-composer-slot="model-button"]',
+    )!;
+    expect(trigger.textContent).toBe("Auto");
+    expect(onRequired).not.toHaveBeenCalledWith(true);
+    const menu = await openPicker();
+    expect(
+      topLevelRows(menu).map((row) =>
+        row.getAttribute("data-agent-composer-model-row"),
+      ),
+    ).toEqual(["auto"]);
+    expect(menu.textContent).not.toMatch(
+      /Connect agent|Add your own keys|Use Builder.io/,
+    );
+  });
+
+  it("still requires setup when the only configured Auto option is hidden", () => {
+    const onRequired = vi.fn();
+    act(() =>
+      root.render(
+        <Harness
+          availableModels={[
+            {
+              engine: "builder",
+              label: "Builder.io",
+              models: ["auto"],
+              configured: true,
+            },
+            {
+              engine: "anthropic",
+              label: "Claude",
+              models: ["claude-sonnet-5-5"],
+              configured: false,
+            },
+          ]}
+          selectedModel="claude-sonnet-5-5"
+          selectedEngine="anthropic"
+          showAutoModelOption={false}
+          onConnectProvider={vi.fn()}
+          onModelConnectionRequiredChange={onRequired}
+        />,
+      ),
+    );
+    expect(
+      container.querySelector('[data-agent-composer-slot="model-button"]')
+        ?.textContent,
+    ).toBe("Connect agent");
+    expect(onRequired).toHaveBeenLastCalledWith(true);
+  });
+
+  it("distinguishes a confirmed missing Auto-only provider from an unavailable catalog", async () => {
+    const onRequired = vi.fn();
+    const groups: Groups = [
+      {
+        engine: "builder",
+        label: "Builder.io",
+        models: ["auto"],
+        configured: false,
+      },
+    ];
+    const render = (unavailable: boolean) =>
+      root.render(
+        <Harness
+          availableModels={groups}
+          selectedModel="auto"
+          selectedEngine="builder"
+          onConnectProvider={vi.fn()}
+          onModelConnectionRequiredChange={onRequired}
+          modelListUnavailable={unavailable}
+          onRetryModelList={vi.fn()}
+        />,
+      );
+    act(() => render(false));
+    const trigger = container.querySelector<HTMLButtonElement>(
+      '[data-agent-composer-slot="model-button"]',
+    )!;
+    expect(trigger.textContent).toBe("Connect agent");
+    expect(onRequired).toHaveBeenLastCalledWith(true);
+    const menu = await openPicker();
+    expect(menu.textContent).toContain("Add your own keys");
+    await act(async () => trigger.click());
+
+    act(() => render(true));
+    expect(trigger.textContent).toBe("Model");
+    expect(onRequired).toHaveBeenLastCalledWith(false);
+    const unavailableMenu = await openPicker();
+    expect(unavailableMenu.textContent).toContain("Couldn't load models.");
+    expect(unavailableMenu.textContent).not.toContain("Add your own keys");
+  });
+
+  it("offers auto without presenting an unsupported default as ready", async () => {
+    const groups: Groups = [
+      {
+        engine: "builder",
+        label: "Builder.io",
+        models: ["auto"],
+        configured: true,
+      },
+    ];
+    act(() =>
+      root.render(
+        <Harness
+          availableModels={groups}
+          selectedModel="unknown-model"
+          selectedEngine="builder"
+        />,
+      ),
+    );
+    const trigger = container.querySelector<HTMLButtonElement>(
+      '[data-agent-composer-slot="model-button"]',
+    )!;
+    expect(trigger.textContent).toBe("Model");
+    const menu = await openPicker();
+    expect(
+      topLevelRows(menu).map((row) =>
+        row.getAttribute("data-agent-composer-model-row"),
+      ),
+    ).toEqual(["auto"]);
+  });
+
+  it("announces loading without presenting the guessed model as ready", async () => {
+    act(() =>
+      root.render(
+        <Harness
+          availableModels={[]}
+          modelListLoading
+          selectedModel="claude-opus-5-5"
+          selectedEngine="anthropic"
+          selectedEffort="high"
+          onConnectProvider={vi.fn()}
+        />,
+      ),
+    );
+    const trigger = container.querySelector<HTMLButtonElement>(
+      '[data-agent-composer-slot="model-button"]',
+    )!;
+    expect(trigger.getAttribute("aria-label")).toBe("Loading models");
+    expect(trigger.textContent).not.toContain("Connect agent");
+    const menu = await openPicker();
+    expect(
+      menu.querySelector('[role="status"]')?.getAttribute("aria-busy"),
+    ).toBe("true");
+  });
+
+  it("keeps a configured agent visible and selectable with an empty catalog", async () => {
+    const onAgentChange = vi.fn();
+    act(() =>
+      root.render(
+        <Harness
+          availableModels={[]}
+          availableAgents={[
+            { id: "default", label: "Default" },
+            { id: "codex", label: "Codex", configured: true },
+          ]}
+          selectedAgent="codex"
+          onAgentChange={onAgentChange}
+        />,
+      ),
+    );
+    const trigger = container.querySelector<HTMLButtonElement>(
+      '[data-agent-composer-slot="model-button"]',
+    )!;
+    expect(trigger.textContent).toBe("Codex");
+    expect(trigger.getAttribute("aria-label")).toContain("Agent: Codex");
+    await openPicker();
+    await act(async () =>
+      document
+        .querySelector<HTMLElement>(
+          '[data-agent-composer-model-section="agent"]',
+        )!
+        .click(),
+    );
+    const panel = document.querySelector<HTMLElement>(
+      '[data-agent-composer-model-panel="agent"]',
+    )!;
+    const defaultAgent = Array.from(
+      panel.querySelectorAll<HTMLElement>('[role="menuitemradio"]'),
+    ).find((item) => item.textContent === "Default")!;
+    await act(async () => defaultAgent.click());
+    expect(onAgentChange).toHaveBeenCalledWith("default");
+  });
+
   it("shows the connect choices and no model list with nothing connected", async () => {
     act(() =>
       root.render(

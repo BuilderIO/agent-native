@@ -250,7 +250,14 @@ export type ComposerSubmitIntent = "immediate" | "queued";
 
 export const DEFAULT_VOICE_DICTATION_ENABLED = false;
 
+export interface ComposerVerifiedModel {
+  model: string;
+  engine: string;
+  effort?: ReasoningEffort;
+}
+
 export interface TiptapComposerSubmitOptions {
+  verifiedModel?: ComposerVerifiedModel;
   intent?: ComposerSubmitIntent;
   steer?: boolean;
   contextItems?: ComposerContextSnapshot;
@@ -1222,7 +1229,10 @@ export interface TiptapComposerProps {
   /** Return false to stop a submit before it enters the chat runtime. */
   onBeforeSubmit?: (
     draft?: ComposerDraftSnapshot,
-  ) => boolean | Promise<boolean>;
+  ) =>
+    | boolean
+    | ComposerVerifiedModel
+    | Promise<boolean | ComposerVerifiedModel>;
   onSubmissionPendingChange?: (pending: boolean) => void;
   /**
    * Called synchronously when a submit takes its draft, before `onBeforeSubmit`
@@ -1341,6 +1351,8 @@ export interface TiptapComposerProps {
   }>;
   /** Whether the model list is still being resolved. */
   modelListLoading?: boolean;
+  modelListUnavailable?: boolean;
+  onRetryModelList?: () => void;
   /** Callback when user picks a model */
   onModelChange?: (model: string, engine: string) => void;
   /** Callback when user picks an effort */
@@ -1709,7 +1721,11 @@ export function shouldShowOnlyConnectPath(
   showBuilderCta: boolean,
   groups: ReadonlyArray<{ configured: boolean }>,
 ): boolean {
-  return showBuilderCta && groups.every((group) => !group.configured);
+  return (
+    showBuilderCta &&
+    groups.length > 0 &&
+    groups.every((group) => !group.configured)
+  );
 }
 
 /**
@@ -1883,6 +1899,8 @@ function ModelSelector({
   hostedHarness = false,
   showAutoModelOption = true,
   modelListLoading = false,
+  modelListUnavailable = false,
+  onRetryModelList,
   open: controlledOpen,
   onChange,
   onEffortChange,
@@ -1914,6 +1932,8 @@ function ModelSelector({
   agentOnly?: boolean;
   showAutoModelOption?: boolean;
   modelListLoading?: boolean;
+  modelListUnavailable?: boolean;
+  onRetryModelList?: () => void;
   onChange: (model: string, engine: string) => void;
   onEffortChange?: (effort: ReasoningEffort) => void;
   onAgentChange?: (agent: string) => void;
@@ -2070,12 +2090,18 @@ function ModelSelector({
     trackingSource: "composer_builder_cta",
   });
   const BuilderConnectPopover = adapters.builder?.BuilderConnectPopover;
-  const hasConfiguredBuilderModels = providerGroups.some(
+  const readinessGroups = engines.filter((group) =>
+    group.models.some(
+      (candidate) =>
+        candidate !== "auto" || (showAutoModelOption && !isClaudeCodeAgent),
+    ),
+  );
+  const hasConfiguredBuilderModels = readinessGroups.some(
     (group) => group.engine === "builder" && group.configured,
   );
   const hasConfiguredCloudProviderReady =
-    hasConfiguredCloudProvider(providerGroups);
-  const hasConnectedSubscription = providerGroups.some(
+    hasConfiguredCloudProvider(readinessGroups);
+  const hasConnectedSubscription = readinessGroups.some(
     (group) =>
       hasConfiguredCloudProviderReady &&
       group.configured &&
@@ -2085,9 +2111,7 @@ function ModelSelector({
   const hasUnconfiguredVisibleModels = modelProviderGroups.some(
     (group) => !group.configured,
   );
-  const hasConfiguredProvider = providerGroups.some(
-    (group) => group.configured,
-  );
+  const hasConfiguredProvider = engines.some((group) => group.configured);
   const showBuilderAction =
     !isClaudeCodeAgent &&
     !hasConfiguredCloudProviderReady &&
@@ -2101,10 +2125,12 @@ function ModelSelector({
     !isClaudeCodeAgent &&
     !hasConfiguredCloudProviderReady &&
     (hasUnconfiguredVisibleModels || showBuilderAction);
-  const showProviderActions = showBuilderAction || showAddKeysAction;
+  const modelListUnconfirmed = modelListLoading || modelListUnavailable;
+  const showProviderActions =
+    !modelListUnconfirmed && (showBuilderAction || showAddKeysAction);
   const onlyConnectPathAvailable = shouldShowOnlyConnectPath(
     showProviderActions,
-    providerGroups,
+    readinessGroups,
   );
   // Only engines this person can run right now contribute rows; connecting a
   // provider stays on the setup card and in settings.
@@ -2197,17 +2223,22 @@ function ModelSelector({
     friendlyModelName(model, t);
   // An empty list mid-load says nothing about connection; judging it now
   // flashes "Connect agent" at a connected user.
-  const awaitingModelList = modelListLoading && providerGroups.length === 0;
+  const awaitingModelList = modelListLoading && engines.length === 0;
+  const noModelCatalog =
+    !agentOnly &&
+    !(model === "auto" && autoRow) &&
+    (providerGroups.length === 0 ||
+      (modelListUnconfirmed &&
+        !selectedModelProviderGroups.some((group) => group.configured)));
   const selectedModelNeedsConnection =
-    !awaitingModelList &&
+    !modelListUnconfirmed &&
     (onlyConnectPathAvailable ||
       (selectedModelProviderGroups.length > 0 &&
         selectedModelProviderGroups.every((group) => !group.configured)));
   // Only a loaded list that names providers, none of them connected, means
   // setup. A selected model on an unconnected provider still has others, and
-  // an empty list is a catalog that failed to load, not proof of anything.
-  const connectionRequired =
-    onlyConnectPathAvailable && !modelListLoading && providerGroups.length > 0;
+  // an empty list is not proof of anything.
+  const connectionRequired = onlyConnectPathAvailable;
   useEffect(() => {
     onConnectionRequiredChange?.(connectionRequired);
   }, [connectionRequired, onConnectionRequiredChange]);
@@ -2219,11 +2250,17 @@ function ModelSelector({
   // they offer, and the picker lists those paths.
   const selectedModelButtonLabel = selectedModelNeedsConnection
     ? t("agentChat.composer.connectAgent", { defaultValue: "Connect agent" })
-    : model === "auto" && autoRow
-      ? autoRow.label
-      : (selectedModelDisplayName ??
-        selectedModelDescription?.shortName ??
-        selectedModelFriendlyName);
+    : noModelCatalog
+      ? modelListLoading
+        ? t("agentChat.composer.loadingModels", {
+            defaultValue: "Loading models",
+          })
+        : t("agentChat.composer.model", { defaultValue: "Model" })
+      : model === "auto" && autoRow
+        ? autoRow.label
+        : (selectedModelDisplayName ??
+          selectedModelDescription?.shortName ??
+          selectedModelFriendlyName);
   const openLlmSettings = useCallback(() => {
     try {
       window.location.hash = "llm";
@@ -2244,14 +2281,11 @@ function ModelSelector({
   const hasAgentSection = Boolean(agents && agents.length > 0);
   // The setup card is the one setup path; a chip offering the same two
   // choices beside it reads as a second, competing one.
-  if (
+  const hideForSetupCard =
     setupCardVisible &&
     selectedModelNeedsConnection &&
     !hasAgentSection &&
-    !terminalModeControl
-  ) {
-    return null;
-  }
+    !terminalModeControl;
 
   // Two menus side by side need about 34rem; below that a submenu cannot
   // clear the viewport on either side, so the sections stack in one menu.
@@ -2260,73 +2294,72 @@ function ModelSelector({
     typeof window !== "undefined" &&
     window.innerWidth < MODEL_PICKER_STACK_BELOW_PX;
 
-  const connectItems =
-    showProviderActions && !awaitingModelList ? (
-      <>
-        {showBuilderAction && BuilderConnectPopover ? (
-          <>
-            <BuilderConnectPopover
-              flow={builderFlow}
-              keepOpenOnFocusOutside
-              onConnect={(provisionAccount) => {
-                if (onConnectProvider && !provisionAccount) {
-                  onConnectProvider();
-                } else {
-                  builderFlow.start({ provisionAccount });
-                }
-              }}
-            >
-              <DropdownMenuItem
-                disabled={builderFlow.connecting}
-                // The Builder choice opens its own popover from this row.
-                onSelect={(event) => event.preventDefault()}
-                className={MODEL_PICKER_TWO_LINE_ITEM_CLASS}
-              >
-                <span className="block font-medium text-foreground">
-                  {builderFlow.connecting
-                    ? t("agentPanel.connectingBuilder", {
-                        defaultValue: "Setting up Builder.io…",
-                      })
-                    : t("agentPanel.connectBuilderIo", {
-                        defaultValue: "Use Builder.io",
-                      })}
-                </span>
-                <span className="block agent-kit-caption-copy text-muted-foreground">
-                  {t("agentPanel.builderModelCredits", {
-                    defaultValue: "Free credits for Claude, OpenAI & Gemini",
-                  })}
-                </span>
-              </DropdownMenuItem>
-            </BuilderConnectPopover>
-            {!onConnectProvider && builderFlow.error && (
-              <p
-                role="alert"
-                className="px-2 pb-2 agent-kit-caption-copy agent-kit-tone-warning"
-              >
-                {builderFlow.error}
-              </p>
-            )}
-          </>
-        ) : null}
-        {showAddKeysAction && (
-          <DropdownMenuItem
-            onSelect={openLlmSettings}
-            className={MODEL_PICKER_TWO_LINE_ITEM_CLASS}
+  const connectItems = showProviderActions ? (
+    <>
+      {showBuilderAction && BuilderConnectPopover ? (
+        <>
+          <BuilderConnectPopover
+            flow={builderFlow}
+            keepOpenOnFocusOutside
+            onConnect={(provisionAccount) => {
+              if (onConnectProvider && !provisionAccount) {
+                onConnectProvider();
+              } else {
+                builderFlow.start({ provisionAccount });
+              }
+            }}
           >
-            <span className="block font-medium text-foreground">
-              {t("agentPanel.addOwnKeys", {
-                defaultValue: "Add your own keys",
-              })}
-            </span>
-            <span className="block agent-kit-caption-copy text-muted-foreground">
-              {t("agentPanel.configureProviderKeys", {
-                defaultValue: "Choose a cloud, gateway, or local provider",
-              })}
-            </span>
-          </DropdownMenuItem>
-        )}
-      </>
-    ) : null;
+            <DropdownMenuItem
+              disabled={builderFlow.connecting}
+              // The Builder choice opens its own popover from this row.
+              onSelect={(event) => event.preventDefault()}
+              className={MODEL_PICKER_TWO_LINE_ITEM_CLASS}
+            >
+              <span className="block font-medium text-foreground">
+                {builderFlow.connecting
+                  ? t("agentPanel.connectingBuilder", {
+                      defaultValue: "Setting up Builder.io…",
+                    })
+                  : t("agentPanel.connectBuilderIo", {
+                      defaultValue: "Use Builder.io",
+                    })}
+              </span>
+              <span className="block agent-kit-caption-copy text-muted-foreground">
+                {t("agentPanel.builderModelCredits", {
+                  defaultValue: "Free credits for Claude, OpenAI & Gemini",
+                })}
+              </span>
+            </DropdownMenuItem>
+          </BuilderConnectPopover>
+          {!onConnectProvider && builderFlow.error && (
+            <p
+              role="alert"
+              className="px-2 pb-2 agent-kit-caption-copy text-destructive"
+            >
+              {builderFlow.error}
+            </p>
+          )}
+        </>
+      ) : null}
+      {showAddKeysAction && (
+        <DropdownMenuItem
+          onSelect={openLlmSettings}
+          className={MODEL_PICKER_TWO_LINE_ITEM_CLASS}
+        >
+          <span className="block font-medium text-foreground">
+            {t("agentPanel.addOwnKeys", {
+              defaultValue: "Add your own keys",
+            })}
+          </span>
+          <span className="block agent-kit-caption-copy text-muted-foreground">
+            {t("agentPanel.configureProviderKeys", {
+              defaultValue: "Choose a cloud, gateway, or local provider",
+            })}
+          </span>
+        </DropdownMenuItem>
+      )}
+    </>
+  ) : null;
 
   const agentItems = hasAgentSection ? (
     <>
@@ -2473,6 +2506,16 @@ function ModelSelector({
           <div className="h-4 w-32 animate-pulse rounded bg-muted" />
           <div className="h-4 w-36 animate-pulse rounded bg-muted" />
         </div>
+      ) : null}
+      {modelListUnavailable && onRetryModelList ? (
+        <DropdownMenuItem onSelect={onRetryModelList}>
+          <span className="min-w-0 flex-1">
+            {t("agentChat.setup.modelListUnavailable", {
+              defaultValue: "Couldn't load models.",
+            })}
+          </span>
+          <span>{t("agentChat.common.retry", { defaultValue: "Retry" })}</span>
+        </DropdownMenuItem>
       ) : null}
       {connectItems}
       {hasConfiguredProvider &&
@@ -2690,19 +2733,35 @@ function ModelSelector({
     );
 
   const hasPrimaryItems =
-    awaitingModelList || Boolean(connectItems) || shortcutRows.length > 0;
+    awaitingModelList ||
+    Boolean(connectItems) ||
+    Boolean(modelListUnavailable && onRetryModelList) ||
+    shortcutRows.length > 0;
+  const pickerDisabled =
+    modelListUnavailable &&
+    (agentOnly ? !agentItems : !hasPrimaryItems && sections.length === 0);
+  useEffect(() => {
+    if (pickerDisabled && open) setPickerOpen(false);
+  }, [open, pickerDisabled, setPickerOpen]);
   const showEffortInLabel =
     effortOptions.length > 0 &&
     !selectedModelNeedsConnection &&
+    !noModelCatalog &&
     !awaitingModelList &&
     effectiveEffort !== undefined &&
     effectiveEffort !== "auto";
 
+  if (hideForSetupCard) return null;
+
   return (
-    <DropdownMenu open={open} onOpenChange={setPickerOpen}>
+    <DropdownMenu
+      open={pickerDisabled ? false : open}
+      onOpenChange={setPickerOpen}
+    >
       <DropdownMenuTrigger asChild>
         <button
           type="button"
+          disabled={pickerDisabled}
           data-agent-composer-slot="model-button"
           // Screen readers in browse mode activate with a bare click,
           // which the menu trigger ignores because it opens on pointer
@@ -2719,11 +2778,15 @@ function ModelSelector({
                   })}: ${selectedModelButtonLabel}`,
                   agent: selectedAgentLabel,
                 })
-              : `${t("agentChat.composer.model", {
-                  defaultValue: "Model",
-                })}: ${selectedModelButtonLabel}`
+              : noModelCatalog
+                ? selectedModelButtonLabel
+                : `${t("agentChat.composer.model", {
+                    defaultValue: "Model",
+                  })}: ${selectedModelButtonLabel}`
           }${
-            effortOptions.length > 0 && !selectedModelNeedsConnection
+            effortOptions.length > 0 &&
+            !selectedModelNeedsConnection &&
+            !noModelCatalog
               ? `. ${t("agentChat.composer.effort", {
                   defaultValue: "Effort",
                 })}: ${effortValueLabel}`
@@ -2933,6 +2996,8 @@ function TiptapComposerSurface({
   modelSelectorOpen,
   availableModels,
   modelListLoading,
+  modelListUnavailable,
+  onRetryModelList,
   onModelChange,
   onEffortChange,
   availableAgents,
@@ -5334,6 +5399,7 @@ function TiptapComposerSurface({
         );
       }
 
+      let verifiedModel: ComposerVerifiedModel | undefined;
       if (onBeforeSubmit) {
         const preflightLock: ComposerSubmitLock = {
           draftReleased: clearedBeforePreflight,
@@ -5347,6 +5413,7 @@ function TiptapComposerSurface({
             restoreSubmittedDraft(true);
             return false;
           }
+          if (typeof shouldSubmit === "object") verifiedModel = shouldSubmit;
         } catch (error) {
           restoreSubmittedDraft(true);
           if (mountedRef.current && isCurrentDraftScope()) {
@@ -5800,6 +5867,7 @@ function TiptapComposerSurface({
             submittedAttachments,
             {
               intent: submitIntent,
+              ...(verifiedModel ? { verifiedModel } : {}),
               ...(steer ? { steer: true } : {}),
               onLocalSubmit,
               ...(optimistic.handle
@@ -6879,6 +6947,8 @@ function TiptapComposerSurface({
             hostedHarness={hostedHarness}
             showAutoModelOption={showAutoModelOption}
             modelListLoading={modelListLoading}
+            modelListUnavailable={modelListUnavailable}
+            onRetryModelList={onRetryModelList}
             onChange={onModelChange!}
             onEffortChange={onEffortChange}
             onAgentChange={onAgentChange}

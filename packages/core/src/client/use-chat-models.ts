@@ -37,6 +37,7 @@ export interface UseChatModelsResult {
   selectedEngine: string;
   selectedEffort: ReasoningEffort;
   isLoading: boolean;
+  catalogUnavailable: boolean;
   selectionReady: boolean;
   unavailableSelection: PersistedModelSelection | null;
   onModelChange: (model: string, engine: string) => void;
@@ -293,6 +294,7 @@ export function useChatModels({
     [],
   );
   const [isLoading, setIsLoading] = useState(enabled);
+  const [catalogUnavailable, setCatalogUnavailable] = useState(false);
   const [unavailableSelection, setUnavailableSelection] =
     useState<PersistedModelSelection | null>(null);
   const unavailableSelectionRef = useRef<{
@@ -411,6 +413,7 @@ export function useChatModels({
       retryTimerRef.current = null;
     }
     setIsLoading(true);
+    setCatalogUnavailable(false);
 
     const isCurrentRefresh = () =>
       mountedRef.current && refreshGenerationRef.current === refreshGeneration;
@@ -440,9 +443,11 @@ export function useChatModels({
                 "[agent-chat] engine list unavailable; model picker is showing an unvalidated default",
               );
             }
+            setCatalogUnavailable(true);
             finish();
             return;
           }
+          setCatalogUnavailable(false);
           const {
             groups,
             defaultModel: nextDefaultModel,
@@ -601,9 +606,11 @@ export function useChatModels({
           applyFallback(true);
           finish();
         })
-        .catch(() => {
+        .catch((error: unknown) => {
           if (!isCurrentRefresh()) return;
-          if (!scheduleRetry(attempt)) finish();
+          console.error("[agent-chat] model catalog processing failed", error);
+          setCatalogUnavailable(true);
+          finish();
         });
     }
 
@@ -630,6 +637,7 @@ export function useChatModels({
         retryTimerRef.current = null;
       }
       setIsLoading(false);
+      setCatalogUnavailable(false);
       return;
     }
     refreshEngines();
@@ -649,6 +657,7 @@ export function useChatModels({
     selectedEngine,
     selectedEffort,
     isLoading,
+    catalogUnavailable,
     selectionReady:
       !isLoading &&
       unavailableSelection === null &&

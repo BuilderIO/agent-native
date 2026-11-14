@@ -37,6 +37,11 @@ import DesktopAiSetupCard from "./DesktopAiSetupCard.js";
 
 import "./QuickPromptOverlay.css";
 
+type VerifiedCodeAgentSelection = CodeAgentModelSelectionType & {
+  engine: string;
+  model: string;
+};
+
 type QuickPromptOverlayProps = {
   onSubmit: (
     prompt: string,
@@ -184,6 +189,17 @@ export default function QuickPromptOverlay({
     () => normalizeModelSelection(modelSelection, modelOptions),
     [modelOptions, modelSelection],
   );
+  const normalizedSelectionRef = useRef(modelSelection);
+  const modelRefreshGeneration = useRef(0);
+  const activeModelRefresh = useRef<{
+    forced: boolean;
+    promise: Promise<VerifiedCodeAgentSelection | false>;
+  } | null>(null);
+  useEffect(() => {
+    normalizedSelectionRef.current = modelOptions.length
+      ? normalizedModelSelection
+      : modelSelection;
+  }, [modelOptions.length, modelSelection, normalizedModelSelection]);
   const availableModels = useMemo(
     () => groupCodeAgentModelOptions(modelOptions),
     [modelOptions],
@@ -218,84 +234,73 @@ export default function QuickPromptOverlay({
     };
   }, []);
 
-  useEffect(() => {
-    const api = window.electronAPI?.codeAgents;
-    if (!api) return;
-    let mounted = true;
-    const refreshModelsOnFocus = () => {
-      void api
-        .listModels()
-        .then((result) => {
-          if (!mounted) return;
-          setModelListUnavailable(result.status !== "ok");
-          const models = result.status === "ok" ? result.models : [];
-          setModelOptions(models);
-          if (result.status === "ok") {
-            setModelSelection((current) =>
-              preferConfiguredModelSelection(current, models, result.selected),
-            );
+  const refreshModels = useCallback(
+    (force = false): Promise<VerifiedCodeAgentSelection | false> => {
+      const active = activeModelRefresh.current;
+      if (active && (active.forced || !force)) return active.promise;
+
+      const generation = ++modelRefreshGeneration.current;
+      const promise = (async () => {
+        try {
+          const api = window.electronAPI.codeAgents;
+          const result = await (force
+            ? api.listModels({ refresh: true })
+            : api.listModels());
+          if (generation !== modelRefreshGeneration.current) return false;
+          if (result.status !== "ok") {
+            setModelListUnavailable(true);
+            setModelListLoading(false);
+            return false;
           }
-        })
-        .catch(() => {
-          if (!mounted) return;
-          setModelListUnavailable(true);
-          setModelOptions([]);
-        });
-    };
+          const selection = preferConfiguredModelSelection(
+            normalizedSelectionRef.current,
+            result.models,
+            result.selected,
+          );
+          setModelOptions(result.models);
+          setModelSelection(selection);
+          setModelListUnavailable(false);
+          setModelListLoading(false);
+          if (
+            selection.engine === undefined ||
+            selection.model === undefined ||
+            !isCodeAgentModelConfigured(result.models, selection)
+          )
+            return false;
+          return {
+            ...selection,
+            engine: selection.engine,
+            model: selection.model,
+            effort: normalizeModelSelection(selection, result.models).effort,
+          };
+        } catch {
+          if (generation === modelRefreshGeneration.current) {
+            setModelListUnavailable(true);
+            setModelListLoading(false);
+          }
+          return false;
+        }
+      })().finally(() => {
+        if (generation === modelRefreshGeneration.current) {
+          activeModelRefresh.current = null;
+        }
+      });
+      activeModelRefresh.current = { forced: force, promise };
+      return promise;
+    },
+    [],
+  );
+
+  useEffect(() => {
+    void refreshModels();
+    const refreshModelsOnFocus = () => void refreshModels();
     window.addEventListener("focus", refreshModelsOnFocus);
     return () => {
-      mounted = false;
+      modelRefreshGeneration.current += 1;
+      activeModelRefresh.current = null;
       window.removeEventListener("focus", refreshModelsOnFocus);
     };
-  }, []);
-
-  useEffect(() => {
-    let mounted = true;
-    const api = window.electronAPI?.codeAgents;
-    if (!api) {
-      setModelListUnavailable(true);
-      setModelListLoading(false);
-      return;
-    }
-
-    void api
-      .listModels()
-      .then((result) => {
-        if (!mounted) return;
-        if (result.status === "ok") {
-          setModelOptions(result.models);
-          setModelListUnavailable(false);
-          setModelSelection((current) => {
-            if (current.engine && current.model) {
-              return preferConfiguredModelSelection(
-                current,
-                result.models,
-                result.selected,
-              );
-            }
-            return preferConfiguredModelSelection(
-              current,
-              result.models,
-              result.selected,
-            );
-          });
-        } else {
-          setModelOptions([]);
-          setModelListUnavailable(true);
-        }
-        setModelListLoading(false);
-      })
-      .catch(() => {
-        if (!mounted) return;
-        setModelOptions([]);
-        setModelListUnavailable(true);
-        setModelListLoading(false);
-      });
-
-    return () => {
-      mounted = false;
-    };
-  }, []);
+  }, [refreshModels]);
 
   const setupRequired =
     !modelListLoading &&
@@ -306,33 +311,10 @@ export default function QuickPromptOverlay({
     window.electronAPI?.quickPrompt.setSetupRequired(setupRequired);
   }, [setupRequired]);
 
-  const verifySelectedProvider = useCallback(async () => {
-    const api = window.electronAPI?.codeAgents;
-    if (!api) {
-      setModelListUnavailable(true);
-      return false;
-    }
-
-    try {
-      const result = await api.listModels({ refresh: true });
-      if (result.status !== "ok") {
-        setModelListUnavailable(true);
-        return false;
-      }
-      setModelOptions(result.models);
-      setModelListUnavailable(false);
-      const selectedModel = preferConfiguredModelSelection(
-        normalizedModelSelection,
-        result.models,
-        result.selected,
-      );
-      setModelSelection(selectedModel);
-      return isCodeAgentModelConfigured(result.models, selectedModel);
-    } catch {
-      setModelListUnavailable(true);
-      return false;
-    }
-  }, [normalizedModelSelection.engine, normalizedModelSelection.model]);
+  const verifySelectedProvider = useCallback(
+    () => refreshModels(true),
+    [refreshModels],
+  );
 
   useEffect(() => {
     if (modelListLoading || modelOptions.length === 0) return;
@@ -427,9 +409,9 @@ export default function QuickPromptOverlay({
           files.map((file) => readAgentPromptAttachment(file)),
         );
         await onSubmit(prompt, attachments, effectiveProjectPath || undefined, {
-          engine: options.engine ?? normalizedModelSelection.engine,
-          model: options.model ?? normalizedModelSelection.model,
-          effort: options.effort ?? normalizedModelSelection.effort,
+          engine: options.engine,
+          model: options.model,
+          effort: options.effort,
         });
       } catch (error) {
         setSubmitError(error instanceof Error ? error.message : String(error));
@@ -438,7 +420,7 @@ export default function QuickPromptOverlay({
         setLocalSubmitting(false);
       }
     },
-    [effectiveProjectPath, normalizedModelSelection, onSubmit],
+    [effectiveProjectPath, onSubmit],
   );
 
   const handleBackdropMouseDown = useCallback(
@@ -490,6 +472,7 @@ export default function QuickPromptOverlay({
             window.electronAPI?.quickPrompt.openProviderSettings()
           }
           statusUnavailable={modelListUnavailable}
+          onRetry={() => void verifySelectedProvider()}
         />
       ) : null}
       <PromptComposer
@@ -506,6 +489,7 @@ export default function QuickPromptOverlay({
         availableAgents={availableAgents}
         availableModels={availableModels}
         modelListLoading={modelListLoading}
+        modelListUnavailable={modelListUnavailable}
         modelSelectorOpen={modelPickerOpen}
         selectedAgent={getCodeAgentIdForEngine(normalizedModelSelection.engine)}
         selectedEngine={normalizedModelSelection.engine}

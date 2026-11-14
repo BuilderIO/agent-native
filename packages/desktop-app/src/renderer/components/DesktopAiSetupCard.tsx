@@ -3,9 +3,11 @@ import { IconSettings } from "@tabler/icons-react";
 
 export default function DesktopAiSetupCard({
   onOpenSettings,
+  onRetry,
   statusUnavailable = false,
 }: {
   onOpenSettings: () => void;
+  onRetry?: () => void;
   statusUnavailable?: boolean;
 }) {
   const t = useT();
@@ -20,6 +22,15 @@ export default function DesktopAiSetupCard({
           ? t("setup.providerStatusUnavailable")
           : t("setup.builderOrOwnKeys")}
       </p>
+      {statusUnavailable && onRetry ? (
+        <button
+          type="button"
+          className="mt-2 me-2 inline-flex h-7 items-center rounded-md border border-border bg-background px-2.5 text-xs font-medium text-foreground hover:bg-accent"
+          onClick={onRetry}
+        >
+          {t("common.retry")}
+        </button>
+      ) : null}
       <button
         type="button"
         className="mt-2 inline-flex h-7 items-center gap-1.5 rounded-md border border-border bg-background px-2.5 text-xs font-medium text-foreground hover:bg-accent"
