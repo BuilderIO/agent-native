@@ -49,6 +49,7 @@ import {
   isContextOverflowMessage,
   isCreditsLimitErrorCode,
   isGenericInternalServerErrorMessage,
+  isInvalidAttachmentProviderMessage,
   isProviderConnectionErrorMessage,
   PROVIDER_TRANSIENT_REJECTION_ERROR_CODE,
 } from "./error-detail.js";
@@ -655,6 +656,7 @@ interface GatewayErrorStopDetails {
   statusCode?: number;
   providerRetryable?: boolean;
   retryAfterMs?: number;
+  requestId?: string;
 }
 
 const RETRYABLE_GATEWAY_STATUSES = new Set([408, 429, 500, 502, 503, 504, 529]);
@@ -705,6 +707,9 @@ function gatewayErrorStop(
         }),
     ...(isContextOverflowMessage(error) || isContextOverflowCode(errorCode)
       ? { contextOverflow: true }
+      : {}),
+    ...(isInvalidAttachmentProviderMessage(error)
+      ? { attachmentRejection: true }
       : {}),
     ...(requestShape ? { requestShape } : {}),
     ...retry,
@@ -1103,10 +1108,21 @@ async function* parseJsonlStream(
               providerRetryable: true,
             });
           } else if (reason === "invalid_request") {
+            const messageFields: unknown[] = [
+              event.error,
+              event.message,
+              event.detail,
+            ];
             const errMsg =
-              event.error ||
-              event.message ||
-              "Builder gateway rejected the request as malformed.";
+              messageFields.find(
+                (value): value is string =>
+                  typeof value === "string" && value.length > 0,
+              ) ??
+              (messageFields.some(
+                (value) => value != null && typeof value !== "string",
+              )
+                ? "Builder gateway returned an invalid error detail."
+                : "Builder gateway rejected the request as malformed.");
             const gatewayErrCode =
               typeof event.errorCode === "string"
                 ? event.errorCode
@@ -1136,6 +1152,7 @@ async function* parseJsonlStream(
               providerRetryable:
                 gatewayErrCode !== undefined &&
                 errCode === BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
+              ...(gatewayRequestId ? { requestId: gatewayRequestId } : {}),
               ...(isCreditsLimitErrorCode(errCode)
                 ? { upgradeUrl: await buildUpgradeUrl() }
                 : {}),

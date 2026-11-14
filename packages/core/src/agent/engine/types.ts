@@ -180,6 +180,7 @@ export type EngineEvent =
       providerRetryable?: boolean;
       requestId?: string;
       contextOverflow?: boolean;
+      attachmentRejection?: boolean;
       requestShape?: EngineRequestShape;
       retryAfterMs?: number;
     };

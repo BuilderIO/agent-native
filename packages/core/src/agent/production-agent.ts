@@ -3488,7 +3488,8 @@ function engineStopError(
         ((event.statusCode === undefined ||
           event.statusCode === 400 ||
           event.statusCode === 422) &&
-          isInvalidAttachmentProviderMessage(error))));
+          (event.attachmentRejection === true ||
+            isInvalidAttachmentProviderMessage(error)))));
   const names = parts.flatMap((part) =>
     part.type === "file" && part.filename ? [`"${part.filename}"`] : [],
   );
@@ -9024,7 +9025,12 @@ export async function runAgentLoop(opts: {
           }
           throw new EngineError(
             "Conversation has grown too long. The agent tried to recover automatically but the context is still too large. You can continue in a new chat, or ask the agent to summarize the conversation and continue.",
-            { errorCode: "context_length_exceeded" },
+            {
+              errorCode: "context_length_exceeded",
+              ...(err instanceof EngineError
+                ? { requestId: err.requestId, requestShape: err.requestShape }
+                : {}),
+            },
           );
         }
         const retryAfterMs =
