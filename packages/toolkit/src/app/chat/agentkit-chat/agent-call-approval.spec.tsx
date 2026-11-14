@@ -30,16 +30,17 @@ const sendToAgentChatMock = vi.mocked(sendToAgentChat);
 const catalog = createToolkitI18nCatalog({ messages: {} });
 const approvalUrl =
   "https://slides.example.com/_agent-native/a2a/approvals/approval-1";
+const approval = {
+  agent: "Slides",
+  id: "approval-1",
+  tool: "delete-deck",
+  url: approvalUrl,
+  taskId: "task-child",
+};
 const widget: AgentWidget = {
   id: "call-1:approval:approval-1",
   kind: AGENT_CALL_APPROVAL_WIDGET_KIND,
-  data: {
-    agent: "Slides",
-    id: "approval-1",
-    tool: "delete-deck",
-    url: approvalUrl,
-    taskId: "task-child",
-  },
+  data: approval,
 };
 
 let container: HTMLDivElement;
@@ -160,6 +161,27 @@ describe("AgentKitAgentCallApproval", () => {
 
     expect(container.textContent).toBe("");
     expect(sendToAgentChatMock).not.toHaveBeenCalled();
+  });
+
+  it("shows nothing for a saved approval whose link is not a web page", async () => {
+    const client = await threadClient();
+    await act(async () =>
+      root.render(
+        <AgentNativeI18nProvider catalog={catalog} persistPreference={false}>
+          <AgentKitProvider controller={client} threadId="thread-1">
+            <AgentKitAgentCallApproval
+              value={{
+                ...widget,
+                data: { ...approval, url: "javascript:alert(1)" },
+              }}
+              threadId="thread-1"
+            />
+          </AgentKitProvider>
+        </AgentNativeI18nProvider>,
+      ),
+    );
+
+    expect(container.textContent).toBe("");
   });
 
   it.each(["completed", "failed", "cancelled"] as const)(

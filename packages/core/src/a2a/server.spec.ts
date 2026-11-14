@@ -820,6 +820,10 @@ describe("mountA2A auth", () => {
       "owner@example.com",
       "org-1",
     );
+    expect(runWithRequestContextMock).toHaveBeenCalledWith(
+      { userEmail: "owner@example.com", orgId: "org-1" },
+      expect.any(Function),
+    );
     expect(executeApproval).toHaveBeenCalledWith(
       approval,
       expect.objectContaining({
@@ -848,6 +852,54 @@ describe("mountA2A auth", () => {
       error: expect.stringContaining("cannot be run again"),
     });
     expect(replay).toMatchObject({ _status: 409 });
+    expect(executeApproval).toHaveBeenCalledOnce();
+  });
+
+  it("runs a personal task's approval in personal scope, not the browser's workspace", async () => {
+    const approval = {
+      id: "approval-1",
+      taskId: "task-1",
+      ownerEmail: "owner@example.com",
+      orgId: null,
+      tool: "delete-deck",
+      input: { deckId: "deck-1" },
+      approvalKey: "server-private-key",
+      callId: "call-1",
+      status: "processing" as const,
+      result: null,
+      expiresAt: Date.now() + 10_000,
+    };
+    getBrowserCookieSessionMock.mockResolvedValue({
+      email: "owner@example.com",
+      orgId: "org-team",
+    });
+    claimApprovalMock.mockResolvedValueOnce(approval);
+    const executeApproval = vi.fn(async () => ({
+      status: "completed" as const,
+      output: "Deck deleted",
+    }));
+    const handler = await mountedA2AApprovalHandler({
+      ...config,
+      executeApproval,
+    });
+
+    await expect(
+      handler({
+        method: "POST",
+        path: "/approval-1",
+        context: {},
+        headers: {
+          host: "slides.example",
+          origin: "https://slides.example",
+          "sec-fetch-site": "same-origin",
+          cookie: "an_session=test-browser-session",
+        },
+      }),
+    ).resolves.toEqual({ status: "completed", output: "Deck deleted" });
+    expect(runWithRequestContextMock).toHaveBeenCalledWith(
+      { userEmail: "owner@example.com", orgScope: "personal" },
+      expect.any(Function),
+    );
     expect(executeApproval).toHaveBeenCalledOnce();
   });
 

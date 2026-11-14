@@ -167,7 +167,8 @@ A workspace with no domain has nothing a peer can bind it to. Its members still
 send their own `A2A_SECRET`-signed identity, but with no `org_domain` and no
 `org_id` claim, so the peer runs the call in that person's personal scope: a
 deck Slides creates for a domainless Content workspace lands in the person's own
-Slides space. Without a shared `A2A_SECRET` the caller has nothing to sign, and
+Slides space. An action the person later approves on the peer's page runs in the
+scope its task ran in, never in the workspace that browser has open. Without a shared `A2A_SECRET` the caller has nothing to sign, and
 `call-agent` reports `a2a_caller_org_domain_missing` with the setup to fix.
 
 The org secret is managed at **Team page → A2A secret** (owner only), where it

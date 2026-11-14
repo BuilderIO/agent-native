@@ -15,9 +15,20 @@ import {
   type AgentKitRenderProps,
 } from "../../agentkit/react/context.js";
 
+function isWebPage(url: string): boolean {
+  try {
+    const { protocol } = new URL(url);
+    return protocol === "https:" || protocol === "http:";
+  } catch {
+    // coercion-ok: a link that does not parse shows no card.
+    return false;
+  }
+}
+
 function readApproval(value: unknown): AgentCallApprovalWidgetData | undefined {
   if (!value || typeof value !== "object") return undefined;
   const { agent, id, tool, url, taskId } = value as Record<string, unknown>;
+  // A restored thread is data too: open only a web page, never a script URL.
   return typeof agent === "string" &&
     agent &&
     typeof id === "string" &&
@@ -25,7 +36,7 @@ function readApproval(value: unknown): AgentCallApprovalWidgetData | undefined {
     typeof tool === "string" &&
     tool &&
     typeof url === "string" &&
-    url &&
+    isWebPage(url) &&
     typeof taskId === "string" &&
     taskId
     ? { agent, id, tool, url, taskId }
