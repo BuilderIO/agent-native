@@ -70,6 +70,16 @@ Pass bounded `voiceContext` (active app context, learned vocabulary, user notes,
 AGENTS.md preferences) into the shared cleanup path — see the `ai-video-tools`
 skill's "Bounded voice context" section.
 
+## Dictionary (personal and team)
+
+`list-vocabulary` returns what dictation uses: the caller's personal words plus
+the team words of their active organization, each with `scope`. A personal word
+with the same term (any casing) hides the team word. `add-vocabulary-term`
+writes a personal word unless `scope: "team"`; team words, the bulk
+`import-team-vocabulary` action and removing a team word need an org admin or
+owner, so one member can't rewrite everyone's dictation. A name hint without a
+rewrite uses the same text for term and replacement.
+
 ## Navigation state
 
 The app exposes `view` and `dictationId`:
