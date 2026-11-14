@@ -83,20 +83,22 @@ export function CreateFusionAppButton() {
 
 </Steps>
 
-一旦旗標被宣告並註冊，要為真實帳號開啟它就得透過三個已掛載的 action。`get-feature-flags` 就是 `useFeatureFlag()` 本身所呼叫的那一個：它對任何已登入的呼叫者開放，因為每位使用者都需要檢查自己的旗標。`list-feature-flags` 與 `set-feature-flag` 是兩個管理用的 action，兩者都僅限組織的擁有者與管理員（或無組織的管理者）使用，且兩者都會被稽核。
+一旦旗標被宣告並註冊，要為真實帳號開啟它就得透過三個已掛載的 action。`get-feature-flags` 就是 `useFeatureFlag()` 本身所呼叫的那一個：它對任何已登入的呼叫者開放，因為每位使用者都需要檢查自己的旗標。`list-feature-flags` 與 `set-feature-flag` 是兩個管理用的 action，且兩者都會被稽核。
 
-`set-feature-flag` 是操作人員實際變更旗標開啟對象的方式：
+一個旗標最多可以有兩條已儲存的規則。全域規則在每個組織中生效，只有應用程式的 `AGENT_NATIVE_FEATURE_FLAG_ADMIN_EMAILS` 清單中的電子郵件才能變更它，無論他們登入的是哪個組織。組織自己的規則只在該組織內生效，只有該組織的擁有者與管理員才能變更；列在管理員清單中並不會賦予這項權限。組織有自己的規則時，該規則會完全取代全域規則。兩者不會合併，因此在全域開啟旗標，並不會影響有自己規則的組織。`list-feature-flags` 會為每個旗標回報兩條規則、哪一條正在生效，以及任何無法讀取的已儲存規則。
 
-| 操作                                              | 作用                                 | 範例引數                                                                                                        |
-| ------------------------------------------------- | ------------------------------------ | --------------------------------------------------------------------------------------------------------------- |
-| `enable-for-current-user`                         | 只為您自己的帳號開啟此旗標。         | `{ key: "full-app-building", operation: "enable-for-current-user" }`                                            |
-| `off`                                             | 為所有人關閉此旗標，並重設所有規則。 | `{ key: "full-app-building", operation: "off" }`                                                                |
-| `replace-rules`，模式 `"on"`                      | 為所有人開啟此旗標。                 | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "on" } }`                               |
-| `replace-rules`，模式 `"rules"` 搭配 `emails`     | 為特定的帳號清單開啟它。             | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", emails: ["a@example.com"] } }` |
-| `replace-rules`，模式 `"rules"` 搭配 `orgIds`     | 為特定的組織開啟它。                 | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", orgIds: ["org_123"] } }`       |
-| `replace-rules`，模式 `"rules"` 搭配 `percentage` | 以百分比推出的方式開啟它。           | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", percentage: 10 } }`            |
+`set-feature-flag` 是操作人員實際變更旗標開啟對象的方式。它的 `scope` 引數用來選擇規則：`"org"` 變更目前使用中組織的規則，`"global"` 變更全域規則，例如 `{ key: "full-app-building", operation: "off", scope: "global" }`。未提供 `scope` 時，它會變更目前使用中組織的規則；呼叫者沒有使用中的組織時，則變更全域規則。結果中的 `scope.kind` 會指出寫入的是哪條規則。每個操作都作用於所選的規則：
 
-Fleet 操作人員 UI 是透過範圍嚴格限定的 A2A 委派來呼叫這些相同的 action，而不是共用登入，且 Analytics 是它們唯一的操作人員 UI。應用程式不應該自行建置旗標設定面板，旗標的寫入也絕不應該透過通用的設定端點或原始 SQL 進行。
+| 操作                                              | 作用                             | 範例引數                                                                                                        |
+| ------------------------------------------------- | -------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `enable-for-current-user`                         | 只為您自己的帳號開啟此旗標。     | `{ key: "full-app-building", operation: "enable-for-current-user" }`                                            |
+| `off`                                             | 為該規則涵蓋的所有人關閉此旗標。 | `{ key: "full-app-building", operation: "off" }`                                                                |
+| `replace-rules`，模式 `"on"`                      | 為該規則涵蓋的所有人開啟此旗標。 | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "on" } }`                               |
+| `replace-rules`，模式 `"rules"` 搭配 `emails`     | 為特定的帳號清單開啟它。         | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", emails: ["a@example.com"] } }` |
+| `replace-rules`，模式 `"rules"` 搭配 `orgIds`     | 為特定的組織開啟它。             | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", orgIds: ["org_123"] } }`       |
+| `replace-rules`，模式 `"rules"` 搭配 `percentage` | 以百分比推出的方式開啟它。       | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", percentage: 10 } }`            |
+
+Fleet 操作人員 UI 是透過範圍嚴格限定的 A2A 委派來呼叫這些相同的 action，而不是共用登入，且 Analytics 是它們唯一的操作人員 UI。委派的全域變更只有在受委派的電子郵件列於目標應用程式自己的管理員清單時才會成功。應用程式不應該自行建置旗標設定面板，旗標的寫入也絕不應該透過通用的設定端點或原始 SQL 進行。
 
 <Callout id="doc-block-actions-advanced-1" tone="warning">
 

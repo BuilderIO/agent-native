@@ -169,6 +169,8 @@ Ce mode est le mode par défaut recommandé car il réutilise l'intégralité du
 
 L'authentification de l'hôte est côté serveur. Ne transmettez pas l’identité du navigateur comme source de vérité ; utilisez l'objet de requête/session de l'hôte ou un jeton de courte durée vérifié par le serveur. Si l'hôte n'expose pas les e-mails, renvoyez un `userId` stable et Agent-Native l'utilisera comme clé de propriétaire.
 
+Le rappel serveur de l’hôte fait autorité pour l’organisation qu’il renvoie ; aucune ligne d’appartenance locale supplémentaire n’est requise pour cette portée. Les valeurs `orgRole` prises en charge sont `owner`, `admin` et `member`. Sans rôle, aucun droit d’administration d’organisation n’est accordé ; un rôle non pris en charge provoque une erreur. `orgId: null` sélectionne explicitement l’espace personnel ; omettre l’organisation conserve la recherche des appartenances locales. Une sélection personnelle explicite est prioritaire et les identifiants délégués nécessitent toujours une vérification d’appartenance. La portée de l’hôte ne s’applique qu’à la session authentifiée par ce rappel dans la même requête. Elle n’accorde aucun droit de modification sur les ressources : leurs partages et permissions restent applicables. Une valeur null explicite dans le champ principal d’organisation ou de rôle prévaut sur son alias.
+
 ### Isolement de base de données
 
 Le mode intégré gère les tables Agent-Native dans SQL. Pour un produit SaaS mature, la valeur par défaut la plus sûre est **même hébergement et authentification, base de données/schéma Agent-Native dédié** :

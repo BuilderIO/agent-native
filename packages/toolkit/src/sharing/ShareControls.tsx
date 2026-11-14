@@ -4,7 +4,12 @@ import { forwardRef, useEffect, useRef, useState, type ReactNode } from "react";
 import { ButtonGroup } from "../ui/button-group.js";
 import { Button } from "../ui/button.js";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "../ui/tabs.js";
-import { Tooltip, TooltipContent, TooltipTrigger } from "../ui/tooltip.js";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "../ui/tooltip.js";
 import { cn } from "../utils.js";
 
 export interface JoinedShareControlProps {
@@ -12,6 +17,7 @@ export interface JoinedShareControlProps {
   copyLabel: string;
   copiedLabel: string;
   onCopy: () => Promise<boolean | void> | boolean | void;
+  /** @deprecated Share controls always use the compact size. */
   size?: "default" | "sm";
   /** `plain` sets the two apart, as quiet controls in a toolbar. */
   appearance?: "joined" | "plain";
@@ -30,7 +36,6 @@ export const JoinedShareControl = forwardRef<
     copyLabel,
     copiedLabel,
     onCopy,
-    size = "default",
     appearance = "joined",
     disabled,
     blocked,
@@ -61,31 +66,33 @@ export const JoinedShareControl = forwardRef<
   const plain = appearance === "plain";
   const copyButton = (
     // A click closes a tooltip, so the confirmation holds it open.
-    <Tooltip {...(copied ? { open: true } : {})}>
-      <TooltipTrigger asChild>
-        <Button
-          type="button"
-          size="sm"
-          variant={plain ? "ghost" : "default"}
-          className={cn(
-            "w-8 shrink-0 px-0 shadow-none",
-            plain && "text-muted-foreground hover:text-foreground",
-            blocked && "opacity-50",
-          )}
-          aria-label={label}
-          disabled={disabled}
-          data-blocked={blocked ? "" : undefined}
-          onClick={() => void copy()}
-        >
-          {copied ? (
-            <IconCheck aria-hidden="true" />
-          ) : (
-            <IconLink aria-hidden="true" />
-          )}
-        </Button>
-      </TooltipTrigger>
-      <TooltipContent side="bottom">{label}</TooltipContent>
-    </Tooltip>
+    <TooltipProvider>
+      <Tooltip {...(copied ? { open: true } : {})}>
+        <TooltipTrigger asChild>
+          <Button
+            type="button"
+            size="icon-sm"
+            variant={plain ? "ghost" : "default"}
+            className={cn(
+              "shrink-0 shadow-none",
+              plain && "text-muted-foreground hover:text-foreground",
+              blocked && "opacity-50",
+            )}
+            aria-label={label}
+            disabled={disabled}
+            data-blocked={blocked ? "" : undefined}
+            onClick={() => void copy()}
+          >
+            {copied ? (
+              <IconCheck aria-hidden="true" />
+            ) : (
+              <IconLink aria-hidden="true" />
+            )}
+          </Button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom">{label}</TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
   );
   if (plain) {
     return (
@@ -98,16 +105,11 @@ export const JoinedShareControl = forwardRef<
       </div>
     );
   }
-  const segmentHeightClass =
-    size === "sm"
-      ? "[&>*:not([data-slot=button-group-separator]):not([data-button-group-ignore]):not(select[aria-hidden=true])]:!h-8"
-      : "[&>*:not([data-slot=button-group-separator]):not([data-button-group-ignore]):not(select[aria-hidden=true])]:!h-9";
   return (
     <ButtonGroup
       ref={ref}
       className={cn(
         "shrink-0 [&>*:not([data-slot=button-group-separator]):not([data-button-group-ignore]):not(select[aria-hidden=true]):not(:first-child)]:border-primary-foreground/20",
-        segmentHeightClass,
         className,
       )}
     >

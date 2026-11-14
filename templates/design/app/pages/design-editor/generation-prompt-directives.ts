@@ -147,11 +147,11 @@ export function designCanvasIntentDirectives(
     if (intent.source === "multiple-dimensions") {
       if (mode === "variants") {
         return [
-          "The user requested separate exact-size outputs. Create a separate `present-design-variants` set for each exact size, with one size in each set; pass the matching exact-size brief and set `responsive: false` for every set.",
+          "The user requested separate exact-size outputs. Create a separate `present-design-variants` set for each exact size, with one size in each set; pass the matching exact-size brief and set `fixedCanvas: true` for every set.",
         ];
       }
       return [
-        "The user requested separate exact-size outputs. Generate each output as its own fixed canvas, using its exact dimensions from the request and passing `devices: []`; do not combine them into responsive breakpoints or add mobile variants.",
+        "The user requested separate exact-size outputs. Generate each output as its own fixed canvas, using its exact dimensions from the request and passing `fixedCanvas: true`; do not combine them into responsive breakpoints or add mobile variants.",
         "After generating each output, run `take-design-screenshot` once at that output's exact dimensions.",
       ];
     }
@@ -166,19 +166,19 @@ export function designCanvasIntentDirectives(
         ? `Set every variant to width ${intent.dimensions.width} and height ${intent.dimensions.height}.`
         : "Set every variant's width and height to the exact canvas size identified by the brief.";
       return [
-        `Fixed canvas for every variant: ${canvas}. ${dimensions} Pass \`responsive: false\` to \`present-design-variants\`; each direction must remain one static canvas with no unrequested device frames.`,
+        `Fixed canvas for every variant: ${canvas}. ${dimensions} Pass \`fixedCanvas: true\` to \`present-design-variants\`; each direction must remain one static canvas with no unrequested device frames.`,
       ];
     }
     if (intent.source === "explicit-dimensions" || intent.source === "preset") {
       return [
-        `Fixed canvas: ${canvas}. Pass \`devices: []\` to \`generate-design\`. Ignore model-suggested device variants and do not add responsive breakpoints, even if the prompt mentions device versions.`,
+        `Fixed canvas: ${canvas}. Pass \`fixedCanvas: true\` to \`generate-design\`. Ignore model-suggested device variants and do not add responsive breakpoints, even if the prompt mentions device versions.`,
         `After generation, ${screenshot}`,
       ];
     }
     const requestedDevices = requestedCanvasDeviceVariants(prompt);
     const deviceDirective = requestedDevices.length
       ? `The user explicitly requested ${requestedDevices.join(" and ")} device variants. Pass \`devices: [${requestedDevices.map((device) => `"${device}"`).join(", ")}]\` to \`generate-design\` and honor only those requested variants.`
-      : "Pass `devices: []` to `generate-design` and do not add responsive breakpoints.";
+      : "Pass `fixedCanvas: true` to `generate-design` and do not add responsive breakpoints.";
     return [
       `Fixed canvas: ${canvas}. Generate one artwork canvas. ${deviceDirective} A fixed canvas never gets unrequested device breakpoints, so give any other requested size its own call at that exact size.`,
       `After generation, ${screenshot}`,

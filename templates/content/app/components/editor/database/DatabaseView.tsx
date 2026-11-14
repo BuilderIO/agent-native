@@ -7779,7 +7779,7 @@ function DatabaseAdvancedFilterGroupControl({
             />
           ))}
 
-          <DropdownMenuSeparator className="my-1" />
+          <DropdownMenuSeparator />
           <DropdownMenuSub>
             <DropdownMenuSubTrigger className="text-muted-foreground [&>svg:last-child]:hidden">
               <span className="flex-1">{dbText("addFilterRule")}</span>
@@ -12145,12 +12145,12 @@ function DatabaseOpenPagesInSetting({
           </span>
         </button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" className="w-72 p-1">
+      <DropdownMenuContent align="end" className="w-72">
         {DATABASE_OPEN_PAGES_IN.map((option) => {
           return (
             <DropdownMenuItem
               key={option}
-              className="items-start gap-2 py-2"
+              className="items-start"
               onSelect={(event) => {
                 event.preventDefault();
                 onChange(option);
@@ -13170,7 +13170,7 @@ function DatabaseCalendarView({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuLabel className="text-xs text-muted-foreground">
+                <DropdownMenuLabel className="text-muted-foreground">
                   {dbText("calendarBy")}
                 </DropdownMenuLabel>
                 {dateProperties.map((property) => {
@@ -13719,7 +13719,7 @@ function DatabaseBoardView({
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-56">
-              <DropdownMenuLabel className="text-xs text-muted-foreground">
+              <DropdownMenuLabel className="text-muted-foreground">
                 {dbText("groupBy")}
               </DropdownMenuLabel>
               {groupableProperties.map((property) => {
@@ -16511,7 +16511,7 @@ function DatabaseViewTabs({
           >
             <DropdownMenuTrigger asChild>{tabButton}</DropdownMenuTrigger>
             <DropdownMenuContent align="start" className="w-64">
-              <DropdownMenuLabel className="flex items-center gap-2 text-xs text-muted-foreground">
+              <DropdownMenuLabel className="flex items-center gap-2 text-muted-foreground">
                 <button
                   type="button"
                   aria-label={t("editor.emojiChangeIcon")}
@@ -16651,7 +16651,7 @@ function DatabaseViewTabs({
             </button>
           </DropdownMenuTrigger>
           <DropdownMenuContent align="start" className="w-64">
-            <DropdownMenuLabel className="text-xs text-muted-foreground">
+            <DropdownMenuLabel className="text-muted-foreground">
               {dbText("newView")}
             </DropdownMenuLabel>
             <form
@@ -17775,7 +17775,7 @@ export function ColumnHeaderMenuContent({
 
   return (
     <DropdownMenuContent align="start" className="w-56">
-      <DropdownMenuLabel className="truncate text-xs text-muted-foreground">
+      <DropdownMenuLabel className="truncate text-muted-foreground">
         {label}
       </DropdownMenuLabel>
       <DropdownMenuSub>

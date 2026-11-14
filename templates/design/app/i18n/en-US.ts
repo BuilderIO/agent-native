@@ -1682,7 +1682,6 @@ export default {
     signInToRequestAccessTitle: "Sign in to request access",
     signInToRequestAccessDescription:
       "Sign in or create an account to request access from the owner.",
-    signInOrSignUp: "Sign in or sign up",
     accessCheckFailed: "Could not check access to this design.",
     retryAccessCheck: "Try again",
     saveAsTemplate: "Save as template…",
@@ -1716,6 +1715,8 @@ export default {
         "Apply or discard your pending visual edits before duplicating.",
       allDesigns: "All designs",
       rename: "Rename",
+      builtFrom: "Built from {{title}}",
+      builtFromPage: "Built from a Content page",
       duplicate: "Duplicate",
       versionHistory: "Version history",
       import: "Import…",
@@ -2252,6 +2253,14 @@ export default {
       pasteClipboardUnreadable: "Allow clipboard access to paste here",
       pasteClipboardUntrusted:
         "Can't paste layers copied from Design on another site",
+      pasteMediaTooMany_one:
+        "{{count}} file wasn't pasted. You can paste up to {{limit}} files at once.",
+      pasteMediaTooMany_other:
+        "{{count}} files weren't pasted. You can paste up to {{limit}} files at once.",
+      pasteMediaTooLarge_one:
+        "{{count}} file wasn't pasted because it's over {{limitMb}} MB.",
+      pasteMediaTooLarge_other:
+        "{{count}} files weren't pasted because they're over {{limitMb}} MB.",
       swapFillStrokeLayeredFill:
         "Multiple or image fills can't move to a stroke yet",
       alignNeedsTwoLayers: "Select two or more layers to align them",
@@ -2575,6 +2584,7 @@ export default {
     searchSystems: "Search design systems…",
     searchDesigns: "Search designs…",
     searchPresentations: "Search presentations…",
+    searchPages: "Search pages…",
     searchDesign: "Search design…",
     useDesignSystem: "Use a design system",
     notReady:
@@ -2587,6 +2597,7 @@ export default {
     design: "Design references",
     slides: "Slides",
     referenceDesign: "Reference a design",
+    contentPage: "Content page",
     connectFigma: "Connect Figma",
     figmaReference: "Figma design…",
     figmaDialogTitle: "Add Figma design",

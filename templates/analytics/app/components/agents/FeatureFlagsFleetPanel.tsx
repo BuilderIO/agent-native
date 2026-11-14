@@ -22,6 +22,8 @@ export interface FeatureFlag {
   description?: string | null;
   defaultValue?: boolean;
   rules?: FeatureFlagMetadata["rules"];
+  enabledForCurrentUser?: boolean;
+  scopes?: FeatureFlagMetadata["scopes"];
 }
 
 export interface FlagApp {
@@ -46,14 +48,16 @@ interface VerifiedFlagMutation {
   contractVersion: 3;
   status: "verified";
   key: string;
-  rules: FeatureFlagMetadata["rules"];
-  enabledForCurrentUser: boolean;
+  rules: NonNullable<FeatureFlagMetadata["rules"]>;
+  enabledForCurrentUser: boolean | null;
+  flag?: FeatureFlag;
 }
 
-export function reconcileVerifiedFleetMutation(
+function updateFleetFlag(
   value: unknown,
   targetAppId: string,
-  verified: VerifiedFlagMutation,
+  key: string,
+  update: (flag: FeatureFlag) => FeatureFlag,
 ): FlagDirectory {
   const data = asDirectory(value);
   return {
@@ -64,16 +68,67 @@ export function reconcileVerifiedFleetMutation(
         : {
             ...app,
             flags: app.flags?.map((flag) =>
-              flag.key === verified.key
-                ? {
-                    ...flag,
-                    rules: verified.rules,
-                    enabledForCurrentUser: verified.enabledForCurrentUser,
-                  }
-                : flag,
+              flag.key === key ? update(flag) : flag,
             ),
           },
     ),
+  };
+}
+
+export function reconcileVerifiedFleetMutation(
+  value: unknown,
+  targetAppId: string,
+  verified: VerifiedFlagMutation,
+): FlagDirectory {
+  return updateFleetFlag(value, targetAppId, verified.key, (flag) =>
+    verified.flag
+      ? verified.flag
+      : {
+          ...flag,
+          rules: verified.rules,
+          ...(verified.enabledForCurrentUser === null
+            ? {}
+            : { enabledForCurrentUser: verified.enabledForCurrentUser }),
+        },
+  );
+}
+
+/**
+ * Shows the change on the rule it writes. A global change leaves the rule in
+ * effect alone when the org has its own rule, because that rule still wins.
+ */
+export function applyOptimisticFleetMutation(
+  flag: FeatureFlag,
+  input: SetFeatureFlagInput,
+): FeatureFlag {
+  const scope = input.scope ?? "org";
+  const written = flag.scopes?.[scope];
+  const base =
+    written?.state === "set" ? written.rules : (flag.rules ?? undefined);
+  const rules =
+    input.operation === "replace-rules" && input.rules
+      ? input.rules
+      : input.operation === "off" && base
+        ? {
+            ...base,
+            mode: "off" as const,
+            emails: [],
+            orgIds: [],
+            percentage: 0,
+          }
+        : undefined;
+  if (!rules) return flag;
+  if (!flag.scopes) return { ...flag, rules };
+  if (!written) return flag;
+  const takesEffect = scope === "org" || flag.scopes.inEffect !== "org";
+  return {
+    ...flag,
+    ...(takesEffect ? { rules } : {}),
+    scopes: {
+      ...flag.scopes,
+      inEffect: takesEffect ? scope : flag.scopes.inEffect,
+      [scope]: { ...written, state: "set", rules },
+    },
   };
 }
 
@@ -137,38 +192,11 @@ export function FeatureFlagsFleetPanel() {
       });
       const key = ["action", "list-workspace-feature-flags", undefined];
       const previous = client.getQueryData(key);
-      client.setQueryData(key, (old: unknown) => {
-        const data = asDirectory(old);
-        return {
-          ...data,
-          apps: data.apps?.map((app) =>
-            appId(app) !== input.appId
-              ? app
-              : {
-                  ...app,
-                  flags: app.flags?.map((flag) =>
-                    flag.key !== input.key
-                      ? flag
-                      : {
-                          ...flag,
-                          rules:
-                            input.operation === "replace-rules" && input.rules
-                              ? input.rules
-                              : input.operation === "off"
-                                ? {
-                                    ...flag.rules!,
-                                    mode: "off",
-                                    emails: [],
-                                    orgIds: [],
-                                    percentage: 0,
-                                  }
-                                : flag.rules,
-                        },
-                  ),
-                },
-          ),
-        };
-      });
+      client.setQueryData(key, (old: unknown) =>
+        updateFleetFlag(old, input.appId, input.key, (flag) =>
+          applyOptimisticFleetMutation(flag, input),
+        ),
+      );
       return { previous, key };
     },
     onError: (_error, _input, context: any) =>
@@ -266,7 +294,8 @@ export function FeatureFlagsFleetPanel() {
               <FeatureFlagsEditor
                 flags={(app.flags ?? []).filter(
                   (flag): flag is FeatureFlagMetadata =>
-                    !!flag.rules && typeof flag.defaultValue === "boolean",
+                    (!!flag.rules || !!flag.scopes) &&
+                    typeof flag.defaultValue === "boolean",
                 )}
                 isPending={mutation.isPending}
                 error={null}

@@ -497,7 +497,10 @@ export async function decide(input: {
   return {
     status: "not_configured",
     reason: "missing_credentials",
-    providers: missingProviders.length > 0 ? missingProviders : [...providers],
+    providers: missingProviders,
+    credentialKeys: missingProviders.map((provider) =>
+      provider === "jev" ? "JEV_API_KEY" : "OPENAI_API_KEY",
+    ),
   };
 }
 

@@ -60,11 +60,22 @@ export function isRecordingTrashedForViewer(input: {
   return Boolean(input.trashedAt) && !input.viewerIsOwner;
 }
 
+export function recordingUsesSharePassword(
+  visibility: string | null | undefined,
+): boolean {
+  return visibility !== "private" && visibility !== "org";
+}
+
 export function isRecordingPasswordProtectedForViewer(input: {
   hasPassword: boolean;
   viewerIsOwner: boolean;
+  visibility?: "private" | "org" | "public" | null;
 }): boolean {
-  return input.hasPassword && !input.viewerIsOwner;
+  return (
+    recordingUsesSharePassword(input.visibility) &&
+    input.hasPassword &&
+    !input.viewerIsOwner
+  );
 }
 
 /**
@@ -83,6 +94,7 @@ export function canOpenDirectRecordingPage(input: {
   if (
     isRecordingPasswordProtectedForViewer({
       hasPassword: input.hasPassword,
+      visibility: input.visibility,
       viewerIsOwner: input.role === "owner",
     })
   )
@@ -95,6 +107,7 @@ export function canOpenDirectRecordingPage(input: {
 export function canReceiveRecordingActivity(input: {
   ownerEmail: string;
   recipientEmail: string;
+  visibility?: "private" | "org" | "public" | null;
   hasPassword: boolean;
   expiresAt?: string | null;
   trashedAt?: string | null;
@@ -116,6 +129,7 @@ export function canReceiveRecordingActivity(input: {
     }) &&
     !isRecordingPasswordProtectedForViewer({
       hasPassword: input.hasPassword,
+      visibility: input.visibility,
       viewerIsOwner,
     })
   );

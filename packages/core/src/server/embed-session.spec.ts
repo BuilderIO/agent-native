@@ -2321,6 +2321,15 @@ describe("requestMatchesEmbedTarget", () => {
         "/_agent-native/open?app=mail&view=inbox&threadId=t1",
       ),
     ).toBe(true);
+    // A signed-in open names the tab its redirect lands in.
+    expect(
+      requestMatchesEmbedTarget(
+        fakeEvent(
+          "/inbox?embedded=1&__an_embed_token=tok&agentNativeTab=tab-1",
+        ),
+        "/_agent-native/open?app=mail&view=inbox&threadId=t1",
+      ),
+    ).toBe(true);
   });
 
   it("allows record routes produced by template open-route resolvers", () => {

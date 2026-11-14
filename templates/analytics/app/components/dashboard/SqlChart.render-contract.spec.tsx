@@ -282,6 +282,81 @@ describe("SqlChart render contract parity", () => {
     expect(container.querySelectorAll("a")).toHaveLength(1);
   });
 
+  it("collapses multi-line or long panel descriptions by default and expands on click without hijacking links", async () => {
+    const longDescription =
+      "Current week: unique visitors so far (incl. today) plus a gray bar up to the projected weekly total.  \nProjection = complete-day WTD ÷ share over the prior 8 full weeks ([methodology](https://example.com/methodology)).";
+
+    await act(async () => {
+      root.render(
+        <SqlChart
+          panel={panel({
+            chartType: "bar",
+            config: { description: longDescription },
+          })}
+          resultOverride={{ rows: [{ category: "A", value: 1 }] }}
+        />,
+      );
+    });
+
+    const toggle = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="sqlDashboard.expandDescription"]',
+    );
+    expect(toggle).not.toBeNull();
+    expect(toggle?.getAttribute("aria-expanded")).toBe("false");
+    expect(
+      container
+        .querySelector("[data-panel-description]")
+        ?.hasAttribute("data-no-panel-chat-select"),
+    ).toBe(true);
+    expect(
+      container.querySelectorAll("[data-panel-description] br"),
+    ).toHaveLength(0);
+
+    await act(async () => {
+      toggle?.click();
+    });
+
+    const collapseToggle = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="sqlDashboard.collapseDescription"]',
+    );
+    expect(collapseToggle).not.toBeNull();
+    expect(collapseToggle?.getAttribute("aria-expanded")).toBe("true");
+    expect(
+      container.querySelectorAll("[data-panel-description] br"),
+    ).toHaveLength(1);
+
+    const link = container.querySelector<HTMLAnchorElement>(
+      '[data-panel-description] a[href="https://example.com/methodology"]',
+    );
+    expect(link).not.toBeNull();
+    link?.addEventListener("click", (event) => event.preventDefault());
+    await act(async () => {
+      link?.dispatchEvent(
+        new MouseEvent("click", { bubbles: true, cancelable: true }),
+      );
+    });
+    expect(collapseToggle?.getAttribute("aria-expanded")).toBe("true");
+
+    await act(async () => {
+      root.render(
+        <SqlChart
+          panel={panel({
+            chartType: "bar",
+            config: { description: "Short summary" },
+          })}
+          resultOverride={{ rows: [{ category: "A", value: 1 }] }}
+        />,
+      );
+    });
+
+    expect(
+      container.querySelector(
+        'button[aria-label="sqlDashboard.expandDescription"], button[aria-label="sqlDashboard.collapseDescription"]',
+      ),
+    ).toBeNull();
+    expect(container.textContent).toContain("Short summary");
+  });
+
   it("shows No data for a funnel exactly when the plan says the funnel is empty", async () => {
     const funnel = panel({
       chartType: "funnel",

@@ -933,6 +933,7 @@ export async function createOAuthSession(
         signupMethod: "google",
         authUserId,
         email,
+        emailVerified: true,
         name: opts.trackSignup.name,
         attribution,
         anonymousId,

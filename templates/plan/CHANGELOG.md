@@ -7,7 +7,19 @@ time from the command menu (Cmd+K → "What's new").
 
 ### Improved
 
+- Share controls use a consistent compact layout.
 - More save failures now say why, such as being offline or lacking permission.
+
+### Fixed
+
+- When someone else types in the paragraph you're typing in, your cursor stays after your own last letter, so your words no longer get mixed into theirs.
+
+## 2026-11-08
+
+### Fixed
+
+- Deleting a block or emptying a block of text in a plan now saves, instead of the block coming back or "Couldn't save" stopping later edits from saving too.
+  Undo after deleting a block brings back what was in it, including in columns and tabs, instead of an empty block of the same kind.
 
 ## 2026-11-05
 

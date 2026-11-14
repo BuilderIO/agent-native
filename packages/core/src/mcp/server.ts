@@ -279,10 +279,17 @@ function directoryProfileUnavailable(
   };
 }
 
-function identityVerificationUnavailable(event: H3Event): {
+function identityVerificationUnavailable(
+  event: H3Event,
+  error: McpIdentityVerificationUnavailableError,
+): {
   error: string;
-  message: string;
+  message?: string;
 } {
+  if (error.retryable === false) {
+    setResponseStatus(event, 500);
+    return { error: "Internal server error" };
+  }
   setResponseStatus(event, 503);
   setResponseHeader(event, "Retry-After", "5");
   return {
@@ -351,7 +358,7 @@ async function handleMcpRequestInternal(
   const requestMeta = deriveRequestMeta(event);
   const requestOrigin = getRequestHeader(event, "origin");
   const directLocalRequest =
-    isDirectLoopbackRequest(event) &&
+    isDirectLoopbackRequest(event, { behindDevProxy: true }) &&
     (requestOrigin === undefined || requestOrigin === requestMeta.origin);
   const localOwnerHint = directLocalRequest ? ownerEmailHeader : undefined;
   const hasLocalOwnerHint = Boolean(localOwnerHint?.trim());
@@ -390,7 +397,7 @@ async function handleMcpRequestInternal(
     });
   } catch (error) {
     if (error instanceof McpIdentityVerificationUnavailableError) {
-      return identityVerificationUnavailable(event);
+      return identityVerificationUnavailable(event, error);
     }
     if (error instanceof McpIdentityVerificationRefusedError) {
       return identityVerificationRefused(event, routePath);
@@ -419,18 +426,20 @@ async function handleMcpRequestInternal(
   }
 
   if (
-    authResult.identity?.orgId === undefined &&
-    authResult.identity?.orgDomain !== undefined
+    authResult.identity &&
+    authResult.identity.orgId === undefined &&
+    (authResult.identity.orgDomain !== undefined ||
+      Boolean(authResult.identity.userEmail))
   ) {
     try {
       const orgId = await resolveMcpIdentityOrgId(authResult.identity);
       authResult = {
         ...authResult,
-        identity: { ...authResult.identity, orgId },
+        identity: { ...authResult.identity, orgId: orgId ?? null },
       };
     } catch (error) {
       if (error instanceof McpIdentityVerificationUnavailableError) {
-        return identityVerificationUnavailable(event);
+        return identityVerificationUnavailable(event, error);
       }
       if (error instanceof McpIdentityVerificationRefusedError) {
         return identityVerificationRefused(event, routePath);
