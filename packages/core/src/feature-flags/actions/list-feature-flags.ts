@@ -2,37 +2,57 @@ import { z } from "zod";
 
 import { defineAction } from "../../action.js";
 import { getLabForLegacyFlag } from "../../labs/registry.js";
-import { requireFeatureFlagManager } from "../permissions.js";
+import { getFeatureFlagManagerAccess } from "../permissions.js";
 import { listFeatureFlags } from "../registry.js";
-import { evaluateFeatureFlagRules, getFeatureFlagRules } from "../store.js";
+import {
+  defaultFeatureFlagRules,
+  evaluateStoredFeatureFlagRule,
+  featureFlagRuleInEffect,
+  FeatureFlagRulesError,
+  readFeatureFlagRuleLayersForKeys,
+  type FeatureFlagStoredRule,
+} from "../store.js";
+
+const forbidden = {
+  contractVersion: 1,
+  status: "forbidden" as const,
+  reason: "forbidden" as const,
+  flags: [],
+  canManage: false,
+};
+
+/**
+ * A rule the caller can't change shows who it reaches, not who is on it: its
+ * email and organization lists can name people in other organizations.
+ */
+function asSeenBy(stored: FeatureFlagStoredRule, canManage: boolean) {
+  if (canManage || stored.state === "unset") return { ...stored, canManage };
+  if (stored.state === "unreadable")
+    return { state: "unreadable" as const, canManage };
+  const { mode, emails, orgIds, percentage, updatedAt } = stored.rules;
+  return {
+    state: "withheld" as const,
+    summary: {
+      mode,
+      emailCount: emails.length,
+      orgIdCount: orgIds.length,
+      percentage,
+      updatedAt,
+    },
+    canManage,
+  };
+}
 
 export default defineAction({
   description:
-    "List this app's registered feature flags and their current rules. Organization owner/admin only (or the explicit no-org administrator).",
+    "List this app's registered feature flags with each flag's global rule, the active organization's own rule, which one applies, and whether the caller can change each. Unreadable rules are reported as unreadable; rules the caller can't change are withheld.",
   schema: z.object({}),
   http: { method: "GET" },
   toolCallable: false,
   run: async (_args, ctx) => {
     const definitions = listFeatureFlags();
-    let manager;
-    try {
-      manager = await requireFeatureFlagManager(ctx ?? {});
-    } catch (error) {
-      if (
-        error instanceof Error &&
-        "statusCode" in error &&
-        (error as { statusCode?: number }).statusCode === 403
-      ) {
-        return {
-          contractVersion: 1,
-          status: "forbidden" as const,
-          reason: "forbidden" as const,
-          flags: [],
-          canManage: false,
-        };
-      }
-      throw error;
-    }
+    const access = await getFeatureFlagManagerAccess(ctx);
+    if (!access.canManageOrg && !access.canManageGlobal) return forbidden;
     if (definitions.length === 0)
       return {
         contractVersion: 1,
@@ -41,28 +61,53 @@ export default defineAction({
         flags: [],
         canManage: true,
       };
-    const flags = await Promise.all(
-      definitions.map(async (definition) => {
-        const rules = await getFeatureFlagRules(definition.key, manager);
-        return {
-          ...definition,
-          ...(getLabForLegacyFlag(definition.key) && {
-            movedToLab: getLabForLegacyFlag(definition.key)?.key,
-            canManage: false,
-          }),
-          rules,
-          enabledForCurrentUser: evaluateFeatureFlagRules(
-            definition.key,
-            rules,
-            {
-              userEmail: manager.email,
-              userKey: manager.email,
-              orgId: manager.orgId,
-            },
-          ),
-        };
-      }),
+    const layersByKey = await readFeatureFlagRuleLayersForKeys(
+      definitions.map(({ key }) => key),
+      access,
     );
+    const flags = definitions.map((definition) => {
+      const layers = layersByKey.get(definition.key);
+      if (!layers)
+        throw new FeatureFlagRulesError(
+          "unregistered",
+          definition.key,
+          "unregistered while it was being listed",
+        );
+      const inEffect = featureFlagRuleInEffect(layers);
+      const canManageInEffect =
+        layers.inEffect === "org"
+          ? access.canManageOrg
+          : access.canManageGlobal;
+      const rules =
+        inEffect.state === "unset"
+          ? defaultFeatureFlagRules()
+          : inEffect.state === "set" && canManageInEffect
+            ? inEffect.rules
+            : null;
+      const movedToLab = getLabForLegacyFlag(definition.key)?.key;
+      return {
+        ...definition,
+        ...(movedToLab && { movedToLab, canManage: false }),
+        ...(rules && { rules }),
+        enabledForCurrentUser: evaluateStoredFeatureFlagRule(
+          definition.key,
+          inEffect,
+          {
+            userEmail: access.email,
+            userKey: access.email,
+            orgId: access.orgId,
+          },
+        ),
+        scopes: {
+          inEffect: layers.inEffect,
+          global: asSeenBy(layers.global, access.canManageGlobal),
+          org: layers.org && {
+            ...asSeenBy(layers.org, access.canManageOrg),
+            orgId: layers.org.orgId,
+          },
+        },
+      };
+    });
     return {
       contractVersion: 1,
       status: "ready" as const,

@@ -19,6 +19,7 @@ import {
 } from "../../../shared/agent-readable.js";
 import { getDb, schema } from "../../db/index.js";
 import { getDocumentContextPath } from "../../lib/document-context.js";
+import { privateMediaAgentLinks } from "../../lib/private-media-agent-links.js";
 
 function queryString(value: unknown): string {
   if (typeof value === "string") return value;
@@ -106,6 +107,15 @@ export default defineEventHandler(async (event) => {
     setResponseStatus(event, denied.statusCode);
     return denied.body;
   }
+  // A public page's images load without a session; a private one's need links.
+  const privateMediaLinks =
+    document.visibility !== "public"
+      ? await privateMediaAgentLinks({
+          documentId: document.id,
+          content: document.content,
+          origin: getForwardedRequestOrigin(event),
+        })
+      : undefined;
 
   return {
     resourceType: "document",
@@ -114,6 +124,7 @@ export default defineEventHandler(async (event) => {
     description: document.description,
     icon: document.icon,
     content: document.content,
+    ...(privateMediaLinks ? { privateMediaLinks } : {}),
     visibility: document.visibility,
     createdAt: document.createdAt,
     updatedAt: document.updatedAt,

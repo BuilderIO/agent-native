@@ -459,6 +459,39 @@ describe("Design final response guard", () => {
     });
   });
 
+  it("accepts a Design output action whose verified receipt shows a change", () => {
+    const placed = {
+      tool: "place-figma-frames",
+      verified: true as const,
+      summary: "Design output: 24 files saved.",
+      subject: "design-1",
+    };
+    const request = "Make this Figma design. Skip questions.";
+
+    expect(
+      designFinalResponseGuard(
+        guardContext(request, {
+          toolResults: [toolResult("place-figma-frames", { placedFrames: 24 })],
+          receipts: [{ ...placed, changed: true }],
+        }),
+      ),
+    ).toBeNull();
+    expect(
+      designFinalResponseGuard(
+        guardContext(request, { receipts: [{ ...placed, changed: false }] }),
+      ),
+    ).not.toBeNull();
+    // A verified write by something other than a Design output action is not
+    // proof that the design was made.
+    expect(
+      designFinalResponseGuard(
+        guardContext(request, {
+          receipts: [{ ...placed, tool: "save-memory", changed: true }],
+        }),
+      ),
+    ).not.toBeNull();
+  });
+
   it("does not accept the empty project shell as a completed design", () => {
     const result = designFinalResponseGuard(
       guardContext("create a new design", {
@@ -644,6 +677,44 @@ describe("Design final response guard", () => {
     );
 
     expect(result).not.toBeNull();
+  });
+
+  it("accepts a moved element only when the move was persisted", () => {
+    expect(
+      designFinalResponseGuard(
+        guardContext("move the card to the second screen", {
+          toolResults: [
+            toolResult("move-design-element", {
+              designId: "design-1",
+              moved: true,
+              movedNodeId: "node-1",
+            }),
+          ],
+        }),
+      ),
+    ).toBeNull();
+
+    for (const toolResults of [
+      [
+        toolResult("move-design-element", {
+          designId: "design-1",
+          moved: false,
+        }),
+      ],
+      [
+        toolResult(
+          "move-design-element",
+          { designId: "design-1", moved: true },
+          true,
+        ),
+      ],
+    ]) {
+      expect(
+        designFinalResponseGuard(
+          guardContext("move the card to the second screen", { toolResults }),
+        ),
+      ).not.toBeNull();
+    }
   });
 
   it("judges the user's words, not the context the app attached to them", () => {

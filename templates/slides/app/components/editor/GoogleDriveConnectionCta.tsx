@@ -7,8 +7,10 @@ import {
   IconPlugConnected,
   IconX,
 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useCallback, useEffect, useState } from "react";
 
+import { GOOGLE_SLIDES_EXPORT_AVAILABILITY_KEY } from "../../lib/google-slides-export-availability-client";
 import { Button } from "../ui/button";
 
 interface GoogleDocsStatus {
@@ -57,6 +59,7 @@ export function GoogleDriveConnectionCta({
   active = true,
 }: GoogleDriveConnectionCtaProps) {
   const t = useT();
+  const queryClient = useQueryClient();
   const [status, setStatus] = useState<GoogleDocsStatus | null>(null);
   const [loading, setLoading] = useState(true);
   const [connecting, setConnecting] = useState(false);
@@ -105,6 +108,21 @@ export function GoogleDriveConnectionCta({
     void refreshStatus();
   }, [active, refreshStatus]);
 
+  useEffect(() => {
+    if (!active) return;
+    return queryClient.getQueryCache().subscribe((event) => {
+      if (
+        event.type === "updated" &&
+        event.action.type === "invalidate" &&
+        event.query.queryKey[0] === GOOGLE_SLIDES_EXPORT_AVAILABILITY_KEY[0] &&
+        event.query.queryKey[1] === GOOGLE_SLIDES_EXPORT_AVAILABILITY_KEY[1]
+      ) {
+        setDismissed(false);
+        void refreshStatus();
+      }
+    });
+  }, [active, queryClient, refreshStatus]);
+
   const needsReconnect =
     status?.connected === true && status.googleSlidesUrlImportReady === false;
   const connect = useCallback(() => {
@@ -127,7 +145,10 @@ export function GoogleDriveConnectionCta({
     return null;
   }
 
-  const displayStatus = status ?? { configured: false, connected: false };
+  const configured = status?.configured === true;
+  const retry = () => {
+    void refreshStatus();
+  };
 
   return (
     <div className="flex items-center gap-2 rounded-lg border border-border/70 bg-muted/35 px-3 py-2 text-xs">
@@ -142,19 +163,32 @@ export function GoogleDriveConnectionCta({
         <p className="font-medium text-foreground">
           Google Drive {/* i18n-ignore stable provider label */}
         </p>
-        <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
-          {displayStatus.configured
-            ? t("home.googleSlidesReferenceConnect")
-            : t("raw.googleOAuthNotConfigured")}
-        </p>
-        {displayStatus.googleSlidesUrlImportError && (
+        {status && (
+          <p className="mt-0.5 text-[11px] leading-relaxed text-muted-foreground">
+            {configured
+              ? t("home.googleSlidesReferenceConnect")
+              : t("raw.googleOAuthNotConfigured")}
+          </p>
+        )}
+        {status?.googleSlidesUrlImportError && (
           <p className="mt-1 text-[11px] text-destructive">
-            {displayStatus.googleSlidesUrlImportError}
+            {status.googleSlidesUrlImportError}
           </p>
         )}
         {error && <p className="mt-1 text-[11px] text-destructive">{error}</p>}
       </div>
-      {displayStatus.configured && (
+      {!status && (
+        <Button
+          type="button"
+          variant="outline"
+          size="sm"
+          onClick={retry}
+          className="h-7 shrink-0 rounded-md px-2.5 text-[11px]"
+        >
+          {t("home.retry")}
+        </Button>
+      )}
+      {configured && (
         <Button
           type="button"
           size="sm"

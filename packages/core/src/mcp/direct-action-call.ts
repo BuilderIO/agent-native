@@ -273,6 +273,7 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
         request,
         envelope: ctx.mcpReq.envelope,
         oauthClientId: effectiveIdentity?.oauthClientId,
+        userAgent: requestMeta?.clientName,
       }),
       approval: {
         state: () =>

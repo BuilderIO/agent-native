@@ -1129,9 +1129,18 @@ app/hooks/use-undo.test.tsx app/components/email/EmailList.keyboard-navigation.t
   Command → Shortcuts reference displays both. Focused list mutation coverage,
   conversation source coverage, and the full Mail suite passed on 2026-09-14
   (963 tests across 112 files).
-  The thread toolbar now advertises the same `D / #` aliases as the local
-  Command → Shortcuts reference; the paired toolbar tooltip appearance and
-  full shortcut replay remain unverified.
+  On 2026-11-08 Mail re-mapped the keys whose meaning contradicted this
+  baseline: `?` opens the agent chat (Superhuman's Ask AI), Shift+U opens
+  Unread instead of marking unread, Shift+I is unbound (Mail has no fixed
+  Important view), `x` selects the focused conversation, Space/Shift+Space
+  page the list or the open conversation instead of selecting a row, and Enter
+  in a conversation is Reply All while `o` expands. Delete and Backspace stay
+  unbound because the baseline binds neither. Every row and conversation
+  toolbar button now shows its name and Superhuman's key in one shared
+  tooltip (`ActionTooltip`); Mail-only aliases (`d`, `a`) still work but are
+  not advertised there. Arrow keys in an open conversation move to the
+  next/previous conversation; the baseline's "arrows Superhuman Focus" entry
+  is ambiguous, so pair that one before claiming parity.
 
 - SETTINGS-008 — Compare notification preferences by platform and account.
   On desktop, toggle Email Notifications from Command and distinguish the app

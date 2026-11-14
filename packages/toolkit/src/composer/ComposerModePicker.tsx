@@ -15,6 +15,7 @@ import {
   TooltipTrigger,
 } from "../ui/tooltip.js";
 import { cn } from "../utils.js";
+import { COMPOSER_POPOVER_SURFACE_CLASS } from "./popover-surface.js";
 
 export interface ComposerModeOption {
   /** Stable host-defined mode identifier. */
@@ -75,7 +76,7 @@ export function ComposerModePicker({
         side="top"
         align="start"
         collisionPadding={8}
-        className="agent-composer-mode-picker-menu min-w-48"
+        className={`agent-composer-mode-picker-menu min-w-48 ${COMPOSER_POPOVER_SURFACE_CLASS}`}
       >
         {/* Hosts may render this picker outside a TooltipProvider. */}
         <TooltipProvider>
@@ -89,7 +90,7 @@ export function ComposerModePicker({
                   {...(option.disabled === undefined
                     ? {}
                     : { disabled: option.disabled })}
-                  className="agent-composer-mode-picker-option pe-3"
+                  className="agent-composer-mode-picker-option"
                 >
                   {option.icon}
                   <span className="min-w-0 flex-1 truncate">

@@ -8,6 +8,23 @@ import {
 import { onboardingConfig } from "./onboarding.js";
 
 describe("onboarding configuration", () => {
+  it("defaults Builder signup to 50% and accepts a full rollout", () => {
+    expect(onboardingConfig.parse({}).builderSignupAutomaticPercent).toBe(50);
+    expect(
+      onboardingConfig.parse({ builderSignupAutomaticPercent: 100 })
+        .builderSignupAutomaticPercent,
+    ).toBe(100);
+  });
+
+  it.each([-1, 50.5, 101])(
+    "rejects an invalid Builder signup allocation of %s",
+    (builderSignupAutomaticPercent) => {
+      expect(
+        onboardingConfig.safeParse({ builderSignupAutomaticPercent }).success,
+      ).toBe(false);
+    },
+  );
+
   it("defaults the experiment to v1 and accepts v2", () => {
     expect(onboardingConfig.parse({}).firstRunCreditsExperiment).toBe("v1");
     expect(

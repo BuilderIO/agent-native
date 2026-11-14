@@ -168,6 +168,24 @@ describe("bounded document discovery", () => {
     ]);
   });
 
+  it("answers through the index when search is a new process's first query", async () => {
+    await asUser(OWNER, () =>
+      searchDocuments.run({ query: "payload", limit: 1, offset: 0 }),
+    );
+    // A closed connection leaves the database handle as a new process has it.
+    await closeDbExec();
+
+    const result = await asUser(OWNER, () =>
+      searchDocuments.run({ query: "payload", limit: 1, offset: 0 }),
+    );
+    const emptyResult = await asUser(OWNER, () =>
+      searchDocuments.run({ query: "absentword", limit: 1, offset: 0 }),
+    );
+
+    expect(result.pagination.totalItems).toBe(205);
+    expect(emptyResult.pagination.totalItems).toBe(0);
+  });
+
   it("ranks across the full authorized result set before pagination", async () => {
     await getDb().insert(schema.documents).values({
       id: "search-rank-old-title",

@@ -104,8 +104,27 @@ vi.mock("../resources/store.js", () => ({
     mocks.resourceListAllOwners(...args),
   resourceListAccessible: (...args: any[]) =>
     mocks.resourceListAccessible(...args),
+  // The prompt reads skills by layer; split the flat fixture by owner.
+  resourceListAccessibleLayers: async (...args: any[]) => {
+    const rows: Array<{ owner: string }> =
+      (await mocks.resourceListAccessible(...args)) ?? [];
+    const isWorkspace = (owner: string) =>
+      owner === "__workspace__" || owner.startsWith("__workspace__:");
+    return {
+      personal: rows.filter((row) => row.owner === args[0]),
+      organization: rows.filter(
+        (row) => row.owner !== args[0] && !isWorkspace(row.owner),
+      ),
+      workspace: rows.filter((row) => isWorkspace(row.owner)),
+    };
+  },
   resourceGet: (...args: any[]) => mocks.resourceGet(...args),
   resourcePut: (...args: any[]) => mocks.resourcePut(...args),
+}));
+
+vi.mock("../resources/skill-choices.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../resources/skill-choices.js")>()),
+  readSkillChoices: async () => ({ switches: {}, marks: {} }),
 }));
 
 vi.mock("./agent-discovery.js", () => ({

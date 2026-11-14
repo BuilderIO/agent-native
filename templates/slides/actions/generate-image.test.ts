@@ -301,6 +301,27 @@ describe("generate-image CLI", () => {
     );
   });
 
+  it("reports why Assets was unavailable when no local provider is configured", async () => {
+    mockDelegateImageGenerationToAssets.mockResolvedValue({
+      status: "unavailable",
+      reason:
+        "Blocked by SSRF guard: http://localhost:8100 is a private address",
+    });
+    mockGetProvider.mockRejectedValue(
+      new Error("No image generation provider configured."),
+    );
+
+    await expect(
+      main(["--prompt", "a brand hero image", "--use-brand-library", "true"]),
+    ).rejects.toMatchObject({
+      message: expect.stringMatching(
+        /Blocked by SSRF guard.*No image generation provider configured/s,
+      ),
+      errorCode: "assets_unavailable_no_local_provider",
+      statusCode: 424,
+    });
+  });
+
   it("rejects when Assets is still generating instead of exiting successfully", async () => {
     mockDelegateImageGenerationToAssets.mockResolvedValue({
       status: "pending",

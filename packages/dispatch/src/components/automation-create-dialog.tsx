@@ -570,6 +570,7 @@ export function AutomationCreateDialog({
     CreateAutomationInput
   >("manage-automation", {
     onSuccess: onCreated,
+    errorNotification: "caller",
   });
 
   const resetCreate = create.reset;

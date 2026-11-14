@@ -53,6 +53,8 @@ This page covers client routes, the pages rendered in the browser from `app/rout
 
 </Diagram>
 
+In Chat, `rootAuth: true` can serve the sign-in page at `/` before React Router reaches `_index.tsx`, depending on the configured home path. Change the auth plugin when customizing that response.
+
 ## File-based routing {#file-based-routing}
 
 ### File → URL mapping

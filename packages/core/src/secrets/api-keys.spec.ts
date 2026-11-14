@@ -6,6 +6,8 @@ interface Row {
   key: string;
   value: string;
   description?: string;
+  createdBy?: string;
+  urlAllowlist?: string[];
 }
 
 const mocks = vi.hoisted(() => ({
@@ -24,7 +26,8 @@ vi.mock("./storage.js", () => ({
       scopeId,
       last4: `••••${row.value.slice(-4)}`,
       description: row.description ?? null,
-      urlAllowlist: null,
+      createdBy: row.createdBy ?? null,
+      urlAllowlist: row.urlAllowlist ?? null,
       createdAt: 1,
       updatedAt: 1_700_000_000_000,
     })),
@@ -81,7 +84,11 @@ describe("listApiKeys", () => {
   it("shows a member only their own keys, and managed org keys without masks", async () => {
     mocks.roles.set(`${ORG}:${ME}`, "member");
     put("user", ME, { key: "ANTHROPIC_API_KEY", value: "fake-anthropic-1234" });
-    put("user", ME, { key: "STRIPE_SECRET_KEY", value: "fake-stripe-5678" });
+    put("user", ME, {
+      key: "STRIPE_SECRET_KEY",
+      value: "fake-stripe-5678",
+      urlAllowlist: ["https://api.stripe.com"],
+    });
     put("org", ORG, { key: "OPENAI_API_KEY", value: "fake-openai-9999" });
     put("org", ORG, { key: "BUILDER_PRIVATE_KEY", value: "fake-builder-0000" });
 
@@ -102,7 +109,9 @@ describe("listApiKeys", () => {
     expect(listing.keys[0]!.usedFor[0]).toMatchObject({ feature: "Agent" });
     expect(listing.keys[1]).toMatchObject({
       registered: false,
+      urlAllowlist: ["https://api.stripe.com"],
       canReplace: true,
+      canEditOrigins: true,
       canDelete: true,
       canTest: false,
     });
@@ -114,6 +123,7 @@ describe("listApiKeys", () => {
       canDelete: false,
     });
     expect(listing.managed[0]!.masked).toBeUndefined();
+    expect(listing.managed[0]!.urlAllowlist).toBeUndefined();
     expect(listing.canManageOrg).toBe(false);
   });
 
@@ -147,6 +157,25 @@ describe("listApiKeys", () => {
     expect(listing.canManageOrg).toBe(true);
   });
 
+  it("treats a key created through the Vault as read-only without the legacy description marker", async () => {
+    mocks.roles.set(`${ORG}:${ME}`, "admin");
+    put("org", ORG, {
+      key: "FIGMA_ACCESS_TOKEN",
+      value: "fake-figma-1111",
+      createdBy: "admin@example.test",
+    });
+    put("org", ORG, { key: "OPENAI_API_KEY", value: "fake-openai-9999" });
+
+    const listing = await listApiKeys({ email: ME, orgId: ORG });
+
+    expect(listing.keys.map((entry) => entry.vault)).toEqual([true, undefined]);
+    expect(listing.keys[0]).toMatchObject({
+      canDelete: false,
+      canReplace: false,
+    });
+    expect(listing.keys[1]).toMatchObject({ canDelete: true });
+  });
+
   it("lists legacy solo rows with the caller's own keys", async () => {
     mocks.roles.set(`${ORG}:${ME}`, "member");
     put("workspace", `solo:${ME}`, {
@@ -169,7 +198,28 @@ describe("listApiKeys", () => {
     // Replacing would write the org's workspace row, not this one.
     expect(listing.keys[1]).toMatchObject({
       canReplace: false,
+      canEditOrigins: true,
       canDelete: true,
+    });
+  });
+
+  it("allows an owner to edit an existing org-scoped custom policy without replacing the key", async () => {
+    mocks.roles.set(`${ORG}:${ME}`, "owner");
+    put("org", ORG, {
+      key: "ORG_WEBHOOK",
+      value: "fake-org-token",
+      urlAllowlist: ["https://api.example.test"],
+    });
+
+    const listing = await listApiKeys({ email: ME, orgId: ORG });
+    expect(
+      listing.keys.find((entry) => entry.name === "ORG_WEBHOOK"),
+    ).toMatchObject({
+      scope: "org",
+      storedScope: "org",
+      canReplace: false,
+      canEditOrigins: true,
+      urlAllowlist: ["https://api.example.test"],
     });
   });
 
@@ -293,6 +343,23 @@ describe("deleteApiKey", () => {
       value: "fake-figma-1111",
       description: `${VAULT_PREFIX} FIGMA_ACCESS_TOKEN`,
     });
+    expect(
+      await deleteApiKey(
+        { email: ME, orgId: ORG },
+        { name: "FIGMA_ACCESS_TOKEN", scope: "org" },
+      ),
+    ).toEqual({ status: "vault" });
+    expect(mocks.deleted).toEqual([]);
+  });
+
+  it("refuses to delete a key created through the Vault from the API keys list", async () => {
+    mocks.roles.set(`${ORG}:${ME}`, "owner");
+    put("org", ORG, {
+      key: "FIGMA_ACCESS_TOKEN",
+      value: "fake-figma-1111",
+      createdBy: "admin@example.test",
+    });
+
     expect(
       await deleteApiKey(
         { email: ME, orgId: ORG },

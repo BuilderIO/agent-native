@@ -204,6 +204,12 @@ export async function runFfmpegWithProgress(
 const PROBE_TIMEOUT_MS = 20_000;
 const PROBE_DURATION_SECONDS = "0.1";
 
+/** Null when ffmpeg listed no streams, so it can't say either way. */
+function audioStreamIn(stderr: string): boolean | null {
+  if (!/Stream #\d+:\d+/i.test(stderr)) return null;
+  return /Stream #\d+:\d+.*: ?Audio:/i.test(stderr);
+}
+
 export async function probeHasAudioStream(
   mediaBytes: Uint8Array,
   extension: "webm" | "mp4",
@@ -255,8 +261,7 @@ export async function probeHasAudioStream(
         resolve(buf);
       });
     });
-    if (!/Stream #\d+:\d+/i.test(stderr)) return null;
-    return /Stream #\d+:\d+.*: ?Audio:/i.test(stderr);
+    return audioStreamIn(stderr);
   } catch (err) {
     console.warn("[video-remux] audio-stream probe failed, skipping check", {
       err: err instanceof Error ? err.message : String(err),
@@ -271,13 +276,19 @@ export interface ProbedMediaInfo {
   durationMs: number | null;
   width: number | null;
   height: number | null;
+  hasAudio: boolean | null;
 }
 
 export async function probeMediaInfo(
   mediaBytes: Uint8Array,
   extension: "webm" | "mp4",
 ): Promise<ProbedMediaInfo> {
-  const none: ProbedMediaInfo = { durationMs: null, width: null, height: null };
+  const none: ProbedMediaInfo = {
+    durationMs: null,
+    width: null,
+    height: null,
+    hasAudio: null,
+  };
   if (mediaBytes.byteLength === 0) return none;
   if (!isFfmpegAvailable()) return none;
 
@@ -330,6 +341,7 @@ export async function probeMediaInfo(
       durationMs,
       width: width && width > 0 ? width : null,
       height: height && height > 0 ? height : null,
+      hasAudio: audioStreamIn(stderr),
     };
   } catch (err) {
     console.warn("[video-remux] media probe failed, skipping check", {

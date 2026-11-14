@@ -1,8 +1,10 @@
 export { CoreComposerRuntimeProvider } from "../composer/runtime-adapters.js";
 export {
+  GuidedQuestionCard,
   GuidedQuestionFlow,
   GuidedQuestionProviderGate,
   useGuidedQuestionFlow,
+  useRefetchGuidedQuestionsWhenAsked,
 } from "./questions.js";
 export {
   askUserQuestion,

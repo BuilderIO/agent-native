@@ -109,7 +109,7 @@ Slack, email, Telegram, and WhatsApp all flow into Dispatch's agent loop. Connec
 
 ### Secret vault
 
-Store credentials once in Dispatch's vault. By default, vault access is **all apps**: every saved key is available to every workspace app, and `sync-vault-to-app` pushes the full vault to the target app. Workspaces that need stricter separation can switch the vault to **manual** mode, where explicit per-app grants are required before sync. Non-admins can **request** a secret for an app; admins **approve**, which creates the secret and, in manual workflows, the grant. Every read, grant, sync, and rotation is captured in an audit log. This is what makes "rotate the OpenAI key" a one-click operation across ten apps instead of ten PRs.
+Store credentials once in Dispatch's vault. The value is encrypted into the shared credential store; the vault itself keeps only the key name, label, and grants, never a plaintext copy. By default, vault access is **all apps**: every saved key is available to every app that shares Dispatch's database. Workspaces that need stricter separation can switch the vault to **manual** mode, where explicit per-app grants are required. Non-admins can **request** a secret for an app; admins **approve**, which creates the secret and, in manual workflows, the grant. Every read, grant, and rotation is captured in an audit log. This is what makes "rotate the OpenAI key" a one-click operation across ten apps instead of ten PRs.
 
 ### Cross-app delegation
 

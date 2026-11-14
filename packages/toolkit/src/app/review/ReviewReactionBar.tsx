@@ -74,7 +74,7 @@ export function ReviewReactionBar({
           <DropdownMenuContent
             data-review-popover=""
             align="start"
-            className="flex w-auto gap-0.5 p-1"
+            className="flex w-auto gap-0.5"
           >
             {choices.map((reaction) => (
               <DropdownMenuItem

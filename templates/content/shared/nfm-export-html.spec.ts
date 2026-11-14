@@ -24,6 +24,13 @@ function exportedBody(content: string, format: "pdf" | "html" = "pdf") {
   return payload.content.split("<article>")[1].split("</article>")[0];
 }
 
+/** Each exported column's flex-grow, in order. */
+function columnGrows(html: string | undefined) {
+  return [...(html ?? "").matchAll(/flex-grow: ([\d.]+)/g)].map(
+    ([, grow]) => grow,
+  );
+}
+
 function calloutWithIcon(icon: IconValue) {
   const stored = serializeIconValue(icon)!.replace(/"/g, "&quot;");
   return `<callout icon="${stored}">\n\tHeads up\n</callout>`;
@@ -269,6 +276,85 @@ describe("NFM container export", () => {
     expect(html).toContain("<summary>More detail</summary>");
     expect(html).toContain("<p>Hidden body</p>");
     expect(html.match(/<div class="nfm-column">/g)).toHaveLength(2);
+  });
+
+  it("gives each column the share of the row its ratio asks for", () => {
+    const html = exportedBody(
+      [
+        "<columns>",
+        '\t<column ratio="70">',
+        "\t\tWide",
+        "\t</column>",
+        '\t<column ratio="30">',
+        "\t\tNarrow",
+        "\t</column>",
+        "</columns>",
+      ].join("\n"),
+    );
+
+    expect(html).toContain('<div class="nfm-column" style="flex-grow: 70">');
+    expect(html).toContain('<div class="nfm-column" style="flex-grow: 30">');
+  });
+
+  it("shares the rest of the row among columns without a ratio, as the editor does", () => {
+    const html = exportedBody(
+      [
+        "<columns>",
+        '\t<column ratio="50">',
+        "\t\tHalf",
+        "\t</column>",
+        "\t<column>",
+        "\t\tQuarter",
+        "\t</column>",
+        "\t<column>",
+        "\t\tQuarter",
+        "\t</column>",
+        "</columns>",
+      ].join("\n"),
+    );
+
+    expect(columnGrows(html)).toEqual(["50", "25", "25"]);
+  });
+
+  it("scales ratios that don't add up to the whole row", () => {
+    const html = exportedBody(
+      [
+        "<columns>",
+        '\t<column ratio="30">',
+        "\t\tWide",
+        "\t</column>",
+        '\t<column ratio="10">',
+        "\t\tNarrow",
+        "\t</column>",
+        "</columns>",
+      ].join("\n"),
+    );
+
+    expect(columnGrows(html)).toEqual(["75", "25"]);
+  });
+
+  it("evens out a set inside a column apart from the set around it", () => {
+    const html = exportedBody(
+      [
+        "<columns>",
+        '<column ratio="70">',
+        "<columns>",
+        '<column ratio="25">',
+        "Inner left",
+        "</column>",
+        '<column ratio="75">',
+        "Inner right",
+        "</column>",
+        "</columns>",
+        "</column>",
+        "<column>",
+        "Outer right",
+        "</column>",
+        "</columns>",
+      ].join("\n"),
+    );
+
+    expect(columnGrows(html)).toEqual(["70", "25", "75", "30"]);
   });
 
   it("renders colored Tabler callout icons in standalone HTML and PDF output", () => {

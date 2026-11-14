@@ -367,7 +367,7 @@ describe("MessageQueueDrawer", () => {
       ),
     ).toBeNull();
     expect(drawer?.style.getPropertyValue("--agent-message-queue-height")).toBe(
-      "min(44px, 10rem)",
+      "min(48px, 10rem)",
     );
 
     act(() => {
@@ -439,7 +439,7 @@ describe("MessageQueueDrawer", () => {
       ),
     ).toBe(true);
   });
-  it("keeps rows a fixed 36px with concentric corners from the composer radius", () => {
+  it("keeps rows a fixed 32px with concentric corners from the composer radius", () => {
     act(() => {
       root.render(
         <MessageQueueDrawer
@@ -458,13 +458,13 @@ describe("MessageQueueDrawer", () => {
       "var(--agentkit-composer-radius, var(--radius-xl, 0.75rem))",
     );
     expect(drawer.style.getPropertyValue("--agent-message-queue-inset")).toBe(
-      "0.25rem",
+      "0.5rem",
     );
     expect(drawer.className).toContain(
       "rounded-t-[var(--agent-message-queue-radius)]",
     );
     expect(drawer.className).toContain("p-[var(--agent-message-queue-inset)]");
-    // 32 + 32 + 64 rows plus the 4px inset above and below.
+    // 32 + 32 + 64 rows, two 4px gaps and the 8px inset above and below.
     expect(drawer.style.getPropertyValue("--agent-message-queue-height")).toBe(
       "min(152px, 10rem)",
     );
@@ -478,7 +478,7 @@ describe("MessageQueueDrawer", () => {
       // Rows fade in; a slide would fight the drawer's height transition.
       expect(row.className).not.toContain("slide-in");
     }
-    expect(rows[0]!.className).toContain("h-9");
+    expect(rows[0]!.className).toContain("h-8");
     expect(rows[2]!.className).toContain("h-16");
     expect(container.querySelector("ul")?.className).toContain(
       "overflow-y-hidden",

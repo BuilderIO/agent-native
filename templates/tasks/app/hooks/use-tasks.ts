@@ -214,6 +214,7 @@ export function useDeleteTask() {
         tasks.filter((task) => task.id !== taskId),
       ),
     ...listTasksOptimisticLifecycle(queryClient),
+    errorNotification: "shared",
   });
 }
 
@@ -274,5 +275,6 @@ export function useReorderTasks() {
     onSettled: () => {
       void invalidateTasks(queryClient);
     },
+    errorNotification: "shared",
   });
 }

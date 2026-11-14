@@ -223,7 +223,12 @@ export {
 } from "./library/wireframe-kit.js";
 export { renderWireframeIconHtml } from "./library/wireframe-icons.js";
 
-export { MermaidRead, MermaidEdit } from "./library/MermaidBlock.js";
+export {
+  MermaidRead,
+  MermaidEdit,
+  useMermaidRender,
+  type MermaidRender,
+} from "./library/MermaidBlock.js";
 export {
   mermaidSchema,
   mermaidMdx,

@@ -9,6 +9,7 @@ const {
   navigateChatMock,
   flushDeckSaveMock,
   toastErrorMock,
+  reportWriteFailureMock,
   useDecksMock,
   creativeContextLabEnabled,
   mcpAppWidgetEmbed,
@@ -18,6 +19,7 @@ const {
   navigateChatMock: vi.fn(),
   flushDeckSaveMock: vi.fn(),
   toastErrorMock: vi.fn(),
+  reportWriteFailureMock: vi.fn(),
   useDecksMock: vi.fn(),
   creativeContextLabEnabled: { value: false },
 }));
@@ -80,6 +82,12 @@ vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
     key === "agent.slideNumber" ? `Slide ${values?.number}` : key,
 }));
 vi.mock("sonner", () => ({ toast: { error: toastErrorMock } }));
+vi.mock("@agent-native/core/client/write-failure", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/write-failure")
+  >()),
+  reportWriteFailure: reportWriteFailureMock,
+}));
 vi.mock("@agent-native/toolkit/app/org", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/toolkit/app/org")>()),
   InvitationBanner: () => <div data-testid="invitation-banner" />,
@@ -162,6 +170,7 @@ describe("Slides Layout", () => {
     navigateChatMock.mockClear();
     flushDeckSaveMock.mockReset().mockResolvedValue(undefined);
     toastErrorMock.mockReset();
+    reportWriteFailureMock.mockReset();
     useDecksMock.mockReturnValue({
       decks: [],
       loading: false,
@@ -306,30 +315,34 @@ describe("Slides Layout", () => {
   });
 
   it("lets deck chat proceed when flushing the save fails", async () => {
-    flushDeckSaveMock.mockRejectedValueOnce(new Error("save failed"));
+    const failure = new Error("save failed");
+    flushDeckSaveMock.mockRejectedValueOnce(failure);
     renderLayout("/deck/deck-1");
 
     const history = agentSidebarMock.mock.lastCall![0].chatHistory as {
       beforeStart: () => Promise<void>;
     };
     await expect(history.beforeStart()).resolves.toBeUndefined();
-    expect(toastErrorMock).toHaveBeenCalledWith("settings.saveFailed");
+    expect(reportWriteFailureMock).toHaveBeenCalledWith(failure, {
+      label: "settings.saveFailed",
+    });
   });
 
   it("lets deck chat proceed after a terminal typed save failure", async () => {
-    flushDeckSaveMock.mockRejectedValueOnce(
-      Object.assign(new Error("Failed to save deck deck-1"), {
-        status: 400,
-        errorCode: "slide_content_hash_required",
-      }),
-    );
+    const failure = Object.assign(new Error("Failed to save deck deck-1"), {
+      status: 400,
+      errorCode: "slide_content_hash_required",
+    });
+    flushDeckSaveMock.mockRejectedValueOnce(failure);
     renderLayout("/deck/deck-1");
 
     const history = agentSidebarMock.mock.lastCall![0].chatHistory as {
       beforeStart: () => Promise<void>;
     };
     await expect(history.beforeStart()).resolves.toBeUndefined();
-    expect(toastErrorMock).toHaveBeenCalledWith("settings.saveFailed");
+    expect(reportWriteFailureMock).toHaveBeenCalledWith(failure, {
+      label: "settings.saveFailed",
+    });
   });
 
   it("keeps malformed chat history distinct from an empty version list", () => {

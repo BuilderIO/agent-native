@@ -42,6 +42,7 @@ import {
 import {
   isRecordingExpiredForViewer,
   isRecordingTrashedForViewer,
+  recordingUsesSharePassword,
 } from "../../../lib/recording-page-access.js";
 import { getOrganizationRoleForEmail } from "../../../lib/recordings.js";
 import {
@@ -119,6 +120,7 @@ function renewProtectedMediaCookie(
       scopeId,
       password,
       sharePasswordVersion,
+      "public",
     ),
     ttlSeconds: PROTECTED_MEDIA_ACCESS_TTL_SECONDS,
   });
@@ -535,7 +537,11 @@ export default defineEventHandler(async (event: H3Event) => {
           return { error: "Not found" };
         }
       }
-      if (recording.password && loaded.role !== "owner") {
+      if (
+        recordingUsesSharePassword(recording.visibility) &&
+        recording.password &&
+        loaded.role !== "owner"
+      ) {
         // A document cannot supply a password, so nothing unlocks one for a
         // Content reader; the Content playback route refuses it the same way.
         if (granted) {
@@ -548,6 +554,7 @@ export default defineEventHandler(async (event: H3Event) => {
           loaded.gateId,
           recording.password,
           recording.sharePasswordVersion,
+          "public",
         );
         const password =
           typeof query.password === "string" ? query.password : "";

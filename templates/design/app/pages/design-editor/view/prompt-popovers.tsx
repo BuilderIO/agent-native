@@ -11,6 +11,7 @@ import PromptPopover, {
   type UploadedFile,
 } from "@/components/editor/PromptDialog";
 import { getDesignHostChannel } from "@/host/design-host-channel";
+import { figmaReferenceDirectives } from "@/lib/figma-attachment";
 import { patchPendingGeneration } from "@/lib/pending-generation";
 
 import { designPrecedentDirectives } from "../creative-context-precedent";
@@ -216,6 +217,7 @@ export function renderPromptPopovers({
             fileContext,
             "",
             ...generationDirectives,
+            ...figmaReferenceDirectives(options.contextItems),
           ].join("\n");
           clearGenerationCompleteTimer();
           setGenerationIssue(null);

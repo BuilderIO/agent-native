@@ -18,7 +18,7 @@ const storageMocks = vi.hoisted(() => ({
       data?: { configured?: unknown };
     }>
   >(),
-  upload: vi.fn<(formData: FormData) => void>(),
+  upload: vi.fn<(formData: FormData) => Promise<void>>(),
   open: false,
   retry: null as (() => void) | null,
   dismiss: null as (() => void) | null,
@@ -37,7 +37,7 @@ vi.mock("@agent-native/core/client/uploads/use-file-upload-status", () => ({
   }),
 }));
 vi.mock("@agent-native/core/client/uploads/use-upload-resource", () => ({
-  useUploadResource: () => ({ mutate: storageMocks.upload }),
+  useUploadResource: () => ({ mutateAsync: storageMocks.upload }),
 }));
 vi.mock("@agent-native/core/client/org/hooks", () => ({
   useOrg: () => ({ data: { orgId: "org-test", role: "member" } }),
@@ -464,6 +464,7 @@ describe("ResourcesPanel storage retries", () => {
     storageMocks.status = { isError: true, isSuccess: false };
     storageMocks.refetch.mockReset();
     storageMocks.upload.mockReset();
+    storageMocks.upload.mockResolvedValue(undefined);
     storageMocks.open = false;
     storageMocks.retry = null;
     storageMocks.dismiss = null;

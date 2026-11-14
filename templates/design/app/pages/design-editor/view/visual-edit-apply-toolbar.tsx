@@ -153,7 +153,7 @@ export function renderVisualEditApplyToolbar({
                   className="design-editor-app-menu-content w-64"
                   onEscapeKeyDown={(event) => event.stopPropagation()}
                 >
-                  <DropdownMenuLabel className="text-xs text-muted-foreground">
+                  <DropdownMenuLabel className="text-muted-foreground">
                     {t("designEditor.pendingVisualStyles.previewLabel")}
                   </DropdownMenuLabel>
                   <DropdownMenuItem

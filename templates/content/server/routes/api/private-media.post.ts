@@ -91,7 +91,13 @@ export default defineEventHandler(async (event) => {
       });
     }
     if (error instanceof PrivateMediaStorageUnavailableError) {
-      throw createError({ statusCode: 503, statusMessage: error.message });
+      // The code tells this answer apart from a gateway's 503: the editor
+      // links an image picked from Assets instead only on this one.
+      throw createError({
+        statusCode: 503,
+        statusMessage: error.message,
+        data: { errorCode: "PRIVATE_MEDIA_STORAGE_UNAVAILABLE" },
+      });
     }
     throw error;
   }

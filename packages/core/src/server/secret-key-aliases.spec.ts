@@ -15,6 +15,7 @@ vi.mock("./credential-provider.js", async (importOriginal) => {
   return {
     assertCredentialStoreReadable: actual.assertCredentialStoreReadable,
     CredentialStoreUnavailableError: actual.CredentialStoreUnavailableError,
+    CredentialStoreLookupError: actual.CredentialStoreLookupError,
     readDeployCredentialEnv: (key: string) => mocks.env.get(key),
     resolveSecret: mocks.resolveSecret,
     resolveSecretDetailed: vi.fn(
@@ -39,7 +40,7 @@ const {
   resolveSecretWithAliases,
   secretKeyNames,
 } = await import("./secret-key-aliases.js");
-const { CredentialStoreUnavailableError } =
+const { CredentialStoreUnavailableError, CredentialStoreLookupError } =
   await import("./credential-provider.js");
 
 function row(
@@ -138,9 +139,13 @@ describe("Gemini key aliases", () => {
       lookupFailed: true,
       cause,
     });
-    await expect(resolveGeminiApiKey()).rejects.toBeInstanceOf(
-      CredentialStoreUnavailableError,
-    );
+    const result = resolveGeminiApiKey();
+    await expect(result).rejects.toBeInstanceOf(CredentialStoreLookupError);
+    await expect(result).rejects.toMatchObject({
+      statusCode: 500,
+      retryable: false,
+      cause,
+    });
   });
 
   it("keeps an alias read failure without scope evidence blocking", async () => {
@@ -227,9 +232,13 @@ describe("Gemini key aliases", () => {
       lookupFailed: true,
       cause,
     });
-    await expect(resolveGeminiApiKey()).rejects.toBeInstanceOf(
-      CredentialStoreUnavailableError,
-    );
+    const result = resolveGeminiApiKey();
+    await expect(result).rejects.toBeInstanceOf(CredentialStoreLookupError);
+    await expect(result).rejects.toMatchObject({
+      statusCode: 500,
+      retryable: false,
+      cause,
+    });
   });
 
   it("passes skipUserScope to both names for the shared-fallback check", async () => {

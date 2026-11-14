@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import { fetchConfiguredEndpoint } from "./configured-endpoint-fetch";
 import {
   assertCredentialCanReachEndpoint,
   resolveCredentialDetailed,
@@ -95,7 +96,7 @@ async function doFetch<T>(
   url: string,
   headers: Record<string, string>,
 ): Promise<T> {
-  const res = await fetch(url, { headers });
+  const res = await fetchConfiguredEndpoint("prometheus", url, "", { headers });
   if (!res.ok) {
     const text = await res.text();
     throw new Error(
@@ -376,7 +377,14 @@ export async function testConnection(): Promise<{
     const headers: Record<string, string> = { Accept: "application/json" };
     const authHeader = resolveAuthHeader(auth).header;
     if (authHeader) headers.Authorization = authHeader;
-    const res = await fetch(`${base.value}/api/v1/labels`, { headers });
+    const res = await fetchConfiguredEndpoint(
+      "prometheus",
+      base.value,
+      "/api/v1/labels",
+      {
+        headers,
+      },
+    );
     if (!res.ok) {
       const text = await res.text();
       return {

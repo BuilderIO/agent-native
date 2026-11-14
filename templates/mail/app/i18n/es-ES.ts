@@ -476,6 +476,22 @@ const messages = {
       scheduledCancelFailed: "No se pudo cancelar el email programado",
       failedToAttachFile: "No se pudo adjuntar el archivo",
       failedToUploadImage: "No se pudo subir la imagen",
+      storageBuilderRefused:
+        "Builder.io rechazó la conexión de almacenamiento de archivos de Mail, así que el archivo no se adjuntó. Vuelve a conectar Builder.io o usa tu propio almacenamiento y luego inténtalo de nuevo.",
+      storageRefused:
+        "Tu bucket de almacenamiento rechazó esta subida, así que el archivo no se adjuntó. Revisa el bucket y sus claves y luego inténtalo de nuevo.",
+      storageNotConfigured:
+        "El almacenamiento de archivos no está configurado, así que el archivo no se adjuntó. Conecta Builder.io o tu propio bucket de almacenamiento y luego inténtalo de nuevo.",
+      openStorageSettings: "Abrir ajustes de almacenamiento",
+      reconnectBuilderStorage: "Volver a conectar Builder.io",
+      useOwnStorage: "Usar tu propio almacenamiento",
+      storageBuilderRefusedAskAdmin:
+        "Builder.io rechazó la conexión de almacenamiento de archivos de Mail, así que el archivo no se adjuntó. Vuelve a conectar Builder.io o pide a un propietario o administrador que configure el almacenamiento y luego inténtalo de nuevo.",
+      storageRefusedAskAdmin:
+        "El bucket de almacenamiento de tu organización rechazó esta subida, así que el archivo no se adjuntó. Pide a un propietario o administrador que revise el bucket y sus claves.",
+      storageNotConfiguredAskAdmin:
+        "El almacenamiento de archivos no está configurado, así que el archivo no se adjuntó. Conecta tu propia cuenta de Builder.io o pide a un propietario o administrador que configure el almacenamiento.",
+      connectBuilderStorage: "Conectar Builder.io",
       failedToSendEmail: "No se pudo enviar el email",
       messageSent: "Mensaje enviado.",
       failedToSaveDraft: "No se pudo guardar el borrador.",
@@ -962,15 +978,19 @@ const messages = {
     shortcutsList: "Lista de mensajes",
     shortcutsThread: "Conversación",
     shortcutsCompose: "Redacción",
+    askAi: "Preguntar a la IA",
     backToCommands: "Volver a los comandos",
     backToMessageList: "Volver a la lista de mensajes",
     cycleTabs: "Recorrer pestañas",
     extendSelection: "Ampliar selección",
+    goToUnread: "Ir a No leído",
     moveSelection: "Mover selección",
     nextPreviousConversation: "Conversación siguiente / anterior",
     nextPreviousMessage: "Mensaje siguiente / anterior",
     openMessage: "Abrir mensaje",
+    pageDownUp: "Página abajo / arriba",
     selectAllConversations: "Seleccionar todas las conversaciones",
+    selectConversation: "Seleccionar conversación",
     sendAndMarkDone: "Enviar y marcar como hecho",
     toggleMessageExpansion: "Expandir / contraer mensaje",
     toggleReadState: "Cambiar estado de lectura",

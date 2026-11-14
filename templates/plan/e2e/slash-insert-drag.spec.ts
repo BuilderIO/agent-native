@@ -186,8 +186,9 @@ test.describe("single-document slash-insert, drag-reorder, notion filter", () =>
     const callout = page.locator('.plan-block-node[data-block-id="cal-mid"]');
     await expect(callout).toBeVisible({ timeout: 20_000 });
 
-    await callout.hover();
-    const grip = page.locator(".drag-handle");
+    // Further in than its edge, a callout shows the grip for the text inside it.
+    await callout.hover({ position: { x: 40, y: 2 } });
+    const grip = page.locator(".drag-handle:visible");
     await expect(grip).toBeVisible({ timeout: 8_000 });
     const gripBox = await grip.boundingBox();
     const proseBox = await prose.boundingBox();
@@ -206,7 +207,10 @@ test.describe("single-document slash-insert, drag-reorder, notion filter", () =>
       gripBox!.y + gripBox!.height / 2,
     );
     await page.mouse.down();
-    await page.mouse.move(proseBox!.x + 40, proseBox!.y + 6, { steps: 12 });
+    // Clear of the left edge, where a drop makes columns.
+    await page.mouse.move(proseBox!.x + proseBox!.width / 2, proseBox!.y + 6, {
+      steps: 12,
+    });
     await page.mouse.up();
 
     await okSave;

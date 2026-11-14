@@ -4,6 +4,8 @@ import { describe, expect, it } from "vitest";
 import {
   commentAiRequestsRefetchInterval,
   latestCommentAiRequest,
+  missingCommentAiReplyIds,
+  noteCommentAiPageChanges,
   threadHasAppliedAiChange,
 } from "./comment-ai";
 
@@ -140,5 +142,94 @@ describe("an AI change a thread delete leaves in the page", () => {
         ),
       ]),
     ).toBe(false);
+  });
+});
+
+describe("reading an open page again when comment AI finishes", () => {
+  const finished = (
+    id: string,
+    status: CommentAiRequest["status"],
+    result: CommentAiRequest["result"],
+  ) => ({ ...request(id, "thread-a", status, "2026-09-14T10:00:00Z"), result });
+  const threads = (...ids: string[]) => [
+    { comments: ids.map((id) => ({ id })) },
+  ];
+
+  it("names the replies and receipts finished requests wrote that aren't loaded", () => {
+    const requests = [
+      finished("a", "replied", { commentId: "reply-b" }),
+      finished("b", "suggested", {
+        commentId: "receipt-a",
+        suggestionId: "suggestion-1",
+      }),
+      finished("c", "resolved", { commentId: "receipt-c", editApplied: true }),
+    ];
+    expect(missingCommentAiReplyIds(requests, threads("root-a"))).toBe(
+      "receipt-a receipt-c reply-b",
+    );
+    expect(
+      missingCommentAiReplyIds(requests, threads("receipt-a", "reply-b")),
+    ).toBe("receipt-c");
+    expect(
+      missingCommentAiReplyIds(
+        requests,
+        threads("receipt-a", "receipt-c", "reply-b"),
+      ),
+    ).toBe("");
+  });
+
+  it("waits for the first load and ignores runs still going", () => {
+    const replied = finished("a", "replied", { commentId: "reply-a" });
+    expect(missingCommentAiReplyIds([replied], undefined)).toBe("");
+    expect(
+      missingCommentAiReplyIds(
+        [finished("b", "running", { commentId: "reply-b" })],
+        threads(),
+      ),
+    ).toBe("");
+    expect(
+      missingCommentAiReplyIds([finished("c", "failed", null)], threads()),
+    ).toBe("");
+  });
+
+  it("notes a change to the page only from a run it saw running", () => {
+    const known = new Map<string, CommentAiRequest["status"]>();
+    const running = finished("a", "running", null);
+    const applied = finished("a", "resolved", {
+      commentId: "receipt-a",
+      editApplied: true,
+    });
+    // Already finished when the page opened: the page read has it.
+    expect(
+      noteCommentAiPageChanges(known, [
+        finished("b", "resolved", applied.result),
+      ]),
+    ).toBe(false);
+    expect(noteCommentAiPageChanges(known, [running])).toBe(false);
+    expect(noteCommentAiPageChanges(known, [applied])).toBe(true);
+    // Seen once, not again on the next poll.
+    expect(noteCommentAiPageChanges(known, [applied])).toBe(false);
+  });
+
+  it("leaves the page alone for a run that changed nothing in it", () => {
+    const known = new Map<string, CommentAiRequest["status"]>([
+      ["a", "running"],
+      ["b", "running"],
+      ["c", "refreshing"],
+    ]);
+    expect(
+      noteCommentAiPageChanges(known, [
+        finished("a", "replied", { commentId: "reply-a" }),
+        finished("b", "suggested", { suggestionId: "suggestion-b" }),
+        finished("c", "needs-review", null),
+      ]),
+    ).toBe(false);
+    // A change left for review is in the page too.
+    known.set("d", "running");
+    expect(
+      noteCommentAiPageChanges(known, [
+        finished("d", "needs-review", { editApplied: true }),
+      ]),
+    ).toBe(true);
   });
 });

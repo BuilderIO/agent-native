@@ -83,7 +83,7 @@ export async function assertSignedInOnBeta(
         `${site.host} does not consider this context signed in (HTTP ${session.status}: ${session.body.slice(0, 200)}). ${sessionFailureReason({ status: session.status, body: session.body, tokenProvided: false })}`,
       );
     }
-    const expected = expectedEmail();
+    const expected = expectedEmail(site.id);
     if (email.toLowerCase() !== expected.toLowerCase()) {
       throw new Error(
         `${site.host} resolved this session to ${email}, not ${expected}.`,

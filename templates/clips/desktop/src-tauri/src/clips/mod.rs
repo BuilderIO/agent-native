@@ -1895,6 +1895,12 @@ pub async fn set_bubble_capture_excluded(app: AppHandle, excluded: bool) -> Resu
     Ok(())
 }
 
+/// The pill outlives screen-recording chrome while a meeting owns it: a meeting
+/// is marked active as its pill shows, before its recording state is set.
+fn recording_chrome_teardown_hides_pill(meeting_active: bool, recording_active: bool) -> bool {
+    !meeting_active && !recording_active
+}
+
 fn overlay_labels_to_hide(preserve_finalizing: bool) -> impl Iterator<Item = &'static str> {
     let preserve_toolbar = TOOLBAR_FINISHING.load(Ordering::SeqCst);
     OVERLAY_LABELS.iter().copied().filter(move |label| {
@@ -1956,7 +1962,10 @@ pub async fn hide_recording_chrome(
     let app_for_pill = app.clone();
     tauri::async_runtime::spawn(async move {
         tokio::time::sleep(std::time::Duration::from_millis(1000)).await;
-        if !crate::util::is_recording_active(&app_for_pill) {
+        if recording_chrome_teardown_hides_pill(
+            crate::util::is_meeting_active(&app_for_pill),
+            crate::util::is_recording_active(&app_for_pill),
+        ) {
             let _ = crate::recording_indicator::recording_pill_hide(app_for_pill).await;
         }
     });
@@ -2704,10 +2713,11 @@ mod tests {
         bubble_visible_center, bubble_window_center, bubble_window_size_for_scale,
         clamp_popover_logical_size, commit_bubble_size_transaction, cursor_fraction_in_window,
         legacy_bubble_window_size_for_scale, migrate_legacy_bubble_position,
-        overlay_labels_to_hide, restore_bubble_position_preference_at, same_mask,
-        snapshot_bubble_position_preference_at, strip_trailing_period_for_messaging,
-        text_insertion_strategy, BubbleHitMask, BubblePositionPreference, TextInsertionStrategy,
-        BUBBLE_LABEL, BUBBLE_POSITION_GEOMETRY_VERSION, FINALIZING_LABEL,
+        overlay_labels_to_hide, recording_chrome_teardown_hides_pill,
+        restore_bubble_position_preference_at, same_mask, snapshot_bubble_position_preference_at,
+        strip_trailing_period_for_messaging, text_insertion_strategy, BubbleHitMask,
+        BubblePositionPreference, TextInsertionStrategy, BUBBLE_LABEL,
+        BUBBLE_POSITION_GEOMETRY_VERSION, FINALIZING_LABEL,
     };
     use tauri::PhysicalSize;
 
@@ -3028,6 +3038,14 @@ mod tests {
         assert!(!overlay_labels_to_hide(true).any(|label| label == FINALIZING_LABEL));
         assert!(overlay_labels_to_hide(false).any(|label| label == FINALIZING_LABEL));
         assert!(overlay_labels_to_hide(false).any(|label| label == BUBBLE_LABEL));
+    }
+
+    #[test]
+    fn recording_chrome_teardown_keeps_a_starting_meetings_pill() {
+        assert!(!recording_chrome_teardown_hides_pill(true, false));
+        assert!(!recording_chrome_teardown_hides_pill(true, true));
+        assert!(!recording_chrome_teardown_hides_pill(false, true));
+        assert!(recording_chrome_teardown_hides_pill(false, false));
     }
 
     #[test]

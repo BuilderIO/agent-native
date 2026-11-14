@@ -15900,7 +15900,7 @@ function BreakpointPreviewRow({
                     </DropdownMenuTrigger>
                     <DropdownMenuContent
                       align="end"
-                      className="design-editor-app-menu-content w-52 rounded-lg bg-[var(--design-editor-panel-bg)] p-1"
+                      className="design-editor-app-menu-content w-52 bg-[var(--design-editor-panel-bg)]"
                     >
                       {onChangeBreakpointWidth ? (
                         <div className="flex items-center gap-1.5 px-1.5 py-1">
@@ -15946,7 +15946,7 @@ function BreakpointPreviewRow({
                       ) : null}
                       {onRemoveBreakpoint ? (
                         <DropdownMenuItem
-                          className="h-7 px-2 py-0 !text-[12px] text-destructive focus:text-destructive"
+                          className="text-destructive focus:text-destructive"
                           disabled={breakpointMutationPending}
                           onSelect={() => {
                             if (breakpointMutationPending) return;

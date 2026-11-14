@@ -11,6 +11,7 @@ import {
 
 import { e2eBaseURL } from "./base-url";
 import { designE2eRunRoot } from "./global-teardown";
+import { verifyIsolatedE2eMember } from "./sql-inline-bytes-scan";
 import {
   E2E_CHILD_STARTUP_RETRY_MS,
   E2E_CHILD_STARTUP_TIMEOUT_MS,
@@ -261,6 +262,7 @@ async function seedMentionMember(
   browser: import("@playwright/test").Browser,
   ownerContext: import("@playwright/test").BrowserContext,
   baseURL: string,
+  config: FullConfig,
 ): Promise<void> {
   const memberSearch = encodeURIComponent(E2E_MENTION_EMAIL);
   const membersURL = `${baseURL}/_agent-native/org/members?limit=25&offset=0&search=${memberSearch}`;
@@ -349,6 +351,8 @@ async function seedMentionMember(
         `mention member registration failed: ${registration.status()} ${await registration.text()}`,
       );
     }
+
+    await verifyIsolatedE2eMember(config, E2E_MENTION_EMAIL);
 
     const login = await memberContext.request.post(
       `${baseURL}/_agent-native/auth/login`,
@@ -479,7 +483,7 @@ export default async function globalSetup(config: FullConfig) {
             `create-design did not return an id: ${JSON.stringify(created)}`,
           );
         }
-        await seedMentionMember(browser, context, baseURL);
+        await seedMentionMember(browser, context, baseURL, config);
         await postAction(context.request, baseURL, "create-file", {
           designId: createdDesignId,
           filename: "index.html",

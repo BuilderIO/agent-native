@@ -85,31 +85,27 @@ Agent](/docs/template-design-agent) para prompts por tarefa.
 
 ### Importar {#import}
 
-Um painel, cinco formas de trazer conteúdo externo:
+Quatro formas de trazer conteúdo externo:
 
 <Table
   id="doc-block-design-import-table"
   columns={["Método", "Como funciona"]}
   rows={[
     [
-      "URL de frame do Figma",
-      "Cole um link de compartilhamento do Figma. Conecte sua conta do Figma na primeira vez. É importado como uma tela real e editável.",
+      "Link do Figma",
+      "Cole no chat um link para uma página ou um frame do Figma. Conecte sua conta do Figma na primeira vez. Importa como telas reais e editáveis, e funciona para arquivos grandes demais para importar do disco.",
     ],
     [
       "Colar do Figma",
-      "Copie um frame no Figma e cole (Cmd+V) diretamente na tela do Design. Isso é um atalho da tela, não um botão separado no painel Importar.",
+      "Copie um frame no Figma e cole (Cmd+V) no canvas do Design.",
     ],
     [
-      "Enviar .fig",
-      "Envie um arquivo .fig diretamente. Uma importação separada, no nível do design, diferente de importar um .fig em um sistema de design.",
-    ],
-    [
-      "Importar HTML",
-      "Cole HTML bruto em uma caixa de texto, ou envie um arquivo .html, para trazê-lo como uma tela.",
+      "Arquivo → Importar…",
+      "Escolha um arquivo .fig ou .html. O Design importa o arquivo inteiro para o canvas e mostra o progresso em uma notificação. Um .fig acima dos limites do navegador é recusado na hora; use um link do Figma. Isso é separado de importar um .fig para um design system.",
     ],
     [
       "App local",
-      "Não é self-service a partir deste painel. Ele mostra comandos de instalação e conexão feitos para serem colados em um agente de código externo, que então abre seu aplicativo em execução no Design como suas próprias telas. Veja /visual-edit no Guia do desenvolvedor.",
+      "Arquivo → Conectar app local abre o comando de instalação da skill /visual-edit. Seu agente de código então abre seu app em execução no Design como telas próprias. Veja /visual-edit no Guia do desenvolvedor.",
     ],
   ]}
 />

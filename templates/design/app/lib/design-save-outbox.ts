@@ -1,5 +1,13 @@
 import { callAction } from "@agent-native/core/client/hooks";
+import {
+  SOURCE_FILE_NOT_FOUND_ERROR_CODE,
+  SOURCE_VERSION_CONFLICT_ERROR_CODE,
+  TWEAK_SELECTIONS_CONFLICT_ERROR_CODE,
+  saveErrorCode,
+} from "@shared/save-conflict";
 import { sourceContentHash } from "@shared/source-workspace";
+
+import { liveDesignSaveWriterSources } from "./design-save-outbox-writers";
 
 export type DesignSaveActionName =
   | "update-file"
@@ -15,6 +23,13 @@ export interface DesignSaveOutboxEntry {
   operationSource: string;
   operationRevision: number;
   payload: Record<string, unknown>;
+  /**
+   * The file text `payload.content` was edited from. Kept beside the payload,
+   * never inside it, so replay can merge into a file that moved on while the
+   * edit was queued. Absent when the text was not known to match
+   * `payload.expectedVersionHash`.
+   */
+  baseContent?: string;
   updatedAt: number;
 }
 
@@ -27,13 +42,33 @@ export interface DesignSaveOutboxStorage {
 
 export interface DrainDesignSaveOutboxResult {
   saved: DesignSaveOutboxEntry[];
+  /** Saved after merging the queued edit into newer server content. */
+  merged: DesignSaveOutboxEntry[];
+  /** The server had already applied this save, so the copy was dropped, not replayed. */
+  alreadyApplied: DesignSaveOutboxEntry[];
+  /** Left queued because an editor open in another tab is still sending it. */
+  deferred: DesignSaveOutboxEntry[];
   failed: Array<{ entry: DesignSaveOutboxEntry; error: unknown }>;
   dropped: Array<{ entry: DesignSaveOutboxEntry; error: unknown }>;
   rebased: Array<{ entry: DesignSaveOutboxEntry; error: unknown }>;
 }
 
+export interface DesignSaveReplayMerge {
+  readLiveFileContent: (fileId: string) => Promise<string>;
+  mergeContent: (input: {
+    base: string;
+    mine: string;
+    theirs: string;
+  }) => string | null;
+}
+
+const MAX_REPLAY_MERGES = 3;
+
 export function isTerminalSaveError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
+  // The merge's live read fails with this code when the file was deleted
+  // after the save was refused; its wording differs from update-file's.
+  if (saveErrorCode(error) === SOURCE_FILE_NOT_FOUND_ERROR_CODE) return true;
   const candidate = error as { status?: unknown; message?: unknown };
   return (
     candidate.status === 404 &&
@@ -44,12 +79,19 @@ export function isTerminalSaveError(error: unknown): boolean {
 
 export function isConflictSaveError(error: unknown): boolean {
   if (!error || typeof error !== "object") return false;
-  const candidate = error as { code?: unknown; message?: unknown };
-  if (candidate.code === "client_build_mismatch") return false;
+  const code = saveErrorCode(error);
+  if (code !== undefined) return code === SOURCE_VERSION_CONFLICT_ERROR_CODE;
+  // Only a server that predates typed codes says it in words; a typed error
+  // that is not a conflict can still quote the wording.
+  const message = (error as { message?: unknown }).message;
   return (
-    typeof candidate.message === "string" &&
-    /changed since it was read|re-read the file/i.test(candidate.message)
+    typeof message === "string" &&
+    /changed since it was read|re-read the file/i.test(message)
   );
+}
+
+export function isTweakConflictSaveError(error: unknown): boolean {
+  return saveErrorCode(error) === TWEAK_SELECTIONS_CONFLICT_ERROR_CODE;
 }
 
 const REJECTED_RESTORE_CLAIM_ERROR_CODES = new Set([
@@ -458,6 +500,26 @@ export function createDesignSaveOutboxEntry(input: {
   };
 }
 
+/**
+ * Keeps `baseContent` only when it provably is the version the edit was based
+ * on. A base that cannot be proven would merge against the wrong ancestor, so
+ * an entry without one is replayed without merging.
+ */
+export function withVerifiedBaseContent(
+  entry: DesignSaveOutboxEntry,
+  baseContent: string | undefined,
+): DesignSaveOutboxEntry {
+  if (
+    baseContent === undefined ||
+    entry.actionName !== "update-file" ||
+    entry.payload.identityOnly === true ||
+    sourceContentHash(baseContent) !== entry.payload.expectedVersionHash
+  ) {
+    return entry;
+  }
+  return { ...entry, baseContent };
+}
+
 export async function journalDesignSaveOutboxEntry(
   entry: DesignSaveOutboxEntry,
   storage: DesignSaveOutboxStorage = indexedDbStorage,
@@ -526,6 +588,116 @@ export function updateFileResultPersistedContent(
   return !result.skippedStaleOperation;
 }
 
+/** The server's answer that it already applied this save, though the file has since moved on. */
+function isOperationAlreadyApplied(actionResult: unknown): boolean {
+  if (!actionResult || typeof actionResult !== "object") return false;
+  const result = actionResult as {
+    updated?: unknown;
+    operationAlreadyApplied?: unknown;
+  };
+  return result.updated === true && result.operationAlreadyApplied === true;
+}
+
+async function mergeQueuedFileEdit(
+  entry: DesignSaveOutboxEntry,
+  payload: Record<string, unknown>,
+  base: string | undefined,
+  merge: DesignSaveReplayMerge | undefined,
+): Promise<{ payload: Record<string, unknown>; base: string } | null> {
+  const mine = payload.content;
+  if (
+    !merge ||
+    base === undefined ||
+    typeof mine !== "string" ||
+    entry.actionName !== "update-file" ||
+    payload.identityOnly === true ||
+    sourceContentHash(base) !== payload.expectedVersionHash
+  ) {
+    return null;
+  }
+  // A failed read propagates: the server's version is unknown, not conflicting.
+  const theirs = await merge.readLiveFileContent(entry.resourceId);
+  const merged = merge.mergeContent({ base, mine, theirs });
+  if (merged === null) return null;
+  return {
+    payload: {
+      ...payload,
+      content: merged,
+      expectedVersionHash: sourceContentHash(theirs),
+    },
+    base: theirs,
+  };
+}
+
+async function replayEntry(
+  entry: DesignSaveOutboxEntry,
+  invokeAction: (
+    actionName: DesignSaveActionName,
+    payload: Record<string, unknown>,
+  ) => Promise<unknown>,
+  merge: DesignSaveReplayMerge | undefined,
+): Promise<"saved" | "merged" | "alreadyApplied"> {
+  if (
+    entry.actionName === "update-file" &&
+    typeof entry.payload.content === "string" &&
+    (typeof entry.payload.expectedVersionHash !== "string" ||
+      entry.payload.expectedVersionHash.trim().length === 0)
+  ) {
+    const conflict = new Error(
+      "File changed since it was read. Re-read the file before retrying this saved change.",
+    );
+    (conflict as Error & { status?: number }).status = 409;
+    throw conflict;
+  }
+  if (
+    entry.actionName === "apply-tweaks" &&
+    typeof entry.payload.expectedSelectionsHash !== "string"
+  ) {
+    const conflict = new Error(
+      "A full tweak snapshot cannot be replayed without a known base version",
+    );
+    (conflict as Error & { status?: number }).status = 409;
+    throw conflict;
+  }
+  let payload = entry.payload;
+  let base = entry.baseContent;
+  for (let merges = 0; ; merges += 1) {
+    try {
+      const actionResult = await invokeAction(entry.actionName, payload);
+      if (
+        entry.actionName === "update-file" &&
+        typeof payload.content === "string"
+      ) {
+        // Merging a save the file already took would write it again into
+        // content others have changed since, bringing back what they undid.
+        if (isOperationAlreadyApplied(actionResult)) return "alreadyApplied";
+        if (!updateFileResultPersistedContent(actionResult, payload.content)) {
+          const conflict = new Error(
+            "The saved file changed elsewhere before this edit could be replayed",
+          );
+          (conflict as Error & { status?: number }).status = 409;
+          throw conflict;
+        }
+      }
+      return merges > 0 ? "merged" : "saved";
+    } catch (error) {
+      if (!isConflictSaveError(error)) throw error;
+      // Out of attempts is not a clash: the edit merged, the file just kept
+      // moving. A conflict error here would make the drain drop the edit.
+      if (merges >= MAX_REPLAY_MERGES) {
+        throw Object.assign(
+          new Error("The file kept changing while this edit was being merged"),
+          { cause: error },
+        );
+      }
+      const next = await mergeQueuedFileEdit(entry, payload, base, merge);
+      if (next === null) throw error;
+      payload = next.payload;
+      base = next.base;
+    }
+  }
+}
+
 async function drainEntries(
   designId: string,
   actorScope: string,
@@ -534,51 +706,28 @@ async function drainEntries(
     payload: Record<string, unknown>,
   ) => Promise<unknown>,
   storage: DesignSaveOutboxStorage,
+  merge: DesignSaveReplayMerge | undefined,
+  isReplayable: (entry: DesignSaveOutboxEntry) => Promise<boolean>,
 ): Promise<DrainDesignSaveOutboxResult> {
   const result: DrainDesignSaveOutboxResult = {
     saved: [],
+    merged: [],
+    alreadyApplied: [],
+    deferred: [],
     failed: [],
     dropped: [],
     rebased: [],
   };
   for (const entry of await storage.list(designId, actorScope)) {
+    // An editor open in another tab is still sending this copy itself.
+    if (!(await isReplayable(entry))) {
+      result.deferred.push(entry);
+      continue;
+    }
     try {
-      if (
-        entry.actionName === "update-file" &&
-        typeof entry.payload.content === "string" &&
-        (typeof entry.payload.expectedVersionHash !== "string" ||
-          entry.payload.expectedVersionHash.trim().length === 0)
-      ) {
-        const conflict = new Error(
-          "File changed since it was read. Re-read the file before retrying this saved change.",
-        );
-        (conflict as Error & { status?: number }).status = 409;
-        throw conflict;
-      }
-      if (
-        entry.actionName === "apply-tweaks" &&
-        typeof entry.payload.expectedSelectionsHash !== "string"
-      ) {
-        const conflict = new Error(
-          "A full tweak snapshot cannot be replayed without a known base version",
-        );
-        (conflict as Error & { status?: number }).status = 409;
-        throw conflict;
-      }
-      const actionResult = await invokeAction(entry.actionName, entry.payload);
-      if (
-        entry.actionName === "update-file" &&
-        typeof entry.payload.content === "string" &&
-        !updateFileResultPersistedContent(actionResult, entry.payload.content)
-      ) {
-        const conflict = new Error(
-          "The saved file changed elsewhere before this edit could be replayed",
-        );
-        (conflict as Error & { status?: number }).status = 409;
-        throw conflict;
-      }
+      const outcome = await replayEntry(entry, invokeAction, merge);
       await storage.deleteIfRevision(entry);
-      result.saved.push(entry);
+      result[outcome].push(entry);
     } catch (error) {
       if (
         isRejectedRestoreClaimError(error) &&
@@ -619,7 +768,10 @@ async function drainEntries(
             `[design-save-outbox] dropped unrecoverable save for ${entry.actionName} ${entry.resourceId} (file no longer exists)`,
           );
         }
-      } else if (isConflictSaveError(error)) {
+      } else if (
+        isConflictSaveError(error) ||
+        (entry.actionName === "apply-tweaks" && isTweakConflictSaveError(error))
+      ) {
         await storage.deleteIfRevision(entry);
         result.rebased.push({ entry, error });
         if (typeof console !== "undefined") {
@@ -635,6 +787,34 @@ async function drainEntries(
   return result;
 }
 
+export async function listDesignSaveOutboxEntries(
+  designId: string,
+  actorScope: string,
+  storage: DesignSaveOutboxStorage = indexedDbStorage,
+): Promise<DesignSaveOutboxEntry[]> {
+  return await storage.list(designId, actorScope);
+}
+
+/**
+ * The queued saves nothing is sending: not a live save in this tab, and not an
+ * editor open in another tab. Only these are stuck, so only these are unsaved.
+ */
+export function stuckDesignSaveOutboxEntries(
+  entries: readonly DesignSaveOutboxEntry[],
+  options: {
+    ownOperationSource: string;
+    liveWriterSources: ReadonlySet<string> | null;
+    sendingResourceIds: ReadonlySet<string>;
+  },
+): DesignSaveOutboxEntry[] {
+  return entries.filter(
+    (entry) =>
+      !options.sendingResourceIds.has(entry.resourceId) &&
+      (entry.operationSource === options.ownOperationSource ||
+        !options.liveWriterSources?.has(entry.operationSource)),
+  );
+}
+
 export async function drainDesignSaveOutbox(options: {
   designId: string;
   actorScope: string;
@@ -643,6 +823,13 @@ export async function drainDesignSaveOutbox(options: {
     payload: Record<string, unknown>,
   ) => Promise<unknown>;
   storage?: DesignSaveOutboxStorage;
+  merge?: DesignSaveReplayMerge;
+  /**
+   * The caller's own save session. With it, copies whose session is held open
+   * by another tab are left for that tab; without it every copy is replayed.
+   */
+  ownOperationSource?: string;
+  listLiveWriters?: () => Promise<ReadonlySet<string> | null>;
 }): Promise<DrainDesignSaveOutboxResult> {
   const invokeAction =
     options.invokeAction ??
@@ -655,8 +842,23 @@ export async function drainDesignSaveOutbox(options: {
       )(actionName, payload));
   const storage = options.storage ?? indexedDbStorage;
   await storage.pruneOlderThan(Date.now() - DESIGN_SAVE_OUTBOX_RETENTION_MS);
+  const { ownOperationSource } = options;
+  const listLiveWriters =
+    options.listLiveWriters ?? liveDesignSaveWriterSources;
+  // Asked again for each copy: an editor can open while the drain is running.
+  const isReplayable = async (entry: DesignSaveOutboxEntry) =>
+    ownOperationSource === undefined ||
+    entry.operationSource === ownOperationSource ||
+    !(await listLiveWriters())?.has(entry.operationSource);
   const run = () =>
-    drainEntries(options.designId, options.actorScope, invokeAction, storage);
+    drainEntries(
+      options.designId,
+      options.actorScope,
+      invokeAction,
+      storage,
+      options.merge,
+      isReplayable,
+    );
   const lockManager =
     typeof navigator === "undefined"
       ? undefined

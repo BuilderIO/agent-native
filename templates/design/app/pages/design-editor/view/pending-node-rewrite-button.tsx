@@ -103,7 +103,7 @@ export function renderPendingNodeRewriteButton({
         ) : null}
       </Tooltip>
       <DropdownMenuContent align="end" className="w-64">
-        <DropdownMenuLabel className="text-xs text-muted-foreground">
+        <DropdownMenuLabel className="text-muted-foreground">
           {t("designEditor.nodeRewrite.pendingReviewMenu")}
         </DropdownMenuLabel>
         {pendingNodeRewriteProposals.map((proposal) => (

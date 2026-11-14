@@ -2739,6 +2739,55 @@ describe("SSE event processor error classification", () => {
     );
   });
 
+  it("does not warn about a missing final for an action-settled run", async () => {
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          { type: "tool_start", tool: "save", id: "call-1", input: {} },
+          { type: "tool_done", tool: "save", id: "call-1", result: "saved" },
+          { type: "done", reason: "action_settled" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-settled",
+      ),
+    );
+    expect(
+      results
+        .at(-1)
+        ?.content.some(
+          (part) =>
+            part.type === "text" &&
+            part.text.includes("without sending a final"),
+        ),
+    ).toBe(false);
+    expect(results.at(-1)?.metadata?.custom?.runWarning).toBeUndefined();
+  });
+
+  it("keeps a failed tool visible even if the terminal claims settlement", async () => {
+    const results = await drain(
+      readSSEStream(
+        eventStream([
+          { type: "tool_start", tool: "save", id: "call-1", input: {} },
+          {
+            type: "tool_done",
+            tool: "save",
+            id: "call-1",
+            result: "failed",
+            isError: true,
+          },
+          { type: "done", reason: "action_settled" },
+        ]),
+        [],
+        { value: 0 },
+        "tab-failed-settlement",
+      ),
+    );
+    expect(results.at(-1)?.metadata?.custom?.runWarning).toMatchObject({
+      failedTools: ["save"],
+    });
+  });
+
   it("turns a terminal activity-only run into a visible final warning", async () => {
     const results = await drain(
       readSSEStream(

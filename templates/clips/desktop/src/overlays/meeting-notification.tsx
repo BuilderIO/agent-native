@@ -296,7 +296,9 @@ export function MeetingNotification() {
   useEffect(() => {
     const win = getCurrentWindow();
     if (data) {
-      win.show().catch(() => {});
+      // The webview's own show makes the card key, and a click on a key card
+      // activates Clips and brings the main window forward with it.
+      invoke("meeting_notification_show").catch(() => {});
       // Cleanup cancels the timer when the card changes, but a commit can land
       // before that cleanup runs; writeDebugSnapshot checks the rendered card.
       const timer = window.setTimeout(() => {

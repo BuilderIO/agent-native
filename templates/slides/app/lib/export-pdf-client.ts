@@ -328,19 +328,17 @@ export async function waitForExportStage(
   }
 }
 
-function encodeSidecar(sidecar: SlidesPdfSidecar): string | undefined {
+function encodeSidecar(
+  sidecar: SlidesPdfSidecar,
+): { encoded: string } | { skipped: true } {
   const bytes = new TextEncoder().encode(JSON.stringify(sidecar));
-  if (bytes.length > SLIDES_PDF_SIDECAR_MAX_JSON_BYTES) {
-    console.warn(
-      `[export-pdf] deck source is ${bytes.length} bytes, over the ${SLIDES_PDF_SIDECAR_MAX_JSON_BYTES}-byte sidecar cap — exporting without it. Re-importing this PDF will reconstruct layers from the page content instead of restoring the original slides.`,
-    );
-    return undefined;
-  }
+  if (bytes.length > SLIDES_PDF_SIDECAR_MAX_JSON_BYTES)
+    return { skipped: true };
   let binary = "";
   for (let i = 0; i < bytes.length; i += 0x8000) {
     binary += String.fromCharCode(...bytes.subarray(i, i + 0x8000));
   }
-  return btoa(binary);
+  return { encoded: btoa(binary) };
 }
 
 const WIN_ANSI_HIGH = new Set(
@@ -515,10 +513,16 @@ export async function exportDeckAsPdf(
     /** Reports `deck_exported` for this deck when set. */
     analytics?: BrowserDeckExportFacts;
   } = {},
-): Promise<void> {
+): Promise<{ sidecarSkipped: boolean }> {
   const { analytics, ...renderOptions } = options;
+  let result: { sidecarSkipped: boolean };
   try {
-    await downloadDeckPdf(deckTitle, slides, aspectRatio, renderOptions);
+    result = await downloadDeckPdf(
+      deckTitle,
+      slides,
+      aspectRatio,
+      renderOptions,
+    );
   } catch (error) {
     if (analytics) {
       trackBrowserDeckExported("pdf", {
@@ -537,6 +541,7 @@ export async function exportDeckAsPdf(
       status: "completed",
     });
   }
+  return result;
 }
 
 async function downloadDeckPdf(
@@ -544,7 +549,7 @@ async function downloadDeckPdf(
   slides: PdfExportSlide[],
   aspectRatio: AspectRatio | undefined,
   options: { signal?: AbortSignal; shareToken?: string },
-): Promise<void> {
+): Promise<{ sidecarSkipped: boolean }> {
   const { signal, shareToken } = options;
   throwIfExportAborted(signal);
   const [{ domToJpeg }, { jsPDF }] = await Promise.all([
@@ -577,6 +582,8 @@ async function downloadDeckPdf(
     await waitForDocumentFonts(signal);
     throwIfExportAborted(signal);
     for (let i = 0; i < slides.length; i++) {
+      // A macrotask, not a frame: rAF stalls while the tab is hidden and would hang the export.
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
       throwIfExportAborted(signal);
       const slideId = slides[i].id;
       const source = findSlideExportSource(
@@ -666,7 +673,9 @@ async function downloadDeckPdf(
       ...(slide.animations?.length ? { animations: slide.animations } : {}),
     })),
   });
-  if (sidecar) pdf.addMetadata(sidecar, SLIDES_PDF_SIDECAR_NAMESPACE);
+  if ("encoded" in sidecar) {
+    pdf.addMetadata(sidecar.encoded, SLIDES_PDF_SIDECAR_NAMESPACE);
+  }
 
   throwIfExportAborted(signal);
   const safeName = deckTitle.replace(/[^a-zA-Z0-9]/g, "-");
@@ -681,4 +690,5 @@ async function downloadDeckPdf(
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return { sidecarSkipped: "skipped" in sidecar };
 }

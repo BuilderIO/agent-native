@@ -87,12 +87,17 @@ decision, not an automatic overwrite. Property and view names are labels; their
 stable IDs identify edits. Sparse patches preserve omitted fields, and empty
 lists explicitly clear supported settings.
 
-Ordinary setup supports stored property types, additive options, metadata edits,
-the existing text natural key, table presentation, and list row layouts. It refuses destructive
-type/option changes, source-managed schema edits, and relationship/computed-field
-authoring. Source status is readable, but this surface does not define joins,
-row unions, source bindings, or write-mode changes. Discovery of a source-backed
-row never establishes permission to write its fields.
+Ordinary setup supports stored property types including `blocks`, additive
+options, removing an option nothing uses, metadata edits, the existing text
+natural key, table presentation, and list row layouts. An option `remove` edit
+fails with `OPTION_IN_USE` (its details name the row count and view IDs) while
+any row's value or a saved view's filter still uses the option, by ID or name
+in any case ("is empty" and other filters without a value use none); move those
+rows and change those filters first. It refuses type changes, source-managed
+schema edits, and computed-field authoring. Source status is readable, but this
+surface does not define joins, row unions, source bindings, or write-mode
+changes. Discovery of a source-backed row never establishes permission to write
+its fields.
 
 Read back each changed object separately, then use its Open in Content link.
 Rows retain both membership and Page identity in their links. Trash remains
@@ -125,11 +130,24 @@ sticks to the top while scrolling.
 
 People rarely say "Blocks field". They say tabs, page tabs, document tabs, or
 sections, or name one by its field ("the Notes tab"). Each of those is a Blocks
-field: "add a tab" means adding a `blocks` property with
-`configure-document-property`, "rename the Notes tab" means renaming that
-property, and "what's in my Notes tab" means reading that field. Fields are
-defined on the collection, so adding, renaming, or deleting one changes it on
-every row. Say so before doing it for someone who asked about one page.
+field: "add a tab" means `configure-document-property` with
+`operation: "create"` and `definition: { name, type: "blocks" }`, "rename the
+Notes tab" means an `update` with `patch: { name }` (renaming the page body's
+field keeps it the body), and "what's in my Notes tab" means reading that field.
+Fields are defined on the collection, so adding, renaming, or deleting one
+changes it on every row. Say so before doing it for someone who asked about one
+page.
+
+To fill or move a whole field, read it with `list-content-database-blocks` and
+write it with `set-document-property`, passing that read's `fieldRevision` as
+`expectedBlocksFieldRevision`. Read every page first: the list returns 50
+blocks unless you pass `limit` (up to 100), and `page.nextCursor` continues it.
+A field's text is the NFM of its top-level blocks (`parentId: null`) joined
+with newlines; a nested block's NFM is already inside its parent's, so copying
+every listed block duplicates list items and other nested content. A field
+nobody has written reads as one `<empty-block/>` at revision 0. To move text,
+write it to the new field first, then rewrite the old field without it, each
+with its own revision.
 
 Each tab shows the field's name and word count, tabs reorder by dragging, and a
 dot marks a tab that changed since this browser last showed it. People who can

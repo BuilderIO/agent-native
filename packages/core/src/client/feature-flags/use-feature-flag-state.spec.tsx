@@ -12,10 +12,7 @@ const analyticsMocks = vi.hoisted(() => ({ trackEvent: vi.fn() }));
 vi.mock("../analytics.js", () => analyticsMocks);
 
 import { setAgentNativeApiDisabled } from "../api-surface.js";
-import {
-  useFeatureFlagState,
-  type FeatureFlagState,
-} from "./use-feature-flag.js";
+import { useFeatureFlagState, type FeatureFlagState } from "./index.js";
 
 function jsonResponse(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {

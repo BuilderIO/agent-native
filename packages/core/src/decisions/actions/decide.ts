@@ -62,6 +62,7 @@ const decisionOutputSchema = z.discriminatedUnion("status", [
     status: z.literal("not_configured"),
     reason: z.literal("missing_credentials"),
     providers: z.array(providerSchema),
+    credentialKeys: z.array(z.enum(["JEV_API_KEY", "OPENAI_API_KEY"])),
   }),
   z.object({
     status: z.literal("failed"),

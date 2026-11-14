@@ -1,6 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
+import { composeAttachmentLink } from "@shared/compose-attachments.js";
 import {
   decodeCommonHtmlEntities,
   escapeHtml,
@@ -214,7 +215,7 @@ export async function resolveComposeAttachments(
         originalName: att.originalName || att.filename,
         mimeType: att.mimeType || "application/octet-stream",
         size: att.size || data.length,
-        url: att.url || "",
+        url: composeAttachmentLink(att as ComposeAttachment),
         source: "gmail",
         gmailMessageId: att.gmailMessageId,
         gmailAttachmentId: att.gmailAttachmentId,

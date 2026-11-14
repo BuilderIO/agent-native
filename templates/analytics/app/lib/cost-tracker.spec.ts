@@ -38,6 +38,20 @@ describe("cost tracker", () => {
     expect(tracker.getTotalBytes()).toBe(1234);
   });
 
+  it("prices scanned bytes at $6.25 per binary TiB", async () => {
+    const tracker = await loadTracker();
+
+    tracker.recordQueryCost({
+      status: "success",
+      cached: false,
+      providerCacheHit: false,
+      bytesProcessed: 1024 ** 4,
+    });
+
+    expect(tracker.getTotalBytes()).toBe(1024 ** 4);
+    expect(tracker.getTotalCost()).toBe(6.25);
+  });
+
   it("counts a scan once and nothing for a result that did not scan", async () => {
     const tracker = await loadTracker(memoryStorage());
 

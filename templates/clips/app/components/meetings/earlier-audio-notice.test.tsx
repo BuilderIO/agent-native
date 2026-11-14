@@ -93,14 +93,26 @@ describe("useDeferredNotesWait", () => {
   const refetch = vi.fn();
   const onGiveUp = vi.fn();
 
-  function Harness(props: { meetingId: string; notesArrived: boolean }) {
+  function Harness(props: {
+    meetingId: string;
+    notesArrived: boolean;
+    notesFailed?: boolean;
+  }) {
     wait = useDeferredNotesWait({ ...props, refetch, onGiveUp });
     return null;
   }
-  const render = (notesArrived = false, meetingId = "m1") =>
+  const render = (
+    notesArrived = false,
+    meetingId = "m1",
+    notesFailed = false,
+  ) =>
     act(async () => {
       root.render(
-        <Harness meetingId={meetingId} notesArrived={notesArrived} />,
+        <Harness
+          meetingId={meetingId}
+          notesArrived={notesArrived}
+          notesFailed={notesFailed}
+        />,
       );
     });
   const advance = (ms: number) =>
@@ -170,6 +182,40 @@ describe("useDeferredNotesWait", () => {
     await advance(1_000);
 
     expect(onGiveUp).toHaveBeenCalledTimes(1);
+  });
+
+  it("says so as soon as the run it waits on fails", async () => {
+    await render();
+    await start();
+    await advance(DEFERRED_NOTES_POLL_MS);
+
+    await render(true, "m1", true);
+    expect(wait.pending).toBe(false);
+    expect(onGiveUp).toHaveBeenCalledTimes(1);
+
+    refetch.mockClear();
+    await advance(DEFERRED_NOTES_WAIT_MS);
+    expect(refetch).not.toHaveBeenCalled();
+    expect(onGiveUp).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports each failed run it waits on", async () => {
+    await render();
+    await start();
+    await render(true, "m1", true);
+    expect(onGiveUp).toHaveBeenCalledTimes(1);
+
+    await render();
+    await start();
+    await render(true, "m1", true);
+    expect(onGiveUp).toHaveBeenCalledTimes(2);
+  });
+
+  it("ignores a failure from before the wait started", async () => {
+    await render(true, "m1", true);
+    await advance(DEFERRED_NOTES_WAIT_MS);
+
+    expect(onGiveUp).not.toHaveBeenCalled();
   });
 
   it("doesn't carry a wait over to another meeting", async () => {

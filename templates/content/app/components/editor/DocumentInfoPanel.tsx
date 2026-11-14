@@ -1,4 +1,4 @@
-import { useT } from "@agent-native/core/client/i18n";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import type { Document, DocumentProperty } from "@shared/api";
 import {
   countWords,
@@ -9,10 +9,12 @@ import {
 } from "@shared/properties";
 
 import {
+  documentPropertiesReadFailed,
   documentPropertiesResponseMatchesScope,
   useDocumentProperties,
 } from "@/hooks/use-document-properties";
 
+import { useNow } from "./database/GitHubSourceStatusLine";
 import type { DatabaseRowView } from "./database/row-view-layout";
 import { DescriptionField } from "./DescriptionField";
 import { DocumentProperties } from "./DocumentProperties";
@@ -21,12 +23,11 @@ interface DocumentInfoPanelProps {
   document: Document;
   documentContent: string;
   additionalBlockContents?: Readonly<Record<string, string>>;
-  databaseId?: string | null;
-  databaseDocumentId?: string | null;
+  databaseId?: string | null | undefined;
+  databaseDocumentId?: string | null | undefined;
   rowView?: DatabaseRowView | null;
   rowViewPending?: boolean;
   canEdit: boolean;
-  popoverContainer?: HTMLElement | null;
   onSaveDescription: (description: string) => Promise<unknown>;
 }
 
@@ -39,7 +40,6 @@ export function DocumentInfoPanel({
   rowView,
   rowViewPending,
   canEdit,
-  popoverContainer,
   onSaveDescription,
 }: DocumentInfoPanelProps) {
   const t = useT();
@@ -60,6 +60,14 @@ export function DocumentInfoPanel({
   const loadedProperties = propertiesLoaded
     ? propertiesQuery.data?.properties
     : undefined;
+  // Properties below says so and offers the retry; counts can't be known.
+  const contentUnknown =
+    hasDatabaseFields &&
+    documentPropertiesReadFailed(
+      document.id,
+      propertyDatabaseId,
+      propertiesQuery,
+    );
   const blockFields = documentInfoBlockFields({
     documentContent,
     properties:
@@ -84,34 +92,6 @@ export function DocumentInfoPanel({
         }
         onSave={onSaveDescription}
       />
-      <section className="mt-5" data-document-info-content>
-        <h3 className="px-2 py-1 text-xs font-medium text-muted-foreground">
-          {t("editor.properties.content")}
-        </h3>
-        {hasDatabaseFields && !propertiesLoaded ? (
-          <div
-            className="mx-2 h-8 animate-pulse rounded-md bg-muted/40"
-            aria-label={t("editor.properties.loadingContent")}
-          />
-        ) : (
-          <div className="grid gap-0.5">
-            {blockFields.map((field) => (
-              <div
-                key={field.propertyId ?? "primary"}
-                className="grid min-h-8 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-md px-2 py-1.5 text-sm"
-                data-document-info-block-field={field.propertyId ?? "primary"}
-              >
-                <span className="truncate text-foreground">{field.name}</span>
-                <span className="whitespace-nowrap text-muted-foreground tabular-nums">
-                  {t("editor.properties.wordCount", {
-                    count: countWords(field.content),
-                  })}
-                </span>
-              </div>
-            ))}
-          </div>
-        )}
-      </section>
       {document.databaseMembership && !isLocalFileDocument ? (
         <DocumentProperties
           documentId={document.id}
@@ -122,10 +102,129 @@ export function DocumentInfoPanel({
           rowView={rowView}
           rowViewPending={rowViewPending}
           canEdit={canEdit}
-          popoverContainer={popoverContainer}
+          wrapValues
         />
       ) : null}
+      <PageDetails
+        document={document}
+        blockFields={
+          contentUnknown
+            ? null
+            : hasDatabaseFields && !propertiesLoaded
+              ? "loading"
+              : blockFields
+        }
+      />
     </div>
+  );
+}
+
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+
+function validDate(value: string): Date | null {
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? null : date;
+}
+
+/**
+ * The foot of Info: how long the Page is, and when it was made and last
+ * edited. Each Blocks field is counted on its own line once there are two.
+ */
+function PageDetails({
+  document,
+  blockFields,
+}: {
+  document: Document;
+  /** Null when the Page's fields couldn't be read, so no count is known. */
+  blockFields: readonly DocumentInfoBlockField[] | "loading" | null;
+}) {
+  const t = useT();
+  const formatters = useFormatters();
+  // Moves "Edited 2 minutes ago" on while Info stays open.
+  const now = useNow();
+  const shortDate = (date: Date) =>
+    formatters.formatDate(date, {
+      month: "short",
+      day: "numeric",
+      ...(date.getFullYear() !== new Date(now).getFullYear()
+        ? { year: "numeric" }
+        : {}),
+    });
+  const fullDate = (date: Date) =>
+    formatters.formatDate(date, { dateStyle: "medium", timeStyle: "short" });
+  const editedLabel = (edited: Date) => {
+    const elapsed = Math.max(0, now - edited.getTime());
+    const ago = (amount: number, unit: Intl.RelativeTimeFormatUnit) =>
+      t("editor.properties.editedAgo", {
+        time: formatters.formatRelativeTime(-amount, unit, {
+          numeric: "auto",
+        }),
+      });
+    if (elapsed < MINUTE) return t("editor.properties.editedJustNow");
+    if (elapsed < HOUR) return ago(Math.floor(elapsed / MINUTE), "minute");
+    if (elapsed < DAY) return ago(Math.floor(elapsed / HOUR), "hour");
+    if (elapsed < 7 * DAY) return ago(Math.floor(elapsed / DAY), "day");
+    return t("editor.properties.editedOn", { date: shortDate(edited) });
+  };
+  // A date the server sent unreadable is left out rather than shown wrong.
+  const created = validDate(document.createdAt);
+  const edited = validDate(document.updatedAt);
+  const onlyField =
+    blockFields !== "loading" && blockFields?.length === 1
+      ? blockFields[0]
+      : undefined;
+  const wordCount = (content: string) =>
+    t("editor.properties.wordCount", { count: countWords(content) });
+
+  return (
+    <section
+      className="mt-6 grid gap-1 border-t border-border px-2 pt-3 text-xs text-muted-foreground"
+      data-document-page-details
+    >
+      <h3 className="pb-0.5 font-medium">
+        {t("editor.properties.pageDetails")}
+      </h3>
+      {blockFields === "loading" ? (
+        <div
+          className="h-4 w-24 animate-pulse rounded bg-muted/40"
+          role="status"
+          aria-label={t("editor.properties.loadingContent")}
+        />
+      ) : onlyField ? (
+        <p className="tabular-nums" data-document-info-block-field>
+          {wordCount(onlyField.content)}
+        </p>
+      ) : (
+        blockFields?.map((field) => (
+          <p
+            key={field.propertyId ?? "primary"}
+            className="flex min-w-0 gap-1.5 tabular-nums"
+            data-document-info-block-field={field.propertyId ?? "primary"}
+          >
+            <span className="min-w-0 break-words text-foreground/80">
+              {field.name}
+            </span>
+            <span aria-hidden="true">·</span>
+            <span className="shrink-0">{wordCount(field.content)}</span>
+          </p>
+        ))
+      )}
+      <p>
+        {created ? (
+          <time dateTime={created.toISOString()} title={fullDate(created)}>
+            {t("editor.properties.createdOn", { date: shortDate(created) })}
+          </time>
+        ) : null}
+        {created && edited ? <span aria-hidden="true"> · </span> : null}
+        {edited ? (
+          <time dateTime={edited.toISOString()} title={fullDate(edited)}>
+            {editedLabel(edited)}
+          </time>
+        ) : null}
+      </p>
+    </section>
   );
 }
 

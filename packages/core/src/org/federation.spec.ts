@@ -1,4 +1,7 @@
+import type { H3Event } from "h3";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { isTransientDatabaseError } from "../db/errors.js";
 
 const evaluateFeatureFlagStrictMock = vi.hoisted(() => vi.fn());
 const executeMock = vi.hoisted(() => vi.fn());
@@ -543,6 +546,51 @@ describe("cross-app organization federation", () => {
       }),
     ).rejects.toThrow("Invalid federated member email");
     expect(fetch).not.toHaveBeenCalled();
+  });
+
+  it.each(["organization", "membership"] as const)(
+    "keeps %s query provenance without changing the error",
+    async (stage) => {
+      const cause = Object.assign(new Error("Fake query transport failure"), {
+        code: "ECONNREFUSED",
+      });
+      if (stage === "membership")
+        executeMock.mockResolvedValueOnce({ rows: [{ name: "Fake org" }] });
+      executeMock.mockRejectedValueOnce(cause);
+      await expect(
+        validateFederatedOrganizationMembership(undefined, {
+          orgId: identity.id,
+          email: identity.email,
+        }),
+      ).rejects.toBe(cause);
+      expect(isTransientDatabaseError(cause)).toBe(true);
+      expect(fetch).not.toHaveBeenCalled();
+    },
+  );
+
+  it("does not mark authority transport failures as database-origin", async () => {
+    const cause = Object.assign(new Error("Fake authority transport failure"), {
+      code: "ECONNREFUSED",
+    });
+    executeMock.mockResolvedValueOnce({
+      rows: [
+        {
+          name: "Example org",
+          identity_authority: identity.authority,
+          identity_id: identity.id,
+        },
+      ],
+    });
+    executeMock.mockResolvedValueOnce({ rows: [{ role: "member" }] });
+    vi.mocked(fetch).mockRejectedValue(cause);
+    await expect(
+      validateFederatedOrganizationMembership({} as H3Event, {
+        orgId: identity.id,
+        email: identity.email,
+      }),
+    ).rejects.toBe(cause);
+    expect(fetch).toHaveBeenCalled();
+    expect(isTransientDatabaseError(cause)).toBe(false);
   });
 
   it("removes a satellite membership when the authority no longer has it", async () => {

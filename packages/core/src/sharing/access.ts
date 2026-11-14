@@ -16,11 +16,13 @@ import {
   workspaceUserGroupsIncludeUser,
   workspaceUserGroupsTable,
 } from "../workspace-connections/groups.js";
+import { ForbiddenError } from "./errors.js";
 import {
   listShareableResources,
   requireShareableResource,
   type ShareableResourceRegistration,
 } from "./registry.js";
+export { ForbiddenError } from "./errors.js";
 import {
   LINK_PRINCIPAL_ID,
   LINK_PRINCIPAL_TYPE,
@@ -37,14 +39,6 @@ function findRegistrationByTable(
     if (reg.resourceTable === resourceTable) return reg;
   }
   return undefined;
-}
-
-export class ForbiddenError extends Error {
-  statusCode = 403;
-  constructor(message = "Forbidden") {
-    super(message);
-    this.name = "ForbiddenError";
-  }
 }
 
 export interface AccessContext {

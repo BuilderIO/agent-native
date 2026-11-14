@@ -28,7 +28,9 @@ export default defineAction({
     if (args.flushOpenEditor) {
       await flushNotionDocumentEditor(documentId, owner);
     }
-    const result = await pushDocumentToNotion(owner, documentId);
+    const result = await pushDocumentToNotion(owner, documentId, false, {
+      ctx,
+    });
     track(
       "notion_synced",
       {

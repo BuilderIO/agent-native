@@ -37,6 +37,7 @@ import {
   getSession,
   getCredentialContext as getCredentialContextFromRequest,
   runWithRequestContext,
+  platformWaitUntil,
 } from "@agent-native/core/server";
 import type { MissingKeyResponse } from "@agent-native/core/server";
 import { setResponseStatus, type H3Event } from "h3";
@@ -65,8 +66,13 @@ export async function withRequestContextFromEvent<T>(
 ): Promise<T | null> {
   const ctx = await getCredentialContextFromEvent(event);
   if (!ctx) return null;
+  const waitUntil = platformWaitUntil(event.req);
   return runWithRequestContext(
-    { userEmail: ctx.userEmail, orgId: ctx.orgId ?? undefined },
+    {
+      userEmail: ctx.userEmail,
+      ...(ctx.orgId ? { orgId: ctx.orgId } : {}),
+      ...(waitUntil ? { run: { waitUntil } } : {}),
+    },
     () => fn(ctx),
   );
 }

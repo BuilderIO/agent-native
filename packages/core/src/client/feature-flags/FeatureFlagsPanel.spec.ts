@@ -4,6 +4,7 @@ import {
   normalizeFeatureFlagPercentage,
   normalizeFeatureFlagRules,
 } from "./helpers.js";
+import type { FeatureFlagRules } from "./types.js";
 
 describe("normalizeFeatureFlagRules", () => {
   it("fills absent collections in transient remote rule envelopes", () => {
@@ -22,6 +23,21 @@ describe("normalizeFeatureFlagRules", () => {
     expect(
       normalizeFeatureFlagRules({ percentage: 125 } as never),
     ).toMatchObject({ mode: "rules", percentage: 100 });
+  });
+
+  it("keeps who last changed a stored rule", () => {
+    const stored: FeatureFlagRules = {
+      mode: "on",
+      emails: [],
+      orgIds: [],
+      percentage: 0,
+      updatedAt: 1_700_000_000_000,
+      updatedBy: { name: "Ada Admin", email: "ada@example.test" },
+    };
+    expect(normalizeFeatureFlagRules(stored)).toMatchObject({
+      updatedAt: 1_700_000_000_000,
+      updatedBy: { name: "Ada Admin", email: "ada@example.test" },
+    });
   });
 
   it("uses the same integer percentage contract as the mutation schemas", () => {

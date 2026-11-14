@@ -3,8 +3,20 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  onTestFinished,
+  vi,
+} from "vitest";
 
+import {
+  WRITE_FAILURE_EVENT,
+  type WriteFailureDetail,
+} from "../write-failure-event.js";
 import {
   useShareDialogController,
   type ResourceSharesResponse,
@@ -124,5 +136,28 @@ describe("useShareDialogController organization confirmation", () => {
       from: "private",
       to: "org",
     });
+  });
+
+  it("announces a failed invite, which the dialog has no place to show", async () => {
+    const failures: unknown[] = [];
+    const onFailure = (event: Event) =>
+      failures.push((event as CustomEvent<WriteFailureDetail>).detail.error);
+    window.addEventListener(WRITE_FAILURE_EVENT, onFailure);
+    onTestFinished(() =>
+      window.removeEventListener(WRITE_FAILURE_EVENT, onFailure),
+    );
+    const result = await render({ allowPublic: true });
+    await act(async () => {
+      result.invite.setEmail("friend@example.test");
+    });
+
+    act(() => controller?.invite.submit());
+    const options = mocks.other.mutate.mock.calls[0]?.[1];
+    const error = Object.assign(new Error("Internal server error"), {
+      status: 500,
+    });
+    act(() => options.onError(error));
+
+    expect(failures).toEqual([error]);
   });
 });

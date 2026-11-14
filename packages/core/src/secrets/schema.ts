@@ -9,6 +9,9 @@ export const appSecrets = table("app_secrets", {
   sharedEncryptedValue: text("shared_encrypted_value"),
   description: text("description"),
   urlAllowlist: text("url_allowlist"),
+  label: text("label"),
+  provider: text("provider"),
+  createdBy: text("created_by"),
   createdAt: bigint("created_at", { mode: "number" }).notNull(),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull(),
 });

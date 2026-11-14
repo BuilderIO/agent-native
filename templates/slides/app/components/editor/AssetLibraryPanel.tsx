@@ -1,5 +1,6 @@
 import { appApiPath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { IconUpload, IconTrash, IconLoader2, IconX } from "@tabler/icons-react";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { createPortal } from "react-dom";
@@ -195,8 +196,8 @@ export default function AssetLibraryPanel({
         toast.warning(t("raw.assetDeleteStorageRemains"));
       }
       setAssets((prev) => prev.filter((a) => a.id !== id));
-    } catch {
-      toast.error(t("raw.assetDeleteFailed"));
+    } catch (error) {
+      reportWriteFailure(error, { label: t("raw.assetDeleteFailed") });
     }
   };
 

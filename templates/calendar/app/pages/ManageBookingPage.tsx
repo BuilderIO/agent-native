@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   IconCalendar,
   IconClock,
@@ -10,7 +11,6 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { format, parseISO } from "date-fns";
 import { useState } from "react";
 import { Link, useParams, useNavigate } from "react-router";
-import { toast } from "sonner";
 
 import {
   AlertDialog,
@@ -220,8 +220,10 @@ export function ManageBookingPage() {
                         e.preventDefault();
                         cancelMutation.mutate(undefined, {
                           onSuccess: () => navigate(`/book/${booking.slug}`),
-                          onError: () =>
-                            toast.error(t("manageBooking.cancelFailed")),
+                          onError: (error) =>
+                            reportWriteFailure(error, {
+                              label: t("manageBooking.cancelFailed"),
+                            }),
                         });
                       }}
                       disabled={cancelMutation.isPending}
@@ -271,8 +273,10 @@ export function ManageBookingPage() {
                     onClick={(e) => {
                       e.preventDefault();
                       cancelMutation.mutate(undefined, {
-                        onError: () =>
-                          toast.error(t("manageBooking.cancelFailed")),
+                        onError: (error) =>
+                          reportWriteFailure(error, {
+                            label: t("manageBooking.cancelFailed"),
+                          }),
                       });
                     }}
                     disabled={cancelMutation.isPending}

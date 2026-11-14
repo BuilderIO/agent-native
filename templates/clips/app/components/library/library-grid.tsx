@@ -714,6 +714,7 @@ export function LibraryGrid({
           recordingId={sharingRec.id}
           pendingRedactions={sharingRec.pendingRedactions ?? 0}
           recordingTitle={sharingRec.title}
+          ownerEmail={sharingRec.ownerEmail}
           initialVisibility={sharingRec.visibility}
           hasPassword={sharingRec.hasPassword}
           expiresAt={sharingRec.expiresAt}

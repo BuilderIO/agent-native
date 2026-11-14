@@ -39,6 +39,7 @@ import {
   trimSelectionRange,
   type CommentTextAnchor,
 } from "./comment-anchors";
+import { isMermaidCodeBlock } from "./extensions/CodeBlockNode";
 import { rangeTouchesToggleTitle } from "./extensions/NotionExtensions";
 import { suggestionHighlightKey } from "./extensions/SuggestionHighlight";
 
@@ -276,9 +277,11 @@ function selectionIncludesBubbleToolbarExcludedNode(
   // Selected cells are a rectangle, not the text between from and to: that
   // range also crosses the cells beside them.
   if (state.selection instanceof CellSelection) return true;
+  // A selected Mermaid block is its drawing, which has no text to format.
   if (
     state.selection instanceof NodeSelection &&
-    BUBBLE_TOOLBAR_EXCLUDED_NODE_TYPES.has(state.selection.node.type.name)
+    (BUBBLE_TOOLBAR_EXCLUDED_NODE_TYPES.has(state.selection.node.type.name) ||
+      isMermaidCodeBlock(state.selection.node))
   ) {
     return true;
   }

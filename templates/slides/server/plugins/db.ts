@@ -351,6 +351,11 @@ ALTER TABLE deck_versions ADD COLUMN IF NOT EXISTS content_hash TEXT`,
       name: "slides-deck-share-links-deck-id",
       sql: `ALTER TABLE IF EXISTS deck_share_links ADD COLUMN IF NOT EXISTS deck_id TEXT`,
     },
+    {
+      version: 37,
+      name: "slides-comment-author-kind",
+      sql: `ALTER TABLE slide_comments ADD COLUMN IF NOT EXISTS author_kind TEXT`,
+    },
   ],
   { table: "slides_migrations" },
 );

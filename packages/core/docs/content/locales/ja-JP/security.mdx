@@ -324,7 +324,7 @@ pnpm action db-check-scoping --require-org  # org_id も必要です
 | OAuth トークン (Google、GitHub)              | `saveOAuthTokens()` 経由で `oauth_tokens` ストア        |
 | セッショントークン                           | 自動 (Better Auth がこれを処理します)                   |
 
-ユーザーごと/組織ごとの資格情報とボールトは AES-256-GCM で保存時に暗号化されます。共有ワークスペース Vault は `WORKSPACE_SECRETS_ENCRYPTION_KEY` を優先し、`SECRETS_ENCRYPTION_KEY`、`A2A_SECRET`、`BETTER_AUTH_SECRET` 由来の旧候補を続けて試します。ローテーション中は `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS` を設定し、読み取りで行を移行します。既存の平文行を暗号化するには `pnpm action db-migrate-encrypt-credentials` (冪等、非破壊) を実行します。
+ユーザーごと/組織ごとの資格情報とボールトは AES-256-GCM で保存時に暗号化されます。 Dispatch のボールトには平文のコピーは保持されません。各キーの名前、ラベル、暗号化された値は `app_secrets` の同じ行に保存され、ボールト自身のテーブルには付与、リクエスト、監査ログのみが保存されます。共有ワークスペース Vault は `WORKSPACE_SECRETS_ENCRYPTION_KEY` を優先し、`SECRETS_ENCRYPTION_KEY`、`A2A_SECRET`、`BETTER_AUTH_SECRET` 由来の旧候補を続けて試します。ローテーション中は `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS` を設定し、読み取りで行を移行します。既存の平文行を暗号化するには `pnpm action db-migrate-encrypt-credentials` (冪等、非破壊) を実行します。
 
 シークレットを `settings`、`application_state`、ソース コード、またはアクション レスポンスに保存しないでください。上記の資格情報/ボールト API を使用します。これらは暗号化とユーザーごとのスコープの両方を処理します。
 

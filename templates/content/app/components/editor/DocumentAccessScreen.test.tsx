@@ -41,6 +41,7 @@ const mocks = vi.hoisted(() => ({
   >,
   rootRefetch: vi.fn(),
   toast: { success: vi.fn(), error: vi.fn() },
+  reportWriteFailure: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
@@ -96,6 +97,12 @@ vi.mock("@/hooks/use-documents", () => ({
 vi.mock("@/components/layout/sidebar-trigger", () => ({
   useSidebarTrigger: () => null,
 }));
+vi.mock("@agent-native/core/client/write-failure", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/write-failure")
+  >()),
+  reportWriteFailure: mocks.reportWriteFailure,
+}));
 vi.mock("sonner", () => ({ toast: mocks.toast }));
 
 import { DocumentAccessScreen } from "./DocumentAccessScreen";
@@ -135,6 +142,7 @@ describe("DocumentAccessScreen", () => {
       mocks.rootRefetch,
       mocks.toast.success,
       mocks.toast.error,
+      mocks.reportWriteFailure,
       onReload,
     ]) {
       fn.mockReset();
@@ -410,7 +418,8 @@ describe("DocumentAccessScreen", () => {
 
   it("says so when Restore fails and stays on the screen", async () => {
     trashedPage(null);
-    mocks.restore.mockRejectedValue(new Error("nope"));
+    const failure = new Error("nope");
+    mocks.restore.mockRejectedValue(failure);
     render({ state: "trashed", role: "admin" });
 
     await act(async () => {
@@ -418,7 +427,9 @@ describe("DocumentAccessScreen", () => {
     });
 
     expect(mocks.restore).toHaveBeenCalledWith({ id: "private-doc" });
-    expect(mocks.toast.error).toHaveBeenCalledWith("trash.restoreFailed");
+    expect(mocks.reportWriteFailure).toHaveBeenCalledWith(failure, {
+      label: "trash.restoreFailed",
+    });
     expect(onReload).not.toHaveBeenCalled();
   });
 

@@ -93,6 +93,9 @@ function sanitizeTemplateDesignData(data: Record<string, unknown>) {
       delete sanitized[key];
     }
   }
+  // The Content pages a design was built from belong to that design, not to a
+  // template saved from it or to the copies made from that template.
+  delete sanitized.briefs;
 
   if (isLocalSource) {
     if (isLocalhostSourceType(sanitized.sourceType) || hasLegacyBridgeSource) {

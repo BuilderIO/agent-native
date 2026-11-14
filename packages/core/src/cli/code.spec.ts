@@ -231,6 +231,7 @@ describe("codeUsage", () => {
     expect(codeUsage()).toContain("agent-native code\n");
     expect(codeUsage()).toContain('agent-native code "fix the failing');
     expect(codeUsage()).toContain("agent-native code exec");
+    expect(codeUsage()).toContain("Restricted tool profile: recap-source");
     expect(codeUsage()).toContain("agent-native code -p");
     expect(codeUsage()).toContain('agent-native code "fix');
     expect(codeUsage()).toContain("agent-native code --plan");

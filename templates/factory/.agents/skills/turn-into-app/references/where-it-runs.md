@@ -1,7 +1,7 @@
 # Where the app runs
 
-On an interactive local host, ask this once, after the brief and App design
-are shown (step 2) and before any install, scaffold, or setup command. The rest
+On an interactive local host, ask this once, after the plain-words plan is
+shown (step 2) and before any install, scaffold, or setup command. The rest
 of the run decides and proceeds; this is its one planned question, because the
 person should choose between setting things up and making an account.
 
@@ -44,9 +44,9 @@ pnpm is missing. Otherwise recommend **On your machine**.
 
 Continue with step 3. If Node.js or pnpm is missing, say what to install (the
 installer from nodejs.org; `corepack enable` for pnpm, which ships with
-Node.js) and continue once both answer. The final report ends with how to
-change the app: ask this agent, in this folder. On localhost the app's own
-agent can't edit its code.
+Node.js) and continue once both answer. Right after where the app is, the
+final report says how to change it: ask this agent, in this folder. On
+localhost the app's own agent can't edit its code.
 
 ## Hosted with Builder
 
@@ -88,6 +88,7 @@ so and offer two ways on:
 2. Build on this machine instead.
 
 Never fall back to a local build without asking, and never claim the app
-exists. The report says what Dispatch returned, as the browser-host guide
-describes, and that changes happen in Builder, where the app's code lives,
-not in this folder.
+exists. The report leads with what Dispatch returned, as the browser-host
+guide describes. After a Builder build it says that changes happen in
+Builder, where the app's code lives, not in this folder; after `local-agent`,
+that the local agent in the workspace builds and changes it.

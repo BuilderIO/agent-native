@@ -327,4 +327,35 @@ describe("suggestion store", () => {
     ]);
     expect(rawClient.execute).toHaveBeenCalledTimes(2);
   });
+
+  it("keeps how an agent's suggestion arrived and which client sent it", async () => {
+    const agent = await insertSuggestion({
+      ...input,
+      actorKind: "agent",
+      authorSource: "mcp",
+      authorClient: "claude-code",
+    });
+    const person = await insertSuggestion({ ...input, threadId: "thread-2" });
+
+    expect(await getSuggestion(agent.id)).toMatchObject({
+      authorSource: "mcp",
+      authorClient: "claude-code",
+    });
+    expect(await getSuggestion(person.id)).toMatchObject({
+      authorSource: null,
+      authorClient: null,
+    });
+    const listed = await listSuggestions(input.resourceType, input.resourceId, [
+      "pending",
+    ]);
+    expect(
+      listed.map(({ authorSource, authorClient }) => [
+        authorSource,
+        authorClient,
+      ]),
+    ).toEqual([
+      ["mcp", "claude-code"],
+      [null, null],
+    ]);
+  });
 });

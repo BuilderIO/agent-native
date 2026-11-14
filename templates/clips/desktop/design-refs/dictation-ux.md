@@ -6,12 +6,31 @@ text available quickly in the focused app.
 
 ## Interaction
 
-- A configured shortcut starts capture; releasing it ends capture.
+- A configured shortcut starts capture; releasing it ends capture. The
+  microphone is closed while idle: no always-open mic and no pre-roll buffer.
+  Keep network calls and model loads off the path from press to the mic
+  opening, so the first word is not clipped.
+- Keep recording for 200 ms after release; people let go on the last syllable.
+- In hold mode, a press shorter than 300 ms is a stray tap. It leaves no
+  paste, history, error, sound, or flow-bar state. Capture still starts on
+  press; the flow bar, its states, and the start sound wait until the hold
+  passes 300 ms.
+- A hold the voice detector finds silent ends as no speech at once, unless
+  the engine has already recognized words where the detector heard possible
+  speech. When the detector cannot run, the recording takes the normal path;
+  it never counts as silence.
+- A Local Whisper stop that fails or stalls ends as an error that offers the
+  text so far, never as a normal paste or as no speech.
 - Keep the recording indicator compact and visible above the current desktop
   app. Use the same color, type, spacing, and motion tokens as Clips recording.
 - Show clear listening, processing, delivered, and recoverable-error states.
-- Finalize and insert the transcript as soon as it is ready. Do not wait for
-  optional history persistence or later cleanup before delivering text.
+- With AI polish off, insert the transcript as soon as it is final. With
+  polish on, show a cleanup step and insert the polished text; if polish fails
+  or takes longer than 2.5 s, insert the raw transcript. Never wait for history
+  persistence before delivering text.
+- An engine that transcribes while the key is held (Parakeet) should have the
+  text ready within 0.5 s of release. If its live pass fails, transcribe the
+  whole recording instead of dropping it; a slower paste beats a lost one.
 - Make cancellation explicit. A canceled or empty recording must not look like
   a successful insertion.
 

@@ -153,11 +153,18 @@ function blocked(message: string, errorCode: string): never {
   throw new ActionContractError(message, { errorCode, statusCode: 409 });
 }
 
+/**
+ * Refuses a subtree that can't leave its space. A copy can't take collections
+ * yet. A move takes the collections whose pages are in the subtree, so it
+ * passes `collectionsMove` and refuses only rows of a collection left behind.
+ */
 export async function assertSubtreeCanChangeSpace(
   db: ContentDb,
   documents: PageSubtreeDocument[],
+  { collectionsMove = false }: { collectionsMove?: boolean } = {},
 ) {
   const ids = documents.map((document) => document.id);
+  const idSet = new Set(ids);
   if (
     documents.some(
       (document) =>
@@ -169,15 +176,18 @@ export async function assertSubtreeCanChangeSpace(
       "PAGE_SOURCE_OWNED",
     );
   }
-  if ((await subtreeCollectionDocumentIds(db, ids)).size > 0) {
+  if (
+    !collectionsMove &&
+    (await subtreeCollectionDocumentIds(db, ids)).size > 0
+  ) {
     blocked(
       "Pages that contain collections can't move to another workspace yet.",
       "PAGE_CONTAINS_COLLECTION",
     );
   }
   for (const idGroup of groups(ids)) {
-    const [rowMembership] = await db
-      .select({ id: schema.contentDatabaseItems.id })
+    const rowCollections: Array<{ documentId: string }> = await db
+      .select({ documentId: schema.contentDatabases.documentId })
       .from(schema.contentDatabaseItems)
       .innerJoin(
         schema.contentDatabases,
@@ -188,11 +198,16 @@ export async function assertSubtreeCanChangeSpace(
           inArray(schema.contentDatabaseItems.documentId, idGroup),
           isNull(schema.contentDatabases.systemRole),
         ),
+      );
+    if (
+      rowCollections.some(
+        (collection) => !collectionsMove || !idSet.has(collection.documentId),
       )
-      .limit(1);
-    if (rowMembership) {
+    ) {
       blocked(
-        "Collection rows can't move to another workspace yet.",
+        collectionsMove
+          ? "A collection's rows can only move to another workspace with the whole collection."
+          : "Collection rows can't move to another workspace yet.",
         "PAGE_IS_COLLECTION_ROW",
       );
     }
@@ -219,4 +234,86 @@ export async function assertSubtreeCanChangeSpace(
       );
     }
   }
+}
+
+/** Most pages a search can be scoped to; a larger subtree keeps its nearest. */
+export const SEARCH_SUBTREE_LIMIT = 5_000;
+
+/**
+ * A page and everything inside it, nearest first: sub-pages, the collections
+ * on it, and their rows. Ids only, for search to scope itself to; search still
+ * applies its own access rule to each page, so this reveals nothing.
+ * `truncated` says the page holds more than `SEARCH_SUBTREE_LIMIT`.
+ */
+export async function searchSubtreeDocumentIds(
+  db: ContentDb,
+  rootId: string,
+): Promise<{ ids: string[]; truncated: boolean }> {
+  const seen = new Set([rootId]);
+  let frontier = [rootId];
+  let truncated = false;
+  while (frontier.length > 0 && !truncated) {
+    const found: string[] = [];
+    for (const idGroup of groups(frontier)) {
+      // guard:allow-unscoped — ids only; search-documents filters every result by access.
+      const childrenRead: Promise<Array<{ id: string }>> = db
+        .select({ id: schema.documents.id })
+        .from(schema.documents)
+        .where(
+          and(
+            inArray(schema.documents.parentId, idGroup),
+            isNull(schema.documents.trashedAt),
+          ),
+        )
+        .limit(SEARCH_SUBTREE_LIMIT);
+      // guard:allow-unscoped — ids only; search-documents filters every result by access.
+      const collectionsRead: Promise<
+        Array<{ id: string; documentId: string }>
+      > = db
+        .select({
+          id: schema.contentDatabases.id,
+          documentId: schema.contentDatabases.documentId,
+        })
+        .from(schema.contentDatabases)
+        .where(
+          and(
+            or(
+              inArray(schema.contentDatabases.documentId, idGroup),
+              inArray(schema.contentDatabases.ownerDocumentId, idGroup),
+            ),
+            isNull(schema.contentDatabases.systemRole),
+            isNull(schema.contentDatabases.deletedAt),
+          ),
+        )
+        .limit(SEARCH_SUBTREE_LIMIT);
+      const [children, collections] = await Promise.all([
+        childrenRead,
+        collectionsRead,
+      ]);
+      found.push(
+        ...children.map((child) => child.id),
+        ...collections.map((collection) => collection.documentId),
+      );
+      for (const collectionIds of groups(collections.map(({ id }) => id))) {
+        // guard:allow-unscoped — ids only; search-documents filters every result by access.
+        const rows: Array<{ documentId: string }> = await db
+          .select({ documentId: schema.contentDatabaseItems.documentId })
+          .from(schema.contentDatabaseItems)
+          .where(inArray(schema.contentDatabaseItems.databaseId, collectionIds))
+          .limit(SEARCH_SUBTREE_LIMIT);
+        found.push(...rows.map((row) => row.documentId));
+      }
+    }
+    frontier = [];
+    for (const id of found) {
+      if (seen.has(id)) continue;
+      if (seen.size >= SEARCH_SUBTREE_LIMIT) {
+        truncated = true;
+        break;
+      }
+      seen.add(id);
+      frontier.push(id);
+    }
+  }
+  return { ids: [...seen], truncated };
 }

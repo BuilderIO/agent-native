@@ -32,6 +32,7 @@ import { debugLog } from "../../../../lib/debug.js";
 import { mediaVerificationStateKey } from "../../../../lib/media-verification-state.js";
 import { reconcileMeetingOnRecordingFailedBestEffort } from "../../../../lib/reconcile-meeting-on-finalize.js";
 import {
+  finalizeFailureTracking,
   hostedStorageAuthFailure,
   recordingTrackingSource,
   trackRecordingFailure,
@@ -1432,6 +1433,7 @@ export async function handleRecordingChunk(
           uploadAttemptId: attemptId,
           platform: existing.recordingPlatform,
           failureCode,
+          ...finalizeFailureTracking(err),
           browserSessionId: failureSessionId,
         });
         const repairResult = await repairUploadState({
@@ -2314,6 +2316,7 @@ async function handleResumableChunk(
       uploadAttemptId: failed[0]?.uploadAttemptId,
       platform: failed[0]?.recordingPlatform,
       failureCode,
+      ...finalizeFailureTracking(err),
       browserSessionId: failureSessionId,
     });
     const repairResult = await repairUploadState({

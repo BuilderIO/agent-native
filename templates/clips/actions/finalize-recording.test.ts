@@ -24,6 +24,13 @@ const mockState = vi.hoisted(() => ({
 }));
 
 const mockUploadFile = vi.hoisted(() => vi.fn());
+const mockProbeHasAudioStream = vi.hoisted(() =>
+  vi.fn(async (): Promise<boolean | null> => null),
+);
+const mockProbeMediaInfo = vi.hoisted(() => vi.fn());
+const mockRemuxWebmToSeekable = vi.hoisted(() =>
+  vi.fn(async (bytes: Uint8Array) => ({ changed: false, bytes })),
+);
 const mockHostedUploadFile = vi.hoisted(() => vi.fn());
 const mockDeleteS3ObjectByUrl = vi.hoisted(() => vi.fn());
 const mockConsumeHostedClipRecording = vi.hoisted(() => vi.fn());
@@ -157,6 +164,8 @@ vi.mock("@agent-native/core/server", () => ({
     clips: { hostedStorage: { maxClipBytes: mockHostedMaxClipBytes.value } },
   }),
   getRequestOrgId: vi.fn(() => undefined),
+  resolveHasBuilderGatewayCredential: vi.fn(async () => true),
+  BuilderCredentialLookupError: class BuilderCredentialLookupError extends Error {},
 }));
 
 vi.mock("@agent-native/core/server/request-context", () => ({
@@ -288,11 +297,9 @@ vi.mock("../server/lib/upload-lease.js", () => ({
 }));
 
 vi.mock("../server/lib/video-remux.js", () => ({
-  probeHasAudioStream: vi.fn(async () => null),
-  remuxWebmToSeekable: vi.fn(async (bytes: Uint8Array) => ({
-    changed: false,
-    bytes,
-  })),
+  probeHasAudioStream: () => mockProbeHasAudioStream(),
+  probeMediaInfo: (...args: unknown[]) => mockProbeMediaInfo(...args),
+  remuxWebmToSeekable: (bytes: Uint8Array) => mockRemuxWebmToSeekable(bytes),
 }));
 
 vi.mock("../server/lib/video-storage.js", () => ({
@@ -312,7 +319,7 @@ vi.mock("./lib/ensure-seekable-video.js", () => ({
     (videoUrl: string | null | undefined) =>
       typeof videoUrl === "string" && videoUrl.startsWith("https://"),
   ),
-  markRecordingSeekable: vi.fn(),
+  markRecordingSeekable: vi.fn(async () => undefined),
 }));
 
 import {
@@ -1061,6 +1068,107 @@ describe("finalize-recording media serve verification", () => {
       expect.objectContaining({
         method: "GET",
         headers: { Range: "bytes=0-1023" },
+      }),
+    );
+  });
+
+  it("saves the length, size and missing audio an upload left out, from the file", async () => {
+    seedBufferedRecording();
+    mockState.uploadState = {
+      ...mockState.uploadState,
+      durationMs: 0,
+      width: 0,
+      height: 0,
+    };
+    // A browser's WebM often has no length until the seekable rewrite adds one.
+    const rewritten = new Uint8Array([7, 7, 7]);
+    mockRemuxWebmToSeekable.mockResolvedValueOnce({
+      changed: true,
+      bytes: rewritten,
+    });
+    mockProbeMediaInfo.mockResolvedValueOnce({
+      durationMs: 4200,
+      width: 320,
+      height: 240,
+      hasAudio: false,
+    });
+    mockProbeHasAudioStream.mockResolvedValueOnce(false);
+    vi.mocked(fetch).mockResolvedValue(
+      new Response("public media", {
+        status: 206,
+        headers: { "content-range": "bytes 0-11/12" },
+      }),
+    );
+
+    const result = await finalizeRecording.run({
+      id: "rec_1",
+      mimeType: "video/webm",
+    });
+
+    expect(result).toEqual(expect.objectContaining({ status: "ready" }));
+    expect(mockProbeMediaInfo).toHaveBeenCalledWith(rewritten, "webm");
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "ready",
+        durationMs: 4200,
+        width: 320,
+        height: 240,
+        hasAudio: false,
+      }),
+    );
+  });
+
+  it("still finishes the upload when reading the file fails", async () => {
+    seedBufferedRecording();
+    mockState.uploadState = {
+      ...mockState.uploadState,
+      durationMs: 0,
+      width: 0,
+      height: 0,
+    };
+    mockProbeMediaInfo.mockRejectedValueOnce(new Error("ENOSPC"));
+    vi.mocked(fetch).mockResolvedValue(
+      new Response("public media", {
+        status: 206,
+        headers: { "content-range": "bytes 0-11/12" },
+      }),
+    );
+
+    const result = await finalizeRecording.run({
+      id: "rec_1",
+      mimeType: "video/webm",
+    });
+
+    expect(result).toEqual(expect.objectContaining({ status: "ready" }));
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "ready",
+        durationMs: 0,
+        width: 0,
+        height: 0,
+      }),
+    );
+  });
+
+  it("keeps the length and size an upload gave, without reading the file for them", async () => {
+    seedBufferedRecording();
+    mockProbeMediaInfo.mockClear();
+    vi.mocked(fetch).mockResolvedValue(
+      new Response("public media", {
+        status: 206,
+        headers: { "content-range": "bytes 0-11/12" },
+      }),
+    );
+
+    await finalizeRecording.run({ id: "rec_1", mimeType: "video/webm" });
+
+    expect(mockProbeMediaInfo).not.toHaveBeenCalled();
+    expect(mockUpdateSet).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: "ready",
+        durationMs: 1234,
+        width: 1280,
+        height: 720,
       }),
     );
   });
@@ -1917,6 +2025,70 @@ describe("finalize-recording media serve verification", () => {
     expect(mockInsertOnConflictDoNothing).toHaveBeenCalledWith({
       target: "recordingTranscripts.recordingId",
     });
+  });
+
+  it("records the setup-needed failure instead of a pending row when no Builder credential is connected", async () => {
+    const { resolveHasBuilderGatewayCredential } =
+      await import("@agent-native/core/server");
+    vi.mocked(resolveHasBuilderGatewayCredential).mockResolvedValueOnce(false);
+    seedBufferedRecording();
+    mockUploadFile.mockResolvedValue({ url: "/api/uploads/rec_1/blob" });
+    mockState.transcriptRows = [];
+
+    const result = await finalizeRecording.run({
+      id: "rec_1",
+      mimeType: "video/webm",
+    });
+
+    expect(result).toEqual(expect.objectContaining({ status: "ready" }));
+    expect(mockInsertValues).toHaveBeenCalledWith(
+      expect.objectContaining({ recordingId: "rec_1", status: "failed" }),
+    );
+    expect(mockInsertValues).not.toHaveBeenCalledWith(
+      expect.objectContaining({ recordingId: "rec_1", status: "pending" }),
+    );
+    expect(mockDispatchPostFinalizeJob).not.toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "transcript" }),
+    );
+  });
+
+  it("queues the transcript job behind a pending row when the Builder credential lookup is unavailable", async () => {
+    const { resolveHasBuilderGatewayCredential, BuilderCredentialLookupError } =
+      await import("@agent-native/core/server");
+    vi.mocked(resolveHasBuilderGatewayCredential).mockRejectedValueOnce(
+      new BuilderCredentialLookupError(),
+    );
+    seedBufferedRecording();
+    mockUploadFile.mockResolvedValue({ url: "/api/uploads/rec_1/blob" });
+    mockState.transcriptRows = [];
+
+    const result = await finalizeRecording.run({
+      id: "rec_1",
+      mimeType: "video/webm",
+    });
+
+    expect(result).toEqual(expect.objectContaining({ status: "ready" }));
+    expect(mockInsertValues).toHaveBeenCalledWith(
+      expect.objectContaining({ recordingId: "rec_1", status: "pending" }),
+    );
+    expect(mockDispatchPostFinalizeJob).toHaveBeenCalledWith(
+      expect.objectContaining({ recordingId: "rec_1", kind: "transcript" }),
+    );
+  });
+
+  it("fails finalization on an unexpected credential error", async () => {
+    const { resolveHasBuilderGatewayCredential } =
+      await import("@agent-native/core/server");
+    vi.mocked(resolveHasBuilderGatewayCredential).mockRejectedValueOnce(
+      new Error("unexpected"),
+    );
+    seedBufferedRecording();
+    mockUploadFile.mockResolvedValue({ url: "/api/uploads/rec_1/blob" });
+    mockState.transcriptRows = [];
+
+    await expect(
+      finalizeRecording.run({ id: "rec_1", mimeType: "video/webm" }),
+    ).rejects.toThrow("unexpected");
   });
 
   it("parks a recording waiting for storage on a days-long lease", async () => {

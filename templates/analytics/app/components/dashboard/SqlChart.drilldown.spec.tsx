@@ -374,6 +374,31 @@ describe("SqlChart drilldown clicks", () => {
     });
   });
 
+  it("names a null x point's keyboard control", async () => {
+    await act(async () => {
+      root.render(
+        <SqlChart
+          panel={{
+            ...panel("line"),
+            config: { xKey: "day", yKeys: ["signups"] },
+          }}
+          onDatumClick={vi.fn()}
+          resultOverride={{ rows: [{ day: null, signups: 3 }] }}
+        />,
+      );
+    });
+
+    const disclosure = container.querySelector<HTMLDetailsElement>("details");
+    await act(async () => {
+      disclosure!.open = true;
+      disclosure!.dispatchEvent(new Event("toggle"));
+    });
+
+    expect(disclosure?.querySelector("ul button")?.textContent).toContain(
+      "sqlDashboard.noXValue",
+    );
+  });
+
   it("offers keyboard-operable controls for pie chart slices", async () => {
     const onDatumClick = vi.fn<(datum: ChartDatum) => void>();
 

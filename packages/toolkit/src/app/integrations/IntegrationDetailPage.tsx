@@ -20,6 +20,10 @@ import {
   type McpServerScope,
 } from "@agent-native/core/client/resources/use-mcp-servers";
 import {
+  listRegisteredSecrets,
+  type SecretStatus,
+} from "@agent-native/core/client/secrets";
+import {
   Alert,
   AlertDescription,
   AlertTitle,
@@ -55,6 +59,7 @@ import {
   IconPlugConnected,
 } from "@tabler/icons-react";
 import {
+  useCallback,
   useEffect,
   useId,
   useMemo,
@@ -67,7 +72,10 @@ import { toast } from "sonner";
 
 import { McpIntegrationDialog } from "../resources/McpIntegrationDialog.js";
 import { McpIntegrationLogo } from "../resources/McpIntegrationLogo.js";
-import { saveApiKeyValue } from "../settings/api-keys/api-keys-client.js";
+import {
+  removeApiKeyValue,
+  saveApiKeyValue,
+} from "../settings/api-keys/api-keys-client.js";
 import { SettingsGroup, SettingsRow } from "../settings/SettingsRow.js";
 import {
   useSettingsPageHeader,
@@ -385,6 +393,118 @@ function ConnectedRow({
   );
 }
 
+/**
+ * The saved token behind an API fallback lives in the secrets store, not in
+ * the MCP server list, so `connected` must read it from there.
+ */
+function useFallbackToken(secretKey: string | undefined) {
+  const [state, setState] = useState<{
+    key: string;
+    secret: SecretStatus | undefined;
+  } | null>(null);
+  const [failedKey, setFailedKey] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  const retry = useCallback(() => setAttempt((value) => value + 1), []);
+  useEffect(() => {
+    if (!secretKey) return;
+    let controller: AbortController | undefined;
+    const load = () => {
+      controller?.abort();
+      const current = new AbortController();
+      controller = current;
+      listRegisteredSecrets({ signal: current.signal })
+        .then((secrets) => {
+          if (current.signal.aborted) return;
+          const secret = secrets.find((entry) => entry.key === secretKey);
+          // A store that answers but cannot tell is as unreadable as one
+          // that fails, and gets the same retry.
+          if (secret?.status === "unknown") {
+            setState(null);
+            setFailedKey(secretKey);
+            return;
+          }
+          setFailedKey(null);
+          setState({ key: secretKey, secret });
+        })
+        .catch(() => {
+          // An unreadable store stays unknown: never offer "Add access
+          // token" over a token that may already be saved. Say so, with a
+          // retry, instead of leaving the page with no action at all.
+          if (current.signal.aborted) return;
+          setState(null);
+          setFailedKey(secretKey);
+        });
+    };
+    load();
+    window.addEventListener("agent-engine:configured-changed", load);
+    return () => {
+      controller?.abort();
+      window.removeEventListener("agent-engine:configured-changed", load);
+    };
+  }, [secretKey, attempt]);
+  const secret = state?.key === secretKey ? state?.secret : undefined;
+  return {
+    failed: Boolean(secretKey) && failedKey === secretKey,
+    retry,
+    known:
+      !secretKey || (state?.key === secretKey && secret?.status !== "unknown"),
+    secret:
+      secret?.status === "set" || secret?.status === "invalid"
+        ? secret
+        : undefined,
+  };
+}
+
+function TokenConnectedRow({
+  secret,
+  onRemove,
+}: {
+  secret: SecretStatus;
+  onRemove: () => Promise<void>;
+}) {
+  const t = useT();
+  const [pending, setPending] = useState(false);
+  return (
+    <SettingsRow
+      label={
+        secret.status === "invalid"
+          ? t("mcpIntegrations.connectionError")
+          : t("mcpIntegrations.connected")
+      }
+      description={
+        secret.scope === "user"
+          ? t("mcpIntegrations.personal")
+          : t("mcpIntegrations.sharedWithWorkspace")
+      }
+      control={
+        secret.managedHere === false ? null : (
+          <Button
+            type="button"
+            variant="outline-destructive"
+            size="sm"
+            disabled={pending}
+            onClick={() => {
+              setPending(true);
+              onRemove()
+                .catch((cause: unknown) =>
+                  toast.error(
+                    cause instanceof Error
+                      ? cause.message
+                      : t("mcpIntegrations.connectionError"),
+                  ),
+                )
+                .finally(() => setPending(false));
+            }}
+          >
+            {pending ? <Spinner aria-hidden="true" /> : null}
+            {t("agentChat.settingsShell.integrations.remove")}
+          </Button>
+        )
+      }
+    />
+  );
+}
+
 function NotFound() {
   const t = useT();
   const header = useMemo(() => ({ title: t(`${K}.notFoundTitle`) }), [t]);
@@ -568,7 +688,11 @@ function IntegrationDetail({
   const servers = mcp.servers.filter((server) =>
     isMcpIntegrationUrl(integration, server.url),
   );
-  const serversKnown = mcp.serversQuery.isSuccess || mcp.serversQuery.isError;
+  const apiFallback = getMcpIntegrationApiFallback(integration);
+  const fallbackToken = useFallbackToken(apiFallback?.secretKey);
+  const serversKnown =
+    (mcp.serversQuery.isSuccess || mcp.serversQuery.isError) &&
+    fallbackToken.known;
 
   const connect = async () => {
     if (unavailable || signIn === "token") return;
@@ -618,11 +742,26 @@ function IntegrationDetail({
   connectRef.current = connect;
 
   const logoUrl = integration.logoUrl;
-  const connected = servers.length > 0;
+  const connected =
+    servers.length > 0 || fallbackToken.secret?.status === "set";
   const isAdmin = context.isAdmin;
+  const tokenCheckFailed = fallbackToken.failed;
+  const retryTokenCheck = fallbackToken.retry;
+  useEffect(() => {
+    if (tokenCheckFailed) toast.error(t(`${K}.tokenCheckFailed`));
+  }, [tokenCheckFailed, t]);
   const header = useMemo(() => {
     const action =
-      !serversKnown || connected || unavailable ? null : gate ===
+      tokenCheckFailed && !connected && !unavailable ? (
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          onClick={retryTokenCheck}
+        >
+          {t(`${K}.tokenCheckRetry`)}
+        </Button>
+      ) : !serversKnown || connected || unavailable ? null : gate ===
         "workspace" ? (
         isAdmin ? (
           <Button type="button" size="sm" onClick={() => setSetupOpen(true)}>
@@ -669,9 +808,11 @@ function IntegrationDetail({
     isAdmin,
     logoUrl,
     name,
+    retryTokenCheck,
     serversKnown,
     signIn,
     t,
+    tokenCheckFailed,
     unavailable,
   ]);
   useSettingsPageHeader(header);
@@ -859,6 +1000,12 @@ function IntegrationDetail({
             }}
           />
         ))}
+        {apiFallback && fallbackToken.secret ? (
+          <TokenConnectedRow
+            secret={fallbackToken.secret}
+            onRemove={() => removeApiKeyValue(apiFallback.secretKey)}
+          />
+        ) : null}
         {whoRow}
         <SettingsRow
           id="sign-in"
