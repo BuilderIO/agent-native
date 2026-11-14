@@ -8,7 +8,7 @@ import {
 
 function eventWithHeaders(
   headers: Record<string, string>,
-  url = "https://www.agent-native.com/docs/actions.md",
+  url = "https://www.agent-native.com/docs/actions-overview.md",
 ): H3Event {
   return {
     url: new URL(url),
@@ -30,7 +30,7 @@ describe("markdown mirror recursion guard", () => {
 
     expect(isMarkdownMirrorFetch(event)).toBe(true);
     await expect(
-      fetchMarkdownMirror("docs/actions.md", event),
+      fetchMarkdownMirror("docs/actions-overview.md", event),
     ).resolves.toEqual({ kind: "absent" });
     expect(fetchSpy).not.toHaveBeenCalled();
   });
@@ -45,16 +45,16 @@ describe("markdown mirror recursion guard", () => {
     );
     const event = eventWithHeaders(
       { "x-forwarded-host": "attacker.example.test" },
-      "https://attacker.example.test/docs/actions.md",
+      "https://attacker.example.test/docs/actions-overview.md",
     );
 
     await expect(
-      fetchMarkdownMirror("docs/actions.md", event),
+      fetchMarkdownMirror("docs/actions-overview.md", event),
     ).resolves.toEqual({ kind: "found", content: "# Actions" });
 
     const [, init] = fetchSpy.mock.calls[0] ?? [];
     expect(String(fetchSpy.mock.calls[0]?.[0])).toBe(
-      "https://docs.example.test/docs/actions.md",
+      "https://docs.example.test/docs/actions-overview.md",
     );
     const headers = (init?.headers ?? {}) as Record<string, string>;
     expect(headers["x-agent-native-md-mirror"]).toBe("1");
@@ -84,33 +84,143 @@ describe("markdown mirror recursion guard", () => {
     );
     const event = eventWithHeaders(
       { "x-forwarded-host": "attacker.example.test" },
-      "https://attacker.example.test/docs/actions.md",
+      "https://attacker.example.test/docs/actions-overview.md",
     );
 
     await expect(
-      fetchMarkdownMirror("docs/actions.md", event),
+      fetchMarkdownMirror("docs/actions-overview.md", event),
     ).resolves.toEqual({ kind: "found", content: "# Actions" });
     expect(String(fetchSpy.mock.calls[0]?.[0])).toBe(
-      "https://www.agent-native.com/docs/actions.md",
+      "https://www.agent-native.com/docs/actions-overview.md",
     );
   });
 
-  it("reports a missing mirror as absent, not as a failure", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response("nope", { status: 404 }),
-    );
-    const event = eventWithHeaders({});
+  it.each([
+    { response: () => new Response("nope", { status: 404 }), reason: "404" },
+    {
+      response: () =>
+        new Response("<html></html>", {
+          headers: { "content-type": "text/html; charset=utf-8" },
+        }),
+      reason: "text/html; charset=utf-8",
+    },
+    { response: () => new Response(null), reason: "missing content-type" },
+  ])(
+    "reports an inventoried mirror with $reason as unreadable",
+    async ({ response, reason }) => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(response());
 
-    await expect(fetchMarkdownMirror("docs/nope.md", event)).resolves.toEqual({
-      kind: "absent",
+      await expect(
+        fetchMarkdownMirror("/docs/actions-overview.md", eventWithHeaders({})),
+      ).resolves.toMatchObject({
+        kind: "unreadable",
+        reason: expect.stringContaining(reason),
+      });
+    },
+  );
+
+  it.each([
+    { response: () => new Response("missing", { status: 404 }), reason: "404" },
+    {
+      response: () =>
+        new Response("<html></html>", {
+          headers: { "content-type": "text/html" },
+        }),
+      reason: "text/html",
+    },
+  ])(
+    "reports an encoded inventoried asset with $reason as unreadable without changing the fetch path",
+    async ({ response, reason }) => {
+      vi.stubEnv("APP_URL", "https://docs.example.test");
+      const fetchSpy = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValue(response());
+
+      await expect(
+        fetchMarkdownMirror(
+          "/examples/self-hosted-chat/%52EADME.md",
+          eventWithHeaders({}),
+        ),
+      ).resolves.toMatchObject({
+        kind: "unreadable",
+        reason: expect.stringContaining(reason),
+      });
+      expect(String(fetchSpy.mock.calls[0]?.[0])).toBe(
+        "https://docs.example.test/examples/self-hosted-chat/%52EADME.md",
+      );
+    },
+  );
+
+  it.each([
+    "examples/self-hosted-chat/%ZZREADME.md",
+    "examples/self-hosted-chat/%52EADME%2.md",
+    "examples/self-hosted-chat/%C0%AFREADME.md",
+    "examples%2Fself-hosted-chat/README.md",
+    "examples%5Cself-hosted-chat/README.md",
+    "examples/self-hosted-chat/%2e/README.md",
+    "examples/self-hosted-chat/elsewhere/%2e%2e/README.md",
+    "examples/self-hosted-chat/%2552EADME.md",
+    "examples/self-hosted-chat/100%complete.md",
+    "examples/self-hosted-chat/../README.md",
+  ])("treats unsafe or ambiguous path %s as unknown", async (relativePath) => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response("missing", { status: 404 }))
+      .mockResolvedValueOnce(
+        new Response("<html></html>", {
+          headers: { "content-type": "text/html" },
+        }),
+      );
+
+    for (let i = 0; i < 2; i++) {
+      await expect(
+        fetchMarkdownMirror(relativePath, eventWithHeaders({})),
+      ).resolves.toEqual({ kind: "absent" });
+    }
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    "docs/not-in-inventory.md",
+    "docs/%6dissing.md",
+    "docs/missing%2Emd",
+    "examples/self-hosted-chat/%4EOT-FOUND.md",
+  ])(
+    "does not fetch absent markdown path %s when the network is unavailable",
+    async (relativePath) => {
+      const fetchSpy = vi
+        .spyOn(globalThis, "fetch")
+        .mockRejectedValue(new Error("network unavailable"));
+
+      await expect(
+        fetchMarkdownMirror(relativePath, eventWithHeaders({})),
+      ).resolves.toEqual({ kind: "absent" });
+      expect(fetchSpy).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    "examples/self-hosted-chat/README.md",
+    "examples/self-hosted-chat/%52EADME.md",
+    "llms.txt",
+  ])("still fetches public asset %s", async (relativePath) => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockRejectedValue(new Error("timed out"));
+    await expect(
+      fetchMarkdownMirror(relativePath, eventWithHeaders({})),
+    ).resolves.toMatchObject({
+      kind: "unreadable",
+      reason: expect.stringContaining("timed out"),
     });
+    expect(fetchSpy).toHaveBeenCalledOnce();
   });
 
   it("keeps an unreadable mirror distinct from an absent one", async () => {
     vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("timed out"));
     const event = eventWithHeaders({});
 
-    const result = await fetchMarkdownMirror("docs/actions.md", event);
+    const result = await fetchMarkdownMirror("docs/actions-overview.md", event);
     expect(result.kind).toBe("unreadable");
     expect(result).toMatchObject({
       reason: expect.stringContaining("timed out"),

@@ -1,5 +1,8 @@
 import { getAppProductionUrl } from "@agent-native/core/server";
 import { getRequestHeader, type H3Event } from "h3";
+import inventory from "virtual:docs-markdown-inventory";
+
+const knownAssets = inventory === null ? null : new Set(inventory);
 
 const MIRROR_FETCH_HEADER = "x-agent-native-md-mirror";
 
@@ -18,16 +21,45 @@ export function isMarkdownMirrorFetch(event: H3Event): boolean {
   return getRequestHeader(event, MIRROR_FETCH_HEADER) === "1";
 }
 
+function inventoryPathForAsset(assetPath: string): string | undefined {
+  try {
+    const segments = assetPath.split("/").map(decodeURIComponent);
+    if (
+      segments.some(
+        (segment) =>
+          segment === "." || segment === ".." || /[/\\%]/.test(segment),
+      )
+    ) {
+      return undefined;
+    }
+    return segments.join("/");
+  } catch {
+    return undefined;
+  }
+}
+
 export async function fetchMarkdownMirror(
   relativePath: string,
   event: H3Event,
 ): Promise<MarkdownMirrorResult> {
   if (isMarkdownMirrorFetch(event)) return { kind: "absent" };
+  const assetPath = relativePath.replace(/^\/+/, "");
+  const inventoryPath = inventoryPathForAsset(assetPath);
+  const isKnownAsset =
+    inventoryPath !== undefined && (knownAssets?.has(inventoryPath) ?? false);
+  if (
+    inventoryPath !== undefined &&
+    inventoryPath.endsWith(".md") &&
+    knownAssets &&
+    !isKnownAsset
+  ) {
+    return { kind: "absent" };
+  }
 
   const staticUrl = new URL(
     getAppProductionUrl(undefined, { fallback: DOCS_PUBLIC_ORIGIN }),
   );
-  staticUrl.pathname = `/${relativePath.replace(/^\/+/, "")}`;
+  staticUrl.pathname = `/${assetPath}`;
   staticUrl.search = "";
   let response: Response;
   try {
@@ -38,29 +70,35 @@ export async function fetchMarkdownMirror(
   } catch (error) {
     return {
       kind: "unreadable",
-      reason: `mirror fetch failed for /${relativePath}: ${
+      reason: `mirror fetch failed for /${assetPath}: ${
         error instanceof Error ? error.message : String(error)
       }`,
     };
   }
 
-  if (response.status === 404) return { kind: "absent" };
+  if (response.status === 404 && !isKnownAsset) return { kind: "absent" };
   if (!response.ok) {
     return {
       kind: "unreadable",
-      reason: `mirror fetch for /${relativePath} returned ${response.status}`,
+      reason: `mirror fetch for /${assetPath} returned ${response.status}`,
     };
   }
 
   const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
-  if (!contentType.includes("text/markdown")) return { kind: "absent" };
+  if (!contentType.includes("text/markdown")) {
+    if (!isKnownAsset) return { kind: "absent" };
+    return {
+      kind: "unreadable",
+      reason: `mirror fetch for /${assetPath} returned ${contentType || "missing content-type"} instead of text/markdown`,
+    };
+  }
 
   try {
     return { kind: "found", content: await response.text() };
   } catch (error) {
     return {
       kind: "unreadable",
-      reason: `mirror body unreadable for /${relativePath}: ${
+      reason: `mirror body unreadable for /${assetPath}: ${
         error instanceof Error ? error.message : String(error)
       }`,
     };
