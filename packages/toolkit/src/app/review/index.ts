@@ -4,6 +4,7 @@ export * from "./review-agent.js";
 export * from "./ReviewAgentMark.js";
 export * from "./comment-send-key.js";
 export * from "./ReviewCommentComposer.js";
+export type { ReviewComposerFormatLabels } from "./ReviewComposerToolbar.js";
 export * from "./ReviewStatusBadge.js";
 export * from "./ReviewThreadPanel.js";
 export * from "./ReviewAuthorAvatar.js";

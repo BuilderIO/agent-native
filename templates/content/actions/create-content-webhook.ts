@@ -11,6 +11,8 @@ import {
   CONTENT_WEBHOOK_SECRET_PREFIX,
   generateContentWebhookSecret,
 } from "../server/lib/content-webhook-signature.js";
+import { firstRow } from "../server/lib/first-row.js";
+import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import {
   CONTENT_WEBHOOK_EVENT_TYPES,
   contentWebhookOutputSchema,
@@ -19,6 +21,7 @@ import {
   type ContentWebhookScope,
 } from "./_content-webhooks.js";
 import { nanoid } from "./_property-utils.js";
+import { lockDocumentRows } from "./_row-lock-order.js";
 
 const MAX_WEBHOOKS_PER_SCOPE = 10;
 
@@ -197,6 +200,52 @@ export default defineAction({
         await tx.execute(
           sql`SELECT pg_advisory_xact_lock(hashtextextended(${`content-webhook-scope:${scope.scopeType}:${scope.scopeId}`}, 0::bigint))`,
         );
+        // A move to another workspace locks the collection or page and refuses
+        // one with webhooks, so hold the same lock and check it's still where
+        // its access was checked and the webhook's secret was stored. A move
+        // between two of one owner's workspaces keeps the owner and
+        // organization but resets sharing, so the workspace is checked too.
+        const locking = tx as unknown as ReturnType<typeof getDb>;
+        let owner:
+          | { ownerEmail: string; orgId: string | null; spaceId: string | null }
+          | undefined;
+        if (scope.scopeType === "database") {
+          await lockContentDatabaseMutation(locking, scope.scopeId);
+          owner = firstRow(
+            await tx
+              .select({
+                ownerEmail: schema.contentDatabases.ownerEmail,
+                orgId: schema.contentDatabases.orgId,
+                spaceId: schema.contentDatabases.spaceId,
+              })
+              .from(schema.contentDatabases)
+              .where(eq(schema.contentDatabases.id, scope.scopeId)),
+          );
+        } else {
+          await lockDocumentRows(locking, [scope.scopeId]);
+          owner = firstRow(
+            // guard:allow-unscoped — reads the owner of the page whose admin access resolveContentWebhookScope just checked.
+            await tx
+              .select({
+                ownerEmail: schema.documents.ownerEmail,
+                orgId: schema.documents.orgId,
+                spaceId: schema.documents.spaceId,
+              })
+              .from(schema.documents)
+              .where(eq(schema.documents.id, scope.scopeId)),
+          );
+        }
+        if (
+          !owner ||
+          owner.ownerEmail !== scope.ownerEmail ||
+          (owner.orgId ?? null) !== scope.orgId ||
+          (owner.spaceId ?? null) !== scope.spaceId
+        ) {
+          throw new ActionContractError(
+            `The ${scope.scopeType === "database" ? "collection" : "page"} moved to another workspace while the webhook was being added. Add it again.`,
+            { errorCode: "WEBHOOK_SCOPE_MOVED", statusCode: 409 },
+          );
+        }
         const existing = await tx
           .select({ id: schema.contentWebhooks.id })
           .from(schema.contentWebhooks)

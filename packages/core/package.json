@@ -147,6 +147,14 @@
       "types": "./dist/save-conflict/server.d.ts",
       "default": "./dist/save-conflict/server.js"
     },
+    "./free-name": {
+      "types": "./dist/free-name/index.d.ts",
+      "default": "./dist/free-name/index.js"
+    },
+    "./free-name/server": {
+      "types": "./dist/free-name/server.d.ts",
+      "default": "./dist/free-name/server.js"
+    },
     "./authorization": {
       "types": "./dist/authorization/index.d.ts",
       "default": "./dist/authorization/index.js"
@@ -646,6 +654,7 @@
     "./org/workspace-url": "./dist/org/workspace-url.js",
     "./progress/types": "./dist/progress/types.js",
     "./resources/pack-constants": "./dist/resources/pack-constants.js",
+    "./review/markdown": "./dist/review/markdown.js",
     "./review/plain-text": "./dist/review/plain-text.js",
     "./review/types": "./dist/review/types.js",
     "./secrets/api-keys": "./dist/secrets/api-keys.js",
@@ -769,6 +778,8 @@
     "magic-string": "^1.4.3",
     "mdast-util-from-markdown": "^2.0.0",
     "mdast-util-gfm": "^3.0.0",
+    "mdast-util-gfm-strikethrough": "^2.0.0",
+    "mdast-util-to-markdown": "^2.1.2",
     "micromark-extension-gfm": "^3.0.0",
     "minimatch": "^10.0.0",
     "nitro": "3.0.260903-beta",
@@ -777,6 +788,7 @@
     "react-i18next": "17.0.8",
     "run": "2.0.1",
     "safe-regex2": "5.1.1",
+    "smol-toml": "1.9.1",
     "turndown": "^7.2.4",
     "undici": "^7.28.0",
     "ws": "^8.22.0",

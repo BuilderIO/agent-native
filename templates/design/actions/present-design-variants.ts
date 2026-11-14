@@ -5,6 +5,7 @@ import {
   writeAppStateForCurrentTab,
 } from "@agent-native/core/application-state";
 import { seedFromText } from "@agent-native/core/collab";
+import { nextFreeName } from "@agent-native/core/free-name";
 import { buildDeepLink } from "@agent-native/core/server";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, eq, inArray } from "drizzle-orm";
@@ -468,15 +469,10 @@ function optionName(index: number) {
 }
 
 function uniqueFilename(preferred: string, used: Set<string>) {
-  const dot = preferred.lastIndexOf(".");
-  const stem = dot > 0 ? preferred.slice(0, dot) : preferred;
-  const ext = dot > 0 ? preferred.slice(dot) : ".html";
-  let candidate = `${stem}${ext}`;
-  let suffix = 2;
-  while (used.has(candidate)) {
-    candidate = `${stem}-${suffix}${ext}`;
-    suffix += 1;
-  }
+  const candidate = nextFreeName(
+    preferred.lastIndexOf(".") > 0 ? preferred : `${preferred}.html`,
+    used,
+  );
   used.add(candidate);
   return candidate;
 }

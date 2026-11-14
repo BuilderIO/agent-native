@@ -141,6 +141,73 @@ async function references(documentId: string, id: string) {
     );
 }
 
+/** A Files & media value and a Blocks field kept apart from the body. */
+/** A property of a collection `documentId` belongs to, and its writers. */
+async function outsideBody(documentId: string, type = "files_media") {
+  const databaseId = `private-media-db-${++count}`;
+  await db.insert(schema.contentDatabases).values({
+    id: databaseId,
+    ownerEmail: OWNER,
+    documentId: await document(),
+  });
+  const membershipId = `private-media-item-${++count}`;
+  await db.insert(schema.contentDatabaseItems).values({
+    id: membershipId,
+    ownerEmail: OWNER,
+    databaseId,
+    documentId,
+  });
+  const id = `private-media-property-${++count}`;
+  await db.insert(schema.documentPropertyDefinitions).values({
+    id,
+    ownerEmail: OWNER,
+    databaseId,
+    name: type,
+    type,
+  });
+  return {
+    leaveCollection: async () => {
+      await db
+        .delete(schema.contentDatabaseItems)
+        .where(eq(schema.contentDatabaseItems.id, membershipId));
+    },
+    setValue: async (valueJson: string) => {
+      await db
+        .delete(schema.documentPropertyValues)
+        .where(
+          and(
+            eq(schema.documentPropertyValues.documentId, documentId),
+            eq(schema.documentPropertyValues.propertyId, id),
+          ),
+        );
+      await db.insert(schema.documentPropertyValues).values({
+        id: `private-media-value-${++count}`,
+        ownerEmail: OWNER,
+        documentId,
+        propertyId: id,
+        valueJson,
+      });
+    },
+    setField: async (content: string) => {
+      await db
+        .delete(schema.documentBlockFieldContents)
+        .where(
+          and(
+            eq(schema.documentBlockFieldContents.documentId, documentId),
+            eq(schema.documentBlockFieldContents.propertyId, id),
+          ),
+        );
+      await db.insert(schema.documentBlockFieldContents).values({
+        id: `private-media-field-${++count}`,
+        ownerEmail: OWNER,
+        documentId,
+        propertyId: id,
+        content,
+      });
+    },
+  };
+}
+
 function canRead(id: string, userEmail?: string) {
   return runWithRequestContext(userEmail ? { userEmail } : {}, () =>
     refs.canReadPrivateMediaThroughDocument(id),
@@ -311,6 +378,84 @@ describe("private media references", () => {
       .where(eq(schema.contentDatabases.id, databaseId));
     await expect(canRead(id, SHARED)).resolves.toBe(false);
     expect((await get(id, SHARED)).status).toBe(404);
+  });
+
+  it("serves an image a page shows in a property value until the value drops it", async () => {
+    const id = mediaId();
+    await uploaded(id, OWNER);
+    const page = await document();
+    await share(page);
+    const valueJson = JSON.stringify([`/api/private-media/${id}`]);
+    const files = await outsideBody(page);
+    await files.setValue(valueJson);
+    await save(page, valueJson);
+    expect(await references(page, id)).toHaveLength(1);
+
+    await expect(canRead(id, SHARED)).resolves.toBe(true);
+    await expect(canRead(id, OTHER)).resolves.toBe(false);
+    expect((await get(id, SHARED)).status).toBe(200);
+    expect((await get(id)).status).toBe(404);
+
+    await files.setValue(JSON.stringify(["https://example.test/other.png"]));
+    await expect(canRead(id, SHARED)).resolves.toBe(false);
+  });
+
+  it("serves an image a page shows in a Blocks field until the field drops it", async () => {
+    const id = mediaId();
+    await uploaded(id, OWNER);
+    const page = await document();
+    await share(page);
+    const field = await outsideBody(page);
+    await field.setField(body(id));
+    await save(page, body(id));
+
+    await expect(canRead(id, SHARED)).resolves.toBe(true);
+    await expect(canRead(id, OTHER)).resolves.toBe(false);
+
+    await field.setField("No image here.");
+    await expect(canRead(id, SHARED)).resolves.toBe(false);
+  });
+
+  it("does not serve a property image to readers of a page it isn't bound to", async () => {
+    const id = mediaId();
+    await uploaded(id, OWNER);
+    const page = await document({ ownerEmail: OTHER });
+    await share(page);
+    const valueJson = JSON.stringify([`/api/private-media/${id}`]);
+    await (await outsideBody(page)).setValue(valueJson);
+    // The page's owner never saw the image, so the save leaves it unbound.
+    await save(page, valueJson, OTHER);
+    expect(await references(page, id)).toHaveLength(0);
+    await expect(canRead(id, SHARED)).resolves.toBe(false);
+  });
+
+  it("does not serve an image that only a computed value shows", async () => {
+    const id = mediaId();
+    await uploaded(id, OWNER);
+    const page = await document();
+    await share(page);
+    const valueJson = JSON.stringify([`/api/private-media/${id}`]);
+    await (await outsideBody(page, "rollup")).setValue(valueJson);
+    await save(page, valueJson);
+    expect(await references(page, id)).toHaveLength(1);
+    // get-document holds rollups back from a reader shared only the page.
+    await expect(canRead(id, SHARED)).resolves.toBe(false);
+  });
+
+  it("stops serving a property image once its page leaves the collection", async () => {
+    const id = mediaId();
+    await uploaded(id, OWNER);
+    const page = await document();
+    await share(page);
+    const valueJson = JSON.stringify([`/api/private-media/${id}`]);
+    const files = await outsideBody(page);
+    await files.setValue(valueJson);
+    await save(page, valueJson);
+    await expect(canRead(id, SHARED)).resolves.toBe(true);
+
+    // get-document no longer shows the page that collection's values.
+    await files.leaveCollection();
+    await expect(canRead(id, SHARED)).resolves.toBe(false);
   });
 
   it("serves an image on a public page without a session", async () => {
@@ -492,6 +637,33 @@ describe("private media references", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("gives an agent links to images in a page's property values and Blocks fields", async () => {
+    const inProperty = mediaId();
+    const inField = mediaId();
+    const inBody = mediaId();
+    for (const id of [inProperty, inField, inBody]) await uploaded(id, OWNER);
+    const content = body(inBody);
+    const page = await document({ content });
+    await share(page);
+    const outside = await outsideBody(page);
+    const valueJson = JSON.stringify([`/api/private-media/${inProperty}`]);
+    await outside.setValue(valueJson);
+    await outside.setField(body(inField));
+    for (const text of [content, valueJson, body(inField)]) {
+      await save(page, text);
+    }
+
+    const agent = await runWithRequestContext(
+      { userEmail: SHARED, requestOrigin: "https://content.test" },
+      () => getDocumentAction.run({ id: page }, { caller: "mcp" }),
+    );
+    expect(agent.privateMediaLinks?.links.map((link) => link.src)).toEqual([
+      `/api/private-media/${inBody}`,
+      `/api/private-media/${inProperty}`,
+      `/api/private-media/${inField}`,
+    ]);
   });
 
   it("says how many images got no link when a page has more than 200", async () => {

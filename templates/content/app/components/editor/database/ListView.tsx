@@ -1,3 +1,4 @@
+import { useIsMcpAppWidgetEmbed } from "@agent-native/core/client/mcp-app-host";
 import type {
   ContentDatabaseItem,
   ContentDatabaseItemLayout,
@@ -34,6 +35,7 @@ import {
 } from "./DatabaseView";
 import { ListItemLayoutPresets } from "./ListItemLayout";
 import { DatabaseLayoutListRow, type ListItemRowLayout } from "./ListItemRow";
+import { databaseItemHasRowMenu } from "./row-access";
 import { databaseRowOpenTarget } from "./row-open-target";
 
 export function DatabaseListView({
@@ -349,10 +351,12 @@ function DatabaseListRow({
   onPreview: () => void;
   onOpenPage: () => void;
 }) {
-  const actions = canEdit ? (
+  const inWidget = useIsMcpAppWidgetEmbed();
+  const actions = databaseItemHasRowMenu(item, canEdit, inWidget) ? (
     <RowActionsCell
       item={item}
       databaseDocumentId={databaseDocumentId}
+      canEdit={canEdit}
       canReorder={canReorder}
       canMoveUp={canMoveUp}
       canMoveDown={canMoveDown}

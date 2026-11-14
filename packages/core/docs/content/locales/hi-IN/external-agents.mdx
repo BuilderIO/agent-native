@@ -693,7 +693,7 @@ Actions उन होस्ट के लिए `mcpApp` के साथ एक
     "name": "to",
     "in": "query",
     "type": "string",
-    "description": "Optional explicit same-origin relative redirect target. Falls back to `/<view>`, then a per-template `resolveOpenPath`."
+    "description": "Optional explicit same-origin relative redirect target. Falls back to a per-template `resolveOpenPath`, then `/<view>`."
   },
   {
     "name": "compose",
@@ -725,7 +725,7 @@ Resolves the browser session, writes a one-shot `navigate` application-state com
 1. `getSession` के माध्यम से **ब्राउज़र** सत्र को हल करता है (ऑथ गार्ड सटीक पथ `/_agent-native/open` को बायपास करता है)।
 2. यदि अप्रमाणित है, तो कॉन्फ़िगर किया गया लॉगिन HTML **उसी URL** पर कार्य करता है; फॉर्म का सफल हैंडलर `window.location` को पुनः लोड करता है, प्रमाणित मार्ग को फिर से दर्ज करता है - कोई `?next=` प्लंबिंग नहीं।
 3. `requestSource: "deep-link"` के साथ ब्राउज़र सत्र के ईमेल के दायरे में मौजूद मौजूदा एक-शॉट `navigate` एप्लिकेशन-स्टेट कमांड (पेलोड = प्रत्येक गैर-आरक्षित क्वेरी पैरामीटर + `view`) लिखता है, और एक `compose` बेस 64url ड्राफ्ट को `compose-<id>` कुंजी में डीकोड करता है।
-4. 302-एक सुरक्षित समान-मूल सापेक्ष पथ (`to=`, अन्यथा `/<view>`, अन्यथा एक प्रति-टेम्पलेट `resolveOpenPath`) पर रीडायरेक्ट करता है, `f_*` फ़िल्टर पैरामीटर को अग्रेषित करता है ताकि सूचियां/डैशबोर्ड `navigate` कमांड के खत्म होने से पहले ही पूर्व-फ़िल्टर होकर खुल जाएं।
+4. 302-एक सुरक्षित समान-मूल सापेक्ष पथ (`to=`, अन्यथा एक प्रति-टेम्पलेट `resolveOpenPath`, अन्यथा `/<view>`) पर रीडायरेक्ट करता है, `f_*` फ़िल्टर पैरामीटर को अग्रेषित करता है ताकि सूचियां/डैशबोर्ड `navigate` कमांड के खत्म होने से पहले ही पूर्व-फ़िल्टर होकर खुल जाएं।
 
 क्रॉस-ओरिजिन, स्कीम-रिलेटिव `//host`, और कंट्रोल-चार रीडायरेक्ट अस्वीकार कर दिए गए हैं (ओपन-रीडायरेक्ट गार्ड)। मार्ग को `disableOpenRoute` के माध्यम से प्रति ऐप अक्षम किया जा सकता है।
 
