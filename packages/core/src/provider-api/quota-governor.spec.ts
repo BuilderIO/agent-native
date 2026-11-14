@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const cooldownRows = new Map<string, Record<string, unknown>>();
 
@@ -73,11 +73,246 @@ const { getOrCreateRequestDbPool, runWithRequestDbPoolScope } =
   await import("../db/request-pool-context.js");
 
 describe("provider API quota governor", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   beforeEach(() => {
     cooldownRows.clear();
     resetProviderQuotaStateForTests();
     vi.unstubAllEnvs();
     vi.stubEnv("AGENT_NATIVE_PROVIDER_API_PERSIST_COOLDOWNS", "1");
+  });
+
+  it.each(["first attempt", "retry"] as const)(
+    "prepares each attempt outside the account queue while the %s hook is pending",
+    async (pendingAttempt) => {
+      vi.useFakeTimers();
+      vi.stubEnv("AGENT_NATIVE_PROVIDER_API_PERSIST_COOLDOWNS", "0");
+      const identity = createProviderQuotaIdentity({
+        appId: "mail",
+        providerId: "gmail",
+        ctx: { userEmail: "reader@example.test" },
+        credentialSources: [],
+      });
+      const request = {
+        identity,
+        method: "GET",
+        target: "provider.test/thread",
+      };
+      const success = { status: 200, headers: {} };
+      const options = {
+        request,
+        inspect: (result: { status: number }) => result,
+        buildQuotaExhaustedResult: () => ({ status: 429, headers: {} }),
+      };
+      let release = () => {};
+      const pending = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      const blockedCall = pendingAttempt === "retry" ? 2 : 1;
+      let prepared = false;
+      const beforeAttempt = vi.fn(async () => {
+        prepared = false;
+        if (beforeAttempt.mock.calls.length === blockedCall) await pending;
+        prepared = true;
+      });
+      const execute = vi.fn(async () => {
+        // The queued callback must receive an already prepared attempt.
+        expect(prepared).toBe(true);
+        prepared = false;
+        return execute.mock.calls.length === 1
+          ? { status: 429, headers: { "retry-after": "0" } }
+          : success;
+      });
+      const firstOptions = { ...options, beforeAttempt, execute };
+      const first = executeWithProviderQuota(firstOptions);
+      // Attach immediately so a red assertion cannot become an unhandled rejection.
+      const firstOutcome = first.then(
+        (value) => ({ value }),
+        (error) => ({ error }),
+      );
+      await vi.advanceTimersByTimeAsync(0);
+      const secondExecute = vi.fn(async () => success);
+      const second = executeWithProviderQuota({
+        ...options,
+        execute: secondExecute,
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      try {
+        expect(beforeAttempt).toHaveBeenCalledTimes(blockedCall);
+        expect(execute).toHaveBeenCalledTimes(blockedCall - 1);
+        expect(secondExecute).toHaveBeenCalledOnce();
+        expect(await second).toEqual(success);
+      } finally {
+        release();
+        await vi.runAllTimersAsync();
+        await Promise.all([firstOutcome, second]);
+      }
+      expect(await firstOutcome).toEqual({ value: success });
+      expect(beforeAttempt).toHaveBeenCalledTimes(2);
+      expect(execute).toHaveBeenCalledTimes(2);
+    },
+  );
+
+  it.each(["retry", "cooldown"] as const)(
+    "releases the account queue during a %s wait so another request can honor its own deadline",
+    async (wait) => {
+      vi.useFakeTimers();
+      vi.stubEnv("AGENT_NATIVE_PROVIDER_API_PERSIST_COOLDOWNS", "0");
+      const identity = createProviderQuotaIdentity({
+        appId: "calendar",
+        providerId: "google-calendar",
+        ctx: { userEmail: "reader@example.test" },
+        credentialSources: [],
+      });
+      const request = {
+        identity,
+        method: "GET",
+        target: "provider.test/events",
+      };
+      const limited = { status: 429, headers: { "retry-after": "1" } };
+      const success = { status: 200, headers: {} };
+      const options = {
+        request,
+        inspect: (result: { status: number }) => result,
+        buildQuotaExhaustedResult: () => ({ status: 429, headers: {} }),
+      };
+      if (wait === "cooldown") {
+        await executeWithProviderQuota({
+          ...options,
+          execute: async () => limited,
+          singleAttempt: true,
+        });
+      }
+      const retryingExecute = vi.fn(async () => success);
+      if (wait === "retry") retryingExecute.mockResolvedValueOnce(limited);
+      const retrying = executeWithProviderQuota({
+        ...options,
+        execute: retryingExecute,
+      });
+      await vi.advanceTimersByTimeAsync(0);
+      const secondExecute = vi.fn(async () => success);
+      let secondDone = false;
+      const second = executeWithProviderQuota({
+        ...options,
+        request: { ...request, target: "provider.test/profile" },
+        execute: secondExecute,
+        maxWaitMs: 1,
+      }).then((result) => {
+        secondDone = true;
+        return result;
+      });
+      await vi.advanceTimersByTimeAsync(10);
+      try {
+        expect(secondDone).toBe(true);
+        expect(secondExecute).not.toHaveBeenCalled();
+        expect(await second).toEqual({ status: 429, headers: {} });
+      } finally {
+        await vi.runAllTimersAsync();
+        await Promise.all([retrying, second]);
+      }
+      expect(await retrying).toEqual(success);
+    },
+    2_000,
+  );
+
+  it("propagates a typed preparation rejection before entering an occupied queue", async () => {
+    vi.stubEnv("AGENT_NATIVE_PROVIDER_API_PERSIST_COOLDOWNS", "0");
+    const identity = createProviderQuotaIdentity({
+      appId: "mail",
+      providerId: "gmail",
+      ctx: { userEmail: "reader@example.test" },
+      credentialSources: [],
+    });
+    const success = { status: 200 };
+    const options = {
+      request: { identity, method: "GET", target: "provider.test/thread" },
+      inspect: (result: { status: number }) => result,
+      buildQuotaExhaustedResult: vi.fn(() => ({ status: 429 })),
+    };
+    let release = () => {};
+    const pending = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    let started = () => {};
+    const executing = new Promise<void>((resolve) => {
+      started = resolve;
+    });
+    const first = executeWithProviderQuota({
+      ...options,
+      execute: async () => {
+        started();
+        await pending;
+        return success;
+      },
+    });
+    await executing;
+    const failure = Object.assign(new Error("Budget deadline exceeded"), {
+      errorCode: "gmail_provider_unavailable",
+      statusCode: 503,
+    });
+    const execute = vi.fn(async () => success);
+    const refusedOptions = {
+      ...options,
+      beforeAttempt: async () => {
+        throw failure;
+      },
+      execute,
+    };
+    try {
+      await expect(executeWithProviderQuota(refusedOptions)).rejects.toBe(
+        failure,
+      );
+      expect(execute).not.toHaveBeenCalled();
+      expect(options.buildQuotaExhaustedResult).not.toHaveBeenCalled();
+    } finally {
+      release();
+      await first;
+    }
+  });
+
+  it("returns the original single-attempt 429 and persists cooldown even when the environment requests retries", async () => {
+    vi.stubEnv("AGENT_NATIVE_PROVIDER_API_MAX_ATTEMPTS", "9");
+    const identity = createProviderQuotaIdentity({
+      appId: "crm",
+      providerId: "gmail",
+      ctx: { userEmail: "ada@example.com", orgId: "org-1" },
+      credentialSources: [],
+    });
+    const request = { identity, method: "POST", target: "gmail.example/send" };
+    const execute = vi.fn(async () => ({
+      status: 429,
+      headers: { "retry-after": "120" },
+      original: true,
+    }));
+    const exhausted = (detail: { reason: string }) => ({
+      status: 429,
+      headers: {},
+      original: false,
+      reason: detail.reason,
+    });
+    const first = await executeWithProviderQuota({
+      request,
+      execute,
+      singleAttempt: true,
+      maxWaitMs: 1,
+      inspect: (result) => result,
+      buildQuotaExhaustedResult: exhausted,
+    });
+    expect(first).toMatchObject({ status: 429, original: true });
+    expect(execute).toHaveBeenCalledTimes(1);
+    expect(cooldownRows.size).toBe(1);
+    const second = await executeWithProviderQuota({
+      request,
+      execute,
+      singleAttempt: true,
+      maxWaitMs: 1,
+      inspect: (result) => result,
+      buildQuotaExhaustedResult: exhausted,
+    });
+    expect(second).toMatchObject({ original: false, reason: "cooldown" });
+    expect(execute).toHaveBeenCalledTimes(1);
   });
 
   it("separates in-flight request identities by effective byte cap", () => {

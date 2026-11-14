@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   getSqlFragmentParameterOffsets,
   sql,
+  withSqlBudget,
   type SqlFragment,
 } from "./sql.js";
 
@@ -135,6 +136,107 @@ describe("sql", () => {
     );
     expect(() => sql.in([boundValue])).toThrow(
       "SQL IN values cannot include SQL helpers",
+    );
+  });
+});
+
+describe("withSqlBudget", () => {
+  it("preserves branded SQL, arguments and exact marker offsets without mutating the input", () => {
+    const nested = sql`payload ? 'key' AND id = ${sql.value("?")}`;
+    const source = sql`SELECT '?' AS literal WHERE ${nested} AND other = ${sql.value(42)}`;
+    const before = getSqlFragmentParameterOffsets(source);
+    const options = { timeoutMs: 2500, maxAttempts: 1 };
+    const budgeted = withSqlBudget(source, options);
+    options.timeoutMs = 3000;
+    expect(budgeted).not.toBe(source);
+    expect(Object.isFrozen(budgeted)).toBe(true);
+    expect(Object.isFrozen(budgeted.args)).toBe(true);
+    expect(budgeted.sql).toBe(source.sql);
+    expect(budgeted.args).toEqual(["?", 42]);
+    expect(getSqlFragmentParameterOffsets(budgeted)).toEqual(before);
+    const marker = Symbol.for(
+      "@agent-native/core/sql-fragment-parameter-offsets",
+    );
+    expect(Reflect.get(budgeted, marker)).toEqual(Reflect.get(source, marker));
+    expect(Object.isFrozen(Reflect.get(budgeted, marker))).toBe(true);
+    expect("timeoutMs" in source).toBe(false);
+    expect("maxAttempts" in source).toBe(false);
+    expect(budgeted).toMatchObject({ timeoutMs: 2500, maxAttempts: 1 });
+  });
+  it.each([
+    [0, 1],
+    [-1, 1],
+    [0.1, 1],
+    [Number.NaN, 1],
+    [Number.POSITIVE_INFINITY, 1],
+    [2_147_483_648, 1],
+    [1, 0],
+    [1, -1],
+    [1, 1.5],
+    [1, Number.NaN],
+    [1, Number.POSITIVE_INFINITY],
+    [1, 11],
+  ])(
+    "rejects invalid timeout %s or attempt count %s",
+    (timeoutMs, maxAttempts) => {
+      expect(() =>
+        withSqlBudget(sql`SELECT 1`, { timeoutMs, maxAttempts }),
+      ).toThrow(RangeError);
+    },
+  );
+  it("rejects missing, non-numeric and malformed budgets at the runtime boundary", () => {
+    const source = sql`SELECT 1`;
+    for (const budget of [
+      undefined,
+      null,
+      {},
+      { timeoutMs: "25", maxAttempts: 1 },
+    ]) {
+      expect(() =>
+        Reflect.apply(withSqlBudget, undefined, [source, budget]),
+      ).toThrow(RangeError);
+    }
+  });
+  it("rejects an unbranded query object", () => {
+    expect(() =>
+      Reflect.apply(withSqlBudget, undefined, [
+        { sql: "SELECT ?", args: ["x"] },
+        { timeoutMs: 25, maxAttempts: 1 },
+      ]),
+    ).toThrow(TypeError);
+  });
+  it("accepts boundary values and does not propagate nested execution budgets", async () => {
+    vi.resetModules();
+    const foreign = await import("./sql.js");
+    const inner = foreign.withSqlBudget(
+      foreign.sql`payload ? 'k' AND id = ${foreign.sql.value("?")}`,
+      { timeoutMs: 1, maxAttempts: 10 },
+    );
+    const outer = sql`SELECT '?' WHERE ${inner}`;
+    const joined = sql.join([inner], sql` AND `);
+    expect("timeoutMs" in joined).toBe(false);
+    expect(getSqlFragmentParameterOffsets(joined)).toEqual(
+      getSqlFragmentParameterOffsets(inner),
+    );
+    const rewrapped = withSqlBudget(inner, { timeoutMs: 2, maxAttempts: 2 });
+    expect(rewrapped.args).toEqual(inner.args);
+    expect(getSqlFragmentParameterOffsets(rewrapped)).toEqual(
+      getSqlFragmentParameterOffsets(inner),
+    );
+    expect(rewrapped).toMatchObject({ timeoutMs: 2, maxAttempts: 2 });
+    expect("timeoutMs" in outer).toBe(false);
+    expect("maxAttempts" in outer).toBe(false);
+    expect(getSqlFragmentParameterOffsets(outer)).toEqual([
+      outer.sql.lastIndexOf("?"),
+    ]);
+    expect(outer.args).toEqual(["?"]);
+    const wrapped = withSqlBudget(outer, {
+      timeoutMs: 2_147_483_647,
+      maxAttempts: 1,
+    });
+    expect(wrapped).toMatchObject({ timeoutMs: 2_147_483_647, maxAttempts: 1 });
+    expect(getSqlFragmentParameterOffsets(wrapped)).toEqual(
+      getSqlFragmentParameterOffsets(outer),
     );
   });
 });

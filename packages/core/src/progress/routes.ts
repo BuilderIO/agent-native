@@ -7,7 +7,12 @@ import {
 } from "h3";
 
 import { getSession } from "../server/auth.js";
-import { listRuns, getRun, deleteRun } from "./store.js";
+import {
+  listRuns,
+  getRun,
+  deleteRun,
+  resolveProgressSourceAppId,
+} from "./store.js";
 
 function parseLimit(value: unknown, fallback = 50): number {
   if (typeof value !== "string" || value.length === 0) return fallback;
@@ -25,7 +30,7 @@ async function resolveOwner(event: H3Event): Promise<string> {
   return session.email;
 }
 
-export function createProgressHandler() {
+export function createProgressHandler(options: { localApp?: boolean } = {}) {
   return defineEventHandler(async (event: H3Event) => {
     const rawMethod = getMethod(event);
     const method = rawMethod === "HEAD" ? "GET" : rawMethod;
@@ -37,7 +42,11 @@ export function createProgressHandler() {
       .replace(/^\/+/, "")
       .replace(/\/+$/, "");
     const parts = pathname ? pathname.split("/") : [];
+    const runId = parts.length === 1 ? parts.at(0) : undefined;
     const owner = await resolveOwner(event);
+    const scope = options.localApp
+      ? { sourceAppId: resolveProgressSourceAppId() }
+      : undefined;
 
     if (method === "GET" && parts.length === 0) {
       const q = getQuery(event);
@@ -45,11 +54,14 @@ export function createProgressHandler() {
         activeOnly: q.active === "true" || q.active === "1",
         limit: parseLimit(q.limit),
         event,
+        ...scope,
       });
     }
 
-    if (method === "GET" && parts.length === 1) {
-      const row = await getRun(parts[0], owner);
+    if (method === "GET" && runId !== undefined) {
+      const row = scope
+        ? await getRun(runId, owner, scope)
+        : await getRun(runId, owner);
       if (!row) {
         setResponseStatus(event, 404);
         return { error: "Not found" };
@@ -57,8 +69,10 @@ export function createProgressHandler() {
       return row;
     }
 
-    if (method === "DELETE" && parts.length === 1) {
-      const ok = await deleteRun(parts[0], owner);
+    if (method === "DELETE" && runId !== undefined) {
+      const ok = scope
+        ? await deleteRun(runId, owner, scope)
+        : await deleteRun(runId, owner);
       if (!ok) {
         setResponseStatus(event, 404);
         return { error: "Not found" };

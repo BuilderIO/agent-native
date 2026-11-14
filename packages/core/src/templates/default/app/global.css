@@ -20,7 +20,9 @@
   --muted-foreground: 0 0% 45%;
   --accent: 0 0% 95%;
   --accent-foreground: 0 0% 15%;
-  --destructive: 0 84% 60%;
+  /* Error text is small body copy, so the accent clears 4.5:1 on white (6.42:1);
+     white on the fill stays 6.4:1. */
+  --destructive: 0 74% 42%;
   --destructive-foreground: 0 0% 98%;
   --border: 0 0% 90%;
   --input: 0 0% 90%;
@@ -51,8 +53,9 @@
   --muted-foreground: 0 0% 60%;
   --accent: 0 0% 18%;
   --accent-foreground: 0 0% 90%;
-  --destructive: 0 91% 71%;
-  --destructive-foreground: 0 0% 98%;
+  /* 72% lightness clears 4.5:1 on the dark page; the fill's own text flips dark. */
+  --destructive: 0 80% 72%;
+  --destructive-foreground: 0 0% 10%;
   --border: 0 0% 24%;
   --input: 0 0% 24%;
   --ring: 0 0% 60%;

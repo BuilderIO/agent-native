@@ -49,6 +49,20 @@ describe("dispatchAuthPlugin", () => {
     expect(mocks.authPlugin).toHaveBeenCalledWith(nitroApp);
   });
 
+  it("keeps a private workspace root behind the auth guard", async () => {
+    const { default: dispatchAuthPlugin } = await import("./auth.js");
+    mocks.getDispatchConfig.mockReturnValue({
+      auth: { googleOnly: true, workspaceAppPublicPaths: [] },
+    });
+    await dispatchAuthPlugin({});
+    expect(mocks.createAuthPlugin).toHaveBeenCalledWith(
+      expect.objectContaining({
+        googleOnly: true,
+        workspaceAppPublicPaths: [],
+      }),
+    );
+  });
+
   it("merges consumer marketing overrides with package defaults", async () => {
     const { default: dispatchAuthPlugin } = await import("./auth.js");
 

@@ -20,6 +20,7 @@ import {
   isMcpEmbedTransplantOrigin,
   MCP_EMBED_CORS_ALLOW_HEADERS,
 } from "../shared/mcp-embed-headers.js";
+import { isWorkspaceAppChatScope } from "../shared/workspace-app-chat-capability.js";
 import { getConfiguredAppBasePath } from "./app-base-path.js";
 import type { AuthSession } from "./auth.js";
 import { readCorsAllowedOrigins } from "./cors-origins.js";
@@ -352,6 +353,10 @@ export function createEmbedStartRouteHandler(
       return expiredEmbedSessionResponse(event);
     }
 
+    if (isWorkspaceAppChatScope(consumed.scope)) {
+      return expiredEmbedSessionResponse(event);
+    }
+
     const target = normalizeEmbedTargetPath(consumed.targetPath);
     if (!target) {
       if (consumeDiagnostic) {
@@ -368,6 +373,7 @@ export function createEmbedStartRouteHandler(
       scope: consumed.scope,
       ...(consumed.ticketCreatedAtMs != null &&
       (!isEmbedCapabilityScope(consumed.scope) ||
+        isWorkspaceAppChatScope(consumed.scope) ||
         isMcpDirectoryWidgetCapabilityScope(consumed.scope))
         ? { ticketCreatedAtMs: consumed.ticketCreatedAtMs }
         : {}),

@@ -1,13 +1,19 @@
 import { randomUUID } from "node:crypto";
 
+import { getAppConfig } from "../app-config/index.js";
 import { getDbExec, isUniqueViolation, safeJsonParse } from "../db/client.js";
-import { ensureIndexExists, ensureTableExists } from "../db/ddl-guard.js";
+import {
+  ensureColumnExists,
+  ensureIndexExists,
+  ensureTableExists,
+} from "../db/ddl-guard.js";
 import { defineStore } from "../db/store-registry.js";
 import { recordChange } from "../server/poll.js";
 import type {
   AgentRun,
   ListRunsOptions,
   ProgressStatus,
+  ProgressRunScope,
   StartRunInput,
   UpdateProgressInput,
 } from "./types.js";
@@ -30,6 +36,23 @@ function resolveProgressRunStaleMs(): number {
     if (Number.isFinite(value) && value >= 0) return value;
   }
   return DEFAULT_PROGRESS_RUN_STALE_MS;
+}
+
+/** Trusted deployment identity, never run metadata or a browser selector. */
+export function resolveProgressSourceAppId(): string | null {
+  const app = getAppConfig().app;
+  const resolved = app.id ?? app.template ?? app.workspaceId ?? app.packageName;
+  return typeof resolved === "string" && resolved.trim()
+    ? resolved.trim()
+    : null;
+}
+
+function scopedSourceAppId(scope: ProgressRunScope): string | null | undefined {
+  if (!Object.prototype.hasOwnProperty.call(scope, "sourceAppId"))
+    return undefined;
+  return typeof scope.sourceAppId === "string" && scope.sourceAppId.trim()
+    ? scope.sourceAppId.trim()
+    : null;
 }
 
 export const progressStore = defineStore({
@@ -56,6 +79,20 @@ export const progressStore = defineStore({
         await ensureIndexExists(
           "idx_progress_runs_owner_status",
           `CREATE INDEX IF NOT EXISTS idx_progress_runs_owner_status ON progress_runs (owner, status, started_at)`,
+        );
+      },
+    },
+    {
+      name: "source-app-provenance",
+      run: async () => {
+        await ensureColumnExists(
+          "progress_runs",
+          "source_app_id",
+          "ALTER TABLE progress_runs ADD COLUMN IF NOT EXISTS source_app_id TEXT",
+        );
+        await ensureIndexExists(
+          "idx_progress_runs_owner_app_started",
+          "CREATE INDEX IF NOT EXISTS idx_progress_runs_owner_app_started ON progress_runs (owner, source_app_id, started_at)",
         );
       },
     },
@@ -95,11 +132,12 @@ export async function insertRun(input: StartRunInput): Promise<AgentRun> {
   const client = getDbExec();
   const id = input.id ?? randomUUID();
   const now = Date.now();
+  const sourceAppId = resolveProgressSourceAppId();
   try {
     await client.execute({
       sql: `INSERT INTO progress_runs
-        (id, owner, title, step, percent, status, metadata, started_at, updated_at, completed_at)
-        VALUES (?, ?, ?, ?, NULL, 'running', ?, ?, ?, NULL)`,
+        (id, owner, title, step, percent, status, metadata, started_at, updated_at, completed_at, source_app_id)
+        VALUES (?, ?, ?, ?, NULL, 'running', ?, ?, ?, NULL, ?)`,
       args: [
         id,
         input.owner,
@@ -108,6 +146,7 @@ export async function insertRun(input: StartRunInput): Promise<AgentRun> {
         input.metadata ? JSON.stringify(input.metadata) : null,
         now,
         now,
+        sourceAppId,
       ],
     });
   } catch (err) {
@@ -136,12 +175,16 @@ export async function insertRun(input: StartRunInput): Promise<AgentRun> {
 export async function getRun(
   id: string,
   owner: string,
+  scope: ProgressRunScope = {},
 ): Promise<AgentRun | null> {
+  const sourceAppId = scopedSourceAppId(scope);
+  if (sourceAppId === null) return null;
   await ensureTable();
   const client = getDbExec();
+  // raw-sql-ok: interpolates only a literal source_app_id clause; values are bound
   const { rows } = await client.execute({
-    sql: `SELECT * FROM progress_runs WHERE id = ? AND owner = ?`,
-    args: [id, owner],
+    sql: `SELECT * FROM progress_runs WHERE id = ? AND owner = ?${sourceAppId === undefined ? "" : " AND source_app_id = ?"}`,
+    args: sourceAppId === undefined ? [id, owner] : [id, owner, sourceAppId],
   });
   if (rows.length === 0) return null;
   return parseRow(rows[0] as Record<string, unknown>);
@@ -209,13 +252,17 @@ function clampPercent(n: number): number {
 export async function cancelStaleRunsForOwner(
   owner: string,
   staleMs: number = resolveProgressRunStaleMs(),
+  scope: ProgressRunScope = {},
 ): Promise<number> {
+  const sourceAppId = scopedSourceAppId(scope);
+  if (sourceAppId === null) return 0;
   if (!Number.isFinite(staleMs) || staleMs <= 0) return 0;
   await ensureTable();
   const client = getDbExec();
   const now = Date.now();
   const cutoff = now - staleMs;
   const minutes = Math.max(1, Math.round(staleMs / 60_000));
+  // raw-sql-ok: interpolates only a literal source_app_id clause; values are bound
   const res = await client.execute({
     sql: `UPDATE progress_runs
           SET status = 'cancelled',
@@ -224,13 +271,14 @@ export async function cancelStaleRunsForOwner(
               completed_at = ?
           WHERE owner = ?
             AND status = 'running'
-            AND updated_at < ?`,
+            AND updated_at < ?${sourceAppId === undefined ? "" : " AND source_app_id = ?"}`,
     args: [
       `Stopped after ${minutes} minutes without progress.`,
       now,
       now,
       owner,
       cutoff,
+      ...(sourceAppId === undefined ? [] : [sourceAppId]),
     ],
   });
   const rowsAffected = (res as unknown as { rowsAffected?: number })
@@ -266,8 +314,12 @@ export async function listRuns(
   owner: string,
   options: ListRunsOptions = {},
 ): Promise<AgentRun[]> {
+  const sourceAppId = scopedSourceAppId(options);
+  if (sourceAppId === null) return [];
   await ensureTable();
-  if (_preListHook) {
+  // Existing reconcilers may read/write every owner run. They are only safe for
+  // intentional aggregate callers until they expose their own app boundary.
+  if (_preListHook && sourceAppId === undefined) {
     const lastHook = _lastPreListHook.get(owner) ?? 0;
     if (Date.now() - lastHook > PRE_LIST_HOOK_INTERVAL_MS) {
       _lastPreListHook.set(owner, Date.now());
@@ -278,15 +330,20 @@ export async function listRuns(
       }
     }
   }
-  const lastSweep = _lastStaleSweep.get(owner) ?? 0;
+  const sweepKey = JSON.stringify([owner, sourceAppId ?? null]);
+  const lastSweep = _lastStaleSweep.get(sweepKey) ?? 0;
   if (Date.now() - lastSweep > STALE_SWEEP_INTERVAL_MS) {
-    _lastStaleSweep.set(owner, Date.now());
-    await cancelStaleRunsForOwner(owner);
+    _lastStaleSweep.set(sweepKey, Date.now());
+    await cancelStaleRunsForOwner(owner, resolveProgressRunStaleMs(), options);
   }
   const client = getDbExec();
   const limit = normalizeLimit(options.limit);
   let where = `owner = ?`;
   const args: Array<string | number> = [owner];
+  if (sourceAppId !== undefined) {
+    where += " AND source_app_id = ?";
+    args.push(sourceAppId);
+  }
   if (options.activeOnly) where += ` AND status = 'running'`;
   args.push(limit);
   const { rows } = await client.execute({
@@ -296,12 +353,19 @@ export async function listRuns(
   return rows.map((r) => parseRow(r as Record<string, unknown>));
 }
 
-export async function deleteRun(id: string, owner: string): Promise<boolean> {
+export async function deleteRun(
+  id: string,
+  owner: string,
+  scope: ProgressRunScope = {},
+): Promise<boolean> {
+  const sourceAppId = scopedSourceAppId(scope);
+  if (sourceAppId === null) return false;
   await ensureTable();
   const client = getDbExec();
+  // raw-sql-ok: interpolates only a literal source_app_id clause; values are bound
   const res = await client.execute({
-    sql: `DELETE FROM progress_runs WHERE id = ? AND owner = ?`,
-    args: [id, owner],
+    sql: `DELETE FROM progress_runs WHERE id = ? AND owner = ?${sourceAppId === undefined ? "" : " AND source_app_id = ?"}`,
+    args: sourceAppId === undefined ? [id, owner] : [id, owner, sourceAppId],
   });
   const deleted =
     (res as unknown as { rowsAffected?: number }).rowsAffected !== 0;

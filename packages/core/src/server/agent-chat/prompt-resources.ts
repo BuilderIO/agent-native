@@ -8,6 +8,7 @@ import {
   frameworkGroupEnabled,
   type FrameworkToolGroup,
 } from "../../framework-tools.js";
+import { parseMemoryIndex } from "../../resources/memory-index.js";
 import {
   getFrontmatterValue,
   getSkillNameFromPath,
@@ -1091,35 +1092,6 @@ async function collectJevPromptCandidates(
   }
 
   return candidates;
-}
-
-function parseMemoryIndex(
-  content: string,
-  indexPath = "memory/MEMORY.md",
-): Array<{ name: string; path: string; description: string }> {
-  const directory = indexPath.slice(0, indexPath.lastIndexOf("/") + 1);
-  const entries: Array<{ name: string; path: string; description: string }> =
-    [];
-  for (const line of content.split("\n")) {
-    const match = /^\s*-\s+\[([^\]]+)\]\(([^)]+\.md)\)\s*[—-]\s*(.+)$/.exec(
-      line,
-    );
-    if (!match) continue;
-    const [, name, linkedPath, description] = match;
-    const linkedName = linkedPath?.replace(/^memory\//, "");
-    if (
-      !name ||
-      !linkedName ||
-      !description ||
-      linkedName.includes("..") ||
-      /[\\/]/.test(linkedName) ||
-      !/^[a-zA-Z0-9._-]+\.md$/.test(linkedName)
-    ) {
-      continue;
-    }
-    entries.push({ name, path: `${directory}${linkedName}`, description });
-  }
-  return entries;
 }
 
 const memoryWordSegmenter = new Intl.Segmenter(undefined, {

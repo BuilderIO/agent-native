@@ -163,6 +163,7 @@
       "types": "./dist/agent-native/index.d.ts",
       "default": "./dist/agent-native/index.js"
     },
+    "./workspace-app-paths": "./dist/deploy/workspace-app-paths.js",
     "./config": {
       "types": "./dist/config.d.ts",
       "default": "./dist/config.js"
@@ -177,6 +178,7 @@
     "./client": "./dist/client/index.js",
     "./client/action-query-cache": "./dist/client/action-query-cache.js",
     "./client/chat-errors": "./dist/client/chat-errors.js",
+    "./client/schema-message": "./dist/client/schema-message.js",
     "./client/agent-chat": "./dist/client/agent-chat/index.js",
     "./client/agent-engine-readiness": "./dist/client/agent-engine-readiness.js",
     "./client/agent-sidebar-state": "./dist/client/agent-sidebar-state.js",
@@ -202,6 +204,7 @@
     "./client/labs": "./dist/client/labs/index.js",
     "./client/experiments": "./dist/client/experiments/index.js",
     "./client/hooks": "./dist/client/hooks/index.js",
+    "./surface-visibility": "./dist/shared/surface-visibility.js",
     "./client/host": "./dist/client/host/index.js",
     "./client/webmcp": "./dist/client/webmcp.js",
     "./client/integrations": "./dist/client/integrations/index.js",
@@ -239,6 +242,7 @@
     "./client/status-requests": "./dist/client/client-status-requests.js",
     "./client/speak": "./dist/client/speak.js",
     "./client/sign-in-landing": "./dist/client/sign-in-landing.js",
+    "./client/mobile-auth": "./dist/client/mobile-auth.js",
     "./client/oauth-popup": "./dist/client/oauth-popup.js",
     "./client/route-state": "./dist/client/route-state.js",
     "./client/recorder": "./dist/client/recorder.js",
@@ -500,6 +504,18 @@
     },
     "./workspace-files": "./dist/workspace-files/index.js",
     "./workspace-connections/credential-key-aliases": "./dist/workspace-connections/credential-key-aliases.js",
+    "./workspace-connections/personal-credential-archive": {
+      "types": "./dist/workspace-connections/personal-credential-archive.d.ts",
+      "default": "./dist/workspace-connections/personal-credential-archive.js"
+    },
+    "./workspace-connections/workspace-credentials": {
+      "types": "./dist/workspace-connections/workspace-credentials.d.ts",
+      "default": "./dist/workspace-connections/workspace-credentials.js"
+    },
+    "./workspace-connections/personal-credentials": {
+      "types": "./dist/workspace-connections/personal-credentials.d.ts",
+      "default": "./dist/workspace-connections/personal-credentials.js"
+    },
     "./workspace-connections/actions/list-workspace-user-groups": "./dist/workspace-connections/actions/list-workspace-user-groups.js",
     "./workspace-connections/actions/list-workspace-connection-scopes": "./dist/workspace-connections/actions/list-workspace-connection-scopes.js",
     "./workspace-connections/actions/upsert-workspace-user-group": "./dist/workspace-connections/actions/upsert-workspace-user-group.js",

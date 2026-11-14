@@ -9,6 +9,10 @@ import {
   type EngineMessage,
   type EngineStreamOptions,
 } from "../agent/engine/index.js";
+import {
+  PrivateCompletionError,
+  toPrivateCompletionError,
+} from "../agent/engine/private-completion-error.js";
 import { EngineError } from "../agent/engine/types.js";
 import {
   resolveOwnerEngineApiKey,
@@ -45,7 +49,10 @@ export interface CompleteTextOptions {
   maxOutputTokens?: number;
   temperature?: number;
   reasoningEffort?: ReasoningEffort;
+  privateContent?: boolean;
   providerOptions?: EngineStreamOptions["providerOptions"];
+  beforeModelDispatch?: EngineStreamOptions["beforeModelDispatch"];
+  onModelDispatchStarted?: EngineStreamOptions["onModelDispatchStarted"];
   signal?: AbortSignal;
   timeoutMs?: number;
 }
@@ -150,16 +157,9 @@ async function resolveCompletionApiKey(
   });
 }
 
-// A completion is an answer, not a write: an action that fails after asking
-// for one may be retried.
-export function completeText(
+async function runCompleteText(
   options: CompleteTextOptions,
-): Promise<CompleteTextResult> {
-  return withoutWriteObservation(() => completeUnobserved(options));
-}
-
-async function completeUnobserved(
-  options: CompleteTextOptions,
+  beforeStream?: (engine: AgentEngine) => void,
 ): Promise<CompleteTextResult> {
   registerBuiltinEngines();
 
@@ -176,6 +176,7 @@ async function completeUnobserved(
     model: options.model,
     appId: options.appId,
   });
+  beforeStream?.(engine);
   const modelCandidate =
     options.model ??
     (await getStoredModelForEngine(engine, { appId: options.appId })) ??
@@ -199,10 +200,23 @@ async function completeUnobserved(
       messages: normalizeCompleteTextMessages(options.messages, options.input),
       tools: [],
       abortSignal: signal,
+      // Forward privateContent only when supplied so the ordinary stream
+      // options keep their existing exact shape.
+      ...(options.privateContent !== undefined
+        ? { privateContent: options.privateContent }
+        : {}),
       maxOutputTokens: options.maxOutputTokens,
       temperature: options.temperature,
       reasoningEffort: options.reasoningEffort,
       providerOptions: options.providerOptions,
+      // Forward the dispatch hooks only when supplied so the ordinary
+      // (hookless) stream options keep their existing exact shape.
+      ...(options.beforeModelDispatch !== undefined
+        ? { beforeModelDispatch: options.beforeModelDispatch }
+        : {}),
+      ...(options.onModelDispatchStarted !== undefined
+        ? { onModelDispatchStarted: options.onModelDispatchStarted }
+        : {}),
     })) {
       if (event.type === "text-delta") {
         streamedText += event.text;
@@ -219,6 +233,17 @@ async function completeUnobserved(
         };
       } else if (event.type === "stop") {
         if (event.reason === "error") {
+          if (options.privateContent === true) {
+            throw new PrivateCompletionError(engine.name, {
+              ...(engine.name === "builder" &&
+              event.errorCode === "builder_auth_error"
+                ? { code: "builder_auth_error" }
+                : {}),
+              ...(event.statusCode !== undefined
+                ? { status: event.statusCode }
+                : {}),
+            });
+          }
           throw new EngineError(event.error ?? "Model completion failed.", {
             errorCode: event.errorCode,
             upgradeUrl: event.upgradeUrl,
@@ -249,4 +274,32 @@ async function completeUnobserved(
     stopReason,
     usage,
   };
+}
+
+async function completePrivateText(
+  options: CompleteTextOptions,
+): Promise<CompleteTextResult> {
+  let provider = "model";
+  try {
+    return await runCompleteText(options, (engine) => {
+      provider = engine.name;
+      if (engine.supportsPrivateContent !== true) {
+        throw new PrivateCompletionError(provider);
+      }
+    });
+  } catch (error) {
+    throw toPrivateCompletionError(error, provider);
+  }
+}
+
+// A completion is an answer, not a write: an action that fails after asking
+// for one may be retried.
+export function completeText(
+  options: CompleteTextOptions,
+): Promise<CompleteTextResult> {
+  return withoutWriteObservation(() =>
+    options.privateContent === true
+      ? completePrivateText(options)
+      : runCompleteText(options),
+  );
 }

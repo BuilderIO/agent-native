@@ -13,7 +13,10 @@ import {
   updateBookingStatus,
   markAttendeeNoShow,
   addBookingReference,
+  BookingAttendeeOrderUnavailableError,
 } from "./bookings-repo.js";
+import { resolveCalendarCredential } from "./calendar-credentials.js";
+import { reminderOverrideFor } from "./calendar-reminders.js";
 import { getSchedulingContext } from "./context.js";
 import { getEventTypeById } from "./event-types-repo.js";
 import {
@@ -22,6 +25,7 @@ import {
   onBookingRescheduled,
 } from "./hooks.js";
 import { getCalendarProvider, getVideoProvider } from "./providers/registry.js";
+import { resolveVideoCredential } from "./video-credentials.js";
 
 export interface CreateBookingInput {
   eventType: EventType;
@@ -49,7 +53,11 @@ export class BookingLifecycleError extends Error {
     readonly errorCode:
       | "zoom_meeting_review_required"
       | "video_meeting_cleanup_failed"
-      | "video_meeting_creation_failed",
+      | "video_meeting_creation_failed"
+      | "calendar_credential_unavailable"
+      | "calendar_write_failed"
+      | "calendar_update_failed"
+      | "calendar_delete_failed",
   ) {
     super(message);
   }
@@ -105,8 +113,17 @@ export async function createBooking(
     );
     if (provider) {
       try {
+        // A `workspace:` location ref must be resolved through the host's scoped
+        // resolver before a provider sees it; a legacy id passes through untouched.
+        const resolved = await resolveVideoCredential(
+          booking.location.credentialId,
+          provider.kind,
+        );
         const meeting = await provider.createMeeting({
-          credentialId: booking.location.credentialId,
+          credentialId: resolved?.credentialId ?? booking.location.credentialId,
+          ...(resolved?.credentials
+            ? { credentials: resolved.credentials }
+            : {}),
           booking,
         });
         if (meeting.meetingId && booking.location.credentialId) {
@@ -160,6 +177,12 @@ export async function rescheduleBooking(input: {
 }): Promise<Booking> {
   const original = await getBookingByUid(input.uid);
   if (!original) throw new Error(`Booking ${input.uid} not found`);
+  if (original.attendees.length === 0) {
+    throw new BookingAttendeeOrderUnavailableError();
+  }
+  if (original.attendeeOrderKnown === false) {
+    throw new BookingAttendeeOrderUnavailableError();
+  }
   const eventType = await getEventTypeById(original.eventTypeId);
   if (!eventType) throw new Error("Event type missing");
   requireZoomMeetingResolution(original, input.zoomMeetingResolved);
@@ -211,13 +234,34 @@ export async function rescheduleBooking(input: {
     const provider = getCalendarProvider(ref.type);
     if (provider?.updateEvent && ref.credentialId) {
       try {
+        const resolved = await resolveCalendarCredential(
+          ref.credentialId,
+          ref.type,
+        );
         await provider.updateEvent({
           credentialId: ref.credentialId,
+          ...(resolved?.credentials === undefined
+            ? {}
+            : { credentials: resolved.credentials }),
           externalId: ref.externalId,
           booking: newBooking,
         });
-      } catch {
-        // Event may have been deleted manually; fall through
+      } catch (error) {
+        // The event may have been deleted by hand; the reschedule still stands, but
+        // a refusal is reported with its code rather than disappearing.
+        reportCalendarWriteFailure(
+          {
+            integration: ref.type,
+            credentialId: ref.credentialId,
+            calendarExternalId: ref.externalId,
+            code:
+              error instanceof BookingLifecycleError
+                ? error.errorCode
+                : "calendar_update_failed",
+            message: error instanceof Error ? error.message : String(error),
+          },
+          newBooking,
+        );
       }
     }
   }
@@ -245,11 +289,32 @@ export async function cancelBooking(input: {
     const calProvider = getCalendarProvider(ref.type);
     if (calProvider?.deleteEvent && ref.credentialId) {
       try {
+        const resolved = await resolveCalendarCredential(
+          ref.credentialId,
+          ref.type,
+        );
         await calProvider.deleteEvent({
           credentialId: ref.credentialId,
+          ...(resolved?.credentials === undefined
+            ? {}
+            : { credentials: resolved.credentials }),
           externalId: ref.externalId,
         });
-      } catch {}
+      } catch (error) {
+        reportCalendarWriteFailure(
+          {
+            integration: ref.type,
+            credentialId: ref.credentialId,
+            calendarExternalId: ref.externalId,
+            code:
+              error instanceof BookingLifecycleError
+                ? error.errorCode
+                : "calendar_delete_failed",
+            message: error instanceof Error ? error.message : String(error),
+          },
+          booking,
+        );
+      }
     }
   }
 
@@ -331,9 +396,52 @@ function videoProviderKindFor(kind: string): string {
   return kind;
 }
 
-async function writeToDestinationCalendars(booking: Booking): Promise<void> {
+/** What a host is told when a booking could not reach one of its calendars. */
+export interface CalendarWriteFailure {
+  integration: string;
+  credentialId: string;
+  calendarExternalId: string;
+  /** A typed code the app can translate; `calendar_credential_unavailable` covers a `workspace:` refusal. */
+  code: string;
+  message: string;
+}
+
+let calendarWriteFailureHandler:
+  | ((failure: CalendarWriteFailure, booking: Booking) => void)
+  | null = null;
+
+/**
+ * Install the host's reporter for calendar write failures. The booking itself stays
+ * valid — a calendar can be down or a connection can be revoked without the booking
+ * disappearing — but a failure is reported with a typed code instead of being
+ * swallowed, so the app can say "your booking is confirmed, but it could not be
+ * added to <calendar>".
+ */
+export function setCalendarWriteFailureHandler(
+  handler: ((failure: CalendarWriteFailure, booking: Booking) => void) | null,
+): void {
+  calendarWriteFailureHandler = handler;
+}
+
+function reportCalendarWriteFailure(
+  failure: CalendarWriteFailure,
+  booking: Booking,
+): CalendarWriteFailure {
+  try {
+    calendarWriteFailureHandler?.(failure, booking);
+  } catch {
+    // coercion-ok: the failure itself is still returned to the caller below.
+    // A reporter that throws must not fail the booking or the loop.
+  }
+  return failure;
+}
+
+async function writeToDestinationCalendars(
+  booking: Booking,
+): Promise<CalendarWriteFailure[]> {
   const { getDb, schema } = getSchedulingContext();
   const db = getDb();
+  const failures: CalendarWriteFailure[] = [];
   const destinations = await db
     .select()
     .from(schema.destinationCalendars)
@@ -341,15 +449,42 @@ async function writeToDestinationCalendars(booking: Booking): Promise<void> {
   for (const dest of destinations) {
     if (dest.eventTypeId && dest.eventTypeId !== booking.eventTypeId) continue;
     const provider = getCalendarProvider(dest.integration);
-    if (!provider) continue;
+    if (!provider) {
+      failures.push(
+        reportCalendarWriteFailure(
+          {
+            integration: dest.integration,
+            credentialId: dest.credentialId,
+            calendarExternalId: dest.externalId,
+            code: "calendar_provider_not_registered",
+            message: `No calendar provider is registered for ${dest.integration}.`,
+          },
+          booking,
+        ),
+      );
+      continue;
+    }
     try {
+      // A `workspace:` destination resolves through the host's scoped resolver; a
+      // refusal becomes the typed failure below rather than a legacy-id fallback.
+      const resolved = await resolveCalendarCredential(
+        dest.credentialId,
+        dest.integration,
+      );
+      // The owner's default reminder travels with the event; `undefined` keeps the
+      // calendar's own, `null` turns reminders off.
+      const reminderOverride = await reminderOverrideFor(booking.hostEmail);
       const result = await provider.createEvent({
         credentialId: dest.credentialId,
+        ...(resolved?.credentials === undefined
+          ? {}
+          : { credentials: resolved.credentials }),
         calendarExternalId: dest.externalId,
         booking,
         includeConference:
           booking.location?.kind === "google-meet" &&
           dest.integration === "google_calendar",
+        ...(reminderOverride === undefined ? {} : { reminderOverride }),
       });
       await addBookingReference(booking.id, {
         type: dest.integration,
@@ -357,8 +492,23 @@ async function writeToDestinationCalendars(booking: Booking): Promise<void> {
         meetingUrl: result.meetingUrl,
         credentialId: dest.credentialId,
       });
-    } catch {
-      // Calendar write failed; booking still exists locally
+    } catch (error) {
+      failures.push(
+        reportCalendarWriteFailure(
+          {
+            integration: dest.integration,
+            credentialId: dest.credentialId,
+            calendarExternalId: dest.externalId,
+            code:
+              error instanceof BookingLifecycleError
+                ? error.errorCode
+                : "calendar_write_failed",
+            message: error instanceof Error ? error.message : String(error),
+          },
+          booking,
+        ),
+      );
     }
   }
+  return failures;
 }

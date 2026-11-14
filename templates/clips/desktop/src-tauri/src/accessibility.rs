@@ -173,6 +173,7 @@ pub struct ActiveWindowContext {
     pub source: String,
 }
 
+#[cfg(feature = "tauri-host")]
 #[tauri::command]
 pub async fn active_window_context() -> Result<ActiveWindowContext, String> {
     #[cfg(target_os = "macos")]
@@ -190,6 +191,7 @@ pub async fn active_window_context() -> Result<ActiveWindowContext, String> {
     }
 }
 
+#[cfg(feature = "tauri-host")]
 #[tauri::command]
 pub async fn read_focused_field_text() -> Result<String, String> {
     #[cfg(target_os = "macos")]
@@ -213,6 +215,7 @@ pub fn focused_text_field_available() -> bool {
     }
 }
 
+#[cfg(feature = "tauri-host")]
 #[tauri::command]
 pub async fn accessibility_check_permission() -> Result<bool, String> {
     #[cfg(target_os = "macos")]
@@ -225,6 +228,7 @@ pub async fn accessibility_check_permission() -> Result<bool, String> {
     }
 }
 
+#[cfg(feature = "tauri-host")]
 #[tauri::command]
 pub async fn accessibility_request_permission() -> Result<bool, String> {
     #[cfg(target_os = "macos")]

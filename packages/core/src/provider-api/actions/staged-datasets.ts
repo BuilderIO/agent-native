@@ -317,6 +317,9 @@ export function createListStagedDatasetsAction<
           rowCount: dataset.rowCount,
           columns: dataset.columns,
           byteSize: dataset.byteSize,
+          // Staged rows remember whether they are the whole source, so a
+          // reader can report completeness instead of inferring it.
+          sourceComplete: dataset.sourceComplete,
           updatedAt: new Date(dataset.updatedAt).toISOString(),
         })),
         total: datasets.length,

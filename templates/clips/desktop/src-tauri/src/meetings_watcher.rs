@@ -47,10 +47,14 @@ use std::sync::Mutex;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
+#[cfg(feature = "tauri-host")]
 use tauri::{AppHandle, Emitter, Manager};
 
+#[cfg(feature = "tauri-host")]
 use crate::config::{feature_config, MeetingTranscriptionMode};
+#[cfg(feature = "tauri-host")]
 use crate::dlog;
+#[cfg(feature = "tauri-host")]
 use crate::tray_meetings::MeetingItem as TrayMeetingItem;
 
 const MEETING_POLL_LIMIT: u8 = 10;
@@ -258,7 +262,7 @@ impl MeetingsWatcherState {
         generation: u64,
         now_ts: i64,
         outcome: Result<FetchOutcome, ()>,
-    ) -> Option<Vec<TrayMeetingItem>> {
+    ) -> Option<Vec<MeetingItem>> {
         let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
         if g.fetch_generation != generation {
             return None;
@@ -283,7 +287,7 @@ impl MeetingsWatcherState {
                 g.next_fetch_at = Some(pre_alert_at.map_or(next, |at| at.min(next)));
                 g.last_fetch_ok_at = Some(now_ts);
                 g.cached_meetings = meetings;
-                Some(tray_snapshot(&g.cached_meetings))
+                Some(g.cached_meetings.clone())
             }
             Err(()) => {
                 g.next_fetch_at = Some(now_ts + FETCH_RETRY_SECS);
@@ -390,6 +394,7 @@ impl MeetingsWatcherState {
         let retry = UnauthorizedRetry::after(g.unauthorized.get(&poller), credentials, base, now);
         let paused = retry.is_paused();
         g.unauthorized.insert(poller, retry);
+        #[cfg(feature = "tauri-host")]
         if paused {
             dlog!(
                 "[clips-tray] {:?} paused after {} rejections with the same session",
@@ -460,6 +465,29 @@ impl MeetingsWatcherState {
     }
 }
 
+#[cfg(not(feature = "tauri-host"))]
+#[derive(Default)]
+pub(crate) struct ScheduledWatcher(MeetingsWatcherState);
+
+#[cfg(not(feature = "tauri-host"))]
+impl ScheduledWatcher {
+    pub(crate) fn update(&self, meetings: Vec<MeetingItem>) {
+        let mut state = self
+            .0
+            .inner
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        state.fetch_generation += 1;
+        state.cached_meetings = meetings;
+    }
+
+    pub(crate) fn due(&self, now: chrono::DateTime<chrono::Utc>) -> Vec<(MeetingItem, i64)> {
+        self.0
+            .mark_notified(self.0.due_alerts(now), now.timestamp())
+    }
+}
+
+#[cfg(feature = "tauri-host")]
 #[tauri::command]
 pub async fn meetings_watcher_set_lab_enabled(
     state: tauri::State<'_, MeetingsWatcherState>,
@@ -470,6 +498,7 @@ pub async fn meetings_watcher_set_lab_enabled(
 
 /// Called when the popover opens with a session the server still accepts, so a
 /// poller paused by rejections during a deploy blip picks back up.
+#[cfg(feature = "tauri-host")]
 #[tauri::command]
 pub async fn meetings_watcher_resume_polling(
     state: tauri::State<'_, MeetingsWatcherState>,
@@ -507,6 +536,7 @@ struct ListMeetingsResponse {
     upcoming: Option<Vec<MeetingItem>>,
 }
 
+#[cfg(feature = "tauri-host")]
 #[tauri::command]
 pub async fn meetings_watcher_set_server_url(
     state: tauri::State<'_, MeetingsWatcherState>,
@@ -526,6 +556,7 @@ pub async fn meetings_watcher_set_server_url(
     Ok(())
 }
 
+#[cfg(feature = "tauri-host")]
 #[tauri::command]
 pub async fn meetings_watcher_set_session(
     state: tauri::State<'_, MeetingsWatcherState>,
@@ -556,6 +587,7 @@ pub async fn meetings_watcher_set_session(
     Ok(())
 }
 
+#[cfg(feature = "tauri-host")]
 #[tauri::command]
 pub async fn meetings_snooze(
     state: tauri::State<'_, MeetingsWatcherState>,
@@ -571,6 +603,7 @@ pub async fn meetings_snooze(
     Ok(())
 }
 
+#[cfg(feature = "tauri-host")]
 pub fn spawn_watcher(app: AppHandle) {
     use std::sync::OnceLock;
     static STARTED: OnceLock<()> = OnceLock::new();
@@ -584,6 +617,7 @@ pub fn spawn_watcher(app: AppHandle) {
 
 const MEETINGS_UNAUTHORIZED_RETRY_BASE: Duration = Duration::from_secs(10);
 
+#[cfg(feature = "tauri-host")]
 async fn run_watcher(app: AppHandle) {
     let mut interval = tokio::time::interval(ALERT_CHECK_INTERVAL);
     interval.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
@@ -619,6 +653,7 @@ enum FetchOutcome {
     Fetched(Vec<MeetingItem>),
 }
 
+#[cfg(feature = "tauri-host")]
 async fn tick_once(
     app: &AppHandle,
     client: &reqwest::Client,
@@ -651,7 +686,7 @@ async fn tick_once(
         if let Some(snapshot) = state.finish_fetch(generation, now_utc.timestamp(), outcome) {
             let _ = app.emit(
                 "meetings:updated",
-                serde_json::json!({ "meetings": snapshot }),
+                serde_json::json!({ "meetings": tray_snapshot(&snapshot) }),
             );
         }
     }
@@ -662,6 +697,7 @@ async fn tick_once(
     fetch_error.map_or(Ok(()), Err)
 }
 
+#[cfg(feature = "tauri-host")]
 async fn fetch_meetings(
     app: &AppHandle,
     client: &reqwest::Client,
@@ -730,6 +766,7 @@ async fn fetch_meetings(
         .ok_or_else(|| "list-meetings returned an unreadable payload".to_string())
 }
 
+#[cfg(feature = "tauri-host")]
 fn tray_snapshot(meetings: &[MeetingItem]) -> Vec<TrayMeetingItem> {
     meetings
         .iter()
@@ -742,6 +779,7 @@ fn tray_snapshot(meetings: &[MeetingItem]) -> Vec<TrayMeetingItem> {
         .collect()
 }
 
+#[cfg(feature = "tauri-host")]
 async fn notify_due_meetings(app: &AppHandle, state: &MeetingsWatcherState, due: DueAlerts) {
     if due.alerts.is_empty() {
         return;

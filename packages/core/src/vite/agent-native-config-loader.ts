@@ -182,6 +182,7 @@ const FIRST_RUN_ONBOARDING_MARKER_VALUES = new Set<string>([
   "",
   "off",
   "connect",
+  "app",
   "connect-and-integrations",
 ]);
 

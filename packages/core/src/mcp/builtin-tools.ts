@@ -11,10 +11,14 @@ import {
 } from "../server/request-context.js";
 import { MCP_APP_CHAT_BRIDGE_QUERY_PARAM } from "../shared/embed-auth.js";
 import {
+  WORKSPACE_APP_CHAT_SCOPE,
+  WORKSPACE_APP_CHAT_TTL_SECONDS,
+} from "../shared/workspace-app-chat-capability.js";
+import {
   signAskAppTaskHandle,
   verifyAskAppTaskHandle,
 } from "./ask-app-task-handle.js";
-import type { MCPConfig } from "./build-server.js";
+import type { MCPConfig, MCPCallerIdentity } from "./build-server.js";
 import { embedApp } from "./embed-app.js";
 import { frameworkMcpTool } from "./framework-tools.js";
 import { fetchOrgApps, type OrgApp } from "./org-directory.js";
@@ -673,13 +677,14 @@ async function resolveTargetAppOrigin(
   try {
     const { resolveWorkspace } = await import("./workspace-resolve.js");
     const ws = await resolveWorkspace();
-    if (!ws.isWorkspace) return null;
-    const match = ws.apps.find((a) => a.id.toLowerCase() === target);
-    if (!match) return null;
-    return { origin: match.url, id: match.id };
+    if (ws.isWorkspace) {
+      const match = ws.apps.find((a) => a.id.toLowerCase() === target);
+      if (match) return { origin: match.url, id: match.id };
+    }
   } catch {
     return null;
   }
+  return null;
 }
 
 function listAppsTool(
@@ -776,12 +781,7 @@ function openAppTool(config: MCPConfig): ActionEntry {
   return {
     tool: {
       ...tool(
-        "Build a deep link that opens an app at a specific view/record or " +
-          "focused route/component. No side " +
-          "effects — returns a URL the user can click to land in the running UI. " +
-          "Set embed:true when a UI-capable MCP host should render the live app " +
-          "or focused route/component inline. Omit view and path to land on the " +
-          "app's home page. Omit app to open this app.",
+        "Show a found or created mail, event, document, or record when viewing it is the useful result. Returns a registered app route for the chat client to open beside the conversation.",
         {
           app: { type: "string", description: "App id, e.g. 'mail'" },
           view: {
@@ -821,6 +821,9 @@ function openAppTool(config: MCPConfig): ActionEntry {
       const app = requestedApp || currentAppId(config);
       const view = String(args.view ?? "").trim();
       const path = safeAppPath(args.path) || (view ? null : "/");
+      if (args.path != null && !safeAppPath(args.path)) {
+        throw new Error("path must be a safe app-relative route");
+      }
       let params: Record<string, string | number | boolean> | undefined;
       const raw = args.params;
       if (raw && typeof raw === "object") {
@@ -874,7 +877,26 @@ function openAppTool(config: MCPConfig): ActionEntry {
         : buildDeepLink({ app, view, params });
       const sameAppUrl = path ? withConfiguredBasePath(relUrl) : relUrl;
 
-      const targetApp = await resolveTargetAppOrigin(config, app);
+      let targetApp = await resolveTargetAppOrigin(config, app);
+      if (
+        !targetApp &&
+        requestedApp &&
+        requestedApp.toLowerCase() !== currentAppId(config)
+      ) {
+        const apps = await fetchOrgApps({ selfId: currentAppId(config) });
+        const match = apps.find(
+          (candidate) =>
+            candidate.id.toLowerCase() === requestedApp.toLowerCase(),
+        );
+        if (match) targetApp = { origin: match.url, id: match.id };
+      }
+      if (
+        requestedApp &&
+        requestedApp.toLowerCase() !== currentAppId(config).toLowerCase() &&
+        !targetApp
+      ) {
+        throw new Error(`Unknown or unavailable app "${requestedApp}"`);
+      }
       const appUrl = targetApp
         ? `${targetApp.origin.replace(/\/+$/, "")}${relUrl}`
         : sameAppUrl;
@@ -953,7 +975,7 @@ function openAppTool(config: MCPConfig): ActionEntry {
   };
 }
 
-function createEmbedSessionTool(): ActionEntry {
+function createEmbedSessionTool(identity?: MCPCallerIdentity): ActionEntry {
   return {
     tool: {
       ...tool(
@@ -968,6 +990,16 @@ function createEmbedSessionTool(): ActionEntry {
             type: "string",
             description: "Same-origin app-relative path to embed.",
           },
+          ...(identity?.firstPartyMcp === true &&
+          Number.isSafeInteger(identity.workspaceAppChatIssuedAtMs)
+            ? {
+                runtime: {
+                  type: "string",
+                  enum: ["workspace-app-chat"],
+                  description: "Server-to-server workspace chat authority.",
+                },
+              }
+            : {}),
           chrome: {
             type: "string",
             enum: ["full", "minimal"],
@@ -997,8 +1029,40 @@ function createEmbedSessionTool(): ActionEntry {
         );
       }
 
+      const chat = args.runtime === "workspace-app-chat";
+      const chatGrantIssuedAtMs = identity?.workspaceAppChatIssuedAtMs;
+      if (args.runtime !== undefined && !chat)
+        throw new Error("Unknown embed runtime.");
+      if (
+        chat &&
+        (identity?.firstPartyMcp !== true ||
+          identity.identityAssurance !== "user" ||
+          identity.userEmail?.trim().toLowerCase() !==
+            ownerEmail.toLowerCase() ||
+          identity.orgId === undefined ||
+          (identity.orgId ?? undefined) !== ctx?.orgId ||
+          !Number.isSafeInteger(chatGrantIssuedAtMs))
+      ) {
+        throw new Error(
+          "Chat runtime requires a verified scoped MCP user credential.",
+        );
+      }
+      if (chat && ctx?.orgId) {
+        const { isOrgMember } = await import("../org/membership.js");
+        if (
+          !(await isOrgMember(ctx.orgId, ownerEmail, {
+            requireOrganizationMetadata: true,
+          }))
+        ) {
+          throw new Error(
+            "Chat runtime requires current workspace membership.",
+          );
+        }
+      }
+
+      const embedSession = await import("../server/embed-session.js");
       const { normalizeEmbedTargetPath, createEmbedSessionTicket } =
-        await import("../server/embed-session.js");
+        embedSession;
       const { buildEmbedStartPath } = await import("../server/embed-route.js");
       const { getEmbedSessionOrigin } =
         await import("../server/embed-request-origin.js");
@@ -1016,9 +1080,38 @@ function createEmbedSessionTool(): ActionEntry {
         );
       }
       if (!embedOrigin) {
+        if (chat)
+          throw new Error("Chat runtime requires a trusted app origin.");
         return { url: targetPath, targetPath, embed: false };
       }
 
+      if (chat) {
+        const { signEmbedSessionToken, resolveEmbedSessionTokenForOrigin } =
+          embedSession;
+        const token = signEmbedSessionToken({
+          ownerEmail,
+          ...(ctx?.orgId === undefined ? {} : { orgId: ctx.orgId }),
+          targetPath,
+          audienceHost: embedOrigin,
+          scope: WORKSPACE_APP_CHAT_SCOPE,
+          ttlSeconds: WORKSPACE_APP_CHAT_TTL_SECONDS,
+          ...(chatGrantIssuedAtMs === undefined
+            ? {}
+            : { ticketCreatedAtMs: chatGrantIssuedAtMs }),
+        });
+        const claims = await resolveEmbedSessionTokenForOrigin(
+          token,
+          embedOrigin,
+        );
+        if (!claims)
+          throw new Error("Workspace chat grant was revoked or expired.");
+        return {
+          runtime: "workspace-app-chat",
+          token,
+          targetPath,
+          expiresAt: claims.exp * 1000,
+        };
+      }
       const ticket = await createEmbedSessionTicket({
         ownerEmail,
         orgId: ctx?.orgId,
@@ -1518,12 +1611,13 @@ function createWorkspaceAppTool(): ActionEntry {
 export function getBuiltinCrossAppTools(
   config: MCPConfig,
   requestMeta?: AskAppRequestMeta,
+  identity?: MCPCallerIdentity,
 ): Record<string, ActionEntry> {
   return {
     list_apps: listAppsTool(config, requestMeta),
     open_app: openAppTool(config),
     ...(requestMeta?.inlineMcpApps === true
-      ? { create_embed_session: createEmbedSessionTool() }
+      ? { create_embed_session: createEmbedSessionTool(identity) }
       : {}),
     ask_app: askAppTool(config, requestMeta),
     ask_app_status: askAppStatusTool(config, requestMeta),

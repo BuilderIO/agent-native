@@ -28,10 +28,19 @@ function validLabSetting(
 
 async function getStoredLabs(
   email: string,
+  transaction?: FeatureFlagScope["transaction"],
 ): Promise<Record<string, unknown> | null> {
   const [labs, legacy] = await Promise.all([
-    getUserSetting(email, LABS_SETTING_KEY),
-    getUserSetting(email, LEGACY_LABS_SETTING_KEY),
+    getUserSetting(
+      email,
+      LABS_SETTING_KEY,
+      transaction ? { transaction } : undefined,
+    ),
+    getUserSetting(
+      email,
+      LEGACY_LABS_SETTING_KEY,
+      transaction ? { transaction } : undefined,
+    ),
   ]);
   const current = validLabSetting(LABS_SETTING_KEY, labs);
   const previous = validLabSetting(LEGACY_LABS_SETTING_KEY, legacy);
@@ -218,7 +227,7 @@ export async function getUserLabState(
   const key = typeof lab === "string" ? lab : lab.key;
   const definition = getLabDefinition(key);
   if (!definition) throw new Error(`Unknown lab: ${key}`);
-  const stored = await getStoredLabs(email);
+  const stored = await getStoredLabs(email, scope.transaction);
   const state = (
     await resolveStoredLabStates(email, stored, scope, [definition])
   )[key];

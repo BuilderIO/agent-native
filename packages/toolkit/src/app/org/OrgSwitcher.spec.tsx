@@ -53,6 +53,8 @@ vi.mock("@agent-native/core/client/org", () => ({
   useCreateOrg: () => mocks.createOrg,
   useJoinByDomain: () => mocks.joinByDomain,
   useOrg: mocks.useOrg,
+  // The workspace menu header reads the member count through this hook.
+  useOrgMembers: () => ({ data: { totalCount: 3 }, isLoading: false }),
   useSwitchOrg: (options?: {
     onPersisted?: (orgId: string | null) => void;
   }) => {

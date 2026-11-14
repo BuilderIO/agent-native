@@ -1,5 +1,7 @@
 import {
   hashKey,
+  CancelledError,
+  isCancelledError,
   useQuery,
   useMutation,
   useQueryClient,
@@ -14,7 +16,7 @@ import type {
   UseMutationResult,
   UseQueryOptions,
 } from "@tanstack/react-query";
-import { useCallback, useContext, useRef } from "react";
+import { useCallback, useContext, useEffect, useRef, useState } from "react";
 
 import { ACTION_BATCH_ACTION_NAME } from "../shared/action-batch.js";
 import {
@@ -28,6 +30,11 @@ import {
 import { UI_CAPABILITY_REQUIRED_ERROR_CODE } from "../shared/action-error-codes.js";
 import { SLOW_ACTION_RESPONSE_MS } from "../shared/analytics-events.js";
 import { ANALYTICS_CLIENT_PLATFORM_HEADER } from "../shared/analytics-platform.js";
+import {
+  PRIVATE_ACTION_SCOPE_HEADER,
+  type PrivateActionScope,
+} from "../shared/private-action-scope.js";
+import { isSurfaceHidden } from "../shared/surface-visibility.js";
 import {
   actionCircuitRemainingMs,
   actionErrorCode,
@@ -44,6 +51,12 @@ import {
 } from "./action-failure-circuit.js";
 import { fetchActionGet } from "./action-get-batch.js";
 import { trustedActionQueryCacheBindingPendingContext } from "./action-query-cache-context.js";
+import { advanceMutationEpoch } from "./action-query-cache-mutation.js";
+import {
+  claimActionQueryForeground,
+  invalidateForegroundActionQueries,
+  observeActionQuerySurface,
+} from "./action-query-foreground.js";
 import {
   ACTION_RESOURCES_META_KEY,
   actionQueryAffectedByResources,
@@ -75,7 +88,10 @@ import { recordActionStart } from "./recorder.js";
 import { currentRouteTemplate } from "./route-template.js";
 import {
   currentSessionIdentity,
+  currentPrivateActionScope,
+  currentSessionScope,
   onSessionIdentityPublished,
+  subscribeSessionScope,
 } from "./session-identity.js";
 import { recheckSessionAfterUnauthorized } from "./use-session.js";
 import { reportWriteFailure } from "./write-failure-event.js";
@@ -208,8 +224,12 @@ export interface ClientActionCallOptions {
   beforeSend?: () => Promise<void>;
   /** Set when the action is declared `uiOnly`, so its first request carries the UI capability. */
   uiOnly?: boolean;
+  /** Disable only the transport's capability-recovery resend; outer retry policies are separate. */
+  retryUiCapability?: boolean;
   /** Sees each HTTP response, e.g. to pass to `recordActionQueryBrowserPersist`. */
   onResponse?: (response: Response) => void;
+  /** Opt a write in or out of the keepalive default that survives a reload. */
+  keepalive?: boolean;
 }
 
 function resolveUserTimezone(): string | undefined {
@@ -249,6 +269,9 @@ function appendActionQueryParam(
   qs.append(key, String(value));
 }
 
+/** Browsers drop a keepalive request whose body is over 64 KiB; stay under it. */
+export const KEEPALIVE_BODY_LIMIT_BYTES = 60 * 1024;
+
 export interface ActionFetchOptions {
   signal?: AbortSignal;
   timeoutMs?: number;
@@ -259,13 +282,20 @@ export interface ActionFetchOptions {
   headers?: Record<string, string>;
   beforeSend?: () => Promise<void>;
   uiOnly?: boolean;
+  /** Disable only the transport's capability-recovery resend; outer retry policies are separate. */
+  retryUiCapability?: boolean;
 }
 
 type InternalActionFetchOptions = ActionFetchOptions & {
   onResponse?: (response: Response) => void;
+  visibleOnly?: boolean;
   uiCapabilityRetry?: boolean;
   /** A GET that may share one request with the other GETs in its tick. */
   batch?: boolean;
+  /** Internal: never retain a private request body beyond transport handoff. */
+  privateInput?: boolean;
+  /** Internal: this read was already re-sent with the method the action declared. */
+  methodFallback?: boolean;
 };
 
 // The server's capability lives 10 minutes; re-mint a minute early so a call
@@ -276,7 +306,33 @@ const UI_CAPABILITY_REUSE_MS = 9 * 60_000;
 const UI_CAPABILITY_MINT_TIMEOUT_MS = 10_000;
 
 let uiCapabilityRequest: Promise<void> | undefined;
+let uiCapabilityRequestIdentity: string | null | undefined;
 let abortUiCapabilityRequest: (() => void) | undefined;
+
+/** A caller asked to share a mint another identity's session is waiting on. */
+class UiCapabilityIdentityError extends Error {
+  constructor() {
+    super(
+      "A UI capability for a different user is still being established; retry once it settles.",
+    );
+    this.name = "UiCapabilityIdentityError";
+  }
+}
+
+// The capability is the Set-Cookie header, so the mint is answered by its
+// status. Its body must still be read, or the request stays open and the page
+// never reaches network idle, and a cancelled body is reported as an aborted
+// request. A slow or failing read must neither hold the mint nor turn a
+// granted capability into a failure.
+function releaseMintBody(res: Response): void {
+  try {
+    res.arrayBuffer().catch(() => {
+      // coercion-ok: the status already answered; a failed read only releases the response.
+    });
+  } catch {
+    // coercion-ok: a read that cannot start leaves nothing to release; the status already answered.
+  }
+}
 let uiCapability: { identity: string | null | undefined; at: number } | null =
   null;
 // Counts session changes, so a mint still in flight when the session changes
@@ -373,7 +429,16 @@ function abandonUiCapabilityMint(): void {
 function ensureUiActionCapability(signal?: AbortSignal): Promise<void> {
   if (hasFreshUiCapability()) return Promise.resolve();
   const identity = currentSessionIdentity();
-  const request = uiCapabilityRequest ?? (uiCapabilityRequest = mint());
+  // A pending mint was sent with the cookies of the session that started it.
+  // Another identity waiting on it would act under that session's capability.
+  if (uiCapabilityRequest && uiCapabilityRequestIdentity !== identity) {
+    return Promise.reject(new UiCapabilityIdentityError());
+  }
+  if (!uiCapabilityRequest) {
+    uiCapabilityRequestIdentity = identity;
+    uiCapabilityRequest = mint();
+  }
+  const request = uiCapabilityRequest;
   function mint(): Promise<void> {
     const generation = uiCapabilityGeneration;
     const controller =
@@ -390,11 +455,8 @@ function ensureUiActionCapability(signal?: AbortSignal): Promise<void> {
       credentials: "same-origin",
       cache: "no-store",
       signal: controller?.signal,
-    }).then(async (res) => {
-      // The capability is the Set-Cookie header, but the body must still be
-      // read: an unread body keeps the request open so the page never reaches
-      // network idle, and a cancelled one is reported as an aborted request.
-      await res.arrayBuffer();
+    }).then((res) => {
+      releaseMintBody(res);
       if (!res.ok) {
         throw new Error("Could not establish the browser UI capability.");
       }
@@ -474,11 +536,11 @@ onSessionIdentityPublished((scope) => {
 });
 
 /**
- * Every write from the signed-in app carries the UI capability, so an action
- * that needs approval runs on its first request instead of failing once and
+ * Writes and interactive reads from the signed-in app carry the UI capability,
+ * so an action needing approval runs on its first request instead of failing once and
  * retrying. The mint waits for a known signed-in session: a public page or an
  * embed has none to mint from, and its writes go out as they are. A failed
- * mint never holds a write back; the server decides what the write may do.
+ * mint never holds these requests back; the server decides what they may do.
  * A keepalive write never waits on a mint: it is sent as the page goes away,
  * and a deferred send can be lost with it.
  */
@@ -488,11 +550,18 @@ function presentUiCapability(
   signal: AbortSignal | undefined,
 ): Promise<void> | undefined {
   const identity = currentSessionIdentity();
+  const headers = new Headers(options?.headers);
+  const interactiveRead =
+    method === "GET" && headers.get("x-agent-native-interactive") === "1";
   let pending: Promise<void>;
-  if (options?.uiOnly) {
+  if (options?.uiOnly && !interactiveRead) {
     pending = ensureUiActionCapability(signal);
   } else if (
-    method === "GET" ||
+    (method === "GET" &&
+      (!interactiveRead ||
+        /prefetch/i.test(
+          `${headers.get("purpose") ?? ""} ${headers.get("sec-purpose") ?? ""}`,
+        ))) ||
     options?.keepalive ||
     typeof window === "undefined" ||
     isEmbedAuthActive() ||
@@ -501,16 +570,17 @@ function presentUiCapability(
     return undefined;
   } else {
     pending = ensureUiActionCapability(signal).catch((error) => {
-      if (signal?.aborted) throw error;
+      if (signal?.aborted || error instanceof UiCapabilityIdentityError)
+        throw error;
     });
   }
-  if (typeof identity !== "string") return pending;
-  // The write leaves only after the mint, and the browser sends whichever
-  // session's cookies it holds by then: a user who changed in between must not
-  // receive the first user's write.
+  // The request leaves only after the mint, using the browser’s current
+  // cookies. Never send it under an identity that changed while waiting.
   return pending.then(() => {
     if (currentSessionIdentity() !== identity) {
-      throw new Error("The signed-in user changed before this write was sent.");
+      throw new Error(
+        "The signed-in user changed before this action was sent.",
+      );
     }
   });
 }
@@ -610,6 +680,18 @@ async function performActionFetch<T>(
     headers["X-Agent-Native-Session-Id"] = browserSessionId;
   }
   headers[ANALYTICS_CLIENT_PLATFORM_HEADER] = getAnalyticsClientPlatform();
+  // A save fired from a page can be cancelled by an immediate reload, which is
+  // what a lost-save-on-reload sweep found across five apps. Browsers
+  // keep a request alive past unload only when it is a keepalive request and
+  // its body fits the 64 KiB keepalive budget, so every write that fits is sent
+  // as one unless the caller says otherwise. An explicit `keepalive` still wins:
+  // that is how a flush-on-unload write skips the capability mint, while this
+  // default transport flag leaves the mint in place for a normal write.
+  const implicitKeepalive =
+    options?.keepalive === undefined &&
+    method !== "GET" &&
+    method !== "HEAD" &&
+    typeof params !== "undefined";
   const init: RequestInit = {
     method,
     headers,
@@ -622,6 +704,15 @@ async function performActionFetch<T>(
     if (query) url += `?${query}`;
   } else if (method !== "GET" && params) {
     init.body = options?.serializedBody ?? JSON.stringify(params);
+    if (options?.privateInput) delete options.serializedBody;
+  }
+
+  if (implicitKeepalive && typeof init.body === "string") {
+    if (
+      new TextEncoder().encode(init.body).length <= KEEPALIVE_BODY_LIMIT_BYTES
+    ) {
+      init.keepalive = true;
+    }
   }
 
   const outerSignal = options?.signal;
@@ -665,6 +756,8 @@ async function performActionFetch<T>(
     try {
       const sendRequest = () => {
         throwIfAborted(controller?.signal);
+        if (options?.visibleOnly && isSurfaceHidden())
+          throw new CancelledError({ revert: true });
         return method === "GET" && canBatchActionGet(options)
           ? fetchActionGet({
               name,
@@ -674,7 +767,13 @@ async function performActionFetch<T>(
               headers,
               batchUrl: `${actionPrefix()}/${ACTION_BATCH_ACTION_NAME}`,
             })
-          : fetch(url, init);
+          : (() => {
+              try {
+                return fetch(url, init);
+              } finally {
+                if (options?.privateInput) delete init.body;
+              }
+            })();
       };
       const send = () =>
         options?.beforeSend
@@ -693,9 +792,20 @@ async function performActionFetch<T>(
       options?.onResponse?.(res);
     } catch (err) {
       if (timedOut) throwTimeout();
-      if (outerSignal?.aborted) throw err;
+      if (outerSignal?.aborted || isCancelledError(err)) throw err;
       const cause = err instanceof Error ? err.message : String(err);
       throw new Error(`Action ${name} failed: ${cause}`);
+    }
+
+    throwIfAborted(outerSignal);
+    if (options?.privateInput) {
+      // Private callers need the HTTP completion signal, never a response body.
+      // In particular, a reflected input must not become a public error/result.
+      void res.body?.cancel().catch(() => {});
+      if (res.status === 401) recheckSessionAfterUnauthorized();
+      if (res.status === 403) forgetUiActionCapability();
+      if (!res.ok) throw privateMutationError();
+      return undefined as T;
     }
 
     if (
@@ -736,12 +846,13 @@ async function performActionFetch<T>(
       }
     } catch (err) {
       if (timedOut) throwTimeout();
-      if (outerSignal?.aborted) throw err;
+      if (outerSignal?.aborted || isCancelledError(err)) throw err;
       readFailed = true;
       readError = err;
     }
   } finally {
     clearTimeout(timer);
+    if (options?.privateInput) delete init.body;
     if (outerSignal) outerSignal.removeEventListener("abort", onOuterAbort);
   }
 
@@ -760,16 +871,22 @@ async function performActionFetch<T>(
   if (!res.ok) {
     if (
       res.status === 403 &&
-      data?.errorCode === UI_CAPABILITY_REQUIRED_ERROR_CODE &&
-      !options?.uiCapabilityRetry &&
-      typeof window !== "undefined"
+      data?.errorCode === UI_CAPABILITY_REQUIRED_ERROR_CODE
     ) {
+      // A rejected capability must not survive for later, independent calls.
+      // Forgetting is local; a no-retry caller still sends no further request.
       forgetUiActionCapability();
-      return performActionFetch<T>(name, method, params, {
-        ...options,
-        uiOnly: true,
-        uiCapabilityRetry: true,
-      });
+      if (
+        options?.retryUiCapability !== false &&
+        !options?.uiCapabilityRetry &&
+        typeof window !== "undefined"
+      ) {
+        return performActionFetch<T>(name, method, params, {
+          ...options,
+          uiOnly: true,
+          uiCapabilityRetry: true,
+        });
+      }
     }
 
     if (res.status === 401) recheckSessionAfterUnauthorized();
@@ -788,6 +905,20 @@ async function performActionFetch<T>(
 
     if (res.status === 405) {
       const requiredMethod = /\bUse (GET|POST|PUT|DELETE)\b/.exec(message)?.[1];
+      // A read asked for with the hook's default GET against an action that only answers POST
+      // is a false empty state, not a caller mistake: the server just said which method it
+      // wants, so re-send the same read with it once. Measured across the fleet 11-09 21:4x:
+      // thirteen query reads in seven apps answered 405 this way.
+      if (
+        method === "GET" &&
+        requiredMethod === "POST" &&
+        !options?.methodFallback
+      ) {
+        return performActionFetch<T>(name, "POST", params, {
+          ...options,
+          methodFallback: true,
+        });
+      }
       const error = new Error(
         `Action ${name} was called with ${method}, but it declares ` +
           `http: { method: "${requiredMethod ?? "?"}" }. Pass { method: "${requiredMethod ?? "..."}" } ` +
@@ -1111,8 +1242,10 @@ export function callAction<
     includeRequestSource: false,
     headers: options.headers,
     uiOnly: options.uiOnly,
+    retryUiCapability: options.retryUiCapability,
     beforeSend: options.beforeSend,
     onResponse: options.onResponse,
+    keepalive: options.keepalive,
   });
 }
 
@@ -1128,6 +1261,7 @@ export function callActionBlob<TName extends ActionName = ActionName>(
     headers: options.headers,
     responseType: "blob",
     uiOnly: options.uiOnly,
+    retryUiCapability: options.retryUiCapability,
     beforeSend: options.beforeSend,
     onResponse: options.onResponse,
   });
@@ -1135,6 +1269,7 @@ export function callActionBlob<TName extends ActionName = ActionName>(
 
 /** @internal shared with `classifyWriteFailure` */
 export function isAbortError(error: unknown): boolean {
+  if (isCancelledError(error)) return true;
   return (
     !!error &&
     typeof error === "object" &&
@@ -1275,6 +1410,7 @@ export function tryCallActionKeepalive<
     timeoutMs: options.timeoutMs,
     keepalive: true,
     serializedBody,
+    retryUiCapability: options.retryUiCapability,
   }).finally(release);
 
   return { accepted: true, bodyBytes, completion };
@@ -1533,6 +1669,22 @@ export function useActionQuery<
   > & {
     method?: "GET" | "POST";
     beforeSend?: () => Promise<void>;
+    /**
+     * Wait for browser UI capability before sending this protected action.
+     * Every observer of the same query must opt in; query options are shared.
+     */
+    uiOnly?: boolean;
+    /**
+     * Mark the first visible read and interactive mutation readbacks as foreground.
+     * A visibility return shares one foreground refresh across the surface;
+     * polling and other automatic refetches never carry the interactive header.
+     */
+    interactive?: boolean;
+    /**
+     * Disable the transport's capability-recovery resend. All observers of a
+     * shared query must use the same setting. Query retries are separate.
+     */
+    retryUiCapability?: boolean;
     queryKeyScope?: readonly unknown[];
     /**
      * The resource types this query reads (matching a write's `resources` and a
@@ -1547,19 +1699,33 @@ export function useActionQuery<
      * than waiting on the other reads in their batch.
      */
     batchRefetches?: boolean;
+    /** Captures a local projection fence before the authorized read starts. */
+    onRequestStart?: () => unknown;
+    /** Receives canonical responses only, never optimistic query-cache writes. */
+    onServerResult?: (
+      result: TResult extends undefined ? ActionResult<TName> : TResult,
+      metadata: { requestContext: unknown; persistAllowed: boolean },
+    ) => void;
+    onServerError?: (error: unknown) => void;
   },
 ) {
   type R = TResult extends undefined ? ActionResult<TName> : TResult;
   const apiDisabled = Boolean(agentNativeApiDisabledReason());
   const {
     refetchInterval,
+    interactive = false,
     retry: callerRetry,
     enabled: callerEnabled,
     queryKeyScope,
     resources,
     batchRefetches,
+    onRequestStart,
+    onServerResult,
+    onServerError,
     method = "GET",
     beforeSend,
+    uiOnly,
+    retryUiCapability,
     ...restOptions
   } = options ?? {};
   const queryKey = ["action", actionName, params, ...(queryKeyScope ?? [])];
@@ -1570,24 +1736,94 @@ export function useActionQuery<
   const existingQuery = trustedBindingPending
     ? queryClient.getQueryCache().find({ queryKey, exact: true })
     : undefined;
+  // Only a query that has never attempted a fetch is deferred. Once a fetch has
+  // failed, disabling the query would abort its in-flight retry and React Query
+  // would treat the abort as a cancel, leaving it pending forever with no error
+  // instead of surfacing the retry guidance. `fetchFailureCount` is that "has
+  // failed" signal, so an errored read always reaches the error branch.
   const deferFetchUntilBound =
     trustedBindingPending &&
     existingQuery?.state.fetchStatus !== "fetching" &&
-    existingQuery?.state.data === undefined;
+    existingQuery?.state.data === undefined &&
+    (existingQuery?.state.fetchFailureCount ?? 0) === 0;
   const circuitKey = () => hashKey(queryKey);
+  const surfaceOptions = useRef({
+    restOptions,
+    callerEnabled,
+    deferFetchUntilBound,
+    apiDisabled,
+  });
+  surfaceOptions.current = {
+    restOptions,
+    callerEnabled,
+    deferFetchUntilBound,
+    apiDisabled,
+  };
+  const queryHash = hashKey(queryKey);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    return observeActionQuerySurface(
+      () => queryClient.getQueryCache().get<R>(queryHash),
+      (query) => {
+        const currentOptions = surfaceOptions.current;
+        if (currentOptions.apiDisabled || currentOptions.deferFetchUntilBound)
+          return false;
+        const enabled = currentOptions.callerEnabled;
+        if (
+          !(typeof enabled === "function" ? enabled(query) : enabled !== false)
+        )
+          return false;
+        if (query.state.data === undefined && query.state.error === null)
+          return true;
+        const defaults = queryClient.defaultQueryOptions<R, Error, R, R>({
+          queryKey,
+        });
+        const { restOptions: current } = currentOptions;
+        const focus =
+          current.refetchOnWindowFocus ?? defaults.refetchOnWindowFocus;
+        const policy = typeof focus === "function" ? focus(query) : focus;
+        const stale = current.staleTime ?? defaults.staleTime;
+        const staleTime = typeof stale === "function" ? stale(query) : stale;
+        return (
+          staleTime !== "static" &&
+          (policy === "always" ||
+            (policy !== false && query.isStaleByTime(staleTime)))
+        );
+      },
+      interactive,
+      () =>
+        surfaceOptions.current.restOptions.refetchOnWindowFocus !== undefined,
+    );
+  }, [interactive, queryClient, queryHash]);
   return useQuery<R>({
     queryKey,
     queryFn: async ({ signal, client }) => {
       const key = circuitKey();
       const query = client.getQueryCache().find({ queryKey, exact: true });
+      if (!restOptions.refetchIntervalInBackground && isSurfaceHidden())
+        throw new CancelledError({ revert: true });
+      const foreground =
+        interactive && !isSurfaceHidden() && claimActionQueryForeground(query);
       const bindingTokenAtFetch = actionQueryCacheBindingToken;
+      let requestContext: unknown;
+      try {
+        requestContext = onRequestStart?.();
+      } catch {
+        console.warn("Action read observer could not capture its local fence");
+      }
       assertActionCircuitClosed(key);
       let lastResponse: Response | undefined;
       let result: R;
       try {
         result = await actionFetch<R>(actionName, method, params, {
           signal,
+          ...(foreground
+            ? { headers: { "X-Agent-Native-Interactive": "1" } }
+            : {}),
           ...(beforeSend ? { beforeSend } : {}),
+          visibleOnly: !restOptions.refetchIntervalInBackground,
+          uiOnly: uiOnly || interactive,
+          retryUiCapability,
           batch: method === "GET" && canBatchActionQueryFetch(query),
           onResponse: (response) => {
             lastResponse = response;
@@ -1606,6 +1842,11 @@ export function useActionQuery<
           }
           revokeActionQueryCacheForClient(client, bindingTokenAtFetch);
         }
+        try {
+          onServerError?.(error);
+        } catch {
+          console.warn("Action read error observer failed");
+        }
         throw error;
       }
       resetActionFailureCircuit(key);
@@ -1617,12 +1858,27 @@ export function useActionQuery<
           bindingTokenAtFetch,
         );
       }
+      if (!signal.aborted) {
+        try {
+          onServerResult?.(result, {
+            requestContext,
+            persistAllowed:
+              bindingTokenAtFetch !== undefined &&
+              bindingTokenAtFetch === actionQueryCacheBindingToken &&
+              lastResponse?.headers.get(ACTION_BROWSER_PERSIST_HEADER) ===
+                ACTION_BROWSER_PERSIST_ALLOW,
+          });
+        } catch {
+          console.warn("Action read result observer failed");
+        }
+      }
       return result;
     },
     // The failure circuit counts fetch cycles, so a cycle is recorded where
     // React Query gives up on it: the first `retry` call that answers false.
     retry: (failureCount, error) => {
-      if (isActionCircuitOpenError(error)) return false;
+      if (isActionCircuitOpenError(error) || isCancelledError(error))
+        return false;
       const again = resolveActionQueryRetry(callerRetry, failureCount, error);
       if (!again && !isAbortError(error)) {
         trackActionCircuitTrip(
@@ -1636,7 +1892,11 @@ export function useActionQuery<
     retryDelay: defaultActionQueryRetryDelay,
     ...restOptions,
     enabled: (query) => {
-      if (deferFetchUntilBound) return false;
+      if (
+        deferFetchUntilBound ||
+        (!restOptions.refetchIntervalInBackground && isSurfaceHidden())
+      )
+        return false;
       return typeof callerEnabled === "function"
         ? callerEnabled(query)
         : callerEnabled !== false;
@@ -1655,6 +1915,7 @@ export function useActionQuery<
     ...(refetchInterval !== undefined
       ? { refetchInterval: guardActionQueryRefetchInterval(refetchInterval) }
       : {}),
+    refetchOnWindowFocus: false,
     ...(apiDisabled ? { enabled: false as const } : {}),
   });
 }
@@ -1754,7 +2015,293 @@ function trackCallOnError<D, V>(
   return { options: tracked, ranCallOnError: () => ran };
 }
 
+/**
+ * Private writes accept inputs only at invocation. They do not create a
+ * TanStack mutation, expose input callbacks, or return/store response bodies.
+ * The action must separately disable tools, input auditing and persistence.
+ */
+export interface PrivateActionMutationOptions {
+  privateInputs: true;
+  uiOnly: true;
+  retry: false;
+  retryUiCapability: false;
+  timeoutMs?: number;
+  resources?: readonly string[];
+  skipActionQueryInvalidation?: boolean;
+  onSuccess?: () => unknown;
+  onError?: (error: Error) => unknown;
+}
+
+export interface PrivateActionMutationResult<V> {
+  mutate: (params: V) => void;
+  mutateAsync: (params: V) => Promise<void>;
+  reset: () => void;
+  status: "idle" | "pending" | "success" | "error";
+  isIdle: boolean;
+  isPending: boolean;
+  isSuccess: boolean;
+  isError: boolean;
+  error: Error | null;
+  data: undefined;
+  variables: undefined;
+}
+
+type NormalActionMutationOptions<
+  TData,
+  TVariables,
+  TName extends ActionName,
+> = NonNullable<
+  Parameters<typeof useNormalActionMutation<TData, TVariables, TName>>[1]
+> & { privateInputs?: false };
+
 export function useActionMutation<
+  _TData = undefined,
+  TVariables = undefined,
+  TName extends ActionName = ActionName,
+>(
+  actionName: TName,
+  options: PrivateActionMutationOptions,
+): PrivateActionMutationResult<
+  TVariables extends undefined ? ActionParams<TName> : TVariables
+>;
+export function useActionMutation<
+  TData = undefined,
+  TVariables = undefined,
+  TName extends ActionName = ActionName,
+>(
+  actionName: TName,
+  options?: NormalActionMutationOptions<TData, TVariables, TName>,
+): UseMutationResult<
+  TData extends undefined ? ActionResult<TName> : TData,
+  Error,
+  TVariables extends undefined ? ActionParams<TName> : TVariables
+>;
+export function useActionMutation<
+  TData = undefined,
+  TVariables = undefined,
+  TName extends ActionName = ActionName,
+>(
+  actionName: TName,
+  options?:
+    | PrivateActionMutationOptions
+    | NormalActionMutationOptions<TData, TVariables, TName>,
+) {
+  type V = TVariables extends undefined ? ActionParams<TName> : TVariables;
+  const privateOptions = options?.privateInputs ? options : undefined;
+  // Both hooks run on every render. A private call never invokes the normal
+  // observer, so neither cache defaults nor global mutation callbacks see it.
+  const normal = useNormalActionMutation<TData, TVariables, TName>(
+    actionName,
+    privateOptions
+      ? undefined
+      : (options as
+          | NormalActionMutationOptions<TData, TVariables, TName>
+          | undefined),
+  );
+  const privateMutation = usePrivateInputMutation<V>(
+    actionName,
+    privateOptions,
+  );
+  return privateOptions ? privateMutation : normal;
+}
+
+function privateActionScopeHeader(scope: PrivateActionScope): string {
+  // Header values accept bytes; escaped JSON preserves Unicode scope fields.
+  return JSON.stringify(scope).replace(
+    /[\u007f-\uffff]/g,
+    (character) =>
+      "\\u" + character.charCodeAt(0).toString(16).padStart(4, "0"),
+  );
+}
+
+function hasPrivateMutationFlags(value: unknown): boolean {
+  if (!value || typeof value !== "object") return false;
+  const flags = value as Record<string, unknown>;
+  try {
+    return (
+      flags.privateInputs === true &&
+      flags.uiOnly === true &&
+      flags.retry === false &&
+      flags.retryUiCapability === false
+    );
+  } catch {
+    // coercion-ok: false means invalid options; the caller rejects with a sanitized private error.
+    return false;
+  }
+}
+
+function serializePrivateInput(value: unknown): string | undefined {
+  return JSON.stringify(value);
+}
+
+function privateMutationError(cancelled = false): Error {
+  const error = new Error(
+    cancelled ? "Private action cancelled." : "Private action failed.",
+  );
+  if (cancelled) error.name = "AbortError";
+  return Object.freeze(error);
+}
+
+function usePrivateInputMutation<V>(
+  actionName: string,
+  options: PrivateActionMutationOptions | undefined,
+): PrivateActionMutationResult<V> {
+  const queryClient = useQueryClient();
+  const [state, setState] = useState<{
+    status: PrivateActionMutationResult<V>["status"];
+    error: Error | null;
+  }>({ status: "idle", error: null });
+  const active = useRef<{ controller: AbortController; scope: object } | null>(
+    null,
+  );
+  const mounted = useRef(false);
+  const config = useRef({ actionName, options });
+  config.current = { actionName, options };
+  const cancel = () => {
+    const pending = active.current;
+    active.current = null;
+    pending?.controller.abort();
+  };
+  useEffect(() => {
+    mounted.current = true;
+    const unsubscribe = subscribeSessionScope(() => {
+      cancel();
+      setState({ status: "idle", error: null });
+    });
+    return () => {
+      mounted.current = false;
+      unsubscribe();
+      cancel();
+    };
+  }, []);
+  useEffect(() => {
+    cancel();
+    setState({ status: "idle", error: null });
+    return cancel;
+  }, [actionName, Boolean(options)]);
+
+  const mutateAsync = async (params: V): Promise<void> => {
+    const current = config.current;
+    const opts = current.options;
+    const scope = currentSessionScope();
+    const privateScope = currentPrivateActionScope();
+    if (
+      !mounted.current ||
+      !opts ||
+      !hasPrivateMutationFlags(opts) ||
+      typeof currentSessionIdentity() !== "string" ||
+      !privateScope ||
+      isEmbedAuthActive() ||
+      active.current
+    ) {
+      params = undefined as V;
+      throw privateMutationError();
+    }
+    const invocation = { controller: new AbortController(), scope };
+    active.current = invocation;
+    const valid = () =>
+      mounted.current &&
+      active.current === invocation &&
+      currentSessionScope() === scope &&
+      currentPrivateActionScope() === privateScope &&
+      !isEmbedAuthActive() &&
+      hasPrivateMutationFlags(config.current.options) &&
+      config.current.actionName === current.actionName;
+    setState({ status: "pending", error: null });
+    let body: string | undefined;
+    try {
+      try {
+        body = serializePrivateInput(params);
+      } finally {
+        params = undefined as V;
+      }
+      if (body === undefined || utf8ByteLength(body) > 128 * 1024)
+        throw privateMutationError();
+      assertAgentNativeApiEnabled(`POST ${current.actionName}`);
+      const outcome = { markerFailed: false };
+      const request = performActionFetch<unknown>(
+        current.actionName,
+        "POST",
+        {},
+        {
+          serializedBody: body,
+          privateInput: true,
+          headers: {
+            [PRIVATE_ACTION_SCOPE_HEADER]:
+              privateActionScopeHeader(privateScope),
+          },
+          signal: invocation.controller.signal,
+          ...(opts.timeoutMs === undefined
+            ? {}
+            : { timeoutMs: opts.timeoutMs }),
+          uiOnly: true,
+          retryUiCapability: false,
+          onResponse: (response) => {
+            outcome.markerFailed =
+              response.headers.get(ACTION_CHANGE_MARKER_HEADER) ===
+              ACTION_CHANGE_MARKER_FAILED;
+          },
+          beforeSend: async () => {
+            if (!valid()) throw privateMutationError(true);
+          },
+        },
+      );
+      body = undefined;
+      await request;
+      if (!valid()) throw privateMutationError(true);
+      resetActionFailureCircuits();
+      if (typeof window !== "undefined")
+        window.dispatchEvent(new Event("agentNative:syncActivity"));
+      if (!valid()) throw privateMutationError(true);
+      if (!opts.skipActionQueryInvalidation || outcome.markerFailed) {
+        if (!advanceMutationEpoch())
+          revokeActionQueryCacheForClient(queryClient);
+        void queryClient.invalidateQueries(
+          actionQueryInvalidation(opts.resources),
+        );
+      }
+      if (!valid()) throw privateMutationError(true);
+      await opts.onSuccess?.();
+      if (!valid()) throw privateMutationError(true);
+      setState({ status: "success", error: null });
+    } catch {
+      const error = privateMutationError(!valid());
+      if (valid()) {
+        setState({ status: "error", error });
+        // Callback failures must not carry a reflected input to the caller.
+        try {
+          await opts.onError?.(error);
+        } catch {
+          /* Keep the sanitized error. */
+        }
+      }
+      throw error;
+    } finally {
+      body = undefined;
+      params = undefined as V;
+      if (active.current === invocation) active.current = null;
+    }
+  };
+  return {
+    ...state,
+    data: undefined,
+    variables: undefined,
+    isIdle: state.status === "idle",
+    isPending: state.status === "pending",
+    isSuccess: state.status === "success",
+    isError: state.status === "error",
+    mutateAsync,
+    mutate: (params) => {
+      void mutateAsync(params).catch(() => {});
+    },
+    reset: () => {
+      cancel();
+      if (mounted.current) setState({ status: "idle", error: null });
+    },
+  };
+}
+
+function useNormalActionMutation<
   TData = undefined,
   TVariables = undefined,
   TName extends ActionName = ActionName,
@@ -1770,11 +2317,26 @@ export function useActionMutation<
   > & {
     method?: "POST" | "PUT" | "DELETE";
     skipActionQueryInvalidation?: boolean;
+    /** Commit a local canonical projection before invalidation starts new reads. */
+    beforeInvalidate?: (
+      data: TData extends undefined ? ActionResult<TName> : TData,
+      variables: TVariables extends undefined
+        ? ActionParams<TName>
+        : TVariables,
+      context: unknown,
+    ) => void;
     /** The resource types this write changes; see `useActionQuery`. */
     resources?: readonly string[];
     timeoutMs?: number;
     /** Set when the action is declared `uiOnly`, so its first request carries the UI capability. */
     uiOnly?: boolean;
+    /** Request a provider foreground scope for a visible browser mutation. */
+    interactive?: boolean;
+    /**
+     * Disable only the transport's capability-recovery resend. Also set
+     * `retry: false` to prevent React Query retries for a private write.
+     */
+    retryUiCapability?: boolean;
     headers?:
       | Record<string, string>
       | ((
@@ -1804,9 +2366,12 @@ export function useActionMutation<
     method: methodOpt,
     onSuccess,
     skipActionQueryInvalidation = false,
+    beforeInvalidate,
     resources,
     timeoutMs,
     uiOnly,
+    interactive = false,
+    retryUiCapability,
     headers,
     errorNotification = "auto",
     errorLabel,
@@ -1828,7 +2393,15 @@ export function useActionMutation<
         {
           timeoutMs,
           uiOnly,
-          headers: typeof headers === "function" ? headers(params) : headers,
+          retryUiCapability,
+          headers: interactive
+            ? {
+                ...(typeof headers === "function" ? headers(params) : headers),
+                "X-Agent-Native-Interactive": !isSurfaceHidden() ? "1" : "0",
+              }
+            : typeof headers === "function"
+              ? headers(params)
+              : headers,
           onResponse: (response) => {
             markerFailed =
               response.headers.get(ACTION_CHANGE_MARKER_HEADER) ===
@@ -1840,7 +2413,13 @@ export function useActionMutation<
       // caller manages its own cache, so the failed marker is the only signal
       // that polling did not see this write.
       if (markerFailed && skipActionQueryInvalidation) {
-        void queryClient.invalidateQueries(actionQueryInvalidation(resources));
+        if (!advanceMutationEpoch())
+          revokeActionQueryCacheForClient(queryClient);
+        void invalidateForegroundActionQueries(
+          queryClient,
+          actionQueryInvalidation(resources),
+          interactive,
+        );
       }
       return data;
     },
@@ -1850,8 +2429,19 @@ export function useActionMutation<
       if (typeof window !== "undefined") {
         window.dispatchEvent(new Event("agentNative:syncActivity"));
       }
+      try {
+        beforeInvalidate?.(...args);
+      } catch {
+        console.warn("Action mutation projection observer failed");
+      }
       if (!skipActionQueryInvalidation) {
-        void queryClient.invalidateQueries(actionQueryInvalidation(resources));
+        if (!advanceMutationEpoch())
+          revokeActionQueryCacheForClient(queryClient);
+        void invalidateForegroundActionQueries(
+          queryClient,
+          actionQueryInvalidation(resources),
+          interactive,
+        );
       }
       return (onSuccess as Function)?.(...args);
     },

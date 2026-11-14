@@ -4,6 +4,10 @@ import {
   CREDENTIAL_STORE_UNAVAILABLE_ERROR_CODE,
   GATEWAY_UNAVAILABLE_VISITOR_MESSAGE,
 } from "../agent/engine/credential-errors.js";
+import {
+  credentialFailureProvider,
+  ProviderAuthenticationError,
+} from "../agent/engine/provider-auth-error.js";
 import { getAppConfig } from "../app-config/index.js";
 import { getDbExec, isLocalDatabase } from "../db/client.js";
 import { isTransientDatabaseError } from "../db/errors.js";
@@ -273,6 +277,11 @@ const APP_PROVIDED_DEPLOY_CREDENTIAL_KEYS = new Set([
   "GOOGLE_CLIENT_SECRET",
   "NOTION_CLIENT_ID",
   "NOTION_CLIENT_SECRET",
+  // The meeting-recording app's own OAuth client: the workspace sets the pair in
+  // deploy configuration, exactly like the Google and Notion clients above, so a
+  // signed-in member's connect flow has to read it from the environment.
+  "ZOOM_CLIENT_ID",
+  "ZOOM_CLIENT_SECRET",
   "SLACK_BOT_TOKEN",
   // Signs events from the deployed Slack app, not the integration owner's identity.
   "SLACK_SIGNING_SECRET",
@@ -1664,6 +1673,7 @@ export const BUILDER_AUTH_FAILURE_TTL_MS = 15 * 60 * 1000;
 export interface BuilderCredentialAuthFailure {
   fingerprint: string;
   message: string;
+  provider?: string;
   status?: number;
   code?: string;
   at: number;
@@ -1713,12 +1723,10 @@ export async function getBuilderCredentialAuthFailure(
     }
     return {
       fingerprint,
-      message:
-        typeof row.message === "string" && row.message
-          ? row.message
-          : "Builder rejected the connected credentials. Sign in to Builder.io again (free tier available).",
-      status: typeof row.status === "number" ? row.status : undefined,
-      code: typeof row.code === "string" ? row.code : undefined,
+      ...new ProviderAuthenticationError(
+        "builder",
+        typeof row.status === "number" ? row.status : undefined,
+      ).details(),
       at,
       ownerEmail:
         typeof row.ownerEmail === "string" ? row.ownerEmail : undefined,
@@ -1746,11 +1754,7 @@ export async function recordBuilderCredentialAuthFailure(details?: {
     const strikes = await nextAuthFailureStrikes(settingKey);
     await putSetting(settingKey, {
       fingerprint,
-      message:
-        details?.message ||
-        "Builder rejected the connected credentials. Sign in to Builder.io again (free tier available).",
-      ...(typeof details?.status === "number" && { status: details.status }),
-      ...(details?.code && { code: details.code }),
+      ...new ProviderAuthenticationError("builder", details?.status).details(),
       strikes,
       at: Date.now(),
       ownerEmail: getRequestUserEmail() ?? null,
@@ -1785,6 +1789,7 @@ export interface ProviderCredentialAuthFailure {
   fingerprint: string;
   key: string;
   message: string;
+  provider?: string;
   status?: number;
   code?: string;
   at: number;
@@ -1831,16 +1836,13 @@ export async function getProviderCredentialAuthFailure(opts: {
     }
     return {
       fingerprint,
-      key:
-        typeof row.key === "string" && row.key
-          ? row.key
-          : key || "UNKNOWN_PROVIDER_KEY",
-      message:
-        typeof row.message === "string" && row.message
-          ? row.message
-          : "The model provider rejected the saved API key.",
-      status: typeof row.status === "number" ? row.status : undefined,
-      code: typeof row.code === "string" ? row.code : undefined,
+      key,
+      ...new ProviderAuthenticationError(
+        key === BUILDER_GATEWAY_TOKEN_ENV_VAR
+          ? "builder"
+          : credentialFailureProvider(key),
+        typeof row.status === "number" ? row.status : undefined,
+      ).details(),
       at,
       ownerEmail:
         typeof row.ownerEmail === "string" ? row.ownerEmail : undefined,
@@ -1852,7 +1854,7 @@ export async function getProviderCredentialAuthFailure(opts: {
   }
 }
 
-/** The recorded message is the provider's own and can echo the key, so it stays server-side. */
+/** Rejection summaries expose only typed metadata and fixed application copy. */
 export interface ProviderCredentialRejection {
   at: number;
   status?: number;
@@ -1910,9 +1912,12 @@ export async function recordProviderCredentialAuthFailure(opts: {
     await putSetting(settingKey, {
       fingerprint,
       key,
-      message: opts.message || "The model provider rejected the saved API key.",
-      ...(typeof opts.status === "number" && { status: opts.status }),
-      ...(opts.code && { code: opts.code }),
+      ...new ProviderAuthenticationError(
+        key === BUILDER_GATEWAY_TOKEN_ENV_VAR
+          ? "builder"
+          : credentialFailureProvider(key),
+        opts.status,
+      ).details(),
       strikes,
       at: Date.now(),
       ownerEmail: getRequestUserEmail() ?? null,

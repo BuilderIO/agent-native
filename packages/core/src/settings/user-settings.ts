@@ -4,12 +4,14 @@ import {
 } from "../org/request-org-cache.js";
 import {
   getSetting,
+  getSettingEntry,
   getSettings,
   mutateSetting,
   putSetting,
   publishSettingChange,
   invalidateSettingRequestCache,
   deleteSettingIfValue,
+  type SettingEntry,
   type StoreReadOptions,
   type StoreWriteOptions,
   type StoreMutationOptions,
@@ -33,7 +35,7 @@ function afterUserSettingWrite(key: string): void {
 export async function getUserSetting(
   email: string,
   key: string,
-  options?: Pick<StoreReadOptions, "bypassCache">,
+  options?: Pick<StoreReadOptions, "bypassCache" | "transaction">,
 ): Promise<Record<string, unknown> | null> {
   const normalizedKey = userKey(email, key);
   const normalized = options
@@ -43,6 +45,33 @@ export async function getUserSetting(
   const legacy = legacyUserKey(email, key);
   if (legacy === normalizedKey) return null;
   return options ? getSetting(legacy, options) : getSetting(legacy);
+}
+
+/**
+ * Like `getUserSetting`, but distinguishes an absent row from a present stored
+ * JSON `null`, array or scalar. A present canonical row wins even when it
+ * parses to `null`; only an absent canonical row falls back to the legacy key.
+ * The legacy `getUserSetting` keeps returning `null` for both, unchanged.
+ *
+ * The two-key presence read is not an atomic canonical-plus-legacy snapshot
+ * unless the caller supplies a suitable `transaction`/isolation: a canonical
+ * row can be inserted between the canonical absence and the legacy lookup.
+ * That is the existing namespace fallback pattern, not a new security bypass.
+ * Mutation guard/CAS is the required write defense.
+ */
+export async function getUserSettingEntry(
+  email: string,
+  key: string,
+  options?: Pick<StoreReadOptions, "bypassCache" | "transaction">,
+): Promise<SettingEntry> {
+  const normalizedKey = userKey(email, key);
+  const normalized = options
+    ? await getSettingEntry(normalizedKey, options)
+    : await getSettingEntry(normalizedKey);
+  if (normalized.found) return normalized;
+  const legacy = legacyUserKey(email, key);
+  if (legacy === normalizedKey) return { found: false };
+  return options ? getSettingEntry(legacy, options) : getSettingEntry(legacy);
 }
 
 export async function getUserSettings(
@@ -141,15 +170,26 @@ async function mutateUserSettingValue(
         migratedLegacyValue = null;
         return updater(current);
       }
-      const legacyCurrent =
-        legacy === normalized
-          ? null
-          : await getSetting(legacy, {
-              bypassCache: true,
-              ...(options?.transaction
-                ? { transaction: options.transaction }
-                : {}),
-            });
+      const legacyReadOptions: StoreReadOptions = {
+        bypassCache: true,
+        ...(options?.transaction ? { transaction: options.transaction } : {}),
+      };
+      let legacyCurrent: Record<string, unknown> | null = null;
+      if (legacy !== normalized) {
+        if (options?.validateStoredValue) {
+          // The entry read keeps a present JSON `null` (or array/scalar)
+          // distinct from an absent legacy row, so the guard sees it before the
+          // updater can migrate over it. Without a guard, the existing
+          // `getSetting` migration semantics are kept exactly.
+          const legacyEntry = await getSettingEntry(legacy, legacyReadOptions);
+          if (legacyEntry.found) {
+            await options.validateStoredValue(legacyEntry.value);
+            legacyCurrent = legacyEntry.value as Record<string, unknown> | null;
+          }
+        } else {
+          legacyCurrent = await getSetting(legacy, legacyReadOptions);
+        }
+      }
       migratedLegacy = legacyCurrent !== null;
       migratedLegacyValue = legacyCurrent;
       return updater(legacyCurrent);

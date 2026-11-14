@@ -6,6 +6,7 @@ import {
   getThemeFamilyInitScript,
   isThemeFamily,
   resolveThemeFamilyConfig,
+  resolveThemeFamilyPreference,
   THEME_FAMILIES,
   themeFamilySettingKey,
   themeFamilyAppStateKey,
@@ -38,6 +39,67 @@ describe("theme family contract", () => {
       families: ["original", "agent-native"],
       defaultFamily: "agent-native",
     });
+  });
+
+  it("normalizes account domain defaults and drops disabled families", () => {
+    expect(
+      resolveThemeFamilyConfig({
+        families: ["original"],
+        accountDefaultsByEmailDomain: {
+          " EXAMPLE.COM ": "agent-native",
+          "allowed.test": "original",
+        },
+      }),
+    ).toEqual({
+      families: ["original"],
+      defaultFamily: "original",
+      accountDefaultsByEmailDomain: { "allowed.test": "original" },
+    });
+  });
+
+  it("applies an account domain default and lets an explicit user setting win", () => {
+    const config = resolveThemeFamilyConfig({
+      families: ["original", "agent-native"],
+      defaultFamily: "original",
+      accountDefaultsByEmailDomain: { "example.com": "agent-native" },
+    });
+
+    expect(
+      resolveThemeFamilyPreference(null, " person@EXAMPLE.com ", config),
+    ).toBe("agent-native");
+    expect(
+      resolveThemeFamilyPreference(
+        { family: "original", source: "user-setting" },
+        "person@example.com",
+        config,
+      ),
+    ).toBe("original");
+  });
+
+  it("falls back for missing, malformed, or disabled account defaults", () => {
+    const config = resolveThemeFamilyConfig({
+      families: ["original"],
+      defaultFamily: "original",
+      accountDefaultsByEmailDomain: { "example.com": "original" },
+    });
+
+    expect(resolveThemeFamilyPreference(null, null, config)).toBe("original");
+    expect(resolveThemeFamilyPreference(null, "not-an-email", config)).toBe(
+      "original",
+    );
+    expect(
+      resolveThemeFamilyPreference(null, "two@at@example.com", config),
+    ).toBe("original");
+    expect(
+      resolveThemeFamilyPreference(
+        { family: "agent-native", source: "user-setting" },
+        "person@example.com",
+        config,
+      ),
+    ).toBe("original");
+    expect(
+      resolveThemeFamilyPreference(null, "person@other.test", config),
+    ).toBe("original");
   });
 
   it("accepts only registered families from the URL override", () => {
@@ -84,6 +146,22 @@ describe("theme family contract", () => {
 
     expect(script).toContain('fallback="agent-native"');
     expect(script).toContain('["original","agent-native"].includes(requested)');
+  });
+
+  it("waits for the saved preference only when account defaults are configured", () => {
+    const configured = getThemeFamilyInitScript(undefined, {
+      families: ["original", "agent-native"],
+      defaultFamily: "agent-native",
+      accountDefaultsByEmailDomain: { "example.com": "original" },
+    });
+    expect(configured).toContain("if(true||value===null)");
+    expect(configured).toContain("awaiting-app-setting");
+
+    const unconfigured = getThemeFamilyInitScript(undefined, {
+      families: ["original", "agent-native"],
+      defaultFamily: "agent-native",
+    });
+    expect(unconfigured).toContain("if(false||value===null)");
   });
 
   it("uses the fallback storage key before an app id is available", () => {

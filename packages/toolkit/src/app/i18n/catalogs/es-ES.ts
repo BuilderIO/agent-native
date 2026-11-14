@@ -494,6 +494,10 @@ const messages: ToolkitAgentChatTranslation = {
   "history.searching": "Buscando...",
   "history.untitledChat": "Chat",
   "history.yesterday": "Ayer",
+  "history.today": "Hoy",
+  "commandMenu.systemGroup": "Aplicación",
+  "share.alreadyInvited": "Ya invitado",
+  "share.notInvitedToPage": "No invitado a la página",
   "history.mine": "Mis chats",
   "history.sharedWithYou": "Compartidos contigo",
   "history.showAll": "Mostrar todo",
@@ -1457,7 +1461,7 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.invalidAttachment":
     "El proveedor del modelo rechazó este archivo adjunto por su formato o tamaño. Para las imágenes, exporta una versión más pequeña en PNG, JPEG, GIF o WebP; para los documentos, usa un formato compatible o pega el texto pertinente y vuelve a adjuntarlo.",
   "errorMessages.noProviderConnected":
-    "No hay ningún proveedor de LLM conectado. Abre Configuración > Agente > Proveedores de IA y usa Builder.io (plan gratuito disponible) o añade una clave de proveedor.",
+    "No hay ningún proveedor de LLM conectado. Abre Configuración > Agente > Proveedores de IA y conecta Builder.io o añade una clave de proveedor.",
   "errorMessages.openBuilderSpaceSettings":
     "Abrir los ajustes del espacio de Builder",
   "errorMessages.providerAuthentication":
@@ -2365,6 +2369,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.passwordSaved": "Contraseña actualizada",
   "settingsShell.account.photoError": "No se pudo actualizar la foto.",
   "settingsShell.account.photoUpdated": "Foto actualizada",
+  "settingsShell.account.photoRemoved": "Foto eliminada",
+  "settingsShell.account.removePhoto": "Quitar foto",
+  "settingsShell.account.emailDeliveryUnavailable":
+    "El envío de correo no está configurado aquí",
   "settingsShell.account.profilePhoto": "Foto de perfil",
   "settingsShell.account.requestCopyDescription":
     "Un administrador verifica tu identidad y hace el seguimiento.",
@@ -3641,7 +3649,7 @@ const messages: ToolkitAgentChatTranslation = {
   "message.responseFailed": "Error en la respuesta",
   "message.waitingForApproval": "Esperando aprobación",
   "message.waitingForInput": "Esperando una respuesta",
-  "message.workSummaryFailedCount": "{{summary}}, {{count}} con errores",
+  "message.workSummaryFailedCount": "{{summary}}, intentos fallidos: {{count}}",
   "message.taskStatusPending": "Pendiente",
   "message.taskStatusRunning": "En curso",
   "message.taskStatusCompleted": "Hecho",

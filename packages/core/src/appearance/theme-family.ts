@@ -5,11 +5,13 @@ export type ThemeFamily = (typeof THEME_FAMILIES)[number];
 export interface ThemeFamilyConfig {
   families?: readonly ThemeFamily[];
   defaultFamily?: ThemeFamily;
+  accountDefaultsByEmailDomain?: Readonly<Record<string, ThemeFamily>>;
 }
 
 export interface ResolvedThemeFamilyConfig {
   families: ThemeFamily[];
   defaultFamily: ThemeFamily;
+  accountDefaultsByEmailDomain?: Readonly<Record<string, ThemeFamily>>;
 }
 
 export const DEFAULT_THEME_FAMILY: ThemeFamily = "original";
@@ -38,7 +40,53 @@ export function resolveThemeFamilyConfig(
         families.at(0) ??
         DEFAULT_THEME_FAMILY);
 
-  return { families, defaultFamily };
+  const accountDefaultsByEmailDomain = Object.fromEntries(
+    Object.entries(config?.accountDefaultsByEmailDomain ?? {})
+      .map(([domain, family]) => [domain.trim().toLowerCase(), family] as const)
+      .filter(
+        ([domain, family]) =>
+          domain.length > 0 &&
+          isThemeFamily(family) &&
+          families.includes(family),
+      ),
+  );
+
+  return {
+    families,
+    defaultFamily,
+    ...(Object.keys(accountDefaultsByEmailDomain).length > 0
+      ? { accountDefaultsByEmailDomain }
+      : {}),
+  };
+}
+
+export function resolveThemeFamilyPreference(
+  preference: {
+    family: ThemeFamily;
+    source: "default" | "user-setting";
+  } | null,
+  email: string | null | undefined,
+  config: ResolvedThemeFamilyConfig,
+): ThemeFamily {
+  if (
+    preference?.source === "user-setting" &&
+    config.families.includes(preference.family)
+  ) {
+    return preference.family;
+  }
+
+  const normalizedEmail = email?.trim().toLowerCase();
+  const atIndex = normalizedEmail?.lastIndexOf("@") ?? -1;
+  const domain =
+    normalizedEmail && atIndex > 0 && normalizedEmail.indexOf("@") === atIndex
+      ? normalizedEmail.slice(atIndex + 1)
+      : undefined;
+  const accountDefault = domain
+    ? config.accountDefaultsByEmailDomain?.[domain]
+    : undefined;
+  return accountDefault && config.families.includes(accountDefault)
+    ? accountDefault
+    : config.defaultFamily;
 }
 
 export function getThemeFamilyUrlOverride(
@@ -88,9 +136,11 @@ export function getThemeFamilyInitScript(
   familyConfig?: ThemeFamilyConfig | null,
 ): string {
   const storageKey = themeFamilyStorageKey(appId ?? undefined);
-  const { families: allowedFamilies, defaultFamily } =
-    resolveThemeFamilyConfig(familyConfig);
+  const resolvedConfig = resolveThemeFamilyConfig(familyConfig);
+  const { families: allowedFamilies, defaultFamily } = resolvedConfig;
   const families = JSON.stringify(allowedFamilies);
+  const deferStoredFamily =
+    Object.keys(resolvedConfig.accountDefaultsByEmailDomain ?? {}).length > 0;
 
-  return `(function(){var root=document.documentElement;var fallback=${JSON.stringify(defaultFamily)};try{var requested=new URLSearchParams(window.location.search).get('theme-family');if(${families}.includes(requested)){root.setAttribute(${JSON.stringify(THEME_FAMILY_ATTRIBUTE)},requested);root.removeAttribute(${JSON.stringify(THEME_FAMILY_STATUS_ATTRIBUTE)});return}var value=window.localStorage.getItem(${JSON.stringify(storageKey)});if(value===null){root.setAttribute(${JSON.stringify(THEME_FAMILY_ATTRIBUTE)},fallback);root.setAttribute(${JSON.stringify(THEME_FAMILY_STATUS_ATTRIBUTE)},'awaiting-app-setting');return}if(${families}.includes(value)){root.setAttribute(${JSON.stringify(THEME_FAMILY_ATTRIBUTE)},value);root.removeAttribute(${JSON.stringify(THEME_FAMILY_STATUS_ATTRIBUTE)});return}root.setAttribute(${JSON.stringify(THEME_FAMILY_ATTRIBUTE)},fallback);root.setAttribute(${JSON.stringify(THEME_FAMILY_STATUS_ATTRIBUTE)},'invalid')}catch(e){root.setAttribute(${JSON.stringify(THEME_FAMILY_ATTRIBUTE)},fallback);root.setAttribute(${JSON.stringify(THEME_FAMILY_STATUS_ATTRIBUTE)},'unreadable')}})();`;
+  return `(function(){var root=document.documentElement;var fallback=${JSON.stringify(defaultFamily)};try{var requested=new URLSearchParams(window.location.search).get('theme-family');if(${families}.includes(requested)){root.setAttribute(${JSON.stringify(THEME_FAMILY_ATTRIBUTE)},requested);root.removeAttribute(${JSON.stringify(THEME_FAMILY_STATUS_ATTRIBUTE)});return}var value=window.localStorage.getItem(${JSON.stringify(storageKey)});if(${deferStoredFamily}||value===null){root.setAttribute(${JSON.stringify(THEME_FAMILY_ATTRIBUTE)},fallback);root.setAttribute(${JSON.stringify(THEME_FAMILY_STATUS_ATTRIBUTE)},'awaiting-app-setting');return}if(${families}.includes(value)){root.setAttribute(${JSON.stringify(THEME_FAMILY_ATTRIBUTE)},value);root.removeAttribute(${JSON.stringify(THEME_FAMILY_STATUS_ATTRIBUTE)});return}root.setAttribute(${JSON.stringify(THEME_FAMILY_ATTRIBUTE)},fallback);root.setAttribute(${JSON.stringify(THEME_FAMILY_STATUS_ATTRIBUTE)},'invalid')}catch(e){root.setAttribute(${JSON.stringify(THEME_FAMILY_ATTRIBUTE)},fallback);root.setAttribute(${JSON.stringify(THEME_FAMILY_STATUS_ATTRIBUTE)},'unreadable')}})();`;
 }

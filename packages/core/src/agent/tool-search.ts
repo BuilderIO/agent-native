@@ -8,10 +8,16 @@ import {
 import { getRequestRunContext } from "../server/request-context.js";
 import { clipHead } from "./clip-text.js";
 import type { ActionEntry } from "./production-agent.js";
+import {
+  rankGrantedTask,
+  type Candidate,
+  type Ranking,
+} from "./tool-search-task.js";
 
 export const TOOL_SEARCH_ACTION_NAME = "tool-search";
 
 type ToolSearchArgs = {
+  task?: unknown;
   query?: unknown;
   queries?: unknown;
   names?: unknown;
@@ -44,7 +50,42 @@ type ToolSearchResult = {
 type ToolSearchOptions = {
   defaultLimit?: number;
   maxLimit?: number;
+  /** Server-only boundaries; candidates must already be authorized for this request. */
+  taskCandidates?: readonly Candidate[] | undefined;
+  taskDeadline?: number | undefined;
+  taskCandidateProvider?:
+    | ((input: {
+        callableActionNames: readonly string[];
+        signal: AbortSignal;
+      }) => Promise<readonly Candidate[]>)
+    | undefined;
+  taskRank?:
+    | ((
+        task: string,
+        candidates: readonly Candidate[],
+        signal: AbortSignal,
+      ) => Promise<Ranking>)
+    | undefined;
 };
+
+// Host-supplied candidates are checked field by field before use; this is the
+// shape that check reads, not a promise that any field is present.
+type UntrustedTaskCandidate =
+  | {
+      id?: unknown;
+      kind?: unknown;
+      name?: unknown;
+      description?: unknown;
+      use?: {
+        type?: unknown;
+        app?: unknown;
+        path?: unknown;
+        action?: unknown;
+        scope?: unknown;
+      };
+    }
+  | null
+  | undefined;
 
 const DEFAULT_LIMIT = 8;
 const MAX_LIMIT = 10;
@@ -79,6 +120,12 @@ export function createToolSearchEntry(
       parameters: {
         type: "object",
         properties: {
+          task: {
+            type: "string",
+            maxLength: 3600,
+            description:
+              "One-line task summary for relevant recommendations. Results report ranking and provider status.",
+          },
           query: {
             type: "string",
             description:
@@ -451,17 +498,300 @@ function searchOnce(
   return result;
 }
 
+class TaskSearchTimeout extends Error {}
+
 export async function searchToolRegistryForRequest(
   registry: Record<string, ActionEntry>,
   args: ToolSearchArgs = {},
   options: ToolSearchOptions = {},
   context?: import("../action.js").ActionRunContext,
-): Promise<ReturnType<typeof searchToolRegistry>> {
-  const visibleRegistry = await filterActionsForAgentDiscovery(
-    registry,
-    context,
+): Promise<
+  ToolSearchOutput & {
+    ranking?: "jev" | "bm25";
+    status?: import("./tool-search-task.js").Status;
+    recommendations?: Candidate[];
+  }
+> {
+  const task = typeof args.task === "string" ? args.task.trim() : "";
+  if (!task) {
+    const visibleRegistry = await filterActionsForAgentDiscovery(
+      registry,
+      context,
+    );
+    return searchToolRegistry(visibleRegistry, args, options);
+  }
+  const deadline = Math.min(
+    options.taskDeadline ?? Infinity,
+    Date.now() + 1300,
   );
-  return searchToolRegistry(visibleRegistry, args, options);
+  const empty = (
+    status: "timed_out" | "failed",
+  ): ToolSearchOutput & {
+    ranking: "bm25";
+    status: typeof status;
+    recommendations: Candidate[];
+  } => ({
+    query: task,
+    totalTools: 0,
+    count: 0,
+    results: [],
+    ranking: "bm25",
+    status,
+    recommendations: [],
+  });
+  if (task.length > 3600) return empty("failed");
+  const controller = new AbortController();
+  if (context?.signal?.aborted) return empty("failed");
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const withinDeadline = async <T>(work: () => Promise<T>): Promise<T> => {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) throw new TaskSearchTimeout();
+    let onAbort: (() => void) | undefined;
+    try {
+      return await Promise.race([
+        Promise.resolve().then(work),
+        new Promise<never>((_, reject) => {
+          onAbort = () => {
+            controller.abort();
+            reject(new Error("task search cancelled"));
+          };
+          if (context?.signal?.aborted) onAbort();
+          else
+            context?.signal?.addEventListener("abort", onAbort, { once: true });
+        }),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => {
+            controller.abort();
+            reject(new TaskSearchTimeout());
+          }, remaining);
+        }),
+      ]);
+    } finally {
+      if (timer !== undefined) clearTimeout(timer);
+      if (onAbort) context?.signal?.removeEventListener("abort", onAbort);
+    }
+  };
+  let visibleRegistry: Record<string, ActionEntry>;
+  try {
+    visibleRegistry = await withinDeadline(() =>
+      filterActionsForAgentDiscovery(registry, context),
+    );
+  } catch (error) {
+    return empty(error instanceof TaskSearchTimeout ? "timed_out" : "failed");
+  }
+  const candidates: Candidate[] = Object.entries(visibleRegistry).flatMap(
+    ([name, entry]) => {
+      if (
+        name === TOOL_SEARCH_ACTION_NAME ||
+        isActionHiddenFromEveryAgentSurface(entry)
+      )
+        return [];
+      if (name.startsWith("mcp__") && !isMcpToolAllowedForRequest(name))
+        return [];
+      const availability = getPlanAvailability(name, entry);
+      if (
+        parseBoolean(args.readOnlyOnly) &&
+        availability !== "read" &&
+        (availability !== "conditional" || name === "bash")
+      )
+        return [];
+      return [
+        {
+          id: name,
+          kind: "tool" as const,
+          name,
+          description: entry.tool.description,
+          use: { type: "tools/call" as const },
+          callable:
+            context?.caller === "mcp" || entry.allowInPlanMode !== false,
+          reason: "Relevant to the task",
+        },
+      ];
+    },
+  );
+  const baselineFor = (input: readonly Candidate[]) =>
+    rankByBm25(
+      task,
+      tokenize(task),
+      input.map((candidate) => ({
+        candidate: {
+          name: candidate.id,
+          kind: "action" as const,
+          description: candidate.description,
+          score: 0,
+          callable: candidate.callable,
+          planAvailability: "read" as const,
+          parameters: [],
+        },
+        prior: 1,
+        fields: searchDocumentFields({
+          name: candidate.name,
+          source:
+            candidate.kind === "tool"
+              ? parseMcpToolName(candidate.name)?.serverId
+              : undefined,
+          hints: undefined,
+          description: candidate.description,
+          parameters:
+            candidate.kind === "tool"
+              ? summarizeParameters(
+                  visibleRegistry[candidate.name]?.tool?.parameters,
+                )
+              : [],
+        }),
+      })),
+    )
+      .sort((a, b) => b.score - a.score || a.name.localeCompare(b.name))
+      .slice(
+        0,
+        parseLimit(
+          args.limit,
+          options.defaultLimit ?? DEFAULT_LIMIT,
+          Math.min(options.maxLimit ?? MAX_LIMIT, MAX_LIMIT),
+        ),
+      );
+  const authorizedTools = [...candidates];
+  const callableActionNames = new Set(
+    candidates
+      .filter((candidate) => candidate.callable)
+      .map((candidate) => candidate.name),
+  );
+  try {
+    const { taskCandidateProvider } = options;
+    const extra = taskCandidateProvider
+      ? await withinDeadline(() =>
+          taskCandidateProvider({
+            callableActionNames: [...callableActionNames],
+            signal: controller.signal,
+          }),
+        )
+      : [];
+    const untrustedCandidates: readonly UntrustedTaskCandidate[] = [
+      ...(options.taskCandidates ?? []),
+      ...extra,
+    ];
+    for (const candidate of untrustedCandidates) {
+      if (
+        !candidate ||
+        typeof candidate.id !== "string" ||
+        typeof candidate.name !== "string" ||
+        typeof candidate.description !== "string" ||
+        !candidate.use
+      )
+        return empty("failed");
+      if (candidate.kind === "tool") continue;
+      if (
+        candidate.kind === "app" &&
+        candidate.use.type === "open_app" &&
+        (typeof candidate.use.app !== "string" ||
+          !candidate.use.app.trim() ||
+          typeof candidate.use.path !== "string" ||
+          !candidate.use.path.startsWith("/"))
+      )
+        return empty("failed");
+      if (
+        (candidate.kind === "skill" || candidate.kind === "memory") &&
+        candidate.use.type === "resources" &&
+        (candidate.use.action !== "read" ||
+          typeof candidate.use.path !== "string" ||
+          !candidate.use.path ||
+          typeof candidate.use.scope !== "string" ||
+          !candidate.use.scope)
+      )
+        return empty("failed");
+      if (
+        candidate.kind === "app" &&
+        (candidate.use.type !== "open_app" ||
+          !callableActionNames.has("open_app"))
+      )
+        continue;
+      if (
+        (candidate.kind === "skill" || candidate.kind === "memory") &&
+        (candidate.use.type !== "resources" ||
+          !callableActionNames.has("resources"))
+      )
+        continue;
+      if (
+        candidate.kind !== "app" &&
+        candidate.kind !== "skill" &&
+        candidate.kind !== "memory"
+      )
+        return empty("failed");
+      candidates.push(candidate as Candidate);
+    }
+  } catch (error) {
+    if (error instanceof TaskSearchTimeout) return empty("timed_out");
+    if (context?.signal?.aborted) return empty("failed");
+    const names = baselineFor(authorizedTools).map((item) => item.name);
+    const recommendations = names.flatMap((name) =>
+      authorizedTools.filter((item) => item.id === name),
+    );
+    const output = names.length
+      ? searchToolRegistry(visibleRegistry, { names }, options)
+      : empty("failed");
+    return {
+      ...output,
+      ...(context?.caller === "mcp"
+        ? {
+            results: output.results.map((item) => ({
+              ...item,
+              callable: true,
+            })),
+          }
+        : {}),
+      ranking: "bm25",
+      status: "failed",
+      recommendations,
+      message:
+        "Supplemental candidate discovery failed; showing authorized tool matches only.",
+    };
+  }
+  if (context?.signal?.aborted) return empty("failed");
+  const ranked = await rankGrantedTask(task, candidates, {
+    deadline,
+    rank: (signal) =>
+      options.taskRank?.(
+        task,
+        candidates,
+        context?.signal ? AbortSignal.any([signal, context.signal]) : signal,
+      ) ?? Promise.resolve({ status: "unavailable", ids: [] }),
+    bm25: () => baselineFor(candidates).map((item) => item.name),
+  });
+  ranked.recommendations = ranked.recommendations.slice(
+    0,
+    parseLimit(
+      args.limit,
+      options.defaultLimit ?? DEFAULT_LIMIT,
+      Math.min(options.maxLimit ?? MAX_LIMIT, MAX_LIMIT),
+    ),
+  );
+  const toolNames = ranked.recommendations
+    .filter((item) => item.kind === "tool")
+    .map((item) => item.name);
+  const output = toolNames.length
+    ? searchToolRegistry(
+        visibleRegistry,
+        { names: toolNames, limit: args.limit },
+        options,
+      )
+    : { query: task, totalTools: candidates.length, count: 0, results: [] };
+  return {
+    ...output,
+    ...(args.names || args.query || args.queries
+      ? {
+          message: [
+            output.message,
+            "Task mode ignores query, queries and names; use a separate call for exact names or lexical searches.",
+          ]
+            .filter(Boolean)
+            .join(" "),
+        }
+      : {}),
+    ...(context?.caller === "mcp"
+      ? { results: output.results.map((item) => ({ ...item, callable: true })) }
+      : {}),
+    ...ranked,
+  };
 }
 
 const PLAN_MODE_BLOCKED_DISCOVERY_TOOLS = new Set([
@@ -537,7 +867,12 @@ function parseToolSearchLists(args: ToolSearchArgs) {
  */
 export function isTargetedToolSearch(args: object): boolean {
   const { parsedQueries, parsedNames } = parseToolSearchLists(args);
-  return parsedQueries.kept.length > 0 || parsedNames.kept.length > 0;
+  const task = (args as ToolSearchArgs).task;
+  return (
+    parsedQueries.kept.length > 0 ||
+    parsedNames.kept.length > 0 ||
+    (typeof task === "string" && task.trim().length > 0)
+  );
 }
 
 /** Callable matches of a targeted search; empty for a menu or an error. */

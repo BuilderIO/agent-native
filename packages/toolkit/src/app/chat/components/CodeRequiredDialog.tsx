@@ -20,12 +20,11 @@ import {
 } from "../../../ui/dialog.js";
 import { Skeleton } from "../../../ui/skeleton.js";
 import { Spinner } from "../../../ui/spinner.js";
+import { DESKTOP_DOWNLOAD_URL } from "../../desktop-download.js";
 import {
   BuilderConnectPopover as DeferredBuilderConnectPopover,
   useBuilderConnectFlow,
 } from "../../settings/index.js";
-
-const DESKTOP_DOWNLOAD_URL = "https://www.agent-native.com/download";
 
 const OPTION_ROW_CLASS =
   "h-auto w-full items-start justify-start gap-3 whitespace-normal p-3 text-start font-normal [&_svg]:size-5";

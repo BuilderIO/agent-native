@@ -17,6 +17,20 @@ describe("resolveAgentChatMcpOptions", () => {
     expect(resolved.appApprovalPage).toBe(false);
   });
 
+  it("preserves the read-only MCP resource opt-in", () => {
+    expect(
+      resolveAgentChatMcpOptions({ mcp: { readOnlyResources: true } })
+        .readOnlyResources,
+    ).toBe(true);
+  });
+
+  it("preserves the server-only task candidate provider", () => {
+    const taskCandidates = async () => [];
+    expect(
+      resolveAgentChatMcpOptions({ mcp: { taskCandidates } }).taskCandidates,
+    ).toBe(taskCandidates);
+  });
+
   it("reads the nested `mcp` option", () => {
     const resolved = resolveAgentChatMcpOptions({
       mcp: {

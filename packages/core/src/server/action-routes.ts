@@ -92,6 +92,7 @@ import {
   MCP_EMBED_CORS_ALLOW_HEADERS,
   shouldAllowMcpEmbedCredentials,
 } from "../shared/mcp-embed-headers.js";
+import { PRIVATE_ACTION_SCOPE_HEADER } from "../shared/private-action-scope.js";
 import {
   countActionFailure,
   countCredentialState,
@@ -130,6 +131,7 @@ import {
   setHttpRequestTelemetryActionName,
 } from "./http-response-telemetry.js";
 import { consumeOneTimeJti } from "./identity-sso-store.js";
+import { privateActionScopeMatches } from "./private-action-scope.js";
 import {
   getForwardedRequestOrigin,
   hasSameOriginBrowserEvidence,
@@ -362,8 +364,8 @@ function handleOptionsRequest(event: any): string {
       corsAllowHeadersFor(
         getHeader(event, "access-control-request-headers"),
         cors.credentials
-          ? `Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Content-Save-Origin,X-Agent-Native-Browser-Tab,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Session-Id,X-Agent-Native-Client-Platform,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id,${EMBED_TARGET_HEADER}`
-          : `${MCP_EMBED_CORS_ALLOW_HEADERS},X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id`,
+          ? `Content-Type,Authorization,X-Requested-With,X-Request-Source,X-Content-Save-Origin,X-Agent-Native-Browser-Tab,X-Agent-Native-CSRF,X-User-Timezone,X-Agent-Native-Session-Id,X-Agent-Native-Client-Platform,X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Interactive,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id,${EMBED_TARGET_HEADER}`
+          : `${MCP_EMBED_CORS_ALLOW_HEADERS},X-Agent-Native-Tool-Bridge,X-Agent-Native-Tool-Id,X-Agent-Native-Frontend,X-Agent-Native-Interactive,X-Agent-Native-Client-Compatibility,X-Agent-Native-Build-Id`,
       ),
     );
   }
@@ -1374,6 +1376,32 @@ function mountActionRoutesInternal(
               : UI_CAPABILITY_REQUIRED_ERROR_CODE,
           };
         }
+        const privateScope = getHeader(event, PRIVATE_ACTION_SCOPE_HEADER);
+        if (
+          privateScope !== undefined &&
+          (method !== "POST" ||
+            entry.uiOnly !== true ||
+            entry.persistInChatHistory !== false ||
+            entry.agentTool !== false ||
+            entry.mcpTool !== false ||
+            entry.toolCallable !== false ||
+            !privateActionScopeMatches(privateScope, {
+              email: userEmail,
+              orgId:
+                orgId ??
+                (orgScope === "personal" || hasExplicitPersonalOrgScope(event)
+                  ? null
+                  : undefined),
+              authUserId,
+            }))
+        ) {
+          setResponseStatus(event, 409);
+          return {
+            error: "Private action scope could not be confirmed.",
+            errorCode: "private_action_scope_mismatch",
+          };
+        }
+        if (privateScope !== undefined && !orgId) orgScope = "personal";
         const timezone = readTimezoneHeader(event);
         const browserSessionId = readBrowserSessionIdHeader(event);
         const clientPlatform = readAnalyticsClientPlatformHeader(event);
@@ -1398,6 +1426,7 @@ function mountActionRoutesInternal(
           {
             ...(requestId ? { requestId } : {}),
             userEmail,
+            provenUiRequest,
             ...(verifiedServiceIdentity &&
             verifiedServiceIdentity.userEmail.trim().toLowerCase() ===
               userEmail?.trim().toLowerCase() &&

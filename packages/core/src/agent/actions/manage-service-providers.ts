@@ -4,12 +4,17 @@ import { defineAction, fail, type ActionRunContext } from "../../action.js";
 import { auditAttribution } from "../../audit/attribution.js";
 import { recordOrgAdminAuditEvent } from "../../audit/org-admin.js";
 import { canManageOrg } from "../../org/permissions.js";
+import { hasBuilderOAuthSession } from "../../server/builder-oauth.js";
 import {
   prefetchSecrets,
   resolveBuilderCredentialsDetailed,
 } from "../../server/credential-provider.js";
 import { readOrgMemberRole } from "../../server/personal-provider-key-policy.js";
-import { runWithRequestContext } from "../../server/request-context.js";
+import {
+  getRequestOrgId,
+  getRequestUserEmail,
+  runWithRequestContext,
+} from "../../server/request-context.js";
 import {
   resolveSecretWithAliasesDetailed,
   secretKeyNames,
@@ -88,7 +93,21 @@ async function readBuilderState(): Promise<ServiceProviderKeyState> {
     if (detailed.privateKey && detailed.publicKey && detailed.source) {
       return detailed.source === "user" ? "personal" : "org";
     }
-    return detailed.lookupFailed ? "unavailable" : "none";
+    if (detailed.lookupFailed) return "unavailable";
+    // The hosted Builder.io connection is an OAuth grant with no bpk- key pair.
+    // The chat and transcription routes authenticate through
+    // resolveBuilderGatewayAuth(), which accepts that grant, so a connected org
+    // must not read as "not set up" here just because there are no stored keys
+    // (11-08: Voice input said Not set up while its route answered fine).
+    const email = getRequestUserEmail()?.trim();
+    if (email) {
+      const orgId = getRequestOrgId() ?? null;
+      if (await hasBuilderOAuthSession(email, orgId, { orgOnly: true })) {
+        return "org";
+      }
+      if (await hasBuilderOAuthSession(email, orgId)) return "personal";
+    }
+    return "none";
   } catch {
     return "unavailable";
   }

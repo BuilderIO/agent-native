@@ -515,6 +515,7 @@ function formatThreadTime(
 function HistoryPopover({
   apiUrl,
   scope,
+  collapseHistoryEdits = false,
   localMineRows,
   openTabIds,
   activeThreadId,
@@ -524,10 +525,13 @@ function HistoryPopover({
   onTogglePin,
   onRename,
   getThreadUrl,
+  showNewChat = false,
+  groupByDate = false,
   popoverAlign = "end",
 }: {
   apiUrl?: string;
   scope?: ChatThreadScope;
+  collapseHistoryEdits?: boolean;
   localMineRows: OwnDraftRow[];
   openTabIds: Set<string>;
   activeThreadId: string | null;
@@ -537,6 +541,8 @@ function HistoryPopover({
   onTogglePin: (id: string, pinned: boolean) => Promise<boolean>;
   onRename: (id: string, nextTitle: string) => Promise<boolean>;
   getThreadUrl: (id: string) => string;
+  showNewChat?: boolean;
+  groupByDate?: boolean;
   popoverAlign?: "start" | "end";
 }) {
   const t = useT();
@@ -554,6 +560,8 @@ function HistoryPopover({
   const history = useOwnershipChatHistory({
     apiUrl,
     scope,
+    collapseEdits: collapseHistoryEdits,
+    groupByDate,
     enabled: true,
     query,
     activeId: activeThreadId,
@@ -605,7 +613,7 @@ function HistoryPopover({
           {...history}
           activeId={activeThreadId}
           onNewChat={onNewChat}
-          showNewChat={false}
+          showNewChat={showNewChat}
           onSelect={(id) => {
             onSelect(id);
             onClose();
@@ -979,6 +987,16 @@ export type MultiTabAssistantChatProps = Omit<
   scope?: ChatThreadScope | null;
   /** Keep app-owned chat history isolated to the supplied scope. */
   isolateHistoryByScope?: boolean;
+  /**
+   * Offer a New chat action inside the chat-history switcher popover, so a
+   * host can drive the switcher from its own New chat control. Default false
+   * preserves the existing behaviour for every caller.
+   */
+  historyShowNewChat?: boolean;
+  /** Group the switcher's chats under date headings (Today, Yesterday, …). */
+  historyGroupByDate?: boolean;
+  /** Show one history entry per edited chat lineage. Defaults to false. */
+  collapseHistoryEdits?: boolean;
   /** Set false to keep focus in the host when a chat is mounted or swapped. */
   composerAutoFocus?: boolean;
   /** @deprecated Scope context is now rendered in the composer. */
@@ -1045,6 +1063,9 @@ export function MultiTabAssistantChat({
   threadUrlSync = false,
   scope = null,
   isolateHistoryByScope = false,
+  historyShowNewChat = false,
+  historyGroupByDate = false,
+  collapseHistoryEdits = false,
   composerAutoFocus: hostComposerAutoFocus = true,
   agentTeamPollMs = DEFAULT_AGENT_TEAM_POLL_MS,
   availableModels: hostAvailableModels,
@@ -1264,6 +1285,7 @@ export function MultiTabAssistantChat({
       ? urlThreadId
       : (activeDeepLinkedThreadId ?? undefined),
     isolateHistoryByScope,
+    collapseEdits: collapseHistoryEdits,
   });
 
   const switchThread = useCallback(
@@ -1340,26 +1362,73 @@ export function MultiTabAssistantChat({
     new Map(),
   );
   const [runningThreads, setRunningThreads] = useState<Set<string>>(new Set());
+  // A new thread's first snapshot is saved before the child chat starts its
+  // send. Keep the host mounted until the adapter reports a real run id, so
+  // the new route can attach to a registered run instead of polling an empty
+  // thread after the home surface unmounts.
+  const registeredRunThreads = useRef<Set<string>>(new Set());
+  const [registeredRunVersion, setRegisteredRunVersion] = useState(0);
+  const pendingNewThreadUrlHandoff = useRef<string | null>(null);
+  const initialUrlHandoffThreads = useRef<Set<string>>(new Set());
   const [showHistory, setShowHistory] = useState(false);
   const [pageOverlayScrolled, setPageOverlayScrolled] = useState(false);
   const newThreadIds = useRef<Set<string>>(new Set());
   const observedThreadStarts = useRef(new Map<string, number>());
   const [, setThreadPersistenceVersion] = useState(0);
+  // Latch a known-new thread before any snapshot confirmation can clear the
+  // hook's new-thread marker. This is a render-time read of existing state; it
+  // does not call the confirmation path or change model metadata.
+  if (activeThreadId && isNewThread(activeThreadId)) {
+    initialUrlHandoffThreads.current.add(activeThreadId);
+  }
+  const hasRegisteredRunSignal =
+    typeof props.createTransport === "function" || !props.runtime;
   const handleThreadSnapshotPersisted = useCallback(
     (threadId: string, messageCount: number) => {
+      const ownsInitialUrlHandoff =
+        initialUrlHandoffThreads.current.has(threadId) ||
+        newThreadIds.current.has(threadId) ||
+        pendingNewThreadUrlHandoff.current === threadId ||
+        isNewThread(threadId);
+      if (isNewThread(threadId) || newThreadIds.current.has(threadId)) {
+        initialUrlHandoffThreads.current.add(threadId);
+      }
       confirmThreadSnapshotPersisted(threadId);
-      if (newThreadIds.current.delete(threadId)) {
+      const wasNewThread = newThreadIds.current.delete(threadId);
+      if (wasNewThread) {
         setThreadPersistenceVersion((version) => version + 1);
       }
-      if (
-        messageCount > 0 &&
-        threadId === activeThreadIdRef.current &&
-        urlThreadIdRef.current !== threadId
-      ) {
-        writeThreadUrl(threadId);
+      if (urlThreadIdRef.current === threadId) {
+        initialUrlHandoffThreads.current.delete(threadId);
+        if (pendingNewThreadUrlHandoff.current === threadId) {
+          pendingNewThreadUrlHandoff.current = null;
+        }
+        return;
       }
+      // A zero-message metadata snapshot confirms persistence but must not
+      // spend the new-thread handoff ownership before the first user send.
+      if (messageCount === 0 || threadId !== activeThreadIdRef.current) return;
+      // Runtime-only hosts have no registered-run event bridge. Keep their
+      // existing immediate URL behavior instead of waiting forever.
+      if (!hasRegisteredRunSignal || !ownsInitialUrlHandoff) {
+        initialUrlHandoffThreads.current.delete(threadId);
+        writeThreadUrl(threadId);
+        return;
+      }
+      if (registeredRunThreads.current.has(threadId)) {
+        initialUrlHandoffThreads.current.delete(threadId);
+        pendingNewThreadUrlHandoff.current = null;
+        writeThreadUrl(threadId);
+        return;
+      }
+      pendingNewThreadUrlHandoff.current = threadId;
     },
-    [confirmThreadSnapshotPersisted, writeThreadUrl],
+    [
+      confirmThreadSnapshotPersisted,
+      hasRegisteredRunSignal,
+      isNewThread,
+      writeThreadUrl,
+    ],
   );
   const latestNavigationRequestRef = useRef(0);
 
@@ -2157,6 +2226,7 @@ export function MultiTabAssistantChat({
         return;
       }
       newThreadIds.current.add(id);
+      initialUrlHandoffThreads.current.add(id);
       setOpenTabIds([id]);
       writeThreadUrl(null, { replace: true });
     });
@@ -2176,6 +2246,7 @@ export function MultiTabAssistantChat({
         autoCreatingRef.current = false;
         if (id) {
           newThreadIds.current.add(id);
+          initialUrlHandoffThreads.current.add(id);
           setOpenTabIds([id]);
           writeThreadUrl(null, { replace: true });
         }
@@ -2704,6 +2775,7 @@ export function MultiTabAssistantChat({
               return;
             }
             newThreadIds.current.add(newId);
+            initialUrlHandoffThreads.current.add(newId);
             if (background) {
               mountedTabsRef.current.add(newId);
             }
@@ -2791,9 +2863,18 @@ export function MultiTabAssistantChat({
     const handler = (e: Event) => {
       const detail = (e as CustomEvent).detail;
       if (!detail) return;
-      const { isRunning, tabId } = detail;
+      const { isRunning, tabId, runId } = detail;
       if (!tabId) return;
       if (isRunning) observedThreadStarts.current.set(tabId, Date.now());
+      if (
+        isRunning &&
+        typeof runId === "string" &&
+        runId.trim() &&
+        !registeredRunThreads.current.has(tabId)
+      ) {
+        registeredRunThreads.current.add(tabId);
+        setRegisteredRunVersion((version) => version + 1);
+      }
 
       setRunningThreads((prev) => {
         if (prev.has(tabId) === Boolean(isRunning)) return prev;
@@ -2810,10 +2891,28 @@ export function MultiTabAssistantChat({
     return () => window.removeEventListener("agentNative.chatRunning", handler);
   }, []);
 
+  useEffect(() => {
+    const threadId = pendingNewThreadUrlHandoff.current;
+    if (!threadId) return;
+    if (
+      threadId !== activeThreadIdRef.current ||
+      urlThreadIdRef.current === threadId
+    ) {
+      pendingNewThreadUrlHandoff.current = null;
+      initialUrlHandoffThreads.current.delete(threadId);
+      return;
+    }
+    if (!registeredRunThreads.current.has(threadId)) return;
+    pendingNewThreadUrlHandoff.current = null;
+    initialUrlHandoffThreads.current.delete(threadId);
+    writeThreadUrl(threadId);
+  }, [activeThreadId, registeredRunVersion, writeThreadUrl]);
+
   const addTab = useCallback(async () => {
     const id = await createThread();
     if (id) {
       newThreadIds.current.add(id);
+      initialUrlHandoffThreads.current.add(id);
       // `createThread` advances the active thread before its promise resolves.
       // Add the same id in this transaction so a new chat is mounted even if
       // the active-thread reconciliation effect has not run yet.
@@ -3177,6 +3276,7 @@ export function MultiTabAssistantChat({
         );
         try {
           newThreadIds.current.add(id);
+          initialUrlHandoffThreads.current.add(id);
           setOpenTabIds([id]);
           switchThreadState(id);
           writeThreadUrl(null);
@@ -3305,6 +3405,7 @@ export function MultiTabAssistantChat({
       try {
         if (detail?.newThread === true) {
           newThreadIds.current.add(threadId);
+          initialUrlHandoffThreads.current.add(threadId);
           const createdId = await createThread(threadId);
           if (!continueNavigation(navigation)) return;
           if (!createdId) {
@@ -3985,6 +4086,7 @@ export function MultiTabAssistantChat({
         {showHistory && (
           <HistoryPopover
             apiUrl={apiUrl}
+            collapseHistoryEdits={collapseHistoryEdits}
             scope={isolateHistoryByScope ? (scope ?? undefined) : undefined}
             localMineRows={ownDraftRows({
               threads: threads.map((thread) => ({
@@ -4002,6 +4104,8 @@ export function MultiTabAssistantChat({
             onClose={() => setShowHistory(false)}
             onTogglePin={pinThread}
             onRename={renameThread}
+            showNewChat={historyShowNewChat}
+            groupByDate={historyGroupByDate}
             getThreadUrl={(threadId) => {
               if (getThreadPath) return appPath(getThreadPath(threadId));
               const url = new URL(window.location.href);

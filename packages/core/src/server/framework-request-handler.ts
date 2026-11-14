@@ -18,6 +18,7 @@ import {
 import { getConfiguredAppBasePath } from "./app-base-path.js";
 import { captureError } from "./capture-error.js";
 import { createCsrfMiddleware } from "./csrf.js";
+import { loadFrameworkDefaultPlugin } from "./default-plugin-loader.js";
 import { getDisabledDefaultPlugins } from "./default-plugins.js";
 import { installDevDatabaseCloseHook } from "./dev-database-lifecycle.js";
 import { PUBLIC_PATHNAME_CONTEXT_KEY } from "./framework-request-context.js";
@@ -883,33 +884,6 @@ async function bootstrapDefaultPlugins(nitroApp: any): Promise<void> {
     const refused = undiscovered.filter((stem) => disabled.includes(stem));
     if (missing.length === 0) return;
 
-    const serverModule = await import("./index.js");
-    const terminalModule = await import("../terminal/terminal-plugin.js");
-    const integrationsModule = await import("../integrations/plugin.js");
-    const contextXrayModule = await import("../agent/context-xray/plugin.js");
-    const observationalMemoryModule =
-      await import("../agent/observational-memory/plugin.js");
-    const orgModule = await import("../org/plugin.js");
-    const onboardingModule = await import("../onboarding/plugin.js");
-
-    const frameworkImpls: Record<
-      string,
-      ((nitroApp: any) => void | Promise<void>) | undefined
-    > = {
-      "agent-chat": (serverModule as any).defaultAgentChatPlugin,
-      auth: (serverModule as any).defaultAuthPlugin,
-      "context-xray": (contextXrayModule as any).defaultContextXrayPlugin,
-      "core-routes": (serverModule as any).defaultCoreRoutesPlugin,
-      integrations: (integrationsModule as any).defaultIntegrationsPlugin,
-      "observational-memory": (observationalMemoryModule as any)
-        .defaultObservationalMemoryPlugin,
-      onboarding: (onboardingModule as any).defaultOnboardingPlugin,
-      org: (orgModule as any).defaultOrgPlugin,
-      resources: (serverModule as any).defaultResourcesPlugin,
-      sentry: (serverModule as any).defaultSentryPlugin,
-      terminal: (terminalModule as any).defaultTerminalPlugin,
-    };
-
     let workspaceImpls: Record<
       string,
       ((nitroApp: any) => void | Promise<void>) | undefined
@@ -963,7 +937,8 @@ async function bootstrapDefaultPlugins(nitroApp: any): Promise<void> {
       );
 
     for (const stem of missing) {
-      const impl = workspaceImpls[stem] ?? frameworkImpls[stem];
+      const impl =
+        workspaceImpls[stem] ?? (await loadFrameworkDefaultPlugin(stem));
       if (typeof impl === "function") {
         try {
           await impl(nitroApp);

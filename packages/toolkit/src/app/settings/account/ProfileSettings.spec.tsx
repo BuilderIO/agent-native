@@ -18,11 +18,14 @@ const emailChange = vi.hoisted(() => ({
 }));
 const avatar = vi.hoisted(() => ({
   uploadAvatar: vi.fn(async (_file: File, _email: string) => "data:,"),
+  url: null as string | null,
+  fetch: vi.fn(async () => ({ ok: true, status: 200 })),
 }));
 
 vi.mock("@agent-native/core/client/hooks", () => ({
   uploadAvatar: avatar.uploadAvatar,
-  useAvatarUrl: () => null,
+  invalidateAvatarCache: vi.fn(),
+  useAvatarUrl: () => avatar.url,
   useActionQuery: () => ({
     data: profile.data,
     error: null,
@@ -65,6 +68,14 @@ vi.mock("@agent-native/core/client/hooks", () => ({
   }),
 }));
 
+const org = vi.hoisted(() => ({
+  data: { emailConfigured: true } as { emailConfigured?: boolean } | undefined,
+}));
+
+vi.mock("@agent-native/core/client/org", () => ({
+  useOrg: () => ({ data: org.data, isLoading: false }),
+}));
+
 vi.mock("@agent-native/core/client/auth/change-email", () => emailChange);
 
 import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
@@ -87,6 +98,10 @@ describe("ProfileSettings", () => {
     emailChange.requestEmailChange.mockReset();
     emailChange.requestEmailChange.mockResolvedValue(undefined);
     avatar.uploadAvatar.mockClear();
+    avatar.fetch.mockClear();
+    vi.stubGlobal("fetch", avatar.fetch);
+    avatar.url = null;
+    org.data = { emailConfigured: true };
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -256,5 +271,40 @@ describe("ProfileSettings", () => {
     });
     expect(document.querySelector("#agent-native-new-email")).not.toBeNull();
     expect(document.body.textContent).toContain("Could not send confirmation.");
+  });
+  it("lets a teammate remove an uploaded photo", async () => {
+    avatar.url = "data:image/jpeg;base64,AAAA";
+    await render();
+    const remove = button(
+      "Remove photo",
+      container.querySelector("#profile-photo")!,
+    );
+    expect(remove).toBeTruthy();
+    await act(async () => {
+      remove?.click();
+      await Promise.resolve();
+    });
+    const calls = avatar.fetch.mock.calls as unknown as [
+      string,
+      { method?: string },
+    ][];
+    expect(calls.some(([, init]) => init?.method === "DELETE")).toBe(true);
+    expect(container.textContent).toContain("Photo removed");
+  });
+
+  it("has no remove control until a photo exists", async () => {
+    await render();
+    expect(
+      button("Remove photo", container.querySelector("#profile-photo")!),
+    ).toBeUndefined();
+  });
+  it("says email delivery is unavailable instead of failing after submit", async () => {
+    org.data = { emailConfigured: false };
+    await render();
+    expect(container.textContent).toContain(
+      "Email delivery is not set up here",
+    );
+    const change = button("Change", container.querySelector("#email")!);
+    expect(change?.disabled).toBe(true);
   });
 });

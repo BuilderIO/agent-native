@@ -124,7 +124,7 @@ describe("set-theme-family action", () => {
     expect(deps.writeAppState).not.toHaveBeenCalled();
   });
 
-  it("rejects non-Builder users before writing the preference", async () => {
+  it("lets any signed-in user save the preference", async () => {
     await expect(
       action.run(
         { family: "agent-native" },
@@ -134,10 +134,19 @@ describe("set-theme-family action", () => {
           appId: "sample-app",
         },
       ),
-    ).rejects.toMatchObject({
-      errorCode: "theme_family_builder_account_required",
-      statusCode: 403,
-    });
+    ).resolves.toEqual({ family: "agent-native", appId: "sample-app" });
+
+    expect(deps.putUserSetting).toHaveBeenCalledWith(
+      "steve@example.test",
+      expect.any(String),
+      { family: "agent-native" },
+    );
+  });
+
+  it("rejects a caller without an email before writing the preference", async () => {
+    await expect(
+      action.run({ family: "agent-native" }, { caller: "tool" }),
+    ).rejects.toMatchObject({ statusCode: 401 });
 
     expect(deps.putUserSetting).not.toHaveBeenCalled();
     expect(deps.writeAppState).not.toHaveBeenCalled();

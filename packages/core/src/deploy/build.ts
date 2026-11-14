@@ -23,6 +23,7 @@ import {
   isDurableBackgroundFlagExplicitlyDisabled,
 } from "../agent/durable-background.js";
 import { declaredEnvKeys } from "../app-config/describe.js";
+import { getAppConfig } from "../app-config/index.js";
 import type { AgentNativeFirstRunOnboardingMode } from "../config.js";
 import { PRODUCTION_SERVER_BUILD_MARKER_ENV_VAR } from "../db/server-runtime.js";
 import {
@@ -4830,6 +4831,11 @@ export function nitroServerCodeSplittingGroupsForPreset(targetPreset: string) {
         {
           test: NITRO_AGENT_NATIVE_SERVER_CHUNK_RE,
           name: () => "agent-native-core",
+          // Preserve dynamic-import boundaries. A package-wide chunk pulls
+          // optional agent, integration and rendering code into every cold
+          // request, even when that request only reads application data.
+          // Statically connected Core/Creative Context modules remain together.
+          entriesAware: true,
         },
       ]
     : [];
@@ -5295,9 +5301,68 @@ function copyInstalledResvgPackages(serverDir: string | undefined) {
   );
 }
 
-function copyInstalledFfmpegStaticPackage(serverDir: string | undefined) {
+const AGENT_NATIVE_FFMPEG_STATIC_DIR_ENV = "AGENT_NATIVE_FFMPEG_STATIC_DIR";
+
+// The one app whose server-side media work needs a real ffmpeg binary:
+// templates/clips/actions/lib/audio-only-transcription.ts spawns it to extract
+// a recording's audio track for transcription (and video-remux/frame do too).
+// Apps that transcribe client-side or through transcribeWithBuilder don't pay
+// for the ~29 MB gzipped binary.
+const SERVERLESS_FFMPEG_APP_IDS = new Set(["clips"]);
+
+function appWantsServerlessFfmpeg(): boolean {
+  try {
+    const config = getAppConfig().app;
+    const id = (
+      process.env.AGENT_NATIVE_WORKSPACE_APP_ID ??
+      config.workspaceId ??
+      config.id
+    )?.trim();
+    return Boolean(id && SERVERLESS_FFMPEG_APP_IDS.has(id));
+  } catch {
+    // coercion-ok: an unresolvable app config only skips the opt-in ffmpeg copy.
+    return false;
+  }
+}
+
+export function copyInstalledFfmpegStaticPackage(
+  serverDir: string | undefined,
+) {
   if (!serverDir || !fs.existsSync(serverDir)) return;
   const nodeModulesRoots = nodeModulesAncestors(cwd);
+  // A pre-downloaded target-architecture binary (a local build host cannot
+  // install ffmpeg-static for the serverless runtime itself). Only used when
+  // the directory actually holds a binary, so an unset or bad value keeps the
+  // previous behavior exactly.
+  const targetDir = (
+    process.env[AGENT_NATIVE_FFMPEG_STATIC_DIR_ENV] ?? ""
+  ).trim();
+  const targetBinary = targetDir ? path.join(targetDir, "ffmpeg") : "";
+  if (
+    targetBinary &&
+    fs.existsSync(targetBinary) &&
+    appWantsServerlessFfmpeg()
+  ) {
+    const src = findInstalledFfmpegStaticPackage(nodeModulesRoots);
+    if (!src) {
+      console.warn(
+        `[deploy] ${AGENT_NATIVE_FFMPEG_STATIC_DIR_ENV} is set but ffmpeg-static is not installed to copy it into.`,
+      );
+      return;
+    }
+    const dest = path.join(
+      serverDir,
+      "node_modules",
+      FFMPEG_STATIC_PACKAGE_NAME,
+    );
+    copyDir(src, dest);
+    fs.copyFileSync(targetBinary, path.join(dest, "ffmpeg"));
+    fs.chmodSync(path.join(dest, "ffmpeg"), 0o755);
+    console.log(
+      `[deploy] Copied a target-architecture ffmpeg from ${AGENT_NATIVE_FFMPEG_STATIC_DIR_ENV} into the server bundle.`,
+    );
+    return;
+  }
   if (!shouldBundleFfmpegStaticForServerless()) {
     if (hasInstalledFfmpegStaticPackage(nodeModulesRoots)) {
       console.warn(
@@ -6092,6 +6157,46 @@ export function nitroNoExternalsForPreset(
       : NITRO_SERVER_RUNTIME_BUNDLED_DEPS;
 }
 
+export function createServerIconEsmPlugin(cwd: string) {
+  const entries = new Map<string, string | null>();
+  return {
+    name: "agent-native-server-icon-esm",
+    resolveId(id: string, importer?: string) {
+      if (id !== "@tabler/icons-react") return null;
+      const anchor =
+        importer && path.isAbsolute(importer)
+          ? importer
+          : path.join(cwd, "package.json");
+      const cached = entries.get(anchor);
+      if (cached !== undefined) return cached;
+      let entry: string | null = null;
+      try {
+        const packageJson = createRequire(anchor).resolve(`${id}/package.json`);
+        const manifest = JSON.parse(fs.readFileSync(packageJson, "utf8"));
+        if (typeof manifest.module === "string") {
+          const packageDir = fs.realpathSync(path.dirname(packageJson));
+          const candidate = fs.realpathSync(
+            path.resolve(packageDir, manifest.module),
+          );
+          const relative = path.relative(packageDir, candidate);
+          if (
+            relative &&
+            !relative.startsWith(`..${path.sep}`) &&
+            relative !== ".." &&
+            !path.isAbsolute(relative) &&
+            fs.statSync(candidate).isFile()
+          )
+            entry = candidate;
+        }
+      } catch {
+        // coercion-ok: leave absent packages or packages without an ESM entry to Nitro.
+      }
+      entries.set(anchor, entry);
+      return entry;
+    },
+  };
+}
+
 function createBrowserOnlyServerStubPlugin() {
   const stubbed = new Set(BROWSER_ONLY_SERVER_LIBS);
   const STUB_ID = "\0agent-native-browser-only-server-stub";
@@ -6147,6 +6252,7 @@ export function resolveNitroBuildReplacements(
   firstRunOnboardingMode: AgentNativeFirstRunOnboardingMode | "" = "",
   harnessMode: string = "",
   requiredEnv: string = "",
+  appConfig: object = {},
 ): Record<string, string> {
   const isEnabled = (value: string | undefined) =>
     ["1", "true", "yes", "on"].includes(value?.trim().toLowerCase() ?? "");
@@ -6207,6 +6313,13 @@ export function resolveNitroBuildReplacements(
     ),
     "process.env.AGENT_NATIVE_BUILD_HARNESS": JSON.stringify(harnessMode),
     "process.env.AGENT_NATIVE_BUILD_REQUIRED_ENV": JSON.stringify(requiredEnv),
+    // The client bundle receives the app config as a define from the Vite config.
+    // The server bundle has no such define, so a server-run action that checks the
+    // app's capabilities (for example the theme-family allow list) saw an empty
+    // config and its defaults. Carry the same resolved config into the server
+    // bundle here; `injectedAgentNativeConfig()` reads it exactly as the browser
+    // does. `typeof {…}` is "object", so the module's undefined guard still works.
+    __AGENT_NATIVE_APP_CONFIG__: JSON.stringify(appConfig),
     // Bare Node/Docker has no platform marker for "this is the deployed
     // server", so the production bundle carries its own. Keep it here only:
     // the Vite config's replacements also apply to `pnpm dev`, which must
@@ -6357,6 +6470,7 @@ export default bundle;
         resolveHarnessBuildReplacement(nitroAgentConfig),
       buildConfigMarker?.requiredEnv ??
         resolveRequiredEnvBuildReplacement(nitroAgentConfig),
+      nitroAgentConfig,
     ),
     rolldownConfig: nitroServerCodeSplittingConfig,
     rollupConfig: {
@@ -6367,6 +6481,10 @@ export default bundle;
         ...(preset.startsWith("cloudflare")
           ? [createCloudflareModuleStubPlugin()]
           : []),
+        // Node's main-first resolution otherwise evaluates the entire CommonJS
+        // icon catalog. Preserve the installed package/version, but use its
+        // declared ESM entry so unused server icons can be eliminated.
+        createServerIconEsmPlugin(cwd),
         createBrowserOnlyServerStubPlugin(),
         boundedTaskSourcePlugin(),
         ...sentryServerSourceMapPlugins,

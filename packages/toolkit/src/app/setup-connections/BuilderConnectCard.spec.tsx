@@ -103,7 +103,7 @@ describe("BuilderConnectCard", () => {
     viewModel = {
       title: "Use Builder.io",
       description:
-        "Model access, browser automation, file storage, and workspace identity. Free tier available.",
+        "Model access, browser automation, file storage, and workspace identity.",
       status: { kind: "ready", label: "Ready to connect" },
       configured: false,
       pending: false,
@@ -447,6 +447,29 @@ describe("BuilderConnectCard", () => {
       );
       await act(async () => existingAccount?.click());
     }
+
+    it("offers scoped Disconnect for an expired grant with no effective connection", async () => {
+      const disconnect = vi.fn(async () => {});
+      const flow = scopedFlow({
+        configured: false,
+        effective: null,
+        grants: { org: { connectedAt: 1000, needsReconnect: true } },
+        canConnect: { org: true, personal: false },
+        disconnect,
+      } as any);
+      renderManaged(flow, "org");
+      viewModel.configured = false;
+      act(() => renderWithToolkitI18n(<BuilderConnectCard showManage />));
+      expect(
+        container.querySelector(
+          'button[aria-label="Manage Builder.io connection"]',
+        ),
+      ).not.toBeNull();
+      openMenu();
+      act(() => menuButton("Disconnect")?.click());
+      await act(async () => menuButton("Confirm disconnect")?.click());
+      expect(disconnect).toHaveBeenCalledWith("org");
+    });
 
     it("gives a member riding the org connection no Reconnect that would shadow it", () => {
       renderManaged(scopedFlow({}));

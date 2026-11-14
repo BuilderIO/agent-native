@@ -43,6 +43,15 @@ const AGENT_ENGINE_STATUS_PATH = "/_agent-native/agent-engine/status";
 const CHAT_API_PATH_SUFFIX = "/_agent-native/agent-chat";
 const AGENT_ENGINE_READINESS_TTL_MS = 10_000;
 const AGENT_ENGINE_READINESS_PROBE_TIMEOUT_MS = 15_000;
+/**
+ * A cold start can lose the first status probe: the function is waking up, the
+ * proxy blips, or the tab just became visible. One transient failure is not
+ * "your saved AI connection is broken", so the probe is retried a bounded
+ * number of times, inside the caller's own deadline, before that sentence can
+ * reach a person's first question. Definitive answers (configured / missing)
+ * are never retried.
+ */
+const READINESS_TRANSIENT_RETRY_DELAYS_MS = [250, 1_000] as const;
 const MAX_READINESS_STORES = 128;
 const sourceIdentityTokens = new WeakMap<object, number>();
 let nextSourceIdentityToken = 1;
@@ -403,20 +412,56 @@ async function readStoreReadiness(
   let timeoutMs = remainingReadinessTime(deadline);
   if (!requestOptions || timeoutMs === 0) return "unavailable";
 
-  let engineResult = await waitForStatus(
-    fetchAgentEngineStatus(requestOptions),
-    timeoutMs,
-    store.statusUrl,
-  );
-  while (engineResult.state === "unavailable" && engineResult.stale) {
-    requestOptions = await statusRequestOptions(store, false, deadline);
+  const probe = async (
+    options: NonNullable<typeof requestOptions>,
+    budgetMs: number | undefined,
+  ) => {
+    try {
+      return await waitForStatus(
+        fetchAgentEngineStatus(options),
+        budgetMs,
+        store.statusUrl,
+      );
+    } catch (error) {
+      // A probe that throws is the same unanswered probe as one that answers
+      // unavailable: retry inside the budget rather than failing the question.
+      if (
+        (error as { name?: string } | null | undefined)?.name === "AbortError"
+      )
+        throw error;
+      return { state: "unavailable" as const, stale: false };
+    }
+  };
+  const settleStale = async (result: ClientStatusResult<unknown>) => {
+    let settled = result;
+    while (settled.state === "unavailable" && settled.stale) {
+      requestOptions = await statusRequestOptions(store, false, deadline);
+      timeoutMs = remainingReadinessTime(deadline);
+      if (!requestOptions || timeoutMs === 0) return settled;
+      settled = await probe(requestOptions, timeoutMs);
+    }
+    return settled;
+  };
+
+  let engineResult = await settleStale(await probe(requestOptions, timeoutMs));
+  for (const delayMs of READINESS_TRANSIENT_RETRY_DELAYS_MS) {
+    if (
+      engineResult.state !== "unavailable" ||
+      (engineResult as { stale?: boolean }).stale
+    ) {
+      break;
+    }
+    // Only a genuinely unanswered probe is retried, and only while this
+    // caller still has time: a definitive "not configured" is not a blip.
+    const left = remainingReadinessTime(deadline);
+    if (left !== undefined && left <= delayMs) break;
+    if (delayMs > 0)
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    invalidateClientStatusRequest(store.statusUrl);
+    requestOptions = await statusRequestOptions(store, true, deadline);
     timeoutMs = remainingReadinessTime(deadline);
-    if (!requestOptions || timeoutMs === 0) return "unavailable";
-    engineResult = await waitForStatus(
-      fetchAgentEngineStatus(requestOptions),
-      timeoutMs,
-      store.statusUrl,
-    );
+    if (!requestOptions || timeoutMs === 0) break;
+    engineResult = await settleStale(await probe(requestOptions, timeoutMs));
   }
   if (
     engineResult.state !== "available" ||

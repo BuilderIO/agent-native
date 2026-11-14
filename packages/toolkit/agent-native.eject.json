@@ -731,6 +731,7 @@
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
+        "@agent-native/core/client/app-config",
         "@agent-native/core/client/action-query-cache",
         "@agent-native/core/client/api-path",
         "@agent-native/core/client/dev-overlay",
@@ -802,6 +803,7 @@
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
+        "@agent-native/core/client/mobile-auth",
         "@agent-native/core/client/analytics",
         "@agent-native/core/client/api-path",
         "@agent-native/core/client/auth/auth-page-helpers",
@@ -1436,6 +1438,8 @@
       ],
       "verification": ["pnpm typecheck"],
       "protectedImports": [
+        "@agent-native/core/localization",
+        "@agent-native/core/client/agent-engine-readiness",
         "@agent-native/core/client/agent-chat",
         "@agent-native/core/client/agent-native-version",
         "@agent-native/core/client/analytics",
@@ -1875,6 +1879,7 @@
       "sourceEntries": ["src/dashboard"],
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [
+        "@agent-native/core",
         "@radix-ui/react-select",
         "@radix-ui/react-slot",
         "@tabler/icons-react",
@@ -2057,6 +2062,7 @@
       "sourceEntries": ["src/ui"],
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [
+        "@agent-native/core",
         "@radix-ui/react-accordion",
         "@radix-ui/react-alert-dialog",
         "@radix-ui/react-aspect-ratio",

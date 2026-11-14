@@ -192,6 +192,10 @@ const KNOWN_CHAT_ERROR_KEYS = new Map<string, string>([
     "agentChat.errorMessages.noProviderConnected",
   ],
   [
+    "No LLM provider is connected. Open Settings > Agent > AI providers, then connect Builder.io or add a provider key.",
+    "agentChat.errorMessages.noProviderConnected",
+  ],
+  [
     "The provider behind this model rejected the request. Pick a different model, then retry.",
     "agentChat.errorMessages.builderModelUnauthorized",
   ],
