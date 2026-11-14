@@ -3712,6 +3712,44 @@ describe("generate-design: rejected input in the agent loop", () => {
     expect(mocks.resolveGenerationCreativeContext).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["fileId", { fileId: "opaque-missing-id" }, "opaque-missing-id"],
+    ["filename", { filename: "missing.html" }, "missing.html"],
+  ])(
+    "rejects an unknown canvasFrames %s before any writes",
+    async (_kind, target, missingTarget) => {
+      setExistingFile("<html><body>Old screen</body></html>");
+
+      await expect(
+        action.run({
+          designId: "design-1",
+          prompt: "Add and update screens",
+          files: [
+            {
+              filename: "new-screen.html",
+              fileType: "html",
+              content: "<html><body>New screen</body></html>",
+            },
+            {
+              filename: "index.html",
+              fileType: "html",
+              content: "<html><body>Updated screen</body></html>",
+            },
+          ],
+          canvasFrames: [{ ...target, x: 0, y: 0, width: 100, height: 100 }],
+        }),
+      ).rejects.toThrow(
+        `canvasFrames entry did not match a design file: ${missingTarget}`,
+      );
+
+      expect.soft(mocks.insert).not.toHaveBeenCalled();
+      expect.soft(mocks.fileUpdateChain.set).not.toHaveBeenCalled();
+      expect.soft(mocks.seededCollabText.size).toBe(0);
+      expect.soft(mocks.snapshotDesignBeforeAgentEdit).not.toHaveBeenCalled();
+      expect.soft(mocks.mutateDesignData).not.toHaveBeenCalled();
+    },
+  );
+
   it("preflights locked layers in every file before checkpointing or saving any file", async () => {
     setExistingFile(
       '<html><body><section data-agent-native-node-id="section"><div data-agent-native-locked="true" data-agent-native-node-id="locked">Legal</div></section></body></html>',
