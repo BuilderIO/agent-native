@@ -3434,7 +3434,7 @@ async function tryStartRewindFullscreenRecording(
         now -
           startedAt -
           accumulatedPauseMs -
-          (paused && pauseStart !== null ? now - pauseStart : 0),
+          (pauseStart !== null ? now - pauseStart : 0),
       ),
     }).catch(() => {});
   };
@@ -4126,10 +4126,9 @@ async function startNativeFullscreenRecording(
     const now = Date.now();
     const displayedPauseStartedAt =
       pausedAt ?? (paused ? pauseRequestedAt : null);
+    // A resume in flight keeps the clock frozen until it is applied.
     const pausedNowMs =
-      paused && displayedPauseStartedAt !== null
-        ? now - displayedPauseStartedAt
-        : 0;
+      displayedPauseStartedAt !== null ? now - displayedPauseStartedAt : 0;
     const elapsedMs = Math.max(
       0,
       now - startedAt - accumulatedPauseMs - pausedNowMs,
