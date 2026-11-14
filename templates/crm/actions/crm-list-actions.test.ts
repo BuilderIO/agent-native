@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { runWithRequestContext } from "@agent-native/core/server";
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
@@ -265,11 +265,15 @@ describe("create-crm-list", () => {
 
   it("finds a free slug past more than a page of taken ones", async () => {
     const now = new Date().toISOString();
+    const crowdedIds = Array.from(
+      { length: 104 },
+      (_, index) => `list_crowded_${index + 1}`,
+    );
     await getDb()
       .insert(schema.crmLists)
       .values(
-        Array.from({ length: 104 }, (_, index) => ({
-          id: `list_crowded_${index + 1}`,
+        crowdedIds.map((id, index) => ({
+          id,
           connectionId: CONNECTION_ID,
           name: "Crowded",
           apiSlug: index === 0 ? "crowded" : `crowded_${index + 1}`,
@@ -287,8 +291,15 @@ describe("create-crm-list", () => {
         })),
       );
 
-    const list = await newList("Crowded");
-    expect(list.apiSlug).toBe("crowded_105");
+    try {
+      const list = await newList("Crowded");
+      expect(list.apiSlug).toBe("crowded_105");
+    } finally {
+      // Later tests read the owner's lists a page of 100 at a time.
+      await getDb()
+        .delete(schema.crmLists)
+        .where(inArray(schema.crmLists.id, crowdedIds));
+    }
   });
 
   it("gives creates made at the same moment their own slugs", async () => {
