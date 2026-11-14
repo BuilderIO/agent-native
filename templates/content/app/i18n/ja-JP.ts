@@ -1538,6 +1538,9 @@ const exactEnglish = {
       temporaryAgentLink: "一時的なエージェントリンク",
       privateLinkCanView: "アクセス権のある人だけが閲覧できます",
       publicLinkCanView: "リンクを知っている人は誰でも閲覧できます",
+      publicSubPagesOne: "このページとそのサブページ",
+      publicSubPages: "このページと{{count}}件のサブページ",
+      publicSubPagesMore: "このページと{{count}}件を超えるサブページ",
       copiedAgentPrompt: "エージェント用指示をコピーしました",
       couldNotCopyAgentPrompt: "エージェント用指示をコピーできませんでした",
       agentPrompt:
