@@ -318,6 +318,35 @@ export function canRemoveVoicePreview(options: {
   return options.currentText === options.previewText;
 }
 
+// The editor can be cleared or edited (message sent, draft replaced) while
+// dictation is live, leaving the stored anchor past the end of the document.
+function isVoicePreviewIntact(
+  ed: Editor,
+  anchor: number,
+  previewText: string,
+): boolean {
+  const documentSize = ed.state.doc.content.size;
+  if (!previewText) {
+    return (
+      anchor >= 1 &&
+      anchor <= documentSize &&
+      ed.state.selection.empty &&
+      ed.state.selection.from === anchor
+    );
+  }
+  const end = anchor + previewText.length;
+  const currentText =
+    anchor >= 1 && end <= documentSize
+      ? ed.state.doc.textBetween(anchor, end, "", "\n")
+      : "";
+  return canRemoveVoicePreview({
+    documentSize,
+    anchor,
+    previewText,
+    currentText,
+  });
+}
+
 export function getComposerSendTooltipKey(
   willQueue: boolean,
 ): "composer.queueMessage" | "composer.sendMessage" {
@@ -4540,11 +4569,22 @@ function TiptapComposerSurface({
   // --- Live voice transcription: text appears in the editor as the user speaks ---
   const voiceAnchorRef = useRef<number | null>(null);
   const prevVoiceInsertRef = useRef("");
-
   const handleLiveUpdate = useCallback(
     (finalText: string, interimText: string) => {
       const ed = editor;
       if (!isComposerEditorUsable(ed)) return;
+
+      if (
+        voiceAnchorRef.current != null &&
+        !isVoicePreviewIntact(
+          ed,
+          voiceAnchorRef.current,
+          prevVoiceInsertRef.current,
+        )
+      ) {
+        voiceAnchorRef.current = null;
+        prevVoiceInsertRef.current = "";
+      }
 
       if (voiceAnchorRef.current == null) {
         const { from } = ed.state.selection;
@@ -4577,9 +4617,14 @@ function TiptapComposerSurface({
     (text: string) => {
       const ed = editor;
       if (!isComposerEditorUsable(ed)) return;
+      let anchor = voiceAnchorRef.current;
+      if (
+        anchor != null &&
+        !isVoicePreviewIntact(ed, anchor, prevVoiceInsertRef.current)
+      ) {
+        anchor = null;
+      }
       const formattedText = formatVoiceTranscriptForComposer(text);
-
-      const anchor = voiceAnchorRef.current;
       if (anchor != null) {
         const prevLen = prevVoiceInsertRef.current.length;
         if (formattedText) {
@@ -4593,8 +4638,6 @@ function TiptapComposerSurface({
             .deleteRange({ from: anchor, to: anchor + prevLen })
             .run();
         }
-        voiceAnchorRef.current = null;
-        prevVoiceInsertRef.current = "";
       } else if (formattedText) {
         const { from } = ed.state.selection;
         const prevChar =
@@ -4605,6 +4648,8 @@ function TiptapComposerSurface({
           .insertContent((needsLead ? " " : "") + formattedText)
           .run();
       }
+      voiceAnchorRef.current = null;
+      prevVoiceInsertRef.current = "";
     },
     [editor],
   );
@@ -4701,19 +4746,7 @@ function TiptapComposerSurface({
       const anchor = voiceAnchorRef.current;
       const prevLen = prevVoiceInsertRef.current.length;
       if (isComposerEditorUsable(editor) && prevLen > 0) {
-        const documentSize = editor.state.doc.content.size;
-        const currentText =
-          anchor >= 1 && anchor + prevLen <= documentSize
-            ? editor.state.doc.textBetween(anchor, anchor + prevLen, "", "\n")
-            : "";
-        if (
-          canRemoveVoicePreview({
-            documentSize,
-            anchor,
-            previewText: prevVoiceInsertRef.current,
-            currentText,
-          })
-        ) {
+        if (isVoicePreviewIntact(editor, anchor, prevVoiceInsertRef.current)) {
           editor
             .chain()
             .deleteRange({ from: anchor, to: anchor + prevLen })
