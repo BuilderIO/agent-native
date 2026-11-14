@@ -233,3 +233,49 @@ describe.each(["oneOf", "anyOf"] as const)(
     });
   },
 );
+
+describe("optional boolean filler beside a null placeholder", () => {
+  it("drops the null and runs the call instead of refusing it as ambiguous", async () => {
+    const run = vi.fn(async () => ({ ok: true }));
+    const events: any[] = [];
+    await runAgentLoop({
+      engine: engineCallingPatchDeck({
+        id: "dash-1",
+        includeConfig: false,
+        reviewPreview: false,
+        reviewOrgId: null,
+      }),
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "read" }] }],
+      actions: {
+        "patch-deck": {
+          tool: {
+            description: "Read a dashboard",
+            parameters: {
+              type: "object",
+              properties: {
+                id: { type: "string" },
+                includeConfig: { type: "boolean" },
+                reviewPreview: { type: "boolean" },
+                reviewOrgId: { type: "string", minLength: 1 },
+              },
+              required: ["id"],
+            },
+          },
+          run,
+        } as unknown as ActionEntry,
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect((run.mock.calls[0] as any)[0]).toEqual({
+      id: "dash-1",
+      includeConfig: false,
+      reviewPreview: false,
+    });
+  });
+});
