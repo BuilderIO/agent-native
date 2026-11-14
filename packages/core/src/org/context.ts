@@ -736,6 +736,12 @@ export async function resolveOrgScopeForEmail(
   if (getRequestContext()?.orgScope === "personal") {
     return { status: "personal" };
   }
+  return resolveMembershipOrgScope(email);
+}
+
+export async function resolveMembershipOrgScope(
+  email: string,
+): Promise<OrgScopeResolution> {
   let ids: string[];
   try {
     ids = await requestMemberOrgIds(email, async () => {

@@ -17,6 +17,7 @@ import {
   BUILDER_OAUTH_SCOPE,
   getBuilderOAuthSession,
   hasBuilderOAuthSession,
+  hasStoredBuilderOAuthGrantForUse,
 } from "./builder-oauth.js";
 import { readsOrgCredentialFirst } from "./credential-read-order.js";
 import { decideCredentialWriteScope } from "./credential-write-scope.js";
@@ -27,6 +28,8 @@ import {
 import {
   isPersonalProviderKeyUseRestricted,
   isPersonalProviderPolicyKey,
+  personalRunBuilderGatewayOrgId,
+  personalRunProviderKeyOrgId,
 } from "./personal-provider-key-policy.js";
 import { PublicServerError } from "./public-server-error.js";
 export {
@@ -1422,14 +1425,123 @@ export function gatewayLaneUnavailableMessage(ownerFacing: string): string {
 }
 
 /**
+ * A personal automation run, with no org of its own, for the user a Builder
+ * lookup is for: `identity` (or the request) names neither an org nor
+ * explicitly none. The org is the one chat would use for that user.
+ */
+function personalRunBuilderCandidate(
+  identity?: BuilderCredentialLookupIdentity,
+): { email: string; orgId: string } | undefined {
+  if (identity?.orgId !== undefined) return undefined;
+  const email =
+    identity === undefined ? getRequestUserEmail() : identity.userEmail?.trim();
+  const orgId = personalRunBuilderGatewayOrgId(email);
+  if (!email || !orgId) return undefined;
+  if (
+    identity === undefined &&
+    getRequestBuilderCredentialScope().storageOnly
+  ) {
+    return undefined;
+  }
+  return { email, orgId };
+}
+
+/**
+ * Whether a Builder lookup is for a personal automation run that may fall back
+ * to its org's connection. Synchronous, so every other request skips
+ * `resolvePersonalRunBuilderOrgId` without waiting on it.
+ */
+export function isPersonalRunBuilderLookup(
+  identity?: BuilderCredentialLookupIdentity,
+): boolean {
+  return personalRunBuilderCandidate(identity) !== undefined;
+}
+
+function hasOwnBuilderGatewayCredentials(
+  own: BuilderGatewayCredentialsDetailed,
+): boolean {
+  return (
+    own.lookupFailed ||
+    own.hostManagedWithoutCredential === true ||
+    Boolean(own.privateKey && own.publicKey)
+  );
+}
+
+async function personalRunBuilderFallbackOrgId(
+  identity: BuilderCredentialLookupIdentity | undefined,
+  own: BuilderGatewayCredentialsDetailed,
+): Promise<string | undefined> {
+  if (hasOwnBuilderGatewayCredentials(own)) return undefined;
+  const candidate = personalRunBuilderCandidate(identity);
+  if (!candidate) return undefined;
+  // Even an expired personal sign-in is the run's own: it asks to reconnect.
+  if (await hasStoredBuilderOAuthGrantForUse(candidate.email, null)) {
+    return undefined;
+  }
+  // So is a single `bpk-` key, which single-key setups still authenticate on.
+  if ((await resolveBuilderPrivateKey(identity))?.trim()) return undefined;
+  return candidate.orgId;
+}
+
+/**
+ * The org whose Builder.io connection a personal automation run's model calls
+ * use when the run has none of its own: no personal sign-in, even an expired
+ * one, and no key pair it can use. It is the org chat would use for the run's
+ * creator, so its connection runs their personal automations too, while a run
+ * with a connection of its own keeps it.
+ */
+export async function resolvePersonalRunBuilderOrgId(
+  identity?: BuilderCredentialLookupIdentity,
+): Promise<string | undefined> {
+  if (!personalRunBuilderCandidate(identity)) return undefined;
+  return personalRunBuilderFallbackOrgId(
+    identity,
+    await resolveOwnBuilderGatewayCredentialsDetailed(identity),
+  );
+}
+
+/** An org's own Builder.io key pair: its org row, else its workspace row. */
+async function readOrgBuilderConnection(
+  orgId: string,
+): Promise<BuilderResolvedCredentials | null> {
+  const { readAppSecrets } = await import("../secrets/storage.js");
+  for (const scope of ["org", "workspace"] as const) {
+    const creds = await readBuilderCredentialScope(
+      readAppSecrets,
+      scope,
+      orgId,
+    );
+    if (await isCompleteBuilderConnection(creds)) return creds;
+  }
+  return null;
+}
+
+/**
  * Gateway-lane credentials. Fall-through: the request's own Builder connection,
- * then the deployment's credits pair, then the legacy pair.
+ * then the deployment's credits pair, then the legacy pair, then, for a
+ * personal automation run with none of those, its org's connection.
  *
  * Identity-bearing calls (asset upload, design systems, Admin GraphQL, browser
  * agent) must keep using `resolveBuilderCredentials`: a `['gateway']` token 403s
  * on all of them.
  */
 export async function resolveBuilderGatewayCredentialsDetailed(
+  identity?: BuilderCredentialLookupIdentity,
+): Promise<BuilderGatewayCredentialsDetailed> {
+  if (!isPersonalRunBuilderLookup(identity)) {
+    return resolveOwnBuilderGatewayCredentialsDetailed(identity);
+  }
+  const own = await resolveOwnBuilderGatewayCredentialsDetailed(identity);
+  try {
+    const orgId = await personalRunBuilderFallbackOrgId(identity, own);
+    const org = orgId ? await readOrgBuilderConnection(orgId) : null;
+    return org ? { ...org, lookupFailed: false, lane: "identity" } : own;
+  } catch (cause) {
+    return { ...own, lookupFailed: true, cause };
+  }
+}
+
+async function resolveOwnBuilderGatewayCredentialsDetailed(
   identity?: BuilderCredentialLookupIdentity,
 ): Promise<BuilderGatewayCredentialsDetailed> {
   const scoped = await resolveBuilderCredentialsDetailed(identity);
@@ -1553,13 +1665,25 @@ export async function resolveBuilderGatewayAuth(
     identity === undefined
       ? getRequestBuilderCredentialScope()
       : { orgId: identity.orgId, storageOnly: false };
-  const orgId = credentialScope.orgId;
+  let orgId = credentialScope.orgId;
+  let orgOnly = credentialScope.storageOnly;
   let hasOAuthSession = false;
   if (ownerEmail) {
     try {
-      hasOAuthSession = credentialScope.storageOnly
+      hasOAuthSession = orgOnly
         ? await hasBuilderOAuthSession(ownerEmail, orgId, { orgOnly: true })
         : await hasBuilderOAuthSession(ownerEmail, orgId);
+      const fallbackOrgId =
+        hasOAuthSession || !isPersonalRunBuilderLookup(identity)
+          ? undefined
+          : await resolvePersonalRunBuilderOrgId(identity);
+      if (fallbackOrgId) {
+        orgId = fallbackOrgId;
+        orgOnly = true;
+        hasOAuthSession = await hasBuilderOAuthSession(ownerEmail, orgId, {
+          orgOnly: true,
+        });
+      }
     } catch (error) {
       if (error instanceof ForbiddenError) throw error;
       throw new BuilderCredentialLookupError(error);
@@ -1567,7 +1691,7 @@ export async function resolveBuilderGatewayAuth(
   }
   if (ownerEmail && hasOAuthSession) {
     try {
-      const session = credentialScope.storageOnly
+      const session = orgOnly
         ? await getBuilderOAuthSession(ownerEmail, orgId, BUILDER_OAUTH_SCOPE, {
             orgOnly: true,
           })
@@ -2474,15 +2598,73 @@ export interface ResolvedSecretDetail {
   cause?: unknown;
   source?: ResolvedSecretSource;
   scopeId?: string;
+  /** A personal run's org fallback answered, which ranks after the deploy env. */
+  personalRunOrgFallback?: true;
+}
+
+async function readOrgScopedSecret(
+  key: string,
+  orgId: string,
+  email: string,
+): Promise<ResolvedSecretDetail | null> {
+  const traceLookup = shouldTraceCredentialResolve();
+  const { readAppSecret } = await import("../secrets/storage.js");
+  const [orgRead, workspaceRead] = await Promise.allSettled([
+    readAppSecret({ key, scope: "org", scopeId: orgId }),
+    readAppSecret({ key, scope: "workspace", scopeId: orgId }),
+  ]);
+  const unwrap = <T>(settled: PromiseSettledResult<T>): T => {
+    if (settled.status === "rejected") throw settled.reason;
+    return settled.value;
+  };
+
+  const orgSecret = unwrap(orgRead);
+  if (orgSecret?.value) {
+    if (traceLookup) {
+      console.log(
+        `[resolve-secret] key=${key} email=${email} orgId=${orgId} scope=org hit=true`,
+      );
+    }
+    return {
+      value: orgSecret.value,
+      lookupFailed: false,
+      source: "org",
+      scopeId: orgId,
+    };
+  }
+
+  const workspaceSecret = unwrap(workspaceRead);
+  if (workspaceSecret?.value) {
+    if (traceLookup) {
+      console.log(
+        `[resolve-secret] key=${key} email=${email} orgId=${orgId} scope=workspace hit=true`,
+      );
+    }
+    return {
+      value: workspaceSecret.value,
+      lookupFailed: false,
+      source: "workspace",
+      scopeId: orgId,
+    };
+  }
+  return null;
 }
 
 export async function resolveSecretDetailed(
   key: string,
-  options: { skipUserScope?: boolean } = {},
+  options: {
+    skipUserScope?: boolean;
+    /** Provenance of the API key that will be sent to the endpoint `key` names. */
+    endpointForCredential?: { scope: string; scopeId?: string };
+  } = {},
 ): Promise<ResolvedSecretDetail> {
   const traceLookup = shouldTraceCredentialResolve();
   const email = getRequestUserEmail();
   const syntheticTraffic = getRequestContext()?.isSyntheticTraffic === true;
+  const fallbackOrgId = personalRunProviderKeyOrgId(
+    key,
+    options.endpointForCredential,
+  );
   let lookupFailed = false;
   let cause: unknown;
   if (email) {
@@ -2492,7 +2674,9 @@ export async function resolveSecretDetailed(
       // both personal rows (user and pre-org solo workspace), never delete.
       const personalRestricted =
         isPersonalProviderPolicyKey(key) &&
-        (await isPersonalProviderKeyUseRestricted({ email }));
+        (await isPersonalProviderKeyUseRestricted(
+          fallbackOrgId ? { email, orgId: fallbackOrgId } : { email },
+        ));
 
       let personalReadError: AppSecretDecryptionError | undefined;
       let userSecret: ReadSecretResult | null = null;
@@ -2556,44 +2740,8 @@ export async function resolveSecretDetailed(
       }
 
       if (orgId) {
-        const [orgRead, workspaceRead] = await Promise.allSettled([
-          readAppSecret({ key, scope: "org", scopeId: orgId }),
-          readAppSecret({ key, scope: "workspace", scopeId: orgId }),
-        ]);
-        const unwrap = <T>(settled: PromiseSettledResult<T>): T => {
-          if (settled.status === "rejected") throw settled.reason;
-          return settled.value;
-        };
-
-        const orgSecret = unwrap(orgRead);
-        if (orgSecret?.value) {
-          if (traceLookup) {
-            console.log(
-              `[resolve-secret] key=${key} email=${email} orgId=${orgId} scope=org hit=true`,
-            );
-          }
-          return {
-            value: orgSecret.value,
-            lookupFailed: false,
-            source: "org",
-            scopeId: orgId,
-          };
-        }
-
-        const workspaceSecret = unwrap(workspaceRead);
-        if (workspaceSecret?.value) {
-          if (traceLookup) {
-            console.log(
-              `[resolve-secret] key=${key} email=${email} orgId=${orgId} scope=workspace hit=true`,
-            );
-          }
-          return {
-            value: workspaceSecret.value,
-            lookupFailed: false,
-            source: "workspace",
-            scopeId: orgId,
-          };
-        }
+        const fromOrg = await readOrgScopedSecret(key, orgId, email);
+        if (fromOrg) return fromOrg;
       }
       if (personalReadError) {
         return { value: null, lookupFailed: true, cause: personalReadError };
@@ -2703,6 +2851,17 @@ export async function resolveSecretDetailed(
       console.log(
         `[resolve-secret] key=${key} email=${email} orgId=${getRequestOrgId() ?? "(none)"} scope=${envFallback ? "env-fallback" : "none"} hit=${!!envFallback}`,
       );
+    }
+    // An endpoint for the org's key takes the org's row over the deployment's,
+    // so that key never reaches the deployment's gateway.
+    const isEndpointLookup = options.endpointForCredential !== undefined;
+    if (fallbackOrgId && !lookupFailed && (!envFallback || isEndpointLookup)) {
+      try {
+        const fromOrg = await readOrgScopedSecret(key, fallbackOrgId, email);
+        if (fromOrg) return { ...fromOrg, personalRunOrgFallback: true };
+      } catch (err) {
+        return { value: null, lookupFailed: true, cause: err };
+      }
     }
     return {
       value: envFallback,

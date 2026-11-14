@@ -27,10 +27,15 @@ export interface ResolvedAliasedSecret extends ResolvedSecretDetail {
 
 /**
  * Lower answers first. Mirrors `resolveSecretDetailed`'s own walk (personal,
- * organization, organization workspace, solo workspace, deploy env) so a
- * personal row under either name still beats a shared row under the other.
+ * organization, organization workspace, solo workspace, deploy env, then a
+ * personal run's org fallback) so a personal row under either name still
+ * beats a shared row under the other.
  */
 function precedence(detail: ResolvedSecretDetail): number {
+  // A personal run reads its org's rows only after the deploy env, so a
+  // deployment key under one name beats the org's key under the other. Among
+  // those rows the org still beats its workspace, as it does in any other run.
+  if (detail.personalRunOrgFallback) return detail.source === "org" ? 5 : 6;
   switch (detail.source) {
     case "user":
       return 0;
@@ -41,7 +46,7 @@ function precedence(detail: ResolvedSecretDetail): number {
     case "env":
       return 4;
     default:
-      return 5;
+      return 7;
   }
 }
 

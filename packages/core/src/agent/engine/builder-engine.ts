@@ -9,7 +9,9 @@ import {
   clearBuilderGatewayAuthFailure,
   CredentialStoreUnavailableError,
   isBuilderGatewayDeployConfigured,
+  isPersonalRunBuilderLookup,
   resolveBuilderGatewayCredentialsDetailed,
+  resolvePersonalRunBuilderOrgId,
   getBuilderGatewayBaseUrl,
   recordBuilderGatewayAuthFailure,
   type BuilderGatewayLane,
@@ -204,7 +206,13 @@ class BuilderEngine implements AgentEngine {
       this.configuredCredentials ??
       (await resolveBuilderGatewayCredentialsDetailed());
     const ownerEmail = getRequestUserEmail();
-    const orgId = getRequestOrgId() ?? null;
+    // A personal automation run with no connection of its own uses its org's.
+    const orgId =
+      getRequestOrgId() ??
+      (isPersonalRunBuilderLookup()
+        ? await resolvePersonalRunBuilderOrgId()
+        : undefined) ??
+      null;
     let oauthAccess:
       | Extract<
           Awaited<ReturnType<typeof resolveBuilderOAuthRequestAccessState>>,

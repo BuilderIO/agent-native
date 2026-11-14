@@ -23,6 +23,8 @@ import {
 import { applyJobResourceEdit } from "../jobs/update-job-resource.js";
 import { automationOutcomeMessagesForUser } from "../localization/automation-outcome-messages.js";
 import { resolveUserSchedulingTimezone } from "../localization/user-timezone.js";
+import { resolveMembershipOrgScope } from "../org/context.js";
+import { isMissingOrganizationTableError } from "../org/membership.js";
 import {
   organizationIdFromResourceOwner,
   organizationResourceOwner,
@@ -40,6 +42,7 @@ import {
   type TransactionScopedResourceWrite,
 } from "../resources/store.js";
 import { readOrgMemberRole } from "../server/personal-provider-key-policy.js";
+import type { RequestContext } from "../server/request-context.js";
 import {
   isReasoningEffort,
   type ReasoningEffort,
@@ -1464,12 +1467,46 @@ export async function deleteAutomation(
   }
 }
 
-export interface AutomationExecutionIdentity {
+export type AutomationExecutionIdentity = {
   userEmail: string;
-  orgId?: string;
-  orgScope?: "personal";
-  defaultAgentEngineScope?: "deployment";
   eventOwner: string;
+} & (
+  | {
+      orgScope: "personal";
+      providerKeyOrgId: string | null;
+      orgId?: undefined;
+      defaultAgentEngineScope?: undefined;
+    }
+  | {
+      orgScope?: undefined;
+      providerKeyOrgId?: undefined;
+      orgId?: string;
+      defaultAgentEngineScope?: "deployment";
+    }
+);
+
+export function automationRunScopeContext(
+  identity: AutomationExecutionIdentity,
+): Pick<
+  RequestContext,
+  "orgScope" | "defaultAgentEngineScope" | "providerKeyOrg"
+> {
+  if (identity.orgScope === "personal") {
+    return {
+      orgScope: "personal",
+      ...(identity.providerKeyOrgId
+        ? {
+            providerKeyOrg: {
+              orgId: identity.providerKeyOrgId,
+              userEmail: identity.userEmail,
+            },
+          }
+        : {}),
+    };
+  }
+  return identity.defaultAgentEngineScope === "deployment"
+    ? { defaultAgentEngineScope: "deployment" }
+    : {};
 }
 
 /**
@@ -1524,9 +1561,29 @@ export async function resolveAutomationExecutionIdentity(
         code: "config_invalid",
       };
     }
+    const membership = await resolveMembershipOrgScope(userEmail);
+    // An unreadable membership could hide the org's key or its "Restrict
+    // personal API keys" rule, so retry rather than run as if there were no
+    // org. A deployment without organization tables has none.
+    if (
+      membership.status === "unknown" &&
+      !isMissingOrganizationTableError(membership.cause)
+    ) {
+      return {
+        ok: false,
+        reason: `Could not read the organization membership of automation creator "${userEmail}".`,
+        code: "owner_unverifiable",
+      };
+    }
     return {
       ok: true,
-      identity: { userEmail, orgScope: "personal", eventOwner: userEmail },
+      identity: {
+        userEmail,
+        orgScope: "personal",
+        providerKeyOrgId:
+          membership.status === "organization" ? membership.orgId : null,
+        eventOwner: userEmail,
+      },
     };
   }
 

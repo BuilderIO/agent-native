@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { tagEngineCredentialOrg } from "../agent/engine/credential-owner.js";
 import { resolveBackgroundRunHardTimeoutMs } from "../agent/run-manager.js";
 import type { RunChunkControl } from "../agent/run-manager.js";
 import type { CurrentTurnRunEvent } from "../agent/run-store.js";
@@ -1636,6 +1637,28 @@ Summarize the inbox.`,
         label: "recurring-job:daily-report",
         app: "mail",
         refId: expect.stringMatching(/^job-daily-report-\d+-[a-z0-9]+$/),
+      }),
+    );
+    expect(recordUsageMock.mock.calls[0]?.[0]).not.toHaveProperty("orgId");
+  });
+
+  it("charges a personal job's usage to the organization whose key paid", async () => {
+    const orgKeyEngine = { ...testEngine };
+    tagEngineCredentialOrg(orgKeyEngine, "org-a");
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: orgKeyEngine,
+      model: "test-model",
+      appId: "mail",
+    });
+
+    expect(recordUsageMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        ownerEmail: "alice+jobs@agent-native.test",
+        orgId: "org-a",
+        label: "recurring-job:daily-report",
       }),
     );
   });

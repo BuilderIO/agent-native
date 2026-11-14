@@ -13,6 +13,7 @@ const llmConnectionSources = new WeakMap<
   object,
   EngineLlmConnectionSource | undefined
 >();
+const credentialOrgs = new WeakMap<object, string | undefined>();
 
 export function tagEngineCredentialOwner(
   engine: AgentEngine,
@@ -28,6 +29,17 @@ export function tagEngineLlmConnectionSource(
   llmConnectionSources.set(engine, source);
 }
 
+/**
+ * The organization whose stored key the engine calls with, when one does. A
+ * personal automation run can use its org's key, and its usage is charged there.
+ */
+export function tagEngineCredentialOrg(
+  engine: AgentEngine,
+  orgId: string | undefined,
+): void {
+  credentialOrgs.set(engine, orgId);
+}
+
 export function getEngineCredentialOwner(
   engine: unknown,
 ): EngineCredentialOwner | undefined {
@@ -39,5 +51,11 @@ export function getEngineLlmConnectionSource(
 ): EngineLlmConnectionSource | undefined {
   return engine && typeof engine === "object"
     ? llmConnectionSources.get(engine)
+    : undefined;
+}
+
+export function getEngineCredentialOrgId(engine: unknown): string | undefined {
+  return engine && typeof engine === "object"
+    ? credentialOrgs.get(engine)
     : undefined;
 }
