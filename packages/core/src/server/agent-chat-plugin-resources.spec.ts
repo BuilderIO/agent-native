@@ -1490,6 +1490,38 @@ describe("agent chat thread list route", () => {
     }
   });
 
+  it("fails a local list or search with no resolved source app instead of reporting empty history", async () => {
+    const store = await vi.importActual<
+      typeof import("../chat-threads/store.js")
+    >("../chat-threads/store.js");
+    const owner = "synthetic-unattributed-history@example.test";
+    for (const sourceAppId of [undefined, null, "  "]) {
+      await expect(
+        store.listThreads(owner, { includeExternal: false, sourceAppId }),
+      ).rejects.toBeInstanceOf(store.ChatThreadSourceAppRequiredError);
+      await expect(
+        store.searchThreads(owner, "plan", 10, {
+          includeExternal: false,
+          sourceAppId,
+        }),
+      ).rejects.toBeInstanceOf(store.ChatThreadSourceAppRequiredError);
+    }
+
+    threadStoreMocks.listThreads.mockRejectedValue(
+      new store.ChatThreadSourceAppRequiredError(),
+    );
+    threadStoreMocks.searchThreads.mockRejectedValue(
+      new store.ChatThreadSourceAppRequiredError(),
+    );
+    for (const search of ["", "?q=plan"]) {
+      const response = await getThreads(search);
+      expect(response.status).toBe(500);
+      expect(await response.json()).toMatchObject({
+        code: "chat_thread_source_app_required",
+      });
+    }
+  });
+
   it("passes ownership and offset to the store and reports hasMore from the extra row", async () => {
     threadStoreMocks.listThreads.mockResolvedValue([
       summary("a"),

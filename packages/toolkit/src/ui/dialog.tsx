@@ -21,14 +21,24 @@ import { ModalLayerProvider } from "./modal-layer.js";
  */
 export const DIALOG_POINTER_LOCK_RESTORE = "dialog-pointer-lock-restore";
 
+function layerSelector(state: "open" | "closed"): string {
+  return [
+    '[role="dialog"]',
+    '[role="alertdialog"]',
+    '[role="menu"]',
+    '[role="listbox"]',
+    "[data-radix-popper-content-wrapper] ",
+  ]
+    .map((layer) => `${layer}[data-state="${state}"]`)
+    .join(",");
+}
+
 function openLayers(): number {
   if (typeof document === "undefined") return 0;
   // Only layers that are still open hold a lock. A menu that is animating out is
   // not one: it has already released its lock and is exactly what writes the stale
   // `pointer-events: none` this clears.
-  return document.querySelectorAll(
-    '[role="dialog"][data-state="open"],[role="alertdialog"][data-state="open"],[role="menu"][data-state="open"],[role="listbox"][data-state="open"],[data-radix-popper-content-wrapper] [data-state="open"]',
-  ).length;
+  return document.querySelectorAll(layerSelector("open")).length;
 }
 
 /**
@@ -56,7 +66,9 @@ export function releaseStaleFocus() {
   )
     return;
   if (typeof (active as HTMLElement).closest !== "function") return;
-  const stale = (active as HTMLElement).closest('[data-state="closed"]');
+  // A closed layer, not any closed state: a popover or collapsible trigger is
+  // itself `data-state="closed"` exactly when focus has been rightly returned to it.
+  const stale = (active as HTMLElement).closest(layerSelector("closed"));
   if (!stale) return;
   // Blur first so the closed subtree stops owning the focus, then hand focus back to
   // the page so the next press reaches whatever the user aims at.

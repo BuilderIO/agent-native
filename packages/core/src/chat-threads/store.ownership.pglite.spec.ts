@@ -136,6 +136,7 @@ vi.mock("../db/ddl-guard.js", () => ({
 vi.mock("./emitter.js", () => ({ emitChatThreadChange: vi.fn() }));
 
 const {
+  ChatThreadSourceAppRequiredError,
   listThreads,
   searchThreads,
   resolveThreadsAccess,
@@ -1168,14 +1169,15 @@ describe("chat thread ownership lists (real SQL)", () => {
     expect(ids(hits)).toEqual(["search-a"]);
   });
 
-  it("returns no local chats at all when the reader has no proven app id", async () => {
-    // Without an app id there is nothing to scope to, so the local view is empty
-    // rather than every app's history. This is the fail-closed default.
-    const rows = await listThreads(ME, {
-      orgId: null,
-      ownership: "mine",
-      includeExternal: false,
-    });
-    expect(rows).toEqual([]);
+  it("refuses a local list when the reader has no proven app id", async () => {
+    // Without an app id there is nothing to scope to: never every app's
+    // history, and never an empty list a misconfigured host would show as none.
+    await expect(
+      listThreads(ME, {
+        orgId: null,
+        ownership: "mine",
+        includeExternal: false,
+      }),
+    ).rejects.toBeInstanceOf(ChatThreadSourceAppRequiredError);
   });
 });

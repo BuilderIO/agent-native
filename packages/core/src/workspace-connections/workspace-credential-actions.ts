@@ -7,14 +7,6 @@ import {
   type WorkspaceCredentialServiceOptions,
 } from "./workspace-credentials.js";
 
-const errors = defineActionErrors(
-  "workspace_credential_invalid_input",
-  "workspace_credential_forbidden",
-  "workspace_credential_validation_failed",
-  "workspace_credential_conflict",
-  "workspace_credential_refused",
-  "workspace_credential_storage_failed",
-);
 const statuses: Record<WorkspaceCredentialError["code"], number> = {
   invalid_input: 400,
   forbidden: 403,
@@ -47,6 +39,16 @@ export function createWorkspaceCredentialActions(
   options: WorkspaceCredentialServiceOptions,
 ) {
   const service = createWorkspaceCredentialService(options);
+  // Built per registration, not at import: the connections barrel is imported
+  // by modules that never register these actions.
+  const errors = defineActionErrors(
+    "workspace_credential_invalid_input",
+    "workspace_credential_forbidden",
+    "workspace_credential_validation_failed",
+    "workspace_credential_conflict",
+    "workspace_credential_refused",
+    "workspace_credential_storage_failed",
+  );
   return Object.freeze({
     create: defineAction({
       uiOnly: true,

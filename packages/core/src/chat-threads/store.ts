@@ -494,6 +494,21 @@ export interface ChatThreadListRow extends ChatThreadSummary {
   accessBasis: ChatThreadAccessBasis;
 }
 
+/**
+ * A local (non-external) thread read was asked for without the app it belongs
+ * to. An empty result here would look like an empty history; the host is
+ * misconfigured.
+ */
+export class ChatThreadSourceAppRequiredError extends Error {
+  readonly code = "chat_thread_source_app_required";
+  constructor() {
+    super(
+      "Local chat threads cannot be read without a source app id; configure the agent chat plugin's appId or app.id.",
+    );
+    this.name = "ChatThreadSourceAppRequiredError";
+  }
+}
+
 export class ForkThreadBoundaryError extends Error {
   constructor() {
     super("Invalid fork message boundary");
@@ -1981,7 +1996,7 @@ export async function listThreads(
     // stored, but cannot be adopted into whichever app reads them first.
     const sourceAppId =
       typeof opts.sourceAppId === "string" ? opts.sourceAppId.trim() : "";
-    if (!sourceAppId) return [];
+    if (!sourceAppId) throw new ChatThreadSourceAppRequiredError();
     filters.push(`source_app_id = ?`);
     args.push(sourceAppId);
   }
@@ -2080,7 +2095,7 @@ export async function searchThreads(
     // stored, but cannot be adopted into whichever app reads them first.
     const sourceAppId =
       typeof options.sourceAppId === "string" ? options.sourceAppId.trim() : "";
-    if (!sourceAppId) return [];
+    if (!sourceAppId) throw new ChatThreadSourceAppRequiredError();
     filters.push(`source_app_id = ?`);
     args.push(sourceAppId);
   }

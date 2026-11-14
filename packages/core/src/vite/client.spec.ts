@@ -4171,7 +4171,8 @@ describe("Vite SSR optional dependencies", () => {
       );
 
       expect(config.ssr.external).toContain("prettier");
-      expect(config.ssr.external).toContain("xlsx");
+      // oracle-change: xlsx is now a bundled ingestion parser, so an installed copy is bundled rather than left external
+      expect(config.ssr.external).not.toContain("xlsx");
       expect(config.ssr.external).toContain("@sentry/node");
       expect(config.ssr.external).not.toContain("@opentelemetry/api");
       expect(config.build.rolldownOptions.external).toContain("prettier");
@@ -4209,15 +4210,16 @@ describe("Vite SSR optional dependencies", () => {
       );
       const missingPeers = getMissingCoreOptionalPeers(appRoot);
       expect(missingPeers).toContain("prettier");
-      expect(missingPeers).toContain("xlsx");
       expect(missingPeers).toContain("@sentry/node");
       expect(missingPeers).not.toContain("@opentelemetry/api");
       for (const peer of [
         "fast-xml-parser",
         "jszip",
+        "mammoth",
         "officeparser",
         "pdf-parse",
         "pdfjs-dist",
+        "xlsx",
       ]) {
         expect(missingPeers).not.toContain(peer);
       }

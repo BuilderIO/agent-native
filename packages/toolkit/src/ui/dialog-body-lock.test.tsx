@@ -75,17 +75,44 @@ describe("dialog stale focus release", () => {
     document.body.innerHTML = "";
   });
 
-  it("blurs an element left focused inside a closed layer", async () => {
+  it.each(["menu", "dialog", "listbox"])(
+    "blurs an element left focused inside a closed %s",
+    async (role) => {
+      const { releaseStaleFocus } = await import("./dialog.js");
+      const closed = document.createElement("div");
+      closed.setAttribute("role", role);
+      closed.setAttribute("data-state", "closed");
+      const input = document.createElement("input");
+      closed.append(input);
+      document.body.append(closed);
+      input.focus();
+      expect(document.activeElement).toBe(input);
+      releaseStaleFocus();
+      expect(document.activeElement).not.toBe(input);
+    },
+  );
+
+  it("keeps focus a closed popover returned to its own trigger", async () => {
     const { releaseStaleFocus } = await import("./dialog.js");
-    const closed = document.createElement("div");
-    closed.setAttribute("data-state", "closed");
-    const input = document.createElement("input");
-    closed.append(input);
-    document.body.append(closed);
-    input.focus();
-    expect(document.activeElement).toBe(input);
+    const trigger = document.createElement("button");
+    trigger.setAttribute("aria-haspopup", "dialog");
+    trigger.setAttribute("data-state", "closed");
+    document.body.append(trigger);
+    trigger.focus();
     releaseStaleFocus();
-    expect(document.activeElement).not.toBe(input);
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it("keeps focus inside a closed collapsible, which is not a layer", async () => {
+    const { releaseStaleFocus } = await import("./dialog.js");
+    const collapsible = document.createElement("div");
+    collapsible.setAttribute("data-state", "closed");
+    const trigger = document.createElement("button");
+    collapsible.append(trigger);
+    document.body.append(collapsible);
+    trigger.focus();
+    releaseStaleFocus();
+    expect(document.activeElement).toBe(trigger);
   });
 
   it("leaves focus alone while a dialog is still open", async () => {

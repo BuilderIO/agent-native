@@ -708,11 +708,15 @@ async function performActionFetch<T>(
     if (options?.privateInput) delete options.serializedBody;
   }
 
+  // The browser refuses every keepalive request once the page's in-flight
+  // keepalive bodies pass its limit, so the default shares the page budget the
+  // explicit keepalive writes use and goes without keepalive when it doesn't fit.
+  let releaseImplicitKeepalive: (() => void) | undefined;
   if (implicitKeepalive && typeof init.body === "string") {
-    if (
-      new TextEncoder().encode(init.body).length <= KEEPALIVE_BODY_LIMIT_BYTES
-    ) {
-      init.keepalive = true;
+    const bodyBytes = new TextEncoder().encode(init.body).length;
+    if (bodyBytes <= KEEPALIVE_BODY_LIMIT_BYTES) {
+      releaseImplicitKeepalive = reserveKeepaliveBytes("action", bodyBytes);
+      if (releaseImplicitKeepalive) init.keepalive = true;
     }
   }
 
@@ -853,6 +857,7 @@ async function performActionFetch<T>(
     }
   } finally {
     clearTimeout(timer);
+    releaseImplicitKeepalive?.();
     if (options?.privateInput) delete init.body;
     if (outerSignal) outerSignal.removeEventListener("abort", onOuterAbort);
   }
@@ -907,12 +912,13 @@ async function performActionFetch<T>(
     if (res.status === 405) {
       const requiredMethod = /\bUse (GET|POST|PUT|DELETE)\b/.exec(message)?.[1];
       // A read asked for with the hook's default GET against an action that only answers POST
-      // is a false empty state, not a caller mistake: the server just said which method it
-      // wants, so re-send the same read with it once. Measured across the fleet 11-09 21:4x:
-      // thirteen query reads in seven apps answered 405 this way.
+      // is a false empty state, not a caller mistake, so re-send the same read with POST once.
+      // Only when the server vouches the action is declared read-only for every call: a GET
+      // that reaches a mutating action is a caller mistake, and re-sending it would run it.
       if (
         method === "GET" &&
         requiredMethod === "POST" &&
+        data?.readOnly === true &&
         !options?.methodFallback
       ) {
         return performActionFetch<T>(name, "POST", params, {

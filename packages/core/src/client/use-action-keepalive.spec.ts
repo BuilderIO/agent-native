@@ -73,6 +73,37 @@ describe("a page-level write survives an immediate reload", () => {
     expect(calls[0]?.[1].keepalive).toBe(false);
   });
 
+  it("shares the page keepalive budget, so concurrent writes never overrun it", async () => {
+    const calls: RequestInit[] = [];
+    const pending: Array<() => void> = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(
+        (_input: RequestInfo | URL, init?: RequestInit) =>
+          new Promise<Response>((resolve) => {
+            calls.push(init ?? {});
+            pending.push(() => resolve(jsonResponse()));
+          }),
+      ),
+    );
+    const body = { note: "x".repeat(30_000) };
+
+    const first = callAction("save-user-preferences", body);
+    const second = callAction("save-user-preferences", body);
+    await vi.waitFor(() => expect(calls).toHaveLength(2));
+    expect(calls[0]?.keepalive).toBe(true);
+    expect(calls[1]?.keepalive).toBeUndefined();
+
+    for (const resolve of pending.splice(0)) resolve();
+    await Promise.all([first, second]);
+
+    const third = callAction("save-user-preferences", body);
+    await vi.waitFor(() => expect(calls).toHaveLength(3));
+    expect(calls[2]?.keepalive).toBe(true);
+    for (const resolve of pending.splice(0)) resolve();
+    await third;
+  });
+
   it("never marks a read as keepalive", async () => {
     const { calls, mock } = captureFetch();
     vi.stubGlobal("fetch", mock);

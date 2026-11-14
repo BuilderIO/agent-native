@@ -228,12 +228,49 @@ describe("observeActionQuerySurface", () => {
     expect(query.fetch).not.toHaveBeenCalled();
   });
 
-  it("ignores events that do not change the surface's visibility", () => {
+  it("ignores a visibility event that does not change the surface's visibility", () => {
     const query = fakeQuery({ data: "x" });
     observe(query, { foreground: true });
-    window.dispatchEvent(new Event("focus"));
     setVisibility("visible");
     expect(query.setState).not.toHaveBeenCalled();
+    expect(query.fetch).not.toHaveBeenCalled();
+  });
+
+  it("refreshes stale reads when the window regains focus while the tab stayed visible", () => {
+    const stale = fakeQuery({ data: "stale" });
+    const fresh = fakeQuery({ data: "fresh" });
+    observe(stale, { foreground: true });
+    observe(fresh, { refresh: false });
+    window.dispatchEvent(new Event("blur"));
+    window.dispatchEvent(new Event("focus"));
+    expect(stale.fetch).toHaveBeenCalledTimes(1);
+    expect(stale.fetch).toHaveBeenCalledWith(undefined, {
+      cancelRefetch: false,
+    });
+    expect(stale.cancel).not.toHaveBeenCalled();
+    expect(fresh.fetch).not.toHaveBeenCalled();
+    // One return, one refresh: a repeated focus without a new blur is not one.
+    window.dispatchEvent(new Event("focus"));
+    expect(stale.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not count the focus that follows a visibility return as a second return", () => {
+    const query = fakeQuery({ data: "x" });
+    observe(query, { foreground: true });
+    window.dispatchEvent(new Event("blur"));
+    setVisibility("hidden");
+    setVisibility("visible");
+    window.dispatchEvent(new Event("focus"));
+    expect(query.fetch).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not refresh on window focus while the surface is hidden", () => {
+    const query = fakeQuery({ data: "x" });
+    observe(query, { foreground: true });
+    (window as unknown as Record<string, unknown>)[SURFACE_HIDDEN_FLAG] = true;
+    window.dispatchEvent(new Event("focus"));
+    window.dispatchEvent(new Event("blur"));
+    window.dispatchEvent(new Event("focus"));
     expect(query.fetch).not.toHaveBeenCalled();
   });
 

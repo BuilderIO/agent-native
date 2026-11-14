@@ -18,6 +18,7 @@ interface SurfaceObserver {
 }
 const surfaceObservers = new Set<SurfaceObserver>();
 let surfaceWasHidden = false;
+let windowBlurred = false;
 let removeVisibilityListener: (() => void) | undefined;
 
 export function claimActionQueryForeground(
@@ -64,9 +65,27 @@ export function invalidateForegroundActionQueries(
 }
 
 function surfaceVisibilityChanged(): void {
+  refreshForSurface(false);
+}
+
+function surfaceBlurred(): void {
+  windowBlurred = true;
+}
+
+// Returning to a desktop window whose tab never stopped being visible changes
+// no visibility, but it is still a return to the surface and refreshes stale
+// reads, as React Query's own window-focus refetch would. Only a focus after a
+// blur counts, so the focus that accompanies a visibility return is not a
+// second refresh.
+function surfaceFocused(): void {
+  refreshForSurface(windowBlurred);
+}
+
+function refreshForSurface(returnedFocus: boolean): void {
   const hidden = isSurfaceHidden();
-  if (hidden === surfaceWasHidden) return;
+  if (hidden === surfaceWasHidden && !(returnedFocus && !hidden)) return;
   surfaceWasHidden = hidden;
+  if (!hidden) windowBlurred = false;
   const queries = new Map<object, [SurfaceObserver, ...SurfaceObserver[]]>();
   for (const observer of surfaceObservers) {
     const query = observer.query();
@@ -141,13 +160,16 @@ export function observeActionQuerySurface<TData>(
   surfaceObservers.add(observer);
   if (!removeVisibilityListener) {
     surfaceWasHidden = isSurfaceHidden();
+    windowBlurred = false;
     const removeSurface = addSurfaceVisibilityListener(
       surfaceVisibilityChanged,
     );
-    window.addEventListener("focus", surfaceVisibilityChanged);
+    window.addEventListener("focus", surfaceFocused);
+    window.addEventListener("blur", surfaceBlurred);
     removeVisibilityListener = () => {
       removeSurface();
-      window.removeEventListener("focus", surfaceVisibilityChanged);
+      window.removeEventListener("focus", surfaceFocused);
+      window.removeEventListener("blur", surfaceBlurred);
     };
   }
   return () => {

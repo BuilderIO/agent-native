@@ -13,7 +13,10 @@ import {
 
 import { verifyA2ATokenWithClaims } from "../a2a-claims.js";
 import { isA2AIdentityVerificationUnavailableError } from "../a2a/server.js";
-import { actionChangeResource } from "../action-call-classification.js";
+import {
+  actionAlwaysReadOnly,
+  actionChangeResource,
+} from "../action-call-classification.js";
 import {
   actionCallIntent,
   ActionContractError,
@@ -858,7 +861,10 @@ function mountActionRoutesInternal(
           FRONTEND_MUTATION_METHODS.has(effectiveMethod);
         if (effectiveMethod !== method && !isFrontendMutation) {
           setResponseStatus(event, 405);
-          return { error: `Method not allowed. Use ${method}.` };
+          return {
+            error: `Method not allowed. Use ${method}.`,
+            ...(actionAlwaysReadOnly(entry) ? { readOnly: true } : {}),
+          };
         }
 
         const requiredCompatibility = requiredClientCompatibilityVersion(

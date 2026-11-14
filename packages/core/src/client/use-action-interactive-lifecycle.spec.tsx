@@ -216,6 +216,18 @@ it("allows exactly one marked return refresh across queries and clients, dedupin
   ).toBe(true);
 });
 
+it("refetches a stale read once when the desktop window regains focus while the tab stayed visible", async () => {
+  await mount();
+  const before = requests("synthetic-read").length;
+  await act(async () => {
+    window.dispatchEvent(new Event("blur"));
+    window.dispatchEvent(new Event("focus"));
+    window.dispatchEvent(new Event("focus"));
+  });
+  await advance(1_100);
+  expect(requests("synthetic-read")).toHaveLength(before + 1);
+});
+
 it("gives a host-hidden surface one return allowance, even when document visibility never changed", async () => {
   await mount("synthetic-one");
   await mount("synthetic-two");

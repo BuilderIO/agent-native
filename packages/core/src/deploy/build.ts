@@ -1532,8 +1532,14 @@ export function generateWorkerEntry(
       ["POST", "PUT", "DELETE"].includes(configuredMethod) &&
       ["POST", "PUT", "DELETE"].includes(requestMethod);
     if (requestMethod !== configuredMethod && !isFrontendMutation) {
+      const actionPlanEffect = ${varName}.planMode?.effect;
+      const actionAlwaysReadOnly = ${varName}.readOnly === true &&
+        (actionPlanEffect === undefined || actionPlanEffect === "read");
       return new Response(
-        JSON.stringify({ error: \`Method not allowed. Use \${configuredMethod}.\` }),
+        JSON.stringify({
+          error: \`Method not allowed. Use \${configuredMethod}.\`,
+          ...(actionAlwaysReadOnly ? { readOnly: true } : {}),
+        }),
         { status: 405, headers: { "Content-Type": "application/json" } }
       );
     }

@@ -176,6 +176,7 @@ import { getAppConfig } from "../app-config/index.js";
 import { readAppStateForCurrentTab } from "../application-state/script-helpers.js";
 import { runChatThreadDataMigrations } from "../chat-threads/migrations.js";
 import {
+  ChatThreadSourceAppRequiredError,
   InlineAttachmentDataNotPersistableError,
   QueuedSubmissionAdmissionError,
   adoptThreadScopeIfUnscoped,
@@ -9502,31 +9503,33 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
             const offset = requestedOffset;
             // Fetch one extra row so the page can say whether another exists
             // without a count query.
-            const fetched = q
-              ? await searchThreads(owner, q, limit + 1, {
-                  scope: scope ?? undefined,
-                  orgId,
-                  collapseEdits,
-                  includeExternal,
-                  includeArchived,
-                  includeHidden,
-                  sourceAppId: requestedSourceAppId,
-                  ownership,
-                  offset,
-                })
-              : await listThreads(owner, {
-                  limit: limit + 1,
-                  offset,
-                  scope: scope ?? undefined,
-                  unscopedOnly,
-                  collapseEdits,
-                  orgId,
-                  includeExternal,
-                  includeArchived,
-                  includeHidden,
-                  sourceAppId: requestedSourceAppId,
-                  ownership,
-                });
+            const readOptions = {
+              ...(scope ? { scope } : {}),
+              ...(orgId === undefined ? {} : { orgId }),
+              collapseEdits,
+              includeExternal,
+              includeArchived,
+              includeHidden,
+              sourceAppId: requestedSourceAppId,
+              ownership,
+              offset,
+            };
+            const fetched = await (
+              q
+                ? searchThreads(owner, q, limit + 1, readOptions)
+                : listThreads(owner, {
+                    ...readOptions,
+                    limit: limit + 1,
+                    unscopedOnly,
+                  })
+            ).catch((error: unknown) => {
+              if (!(error instanceof ChatThreadSourceAppRequiredError)) {
+                throw error;
+              }
+              setResponseStatus(event, 500);
+              return { error: error.message, code: error.code } as const;
+            });
+            if (!Array.isArray(fetched)) return fetched;
             return {
               threads: fetched.slice(0, limit),
               hasMore: fetched.length > limit,
