@@ -114,7 +114,10 @@ pnpm action import-content --dryRun false --parentId abc123 --idempotencyKey gui
 Run the dry run first and tell the user each page's `status` and `notes`
 before applying. Applying fails with `IMPORT_IMAGE_NOT_UPLOADED` until every
 image named in `uploads` has a `url`; leave an image nobody can supply out of
-`files`, and its references become visible placeholders on the page. Other
+`files`, and its references become visible placeholders on the page. Images
+embedded as `data:` URLs are stored privately, readable by whoever can read the
+page; one whose bytes aren't the image type it names fails the apply with
+`IMPORT_IMAGE_INVALID` before any page is created. Other
 formats come back in `skipped` as not supported yet. Pass an
 `idempotencyKey` on every apply, and reuse it only to retry the same files,
 with the same image `url`s, into the same place. `IMPORT_INCOMPLETE` means

@@ -29,13 +29,12 @@ const blobs = vi.hoisted(() => ({
   })),
   delete: vi.fn(async () => ({ deleted: true })),
 }));
+// Private storage for embedded images: it checks the bytes as the real one
+// does and records each image where binding looks its uploader up.
 const uploads = vi.hoisted(() => ({
   count: 0,
-  upload: vi.fn(async () => ({
-    url: `/uploads/embedded-${++uploads.count}.png`,
-    provider: "test",
-  })),
-  delete: vi.fn(async () => true),
+  upload: vi.fn(),
+  delete: vi.fn(),
 }));
 const flushHook = vi.hoisted(() => ({
   once: null as (() => Promise<unknown>) | null,
@@ -55,12 +54,50 @@ vi.mock("./_document-flush.js", async (importOriginal) => {
     },
   };
 });
-vi.mock("@agent-native/core/file-upload", async (importOriginal) => ({
-  ...(await importOriginal()),
-  getActiveFileUploadProviderForRequest: async () => ({ id: "test" }),
-  uploadFile: uploads.upload,
-  deleteUploadedFile: uploads.delete,
-}));
+vi.mock("@agent-native/core/private-media", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("@agent-native/core/private-media")>();
+  const { eq } = await import("drizzle-orm");
+  const media = async () => {
+    await actual.privateMediaStore.ready();
+    return (await import("../server/db/index.js")).getDb();
+  };
+  uploads.upload.mockImplementation(
+    async (input: Parameters<typeof actual.putPrivateMedia>[0]) => {
+      const mimeType = actual.validatePrivateMediaImage(
+        input.data,
+        input.mimeType,
+      );
+      const row = {
+        id: `00000000-0000-4000-8000-${(++uploads.count).toString(16).padStart(12, "0")}`,
+        ownerEmail: input.ownerEmail.trim().toLowerCase(),
+        orgId: input.orgId ?? null,
+        mimeType,
+        filename: input.filename ?? null,
+        size: input.data.byteLength,
+        sha256: "0",
+        blobHandleJson: "{}",
+        createdAt: Date.now(),
+      };
+      await (await media()).insert(actual.privateMedia).values(row);
+      return row;
+    },
+  );
+  uploads.delete.mockImplementation(async (id: string) => {
+    const deleted = await (
+      await media()
+    )
+      .delete(actual.privateMedia)
+      .where(eq(actual.privateMedia.id, id))
+      .returning({ id: actual.privateMedia.id });
+    return deleted.length > 0;
+  });
+  return {
+    ...actual,
+    putPrivateMedia: uploads.upload,
+    deletePrivateMedia: uploads.delete,
+  };
+});
 vi.mock("@agent-native/core/application-state", async (importOriginal) => ({
   ...(await importOriginal()),
   writeAppState: writeAppStateMock,
@@ -169,6 +206,22 @@ async function importedChildren() {
     .select()
     .from(schema.documents)
     .where(eq(schema.documents.parentId, PARENT_ID));
+}
+
+/** A link to a privately stored image, as a page body keeps it. */
+const PRIVATE_IMAGE_LINK = /\/api\/private-media\/[0-9a-f-]{36}/;
+/** The bytes a PNG opens with, which is all private storage checks. */
+const PNG_BYTES = new Uint8Array([
+  0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
+]);
+
+/** The private images bound to a page, which its readers can load. */
+async function boundImages(documentId: string) {
+  const references = await getDb()
+    .select({ mediaId: schema.privateMediaReferences.mediaId })
+    .from(schema.privateMediaReferences)
+    .where(eq(schema.privateMediaReferences.documentId, documentId));
+  return references.map((reference) => reference.mediaId).sort();
 }
 
 describe("import-content", () => {
@@ -500,7 +553,7 @@ describe("import-content", () => {
           files: [
             {
               name: "chart.md",
-              text: "# Chart\n\n![Chart](data:image/png;base64,AAAA)",
+              text: "# Chart\n\n![Chart](data:image/png;base64,iVBORw0KGgo=)",
             },
           ],
           parentId: PARENT_ID,
@@ -512,11 +565,12 @@ describe("import-content", () => {
     const [page] = await importedChildren();
     expect(uploads.upload).toHaveBeenCalledTimes(2);
     expect(uploads.delete).toHaveBeenCalledTimes(1);
-    const [[, deleted]] = uploads.delete.mock.calls as unknown as [
-      [string, { url: string }],
-    ];
-    expect(page.content).toMatch(/\/uploads\/embedded-\d\.png/);
-    expect(page.content).not.toContain(deleted.url);
+    const [[deleted]] = uploads.delete.mock.calls as unknown as [[string]];
+    expect(page.content).toMatch(PRIVATE_IMAGE_LINK);
+    expect(page.content).not.toContain(deleted);
+    // The page's own image is bound to it, so its readers can load it.
+    const [kept] = page.content.match(PRIVATE_IMAGE_LINK)!;
+    expect(await boundImages(page.id)).toEqual([kept.split("/").pop()]);
   });
 
   it("keeps a created page and its embedded image when a step after the page saves fails", async () => {
@@ -526,7 +580,7 @@ describe("import-content", () => {
         files: [
           {
             name: "chart.md",
-            text: "# Chart\n\n![Chart](data:image/png;base64,AAAA)",
+            text: "# Chart\n\n![Chart](data:image/png;base64,iVBORw0KGgo=)",
           },
         ],
         parentId: PARENT_ID,
@@ -535,7 +589,7 @@ describe("import-content", () => {
     );
     const [page] = await importedChildren();
     expect(applied.pages.map((entry) => entry.id)).toEqual([page.id]);
-    expect(page.content).toMatch(/\/uploads\/embedded-\d+\.png/);
+    expect(page.content).toMatch(PRIVATE_IMAGE_LINK);
     expect(uploads.upload).toHaveBeenCalledTimes(1);
     expect(uploads.delete).not.toHaveBeenCalled();
   });
@@ -557,7 +611,7 @@ describe("import-content", () => {
         files: [
           {
             name: "chart.md",
-            text: "# Chart\n\n![Chart](data:image/png;base64,AAAA)",
+            text: "# Chart\n\n![Chart](data:image/png;base64,iVBORw0KGgo=)",
           },
         ],
         parentId: PARENT_ID,
@@ -566,7 +620,7 @@ describe("import-content", () => {
     ).catch((error: unknown) => error);
     expect(stopped).toMatchObject({ errorCode: "IMPORT_INCOMPLETE" });
     const [page] = await importedChildren();
-    expect(page.content).toMatch(/\/uploads\/embedded-\d+\.png/);
+    expect(page.content).toMatch(PRIVATE_IMAGE_LINK);
     expect(uploads.delete).not.toHaveBeenCalled();
     expect(blobs.delete).not.toHaveBeenCalled();
   });
@@ -589,7 +643,99 @@ describe("import-content", () => {
       0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a,
     ]);
     const [page] = await importedChildren();
-    expect(page.content).toMatch(/\/uploads\/embedded-\d+\.png/);
+    expect(page.content).toMatch(PRIVATE_IMAGE_LINK);
+  });
+
+  it("stores embedded images privately, bound to each page that shows them", async () => {
+    const chart = "![Chart](data:image/png;base64,iVBORw0KGgo=)";
+    await asOwner(() =>
+      importContent.run({
+        files: [
+          { name: "a.md", text: `# A\n\n${chart}` },
+          { name: "b.md", text: `# B\n\n${chart}` },
+        ],
+        parentId: PARENT_ID,
+        dryRun: false,
+      }),
+    );
+    // One upload serves both pages, in the workspace they join.
+    expect(uploads.upload).toHaveBeenCalledTimes(1);
+    expect(uploads.upload).toHaveBeenCalledWith(
+      expect.objectContaining({ ownerEmail: OWNER, orgId: null }),
+    );
+    const pages = await importedChildren();
+    expect(pages).toHaveLength(2);
+    const [link] = pages[0]!.content.match(PRIVATE_IMAGE_LINK)!;
+    const mediaId = link.split("/").pop()!;
+    for (const page of pages) {
+      expect(page.content).toContain(link);
+      expect(await boundImages(page.id)).toEqual([mediaId]);
+    }
+    expect(await boundImages(PARENT_ID)).toEqual([]);
+  });
+
+  it("refuses an embedded image whose bytes aren't the type it names, before any page", async () => {
+    const refused = await asOwner(() =>
+      importContent.run({
+        files: [
+          { name: "fine.md", text: "# Fine\n\nNo images." },
+          {
+            name: "chart.md",
+            text: "# Chart\n\n![Chart](data:image/png;base64,AAAA)",
+          },
+        ],
+        parentId: PARENT_ID,
+        dryRun: false,
+      }),
+    ).catch((error: unknown) => error);
+    expect(refused).toMatchObject({
+      errorCode: "IMPORT_IMAGE_INVALID",
+      statusCode: 415,
+    });
+    expect((refused as Error).message).toContain("chart.md");
+    expect(await importedChildren()).toEqual([]);
+  });
+
+  it("binds an image the importer uploaded for a file, and no one else's", async () => {
+    const mine = await uploads.upload({
+      ownerEmail: OWNER,
+      data: PNG_BYTES,
+      mimeType: "image/png",
+    });
+    await asOwner(() =>
+      importContent.run({
+        files: guideFiles(`/api/private-media/${mine.id}`),
+        parentId: PARENT_ID,
+        dryRun: false,
+      }),
+    );
+    const [guide] = await importedChildren();
+    expect(guide.content).toContain(`/api/private-media/${mine.id}`);
+    expect(await boundImages(guide.id)).toEqual([mine.id]);
+
+    const theirs = await uploads.upload({
+      ownerEmail: "someone-else@example.com",
+      data: PNG_BYTES,
+      mimeType: "image/png",
+    });
+    const otherParent = `${PARENT_ID}-other`;
+    await asOwner(() =>
+      createDocument.run({ id: otherParent, title: "Other imports" }),
+    );
+    await asOwner(() =>
+      importContent.run({
+        files: guideFiles(`/api/private-media/${theirs.id}`),
+        parentId: otherParent,
+        dryRun: false,
+      }),
+    );
+    const [copied] = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.parentId, otherParent));
+    expect(copied!.content).toContain(`/api/private-media/${theirs.id}`);
+    // Nobody who can read the page gains the image by linking it.
+    expect(await boundImages(copied!.id)).toEqual([]);
   });
 
   it("binds a key to one set of files when two applies with different files race", async () => {
