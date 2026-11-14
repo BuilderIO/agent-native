@@ -1,6 +1,8 @@
 import type { ReviewMention } from "@agent-native/core/review/types";
+import type { Editor } from "@tiptap/core";
+import Code from "@tiptap/extension-code";
 import Placeholder from "@tiptap/extension-placeholder";
-import type { NodeType } from "@tiptap/pm/model";
+import { Slice, type NodeType } from "@tiptap/pm/model";
 import { Selection, TextSelection } from "@tiptap/pm/state";
 import { EditorContent, useEditor } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
@@ -9,15 +11,21 @@ import {
   useEffect,
   useImperativeHandle,
   useRef,
+  useState,
   type Ref,
 } from "react";
 
+import { isComposingKey } from "./comment-send-key.js";
 import {
   parseReviewComposerText,
   REVIEW_MENTION_NODE_NAME,
   reviewMentionLeafText,
   serializeReviewComposerDoc,
 } from "./ReviewComposerText.js";
+import {
+  ReviewComposerToolbar,
+  type ReviewComposerFormatLabels,
+} from "./ReviewComposerToolbar.js";
 import { ReviewMentionNode } from "./ReviewMentionChip.js";
 
 const SILENT_META = "reviewComposerSilent";
@@ -44,7 +52,12 @@ export interface ReviewComposerEditorHandle {
   getMentionTrigger: () => ReviewComposerMentionTrigger | null;
   /** Everything before the caret as the body string, chips as `@label`. */
   getTextBeforeCaret: () => string;
+  /** Starts a new line, list item or code line, as Enter does in a document. */
   splitBlock: () => void;
+  /** Whether the caret is in a list or code block, where Enter goes on with it. */
+  enterContinuesBlock: () => boolean;
+  /** Whether the caret is in code, where `@` is only a character. */
+  isInCode: () => boolean;
 }
 
 /**
@@ -76,6 +89,7 @@ export interface ReviewComposerEditorProps {
   /** Omit when the field has no list; the editor is then a plain textbox. */
   combobox?: ReviewComposerEditorCombobox | undefined;
   className?: string;
+  formatLabels?: Partial<ReviewComposerFormatLabels> | undefined;
   /** User edits only; programmatic changes to `value` never call this. */
   onTextChange: (text: string) => void;
   onCaretChange?: () => void;
@@ -93,6 +107,7 @@ export const ReviewComposerEditor = forwardRef(function ReviewComposerEditor(
     attributes,
     combobox,
     className,
+    formatLabels,
     onTextChange,
     onCaretChange,
     onKeyDown,
@@ -102,6 +117,7 @@ export const ReviewComposerEditor = forwardRef(function ReviewComposerEditor(
 ) {
   const latest = useRef({
     placeholder,
+    mentions,
     onTextChange,
     onCaretChange,
     onKeyDown,
@@ -109,37 +125,85 @@ export const ReviewComposerEditor = forwardRef(function ReviewComposerEditor(
   });
   latest.current = {
     placeholder,
+    mentions,
     onTextChange,
     onCaretChange,
     onKeyDown,
     onReady,
+  };
+  // The body the editor last said it holds, or was last given. A `value` equal
+  // to it is the editor's own, so it never resets the editor and its caret.
+  const lastValueRef = useRef(value);
+  // The people the editor last read the body's chips with.
+  const mentionsKey = JSON.stringify(
+    mentions.map(({ label, email, id }) => [label, email ?? null, id ?? null]),
+  );
+  const lastMentionsKeyRef = useRef(mentionsKey);
+  // True while Shift+Enter runs Enter through the editor's own keymaps, so the
+  // host's Enter (send) stays out of it.
+  const replayingEnterRef = useRef(false);
+  // The link field's text while it's open.
+  const [linkDraft, setLinkDraft] = useState<string | null>(null);
+  const openLinkField = () => {
+    const instance = editorRef.current;
+    if (!instance || instance.isDestroyed || !instance.isEditable) return;
+    takePageSelection(instance.view);
+    const href: unknown = instance.getAttributes("link").href;
+    setLinkDraft(typeof href === "string" ? href : "");
+  };
+  const pressEnter = () => {
+    const instance = editorRef.current;
+    if (!instance || instance.isDestroyed) return;
+    const { view } = instance;
+    const enter = new KeyboardEvent("keydown", {
+      key: "Enter",
+      code: "Enter",
+      bubbles: true,
+      cancelable: true,
+    });
+    replayingEnterRef.current = true;
+    try {
+      // Run as a real key press, not through `keyboardShortcut`, which keeps
+      // only the steps of what Enter does and drops the caret's move, as when
+      // a third Enter leaves a code block.
+      view.someProp("handleKeyDown", (handle) => handle(view, enter));
+    } finally {
+      replayingEnterRef.current = false;
+    }
   };
 
   const editor = useEditor({
     immediatelyRender: false,
     editable: !disabled,
     content: parseReviewComposerText(value, mentions),
+    // Copied text keeps its lines, the way a paste of it reads them.
+    coreExtensionOptions: { clipboardTextSerializer: { blockSeparator: "\n" } },
+    // A paste reads Markdown once, below. Paste rules would also bold the
+    // asterisks in a page's text, or in text pasted as plain.
+    enablePasteRules: false,
     extensions: [
+      // What a comment can show: bold, italic, struck, code and links, with
+      // lists, quotes and code blocks. Markdown typed as you go formats.
       StarterKit.configure({
-        blockquote: false,
-        bold: false,
-        bulletList: false,
         code: false,
-        codeBlock: false,
         dropcursor: false,
         gapcursor: false,
         hardBreak: false,
         heading: false,
         horizontalRule: false,
-        italic: false,
-        link: false,
-        listItem: false,
-        listKeymap: false,
-        orderedList: false,
-        strike: false,
+        link: {
+          openOnClick: false,
+          autolink: true,
+          linkOnPaste: true,
+          defaultProtocol: "https",
+          HTMLAttributes: { rel: "noopener noreferrer nofollow", target: null },
+        },
         trailingNode: false,
         underline: false,
       }),
+      // In a comment, code can be bold or a link, as **`x`** and [`x`](url)
+      // are; TipTap's code mark takes no other mark.
+      Code.extend({ excludes: "code" }),
       Placeholder.configure({
         placeholder: () => latest.current.placeholder ?? "",
         emptyEditorClass: "is-editor-empty",
@@ -152,30 +216,49 @@ export const ReviewComposerEditor = forwardRef(function ReviewComposerEditor(
       attributes: {
         role: "textbox",
         "aria-multiline": "true",
+        // Cmd/Ctrl+K links here; the app's command menu leaves it alone.
+        "data-command-menu-shortcut": "own",
         ...attributes,
         ...(className ? { class: className } : {}),
       },
       handleKeyDown: (_view, event) => {
+        if (replayingEnterRef.current) return false;
         if (latest.current.onKeyDown?.(event)) return true;
-        if (
-          event.key === "Enter" &&
-          event.shiftKey &&
-          !event.isComposing &&
-          event.keyCode !== 229
-        ) {
+        if (isComposingKey(event)) return false;
+        if (event.key === "Enter" && event.shiftKey) {
           event.preventDefault();
-          editorRef.current?.commands.splitBlock();
+          pressEnter();
+          return true;
+        }
+        if (
+          (event.metaKey || event.ctrlKey) &&
+          !event.altKey &&
+          !event.shiftKey &&
+          event.key.toLowerCase() === "k"
+        ) {
+          // The box's own shortcut, not the page's.
+          event.preventDefault();
+          event.stopPropagation();
+          openLinkField();
           return true;
         }
         return false;
+      },
+      // Pasted text reads as the Markdown it shows as; Shift pastes it as
+      // plain lines. Rich text from a page comes as HTML and skips this.
+      clipboardTextParser: (text, _context, plain, view) => {
+        const doc = plain
+          ? plainLinesDoc(text)
+          : parseReviewComposerText(text, latest.current.mentions);
+        return Slice.maxOpen(view.state.schema.nodeFromJSON(doc).content);
       },
     },
     onCreate: () => latest.current.onReady?.(),
     onUpdate: ({ editor: instance, transaction }) => {
       if (transaction.getMeta(SILENT_META)) return;
-      latest.current.onTextChange(
-        serializeReviewComposerDoc(instance.state.doc),
-      );
+      const text = serializeReviewComposerDoc(instance.state.doc);
+      lastValueRef.current = text;
+      latest.current.onTextChange(text);
       latest.current.onCaretChange?.();
     },
     onSelectionUpdate: () => latest.current.onCaretChange?.(),
@@ -185,6 +268,13 @@ export const ReviewComposerEditor = forwardRef(function ReviewComposerEditor(
 
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
+    const mentionsChanged = mentionsKey !== lastMentionsKeyRef.current;
+    lastMentionsKeyRef.current = mentionsKey;
+    if (value === lastValueRef.current) {
+      if (mentionsChanged) showMentionChips(editor, value, mentions);
+      return;
+    }
+    lastValueRef.current = value;
     if (serializeReviewComposerDoc(editor.state.doc) === value) return;
     editor
       .chain()
@@ -196,10 +286,12 @@ export const ReviewComposerEditor = forwardRef(function ReviewComposerEditor(
         return true;
       })
       .run();
-  }, [editor, value, mentions]);
+  }, [editor, value, mentions, mentionsKey]);
 
   useEffect(() => {
     if (editor && !editor.isDestroyed) editor.setEditable(!disabled, false);
+    // A box that can't change closes its link field.
+    if (disabled) setLinkDraft(null);
   }, [editor, disabled]);
 
   useEffect(() => {
@@ -285,7 +377,9 @@ export const ReviewComposerEditor = forwardRef(function ReviewComposerEditor(
         tr.setMeta(SILENT_META, true);
         view.dispatch(tr);
         view.focus();
-        return serializeReviewComposerDoc(tr.doc);
+        const text = serializeReviewComposerDoc(tr.doc);
+        lastValueRef.current = text;
+        return text;
       },
       getMentionTrigger: () => {
         const instance = editorRef.current;
@@ -314,12 +408,101 @@ export const ReviewComposerEditor = forwardRef(function ReviewComposerEditor(
           reviewMentionLeafText,
         );
       },
-      splitBlock: () => {
-        editorRef.current?.commands.splitBlock();
+      splitBlock: pressEnter,
+      enterContinuesBlock: () => {
+        const instance = editorRef.current;
+        if (!instance || instance.isDestroyed) return false;
+        return instance.isActive("listItem") || instance.isActive("codeBlock");
+      },
+      isInCode: () => {
+        const instance = editorRef.current;
+        if (!instance || instance.isDestroyed) return false;
+        return instance.isActive("codeBlock") || instance.isActive("code");
       },
     }),
     [],
   );
 
-  return <EditorContent editor={editor} />;
+  return (
+    <>
+      <EditorContent editor={editor} />
+      <ReviewComposerToolbar
+        editor={editor}
+        labels={formatLabels}
+        linkDraft={linkDraft}
+        onLinkDraftChange={setLinkDraft}
+        onOpenLink={openLinkField}
+      />
+    </>
+  );
 });
+
+/**
+ * Takes up the page's selection in the editor. The browser tells the editor
+ * about a selection made with the keyboard a moment after making it, and the
+ * editor stops listening once the link field takes focus, so Cmd/Ctrl+K
+ * pressed right after Shift+Arrow would link where the caret had been.
+ */
+function takePageSelection(view: Editor["view"]) {
+  const page = view.dom.ownerDocument.getSelection();
+  if (!page?.anchorNode || !page.focusNode) return;
+  if (!view.dom.contains(page.anchorNode) || !view.dom.contains(page.focusNode))
+    return;
+  let anchor: number;
+  let head: number;
+  try {
+    anchor = view.posAtDOM(page.anchorNode, page.anchorOffset);
+    head = view.posAtDOM(page.focusNode, page.focusOffset);
+  } catch {
+    // A point the editor can't place in its document.
+    return;
+  }
+  const { doc, selection } = view.state;
+  if (selection.anchor === anchor && selection.head === head) return;
+  view.dispatch(
+    view.state.tr.setSelection(
+      TextSelection.between(doc.resolve(anchor), doc.resolve(head)),
+    ),
+  );
+}
+
+/**
+ * Chips for the people a comment mentions, when the list of them changes
+ * after its text, as when it loads later. Only what differs is replaced, so
+ * the caret stays where it was, and it's not a step to undo.
+ */
+function showMentionChips(
+  editor: Editor,
+  value: string,
+  mentions: readonly ReviewMention[],
+) {
+  const { state } = editor;
+  const next = state.schema.nodeFromJSON(
+    parseReviewComposerText(value, mentions),
+  );
+  const start = state.doc.content.findDiffStart(next.content);
+  const end = state.doc.content.findDiffEnd(next.content);
+  if (start === null || end === null) return;
+  // Where the change repeats the text beside it, the two ends can cross.
+  const overlap = Math.max(0, start - Math.min(end.a, end.b));
+  editor.view.dispatch(
+    state.tr
+      .replace(start, end.a + overlap, next.slice(start, end.b + overlap))
+      .setMeta(SILENT_META, true)
+      .setMeta("addToHistory", false),
+  );
+}
+
+/** Text as its lines, each kept as typed. */
+function plainLinesDoc(text: string) {
+  return {
+    type: "doc",
+    content: text
+      .split(/\r\n?|\n/)
+      .map((line) =>
+        line
+          ? { type: "paragraph", content: [{ type: "text", text: line }] }
+          : { type: "paragraph" },
+      ),
+  };
+}

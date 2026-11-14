@@ -225,6 +225,7 @@
         "react-markdown",
         "react-router",
         "remark-gfm",
+        "shiki",
         "sonner",
         "tailwind-merge"
       ],
@@ -734,6 +735,7 @@
         "@agent-native/core/client/api-path",
         "@agent-native/core/client/dev-overlay",
         "@agent-native/core/client/i18n",
+        "@agent-native/core/client/onboarding/first-run-enabled",
         "@agent-native/core/client/route-warmup",
         "@agent-native/core/client/theme",
         "@agent-native/core/client/ui",
@@ -1354,6 +1356,7 @@
         "@agent-native/core",
         "@tabler/icons-react",
         "@tiptap/core",
+        "@tiptap/extension-code",
         "@tiptap/extension-placeholder",
         "@tiptap/pm",
         "@tiptap/react",
@@ -1369,6 +1372,7 @@
         "@agent-native/core/client/i18n",
         "@agent-native/core/client/review/use-review",
         "@agent-native/core/client/use-avatar",
+        "@agent-native/core/review/markdown",
         "@agent-native/core/review/plain-text",
         "@agent-native/core/review/types"
       ]

@@ -1761,7 +1761,6 @@ export default {
     signInToRequestAccessTitle: "ログインしてアクセスをリクエスト",
     signInToRequestAccessDescription:
       "ログインするかアカウントを作成して、所有者にアクセスをリクエストしてください。",
-    signInOrSignUp: "ログインまたは登録",
     accessCheckFailed: "このデザインへのアクセスを確認できませんでした。",
     retryAccessCheck: "再試行",
     saveAsTemplate: "テンプレートとして保存…",
@@ -2234,6 +2233,10 @@ export default {
         "別の共同編集者の変更が適用待ちです。新しい変更を送る前に適用するか消去してください。",
       codingHandoffCopied: "コーディング引き継ぎをコピーしました",
       clipboardBlocked: "クリップボードがブロックされました",
+      pasteMediaTooMany_other:
+        "{{count}} 件のファイルは貼り付けられませんでした。一度に貼り付けられるのは最大 {{limit}} 件です。",
+      pasteMediaTooLarge_other:
+        "{{count}} 件のファイルは {{limitMb}} MB を超えているため貼り付けられませんでした。",
       htmlCreateError: "HTML ダウンロードを作成できませんでした",
       htmlDownloaded: "HTML をダウンロードしました",
       htmlExportError: "HTML をエクスポートできませんでした",
@@ -3421,6 +3424,18 @@ export default {
     addEmoji: "絵文字を追加",
     mention: "メンションする",
     noMentions: "該当するユーザーがいません",
+    format: {
+      toolbar: "書式",
+      bold: "太字",
+      italic: "斜体",
+      strike: "取り消し線",
+      code: "コード",
+      link: "リンク",
+      linkField: "リンクのアドレス",
+      linkPlaceholder: "リンクを貼り付け",
+      applyLink: "リンクを適用",
+      removeLink: "リンクを削除",
+    },
     mentionsFailed: "ユーザーを読み込めませんでした",
     reopen: "再開",
     reopening: "再開中…",

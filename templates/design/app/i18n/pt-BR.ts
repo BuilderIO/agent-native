@@ -1760,7 +1760,6 @@ export default {
     signInToRequestAccessTitle: "Entre para solicitar acesso",
     signInToRequestAccessDescription:
       "Entre ou crie uma conta para solicitar acesso ao proprietário.",
-    signInOrSignUp: "Entrar ou criar conta",
     accessCheckFailed: "Não foi possível verificar o acesso a este design.",
     retryAccessCheck: "Tentar novamente",
     saveAsTemplate: "Salvar como modelo…",
@@ -2231,6 +2230,18 @@ export default {
         "Há alterações de outro colaborador aguardando aplicação. Aplique ou limpe-as antes de enviar novas alterações.",
       codingHandoffCopied: "Handoff de código copiado",
       clipboardBlocked: "Área de transferência bloqueada",
+      pasteMediaTooMany_one:
+        "{{count}} arquivo não foi colado. Você pode colar até {{limit}} arquivos de uma vez.",
+      pasteMediaTooMany_many:
+        "{{count}} arquivos não foram colados. Você pode colar até {{limit}} arquivos de uma vez.",
+      pasteMediaTooMany_other:
+        "{{count}} arquivos não foram colados. Você pode colar até {{limit}} arquivos de uma vez.",
+      pasteMediaTooLarge_one:
+        "{{count}} arquivo não foi colado porque tem mais de {{limitMb}} MB.",
+      pasteMediaTooLarge_many:
+        "{{count}} arquivos não foram colados porque têm mais de {{limitMb}} MB.",
+      pasteMediaTooLarge_other:
+        "{{count}} arquivos não foram colados porque têm mais de {{limitMb}} MB.",
       htmlCreateError: "Não foi possível criar o download HTML",
       htmlDownloaded: "HTML baixado",
       htmlExportError: "Não foi possível exportar HTML",
@@ -3422,6 +3433,18 @@ export default {
     addEmoji: "Adicionar emoji",
     mention: "Mencionar alguém",
     noMentions: "Nenhuma pessoa encontrada",
+    format: {
+      toolbar: "Formatação",
+      bold: "Negrito",
+      italic: "Itálico",
+      strike: "Tachado",
+      code: "Código",
+      link: "Inserir link",
+      linkField: "Endereço do link",
+      linkPlaceholder: "Cole um link",
+      applyLink: "Aplicar link",
+      removeLink: "Remover link",
+    },
     mentionsFailed: "Não foi possível carregar as pessoas",
     reopen: "Reabrir",
     reopening: "Reabrindo…",

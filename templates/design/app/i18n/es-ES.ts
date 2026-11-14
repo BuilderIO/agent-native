@@ -1767,7 +1767,6 @@ export default {
     signInToRequestAccessTitle: "Inicia sesión para solicitar acceso",
     signInToRequestAccessDescription:
       "Inicia sesión o crea una cuenta para solicitar acceso al propietario.",
-    signInOrSignUp: "Iniciar sesión o registrarse",
     accessCheckFailed: "No se pudo comprobar el acceso a este diseño.",
     retryAccessCheck: "Reintentar",
     saveAsTemplate: "Guardar como plantilla…",
@@ -2240,6 +2239,18 @@ export default {
         "Otro colaborador tiene cambios pendientes. Aplícalos o elimínalos antes de enviar cambios nuevos.",
       codingHandoffCopied: "Entrega para código copiada",
       clipboardBlocked: "Portapapeles bloqueado",
+      pasteMediaTooMany_one:
+        "No se pegó {{count}} archivo. Puedes pegar hasta {{limit}} archivos a la vez.",
+      pasteMediaTooMany_many:
+        "No se pegaron {{count}} archivos. Puedes pegar hasta {{limit}} archivos a la vez.",
+      pasteMediaTooMany_other:
+        "No se pegaron {{count}} archivos. Puedes pegar hasta {{limit}} archivos a la vez.",
+      pasteMediaTooLarge_one:
+        "No se pegó {{count}} archivo porque supera los {{limitMb}} MB.",
+      pasteMediaTooLarge_many:
+        "No se pegaron {{count}} archivos porque superan los {{limitMb}} MB.",
+      pasteMediaTooLarge_other:
+        "No se pegaron {{count}} archivos porque superan los {{limitMb}} MB.",
       htmlCreateError: "No se pudo crear la descarga HTML",
       htmlDownloaded: "HTML descargado",
       htmlExportError: "No se pudo exportar HTML",
@@ -3432,6 +3443,18 @@ export default {
     addEmoji: "Añadir emoji",
     mention: "Mencionar a alguien",
     noMentions: "No se encontraron personas",
+    format: {
+      toolbar: "Formato",
+      bold: "Negrita",
+      italic: "Cursiva",
+      strike: "Tachado",
+      code: "Código",
+      link: "Enlace",
+      linkField: "Dirección del enlace",
+      linkPlaceholder: "Pega un enlace",
+      applyLink: "Aplicar enlace",
+      removeLink: "Quitar enlace",
+    },
     mentionsFailed: "No se pudo cargar a las personas",
     reopen: "Reabrir",
     reopening: "Reabriendo…",

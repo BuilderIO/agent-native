@@ -1682,7 +1682,6 @@ export default {
     signInToRequestAccessTitle: "Sign in to request access",
     signInToRequestAccessDescription:
       "Sign in or create an account to request access from the owner.",
-    signInOrSignUp: "Sign in or sign up",
     accessCheckFailed: "Could not check access to this design.",
     retryAccessCheck: "Try again",
     saveAsTemplate: "Save as template…",
@@ -2254,6 +2253,14 @@ export default {
       pasteClipboardUnreadable: "Allow clipboard access to paste here",
       pasteClipboardUntrusted:
         "Can't paste layers copied from Design on another site",
+      pasteMediaTooMany_one:
+        "{{count}} file wasn't pasted. You can paste up to {{limit}} files at once.",
+      pasteMediaTooMany_other:
+        "{{count}} files weren't pasted. You can paste up to {{limit}} files at once.",
+      pasteMediaTooLarge_one:
+        "{{count}} file wasn't pasted because it's over {{limitMb}} MB.",
+      pasteMediaTooLarge_other:
+        "{{count}} files weren't pasted because they're over {{limitMb}} MB.",
       swapFillStrokeLayeredFill:
         "Multiple or image fills can't move to a stroke yet",
       alignNeedsTwoLayers: "Select two or more layers to align them",
@@ -3321,6 +3328,18 @@ export default {
     addEmoji: "Add emoji",
     mention: "Mention someone",
     noMentions: "No people found",
+    format: {
+      toolbar: "Formatting",
+      bold: "Bold",
+      italic: "Italic",
+      strike: "Strikethrough",
+      code: "Code",
+      link: "Link",
+      linkField: "Link address",
+      linkPlaceholder: "Paste a link",
+      applyLink: "Apply link",
+      removeLink: "Remove link",
+    },
     mentionsFailed: "Couldn't load people",
     reopen: "Reopen",
     reopening: "Reopening…",

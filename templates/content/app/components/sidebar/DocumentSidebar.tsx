@@ -127,7 +127,6 @@ import {
   usePermanentlyDeleteDocument,
   useRestoreDocument,
   useTrashedDocuments,
-  useMoveDocument,
   useUpdateDocument,
   isDocumentUpdateConflict,
   isDocumentUpdatePreservationRequired,
@@ -202,11 +201,6 @@ import {
   localSourceItemIdentity,
   projectLocalSourceHierarchy,
 } from "./local-source-hierarchy";
-import {
-  MovePageDialog,
-  type MovePageDestination,
-  type MovePageTarget,
-} from "./MovePageDialog";
 import { PersonalSidebarSections } from "./PersonalSidebarSections";
 import {
   contentSpaceActionArgs,
@@ -227,6 +221,7 @@ import {
   SidebarPageActionsProvider,
   type SidebarPageActions,
 } from "./SidebarRowActions";
+import { useMovePageDialog } from "./use-move-page-dialog";
 import {
   WorkspaceSourceMenu,
   type CreatedWorkspace,
@@ -278,14 +273,24 @@ export async function retryCreateAfterDraftRead<T>(
   return { created, draft: await read() };
 }
 
+/**
+ * Re-sends a pending page's create only when the server doesn't have the page.
+ * The tab that created it clears the intent before it frees the create lock,
+ * but the next tab can still read the cleared intent: localStorage reaches
+ * other tabs asynchronously, and nothing orders it with the lock hand-off.
+ */
 export function retryCreateAfterIntentWrite<T>(
   scope: DocumentCreateIntentScope,
   intent: DocumentCreateIntent,
   read: DraftRead,
+  readCommitted: () => Promise<Document>,
   create: () => Promise<T>,
-): Promise<{ created: T; draft: PageDraftJournalEntry | null }> {
+): Promise<{ created: Document | T; draft: PageDraftJournalEntry | null }> {
   writeDocumentCreateIntentBestEffort(scope, { ...intent, status: "pending" });
-  return retryCreateAfterDraftRead(read, create);
+  return retryCreateAfterDraftRead(read, async () => {
+    const resolution = await readDocumentBeforeCreateDiscard(readCommitted);
+    return resolution.kind === "committed" ? resolution.document : create();
+  });
 }
 
 /**
@@ -2271,6 +2276,12 @@ export function DocumentSidebar({
                   currentIntent,
                   read,
                   () =>
+                    callAction<Document>(
+                      "get-document",
+                      { id: currentIntent.id },
+                      { method: "GET" },
+                    ),
+                  () =>
                     createDocumentAsync({
                       id: currentIntent.id,
                       title: "",
@@ -3076,7 +3087,6 @@ export function DocumentSidebar({
     [queryClient, t, updateDocument],
   );
 
-  const moveDocument = useMoveDocument();
   const duplicateDocument = useActionMutation("duplicate-page", {
     skipActionQueryInvalidation: true,
     onSuccess: (_result, { documentId }) =>
@@ -3086,7 +3096,11 @@ export function DocumentSidebar({
         ...SEARCH_QUERY_KEYS,
       ]),
   });
-  const [movingPage, setMovingPage] = useState<MovePageTarget | null>(null);
+  const { startMove, dialog: movePageDialog } = useMovePageDialog({
+    onMoved: (_page, { parentId }) => {
+      if (parentId) handleDocumentExpandedChange(parentId, true);
+    },
+  });
   const sidebarPageActions = useMemo<SidebarPageActions>(
     () => ({
       renamePage: async (documentId, title) => {
@@ -3121,57 +3135,14 @@ export function DocumentSidebar({
         );
       },
       movePage: ({ documentId, title, spaceId }) =>
-        setMovingPage({
+        startMove({
           documentId,
           title,
           spaceId: spaceId ?? selectedSpace?.id ?? null,
         }),
     }),
-    [duplicateDocument, selectedSpace?.id, t, updateDocument],
+    [duplicateDocument, selectedSpace?.id, startMove, t, updateDocument],
   );
-  const moveSpaces = useMemo(
-    () =>
-      contentSpaces.filter(
-        (space) =>
-          space.id === movingPage?.spaceId ||
-          (space.kind !== "source_backed" && space.canCreateDatabase !== false),
-      ),
-    [contentSpaces, movingPage?.spaceId],
-  );
-  const handleMovePage = useCallback(
-    (page: MovePageTarget, { spaceId, parentId }: MovePageDestination) => {
-      const crossSpace = spaceId !== page.spaceId;
-      moveDocument.mutate(
-        { id: page.documentId, parentId, ...(crossSpace ? { spaceId } : {}) },
-        {
-          onSuccess: () => {
-            if (parentId) handleDocumentExpandedChange(parentId, true);
-            if (crossSpace) {
-              const space = contentSpaces.find(
-                (candidate) => candidate.id === spaceId,
-              );
-              toast.success(
-                t("sidebar.movedToSpace", {
-                  title: page.title,
-                  space: space?.name ?? "",
-                }),
-              );
-            }
-          },
-          onError: (error) => {
-            toast.error(t("sidebar.failedMovePage"), {
-              description:
-                error instanceof Error
-                  ? error.message
-                  : t("empty.genericError"),
-            });
-          },
-        },
-      );
-    },
-    [contentSpaces, handleDocumentExpandedChange, moveDocument, t],
-  );
-
   const handleRestoreDatabase = useCallback(
     async (databaseId: string) => {
       try {
@@ -4023,14 +3994,7 @@ export function DocumentSidebar({
         }
       />
 
-      <MovePageDialog
-        page={movingPage}
-        spaces={moveSpaces}
-        onOpenChange={(open) => {
-          if (!open) setMovingPage(null);
-        }}
-        onMove={handleMovePage}
-      />
+      {movePageDialog}
 
       {createDiscardDialog}
 

@@ -1736,7 +1736,6 @@ export default {
     signInToRequestAccessTitle: "ऐक्सेस माँगने के लिए साइन इन करें",
     signInToRequestAccessDescription:
       "मालिक से ऐक्सेस माँगने के लिए साइन इन करें या खाता बनाएँ।",
-    signInOrSignUp: "साइन इन या साइन अप करें",
     accessCheckFailed: "इस डिज़ाइन का ऐक्सेस जाँचा नहीं जा सका।",
     retryAccessCheck: "फिर कोशिश करें",
     saveAsTemplate: "टेम्पलेट के रूप में सहेजें…",
@@ -2201,6 +2200,14 @@ export default {
         "किसी अन्य सहयोगी के बदलाव लागू होने की प्रतीक्षा में हैं। नए बदलाव भेजने से पहले उन्हें लागू करें या हटाएँ।",
       codingHandoffCopied: "कोडिंग हैंडऑफ़ कॉपी हुआ",
       clipboardBlocked: "क्लिपबोर्ड अवरुद्ध है",
+      pasteMediaTooMany_one:
+        "{{count}} फ़ाइल पेस्ट नहीं हुई। आप एक बार में अधिकतम {{limit}} फ़ाइलें पेस्ट कर सकते हैं।",
+      pasteMediaTooMany_other:
+        "{{count}} फ़ाइलें पेस्ट नहीं हुईं। आप एक बार में अधिकतम {{limit}} फ़ाइलें पेस्ट कर सकते हैं।",
+      pasteMediaTooLarge_one:
+        "{{count}} फ़ाइल पेस्ट नहीं हुई क्योंकि वह {{limitMb}} MB से बड़ी है।",
+      pasteMediaTooLarge_other:
+        "{{count}} फ़ाइलें पेस्ट नहीं हुईं क्योंकि वे {{limitMb}} MB से बड़ी हैं।",
       htmlCreateError: "HTML डाउनलोड नहीं बनाया जा सका",
       htmlDownloaded: "HTML डाउनलोड हुआ",
       htmlExportError: "HTML निर्यात नहीं किया जा सका",
@@ -3360,6 +3367,18 @@ export default {
     addEmoji: "इमोजी जोड़ें",
     mention: "किसी को मेंशन करें",
     noMentions: "कोई व्यक्ति नहीं मिला",
+    format: {
+      toolbar: "फ़ॉर्मैटिंग",
+      bold: "बोल्ड",
+      italic: "इटैलिक",
+      strike: "स्ट्राइकथ्रू",
+      code: "कोड",
+      link: "लिंक",
+      linkField: "लिंक का पता",
+      linkPlaceholder: "लिंक पेस्ट करें",
+      applyLink: "लिंक लागू करें",
+      removeLink: "लिंक हटाएँ",
+    },
     mentionsFailed: "लोगों को लोड नहीं किया जा सका",
     reopen: "फिर से खोलें",
     reopening: "फिर से खोला जा रहा है…",

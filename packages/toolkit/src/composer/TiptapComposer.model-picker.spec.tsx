@@ -264,26 +264,23 @@ describe("TiptapComposer model picker", () => {
       "gpt-6-1-sol",
       "gemini-3-1-pro",
       "claude-sonnet-5-5",
+      // oracle-change: the model menu dropped its details card, printed digits and Recommended badges.
     ]);
-    expect(rows[1]!.textContent).toBe("Opus 5.5" + "2");
-    expect(rows[1]!.textContent).not.toContain("Flagship capability");
-    // Auto's badge follows its name inside the label group; only the check
-    // and the shortcut sit at the far end.
-    const autoLabel = rows[0]!.firstElementChild!;
-    expect(autoLabel.firstElementChild?.textContent).toBe("Auto");
-    expect(autoLabel.lastElementChild?.textContent).toBe("Recommended");
-    expect(
-      rows.slice(1).some((row) => row.textContent?.includes("Recommended")),
-    ).toBe(false);
-    // The current model's check takes its number's place in the one
-    // trailing column.
-    expect(
-      rows.map(
-        (row) =>
-          row.lastElementChild?.textContent ||
-          (row.lastElementChild?.querySelector("svg") ? "check" : ""),
-      ),
-    ).toEqual(["1", "2", "3", "4", "check"]);
+    // Digit shortcuts are announced, not printed.
+    expect(rows.map((row) => row.textContent)).toEqual([
+      "Auto",
+      "Opus 5.5",
+      "GPT-6.1 Sol",
+      "Gemini 3.1 Pro",
+      "Sonnet 5.5",
+    ]);
+    expect(rows.map((row) => row.getAttribute("aria-keyshortcuts"))).toEqual([
+      "1",
+      "2",
+      "3",
+      "4",
+      "5",
+    ]);
     const selected = rows.filter(
       (row) => row.getAttribute("aria-checked") === "true",
     );
@@ -425,12 +422,6 @@ describe("TiptapComposer model picker", () => {
     const [row] = topLevelRows(menu);
     expect(row!.textContent).toBe("my-fine-tune");
     expect(row!.querySelector(".agent-kit-caption-copy")).toBeNull();
-    await act(async () => row!.focus());
-    const card = document.querySelector<HTMLElement>(
-      "[data-agent-composer-model-card]",
-    );
-    expect(card?.textContent).toContain("Context window");
-    expect(card?.querySelector('[role="meter"]')).toBeNull();
   });
 
   it("shows the connect choices and no model list with nothing connected", async () => {
@@ -505,14 +496,13 @@ describe("TiptapComposer model picker", () => {
     expect(onModelChange).toHaveBeenCalledWith("gpt-6-1-sol", "builder");
     expect(document.querySelector('[role="menu"]')).toBeNull();
 
-    // The current row shows a check instead of 1, and 1 still selects it.
     const reopened = await openPicker();
-    expect(topLevelRows(reopened)[0]!.textContent).not.toContain("1");
+    expect(topLevelRows(reopened)[0]!.textContent).toBe("Auto");
     await act(async () => keydown(topLevelRows(reopened)[0]!, "1"));
     expect(onModelChange).toHaveBeenLastCalledWith("auto", "builder");
   });
 
-  it("shows the focused model's ratings, context window, and billing beside the menu", async () => {
+  it("shows nothing beside the menu when a model has focus", async () => {
     act(() =>
       root.render(
         <Harness
@@ -527,45 +517,12 @@ describe("TiptapComposer model picker", () => {
       '[data-agent-composer-model-row="claude-opus-5-5"]',
     )!;
     await act(async () => opus.focus());
-    const card = document.querySelector<HTMLElement>(
-      "[data-agent-composer-model-card]",
-    )!;
-    expect(card.firstElementChild?.textContent).toBe("Opus 5.5");
-    const surface = card.closest<HTMLElement>('[role="tooltip"]')!;
-    expect(surface.className).toMatch(/\bp-4\b/);
-    expect(surface.className).toMatch(/\bw-72\b/);
-    const segments = Array.from(
-      card.querySelectorAll('[role="meter"]')[2]!.children,
-    ).map((segment) => segment.className.match(/bg-\w+/)?.[0]);
-    expect(segments).toEqual([
-      "bg-ring",
-      "bg-ring",
-      "bg-muted",
-      "bg-muted",
-      "bg-muted",
-    ]);
-    expect(card.textContent).toContain(
-      "Most capable Claude model for complex work",
-    );
-    expect(
-      Array.from(card.querySelectorAll('[role="meter"]')).map((meter) =>
-        meter.getAttribute("aria-label"),
-      ),
-    ).toEqual(["Cost 5 of 5", "Reasoning 5 of 5", "Speed 2 of 5"]);
-    expect(card.textContent).toContain("1M tokens");
-    expect(card.textContent).toContain("Uses Builder credits");
-    expect(opus.getAttribute("aria-describedby")).toBe(
-      card.closest('[role="tooltip"]')?.id,
-    );
+    expect(document.querySelector('[role="tooltip"]')).toBeNull();
+    expect(opus.hasAttribute("aria-describedby")).toBe(false);
     expect(document.activeElement).toBe(opus);
-
-    await act(async () => opus.blur());
-    expect(
-      document.querySelector("[data-agent-composer-model-card]"),
-    ).toBeNull();
   });
 
-  it("picks effort from a submenu that marks the default level", async () => {
+  it("picks effort from a submenu", async () => {
     const onEffortChange = vi.fn();
     act(() =>
       root.render(
@@ -615,13 +572,7 @@ describe("TiptapComposer model picker", () => {
     expect(
       levels.filter((level) => level.getAttribute("aria-checked") === "true"),
     ).toEqual([levels[4]]);
-    // The badge marks the provider's default level, not a harness default.
-    expect(
-      levels.filter((level) => level.textContent?.includes("Recommended")),
-    ).toEqual([levels[1]]);
-    expect(levels[1]!.firstElementChild?.lastElementChild?.textContent).toBe(
-      "Recommended",
-    );
+    expect(panel.textContent).not.toContain("Recommended");
     expect(panel.textContent).not.toMatch(/usage/);
 
     await act(async () => levels[2]!.click());
@@ -781,7 +732,7 @@ describe("TiptapComposer model picker", () => {
     expect(document.querySelector('[role="menu"]')).not.toBeNull();
   });
 
-  it("stacks More models in one menu on a narrow viewport, without the card", async () => {
+  it("stacks More models in one menu on a narrow viewport", async () => {
     Object.defineProperty(window, "innerWidth", {
       configurable: true,
       value: 390,
@@ -806,16 +757,6 @@ describe("TiptapComposer model picker", () => {
     ).toContain("Codex");
     expect(topLevelRows(menu)).toHaveLength(BUILDER_MODELS.length);
     expect(document.querySelectorAll('[role="menu"]')).toHaveLength(1);
-    await act(async () =>
-      menu
-        .querySelector<HTMLElement>(
-          '[data-agent-composer-model-row="claude-opus-5-5"]',
-        )!
-        .focus(),
-    );
-    expect(
-      document.querySelector("[data-agent-composer-model-card]"),
-    ).toBeNull();
   });
 
   it("keeps the plain row list without a catalog", async () => {
