@@ -621,7 +621,7 @@ const updateDocumentAction = defineAction({
       .string()
       .optional()
       .describe(
-        "Opaque body revision from get-document; guards content saves without treating metadata changes as body conflicts. Required with content from scripts, the CLI and automations.",
+        "Opaque body revision from get-document; guards content saves without treating metadata changes as body conflicts. Scripts, the CLI and automations send it, or baseUpdatedAt, with content.",
       ),
     authoredBaseRevision: z.string().optional(),
     // Body copies take any length `content` takes. A tighter cap here refused
@@ -852,7 +852,7 @@ const updateDocumentAction = defineAction({
           args.baseUpdatedAt === undefined
         ) {
           throw new ActionContractError(
-            "Replacing a document body from outside the app requires baseRevision from get-document.",
+            "Replacing a document body from outside the app requires baseRevision from get-document, or that read's updatedAt as baseUpdatedAt.",
             { errorCode: "BASE_REVISION_REQUIRED", statusCode: 400 },
           );
         }

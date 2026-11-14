@@ -201,9 +201,10 @@ edit commits. Restore it before editing. A local-folder sync
 Update an existing document's metadata or browser-owned content. External
 callers use the revisioned `edit-document` protocol for every body change. A
 script, CLI call or automation that replaces the body passes the `baseRevision`
-`get-document` returned: without it the write refuses with
-`BASE_REVISION_REQUIRED` (400), and if the page changed since that read it
-fails with `DOCUMENT_REVISION_CONFLICT` (409), carrying the page's
+`get-document` returned (that read's `updatedAt` as `baseUpdatedAt` also
+works): with neither, the write refuses with `BASE_REVISION_REQUIRED` (400),
+and if the page changed since that read it fails with
+`DOCUMENT_REVISION_CONFLICT` (409), carrying the page's
 `details.currentRevision`, and writes nothing.
 
 ```bash
