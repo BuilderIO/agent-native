@@ -410,6 +410,9 @@ describe("build cache input and output integrity", () => {
       RUNNER_TRACKING_ID: "github_one",
       INVOCATION_ID: "one",
       JOURNAL_STREAM: "8:1",
+      SYSTEMD_EXEC_PID: "100",
+      GITHUB_ARTIFACTS: "a",
+      GITHUB_ARTIFACTS_LIST: "a",
     };
     expect(
       hashBuildEnv(
@@ -424,6 +427,9 @@ describe("build cache input and output integrity", () => {
           RUNNER_TRACKING_ID: "github_two",
           INVOCATION_ID: "two",
           JOURNAL_STREAM: "9:2",
+          SYSTEMD_EXEC_PID: "200",
+          GITHUB_ARTIFACTS: "b",
+          GITHUB_ARTIFACTS_LIST: "b",
         },
         ignored,
       ),

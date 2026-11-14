@@ -90,6 +90,8 @@ const VOLATILE_ENV_PREFIXES = [
   "runner_tracking_id",
   "invocation_id",
   "journal_stream",
+  "systemd_exec_pid",
+  "github_artifacts",
   "actions_",
   "github_run_",
   "github_sha",
