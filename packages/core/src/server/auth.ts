@@ -1725,6 +1725,8 @@ async function resolveBetterAuthSessionToken(
   return null;
 }
 
+const UNSAFE_DECODED_COOKIE_VALUE = /[^\u0000-\u00ff]|[\0\r\n]/;
+
 function decodeCookieHeader(raw: string): string {
   return raw
     .split(";")
@@ -1733,8 +1735,13 @@ function decodeCookieHeader(raw: string): string {
       const eq = trimmed.indexOf("=");
       if (eq <= 0) return trimmed;
       const name = trimmed.slice(0, eq).trim();
-      const value = decodeSessionCookieValue(trimmed.slice(eq + 1).trim());
-      return `${name}=${value}`;
+      const raw = trimmed.slice(eq + 1).trim();
+      const value = decodeSessionCookieValue(raw);
+      // Cookies shared from a parent domain (analytics, shop) can hold
+      // percent-encoded characters above U+00FF or control characters
+      // (NUL, CR, LF). Decoded, they are not a valid header value and
+      // `new Headers()` throws, so keep them raw.
+      return `${name}=${UNSAFE_DECODED_COOKIE_VALUE.test(value) ? raw : value}`;
     })
     .filter(Boolean)
     .join("; ");
