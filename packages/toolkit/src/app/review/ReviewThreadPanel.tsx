@@ -46,6 +46,7 @@ import { useMemo, useRef, useState, type ReactNode } from "react";
 
 import { ReviewCommentComposer } from "./ReviewCommentComposer.js";
 import { ReviewCommentItem } from "./ReviewCommentItem.js";
+import type { ReviewComposerFormatLabels } from "./ReviewComposerToolbar.js";
 import { DEFAULT_REACTION_CHOICES } from "./ReviewReactionBar.js";
 import { ReviewStatusBadge } from "./ReviewStatusBadge.js";
 import { ReviewThreadMenu } from "./ReviewThreadMenu.js";
@@ -115,6 +116,7 @@ export interface ReviewThreadPanelProps {
   addReactionLabel?: string;
   onReactionError?: () => void;
   mentionOptions?: readonly ReviewMention[];
+  formatLabels?: Partial<ReviewComposerFormatLabels>;
   showComposerTools?: boolean;
   canEditComment?: ReviewCommentCapability;
   editLabel?: string;
@@ -191,6 +193,7 @@ export function ReviewThreadPanel({
   addReactionLabel = "Add reaction",
   onReactionError,
   mentionOptions = [],
+  formatLabels,
   showComposerTools = false,
   canEditComment = false,
   editLabel = "Edit comment",
@@ -780,6 +783,7 @@ export function ReviewThreadPanel({
               setDraftMentions(mentions);
             }}
             mentionOptions={mentionOptions}
+            formatLabels={formatLabels}
             showCommentTools={showComposerTools}
             onChange={(value) => {
               draftGenerationRef.current += 1;
@@ -976,6 +980,7 @@ export function ReviewThreadPanel({
                               setEditMentions(mentions);
                             }}
                             mentionOptions={mentionOptions}
+                            formatLabels={formatLabels}
                             showCommentTools={showComposerTools}
                             onChange={(value) => {
                               editGenerationRef.current += 1;
@@ -1060,6 +1065,7 @@ export function ReviewThreadPanel({
                         value={replyDraft}
                         mentions={replyMentions[thread.root.id] ?? []}
                         mentionOptions={mentionOptions}
+                        formatLabels={formatLabels}
                         onMentionsChange={(mentions) => {
                           replyMentionsRef.current = {
                             ...replyMentionsRef.current,

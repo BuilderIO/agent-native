@@ -81,6 +81,9 @@ vi.mock("@/hooks/use-account-filter", () => ({
 vi.mock("@/hooks/use-aliases", () => ({
   useAliases: () => ({ data: [] }),
 }));
+vi.mock("@/hooks/use-can-manage-storage", () => ({
+  useCanManageStorage: () => true,
+}));
 vi.mock("@/hooks/use-draft-queue", () => ({
   useUpdateQueuedDraft: () => ({ mutate: vi.fn() }),
 }));

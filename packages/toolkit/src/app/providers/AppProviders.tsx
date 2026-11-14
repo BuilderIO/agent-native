@@ -58,6 +58,10 @@ import {
 import { WriteFailureToaster } from "../shared/WriteFailureToaster.js";
 import { BuilderSignupStartupGate } from "./BuilderSignupActivation.js";
 
+declare const __AGENT_NATIVE_APP_CONFIG__: Parameters<
+  typeof isFirstRunOnboardingEnabled
+>[1];
+
 export interface AppProvidersProps {
   queryClient: QueryClient;
 
@@ -525,20 +529,21 @@ function ProvidersInner({
   settingsShortcut: boolean;
   children: React.ReactNode;
 }) {
-  // The banner and the failure toasts read the app's locale, so they sit
-  // inside the same provider.
+  // The toaster shares the app's locale but must remain outside session gates.
   const localizedChildren =
     i18n === false ? (
       <>
         {children}
         {ownsDocument ? <ConsentBanner /> : null}
         <WriteFailureToaster />
+        {toaster}
       </>
     ) : (
       <AgentNativeI18nProvider {...(i18n ?? {})}>
         {children}
         {ownsDocument ? <ConsentBanner /> : null}
         <WriteFailureToaster />
+        {toaster}
       </AgentNativeI18nProvider>
     );
 
@@ -559,7 +564,6 @@ function ProvidersInner({
       {showEnvironmentBadge ? (
         <EnvironmentBadge showProduction={showProductionEnvironmentBadge} />
       ) : null}
-      {toaster}
     </TooltipProvider>
   );
 
@@ -712,7 +716,12 @@ export function AppProviders({
         <>
           <EarlySessionBootstrapScript />
           <EarlyBetaRedirectScript />
-          {isFirstRunOnboardingEnabled() && !skipFirstRunOnboarding ? (
+          {isFirstRunOnboardingEnabled(
+            import.meta.env,
+            typeof __AGENT_NATIVE_APP_CONFIG__ === "undefined"
+              ? {}
+              : __AGENT_NATIVE_APP_CONFIG__,
+          ) && !skipFirstRunOnboarding ? (
             <FirstRunFirstPaintScript />
           ) : null}
         </>

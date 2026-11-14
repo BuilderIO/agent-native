@@ -19,12 +19,13 @@ import {
   buildOnboardingJourneyEventPageRequest,
   getOnboardingJourneyEventReadPageBudget,
   getOnboardingJourneyEventReadPageCount,
-  ONBOARDING_EVENT_READ_DEADLINE_MS,
   ONBOARDING_EVENT_PAGE_ROWS,
   ONBOARDING_EVENTS_DEFAULT_MAX_TOTAL_BYTES_BILLED,
   ONBOARDING_EVENTS_MAX_BYTES_BILLED,
   ONBOARDING_JOURNEY_EVENT_SOURCE_OPTIONS,
 } from "./onboarding-journey.js";
+
+export const ONBOARDING_COST_ESTIMATE_DEADLINE_MS = 45_000;
 
 export type OnboardingJourneyCostFailureCode =
   | "unsupported_backend"
@@ -88,7 +89,7 @@ export async function estimateOnboardingJourneyEventQueryCost(
           "AbortError",
         ),
       ),
-    ONBOARDING_EVENT_READ_DEADLINE_MS,
+    ONBOARDING_COST_ESTIMATE_DEADLINE_MS,
   );
   const estimateSignal = signal
     ? AbortSignal.any([signal, deadline.signal])

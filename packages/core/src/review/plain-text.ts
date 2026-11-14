@@ -16,6 +16,8 @@ import { fromMarkdown } from "mdast-util-from-markdown";
 import { gfmFromMarkdown } from "mdast-util-gfm";
 import { gfm } from "micromark-extension-gfm";
 
+import type { ReviewMention } from "./types.js";
+
 /**
  * A comment shows Markdown for this many characters and plain text after, so
  * one huge comment can't stall the page that renders it, or the email or
@@ -717,4 +719,231 @@ export function withoutHtmlComments(html: string): string {
   return html.replace(TAG_OR_HTML_COMMENT, (match) =>
     match.startsWith("<!--") ? "" : match,
   );
+}
+
+/** A listed mention, perhaps pinned to the offset of its `@` in the body. */
+export interface CommentMentionCandidate extends ReviewMention {
+  /**
+   * Where this mention's `@` sits in the body. Without it, every whole-word
+   * `@label` in the body is this mention.
+   */
+  at?: number | undefined;
+  kind?: string | undefined;
+}
+
+export interface FoundCommentMention<M extends CommentMentionCandidate> {
+  /** Where the mention's `@` sits in the body. */
+  at: number;
+  /** The text it stands for: `@label`, or `@[Name](mailto:…)`. */
+  source: string;
+  /** The listed mention, or for a mail link not in the list, its name. */
+  mention: M | ReviewMention;
+  /** Written `@[Name](mailto:…)`, which names its person without a list. */
+  inline: boolean;
+}
+
+/** The most mentions a comment draws as chips. */
+export const COMMENT_MENTION_CHIP_LIMIT = 2_000;
+
+/** Longer labels aren't names; skipping them bounds the scan per `@`. */
+const MAX_MENTION_LABEL = 200;
+const NAME_CHAR = /[\p{L}\p{M}\p{N}_]/u;
+// A mention stays on one line. Drawn as a chip, one that spanned lines would
+// take their line breaks with it, and with them the blocks they open, such as
+// a code fence the split counted on.
+const MAILTO_MENTION = /@\[([^[\]\r\n]+)\]\(mailto:([^()\s]+)\)/g;
+const LINE_BREAK = /[\r\n]/;
+
+/**
+ * Where a comment's mentions sit, in order: `@[Name](mailto:…)` text, mentions
+ * pinned to an offset, and whole-word `@label`s, longest label first, so
+ * `@Sam` is not read inside `@Samantha` or `mail@Sam`. A mention inside a
+ * link's text or address, or inside a bare URL, stays part of that link. The
+ * renderer draws these as chips, and the comment box opens them as chips.
+ */
+export function findCommentMentions<M extends CommentMentionCandidate>(
+  body: string,
+  mentions: readonly M[],
+): FoundCommentMention<M>[] {
+  const found: FoundCommentMention<M>[] = [];
+  const claimed = new Set<number>();
+  const byEmail = new Map<string, M>();
+  for (const mention of mentions) {
+    const email = mention.email?.toLowerCase();
+    if (email && !byEmail.has(email)) byEmail.set(email, mention);
+  }
+  for (const match of body.matchAll(MAILTO_MENTION)) {
+    const [source, name = "", encodedEmail = ""] = match;
+    const email = safeDecodeURIComponent(encodedEmail);
+    const listed = byEmail.get(email.toLowerCase());
+    const label = name.trim() || email;
+    found.push({
+      at: match.index,
+      source,
+      mention: listed ? { ...listed, label, email } : { label, email },
+      inline: true,
+    });
+    claimed.add(match.index);
+  }
+  const inLink = linkRanges(body);
+  const unpinned = new MentionLabels<M>();
+  for (const mention of mentions) {
+    if (!mention.label || LINE_BREAK.test(mention.label)) continue;
+    if (mention.at === undefined) {
+      if (mention.label.length <= MAX_MENTION_LABEL) unpinned.add(mention);
+      continue;
+    }
+    const source = `@${mention.label}`;
+    if (
+      !claimed.has(mention.at) &&
+      !inLink(mention.at) &&
+      body.startsWith(source, mention.at)
+    ) {
+      found.push({ at: mention.at, source, mention, inline: false });
+      claimed.add(mention.at);
+    }
+  }
+  if (!unpinned.empty) {
+    for (
+      let index = body.indexOf("@");
+      index !== -1;
+      index = body.indexOf("@", index + 1)
+    ) {
+      if (claimed.has(index) || inLink(index)) continue;
+      const previous = codePointBefore(body, index);
+      if (previous && NAME_CHAR.test(previous)) continue;
+      const mention = unpinned.longestAt(body, index + 1);
+      if (mention) {
+        found.push({
+          at: index,
+          source: `@${mention.label}`,
+          mention,
+          inline: false,
+        });
+      }
+    }
+  }
+  return found.sort((a, b) => a.at - b.at);
+}
+
+interface LabelNode<M> {
+  next: Map<string, LabelNode<M>>;
+  /** The mention a label names, or null when it names more than one. */
+  mention?: M | null;
+}
+
+/**
+ * Unpinned mention labels in a character tree, so matching at an `@` walks
+ * at most one label's length, however many mentions a comment lists. A label
+ * two people share stays text, rather than draw one of them for both.
+ */
+class MentionLabels<M extends CommentMentionCandidate> {
+  private readonly root: LabelNode<M> = { next: new Map() };
+  empty = true;
+
+  add(mention: M) {
+    let node = this.root;
+    for (const char of mention.label) {
+      let child = node.next.get(char);
+      if (!child) {
+        child = { next: new Map() };
+        node.next.set(char, child);
+      }
+      node = child;
+    }
+    if (node.mention === undefined) node.mention = mention;
+    else if (node.mention && !sameIdentity(node.mention, mention)) {
+      node.mention = null;
+    }
+    this.empty = false;
+  }
+
+  /**
+   * The longest label that starts at `start` and ends on a word boundary, so
+   * `@Sam` isn't read inside `@Samantha`. If two people share that label,
+   * none: a shorter one, like `@Sam` in `@Sam Lee`, would name someone else.
+   */
+  longestAt(body: string, start: number): M | undefined {
+    let node: LabelNode<M> | undefined = this.root;
+    let longest: M | null | undefined;
+    let end = start;
+    for (const char of body.slice(start, start + MAX_MENTION_LABEL)) {
+      node = node.next.get(char);
+      if (!node) break;
+      end += char.length;
+      if (node.mention === undefined) continue;
+      const next = readCharAt(body, end);
+      const endsWord = !(NAME_CHAR.test(char) && next && NAME_CHAR.test(next));
+      if (endsWord) longest = node.mention;
+    }
+    return longest ?? undefined;
+  }
+}
+
+/** Whether two listed mentions name the same person or agent. */
+function sameIdentity(
+  a: CommentMentionCandidate,
+  b: CommentMentionCandidate,
+): boolean {
+  return (
+    (a.id ?? null) === (b.id ?? null) &&
+    (a.email?.toLowerCase() ?? null) === (b.email?.toLowerCase() ?? null) &&
+    (a.kind ?? null) === (b.kind ?? null)
+  );
+}
+
+/**
+ * Whether an offset falls inside a link, as the renderer's parser finds them.
+ * The comment is parsed the first time it's asked, and only then.
+ */
+function linkRanges(body: string): (at: number) => boolean {
+  let ranges: Array<{ start: number; end: number }> | undefined;
+  return (at) => {
+    // In order and apart, so a binary search finds the one that could hold it.
+    ranges ??= commentLinkRanges(body);
+    let low = 0;
+    let high = ranges.length - 1;
+    while (low <= high) {
+      const middle = (low + high) >> 1;
+      const range = ranges.at(middle);
+      if (!range) return false;
+      if (at < range.start) high = middle - 1;
+      else if (at >= range.end) low = middle + 1;
+      else return true;
+    }
+    return false;
+  };
+}
+
+function codePointBefore(text: string, index: number): string | undefined {
+  if (index <= 0) return undefined;
+  const last = text.charCodeAt(index - 1);
+  if (last >= 0xdc00 && last <= 0xdfff && index >= 2) {
+    const lead = text.charCodeAt(index - 2);
+    if (lead >= 0xd800 && lead <= 0xdbff) return text.slice(index - 2, index);
+  }
+  return text[index - 1];
+}
+
+function codePointAt(text: string, index: number): string | undefined {
+  const codePoint = text.codePointAt(index);
+  return codePoint === undefined ? undefined : String.fromCodePoint(codePoint);
+}
+
+/**
+ * The character at `index` as the comment shows it: for a backslash escape,
+ * such as the `\_` the box saves after `@Sam` in `@Sam_`, the one escaped.
+ */
+function readCharAt(text: string, index: number): string | undefined {
+  const char = codePointAt(text, index);
+  const escaped = text.charAt(index + 1);
+  return char === "\\" && /[!-/:-@[-`{-~]/.test(escaped) ? escaped : char;
+}
+
+function safeDecodeURIComponent(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }

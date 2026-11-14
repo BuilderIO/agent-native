@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 
 import type { Document } from "@shared/api";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { renderUi } from "@/test-utils/render-ui";
 
@@ -11,7 +11,8 @@ const mocks = vi.hoisted(() => ({
 
 vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
-  useT: () => (key: string) => key,
+  useT: () => (key: string, values?: Record<string, unknown>) =>
+    values ? `${key}:${JSON.stringify(values)}` : key,
 }));
 
 vi.mock("@/hooks/use-document-properties", async (importOriginal) => ({
@@ -23,20 +24,29 @@ vi.mock("./DocumentProperties", () => ({ DocumentProperties: () => null }));
 
 import { DocumentInfoPanel } from "./DocumentInfoPanel";
 
-function renderPanel() {
+const NOW = new Date("2026-11-10T15:00:00.000Z");
+
+/** `undefined` clears a field the row Page has by default. */
+function renderPanel(
+  page: { [Key in keyof Document]?: Document[Key] | undefined } = {},
+  documentContent = "",
+) {
   renderUi(
     <DocumentInfoPanel
       document={
         {
           id: "row",
           description: "",
+          createdAt: "2026-10-28T12:00:00.000Z",
+          updatedAt: "2026-11-10T14:58:00.000Z",
           databaseMembership: {
             databaseId: "database",
             databaseDocumentId: "database-page",
           },
+          ...page,
         } as unknown as Document
       }
-      documentContent=""
+      documentContent={documentContent}
       canEdit
       onSaveDescription={async () => undefined}
     />,
@@ -45,8 +55,63 @@ function renderPanel() {
 
 const placeholder = () =>
   document.querySelector('[aria-label="editor.properties.loadingContent"]');
+const details = () => document.querySelector("[data-document-page-details]");
+const wordCounts = () =>
+  document.querySelectorAll("[data-document-info-block-field]");
 
-describe("the Info panel's Content summary", () => {
+beforeEach(() => {
+  vi.useFakeTimers({ toFake: ["Date"] });
+  vi.setSystemTime(NOW);
+});
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
+describe("Info's Page details", () => {
+  beforeEach(() => {
+    mocks.query = {};
+  });
+
+  it("counts the Page's words and says when it was made and last edited", () => {
+    renderPanel({ databaseMembership: undefined }, "One two three");
+
+    expect(details()?.textContent).toContain("editor.properties.pageDetails");
+    expect(wordCounts()).toHaveLength(1);
+    expect(wordCounts()[0]?.textContent).toBe(
+      'editor.properties.wordCount:{"count":3}',
+    );
+    expect(details()?.textContent).toContain("editor.properties.createdOn");
+    expect(details()?.textContent).toContain(
+      'editor.properties.editedAgo:{"time":"2 minutes ago"}',
+    );
+  });
+
+  it("reads an edit under a minute old as just now", () => {
+    renderPanel(
+      { databaseMembership: undefined, updatedAt: "2026-11-10T14:59:30.000Z" },
+      "",
+    );
+    expect(details()?.textContent).toContain("editor.properties.editedJustNow");
+  });
+
+  it("dates an edit over a week old", () => {
+    renderPanel(
+      { databaseMembership: undefined, updatedAt: "2026-10-30T12:00:00.000Z" },
+      "",
+    );
+    expect(details()?.textContent).toContain("editor.properties.editedOn");
+    expect(details()?.textContent).not.toContain("editor.properties.editedAgo");
+  });
+
+  it("leaves out a date it can't read", () => {
+    renderPanel({ databaseMembership: undefined, createdAt: "not a date" }, "");
+    expect(details()?.textContent).not.toContain("editor.properties.createdOn");
+    expect(details()?.textContent).toContain("editor.properties.editedAgo");
+  });
+});
+
+describe("Info's word counts after the Properties read", () => {
   beforeEach(() => {
     mocks.query = {
       data: undefined,
@@ -61,7 +126,9 @@ describe("the Info panel's Content summary", () => {
     renderPanel();
 
     expect(placeholder()).toBeNull();
-    expect(document.querySelector("[data-document-info-content]")).toBeNull();
+    expect(wordCounts()).toHaveLength(0);
+    // The dates still show.
+    expect(details()?.textContent).toContain("editor.properties.createdOn");
   });
 
   it("doesn't count an early copy's words once the read has failed", () => {
@@ -72,7 +139,7 @@ describe("the Info panel's Content summary", () => {
     };
     renderPanel();
 
-    expect(document.querySelector("[data-document-info-content]")).toBeNull();
+    expect(wordCounts()).toHaveLength(0);
   });
 
   it("holds the place while a retry is running", () => {

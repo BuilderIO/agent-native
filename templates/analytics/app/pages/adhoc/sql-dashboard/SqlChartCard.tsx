@@ -608,7 +608,7 @@ export function SqlChartCard({
         </div>
         <DashboardPanelDescription
           description={panel.config?.description}
-          className="mt-1 text-sm text-muted-foreground"
+          className="mt-1 text-xs leading-relaxed text-muted-foreground"
         />
         {editable ? (
           <AlertDialog open={confirmOpen} onOpenChange={setConfirmOpen}>

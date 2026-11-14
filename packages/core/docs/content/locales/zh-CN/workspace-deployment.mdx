@@ -133,6 +133,41 @@ npx @agent-native/core@latest deploy
 
 </Callout>
 
+## 构建缓存 {#workspace-build-cache}
+
+工作区部署会构建每个应用,这占了大部分时间。构建缓存会跳过输入没有变化的应用,转而恢复它上一次的构建产物,包括其函数包。它默认开启,条目保存在 `node_modules/.cache/agent-native/deploy-build` 下。
+
+应用的缓存键是对以下内容计算的 SHA-256:
+
+- 应用的源文件,以 `git ls-files` 列出的为准(已跟踪和未跟踪的,不含被忽略的),加上它的 `.env*` 文件;构建在应用内生成的目录(`.agent-native`、`.deploy-tmp`、`.react-router`)不计入
+- 它所依赖的每个工作区包的构建内容,因此重新构建 `@agent-native/core` 会使所有应用失效(仅限该包通过 `files` 字段发布的文件,带有 `dist` 的包按其 `dist` 而非 `src` 计算哈希)
+- 工作区根目录文件,包括 `pnpm-lock.yaml`
+- Node 主版本、预设和 Core 版本
+- 传给构建的每个环境变量的名称和值,经过哈希,绝不会打印出来
+
+每个应用都会记录命中或未命中。未命中会写明原因,并且在存在更早的条目时,指出哪些输入发生了变化。部署完成后会打印汇总数据和节省的时间。
+
+```bash
+[workspace-deploy] cache HIT analytics (restored in 5.9s, saved ~43.8s)
+[workspace-deploy] cache MISS forms (no-entry: inputs changed: source); building
+[workspace-deploy] Build cache: 1 hit, 1 miss; build phase 32.3s, ~43.4s saved
+```
+
+缓存出问题时绝不会算作命中。无法读取的清单(`entry-unreadable`)、文件与条目不匹配的恢复(`restore-failed`),或无法计算哈希的输入(`hash-failed`,例如工作区不是 git 仓库)都会记录原因并重新构建该应用。损坏的条目会被删除。
+
+| 设置                       | 环境变量                               | 默认值                                          |
+| -------------------------- | -------------------------------------- | ----------------------------------------------- |
+| `deployCache.enabled`      | `AGENT_NATIVE_DEPLOY_CACHE`            | `true`                                          |
+| `deployCache.dir`          | `AGENT_NATIVE_DEPLOY_CACHE_DIR`        | `node_modules/.cache/agent-native/deploy-build` |
+| `deployCache.verifySample` | `AGENT_NATIVE_DEPLOY_CACHE_VERIFY`     | `0`                                             |
+| `deployCache.envIgnore`    | `AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE` | 无                                              |
+
+设置 `AGENT_NATIVE_DEPLOY_CACHE_VERIFY=2`,可在每次部署时重新构建两个已缓存的应用,并逐文件比较重新构建的产物与缓存的产物,其中每次构建都会变化的值(如构建时间戳和新生成的函数令牌)会被屏蔽。出现差异会让部署失败并列出这些文件,这意味着构建不可复现,或缓存键缺少某个输入。请在 CI 中按计划运行,而不是在每次部署时运行。
+
+每次运行都会变化但不会影响构建的变量,例如 `PATH`、`PWD`、`npm_*` 和 `PNPM_*`,已经被排除在缓存键之外。如果部署环境自行添加了这类变量(比如运行 ID),请把它列在 `AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE` 中;末尾的 `*` 匹配前缀。其他变量都会计入,因此 `VITE_*` 或 `DATABASE_URL` 发生变化会让所有应用重新构建。
+
+每次都从干净磁盘开始的托管构建器无法从缓存中获益。请在那里设置 `AGENT_NATIVE_DEPLOY_CACHE=false`,以跳过它在每次构建后进行的复制。
+
 ## 用 Docker Compose 自托管工作区 {#workspace-docker-compose}
 
 如今一个工作区并不是单个 Nitro 服务器进程。每个应用仍然构建到自己的 `.output/` 目录,并运行自己的 Node/Nitro 服务器,因此自托管一个工作区意味着在一个统一入口后面运行多个服务器。
@@ -355,6 +390,12 @@ AUTH_REQUIRE_EMAIL_VERIFICATION=1
 ```
 
 将示例地址替换为每个工作区首位管理员的已验证邮箱。在空数据库上，该管理员先登录并成为初始组织的所有者，然后可在 Settings → Organization → Members 中邀请团队成员。完整的初始化流程请参阅[受管理的部署](/docs/administered-deployments)。
+
+## 确定性函数 ZIP {#workspace-netlify-function-zips}
+
+Netlify 会对每个函数的完整 ZIP 计算哈希，而它的打包器每次运行写入条目的顺序都不同，因此未更改的函数每次部署都会重新上传。请使用 `npx @agent-native/core@latest netlify-deploy` 发布，而不是自己调用 `netlify deploy`。该命令使用已安装的 Netlify CLI 自带的打包器压缩函数，用排序后的条目和固定时间戳重写每个 ZIP，写入函数清单，然后在同一条命令中运行 `netlify deploy`。路由、计划任务和后台设置都会保留。自己的 `netlify deploy` 参数放在命令之后；默认值为 `--prod --dir=dist --functions=.netlify/functions-internal`。
+
+CLI 只会在两分钟内读取该清单。如果 CLI 启动时清单更旧，或 CLI 丢弃了它，命令会输出一行 `manifest-expired` 并以非零状态退出，而不是悄悄使用不稳定的 ZIP 部署。
 
 ## 下一步
 
