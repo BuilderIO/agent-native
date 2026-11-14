@@ -392,6 +392,32 @@ describe("build cache input and output integrity", () => {
     );
     expect(hashBuildEnv({ ...env, TRACE: "two" }, ignored)).not.toBe(baseline);
     expect(hashBuildEnv({ ...env, UNSET: undefined }, ignored)).toBe(baseline);
+    const ci = {
+      ...env,
+      GITHUB_SHA: "one",
+      GITHUB_RUN_ID: "1",
+      GITHUB_RUN_ATTEMPT: "1",
+      GITHUB_STEP_SUMMARY: "/tmp/one",
+      RUNNER_TEMP: "/tmp/one",
+      ACTIONS_RUNTIME_TOKEN: "one",
+    };
+    expect(
+      hashBuildEnv(
+        {
+          ...ci,
+          GITHUB_SHA: "two",
+          GITHUB_RUN_ID: "2",
+          GITHUB_RUN_ATTEMPT: "2",
+          GITHUB_STEP_SUMMARY: "/tmp/two",
+          RUNNER_TEMP: "/tmp/two",
+          ACTIONS_RUNTIME_TOKEN: "two",
+        },
+        ignored,
+      ),
+    ).toBe(hashBuildEnv(ci, ignored));
+    expect(hashBuildEnv({ ...env, GITHUB_CLIENT_ID: "two" }, ignored)).not.toBe(
+      baseline,
+    );
     expect(
       hashBuildEnv({ ...env, NODE_PATH: "/modules/one" }, ignored),
     ).not.toBe(baseline);
