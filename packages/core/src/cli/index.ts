@@ -259,6 +259,7 @@ function pathHasTsc(): boolean {
   const extensions = windows
     ? (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";")
     : [""];
+  let permissionError: unknown;
   for (const dir of dirs) {
     for (const extension of extensions) {
       const directory = windows ? dir.replace(/^"|"$/g, "") : dir;
@@ -268,10 +269,15 @@ function pathHasTsc(): boolean {
         return true;
       } catch (error) {
         const code = (error as NodeJS.ErrnoException).code;
-        if (code !== "ENOENT" && code !== "ENOTDIR") throw error;
+        if (code === "EACCES" || code === "EPERM") {
+          permissionError ??= error;
+        } else if (code !== "ENOENT" && code !== "ENOTDIR") {
+          throw error;
+        }
       }
     }
   }
+  if (permissionError) throw permissionError;
   return false;
 }
 
