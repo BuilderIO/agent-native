@@ -36,6 +36,10 @@ import {
   createPauseTransitionQueue,
   type PauseTransitionQueue,
 } from "./pause-transition";
+import {
+  type PreparingAfterCountdown,
+  showPreparingAfterCountdown,
+} from "./preparing-after-countdown";
 import { reconcileProcessingBackup } from "./processing-backup-recovery";
 import {
   classifyRecordFirstOpenFailure,
@@ -3349,6 +3353,13 @@ async function tryStartRewindFullscreenRecording(
       cancelCountdown() {
         countdownController.abort();
       },
+      preparing: {
+        show: () => invoke("show_preparing"),
+        hide: () => invoke("hide_preparing"),
+        // Preparation also warms the capture backend; only a wait well past
+        // the countdown is worth a "Preparing" screen.
+        delayMs: 1_000,
+      },
       async beforeActivate() {
         await audioCue.playBeforeCapture(params.signal);
       },
@@ -3895,6 +3906,7 @@ async function startNativeFullscreenRecording(
       assertStartupActive();
     };
     const clickStartedAt = Date.now();
+    let preparing: PreparingAfterCountdown | null = null;
     if (localOnly) {
       id = localFolderName;
       const warmPromise = (async () => {
@@ -3962,10 +3974,21 @@ async function startNativeFullscreenRecording(
           }
         },
       });
+      // Only the server is waited on here: the start cue and the capture
+      // warm-up after it take ~1 s on every take and are covered by the cue.
+      preparing = showPreparingAfterCountdown(
+        countdownPromise,
+        recordingPromise,
+        {
+          show: () => invoke("show_preparing"),
+          hide: () => invoke("hide_preparing"),
+        },
+      );
       let createRes: Awaited<typeof warmAndId>;
       try {
         [, createRes] = await Promise.all([countdownPromise, warmAndId]);
       } catch (err) {
+        await preparing.done();
         abortCreatedRecordingOnStartFailure(
           err,
           recordingPromise,
@@ -3988,7 +4011,11 @@ async function startNativeFullscreenRecording(
       localOnly,
       hasCamera: wantsCamera,
     });
-    await guardRecordingStart(beginPromise, { signal: params.signal });
+    try {
+      await guardRecordingStart(beginPromise, { signal: params.signal });
+    } finally {
+      await preparing?.done();
+    }
     assertStartupActive();
     params.onCaptureStartRequested?.(localOnly ? null : id || null, id || null);
     console.log(
