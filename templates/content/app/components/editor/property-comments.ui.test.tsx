@@ -547,7 +547,6 @@ describe("revealPendingComment", () => {
 
   afterEach(() => {
     scope.remove();
-    vi.useRealTimers();
   });
 
   it("reveals a box already drawn at once", () => {
@@ -572,15 +571,20 @@ describe("revealPendingComment", () => {
     stop?.();
   });
 
-  it("stops waiting after a few seconds, or when cleaned up", async () => {
-    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
-    const late = vi.fn();
-    revealPendingComment(scope, selector, late);
-    vi.advanceTimersByTime(5_000);
-    vi.useRealTimers();
-    drawBox();
-    await nextTask();
-    expect(late).not.toHaveBeenCalled();
+  it("stops waiting once the person moves on, or when cleaned up", async () => {
+    for (const movedOn of [
+      new KeyboardEvent("keydown", { key: "a" }),
+      new PointerEvent("pointerdown"),
+      new WheelEvent("wheel"),
+    ]) {
+      scope.replaceChildren();
+      const late = vi.fn();
+      revealPendingComment(scope, selector, late);
+      document.body.dispatchEvent(movedOn);
+      drawBox();
+      await nextTask();
+      expect(late).not.toHaveBeenCalled();
+    }
 
     scope.replaceChildren();
     const cancelled = vi.fn();
