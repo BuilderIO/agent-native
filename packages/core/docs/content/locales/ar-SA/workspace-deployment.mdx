@@ -155,12 +155,12 @@ npx @agent-native/core@latest deploy
 
 لا تُعدّ مشكلة الذاكرة المؤقتة إصابة أبدًا. فالبيان (manifest) غير القابل للقراءة (`entry-unreadable`)، أو الاستعادة التي لا تطابق ملفاتها الإدخال (`restore-failed`)، أو المدخل الذي تتعذر تجزئته (`hash-failed`، مثل مساحة عمل ليست مستودع git) يسجّل السبب ويعيد بناء التطبيق. ويُحذف الإدخال التالف.
 
-| الإعداد | متغير البيئة | القيمة الافتراضية |
-| --- | --- | --- |
-| `deployCache.enabled` | `AGENT_NATIVE_DEPLOY_CACHE` | `true` |
-| `deployCache.dir` | `AGENT_NATIVE_DEPLOY_CACHE_DIR` | `node_modules/.cache/agent-native/deploy-build` |
-| `deployCache.verifySample` | `AGENT_NATIVE_DEPLOY_CACHE_VERIFY` | `0` |
-| `deployCache.envIgnore` | `AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE` | لا شيء |
+| الإعداد                    | متغير البيئة                           | القيمة الافتراضية                               |
+| -------------------------- | -------------------------------------- | ----------------------------------------------- |
+| `deployCache.enabled`      | `AGENT_NATIVE_DEPLOY_CACHE`            | `true`                                          |
+| `deployCache.dir`          | `AGENT_NATIVE_DEPLOY_CACHE_DIR`        | `node_modules/.cache/agent-native/deploy-build` |
+| `deployCache.verifySample` | `AGENT_NATIVE_DEPLOY_CACHE_VERIFY`     | `0`                                             |
+| `deployCache.envIgnore`    | `AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE` | لا شيء                                          |
 
 عيّن `AGENT_NATIVE_DEPLOY_CACHE_VERIFY=2` لإعادة بناء تطبيقين مخزّنين مؤقتًا في كل عملية نشر ومقارنة المخرجات المعاد بناؤها بالمخرجات المخزّنة ملفًا بملف، مع إخفاء القيم التي تتغير في كل بناء، مثل الطابع الزمني للبناء ورموز الدوال المُصدَرة حديثًا. يؤدي أي اختلاف إلى فشل النشر ويسرد الملفات، وهذا يعني أن البناء غير قابل لإعادة الإنتاج أو أن المفتاح ينقصه مدخل. شغّله في CI وفق جدول زمني بدلاً من تشغيله في كل عملية نشر.
 

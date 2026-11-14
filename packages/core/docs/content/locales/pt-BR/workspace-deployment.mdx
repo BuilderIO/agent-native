@@ -155,12 +155,12 @@ Cada app registra um acerto ou uma falha. Uma falha informa o motivo e, quando e
 
 Um problema de cache nunca é um acerto. Um manifesto ilegível (`entry-unreadable`), uma restauração cujos arquivos não correspondem à entrada (`restore-failed`) ou uma entrada que não pode ser calculada por hash (`hash-failed`, por exemplo um espaço de trabalho que não é um repositório git) registra o motivo e refaz o build do app. Uma entrada ruim é excluída.
 
-| Configuração | Variável de ambiente | Padrão |
-| --- | --- | --- |
-| `deployCache.enabled` | `AGENT_NATIVE_DEPLOY_CACHE` | `true` |
-| `deployCache.dir` | `AGENT_NATIVE_DEPLOY_CACHE_DIR` | `node_modules/.cache/agent-native/deploy-build` |
-| `deployCache.verifySample` | `AGENT_NATIVE_DEPLOY_CACHE_VERIFY` | `0` |
-| `deployCache.envIgnore` | `AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE` | nenhum |
+| Configuração               | Variável de ambiente                   | Padrão                                          |
+| -------------------------- | -------------------------------------- | ----------------------------------------------- |
+| `deployCache.enabled`      | `AGENT_NATIVE_DEPLOY_CACHE`            | `true`                                          |
+| `deployCache.dir`          | `AGENT_NATIVE_DEPLOY_CACHE_DIR`        | `node_modules/.cache/agent-native/deploy-build` |
+| `deployCache.verifySample` | `AGENT_NATIVE_DEPLOY_CACHE_VERIFY`     | `0`                                             |
+| `deployCache.envIgnore`    | `AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE` | nenhum                                          |
 
 Defina `AGENT_NATIVE_DEPLOY_CACHE_VERIFY=2` para refazer o build de dois apps em cache por implantação e comparar a saída reconstruída com a saída em cache arquivo por arquivo, mascarando valores específicos de cada build, como o carimbo de data e hora do build e os tokens de função recém-gerados. Uma diferença faz a implantação falhar e lista os arquivos, o que significa que o build não é reproduzível ou que falta uma entrada na chave. Execute isso no CI de forma agendada, em vez de a cada implantação.
 

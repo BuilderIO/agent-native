@@ -155,12 +155,12 @@ Each app logs a hit or a miss. A miss names the reason and, when an earlier entr
 
 A cache problem is never a hit. An unreadable manifest (`entry-unreadable`), a restore whose files do not match the entry (`restore-failed`), or an input that cannot be hashed (`hash-failed`, for example a workspace that is not a git repository) logs the reason and rebuilds the app. A bad entry is deleted.
 
-| Setting | Environment variable | Default |
-| --- | --- | --- |
-| `deployCache.enabled` | `AGENT_NATIVE_DEPLOY_CACHE` | `true` |
-| `deployCache.dir` | `AGENT_NATIVE_DEPLOY_CACHE_DIR` | `node_modules/.cache/agent-native/deploy-build` |
-| `deployCache.verifySample` | `AGENT_NATIVE_DEPLOY_CACHE_VERIFY` | `0` |
-| `deployCache.envIgnore` | `AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE` | none |
+| Setting                    | Environment variable                   | Default                                         |
+| -------------------------- | -------------------------------------- | ----------------------------------------------- |
+| `deployCache.enabled`      | `AGENT_NATIVE_DEPLOY_CACHE`            | `true`                                          |
+| `deployCache.dir`          | `AGENT_NATIVE_DEPLOY_CACHE_DIR`        | `node_modules/.cache/agent-native/deploy-build` |
+| `deployCache.verifySample` | `AGENT_NATIVE_DEPLOY_CACHE_VERIFY`     | `0`                                             |
+| `deployCache.envIgnore`    | `AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE` | none                                            |
 
 Set `AGENT_NATIVE_DEPLOY_CACHE_VERIFY=2` to rebuild two cached apps per deploy and compare the rebuilt output to the cached output file by file, with per-build values such as the build timestamp and freshly minted function tokens masked. A difference fails the deploy and lists the files, which means the build is not reproducible or the key is missing an input. Run it in CI on a schedule rather than on every deploy.
 

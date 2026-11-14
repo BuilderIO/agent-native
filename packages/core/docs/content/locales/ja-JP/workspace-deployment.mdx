@@ -155,12 +155,12 @@ npx @agent-native/core@latest deploy
 
 キャッシュの問題がヒットとして扱われることはありません。読み取れないマニフェスト（`entry-unreadable`）、ファイルがエントリと一致しない復元（`restore-failed`）、ハッシュ化できない入力（`hash-failed`。たとえば git リポジトリではないワークスペース）は、いずれも理由をログに記録してアプリを再ビルドします。不良なエントリは削除されます。
 
-| 設定 | 環境変数 | デフォルト |
-| --- | --- | --- |
-| `deployCache.enabled` | `AGENT_NATIVE_DEPLOY_CACHE` | `true` |
-| `deployCache.dir` | `AGENT_NATIVE_DEPLOY_CACHE_DIR` | `node_modules/.cache/agent-native/deploy-build` |
-| `deployCache.verifySample` | `AGENT_NATIVE_DEPLOY_CACHE_VERIFY` | `0` |
-| `deployCache.envIgnore` | `AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE` | なし |
+| 設定                       | 環境変数                               | デフォルト                                      |
+| -------------------------- | -------------------------------------- | ----------------------------------------------- |
+| `deployCache.enabled`      | `AGENT_NATIVE_DEPLOY_CACHE`            | `true`                                          |
+| `deployCache.dir`          | `AGENT_NATIVE_DEPLOY_CACHE_DIR`        | `node_modules/.cache/agent-native/deploy-build` |
+| `deployCache.verifySample` | `AGENT_NATIVE_DEPLOY_CACHE_VERIFY`     | `0`                                             |
+| `deployCache.envIgnore`    | `AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE` | なし                                            |
 
 `AGENT_NATIVE_DEPLOY_CACHE_VERIFY=2` を設定すると、デプロイごとにキャッシュ済みの 2 つのアプリを再ビルドし、再ビルドした出力をキャッシュされた出力とファイル単位で比較します。ビルドのタイムスタンプや新たに発行された関数トークンなど、ビルドごとに変わる値はマスクされます。差分があるとデプロイは失敗し、該当ファイルが列挙されます。これは、ビルドが再現可能でないか、キーに入力が不足していることを意味します。デプロイのたびではなく、CI でスケジュール実行してください。
 

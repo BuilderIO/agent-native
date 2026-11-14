@@ -155,12 +155,12 @@ npx @agent-native/core@latest deploy
 
 快取出問題時絕不會算作命中。無法讀取的資訊清單（`entry-unreadable`）、檔案與項目不相符的還原（`restore-failed`），或無法計算雜湊的輸入（`hash-failed`，例如工作區不是 git 儲存庫），都會記錄原因並重新建置該應用程式。損壞的項目會被刪除。
 
-| 設定 | 環境變數 | 預設值 |
-| --- | --- | --- |
-| `deployCache.enabled` | `AGENT_NATIVE_DEPLOY_CACHE` | `true` |
-| `deployCache.dir` | `AGENT_NATIVE_DEPLOY_CACHE_DIR` | `node_modules/.cache/agent-native/deploy-build` |
-| `deployCache.verifySample` | `AGENT_NATIVE_DEPLOY_CACHE_VERIFY` | `0` |
-| `deployCache.envIgnore` | `AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE` | 無 |
+| 設定                       | 環境變數                               | 預設值                                          |
+| -------------------------- | -------------------------------------- | ----------------------------------------------- |
+| `deployCache.enabled`      | `AGENT_NATIVE_DEPLOY_CACHE`            | `true`                                          |
+| `deployCache.dir`          | `AGENT_NATIVE_DEPLOY_CACHE_DIR`        | `node_modules/.cache/agent-native/deploy-build` |
+| `deployCache.verifySample` | `AGENT_NATIVE_DEPLOY_CACHE_VERIFY`     | `0`                                             |
+| `deployCache.envIgnore`    | `AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE` | 無                                              |
 
 設定 `AGENT_NATIVE_DEPLOY_CACHE_VERIFY=2`，即可在每次部署時重新建置兩個已快取的應用程式，並逐檔比較重新建置的輸出與快取的輸出，其中每次建置都會變動的值（如建置時間戳記與新產生的函式 token）會被遮蔽。出現差異會讓部署失敗並列出這些檔案，這代表建置無法重現，或快取金鑰缺少某個輸入。請在 CI 中依排程執行，而不是在每次部署時執行。
 

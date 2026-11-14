@@ -155,12 +155,12 @@ npx @agent-native/core@latest deploy
 
 캐시 문제는 절대 히트로 처리되지 않습니다. 읽을 수 없는 매니페스트(`entry-unreadable`), 파일이 항목과 일치하지 않는 복원(`restore-failed`), 해시할 수 없는 입력(`hash-failed`, 예: git 저장소가 아닌 작업 공간)은 이유를 기록하고 앱을 다시 빌드합니다. 손상된 항목은 삭제됩니다.
 
-| 설정 | 환경 변수 | 기본값 |
-| --- | --- | --- |
-| `deployCache.enabled` | `AGENT_NATIVE_DEPLOY_CACHE` | `true` |
-| `deployCache.dir` | `AGENT_NATIVE_DEPLOY_CACHE_DIR` | `node_modules/.cache/agent-native/deploy-build` |
-| `deployCache.verifySample` | `AGENT_NATIVE_DEPLOY_CACHE_VERIFY` | `0` |
-| `deployCache.envIgnore` | `AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE` | 없음 |
+| 설정                       | 환경 변수                              | 기본값                                          |
+| -------------------------- | -------------------------------------- | ----------------------------------------------- |
+| `deployCache.enabled`      | `AGENT_NATIVE_DEPLOY_CACHE`            | `true`                                          |
+| `deployCache.dir`          | `AGENT_NATIVE_DEPLOY_CACHE_DIR`        | `node_modules/.cache/agent-native/deploy-build` |
+| `deployCache.verifySample` | `AGENT_NATIVE_DEPLOY_CACHE_VERIFY`     | `0`                                             |
+| `deployCache.envIgnore`    | `AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE` | 없음                                            |
 
 `AGENT_NATIVE_DEPLOY_CACHE_VERIFY=2`로 설정하면 배포마다 캐시된 앱 두 개를 다시 빌드하고, 다시 빌드한 출력을 캐시된 출력과 파일 단위로 비교합니다. 빌드 타임스탬프나 새로 발급된 함수 토큰처럼 빌드마다 달라지는 값은 가려집니다. 차이가 있으면 배포가 실패하고 해당 파일이 나열되며, 이는 빌드가 재현 가능하지 않거나 키에 입력이 빠져 있다는 뜻입니다. 배포할 때마다가 아니라 CI에서 일정에 맞춰 실행하세요.
 

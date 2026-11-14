@@ -157,12 +157,12 @@ Chaque application journalise un succès ou un échec de cache. Un échec indiqu
 
 Un problème de cache n'est jamais un succès. Un manifeste illisible (`entry-unreadable`), une restauration dont les fichiers ne correspondent pas à l'entrée (`restore-failed`) ou une entrée impossible à hacher (`hash-failed`, par exemple un workspace qui n'est pas un dépôt git) journalise la raison et reconstruit l'application. Une entrée défectueuse est supprimée.
 
-| Paramètre | Variable d'environnement | Valeur par défaut |
-| --- | --- | --- |
-| `deployCache.enabled` | `AGENT_NATIVE_DEPLOY_CACHE` | `true` |
-| `deployCache.dir` | `AGENT_NATIVE_DEPLOY_CACHE_DIR` | `node_modules/.cache/agent-native/deploy-build` |
-| `deployCache.verifySample` | `AGENT_NATIVE_DEPLOY_CACHE_VERIFY` | `0` |
-| `deployCache.envIgnore` | `AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE` | aucune |
+| Paramètre                  | Variable d'environnement               | Valeur par défaut                               |
+| -------------------------- | -------------------------------------- | ----------------------------------------------- |
+| `deployCache.enabled`      | `AGENT_NATIVE_DEPLOY_CACHE`            | `true`                                          |
+| `deployCache.dir`          | `AGENT_NATIVE_DEPLOY_CACHE_DIR`        | `node_modules/.cache/agent-native/deploy-build` |
+| `deployCache.verifySample` | `AGENT_NATIVE_DEPLOY_CACHE_VERIFY`     | `0`                                             |
+| `deployCache.envIgnore`    | `AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE` | aucune                                          |
 
 Définissez `AGENT_NATIVE_DEPLOY_CACHE_VERIFY=2` pour reconstruire deux applications en cache par déploiement et comparer la sortie reconstruite à la sortie en cache fichier par fichier, en masquant les valeurs propres à chaque build comme l'horodatage du build et les jetons de fonction fraîchement générés. Une différence fait échouer le déploiement et liste les fichiers, ce qui signifie que le build n'est pas reproductible ou qu'il manque une entrée à la clé. Exécutez-le en CI selon un calendrier plutôt qu'à chaque déploiement.
 

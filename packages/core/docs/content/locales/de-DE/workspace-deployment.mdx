@@ -155,12 +155,12 @@ Jede App protokolliert einen Treffer oder einen Fehlschlag. Ein Fehlschlag nennt
 
 Ein Cache-Problem zählt nie als Treffer. Ein nicht lesbares Manifest (`entry-unreadable`), eine Wiederherstellung, deren Dateien nicht zum Eintrag passen (`restore-failed`), oder eine Eingabe, die sich nicht hashen lässt (`hash-failed`, zum Beispiel bei einem Arbeitsbereich, der kein Git-Repository ist), protokolliert den Grund und baut die App neu. Ein fehlerhafter Eintrag wird gelöscht.
 
-| Einstellung | Umgebungsvariable | Standard |
-| --- | --- | --- |
-| `deployCache.enabled` | `AGENT_NATIVE_DEPLOY_CACHE` | `true` |
-| `deployCache.dir` | `AGENT_NATIVE_DEPLOY_CACHE_DIR` | `node_modules/.cache/agent-native/deploy-build` |
-| `deployCache.verifySample` | `AGENT_NATIVE_DEPLOY_CACHE_VERIFY` | `0` |
-| `deployCache.envIgnore` | `AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE` | keine |
+| Einstellung                | Umgebungsvariable                      | Standard                                        |
+| -------------------------- | -------------------------------------- | ----------------------------------------------- |
+| `deployCache.enabled`      | `AGENT_NATIVE_DEPLOY_CACHE`            | `true`                                          |
+| `deployCache.dir`          | `AGENT_NATIVE_DEPLOY_CACHE_DIR`        | `node_modules/.cache/agent-native/deploy-build` |
+| `deployCache.verifySample` | `AGENT_NATIVE_DEPLOY_CACHE_VERIFY`     | `0`                                             |
+| `deployCache.envIgnore`    | `AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE` | keine                                           |
 
 Setzen Sie `AGENT_NATIVE_DEPLOY_CACHE_VERIFY=2`, um pro Bereitstellung zwei gecachte Apps neu zu bauen und die neu gebaute Ausgabe Datei für Datei mit der gecachten Ausgabe zu vergleichen, wobei Werte pro Build wie der Build-Zeitstempel und frisch erzeugte Funktions-Tokens maskiert werden. Ein Unterschied lässt die Bereitstellung fehlschlagen und listet die Dateien auf; das bedeutet, dass der Build nicht reproduzierbar ist oder dem Schlüssel eine Eingabe fehlt. Führen Sie dies in CI nach einem Zeitplan aus, nicht bei jeder Bereitstellung.
 

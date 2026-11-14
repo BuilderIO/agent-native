@@ -155,12 +155,12 @@ Hosted कार्यस्थान builds के लिए deploy provider en
 
 Cache की समस्या कभी hit नहीं गिनी जाती। अपठनीय manifest (`entry-unreadable`), ऐसा restore जिसकी files entry से मेल नहीं खातीं (`restore-failed`), या ऐसा input जिसका hash नहीं निकाला जा सकता (`hash-failed`, जैसे ऐसा कार्यस्थान जो git repository नहीं है) कारण log करता है और ऐप को दोबारा build करता है। ख़राब entry हटा दी जाती है।
 
-| सेटिंग | Environment variable | डिफ़ॉल्ट |
-| --- | --- | --- |
-| `deployCache.enabled` | `AGENT_NATIVE_DEPLOY_CACHE` | `true` |
-| `deployCache.dir` | `AGENT_NATIVE_DEPLOY_CACHE_DIR` | `node_modules/.cache/agent-native/deploy-build` |
-| `deployCache.verifySample` | `AGENT_NATIVE_DEPLOY_CACHE_VERIFY` | `0` |
-| `deployCache.envIgnore` | `AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE` | कोई नहीं |
+| सेटिंग                     | Environment variable                   | डिफ़ॉल्ट                                        |
+| -------------------------- | -------------------------------------- | ----------------------------------------------- |
+| `deployCache.enabled`      | `AGENT_NATIVE_DEPLOY_CACHE`            | `true`                                          |
+| `deployCache.dir`          | `AGENT_NATIVE_DEPLOY_CACHE_DIR`        | `node_modules/.cache/agent-native/deploy-build` |
+| `deployCache.verifySample` | `AGENT_NATIVE_DEPLOY_CACHE_VERIFY`     | `0`                                             |
+| `deployCache.envIgnore`    | `AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE` | कोई नहीं                                        |
 
 हर तैनाती में दो cached ऐप्स को दोबारा build करके दोबारा बने output की cached output से file-दर-file तुलना करने के लिए `AGENT_NATIVE_DEPLOY_CACHE_VERIFY=2` सेट करें; हर build में बदलने वाले मान, जैसे build timestamp और नए बने function tokens, mask कर दिए जाते हैं। कोई अंतर तैनाती को fail कर देता है और files की सूची देता है, जिसका मतलब है कि build reproducible नहीं है या key में कोई input छूट गया है। इसे हर तैनाती पर चलाने के बजाय CI में schedule पर चलाएँ।
 

@@ -157,12 +157,12 @@ Cada aplicación registra un acierto o un fallo. Un fallo indica el motivo y, cu
 
 Un problema de caché nunca cuenta como acierto. Un manifiesto ilegible (`entry-unreadable`), una restauración cuyos archivos no coinciden con la entrada (`restore-failed`) o una entrada que no se puede procesar con hash (`hash-failed`, por ejemplo un espacio de trabajo que no es un repositorio git) registran el motivo y recompilan la aplicación. Una entrada defectuosa se elimina.
 
-| Ajuste | Variable de entorno | Valor predeterminado |
-| --- | --- | --- |
-| `deployCache.enabled` | `AGENT_NATIVE_DEPLOY_CACHE` | `true` |
-| `deployCache.dir` | `AGENT_NATIVE_DEPLOY_CACHE_DIR` | `node_modules/.cache/agent-native/deploy-build` |
-| `deployCache.verifySample` | `AGENT_NATIVE_DEPLOY_CACHE_VERIFY` | `0` |
-| `deployCache.envIgnore` | `AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE` | ninguno |
+| Ajuste                     | Variable de entorno                    | Valor predeterminado                            |
+| -------------------------- | -------------------------------------- | ----------------------------------------------- |
+| `deployCache.enabled`      | `AGENT_NATIVE_DEPLOY_CACHE`            | `true`                                          |
+| `deployCache.dir`          | `AGENT_NATIVE_DEPLOY_CACHE_DIR`        | `node_modules/.cache/agent-native/deploy-build` |
+| `deployCache.verifySample` | `AGENT_NATIVE_DEPLOY_CACHE_VERIFY`     | `0`                                             |
+| `deployCache.envIgnore`    | `AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE` | ninguno                                         |
 
 Establece `AGENT_NATIVE_DEPLOY_CACHE_VERIFY=2` para recompilar dos aplicaciones en caché por implementación y comparar la salida recompilada con la salida en caché archivo por archivo, enmascarando los valores propios de cada compilación, como la marca de tiempo de la compilación y los tokens de función recién generados. Una diferencia hace fallar la implementación y lista los archivos, lo que significa que la compilación no es reproducible o que a la clave le falta una entrada. Ejecútalo en CI de forma programada en lugar de en cada implementación.
 

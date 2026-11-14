@@ -5,6 +5,7 @@ import path from "path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { hashBuildEnv, snapshotAppOutputs, treeHashOf } from "./build-cache.js";
 import { runWorkspaceDeploy } from "./workspace-deploy.js";
 
 let root: string;
@@ -291,5 +292,102 @@ describe("workspace deploy build cache", () => {
     await deploy();
 
     expect(builds).toEqual([]);
+  });
+});
+
+describe("build cache input and output integrity", () => {
+  it("excludes volatile variables and configured exact or prefix matches from the environment key", () => {
+    const env = {
+      VITE_PUBLIC_FLAG: "on",
+      HOME: "/home/one",
+      NPM_CONFIG_CACHE: "/cache/one",
+      AGENT_NATIVE_DEPLOY_CACHE_VERIFY: "0",
+      CI_JOB_ID: "one",
+      TRACE_SPAN: "one",
+    };
+    const ignored = ["CI_JOB_ID", "TRACE_*"];
+    const baseline = hashBuildEnv(env, ignored);
+
+    expect(
+      hashBuildEnv(
+        {
+          ...env,
+          HOME: "/home/two",
+          NPM_CONFIG_CACHE: "/cache/two",
+          AGENT_NATIVE_DEPLOY_CACHE_VERIFY: "2",
+          CI_JOB_ID: "two",
+          TRACE_SPAN: "two",
+        },
+        ignored,
+      ),
+    ).toBe(baseline);
+    expect(hashBuildEnv({ ...env, VITE_PUBLIC_FLAG: "off" }, ignored)).not.toBe(
+      baseline,
+    );
+    expect(hashBuildEnv({ ...env, CI_JOB_ID_EXTRA: "two" }, ignored)).not.toBe(
+      baseline,
+    );
+    expect(hashBuildEnv({ ...env, TRACE: "two" }, ignored)).not.toBe(baseline);
+    expect(hashBuildEnv({ ...env, UNSET: undefined }, ignored)).toBe(baseline);
+    expect(
+      hashBuildEnv(Object.fromEntries(Object.entries(env).reverse()), ignored),
+    ).toBe(baseline);
+  });
+
+  it("records empty directories, symlink targets, and executable modes in output identity", () => {
+    const appDir = path.join(root, "apps/alpha");
+    const output = path.join(appDir, "dist");
+    fs.mkdirSync(path.join(output, "empty"), { recursive: true });
+    write(path.join(output, "script"), "run");
+    fs.symlinkSync("script", path.join(output, "link"));
+    const before = snapshotAppOutputs(appDir);
+
+    expect(before["dist/empty"]).toBe("d");
+    expect(before["dist/link"]).toBe("l:script");
+    expect(before["dist/script"]).toMatch(/^f:-:/);
+    fs.chmodSync(path.join(output, "script"), 0o755);
+    const executable = snapshotAppOutputs(appDir);
+    expect(executable["dist/script"]).toMatch(/^f:x:/);
+    expect(treeHashOf(executable)).not.toBe(treeHashOf(before));
+    expect(
+      treeHashOf(Object.fromEntries(Object.entries(before).reverse())),
+    ).toBe(treeHashOf(before));
+    fs.unlinkSync(path.join(output, "link"));
+    fs.symlinkSync("empty", path.join(output, "link"));
+    expect(treeHashOf(snapshotAppOutputs(appDir))).not.toBe(
+      treeHashOf(executable),
+    );
+  });
+
+  it("masks per-build values only in small function code and metadata, preserving public assets", () => {
+    const appDir = path.join(root, "apps/alpha");
+    const metadata = path.join(
+      appDir,
+      ".netlify/functions-internal/nitro.json",
+    );
+    const asset = path.join(appDir, "dist/config.json");
+    const initial = JSON.stringify({ date: "2026-01-01", FLAG: "on" });
+    write(metadata, initial);
+    write(asset, initial);
+    const before = snapshotAppOutputs(appDir, "stable");
+    const raw = snapshotAppOutputs(appDir);
+    const updated = JSON.stringify({ date: "2026-01-02", FLAG: "on" });
+    write(metadata, updated);
+    write(asset, updated);
+
+    const after = snapshotAppOutputs(appDir, "stable");
+    expect(after[".netlify/functions-internal/nitro.json"]).toBe(
+      before[".netlify/functions-internal/nitro.json"],
+    );
+    expect(after["dist/config.json"]).not.toBe(before["dist/config.json"]);
+    expect(
+      snapshotAppOutputs(appDir)[".netlify/functions-internal/nitro.json"],
+    ).not.toBe(raw[".netlify/functions-internal/nitro.json"]);
+    write(metadata, JSON.stringify({ date: "2026-01-02", FLAG: "off" }));
+    expect(
+      snapshotAppOutputs(appDir, "stable")[
+        ".netlify/functions-internal/nitro.json"
+      ],
+    ).not.toBe(after[".netlify/functions-internal/nitro.json"]);
   });
 });

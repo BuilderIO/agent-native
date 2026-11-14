@@ -15,6 +15,6 @@ export const deployCacheConfig = z.object({
   }),
   envIgnore: z.array(z.string().min(1)).default([]).meta({
     env: "AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE",
-    doc: "Comma-separated environment variable names (a trailing * matches a prefix) left out of the build cache key because they never reach a build output.",
+    doc: "Comma-separated environment variable names (a trailing `*` matches a prefix) left out of the build cache key because they never reach a build output.",
   }),
 });
