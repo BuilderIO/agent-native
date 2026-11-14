@@ -188,6 +188,13 @@ describe("workspace deploy build cache", () => {
     await deploy();
 
     expect(builds.sort()).toEqual(APPS);
+    expect(
+      logs.some(
+        (l) =>
+          l.includes("cache MISS alpha") &&
+          l.includes("env:VITE_SOME_PUBLIC_FLAG"),
+      ),
+    ).toBe(true);
   });
 
   it("rebuilds loudly when a cache entry is corrupt and never ships it", async () => {
