@@ -2,7 +2,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import type { DocumentProperty } from "@shared/api";
 import { commentPropertyValueText } from "@shared/comment-property-target";
 import { IconMessage, IconMessagePlus } from "@tabler/icons-react";
-import { createContext, useContext } from "react";
+import { createContext, useContext, type ReactNode } from "react";
 
 import {
   Tooltip,
@@ -34,6 +34,18 @@ export interface PropertyCommentsValue {
   selectedPropertyId: string | null;
   startComment: (property: DocumentProperty) => void;
   openThread: (threadId: string) => void;
+  /**
+   * Info opens a Property's threads right under its row, so its count opens
+   * and closes them there instead of opening one beside the page.
+   */
+  inline?: {
+    /** The Property whose threads, or new Comment, show under its row. */
+    openPropertyId: string | null;
+    /** Changes each time Info asks back the new Comment waiting in it. */
+    revealKey?: number | undefined;
+    toggle: (propertyId: string) => void;
+    renderThreads: (propertyId: string) => ReactNode;
+  };
 }
 
 export const PropertyCommentsContext =
@@ -62,6 +74,46 @@ export function threadPropertyId(
 ) {
   const thread = threads?.find((candidate) => candidate.threadId === threadId);
   return thread?.property?.propertyId ?? null;
+}
+
+/** What someone does that means they've moved on from a Comment asked back. */
+const MOVED_ON_EVENTS = ["pointerdown", "keydown", "wheel", "touchmove"];
+
+/**
+ * Brings a new Comment's box into view once it's drawn. Info may still be
+ * reading its Properties when it asks the Comment back, so a box not there yet
+ * is revealed when it appears, unless the person has clicked, typed or
+ * scrolled by then. Returns a cleanup that stops a reveal still waiting.
+ */
+export function revealPendingComment(
+  scope: Document | HTMLElement | null | undefined,
+  selector: string,
+  reveal: (composer: HTMLElement) => void,
+): (() => void) | undefined {
+  if (!scope) return undefined;
+  const drawn = scope.querySelector<HTMLElement>(selector);
+  if (drawn) {
+    reveal(drawn);
+    return undefined;
+  }
+  const page = scope instanceof Document ? scope : scope.ownerDocument;
+  const observer = new MutationObserver(() => {
+    const composer = scope.querySelector<HTMLElement>(selector);
+    if (!composer) return;
+    stop();
+    reveal(composer);
+  });
+  const stop = () => {
+    observer.disconnect();
+    for (const type of MOVED_ON_EVENTS) {
+      page.removeEventListener(type, stop, true);
+    }
+  };
+  for (const type of MOVED_ON_EVENTS) {
+    page.addEventListener(type, stop, { capture: true, passive: true });
+  }
+  observer.observe(scope, { childList: true, subtree: true });
+  return stop;
 }
 
 /**
@@ -159,7 +211,10 @@ export function propertyThreadTargetText(
   };
 }
 
-/** The line a Property thread shows in place of quoted text. */
+/**
+ * The line a Property thread shows in place of quoted text, its value in
+ * full, wrapping as needed.
+ */
 export function PropertyThreadTargetLabel({
   target,
   className,
@@ -172,25 +227,21 @@ export function PropertyThreadTargetLabel({
   return (
     <span
       className={cn(
-        "flex min-w-0 items-center gap-1.5 border-s-2 border-border ps-2.5 text-sm text-muted-foreground",
+        "block min-w-0 break-words border-s-2 border-border ps-2.5 text-sm text-muted-foreground",
         className,
       )}
       data-comment-property-target={target.state}
     >
-      <span className="shrink-0 font-medium text-foreground/80">{name}</span>
-      {value === null ? null : (
-        <>
-          <span aria-hidden="true">·</span>
-          <span className="min-w-0 truncate">{value}</span>
-        </>
-      )}
+      <span className="font-medium text-foreground/80">{name}</span>
+      {value === null ? null : ` · ${value}`}
     </span>
   );
 }
 
 /**
- * A Property row's Comment control: a marker with the count when it has open
- * threads, otherwise a button that appears on hover to start one.
+ * A Property row's Comment control, at the end of its name: the count of its
+ * open threads, or with none, a button that appears after a moment's hover to
+ * start one.
  */
 export function PropertyCommentControl({
   property,
@@ -203,8 +254,10 @@ export function PropertyCommentControl({
   const threads =
     comments.openThreadsByProperty.get(property.definition.id) ?? [];
   const name = property.definition.name;
-  if (threads.length > 0) {
-    const latest = threads[threads.length - 1]!;
+  const latest = threads.length ? threads[threads.length - 1] : undefined;
+  if (latest) {
+    const { inline } = comments;
+    const open = inline?.openPropertyId === property.definition.id;
     const label = t("comments.openPropertyComments", {
       count: threads.length,
       name,
@@ -214,26 +267,33 @@ export function PropertyCommentControl({
         <TooltipTrigger asChild>
           <button
             type="button"
-            className="absolute right-1 top-1 flex h-6 min-w-6 items-center justify-center gap-0.5 rounded px-1 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring comment-marker"
+            className="comment-marker relative ms-auto flex h-6 min-w-6 shrink-0 items-center justify-center gap-0.5 rounded px-1 text-xs font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
             aria-label={label}
-            data-comment-thread={latest.threadId}
+            aria-expanded={inline ? open : undefined}
+            // Places the threads beside this Property in the margin. Info
+            // has none, and a click on a thread's place would open it there.
+            data-comment-thread={inline ? undefined : latest.threadId}
             data-property-comment-marker
             onClick={(event) => {
               event.stopPropagation();
-              comments.openThread(latest.threadId);
+              if (inline) inline.toggle(property.definition.id);
+              else comments.openThread(latest.threadId);
             }}
           >
             <IconMessage className="size-3.5" aria-hidden="true" />
-            {threads.length > 1 ? threads.length : null}
-            {threads.slice(0, -1).map((thread) => (
-              // Places every thread beside this Property in the margin.
-              <span
-                key={thread.threadId}
-                className="pointer-events-none absolute inset-0"
-                aria-hidden="true"
-                data-comment-thread={thread.threadId}
-              />
-            ))}
+            {threads.length}
+            {inline
+              ? null
+              : threads
+                  .slice(0, -1)
+                  .map((thread) => (
+                    <span
+                      key={thread.threadId}
+                      className="pointer-events-none absolute inset-0"
+                      aria-hidden="true"
+                      data-comment-thread={thread.threadId}
+                    />
+                  ))}
           </button>
         </TooltipTrigger>
         <TooltipContent>{label}</TooltipContent>
@@ -248,7 +308,9 @@ export function PropertyCommentControl({
         <button
           type="button"
           className={cn(
-            "absolute right-1 top-1 flex size-6 items-center justify-center rounded bg-background text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover/property:opacity-100 [@media(any-hover:none)]:opacity-100",
+            // Waits half a second into a hover, so passing over the rows
+            // doesn't flicker a button on each; leaving hides it at once.
+            "ms-auto flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:bg-accent hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring group-hover/property:opacity-100 group-hover/property:delay-500 [@media(any-hover:none)]:opacity-100",
             comments.pendingPropertyId === property.definition.id &&
               "opacity-100",
           )}
@@ -277,12 +339,24 @@ export function usePropertyCommentRowState(propertyId: string) {
   const threads = comments.openThreadsByProperty.get(propertyId) ?? [];
   const pending = comments.pendingPropertyId === propertyId;
   const active =
-    !!comments.activeThreadId &&
-    threads.some((thread) => thread.threadId === comments.activeThreadId);
+    (!!comments.activeThreadId &&
+      threads.some((thread) => thread.threadId === comments.activeThreadId)) ||
+    (threads.length > 0 && comments.inline?.openPropertyId === propertyId);
   return {
     enabled: true as const,
     pending,
     active,
-    shown: pending || threads.length > 0,
+    /**
+     * What shows under the row in Info: its threads while open, with a
+     * resolved one Show selected, and a new Comment on it, which stays until
+     * it's posted or cancelled.
+     */
+    inlineThreads:
+      comments.inline &&
+      (pending ||
+        (comments.inline.openPropertyId === propertyId &&
+          (threads.length > 0 || comments.selectedPropertyId === propertyId)))
+        ? comments.inline.renderThreads(propertyId)
+        : null,
   };
 }

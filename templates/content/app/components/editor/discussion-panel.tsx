@@ -520,8 +520,16 @@ export function DiscussionSubjectChip({
       ? "discussion-subject-quote text-foreground"
       : "bg-muted text-muted-foreground",
   );
+  // A Property's value shows in full; quoted text keeps to two lines.
   const words = (
-    <span className="line-clamp-2 min-w-0 flex-1 break-words">{children}</span>
+    <span
+      className={cn(
+        "min-w-0 flex-1 break-words",
+        kind === "text" && "line-clamp-2",
+      )}
+    >
+      {children}
+    </span>
   );
   if (!onShow)
     return (

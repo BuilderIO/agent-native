@@ -222,6 +222,11 @@ interface DocumentPropertiesProps {
   leaveReadFailureToPage?: boolean;
   popoversPortalled?: boolean;
   popoverContainer?: HTMLElement | null;
+  /**
+   * Show each value in full, wrapping beside its name, as Info does. Rows on
+   * the page itself keep values to one line.
+   */
+  wrapValues?: boolean;
 }
 
 export const TYPE_ICONS: Record<DocumentPropertyType, Icon> = {
@@ -1027,6 +1032,7 @@ export function DocumentProperties({
   leaveReadFailureToPage = false,
   popoversPortalled = true,
   popoverContainer,
+  wrapValues = false,
 }: DocumentPropertiesProps) {
   const t = useT();
   const propertiesQuery = useDocumentProperties(documentId, databaseId);
@@ -1081,7 +1087,37 @@ export function DocumentProperties({
         (property) => property.definition.visibility === "always_hide",
       )
     : [];
-  const moreProperties = [...hiddenInViewProperties, ...emptyProperties];
+  // Someone who can't manage the schema still finds a hidden Property while a
+  // Comment on it is written or its threads are open, so it has a row there.
+  const comments = usePropertyComments();
+  const commentedIds = [
+    comments?.pendingPropertyId,
+    comments?.selectedPropertyId,
+    comments?.inline?.openPropertyId,
+  ];
+  const commentedHiddenProperties = canManageSchema
+    ? []
+    : orderedProperties.filter(
+        (property) =>
+          !isListable(property) &&
+          commentedIds.includes(property.definition.id),
+      );
+  const moreProperties = [
+    ...hiddenInViewProperties,
+    ...emptyProperties,
+    ...commentedHiddenProperties,
+  ];
+  // A new Comment waiting under a Property in Info stays in reach when the
+  // rows give way to a failed read, named by the row's early copy, so its
+  // words are neither lost nor in the way of another Comment.
+  const waitingPropertyId = comments?.inline
+    ? comments.pendingPropertyId
+    : null;
+  const waitingPropertyName = loaded
+    ? data.properties.find(
+        (property) => property.definition.id === waitingPropertyId,
+      )?.definition.name
+    : undefined;
   const collapsedCount = moreProperties.length + alwaysHiddenProperties.length;
   const propertyRow = (property: DocumentProperty) => (
     <PropertyRow
@@ -1093,6 +1129,7 @@ export function DocumentProperties({
       canManageSchema={canManageSchema}
       popoversPortalled={popoversPortalled}
       popoverContainer={popoverContainer}
+      wrapValues={wrapValues}
       t={t}
     />
   );
@@ -1100,10 +1137,24 @@ export function DocumentProperties({
   return (
     <div className="mt-5 border-y border-transparent py-1">
       {readFailed && !leaveReadFailureToPage ? (
-        <QueryErrorState
-          compact
-          onRetry={() => void propertiesQuery.refetch()}
-        />
+        <>
+          <QueryErrorState
+            compact
+            onRetry={() => void propertiesQuery.refetch()}
+          />
+          {waitingPropertyId && comments?.inline ? (
+            <div className="mt-2" data-property-waiting-comment>
+              {waitingPropertyName ? (
+                <p className="px-2 pb-0.5 text-sm text-muted-foreground">
+                  {waitingPropertyName}
+                </p>
+              ) : null}
+              <PropertyThreadsBox propertyId={waitingPropertyId}>
+                {comments.inline.renderThreads(waitingPropertyId)}
+              </PropertyThreadsBox>
+            </div>
+          ) : null}
+        </>
       ) : readFailed && !loaded ? null : isLoading ||
         !loaded ||
         rowViewPending ? (
@@ -1223,16 +1274,18 @@ function CollapsedProperties({
   const [open, setOpen] = useState(false);
   if (withoutLine && !open) setOpen(true);
   // Keyed on which Property holds the Comment, so a different one opens a line
-  // that was closed by hand.
+  // that was closed by hand, as does Info asking back the new Comment in it.
   const heldHere = (id: string | null | undefined) =>
     id && opensForProperties.some((property) => property.definition.id === id)
       ? id
       : null;
   const pendingHere = heldHere(comments?.pendingPropertyId);
   const selectedHere = heldHere(comments?.selectedPropertyId);
+  const inlineHere = heldHere(comments?.inline?.openPropertyId);
+  const revealKey = comments?.inline?.revealKey;
   useEffect(() => {
-    if (pendingHere || selectedHere) setOpen(true);
-  }, [pendingHere, selectedHere]);
+    if (pendingHere || selectedHere || inlineHere) setOpen(true);
+  }, [pendingHere, selectedHere, inlineHere, revealKey]);
   const Chevron = open ? IconChevronDown : IconChevronRight;
 
   return (
@@ -1274,6 +1327,7 @@ function PropertyRow({
   canManageSchema,
   popoversPortalled,
   popoverContainer,
+  wrapValues,
   t,
 }: {
   property: DocumentProperty;
@@ -1283,31 +1337,32 @@ function PropertyRow({
   canManageSchema: boolean;
   popoversPortalled: boolean;
   popoverContainer?: HTMLElement | null | undefined;
+  wrapValues: boolean;
   t: TFunction;
 }) {
   const Icon = TYPE_ICONS[property.definition.type];
   const commentState = usePropertyCommentRowState(property.definition.id);
   const editable = canEditValues && property.editable;
   const value = (
-    <div className="min-w-0 flex-1 whitespace-normal break-words text-left text-sm max-sm:[&_.truncate]:whitespace-normal max-sm:[&_.truncate]:break-words sm:truncate">
-      {displayValue(property, t, "compact", {
+    <div
+      className={cn(
+        "min-w-0 flex-1 whitespace-normal break-words text-left text-sm",
+        wrapValues
+          ? "[&_.truncate]:whitespace-normal [&_.truncate]:break-words"
+          : "max-sm:[&_.truncate]:whitespace-normal max-sm:[&_.truncate]:break-words sm:truncate",
+      )}
+    >
+      {displayValue(property, t, wrapValues ? "wrapped" : "compact", {
         interactiveRelations: true,
         interactiveUrls: true,
       })}
     </div>
   );
 
-  return (
+  const row = (
     <div
       className={cn(
         "group/property relative grid min-h-8 grid-cols-[120px_minmax(0,1fr)] sm:grid-cols-[calc(160px-var(--property-name-inset,0px))_minmax(0,1fr)] items-start gap-3 rounded px-1 py-1 text-sm transition-colors hover:bg-muted/40",
-        // The Comment control floats at the right edge; room is kept for
-        // it only while it stays visible, so narrow panels keep their values,
-        // or where it would cover the edit button beside a value's links.
-        commentState.enabled &&
-          (commentState.shown ||
-            (editable && propertyValueHasLinks(property))) &&
-          "pr-10",
         commentState.enabled &&
           commentState.pending &&
           "comment-highlight--pending comment-property-row--pending",
@@ -1317,40 +1372,48 @@ function PropertyRow({
       )}
       data-property-row={property.definition.id}
     >
-      {canManageSchema && !property.definition.systemRole ? (
-        <PropertyManagementPopover
-          databaseDocumentId={databaseDocumentId}
-          property={property}
-          documentId={documentId}
-          databaseId={property.definition.databaseId!}
-          icon={Icon}
-          popoverContainer={popoverContainer}
-        />
-      ) : (
-        <div className="flex min-w-0 items-center gap-2 text-muted-foreground">
-          <PropertyDefinitionIcon
+      {/* The name column ends with the row's Comment count or button. */}
+      <div className="flex min-w-0 items-center gap-1">
+        {canManageSchema &&
+        !property.definition.systemRole &&
+        property.definition.databaseId ? (
+          <PropertyManagementPopover
+            databaseDocumentId={databaseDocumentId}
             property={property}
-            className="size-4 shrink-0"
+            documentId={documentId}
+            databaseId={property.definition.databaseId}
+            icon={Icon}
+            popoverContainer={popoverContainer}
           />
-          {property.definition.description ? (
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <button
-                  type="button"
-                  className="truncate text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                >
-                  {property.definition.name}
-                </button>
-              </TooltipTrigger>
-              <TooltipContent className="max-w-64">
-                {property.definition.description}
-              </TooltipContent>
-            </Tooltip>
-          ) : (
-            <span className="truncate">{property.definition.name}</span>
-          )}
-        </div>
-      )}
+        ) : (
+          <div className="flex min-w-0 items-center gap-2 text-muted-foreground">
+            <PropertyDefinitionIcon
+              property={property}
+              className="size-4 shrink-0"
+            />
+            {property.definition.description ? (
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    className="truncate text-left outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  >
+                    {property.definition.name}
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent className="max-w-64">
+                  {property.definition.description}
+                </TooltipContent>
+              </Tooltip>
+            ) : (
+              <span className="truncate">{property.definition.name}</span>
+            )}
+          </div>
+        )}
+        {commentState.enabled ? (
+          <PropertyCommentControl property={property} />
+        ) : null}
+      </div>
       {canEditValues &&
       property.builderStatusChoices &&
       property.definition.databaseId ? (
@@ -1376,9 +1439,33 @@ function PropertyRow({
       ) : (
         value
       )}
-      {commentState.enabled ? (
-        <PropertyCommentControl property={property} />
-      ) : null}
+    </div>
+  );
+  if (!commentState.enabled || !commentState.inlineThreads) return row;
+  return (
+    <>
+      {row}
+      <PropertyThreadsBox propertyId={property.definition.id}>
+        {commentState.inlineThreads}
+      </PropertyThreadsBox>
+    </>
+  );
+}
+
+/** The box in Info holding a Property's threads and new Comment. */
+function PropertyThreadsBox({
+  propertyId,
+  children,
+}: {
+  propertyId: string;
+  children: ReactNode;
+}) {
+  return (
+    <div
+      className="mx-1 mb-2 mt-0.5 overflow-hidden rounded-lg border border-border"
+      data-property-threads={propertyId}
+    >
+      {children}
     </div>
   );
 }
@@ -1538,7 +1625,7 @@ export function PropertyManagementPopover({
   onMoveRight?: () => void | Promise<void>;
   onHide?: () => void | Promise<void>;
   hideDisabled?: boolean;
-  popoverContainer?: HTMLElement | null;
+  popoverContainer?: HTMLElement | null | undefined;
 }) {
   const t = useT();
   const visibilityScopeId = useId();
