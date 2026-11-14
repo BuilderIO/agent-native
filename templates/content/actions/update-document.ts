@@ -1014,7 +1014,13 @@ const updateDocumentAction = defineAction({
           ? undefined
           : normalizeAuthoredContent(args.authoredCandidateContent);
       let staleBodySave: "stale_builder_image" | "stale_empty_body" | undefined;
-      if (content !== undefined && !args.preserveLeadingTitleHeading) {
+      // An outside write proves freshness with its base. Keeping the stored
+      // body for it would answer its dropped text as a save.
+      if (
+        content !== undefined &&
+        !args.preserveLeadingTitleHeading &&
+        !isOutsideBodyWrite
+      ) {
         if (
           content.includes('componentName="Image"') &&
           existing.content.includes("![")

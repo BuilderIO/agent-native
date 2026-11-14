@@ -2530,6 +2530,8 @@ describe("update-document compare-and-swap", () => {
       const write = (fields: {
         baseRevision?: string;
         baseUpdatedAt?: string;
+        loadedUpdatedAt?: string;
+        content?: string;
       }) =>
         runWithRequestContext({ userEmail: OWNER }, () =>
           updateDocumentAction.run(
@@ -2560,6 +2562,14 @@ describe("update-document compare-and-swap", () => {
       expect((await documentRow(documentId)).content).toBe("original");
       await expect(
         write({ baseRevision: documentRevisionToken(0, "An older body") }),
+      ).rejects.toMatchObject(refused);
+      expect((await documentRow(documentId)).content).toBe("original");
+      await expect(
+        write({
+          baseRevision: documentRevisionToken(0, "An older body"),
+          loadedUpdatedAt: "2000-01-01T00:00:00.000Z",
+          content: "",
+        }),
       ).rejects.toMatchObject(refused);
       expect((await documentRow(documentId)).content).toBe("original");
 
