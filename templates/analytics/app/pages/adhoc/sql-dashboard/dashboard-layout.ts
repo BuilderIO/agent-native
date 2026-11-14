@@ -3,7 +3,7 @@ import {
   clampPanelWidth,
   MAX_DASHBOARD_COLUMNS,
   type SqlPanel,
-} from "./types";
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 
 export type DashboardPanelRow = {
   key: string;

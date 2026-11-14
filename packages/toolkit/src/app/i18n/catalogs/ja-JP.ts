@@ -1546,6 +1546,10 @@ const messages: ToolkitAgentChatTranslation = {
     "新しいメンバーを含む、{{organization}} のすべてのユーザーが、これを開いて、メッセージやファイルなどを含むすべての内容を見られるようになります。この設定は後から変更できます。",
   "share.confirmOrganizationAction": "組織と共有",
   "share.confirmOrganizationSharing": "共有しています...",
+  "share.confirmPublicTitle": "リンクを知っている全員と共有しますか？",
+  "share.confirmPublicDescription":
+    "リンクを知っている人は、組織外の人も含め、これを開いて中身をすべて見られるようになります。この設定は後で変更できます。",
+  "share.confirmPublicAction": "一般公開する",
   "status.resuming": "再開中",
   "status.stillWorking": "処理を続けています",
   "status.thinking": "思考中",
@@ -3775,6 +3779,65 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.voiceChatSaveError":
     "音声チャットの設定を保存できませんでした。",
   "voice.dictation.cancelTranscription": "文字起こしをキャンセル",
+  "common.noData": "データがありません",
+  "common.rowsPerPage": "1ページあたりの行数:",
+  "dashboardMode.columnResizePersonal":
+    "ドラッグしてあなただけの列幅に変更します。ダブルクリックでリセットします。",
+  "dashboardMode.columnResizeShared": "ドラッグして全員の列幅を変更します",
+  "sessions.watchReplay": "リプレイを見る",
+  "sqlDashboard.calloutSeverityCritical": "重大",
+  "sqlDashboard.calloutSeverityInfo": "情報",
+  "sqlDashboard.calloutSeverityWarning": "警告",
+  "sqlDashboard.chartPointLimitFirst":
+    "{{total}} 件中、最初の {{shown}} 件のポイントを表示しています",
+  "sqlDashboard.chartPointLimitLast":
+    "{{total}} 件中、最後の {{shown}} 件のポイントを表示しています",
+  "sqlDashboard.chartPointLimitNewest":
+    "{{total}} 件中、最新の {{shown}} 件のポイントを表示しています",
+  "sqlDashboard.collapseDescription": "説明を折りたたむ",
+  "sqlDashboard.columnFormat": "形式",
+  "sqlDashboard.columnFormatCurrency": "通貨",
+  "sqlDashboard.columnFormatDate": "日付",
+  "sqlDashboard.columnFormatDuration": "所要時間（秒）",
+  "sqlDashboard.columnFormatNumber": "数値",
+  "sqlDashboard.columnFormatPercent": "パーセント",
+  "sqlDashboard.columnFormatText": "プレーンテキスト",
+  "sqlDashboard.columnHide": "列を非表示",
+  "sqlDashboard.columnName": "列名",
+  "sqlDashboard.columnRename": "列の名前を変更",
+  "sqlDashboard.columnResize": "列の幅を変更",
+  "sqlDashboard.columnShow": '"{{name}}" を表示',
+  "sqlDashboard.columnShowHidden": "非表示の列を表示",
+  "sqlDashboard.drilldownChartPoints": "グラフのデータポイント",
+  "sqlDashboard.drilldownNextPage": "グラフのデータポイントの次のページ",
+  "sqlDashboard.drilldownPageRange":
+    "全{{total}}件中{{start}}～{{end}}件を表示",
+  "sqlDashboard.drilldownPreviousPage": "グラフのデータポイントの前のページ",
+  "sqlDashboard.expandDescription": "説明を展開する",
+  "sqlDashboard.filterSeries": "Filter",
+  "sqlDashboard.funnelCompleted": "完了",
+  "sqlDashboard.funnelLeft": "アプリを離脱",
+  "sqlDashboard.funnelLeftHere": "ここでアプリを離脱",
+  "sqlDashboard.funnelMovedOn": "どちらもせずに次へ",
+  "sqlDashboard.funnelOptional": "任意",
+  "sqlDashboard.funnelShown": "{{count}} 人に表示",
+  "sqlDashboard.funnelShownLabel": "表示",
+  "sqlDashboard.funnelSkipped": "スキップ",
+  "sqlDashboard.hide": "Hide",
+  "sqlDashboard.metricComparisonBetter": "{{comparison}}（改善）",
+  "sqlDashboard.metricComparisonDown":
+    "{{period}}の{{previous}}から{{change}}減少",
+  "sqlDashboard.metricComparisonFlat": "{{period}}の{{previous}}から変化なし",
+  "sqlDashboard.metricComparisonNoChange": "変化なし",
+  "sqlDashboard.metricComparisonPoints": "{{value}}ポイント",
+  "sqlDashboard.metricComparisonPreviousPeriod": "前の期間",
+  "sqlDashboard.metricComparisonUp":
+    "{{period}}の{{previous}}から{{change}}増加",
+  "sqlDashboard.metricComparisonVs": "{{period}}との比較",
+  "sqlDashboard.metricComparisonWorse": "{{comparison}}（悪化）",
+  "sqlDashboard.multiColumnSortHelp":
+    "クリックして並べ替え。Shiftキーを押しながらクリックすると別の並べ替えを追加できます。",
+  "sqlDashboard.noXValue": "値なし",
 };
 
 export default messages;

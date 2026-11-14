@@ -41,7 +41,11 @@ describe("ShareVisibilityConfirmDialog", () => {
 
   async function render(
     transition: ShareVisibilityTransition,
-    props: { detail?: React.ReactNode } = {},
+    props: {
+      detail?: React.ComponentProps<
+        typeof ShareVisibilityConfirmDialog
+      >["detail"];
+    } = {},
   ) {
     await act(async () => {
       root.render(
@@ -82,6 +86,37 @@ describe("ShareVisibilityConfirmDialog", () => {
       "including any messages, files, and other content",
     );
     expect(dialog()?.textContent).toContain("This also shares the chat.");
+  });
+
+  it("asks before going public when the resource asks for it", async () => {
+    const transition = makeTransition({
+      pending: { from: "org", to: "public" },
+      organizationName: "Acme Co",
+    });
+    await render(transition);
+
+    expect(dialog()?.textContent).toContain(
+      "Share with anyone who has the link?",
+    );
+    expect(dialog()?.textContent).toContain(
+      "including people outside your organization",
+    );
+    expect(dialog()?.textContent).not.toContain("Acme Co");
+    act(() => button("Share publicly")?.click());
+    expect(transition.confirm).toHaveBeenCalledOnce();
+  });
+
+  it("gives detail for the visibility the change would save", async () => {
+    const detail = vi.fn((to: string) =>
+      to === "public" ? "Two charts come from narrower dashboards." : null,
+    );
+    await render(makeTransition({ pending: { from: "org", to: "public" } }), {
+      detail,
+    });
+    expect(detail).toHaveBeenCalledWith("public");
+    expect(dialog()?.textContent).toContain(
+      "Two charts come from narrower dashboards.",
+    );
   });
 
   it("opens with Cancel focused so Enter cannot widen access by accident", async () => {

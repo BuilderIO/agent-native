@@ -1,11 +1,11 @@
 // @vitest-environment happy-dom
 
+import type { SqlPanel } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TooltipProvider } from "@/components/ui/tooltip";
-import type { SqlPanel } from "@/pages/adhoc/sql-dashboard/types";
 
 const ROWS = vi.hoisted(() => [
   { name: "Ada", count: 3 },
@@ -50,7 +50,7 @@ vi.mock("@/pages/adhoc/sql-dashboard/ViewSqlPopover", () => ({
 
 import { SqlChartCard } from "@/pages/adhoc/sql-dashboard/SqlChartCard";
 
-import { SqlChart } from "./SqlChart";
+import { SqlChart } from "./SqlChartQuery";
 
 const TABLE: SqlPanel = {
   id: "p",

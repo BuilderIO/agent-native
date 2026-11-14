@@ -1,4 +1,7 @@
-import type { ChartValueFormatter, SqlPanelConfig } from "./types";
+import type {
+  ChartValueFormatter,
+  SqlPanelConfig,
+} from "./sql-dashboard-types.js";
 
 export type { ChartValueFormatter };
 export type ChartAxisSide = "left" | "right";

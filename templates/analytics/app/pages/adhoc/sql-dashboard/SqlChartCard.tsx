@@ -1,10 +1,17 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { useActionMutation, useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { DashboardPanelDescription } from "@agent-native/toolkit/app/dashboard-charts/DashboardPanelDescription";
+import { timeRangeDays } from "@agent-native/toolkit/dashboard/pivot";
+import { isValidPanelBreakdowns } from "@agent-native/toolkit/dashboard/row-breakdown";
+import type {
+  DashboardFilter,
+  SqlPanel,
+  TableColumnConfig,
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import { useDraggable } from "@dnd-kit/core";
 import { dataNoteInRange, type DataNote } from "@shared/data-notes";
 import { isKeyDateChartType } from "@shared/key-dates";
-import { isValidPanelBreakdowns } from "@shared/row-breakdown";
 import {
   IconGripVertical,
   IconDotsVertical,
@@ -30,7 +37,6 @@ import {
   useDataNoteActions,
   usePanelDataNotes,
 } from "@/components/dashboard/dashboard-annotations-context";
-import { DashboardPanelDescription } from "@/components/dashboard/DashboardPanelDescription";
 import {
   DataNoteFlag,
   DataNoteLines,
@@ -43,7 +49,7 @@ import {
   ChartFillHeight,
   SqlChart,
   type ChartDatum,
-} from "@/components/dashboard/SqlChart";
+} from "@/components/dashboard/SqlChartQuery";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -92,12 +98,10 @@ import { cn } from "@/lib/utils";
 import { panelTimeRange } from "./interpolate";
 import { serializePanelSql } from "./panel-sql";
 import { PanelDrilldownDialog } from "./PanelDrilldownDialog";
-import { timeRangeDays } from "./pivot";
 import {
   RowBreakdownSheet,
   type RowBreakdownSelection,
 } from "./RowBreakdownSheet";
-import type { DashboardFilter, SqlPanel, TableColumnConfig } from "./types";
 import { ViewSqlPopover } from "./ViewSqlPopover";
 
 const INHERIT_TIME_RANGE = "__inherit__";

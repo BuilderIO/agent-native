@@ -114,7 +114,7 @@
     "react-hook-form": "^7.71.2",
     "react-i18next": "^17.0.8",
     "react-resizable-panels": "^4.10.0",
-    "recharts": "^3.8.1",
+    "recharts": "catalog:",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "catalog:",

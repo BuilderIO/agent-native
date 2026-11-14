@@ -8,7 +8,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
-import { getHiddenSeriesKeysAfterFilter, SeriesLegend } from "./SqlChart";
+import { getHiddenSeriesKeysAfterFilter, SeriesLegend } from "./SqlChartQuery";
 
 describe("SeriesLegend actions", () => {
   let container: HTMLDivElement;

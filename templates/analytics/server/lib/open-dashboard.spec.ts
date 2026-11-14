@@ -3,14 +3,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 const mocks = vi.hoisted(() => ({
   getDashboard: vi.fn(),
   loadBuiltinDashboard: vi.fn(),
+  builtinDashboardVisibility: vi.fn(),
 }));
 
 vi.mock("./dashboards-store.js", () => ({ getDashboard: mocks.getDashboard }));
 vi.mock("./builtin-dashboards.js", () => ({
   loadBuiltinDashboard: mocks.loadBuiltinDashboard,
+  builtinDashboardVisibility: mocks.builtinDashboardVisibility,
 }));
 
-const { openDashboard } = await import("./open-dashboard");
+const { openDashboard, openedDashboardVisibility } =
+  await import("./open-dashboard");
 
 const reader = { email: "reader@example.test", orgId: "org-1" };
 const DEMO = { id: "builtin-demo-node-exporter", title: "Demo", config: {} };
@@ -58,5 +61,49 @@ describe("openDashboard", () => {
     expect(await openDashboard("someone-elses", reader)).toBeNull();
     expect(mocks.loadBuiltinDashboard).not.toHaveBeenCalled();
     expect(await openDashboard("builtin-customer-roi-v2", reader)).toBeNull();
+  });
+});
+
+describe("openedDashboardVisibility", () => {
+  const saved = (visibility: string, orgId: string | null) =>
+    ({ saved: { id: "growth", visibility, orgId } }) as never;
+
+  it("reads a saved dashboard's sharing in its own organization", async () => {
+    expect(await openedDashboardVisibility(saved("org", "org-1"), reader)).toBe(
+      "org",
+    );
+    expect(
+      await openedDashboardVisibility(saved("public", "org-2"), reader),
+    ).toBe("public");
+  });
+
+  it("reads another organization's dashboard as private, since its sharing reaches nobody here", async () => {
+    expect(await openedDashboardVisibility(saved("org", "org-2"), reader)).toBe(
+      "private",
+    );
+    expect(await openedDashboardVisibility(saved("org", null), reader)).toBe(
+      "private",
+    );
+  });
+
+  it("reads a dashboard shared with an organization but saved without one as private, even for a reader outside any", async () => {
+    const personal = { email: reader.email, orgId: null };
+    expect(await openedDashboardVisibility(saved("org", null), personal)).toBe(
+      "private",
+    );
+    expect(
+      await openedDashboardVisibility(saved("private", null), personal),
+    ).toBe("private");
+  });
+
+  it("asks a built-in how it was installed for the reader's organization", async () => {
+    mocks.builtinDashboardVisibility.mockResolvedValue("org");
+    expect(
+      await openedDashboardVisibility({ builtin: DEMO } as never, reader),
+    ).toBe("org");
+    expect(mocks.builtinDashboardVisibility).toHaveBeenCalledWith(
+      DEMO.id,
+      reader,
+    );
   });
 });

@@ -65,6 +65,12 @@ export interface ShareVisibilityTransitionOptions {
    * (`policy.confirmOrgVisibility`); otherwise every change saves at once.
    */
   confirmOrgVisibility?: boolean;
+  /**
+   * Also asks before this change, whatever the policy says, when it returns
+   * true. For a resource whose contents decide who should see it, such as a
+   * page holding copies from narrower sources. Read when the change is asked.
+   */
+  confirmVisibility?: (from: ShareVisibility, to: ShareVisibility) => boolean;
   canManage: boolean;
   /** False while the share surface is closed; a pending request is dropped. */
   active: boolean;
@@ -225,10 +231,11 @@ export function useShareVisibilityTransition(
       if (!latest.canManage || !latest.active) {
         return notSaved("ignored");
       }
-      if (
-        latest.confirmOrgVisibility !== true ||
-        !visibilityNeedsConfirmation(latest.current, next)
-      ) {
+      const needsConfirmation =
+        (latest.confirmOrgVisibility === true &&
+          visibilityNeedsConfirmation(latest.current, next)) ||
+        latest.confirmVisibility?.(latest.current, next) === true;
+      if (!needsConfirmation) {
         reset();
         const generation = generationRef.current;
         const saved = latest.apply(next);

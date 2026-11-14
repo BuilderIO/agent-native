@@ -8,6 +8,10 @@ import {
   useIsMcpDirectoryWidgetWriteEmbed,
 } from "@agent-native/core/client/mcp-app-host";
 import { buildSettingsRoute } from "@agent-native/core/client/navigation";
+import {
+  isWiderVisibility,
+  type EmbedVisibility,
+} from "@agent-native/core/shared";
 import { CreativeContextShareTab } from "@agent-native/creative-context/client";
 import type { ShareButtonActionHandle } from "@agent-native/toolkit/app/sharing";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
@@ -18,6 +22,12 @@ import {
   ShareTrigger,
   type AgentShareDestination,
 } from "@agent-native/toolkit/sharing";
+import {
+  ANALYTICS_CHART_TAG,
+  analyticsChartsWiderThan,
+  type AnalyticsChartData,
+} from "@shared/analytics-chart-block";
+import { analyticsChartsInBody } from "@shared/analytics-charts-in-body";
 import type {
   ContentDatabaseNavigationPageResponse,
   Document,
@@ -48,6 +58,7 @@ import {
   Suspense,
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type MouseEvent,
@@ -58,6 +69,8 @@ import { useLocation, useNavigate } from "react-router";
 import { toast } from "sonner";
 
 import { ContentIcon } from "../icons/ContentIcon";
+
+const NO_CHARTS: AnalyticsChartData[] = [];
 
 const AgentsShareTab = lazy(() =>
   import("./AgentsShareTab").then((m) => ({ default: m.AgentsShareTab })),
@@ -1066,6 +1079,76 @@ export function DocumentToolbar({
     !isLocalFileDocument &&
     new URLSearchParams(location.search).get("share") === "1";
   const [shareRequested, setShareRequested] = useState(false);
+  const shareMounted = shareRequested || openShareOnLoad;
+  const [chartScan, setChartScan] = useState<{
+    content: string | undefined;
+    charts: AnalyticsChartData[];
+    unreadable: number;
+  } | null>(null);
+  // Read only while Share is open: the body is parsed to find the charts.
+  useEffect(() => {
+    if (!shareMounted) return;
+    let cancelled = false;
+    analyticsChartsInBody(documentContent).then(
+      ({ charts, unreadable }) => {
+        if (!cancelled) {
+          setChartScan({ content: documentContent, charts, unreadable });
+        }
+      },
+      () => {
+        if (!cancelled) {
+          setChartScan({ content: documentContent, charts: [], unreadable: 1 });
+        }
+      },
+    );
+    return () => {
+      cancelled = true;
+    };
+  }, [documentContent, shareMounted]);
+  const scanned =
+    chartScan !== null && chartScan.content === documentContent
+      ? chartScan
+      : null;
+  const analyticsCharts = scanned ? scanned.charts : NO_CHARTS;
+  // Until the body has been read, or while a chart in it can't be, any
+  // wider share asks first.
+  const chartsUnread =
+    Boolean(documentContent?.includes(`<${ANALYTICS_CHART_TAG}`)) &&
+    (!scanned || scanned.unreadable > 0);
+  // Sharing a page wider than a chart's dashboard asks first; a table that
+  // would go wider is refused by the server when the change is saved.
+  // Narrowing who can open the page never asks.
+  const confirmChartAudience = useCallback(
+    (from: EmbedVisibility, to: EmbedVisibility) => {
+      if (!isWiderVisibility(to, from)) return false;
+      if (chartsUnread) return true;
+      const { warn, block } = analyticsChartsWiderThan(to, analyticsCharts);
+      return warn.length + block.length > 0;
+    },
+    [analyticsCharts, chartsUnread],
+  );
+  const chartShareDetail = useMemo(() => {
+    if (chartsUnread) return () => t("analyticsChart.shareDetailUnread");
+    if (analyticsCharts.length === 0) return undefined;
+    return (to: EmbedVisibility) => {
+      const { warn, block } = analyticsChartsWiderThan(to, analyticsCharts);
+      const wider = [...warn, ...block];
+      if (wider.length === 0) return null;
+      const dashboards = [
+        ...new Set(wider.map((chart) => chart.dashboard.title)),
+      ].join(", ");
+      const text =
+        wider.length === 1
+          ? t("analyticsChart.shareDetailOne", { dashboards })
+          : t("analyticsChart.shareDetail", {
+              count: wider.length,
+              dashboards,
+            });
+      return block.length > 0
+        ? `${text} ${t("analyticsChart.blockedTable")}`
+        : text;
+    };
+  }, [analyticsCharts, chartsUnread, t]);
   const [shareInitialTab, setShareInitialTab] = useState("share");
   const shareActionRef = useRef<ShareButtonActionHandle>(null);
   const agentLevel = useAgentLevel(documentId, agentTextLocked);
@@ -1815,6 +1898,8 @@ export function DocumentToolbar({
                     hideSendTo
                     defaultOpen={shareRequested || openShareOnLoad}
                     onOpenChange={handleDbShareOpenChange}
+                    confirmVisibility={confirmChartAudience}
+                    visibilityConfirmDetail={chartShareDetail}
                     visibilityCopy={{
                       private: {
                         description: t("editor.toolbar.privateLinkCanView"),

@@ -96,9 +96,9 @@ vi.mock("recharts", async (importOriginal) => {
   };
 });
 
-import type { SqlPanel } from "@/pages/adhoc/sql-dashboard/types";
+import type { SqlPanel } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 
-import { SqlChart, type ChartDatum } from "./SqlChart";
+import { SqlChart, type ChartDatum } from "./SqlChartQuery";
 
 function panel(
   chartType: "area" | "line" | "combo",

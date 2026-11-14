@@ -1,32 +1,32 @@
-import { pivotRows } from "../app/pages/adhoc/sql-dashboard/pivot";
-import {
-  CHART_VALUE_FORMATTERS,
-  PANEL_CHART_TYPES,
-  type ChartType,
-  type SqlPanel,
-  type SqlPanelConfig,
-} from "../app/pages/adhoc/sql-dashboard/types";
-import { axisDirection, isDateAxis } from "./chart-axis-labels";
-import { normalizeDashboardConfig } from "./dashboard-config-normalization";
+import { axisDirection, isDateAxis } from "./chart-axis-labels.js";
+import { normalizeDashboardConfig } from "./dashboard-config-normalization.js";
 import {
   describeFunnelOutcomeProblems,
   funnelOutcomeColumns,
   funnelOutcomeKeys,
   resolveDashboardFunnelRows,
   type DashboardFunnelRows,
-} from "./dashboard-funnel";
+} from "./dashboard-funnel.js";
 import {
   isValidPanelDrilldown,
   panelDrilldownSqlProblem,
-} from "./panel-drilldown";
-import { isValidPanelEvent, panelEventProblem } from "./panel-events";
-import { isValidPanelBreakdowns } from "./row-breakdown";
+} from "./panel-drilldown.js";
+import { isValidPanelEvent, panelEventProblem } from "./panel-events.js";
+import { pivotRows } from "./pivot.js";
+import { isValidPanelBreakdowns } from "./row-breakdown.js";
+import {
+  CHART_VALUE_FORMATTERS,
+  PANEL_CHART_TYPES,
+  type ChartType,
+  type SqlPanel,
+  type SqlPanelConfig,
+} from "./sql-dashboard-types.js";
 import {
   NON_APP_SERIES_COLORS,
   UNKNOWN_APP_COLOR,
   appSeriesColor,
   isUnknownApp,
-} from "./tokens/app-series-colors";
+} from "./tokens/app-series-colors.js";
 
 export { PANEL_CHART_TYPES };
 
@@ -1021,7 +1021,7 @@ export interface PanelRenderPlan {
 export function planPanelRender(
   rawRows: Record<string, unknown>[],
   panel: RenderPanel,
-  opts?: { timeRange?: number },
+  opts?: { timeRange?: number; today?: string },
 ): PanelRenderPlan {
   const config = panel.config;
   const rawColumns = rawRows.length > 0 ? Object.keys(rawRows[0]) : [];
@@ -1030,6 +1030,7 @@ export function planPanelRender(
       ? pivotRows(rawRows, config.pivot, {
           fillDateGaps: panel.chartType !== "bar",
           timeRange: opts?.timeRange,
+          today: opts?.today,
         })
       : null;
   const rows = pivoted ? pivoted.rows : rawRows;

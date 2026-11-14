@@ -3,7 +3,8 @@ import {
   estimateTextWidth,
   spanLabelX,
   trimToWholeWords,
-} from "@shared/chart-axis-labels";
+} from "@agent-native/toolkit/dashboard/chart-axis-labels";
+import { useChartHoverCardOpen } from "@agent-native/toolkit/dashboard/chart-hover-card";
 import {
   dataNotesOnChart,
   dataNoteTone,
@@ -39,7 +40,6 @@ import {
 import type { PanelTimeRange } from "@/pages/adhoc/sql-dashboard/interpolate";
 
 import { isPendingAnnotation } from "./annotation-mutations";
-import { useChartHoverCardOpen } from "./chart-hover-card";
 import { useDataNoteActions } from "./dashboard-annotations-context";
 
 const TONE_COLORS: Record<DataNoteTone, string> = {

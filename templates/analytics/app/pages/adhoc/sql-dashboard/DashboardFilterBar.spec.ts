@@ -1,3 +1,7 @@
+import type {
+  DashboardFilter,
+  FilterPreset,
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import { describe, expect, it } from "vitest";
 
 import { resolveFilterVars } from "./DashboardFilterBar";
@@ -7,7 +11,6 @@ import {
   normalizeMultiSelectValue,
 } from "./filter-vars";
 import { interpolate, interpolateDashboardPanelSql } from "./interpolate";
-import type { DashboardFilter, FilterPreset } from "./types";
 
 function daysAgo(n: number): string {
   const d = new Date();

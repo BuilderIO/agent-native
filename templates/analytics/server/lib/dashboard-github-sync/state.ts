@@ -1,8 +1,8 @@
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
+import { normalizeDashboardConfig } from "@agent-native/toolkit/dashboard/dashboard-config-normalization";
 import { and, asc, eq } from "drizzle-orm";
 import { z } from "zod";
 
-import { normalizeDashboardConfig } from "../../../shared/dashboard-config-normalization";
 import type {
   DashboardSyncBase,
   FolderGitHubSyncConfig,

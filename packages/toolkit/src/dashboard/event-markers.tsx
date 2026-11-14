@@ -1,10 +1,3 @@
-import {
-  formatPanelEventDate,
-  formatPanelEventWhen,
-  groupPanelEvents,
-  resolvePanelEvents,
-  type PanelEventGroup,
-} from "@shared/panel-events";
 import { useMemo, type ReactNode } from "react";
 import { DefaultZIndexes, ReferenceLine, ZIndexLayer } from "recharts";
 
@@ -12,9 +5,15 @@ import {
   HoverCard,
   HoverCardContent,
   HoverCardTrigger,
-} from "@/components/ui/hover-card";
-
-import { useChartHoverCardOpen } from "./chart-hover-card";
+} from "../ui/hover-card.js";
+import { useChartHoverCardOpen } from "./chart-hover-card.js";
+import {
+  formatPanelEventDate,
+  formatPanelEventWhen,
+  groupPanelEvents,
+  resolvePanelEvents,
+  type PanelEventGroup,
+} from "./panel-events.js";
 
 const DEFAULT_EVENT_COLOR = "hsl(var(--foreground))";
 /** How far a marker's hover target reaches from its x, the widest part of it. */

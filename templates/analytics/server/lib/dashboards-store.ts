@@ -16,6 +16,7 @@ import {
   resolveAccess,
   type ShareRole,
 } from "@agent-native/core/sharing";
+import { normalizeDashboardConfig } from "@agent-native/toolkit/dashboard/dashboard-config-normalization";
 import {
   and,
   asc,
@@ -41,7 +42,6 @@ import {
   type DashboardChange,
   type DashboardChangeSummary,
 } from "../../shared/dashboard-change-summary";
-import { normalizeDashboardConfig } from "../../shared/dashboard-config-normalization";
 import { getDb, schema } from "../db/index.js";
 import {
   decodeSearchCursor,

@@ -1,5 +1,9 @@
 import { useReconciledState } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import type {
+  DataSourceType,
+  SqlPanel,
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import {
   IconAlertTriangle,
   IconAlignLeft,
@@ -26,8 +30,6 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 import { canFormatPanelSql, formatPanelSql } from "@/lib/format-sql";
-
-import type { DataSourceType, SqlPanel } from "./types";
 
 const SOURCE_LABELS: Record<DataSourceType, string> = {
   bigquery: "BigQuery",

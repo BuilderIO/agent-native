@@ -72,8 +72,9 @@ vi.mock("../first-party-analytics-health.js", async (importOriginal) => ({
   recordFirstPartyAnalyticsQueryPressure: async () => {},
 }));
 
+import { planPanelRender } from "@agent-native/toolkit/dashboard/panel-render-contract";
+
 import { interpolateDashboardPanelSql } from "../../../app/pages/adhoc/sql-dashboard/interpolate";
-import { planPanelRender } from "../../../shared/panel-render-contract";
 import { getDashboardCatalogEntry } from "../dashboard-catalog";
 import { queryFirstPartyAnalytics } from "../first-party-analytics";
 import { CONTENT_METRICS_MIGRATION_SQL } from "./migration";

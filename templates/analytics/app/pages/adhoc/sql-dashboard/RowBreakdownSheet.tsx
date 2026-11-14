@@ -13,7 +13,11 @@ import {
   ROW_BREAKDOWN_MAX_BYTES_BILLED,
   rowsForBreakdown,
   type PanelBreakdown,
-} from "@shared/row-breakdown";
+} from "@agent-native/toolkit/dashboard/row-breakdown";
+import type {
+  SqlPanel,
+  TableColumnConfig,
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import { SqlQueryRefusalError } from "@shared/sql-query-contract";
 import {
   useEffect,
@@ -26,7 +30,7 @@ import {
 import {
   formatCell,
   isNumericColumnFormat,
-} from "@/components/dashboard/SqlChart";
+} from "@/components/dashboard/SqlChartQuery";
 import {
   Select,
   SelectContent,
@@ -47,7 +51,6 @@ import { cn } from "@/lib/utils";
 
 import { interpolateDashboardPanelSql } from "./interpolate";
 import { serializePanelSql } from "./panel-sql";
-import type { SqlPanel, TableColumnConfig } from "./types";
 
 export const ROW_BREAKDOWN_STATE_KEY = "row-breakdown";
 

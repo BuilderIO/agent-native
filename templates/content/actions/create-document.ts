@@ -36,6 +36,11 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import {
+  assertAnalyticsTablesFitAudience,
+  sharesAudience,
+  widerAudience,
+} from "../server/lib/analytics-chart-sharing.js";
+import {
   documentCreationAttribution,
   requireDocumentRequestActor,
 } from "../server/lib/document-attribution.js";
@@ -746,6 +751,13 @@ export default defineAction({
       orgId = spaceAccess.space.orgId;
       visibility = orgId ? "org" : "private";
     }
+
+    // A new page takes its place's sharing, so a table copied from an
+    // Analytics dashboard (in a duplicate, say) can't reach more people than
+    // the dashboard, nor than the parent's shares reach.
+    await assertAnalyticsTablesFitAudience(content, async () =>
+      widerAudience(visibility, await sharesAudience(orgId, inheritedShares)),
+    );
 
     const now = new Date().toISOString();
     await verifyPrivateIconAssignment({

@@ -1517,6 +1517,10 @@ const messages: ToolkitAgentChatTranslation = {
     "새 구성원을 포함한 {{organization}}의 모든 사용자가 이 항목을 열고 메시지, 파일 등 모든 내용을 볼 수 있게 됩니다. 나중에 변경할 수 있습니다.",
   "share.confirmOrganizationAction": "조직과 공유",
   "share.confirmOrganizationSharing": "공유하는 중...",
+  "share.confirmPublicTitle": "링크가 있는 모든 사용자와 공유할까요?",
+  "share.confirmPublicDescription":
+    "조직 외부 사용자를 포함해 링크가 있는 모든 사용자가 이 항목을 열고 모든 내용을 볼 수 있습니다. 나중에 변경할 수 있습니다.",
+  "share.confirmPublicAction": "공개로 공유",
   "status.resuming": "재개 중",
   "status.stillWorking": "계속 작업 중",
   "status.thinking": "생각 중",
@@ -3709,6 +3713,65 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.voiceChatSaveError":
     "음성 채팅 설정을 저장할 수 없습니다.",
   "voice.dictation.cancelTranscription": "받아쓰기 취소",
+  "common.noData": "데이터 없음",
+  "common.rowsPerPage": "페이지당 행:",
+  "dashboardMode.columnResizePersonal":
+    "드래그하면 나에게만 크기가 바뀝니다. 더블클릭하면 초기화됩니다.",
+  "dashboardMode.columnResizeShared": "드래그하면 모두에게 크기가 바뀝니다",
+  "sessions.watchReplay": "리플레이 보기",
+  "sqlDashboard.calloutSeverityCritical": "심각",
+  "sqlDashboard.calloutSeverityInfo": "정보",
+  "sqlDashboard.calloutSeverityWarning": "경고",
+  "sqlDashboard.chartPointLimitFirst":
+    "{{total}}개 중 처음 {{shown}}개 포인트 표시 중",
+  "sqlDashboard.chartPointLimitLast":
+    "{{total}}개 중 마지막 {{shown}}개 포인트 표시 중",
+  "sqlDashboard.chartPointLimitNewest":
+    "{{total}}개 중 최신 {{shown}}개 포인트 표시 중",
+  "sqlDashboard.collapseDescription": "설명 접기",
+  "sqlDashboard.columnFormat": "형식",
+  "sqlDashboard.columnFormatCurrency": "통화",
+  "sqlDashboard.columnFormatDate": "날짜",
+  "sqlDashboard.columnFormatDuration": "소요 시간(초)",
+  "sqlDashboard.columnFormatNumber": "숫자",
+  "sqlDashboard.columnFormatPercent": "백분율",
+  "sqlDashboard.columnFormatText": "일반 텍스트",
+  "sqlDashboard.columnHide": "열 숨기기",
+  "sqlDashboard.columnName": "열 이름",
+  "sqlDashboard.columnRename": "열 이름 바꾸기",
+  "sqlDashboard.columnResize": "열 크기 조절",
+  "sqlDashboard.columnShow": '"{{name}}" 표시',
+  "sqlDashboard.columnShowHidden": "숨긴 열 표시",
+  "sqlDashboard.drilldownChartPoints": "차트 데이터 포인트",
+  "sqlDashboard.drilldownNextPage": "차트 데이터 포인트 다음 페이지",
+  "sqlDashboard.drilldownPageRange":
+    "총 {{total}}개 중 {{start}}–{{end}}개 표시",
+  "sqlDashboard.drilldownPreviousPage": "차트 데이터 포인트 이전 페이지",
+  "sqlDashboard.expandDescription": "설명 펼치기",
+  "sqlDashboard.filterSeries": "Filter",
+  "sqlDashboard.funnelCompleted": "완료",
+  "sqlDashboard.funnelLeft": "앱을 떠남",
+  "sqlDashboard.funnelLeftHere": "여기서 앱을 떠남",
+  "sqlDashboard.funnelMovedOn": "둘 다 하지 않고 넘어감",
+  "sqlDashboard.funnelOptional": "선택 사항",
+  "sqlDashboard.funnelShown": "{{count}}명에게 표시",
+  "sqlDashboard.funnelShownLabel": "표시됨",
+  "sqlDashboard.funnelSkipped": "건너뜀",
+  "sqlDashboard.hide": "Hide",
+  "sqlDashboard.metricComparisonBetter": "{{comparison}}(개선)",
+  "sqlDashboard.metricComparisonDown":
+    "{{period}} {{previous}} 대비 {{change}} 감소",
+  "sqlDashboard.metricComparisonFlat": "{{period}} {{previous}} 대비 변화 없음",
+  "sqlDashboard.metricComparisonNoChange": "변화 없음",
+  "sqlDashboard.metricComparisonPoints": "{{value}}%p",
+  "sqlDashboard.metricComparisonPreviousPeriod": "이전 기간",
+  "sqlDashboard.metricComparisonUp":
+    "{{period}} {{previous}} 대비 {{change}} 증가",
+  "sqlDashboard.metricComparisonVs": "{{period}} 대비",
+  "sqlDashboard.metricComparisonWorse": "{{comparison}}(악화)",
+  "sqlDashboard.multiColumnSortHelp":
+    "클릭하여 정렬합니다. Shift 키를 누른 채 클릭하면 다른 정렬을 추가합니다.",
+  "sqlDashboard.noXValue": "값 없음",
 };
 
 export default messages;

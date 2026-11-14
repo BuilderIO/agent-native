@@ -1,10 +1,10 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-
-import { buildDashboardPanelGroups } from "../app/pages/adhoc/sql-dashboard/dashboard-layout";
 import {
   clampDashboardColumns,
   type SqlPanel,
-} from "../app/pages/adhoc/sql-dashboard/types";
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { buildDashboardPanelGroups } from "../app/pages/adhoc/sql-dashboard/dashboard-layout";
 import { sameJsonValue } from "./dashboard-mutation-api";
 
 const mocks = vi.hoisted(() => ({

@@ -1700,6 +1700,10 @@ const messages: ToolkitAgentChatTranslation = {
     "Todas las personas de {{organization}}, incluidos los miembros nuevos, podrán abrir esto y ver todo su contenido, incluidos mensajes, archivos y otros elementos. Puedes cambiarlo más tarde.",
   "share.confirmOrganizationAction": "Compartir con la organización",
   "share.confirmOrganizationSharing": "Compartiendo...",
+  "share.confirmPublicTitle": "¿Compartir con cualquiera que tenga el enlace?",
+  "share.confirmPublicDescription":
+    "Cualquiera que tenga el enlace, incluidas personas ajenas a tu organización, podrá abrir esto y ver todo su contenido. Puedes cambiarlo más adelante.",
+  "share.confirmPublicAction": "Compartir públicamente",
   "settings.emailTitle": "Correo electrónico",
   "settings.emailChange": "Cambiar correo electrónico",
   "settings.emailChanging": "Enviando...",
@@ -4000,6 +4004,66 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.voiceChatSaveError":
     "No se pudo guardar la configuración del chat de voz.",
   "voice.dictation.cancelTranscription": "Cancelar transcripción",
+  "common.noData": "Sin datos",
+  "common.rowsPerPage": "Filas por página:",
+  "dashboardMode.columnResizePersonal":
+    "Arrastre para cambiar el tamaño solo para usted. Doble clic para restablecer.",
+  "dashboardMode.columnResizeShared":
+    "Arrastre para cambiar el tamaño para todos",
+  "sessions.watchReplay": "Ver reproducción",
+  "sqlDashboard.calloutSeverityCritical": "Crítico",
+  "sqlDashboard.calloutSeverityInfo": "Información",
+  "sqlDashboard.calloutSeverityWarning": "Advertencia",
+  "sqlDashboard.chartPointLimitFirst":
+    "Se muestran los primeros {{shown}} de {{total}} puntos",
+  "sqlDashboard.chartPointLimitLast":
+    "Se muestran los últimos {{shown}} de {{total}} puntos",
+  "sqlDashboard.chartPointLimitNewest":
+    "Se muestran los {{shown}} puntos más recientes de {{total}}",
+  "sqlDashboard.collapseDescription": "Contraer descripción",
+  "sqlDashboard.columnFormat": "Formato",
+  "sqlDashboard.columnFormatCurrency": "Moneda",
+  "sqlDashboard.columnFormatDate": "Fecha",
+  "sqlDashboard.columnFormatDuration": "Duración (segundos)",
+  "sqlDashboard.columnFormatNumber": "Número",
+  "sqlDashboard.columnFormatPercent": "Porcentaje",
+  "sqlDashboard.columnFormatText": "Texto sin formato",
+  "sqlDashboard.columnHide": "Ocultar columna",
+  "sqlDashboard.columnName": "Nombre de la columna",
+  "sqlDashboard.columnRename": "Renombrar columna",
+  "sqlDashboard.columnResize": "Cambiar tamaño de la columna",
+  "sqlDashboard.columnShow": 'Mostrar "{{name}}"',
+  "sqlDashboard.columnShowHidden": "Mostrar columnas ocultas",
+  "sqlDashboard.drilldownChartPoints": "Puntos del gráfico",
+  "sqlDashboard.drilldownNextPage": "Página siguiente de puntos del gráfico",
+  "sqlDashboard.drilldownPageRange": "Mostrando {{start}}–{{end}} de {{total}}",
+  "sqlDashboard.drilldownPreviousPage": "Página anterior de puntos del gráfico",
+  "sqlDashboard.expandDescription": "Ampliar descripción",
+  "sqlDashboard.filterSeries": "Filter",
+  "sqlDashboard.funnelCompleted": "Completado",
+  "sqlDashboard.funnelLeft": "Salió de la app",
+  "sqlDashboard.funnelLeftHere": "Salió de la app aquí",
+  "sqlDashboard.funnelMovedOn": "Siguió sin ninguno de los dos",
+  "sqlDashboard.funnelOptional": "Opcional",
+  "sqlDashboard.funnelShown": "{{count}} lo vieron",
+  "sqlDashboard.funnelShownLabel": "Lo vieron",
+  "sqlDashboard.funnelSkipped": "Omitido",
+  "sqlDashboard.hide": "Hide",
+  "sqlDashboard.metricComparisonBetter": "{{comparison}} (mejor)",
+  "sqlDashboard.metricComparisonDown":
+    "Baja {{change}} desde {{previous}}, {{period}}",
+  "sqlDashboard.metricComparisonFlat":
+    "Sin cambios desde {{previous}}, {{period}}",
+  "sqlDashboard.metricComparisonNoChange": "Sin cambios",
+  "sqlDashboard.metricComparisonPoints": "{{value}} p. p.",
+  "sqlDashboard.metricComparisonPreviousPeriod": "el periodo anterior",
+  "sqlDashboard.metricComparisonUp":
+    "Sube {{change}} desde {{previous}}, {{period}}",
+  "sqlDashboard.metricComparisonVs": "frente a {{period}}",
+  "sqlDashboard.metricComparisonWorse": "{{comparison}} (peor)",
+  "sqlDashboard.multiColumnSortHelp":
+    "Haz clic para ordenar. Mantén pulsada la tecla Mayús y haz clic para añadir otro orden.",
+  "sqlDashboard.noXValue": "Sin valor",
 };
 
 export default messages;

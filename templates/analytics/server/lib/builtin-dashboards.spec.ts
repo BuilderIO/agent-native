@@ -26,6 +26,7 @@ vi.mock("@agent-native/core/settings", () => {
 });
 
 import {
+  builtinDashboardVisibility,
   installBuiltinDashboardOnce,
   listBuiltinDashboards,
   loadBuiltinDashboard,
@@ -47,5 +48,30 @@ describe("Content built-in", () => {
     expect(await listedIds()).toContain("content-view");
     const content = await loadBuiltinDashboard("content-view", MEMBER);
     expect(content?.title).toBe("Content");
+  });
+});
+
+describe("who opens a built-in", () => {
+  beforeEach(() => settings.clear());
+
+  it("is the organization for a built-in that needs no install", async () => {
+    expect(
+      await builtinDashboardVisibility("builtin-demo-node-exporter", MEMBER),
+    ).toBe("org");
+    expect(await builtinDashboardVisibility("content-view", MEMBER)).toBe(
+      "org",
+    );
+  });
+
+  it("is only the person for a personal install or outside an organization", async () => {
+    expect(
+      await builtinDashboardVisibility("builtin-risk-meeting", MEMBER),
+    ).toBe("private");
+    expect(
+      await builtinDashboardVisibility("builtin-demo-node-exporter", {
+        email: "solo@example.test",
+        orgId: null,
+      }),
+    ).toBe("private");
   });
 });

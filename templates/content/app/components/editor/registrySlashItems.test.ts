@@ -38,6 +38,7 @@ const ALWAYS_HIDDEN_TYPES = [
   "visual-questions",
   "inline-database",
   "clip-embed",
+  "analytics-chart",
   "callout",
   "source-component",
   ...BUILDER_TYPES,

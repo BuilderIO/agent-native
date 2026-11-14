@@ -4,12 +4,12 @@ import {
   getRequestOrgId,
   buildDeepLink,
 } from "@agent-native/core/server";
-import { z } from "zod";
-
 import type {
   DashboardAnnotations,
   SqlPanel,
-} from "../app/pages/adhoc/sql-dashboard/types";
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
+import { z } from "zod";
+
 import {
   buildDashboardAgentContext,
   buildDashboardSeedAgentContext,

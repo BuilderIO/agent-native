@@ -1,3 +1,7 @@
+import type {
+  DashboardFilter,
+  SqlPanel,
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -6,7 +10,6 @@ import {
   reportFiltersWithTraffic,
   withOfferedTraffic,
 } from "./traffic-filter";
-import type { DashboardFilter, SqlPanel } from "./types";
 
 const labels = {
   label: "Verkehr",

@@ -115,6 +115,14 @@ export interface ShareButtonControllerOptions {
     pending?: boolean;
     onCheckedChange: (checked: boolean) => void | Promise<void>;
   };
+  /**
+   * Asks before a visibility change the policy would save at once, when this
+   * returns true. See `ShareVisibilityTransitionOptions.confirmVisibility`.
+   */
+  confirmVisibility?: (
+    from: ShareButtonVisibility,
+    to: ShareButtonVisibility,
+  ) => boolean;
 }
 
 export interface ShareButtonController {
@@ -534,6 +542,7 @@ export function useShareButtonController(
     current: visibility,
     orgId: data?.orgId ?? null,
     confirmOrgVisibility: policy.confirmOrgVisibility === true,
+    confirmVisibility: options.confirmVisibility,
     canManage,
     active: open,
     apply: applyVisibility,

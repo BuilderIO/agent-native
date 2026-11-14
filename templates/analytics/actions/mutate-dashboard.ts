@@ -6,13 +6,17 @@ import {
   getRequestUserEmail,
 } from "@agent-native/core/server";
 import { track } from "@agent-native/core/tracking";
-import { z } from "zod";
-
+import {
+  PANEL_CHART_TYPES,
+  validatePanelContract,
+} from "@agent-native/toolkit/dashboard/panel-render-contract";
 import {
   MAX_PANEL_HEIGHT,
   MIN_PANEL_HEIGHT,
   PANEL_HEIGHT_UNIT_PX,
-} from "../app/pages/adhoc/sql-dashboard/types";
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
+import { z } from "zod";
+
 import {
   dashboardNoopReceipt,
   dashboardWriteReceipt,
@@ -34,10 +38,6 @@ import {
   upsertDashboardWithRetryOutcome,
   type DashboardRecord,
 } from "../server/lib/dashboards-store";
-import {
-  PANEL_CHART_TYPES,
-  validatePanelContract,
-} from "../shared/panel-render-contract";
 import {
   applyDashboardMutationOperations,
   DASHBOARD_MUTATION_API_TYPES,

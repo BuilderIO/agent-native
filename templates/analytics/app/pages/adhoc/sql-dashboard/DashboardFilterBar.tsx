@@ -1,4 +1,9 @@
 import { useT } from "@agent-native/core/client/i18n";
+import type {
+  DashboardFilter,
+  FilterPreset,
+  FilterPresetEdit,
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import {
   IconCheck,
   IconChevronDown,
@@ -73,7 +78,6 @@ import {
   resolveFilterVars,
   usableFilterPresets,
 } from "./filter-vars";
-import type { DashboardFilter, FilterPreset, FilterPresetEdit } from "./types";
 import { useFilterSearchParams } from "./use-filter-search-params";
 
 export { FILTER_PARAM_PREFIX, resolveFilterVars } from "./filter-vars";

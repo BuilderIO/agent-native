@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 
 import { fail } from "@agent-native/core/action";
+import { panelEventProblem } from "@agent-native/toolkit/dashboard/panel-events";
 import { and, asc, count, eq, inArray, ne, sql } from "drizzle-orm";
 
 import type { KeyDate, KeyDateSet } from "../../shared/key-dates.js";
-import { panelEventProblem } from "../../shared/panel-events.js";
 import { getDb, schema } from "../db/index.js";
 import {
   failIfChangedSince,
