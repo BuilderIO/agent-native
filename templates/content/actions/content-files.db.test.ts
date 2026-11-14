@@ -6,7 +6,16 @@ import { join } from "node:path";
 import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq, inArray } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
+// The real space check, wrapped so one test can make it fail once.
+const spaceAccess = vi.hoisted(() => ({ check: vi.fn() }));
+vi.mock("./_content-space-access.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./_content-space-access.js")>();
+  spaceAccess.check.mockImplementation(actual.resolveContentSpaceAccess);
+  return { ...actual, resolveContentSpaceAccess: spaceAccess.check };
+});
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -158,6 +167,25 @@ describe("Content Files membership reconciliation", () => {
       errorCode: "DATABASE_NOT_FOUND",
       statusCode: 404,
     });
+  });
+
+  it("keeps a Files access check that fails, rather than refuses, a server error", async () => {
+    const queryContentDatabaseItemsAction = (
+      await import("./query-content-database-items.js")
+    ).default;
+    const filesDatabase = await getFilesDatabase(personalContentSpaceId(OWNER));
+    const outage = new Error("connection reset");
+    spaceAccess.check.mockRejectedValueOnce(outage);
+
+    // A refusal would clear the reader's Files tree; an outage must not.
+    await expect(
+      runWithRequestContext({ userEmail: VIEWER, orgId: ORG_ID }, () =>
+        queryContentDatabaseItemsAction.run(
+          { databaseId: filesDatabase.id, navigation: { parentId: null } },
+          { userEmail: VIEWER } as any,
+        ),
+      ),
+    ).rejects.toBe(outage);
   });
 
   it("removes the retired Parent default from legacy personal Files views", async () => {

@@ -578,8 +578,12 @@ export async function resolveContentDatabaseRead(args: {
     try {
       await resolveContentSpaceAccess(database.spaceId);
       canRead = true;
-    } catch {
-      canRead = false;
+    } catch (error) {
+      // Only the space's refusal means no access. Any other failure, such as
+      // the database being briefly unreachable, stays a server error, so the
+      // browser keeps what it showed instead of treating it as a refusal.
+      const status = (error as { statusCode?: unknown } | null)?.statusCode;
+      if (status !== 401 && status !== 403 && status !== 404) throw error;
     }
   }
   // A reader without access gets the same typed 404 as a missing database, so

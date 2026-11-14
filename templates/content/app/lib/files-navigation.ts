@@ -433,13 +433,14 @@ export async function readFilesNavigationPage(
     }
     return withCreatedFilesRows(queryClient, params, page, readStartMark);
   } catch (error) {
-    // A refused read of the tree's top level means the whole Files database
-    // is out of reach, so every page of it this tab cached goes too, such as
-    // a folder's page a breadcrumb menu still draws.
+    // The server checks access to the whole Files database for every page of
+    // it, and answers a folder it can't show with a 400. So a refused read of
+    // any page means the database is out of reach, and every page of it this
+    // tab cached goes too: the top level, the folder pages the sidebar drew,
+    // and one a breadcrumb menu reads alone.
     const status = (error as { status?: unknown } | undefined)?.status;
     if (
       !signal?.aborted &&
-      params.navigation.parentId === null &&
       (status === 401 || status === 403 || status === 404)
     ) {
       clearCachedFilesPages(

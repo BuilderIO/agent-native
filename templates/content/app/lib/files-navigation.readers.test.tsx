@@ -149,15 +149,28 @@ describe("a Files read", () => {
     ).toBeDefined();
   });
 
-  it("stops a folder read under way once the top level is refused, so its late answer puts nothing back", async () => {
+  it("drops every cached page of the database once a folder read is refused", async () => {
     const folder = filesNavigationPageParams({
       databaseId: FILES,
       parentId: "folder",
     });
-    const subfolder = filesNavigationPageParams({
+    const sibling = filesNavigationPageParams({
       databaseId: FILES,
-      parentId: "subfolder",
+      parentId: "other-folder",
     });
+    const otherDatabase = filesNavigationPageParams({
+      databaseId: "other-files-db",
+      parentId: null,
+    });
+    callActionWithRetry.mockImplementation(async () => ({
+      ...empty(),
+      items: [{ documentId: "page-1", type: "page" }],
+    }));
+    queryClient.setQueryData(filesNavigationQueryKey(sibling), {
+      ...empty(),
+      items: [{ documentId: "sibling-child", type: "page" }],
+    });
+    queryClient.setQueryData(filesNavigationQueryKey(otherDatabase), empty());
     function FolderReader() {
       useFilesNavigationPage(folder);
       return null;
@@ -170,6 +183,59 @@ describe("a Files read", () => {
         </QueryClientProvider>,
       );
     });
+    expect(
+      queryClient.getQueryData(filesNavigationQueryKey(ROOT)),
+    ).toBeDefined();
+
+    callActionWithRetry.mockRejectedValue(
+      Object.assign(new Error("Not found"), { status: 404 }),
+    );
+    await act(async () => {
+      await queryClient.refetchQueries({
+        queryKey: filesNavigationQueryKey(folder),
+        exact: true,
+      });
+    });
+
+    for (const page of [ROOT, folder, sibling]) {
+      expect(
+        queryClient.getQueryData(filesNavigationQueryKey(page)),
+      ).toBeUndefined();
+    }
+    expect(
+      queryClient.getQueryData(filesNavigationQueryKey(otherDatabase)),
+    ).toBeDefined();
+  });
+
+  it("stops a folder read under way once the top level is refused, so neither the folder's old rows nor its late answer come back", async () => {
+    const folder = filesNavigationPageParams({
+      databaseId: FILES,
+      parentId: "folder",
+    });
+    const subfolder = filesNavigationPageParams({
+      databaseId: FILES,
+      parentId: "subfolder",
+    });
+    function FolderReader() {
+      useFilesNavigationPage(folder);
+      return null;
+    }
+    callActionWithRetry.mockImplementation(async () => ({
+      ...empty(),
+      items: [{ documentId: "old-child", type: "page" }],
+    }));
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <BreadcrumbReader />
+          <FolderReader />
+        </QueryClientProvider>,
+      );
+    });
+    // The folder's earlier rows are what cancelling its reread reverts to.
+    expect(
+      queryClient.getQueryData(filesNavigationQueryKey(folder)),
+    ).toMatchObject({ items: [{ documentId: "old-child" }] });
 
     let answerFolder: (page: unknown) => void = () => {};
     callActionWithRetry.mockImplementation(
