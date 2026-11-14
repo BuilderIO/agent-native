@@ -1,10 +1,22 @@
-import { tryCallActionKeepalive } from "@agent-native/core/client/hooks";
-import { useT } from "@agent-native/core/client/i18n";
+import {
+  actionErrorMessage,
+  tryCallActionKeepalive,
+} from "@agent-native/core/client/hooks";
+import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import type {
   DocumentPropertiesResponse,
   DocumentProperty,
+  DocumentPropertyDefinition,
   DocumentPropertyType,
 } from "@shared/api";
+import {
+  COLUMN_RULE_FROZEN,
+  freezeRuleOf,
+  frozenBlocksFields,
+  isFreezeRuleKeyType,
+  toggledFreezeRule,
+  type FrozenBlocksField,
+} from "@shared/column-rules";
 import { mergeBlocksFieldEdits } from "@shared/document-intent-merge";
 import {
   blocksRenderMode,
@@ -12,10 +24,17 @@ import {
   countWords,
   isBlocksPropertyType,
   isPrimaryBlocksField,
+  type BlocksFieldFreezeRule,
   type BlocksStorageTarget,
 } from "@shared/properties";
-import { IconGripVertical, IconMessage, IconPlus } from "@tabler/icons-react";
 import {
+  IconGripVertical,
+  IconLock,
+  IconMessage,
+  IconPlus,
+} from "@tabler/icons-react";
+import {
+  Fragment,
   useCallback,
   useEffect,
   useId,
@@ -45,10 +64,14 @@ import {
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Spinner } from "@/components/ui/spinner";
@@ -65,6 +88,7 @@ import {
   useDeleteDocumentProperty,
   useDocumentProperties,
   useReorderDocumentProperty,
+  useSetBlocksFieldFreezeRule,
   useSetDocumentProperty,
 } from "@/hooks/use-document-properties";
 import { cn } from "@/lib/utils";
@@ -202,6 +226,42 @@ export function blockFieldsFromProperties(
   return properties
     .filter((property) => isBlocksPropertyType(property.definition.type))
     .sort((a, b) => a.definition.position - b.definition.position);
+}
+
+/** The row's tabs that its collection's rules freeze now, by field ID. */
+export function frozenBlockFieldsById(
+  properties: DocumentProperty[],
+): Map<string, FrozenBlocksField> {
+  const values = new Map(
+    properties.map((property) => [property.definition.id, property.value]),
+  );
+  return new Map(
+    frozenBlocksFields(
+      properties.map((property) => property.definition),
+      (propertyId) => values.get(propertyId),
+    ).map((field) => [field.propertyId, field]),
+  );
+}
+
+/** The columns a tab's freeze can key on, in column order. */
+function freezeKeyColumns(
+  properties: DocumentProperty[],
+): DocumentPropertyDefinition[] {
+  return properties
+    .map((property) => property.definition)
+    .filter(
+      (definition) =>
+        !definition.systemRole &&
+        isFreezeRuleKeyType(definition.type) &&
+        (definition.options.options?.length ?? 0) > 0,
+    )
+    .sort((a, b) => a.position - b.position);
+}
+
+function isColumnRuleRefusal(error: unknown): boolean {
+  return (
+    (error as { errorCode?: unknown } | null)?.errorCode === COLUMN_RULE_FROZEN
+  );
 }
 
 export type FieldReorderTarget = {
@@ -432,6 +492,18 @@ export function DocumentBlockFields({
     () => blockFieldsFromProperties(properties),
     [properties],
   );
+  // Column rules: the tabs this row's values freeze now, the columns a freeze
+  // can key on, and whether this person may set one.
+  const loadedProperties = propertiesData?.properties;
+  const { frozenFields, freezeColumns } = useMemo(
+    () => ({
+      frozenFields: frozenBlockFieldsById(loadedProperties ?? []),
+      freezeColumns: freezeKeyColumns(loadedProperties ?? []),
+    }),
+    [loadedProperties],
+  );
+  const canManageColumnRules =
+    canManageFields && propertiesData.canManageColumnRules === true;
 
   const loaded = isLoadedForDocument(documentId, databaseId, propertiesData);
   const state = blockFieldsRenderState({ loaded, blockFields });
@@ -529,13 +601,25 @@ export function DocumentBlockFields({
             data-block-fields-state="solo"
             data-block-field-id={state.field.definition.id}
           >
+            <FrozenBlockFieldNote
+              field={frozenFields.get(state.field.definition.id) ?? null}
+              t={t}
+            />
             <AdditionalBlockEditor
               key={`${documentId}:${state.field.definition.id}`}
               documentId={documentId}
               databaseDocumentId={databaseDocumentId ?? documentId}
               property={state.field}
-              canEdit={canEditFields && !suggesting}
-              allowPendingSave={canEditFields && enteringSuggestion}
+              canEdit={
+                canEditFields &&
+                !suggesting &&
+                !frozenFields.has(state.field.definition.id)
+              }
+              allowPendingSave={
+                canEditFields &&
+                enteringSuggestion &&
+                !frozenFields.has(state.field.definition.id)
+              }
               privateImageUploads={privateImageUploads}
               onContentChange={onAdditionalContentChange}
             />
@@ -560,6 +644,9 @@ export function DocumentBlockFields({
           canEdit={canEditFields && !suggesting}
           allowPendingSave={canEditFields && enteringSuggestion}
           canManageFields={canManageFields}
+          canManageColumnRules={canManageColumnRules}
+          frozenFields={frozenFields}
+          freezeColumns={freezeColumns}
           blockFields={state.fields}
           primaryEditor={primaryEditor}
           primaryContent={primaryContent}
@@ -624,6 +711,9 @@ function MultiBlockFields({
   canEdit,
   allowPendingSave,
   canManageFields,
+  canManageColumnRules,
+  frozenFields,
+  freezeColumns,
   blockFields,
   primaryEditor,
   primaryContent,
@@ -638,6 +728,10 @@ function MultiBlockFields({
   canEdit: boolean;
   allowPendingSave: boolean;
   canManageFields: boolean;
+  /** Full access to the collection, which a tab's freeze rule needs. */
+  canManageColumnRules: boolean;
+  frozenFields: Map<string, FrozenBlocksField>;
+  freezeColumns: DocumentPropertyDefinition[];
   blockFields: DocumentProperty[];
   primaryEditor: ReactNode;
   primaryContent?: string;
@@ -667,6 +761,11 @@ function MultiBlockFields({
     databaseDocumentId,
   );
   const remove = useDeleteDocumentProperty(
+    documentId,
+    databaseId,
+    databaseDocumentId,
+  );
+  const freeze = useSetBlocksFieldFreezeRule(
     documentId,
     databaseId,
     databaseDocumentId,
@@ -876,7 +975,7 @@ function MultiBlockFields({
       .map((field) => field.id),
   );
 
-  // A tab's menu (rename, delete), the tab whose name is being edited, the
+  // A tab's menu (rename, freeze, delete), the tab whose name is being edited, the
   // field waiting on a delete confirmation, and names saved but not yet read
   // back.
   const [menuFieldId, setMenuFieldId] = useState<string | null>(null);
@@ -1012,7 +1111,9 @@ function MultiBlockFields({
         writeSelection(previousRequestedId);
       }
       toast.error(t("editor.deleteBlockFieldFailed"), {
-        description: error instanceof Error ? error.message : undefined,
+        description:
+          actionErrorMessage(error) ??
+          (error instanceof Error ? error.message : undefined),
       });
     }
   }
@@ -1332,6 +1433,7 @@ function MultiBlockFields({
                       name={fieldName(property)}
                       content={liveContent(property)}
                       selected={propertyId === selectedId}
+                      frozen={frozenFields.get(propertyId) ?? null}
                       changed={changedIds.has(propertyId)}
                       openComments={
                         openComments?.get(
@@ -1381,6 +1483,21 @@ function MultiBlockFields({
                         setMenuFieldId(null);
                         setRenamingId(propertyId);
                       }}
+                      freeze={
+                        isPrimaryBlocksField(property.definition.options)
+                          ? null
+                          : {
+                              rule: freezeRuleOf(property.definition),
+                              columns: freezeColumns,
+                              canChange: canManageColumnRules,
+                              onChange: (rule) =>
+                                freeze.mutate({
+                                  databaseId,
+                                  propertyId,
+                                  rule,
+                                }),
+                            }
+                      }
                       onDelete={() => {
                         setMenuFieldId(null);
                         setDeletingId(propertyId);
@@ -1437,16 +1554,24 @@ function MultiBlockFields({
             {isPrimaryBlocksField(property.definition.options) ? (
               primaryEditor
             ) : (
-              <AdditionalBlockEditor
-                key={`${documentId}:${propertyId}`}
-                documentId={documentId}
-                databaseDocumentId={databaseDocumentId}
-                property={property}
-                canEdit={canEdit}
-                allowPendingSave={allowPendingSave}
-                privateImageUploads={privateImageUploads}
-                onContentChange={handleAdditionalContentChange}
-              />
+              <>
+                <FrozenBlockFieldNote
+                  field={frozenFields.get(propertyId) ?? null}
+                  t={t}
+                />
+                <AdditionalBlockEditor
+                  key={`${documentId}:${propertyId}`}
+                  documentId={documentId}
+                  databaseDocumentId={databaseDocumentId}
+                  property={property}
+                  canEdit={canEdit && !frozenFields.has(propertyId)}
+                  allowPendingSave={
+                    allowPendingSave && !frozenFields.has(propertyId)
+                  }
+                  privateImageUploads={privateImageUploads}
+                  onContentChange={handleAdditionalContentChange}
+                />
+              </>
             )}
           </div>
         );
@@ -1520,15 +1645,44 @@ function MultiBlockFields({
   );
 }
 
+type BlockFieldFreezeMenu = {
+  rule: BlocksFieldFreezeRule | null;
+  /** The status and select columns the rule can key on. */
+  columns: DocumentPropertyDefinition[];
+  /** Only someone with full access to the collection sets or lifts a rule. */
+  canChange: boolean;
+  onChange: (rule: BlocksFieldFreezeRule | null) => void;
+};
+
+/** "Status" and "Approved or Published" for a rule's column and values. */
+function freezeRuleText(
+  rule: BlocksFieldFreezeRule,
+  columns: DocumentPropertyDefinition[],
+  formatList: (names: string[]) => string,
+): { column: string; value: string } | null {
+  const column = columns.find((candidate) => candidate.id === rule.propertyId);
+  if (!column) return null;
+  const names = rule.optionIds.flatMap((id) => {
+    const option = column.options.options?.find(
+      (candidate) => candidate.id === id,
+    );
+    return option ? [option.name] : [];
+  });
+  return names.length > 0
+    ? { column: column.name, value: formatList(names) }
+    : null;
+}
+
 /**
- * The menu a field's tab opens: rename and delete. Fields belong to the
- * collection, so the menu says both reach every row.
+ * The menu a field's tab opens: rename, freeze, and delete. Fields belong to
+ * the collection, so the menu says all three reach every row.
  */
 function BlockFieldTabMenu({
   name,
   tab,
   onClose,
   onRename,
+  freeze,
   onDelete,
   t,
 }: {
@@ -1536,9 +1690,17 @@ function BlockFieldTabMenu({
   tab: () => HTMLElement | null;
   onClose: (refocus: boolean) => void;
   onRename: () => void;
+  /** Null for the page body, which can't be frozen. */
+  freeze: BlockFieldFreezeMenu | null;
   onDelete: () => void;
   t: ReturnType<typeof useT>;
 }) {
+  const formatters = useFormatters();
+  const ruleText =
+    freeze?.rule &&
+    freezeRuleText(freeze.rule, freeze.columns, (names) =>
+      formatters.formatList(names, { type: "disjunction" }),
+    );
   const escapedRef = useRef(false);
   return (
     <DropdownMenu
@@ -1580,6 +1742,82 @@ function BlockFieldTabMenu({
         <DropdownMenuItem onSelect={onRename} data-block-field-rename>
           {t("editor.renameBlockField")}
         </DropdownMenuItem>
+        {freeze?.canChange ? (
+          <DropdownMenuSub>
+            <DropdownMenuSubTrigger data-block-field-freeze>
+              <span className="min-w-0 truncate">
+                {ruleText
+                  ? t("editor.blockFieldFrozen", ruleText)
+                  : t("editor.freezeBlockField")}
+              </span>
+            </DropdownMenuSubTrigger>
+            <DropdownMenuSubContent
+              className="w-56"
+              collisionPadding={8}
+              data-block-field-freeze-menu
+            >
+              {freeze.columns.length === 0 ? (
+                <DropdownMenuItem disabled>
+                  {t("editor.freezeBlockFieldNoColumns")}
+                </DropdownMenuItem>
+              ) : (
+                freeze.columns.map((column, index) => (
+                  <Fragment key={column.id}>
+                    {index > 0 ? <DropdownMenuSeparator /> : null}
+                    <DropdownMenuLabel>
+                      {t("editor.freezeBlockFieldWhile", {
+                        column: column.name,
+                      })}
+                    </DropdownMenuLabel>
+                    {(column.options.options ?? []).map((option) => (
+                      <DropdownMenuCheckboxItem
+                        key={option.id}
+                        checked={
+                          freeze.rule?.propertyId === column.id &&
+                          freeze.rule.optionIds.includes(option.id)
+                        }
+                        // Stays open, so several values can be picked.
+                        onSelect={(event) => event.preventDefault()}
+                        onCheckedChange={(checked) =>
+                          freeze.onChange(
+                            toggledFreezeRule(
+                              freeze.rule,
+                              column.id,
+                              option.id,
+                              checked === true,
+                            ),
+                          )
+                        }
+                        data-block-field-freeze-option={option.id}
+                      >
+                        <span className="min-w-0 truncate">{option.name}</span>
+                      </DropdownMenuCheckboxItem>
+                    ))}
+                  </Fragment>
+                ))
+              )}
+              {freeze.rule ? (
+                <>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem
+                    onSelect={() => freeze.onChange(null)}
+                    data-block-field-unfreeze
+                  >
+                    {t("editor.unfreezeBlockField")}
+                  </DropdownMenuItem>
+                </>
+              ) : null}
+            </DropdownMenuSubContent>
+          </DropdownMenuSub>
+        ) : ruleText ? (
+          <div
+            className="flex items-start gap-2 px-2 py-1.5 text-xs text-muted-foreground"
+            data-block-field-freeze-summary
+          >
+            <IconLock aria-hidden="true" className="mt-px size-3.5 shrink-0" />
+            <span>{t("editor.blockFieldFrozenByManagers", ruleText)}</span>
+          </div>
+        ) : null}
         <DropdownMenuItem
           className="text-destructive focus:bg-destructive/10 focus:text-destructive"
           onSelect={onDelete}
@@ -1646,6 +1884,48 @@ function BlockFieldNameInput({
   );
 }
 
+/**
+ * Says why a field is read-only while a column rule freezes it, and what
+ * reopens it. Nothing renders while the field is open.
+ */
+function FrozenBlockFieldNote({
+  field,
+  t,
+}: {
+  field: FrozenBlocksField | null;
+  t: ReturnType<typeof useT>;
+}) {
+  return (
+    <div role="status" aria-live="polite">
+      {field ? (
+        <div
+          className="mb-3 flex items-start gap-2.5 rounded-md border border-dashed border-border bg-muted/35 px-3 py-2.5 text-sm"
+          data-block-field-frozen-note
+        >
+          <IconLock
+            aria-hidden="true"
+            className="mt-0.5 size-4 shrink-0 text-muted-foreground"
+          />
+          <div className="min-w-0">
+            <p className="font-medium text-foreground">
+              {t("editor.blockFieldFrozen", {
+                column: field.keyPropertyName,
+                value: field.optionName,
+              })}
+            </p>
+            <p className="mt-0.5 leading-5 text-pretty text-muted-foreground">
+              {t("editor.blockFieldFrozenDescription", {
+                column: field.keyPropertyName,
+                value: field.optionName,
+              })}
+            </p>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
 function BlockFieldTab({
   tabRef,
   id,
@@ -1654,6 +1934,7 @@ function BlockFieldTab({
   name,
   content,
   selected,
+  frozen,
   changed,
   openComments,
   dragging,
@@ -1671,6 +1952,8 @@ function BlockFieldTab({
   name: string;
   content: string;
   selected: boolean;
+  /** Set while a column rule freezes the field. */
+  frozen: FrozenBlocksField | null;
   changed: boolean;
   /** Open comment threads in the field (and suggestions, on the body). */
   openComments: number;
@@ -1721,6 +2004,20 @@ function BlockFieldTab({
           )}
           data-block-field-drop-indicator={dropIndicator}
         />
+      ) : null}
+      {frozen ? (
+        <span
+          className="inline-flex items-center text-muted-foreground"
+          data-block-field-frozen
+        >
+          <IconLock aria-hidden="true" className="size-3.5" />
+          <span className="sr-only">
+            {t("editor.blockFieldFrozen", {
+              column: frozen.keyPropertyName,
+              value: frozen.optionName,
+            })}
+          </span>
+        </span>
       ) : null}
       <span className="max-w-48 truncate">{name}</span>
       {words > 0 ? (
@@ -2184,9 +2481,16 @@ function AdditionalBlockEditor({
           !isBlockFieldDeleting(key) &&
           peekBlockFieldSaveController(key)
         ) {
-          toast.error(dbText("somethingWentWrong"), {
-            description: error instanceof Error ? error.message : undefined,
-          });
+          toast.error(
+            isColumnRuleRefusal(error)
+              ? t("editor.blockFieldFrozenSaveRefused")
+              : dbText("somethingWentWrong"),
+            {
+              description:
+                actionErrorMessage(error) ??
+                (error instanceof Error ? error.message : undefined),
+            },
+          );
         }
         throw error;
       }

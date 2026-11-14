@@ -40,6 +40,11 @@ import {
   assertPropertyWritableByRowMutation,
   writeStoredBlocksField,
 } from "./_blocks-field-write.js";
+import {
+  assertBlocksFieldNotFrozen,
+  columnRuleDefinitions,
+  keysAFreezeRule,
+} from "./_column-rules.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { resolveContentDocumentAccess } from "./_content-document-access.js";
 import {
@@ -191,7 +196,7 @@ async function setPrimaryBlocksThroughLiveCopy(args: {
 
 export default defineAction({
   description:
-    "Set one property value on a Content collection document, including an additional Blocks field. Blocks values are NFM: each line is a block, <br> inserts a hard break, and <empty-block/> preserves an empty paragraph. Plain CommonMark blank lines are not preserved.",
+    "Set one property value on a Content collection document, including an additional Blocks field. Blocks values are NFM: each line is a block, <br> inserts a hard break, and <empty-block/> preserves an empty paragraph. Plain CommonMark blank lines are not preserved. A collection rule can freeze a Blocks field while the row's status has certain values; a save to it is then refused with COLUMN_RULE_FROZEN; leave a comment on the page instead.",
   mcpTool: true,
   publicAgent: {
     expose: true,
@@ -410,6 +415,11 @@ export default defineAction({
           database.id,
           lockedDefinition,
         );
+        // Under the page's row lock, which a change to the rule's column takes too.
+        await assertBlocksFieldNotFrozen(
+          tx as unknown as ReturnType<typeof getDb>,
+          { databaseId: database.id, documentId, propertyId },
+        );
         target = blocksStorageTarget(
           parsePropertyOptions(lockedDefinition.optionsJson),
         );
@@ -551,6 +561,22 @@ export default defineAction({
         database.id,
         lockedDefinition,
       );
+      // A tab frozen by this column checks it under the page's row lock, so
+      // the change takes that lock too: a save to the tab that started before
+      // this change can't land after it.
+      if (
+        keysAFreezeRule(
+          await columnRuleDefinitions(
+            tx as unknown as ReturnType<typeof getDb>,
+            database.id,
+          ),
+          propertyId,
+        )
+      ) {
+        await lockDocumentRows(tx as unknown as ReturnType<typeof getDb>, [
+          documentId,
+        ]);
+      }
       if (expectedGeneration !== undefined) {
         await assertPropertyGenerations(
           tx as unknown as ReturnType<typeof getDb>,

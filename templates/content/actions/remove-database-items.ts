@@ -5,6 +5,7 @@ import { and, eq, inArray } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import { deleteBlocksFieldIdentity } from "./_blocks-field-identity.js";
+import { assertNoFrozenTabsOnRemovedRows } from "./_column-rules.js";
 import {
   lockContentDatabaseMutation,
   touchContentDatabase,
@@ -148,6 +149,11 @@ export default defineAction({
               "Source-backed rows cannot be removed from this database.",
             );
           }
+          // Removal deletes the rows' tab text, so a tab a rule froze keeps its row.
+          await assertNoFrozenTabsOnRemovedRows(
+            tx as unknown as ReturnType<typeof getDb>,
+            { databaseId: database.id, documentIds: removedDocumentIds },
+          );
         }
         const propertyIds = (
           await tx

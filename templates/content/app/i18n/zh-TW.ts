@@ -531,6 +531,16 @@ const overrides = {
       "這會從此集合的每一列中刪除「{{name}}」及其文字。此動作無法復原。",
     deleteBlockFieldBodyWarning:
       "「{{name}}」是頁面內文，因此每一列的內文也會一併刪除。",
+    blockFieldFrozen: "{{column}} 為 {{value}} 時已凍結",
+    blockFieldFrozenDescription:
+      "此集合的一條規則禁止任何人（無論是人還是代理程式）變更此分頁。將 {{column}} 改為 {{value}} 以外的值即可編輯。",
+    blockFieldFrozenByManagers:
+      "{{column}} 為 {{value}} 時已凍結。只有對此集合擁有完整存取權的人才能變更。",
+    blockFieldFrozenSaveRefused: "此分頁已凍結，你的編輯未儲存",
+    freezeBlockField: "凍結條件…",
+    freezeBlockFieldWhile: "當 {{column}} 為",
+    freezeBlockFieldNoColumns: "新增一個狀態欄或選擇欄作為凍結條件",
+    unfreezeBlockField: "不凍結",
     title: "標題",
     creatingDatabase: "正在建立內嵌集合...",
     databaseCreated: "集合已建立",

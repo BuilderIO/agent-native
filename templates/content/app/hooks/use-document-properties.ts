@@ -1,4 +1,5 @@
 import {
+  actionErrorMessage,
   callActionWithRetry,
   useActionMutation,
   useActionQuery,
@@ -25,6 +26,7 @@ import type {
   UpdateDatabaseItemsRequest,
   UpdateDatabaseItemsResponse,
 } from "@shared/api";
+import type { BlocksFieldFreezeRule } from "@shared/properties";
 import {
   useInfiniteQuery,
   useQueryClient,
@@ -916,4 +918,83 @@ export function useSetBuilderEntryStatus(
       });
     },
   });
+}
+
+export interface SetBlocksFieldFreezeRuleRequest {
+  databaseId: string;
+  propertyId: string;
+  rule: BlocksFieldFreezeRule | null;
+}
+
+/** Sets or clears the rule that freezes a tab while the row has chosen values. */
+export function useSetBlocksFieldFreezeRule(
+  documentId: string,
+  databaseId: string,
+  databaseDocumentId = documentId,
+) {
+  const queryClient = useQueryClient();
+  const queryKey = documentPropertiesQueryKey(documentId, databaseId);
+  const scopeId = `content-column-rules:${databaseId}`;
+  return useActionMutation<
+    { ok: true; propertyId: string; rule: BlocksFieldFreezeRule | null },
+    SetBlocksFieldFreezeRuleRequest
+  >("set-blocks-field-freeze-rule", {
+    skipActionQueryInvalidation: true,
+    // Each change sends the whole rule, so they must land in click order.
+    scope: { id: scopeId },
+    onMutate: async (variables) => {
+      await queryClient.cancelQueries({ queryKey });
+      queryClient.setQueryData<DocumentPropertiesResponse>(
+        queryKey,
+        (current) =>
+          current && {
+            ...current,
+            properties: current.properties.map((property) =>
+              property.definition.id === variables.propertyId
+                ? {
+                    ...property,
+                    definition: {
+                      ...property.definition,
+                      options: withFreezeRule(
+                        property.definition.options,
+                        variables.rule,
+                      ),
+                    },
+                  }
+                : property,
+            ),
+          },
+      );
+    },
+    // A later click may already have moved past this one's starting point, so
+    // a failure rereads the rule rather than restoring that point.
+    onError: (error) => {
+      toast.error(dbText("somethingWentWrong"), {
+        description: actionErrorMessage(error) ?? error.message,
+      });
+    },
+    onSettled: () => {
+      // While a later click waits its turn, a reread would show the rule
+      // without it, and the click after that would send that older rule.
+      // The last change to settle rereads for all of them.
+      const pending = queryClient.isMutating({
+        predicate: (mutation) => mutation.options.scope?.id === scopeId,
+      });
+      if (pending > 1) return;
+      void queryClient.invalidateQueries({ queryKey });
+      void queryClient.invalidateQueries(
+        contentDatabaseQueryFilter(databaseDocumentId),
+      );
+    },
+  });
+}
+
+function withFreezeRule(
+  options: DocumentPropertyDefinition["options"],
+  rule: BlocksFieldFreezeRule | null,
+): DocumentPropertyDefinition["options"] {
+  return {
+    ...options,
+    blocks: { primary: false, ...(rule ? { freezeWhen: rule } : {}) },
+  };
 }

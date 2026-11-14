@@ -17,6 +17,10 @@ import {
   deleteBlocksFieldIdentity,
   lockPrimaryBlocksFieldsForDocuments,
 } from "./_blocks-field-identity.js";
+import {
+  assertNoColumnRuleOn,
+  columnRuleDefinitions,
+} from "./_column-rules.js";
 import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import { lockPagesAndAssertAgentsMayEditText } from "./_document-agent-lock.js";
@@ -102,6 +106,14 @@ export default defineAction({
       if (lockedDefinition.systemRole) {
         throw new Error("System properties cannot be deleted.");
       }
+      assertNoColumnRuleOn(
+        await columnRuleDefinitions(
+          tx as unknown as ReturnType<typeof getDb>,
+          database.id,
+        ),
+        propertyId,
+        "delete",
+      );
 
       const isBlocks = isBlocksPropertyType(
         lockedDefinition.type as DocumentPropertyType,

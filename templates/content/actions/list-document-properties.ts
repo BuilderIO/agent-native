@@ -47,6 +47,8 @@ export default defineAction({
       databaseAccess?.role === "admin" ||
       databaseAccess?.role === "editor";
     const canManageSchema = canEditValues;
+    const canManageColumnRules =
+      databaseAccess?.role === "owner" || databaseAccess?.role === "admin";
 
     const properties = await listPropertiesForDocument(
       access.resource,
@@ -80,6 +82,7 @@ export default defineAction({
       databaseId: databaseAccess ? (database?.id ?? null) : null,
       canEditValues,
       canManageSchema,
+      canManageColumnRules,
       properties: databaseAccess
         ? properties.map((property) =>
             builderStatusChoices &&

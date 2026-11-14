@@ -408,6 +408,8 @@ let getDocument: typeof import("./get-document.js").default;
 let runGitHubSourceSweep: typeof import("./_github-source-freshness.js").runGitHubSourceSweep;
 let refreshBeforeRead: typeof import("./_github-source-freshness.js").refreshGitHubSourceBeforeRead;
 let liveCopyPage: typeof import("../server/test-support/live-copy-page.js");
+let configureProperty: typeof import("./configure-document-property.js").default;
+let setFreezeRule: typeof import("./set-blocks-field-freeze-rule.js").default;
 let spaceId: string;
 
 const as = async <T>(run: () => T | Promise<T>): Promise<Awaited<T>> =>
@@ -449,6 +451,9 @@ beforeAll(async () => {
     await import("./_document-edit-mutation.js"));
   getDocument = (await import("./get-document.js")).default;
   liveCopyPage = await import("../server/test-support/live-copy-page.js");
+  configureProperty = (await import("./configure-document-property.js"))
+    .default;
+  setFreezeRule = (await import("./set-blocks-field-freeze-rule.js")).default;
   ({ runGitHubSourceSweep, refreshGitHubSourceBeforeRead: refreshBeforeRead } =
     await import("./_github-source-freshness.js"));
   await as(() =>
@@ -1522,6 +1527,129 @@ describe("GitHub folder source", () => {
     const [one, two] = await liveRows(database.id);
     expect(await value(one!.documentId, order.id)).toBe("1");
     expect(await value(two!.documentId, order.id)).toBe("TBD");
+  });
+
+  /**
+   * A linked folder whose files give stage Approved or Draft, and a Review tab
+   * frozen while stage is Approved.
+   */
+  async function ruledStageCollection() {
+    github.commit({
+      "docs/one.md": "---\nstage: Approved\n---\n# One\n",
+      "docs/two.md": "---\nstage: Draft\n---\n# Two\n",
+    });
+    const database = await newCollection();
+    await as(() =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+    const column = async (id: "stage" | "review") => {
+      const found = (await columns(database.id)).find((candidate) =>
+        id === "stage"
+          ? candidate.name === "stage"
+          : candidate.name === "Review",
+      );
+      if (!found) throw new Error(`No ${id} column`);
+      return {
+        ...found,
+        options: JSON.parse(found.optionsJson) as {
+          options?: Array<{ id: string; name: string }>;
+          blocks?: { freezeWhen?: unknown };
+        },
+      };
+    };
+    const stage = await column("stage");
+    expect(stage.type).toBe("select");
+    const approved = stage.options.options?.find(
+      (option) => option.name === "Approved",
+    );
+    if (!approved) throw new Error("No Approved option");
+    const person = { caller: "frontend" as const, userEmail: owner };
+    await as(() =>
+      configureProperty.run(
+        {
+          documentId: database.documentId,
+          databaseId: database.id,
+          name: "Review",
+          type: "blocks",
+        } as never,
+        person,
+      ),
+    );
+    const review = await column("review");
+    const rule = { propertyId: stage.id, optionIds: [approved.id] };
+    await as(() =>
+      setFreezeRule.run(
+        { databaseId: database.id, propertyId: review.id, rule },
+        person,
+      ),
+    );
+    return { database, column, stage, review, rule };
+  }
+
+  it("stops rather than widen a column a tab's freeze rule keys on", async () => {
+    const { database, column, rule } = await ruledStageCollection();
+
+    // A value no select option can hold would turn stage into text, and the
+    // rule would stop matching and quietly reopen Review.
+    github.commit({
+      "docs/one.md": `---\nstage: ${"Approved ".repeat(15)}\n---\n# One\n`,
+      "docs/two.md": "---\nstage: Draft\n---\n# Two\n",
+    });
+    const synced = await as(() => syncFolder.run({ databaseId: database.id }));
+    expect(synced.sync).toMatchObject({
+      state: "error",
+      problem: {
+        code: "sync_failed",
+        message: expect.stringContaining("can't become text"),
+      },
+    });
+    expect((await column("stage")).type).toBe("select");
+    expect((await column("review")).options).toMatchObject({
+      blocks: { freezeWhen: rule },
+    });
+  });
+
+  it("adds a new choice to the options as they are, keeping one a rule named during the sync", async () => {
+    const { database, column, stage, review, rule } =
+      await ruledStageCollection();
+    github.commit({
+      "docs/one.md": "---\nstage: Approved\n---\n# One\n",
+      "docs/two.md": "---\nstage: Shipped\n---\n# Two\n",
+    });
+    // While the sync reads files, a person adds Blocked to stage and freezes
+    // Review on it too.
+    const blocked = { id: "blocked", name: "Blocked", color: "red" };
+    const named = { ...rule, optionIds: [...rule.optionIds, blocked.id] };
+    github.state.duringBlobRead = async () => {
+      const definitions = schema.documentPropertyDefinitions;
+      await getDb()
+        .update(definitions)
+        .set({
+          optionsJson: JSON.stringify({
+            ...stage.options,
+            options: [...(stage.options.options ?? []), blocked],
+          }),
+        })
+        .where(eq(definitions.id, stage.id));
+      await getDb()
+        .update(definitions)
+        .set({
+          optionsJson: JSON.stringify({
+            ...review.options,
+            blocks: { primary: false, freezeWhen: named },
+          }),
+        })
+        .where(eq(definitions.id, review.id));
+    };
+
+    const synced = await as(() => syncFolder.run({ databaseId: database.id }));
+    expect(synced.sync).toMatchObject({ state: "synced" });
+    expect(
+      (await column("stage")).options.options?.map((option) => option.name),
+    ).toEqual(expect.arrayContaining(["Approved", "Blocked", "Shipped"]));
+    expect((await column("review")).options).toMatchObject({
+      blocks: { freezeWhen: named },
+    });
   });
 
   it("stops at its time budget and resumes where it left off", async () => {

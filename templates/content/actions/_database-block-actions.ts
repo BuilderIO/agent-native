@@ -49,6 +49,7 @@ import {
   persistBlocksFieldIdentity,
   readBlocksFieldIdentity,
 } from "./_blocks-field-identity.js";
+import { assertBlocksFieldNotFrozen } from "./_column-rules.js";
 import {
   lockContentDatabaseMutation,
   touchContentDatabase,
@@ -1118,6 +1119,12 @@ export async function mutateDatabaseBlock(
         // After both replays, so a write that landed before the lock keeps its
         // receipt, and on this fresh read, because the queue can be a long wait.
         assertAgentsMayEditPageText(loaded.row.document, ctx);
+        // Under the page's row lock, which a change to the rule's column takes too.
+        await assertBlocksFieldNotFrozen(tx, {
+          databaseId: input.target.databaseId,
+          documentId: input.target.rowDocumentId,
+          propertyId: input.target.propertyId,
+        });
         const { resolved, changed } = await prepareBlockMutation(
           tx,
           loaded,
