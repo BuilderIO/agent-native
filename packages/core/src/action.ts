@@ -9,6 +9,7 @@ import {
   actionCallReadOnly,
   actionOutputEffect,
   classifyActionCall,
+  isMcpReadOnlyTool,
   type ActionCallClassification,
 } from "./action-call-classification.js";
 import {
@@ -1073,6 +1074,12 @@ interface DefineActionWithSchema<
    *  external caller is not on. */
   mcpTool?: boolean;
   mcpAnnotations?: ActionMcpToolAnnotations;
+  /** Lets an MCP connection on the script catalog call this action from
+   *  `run-script`. Nothing is scriptable by default. `"read"` is the only
+   *  value, and `defineAction` throws when the action is not read-only by
+   *  `isMcpReadOnlyTool` or asks for approval, so the declaration can never
+   *  loosen what the action really does. */
+  mcpScript?: "read";
   deferLoading?: boolean;
   /** Words and short phrases a user says for this action that its name and
    *  description do not: "auto-archive rule", "canned reply", "reschedule".
@@ -1217,6 +1224,8 @@ interface DefineActionWithParams<
   agentTool?: boolean;
   mcpTool?: boolean;
   mcpAnnotations?: ActionMcpToolAnnotations;
+  /** See `mcpScript` on the schema form above. */
+  mcpScript?: "read";
   deferLoading?: boolean;
   /** See `searchHints` on the schema form above. */
   searchHints?: readonly string[];
@@ -1274,6 +1283,7 @@ export interface ActionDefinition<TInput, TReturn> {
   readonly agentTool?: boolean;
   readonly mcpTool?: boolean;
   readonly mcpAnnotations?: ActionMcpToolAnnotations;
+  readonly mcpScript?: "read";
   readonly deferLoading?: boolean;
   readonly searchHints?: readonly string[];
   readonly eagerInputStreaming?: boolean;
@@ -1706,6 +1716,40 @@ export function defineAction(options: any) {
               "mcpAnnotations must define boolean readOnlyHint, destructiveHint, and openWorldHint values; idempotentHint is an optional boolean.",
             );
           })();
+  const mcpScript = (() => {
+    if (options.mcpScript === undefined) return undefined;
+    if (options.mcpScript !== "read") {
+      throw new TypeError('mcpScript must be "read" when it is set.');
+    }
+    if (
+      !isMcpReadOnlyTool({
+        readOnly: readOnly === true,
+        ...(options.planMode === undefined
+          ? {}
+          : { planMode: options.planMode }),
+        ...(mcpAnnotations === undefined ? {} : { mcpAnnotations }),
+      })
+    ) {
+      throw new TypeError(
+        'mcpScript: "read" requires a read-only action: readOnly: true, no planMode effect other than "read", and no readOnlyHint: false.',
+      );
+    }
+    if (mcpAnnotations?.destructiveHint === true) {
+      throw new TypeError(
+        'mcpScript: "read" cannot be set on an action annotated destructiveHint: true.',
+      );
+    }
+    if (
+      (options.needsApproval !== undefined &&
+        options.needsApproval !== false) ||
+      options.publicAgent?.isConsequential === true
+    ) {
+      throw new TypeError(
+        'mcpScript: "read" cannot be set on an action that asks for approval or is consequential.',
+      );
+    }
+    return "read" as const;
+  })();
   const deferLoading: boolean | undefined =
     typeof options.deferLoading === "boolean"
       ? options.deferLoading
@@ -1781,6 +1825,11 @@ export function defineAction(options: any) {
     tool,
     run: wrapRunWithExecutionBoundary(trackedRun, executionKey),
     ...(hasSchema ? { schema: options.schema } : {}),
+    ...(hasSchema &&
+    options.agentInputSchema &&
+    "~standard" in options.agentInputSchema
+      ? { agentInputSchema: options.agentInputSchema }
+      : {}),
     ...(options.http !== undefined ? { http: options.http } : {}),
     ...(typeof options.requiresAuth === "boolean"
       ? { requiresAuth: options.requiresAuth }
@@ -1792,6 +1841,7 @@ export function defineAction(options: any) {
     ...(typeof agentTool === "boolean" ? { agentTool } : {}),
     ...(typeof mcpTool === "boolean" ? { mcpTool } : {}),
     ...(mcpAnnotations ? { mcpAnnotations } : {}),
+    ...(mcpScript ? { mcpScript } : {}),
     ...(typeof deferLoading === "boolean" ? { deferLoading } : {}),
     ...(searchHints ? { searchHints } : {}),
     ...(typeof options.eagerInputStreaming === "boolean"
@@ -2282,6 +2332,39 @@ function schemaToJsonSchema(
     // cards, the manifest and tool search still read `anyObject`.
     return { parameters: anyObject, verdict: unusableVerdict(error) };
   }
+}
+
+/**
+ * An action's input schema as its schema library emits it, before
+ * `schemaToJsonSchema` strips what providers reject and rewrites non-string
+ * enums, so it says what validation accepts. The MCP script tools type
+ * their declarations from it, because a script's arguments go to the action
+ * without passing through a provider. Undefined when it cannot be emitted.
+ */
+export function semanticInputSchema(schema: unknown): unknown {
+  if (!isPlainRecord(schema)) return undefined;
+  try {
+    const standard = schema["~standard"];
+    const jsonSchema = isPlainRecord(standard)
+      ? standard.jsonSchema
+      : undefined;
+    if (isPlainRecord(jsonSchema) && typeof jsonSchema.input === "function") {
+      return plainJsonSnapshot(jsonSchema.input({ target: "draft-2020-12" }));
+    }
+    const zod = schema._zod;
+    if (isPlainRecord(zod) && zod.def !== undefined) {
+      return plainJsonSnapshot(zodDefToJsonSchema(zod.def));
+    }
+    return undefined;
+  } catch {
+    // coercion-ok: a schema that cannot be emitted leaves the declaration to
+    // the parameters every caller already sees.
+    return undefined;
+  }
+}
+
+function isPlainRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
 }
 
 function zodDefToJsonSchema(def: any): any {

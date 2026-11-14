@@ -73,6 +73,13 @@ export function preserveActionFlags(
   ) {
     out.schema = entry.schema;
   }
+  if (
+    entry.agentInputSchema &&
+    typeof entry.agentInputSchema === "object" &&
+    "~standard" in entry.agentInputSchema
+  ) {
+    out.agentInputSchema = entry.agentInputSchema;
+  }
   if (isPlainObject(entry.access)) {
     out.access = entry.access as Flag<"access">;
   }
@@ -81,6 +88,7 @@ export function preserveActionFlags(
   if (isMcpAnnotations(entry.mcpAnnotations)) {
     out.mcpAnnotations = entry.mcpAnnotations;
   }
+  if (entry.mcpScript === "read") out.mcpScript = "read";
   const outputContract = entry.mcpOutputContract;
   if (
     outputContract &&
