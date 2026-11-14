@@ -7,6 +7,29 @@ import { fetchMarkdownMirror } from "../server/lib/markdown-mirror";
 
 afterEach(() => vi.restoreAllMocks());
 
+it.each([
+  () => new Response("missing", { status: 404 }),
+  () =>
+    new Response("<html></html>", { headers: { "content-type": "text/html" } }),
+])(
+  "treats missing or non-markdown responses as absent when inventory is unknown",
+  async (response) => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValue(response());
+    const url = "https://www.agent-native.com/mcp.md";
+    const event = {
+      url: new URL(url),
+      req: new Request(url),
+    } as unknown as H3Event;
+
+    await expect(fetchMarkdownMirror("mcp.md", event)).resolves.toEqual({
+      kind: "absent",
+    });
+    expect(fetchSpy).toHaveBeenCalledOnce();
+  },
+);
+
 it("fetches an unlisted path when the inventory is unknown", async () => {
   const fetchSpy = vi
     .spyOn(globalThis, "fetch")

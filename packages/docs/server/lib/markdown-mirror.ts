@@ -26,11 +26,13 @@ export async function fetchMarkdownMirror(
   event: H3Event,
 ): Promise<MarkdownMirrorResult> {
   if (isMarkdownMirrorFetch(event)) return { kind: "absent" };
+  const assetPath = relativePath.replace(/^\/+/, "");
+  const isKnownAsset = knownAssets?.has(assetPath) ?? false;
   if (
     relativePath.endsWith(".md") &&
     !relativePath.includes("%") &&
     knownAssets &&
-    !knownAssets.has(relativePath.replace(/^\/+/, ""))
+    !isKnownAsset
   ) {
     return { kind: "absent" };
   }
@@ -38,7 +40,7 @@ export async function fetchMarkdownMirror(
   const staticUrl = new URL(
     getAppProductionUrl(undefined, { fallback: DOCS_PUBLIC_ORIGIN }),
   );
-  staticUrl.pathname = `/${relativePath.replace(/^\/+/, "")}`;
+  staticUrl.pathname = `/${assetPath}`;
   staticUrl.search = "";
   let response: Response;
   try {
@@ -49,29 +51,35 @@ export async function fetchMarkdownMirror(
   } catch (error) {
     return {
       kind: "unreadable",
-      reason: `mirror fetch failed for /${relativePath}: ${
+      reason: `mirror fetch failed for /${assetPath}: ${
         error instanceof Error ? error.message : String(error)
       }`,
     };
   }
 
-  if (response.status === 404) return { kind: "absent" };
+  if (response.status === 404 && !isKnownAsset) return { kind: "absent" };
   if (!response.ok) {
     return {
       kind: "unreadable",
-      reason: `mirror fetch for /${relativePath} returned ${response.status}`,
+      reason: `mirror fetch for /${assetPath} returned ${response.status}`,
     };
   }
 
   const contentType = response.headers.get("content-type")?.toLowerCase() ?? "";
-  if (!contentType.includes("text/markdown")) return { kind: "absent" };
+  if (!contentType.includes("text/markdown")) {
+    if (!isKnownAsset) return { kind: "absent" };
+    return {
+      kind: "unreadable",
+      reason: `mirror fetch for /${assetPath} returned ${contentType || "missing content-type"} instead of text/markdown`,
+    };
+  }
 
   try {
     return { kind: "found", content: await response.text() };
   } catch (error) {
     return {
       kind: "unreadable",
-      reason: `mirror body unreadable for /${relativePath}: ${
+      reason: `mirror body unreadable for /${assetPath}: ${
         error instanceof Error ? error.message : String(error)
       }`,
     };

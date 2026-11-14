@@ -95,17 +95,37 @@ describe("markdown mirror recursion guard", () => {
     );
   });
 
-  it("reports a missing mirror as absent, not as a failure", async () => {
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response("nope", { status: 404 }),
-    );
-    const event = eventWithHeaders({});
+  it.each([
+    { response: () => new Response("nope", { status: 404 }), reason: "404" },
+    {
+      response: () =>
+        new Response("<html></html>", {
+          headers: { "content-type": "text/html; charset=utf-8" },
+        }),
+      reason: "text/html; charset=utf-8",
+    },
+    { response: () => new Response(null), reason: "missing content-type" },
+  ])(
+    "reports an inventoried mirror with $reason as unreadable",
+    async ({ response, reason }) => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(response());
+
+      await expect(
+        fetchMarkdownMirror("/docs/actions-overview.md", eventWithHeaders({})),
+      ).resolves.toMatchObject({
+        kind: "unreadable",
+        reason: expect.stringContaining(reason),
+      });
+    },
+  );
+
+  it("does not fetch a markdown path known to be absent", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch");
 
     await expect(
-      fetchMarkdownMirror("docs/actions-overview.md", event),
-    ).resolves.toEqual({
-      kind: "absent",
-    });
+      fetchMarkdownMirror("docs/not-in-inventory.md", eventWithHeaders({})),
+    ).resolves.toEqual({ kind: "absent" });
+    expect(fetchSpy).not.toHaveBeenCalled();
   });
 
   it.each([
