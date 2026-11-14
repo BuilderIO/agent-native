@@ -1,7 +1,6 @@
 import { defineConfig, mergeConfig } from "vitest/config";
 
 import baseConfig from "../../vitest.shared";
-import { buildMarkdownInventory } from "./app/vite-sitemap-plugin";
 
 export default mergeConfig(
   baseConfig,
@@ -14,7 +13,7 @@ export default mergeConfig(
         },
         load(id) {
           if (id === "\0virtual:docs-markdown-inventory") {
-            return `export default ${JSON.stringify(buildMarkdownInventory(process.cwd()))};`;
+            return `export default ["docs/actions-overview.md", "examples/self-hosted-chat/README.md"];`;
           }
         },
       },

@@ -13,11 +13,11 @@ import {
   type ArticleEntry,
 } from "../lib/site-content";
 import { loadSiteContentFromDisk } from "../lib/site-content-node";
+import { inventoryPublicAssets } from "../nitro.config";
 import { DOCS_LOCALES, sitePathForLocale } from "./components/docs-locale";
 import {
   SITE_URL,
   buildAgentWebPages,
-  buildMarkdownInventory,
   buildSiteContentPages,
   buildPrerenderPaths,
   buildSitemapXml,
@@ -338,7 +338,8 @@ describe("docs agent web generation", () => {
     it(
       "inventories every generated and public Markdown asset",
       () => {
-        const inventory = new Set(buildMarkdownInventory(rootDir));
+        fs.cpSync(path.join(rootDir, "public"), clientDir, { recursive: true });
+        const inventory = new Set(inventoryPublicAssets(clientDir));
         function markdownFiles(dir: string, base = dir): string[] {
           return fs
             .readdirSync(dir, { withFileTypes: true })

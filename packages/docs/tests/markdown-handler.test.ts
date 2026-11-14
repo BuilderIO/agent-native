@@ -36,6 +36,31 @@ describe("markdown request handlers without local static files", () => {
   );
 
   it.each(["GET", "HEAD"])(
+    "serves a public Markdown asset via the mirror on %s",
+    async (method) => {
+      vi.spyOn(fs, "existsSync").mockReturnValue(false);
+      const fetchSpy = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response("# Public asset\n", {
+          headers: { "content-type": "text/markdown; charset=utf-8" },
+        }),
+      );
+      const app = new H3().use(method === "GET" ? getHandler : headHandler);
+      const response = await app.fetch(
+        new Request(
+          "https://www.agent-native.com/examples/self-hosted-chat/README.md",
+          { method },
+        ),
+      );
+      expect(response.status).toBe(200);
+      expect(response.headers.get("content-type")).toContain("text/markdown");
+      expect(await response.text()).toBe(
+        method === "GET" ? "# Public asset\n" : "",
+      );
+      expect(fetchSpy).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each(["GET", "HEAD"])(
     "preserves mirror failures for real documents on %s",
     async (method) => {
       vi.spyOn(fs, "existsSync").mockReturnValue(false);
