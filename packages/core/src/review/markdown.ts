@@ -137,7 +137,30 @@ export function commentDocToMarkdown(content: CommentDocNode): string {
 /** The box's blocks as Markdown, with text that would format escaped. */
 function escapedMarkdown(blocks: readonly CommentDocNode[]): string {
   const root: Root = { type: "root", children: flowToMarkdown(blocks) };
-  return toMarkdown(root, WRITE_OPTIONS).replace(/\n+$/, "");
+  return joinSplitCharacters(toMarkdown(root, WRITE_OPTIONS)).replace(
+    /\n+$/,
+    "",
+  );
+}
+
+/**
+ * Spells an emoji the writer split as one reference. Where bold, italics or
+ * strikethrough can't open or close beside a character, the writer spells
+ * that character as a reference, but one UTF-16 unit at a time, so beside an
+ * emoji it spells only half, and the next save turns that half into U+FFFD.
+ * Spelled whole, the emoji reads back, and still lets the mark open or close.
+ */
+function joinSplitCharacters(markdown: string): string {
+  const unit = (hex: string) => String.fromCharCode(Number.parseInt(hex, 16));
+  return markdown
+    .replace(
+      /([\uD800-\uDBFF])&#x(D[C-F][0-9A-F]{2});/g,
+      (_, high: string, low: string) => characterReference(high + unit(low)),
+    )
+    .replace(
+      /&#x(D[89AB][0-9A-F]{2});([\uDC00-\uDFFF])/g,
+      (_, high: string, low: string) => characterReference(unit(high) + low),
+    );
 }
 
 /** A footnote's mark, `[^1]`, as the writer escapes it. */
@@ -1158,12 +1181,39 @@ function readAsLink(text: string, href: string, after: string): boolean {
   );
 }
 
+/** Whether `written` reads as nothing but a link to `href` showing `label`. */
+function readsAsOnlyLink(
+  written: string,
+  href: string,
+  label: string,
+): boolean {
+  return remembered(
+    AUTOLINK_READS,
+    JSON.stringify([written, href, label]),
+    () => {
+      const blocks = fromMarkdown(written, PARSE_OPTIONS).children;
+      const block = itemAt(blocks, 0);
+      if (blocks.length !== 1 || block?.type !== "paragraph") return false;
+      const link = itemAt(block.children, 0);
+      if (block.children.length !== 1 || link?.type !== "link") return false;
+      const shown = itemAt(link.children, 0);
+      return (
+        link.url === href &&
+        link.children.length === 1 &&
+        shown?.type === "text" &&
+        shown.value === label
+      );
+    },
+  );
+}
+
 /**
  * What the parser lately made of each address. The box saves the whole
  * comment as each key is typed, so most addresses are read again unchanged.
  */
 const AUTOLINKS = new Map<string, Autolink | undefined>();
 const LINK_READS = new Map<string, boolean>();
+const AUTOLINK_READS = new Map<string, boolean>();
 const SHOWN_TEXTS = new Map<string, string>();
 /** How many reads each keeps, past which it starts again. */
 const REMEMBERED_READS = 2_000;
@@ -1651,14 +1701,22 @@ const writeListItem: Handle = (node, parent, state, info) => {
 };
 
 /**
- * Writes a link to an address holding a backslash as `[text](address)`. In
- * `<address>`, where a backslash is just a backslash, the writer would still
- * escape one before the `>`, adding a backslash each time it's saved.
+ * Writes a link as `[text](address)` where `<address>` wouldn't read back as
+ * the same link, as each save would then change it again. In `<address>`,
+ * where a backslash is just a backslash, the writer would still escape one
+ * before the `>`, adding a backslash each time; and an email address whose
+ * domain holds `_` isn't a link in angle brackets, which pile up instead.
  */
 const writeLink = Object.assign(
   ((node: Link, parent, state, info) => {
-    if (!node.url.includes("\\")) {
-      return defaultHandlers.link(node, parent, state, info);
+    const written = defaultHandlers.link(node, parent, state, info);
+    const label = itemAt(node.children, 0);
+    if (
+      !written.startsWith("<") ||
+      (label?.type === "text" &&
+        readsAsOnlyLink(written, node.url, label.value))
+    ) {
+      return written;
     }
     const resourceLink = state.options.resourceLink;
     state.options.resourceLink = true;

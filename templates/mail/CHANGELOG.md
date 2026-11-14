@@ -9,6 +9,12 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 - More save failures now say why, such as being offline or lacking permission.
 
+## 2026-11-08
+
+### Improved
+
+- Hovering an email action shows its name and shortcut, and keys now follow Superhuman: Space pages, X selects, Enter replies all in an open email, ? asks the agent, and Shift+U opens Unread.
+
 ## 2026-11-05
 
 ### Improved
@@ -30,6 +36,7 @@ time from the command menu (Cmd+K → "What's new") or from Settings.
 
 ### Fixed
 
+- Closing a draft addressed to a saved group no longer shows a "Failed to save draft" error.
 - AI rule backfills now wait out Gmail rate limits and retry instead of failing right after you create or edit a rule.
 
 ## 2026-11-02

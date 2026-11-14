@@ -225,6 +225,7 @@
         "react-markdown",
         "react-router",
         "remark-gfm",
+        "shiki",
         "sonner",
         "tailwind-merge"
       ],
@@ -734,6 +735,7 @@
         "@agent-native/core/client/api-path",
         "@agent-native/core/client/dev-overlay",
         "@agent-native/core/client/i18n",
+        "@agent-native/core/client/onboarding/first-run-enabled",
         "@agent-native/core/client/route-warmup",
         "@agent-native/core/client/theme",
         "@agent-native/core/client/ui",

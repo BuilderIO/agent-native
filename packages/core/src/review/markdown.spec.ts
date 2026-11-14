@@ -267,6 +267,33 @@ describe("comment Markdown and the box's document", () => {
       "see [https://example.com\\\\](https://example.com\\\\) ok",
     );
     expect(roundTrip(ending)).toBe(ending);
+    // An email address whose domain holds `_` isn't a link in `<…>`, so one
+    // that opens as a link saves as `[…](mailto:…)`, the same each time.
+    const mail = roundTrip(commentDocToMarkdown(lines("x@y.co_x_")));
+    expect(mail).toBe("[x@y.co_x](mailto:x@y.co_x)\\_");
+    expect(commentPlainText(mail)).toBe("x@y.co_x_");
+    expect(roundTrip(mail)).toBe(mail);
+  });
+
+  it("saves an emoji beside formatting whole, the same each time", () => {
+    const text = (value: string, mark?: string): CommentDocNode => ({
+      type: "text",
+      text: value,
+      ...(mark ? { marks: [{ type: mark }] } : {}),
+    });
+    for (const content of [
+      [text("Nice 🎉"), text("(see notes)", "bold")],
+      [text("Nice 🎉"), text("(see notes)", "strike")],
+      [text("(see notes)", "italic"), text("🎉 after")],
+    ]) {
+      const saved = commentDocToMarkdown(inline(...content));
+      // Neither half of the emoji is spelled on its own.
+      expect(saved).not.toMatch(/&#xD[89A-F][0-9A-F]{2};/);
+      expect(commentPlainText(saved)).toBe(
+        content.map((node) => node.text).join(""),
+      );
+      expect(roundTrip(saved)).toBe(saved);
+    }
   });
 
   it("keeps a typed web address apart from formatting right after it", () => {

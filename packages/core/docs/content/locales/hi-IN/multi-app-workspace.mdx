@@ -277,7 +277,7 @@ Dispatch में, संगठन के मालिक और एडमि�
 
 The workspace root `.env` is loaded into every app automatically for deployment-level configuration such as `A2A_SECRET`, `BETTER_AUTH_SECRET`, and `DATABASE_URL`. User, org, and workspace API keys should be saved as scoped DB secrets instead of being written into `.env`. Per-app deploy-time overrides can still go in `apps/<name>/.env` and win on conflict.
 
-रनटाइम ऐप क्रेडेंशियल के लिए, `.env` फ़ाइलों को हाथ से संपादित करने के बजाय डिस्पैच वॉल्ट को प्राथमिकता दें। वॉल्ट डिफ़ॉल्ट रूप से सभी ऐप्स तक पहुंच प्रदान करता है, इसलिए प्रत्येक सहेजी गई वॉल्ट कुंजी प्रत्येक कार्यस्थान ऐप के लिए उपलब्ध है और इसे `sync-vault-to-app` के साथ पुश किया जा सकता है। वॉल्ट को मैन्युअल मोड में तभी स्विच करें जब ऐप्स को स्पष्ट प्रति-कुंजी अनुदान की आवश्यकता हो।
+रनटाइम ऐप क्रेडेंशियल के लिए, `.env` फ़ाइलों को हाथ से संपादित करने के बजाय डिस्पैच वॉल्ट को प्राथमिकता दें। वॉल्ट डिफ़ॉल्ट रूप से सभी ऐप्स तक पहुंच प्रदान करता है, इसलिए प्रत्येक सहेजी गई वॉल्ट कुंजी प्रत्येक कार्यस्थान ऐप के लिए उपलब्ध है जो इसी डेटाबेस को साझा करता है। वॉल्ट को मैन्युअल मोड में तभी स्विच करें जब ऐप्स को स्पष्ट प्रति-कुंजी अनुदान की आवश्यकता हो।
 
 ```text
 my-company-platform/

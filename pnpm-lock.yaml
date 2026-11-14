@@ -2754,6 +2754,9 @@ importers:
       safe-regex2:
         specifier: 5.1.1
         version: 5.1.1
+      smol-toml:
+        specifier: 1.9.1
+        version: 1.9.1
       turndown:
         specifier: ^7.2.4
         version: 7.2.4
@@ -23629,6 +23632,10 @@ packages:
     resolution: {integrity: sha512-vZ7rfeehZui7wQs438JXBckYLkIIdfHOXsaVEUMyS5fHo1483l1bMdo0EDSWYclY0yZKFOipDy4KHuKs6ssvdg==}
     engines: {node: '>=8.0.0'}
 
+  smol-toml@1.9.1:
+    resolution: {integrity: sha512-j7WyPdf0CJoutMzMoPLF/bVXHtKZIT9Rb4eGeEbWw8X2t5oirjPgpL+OpaENZrILYaXqYwnVH+qgUwVbl+pUJQ==}
+    engines: {node: '>= 18'}
+
   solid-js@1.9.13:
     resolution: {integrity: sha512-6hJeJMOcEX8ktqjpDoJZEmld3ijvcvWBDtiXBm7f4332SiFN66QeAQI1REQshvyUoISsSeJ4PHDauKYbwao9JQ==}
 
@@ -43266,6 +43273,8 @@ snapshots:
   sliced@1.0.1: {}
 
   slugify@1.6.9: {}
+
+  smol-toml@1.9.1: {}
 
   solid-js@1.9.13:
     dependencies:

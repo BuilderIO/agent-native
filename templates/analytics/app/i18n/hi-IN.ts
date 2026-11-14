@@ -1335,6 +1335,8 @@ export default {
     resetFilters: "फ़िल्टर रीसेट करें",
     collapseFilters: "फ़िल्टर संक्षिप्त करें",
     expandFilters: "फ़िल्टर का विस्तार करें",
+    collapseDescription: "विवरण संक्षिप्त करें",
+    expandDescription: "विवरण का विस्तार करें",
     drilldownChartPoints: "चार्ट के बिंदु",
     drilldownPreviousPage: "चार्ट बिंदुओं का पिछला पृष्ठ",
     drilldownNextPage: "चार्ट बिंदुओं का अगला पृष्ठ",

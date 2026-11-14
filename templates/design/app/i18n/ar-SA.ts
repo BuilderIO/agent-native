@@ -1728,7 +1728,6 @@ export default {
     signInToRequestAccessTitle: "سجّل الدخول لطلب الوصول",
     signInToRequestAccessDescription:
       "سجّل الدخول أو أنشئ حسابًا لطلب الوصول من المالك.",
-    signInOrSignUp: "تسجيل الدخول أو إنشاء حساب",
     accessCheckFailed: "تعذر التحقق من الوصول إلى هذا التصميم.",
     retryAccessCheck: "إعادة المحاولة",
     saveAsTemplate: "حفظ كقالب…",
@@ -2194,6 +2193,30 @@ export default {
         "لدى متعاون آخر تعديلات بانتظار التطبيق. طبّقها أو امسحها قبل إرسال تعديلات جديدة.",
       codingHandoffCopied: "تم نسخ تسليم الترميز",
       clipboardBlocked: "تم حظر الحافظة",
+      pasteMediaTooMany_zero:
+        "لم يتم لصق {{count}} ملف. يمكنك لصق حتى {{limit}} ملفًا في المرة الواحدة.",
+      pasteMediaTooMany_one:
+        "لم يتم لصق {{count}} ملف. يمكنك لصق حتى {{limit}} ملفًا في المرة الواحدة.",
+      pasteMediaTooMany_two:
+        "لم يتم لصق {{count}} ملفين. يمكنك لصق حتى {{limit}} ملفًا في المرة الواحدة.",
+      pasteMediaTooMany_few:
+        "لم يتم لصق {{count}} ملفات. يمكنك لصق حتى {{limit}} ملفًا في المرة الواحدة.",
+      pasteMediaTooMany_many:
+        "لم يتم لصق {{count}} ملفًا. يمكنك لصق حتى {{limit}} ملفًا في المرة الواحدة.",
+      pasteMediaTooMany_other:
+        "لم يتم لصق {{count}} ملفًا. يمكنك لصق حتى {{limit}} ملفًا في المرة الواحدة.",
+      pasteMediaTooLarge_zero:
+        "لم يتم لصق {{count}} ملف لأنه يتجاوز {{limitMb}} ميغابايت.",
+      pasteMediaTooLarge_one:
+        "لم يتم لصق {{count}} ملف لأنه يتجاوز {{limitMb}} ميغابايت.",
+      pasteMediaTooLarge_two:
+        "لم يتم لصق {{count}} ملفين لأنهما يتجاوزان {{limitMb}} ميغابايت.",
+      pasteMediaTooLarge_few:
+        "لم يتم لصق {{count}} ملفات لأنها تتجاوز {{limitMb}} ميغابايت.",
+      pasteMediaTooLarge_many:
+        "لم يتم لصق {{count}} ملفًا لأنها تتجاوز {{limitMb}} ميغابايت.",
+      pasteMediaTooLarge_other:
+        "لم يتم لصق {{count}} ملفًا لأنها تتجاوز {{limitMb}} ميغابايت.",
       htmlCreateError: "تعذر إنشاء تنزيل HTML",
       htmlDownloaded: "تم تنزيل HTML",
       htmlExportError: "تعذر تصدير HTML",

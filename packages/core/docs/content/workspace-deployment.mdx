@@ -367,6 +367,12 @@ the initial organization owner, and can invite teammates in Settings →
 Organization → Members. See [Administered deployments](/docs/administered-deployments)
 for the full bootstrap flow.
 
+## Deterministic function zips {#workspace-netlify-function-zips}
+
+Netlify hashes each function's whole ZIP, and its bundler writes entries in a different order every run, so unchanged functions re-upload on every deploy. Publish with `npx @agent-native/core@latest netlify-deploy` instead of calling `netlify deploy` yourself. It zips the functions with the installed Netlify CLI's own bundler, rewrites each ZIP with sorted entries and a fixed timestamp, writes the functions manifest, then runs `netlify deploy` in the same command. Routes, schedules and background settings are kept. Pass your own `netlify deploy` arguments after the command; the default is `--prod --dir=dist --functions=.netlify/functions-internal`.
+
+The CLI only reads that manifest for two minutes. If it is older when the CLI starts, or the CLI discards it, the command prints a `manifest-expired` line and exits non-zero instead of deploying with unstable ZIPs silently.
+
 ## What's next
 
 - [**Deployment**](/docs/deployment) — pick a persistent database, a Nitro preset, and a platform before deploying a workspace
