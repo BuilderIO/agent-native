@@ -1417,7 +1417,7 @@ export const migrations = runMigrations(
       sql: `ALTER TABLE recording_transcripts ADD COLUMN IF NOT EXISTS earlier_audio_removed_at TEXT`,
     },
     {
-      version: 103,
+      version: 106,
       name: "slack-huddle-participants",
       // Per-user Slack connections for huddles and
       // the huddles Slack reported, so a recorded huddle gets its participants.
