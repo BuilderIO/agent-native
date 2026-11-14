@@ -133,6 +133,41 @@ Bevorzugen Sie eine separate Domain pro App statt eines gemeinsamen Ursprungs? J
 
 </Callout>
 
+## Build-Cache {#workspace-build-cache}
+
+Eine Arbeitsbereichsbereitstellung baut jede App, und das macht den größten Teil der Zeit aus. Der Build-Cache überspringt eine App, deren Eingaben sich nicht geändert haben, und stellt stattdessen ihre vorherige Build-Ausgabe einschließlich ihres Funktions-Bundles wieder her. Er ist standardmäßig aktiviert und legt Einträge unter `node_modules/.cache/agent-native/deploy-build` ab.
+
+Der Cache-Schlüssel einer App ist ein SHA-256 über:
+
+- die Quelldateien der App, wie von `git ls-files` aufgelistet (versioniert und unversioniert, nicht ignoriert), plus ihre `.env*`-Dateien; Verzeichnisse, die ein Build in der App erzeugt (`.agent-native`, `.deploy-tmp`, `.react-router`), bleiben unberücksichtigt
+- die gebauten Inhalte jedes Arbeitsbereichspakets, von dem sie abhängt, sodass ein neu gebautes `@agent-native/core` jede App ungültig macht (nur die Dateien, die das Paket über sein Feld `files` veröffentlicht, und ein Paket mit einem `dist` wird über sein `dist` gehasht, nicht über sein `src`)
+- die Dateien im Stammverzeichnis des Arbeitsbereichs, einschließlich `pnpm-lock.yaml`
+- die Node-Hauptversion, das Preset und die Core-Version
+- den Namen und den Wert jeder Umgebungsvariable, die an den Build übergeben wird, gehasht und nie ausgegeben
+
+Jede App protokolliert einen Treffer oder einen Fehlschlag. Ein Fehlschlag nennt den Grund und, wenn ein früherer Eintrag existiert, welche Eingaben sich geändert haben. Eine abgeschlossene Bereitstellung gibt die Summen und die eingesparte Zeit aus.
+
+```bash
+[workspace-deploy] cache HIT analytics (restored in 5.9s, saved ~43.8s)
+[workspace-deploy] cache MISS forms (no-entry: inputs changed: source); building
+[workspace-deploy] Build cache: 1 hit, 1 miss; build phase 32.3s, ~43.4s saved
+```
+
+Ein Cache-Problem zählt nie als Treffer. Ein nicht lesbares Manifest (`entry-unreadable`), eine Wiederherstellung, deren Dateien nicht zum Eintrag passen (`restore-failed`), oder eine Eingabe, die sich nicht hashen lässt (`hash-failed`, zum Beispiel bei einem Arbeitsbereich, der kein Git-Repository ist), protokolliert den Grund und baut die App neu. Ein fehlerhafter Eintrag wird gelöscht.
+
+| Einstellung                | Umgebungsvariable                      | Standard                                        |
+| -------------------------- | -------------------------------------- | ----------------------------------------------- |
+| `deployCache.enabled`      | `AGENT_NATIVE_DEPLOY_CACHE`            | `true`                                          |
+| `deployCache.dir`          | `AGENT_NATIVE_DEPLOY_CACHE_DIR`        | `node_modules/.cache/agent-native/deploy-build` |
+| `deployCache.verifySample` | `AGENT_NATIVE_DEPLOY_CACHE_VERIFY`     | `0`                                             |
+| `deployCache.envIgnore`    | `AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE` | keine                                           |
+
+Setzen Sie `AGENT_NATIVE_DEPLOY_CACHE_VERIFY=2`, um pro Bereitstellung zwei gecachte Apps neu zu bauen und die neu gebaute Ausgabe Datei für Datei mit der gecachten Ausgabe zu vergleichen, wobei Werte pro Build wie der Build-Zeitstempel und frisch erzeugte Funktions-Tokens maskiert werden. Ein Unterschied lässt die Bereitstellung fehlschlagen und listet die Dateien auf; das bedeutet, dass der Build nicht reproduzierbar ist oder dem Schlüssel eine Eingabe fehlt. Führen Sie dies in CI nach einem Zeitplan aus, nicht bei jeder Bereitstellung.
+
+Variablen, die sich bei jedem Lauf ändern, ohne den Build zu erreichen, wie `PATH`, `PWD`, `npm_*` und `PNPM_*`, sind bereits aus dem Schlüssel ausgenommen. Wenn eine Bereitstellungsumgebung eigene hinzufügt (zum Beispiel eine Lauf-ID), tragen Sie sie in `AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE` ein; ein abschließendes `*` passt auf ein Präfix. Alles andere zählt, sodass ein geändertes `VITE_*` oder `DATABASE_URL` jede App neu baut.
+
+Gehostete Builder, die jedes Mal mit einem leeren Datenträger starten, gewinnen durch den Cache nichts. Setzen Sie dort `AGENT_NATIVE_DEPLOY_CACHE=false`, um die Kopie zu überspringen, die er nach jedem Build anlegt.
+
 ## Selbstgehosteter Arbeitsbereich mit Docker Compose {#workspace-docker-compose}
 
 Ein Arbeitsbereich ist heute kein einzelner Nitro-Serverprozess. Jede App baut weiterhin in ihr eigenes `.output/`-Verzeichnis und läuft mit ihrem eigenen Node/Nitro-Server, sodass das Selbsthosten eines Arbeitsbereichs bedeutet, mehrere Server hinter einem einzigen Einstiegspunkt laufen zu lassen.

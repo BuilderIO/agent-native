@@ -2717,3 +2717,26 @@ describe("retryOnConnectionError budget", () => {
     expect(attempt).toHaveBeenCalledTimes(3);
   });
 });
+
+describe("isUniqueViolation", () => {
+  it("sees a unique violation that Drizzle wrapped as the cause", async () => {
+    const { isUniqueViolation } = await import("./client.js");
+    const driverError = Object.assign(
+      new Error(
+        'duplicate key value violates unique constraint "design_files_design_filename_unique_idx"',
+      ),
+      { code: "23505" },
+    );
+    const wrapped = new Error("Failed query: insert into design_files", {
+      cause: driverError,
+    });
+    expect(isUniqueViolation(driverError)).toBe(true);
+    expect(isUniqueViolation(wrapped)).toBe(true);
+    expect(
+      isUniqueViolation(
+        new Error("Failed query", { cause: new Error("connection reset") }),
+      ),
+    ).toBe(false);
+    expect(isUniqueViolation(undefined)).toBe(false);
+  });
+});

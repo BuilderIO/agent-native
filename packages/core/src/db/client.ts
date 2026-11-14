@@ -827,14 +827,24 @@ export function safeJsonParse<T>(value: unknown, fallback: T): T {
 
 export { retryOnDdlRace } from "./runtime-facts.js";
 
+/**
+ * Whether a write failed on a unique or primary key constraint. Drizzle wraps
+ * a failed query in `DrizzleQueryError` with the driver's error as `cause`, so
+ * a few levels of `cause` are checked too.
+ */
 export function isUniqueViolation(e: any): boolean {
-  if (e?.code === "23505") return true;
-  const msg = String(e?.message ?? "").toLowerCase();
-  return (
-    msg.includes("unique constraint") ||
-    msg.includes("primary key constraint") ||
-    msg.includes("duplicate key")
-  );
+  for (let depth = 0; depth < 4 && e; depth += 1, e = e?.cause) {
+    if (e?.code === "23505") return true;
+    const msg = String(e?.message ?? "").toLowerCase();
+    if (
+      msg.includes("unique constraint") ||
+      msg.includes("primary key constraint") ||
+      msg.includes("duplicate key")
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export function isLocalDatabase(): boolean {

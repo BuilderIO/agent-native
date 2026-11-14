@@ -135,6 +135,41 @@ Las compilaciones de espacios de trabajo alojados requieren `A2A_SECRET` en el e
 
 </Callout>
 
+## Caché de compilación {#workspace-build-cache}
+
+Una implementación de espacio de trabajo compila todas las aplicaciones, y eso es la mayor parte de su tiempo. La caché de compilación omite una aplicación cuyas entradas no han cambiado y, en su lugar, restaura su salida de compilación anterior, incluido su paquete de función. Está activada de forma predeterminada y guarda las entradas en `node_modules/.cache/agent-native/deploy-build`.
+
+La clave de caché de una aplicación es un SHA-256 calculado sobre:
+
+- los archivos fuente de la aplicación, tal como los lista `git ls-files` (rastreados y no rastreados, no ignorados), más sus archivos `.env*`; los directorios que una compilación genera en la aplicación (`.agent-native`, `.deploy-tmp`, `.react-router`) quedan fuera
+- el contenido compilado de cada paquete del espacio de trabajo del que depende, de modo que un `@agent-native/core` recompilado invalida todas las aplicaciones (solo los archivos que el paquete publica mediante su campo `files`, y un paquete con `dist` se procesa por su `dist`, no por su `src`)
+- los archivos raíz del espacio de trabajo, incluido `pnpm-lock.yaml`
+- la versión mayor de Node, el preset y la versión de Core
+- el nombre y el valor de cada variable de entorno que se pasa a la compilación, con hash y nunca impresos
+
+Cada aplicación registra un acierto o un fallo. Un fallo indica el motivo y, cuando existe una entrada anterior, qué entradas cambiaron. Una implementación terminada imprime los totales y el tiempo ahorrado.
+
+```bash
+[workspace-deploy] cache HIT analytics (restored in 5.9s, saved ~43.8s)
+[workspace-deploy] cache MISS forms (no-entry: inputs changed: source); building
+[workspace-deploy] Build cache: 1 hit, 1 miss; build phase 32.3s, ~43.4s saved
+```
+
+Un problema de caché nunca cuenta como acierto. Un manifiesto ilegible (`entry-unreadable`), una restauración cuyos archivos no coinciden con la entrada (`restore-failed`) o una entrada que no se puede procesar con hash (`hash-failed`, por ejemplo un espacio de trabajo que no es un repositorio git) registran el motivo y recompilan la aplicación. Una entrada defectuosa se elimina.
+
+| Ajuste                     | Variable de entorno                    | Valor predeterminado                            |
+| -------------------------- | -------------------------------------- | ----------------------------------------------- |
+| `deployCache.enabled`      | `AGENT_NATIVE_DEPLOY_CACHE`            | `true`                                          |
+| `deployCache.dir`          | `AGENT_NATIVE_DEPLOY_CACHE_DIR`        | `node_modules/.cache/agent-native/deploy-build` |
+| `deployCache.verifySample` | `AGENT_NATIVE_DEPLOY_CACHE_VERIFY`     | `0`                                             |
+| `deployCache.envIgnore`    | `AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE` | ninguno                                         |
+
+Establece `AGENT_NATIVE_DEPLOY_CACHE_VERIFY=2` para recompilar dos aplicaciones en caché por implementación y comparar la salida recompilada con la salida en caché archivo por archivo, enmascarando los valores propios de cada compilación, como la marca de tiempo de la compilación y los tokens de función recién generados. Una diferencia hace fallar la implementación y lista los archivos, lo que significa que la compilación no es reproducible o que a la clave le falta una entrada. Ejecútalo en CI de forma programada en lugar de en cada implementación.
+
+Las variables que cambian en cada ejecución sin llegar a la compilación, como `PATH`, `PWD`, `npm_*` y `PNPM_*`, ya se excluyen de la clave. Si un entorno de implementación añade las suyas (un id de ejecución, por ejemplo), inclúyela en `AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE`; un `*` final coincide con un prefijo. Todo lo demás cuenta, así que un `VITE_*` o `DATABASE_URL` modificado recompila todas las aplicaciones.
+
+Los compiladores alojados que parten de un disco limpio cada vez no ganan nada con la caché. Establece allí `AGENT_NATIVE_DEPLOY_CACHE=false` para omitir la copia que hace tras cada compilación.
+
 ## Espacio de trabajo autoalojado con Docker Compose {#workspace-docker-compose}
 
 Hoy en día, un espacio de trabajo no es un único proceso de servidor Nitro. Cada aplicación sigue compilándose en su propio directorio `.output/` y ejecuta su propio servidor Node/Nitro, así que autoalojar un espacio de trabajo significa ejecutar varios servidores detrás de un único punto de entrada.

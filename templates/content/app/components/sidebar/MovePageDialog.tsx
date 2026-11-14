@@ -6,6 +6,7 @@ import {
   IconCornerDownRight,
   IconFileText,
 } from "@tabler/icons-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -27,6 +28,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import {
   filesNavigationPageParams,
+  isFilesRowCreationPending,
   useFilesNavigationPage,
 } from "@/lib/files-navigation";
 
@@ -69,6 +71,7 @@ export function MovePageDialog({
   onMove: (page: MovePageTarget, destination: MovePageDestination) => void;
 }) {
   const t = useT();
+  const queryClient = useQueryClient();
   const [search, setSearch] = useState("");
   const searchRef = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
@@ -118,7 +121,13 @@ export function MovePageDialog({
   const destinations: Destination[] =
     query === ""
       ? (roots.data && !("available" in roots.data) ? roots.data.items : [])
-          .filter((item) => item.type === "page")
+          // A page still being created can't take children until the server
+          // has it.
+          .filter(
+            (item) =>
+              item.type === "page" &&
+              !isFilesRowCreationPending(queryClient, item.documentId),
+          )
           .map((item) => ({
             id: item.documentId,
             title: item.title,

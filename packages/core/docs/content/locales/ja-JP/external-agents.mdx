@@ -679,7 +679,7 @@ Actions は、MCP アプリ拡張機能をサポートするホストに対し�
     "name": "to",
     "in": "query",
     "type": "string",
-    "description": "Optional explicit same-origin relative redirect target. Falls back to `/<view>`, then a per-template `resolveOpenPath`."
+    "description": "Optional explicit same-origin relative redirect target. Falls back to a per-template `resolveOpenPath`, then `/<view>`."
   },
   {
     "name": "compose",
@@ -711,7 +711,7 @@ Resolves the browser session, writes a one-shot `navigate` application-state com
 1. `getSession` 経由で **ブラウザ** セッションを解決します (認証ガードは正確なパス `/_agent-native/open` をバイパスします)。
 2. 認証されていない場合は、構成されたログイン HTML を **同じ URL** で提供します。フォームの成功ハンドラーは `window.location` をリロードし、認証されたルートに再度入ります (`?next=` 配管はありません)。
 3. ブラウザ セッションの電子メールをスコープとする既存のワンショット `navigate` アプリケーション状態コマンド (ペイロード = すべての予約されていないクエリ パラメーター + `view`) を `requestSource: "deep-link"` で書き込み、`compose` の Base64url ドラフトを `compose-<id>` キーにデコードします。
-4. 302 は、安全な同一オリジンの相対パス (`to=`、そうでない場合は `/<view>`、それ以外の場合はテンプレートごとの `resolveOpenPath`) にリダイレクトし、`f_*` フィルター パラメーターを転送するため、`navigate` コマンドが実行される前に事前にフィルターされた状態でリスト/ダッシュボードが開きます。
+4. 302 は、安全な同一オリジンの相対パス (`to=`、そうでない場合はテンプレートごとの `resolveOpenPath`、それ以外の場合は `/<view>`) にリダイレクトし、`f_*` フィルター パラメーターを転送するため、`navigate` コマンドが実行される前に事前にフィルターされた状態でリスト/ダッシュボードが開きます。
 
 クロスオリジン、スキーム相対 `//host`、および control-char リダイレクトは拒否されます (オープンリダイレクト ガード)。ルートは、`disableOpenRoute` 経由でアプリごとに無効にできます。
 

@@ -7,6 +7,10 @@ import type { Comment, CommentThread } from "@/hooks/use-comments";
 import {
   commentThreadOrderFacts,
   compareDiscussionEntries,
+  DISCUSSION_RANK,
+  DISCUSSION_SECTIONS,
+  discussionPeekThread,
+  discussionRankTarget,
   discussionThreadTarget,
   discussionTime,
   isPageCommentThread,
@@ -90,7 +94,7 @@ function order(sort: DiscussionSort, threads: CommentThread[]) {
 }
 
 describe("Discussion order", () => {
-  it("puts the page first, then Properties, then text by where it shows, then text that doesn't show", () => {
+  it("puts Properties first, then text by where it shows, then text that doesn't show, then the page", () => {
     const threads = [
       thread("orphan-late", { quotedText: "Gone", startOffset: 90 }),
       thread("text-low", { quotedText: "Lower" }),
@@ -105,8 +109,6 @@ describe("Discussion order", () => {
     ];
 
     expect(order("page", threads)).toEqual([
-      "page-early",
-      "page-late",
       "property-first",
       "property-second",
       "property-removed",
@@ -115,6 +117,8 @@ describe("Discussion order", () => {
       "orphan-early",
       "orphan-late",
       "orphan-unplaced",
+      "page-early",
+      "page-late",
     ]);
   });
 
@@ -182,20 +186,31 @@ describe("Discussion order", () => {
         propertyIndex: (id) => propertyOrder.indexOf(id),
       });
 
-    expect(facts(thread("page"))).toMatchObject({ rank: 0, position: 0 });
+    expect(facts(thread("page"))).toMatchObject({
+      rank: DISCUSSION_RANK.page,
+      position: 0,
+    });
     expect(
       facts(thread("property", { property: property("status") })),
-    ).toMatchObject({ rank: 1, position: 1 });
+    ).toMatchObject({ rank: DISCUSSION_RANK.property, position: 1 });
     expect(
       facts(thread("removed", { property: property("removed") })),
-    ).toMatchObject({ rank: 1, position: Infinity });
+    ).toMatchObject({ rank: DISCUSSION_RANK.property, position: Infinity });
     expect(facts(thread("shown", { quotedText: "Text" }), 240)).toMatchObject({
-      rank: 2,
+      rank: DISCUSSION_RANK.shownText,
       position: 240,
     });
     expect(
       facts(thread("hidden", { quotedText: "Text", startOffset: 30 })),
-    ).toMatchObject({ rank: 3, position: 30 });
+    ).toMatchObject({ rank: DISCUSSION_RANK.hiddenText, position: 30 });
+  });
+
+  it("files each rank under its section", () => {
+    expect(DISCUSSION_SECTIONS).toEqual(["property", "text", "page"]);
+    expect(discussionRankTarget(DISCUSSION_RANK.property)).toBe("property");
+    expect(discussionRankTarget(DISCUSSION_RANK.shownText)).toBe("text");
+    expect(discussionRankTarget(DISCUSSION_RANK.hiddenText)).toBe("text");
+    expect(discussionRankTarget(DISCUSSION_RANK.page)).toBe("page");
   });
 });
 
@@ -220,6 +235,33 @@ describe("discussionThreadTarget", () => {
     expect(
       isPageCommentThread({ quotedText: null, property: property("status") }),
     ).toBe(false);
+  });
+});
+
+describe("discussionPeekThread", () => {
+  const shown = thread("shown", { quotedText: "A sentence" });
+  const other = thread("other", { quotedText: "Elsewhere" });
+  const threads = [other, shown];
+
+  it("keeps Discussion aside for an open thread while the panel covers the page", () => {
+    expect(discussionPeekThread(threads, "shown", true)).toBe(shown);
+  });
+
+  it("comes back once the panel docks, or with nothing shown", () => {
+    expect(discussionPeekThread(threads, "shown", false)).toBeNull();
+    expect(discussionPeekThread(threads, null, true)).toBeNull();
+    expect(discussionPeekThread(undefined, "shown", true)).toBeNull();
+  });
+
+  it("comes back once the thread resolves or goes away", () => {
+    expect(
+      discussionPeekThread(
+        [other, { ...shown, resolved: true }],
+        "shown",
+        true,
+      ),
+    ).toBeNull();
+    expect(discussionPeekThread([other], "shown", true)).toBeNull();
   });
 });
 

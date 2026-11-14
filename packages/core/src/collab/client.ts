@@ -10,6 +10,7 @@ import {
 import { useAvatarUrl } from "../client/use-avatar.js";
 import {
   acquireCollabPollBoost,
+  MAX_BACKLOG_PAGES,
   noteCollabPollActivity,
   registerCollabActivityResource,
   registerOwnCollabSource,
@@ -21,6 +22,7 @@ import {
   REALTIME_CAP_NO_AWARENESS,
   REALTIME_CAP_POLL_LIVE,
 } from "../realtime-protocol.js";
+import { isSurfaceHidden } from "../shared/surface-visibility.js";
 import {
   forgetAwarenessClientSequence,
   postAwarenessState,
@@ -528,6 +530,7 @@ class CollabDocConnection {
   private pollVersion = 0;
   private lastPolledVersion = 0;
   private pollCursor: string | null = null;
+  private backlogPages = 0;
   private pollActivityBaselineReady = false;
   private stateVectorFetch: Promise<CollaborativeDocSyncResult> | null = null;
   private stateVectorAbortControllers = new Set<AbortController>();
@@ -2194,6 +2197,7 @@ class CollabDocConnection {
     if (!this.syncActive) return;
     this.syncActive = false;
     this.pollGeneration++;
+    this.backlogPages = 0;
     this.pollRequested.clear();
     this.setCollabPollBoost(false);
     this.sseActive = false;
@@ -2424,6 +2428,7 @@ class CollabDocConnection {
       () => pollAbort.abort(),
       POLL_FETCH_TIMEOUT_MS,
     );
+    let readNextPage = false;
     try {
       const pollUrl = this.pollCursor
         ? `/_agent-native/poll?cursor=${encodeURIComponent(this.pollCursor)}`
@@ -2437,9 +2442,10 @@ class CollabDocConnection {
       const data = await res.json();
       if (!this.isPollCurrent(generation)) return;
       const hadActivityBaseline = this.pollActivityBaselineReady;
-      const { version, events } = data as {
+      const { version, cursorLimited, events } = data as {
         version: number;
         cursor?: string;
+        cursorLimited?: boolean;
         events: Array<{
           version: number;
           source: string;
@@ -2489,6 +2495,14 @@ class CollabDocConnection {
         }
       }
       this.pollActivityBaselineReady = true;
+      const cursorMoved =
+        (typeof data.cursor === "string" && data.cursor !== this.pollCursor) ||
+        version > this.pollVersion;
+      // More changes wait past this page: read on now (see MAX_BACKLOG_PAGES).
+      readNextPage =
+        cursorLimited === true &&
+        cursorMoved &&
+        this.backlogPages < MAX_BACKLOG_PAGES;
       if (typeof data.cursor === "string") this.pollCursor = data.cursor;
       this.pollVersion = version;
       this.lastPolledVersion = version;
@@ -2505,6 +2519,8 @@ class CollabDocConnection {
 
       if (!this.isPollCurrent(generation)) return;
       const localState = this.awareness.getLocalState();
+      // Presence rides every page, drain pages too: nothing else renews a
+      // still user's 30-second row, and the server throttles these writes.
       if (
         localState &&
         this.canPublishPresence &&
@@ -2552,6 +2568,8 @@ class CollabDocConnection {
         }
       }
     } catch {
+      // A failed page ends the run: the next one gets its full page count.
+      this.backlogPages = 0;
       if (!this.isPollCurrent(generation)) return;
       this.consecutiveErrors++;
       const backoff = calcBackoff(this.consecutiveErrors);
@@ -2561,6 +2579,15 @@ class CollabDocConnection {
       clearTimeout(pollTimeout);
     }
 
+    // Visibility is read here, after the awaits above, so a tab hidden
+    // mid-page doesn't read ahead; a host-hidden surface counts, as in the
+    // shared poller.
+    if (readNextPage && !isSurfaceHidden()) {
+      this.backlogPages++;
+      this.schedulePoll(generation, 0);
+      return;
+    }
+    this.backlogPages = 0;
     this.schedulePoll(generation);
   }
 

@@ -8,6 +8,7 @@ import type {
   MutateOptions,
   Query,
   QueryClient,
+  QueryKey,
   UseMutateAsyncFunction,
   UseMutateFunction,
   UseMutationOptions,
@@ -1501,6 +1502,75 @@ export function recordActionQueryBrowserPersist(
   }
 }
 
+/**
+ * Whether an `["action", …]` read may start now. Never while the app's API is
+ * off. While the browser's saved results are still being tied to the
+ * signed-in user, only a query already fetching or holding data reads; the
+ * rest wait for the binding. Without `queryKey`, it answers for a new read.
+ * `useActionQuery` applies this; a hand-written action query passes it to
+ * `enabled`, and a prefetch checks it first.
+ */
+export function useActionQueryCanFetch(queryKey?: QueryKey): boolean {
+  const trustedBindingPending = useContext(
+    trustedActionQueryCacheBindingPendingContext,
+  );
+  const queryClient = useQueryClient();
+  if (agentNativeApiDisabledReason()) return false;
+  if (!trustedBindingPending) return true;
+  const existing = queryKey
+    ? queryClient.getQueryCache().find({ queryKey, exact: true })
+    : undefined;
+  return (
+    existing?.state.fetchStatus === "fetching" ||
+    existing?.state.data !== undefined
+  );
+}
+
+/**
+ * Runs one read of an `["action", …]` query with `useActionQuery`'s handling
+ * of refused reads and saved results; whether it may start is
+ * `useActionQueryCanFetch`'s call. A 401, 403 or 404 drops the rows the query
+ * showed and the browser's saved copy of its results. A success may join the saved results only for the
+ * binding active when the read began, and only when `read` passes the
+ * `onResponse` it is given to the action call; a read that doesn't is never
+ * saved.
+ */
+export async function runActionQueryRead<R>(
+  client: QueryClient,
+  queryKey: QueryKey,
+  signal: AbortSignal | undefined,
+  read: (onResponse: (response: Response) => void) => Promise<R>,
+): Promise<R> {
+  const query = client.getQueryCache().find({ queryKey, exact: true });
+  const bindingTokenAtFetch = actionQueryCacheBindingToken;
+  let lastResponse: Response | undefined;
+  let result: R;
+  try {
+    result = await read((response) => {
+      lastResponse = response;
+    });
+  } catch (error) {
+    const status = actionErrorStatus(error);
+    if (
+      !signal?.aborted &&
+      (status === 401 || status === 403 || status === 404)
+    ) {
+      if (query) {
+        setAccessDeniedActionQueryBinding(query, bindingTokenAtFetch);
+        revokeBrowserPersistableActionQuery(query);
+        query.setState({ data: undefined, dataUpdatedAt: 0 });
+      }
+      revokeActionQueryCacheForClient(client, bindingTokenAtFetch);
+    }
+    throw error;
+  }
+  if (query && !signal?.aborted) {
+    clearAccessDeniedActionQueryBinding(query);
+    recordActionQueryBrowserPersist(query, lastResponse, bindingTokenAtFetch);
+  }
+  return result;
+}
+
 const UNBATCHED_REFETCHES_META_KEY = "actionUnbatchedRefetches";
 
 /**
@@ -1550,7 +1620,6 @@ export function useActionQuery<
   },
 ) {
   type R = TResult extends undefined ? ActionResult<TName> : TResult;
-  const apiDisabled = Boolean(agentNativeApiDisabledReason());
   const {
     refetchInterval,
     retry: callerRetry,
@@ -1563,60 +1632,27 @@ export function useActionQuery<
     ...restOptions
   } = options ?? {};
   const queryKey = ["action", actionName, params, ...(queryKeyScope ?? [])];
-  const trustedBindingPending = useContext(
-    trustedActionQueryCacheBindingPendingContext,
-  );
-  const queryClient = useQueryClient();
-  const existingQuery = trustedBindingPending
-    ? queryClient.getQueryCache().find({ queryKey, exact: true })
-    : undefined;
-  const deferFetchUntilBound =
-    trustedBindingPending &&
-    existingQuery?.state.fetchStatus !== "fetching" &&
-    existingQuery?.state.data === undefined;
+  const canFetch = useActionQueryCanFetch(queryKey);
   const circuitKey = () => hashKey(queryKey);
   return useQuery<R>({
     queryKey,
     queryFn: async ({ signal, client }) => {
       const key = circuitKey();
-      const query = client.getQueryCache().find({ queryKey, exact: true });
-      const bindingTokenAtFetch = actionQueryCacheBindingToken;
       assertActionCircuitClosed(key);
-      let lastResponse: Response | undefined;
-      let result: R;
-      try {
-        result = await actionFetch<R>(actionName, method, params, {
-          signal,
-          ...(beforeSend ? { beforeSend } : {}),
-          batch: method === "GET" && canBatchActionQueryFetch(query),
-          onResponse: (response) => {
-            lastResponse = response;
-          },
-        });
-      } catch (error) {
-        const status = actionErrorStatus(error);
-        if (
-          !signal.aborted &&
-          (status === 401 || status === 403 || status === 404)
-        ) {
-          if (query) {
-            setAccessDeniedActionQueryBinding(query, bindingTokenAtFetch);
-            revokeBrowserPersistableActionQuery(query);
-            query.setState({ data: undefined, dataUpdatedAt: 0 });
-          }
-          revokeActionQueryCacheForClient(client, bindingTokenAtFetch);
-        }
-        throw error;
-      }
+      const query = client.getQueryCache().find({ queryKey, exact: true });
+      const result = await runActionQueryRead(
+        client,
+        queryKey,
+        signal,
+        (onResponse) =>
+          actionFetch<R>(actionName, method, params, {
+            signal,
+            ...(beforeSend ? { beforeSend } : {}),
+            batch: method === "GET" && canBatchActionQueryFetch(query),
+            onResponse,
+          }),
+      );
       resetActionFailureCircuit(key);
-      if (query && !signal.aborted) {
-        clearAccessDeniedActionQueryBinding(query);
-        recordActionQueryBrowserPersist(
-          query,
-          lastResponse,
-          bindingTokenAtFetch,
-        );
-      }
       return result;
     },
     // The failure circuit counts fetch cycles, so a cycle is recorded where
@@ -1636,7 +1672,7 @@ export function useActionQuery<
     retryDelay: defaultActionQueryRetryDelay,
     ...restOptions,
     enabled: (query) => {
-      if (deferFetchUntilBound) return false;
+      if (!canFetch) return false;
       return typeof callerEnabled === "function"
         ? callerEnabled(query)
         : callerEnabled !== false;
@@ -1655,7 +1691,6 @@ export function useActionQuery<
     ...(refetchInterval !== undefined
       ? { refetchInterval: guardActionQueryRefetchInterval(refetchInterval) }
       : {}),
-    ...(apiDisabled ? { enabled: false as const } : {}),
   });
 }
 
