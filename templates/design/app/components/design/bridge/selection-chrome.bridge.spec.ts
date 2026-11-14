@@ -2,6 +2,7 @@ import { chromium } from "@playwright/test";
 import { describe, expect, it } from "vitest";
 
 import { editorChromeBridgeScript } from "../../../../.generated/bridge/editor-chrome.generated";
+import { isElementInfoPayload } from "../design-canvas/element-payload";
 import { mixedElementFromSelection } from "../edit-panel/selection-helpers";
 import type { ElementInfo } from "../types";
 
@@ -181,6 +182,66 @@ async function measurePositionContext(
 }
 
 describe("editor chrome selection overlays", () => {
+  it("emits selectable and measurable styles without undefined entries", async () => {
+    const browser = await chromium.launch({ headless: true });
+    try {
+      const page = await browser.newPage();
+      await page.setContent(FIXTURE);
+      await page.evaluate(() => {
+        const testWindow = window as GradientSelectionWindow;
+        testWindow.__gradientSelections = [];
+        testWindow.__gradientMeasurements = [];
+        window.addEventListener("message", (event) => {
+          if (event.data?.type === "element-select" && event.data.payload)
+            testWindow.__gradientSelections?.push(event.data);
+          if (
+            event.data?.type === "agent-native:selection-measured" &&
+            event.data.payload
+          )
+            testWindow.__gradientMeasurements?.push(event.data);
+        });
+      });
+      await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+      await select(page, "#child");
+      await page.waitForFunction(
+        () => (window as GradientSelectionWindow).__gradientSelections?.length,
+      );
+      await page.evaluate(() =>
+        window.postMessage(
+          {
+            type: "agent-native:measure-selection",
+            screenId: "selection-chrome",
+            correlationId: "validation",
+            selector: "#child",
+          },
+          "*",
+        ),
+      );
+      await page.waitForFunction(
+        () =>
+          (window as GradientSelectionWindow).__gradientMeasurements?.length,
+      );
+      const payloads = await page.evaluate(() => {
+        const testWindow = window as GradientSelectionWindow;
+        return [
+          testWindow.__gradientSelections![0]!.payload,
+          testWindow.__gradientMeasurements![0]!.payload,
+        ];
+      });
+      for (const payload of payloads) {
+        expect(payload.sourceId).toBe("child");
+        expect(payload.computedStyles.width).toBe("80px");
+        expect(isElementInfoPayload(payload)).toBe(true);
+        expect(
+          Object.values(payload.computedStyles).every(
+            (value) => typeof value === "string",
+          ),
+        ).toBe(true);
+      }
+    } finally {
+      await browser.close();
+    }
+  });
   it.each([
     {
       name: "image Layer",
