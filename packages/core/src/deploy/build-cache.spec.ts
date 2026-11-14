@@ -284,6 +284,69 @@ describe("workspace deploy build cache", () => {
     expect(builds).toEqual([]);
   });
 
+  it("hashes the whole package when a files entry starts with a glob", async () => {
+    write(
+      path.join(root, "packages/shared/package.json"),
+      JSON.stringify({
+        name: "@acme/shared",
+        version: "1.0.0",
+        files: ["**/*.js"],
+      }),
+    );
+    write(path.join(root, "packages/shared/lib/extra.js"), "v1");
+    await deploy();
+    builds = [];
+    write(path.join(root, "packages/shared/lib/extra.js"), "v2");
+
+    await deploy();
+
+    expect(builds.sort()).toEqual(APPS);
+  });
+
+  it("tracks same-named local dependencies at different paths separately", async () => {
+    for (const dir of ["util-one", "util-two"]) {
+      write(
+        path.join(root, "packages", dir, "package.json"),
+        JSON.stringify({ name: "util", version: "1.0.0" }),
+      );
+      write(path.join(root, "packages", dir, "index.js"), `// ${dir} v1`);
+    }
+    write(
+      path.join(root, "packages/shared/package.json"),
+      JSON.stringify({
+        name: "@acme/shared",
+        version: "1.0.0",
+        dependencies: { util: "workspace:*" },
+      }),
+    );
+    fs.mkdirSync(path.join(root, "packages/shared/node_modules"), {
+      recursive: true,
+    });
+    fs.symlinkSync(
+      path.join(root, "packages/util-one"),
+      path.join(root, "packages/shared/node_modules/util"),
+    );
+    write(
+      path.join(root, "apps/alpha/package.json"),
+      JSON.stringify({
+        name: "alpha",
+        scripts: { build: "agent-native build" },
+        dependencies: { "@acme/shared": "workspace:*", util: "workspace:*" },
+      }),
+    );
+    fs.symlinkSync(
+      path.join(root, "packages/util-two"),
+      path.join(root, "apps/alpha/node_modules/util"),
+    );
+    await deploy();
+    builds = [];
+    write(path.join(root, "packages/util-two/index.js"), "// util-two v2");
+
+    await deploy();
+
+    expect(builds).toEqual(["alpha"]);
+  });
+
   it("does not let files a build generates change the app's own key", async () => {
     await deploy();
     builds = [];
@@ -329,6 +392,9 @@ describe("build cache input and output integrity", () => {
     );
     expect(hashBuildEnv({ ...env, TRACE: "two" }, ignored)).not.toBe(baseline);
     expect(hashBuildEnv({ ...env, UNSET: undefined }, ignored)).toBe(baseline);
+    expect(
+      hashBuildEnv({ ...env, NODE_PATH: "/modules/one" }, ignored),
+    ).not.toBe(baseline);
     expect(
       hashBuildEnv(Object.fromEntries(Object.entries(env).reverse()), ignored),
     ).toBe(baseline);

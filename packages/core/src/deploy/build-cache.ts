@@ -56,7 +56,6 @@ const VOLATILE_ENV_NAMES = new Set([
   "COLORTERM",
   "INIT_CWD",
   "NODE",
-  "NODE_PATH",
   "SECURITYSESSIONID",
   "SSH_AUTH_SOCK",
   "SSH_CONNECTION",
@@ -306,7 +305,7 @@ function publishedPathPrefixes(dir: string): string[] | null {
     throw new Error(`cannot read ${dir}/package.json: ${errorMessage(error)}`);
   }
   if (!Array.isArray(files)) return null;
-  return files
+  const prefixes = files
     .filter((f): f is string => typeof f === "string" && !f.startsWith("!"))
     .map((f) =>
       f
@@ -314,8 +313,11 @@ function publishedPathPrefixes(dir: string): string[] | null {
         .split(/[*?{[]/, 1)
         .join("")
         .replace(/\/+$/, ""),
-    )
-    .filter((f) => f !== "");
+    );
+  // A leading glob ("**/*.js") has no literal prefix, so which files it
+  // publishes cannot be narrowed: hash the whole package.
+  if (prefixes.some((f) => f === "")) return null;
+  return prefixes;
 }
 
 function isPublished(rel: string, prefixes: string[]): boolean {
@@ -328,6 +330,7 @@ function collectWorkspaceDependencies(
   pkgDir: string,
   found: Map<string, string>,
 ): void {
+  // `found` maps real path to package name: two local packages can share a name.
   const pkgJsonPath = path.join(pkgDir, "package.json");
   let pkg: Record<string, Record<string, string> | undefined>;
   try {
@@ -358,8 +361,8 @@ function collectWorkspaceDependencies(
     // else (workspace, link:, file:) is a local package whose output we build
     // against, wherever it lives.
     const isLocal = !real.split(path.sep).includes("node_modules");
-    if (!isLocal || found.has(name)) continue;
-    found.set(name, real);
+    if (!isLocal || found.has(real)) continue;
+    found.set(real, name);
     collectWorkspaceDependencies(runtime, real, found);
   }
 }
@@ -399,8 +402,19 @@ export function computeAppCacheKey(
   const deps = new Map<string, string>();
   collectWorkspaceDependencies(runtime, appDir, deps);
   const depHashes: Record<string, string> = {};
-  for (const [name, dir] of [...deps].sort(([a], [b]) => a.localeCompare(b))) {
-    depHashes[name] = hashWorkspacePackage(runtime, dir);
+  const sorted = [...deps].sort(
+    ([dirA, a], [dirB, b]) => a.localeCompare(b) || dirA.localeCompare(dirB),
+  );
+  const nameCounts = new Map<string, number>();
+  for (const [, name] of sorted) {
+    nameCounts.set(name, (nameCounts.get(name) ?? 0) + 1);
+  }
+  const seen = new Map<string, number>();
+  for (const [dir, name] of sorted) {
+    const index = seen.get(name) ?? 0;
+    seen.set(name, index + 1);
+    const label = (nameCounts.get(name) ?? 1) > 1 ? `${name}#${index}` : name;
+    depHashes[label] = hashWorkspacePackage(runtime, dir);
   }
   const components: Record<string, string> = {
     format: String(DEPLOY_CACHE_FORMAT_VERSION),
