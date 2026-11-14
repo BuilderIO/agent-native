@@ -86,6 +86,7 @@ export interface ScreenTextContentChangeArgs {
       routePath?: string;
       relativeOperations?: Record<string, PendingRelativeStyleOperation>;
       owedTextPending?: boolean;
+      preserveEmptyText?: boolean;
     },
   ) => TextCommitStatus;
   liveScreenSnapshotsById: Record<string, LiveScreenSnapshot>;
@@ -149,6 +150,7 @@ export function runScreenTextContentChange(
     routePath?: string;
     relativeOperations?: Record<string, PendingRelativeStyleOperation>;
     owedTextPending?: boolean;
+    preserveEmptyText?: boolean;
   },
 ): TextCommitStatus {
   const overviewScreen = overviewScreens.find(
@@ -213,7 +215,7 @@ export function runScreenTextContentChange(
   }
   const isEmpty = value.trim().length === 0;
   const removedContent =
-    isEmpty && targetNode
+    isEmpty && targetNode && !details?.preserveEmptyText
       ? removeCodeLayerNodeFromHtml(baseContent, targetNode)
       : null;
   const patch = !removedContent

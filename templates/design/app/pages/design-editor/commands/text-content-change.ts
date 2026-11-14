@@ -154,6 +154,7 @@ export function runTextContentChange(
     routePath?: string;
     relativeOperations?: Record<string, PendingRelativeStyleOperation>;
     owedTextPending?: boolean;
+    preserveEmptyText?: boolean;
   },
 ): TextCommitStatus {
   if (!canEditDesign && !canEditLiveScreen) return "refused";
@@ -247,7 +248,7 @@ export function runTextContentChange(
   }
   const isEmpty = value.trim().length === 0;
   const removedContent =
-    isEmpty && targetNode
+    isEmpty && targetNode && !details?.preserveEmptyText
       ? removeCodeLayerNodeFromHtml(baseContent, targetNode)
       : null;
   const patch = !removedContent

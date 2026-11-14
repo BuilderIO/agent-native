@@ -415,7 +415,7 @@ test.describe("mobile app build", () => {
       '[data-layer-row-button]:has(span[title="Sunrise Cafe"])',
     );
     await expect(titleRows).toHaveCount(2);
-    await titleRows.first().dblclick();
+    await titleRows.first().press("F2");
     const renameInput = tree.locator("input").first();
     await renameInput.fill("Green Bowl");
     await renameInput.press("Enter");

@@ -146,9 +146,7 @@ test.describe("interaction: button component", () => {
     await expect(app.node(created[0]!)).toHaveText("Button");
   });
 
-  test("double-click a layer row in the panel enters rename mode", async ({
-    app,
-  }) => {
+  test("F2 on a layer row in the panel enters rename mode", async ({ app }) => {
     const id = await app.seed(LAYERS_SCREEN);
     await app.open(id);
     await app.zoomToFit();
@@ -162,7 +160,7 @@ test.describe("interaction: button component", () => {
         '[role="treeitem"][aria-selected="true"] [data-layer-row-button]',
       );
 
-    await row.dblclick();
+    await row.press("F2");
     const input = row.locator("input");
     await expect(input).toBeVisible();
     await input.fill("Renamed Alpha");

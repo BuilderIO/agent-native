@@ -203,9 +203,7 @@ test.describe("card component: structure, duplicate, rename, reorder, group", ()
     );
 
     await expandAllLayers(app.page);
-    await layerRowButton(app.page, "Wireless Headphones")
-      .first()
-      .dblclick({ force: true });
+    await layerRowButton(app.page, "Wireless Headphones").first().press("F2");
     const input = layerTree(app.page).locator(
       'input[aria-label="Rename layer"]',
     );
