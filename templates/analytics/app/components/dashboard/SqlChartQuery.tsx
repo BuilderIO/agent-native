@@ -346,7 +346,12 @@ function SqlChartContent({
   };
 
   const plan = useMemo(
-    () => planPanelRender(rawRows, panel, { timeRange }),
+    () =>
+      planPanelRender(
+        rawRows,
+        panel,
+        timeRange === undefined ? {} : { timeRange },
+      ),
     [rawRows, panel.chartType, panel.config, timeRange],
   );
   const { rows: queryRows, xKey, yKeys } = plan;
@@ -411,7 +416,7 @@ function SqlChartContent({
     onFreshnessChange(
       canReportFreshness && (reportedCache || reportedStatus)
         ? {
-            fetchedAt: reportedFetchedAt,
+            ...(reportedFetchedAt ? { fetchedAt: reportedFetchedAt } : {}),
             cache: reportedCache ?? "unknown",
             ...(reportedStatus ? { status: reportedStatus } : {}),
           }
@@ -601,7 +606,7 @@ function SqlChartContent({
               freshness={{
                 cache: "unknown",
                 ...shownFreshness,
-                status: reportedStatus,
+                ...(reportedStatus ? { status: reportedStatus } : {}),
               }}
               className="h-6 w-6 p-1"
             />
@@ -778,10 +783,10 @@ function DashboardExtensionPanel({
   context,
   heightKey,
 }: {
-  extensionId?: string;
+  extensionId?: string | undefined;
   panelId: string;
-  slotId?: string;
-  context?: Record<string, unknown> | null;
+  slotId?: string | undefined;
+  context?: Record<string, unknown> | null | undefined;
   heightKey: string;
 }) {
   const t = useT();
@@ -813,7 +818,7 @@ function DashboardExtensionPanel({
         <div className={ready ? "opacity-100" : "opacity-0"}>
           <ExtensionSlot
             id={slotId}
-            context={context}
+            {...(context === undefined ? {} : { context })}
             showEmptyAffordance
             onReady={() => setReady(true)}
             className="min-h-[120px] w-full"
@@ -824,7 +829,7 @@ function DashboardExtensionPanel({
     );
   }
 
-  if (unavailable) {
+  if (unavailable || !extensionId) {
     return (
       <div className="flex flex-1 items-center justify-center px-4 py-8 min-h-[120px]">
         <p className="text-sm text-muted-foreground text-center">
@@ -845,9 +850,9 @@ function DashboardExtensionPanel({
     >
       {loadingSkeleton}
       <EmbeddedExtension
-        extensionId={extensionId!}
+        extensionId={extensionId}
         slotId={`dashboard-panel-${panelId}`}
-        context={context}
+        {...(context === undefined ? {} : { context })}
         className={ready ? "w-full opacity-100" : "w-full opacity-0"}
         initialHeight={initialHeight}
         onHeightChange={(height) =>
