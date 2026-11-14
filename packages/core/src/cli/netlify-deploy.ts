@@ -2,7 +2,8 @@ import { spawn } from "child_process";
 import path from "path";
 
 import {
-  NETLIFY_MANIFEST_IGNORED_MESSAGE,
+  NETLIFY_MANIFEST_REJECTED_MESSAGES,
+  NETLIFY_MANIFEST_USED_MESSAGE,
   NETLIFY_MANIFEST_LAUNCH_MARGIN_MS,
   NETLIFY_MANIFEST_TTL_MS,
   NetlifyManifestExpiredError,
@@ -40,6 +41,11 @@ function optionValue(
 }
 
 export function assertStatusOutputEnabled(args: string[]): void {
+  if (args.includes("--skip-functions-cache")) {
+    throw new Error(
+      "--skip-functions-cache makes the CLI ignore the deterministic functions manifest; run without it",
+    );
+  }
   const suppressed = args.find((arg) => arg === "--json" || arg === "--silent");
   if (suppressed) {
     throw new Error(
@@ -48,15 +54,16 @@ export function assertStatusOutputEnabled(args: string[]): void {
   }
 }
 
-/** No args means the full default publish; otherwise only the paths the manifest depends on are filled in. */
+/**
+ * No args means the full default publish. With args, nothing is injected so the
+ * project's own netlify.toml publish directory still applies; the manifest
+ * covers `.netlify/functions-internal`, which the CLI always scans.
+ */
 export function withPathDefaults(args: string[]): string[] {
   if (args.length === 0) return DEFAULT_DEPLOY_ARGS;
-  const merged = [...args];
-  if (optionValue(args, "--dir", "-d") === undefined) merged.push("--dir=dist");
-  if (optionValue(args, "--functions", "-f") === undefined) {
-    merged.push(`--functions=${DEFAULT_FUNCTIONS_DIR}`);
-  }
-  return merged;
+  optionValue(args, "--dir", "-d");
+  optionValue(args, "--functions", "-f");
+  return args;
 }
 
 export function functionsDirOf(args: string[]): string {
@@ -111,14 +118,19 @@ export async function runNetlifyDeploy(rawArgs: string[]): Promise<void> {
       { cwd: siteRoot, stdio: ["inherit", "pipe", "pipe"] },
     );
     let ignored = false;
+    let consumed = false;
     const watch = (stream: NodeJS.ReadableStream, sink: NodeJS.WriteStream) => {
       let tail = "";
       stream.on("data", (chunk: Buffer) => {
         sink.write(chunk);
         tail = (tail + chunk.toString()).slice(
-          -(NETLIFY_MANIFEST_IGNORED_MESSAGE.length * 2),
+          -(NETLIFY_MANIFEST_USED_MESSAGE.length * 2),
         );
-        if (!ignored && tail.includes(NETLIFY_MANIFEST_IGNORED_MESSAGE)) {
+        if (tail.includes(NETLIFY_MANIFEST_USED_MESSAGE)) consumed = true;
+        if (
+          !ignored &&
+          NETLIFY_MANIFEST_REJECTED_MESSAGES.some((m) => tail.includes(m))
+        ) {
           ignored = true;
           child.kill("SIGTERM");
         }
@@ -131,6 +143,11 @@ export async function runNetlifyDeploy(rawArgs: string[]): Promise<void> {
       if (ignored) {
         console.error(
           "[netlify-deploy] manifest-expired netlify-cli discarded the functions manifest; the deploy was stopped before upload so unstable ZIPs are not published",
+        );
+        resolve(1);
+      } else if (code === 0 && !consumed) {
+        console.error(
+          "[netlify-deploy] manifest-not-used the CLI never confirmed it used the generated functions manifest; check that this run's functions were not re-zipped",
         );
         resolve(1);
       } else {

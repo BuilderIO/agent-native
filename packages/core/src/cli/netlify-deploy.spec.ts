@@ -15,22 +15,20 @@ describe("netlify-deploy argument handling", () => {
     ]);
   });
 
-  it("fills only missing path defaults", () => {
+  it("injects nothing when args are given, so netlify.toml paths still apply", () => {
     expect(withPathDefaults(["--message", "hotfix"])).toEqual([
       "--message",
       "hotfix",
-      "--dir=dist",
-      "--functions=.netlify/functions-internal",
     ]);
-  });
-
-  it("treats -d and -f as supplied, so defaults never override them", () => {
     expect(withPathDefaults(["-d", "build", "-f", "custom"])).toEqual([
       "-d",
       "build",
       "-f",
       "custom",
     ]);
+  });
+
+  it("reads the functions dir from any supported form", () => {
     expect(functionsDirOf(["-d", "build", "-f", "custom"])).toBe("custom");
     expect(functionsDirOf(["--functions=a/b"])).toBe("a/b");
     expect(functionsDirOf(["--functions", "c"])).toBe("c");
@@ -54,6 +52,9 @@ describe("netlify-deploy status output", () => {
     );
     expect(() => assertStatusOutputEnabled(["--silent"])).toThrow(
       /hides the CLI status line/,
+    );
+    expect(() => assertStatusOutputEnabled(["--skip-functions-cache"])).toThrow(
+      /ignore the deterministic functions manifest/,
     );
     expect(() => assertStatusOutputEnabled(["--prod"])).not.toThrow();
   });

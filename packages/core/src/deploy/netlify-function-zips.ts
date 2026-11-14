@@ -20,9 +20,12 @@ export const SUPPORTED_ZIP_IT_MAJOR = 16;
 export const NETLIFY_MANIFEST_TTL_MS = 120_000;
 /** Seconds of the TTL that must remain when the CLI is launched. */
 export const NETLIFY_MANIFEST_LAUNCH_MARGIN_MS = 30_000;
-/** Status line the CLI prints when it discards the manifest and re-zips. */
-export const NETLIFY_MANIFEST_IGNORED_MESSAGE =
-  "Ignored invalid or expired functions cache";
+/** hash-fns.js status lines: the manifest was consumed, or it was discarded and the CLI re-zips. */
+export const NETLIFY_MANIFEST_USED_MESSAGE = "Deploying functions from cache";
+export const NETLIFY_MANIFEST_REJECTED_MESSAGES = [
+  "Ignored invalid or expired functions cache",
+  "No cached functions were found",
+];
 
 export interface NetlifyCli {
   packageDir: string;
