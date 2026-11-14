@@ -50,7 +50,11 @@ it("runs an ancestor compiler outside PATH from a path containing spaces", () =>
     );
     expect(result.error).toBeUndefined();
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout.trim()).toBe("ancestor-tsc --noEmit --pretty false");
+    expect(result.stdout.trim()).toBe(
+      windows
+        ? 'ancestor-tsc "--noEmit" "--pretty" "false"'
+        : "ancestor-tsc --noEmit --pretty false",
+    );
   } finally {
     fs.rmSync(root, { recursive: true, force: true });
   }

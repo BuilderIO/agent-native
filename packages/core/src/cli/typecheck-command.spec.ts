@@ -44,6 +44,12 @@ function compiler(
   );
 }
 
+function compilerOutput(marker: string): string {
+  return process.platform === "win32"
+    ? `${marker} "--noEmit" "--pretty" "false"`
+    : `${marker} --noEmit --pretty false`;
+}
+
 function run(cwd: string, pathDir: string) {
   return spawnSync(
     process.execPath,
@@ -70,11 +76,11 @@ describe("agent-native typecheck compiler lookup", () => {
     compiler(path.join(cwd, "node_modules/.bin"), "tsgo", "local-tsgo");
     let result = run(cwd, pathDir);
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout.trim()).toBe("local-tsgo --noEmit --pretty false");
+    expect(result.stdout.trim()).toBe(compilerOutput("local-tsgo"));
     compiler(path.join(cwd, "node_modules/.bin"), "tsc", "local-tsc");
     result = run(cwd, pathDir);
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout.trim()).toBe("local-tsc --noEmit --pretty false");
+    expect(result.stdout.trim()).toBe(compilerOutput("local-tsc"));
   });
 
   it("chooses a nearer ancestor's tsgo over a farther ancestor's tsc", () => {
@@ -83,7 +89,7 @@ describe("agent-native typecheck compiler lookup", () => {
     compiler(path.join(parent, "node_modules/.bin"), "tsgo", "near-tsgo");
     const result = run(cwd, pathDir);
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout.trim()).toBe("near-tsgo --noEmit --pretty false");
+    expect(result.stdout.trim()).toBe(compilerOutput("near-tsgo"));
   });
 
   it("typechecks with the installed ancestor compiler through the CLI launcher", () => {
@@ -156,7 +162,7 @@ describe("agent-native typecheck compiler lookup", () => {
     compiler(pathDir, "tsc", "path-tsc");
     const result = run(cwd, pathDir);
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout.trim()).toBe("path-tsc --noEmit --pretty false");
+    expect(result.stdout.trim()).toBe(compilerOutput("path-tsc"));
   });
 
   it("passes arguments containing spaces as a single compiler argument", () => {
@@ -188,7 +194,9 @@ describe("agent-native typecheck compiler lookup", () => {
       },
     );
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout.trim()).toBe("arg=config with spaces.json");
+    expect(result.stdout.trim()).toBe(
+      windows ? 'arg="config with spaces.json"' : "arg=config with spaces.json",
+    );
   });
 
   it("rejects Windows command separators before invoking a compiler shim", () => {
@@ -234,7 +242,7 @@ describe("agent-native typecheck compiler lookup", () => {
     expect(result.status).not.toBe(0);
     expect(result.stderr).toMatch(/spawn tsc ENOENT/);
     expect(result.stderr).toMatch(
-      /Could not execute tsc; check that TypeScript and its interpreter are installed/i,
+      /Could not execute TypeScript compiler; check that TypeScript and its interpreter are installed/i,
     );
     expect(result.stderr).not.toMatch(
       /Unexpected error|Report this bug|Send feedback/i,
@@ -253,7 +261,7 @@ describe("agent-native typecheck compiler lookup", () => {
     expect(result.status).not.toBe(0);
     expect(result.stderr).toMatch(/spawn tsc ENOENT/);
     expect(result.stderr).toMatch(
-      /Could not execute tsc; check that TypeScript and its interpreter are installed/i,
+      /Could not execute TypeScript compiler; check that TypeScript and its interpreter are installed/i,
     );
     expect(result.stderr).not.toMatch(
       /Unexpected error|Report this bug|Send feedback/i,
@@ -268,7 +276,7 @@ describe("agent-native typecheck compiler lookup", () => {
     const result = run(cwd, [pathDir, laterPath].join(path.delimiter));
     expect(result.error).toBeUndefined();
     expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout.trim()).toBe("near-tsc --noEmit --pretty false");
+    expect(result.stdout.trim()).toBe(compilerOutput("near-tsc"));
   });
 
   it("uses a later PATH compiler when the earlier entry is a dangling symlink", () => {
@@ -320,7 +328,7 @@ describe("agent-native typecheck compiler lookup", () => {
     expect(result.status).not.toBe(0);
     expect(result.stderr).toMatch(/spawn tsc ENOENT/);
     expect(result.stderr).toMatch(
-      /Could not execute tsc; check that TypeScript and its interpreter are installed/i,
+      /Could not execute TypeScript compiler; check that TypeScript and its interpreter are installed/i,
     );
     expect(result.stderr).not.toMatch(
       /Unexpected error|Report this bug|Send feedback/i,
@@ -339,7 +347,30 @@ describe("agent-native typecheck compiler lookup", () => {
     expect(result.status).not.toBe(0);
     expect(result.stderr).toMatch(/spawn tsc ENOENT/);
     expect(result.stderr).toMatch(
-      /Could not execute tsc; check that TypeScript and its interpreter are installed/i,
+      /Could not execute TypeScript compiler; check that TypeScript and its interpreter are installed/i,
+    );
+    expect(result.stderr).not.toMatch(
+      /Unexpected error|Report this bug|Send feedback/i,
+    );
+  });
+
+  it("reports a missing interpreter for an ancestor compiler", () => {
+    if (process.platform === "win32") return;
+    const { cwd, parent, pathDir } = fixture();
+    const dir = path.join(parent, "node_modules/.bin");
+    fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, "tsc"),
+      "#!/nonexistent-test-interpreter\n",
+      {
+        mode: 0o755,
+      },
+    );
+    const result = run(cwd, pathDir);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toMatch(/ENOENT/);
+    expect(result.stderr).toMatch(
+      /Could not execute TypeScript compiler; check that TypeScript and its interpreter are installed/i,
     );
     expect(result.stderr).not.toMatch(
       /Unexpected error|Report this bug|Send feedback/i,
@@ -360,7 +391,9 @@ describe("agent-native typecheck compiler lookup", () => {
     expect(result.error).toBeUndefined();
     expect(result.status, result.stderr).toBe(1);
     expect(result.stdout).toContain("compiler-failed");
-    expect(result.stderr).not.toMatch(/ENOENT|Could not execute tsc/i);
+    expect(result.stderr).not.toMatch(
+      /ENOENT|Could not execute TypeScript compiler/i,
+    );
   });
 
   it("preserves a non-executable PATH compiler's permission error", () => {

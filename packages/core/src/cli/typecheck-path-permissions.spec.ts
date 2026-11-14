@@ -77,7 +77,7 @@ describe("agent-native typecheck with simulated Windows CLI selection on Linux",
     expect(result.status).not.toBe(0);
     expect(result.stderr).toMatch(/spawn tsc ENOENT/);
     expect(result.stderr).toMatch(
-      /Could not execute tsc; check that TypeScript and its interpreter are installed/i,
+      /Could not execute TypeScript compiler; check that TypeScript and its interpreter are installed/i,
     );
   });
 
@@ -94,7 +94,7 @@ describe("agent-native typecheck with simulated Windows CLI selection on Linux",
     expect(result.status).not.toBe(0);
     expect(result.stderr).toMatch(/spawn tsc ENOENT/);
     expect(result.stderr).toMatch(
-      /Could not execute tsc; check that TypeScript and its interpreter are installed/i,
+      /Could not execute TypeScript compiler; check that TypeScript and its interpreter are installed/i,
     );
   });
 
@@ -108,6 +108,6 @@ describe("agent-native typecheck with simulated Windows CLI selection on Linux",
     expect(result.error).toBeUndefined();
     expect(result.status).not.toBe(0);
     expect(result.stderr).toMatch(/spawn tsc EACCES/);
-    expect(result.stderr).not.toMatch(/Could not execute tsc/);
+    expect(result.stderr).not.toMatch(/Could not execute TypeScript compiler/);
   });
 });

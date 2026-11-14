@@ -249,7 +249,6 @@ function findTypeScriptCompilerBin(): string | undefined {
 
 function runTypeScriptCompiler(args: string[]): void {
   const compiler = findTypeScriptCompilerBin();
-  const fallback = !compiler;
   // cross-spawn's Windows cmd escaping does not cover CR/LF command separators.
   if (process.platform === "win32" && args.some((arg) => /[\r\n]/.test(arg))) {
     throw new Error(
@@ -260,10 +259,10 @@ function runTypeScriptCompiler(args: string[]): void {
     shell: false,
     spawnProcess: process.platform === "win32" ? crossSpawn.spawn : spawn,
     onError: (error) => {
-      if (fallback && error.code === "ENOENT") {
+      if (error.code === "ENOENT") {
         console.error(error.message);
         console.error(
-          "Could not execute tsc; check that TypeScript and its interpreter are installed.",
+          "Could not execute TypeScript compiler; check that TypeScript and its interpreter are installed.",
         );
         process.exit(1);
       }
