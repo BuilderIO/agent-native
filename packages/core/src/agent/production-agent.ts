@@ -392,6 +392,11 @@ import {
   normalizeMaxRunInputTokens,
   readAgentLoopSettings,
 } from "./loop-settings.js";
+import {
+  ModelAttemptMeasurement,
+  type ModelAttemptObserver,
+  type ModelAttemptStartObserver,
+} from "./model-attempt.js";
 import { getProviderDefaultEffort } from "./model-catalog.js";
 import {
   getContextWindowForModel,
@@ -7543,6 +7548,8 @@ export async function runAgentLoop(opts: {
   unknownOutcomes?: UnknownOutcomes;
   internalContinuation?: boolean;
   onModelInput?: ModelInputObserver;
+  onModelAttempt?: ModelAttemptObserver;
+  onModelAttemptStart?: ModelAttemptStartObserver;
   /**
    * The model and effort each model call uses. Either can change mid-run: a
    * rate limit falls back to another model, and an empty response steps effort
@@ -8586,6 +8593,15 @@ export async function runAgentLoop(opts: {
 
     for (let retry = 0; ; retry++) {
       const attemptStartedAt = Date.now();
+      const measurement = opts.onModelAttempt
+        ? new ModelAttemptMeasurement(
+            model,
+            iterations,
+            retry,
+            opts.onModelAttemptStart,
+          )
+        : undefined;
+      let retryWaitStartedAt: number | undefined;
       assistantContent = undefined;
       streamedAssistantText = "";
       streamedAssistantToolCalls.length = 0;
@@ -8609,6 +8625,9 @@ export async function runAgentLoop(opts: {
         )
           ? contextMessages
           : replaceImagesForModelWithoutVision(contextMessages, model);
+        const reasoningEffort = completingFollowUpSuggestions
+          ? ("none" as const)
+          : effectiveReasoningEffort;
         const streamOpts = {
           model,
           systemPrompt: completingFollowUpSuggestions
@@ -8634,11 +8653,12 @@ export async function runAgentLoop(opts: {
               : effectiveMaxOutputTokens,
             model,
           ),
-          reasoningEffort: completingFollowUpSuggestions
-            ? ("none" as const)
-            : effectiveReasoningEffort,
-          beforeModelDispatch: opts.beforeModelDispatch,
+          ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+          ...(opts.beforeModelDispatch === undefined
+            ? {}
+            : { beforeModelDispatch: opts.beforeModelDispatch }),
           onModelDispatchStarted: () => {
+            measurement?.dispatched();
             usage.llmCalls = (usage.llmCalls ?? 0) + 1;
             try {
               opts.onModelDispatchStarted?.();
@@ -8650,6 +8670,7 @@ export async function runAgentLoop(opts: {
           providerOptions,
         };
 
+        measurement?.request(streamOpts);
         opts.onModelSettings?.(model, effectiveReasoningEffort);
         notifyModelInputObserver(opts.onModelInput, engineMessages);
         if (signal.aborted) {
@@ -8816,6 +8837,7 @@ export async function runAgentLoop(opts: {
               break;
             }
             const event = nextEvent.value;
+            measurement?.event(event);
             if (hasNoProgressStalled()) {
               checkpointNoProgress();
               break;
@@ -8968,6 +8990,7 @@ export async function runAgentLoop(opts: {
             terminalStopErrorCode ??= thrownCode;
           throw err;
         } finally {
+          measurement?.endStream();
           closeModelStreamBracket();
           if (!eventIteratorDone) {
             await requestEventIteratorReturn(
@@ -9008,6 +9031,7 @@ export async function runAgentLoop(opts: {
 
         break;
       } catch (err: unknown) {
+        const streamEndedAt = measurement?.endStream() ?? Date.now();
         if (signal.aborted) throw err;
         if (completingFollowUpSuggestions) {
           failFollowUpCompletion("provider_error");
@@ -9017,6 +9041,7 @@ export async function runAgentLoop(opts: {
           if (retry === 0 && !attemptHasText()) {
             const trimmed = trimOldToolResults(contextMessages);
             if (trimmed !== null) {
+              retryWaitStartedAt = streamEndedAt;
               contextMessages = trimmed;
               await sendClear();
               continue;
@@ -9037,6 +9062,7 @@ export async function runAgentLoop(opts: {
           hasBudgetForEngineRetry(budgetStartedAt, retry, retryAfterMs)
         ) {
           const stalledMs = Date.now() - attemptStartedAt;
+          retryWaitStartedAt = streamEndedAt;
           await sendClear();
           if (stalledMs >= VISIBLE_RETRY_THRESHOLD_MS) {
             send({
@@ -9068,6 +9094,7 @@ export async function runAgentLoop(opts: {
               getContextWindowForModel(fallbackModel) * 0.8;
           if (fallbackModel && fallbackFits) {
             fallbackModelAttempted = true;
+            retryWaitStartedAt = streamEndedAt;
             await sendClear();
             send({
               type: "activity",
@@ -9086,6 +9113,13 @@ export async function runAgentLoop(opts: {
           }
         }
         throw err;
+      } finally {
+        if (retryWaitStartedAt !== undefined) {
+          measurement?.retryWait(Date.now() - retryWaitStartedAt);
+        }
+        if (measurement && opts.onModelAttempt) {
+          measurement.finish(opts.onModelAttempt);
+        }
       }
     }
 
