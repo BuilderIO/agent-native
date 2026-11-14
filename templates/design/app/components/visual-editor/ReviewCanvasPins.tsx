@@ -2200,10 +2200,11 @@ export function ReviewCanvasPins({
 
   // Another account's unsent pin isn't this one's to see or write to: it
   // stays kept for the account it was written in and leaves the canvas, and
-  // the effect below brings back this account's. The session settling after
-  // the page loads isn't a change of account.
+  // the effect below brings back this account's. It leaves before the new
+  // account's first paint, so not even a frame of it shows. The session
+  // settling after the page loads isn't a change of account.
   const draftAccountRef = useRef({ currentUserEmail, sessionOrgId });
-  useEffect(() => {
+  useLayoutEffect(() => {
     const previous = draftAccountRef.current;
     draftAccountRef.current = { currentUserEmail, sessionOrgId };
     const sameEmail = previous.currentUserEmail === currentUserEmail;
