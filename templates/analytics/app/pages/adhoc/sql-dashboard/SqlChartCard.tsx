@@ -4,6 +4,7 @@ import { useT } from "@agent-native/core/client/i18n";
 import { useDraggable } from "@dnd-kit/core";
 import { dataNoteInRange, type DataNote } from "@shared/data-notes";
 import { isKeyDateChartType } from "@shared/key-dates";
+import { readPanelColumns } from "@shared/panel-columns";
 import { isValidPanelBreakdowns } from "@shared/row-breakdown";
 import {
   IconGripVertical,
@@ -246,10 +247,14 @@ export function SqlChartCard({
   // While viewing, dragging a column edge sizes it for this person only. A
   // table offers rename, reorder, and format whenever it gets onSaveColumns,
   // so only edit mode passes it on.
+  const configColumns = useMemo(
+    () => readPanelColumns(panel.config?.columns),
+    [panel.config?.columns],
+  );
   const personalColumnWidths = usePersonalColumnWidths(
     dashboardId,
     panel.id,
-    panel.config?.columns,
+    configColumns,
   );
   const tableColumnProps = editable
     ? { onSaveColumns }

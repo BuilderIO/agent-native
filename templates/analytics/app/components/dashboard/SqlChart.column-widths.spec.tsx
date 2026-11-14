@@ -211,6 +211,38 @@ describe("SqlChart table column widths", () => {
     ]);
   });
 
+  it("preserves a hidden column with a malformed width when editing another column", async () => {
+    const onSaveColumns = vi.fn();
+    const panel: SqlPanel = {
+      ...TABLE,
+      config: {
+        columns: [
+          { key: "name", width: 90 },
+          { key: "count" },
+          { key: "private", hidden: true, width: "wide" as never },
+        ],
+      },
+    };
+    await act(async () => {
+      root.render(
+        <SqlChart
+          panel={panel}
+          resultOverride={{ rows: ROWS }}
+          onSaveColumns={onSaveColumns}
+        />,
+      );
+    });
+
+    const separator = separators()[0];
+    if (!separator) throw new Error("Expected a resize handle");
+    await drag(separator, 200);
+    expect(onSaveColumns).toHaveBeenCalledWith([
+      { key: "name", width: 200 },
+      { key: "count" },
+      { key: "private", hidden: true },
+    ]);
+  });
+
   it("keeps resizable headers sticky", async () => {
     await act(async () => {
       root.render(

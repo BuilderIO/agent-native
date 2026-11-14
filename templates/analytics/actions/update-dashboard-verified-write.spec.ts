@@ -482,6 +482,117 @@ describe("update-dashboard verified writes", () => {
     });
   });
 
+  describe("panel column validation", () => {
+    const table = (columns: unknown) =>
+      pivotPanel({ chartType: "table", config: { columns } });
+    const legacyColumns = [{ key: "name", width: "wide", hidden: true }];
+
+    it.each([
+      { columns: [{ key: "name" }, { key: "name" }] },
+      { columns: [{ key: "name", width: "wide", hidden: true }] },
+      { columns: [{ key: "name", width: 0, hidden: true }] },
+      { columns: [{ key: "name", width: -10, hidden: true }] },
+      { columns: { name: { hidden: true } } },
+      { columns: null },
+    ])(
+      "rejects a frontend full-config save with invalid columns",
+      async ({ columns }) => {
+        await expect(
+          updateDashboard.run(
+            { dashboardId: "growth", config: dashboard([table(columns)]) },
+            frontend,
+          ),
+        ).rejects.toMatchObject({
+          errorCode: "dashboard_invalid_panel",
+          message: expect.stringContaining("config.columns"),
+        });
+        expect(mocks.upsertDashboard).not.toHaveBeenCalled();
+      },
+    );
+
+    it("rejects malformed columns on a new dashboard", async () => {
+      mocks.getDashboard.mockResolvedValue(null);
+      await expect(
+        updateDashboard.run(
+          { dashboardId: "new", config: dashboard([table(legacyColumns)]) },
+          frontend,
+        ),
+      ).rejects.toMatchObject({ errorCode: "dashboard_invalid_panel" });
+      expect(mocks.upsertDashboard).not.toHaveBeenCalled();
+    });
+
+    it.each([frontend, agent])(
+      "rejects changing a legacy column list to a different invalid value",
+      async (caller) => {
+        mocks.getDashboard.mockResolvedValue({
+          kind: "sql",
+          config: dashboard([table(legacyColumns)]),
+        });
+        const next = dashboard([
+          table([{ key: "name", width: "bad", hidden: true }]),
+        ]);
+        await expect(
+          updateDashboard.run({ dashboardId: "growth", config: next }, caller),
+        ).rejects.toMatchObject({ errorCode: "dashboard_invalid_panel" });
+        expect(mocks.upsertDashboard).not.toHaveBeenCalled();
+      },
+    );
+
+    it("rejects invalid columns in an ops save before writing", async () => {
+      await expect(
+        updateDashboard.run(
+          {
+            dashboardId: "growth",
+            ops: [
+              {
+                op: "set",
+                path: "/panels/0/config/columns",
+                value: [{ key: "a" }, { key: "a" }],
+              },
+            ],
+          },
+          frontend,
+        ),
+      ).rejects.toMatchObject({ errorCode: "dashboard_invalid_panel" });
+      expect(mocks.upsertDashboard).not.toHaveBeenCalled();
+    });
+
+    it("allows another field on a legacy panel to change without touching its columns", async () => {
+      const legacy = dashboard([table(legacyColumns)]);
+      mocks.getDashboard.mockResolvedValue({ kind: "sql", config: legacy });
+      const next = dashboard([
+        table(legacyColumns.map((column) => ({ ...column }))),
+      ]);
+      next.panels[0].title = "Renamed";
+
+      await updateDashboard.run(
+        { dashboardId: "growth", config: next },
+        frontend,
+      );
+      expect(mocks.upsertDashboard).toHaveBeenCalledOnce();
+      expect(mocks.upsertDashboard).toHaveBeenCalledWith(
+        "growth",
+        "sql",
+        next,
+        expect.anything(),
+      );
+    });
+
+    it("accepts a repair to an existing malformed column list", async () => {
+      mocks.getDashboard.mockResolvedValue({
+        kind: "sql",
+        config: dashboard([table(legacyColumns)]),
+      });
+      const next = dashboard([table([{ key: "name", hidden: true }])]);
+
+      await updateDashboard.run(
+        { dashboardId: "growth", config: next },
+        frontend,
+      );
+      expect(mocks.upsertDashboard).toHaveBeenCalledOnce();
+    });
+  });
+
   describe("legacy invalid width ratchet", () => {
     const legacy = () =>
       pivotPanel({ id: "legacy", title: "Legacy chart", width: "wide" });

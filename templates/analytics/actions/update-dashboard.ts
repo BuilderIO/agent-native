@@ -57,6 +57,7 @@ import { builtinDashboardIdFor } from "../shared/builtin-dashboard-ids.js";
 import { normalizeDashboardConfig } from "../shared/dashboard-config-normalization";
 import { DASHBOARD_SQL_VALIDATION_TIMEOUT_MS } from "../shared/dashboard-report-timeouts.js";
 import { dashboardAnnotationsIssue } from "../shared/key-dates";
+import { isValidPanelColumns } from "../shared/panel-columns";
 import { panelLabel, stableStringify } from "../shared/panel-render-contract";
 import {
   isTrafficFilterValue,
@@ -441,10 +442,10 @@ function collectDashboardConfigIssues(
     options.baseline && options.baseline !== config
       ? normalizeDashboardConfig(options.baseline)
       : null;
-  const baselinePanels = new Map<string, string>();
+  const baselinePanels = new Map<string, Record<string, unknown>>();
   for (const panel of Array.isArray(baseline?.panels) ? baseline.panels : []) {
     if (panel && typeof panel.id === "string") {
-      baselinePanels.set(panel.id, stableStringify(panel));
+      baselinePanels.set(panel.id, panel);
     }
   }
   const issues: DashboardConfigIssue[] = [];
@@ -472,15 +473,26 @@ function collectDashboardConfigIssues(
       });
       continue;
     }
-    if (
-      typeof p.id === "string" &&
-      baselinePanels.get(p.id) === stableStringify(p)
-    ) {
-      continue;
-    }
+    const previous =
+      typeof p.id === "string" ? baselinePanels.get(p.id) : undefined;
+    if (previous && stableStringify(previous) === stableStringify(p)) continue;
     const label = panelLabel(p, i);
     const issue = (rule: string, message: string) =>
       issues.push({ rule: `panel_${rule}`, message: `${label} ${message}` });
+    const columns = (p.config as { columns?: unknown } | null)?.columns;
+    const previousColumns = (previous?.config as { columns?: unknown } | null)
+      ?.columns;
+    if (
+      columns !== undefined &&
+      !isValidPanelColumns(columns) &&
+      (!previous ||
+        stableStringify(columns) !== stableStringify(previousColumns))
+    ) {
+      issue(
+        "columns",
+        "config.columns must be an array of valid column objects with unique non-empty keys.",
+      );
+    }
     const isSection = p.chartType === "section";
     const isExtension = p.chartType === "extension";
     const required =

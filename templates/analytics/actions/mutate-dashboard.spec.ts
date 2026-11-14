@@ -211,6 +211,92 @@ describe("mutate-dashboard", () => {
     mocks.seedFromText.mockClear();
   });
 
+  it.each([false, true])(
+    "rejects invalid column edits for a frontend caller (dryRun=%s)",
+    async (dryRun) => {
+      mocks.getDashboard.mockResolvedValue({
+        kind: "sql",
+        config: dashboardConfig(),
+      });
+      await expect(
+        mutateDashboard.run(
+          {
+            dashboardId: "traffic",
+            dryRun,
+            operations: [
+              {
+                op: "updatePanel",
+                panelId: "a",
+                patch: {
+                  config: { columns: [{ key: "value" }, { key: "value" }] },
+                },
+              },
+            ],
+          },
+          { caller: "frontend" } as never,
+        ),
+      ).rejects.toMatchObject({ errorCode: "dashboard_invalid_panel" });
+      expect(mocks.upsertDashboard).not.toHaveBeenCalled();
+    },
+  );
+
+  it("rejects invalid columns on a newly inserted panel", async () => {
+    mocks.getDashboard.mockResolvedValue({
+      kind: "sql",
+      config: dashboardConfig(),
+    });
+    await expect(
+      mutateDashboard.run(
+        {
+          dashboardId: "traffic",
+          operations: [
+            {
+              op: "insertPanel",
+              panel: { ...panel("new"), config: { columns: [{ key: "" }] } },
+            },
+          ],
+        },
+        { caller: "frontend" } as never,
+      ),
+    ).rejects.toMatchObject({ errorCode: "dashboard_invalid_panel" });
+    expect(mocks.upsertDashboard).not.toHaveBeenCalled();
+  });
+
+  it("allows a frontend title edit on a panel with unchanged legacy columns", async () => {
+    const columns = [{ key: "value", width: "wide", hidden: true }];
+    const config = dashboardConfig();
+    config.panels[0] = {
+      ...config.panels[0],
+      config: { columns },
+    } as (typeof config.panels)[0];
+    mocks.getDashboard.mockResolvedValue({ kind: "sql", config });
+
+    await mutateDashboard.run(
+      {
+        dashboardId: "traffic",
+        operations: [
+          { op: "updatePanel", panelId: "a", patch: { title: "Renamed" } },
+        ],
+      },
+      { caller: "frontend" } as never,
+    );
+    expect(mocks.upsertDashboard).toHaveBeenCalledOnce();
+    expect(mocks.upsertDashboard).toHaveBeenCalledWith(
+      "traffic",
+      "sql",
+      expect.objectContaining({
+        panels: expect.arrayContaining([
+          expect.objectContaining({
+            id: "a",
+            title: "Renamed",
+            config: { columns },
+          }),
+        ]),
+      }),
+      expect.anything(),
+    );
+  });
+
   it("advertises the returnTypes help-only call without a dashboard id", () => {
     expect(
       (mutateDashboard.tool.parameters as any).required ?? [],

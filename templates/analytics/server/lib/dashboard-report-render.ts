@@ -45,6 +45,7 @@ import {
   metricComparison,
   type MetricComparison,
 } from "../../shared/metric-comparison";
+import { readPanelColumns } from "../../shared/panel-columns";
 import { resolvePanelEvents } from "../../shared/panel-events";
 import {
   chartPointLimit,
@@ -824,7 +825,7 @@ function renderTableHtml(
     return { html: noteHtml("No rows returned."), text: "No rows returned." };
   }
   const rowKeys = new Set(Object.keys(rows[0]));
-  const configured = (panel.config?.columns ?? []).filter(
+  const configured = (readPanelColumns(panel.config?.columns) ?? []).filter(
     (column) => !column.hidden && rowKeys.has(column.key),
   );
   const columns: TableColumnConfig[] = configured.length

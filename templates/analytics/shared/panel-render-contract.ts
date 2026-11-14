@@ -15,6 +15,7 @@ import {
   resolveDashboardFunnelRows,
   type DashboardFunnelRows,
 } from "./dashboard-funnel";
+import { isValidPanelColumns } from "./panel-columns";
 import {
   isValidPanelDrilldown,
   panelDrilldownSqlProblem,
@@ -333,6 +334,11 @@ const CONFIG_VALUE_SHAPES: Record<string, ConfigValueShape> = {
         STRING_ARRAY_SHAPE.valid(value.seriesOrder)),
     expected:
       "an object with string xKey, seriesKey and valueKey, and an optional seriesOrder array of series values",
+  },
+  columns: {
+    valid: isValidPanelColumns,
+    expected:
+      'an array of { key: result column name, label?: string, format?: "number" | "currency" | "percent" | "date" | "link" | "text" | "delta" | "duration", linkKey?: string, hidden?: boolean, width?: number }, one entry per column (not an object keyed by column name)',
   },
   breakdowns: {
     valid: isValidPanelBreakdowns,
