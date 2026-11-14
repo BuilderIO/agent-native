@@ -77,7 +77,7 @@ const MAX_BREAKDOWN_ENTRIES = 10;
 const SUMMARY_BREAKDOWN_ENTRIES = 5;
 
 const DATABASE_CREDENTIAL_RE =
-  /password authentication failed|authentication failed for user|no pg_hba\.conf entry|role "[^"]+" does not exist|ensureSchemaObject: could not probe|ensureIndexExistsConcurrently: could not probe|CredentialStoreUnavailable/i;
+  /password authentication failed|authentication failed for user|no pg_hba\.conf entry|role "[^"]+" does not exist|ensureSchemaObject: could not probe|ensureIndexExistsConcurrently: could not probe/i;
 const CONFIGURATION_ERROR_NAMES = new Set([
   "MissingAuthSecretError",
   "AppConfigurationError",
@@ -144,7 +144,7 @@ function classifyFloodClass(
 ): ErrorFloodClass | undefined {
   if (
     context.tags?.failureClass === "transient-database" ||
-    isTransientDatabaseError(error)
+    causeChain(error).some(isTransientDatabaseError)
   ) {
     return "transient-database";
   }
