@@ -231,12 +231,16 @@ export function useSelectionMeasurement({
   const selector =
     selectedElement &&
     (selectedElement.needsLiveMeasurement ||
-      sizeNeedsMeasurement(selectedElement.computedStyles) ||
+      (sizeNeedsMeasurement(selectedElement.computedStyles) &&
+        (lastMeasured.current?.identity !== identity ||
+          lastMeasured.current.scope !== scope)) ||
       (lastMeasured.current?.identity === identity &&
         lastMeasured.current.scope !== scope))
       ? selectionSelector
       : null;
   useEffect(() => {
+    if (lastMeasured.current?.identity !== identity)
+      lastMeasured.current = null;
     if (
       !selector ||
       !selectedElement ||

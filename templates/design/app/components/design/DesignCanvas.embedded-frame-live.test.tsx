@@ -7,6 +7,11 @@ import { describe, expect, it, vi } from "vitest";
 import { localRuntimeUrls } from "./design-canvas/local-runtime";
 import { DesignCanvas } from "./DesignCanvas";
 
+vi.mock("./design-canvas/native-public-worker-preview", () => ({
+  prepareNativePublicWorkerPreviewDocument: () => null,
+  connectNativePublicWorkerPreview: () => () => undefined,
+}));
+
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
@@ -108,6 +113,22 @@ describe("DesignCanvas live embedded-frame offset", () => {
         expect(onElementHover).not.toHaveBeenCalled();
         expect(onElementMarqueeSelect).not.toHaveBeenCalled();
         expect(onIframeContextMenu).not.toHaveBeenCalled();
+        for (const malformed of [
+          { ...valid, provenance: { sourceFile: 42 } },
+          { ...valid, portableStyleSnapshot: { version: 1, nodes: null } },
+          {
+            ...valid,
+            portableStyleSnapshot: {
+              version: 1,
+              nodes: [{ path: [], styles: null }],
+            },
+          },
+        ]) {
+          await send({ type: "element-select", payload: malformed });
+          await send({ type: "element-marquee-select", payload: [malformed] });
+        }
+        expect(onElementSelect).not.toHaveBeenCalled();
+        expect(onElementMarqueeSelect).not.toHaveBeenCalled();
         let snapshotNodeReads = 0;
         const snapshotNode = {
           path: [],
@@ -120,12 +141,14 @@ describe("DesignCanvas live embedded-frame offset", () => {
           ...valid,
           portableStyleSnapshot: { version: 1, nodes: [snapshotNode] },
         };
+        await send({ type: "element-hover", payload: selection });
+        expect(snapshotNodeReads).toBe(0);
         await send({
           type: "element-select",
           payload: selection,
           intent: { source: "pointer" },
         });
-        expect(snapshotNodeReads).toBe(0);
+        expect(snapshotNodeReads).toBe(1);
         await send({ type: "element-marquee-select", payload: [valid] });
         expect(onElementSelect).toHaveBeenCalledWith(selection, {
           source: "pointer",

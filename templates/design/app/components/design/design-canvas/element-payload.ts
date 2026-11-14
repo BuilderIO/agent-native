@@ -1,3 +1,5 @@
+import { z } from "zod";
+
 import type { ElementInfo } from "../types";
 
 function isPlainRecord(value: unknown): value is Record<string, unknown> {
@@ -70,6 +72,67 @@ export function isElementInfoPayload(value: unknown): value is ElementInfo {
     isFiniteRect(value.boundingRect) &&
     typeof value.isFlexChild === "boolean" &&
     typeof value.isFlexContainer === "boolean"
+  );
+}
+
+const provenance = z
+  .object({
+    framework: z.enum(["html", "react", "vue", "svelte", "angular", "lwc"]),
+    sourceFile: z.string(),
+    line: z.number().finite(),
+    column: z.number().finite(),
+    component: z.string(),
+    ownerSourceFile: z.string(),
+    ownerLine: z.number().finite(),
+    ownerColumn: z.number().finite(),
+    ownerComponentName: z.string(),
+    ownerKey: z.string(),
+    method: z.enum([
+      "data-attribute",
+      "debug-source",
+      "debug-stack",
+      "debug-stack-remapped",
+      "vue-inspector",
+      "svelte-meta",
+    ]),
+    ownerMethod: z.enum([
+      "data-attribute",
+      "debug-source",
+      "debug-stack",
+      "debug-stack-remapped",
+      "vue-inspector",
+      "svelte-meta",
+    ]),
+    unavailableReason: z.enum(["not-framework", "not-react", "no-debug-info"]),
+  })
+  .partial();
+
+export function isSelectionElementInfoPayload(
+  value: unknown,
+): value is ElementInfo {
+  if (!isElementInfoPayload(value)) return false;
+  if (
+    value.provenance !== undefined &&
+    !provenance.safeParse(value.provenance).success
+  )
+    return false;
+  const snapshot = value.portableStyleSnapshot;
+  if (snapshot === undefined) return true;
+  if (
+    !isPlainRecord(snapshot) ||
+    snapshot.version !== 1 ||
+    (snapshot.rootSourceId !== undefined &&
+      typeof snapshot.rootSourceId !== "string") ||
+    !Array.isArray(snapshot.nodes)
+  )
+    return false;
+  return snapshot.nodes.every(
+    (node: unknown) =>
+      isPlainRecord(node) &&
+      (node.sourceId === undefined || typeof node.sourceId === "string") &&
+      Array.isArray(node.path) &&
+      node.path.every(Number.isFinite) &&
+      isStringMap(node.styles),
   );
 }
 

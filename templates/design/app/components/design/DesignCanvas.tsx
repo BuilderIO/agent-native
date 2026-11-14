@@ -138,6 +138,7 @@ import {
 import {
   isComputedStyleMap,
   isElementInfoPayload,
+  isSelectionElementInfoPayload,
   parseRuntimeSnapshotHtml,
 } from "./design-canvas/element-payload";
 import {
@@ -4827,7 +4828,7 @@ export function DesignCanvas({
         return;
       }
       if (e.data.type === "element-select") {
-        if (!isElementInfoPayload(e.data.payload)) return;
+        if (!isSelectionElementInfoPayload(e.data.payload)) return;
         const activePreviewFrame = iframeRef.current;
         const reported = e.data.payload as
           | { selector?: string; sourceId?: string; runtimeSourceId?: string }
@@ -4885,7 +4886,7 @@ export function DesignCanvas({
       ) {
         if (
           !Array.isArray(e.data.payload) ||
-          !e.data.payload.every(isElementInfoPayload)
+          !e.data.payload.every(isSelectionElementInfoPayload)
         )
           return;
         onElementMarqueeSelect?.(e.data.payload, e.data.intent);
@@ -5721,7 +5722,7 @@ export function DesignCanvas({
         return;
       }
       if (e.data.type === "element-dblclick-text") {
-        if (!isElementInfoPayload(e.data.payload)) return;
+        if (!isSelectionElementInfoPayload(e.data.payload)) return;
         onElementDblClickText?.(e.data.payload);
         return;
       }
@@ -5773,7 +5774,10 @@ export function DesignCanvas({
         return;
       }
       if (e.data.type === "element-contextmenu") {
-        if (e.data.payload != null && !isElementInfoPayload(e.data.payload))
+        if (
+          e.data.payload != null &&
+          !isSelectionElementInfoPayload(e.data.payload)
+        )
           return;
         const clientX = Number(e.data.clientX);
         const clientY = Number(e.data.clientY);

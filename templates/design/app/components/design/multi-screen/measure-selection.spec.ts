@@ -264,6 +264,76 @@ describe("selection measurement lifecycle", () => {
     },
   );
 
+  it("does not remeasure an auto-sized selection after an edit, but measures a new selection", async () => {
+    const container = document.createElement("div");
+    const frame = document.createElement("iframe");
+    frame.dataset.screenIframeId = "screen-a";
+    document.body.append(container, frame);
+    const post = vi
+      .spyOn(frame.contentWindow!, "postMessage")
+      .mockImplementation(() => {});
+    const initial: ElementInfo = {
+      tagName: "span",
+      sourceId: "a",
+      selector: "#a",
+      classes: [],
+      computedStyles: { width: "auto" },
+      boundingRect: { x: 0, y: 0, width: 90, height: 30 },
+      isFlexChild: false,
+      isFlexContainer: false,
+    };
+    const activeFileIdRef = { current: "screen-a" };
+    let updateSelection: (value: ElementInfo | null) => void = () => {};
+    let current: ElementInfo | null = null;
+    function Harness() {
+      const [selected, setSelected] = useState<ElementInfo | null>(initial);
+      updateSelection = setSelected;
+      current = selected;
+      useSelectionMeasurement({
+        selectedElement: selected,
+        setSelectedElement: setSelected,
+        screenId: "screen-a",
+        viewMode: "single",
+        activeFileIdRef,
+      });
+      return null;
+    }
+    const root = createRoot(container);
+    try {
+      await act(async () => root.render(createElement(Harness)));
+      const request = post.mock.calls[0]![0] as { correlationId: string };
+      await act(async () =>
+        window.dispatchEvent(
+          new MessageEvent("message", {
+            source: frame.contentWindow,
+            data: {
+              type: "agent-native:selection-measured",
+              screenId: "screen-a",
+              correlationId: request.correlationId,
+              payload: initial,
+            },
+          }),
+        ),
+      );
+      await act(async () =>
+        updateSelection({
+          ...initial,
+          computedStyles: { width: "auto", color: "green" },
+        }),
+      );
+      expect(current).toMatchObject({ computedStyles: { color: "green" } });
+      expect(post).toHaveBeenCalledTimes(1);
+      await act(async () => updateSelection(null));
+      await act(async () => updateSelection(initial));
+      expect(post).toHaveBeenCalledTimes(2);
+    } finally {
+      await act(async () => root.unmount());
+      post.mockRestore();
+      frame.remove();
+      container.remove();
+    }
+  });
+
   it("does not remeasure an unrelated selection sharing the selector", async () => {
     const container = document.createElement("div");
     document.body.append(container);
