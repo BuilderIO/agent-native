@@ -37,11 +37,12 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
   sendToAgentChat: vi.fn(),
 }));
 
-vi.mock("@/components/dashboard/SqlChart", () => ({
+vi.mock("@/components/dashboard/SqlChartQuery", () => ({
   SqlChart: (props: { panel: unknown }) => mocks.chart?.(props) ?? null,
   ChartFillHeight: ({ children }: { children: unknown }) => children,
 }));
 
+import type { SqlPanel } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import {
   CONNECT_UNDERCOUNT,
   SETUP_INCIDENT,
@@ -56,7 +57,6 @@ import { useDataNoteLayout } from "@/components/dashboard/data-note-bands";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 import { SqlChartCard } from "./SqlChartCard";
-import type { SqlPanel } from "./types";
 
 const clicksByStep: SqlPanel = {
   id: "connect-by-step",

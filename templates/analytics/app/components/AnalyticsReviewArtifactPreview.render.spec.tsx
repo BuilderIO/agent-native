@@ -65,7 +65,7 @@ vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
 
-vi.mock("@/components/dashboard/SqlChart", async () => {
+vi.mock("@/components/dashboard/SqlChartQuery", async () => {
   const { usePanelDataNotes, usePanelEvents } =
     await import("@/components/dashboard/dashboard-annotations-context");
   const { useDataNoteLayout } =
@@ -97,13 +97,12 @@ vi.mock("@/pages/analyses/LegacyFusionAnalysis", () => ({
   isLegacyFusionAnalysis: () => false,
 }));
 
+import type { SqlPanel } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import {
   CONNECT_UNDERCOUNT,
   SETUP_INCIDENT,
 } from "@shared/annotation-fixtures";
 import type { DataNote } from "@shared/data-notes";
-
-import type { SqlPanel } from "@/pages/adhoc/sql-dashboard/types";
 
 import { AnalyticsReviewArtifactPreview } from "./AnalyticsReviewArtifactPreview";
 

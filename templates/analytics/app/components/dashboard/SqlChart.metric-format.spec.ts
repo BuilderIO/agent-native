@@ -1,6 +1,5 @@
+import type { SqlPanel } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import { describe, it, expect, vi } from "vitest";
-
-import type { SqlPanel } from "@/pages/adhoc/sql-dashboard/types";
 
 import {
   detectMetricValueColumn,
@@ -13,7 +12,7 @@ import {
   splitCurrentDayTimeSeriesRows,
   sqlChartLocalDateKey,
   toSqlChartDateKey,
-} from "./SqlChart";
+} from "./SqlChartQuery";
 
 describe("formatMetricValue", () => {
   it("formats a Postgres numeric-string rate as a percent (the reported bug)", () => {

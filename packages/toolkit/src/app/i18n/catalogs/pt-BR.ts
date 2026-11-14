@@ -3992,6 +3992,65 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.voiceChatSaveError":
     "Não foi possível salvar as configurações da conversa por voz.",
   "voice.dictation.cancelTranscription": "Cancelar transcrição",
+  "common.noData": "Sem dados",
+  "common.rowsPerPage": "Linhas por página:",
+  "dashboardMode.columnResizePersonal":
+    "Arraste para redimensionar só para você. Clique duas vezes para redefinir.",
+  "dashboardMode.columnResizeShared": "Arraste para redimensionar para todos",
+  "sessions.watchReplay": "Ver replay",
+  "sqlDashboard.calloutSeverityCritical": "Crítico",
+  "sqlDashboard.calloutSeverityInfo": "Informação",
+  "sqlDashboard.calloutSeverityWarning": "Aviso",
+  "sqlDashboard.chartPointLimitFirst":
+    "Mostrando os primeiros {{shown}} de {{total}} pontos",
+  "sqlDashboard.chartPointLimitLast":
+    "Mostrando os últimos {{shown}} de {{total}} pontos",
+  "sqlDashboard.chartPointLimitNewest":
+    "Mostrando os {{shown}} pontos mais recentes de {{total}}",
+  "sqlDashboard.collapseDescription": "Recolher descrição",
+  "sqlDashboard.columnFormat": "Formato",
+  "sqlDashboard.columnFormatCurrency": "Moeda",
+  "sqlDashboard.columnFormatDate": "Data",
+  "sqlDashboard.columnFormatDuration": "Duração (segundos)",
+  "sqlDashboard.columnFormatNumber": "Número",
+  "sqlDashboard.columnFormatPercent": "Porcentagem",
+  "sqlDashboard.columnFormatText": "Texto simples",
+  "sqlDashboard.columnHide": "Ocultar coluna",
+  "sqlDashboard.columnName": "Nome da coluna",
+  "sqlDashboard.columnRename": "Renomear coluna",
+  "sqlDashboard.columnResize": "Redimensionar coluna",
+  "sqlDashboard.columnShow": 'Mostrar "{{name}}"',
+  "sqlDashboard.columnShowHidden": "Mostrar colunas ocultas",
+  "sqlDashboard.drilldownChartPoints": "Pontos do gráfico",
+  "sqlDashboard.drilldownNextPage": "Página seguinte dos pontos do gráfico",
+  "sqlDashboard.drilldownPageRange": "Exibindo {{start}}–{{end}} de {{total}}",
+  "sqlDashboard.drilldownPreviousPage": "Página anterior dos pontos do gráfico",
+  "sqlDashboard.expandDescription": "Expandir descrição",
+  "sqlDashboard.filterSeries": "Filter",
+  "sqlDashboard.funnelCompleted": "Concluíram",
+  "sqlDashboard.funnelLeft": "Saíram do app",
+  "sqlDashboard.funnelLeftHere": "Saíram do app aqui",
+  "sqlDashboard.funnelMovedOn": "Seguiram sem nenhum dos dois",
+  "sqlDashboard.funnelOptional": "Opcional",
+  "sqlDashboard.funnelShown": "{{count}} viram",
+  "sqlDashboard.funnelShownLabel": "Viram",
+  "sqlDashboard.funnelSkipped": "Pularam",
+  "sqlDashboard.hide": "Hide",
+  "sqlDashboard.metricComparisonBetter": "{{comparison}} (melhor)",
+  "sqlDashboard.metricComparisonDown":
+    "Queda de {{change}} em relação a {{previous}}, {{period}}",
+  "sqlDashboard.metricComparisonFlat":
+    "Sem alteração em relação a {{previous}}, {{period}}",
+  "sqlDashboard.metricComparisonNoChange": "Sem alteração",
+  "sqlDashboard.metricComparisonPoints": "{{value}} p.p.",
+  "sqlDashboard.metricComparisonPreviousPeriod": "o período anterior",
+  "sqlDashboard.metricComparisonUp":
+    "Alta de {{change}} em relação a {{previous}}, {{period}}",
+  "sqlDashboard.metricComparisonVs": "em relação a {{period}}",
+  "sqlDashboard.metricComparisonWorse": "{{comparison}} (pior)",
+  "sqlDashboard.multiColumnSortHelp":
+    "Clique para ordenar. Shift-clique para adicionar outra ordenação.",
+  "sqlDashboard.noXValue": "Sem valor",
 };
 
 export default messages;

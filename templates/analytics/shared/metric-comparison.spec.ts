@@ -1,7 +1,6 @@
+import { metricComparison } from "@agent-native/toolkit/dashboard/metric-comparison";
+import type { SqlPanelConfig } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import { describe, expect, it } from "vitest";
-
-import type { SqlPanelConfig } from "../app/pages/adhoc/sql-dashboard/types";
-import { metricComparison } from "./metric-comparison";
 
 function compare(
   rows: Record<string, unknown>[],

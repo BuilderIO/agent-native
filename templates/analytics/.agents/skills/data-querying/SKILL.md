@@ -207,7 +207,7 @@ and it does not re-query live data the way the embed does. If you catch
 yourself typing `label` or `data` followed by `=` in a chat reply, stop and
 build the ` ```embed ` fence above instead.
 
-**Panel JSON.** The `/chart` route decodes `panel` into a `SqlPanel` (`app/pages/adhoc/sql-dashboard/types.ts`):
+**Panel JSON.** The `/chart` route decodes `panel` into a `SqlPanel` (`packages/toolkit/src/dashboard/sql-dashboard-types.ts`):
 
 - `sql` — required, non-empty.
 - `source` — required, one of `bigquery`, `ga4`, `amplitude`, `first-party`, `demo`, `prometheus`. `program` is deliberately **not** embeddable.

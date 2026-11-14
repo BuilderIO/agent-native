@@ -1,5 +1,5 @@
-import type { SqlPanelConfig } from "../app/pages/adhoc/sql-dashboard/types";
-import { formatDuration } from "./format-duration";
+import { formatDuration } from "./format-duration.js";
+import type { SqlPanelConfig } from "./sql-dashboard-types.js";
 
 /**
  * How big the change is, without a sign (the direction carries it):

@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
 
+import { stableStringify } from "@agent-native/toolkit/dashboard/panel-render-contract";
+
 import type {
   DashboardSyncBase,
   DashboardSyncStatus,
 } from "../../../shared/dashboard-github-sync";
-import { stableStringify } from "../../../shared/panel-render-contract";
 
 const PANEL = "panel:";
 

@@ -1875,6 +1875,7 @@
       "sourceEntries": ["src/dashboard"],
       "targetRoot": "app/components/agent-native/toolkit",
       "dependencies": [
+        "@radix-ui/react-hover-card",
         "@radix-ui/react-select",
         "@radix-ui/react-slot",
         "@tabler/icons-react",
@@ -1888,6 +1889,7 @@
       "protectedImports": [
         "@agent-native/toolkit/ui/button",
         "@agent-native/toolkit/ui/card",
+        "@agent-native/toolkit/ui/hover-card",
         "@agent-native/toolkit/ui/select",
         "@agent-native/toolkit/ui/skeleton",
         "@agent-native/toolkit/ui/table",

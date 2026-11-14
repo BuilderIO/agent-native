@@ -3788,6 +3788,65 @@ const messages = {
   "settingsShell.account.voiceChatSaveError":
     "Could not save your voice chat settings.",
   "voice.dictation.cancelTranscription": "Cancel transcription",
+  "common.noData": "No data",
+  "common.rowsPerPage": "Rows per page:",
+  "dashboardMode.columnResizePersonal":
+    "Drag to resize for you only. Double-click to reset.",
+  "dashboardMode.columnResizeShared": "Drag to resize for everyone",
+  "sessions.watchReplay": "Watch replay",
+  "sqlDashboard.calloutSeverityCritical": "Critical",
+  "sqlDashboard.calloutSeverityInfo": "Info",
+  "sqlDashboard.calloutSeverityWarning": "Warning",
+  "sqlDashboard.chartPointLimitFirst":
+    "Showing the first {{shown}} of {{total}} points",
+  "sqlDashboard.chartPointLimitLast":
+    "Showing the last {{shown}} of {{total}} points",
+  "sqlDashboard.chartPointLimitNewest":
+    "Showing the newest {{shown}} of {{total}} points",
+  "sqlDashboard.collapseDescription": "Collapse description",
+  "sqlDashboard.columnFormat": "Format",
+  "sqlDashboard.columnFormatCurrency": "Currency",
+  "sqlDashboard.columnFormatDate": "Date",
+  "sqlDashboard.columnFormatDuration": "Duration (seconds)",
+  "sqlDashboard.columnFormatNumber": "Number",
+  "sqlDashboard.columnFormatPercent": "Percent",
+  "sqlDashboard.columnFormatText": "Plain text",
+  "sqlDashboard.columnHide": "Hide column",
+  "sqlDashboard.columnName": "Column name",
+  "sqlDashboard.columnRename": "Rename column",
+  "sqlDashboard.columnResize": "Resize column",
+  "sqlDashboard.columnShow": 'Show "{{name}}"',
+  "sqlDashboard.columnShowHidden": "Show hidden columns",
+  "sqlDashboard.drilldownChartPoints": "Chart points",
+  "sqlDashboard.drilldownNextPage": "Next page of chart points",
+  "sqlDashboard.drilldownPageRange": "Showing {{start}}–{{end}} of {{total}}",
+  "sqlDashboard.drilldownPreviousPage": "Previous page of chart points",
+  "sqlDashboard.expandDescription": "Expand description",
+  "sqlDashboard.filterSeries": "Filter",
+  "sqlDashboard.funnelCompleted": "Completed",
+  "sqlDashboard.funnelLeft": "Left the app",
+  "sqlDashboard.funnelLeftHere": "Left the app here",
+  "sqlDashboard.funnelMovedOn": "Moved on without either",
+  "sqlDashboard.funnelOptional": "Optional",
+  "sqlDashboard.funnelShown": "{{count}} shown",
+  "sqlDashboard.funnelShownLabel": "Shown",
+  "sqlDashboard.funnelSkipped": "Skipped",
+  "sqlDashboard.hide": "Hide",
+  "sqlDashboard.metricComparisonBetter": "{{comparison}} (better)",
+  "sqlDashboard.metricComparisonDown":
+    "Down {{change}} from {{previous}}, {{period}}",
+  "sqlDashboard.metricComparisonFlat":
+    "No change from {{previous}}, {{period}}",
+  "sqlDashboard.metricComparisonNoChange": "No change",
+  "sqlDashboard.metricComparisonPoints": "{{value}} pts",
+  "sqlDashboard.metricComparisonPreviousPeriod": "the period before",
+  "sqlDashboard.metricComparisonUp":
+    "Up {{change}} from {{previous}}, {{period}}",
+  "sqlDashboard.metricComparisonVs": "vs {{period}}",
+  "sqlDashboard.metricComparisonWorse": "{{comparison}} (worse)",
+  "sqlDashboard.multiColumnSortHelp":
+    "Click to sort. Shift-click to add another sort.",
+  "sqlDashboard.noXValue": "No value",
 } as const;
 
 export default messages;

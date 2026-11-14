@@ -42,7 +42,7 @@ PNG/SVG render) — see "How This Differs From `generate-chart`" below.
    reads the `panel` search param and decodes it with `decodePanel`
    (`chart.tsx:31-73`), then renders `<SqlChart panel={result} />`
    (`chart.tsx:115`), the same live chart component dashboards use
-   (`templates/analytics/app/components/dashboard/SqlChart.tsx:1111`).
+   (`templates/analytics/app/components/dashboard/SqlChartQuery.tsx`).
 
 So the full pattern the agent must emit is:
 
@@ -57,7 +57,7 @@ height: 320
 | Field       | Required | Type / allowed values                                                                     | Notes                                                                                                                                                                                                             |
 | ----------- | -------- | ----------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `sql`       | yes      | non-empty string                                                                          | The query to run.                                                                                                                                                                                                 |
-| `source`    | yes      | `"bigquery"` \| `"ga4"` \| `"amplitude"` \| `"first-party"` \| `"demo"` \| `"prometheus"` | `chart.tsx:22-29`. This is every `DataSourceType` (`app/pages/adhoc/sql-dashboard/types.ts:1-8`) **except `"program"`** — data-program-backed sources cannot be embedded this way.                                |
+| `source`    | yes      | `"bigquery"` \| `"ga4"` \| `"amplitude"` \| `"first-party"` \| `"demo"` \| `"prometheus"` | `chart.tsx:22-29`. This is every `DataSourceType` (`packages/toolkit/src/dashboard/sql-dashboard-types.ts`) **except `"program"`** — data-program-backed sources cannot be embedded this way.                     |
 | `chartType` | yes      | `"line"` \| `"area"` \| `"bar"` \| `"metric"` \| `"table"` \| `"pie"`                     | `chart.tsx:12-19`. This is every `ChartType` (`types.ts:10-20`) **except `"section"`, `"heatmap"`, `"callout"`, `"extension"`** — those are dashboard-layout-only types and are not valid for a standalone embed. |
 | `id`        | no       | string                                                                                    | Defaults to `"embed"`.                                                                                                                                                                                            |
 | `title`     | no       | string                                                                                    | Defaults to `""`. Shown above the chart in `ChartRoute` (`chart.tsx:109-113`) — separate from the outer `embed` fence's own `title:` line, which only sets the iframe's `title` attribute.                        |
@@ -71,7 +71,7 @@ Any other `source`/`chartType` value, or a missing/blank `sql`, makes
 ### Useful `config` keys (from `SqlPanelConfig`, `types.ts`)
 
 - `xKey`, `yKey` / `yKeys` — column names for the x-axis and series. If
-  omitted, `SqlChart`'s `detectKeys` (`SqlChart.tsx:1013-1060`) auto-picks a
+  omitted, the chart's `detectKeys` (`packages/toolkit/src/dashboard/panel-render-contract.ts`) auto-picks a
   date/string-like column for `xKey` and all remaining numeric columns for
   `yKeys`, so these are usually only needed to override the guess. Prefer
   writing SQL that already returns unambiguous column names over relying on

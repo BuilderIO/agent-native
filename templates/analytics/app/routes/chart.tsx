@@ -1,10 +1,10 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { normalizeDocumentTitle } from "@agent-native/core/shared";
+import type { SqlPanel } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import { useEffect, useMemo } from "react";
 import { useSearchParams } from "react-router";
 
-import { SqlChart } from "@/components/dashboard/SqlChart";
-import type { SqlPanel } from "@/pages/adhoc/sql-dashboard/types";
+import { SqlChart } from "@/components/dashboard/SqlChartQuery";
 
 export function meta() {
   return [{ title: "Chart" }];

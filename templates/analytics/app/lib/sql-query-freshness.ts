@@ -1,4 +1,4 @@
-import type { DataSourceType } from "@/pages/adhoc/sql-dashboard/types";
+import type { DataSourceType } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 
 export type SqlQueryCacheStatus =
   | "live"

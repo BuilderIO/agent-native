@@ -5,6 +5,7 @@ import {
   getRequestOrgId,
   getRequestUserEmail,
 } from "@agent-native/core/server";
+import { clipHead } from "@agent-native/toolkit/dashboard/panel-render-contract";
 import { z } from "zod";
 
 import { isSafeDashboardId } from "../server/lib/dashboard-id";
@@ -30,7 +31,6 @@ import {
   totalCost,
   type PanelCostEstimate,
 } from "../server/lib/query-cost-estimate";
-import { clipHead } from "../shared/panel-render-contract";
 import { TRAFFIC_ENVIRONMENTS } from "../shared/traffic-environment";
 
 const MAX_PANELS = 60;

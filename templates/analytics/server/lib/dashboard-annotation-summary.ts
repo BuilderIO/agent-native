@@ -1,12 +1,14 @@
+import { panelEventInstant } from "@agent-native/toolkit/dashboard/panel-events";
+import type {
+  DashboardAnnotations,
+  SqlPanel,
+} from "@agent-native/toolkit/dashboard/sql-dashboard-types";
+
 import { resolveDefaultFilterVars } from "../../app/pages/adhoc/sql-dashboard/filter-vars.js";
 import {
   panelTimeRange,
   type PanelTimeRange,
 } from "../../app/pages/adhoc/sql-dashboard/interpolate.js";
-import type {
-  DashboardAnnotations,
-  SqlPanel,
-} from "../../app/pages/adhoc/sql-dashboard/types";
 import {
   dataNoteAppliesTo,
   dataNoteInRange,
@@ -20,7 +22,6 @@ import {
   type KeyDate,
   type KeyDateSet,
 } from "../../shared/key-dates.js";
-import { panelEventInstant } from "../../shared/panel-events.js";
 
 /** Latest dates listed per set; `dateCount` says how many there are, and `list-key-dates` has them all. */
 export const SUMMARY_DATES_PER_SET = 5;

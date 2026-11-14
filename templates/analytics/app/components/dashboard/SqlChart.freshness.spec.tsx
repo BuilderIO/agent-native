@@ -1,11 +1,11 @@
 // @vitest-environment happy-dom
 
+import type { DataSourceType } from "@agent-native/toolkit/dashboard/sql-dashboard-types";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { STALE_RESULT_AGE_MS } from "@/lib/sql-query-freshness";
-import type { DataSourceType } from "@/pages/adhoc/sql-dashboard/types";
 
 type Freshness = {
   fetchedAt?: string;
@@ -87,7 +87,7 @@ vi.mock("@agent-native/toolkit/app/extensions", () => ({
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { SqlChartCard } from "@/pages/adhoc/sql-dashboard/SqlChartCard";
 
-import { SqlChart } from "./SqlChart";
+import { SqlChart } from "./SqlChartQuery";
 
 const FETCHED_AT = "2026-10-14T12:00:00.000Z";
 const fetchedMs = Date.parse(FETCHED_AT);

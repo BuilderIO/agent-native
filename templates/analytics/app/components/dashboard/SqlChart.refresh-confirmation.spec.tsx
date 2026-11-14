@@ -50,7 +50,7 @@ vi.mock("@agent-native/toolkit/app/extensions", () => ({
   isExtensionApiPath: () => false,
 }));
 
-import { SqlChart } from "./SqlChart";
+import { SqlChart } from "./SqlChartQuery";
 
 describe("SqlChart manual refresh confirmation", () => {
   let container: HTMLDivElement;

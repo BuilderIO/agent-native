@@ -3703,6 +3703,66 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.voiceChatSaveError":
     "आपकी वॉइस चैट सेटिंग सेव नहीं हो सकीं।",
   "voice.dictation.cancelTranscription": "ट्रांसक्रिप्शन रद्द करें",
+  "common.noData": "कोई डेटा नहीं",
+  "common.rowsPerPage": "प्रति पेज पंक्तियां:",
+  "dashboardMode.columnResizePersonal":
+    "सिर्फ़ अपने लिए आकार बदलने को खींचें। रीसेट करने के लिए डबल-क्लिक करें।",
+  "dashboardMode.columnResizeShared": "सभी के लिए आकार बदलने को खींचें",
+  "sessions.watchReplay": "रीप्ले देखें",
+  "sqlDashboard.calloutSeverityCritical": "गंभीर",
+  "sqlDashboard.calloutSeverityInfo": "जानकारी",
+  "sqlDashboard.calloutSeverityWarning": "चेतावनी",
+  "sqlDashboard.chartPointLimitFirst":
+    "{{total}} में से पहले {{shown}} बिंदु दिखाए जा रहे हैं",
+  "sqlDashboard.chartPointLimitLast":
+    "{{total}} में से अंतिम {{shown}} बिंदु दिखाए जा रहे हैं",
+  "sqlDashboard.chartPointLimitNewest":
+    "{{total}} में से नवीनतम {{shown}} बिंदु दिखाए जा रहे हैं",
+  "sqlDashboard.collapseDescription": "विवरण संक्षिप्त करें",
+  "sqlDashboard.columnFormat": "प्रारूप",
+  "sqlDashboard.columnFormatCurrency": "मुद्रा",
+  "sqlDashboard.columnFormatDate": "तारीख",
+  "sqlDashboard.columnFormatDuration": "अवधि (सेकंड)",
+  "sqlDashboard.columnFormatNumber": "संख्या",
+  "sqlDashboard.columnFormatPercent": "प्रतिशत",
+  "sqlDashboard.columnFormatText": "सादा पाठ",
+  "sqlDashboard.columnHide": "कॉलम छिपाएँ",
+  "sqlDashboard.columnName": "कॉलम का नाम",
+  "sqlDashboard.columnRename": "कॉलम का नाम बदलें",
+  "sqlDashboard.columnResize": "कॉलम का आकार बदलें",
+  "sqlDashboard.columnShow": '"{{name}}" दिखाएँ',
+  "sqlDashboard.columnShowHidden": "छिपे हुए कॉलम दिखाएँ",
+  "sqlDashboard.drilldownChartPoints": "चार्ट के बिंदु",
+  "sqlDashboard.drilldownNextPage": "चार्ट बिंदुओं का अगला पृष्ठ",
+  "sqlDashboard.drilldownPageRange":
+    "कुल {{total}} में से {{start}}–{{end}} दिखाए जा रहे हैं",
+  "sqlDashboard.drilldownPreviousPage": "चार्ट बिंदुओं का पिछला पृष्ठ",
+  "sqlDashboard.expandDescription": "विवरण का विस्तार करें",
+  "sqlDashboard.filterSeries": "Filter",
+  "sqlDashboard.funnelCompleted": "पूरा किया",
+  "sqlDashboard.funnelLeft": "ऐप छोड़ दिया",
+  "sqlDashboard.funnelLeftHere": "यहाँ ऐप छोड़ दिया",
+  "sqlDashboard.funnelMovedOn": "दोनों के बिना आगे बढ़े",
+  "sqlDashboard.funnelOptional": "वैकल्पिक",
+  "sqlDashboard.funnelShown": "{{count}} को दिखाया गया",
+  "sqlDashboard.funnelShownLabel": "दिखाया गया",
+  "sqlDashboard.funnelSkipped": "छोड़ा",
+  "sqlDashboard.hide": "Hide",
+  "sqlDashboard.metricComparisonBetter": "{{comparison}} (बेहतर)",
+  "sqlDashboard.metricComparisonDown":
+    "{{period}} के {{previous}} से {{change}} नीचे",
+  "sqlDashboard.metricComparisonFlat":
+    "{{period}} के {{previous}} से कोई बदलाव नहीं",
+  "sqlDashboard.metricComparisonNoChange": "कोई बदलाव नहीं",
+  "sqlDashboard.metricComparisonPoints": "{{value}} अंक",
+  "sqlDashboard.metricComparisonPreviousPeriod": "पिछली अवधि",
+  "sqlDashboard.metricComparisonUp":
+    "{{period}} के {{previous}} से {{change}} ऊपर",
+  "sqlDashboard.metricComparisonVs": "{{period}} की तुलना में",
+  "sqlDashboard.metricComparisonWorse": "{{comparison}} (खराब)",
+  "sqlDashboard.multiColumnSortHelp":
+    "क्रमित करने के लिए क्लिक करें। एक और क्रम जोड़ने के लिए Shift-क्लिक करें।",
+  "sqlDashboard.noXValue": "कोई मान नहीं",
 };
 
 export default messages;
