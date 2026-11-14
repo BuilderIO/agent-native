@@ -221,6 +221,85 @@ pub fn should_paste(state: Option<bool>) -> bool {
     state.unwrap_or(true)
 }
 
+/// Result of one Accessibility attribute read, keeping apart "the app said
+/// there is no such value" and "the app did not answer".
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AxRead<T> {
+    Value(T),
+    /// The app answered: the attribute is unsupported, has no value, or has an
+    /// unexpected type.
+    Absent,
+    /// The app did not answer (timed out or failed to reply).
+    Unanswered,
+}
+
+impl<T> AxRead<T> {
+    fn is_present(&self) -> Option<bool> {
+        match self {
+            AxRead::Value(_) => Some(true),
+            AxRead::Absent => Some(false),
+            AxRead::Unanswered => None,
+        }
+    }
+}
+
+/// AX error codes that mean the app did not answer: kAXErrorFailure (-25200),
+/// kAXErrorCannotComplete (-25204, the messaging timeout) and
+/// kAXErrorNotImplemented (-25208, an app that does not serve Accessibility).
+/// Everything else, such as kAXErrorAttributeUnsupported (-25205) or
+/// kAXErrorNoValue (-25212), is an answer.
+pub fn ax_error_is_unanswered(error: i32) -> bool {
+    matches!(error, -25200 | -25204 | -25208)
+}
+
+/// Three-valued AND: `Some(false)` wins, then `None`, then `Some(true)`.
+fn all_known(parts: &[Option<bool>]) -> Option<bool> {
+    if parts.iter().any(|part| *part == Some(false)) {
+        Some(false)
+    } else if parts.iter().any(Option::is_none) {
+        None
+    } else {
+        Some(true)
+    }
+}
+
+/// Decide whether the focused element takes text from its attribute reads.
+/// `None` means a read that mattered went unanswered, so the caller should try
+/// the paste; an answered "unsupported" or "no value" never leads to `None`.
+pub fn classify_focused_element(
+    role: &AxRead<String>,
+    editable: &AxRead<bool>,
+    selected_range: &AxRead<()>,
+    value: &AxRead<()>,
+) -> Option<bool> {
+    let role = match role {
+        AxRead::Value(role) => role.as_str(),
+        AxRead::Absent => return Some(false),
+        AxRead::Unanswered => return None,
+    };
+    if matches!(
+        role,
+        "AXTextField" | "AXTextArea" | "AXSearchField" | "AXComboBox"
+    ) {
+        return Some(true);
+    }
+    if role != "AXWebArea" {
+        return Some(false);
+    }
+    let is_editable = match editable {
+        AxRead::Value(editable) => Some(*editable),
+        AxRead::Absent => Some(false),
+        AxRead::Unanswered => None,
+    };
+    // Three-valued OR of "has a selection range" and "has a value".
+    let has_content = match (selected_range.is_present(), value.is_present()) {
+        (Some(true), _) | (_, Some(true)) => Some(true),
+        (Some(false), Some(false)) => Some(false),
+        _ => None,
+    };
+    all_known(&[is_editable, has_content])
+}
+
 pub fn focused_text_field_available() -> bool {
     should_paste(focused_text_field_state())
 }
@@ -252,6 +331,138 @@ pub async fn accessibility_request_permission() -> Result<bool, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn role(role: &str) -> AxRead<String> {
+        AxRead::Value(role.to_string())
+    }
+
+    #[test]
+    fn unsupported_role_is_not_a_text_field() {
+        // The app answered that the element has no role: no fallback paste.
+        let state = classify_focused_element(
+            &AxRead::Absent,
+            &AxRead::Absent,
+            &AxRead::Absent,
+            &AxRead::Absent,
+        );
+        assert_eq!(state, Some(false));
+        assert!(!should_paste(state));
+    }
+
+    #[test]
+    fn unanswered_role_falls_back_to_paste() {
+        let state = classify_focused_element(
+            &AxRead::Unanswered,
+            &AxRead::Absent,
+            &AxRead::Absent,
+            &AxRead::Absent,
+        );
+        assert_eq!(state, None);
+        assert!(should_paste(state));
+    }
+
+    #[test]
+    fn text_roles_take_text_and_other_roles_do_not() {
+        for text_role in ["AXTextField", "AXTextArea", "AXSearchField", "AXComboBox"] {
+            assert_eq!(
+                classify_focused_element(
+                    &role(text_role),
+                    &AxRead::Unanswered,
+                    &AxRead::Unanswered,
+                    &AxRead::Unanswered,
+                ),
+                Some(true)
+            );
+        }
+        assert_eq!(
+            classify_focused_element(
+                &role("AXButton"),
+                &AxRead::Unanswered,
+                &AxRead::Unanswered,
+                &AxRead::Unanswered,
+            ),
+            Some(false)
+        );
+    }
+
+    #[test]
+    fn timed_out_web_area_read_does_not_block_paste_into_editable_field() {
+        // AXEditable timed out, but the field has a selection range.
+        let state = classify_focused_element(
+            &role("AXWebArea"),
+            &AxRead::Unanswered,
+            &AxRead::Value(()),
+            &AxRead::Absent,
+        );
+        assert_eq!(state, None);
+        assert!(should_paste(state));
+
+        // Editable, the selection-range read timed out, no value.
+        let state = classify_focused_element(
+            &role("AXWebArea"),
+            &AxRead::Value(true),
+            &AxRead::Unanswered,
+            &AxRead::Absent,
+        );
+        assert_eq!(state, None);
+        assert!(should_paste(state));
+
+        // A timeout that does not matter: the other read already says yes.
+        assert_eq!(
+            classify_focused_element(
+                &role("AXWebArea"),
+                &AxRead::Value(true),
+                &AxRead::Unanswered,
+                &AxRead::Value(()),
+            ),
+            Some(true)
+        );
+    }
+
+    #[test]
+    fn answered_web_area_reads_decide_without_fallback() {
+        let editable_with_range = classify_focused_element(
+            &role("AXWebArea"),
+            &AxRead::Value(true),
+            &AxRead::Value(()),
+            &AxRead::Absent,
+        );
+        assert_eq!(editable_with_range, Some(true));
+
+        let not_editable = classify_focused_element(
+            &role("AXWebArea"),
+            &AxRead::Value(false),
+            &AxRead::Unanswered,
+            &AxRead::Unanswered,
+        );
+        assert_eq!(not_editable, Some(false));
+
+        let editable_unsupported = classify_focused_element(
+            &role("AXWebArea"),
+            &AxRead::Absent,
+            &AxRead::Value(()),
+            &AxRead::Value(()),
+        );
+        assert_eq!(editable_unsupported, Some(false));
+
+        let editable_without_content = classify_focused_element(
+            &role("AXWebArea"),
+            &AxRead::Value(true),
+            &AxRead::Absent,
+            &AxRead::Absent,
+        );
+        assert_eq!(editable_without_content, Some(false));
+    }
+
+    #[test]
+    fn ax_error_kinds() {
+        assert!(ax_error_is_unanswered(-25204)); // kAXErrorCannotComplete
+        assert!(ax_error_is_unanswered(-25200)); // kAXErrorFailure
+        assert!(ax_error_is_unanswered(-25208)); // kAXErrorNotImplemented
+        assert!(!ax_error_is_unanswered(-25205)); // kAXErrorAttributeUnsupported
+        assert!(!ax_error_is_unanswered(-25212)); // kAXErrorNoValue
+        assert!(!ax_error_is_unanswered(0));
+    }
 
     #[test]
     fn pastes_unless_accessibility_says_no_text_field() {
@@ -299,9 +510,9 @@ mod tests {
 #[cfg(target_os = "macos")]
 pub(crate) mod macos {
     use super::{
-        role_is_secure, safe_ax_text, safe_ax_url, AccessibilityFingerprint,
-        AccessibilitySemanticNode, ActiveWindowContext, MAX_AX_DEPTH, MAX_AX_LABELS, MAX_AX_NODES,
-        MAX_AX_TOTAL_BYTES,
+        ax_error_is_unanswered, classify_focused_element, role_is_secure, safe_ax_text,
+        safe_ax_url, AccessibilityFingerprint, AccessibilitySemanticNode, ActiveWindowContext,
+        AxRead, MAX_AX_DEPTH, MAX_AX_LABELS, MAX_AX_NODES, MAX_AX_TOTAL_BYTES,
     };
     use core_foundation::array::CFArray;
     use core_foundation::base::{CFType, TCFType};
@@ -505,10 +716,72 @@ pub(crate) mod macos {
         }
     }
 
-    /// AX errors that mean "the app did not answer", not "nothing is focused".
-    fn ax_error_is_unanswered(error: AXError) -> bool {
-        // kAXErrorCannotComplete, kAXErrorFailure, kAXErrorNotImplemented.
-        matches!(error, -25204 | -25200 | -25208)
+    /// Copy one attribute, keeping apart "no such value" and "no answer".
+    /// On `Value`, the caller owns the returned reference and must release it.
+    unsafe fn copy_ax_attribute_read(
+        element: AXUIElementRef,
+        attribute: &str,
+    ) -> AxRead<CFTypeRef> {
+        let attribute_name = attribute;
+        let attribute = cfstr(attribute);
+        if attribute.is_null() {
+            return AxRead::Absent;
+        }
+        let mut value = ptr::null();
+        let error = AXUIElementCopyAttributeValue(element, attribute, &mut value);
+        CFRelease(attribute as CFTypeRef);
+        if error == AX_ERROR_SUCCESS && !value.is_null() {
+            return AxRead::Value(value);
+        }
+        if !value.is_null() {
+            CFRelease(value);
+        }
+        if ax_error_is_unanswered(error) {
+            eprintln!("[accessibility] {attribute_name} read went unanswered (AXError {error})");
+            AxRead::Unanswered
+        } else {
+            AxRead::Absent
+        }
+    }
+
+    unsafe fn ax_string_read(element: AXUIElementRef, attribute: &str) -> AxRead<String> {
+        match copy_ax_attribute_read(element, attribute) {
+            AxRead::Value(raw) => {
+                let value = if CFGetTypeID(raw) == CFStringGetTypeID() {
+                    cfstring_to_string(raw as CFStringRef)
+                } else {
+                    None
+                };
+                CFRelease(raw);
+                value.map_or(AxRead::Absent, AxRead::Value)
+            }
+            AxRead::Absent => AxRead::Absent,
+            AxRead::Unanswered => AxRead::Unanswered,
+        }
+    }
+
+    unsafe fn ax_bool_read(element: AXUIElementRef, attribute: &str) -> AxRead<bool> {
+        match copy_ax_attribute_read(element, attribute) {
+            AxRead::Value(raw) => {
+                let value = (CFGetTypeID(raw) == CFBooleanGetTypeID())
+                    .then_some(raw == kCFBooleanTrue as CFTypeRef);
+                CFRelease(raw);
+                value.map_or(AxRead::Absent, AxRead::Value)
+            }
+            AxRead::Absent => AxRead::Absent,
+            AxRead::Unanswered => AxRead::Unanswered,
+        }
+    }
+
+    unsafe fn ax_presence_read(element: AXUIElementRef, attribute: &str) -> AxRead<()> {
+        match copy_ax_attribute_read(element, attribute) {
+            AxRead::Value(raw) => {
+                CFRelease(raw);
+                AxRead::Value(())
+            }
+            AxRead::Absent => AxRead::Absent,
+            AxRead::Unanswered => AxRead::Unanswered,
+        }
     }
 
     pub fn focused_text_field_state_impl() -> Option<bool> {
@@ -521,60 +794,44 @@ pub(crate) mod macos {
             if system.is_null() {
                 return None;
             }
-            let attribute = cfstr("AXFocusedUIElement");
-            if attribute.is_null() {
-                CFRelease(system as CFTypeRef);
-                return None;
-            }
-            let mut value = ptr::null();
-            let error = AXUIElementCopyAttributeValue(system, attribute, &mut value);
-            CFRelease(attribute as CFTypeRef);
+            let focused = copy_ax_attribute_read(system, "AXFocusedUIElement");
             CFRelease(system as CFTypeRef);
-            if error != AX_ERROR_SUCCESS || value.is_null() {
-                eprintln!("[accessibility] focused element lookup failed (AXError {error})");
-                return if ax_error_is_unanswered(error) {
-                    None
-                } else {
-                    Some(false)
-                };
-            }
-            let focused = value as AXUIElementRef;
+            let focused = match focused {
+                AxRead::Value(focused) => focused as AXUIElementRef,
+                AxRead::Absent => return Some(false),
+                AxRead::Unanswered => return None,
+            };
 
-            let role = ax_string_attribute(focused, "AXRole");
-            if role.is_none() {
-                // The element exists but did not say what it is: an app too busy
-                // to answer, not proof that there is no text field.
-                CFRelease(focused as CFTypeRef);
-                eprintln!("[accessibility] focused element has no readable role");
-                return None;
-            }
-            let has_text_role = matches!(
-                role.as_deref(),
-                Some("AXTextField")
-                    | Some("AXTextArea")
-                    | Some("AXSearchField")
-                    | Some("AXComboBox")
-            );
-            let is_web_area = role.as_deref() == Some("AXWebArea");
-            let is_editable = ax_bool_attribute(focused, "AXEditable").unwrap_or(false);
-            let has_selected_range = copy_ax_element_attribute(focused, "AXSelectedTextRange")
-                .map(|value| {
-                    CFRelease(value as CFTypeRef);
-                    true
-                })
-                .unwrap_or(false);
-            let has_value = ax_string_attribute(focused, "AXValue").is_some();
+            let role = ax_string_read(focused, "AXRole");
+            let is_web_area = role == AxRead::Value("AXWebArea".to_string());
+            // Only a web area needs the extra reads; skip them otherwise so a
+            // slow app is not asked three more questions for nothing.
+            let (editable, selected_range, value) = if is_web_area {
+                (
+                    ax_bool_read(focused, "AXEditable"),
+                    ax_presence_read(focused, "AXSelectedTextRange"),
+                    match ax_string_read(focused, "AXValue") {
+                        AxRead::Value(_) => AxRead::Value(()),
+                        AxRead::Absent => AxRead::Absent,
+                        AxRead::Unanswered => AxRead::Unanswered,
+                    },
+                )
+            } else {
+                (AxRead::Absent, AxRead::Absent, AxRead::Absent)
+            };
             CFRelease(focused as CFTypeRef);
 
-            let takes_text =
-                has_text_role || (is_web_area && is_editable && (has_selected_range || has_value));
-            if !takes_text {
-                eprintln!(
-                    "[accessibility] focused element is not a text field (role {})",
-                    role.as_deref().unwrap_or("-")
-                );
+            let state = classify_focused_element(&role, &editable, &selected_range, &value);
+            match state {
+                Some(true) => {}
+                Some(false) => eprintln!(
+                    "[accessibility] focused element is not a text field (role {role:?})"
+                ),
+                None => eprintln!(
+                    "[accessibility] text field check unanswered (role {role:?}, editable {editable:?}, range {selected_range:?}, value {value:?})"
+                ),
             }
-            Some(takes_text)
+            state
         }
     }
 
@@ -648,23 +905,6 @@ pub(crate) mod macos {
         } else {
             None
         };
-        CFRelease(raw_value);
-        value
-    }
-
-    unsafe fn ax_bool_attribute(element: AXUIElementRef, attribute: &str) -> Option<bool> {
-        let attribute = cfstr(attribute);
-        if attribute.is_null() {
-            return None;
-        }
-        let mut raw_value = ptr::null();
-        let error = AXUIElementCopyAttributeValue(element, attribute, &mut raw_value);
-        CFRelease(attribute as CFTypeRef);
-        if error != AX_ERROR_SUCCESS || raw_value.is_null() {
-            return None;
-        }
-        let value =
-            (CFGetTypeID(raw_value) == CFBooleanGetTypeID()).then_some(raw_value == kCFBooleanTrue);
         CFRelease(raw_value);
         value
     }
