@@ -715,6 +715,58 @@ export const slackInstallations = table("slack_installations", {
   updatedAt: text("updated_at").notNull().default(now()),
 });
 
+// A Clips user's own Slack account, connected for
+// huddle participants. The user token is in app_secrets under tokenSecretRef.
+export const slackUserConnections = table(
+  "slack_user_connections",
+  {
+    id: text("id").primaryKey(),
+    ownerEmail: text("owner_email").notNull(),
+    orgId: text("org_id"),
+    teamId: text("team_id").notNull(),
+    teamName: text("team_name"),
+    slackUserId: text("slack_user_id").notNull(),
+    tokenSecretRef: text("token_secret_ref").notNull(),
+    scope: text("scope"),
+    status: text("status", {
+      enum: ["connected", "disconnected", "error"],
+    })
+      .notNull()
+      .default("connected"),
+    lastError: text("last_error"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (connection) => ({
+    slackUserConnectionTeamUserUnique: uniqueIndex(
+      "slack_user_connections_team_user_unique_idx",
+    ).on(connection.teamId, connection.slackUserId),
+  }),
+);
+
+// A Slack huddle as its huddle_thread message
+// reports it. dateStart/dateEnd are Unix seconds, as Slack sends them.
+export const slackHuddles = table(
+  "slack_huddles",
+  {
+    id: text("id").primaryKey(),
+    teamId: text("team_id").notNull(),
+    channelId: text("channel_id").notNull(),
+    messageTs: text("message_ts").notNull(),
+    dateStart: bigint("date_start", { mode: "number" }).notNull(),
+    dateEnd: bigint("date_end", { mode: "number" }),
+    startedBy: text("started_by"),
+    participantIdsJson: text("participant_ids_json").notNull().default("[]"),
+    createdAt: text("created_at").notNull().default(now()),
+    updatedAt: text("updated_at").notNull().default(now()),
+  },
+  (huddle) => ({
+    slackHuddleMessageUnique: uniqueIndex(
+      "slack_huddles_message_unique_idx",
+    ).on(huddle.teamId, huddle.channelId, huddle.messageTs),
+  }),
+);
+
 export const dictations = table("clips_dictations", {
   id: text("id").primaryKey(),
   fullText: text("full_text").notNull().default(""),

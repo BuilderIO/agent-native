@@ -7,6 +7,8 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { normalizeOwnerEmail } from "../server/lib/recordings.js";
+import { slackHuddleDeps } from "../server/lib/slack-huddle-oauth.js";
+import { fillSlackHuddleParticipantsForMeeting } from "../server/lib/slack-huddles-store.js";
 
 type ShareableResourceType = "meeting" | "recording";
 
@@ -146,6 +148,21 @@ export default defineAction({
         recordingId: meeting.recordingId,
         meetingId: args.meetingId,
         requestedAt: nowIso,
+      });
+    }
+
+    // A recorded Slack huddle gets its participants
+    // from the huddle Slack reported, when the owner connected Slack for
+    // huddles. A huddle that ends after this stop fills it from its event.
+    if (meeting.source === "adhoc" && meeting.platform === "slack") {
+      await fillSlackHuddleParticipantsForMeeting(
+        slackHuddleDeps(),
+        args.meetingId,
+      ).catch((err) => {
+        console.warn(
+          "[clips] Slack huddle participants failed:",
+          err instanceof Error ? err.message : String(err),
+        );
       });
     }
 

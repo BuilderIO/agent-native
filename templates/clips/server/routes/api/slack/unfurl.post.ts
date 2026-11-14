@@ -5,6 +5,9 @@ import {
   setResponseStatus,
 } from "h3";
 
+import { slackHuddleDeps } from "../../../lib/slack-huddle-oauth.js";
+import { isSlackMessageEventPayload } from "../../../lib/slack-huddles.js";
+import { handleSlackHuddleEvent } from "../../../lib/slack-huddles-store.js";
 import { readSlackBotTokenForPayload } from "../../../lib/slack-oauth.js";
 import {
   handleSlackLinkSharedPayload,
@@ -41,6 +44,18 @@ export default defineEventHandler(async (event) => {
   const payload = parseSlackJsonPayload(rawBody);
   const challenge = slackUrlVerificationChallenge(payload);
   if (challenge) return challenge;
+
+  // User message events from "Connect Slack for
+  // huddles" arrive here too. Huddle messages fill meeting participants;
+  // every other message is acknowledged and dropped, never unfurled.
+  if (isSlackMessageEventPayload(payload)) {
+    try {
+      await handleSlackHuddleEvent(slackHuddleDeps(), payload);
+    } catch (err) {
+      console.error("[clips-slack] Failed to read Slack huddle:", err);
+    }
+    return { ok: true };
+  }
 
   const slackPayload = payload as SlackLinkSharedPayload;
   let token = await readSlackBotTokenForPayload(slackPayload);
