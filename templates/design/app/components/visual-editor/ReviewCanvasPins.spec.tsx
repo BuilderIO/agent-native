@@ -5380,6 +5380,35 @@ describe("ReviewCanvasPins persisted thread popover", () => {
             ),
         );
 
+      it("keeps no comment draft of a reprompt whose send failed", async () => {
+        mocks.sendToAgent.mockResolvedValueOnce({
+          delivered: false,
+          reason: "The agent is busy",
+        });
+        await renderPins({
+          ...signedIn,
+          active: true,
+          sourceType: "inline",
+          sourceVersionHash: "hash-1",
+          repromptDraftRequest: {
+            nonce: 1,
+            fileId: "screen-1",
+            target: { nodeId: "src:1" },
+            point: { xPct: 50, yPct: 50 },
+            instruction: "Make it blue",
+            submit: true,
+          },
+        });
+        await act(async () => {});
+        expect(mocks.sendToAgent).toHaveBeenCalled();
+        expect(
+          document.querySelector<HTMLTextAreaElement>(
+            "[data-review-test-textarea]",
+          )?.value,
+        ).toBe("Make it blue");
+        expect(storedDraftTexts()).toEqual({});
+      });
+
       it("keeps a new comment's draft on its own screen when the screen changes as you type", async () => {
         await renderPins({ ...signedIn, active: true });
         await placePin();

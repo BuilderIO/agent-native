@@ -2250,6 +2250,9 @@ export function ReviewCanvasPins({
   useEffect(() => {
     if (draftMode !== "comment" || !draftPin) return;
     if (draftPin === leftDraftPinRef.current) return;
+    // A reprompt's pin holds an instruction for the agent, not a comment, even
+    // once a failed send leaves it open in comment mode, so it isn't kept.
+    if (draftPin.metadata.mode === "reprompt") return;
     const store = newDraftRef.current;
     if (!draftPin.draft.trim() && !draftAttachments.length) {
       store.clear();
