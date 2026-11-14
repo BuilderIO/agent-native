@@ -2545,6 +2545,40 @@ describe("GitHub folder source", () => {
     expect(await boundImages(chart!.documentId)).toEqual([github.mediaId(1)]);
   });
 
+  it("lets readers of a new page load an image an earlier sync stored for another", async () => {
+    github.commit({
+      "docs/a.md": "# A\n\n![Diagram](images/diagram.png)\n",
+      "docs/images/diagram.png": "PNGDATA",
+    });
+    const database = await newCollection();
+    await as(() =>
+      linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
+    );
+
+    // The image moves to a new page in the commit that deletes the old one,
+    // so only the new page can let anyone load it.
+    github.commit({
+      "docs/c.md": "# C\n\n![Diagram](images/diagram.png)\n",
+      "docs/images/diagram.png": "PNGDATA",
+    });
+    await as(() => syncFolder.run({ databaseId: database.id }));
+    expect(github.state.uploads).toBe(1);
+    const live = await liveRows(database.id);
+    expect(live.map((row) => row.sourcePath)).toEqual(["docs/c.md"]);
+    expect(live[0]!.content).toContain(github.uploadedPath(1));
+    const { canReadPrivateMediaThroughDocument } =
+      await import("../server/lib/private-media-references.js");
+    expect(
+      await as(() => canReadPrivateMediaThroughDocument(github.mediaId(1))),
+    ).toBe(true);
+    const stranger = `github-stranger-${Date.now()}@example.com`;
+    expect(
+      await runWithRequestContext({ userEmail: stranger }, () =>
+        canReadPrivateMediaThroughDocument(github.mediaId(1)),
+      ),
+    ).toBe(false);
+  });
+
   it("gives a rebuilt page a private copy of an image an earlier sync stored publicly", async () => {
     github.commit({
       "docs/a.md": "# A\n\n![Diagram](images/diagram.png)\n",
@@ -2556,8 +2590,20 @@ describe("GitHub folder source", () => {
       linkFolder.run({ databaseId: database.id, url: FOLDER_URL }),
     );
     expect(github.state.uploads).toBe(1);
-    // Rows as a sync from before images went private left them.
+    // Pages and rows as a sync from before images went private left them:
+    // public links in the bodies and the row bookkeeping, and no bindings.
     const legacyUrl = "https://files.example.test/1/diagram.png";
+    for (const row of await liveRows(database.id)) {
+      await getDb()
+        .update(schema.documents)
+        .set({
+          content: row.content!.replaceAll(github.uploadedPath(1), legacyUrl),
+        })
+        .where(eq(schema.documents.id, row.documentId));
+      await getDb()
+        .delete(schema.privateMediaReferences)
+        .where(eq(schema.privateMediaReferences.documentId, row.documentId));
+    }
     const id = await sourceId(database.id);
     const sourceRows = await getDb()
       .select({
@@ -2590,10 +2636,9 @@ describe("GitHub folder source", () => {
     const [a, b] = await liveRows(database.id);
     expect(a!.content).toContain(github.uploadedPath(2));
     expect(a!.content).not.toContain(legacyUrl);
-    expect(await boundImages(a!.documentId)).toEqual(
-      [github.mediaId(1), github.mediaId(2)].sort(),
-    );
-    expect(b!.content).toContain(github.uploadedPath(1));
+    expect(await boundImages(a!.documentId)).toEqual([github.mediaId(2)]);
+    expect(b!.content).toContain(legacyUrl);
+    expect(await boundImages(b!.documentId)).toEqual([]);
   });
 
   it("stops saying storage failed once a sync found it gone before another problem stopped it", async () => {
