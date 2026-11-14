@@ -865,7 +865,7 @@ const generateDesignAction = defineAction({
           );
       if (!matches) {
         throw new NoWriteError(
-          `canvasFrames entry did not match a design file: ${placement.filename ?? placement.fileId}`,
+          `canvasFrames entry did not match a design file: ${placement.fileId || placement.filename}`,
         );
       }
     }

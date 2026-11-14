@@ -3718,7 +3718,7 @@ describe("generate-design: rejected input in the agent loop", () => {
     [
       "fileId with a matching filename",
       { fileId: "opaque-missing-id", filename: "new-screen.html" },
-      "new-screen.html",
+      "opaque-missing-id",
     ],
   ])(
     "rejects an unknown canvasFrames %s before any writes",
