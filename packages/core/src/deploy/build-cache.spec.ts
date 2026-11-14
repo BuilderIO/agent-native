@@ -392,9 +392,49 @@ describe("build cache input and output integrity", () => {
     );
     expect(hashBuildEnv({ ...env, TRACE: "two" }, ignored)).not.toBe(baseline);
     expect(hashBuildEnv({ ...env, UNSET: undefined }, ignored)).toBe(baseline);
+    const ci = {
+      ...env,
+      GITHUB_SHA: "one",
+      GITHUB_RUN_ID: "1",
+      GITHUB_RUN_ATTEMPT: "1",
+      GITHUB_STEP_SUMMARY: "/tmp/one",
+      RUNNER_TEMP: "/tmp/one",
+      ACTIONS_RUNTIME_TOKEN: "one",
+      RUNNER_TRACKING_ID: "github_one",
+      INVOCATION_ID: "one",
+      JOURNAL_STREAM: "8:1",
+    };
+    expect(
+      hashBuildEnv(
+        {
+          ...ci,
+          GITHUB_SHA: "two",
+          GITHUB_RUN_ID: "2",
+          GITHUB_RUN_ATTEMPT: "2",
+          GITHUB_STEP_SUMMARY: "/tmp/two",
+          RUNNER_TEMP: "/tmp/two",
+          ACTIONS_RUNTIME_TOKEN: "two",
+          RUNNER_TRACKING_ID: "github_two",
+          INVOCATION_ID: "two",
+          JOURNAL_STREAM: "9:2",
+        },
+        ignored,
+      ),
+    ).toBe(hashBuildEnv(ci, ignored));
+    expect(hashBuildEnv({ ...env, GITHUB_CLIENT_ID: "two" }, ignored)).not.toBe(
+      baseline,
+    );
     expect(
       hashBuildEnv({ ...env, NODE_PATH: "/modules/one" }, ignored),
     ).not.toBe(baseline);
+    for (const stable of ["GITHUB_REPOSITORY", "GITHUB_REF"]) {
+      expect(hashBuildEnv({ ...ci, [stable]: "two" }, ignored)).not.toBe(
+        hashBuildEnv({ ...ci, [stable]: "one" }, ignored),
+      );
+    }
+    expect(hashBuildEnv({ ...ci, RUNNER_ARCH: "ARM64" }, ignored)).not.toBe(
+      hashBuildEnv({ ...ci, RUNNER_ARCH: "X64" }, ignored),
+    );
     expect(
       hashBuildEnv(Object.fromEntries(Object.entries(env).reverse()), ignored),
     ).toBe(baseline);
