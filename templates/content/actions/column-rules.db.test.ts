@@ -29,6 +29,28 @@ vi.mock("./_row-lock-order.js", async (importOriginal) => {
   };
 });
 
+const beforeCollectionLock = vi.hoisted(() => ({
+  run: null as null | ((tx: unknown) => Promise<unknown>),
+}));
+
+vi.mock("./_content-database-mutation-lock.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<
+      typeof import("./_content-database-mutation-lock.js")
+    >();
+  return {
+    ...actual,
+    lockContentDatabaseMutation: async (
+      ...args: Parameters<typeof actual.lockContentDatabaseMutation>
+    ) => {
+      const run = beforeCollectionLock.run;
+      beforeCollectionLock.run = null;
+      await run?.(args[0]);
+      return actual.lockContentDatabaseMutation(...args);
+    },
+  };
+});
+
 const TEST_DB_PATH = join(
   tmpdir(),
   `content-column-rules-${process.pid}-${Date.now()}.pglite`,
@@ -471,6 +493,21 @@ describe("setting a tab's freeze", () => {
       primary: false,
       freezeWhen: { propertyId: row.statusId, optionIds: ["approved"] },
     });
+
+    // Full access ends while the change waits for the collection's lock.
+    beforeCollectionLock.run = (tx) =>
+      (tx as ReturnType<typeof getDb>)
+        .update(schema.documentShares)
+        .set({ role: "editor" })
+        .where(eq(schema.documentShares.resourceId, row.databaseDocumentId));
+    await expect(
+      runWithRequestContext({ userEmail: COLLEAGUE, orgId: null }, () =>
+        setRule.run({ ...rule, rule: null }, colleague),
+      ),
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(
+      (await definitionOptions(row.specId)).options.blocks?.freezeWhen,
+    ).toEqual({ propertyId: row.statusId, optionIds: ["approved"] });
   });
 
   it("freezes a tab, not the page body, by a status or select column's own values", async () => {

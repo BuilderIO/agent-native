@@ -1,7 +1,8 @@
 import { ActionContractError } from "@agent-native/core";
 import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
-import { assertAccess } from "@agent-native/core/sharing";
+import { getDbExec } from "@agent-native/core/db";
+import { assertAccess, currentAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
@@ -74,6 +75,11 @@ export default defineAction({
         tx as unknown as ReturnType<typeof getDb>,
         database.id,
       );
+      // The lock can be a long wait, so access is checked again.
+      await assertAccess("document", database.documentId, "admin", {
+        ...currentAccess(),
+        transaction: getDbExec(),
+      });
       const definitions = await tx
         .select()
         .from(schema.documentPropertyDefinitions)
