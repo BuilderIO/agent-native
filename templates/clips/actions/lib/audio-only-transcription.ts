@@ -5,6 +5,7 @@ import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import type { StereoChannelLevels } from "../../server/lib/meeting-audio-channels.js";
 import {
   parseAudioChunkList,
   type AudioChunkListEntry,
@@ -48,6 +49,11 @@ export interface AudioOnlyTranscriptionMedia {
   mimeType: string;
   maxVolumeDb: number | null;
   chunks: AudioChunk[];
+  /**
+   * Per-channel loudness of a desktop meeting's stereo file (microphone left,
+   * system audio right), when it was asked for. See meeting-audio-channels.
+   */
+  channelLevels?: StereoChannelLevels | null;
 }
 
 // A `url` source is handed to ffmpeg as-is, so only pass URLs the server
@@ -145,7 +151,7 @@ const TRANSCRIPTION_AUDIO = {
 // crafted file make ffmpeg open other local files or arbitrary URLs.
 const INPUT_FORMAT_ALLOWLIST = ["-format_whitelist", "mov,matroska,wav"];
 
-function ffmpegInputArgs(source: AudioExtractionSource): string[] {
+export function ffmpegInputArgs(source: AudioExtractionSource): string[] {
   if (source.kind === "file") {
     return [
       ...INPUT_FORMAT_ALLOWLIST,
@@ -174,7 +180,7 @@ function ffmpegInputArgs(source: AudioExtractionSource): string[] {
   ];
 }
 
-function ffmpegCommand(): string {
+export function ffmpegCommand(): string {
   if (process.env.FFMPEG_PATH) return process.env.FFMPEG_PATH;
   return resolveFfmpegStaticPath() ?? "ffmpeg";
 }

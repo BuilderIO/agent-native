@@ -6,6 +6,10 @@ import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import {
+  hasMeetingAudioLayout,
+  isDraftTranscriptProvider,
+} from "../server/lib/meeting-audio-channels.js";
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
 import {
   assertRecordingNotExpired,
@@ -95,6 +99,7 @@ export default defineAction({
         description: schema.recordings.description,
         status: schema.recordings.status,
         durationMs: schema.recordings.durationMs,
+        ownerEmail: schema.recordings.ownerEmail,
       })
       .from(schema.recordings)
       .where(eq(schema.recordings.id, args.recordingId))
@@ -119,6 +124,7 @@ export default defineAction({
         fullText: schema.recordingTranscripts.fullText,
         segmentsJson: schema.recordingTranscripts.segmentsJson,
         source: schema.recordingTranscripts.source,
+        provider: schema.recordingTranscripts.provider,
       })
       .from(schema.recordingTranscripts)
       .where(eq(schema.recordingTranscripts.recordingId, args.recordingId))
@@ -207,6 +213,21 @@ export default defineAction({
     if (current?.source === IMPORTED_TRANSCRIPT_SOURCE) {
       await dispatchForExistingTranscript();
       return importKept;
+    }
+    // A desktop meeting's audio was transcribed with speakers. A
+    // live flush that lands after it, such as a retried stop, must not put
+    // the speakerless live transcript back over it.
+    if (
+      hasReadyTranscript &&
+      !isDraftTranscriptProvider(current?.provider) &&
+      (await hasMeetingAudioLayout(args.recordingId, recording.ownerEmail))
+    ) {
+      await dispatchForExistingTranscript();
+      return {
+        recordingId: args.recordingId,
+        status: "skipped" as const,
+        reason: "Transcript from the meeting audio is kept",
+      };
     }
     if (hasReadySegments && !args.overwriteReady) {
       await dispatchForExistingTranscript();

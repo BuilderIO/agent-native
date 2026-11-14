@@ -6971,6 +6971,7 @@ function Setup({
   const meetingsEnabled = featureConfig?.meetingsEnabled !== false;
   const showMeetingWidgetEnabled =
     featureConfig?.showMeetingWidgetEnabled !== false;
+  const keepMeetingAudio = featureConfig?.keepMeetingAudio !== false;
   const launchAtLoginEnabled = featureConfig?.launchAtLoginEnabled !== false;
   const autoHidePopoverEnabled = featureConfig?.autoHidePopoverEnabled === true;
   const showInScreenCapture = featureConfig?.showInScreenCapture === true;
@@ -7149,6 +7150,15 @@ function Setup({
     if (!featureConfig) return;
     invoke("set_feature_config", {
       config: { ...featureConfig, meetingsEnabled: enabled },
+    }).catch((err) =>
+      console.error("[settings] set_feature_config failed", err),
+    );
+  }
+
+  function setKeepMeetingAudio(enabled: boolean) {
+    if (!featureConfig) return;
+    invoke("set_feature_config", {
+      config: { ...featureConfig, keepMeetingAudio: enabled },
     }).catch((err) =>
       console.error("[settings] set_feature_config failed", err),
     );
@@ -9179,6 +9189,17 @@ function Setup({
                       { value: "push-to-talk", label: "Hold to dictate" },
                       { value: "toggle", label: "Press to start and stop" },
                     ]}
+                  />
+                }
+              />
+              <SettingsRow
+                label="Keep meeting audio"
+                description="Save the audio of calls this Mac records, so you can play them back and see who said what"
+                control={
+                  <SettingsSwitch
+                    checked={keepMeetingAudio}
+                    onCheckedChange={setKeepMeetingAudio}
+                    label="Keep meeting audio"
                   />
                 }
               />

@@ -135,6 +135,8 @@ export interface FeatureConfig {
   screenMemory: ScreenMemoryConfig;
   whisperModelEnabled: boolean;
   whisperModelId: string;
+  /** Keep the audio of meetings this Mac records. Default on. */
+  keepMeetingAudio?: boolean;
 }
 
 export function useFeatureConfig() {

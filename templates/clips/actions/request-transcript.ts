@@ -9,6 +9,11 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { writeBrainExportState } from "../server/lib/brain-export-state.js";
+import {
+  attributeOwnerSpeech,
+  hasMeetingAudioLayout,
+  ownerSpeakerName,
+} from "../server/lib/meeting-audio-channels.js";
 import { dispatchPostFinalizeJob } from "../server/lib/post-finalize-dispatch.js";
 import {
   assertRecordingNotExpired,
@@ -43,6 +48,7 @@ import {
   assertAudioHasAudibleSignal,
   audioExtractionTimeoutMs,
   isNoExtractableAudioError,
+  extractAudioOnlyWithFfmpeg,
   isTransientExtractionError,
   type AudioOnlyTranscriptionMedia,
 } from "./lib/audio-only-transcription.js";
@@ -68,6 +74,7 @@ import {
 } from "./lib/native-media.js";
 import { isLikelyMismatchedTranscriptLanguage } from "./lib/provider-transcript.js";
 import { prepareRecordingTranscriptionAudio } from "./lib/recording-audio-source.js";
+import { withStereoChannelLevels } from "./lib/stereo-channel-levels.js";
 import regenerateSummary from "./regenerate-summary.js";
 import regenerateTitle from "./regenerate-title.js";
 
@@ -81,6 +88,7 @@ type RecordingMediaRow = {
   sourceAppName?: string | null;
   sourceWindowTitle?: string | null;
   durationMs?: number | null;
+  ownerEmail?: string | null;
 };
 
 type StartedFromTranscript = {
@@ -1139,20 +1147,34 @@ const requestTranscriptAction = defineAction({
           transcriptFailureMessage("NO_AUDIO_SAVED"),
         );
       }
-      audioMediaPromise ??= prepareRecordingTranscriptionAudio({
-        recordingId: args.recordingId,
-        videoUrl,
-        storageMode: rec.storageMode,
-        timeouts: {
-          downloadMs: recordingMediaFetchTimeoutMs(
-            rec.videoSizeBytes,
-            rec.durationMs,
-          ),
-          extractionMs: audioExtractionTimeoutMs(
-            estimatedRecordingMediaBytes(rec.videoSizeBytes, rec.durationMs),
-          ),
-        },
-      });
+      audioMediaPromise ??= (async () => {
+        // A meeting the desktop recorded is a stereo file, microphone left
+        // and call audio right; its channel levels name the owner's lines
+        //.
+        const meetingAudio = await hasMeetingAudioLayout(
+          args.recordingId,
+          rec.ownerEmail,
+        );
+        return prepareRecordingTranscriptionAudio({
+          recordingId: args.recordingId,
+          videoUrl,
+          storageMode: rec.storageMode,
+          ...(meetingAudio
+            ? {
+                extractor: withStereoChannelLevels(extractAudioOnlyWithFfmpeg),
+              }
+            : {}),
+          timeouts: {
+            downloadMs: recordingMediaFetchTimeoutMs(
+              rec.videoSizeBytes,
+              rec.durationMs,
+            ),
+            extractionMs: audioExtractionTimeoutMs(
+              estimatedRecordingMediaBytes(rec.videoSizeBytes, rec.durationMs),
+            ),
+          },
+        });
+      })();
       return audioMediaPromise;
     };
 
@@ -1379,10 +1401,21 @@ const requestTranscriptAction = defineAction({
             }),
         );
 
-        const normalizedTranscript = joinChunkTranscripts(
+        const joinedTranscript = joinChunkTranscripts(
           audioMedia.chunks,
           chunkResults,
         );
+        // A desktop meeting's microphone channel is the owner.
+        const normalizedTranscript = audioMedia.channelLevels
+          ? {
+              ...joinedTranscript,
+              segments: attributeOwnerSpeech(
+                joinedTranscript.segments,
+                audioMedia.channelLevels,
+                await ownerSpeakerName(args.recordingId),
+              ),
+            }
+          : joinedTranscript;
         const fullText = normalizedTranscript.fullText;
 
         if (!regeneratingReadyTranscript) {

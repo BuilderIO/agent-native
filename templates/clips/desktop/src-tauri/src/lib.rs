@@ -9,6 +9,7 @@ mod debug;
 mod echo_guard;
 mod eventkit;
 mod logfile;
+mod meeting_audio;
 mod meetings_watcher;
 mod mic_attribution;
 mod model_download;
@@ -380,6 +381,9 @@ pub fn run() {
             system_audio::audio_transcription_start,
             system_audio::audio_transcription_stop,
             system_audio::audio_transcription_reset_timeline,
+            meeting_audio::meeting_audio_begin,
+            meeting_audio::meeting_audio_discard,
+            meeting_audio::meeting_audio_upload,
             silence_detector::silence_detector_start,
             silence_detector::silence_detector_stop,
             shortcuts::set_custom_shortcuts,
