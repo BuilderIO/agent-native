@@ -269,7 +269,12 @@ async function acquireAgentFrameMediaFileAdmission(
         { ...value },
       ]),
     );
-    const { bavail, bsize } = await statfs(tempRoot);
+    const { bavail, bsize } = await statfs(tempRoot).catch(() => {
+      throw new RecordingMediaFetchError(
+        "Recording temporary storage is unavailable.",
+        503,
+      );
+    });
     const available = bavail * bsize;
     if (!Number.isSafeInteger(available) || available < 0) {
       throw new Error("Recording temporary storage availability is invalid.");
@@ -1575,9 +1580,12 @@ export async function loadRecordingMediaFile(
   try {
     // observed-write-ok: request-scoped temporary directory, removed after use.
     dir = await mkdtemp(join(tempRoot, "clips-agent-frame-"));
-  } catch (error) {
+  } catch {
     release();
-    throw error;
+    throw new RecordingMediaFetchError(
+      "Recording temporary storage is unavailable.",
+      503,
+    );
   }
   const path = join(
     dir,
@@ -1643,17 +1651,26 @@ export async function loadRecordingMediaFile(
       cleanup,
     };
   } catch (error) {
+    const failure =
+      error instanceof Error &&
+      "syscall" in error &&
+      typeof error.syscall === "string"
+        ? new RecordingMediaFetchError(
+            "Recording temporary storage is unavailable.",
+            503,
+          )
+        : error;
     try {
       await cleanup();
     } catch (cleanupError) {
       logFrameMediaCleanupFailure(cleanupError);
       throw Object.assign(
-        error instanceof Error
-          ? error
+        failure instanceof Error
+          ? failure
           : new Error("Recording media download failed."),
         { cleanupError },
       );
     }
-    throw error;
+    throw failure;
   }
 }

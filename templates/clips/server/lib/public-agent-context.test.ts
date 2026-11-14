@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mockRm = vi.hoisted(() => vi.fn());
 const mockStatfs = vi.hoisted(() => vi.fn());
+const mockOpen = vi.hoisted(() => vi.fn());
 const mockAppStateGet = vi.hoisted(() => vi.fn());
 const mockSsrfSafeFetch = vi.hoisted(() => vi.fn());
 const mockFetchS3ObjectByUrl = vi.hoisted(() => vi.fn());
@@ -23,7 +24,8 @@ vi.mock("node:fs/promises", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:fs/promises")>();
   mockRm.mockImplementation(actual.rm);
   mockStatfs.mockImplementation(actual.statfs);
-  return { ...actual, rm: mockRm, statfs: mockStatfs };
+  mockOpen.mockImplementation(actual.open);
+  return { ...actual, rm: mockRm, statfs: mockStatfs, open: mockOpen };
 });
 
 vi.mock("@agent-native/core/org", () => ({
@@ -1681,11 +1683,25 @@ describe("loadRecordingMediaBytes", () => {
       videoFormat: "mp4",
     }) as PublicAgentRecording;
     mockStatfs.mockRejectedValueOnce(
-      Object.assign(new Error("statfs failed"), { code: "EIO" }),
+      Object.assign(new Error("statfs failed /private/temp/path"), {
+        code: "EIO",
+      }),
     );
-    await expect(loadRecordingMediaFile(recording)).rejects.toMatchObject({
-      code: "EIO",
+    const failure = await loadRecordingMediaFile(recording).catch(
+      (error: unknown) => error,
+    );
+    expect(failure).toMatchObject({
+      statusCode: 503,
+      message: "Recording temporary storage is unavailable.",
     });
+    expect(JSON.stringify(failure)).not.toContain("/private/temp/path");
+    const { describeFrameFailure, frameFailureStatus } =
+      await import("./agent-frame-request.js");
+    expect(
+      JSON.stringify(
+        describeFrameFailure(failure, frameFailureStatus(failure)),
+      ),
+    ).not.toContain("/private/temp/path");
     mockStatfs.mockResolvedValueOnce({ bsize: 1, bavail: 128 * 1024 * 1024 });
     await expect(loadRecordingMediaFile(recording)).rejects.toMatchObject({
       statusCode: 503,
@@ -1707,8 +1723,13 @@ describe("loadRecordingMediaBytes", () => {
     }) as PublicAgentRecording;
     try {
       process.env.TMPDIR = join(root, "missing");
+      mockStatfs.mockResolvedValueOnce({
+        bsize: 1,
+        bavail: 1024 * 1024 * 1024,
+      });
       await expect(loadRecordingMediaFile(recording)).rejects.toMatchObject({
-        code: "ENOENT",
+        statusCode: 503,
+        message: "Recording temporary storage is unavailable.",
       });
       process.env.TMPDIR = root;
       mockSsrfSafeFetch.mockImplementation(async () => new Response("12345"));
@@ -1728,6 +1749,30 @@ describe("loadRecordingMediaBytes", () => {
       else process.env.TMPDIR = previous;
       await rm(root, { recursive: true, force: true });
     }
+  });
+
+  it("sanitizes a temporary file write failure and releases admission", async () => {
+    mockOpen.mockRejectedValueOnce(
+      Object.assign(new Error("open /private/temp/path"), {
+        code: "ENOSPC",
+        syscall: "open",
+      }),
+    );
+    mockSsrfSafeFetch.mockResolvedValueOnce(new Response("12345"));
+    const recording = makeRecording({
+      videoFormat: "mp4",
+    }) as PublicAgentRecording;
+    const error = await loadRecordingMediaFile(recording).catch(
+      (failure: unknown) => failure,
+    );
+    expect(error).toMatchObject({
+      statusCode: 503,
+      message: "Recording temporary storage is unavailable.",
+    });
+    expect(JSON.stringify(error)).not.toContain("/private/temp/path");
+    mockSsrfSafeFetch.mockResolvedValueOnce(new Response("12345"));
+    const media = await loadRecordingMediaFile(recording);
+    await media.cleanup();
   });
 
   it("caps oversized configuration and cancels a rejected response", async () => {
