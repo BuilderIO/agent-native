@@ -23,45 +23,14 @@ function fixture() {
   const pathDir = path.join(root, "path bin");
   fs.mkdirSync(cwd, { recursive: true });
   fs.mkdirSync(pathDir);
-  return { root, cwd, pathDir, parent: path.dirname(cwd) };
+  return { cwd, pathDir };
 }
 
-function compiler(
-  dir: string,
-  name: "tsc" | "tsgo",
-  marker: string,
-  mode = 0o755,
-) {
-  fs.mkdirSync(dir, { recursive: true });
-  const windows = process.platform === "win32";
-  fs.writeFileSync(
-    path.join(dir, windows ? `${name}.cmd` : name),
-    windows
-      ? `@echo off\r\necho ${marker} %*\r\n`
-      : `#!/bin/sh\nprintf '${marker} %s\\n' "$*"\n`,
-    { mode },
-  );
-}
-
-function runWindowsLookupOnLinux(
-  cwd: string,
-  pathDir: string,
-  epermPath?: string,
-) {
-  // Load cross-spawn on Linux before selecting the Windows CLI lookup path, so
-  // the real POSIX compiler can run after the pre-spawn check.
+function runWithWindowsLookupOnLinux(cwd: string, pathDir: string) {
+  // Only the CLI's platform branch is simulated. cross-spawn and the actual
+  // process execution remain POSIX, so this does not prove Windows cmd escaping.
   const script = `
     require(${JSON.stringify(require.resolve("cross-spawn"))});
-    if (${JSON.stringify(epermPath ?? null)}) {
-      const fs = require("node:fs");
-      const stat = fs.statSync;
-      fs.statSync = function (file, ...args) {
-        if (file === ${JSON.stringify(epermPath ?? null)}) {
-          throw Object.assign(new Error("operation not permitted"), { code: "EPERM" });
-        }
-        return stat.call(this, file, ...args);
-      };
-    }
     Object.defineProperty(process, "platform", { value: "win32" });
     process.argv = [process.execPath, ${JSON.stringify(cli)}, "typecheck", "--pretty", "false"];
     import(${JSON.stringify(cli)});
@@ -75,82 +44,70 @@ function runWindowsLookupOnLinux(
         ...process.env,
         PATH: pathDir,
         Path: pathDir,
-        PATHEXT: "",
+        PATHEXT: ".EXE;.CMD",
         CI: "1",
         DO_NOT_TRACK: "1",
       },
-      ...(process.getuid?.() === 0 ? { uid: 65534, gid: 65534 } : {}),
       encoding: "utf8",
       timeout: 30000,
     },
   );
 }
 
-describe("agent-native typecheck Windows PATH permissions", () => {
-  it("uses a later PATH compiler after an inaccessible directory in the Windows pre-spawn lookup", () => {
+describe("agent-native typecheck with simulated Windows CLI selection on Linux", () => {
+  it("runs an extensionless PATH compiler without a separate Windows preflight", () => {
     if (process.platform !== "linux") return;
-    const { root, cwd, pathDir } = fixture();
-    fs.chmodSync(root, 0o755);
-    fs.chmodSync(pathDir, 0o000);
-    const laterPath = path.join(root, "later bin");
-    compiler(laterPath, "tsc", "later-tsc");
-    const result = runWindowsLookupOnLinux(
-      cwd,
-      [pathDir, laterPath].join(path.delimiter),
-    );
-    expect(result.error).toBeUndefined();
-    expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout.trim()).toBe("later-tsc --noEmit --pretty false");
-  });
-
-  it("uses a later PATH compiler after an EPERM lookup error", () => {
-    if (process.platform !== "linux") return;
-    const { root, cwd, pathDir } = fixture();
-    fs.chmodSync(root, 0o755);
-    const laterPath = path.join(root, "later bin");
-    compiler(laterPath, "tsc", "later-tsc");
-    // EPERM from stat is not reliably reproducible with POSIX directory modes.
-    const result = runWindowsLookupOnLinux(
-      cwd,
-      [pathDir, laterPath].join(path.delimiter),
-      path.join(pathDir, "tsc"),
-    );
-    expect(result.error).toBeUndefined();
-    expect(result.status, result.stderr).toBe(0);
-    expect(result.stdout.trim()).toBe("later-tsc --noEmit --pretty false");
-  });
-
-  it("preserves a later PATH compiler's missing-interpreter error after an EPERM lookup error", () => {
-    if (process.platform !== "linux") return;
-    const { root, cwd, pathDir } = fixture();
-    fs.chmodSync(root, 0o755);
-    const laterPath = path.join(root, "later bin");
-    fs.mkdirSync(laterPath);
+    const { cwd, pathDir } = fixture();
     fs.writeFileSync(
-      path.join(laterPath, "tsc"),
+      path.join(pathDir, "tsc"),
+      "#!/bin/sh\nprintf 'path-tsc %s\\n' \"$*\"\n",
+      { mode: 0o755 },
+    );
+    const result = runWithWindowsLookupOnLinux(cwd, pathDir);
+    expect(result.error).toBeUndefined();
+    expect(result.status, result.stderr).toBe(0);
+    expect(result.stdout.trim()).toBe("path-tsc --noEmit --pretty false");
+  });
+
+  it("reports the original ENOENT and a neutral hint when tsc is missing", () => {
+    if (process.platform !== "linux") return;
+    const { cwd, pathDir } = fixture();
+    const result = runWithWindowsLookupOnLinux(cwd, pathDir);
+    expect(result.error).toBeUndefined();
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toMatch(/spawn tsc ENOENT/);
+    expect(result.stderr).toMatch(
+      /Could not execute tsc; check that TypeScript and its interpreter are installed/i,
+    );
+  });
+
+  it("reports the original ENOENT and a neutral hint for a missing interpreter", () => {
+    if (process.platform !== "linux") return;
+    const { cwd, pathDir } = fixture();
+    fs.writeFileSync(
+      path.join(pathDir, "tsc"),
       "#!/nonexistent-test-interpreter\n",
       { mode: 0o755 },
     );
-    const result = runWindowsLookupOnLinux(
-      cwd,
-      [pathDir, laterPath].join(path.delimiter),
-      path.join(pathDir, "tsc"),
-    );
+    const result = runWithWindowsLookupOnLinux(cwd, pathDir);
     expect(result.error).toBeUndefined();
     expect(result.status).not.toBe(0);
-    expect(result.stderr).toMatch(/ENOENT/);
-    expect(result.stderr).not.toMatch(/(?:install|add).*typescript/i);
+    expect(result.stderr).toMatch(/spawn tsc ENOENT/);
+    expect(result.stderr).toMatch(
+      /Could not execute tsc; check that TypeScript and its interpreter are installed/i,
+    );
   });
 
-  it("reports an inaccessible PATH directory when no compiler is found in the Windows pre-spawn lookup", () => {
+  it("preserves EACCES without an ENOENT hint", () => {
     if (process.platform !== "linux") return;
-    const { root, cwd, pathDir } = fixture();
-    fs.chmodSync(root, 0o755);
-    fs.chmodSync(pathDir, 0o000);
-    const result = runWindowsLookupOnLinux(cwd, pathDir);
+    const { cwd, pathDir } = fixture();
+    fs.writeFileSync(path.join(pathDir, "tsc"), "#!/bin/sh\nexit 0\n", {
+      mode: 0o644,
+    });
+    const result = runWithWindowsLookupOnLinux(cwd, pathDir);
     expect(result.error).toBeUndefined();
     expect(result.status).not.toBe(0);
-    expect(result.stderr).toMatch(/EACCES/);
-    expect(result.stderr).not.toMatch(/(?:install|add).*typescript/i);
+    expect(result.stderr).toMatch(/spawn tsc EACCES/);
+    expect(result.stderr).not.toMatch(/Could not execute tsc/);
   });
 });

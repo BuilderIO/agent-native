@@ -247,47 +247,6 @@ function findTypeScriptCompilerBin(): string | undefined {
   return findBinUpwards(names);
 }
 
-function pathHasTsc(): boolean {
-  const windows = process.platform === "win32";
-  const pathValue = windows
-    ? (Object.entries(process.env).find(
-        ([key]) => key.toLowerCase() === "path",
-      )?.[1] ?? "")
-    : (process.env.PATH ?? "/usr/bin:/bin");
-  const dirs = pathValue.split(path.delimiter);
-  if (windows) dirs.unshift(process.cwd());
-  const extensions = windows
-    ? (process.env.PATHEXT ?? ".COM;.EXE;.BAT;.CMD").split(";")
-    : [""];
-  let permissionError: unknown;
-  for (const dir of dirs) {
-    for (const extension of extensions) {
-      const directory = windows ? dir.replace(/^"|"$/g, "") : dir;
-      const candidate = path.resolve(directory || ".", `tsc${extension}`);
-      try {
-        fs.statSync(candidate);
-        return true;
-      } catch (error) {
-        const code = (error as NodeJS.ErrnoException).code;
-        if (code === "EACCES" || code === "EPERM") {
-          permissionError ??= error;
-        } else if (code !== "ENOENT" && code !== "ENOTDIR") {
-          throw error;
-        }
-      }
-    }
-  }
-  if (permissionError) throw permissionError;
-  return false;
-}
-
-function missingTypeScriptCompiler(): never {
-  console.error(
-    "TypeScript compiler (tsc) not found. Install TypeScript in your project, for example: npm install --save-dev typescript",
-  );
-  process.exit(1);
-}
-
 function runTypeScriptCompiler(args: string[]): void {
   const compiler = findTypeScriptCompilerBin();
   const fallback = !compiler;
@@ -297,15 +256,14 @@ function runTypeScriptCompiler(args: string[]): void {
       "Cannot run the TypeScript compiler with a newline in an argument on Windows.",
     );
   }
-  if (process.platform === "win32" && fallback && !pathHasTsc()) {
-    missingTypeScriptCompiler();
-  }
   run(compiler ?? "tsc", args, {
     shell: false,
     spawnProcess: process.platform === "win32" ? crossSpawn.spawn : spawn,
     onError: (error) => {
-      if (fallback && error.code === "ENOENT" && !pathHasTsc()) {
-        missingTypeScriptCompiler();
+      if (fallback && error.code === "ENOENT") {
+        console.error(
+          "Could not execute tsc; check that TypeScript and its interpreter are installed.",
+        );
       }
       throw error;
     },

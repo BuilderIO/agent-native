@@ -232,8 +232,10 @@ describe("agent-native typecheck compiler lookup", () => {
     const result = run(cwd, pathDir);
     expect(result.error).toBeUndefined();
     expect(result.status).not.toBe(0);
-    expect(result.stderr).toMatch(/(?:install|add).*typescript/i);
-    expect(result.stderr).toMatch(/tsc/i);
+    expect(result.stderr).toMatch(/spawn tsc ENOENT/);
+    expect(result.stderr).toMatch(
+      /Could not execute tsc; check that TypeScript and its interpreter are installed/i,
+    );
   });
 
   it("reports a missing compiler when the PATH compiler is a dangling symlink", () => {
@@ -246,8 +248,10 @@ describe("agent-native typecheck compiler lookup", () => {
     const result = run(cwd, pathDir);
     expect(result.error).toBeUndefined();
     expect(result.status).not.toBe(0);
-    expect(result.stderr).toMatch(/(?:install|add).*typescript/i);
-    expect(result.stderr).toMatch(/tsc/i);
+    expect(result.stderr).toMatch(/spawn tsc ENOENT/);
+    expect(result.stderr).toMatch(
+      /Could not execute tsc; check that TypeScript and its interpreter are installed/i,
+    );
   });
 
   it("prefers the first usable PATH compiler", () => {
@@ -308,8 +312,10 @@ describe("agent-native typecheck compiler lookup", () => {
     );
     const result = run(cwd, [pathDir, laterPath].join(path.delimiter));
     expect(result.status).not.toBe(0);
-    expect(result.stderr).toMatch(/ENOENT/);
-    expect(result.stderr).not.toMatch(/(?:install|add).*typescript/i);
+    expect(result.stderr).toMatch(/spawn tsc ENOENT/);
+    expect(result.stderr).toMatch(
+      /Could not execute tsc; check that TypeScript and its interpreter are installed/i,
+    );
   });
 
   it("preserves a PATH compiler's missing-interpreter error", () => {
@@ -322,8 +328,27 @@ describe("agent-native typecheck compiler lookup", () => {
     );
     const result = run(cwd, pathDir);
     expect(result.status).not.toBe(0);
-    expect(result.stderr).toMatch(/ENOENT/);
-    expect(result.stderr).not.toMatch(/(?:install|add).*typescript/i);
+    expect(result.stderr).toMatch(/spawn tsc ENOENT/);
+    expect(result.stderr).toMatch(
+      /Could not execute tsc; check that TypeScript and its interpreter are installed/i,
+    );
+  });
+
+  it("preserves a PATH compiler's exit code 1 without reporting a missing command", () => {
+    const { cwd, pathDir } = fixture();
+    const windows = process.platform === "win32";
+    fs.writeFileSync(
+      path.join(pathDir, windows ? "tsc.cmd" : "tsc"),
+      windows
+        ? "@echo off\r\necho compiler-failed\r\nexit /b 1\r\n"
+        : "#!/bin/sh\necho compiler-failed\nexit 1\n",
+      { mode: 0o755 },
+    );
+    const result = run(cwd, pathDir);
+    expect(result.error).toBeUndefined();
+    expect(result.status, result.stderr).toBe(1);
+    expect(result.stdout).toContain("compiler-failed");
+    expect(result.stderr).not.toMatch(/ENOENT|Could not execute tsc/i);
   });
 
   it("preserves a non-executable PATH compiler's permission error", () => {
