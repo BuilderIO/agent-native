@@ -1344,6 +1344,9 @@ const messages = {
     titleLabel: "العنوان",
     combining:
       "جارٍ الدمج باستخدام ffmpeg.wasm — {{progress}}%. قد تستغرق عمليات الدمج الكبيرة دقيقة.",
+    starting: "جارٍ البدء…",
+    processingDescription:
+      "يتم دمجه على الخادم. يمكنك إغلاق علامة التبويب هذه؛ سيصبح المقطع جاهزًا تلقائيًا.",
     combine: "دمج",
   },
   inviteDialog: {

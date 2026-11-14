@@ -1388,6 +1388,9 @@ const messages = {
     titleLabel: "Titel",
     combining:
       "Kombinieren mit ffmpeg.wasm — {{progress}} %. Große Zusammenfügungen können eine Minute dauern.",
+    starting: "Wird gestartet…",
+    processingDescription:
+      "Es wird auf dem Server zusammengefügt. Sie können diesen Tab schließen; der Clip wird von selbst fertig.",
     combine: "Kombinieren",
   },
   inviteDialog: {

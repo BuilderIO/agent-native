@@ -1318,6 +1318,9 @@ const messages = {
     titleLabel: "शीर्षक",
     combining:
       "ffmpeg.wasm के साथ जोड़ रहा है — {{progress}}%। बड़े जोड़ में एक मिनट लग सकता है।",
+    starting: "शुरू हो रहा है…",
+    processingDescription:
+      "इसे सर्वर पर जोड़ा जा रहा है। आप यह टैब बंद कर सकते हैं; क्लिप अपने आप तैयार हो जाएगी।",
     combine: "जोड़ें",
   },
   inviteDialog: {

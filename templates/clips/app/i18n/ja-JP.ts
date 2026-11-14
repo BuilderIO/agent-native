@@ -1358,6 +1358,9 @@ const messages = {
     titleLabel: "タイトル",
     combining:
       "ffmpeg.wasm で結合中 — {{progress}}%。大きな結合は 1 分ほどかかる場合があります。",
+    starting: "開始しています…",
+    processingDescription:
+      "サーバーで結合しています。このタブを閉じても大丈夫です。クリップは自動的に準備完了になります。",
     combine: "結合",
   },
   inviteDialog: {
