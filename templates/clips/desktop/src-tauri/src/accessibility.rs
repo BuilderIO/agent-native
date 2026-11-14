@@ -202,6 +202,34 @@ pub async fn read_focused_field_text() -> Result<String, String> {
     }
 }
 
+/// Ask app `pid` to turn on its Accessibility tree. Chromium and Electron apps
+/// (Claude, Slack, VS Code) keep it off until a client asks, so right after they
+/// start the system reports no focused element. This talks to the app and can
+/// block while the app is busy: never call it from the shortcut callback.
+pub fn enable_app_accessibility(pid: i32) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        macos::enable_app_accessibility_impl(pid)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = pid;
+        false
+    }
+}
+
+/// Process id of the frontmost app. Local lookup, does not talk to the app.
+pub fn frontmost_app_pid() -> Option<i32> {
+    #[cfg(target_os = "macos")]
+    {
+        macos::frontmost_pid()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
+}
+
 pub fn focused_text_field_available() -> bool {
     #[cfg(target_os = "macos")]
     {
@@ -330,6 +358,15 @@ pub(crate) mod macos {
             element: AXUIElementRef,
             attribute: CFStringRef,
             value: *mut CFTypeRef,
+        ) -> AXError;
+        fn AXUIElementSetAttributeValue(
+            element: AXUIElementRef,
+            attribute: CFStringRef,
+            value: CFTypeRef,
+        ) -> AXError;
+        fn AXUIElementSetMessagingTimeout(
+            element: AXUIElementRef,
+            timeout_in_seconds: f32,
         ) -> AXError;
         static kAXTrustedCheckOptionPrompt: CFStringRef;
     }
@@ -484,6 +521,56 @@ pub(crate) mod macos {
             CFRelease(value);
             result
         }
+    }
+
+    /// Sets `AXManualAccessibility` on app `pid`, the switch Chromium and
+    /// Electron read to build their tree for assistive apps. Blocks for at
+    /// most about a second when the app is busy.
+    pub fn enable_app_accessibility_impl(pid: i32) -> bool {
+        unsafe {
+            if !is_trusted(false) {
+                return false;
+            }
+            let application = AXUIElementCreateApplication(pid);
+            if application.is_null() {
+                return false;
+            }
+            AXUIElementSetMessagingTimeout(application, 1.0);
+            let attribute = cfstr("AXManualAccessibility");
+            if attribute.is_null() {
+                CFRelease(application as CFTypeRef);
+                return false;
+            }
+            let error =
+                AXUIElementSetAttributeValue(application, attribute, kCFBooleanTrue as CFTypeRef);
+            CFRelease(attribute as CFTypeRef);
+            CFRelease(application as CFTypeRef);
+            eprintln!(
+                "[accessibility] asked app {pid} to turn on its accessibility tree (AXError {error})"
+            );
+            error == AX_ERROR_SUCCESS
+        }
+    }
+
+    pub fn frontmost_pid() -> Option<i32> {
+        use objc2::msg_send;
+        use objc2::rc::autoreleasepool;
+        use objc2::runtime::{AnyClass, AnyObject};
+
+        autoreleasepool(|_| unsafe {
+            let class_name = std::ffi::CString::new("NSWorkspace").ok()?;
+            let cls: &AnyClass = AnyClass::get(&class_name)?;
+            let workspace: *mut AnyObject = msg_send![cls, sharedWorkspace];
+            if workspace.is_null() {
+                return None;
+            }
+            let app: *mut AnyObject = msg_send![workspace, frontmostApplication];
+            if app.is_null() {
+                return None;
+            }
+            let pid: i32 = msg_send![app, processIdentifier];
+            (pid > 0).then_some(pid)
+        })
     }
 
     pub fn focused_text_field_available_impl() -> bool {

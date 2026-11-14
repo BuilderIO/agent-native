@@ -2677,11 +2677,89 @@ fn is_terminal_bundle(bundle_id: &str) -> bool {
     )
 }
 
+/// Bumped on every dictation shortcut press, so a background focus re-check
+/// from an older press never overwrites a newer press's result.
+#[cfg(target_os = "macos")]
+static VOICE_TARGET_GENERATION: AtomicU64 = AtomicU64::new(0);
+
+/// Waits before each focus re-check after asking an app to turn on its
+/// Accessibility tree; Chromium builds the tree asynchronously.
+#[cfg(target_os = "macos")]
+const ACCESSIBILITY_RETRY_DELAYS: [Duration; 3] = [
+    Duration::from_millis(100),
+    Duration::from_millis(250),
+    Duration::from_millis(500),
+];
+
+/// A background re-check may only update the remembered target when it still
+/// belongs to the latest shortcut press and the same app is still in front.
+#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+fn accessibility_retry_applies(
+    started_generation: u64,
+    current_generation: u64,
+    started_pid: i32,
+    current_pid: Option<i32>,
+) -> bool {
+    started_generation == current_generation && current_pid == Some(started_pid)
+}
+
+/// Off the shortcut callback: ask the frontmost app to turn on its
+/// Accessibility tree, then re-check the focused field a few times and record
+/// a text field if one shows up. A stalled app only holds up this thread.
+#[cfg(target_os = "macos")]
+fn spawn_accessibility_activation(app: AppHandle, pid: i32, generation: u64) {
+    let spawned = thread::Builder::new()
+        .name("clips-ax-activate".into())
+        .spawn(move || {
+            crate::accessibility::enable_app_accessibility(pid);
+            for delay in ACCESSIBILITY_RETRY_DELAYS {
+                thread::sleep(delay);
+                let still_current = || {
+                    accessibility_retry_applies(
+                        generation,
+                        VOICE_TARGET_GENERATION.load(Ordering::SeqCst),
+                        pid,
+                        crate::accessibility::frontmost_app_pid(),
+                    )
+                };
+                if !still_current() {
+                    return;
+                }
+                if !crate::accessibility::focused_text_field_available() {
+                    continue;
+                }
+                if !still_current() {
+                    return;
+                }
+                if let Some(state) = app.try_state::<VoiceTargetTextField>() {
+                    if let Ok(mut g) = state.0.lock() {
+                        *g = Some(true);
+                    }
+                }
+                eprintln!(
+                    "[clips-tray] voice target {pid}: text field found after turning on accessibility"
+                );
+                return;
+            }
+        });
+    if let Err(error) = spawned {
+        eprintln!("[clips-tray] could not start accessibility activation thread: {error}");
+    }
+}
+
 pub fn remember_voice_target(app: &AppHandle) {
     #[cfg(target_os = "macos")]
     {
+        let generation = VOICE_TARGET_GENERATION.fetch_add(1, Ordering::SeqCst) + 1;
         let target = frontmost_bundle_identifier();
         let has_text_field = crate::accessibility::focused_text_field_available();
+        if !has_text_field {
+            // Possibly a Chromium/Electron app with its tree still off. Turning
+            // it on talks to the app, so it runs on its own thread.
+            if let Some(pid) = crate::accessibility::frontmost_app_pid() {
+                spawn_accessibility_activation(app.clone(), pid, generation);
+            }
+        }
         if let Some(state) = app.try_state::<VoiceTargetBundle>() {
             if let Ok(mut g) = state.0.lock() {
                 *g = target;
@@ -2719,6 +2797,16 @@ mod tests {
         BubblePositionPreference, TextInsertionStrategy, BUBBLE_LABEL,
         BUBBLE_POSITION_GEOMETRY_VERSION, FINALIZING_LABEL,
     };
+
+    #[test]
+    fn accessibility_retry_only_applies_to_latest_press_and_same_app() {
+        assert!(super::accessibility_retry_applies(3, 3, 42, Some(42)));
+        // A newer shortcut press happened.
+        assert!(!super::accessibility_retry_applies(3, 4, 42, Some(42)));
+        // Another app came to the front.
+        assert!(!super::accessibility_retry_applies(3, 3, 42, Some(7)));
+        assert!(!super::accessibility_retry_applies(3, 3, 42, None));
+    }
     use tauri::PhysicalSize;
 
     #[test]
