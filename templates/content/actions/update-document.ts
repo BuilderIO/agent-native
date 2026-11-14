@@ -882,9 +882,10 @@ const updateDocumentAction = defineAction({
       // A write that changes nothing never reaches the commit's check.
       if (
         isOutsideBodyWrite &&
-        args.baseRevision !== undefined &&
-        args.baseRevision !==
-          documentRevisionToken(existing.bodyRevision, existing.content)
+        (args.baseRevision !== undefined
+          ? args.baseRevision !==
+            documentRevisionToken(existing.bodyRevision, existing.content)
+          : args.baseUpdatedAt !== existing.updatedAt)
       ) {
         throw staleBaseRevisionError(existing);
       }

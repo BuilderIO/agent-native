@@ -2584,6 +2584,15 @@ describe("update-document compare-and-swap", () => {
           content: "original",
         }),
       ).rejects.toMatchObject(refused);
+      await expect(
+        write({
+          baseUpdatedAt: "2000-01-01T00:00:00.000Z",
+          content: "original",
+        }),
+      ).rejects.toMatchObject(refused);
+      await expect(
+        write({ baseUpdatedAt: row.updatedAt, content: "original" }),
+      ).resolves.toMatchObject({ content: "original" });
 
       await write({
         baseRevision: documentRevisionToken(row.bodyRevision, row.content),
