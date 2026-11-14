@@ -3,10 +3,20 @@ import { rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import type { ActionRunContext } from "@agent-native/core/action";
 import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { and, eq, inArray } from "drizzle-orm";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+
+// The real space check, wrapped so one test can make it fail once.
+const spaceAccess = vi.hoisted(() => ({ check: vi.fn() }));
+vi.mock("./_content-space-access.js", async (importOriginal) => {
+  const actual =
+    await importOriginal<typeof import("./_content-space-access.js")>();
+  spaceAccess.check.mockImplementation(actual.resolveContentSpaceAccess);
+  return { ...actual, resolveContentSpaceAccess: spaceAccess.check };
+});
 
 const TEST_DB_PATH = join(
   tmpdir(),
@@ -15,6 +25,11 @@ const TEST_DB_PATH = join(
 const OWNER = "files-owner@example.com";
 const ORG_ID = "files-org";
 const VIEWER = "files-viewer@example.com";
+
+// What the browser's Files tree sends when someone reads it.
+function readerContext(userEmail: string): ActionRunContext {
+  return { userEmail, caller: "frontend" };
+}
 
 type Schema = typeof import("../server/db/schema.js");
 let getDb: () => any;
@@ -130,6 +145,51 @@ describe("Content Files membership reconciliation", () => {
       message: 'Database "missing-personal-view-database" not found',
       statusCode: 404,
     });
+  });
+
+  it("refuses a Files tree read from outside its space with a typed not found, so the browser drops what it showed", async () => {
+    const queryContentDatabaseItemsAction = (
+      await import("./query-content-database-items.js")
+    ).default;
+    const filesDatabase = await getFilesDatabase(personalContentSpaceId(OWNER));
+    const read = {
+      databaseId: filesDatabase.id,
+      navigation: { parentId: null },
+    };
+
+    await expect(
+      runWithRequestContext({ userEmail: OWNER }, () =>
+        queryContentDatabaseItemsAction.run(read, readerContext(OWNER)),
+      ),
+    ).resolves.toHaveProperty("items");
+    await expect(
+      runWithRequestContext({ userEmail: VIEWER, orgId: ORG_ID }, () =>
+        queryContentDatabaseItemsAction.run(read, readerContext(VIEWER)),
+      ),
+    ).rejects.toMatchObject({
+      message: `Database "${filesDatabase.id}" not found`,
+      errorCode: "DATABASE_NOT_FOUND",
+      statusCode: 404,
+    });
+  });
+
+  it("keeps a Files access check that fails, rather than refuses, a server error", async () => {
+    const queryContentDatabaseItemsAction = (
+      await import("./query-content-database-items.js")
+    ).default;
+    const filesDatabase = await getFilesDatabase(personalContentSpaceId(OWNER));
+    const outage = new Error("connection reset");
+    spaceAccess.check.mockRejectedValueOnce(outage);
+
+    // A refusal would clear the reader's Files tree; an outage must not.
+    await expect(
+      runWithRequestContext({ userEmail: VIEWER, orgId: ORG_ID }, () =>
+        queryContentDatabaseItemsAction.run(
+          { databaseId: filesDatabase.id, navigation: { parentId: null } },
+          readerContext(VIEWER),
+        ),
+      ),
+    ).rejects.toBe(outage);
   });
 
   it("removes the retired Parent default from legacy personal Files views", async () => {

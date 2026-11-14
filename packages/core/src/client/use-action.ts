@@ -10,6 +10,7 @@ import type {
   MutateOptions,
   Query,
   QueryClient,
+  QueryKey,
   UseMutateAsyncFunction,
   UseMutateFunction,
   UseMutationOptions,
@@ -1637,6 +1638,79 @@ export function recordActionQueryBrowserPersist(
   }
 }
 
+/**
+ * Whether an `["action", …]` read may start now. Never while the app's API is
+ * off. While the browser's saved results are still being tied to the
+ * signed-in user, only a query already fetching, holding data, or failed
+ * reads; the rest wait for the binding. Without `queryKey`, it answers for a new read.
+ * `useActionQuery` applies this; a hand-written action query passes it to
+ * `enabled`, and a prefetch checks it first.
+ */
+export function useActionQueryCanFetch(queryKey?: QueryKey): boolean {
+  const trustedBindingPending = useContext(
+    trustedActionQueryCacheBindingPendingContext,
+  );
+  const queryClient = useQueryClient();
+  if (agentNativeApiDisabledReason()) return false;
+  if (!trustedBindingPending) return true;
+  const existing = queryKey
+    ? queryClient.getQueryCache().find({ queryKey, exact: true })
+    : undefined;
+  // A query that already failed must stay free to fetch: deferring it aborts
+  // its retry, which React Query treats as a cancel, leaving it pending forever
+  // instead of surfacing the error.
+  return (
+    existing?.state.fetchStatus === "fetching" ||
+    existing?.state.data !== undefined ||
+    (existing?.state.fetchFailureCount ?? 0) > 0
+  );
+}
+
+/**
+ * Runs one read of an `["action", …]` query with `useActionQuery`'s handling
+ * of refused reads and saved results; whether it may start is
+ * `useActionQueryCanFetch`'s call. A 401, 403 or 404 drops the rows the query
+ * showed and the browser's saved copy of its results. A success may join the saved results only for the
+ * binding active when the read began, and only when `read` passes the
+ * `onResponse` it is given to the action call; a read that doesn't is never
+ * saved.
+ */
+export async function runActionQueryRead<R>(
+  client: QueryClient,
+  queryKey: QueryKey,
+  signal: AbortSignal | undefined,
+  read: (onResponse: (response: Response) => void) => Promise<R>,
+): Promise<R> {
+  const query = client.getQueryCache().find({ queryKey, exact: true });
+  const bindingTokenAtFetch = actionQueryCacheBindingToken;
+  let lastResponse: Response | undefined;
+  let result: R;
+  try {
+    result = await read((response) => {
+      lastResponse = response;
+    });
+  } catch (error) {
+    const status = actionErrorStatus(error);
+    if (
+      !signal?.aborted &&
+      (status === 401 || status === 403 || status === 404)
+    ) {
+      if (query) {
+        setAccessDeniedActionQueryBinding(query, bindingTokenAtFetch);
+        revokeBrowserPersistableActionQuery(query);
+        query.setState({ data: undefined, dataUpdatedAt: 0 });
+      }
+      revokeActionQueryCacheForClient(client, bindingTokenAtFetch);
+    }
+    throw error;
+  }
+  if (query && !signal?.aborted) {
+    clearAccessDeniedActionQueryBinding(query);
+    recordActionQueryBrowserPersist(query, lastResponse, bindingTokenAtFetch);
+  }
+  return result;
+}
+
 const UNBATCHED_REFETCHES_META_KEY = "actionUnbatchedRefetches";
 
 /**
@@ -1710,7 +1784,6 @@ export function useActionQuery<
   },
 ) {
   type R = TResult extends undefined ? ActionResult<TName> : TResult;
-  const apiDisabled = Boolean(agentNativeApiDisabledReason());
   const {
     refetchInterval,
     interactive = false,
@@ -1729,36 +1802,11 @@ export function useActionQuery<
     ...restOptions
   } = options ?? {};
   const queryKey = ["action", actionName, params, ...(queryKeyScope ?? [])];
-  const trustedBindingPending = useContext(
-    trustedActionQueryCacheBindingPendingContext,
-  );
   const queryClient = useQueryClient();
-  const existingQuery = trustedBindingPending
-    ? queryClient.getQueryCache().find({ queryKey, exact: true })
-    : undefined;
-  // Only a query that has never attempted a fetch is deferred. Once a fetch has
-  // failed, disabling the query would abort its in-flight retry and React Query
-  // would treat the abort as a cancel, leaving it pending forever with no error
-  // instead of surfacing the retry guidance. `fetchFailureCount` is that "has
-  // failed" signal, so an errored read always reaches the error branch.
-  const deferFetchUntilBound =
-    trustedBindingPending &&
-    existingQuery?.state.fetchStatus !== "fetching" &&
-    existingQuery?.state.data === undefined &&
-    (existingQuery?.state.fetchFailureCount ?? 0) === 0;
+  const canFetch = useActionQueryCanFetch(queryKey);
   const circuitKey = () => hashKey(queryKey);
-  const surfaceOptions = useRef({
-    restOptions,
-    callerEnabled,
-    deferFetchUntilBound,
-    apiDisabled,
-  });
-  surfaceOptions.current = {
-    restOptions,
-    callerEnabled,
-    deferFetchUntilBound,
-    apiDisabled,
-  };
+  const surfaceOptions = useRef({ restOptions, callerEnabled, canFetch });
+  surfaceOptions.current = { restOptions, callerEnabled, canFetch };
   const queryHash = hashKey(queryKey);
   useEffect(() => {
     if (typeof window === "undefined") return;
@@ -1766,8 +1814,7 @@ export function useActionQuery<
       () => queryClient.getQueryCache().get<R>(queryHash),
       (query) => {
         const currentOptions = surfaceOptions.current;
-        if (currentOptions.apiDisabled || currentOptions.deferFetchUntilBound)
-          return false;
+        if (!currentOptions.canFetch) return false;
         const enabled = currentOptions.callerEnabled;
         if (
           !(typeof enabled === "function" ? enabled(query) : enabled !== false)
@@ -1804,7 +1851,7 @@ export function useActionQuery<
         throw new CancelledError({ revert: true });
       const foreground =
         interactive && !isSurfaceHidden() && claimActionQueryForeground(query);
-      const bindingTokenAtFetch = actionQueryCacheBindingToken;
+      const bindingTokenAtFetch = currentActionQueryCacheBinding();
       let requestContext: unknown;
       try {
         requestContext = onRequestStart?.();
@@ -1815,33 +1862,28 @@ export function useActionQuery<
       let lastResponse: Response | undefined;
       let result: R;
       try {
-        result = await actionFetch<R>(actionName, method, params, {
+        result = await runActionQueryRead(
+          client,
+          queryKey,
           signal,
-          ...(foreground
-            ? { headers: { "X-Agent-Native-Interactive": "1" } }
-            : {}),
-          ...(beforeSend ? { beforeSend } : {}),
-          visibleOnly: !restOptions.refetchIntervalInBackground,
-          uiOnly: uiOnly || interactive,
-          retryUiCapability,
-          batch: method === "GET" && canBatchActionQueryFetch(query),
-          onResponse: (response) => {
-            lastResponse = response;
-          },
-        });
+          (onResponse) =>
+            actionFetch<R>(actionName, method, params, {
+              signal,
+              ...(foreground
+                ? { headers: { "X-Agent-Native-Interactive": "1" } }
+                : {}),
+              ...(beforeSend ? { beforeSend } : {}),
+              visibleOnly: !restOptions.refetchIntervalInBackground,
+              uiOnly: uiOnly || interactive,
+              ...(retryUiCapability === undefined ? {} : { retryUiCapability }),
+              batch: method === "GET" && canBatchActionQueryFetch(query),
+              onResponse: (response) => {
+                lastResponse = response;
+                onResponse(response);
+              },
+            }),
+        );
       } catch (error) {
-        const status = actionErrorStatus(error);
-        if (
-          !signal.aborted &&
-          (status === 401 || status === 403 || status === 404)
-        ) {
-          if (query) {
-            setAccessDeniedActionQueryBinding(query, bindingTokenAtFetch);
-            revokeBrowserPersistableActionQuery(query);
-            query.setState({ data: undefined, dataUpdatedAt: 0 });
-          }
-          revokeActionQueryCacheForClient(client, bindingTokenAtFetch);
-        }
         try {
           onServerError?.(error);
         } catch {
@@ -1850,21 +1892,13 @@ export function useActionQuery<
         throw error;
       }
       resetActionFailureCircuit(key);
-      if (query && !signal.aborted) {
-        clearAccessDeniedActionQueryBinding(query);
-        recordActionQueryBrowserPersist(
-          query,
-          lastResponse,
-          bindingTokenAtFetch,
-        );
-      }
       if (!signal.aborted) {
         try {
           onServerResult?.(result, {
             requestContext,
             persistAllowed:
               bindingTokenAtFetch !== undefined &&
-              bindingTokenAtFetch === actionQueryCacheBindingToken &&
+              bindingTokenAtFetch === currentActionQueryCacheBinding() &&
               lastResponse?.headers.get(ACTION_BROWSER_PERSIST_HEADER) ===
                 ACTION_BROWSER_PERSIST_ALLOW,
           });
@@ -1893,7 +1927,7 @@ export function useActionQuery<
     ...restOptions,
     enabled: (query) => {
       if (
-        deferFetchUntilBound ||
+        !canFetch ||
         (!restOptions.refetchIntervalInBackground && isSurfaceHidden())
       )
         return false;
@@ -1916,7 +1950,6 @@ export function useActionQuery<
       ? { refetchInterval: guardActionQueryRefetchInterval(refetchInterval) }
       : {}),
     refetchOnWindowFocus: false,
-    ...(apiDisabled ? { enabled: false as const } : {}),
   });
 }
 

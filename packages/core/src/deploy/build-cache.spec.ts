@@ -188,6 +188,13 @@ describe("workspace deploy build cache", () => {
     await deploy();
 
     expect(builds.sort()).toEqual(APPS);
+    expect(
+      logs.some(
+        (l) =>
+          l.includes("cache MISS alpha") &&
+          l.includes("env:VITE_SOME_PUBLIC_FLAG"),
+      ),
+    ).toBe(true);
   });
 
   it("rebuilds loudly when a cache entry is corrupt and never ships it", async () => {
@@ -403,6 +410,9 @@ describe("build cache input and output integrity", () => {
       RUNNER_TRACKING_ID: "github_one",
       INVOCATION_ID: "one",
       JOURNAL_STREAM: "8:1",
+      SYSTEMD_EXEC_PID: "100",
+      GITHUB_ARTIFACTS: "a",
+      GITHUB_ARTIFACTS_LIST: "a",
     };
     expect(
       hashBuildEnv(
@@ -417,6 +427,9 @@ describe("build cache input and output integrity", () => {
           RUNNER_TRACKING_ID: "github_two",
           INVOCATION_ID: "two",
           JOURNAL_STREAM: "9:2",
+          SYSTEMD_EXEC_PID: "200",
+          GITHUB_ARTIFACTS: "b",
+          GITHUB_ARTIFACTS_LIST: "b",
         },
         ignored,
       ),

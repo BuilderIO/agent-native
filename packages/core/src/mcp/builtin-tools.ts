@@ -21,7 +21,11 @@ import {
 import type { MCPConfig, MCPCallerIdentity } from "./build-server.js";
 import { embedApp } from "./embed-app.js";
 import { frameworkMcpTool } from "./framework-tools.js";
-import { fetchOrgApps, type OrgApp } from "./org-directory.js";
+import {
+  fetchOrgApps,
+  fetchOrgAppsResult,
+  type OrgApp,
+} from "./org-directory.js";
 
 type Params = Record<
   string,
@@ -677,14 +681,106 @@ async function resolveTargetAppOrigin(
   try {
     const { resolveWorkspace } = await import("./workspace-resolve.js");
     const ws = await resolveWorkspace();
-    if (ws.isWorkspace) {
-      const match = ws.apps.find((a) => a.id.toLowerCase() === target);
-      if (match) return { origin: match.url, id: match.id };
-    }
+    if (!ws.isWorkspace) return null;
+    const match = ws.apps.find((a) => a.id.toLowerCase() === target);
+    if (!match) return null;
+    return { origin: match.url, id: match.id };
   } catch {
     return null;
   }
-  return null;
+}
+
+// "unavailable" means a sibling might own this URL but the app lists could not
+// be read; a URL under this app's own base path is never a sibling's.
+function normalizedHttpUrl(raw: string): string | null {
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    return `${url.origin}${url.pathname}${url.search}${url.hash}`;
+  } catch {
+    // coercion-ok: callers treat an unparseable URL as belonging to no sibling app.
+    return null;
+  }
+}
+
+async function resolveWorkspaceAppForUrl(
+  config: MCPConfig,
+  rawTarget: string,
+): Promise<{ appUrl: string; relUrl: string } | "unavailable" | null> {
+  if (!/^https?:\/\//i.test(rawTarget)) return null;
+  const rawUrl = normalizedHttpUrl(rawTarget);
+  if (!rawUrl) return null;
+  const ownBase = getConfiguredAppBasePath();
+  if (ownBase) {
+    const { pathname } = new URL(rawUrl);
+    if (pathname === ownBase || pathname.startsWith(`${ownBase}/`)) return null;
+  }
+  const selfId = currentAppId(config);
+  const candidates: string[] = [];
+  let unavailable = false;
+  try {
+    const { resolveWorkspace } = await import("./workspace-resolve.js");
+    const ws = await resolveWorkspace();
+    if (ws.isWorkspace) {
+      for (const app of ws.apps) {
+        if (app.id.toLowerCase() !== selfId) candidates.push(app.url);
+      }
+    }
+  } catch {
+    unavailable = true;
+  }
+  const directory = await fetchOrgAppsResult({ selfId });
+  if (directory.status === "available") {
+    for (const app of directory.apps) candidates.push(app.url);
+  } else if (directory.reason !== "not-configured") {
+    unavailable = true;
+  }
+  // Longest first, so a root-mounted app cannot shadow a path-mounted sibling.
+  const appUrls = candidates
+    .map((candidate) => normalizedHttpUrl(candidate)?.replace(/\/+$/, ""))
+    .filter((appUrl): appUrl is string => !!appUrl)
+    .sort((a, b) => b.length - a.length);
+  for (const appUrl of appUrls) {
+    if (!rawUrl.startsWith(appUrl)) continue;
+    const rest = rawUrl.slice(appUrl.length);
+    if (rest && !/^[/?#]/.test(rest)) continue;
+    return { appUrl, relUrl: rest.startsWith("/") ? rest : `/${rest}` };
+  }
+  return unavailable ? "unavailable" : null;
+}
+
+// MCP hosts only let the app view frame and fetch the MCP server's own origin,
+// so only apps mounted on that origin can be embedded.
+async function startCrossAppEmbed(
+  targetAppUrl: string,
+  relUrl: string,
+  chrome: string | undefined,
+): Promise<{ startUrl: string; targetPath: string; expiresAt: number } | null> {
+  const { getRequestContext } = await import("../server/request-context.js");
+  const ctx = getRequestContext();
+  const ownerEmail = ctx?.userEmail?.trim();
+  const { getEmbedSessionOrigin } =
+    await import("../server/embed-request-origin.js");
+  const embedOrigin = getEmbedSessionOrigin();
+  if (!ownerEmail || !embedOrigin) return null;
+  let sameOrigin = false;
+  try {
+    sameOrigin = new URL(targetAppUrl).origin === new URL(embedOrigin).origin;
+  } catch {
+    sameOrigin = false;
+  }
+  if (!sameOrigin) return null;
+  const targetPath = withMcpChatBridgeParam(relUrl);
+  const { createEmbedHandoffStartUrl } =
+    await import("../server/embed-handoff.js");
+  const started = await createEmbedHandoffStartUrl({
+    targetAppUrl,
+    targetPath,
+    ownerEmail,
+    orgId: ctx?.orgId,
+    chrome,
+  });
+  return started ? { ...started, targetPath } : null;
 }
 
 function listAppsTool(
@@ -777,11 +873,17 @@ function listAppsTool(
   };
 }
 
-function openAppTool(config: MCPConfig): ActionEntry {
+function openAppTool(config: MCPConfig, inlineMcpApps: boolean): ActionEntry {
   return {
     tool: {
       ...tool(
-        "Show a found or created mail, event, document, or record when viewing it is the useful result. Returns a registered app route for the chat client to open beside the conversation.",
+        "Build a deep link that opens an app at a specific view/record or " +
+          "focused route/component. No side " +
+          "effects — returns a URL the user can click to land in the running UI. " +
+          "Set embed:true when a UI-capable MCP host should render the live app " +
+          "or focused route/component inline; another workspace app on this " +
+          "server's origin embeds unless embed is false. Omit view and path to land on the " +
+          "app's home page. Omit app to open this app.",
         {
           app: { type: "string", description: "App id, e.g. 'mail'" },
           view: {
@@ -837,6 +939,12 @@ function openAppTool(config: MCPConfig): ActionEntry {
       }
       const embeddedParam = params?.embed;
       const chromeParam = params?.chrome;
+      const embedChosen =
+        args.embed != null ||
+        embeddedParam === true ||
+        embeddedParam === false ||
+        embeddedParam === "true" ||
+        embeddedParam === "false";
       let embed =
         (args.embed == null && !requestedApp && !view && !args.path) ||
         args.embed === true ||
@@ -904,6 +1012,18 @@ function openAppTool(config: MCPConfig): ActionEntry {
       let embedStartUrl: string | undefined;
       let embedTargetPath: string | undefined;
       let embedExpiresAt: number | undefined;
+
+      if (targetApp && (embed || !embedChosen)) {
+        const started = inlineMcpApps
+          ? await startCrossAppEmbed(targetApp.origin, relUrl, chrome)
+          : null;
+        embed = !!started;
+        if (started) {
+          embedStartUrl = started.startUrl;
+          embedTargetPath = started.targetPath;
+          embedExpiresAt = started.expiresAt;
+        }
+      }
 
       if (embed && !targetApp) {
         const { getRequestContext } =
@@ -975,7 +1095,10 @@ function openAppTool(config: MCPConfig): ActionEntry {
   };
 }
 
-function createEmbedSessionTool(identity?: MCPCallerIdentity): ActionEntry {
+function createEmbedSessionTool(
+  config: MCPConfig,
+  identity?: MCPCallerIdentity,
+): ActionEntry {
   return {
     tool: {
       ...tool(
@@ -1073,6 +1196,28 @@ function createEmbedSessionTool(identity?: MCPCallerIdentity): ActionEntry {
           : typeof args.path === "string"
             ? args.path
             : "";
+      // The chat runtime only grants this app's own routes.
+      const sibling = chat
+        ? null
+        : await resolveWorkspaceAppForUrl(config, rawTarget);
+      if (sibling === "unavailable") {
+        throw new Error(
+          "create_embed_session could not look up the workspace apps; try again.",
+        );
+      }
+      if (sibling) {
+        const started = await startCrossAppEmbed(
+          sibling.appUrl,
+          sibling.relUrl,
+          typeof args.chrome === "string" ? args.chrome : undefined,
+        );
+        if (!started) {
+          throw new Error(
+            "create_embed_session cannot embed this workspace app from here.",
+          );
+        }
+        return started;
+      }
       const targetPath = normalizeEmbedTargetPath(rawTarget, embedOrigin);
       if (!targetPath) {
         throw new Error(
@@ -1615,9 +1760,9 @@ export function getBuiltinCrossAppTools(
 ): Record<string, ActionEntry> {
   return {
     list_apps: listAppsTool(config, requestMeta),
-    open_app: openAppTool(config),
+    open_app: openAppTool(config, requestMeta?.inlineMcpApps === true),
     ...(requestMeta?.inlineMcpApps === true
-      ? { create_embed_session: createEmbedSessionTool(identity) }
+      ? { create_embed_session: createEmbedSessionTool(config, identity) }
       : {}),
     ask_app: askAppTool(config, requestMeta),
     ask_app_status: askAppStatusTool(config, requestMeta),

@@ -90,6 +90,8 @@ const VOLATILE_ENV_PREFIXES = [
   "runner_tracking_id",
   "invocation_id",
   "journal_stream",
+  "systemd_exec_pid",
+  "github_artifacts",
   "actions_",
   "github_run_",
   "github_sha",
@@ -393,10 +395,14 @@ function collectWorkspaceDependencies(
   }
 }
 
-export function hashBuildEnv(
+/**
+ * One short digest per build-affecting variable, keyed by name, so a miss can
+ * name the variable that changed instead of only saying the environment did.
+ */
+export function buildEnvComponents(
   env: NodeJS.ProcessEnv,
   envIgnore: string[],
-): string {
+): Record<string, string> {
   const ignored = (name: string) =>
     VOLATILE_ENV_NAMES.has(name) ||
     VOLATILE_ENV_PREFIXES.some((p) => name.toLowerCase().startsWith(p)) ||
@@ -405,13 +411,22 @@ export function hashBuildEnv(
         ? name.startsWith(pattern.slice(0, -1))
         : name === pattern,
     );
-  const hash = crypto.createHash("sha256");
+  const components: Record<string, string> = {};
   for (const name of Object.keys(env).sort()) {
     const value = env[name];
     if (value === undefined || ignored(name)) continue;
-    hash.update(`${name}\0${sha256(value)}\n`);
+    components[`env:${name}`] = sha256(value).slice(0, 12);
   }
-  return hash.digest("hex");
+  return components;
+}
+
+export function hashBuildEnv(
+  env: NodeJS.ProcessEnv,
+  envIgnore: string[],
+): string {
+  return sha256(
+    JSON.stringify(Object.entries(buildEnvComponents(env, envIgnore))),
+  );
 }
 
 /**
@@ -450,7 +465,7 @@ export function computeAppCacheKey(
     app,
     source: hashAppSource(runtime.workspaceRoot, appDir),
     root: hashWorkspaceRootFiles(runtime.workspaceRoot),
-    env: hashBuildEnv(env, runtime.envIgnore),
+    ...buildEnvComponents(env, runtime.envIgnore),
     ...Object.fromEntries(
       Object.entries(depHashes).map(([name, h]) => [`dep:${name}`, h]),
     ),
