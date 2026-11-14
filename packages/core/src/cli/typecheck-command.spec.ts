@@ -236,6 +236,9 @@ describe("agent-native typecheck compiler lookup", () => {
     expect(result.stderr).toMatch(
       /Could not execute tsc; check that TypeScript and its interpreter are installed/i,
     );
+    expect(result.stderr).not.toMatch(
+      /Unexpected error|Report this bug|Send feedback/i,
+    );
   });
 
   it("reports a missing compiler when the PATH compiler is a dangling symlink", () => {
@@ -251,6 +254,9 @@ describe("agent-native typecheck compiler lookup", () => {
     expect(result.stderr).toMatch(/spawn tsc ENOENT/);
     expect(result.stderr).toMatch(
       /Could not execute tsc; check that TypeScript and its interpreter are installed/i,
+    );
+    expect(result.stderr).not.toMatch(
+      /Unexpected error|Report this bug|Send feedback/i,
     );
   });
 
@@ -316,6 +322,9 @@ describe("agent-native typecheck compiler lookup", () => {
     expect(result.stderr).toMatch(
       /Could not execute tsc; check that TypeScript and its interpreter are installed/i,
     );
+    expect(result.stderr).not.toMatch(
+      /Unexpected error|Report this bug|Send feedback/i,
+    );
   });
 
   it("preserves a PATH compiler's missing-interpreter error", () => {
@@ -331,6 +340,9 @@ describe("agent-native typecheck compiler lookup", () => {
     expect(result.stderr).toMatch(/spawn tsc ENOENT/);
     expect(result.stderr).toMatch(
       /Could not execute tsc; check that TypeScript and its interpreter are installed/i,
+    );
+    expect(result.stderr).not.toMatch(
+      /Unexpected error|Report this bug|Send feedback/i,
     );
   });
 
@@ -358,6 +370,7 @@ describe("agent-native typecheck compiler lookup", () => {
     const result = run(cwd, pathDir);
     expect(result.status).not.toBe(0);
     expect(result.stderr).toMatch(/EACCES/);
+    expect(result.stderr).toMatch(/Unexpected error/);
     expect(result.stderr).not.toMatch(/(?:install|add).*typescript/i);
   });
 
@@ -373,6 +386,7 @@ describe("agent-native typecheck compiler lookup", () => {
     const result = run(cwd, pathDir);
     expect(result.status).not.toBe(0);
     expect(result.stderr).toMatch(/EACCES/);
+    expect(result.stderr).toMatch(/Unexpected error/);
     expect(result.stderr).not.toMatch(/(?:install|add).*typescript/i);
   });
 });

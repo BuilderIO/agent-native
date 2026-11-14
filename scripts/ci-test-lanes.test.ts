@@ -4,6 +4,7 @@ import test from "node:test";
 import {
   assertFullCoverage,
   catalogContractCoreSpecs,
+  cliEntryCoreSpecs,
   partitionTargetedWeighted,
   partitionWeighted,
   requiresFullCoreFastTests,
@@ -95,6 +96,21 @@ test("falls back to all core tests for fixture, config, and instruction changes"
   assert.equal(
     requiresFullCoreFastTests(["packages/core/docs/content/deployment.mdx"]),
     false,
+  );
+});
+
+test("includes disk-referenced CLI entry tests only when the entry changes", () => {
+  assert.deepEqual(cliEntryCoreSpecs(["packages/core/src/cli/index.ts"]), [
+    "src/cli/create-tui.spec.ts",
+    "src/cli/telemetry-routing.spec.ts",
+    "src/cli/typecheck-ancestor.spec.ts",
+    "src/cli/typecheck-command.spec.ts",
+    "src/cli/typecheck-path-permissions.spec.ts",
+  ]);
+  assert.deepEqual(cliEntryCoreSpecs(["packages/core/src/cli/process.ts"]), []);
+  assert.deepEqual(
+    cliEntryCoreSpecs(["packages/core/src/cli/index.spec.ts"]),
+    [],
   );
 });
 

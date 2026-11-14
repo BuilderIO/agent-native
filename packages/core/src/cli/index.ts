@@ -261,9 +261,11 @@ function runTypeScriptCompiler(args: string[]): void {
     spawnProcess: process.platform === "win32" ? crossSpawn.spawn : spawn,
     onError: (error) => {
       if (fallback && error.code === "ENOENT") {
+        console.error(error.message);
         console.error(
           "Could not execute tsc; check that TypeScript and its interpreter are installed.",
         );
+        process.exit(1);
       }
       throw error;
     },
