@@ -1,4 +1,7 @@
+import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
 import { IDBFactory, IDBKeyRange } from "fake-indexeddb";
+import { createElement, type ReactNode } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -17,6 +20,7 @@ vi.mock("@/lib/local-recording-upload", async (importOriginal) => ({
   trashStaleServerRecordings: mocks.trashStaleServerRecordings,
 }));
 
+import { i18nCatalog } from "@/i18n";
 import {
   claimRecordingBackupLock,
   getRecordingBackupMeta,
@@ -335,6 +339,17 @@ describe("watchLocalRecordings", () => {
 describe("offerLocalRecording", () => {
   const t = (key: string) => key;
 
+  function renderMessage(message: ReactNode) {
+    return renderToStaticMarkup(
+      createElement(AgentNativeI18nProvider, {
+        catalog: i18nCatalog,
+        initialLocale: "en-US",
+        persistPreference: false,
+        children: message,
+      }),
+    );
+  }
+
   function clickOffer(
     onFinish = vi.fn(),
     ownerEmail: string | null = "me@example.com",
@@ -356,10 +371,9 @@ describe("offerLocalRecording", () => {
   it("re-checks the copy's lock at click time before finishing in place", async () => {
     await claimRecordingBackupLock("rec-1");
     const { onFinish, navigate } = clickOffer();
-    await vi.waitFor(() =>
-      expect(mocks.toastInfo).toHaveBeenCalledWith(
-        "recordRoute.localRecordingOpenElsewhere",
-      ),
+    await vi.waitFor(() => expect(mocks.toastInfo).toHaveBeenCalledOnce());
+    expect(renderMessage(mocks.toastInfo.mock.lastCall?.[0])).toBe(
+      "That recording is still open in another Clips tab.",
     );
     expect(onFinish).not.toHaveBeenCalled();
     expect(navigate).not.toHaveBeenCalled();
@@ -374,9 +388,9 @@ describe("offerLocalRecording", () => {
     await saveCopy(meta("rec-1", { localOnly: true }));
     clickOffer();
     const options = mocks.toastWarning.mock.lastCall![1] as {
-      cancel: { label: string; onClick: () => void };
+      cancel: { label: ReactNode; onClick: () => void };
     };
-    expect(options.cancel.label).toBe("recordRoute.remindTomorrow");
+    expect(renderMessage(options.cancel.label)).toBe("Remind me tomorrow");
 
     options.cancel.onClick();
 
@@ -393,8 +407,8 @@ describe("offerLocalRecording", () => {
       expect(navigate).toHaveBeenCalledWith("/record?localRecording=rec-1"),
     );
     expect(onFinish).not.toHaveBeenCalled();
-    expect(mocks.toastWarning.mock.lastCall![0]).toBe(
-      "recordRoute.unclaimedRecording",
+    expect(renderMessage(mocks.toastWarning.mock.lastCall?.[0])).toBe(
+      "A recording in this browser isn&#x27;t linked to an account",
     );
   });
 });

@@ -285,10 +285,13 @@ export function formatSqlChartError(error: unknown): string {
       : typeof error === "string"
         ? error
         : stringifyValue(error);
+  // The action client names the failed action before the server's message,
+  // which says nothing to someone reading a panel.
   const readableMessage = message
     .replace(/<[^>]*>/g, " ")
     .replace(/\s+/g, " ")
-    .trim();
+    .trim()
+    .replace(/^Action [\w-]+ failed:\s*/, "");
 
   if (/inactivity timeout|too much time has passed/i.test(readableMessage)) {
     return "This chart took too long to load. Try again.";
@@ -1979,7 +1982,7 @@ export function SqlChart({
       <div className="px-1 py-2">
         <DashboardPanelDescription
           description={panel.config?.description}
-          className="text-sm text-muted-foreground"
+          className="text-xs leading-relaxed text-muted-foreground"
         />
       </div>
     );
@@ -2117,10 +2120,11 @@ export function SqlChart({
     }
 
     return (
-      <div className="flex h-full min-h-0 flex-col gap-2">
+      <div className="flex h-full min-h-0 flex-col gap-1.5">
         <DashboardPanelDescription
           description={panel.config.description}
-          className="text-sm text-muted-foreground"
+          collapsible
+          className="shrink-0 text-xs leading-relaxed text-muted-foreground"
         />
         <div className="min-h-0 flex-1">{content}</div>
       </div>

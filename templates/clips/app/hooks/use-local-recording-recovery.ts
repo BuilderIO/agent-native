@@ -1,6 +1,6 @@
 import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
-import { useEffect, useRef } from "react";
+import { createElement, useEffect, useRef } from "react";
 import { useNavigate } from "react-router";
 import { toast } from "sonner";
 
@@ -23,6 +23,15 @@ import {
 } from "@/lib/recording-backup";
 
 const RECOVERY_TOAST_ID = "clips-local-recording-recovery";
+
+function RecoveryMessage({ messageKey }: { messageKey: string }) {
+  const t = useT();
+  return t(messageKey);
+}
+
+function recoveryMessage(messageKey: string) {
+  return createElement(RecoveryMessage, { messageKey });
+}
 
 /** Rechecks while a copy's server row is still processing; the last repeats. */
 const PROCESSING_RECHECK_MS = [15_000, 30_000, 60_000, 120_000, 300_000];
@@ -167,6 +176,7 @@ export function watchLocalRecordings(
   handlers: {
     onResult: (scan: LocalRecordingScan) => void;
     onError: (error: unknown, retry: () => void) => void;
+    onRetryAvailable?: (retry: () => void) => void;
   },
   delaysMs: readonly number[] = PROCESSING_RECHECK_MS,
 ): () => void {
@@ -205,6 +215,7 @@ export function watchLocalRecordings(
   if (typeof document !== "undefined") {
     document.addEventListener("visibilitychange", onVisible);
   }
+  handlers.onRetryAvailable?.(scan);
   scan();
   return () => {
     stopped = true;
@@ -229,22 +240,22 @@ export function offerLocalRecording(options: {
   navigate: (path: string) => unknown;
   onFinish?: (recordingId: string) => void;
 }): void {
-  const { meta, t, navigate, onFinish } = options;
+  const { meta, navigate, onFinish } = options;
   const unclaimed = !meta.ownerEmail;
   // Uploaded and kept, or still processing on the server.
   const kept = !!meta.keptAfterUpload || meta.state === "uploaded";
   toast.warning(
     unclaimed
-      ? t("recordRoute.unclaimedRecording")
+      ? recoveryMessage("recordRoute.unclaimedRecording")
       : kept
-        ? t("recordRoute.keptCopyWaiting")
-        : t("recordRoute.unfinishedRecording"),
+        ? recoveryMessage("recordRoute.keptCopyWaiting")
+        : recoveryMessage("recordRoute.unfinishedRecording"),
     {
       id: RECOVERY_TOAST_ID,
       duration: Infinity,
       closeButton: true,
       cancel: {
-        label: t("recordRoute.remindTomorrow"),
+        label: recoveryMessage("recordRoute.remindTomorrow"),
         onClick: () => {
           void remindLaterAboutLocalRecording(meta.recordingId).catch(
             (err: unknown) => {
@@ -256,14 +267,16 @@ export function offerLocalRecording(options: {
       action: {
         label:
           unclaimed || kept
-            ? t("recordRoute.reviewRecording")
-            : t("recordRoute.finishUpload"),
+            ? recoveryMessage("recordRoute.reviewRecording")
+            : recoveryMessage("recordRoute.finishUpload"),
         onClick: () => {
           void (async () => {
             // coercion-ok: null is "liveness unknown"; the recorder claims the lock before it acts.
             const live = await liveRecordingBackupIds().catch(() => null);
             if (live?.has(meta.recordingId)) {
-              toast.info(t("recordRoute.localRecordingOpenElsewhere"));
+              toast.info(
+                recoveryMessage("recordRoute.localRecordingOpenElsewhere"),
+              );
               return;
             }
             if (onFinish && !unclaimed) {
@@ -293,12 +306,16 @@ export function useLocalRecordingRecovery(
   const navigate = useNavigate();
   const { session } = useSession();
   const ownerEmail = session?.email ?? null;
+  const retryRef = useRef<(() => void) | null>(null);
   const onFinishRef = useRef(onFinish);
   onFinishRef.current = onFinish;
 
   useEffect(() => {
     if (!enabled || !ownerEmail || !recordingBackupAvailable()) return;
-    return watchLocalRecordings(ownerEmail, {
+    const stop = watchLocalRecordings(ownerEmail, {
+      onRetryAvailable: (retry) => {
+        retryRef.current = retry;
+      },
       onResult: ({ pending }) => {
         const newest = pending[0];
         if (!newest) return;
@@ -312,15 +329,23 @@ export function useLocalRecordingRecovery(
             : undefined,
         });
       },
-      onError: (error, retry) => {
+      onError: (error) => {
         console.warn("[clips] local recording recovery scan failed:", error);
-        toast.error(t("recordRoute.savedRecordingsUnreadable"), {
+        toast.error(recoveryMessage("recordRoute.savedRecordingsUnreadable"), {
           id: RECOVERY_TOAST_ID,
           duration: Infinity,
           closeButton: true,
-          action: { label: t("recordRoute.tryAgain"), onClick: retry },
+          cancel: undefined,
+          action: {
+            label: recoveryMessage("recordRoute.tryAgain"),
+            onClick: () => retryRef.current?.(),
+          },
         });
       },
     });
+    return () => {
+      retryRef.current = null;
+      stop();
+    };
   }, [enabled, navigate, ownerEmail, t]);
 }

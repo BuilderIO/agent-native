@@ -54,6 +54,11 @@ describe("extension SQL gate — comment-evasion resistance", () => {
         matchesSqlGate(SENSITIVE_SQL_RE, "SELECT * FROM app_secrets"),
       ).toBe(true);
     });
+    it("blocks the Dispatch vault", () => {
+      expect(
+        matchesSqlGate(SENSITIVE_SQL_RE, "SELECT value FROM vault_secrets"),
+      ).toBe(true);
+    });
     it("blocks a comment-split sensitive table name", () => {
       expect(
         matchesSqlGate(SENSITIVE_SQL_RE, "SELECT * FROM app/**/_secrets"),

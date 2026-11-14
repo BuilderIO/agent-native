@@ -12,7 +12,10 @@ export async function readPeerComposerSource(
   request: ComposerSourceRequest,
   selfAppId: "design" | "slides",
 ): Promise<ComposerSourceResult> {
-  const target = request.source === "slides" ? "slides" : "design";
+  const target =
+    request.source === "slides" || request.source === "content"
+      ? request.source
+      : "design";
   if (target === selfAppId) {
     fail("Read this reference in its owning app.", {
       errorCode: "composer_source_local",
@@ -82,5 +85,33 @@ export async function readPeerComposerSource(
       errorCode: "composer_peer_invalid_response",
     });
   }
-  return parsed.data;
+  return withAbsoluteUrls(parsed.data, response.target.url);
+}
+
+// A peer may return app-relative links; anchor them to the peer, not the caller.
+// A peer reached through its explicit A2A endpoint is anchored to its app base.
+function withAbsoluteUrls(
+  result: ComposerSourceResult,
+  peerUrl: string,
+): ComposerSourceResult {
+  const absolute = (url: string | undefined) => {
+    if (!url || !url.startsWith("/") || url.startsWith("//")) return url;
+    if (!URL.canParse(peerUrl)) return url;
+    const peer = new URL(peerUrl);
+    const base = peer.pathname
+      .replace(/\/+$/, "")
+      .replace(/\/(?:_agent-native\/)?a2a$/, "");
+    const path =
+      base && (url === base || url.startsWith(`${base}/`)) ? url : base + url;
+    return `${peer.origin}${path}`;
+  };
+  if ("items" in result) {
+    return {
+      ...result,
+      items: result.items.map((item) =>
+        item.url ? { ...item, url: absolute(item.url) } : item,
+      ),
+    };
+  }
+  return result.url ? { ...result, url: absolute(result.url) } : result;
 }

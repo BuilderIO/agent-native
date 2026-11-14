@@ -63,6 +63,8 @@ ids appear in the results.
 - `question` is report-only (`gating: false` in `baseline.json`) because
   search doesn't yet satisfy an AND-of-every-word match against a natural
   question. A later phase flips it to gating once search targets it.
+  The question-search bake-off (`../question-search/`) compares ways of
+  answering these cases, with and without a model.
 
 ## Running
 

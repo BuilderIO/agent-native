@@ -95,6 +95,11 @@ import {
   mcpUrlRequiresOrganizationScope,
 } from "../client/resources/mcp-integration-catalog.js";
 import { CredentialStoreUnavailableError } from "../server/credential-provider.js";
+import {
+  SessionResolutionUnavailableError,
+  SessionResolutionLookupError,
+} from "../server/session-resolution-errors.js";
+import { ForbiddenError } from "../sharing/errors.js";
 import { McpOAuthRegistrationUnsupportedError } from "./oauth-client.js";
 import {
   bindMcpOAuthAuthorizationScope,
@@ -239,6 +244,107 @@ describe("MCP OAuth callback flow validation", () => {
       server: persistedServer,
     });
   });
+
+  describe.each(["start", "callback"] as const)(
+    "%s identity failures",
+    (phase) => {
+      describe.each(["session", "org"] as const)("%s lookup", (boundary) => {
+        it.each(["transient", "permanent", "forbidden"] as const)(
+          "preserves %s failures before OAuth work",
+          async (kind) => {
+            const cause = Object.assign(
+              new Error("fake private OAuth membership failure"),
+              { code: "57014" },
+            );
+            const failure =
+              kind === "transient"
+                ? new SessionResolutionUnavailableError({ cause })
+                : kind === "permanent"
+                  ? new SessionResolutionLookupError(cause)
+                  : new ForbiddenError();
+            const routes: Array<{ handler: (event: H3Event) => unknown }> = [];
+            callbackMocks.getH3App.mockReturnValue({
+              use: (_base: string, handler: (event: H3Event) => unknown) =>
+                routes.push({ handler }),
+            });
+            callbackMocks.getSession.mockResolvedValue({
+              email: "alice@example.com",
+            });
+            callbackMocks.getOrgContext.mockResolvedValue({
+              email: "alice@example.com",
+              orgId: "org-acme",
+              role: "owner",
+            });
+            callbackMocks[
+              boundary === "session" ? "getSession" : "getOrgContext"
+            ].mockRejectedValue(failure);
+            const flow: McpOAuthFlow = {
+              ...baseFlow,
+              scope: "org",
+              scopeId: "org-acme",
+              orgId: "org-acme",
+              expiresAt: Date.now() + 60_000,
+            };
+            const writeEvent = mockEvent(
+              new Request("https://app.example.com/start"),
+            );
+            setMcpOAuthFlowCookie(writeEvent, flow, false);
+            const cookie = writeEvent.res.headers
+              .getSetCookie()
+              .map((value) => value.split(";", 1)[0])
+              .join("; ");
+            const url =
+              phase === "start"
+                ? "https://app.example.com/start?name=linear&url=https%3A%2F%2Fmcp.example.com%2Fmcp&scope=org"
+                : `https://app.example.com/callback?state=${encodeURIComponent(flow.state)}&code=fake-code`;
+            const event = mockEvent(new Request(url, { headers: { cookie } }));
+            const reconfigure = vi.fn(async () => true);
+            mountMcpOAuthRoutes({}, { reconfigure });
+            const handler = routes[0]?.handler;
+            if (!handler) throw new Error("Missing OAuth test route");
+            await expect(Promise.resolve(handler(event))).rejects.toBe(failure);
+            expect(event.res.headers.getSetCookie()).toEqual([]);
+            expect(
+              callbackMocks.startMcpOAuthAuthorization,
+            ).not.toHaveBeenCalled();
+            expect(
+              callbackMocks.finishMcpOAuthAuthorization,
+            ).not.toHaveBeenCalled();
+            expect(callbackMocks.addOAuthRemoteServer).not.toHaveBeenCalled();
+            expect(
+              callbackMocks.replaceOAuthRemoteServer,
+            ).not.toHaveBeenCalled();
+            expect(reconfigure).not.toHaveBeenCalled();
+            if (
+              phase === "callback" &&
+              boundary === "org" &&
+              kind === "transient"
+            ) {
+              callbackMocks.getOrgContext.mockResolvedValue({
+                email: "alice@example.com",
+                orgId: "org-acme",
+                role: "owner",
+              });
+              const retry = mockEvent(
+                new Request(url, { headers: { cookie } }),
+              );
+              const result = await handler(retry);
+              expect(result).toBeInstanceOf(Response);
+              expect(
+                callbackMocks.finishMcpOAuthAuthorization,
+              ).toHaveBeenCalledTimes(1);
+              expect(callbackMocks.addOAuthRemoteServer).toHaveBeenCalledWith(
+                "org",
+                "org-acme",
+                expect.objectContaining({ name: flow.name, url: flow.url }),
+              );
+              expect(reconfigure).toHaveBeenCalledTimes(1);
+            }
+          },
+        );
+      });
+    },
+  );
 
   it("rejects anonymous OAuth starts before org lookup or MCP work", async () => {
     const routes: Array<{ handler: (event: H3Event) => unknown }> = [];

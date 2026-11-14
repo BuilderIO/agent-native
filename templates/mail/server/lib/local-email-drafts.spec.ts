@@ -94,6 +94,74 @@ describe("updateLocalSavedDraft", () => {
     expect(written[1]).toEqual(sent);
   });
 
+  it("replaces the draft's files when an update names them", async () => {
+    mocks.readLocalEmails.mockResolvedValue([
+      {
+        id: "local-draft-1",
+        isDraft: true,
+        labelIds: ["drafts"],
+        attachments: [
+          { id: "old", filename: "old.txt", mimeType: "text/plain", size: 1 },
+        ],
+      },
+    ]);
+
+    await updateLocalSavedDraft({
+      ownerEmail: "owner@example.com",
+      draftId: "local-draft-1",
+      to: "recipient@example.com",
+      subject: "Subject",
+      body: "Body",
+      attachments: [
+        {
+          id: "abc123.pdf",
+          filename: "abc123.pdf",
+          originalName: "invoice.pdf",
+          mimeType: "application/pdf",
+          size: 2048,
+          url: "https://cdn.builder.io/o/assets/abc123",
+        },
+      ],
+    });
+
+    expect(mocks.writeLocalEmails.mock.calls[0]?.[1][0].attachments).toEqual([
+      {
+        id: "abc123.pdf",
+        filename: "invoice.pdf",
+        mimeType: "application/pdf",
+        size: 2048,
+        url: "https://cdn.builder.io/o/assets/abc123",
+      },
+    ]);
+  });
+
+  it("links a file on this server's disk by its filename", async () => {
+    mocks.readLocalEmails.mockResolvedValue([
+      { id: "local-draft-1", isDraft: true, labelIds: ["drafts"] },
+    ]);
+
+    await updateLocalSavedDraft({
+      ownerEmail: "owner@example.com",
+      draftId: "local-draft-1",
+      to: "recipient@example.com",
+      subject: "Subject",
+      body: "Body",
+      attachments: [
+        {
+          id: "abc123.pdf",
+          filename: "abc123.pdf",
+          originalName: "invoice.pdf",
+          mimeType: "application/pdf",
+          size: 2048,
+        },
+      ],
+    });
+
+    expect(
+      mocks.writeLocalEmails.mock.calls[0]?.[1][0].attachments?.[0]?.url,
+    ).toBe("/api/media/abc123.pdf");
+  });
+
   it("says so, and writes nothing, when the exact local draft is missing", async () => {
     await expect(
       updateLocalSavedDraft({
@@ -273,5 +341,27 @@ describe("createLocalSavedDraft", () => {
         url: "/uploads/b.txt",
       },
     ]);
+  });
+
+  it("links a Gmail attachment with no stored address to Mail's route", async () => {
+    await createLocalSavedDraft({
+      ...fields,
+      attachments: [
+        {
+          id: "gmail-att",
+          filename: "brief.pdf",
+          originalName: "brief.pdf",
+          mimeType: "application/pdf",
+          size: 3,
+          source: "gmail",
+          gmailMessageId: "m1",
+          gmailAttachmentId: "gmail-att",
+        },
+      ],
+    });
+
+    expect(written().attachments?.[0]?.url).toBe(
+      "/api/attachments?messageId=m1&id=gmail-att&mimeType=application%2Fpdf",
+    );
   });
 });

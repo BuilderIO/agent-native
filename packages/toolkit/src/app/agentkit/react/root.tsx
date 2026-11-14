@@ -32,6 +32,7 @@ import {
   type AgentKitBranchNavigation,
   type AgentKitCopyMessageHandler,
   type AgentKitFeedbackReportBuilder,
+  type AgentKitProviderProps,
   type AgentKitRegistry,
   type AgentKitRenderFailure,
   type AgentKitRunUsageLoader,
@@ -99,6 +100,7 @@ export interface AgentKitRootBaseProps {
   workedForRowLayout?: AgentChatWorkedForRowLayout;
   dataChartLayout?: AgentChatDataChartLayout;
   formatWorkedForDuration?: (durationMs: number) => string;
+  formatAgentInteractionDetail?: AgentKitProviderProps["formatAgentInteractionDetail"];
   /** Display name for a model id in run details; the id shows without it. */
   formatModelName?: (model: string) => string;
   onClientEffect?: (effect: {
@@ -144,6 +146,7 @@ export function AgentKitRoot({
   workedForRowLayout,
   dataChartLayout,
   formatWorkedForDuration,
+  formatAgentInteractionDetail,
   formatModelName,
   onClientEffect,
   load = "auto",
@@ -430,6 +433,7 @@ export function AgentKitRoot({
       workedForRowLayout={workedForRowLayout}
       dataChartLayout={dataChartLayout}
       formatWorkedForDuration={formatWorkedForDuration}
+      formatAgentInteractionDetail={formatAgentInteractionDetail}
       formatModelName={formatModelName}
       onClientEffect={onClientEffect}
     >

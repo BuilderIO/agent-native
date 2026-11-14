@@ -152,6 +152,15 @@ const mcpApp: AgentMcpAppPayload = {
   toolResult: {},
 };
 
+// The summary's trace line is `display: contents`: its parts are the row's.
+function summaryParts(summary: Element | null | undefined): Element[] {
+  return Array.from(summary?.children ?? []).flatMap((child) =>
+    child.classList.contains("agentkit-trace-line")
+      ? Array.from(child.children)
+      : [child],
+  );
+}
+
 describe("ToolCallDisplay native renderers", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -529,7 +538,12 @@ describe("ToolCallDisplay native renderers", () => {
       "button[aria-expanded]",
     );
     expect(disclosure?.getAttribute("aria-expanded")).toBe("false");
-    expect(container.textContent).not.toContain(errorMessage);
+    // Closed, the output stays in the DOM, hidden, for find-in-page.
+    expect(
+      container
+        .querySelector(".agentkit-terminal-body")
+        ?.getAttribute("hidden"),
+    ).toBe("until-found");
     expect(container.querySelector(".text-destructive")).toBeNull();
 
     act(() => disclosure?.click());
@@ -1644,13 +1658,10 @@ describe("ToolCallDisplay native renderers", () => {
       "button.agentkit-disclosure-summary",
     );
     expect(trigger?.getAttribute("aria-expanded")).toBe("false");
-    expect(trigger?.children[0]?.className).toContain(
-      "agentkit-disclosure-icon-slot",
-    );
-    expect(trigger?.children[1]?.className).toContain(
-      "agentkit-disclosure-label",
-    );
-    expect(trigger?.children[2]?.getAttribute("class")).toContain(
+    const parts = summaryParts(trigger);
+    expect(parts[0]?.className).toContain("agentkit-disclosure-icon-slot");
+    expect(parts[1]?.className).toContain("agentkit-disclosure-label");
+    expect(parts[2]?.getAttribute("class")).toContain(
       "agentkit-disclosure-chevron",
     );
 
@@ -2955,11 +2966,10 @@ describe("WorkedForSummary", () => {
 
     const button = container.querySelector("button[aria-expanded]");
     expect(button?.classList).toContain("agentkit-disclosure-summary");
-    expect(button?.children[0]?.className).toContain(
-      "agentkit-disclosure-icon-slot",
-    );
-    expect(button?.children[1]?.textContent).toBe("Worked for 5s");
-    expect(button?.children[2]?.getAttribute("class")).toContain(
+    const parts = summaryParts(button);
+    expect(parts[0]?.className).toContain("agentkit-disclosure-icon-slot");
+    expect(parts[1]?.textContent).toBe("Worked for 5s");
+    expect(parts[2]?.getAttribute("class")).toContain(
       "agentkit-disclosure-chevron",
     );
     expect(button?.getAttribute("aria-controls")).toBeNull();
@@ -3374,7 +3384,9 @@ describe("ApprovalAffordance", () => {
     ) as HTMLParagraphElement;
     const actionButtons = Array.from(approvalCard.querySelectorAll("button"));
 
-    expect(approvalCard.className).toContain("rounded-lg");
+    expect(approvalCard.className).toContain(
+      "rounded-[var(--agent-kit-radius-sm,0.5rem)]",
+    );
     expect(approvalCopy.className).toContain("font-medium");
     // The card lets the question wrap instead of truncating it.
     expect(
