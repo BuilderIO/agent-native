@@ -5380,7 +5380,20 @@ describe("ReviewCanvasPins persisted thread popover", () => {
             ),
         );
 
-      it("keeps no comment draft of a reprompt whose send failed", async () => {
+      it("keeps a reprompt whose send failed out of the screen's kept comment, and the comment when it's dismissed", async () => {
+        const keptComment = {
+          [`new:${JSON.stringify(["screen-1", "screen-1"])}`]:
+            "Make the background darker",
+        };
+        await renderPins({ ...signedIn, active: true });
+        await placePin();
+        await act(async () =>
+          document
+            .querySelector<HTMLButtonElement>("[data-review-test-type]")
+            ?.click(),
+        );
+        expect(storedDraftTexts()).toEqual(keptComment);
+
         mocks.sendToAgent.mockResolvedValueOnce({
           delivered: false,
           reason: "The agent is busy",
@@ -5401,12 +5414,21 @@ describe("ReviewCanvasPins persisted thread popover", () => {
         });
         await act(async () => {});
         expect(mocks.sendToAgent).toHaveBeenCalled();
+        const field = document.querySelector<HTMLTextAreaElement>(
+          "[data-review-test-textarea]",
+        );
+        expect(field?.value).toBe("Make it blue");
+        expect(storedDraftTexts()).toEqual(keptComment);
+
+        await act(async () => {
+          field?.dispatchEvent(
+            new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+          );
+        });
         expect(
-          document.querySelector<HTMLTextAreaElement>(
-            "[data-review-test-textarea]",
-          )?.value,
-        ).toBe("Make it blue");
-        expect(storedDraftTexts()).toEqual({});
+          document.querySelector("[data-review-test-textarea]"),
+        ).toBeNull();
+        expect(storedDraftTexts()).toEqual(keptComment);
       });
 
       it("keeps a new comment's draft on its own screen when the screen changes as you type", async () => {

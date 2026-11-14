@@ -1454,8 +1454,14 @@ export function ReviewCanvasPins({
   }, [closeActiveThread, focusReturnTo]);
   const dismissDraft = useCallback(() => {
     focusReturnRef.current = focusReturnTo(null);
-    // Dismissing a new comment discards it; a reprompt never kept one.
-    if (draftMode === "comment") newDraftRef.current.clear();
+    // Dismissing a new comment discards it. A reprompt never kept one, even
+    // once a failed send leaves it in comment mode, so the comment kept for
+    // the screen stays.
+    if (
+      draftMode === "comment" &&
+      draftPinRef.current?.metadata.mode !== "reprompt"
+    )
+      newDraftRef.current.clear();
     cancelDraft();
   }, [cancelDraft, draftMode, focusReturnTo]);
   // The card or draft is unmounted by the time this runs, so focus is not
