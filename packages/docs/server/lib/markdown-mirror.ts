@@ -21,13 +21,32 @@ export function isMarkdownMirrorFetch(event: H3Event): boolean {
   return getRequestHeader(event, MIRROR_FETCH_HEADER) === "1";
 }
 
+function inventoryPathForAsset(assetPath: string): string | undefined {
+  try {
+    const segments = assetPath.split("/").map(decodeURIComponent);
+    if (
+      segments.some(
+        (segment) =>
+          segment === "." || segment === ".." || /[/\\%]/.test(segment),
+      )
+    ) {
+      return undefined;
+    }
+    return segments.join("/");
+  } catch {
+    return undefined;
+  }
+}
+
 export async function fetchMarkdownMirror(
   relativePath: string,
   event: H3Event,
 ): Promise<MarkdownMirrorResult> {
   if (isMarkdownMirrorFetch(event)) return { kind: "absent" };
   const assetPath = relativePath.replace(/^\/+/, "");
-  const isKnownAsset = knownAssets?.has(assetPath) ?? false;
+  const inventoryPath = inventoryPathForAsset(assetPath);
+  const isKnownAsset =
+    inventoryPath !== undefined && (knownAssets?.has(inventoryPath) ?? false);
   if (
     relativePath.endsWith(".md") &&
     !relativePath.includes("%") &&

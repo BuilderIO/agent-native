@@ -119,6 +119,69 @@ describe("markdown mirror recursion guard", () => {
     },
   );
 
+  it.each([
+    { response: () => new Response("missing", { status: 404 }), reason: "404" },
+    {
+      response: () =>
+        new Response("<html></html>", {
+          headers: { "content-type": "text/html" },
+        }),
+      reason: "text/html",
+    },
+  ])(
+    "reports an encoded inventoried asset with $reason as unreadable without changing the fetch path",
+    async ({ response, reason }) => {
+      vi.stubEnv("APP_URL", "https://docs.example.test");
+      const fetchSpy = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValue(response());
+
+      await expect(
+        fetchMarkdownMirror(
+          "/examples/self-hosted-chat/%52EADME.md",
+          eventWithHeaders({}),
+        ),
+      ).resolves.toMatchObject({
+        kind: "unreadable",
+        reason: expect.stringContaining(reason),
+      });
+      expect(String(fetchSpy.mock.calls[0]?.[0])).toBe(
+        "https://docs.example.test/examples/self-hosted-chat/%52EADME.md",
+      );
+    },
+  );
+
+  it.each([
+    "examples/self-hosted-chat/%ZZREADME.md",
+    "examples/self-hosted-chat/%52EADME%2.md",
+    "examples/self-hosted-chat/%C0%AFREADME.md",
+    "examples%2Fself-hosted-chat/README.md",
+    "examples%5Cself-hosted-chat/README.md",
+    "examples/self-hosted-chat/%2e/README.md",
+    "examples/self-hosted-chat/elsewhere/%2e%2e/README.md",
+    "examples/self-hosted-chat/%2552EADME.md",
+    "examples/self-hosted-chat/%4EOT-FOUND.md",
+  ])(
+    "treats unsafe or unknown encoded path %s as unknown",
+    async (relativePath) => {
+      const fetchSpy = vi
+        .spyOn(globalThis, "fetch")
+        .mockResolvedValueOnce(new Response("missing", { status: 404 }))
+        .mockResolvedValueOnce(
+          new Response("<html></html>", {
+            headers: { "content-type": "text/html" },
+          }),
+        );
+
+      for (let i = 0; i < 2; i++) {
+        await expect(
+          fetchMarkdownMirror(relativePath, eventWithHeaders({})),
+        ).resolves.toEqual({ kind: "absent" });
+      }
+      expect(fetchSpy).toHaveBeenCalledTimes(2);
+    },
+  );
+
   it("does not fetch a markdown path known to be absent", async () => {
     const fetchSpy = vi.spyOn(globalThis, "fetch");
 
