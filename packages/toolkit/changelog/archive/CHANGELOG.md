@@ -1,3 +1,9 @@
+## 0.16.7
+
+### Patch Changes
+
+- fc85cb2: Allow external prompt handoffs to insert text through the shared composer without publishing a runtime message update.
+
 ## 0.16.6
 
 ### Patch Changes
