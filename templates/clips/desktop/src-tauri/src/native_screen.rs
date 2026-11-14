@@ -7715,6 +7715,93 @@ fn probe_local_media_duration_ms(_path: &Path) -> Result<u128, String> {
     Err("local media duration probing is only available on macOS".into())
 }
 
+/// Uploads a finished local file to an existing recording through the same
+/// buffered chunk posts and retries a native clip uses, without the clip's
+/// progress events. Used for a desktop meeting's audio.
+pub(crate) async fn upload_media_file_buffered(
+    server_url: &str,
+    recording_id: &str,
+    auth_token: &str,
+    path: &Path,
+    mime_type: &str,
+    duration_ms: u128,
+) -> Result<(), String> {
+    let total_bytes = std::fs::metadata(path)
+        .map_err(|e| format!("upload file is missing: {e}"))?
+        .len();
+    let total_bytes_usize =
+        usize::try_from(total_bytes).map_err(|_| "upload file is too large".to_string())?;
+    if total_bytes_usize == 0 {
+        return Err("upload file is empty".into());
+    }
+    let total_chunks = (total_bytes_usize + UPLOAD_CHUNK_BYTES - 1) / UPLOAD_CHUNK_BYTES;
+    let total_posts = total_chunks + 1;
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(180))
+        .build()
+        .map_err(|e| format!("upload client failed: {e}"))?;
+    let mut file = File::open(path).map_err(|e| format!("upload file open failed: {e}"))?;
+    for index in 0..total_chunks {
+        let mut buffer = vec![0_u8; UPLOAD_CHUNK_BYTES];
+        let read = file
+            .read(&mut buffer)
+            .map_err(|e| format!("upload file read failed: {e}"))?;
+        if read == 0 {
+            return Err("upload file ended before all chunks were read".into());
+        }
+        buffer.truncate(read);
+        send_upload_post_with_attempt(
+            &client,
+            server_url,
+            recording_id,
+            auth_token,
+            "",
+            index,
+            total_posts,
+            false,
+            None,
+            mime_type,
+            None,
+            None,
+            true,
+            false,
+            NativeUploadMode::Buffered,
+            false,
+            None,
+            None,
+            None,
+            buffer,
+        )
+        .await?;
+    }
+    // Like a native clip, the finalizing post is sent once: retrying it could
+    // finalize the same upload twice.
+    send_upload_post_with_attempt(
+        &client,
+        server_url,
+        recording_id,
+        auth_token,
+        "",
+        total_chunks,
+        total_posts,
+        true,
+        Some(duration_ms),
+        mime_type,
+        None,
+        None,
+        true,
+        false,
+        NativeUploadMode::Buffered,
+        false,
+        Some(total_bytes),
+        None,
+        None,
+        Vec::new(),
+    )
+    .await?;
+    Ok(())
+}
+
 async fn upload_prepared_recording_file(
     app: &AppHandle,
     prepared: &PreparedRecordingFile,
