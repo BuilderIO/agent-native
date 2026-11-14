@@ -159,23 +159,35 @@ describe("agent-frames.jpg route", () => {
     expect(mockCleanupMediaFile).toHaveBeenCalledTimes(1);
   });
 
-  it("reports a failed media cleanup rather than returning a sheet", async () => {
-    mockCleanupMediaFile.mockRejectedValueOnce(
-      new Error("media cleanup failed"),
-    );
-    const { event, body } = await run({
-      startMs: "1000",
-      endMs: "1200",
-      fps: "30",
-    });
-    expect(event.status).toBe(502);
-    expect(body).toMatchObject({
-      failureKind: "processing",
-      error: "media cleanup failed",
-    });
-    expect(event.headers.get("x-clips-frame-sheet-fps")).toBeUndefined();
-    expect(event.headers.get("x-clips-frame-sheet-grid")).toBeUndefined();
-    expect(event.headers.get("x-clips-frame-sheet-times")).toBeUndefined();
+  it("reports a failed media cleanup without exposing its path", async () => {
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      mockCleanupMediaFile.mockRejectedValueOnce(
+        Object.assign(new Error("too large /private/temp/path"), {
+          code: "EACCES",
+        }),
+      );
+      const { event, body } = await run({
+        startMs: "1000",
+        endMs: "1200",
+        fps: "30",
+      });
+      expect(event.status).toBe(502);
+      expect(body).toMatchObject({
+        failureKind: "processing",
+        error: "Recording media cleanup failed.",
+      });
+      expect(JSON.stringify(body)).not.toContain("/private/temp/path");
+      expect(log.mock.calls).toEqual([
+        ["[agent-frame] Media cleanup failed.", "EACCES"],
+      ]);
+      expect(mockCleanupMediaFile).toHaveBeenCalledOnce();
+      expect(event.headers.get("x-clips-frame-sheet-fps")).toBeUndefined();
+      expect(event.headers.get("x-clips-frame-sheet-grid")).toBeUndefined();
+      expect(event.headers.get("x-clips-frame-sheet-times")).toBeUndefined();
+    } finally {
+      log.mockRestore();
+    }
   });
 
   it.each([

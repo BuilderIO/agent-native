@@ -22,6 +22,7 @@ import { buildAgentEditedTimeline } from "../../lib/agent-edited-timeline.js";
 import type { RemoteFrameInput } from "../../lib/agent-frame-range.js";
 import {
   cleanupAfterFrameFailure,
+  cleanupAfterFrameSuccess,
   describeFrameFailure,
   frameFailureStatus,
   loadAgentFrameAccess,
@@ -255,7 +256,7 @@ export default defineEventHandler(async (event: H3Event) => {
             : null,
       });
       cleanupStarted = true;
-      await media.cleanup();
+      await cleanupAfterFrameSuccess(media.cleanup);
       applySheetHeaders(event, result.plan);
       return Buffer.from(result.sheet);
     } catch (error) {

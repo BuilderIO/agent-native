@@ -40,6 +40,15 @@ export async function cleanupAfterFrameFailure(cleanup: () => Promise<void>) {
   }
 }
 
+export async function cleanupAfterFrameSuccess(cleanup: () => Promise<void>) {
+  try {
+    await cleanup();
+  } catch (error) {
+    logFrameMediaCleanupFailure(error);
+    throw new Error("Recording media cleanup failed.");
+  }
+}
+
 export function sendFrameJson<T>(
   event: H3Event,
   status: number,

@@ -819,21 +819,20 @@ describe("loadRecordingMediaBytes", () => {
               },
             });
           });
-          const media = await loadRecordingMediaFile(
-            makeRecording({
-              videoUrl: `https://storage.example.test/clips/rec-1/video.${isMp4 ? "mp4" : "webm"}`,
-              videoFormat: isMp4 ? "mp4" : "webm",
-              videoSizeBytes: logicalSize,
-              storageMode: "own",
-            }) as PublicAgentRecording,
-          );
-          try {
-            const frames: Buffer[] = [];
-            for (const atMs of [100, 1500, 3200]) {
-              const expected = await extractJpegFrameFromFile({
-                mediaPath: source,
-                atMs,
-              });
+          const recording = makeRecording({
+            videoUrl: `https://storage.example.test/clips/rec-1/video.${isMp4 ? "mp4" : "webm"}`,
+            videoFormat: isMp4 ? "mp4" : "webm",
+            videoSizeBytes: logicalSize,
+            storageMode: "own",
+          }) as PublicAgentRecording;
+          const frames: Buffer[] = [];
+          for (const atMs of [100, 1500, 3200]) {
+            const expected = await extractJpegFrameFromFile({
+              mediaPath: source,
+              atMs,
+            });
+            const media = await loadRecordingMediaFile(recording);
+            try {
               const actual = await extractJpegFrameFromFile({
                 mediaPath: media.path,
                 atMs,
@@ -841,9 +840,14 @@ describe("loadRecordingMediaBytes", () => {
               });
               expect(Buffer.from(actual)).toEqual(Buffer.from(expected));
               frames.push(Buffer.from(actual));
+            } finally {
+              await media.cleanup();
             }
-            expect(frames[0]).not.toEqual(frames[1]);
-            expect(frames[1]).not.toEqual(frames[2]);
+          }
+          expect(frames[0]).not.toEqual(frames[1]);
+          expect(frames[1]).not.toEqual(frames[2]);
+          const media = await loadRecordingMediaFile(recording);
+          try {
             const fps = await probeFrameSheetFpsFromFile(
               media.path,
               media.remote,
