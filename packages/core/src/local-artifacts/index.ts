@@ -1404,7 +1404,9 @@ export async function writeLocalWorkspaceResource(
       path: resourcePath,
     });
     if (options.ifNotExists && existing) {
-      throw new Error(`File "${resourcePath}" already exists`);
+      throw Object.assign(new Error(`File "${resourcePath}" already exists`), {
+        code: "EEXIST",
+      });
     }
     if (
       options.expectedHash &&

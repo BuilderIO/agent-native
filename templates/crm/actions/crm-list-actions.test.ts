@@ -263,6 +263,34 @@ describe("create-crm-list", () => {
     expect(list.ownerEmail).toBe(OWNER);
   });
 
+  it("finds a free slug past more than a page of taken ones", async () => {
+    const now = new Date().toISOString();
+    await getDb()
+      .insert(schema.crmLists)
+      .values(
+        Array.from({ length: 104 }, (_, index) => ({
+          id: `list_crowded_${index + 1}`,
+          connectionId: CONNECTION_ID,
+          name: "Crowded",
+          apiSlug: index === 0 ? "crowded" : `crowded_${index + 1}`,
+          parentObjectType: "companies",
+          description: "",
+          defaultViewId: null,
+          archived: false,
+          position: 0,
+          source: "local",
+          ownerEmail: OWNER,
+          orgId: null,
+          visibility: "private",
+          createdAt: now,
+          updatedAt: now,
+        })),
+      );
+
+    const list = await newList("Crowded");
+    expect(list.apiSlug).toBe("crowded_105");
+  });
+
   it("gives creates made at the same moment their own slugs", async () => {
     const lists = await Promise.all([
       newList("Board Race"),

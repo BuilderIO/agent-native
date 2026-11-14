@@ -100,7 +100,9 @@ export function crmApiSlug(value: string): string {
  * index covers every list on the connection, including other people's private
  * ones, and another create can take the slug at the same moment. So the
  * insert that claims it can still find it taken; create-crm-list then asks
- * again, passing the slugs it found taken as `alsoTaken`.
+ * again, passing the slugs it found taken as `alsoTaken`. The read has no
+ * cap: one that stopped early could leave out slugs that are taken, and the
+ * claims could run out on those before reaching a free one.
  */
 export async function uniqueCrmListSlug(
   db: CrmDb,
@@ -117,8 +119,7 @@ export async function uniqueCrmListSlug(
         like(schema.crmLists.apiSlug, `${base}%`),
         accessFilter(schema.crmLists, schema.crmListShares),
       ),
-    )
-    .limit(MAX_LIST_LIMIT);
+    );
   const taken = new Set(rows.map((row) => row.apiSlug));
   return nextFreeName(base, (slug) => taken.has(slug) || alsoTaken.has(slug), {
     separator: "_",

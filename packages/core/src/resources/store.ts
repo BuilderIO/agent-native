@@ -2319,6 +2319,10 @@ function resourceSnapshotMatch(resource: Resource) {
   };
 }
 
+function isFileExistsError(error: unknown): boolean {
+  return error instanceof Error && "code" in error && error.code === "EEXIST";
+}
+
 function localWorkspaceResourceSnapshot(resource: Resource) {
   return isLocalWorkspaceResourceId(resource.id)
     ? localWorkspaceResourceMetadataFromResource(resource)
@@ -2368,11 +2372,17 @@ async function resourcePutIfSnapshotInternal(
         })
       : await (async () => {
           if (await localWorkspaceResourceByPath(input.path)) return null;
-          return writeLocalWorkspaceResource({
-            path: input.path,
-            content: input.content,
-            ifNotExists: true,
-          });
+          try {
+            return await writeLocalWorkspaceResource({
+              path: input.path,
+              content: input.content,
+              ifNotExists: true,
+            });
+          } catch (error) {
+            // Another write created the file after the check above.
+            if (isFileExistsError(error)) return null;
+            throw error;
+          }
         })();
     if (!written) return null;
     const resource = localWorkspaceResourceToResource({

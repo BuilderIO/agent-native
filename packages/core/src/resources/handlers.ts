@@ -49,6 +49,7 @@ import {
   resourcePut,
   resourcePutIfAbsent,
   resourcePutIfCurrent,
+  resourcePutIfSnapshot,
   resourceDelete,
   resourceDeleteIfCurrent,
   resourceList,
@@ -863,6 +864,24 @@ export async function handleUpdateResource(event: any) {
 
   const writeOptions =
     body.metadata !== undefined ? { metadata: body.metadata } : undefined;
+  if (isLocalWorkspaceResource && nextPath !== existing.path) {
+    // Write the new file only if nothing is there, so a file another write
+    // created after the check above is refused rather than replaced. Then
+    // delete the old one.
+    const moved = await resourcePutIfSnapshot({
+      previous: null,
+      owner: existing.owner,
+      path: nextPath,
+      content: body.content ?? existing.content,
+      mimeType: body.mimeType ?? existing.mimeType,
+      ...(writeOptions ? { options: writeOptions } : {}),
+    });
+    if (!moved) {
+      return resourcePathTaken(event, existing.owner, nextPath, true);
+    }
+    await resourceDelete(id);
+    return moved.resource;
+  }
   const resource = writeOptions
     ? await resourcePut(
         existing.owner,
@@ -877,9 +896,6 @@ export async function handleUpdateResource(event: any) {
         body.content ?? existing.content,
         body.mimeType ?? existing.mimeType,
       );
-  if (isLocalWorkspaceResource && nextPath !== existing.path) {
-    await resourceDelete(id);
-  }
 
   return resource;
 }

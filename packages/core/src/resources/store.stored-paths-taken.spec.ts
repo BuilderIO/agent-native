@@ -71,8 +71,11 @@ describe("resourceStoredPathsTaken", () => {
     const {
       WORKSPACE_OWNER,
       isSameLocalWorkspaceFile,
+      resourcePutIfSnapshot,
       resourceStoredPathsTaken,
     } = await import("./store.js");
+    const { writeLocalWorkspaceResource } =
+      await import("../local-artifacts/index.js");
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-stored-paths-"));
     const previousManifest = process.env.AGENT_NATIVE_MANIFEST;
     const previousManifestPath = process.env.AGENT_NATIVE_MANIFEST_PATH;
@@ -116,6 +119,29 @@ describe("resourceStoredPathsTaken", () => {
           { localFiles: true },
         ),
       ).resolves.toEqual(new Set(["AGENTS.md", "skills/review/SKILL.md"]));
+
+      // A rename's create-only write leaves a file that is already there.
+      await expect(
+        resourcePutIfSnapshot({
+          previous: null,
+          owner: WORKSPACE_OWNER,
+          path: "skills/review/SKILL.md",
+          content: "# Moved here",
+        }),
+      ).resolves.toBeNull();
+      await expect(
+        writeLocalWorkspaceResource({
+          path: "skills/review/SKILL.md",
+          content: "# Moved here",
+          ifNotExists: true,
+        }),
+      ).rejects.toMatchObject({ code: "EEXIST" });
+      expect(
+        fs.readFileSync(
+          path.join(root, ".agents", "skills", "review", "SKILL.md"),
+          "utf8",
+        ),
+      ).toBe("# Review");
 
       await expect(
         isSameLocalWorkspaceFile({

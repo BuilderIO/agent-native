@@ -5,6 +5,7 @@ const mockResourceGetByPath = vi.fn();
 const mockResourcePut = vi.fn();
 const mockResourcePutIfAbsent = vi.fn();
 const mockResourcePutIfCurrent = vi.fn();
+const mockResourcePutIfSnapshot = vi.fn();
 const mockResourceDelete = vi.fn();
 const mockResourceDeleteIfCurrent = vi.fn();
 const mockResourceDeleteByPath = vi.fn();
@@ -53,6 +54,8 @@ vi.mock("./store.js", () => ({
   resourcePut: (...args: any[]) => mockResourcePut(...args),
   resourcePutIfAbsent: (...args: any[]) => mockResourcePutIfAbsent(...args),
   resourcePutIfCurrent: (...args: any[]) => mockResourcePutIfCurrent(...args),
+  resourcePutIfSnapshot: (...args: unknown[]) =>
+    mockResourcePutIfSnapshot(...args),
   resourceDelete: (...args: any[]) => mockResourceDelete(...args),
   resourceDeleteIfCurrent: (...args: any[]) =>
     mockResourceDeleteIfCurrent(...args),
@@ -184,6 +187,7 @@ describe("resource handlers", () => {
     mockIsSameLocalWorkspaceFile.mockReset().mockResolvedValue(false);
     mockResourcePutIfAbsent.mockResolvedValue(null);
     mockResourcePutIfCurrent.mockReset().mockResolvedValue(null);
+    mockResourcePutIfSnapshot.mockReset().mockResolvedValue(null);
     mockResourceDeleteIfCurrent.mockResolvedValue(true);
     mockCanWriteLocalWorkspaceResourcePath.mockResolvedValue(false);
     mockIsLocalWorkspaceResourceId.mockReturnValue(false);
@@ -1625,6 +1629,57 @@ Legacy webhook.`,
         otherPath: "skills/Review/SKILL.md",
       });
       expect(mockResourcePut).not.toHaveBeenCalled();
+      expect(mockResourceDelete).not.toHaveBeenCalled();
+    });
+
+    it("moves a local file to a free path, then deletes the old one", async () => {
+      mockIsLocalWorkspaceResourceId.mockReturnValue(true);
+      mockCanWriteLocalWorkspaceResourcePath.mockResolvedValue(true);
+      mockResourceGet.mockResolvedValue(localSkill("draft"));
+      const moved = {
+        ...localSkill("review"),
+        content: "# draft",
+      };
+      mockResourcePutIfSnapshot.mockResolvedValue({
+        before: null,
+        resource: moved,
+      });
+
+      const result = await handleUpdateResource({
+        _params: { id: "local-workspace-resource:skills/draft/SKILL.md" },
+        _body: { path: "skills/review/SKILL.md" },
+        context: {},
+      });
+
+      expect(result).toEqual(moved);
+      expect(mockResourcePutIfSnapshot).toHaveBeenCalledWith(
+        expect.objectContaining({
+          previous: null,
+          owner: "__workspace__",
+          path: "skills/review/SKILL.md",
+        }),
+      );
+      expect(mockResourcePut).not.toHaveBeenCalled();
+      expect(mockResourceDelete).toHaveBeenCalledWith(
+        "local-workspace-resource:skills/draft/SKILL.md",
+      );
+    });
+
+    it("refuses a local rename when another write takes the path first", async () => {
+      mockIsLocalWorkspaceResourceId.mockReturnValue(true);
+      mockCanWriteLocalWorkspaceResourcePath.mockResolvedValue(true);
+      mockResourceGet.mockResolvedValue(localSkill("draft"));
+      // Free when checked, then created by another write before this one.
+      mockResourcePutIfSnapshot.mockResolvedValue(null);
+
+      const result = await handleUpdateResource({
+        _params: { id: "local-workspace-resource:skills/draft/SKILL.md" },
+        _body: { path: "skills/review/SKILL.md" },
+        context: {},
+      });
+
+      expect(lastStatus).toBe(409);
+      expect(result).toMatchObject({ errorCode: "name_taken" });
       expect(mockResourceDelete).not.toHaveBeenCalled();
     });
 
