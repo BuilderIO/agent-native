@@ -951,7 +951,10 @@ function targetForSource(
   const sourceRelative = packageRelative.startsWith("src/")
     ? packageRelative.slice("src/".length)
     : packageRelative;
-  return resolveInside(targetRoot, path.join(unit.targetRoot!, sourceRelative));
+  return resolveInside(
+    targetRoot,
+    path.posix.join(unit.targetRoot!, sourceRelative),
+  );
 }
 
 function walkConsumerFiles(root: string, ejectedTargetRoot: string): string[] {
@@ -1037,16 +1040,43 @@ function targetForSpecifier(
       );
     }
   }
+  const exactEntrypoint = unit.entrypoints.find(
+    (entrypoint) =>
+      !entrypoint.includes("*") &&
+      specifier === packageSpecifier(packageName, entrypoint),
+  );
+  if (exactEntrypoint) {
+    return targetForSource(
+      targetRoot,
+      unit,
+      packageDir,
+      pickSourceEntry(unit, exactEntrypoint, packageDir),
+    );
+  }
   for (const entrypoint of unit.entrypoints) {
     const publicSpecifier = packageSpecifier(packageName, entrypoint);
     if (entrypoint.includes("*")) {
-      const [prefix, suffix = ""] = publicSpecifier.split("*");
+      const [prefix = "", suffix = ""] = publicSpecifier.split("*");
       if (!specifier.startsWith(prefix) || !specifier.endsWith(suffix))
         continue;
       const wildcard = specifier.slice(
         prefix.length,
         specifier.length - suffix.length || undefined,
       );
+      if (!wildcard) continue;
+      const wildcardPath =
+        wildcard.startsWith("/") && !prefix.endsWith("/")
+          ? wildcard.slice(1)
+          : wildcard;
+      if (
+        !isSafeRelative(wildcardPath) ||
+        wildcardPath.includes("\0") ||
+        wildcardPath
+          .split("/")
+          .some((segment) => segment === "" || segment === ".")
+      ) {
+        throw new Error(`Unsafe wildcard in eject import: ${specifier}`);
+      }
       const sourceEntry = pickSourceEntry(unit, entrypoint, packageDir);
       const sourceBase = fs.lstatSync(sourceEntry).isDirectory()
         ? sourceEntry
@@ -1055,15 +1085,7 @@ function targetForSpecifier(
         targetRoot,
         unit,
         packageDir,
-        path.join(sourceBase, wildcard),
-      );
-    }
-    if (specifier === publicSpecifier) {
-      return targetForSource(
-        targetRoot,
-        unit,
-        packageDir,
-        pickSourceEntry(unit, entrypoint, packageDir),
+        path.join(sourceBase, wildcardPath),
       );
     }
   }
@@ -1574,6 +1596,7 @@ function isSafeRelative(value: string): boolean {
   return (
     value.length > 0 &&
     !path.isAbsolute(value) &&
+    !/^[A-Za-z]:/.test(value) &&
     !value.includes("\\") &&
     !value.split("/").includes("..")
   );

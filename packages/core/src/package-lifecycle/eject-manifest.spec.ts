@@ -39,6 +39,32 @@ describe("assertAgentNativeEjectManifest", () => {
     expect(() => assertAgentNativeEjectManifest(manifest())).not.toThrow();
   });
 
+  it.each(["targetRoot", "sourceEntries", "styles"] as const)(
+    "accepts nested colon segments but rejects drive roots in %s",
+    (field) => {
+      const value = manifest();
+      const unit = value.units[0]!;
+      const setPath = (path: string) => {
+        if (field === "targetRoot") unit.targetRoot = path;
+        if (field === "sourceEntries") unit.sourceEntries = [path];
+        if (field === "styles") unit.styles![0]!.source = path;
+      };
+
+      setPath("app/C:inside");
+      expect(() => assertAgentNativeEjectManifest(value)).not.toThrow();
+      for (const drivePath of ["C:outside", "c:outside"]) {
+        setPath(drivePath);
+        expect(() => assertAgentNativeEjectManifest(value)).toThrow(
+          field === "targetRoot"
+            ? /unsafe targetRoot/
+            : field === "sourceEntries"
+              ? /sourceEntries contains an invalid value/
+              : /has an invalid style/,
+        );
+      }
+    },
+  );
+
   it("rejects traversal in copied source and target paths", () => {
     const value = manifest();
     value.units[0]!.sourceEntries = ["../private.ts"];
