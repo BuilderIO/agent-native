@@ -160,36 +160,44 @@ describe("markdown mirror recursion guard", () => {
     "examples/self-hosted-chat/%2e/README.md",
     "examples/self-hosted-chat/elsewhere/%2e%2e/README.md",
     "examples/self-hosted-chat/%2552EADME.md",
+    "examples/self-hosted-chat/100%complete.md",
+    "examples/self-hosted-chat/../README.md",
+  ])("treats unsafe or ambiguous path %s as unknown", async (relativePath) => {
+    const fetchSpy = vi
+      .spyOn(globalThis, "fetch")
+      .mockResolvedValueOnce(new Response("missing", { status: 404 }))
+      .mockResolvedValueOnce(
+        new Response("<html></html>", {
+          headers: { "content-type": "text/html" },
+        }),
+      );
+
+    for (let i = 0; i < 2; i++) {
+      await expect(
+        fetchMarkdownMirror(relativePath, eventWithHeaders({})),
+      ).resolves.toEqual({ kind: "absent" });
+    }
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    "docs/not-in-inventory.md",
+    "docs/%6dissing.md",
+    "docs/missing%2Emd",
     "examples/self-hosted-chat/%4EOT-FOUND.md",
   ])(
-    "treats unsafe or unknown encoded path %s as unknown",
+    "does not fetch absent markdown path %s when the network is unavailable",
     async (relativePath) => {
       const fetchSpy = vi
         .spyOn(globalThis, "fetch")
-        .mockResolvedValueOnce(new Response("missing", { status: 404 }))
-        .mockResolvedValueOnce(
-          new Response("<html></html>", {
-            headers: { "content-type": "text/html" },
-          }),
-        );
+        .mockRejectedValue(new Error("network unavailable"));
 
-      for (let i = 0; i < 2; i++) {
-        await expect(
-          fetchMarkdownMirror(relativePath, eventWithHeaders({})),
-        ).resolves.toEqual({ kind: "absent" });
-      }
-      expect(fetchSpy).toHaveBeenCalledTimes(2);
+      await expect(
+        fetchMarkdownMirror(relativePath, eventWithHeaders({})),
+      ).resolves.toEqual({ kind: "absent" });
+      expect(fetchSpy).not.toHaveBeenCalled();
     },
   );
-
-  it("does not fetch a markdown path known to be absent", async () => {
-    const fetchSpy = vi.spyOn(globalThis, "fetch");
-
-    await expect(
-      fetchMarkdownMirror("docs/not-in-inventory.md", eventWithHeaders({})),
-    ).resolves.toEqual({ kind: "absent" });
-    expect(fetchSpy).not.toHaveBeenCalled();
-  });
 
   it.each([
     "examples/self-hosted-chat/README.md",

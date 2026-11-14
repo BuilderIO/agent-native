@@ -48,8 +48,8 @@ export async function fetchMarkdownMirror(
   const isKnownAsset =
     inventoryPath !== undefined && (knownAssets?.has(inventoryPath) ?? false);
   if (
-    relativePath.endsWith(".md") &&
-    !relativePath.includes("%") &&
+    inventoryPath !== undefined &&
+    inventoryPath.endsWith(".md") &&
     knownAssets &&
     !isKnownAsset
   ) {
