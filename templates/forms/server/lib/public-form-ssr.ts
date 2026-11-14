@@ -261,7 +261,7 @@ function renderField(field: FormField): string {
     ? ` placeholder="${escapeHtml(field.placeholder)}"`
     : "";
   const desc = field.description
-    ? `<p class="field-desc">${escapeHtml(field.description)}</p>`
+    ? `<p dir="auto" class="field-desc">${escapeHtml(field.description)}</p>`
     : "";
   const cond = field.conditional
     ? ` data-cond-field="${escapeHtml(field.conditional.fieldId)}" data-cond-op="${escapeHtml(field.conditional.operator)}" data-cond-val="${escapeHtml(field.conditional.value)}"`
@@ -276,7 +276,7 @@ function renderField(field: FormField): string {
 
   switch (field.type) {
     case "text":
-      input = `<input type="text" name="${id}" class="fi"${ph}${req}>`;
+      input = `<input type="text" name="${id}" class="fi" dir="auto"${ph}${req}>`;
       break;
     case "email":
       input = `<input type="email" name="${id}" class="fi"${ph || ' placeholder="you@example.com"'}${req}>`;
@@ -285,7 +285,7 @@ function renderField(field: FormField): string {
       input = `<input type="number" name="${id}" class="fi"${ph}${req}${field.validation?.min != null ? ` min="${Number(field.validation.min)}"` : ""}${field.validation?.max != null ? ` max="${Number(field.validation.max)}"` : ""}>`;
       break;
     case "textarea":
-      input = `<textarea name="${id}" class="fi fi-ta" rows="4"${ph || ' placeholder="Type your answer..."'}${req}></textarea>`;
+      input = `<textarea name="${id}" class="fi fi-ta" dir="auto" rows="4"${ph || ' placeholder="Type your answer..."'}${req}></textarea>`;
       break;
     case "file":
       input = `<input type="file" name="${id}" class="fi fi-file"${field.accept ? ` accept="${escapeHtml(field.accept)}"` : ""}${field.multiple ? " multiple" : ""}${req}>`;
@@ -294,11 +294,12 @@ function renderField(field: FormField): string {
       input = `<input type="date" name="${id}" class="fi"${req}>`;
       break;
     case "select":
-      input = `<select name="${id}" class="fi"${req}><option value="">${escapeHtml(field.placeholder) || "Select..."}</option>${normalizeOptions(
+      input = `<select name="${id}" class="fi"${req}><option dir="auto" value="">${escapeHtml(field.placeholder) || "Select..."}</option>${normalizeOptions(
         field.options,
       )
         .map(
-          (o) => `<option value="${escapeHtml(o)}">${escapeHtml(o)}</option>`,
+          (o) =>
+            `<option dir="auto" value="${escapeHtml(o)}">${escapeHtml(o)}</option>`,
         )
         .join("")}</select>`;
       break;
@@ -306,18 +307,18 @@ function renderField(field: FormField): string {
       input = `<div class="ms-group">${normalizeOptions(field.options)
         .map(
           (o) =>
-            `<label class="cb-label"><input type="checkbox" name="${id}" value="${escapeHtml(o)}" class="cb"><span>${escapeHtml(o)}</span></label>`,
+            `<label class="cb-label"><input type="checkbox" name="${id}" value="${escapeHtml(o)}" class="cb"><span dir="auto">${escapeHtml(o)}</span></label>`,
         )
         .join("")}</div>`;
       break;
     case "checkbox":
-      input = `<label class="cb-label"><input type="checkbox" name="${id}" class="cb"><span>${escapeHtml(field.placeholder || field.label)}</span></label>`;
+      input = `<label class="cb-label"><input type="checkbox" name="${id}" class="cb"><span dir="auto">${escapeHtml(field.placeholder || field.label)}</span></label>`;
       break;
     case "radio":
       input = `<div class="radio-group">${normalizeOptions(field.options)
         .map(
           (o) =>
-            `<label class="cb-label"><input type="radio" name="${id}" value="${escapeHtml(o)}" class="radio"><span>${escapeHtml(o)}</span></label>`,
+            `<label class="cb-label"><input type="radio" name="${id}" value="${escapeHtml(o)}" class="radio"><span dir="auto">${escapeHtml(o)}</span></label>`,
         )
         .join("")}</div>`;
       break;
@@ -331,12 +332,12 @@ function renderField(field: FormField): string {
       break;
     }
     default:
-      input = `<input type="text" name="${id}" class="fi"${ph}${req}>`;
+      input = `<input type="text" name="${id}" class="fi" dir="auto"${ph}${req}>`;
       break;
   }
 
   return `<div class="field${widthClass}" data-field-id="${id}"${cond}${initialVisibility}>
-    <label class="field-label">${escapeHtml(field.label)}${field.required ? '<span class="req">*</span>' : ""}</label>
+    <label dir="auto" class="field-label">${escapeHtml(field.label)}${field.required ? '<span class="req">*</span>' : ""}</label>
     ${desc}${input}</div>`;
 }
 
@@ -461,8 +462,8 @@ function renderFormPage(
       </button>
     </div>
     <div class="header">
-      <h1>${escapeHtml(form.title)}</h1>
-      ${form.description ? `<p class="desc">${escapeHtml(form.description)}</p>` : ""}
+      <h1 dir="auto">${escapeHtml(form.title)}</h1>
+      ${form.description ? `<p dir="auto" class="desc">${escapeHtml(form.description)}</p>` : ""}
     </div>
 
     <form id="mainForm" novalidate>
@@ -471,7 +472,7 @@ function renderFormPage(
         ${fieldsHtml || '<p class="empty">This form has no fields yet.</p>'}
       </div>
       ${turnstileSiteKey ? `<div id="turnstile" class="turnstile-wrap"></div>` : ""}
-      <button type="submit" class="submit-btn" id="submitBtn">${escapeHtml(settings.submitText || "Submit")}</button>
+      <button type="submit" class="submit-btn" id="submitBtn" dir="auto">${escapeHtml(settings.submitText || "Submit")}</button>
     </form>
   </div>
 
@@ -480,7 +481,7 @@ function renderFormPage(
       <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
     </div>
     <h1>Response submitted</h1>
-    <p class="desc">${escapeHtml(settings.successMessage || "Thank you! Your response has been recorded.")}</p>
+    <p dir="auto" class="desc">${escapeHtml(settings.successMessage || "Thank you! Your response has been recorded.")}</p>
   </div>
 
   <a href="https://agent-native.com" target="_blank" rel="noopener noreferrer" class="powered-badge">
@@ -942,6 +943,7 @@ function CSS() {
   --muted:220 10% 95%;--muted-fg:220 5% 45%;
   --border:220 10% 90%;--input:220 10% 90%;
   --ring:220 10% 40%;
+  --required:239 68 68;
   --radius:0.5rem;
 }
 .dark{
@@ -969,7 +971,7 @@ body{background:hsl(var(--bg));color:hsl(var(--fg));min-height:100vh;-webkit-fon
 .field-half{width:50%}
 .field-label{font-size:0.875rem;font-weight:500;color:hsl(var(--card-fg))}
 .field-desc{font-size:0.75rem;color:hsl(var(--muted-fg))}
-.req{color:#ef4444;margin-left:2px}
+.req{color:rgb(var(--required));margin-inline-start:2px}
 
 .fi{width:100%;padding:8px 12px;font-size:0.875rem;font-family:inherit;background:transparent;border:1px solid hsl(var(--input));border-radius:var(--radius);color:hsl(var(--fg));outline:none}
 .fi:focus{border-color:hsl(var(--ring));box-shadow:0 0 0 2px hsl(var(--ring)/0.15)}

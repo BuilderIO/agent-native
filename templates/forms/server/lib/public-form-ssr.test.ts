@@ -1,3 +1,5 @@
+// @vitest-environment happy-dom
+
 import {
   AGENT_NATIVE_SOCIAL_IMAGE_CACHE_BUSTER,
   SSR_QUERY_CACHE_KEY_HEADER,
@@ -61,6 +63,158 @@ function createDbWithRows(rows: unknown[]) {
 }
 
 describe("public form SSR", () => {
+  it.each([
+    {
+      language: "Arabic",
+      title: "نموذج التواصل",
+      label: "الاسم",
+      answer: "أحمد",
+    },
+    {
+      language: "English",
+      title: "Contact form",
+      label: "Name",
+      answer: "Alice",
+    },
+  ])(
+    "gives $language form content an appropriate text direction",
+    async ({ language, title, label, answer }) => {
+      const slug = `direction-${language.toLowerCase()}`;
+      mockGetDb.mockReturnValue(
+        createDbWithRows([
+          {
+            id: `form-${slug}`,
+            slug,
+            title,
+            description: null,
+            ownerEmail: "owner@example.test",
+            updatedAt: "2026-07-23T12:00:00.000Z",
+            fields: JSON.stringify([
+              { id: "name", type: "text", label, required: false },
+            ]),
+            settings: "{}",
+            status: "published",
+            deletedAt: null,
+          },
+        ]),
+      );
+
+      const { html } = await renderPublicFormHtml(
+        `https://forms.example.test/f/${slug}`,
+      );
+      const parsed = new DOMParser().parseFromString(
+        html.replace(/<link\b[^>]*>/g, ""),
+        "text/html",
+      );
+      const heading = parsed.querySelector(".header h1");
+      const fieldLabel = parsed.querySelector(".field-label");
+      const input =
+        parsed.querySelector<HTMLInputElement>('input[name="name"]');
+      expect(heading?.textContent).toBe(title);
+      expect(fieldLabel?.textContent).toBe(label);
+      expect(input).not.toBeNull();
+      if (!heading || !fieldLabel || !input)
+        throw new Error("Form content missing");
+      input.value = answer;
+
+      for (const element of [heading, fieldLabel, input]) {
+        expect(element.getAttribute("dir")).toBe("auto");
+      }
+    },
+  );
+
+  it("sets direction independently for authored text and free-text controls", async () => {
+    const fields = [
+      {
+        id: "text",
+        type: "text",
+        label: "Name",
+        description: "الوصف",
+        required: false,
+      },
+      { id: "long", type: "textarea", label: "التعليق", required: false },
+      { id: "email", type: "email", label: "Email", required: false },
+      { id: "number", type: "number", label: "Number", required: false },
+      { id: "date", type: "date", label: "Date", required: false },
+      {
+        id: "select",
+        type: "select",
+        label: "Choose",
+        placeholder: "اختر",
+        options: ["نعم", "No"],
+        required: false,
+      },
+      {
+        id: "multi",
+        type: "multiselect",
+        label: "Choose",
+        options: ["نعم", "No"],
+        required: false,
+      },
+      {
+        id: "radio",
+        type: "radio",
+        label: "Choose",
+        options: ["نعم", "No"],
+        required: false,
+      },
+      {
+        id: "checkbox",
+        type: "checkbox",
+        label: "Agree",
+        placeholder: "موافق",
+        required: false,
+      },
+    ];
+    mockGetDb.mockReturnValue(
+      createDbWithRows([
+        {
+          id: "form-direction-boundaries",
+          slug: "direction-boundaries",
+          title: "Title",
+          description: "الوصف",
+          updatedAt: "2026-07-23T12:00:00.000Z",
+          fields: JSON.stringify(fields),
+          settings: JSON.stringify({
+            submitText: "إرسال",
+            successMessage: "شكرا",
+          }),
+          status: "published",
+          deletedAt: null,
+        },
+      ]),
+    );
+    const { html } = await renderPublicFormHtml(
+      "https://forms.example.test/f/direction-boundaries",
+    );
+    const parsed = new DOMParser().parseFromString(
+      html.replace(/<link\b[^>]*>/g, ""),
+      "text/html",
+    );
+    for (const selector of [
+      ".header h1",
+      ".header .desc",
+      ".field-label",
+      ".field-desc",
+      'input[name="text"]',
+      'textarea[name="long"]',
+      'select[name="select"] option',
+      ".cb-label span",
+      "#submitBtn",
+      "#successView .desc",
+    ]) {
+      const elements = parsed.querySelectorAll(selector);
+      expect(elements.length, selector).toBeGreaterThan(0);
+      for (const element of elements)
+        expect(element.getAttribute("dir"), selector).toBe("auto");
+    }
+    for (const type of ["email", "number", "date"]) {
+      const input = parsed.querySelector(`input[name="${type}"]`);
+      expect(input).not.toBeNull();
+      expect(input?.getAttribute("dir")).toBeNull();
+    }
+  });
+
   it("does not emit CSP headers on direct public form HTML responses", async () => {
     mockGetRequestURL.mockReturnValue(
       new URL("https://forms.example.test/f/nope"),

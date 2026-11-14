@@ -299,7 +299,7 @@ export function FormFillPage() {
           <h1 className="text-2xl font-semibold mb-2">
             {t("publicForm.responseSubmitted")}
           </h1>
-          <p className="text-muted-foreground">
+          <p dir="auto" className="text-muted-foreground">
             {settings.successMessage ||
               "Thank you! Your response has been recorded."}
           </p>
@@ -331,6 +331,7 @@ export function FormFillPage() {
         {/* Form header */}
         <div className={embedded ? "mb-5" : "mb-6 sm:mb-8"}>
           <h1
+            dir="auto"
             className={
               embedded
                 ? "text-lg font-semibold"
@@ -341,6 +342,7 @@ export function FormFillPage() {
           </h1>
           {form.description && (
             <p
+              dir="auto"
               className={cn(
                 "mt-2 text-muted-foreground",
                 embedded && "text-sm",
@@ -387,6 +389,7 @@ export function FormFillPage() {
 
           <Button
             type="submit"
+            dir="auto"
             className="mt-4 min-h-11 w-full transition-[scale,background-color,border-color,color,box-shadow] duration-150 active:scale-[0.96] motion-reduce:transition-none sm:w-auto"
             size="lg"
             disabled={submitForm.isPending}

@@ -135,7 +135,7 @@ export default function FormPreviewRoute() {
         {/* Header */}
         <div className="space-y-1.5">
           <div className="flex items-start justify-between gap-3">
-            <h1 className="text-base font-semibold leading-snug">
+            <h1 dir="auto" className="text-base font-semibold leading-snug">
               {form.title}
             </h1>
             <div className="flex items-center gap-2 shrink-0">
@@ -165,7 +165,10 @@ export default function FormPreviewRoute() {
             </div>
           </div>
           {form.description && (
-            <p className="text-xs text-muted-foreground leading-relaxed">
+            <p
+              dir="auto"
+              className="text-xs text-muted-foreground leading-relaxed"
+            >
               {form.description}
             </p>
           )}
@@ -197,7 +200,10 @@ export default function FormPreviewRoute() {
                     <Icon className="h-4 w-4 text-muted-foreground shrink-0" />
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-1.5">
-                        <span className="text-sm font-medium truncate">
+                        <span
+                          dir="auto"
+                          className="text-sm font-medium truncate"
+                        >
                           {field.label}
                         </span>
                         {field.required && (
@@ -207,7 +213,10 @@ export default function FormPreviewRoute() {
                         )}
                       </div>
                       {field.description && (
-                        <p className="text-xs text-muted-foreground truncate mt-0.5">
+                        <p
+                          dir="auto"
+                          className="text-xs text-muted-foreground truncate mt-0.5"
+                        >
                           {field.description}
                         </p>
                       )}
