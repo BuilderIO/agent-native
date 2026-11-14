@@ -741,13 +741,17 @@ export function SlideContextToolbar({
       >
         {snapshot.isText && (
           <>
-            <div className="grid grid-cols-2 gap-2">{sizeControls}</div>
-            {rotationControl}
+            <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2 [&>div]:w-full">
+              {sizeControls}
+            </div>
+            {rotationControl && (
+              <div className="[&>div]:w-full">{rotationControl}</div>
+            )}
           </>
         )}
 
         {snapshot.isAbsolute && (
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-2 gap-2 [&>div]:w-full">
             <VisualScrubInput
               label={t("styleInspector.x")}
               icon={null}
@@ -771,7 +775,7 @@ export function SlideContextToolbar({
 
         {(snapshot.isText || snapshot.isImage) && (
           <>
-            <div className="grid grid-cols-2 gap-2">
+            <div className="grid grid-cols-2 gap-2 [&>div]:w-full">
               {snapshot.isText && opacityControl}
               {radiusControl}
             </div>
