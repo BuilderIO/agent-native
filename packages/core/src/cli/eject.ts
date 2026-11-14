@@ -1056,7 +1056,7 @@ function targetForSpecifier(
   for (const entrypoint of unit.entrypoints) {
     const publicSpecifier = packageSpecifier(packageName, entrypoint);
     if (entrypoint.includes("*")) {
-      const [prefix, suffix = ""] = publicSpecifier.split("*");
+      const [prefix = "", suffix = ""] = publicSpecifier.split("*");
       if (!specifier.startsWith(prefix) || !specifier.endsWith(suffix))
         continue;
       const wildcard = specifier.slice(

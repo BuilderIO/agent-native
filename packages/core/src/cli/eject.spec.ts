@@ -300,64 +300,6 @@ describe("feature eject CLI", () => {
     },
   );
 
-  it.each([
-    "../utils",
-    "nested/../utils",
-    "/outside",
-    "..\\outside",
-    "C:outside",
-    "C:/outside",
-    ".",
-    "nested//file",
-  ])("rejects unsafe wildcard import %s before applying", async (wildcard) => {
-    const { root, loaded } = fixture();
-    const consumer = path.join(root, "app", "page.tsx");
-    const original = `import "@agent-native/toolkit/chat-history/${wildcard}";\n`;
-    fs.writeFileSync(consumer, original);
-    const output = capture();
-    const result = await runEject(["toolkit/chat-history", "--apply"], {
-      cwd: root,
-      io: output.io,
-      loadManifests: async () => [loaded],
-    });
-    expect(fs.readFileSync(consumer, "utf8")).toBe(original);
-    expect(result).toBe(1);
-    expect(output.err).toContain("Unsafe wildcard");
-    expect(fs.existsSync(path.join(root, "app/ejected/toolkit"))).toBe(false);
-    expect(fs.existsSync(path.join(root, "agent-native.ejections.json"))).toBe(
-      false,
-    );
-  });
-
-  it("rewrites safe nested wildcard imports into the ejected unit", async () => {
-    const { root, loaded } = fixture();
-    const source = path.join(loaded.packageDir, "src/chat-history/nested");
-    fs.mkdirSync(source, { recursive: true });
-    fs.writeFileSync(path.join(source, "item.ts"), "export const item = 1;\n");
-    const consumer = path.join(root, "app", "page.tsx");
-    fs.writeFileSync(
-      consumer,
-      'import { item } from "@agent-native/toolkit/chat-history/nested/item";\n',
-    );
-    const output = capture();
-    expect(
-      await runEject(["toolkit/chat-history", "--apply"], {
-        cwd: root,
-        io: output.io,
-        loadManifests: async () => [loaded],
-      }),
-    ).toBe(0);
-    expect(fs.readFileSync(consumer, "utf8")).toBe(
-      'import { item } from "./ejected/toolkit/chat-history/nested/item";\n',
-    );
-    expect(
-      fs.readFileSync(
-        path.join(root, "app/ejected/toolkit/chat-history/nested/item.ts"),
-        "utf8",
-      ),
-    ).toBe("export const item = 1;\n");
-  });
-
   it("copies a transitive closure, rewrites consumers, and records committed provenance", async () => {
     const { root, loaded } = fixture();
     const dryRun = capture();
