@@ -29,6 +29,8 @@ status such as draft, review, approved, or needs changes.
 | `ReviewThreadPanel`            | Drop-in React panel with capability-gated composer, reply, resolve, delete, and custom thread-action controls.                                                    |
 | `ReviewStatusBadge`            | Controlled status badge for app headers, sidebars, and review panels.                                                                                             |
 | `isCommentSendKey()`           | The send key in every comment box: Enter sends, Shift+Enter starts a new line, and Cmd/Ctrl+Enter sends too, but not while an input method composes.              |
+| `ReviewCommentComposer`        | The comment box, which saves Markdown. A bar over selected text, shortcuts and Markdown typed as you go format it; Enter goes on with a list or code block.       |
+| `commentDocToMarkdown()`       | The box's document as a comment's Markdown, and `commentMarkdownToDoc()` back, from `@agent-native/core/review/markdown`.                                         |
 | Review hooks                   | `useReviewComments()`, `useCreateReviewComment()`, `useReplyReviewComment()`, `useResolveReviewThread()`, `useDeleteReviewComment()`, and `useSetReviewStatus()`. |
 | Mentions helpers               | `extractReviewMentions()` and `normalizeReviewMentions()` for `@[Label](mailto:email@example.com)` tokens.                                                        |
 | `CommentBody`                  | Draws a comment's Markdown the same way in every app, with mention chips and a `compact` mode for previews.                                                       |
@@ -150,6 +152,16 @@ The `anchor` field is intentionally `unknown`: editors, canvases, diagrams, and
 documents can store the shape they need while still using the shared review
 actions and thread UI. Declare [anchor kinds](#app-rules) to have the kit check
 that shape for you.
+
+The panel's comment box is `ReviewCommentComposer`, which an app with its own
+thread UI can use alone. It saves Markdown that `CommentBody` draws the way the
+box showed it. Selecting text brings up a bar for bold, italic, strikethrough,
+code and links, which also have shortcuts: Cmd/Ctrl+B, I, Shift+S, E and K.
+Markdown typed as you go formats too, including `- ` lists, `> ` quotes and
+fenced code blocks. Enter sends, except in a list or code block, where it goes
+on with it; Enter on an empty list item ends the list. Pasted text reads as
+Markdown, and Shift pastes it as typed. The bar's labels are English unless
+you pass `formatLabels`, to the box or to `ReviewThreadPanel`.
 
 ## UX Standard {#ux-standard}
 
