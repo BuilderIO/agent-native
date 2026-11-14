@@ -119,6 +119,11 @@ import {
   desktopRecoveryCopy,
   desktopRecordingFailureCopy,
 } from "./i18n/en-US";
+import {
+  CALL_APP_CHOICES,
+  type CallAppKey,
+  toggleDisabledCallApp,
+} from "./lib/call-app-choices";
 import { createAudioCue } from "./lib/audio-cue";
 import { startBubbleFramePump } from "./lib/bubble-pump";
 import { shouldKeepBubbleSession } from "./lib/bubble-session";
@@ -6969,6 +6974,18 @@ function Setup({
   const voiceCleanupEnabled = featureConfig?.voiceCleanupEnabled !== false;
   const [cameraCutout, setCameraCutout] = useCameraCutoutPreference();
   const meetingsEnabled = featureConfig?.meetingsEnabled !== false;
+  const disabledCallApps = featureConfig?.disabledCallApps ?? [];
+  const [callAppSaveError, setCallAppSaveError] = useState<string | null>(
+    null,
+  );
+  const pendingDisabledCallAppsRef = useRef<string[] | null>(null);
+  const latestFeatureConfigRef = useRef(featureConfig);
+  latestFeatureConfigRef.current = featureConfig;
+  const callAppSaveChainRef = useRef<Promise<unknown>>(Promise.resolve());
+  useEffect(() => {
+    // A saved config arrived: it is the new base for the next click.
+    pendingDisabledCallAppsRef.current = null;
+  }, [featureConfig?.disabledCallApps]);
   const showMeetingWidgetEnabled =
     featureConfig?.showMeetingWidgetEnabled !== false;
   const launchAtLoginEnabled = featureConfig?.launchAtLoginEnabled !== false;
@@ -7152,6 +7169,52 @@ function Setup({
     }).catch((err) =>
       console.error("[settings] set_feature_config failed", err),
     );
+  }
+
+  // The switches follow the saved config, so a failed save leaves them
+  // unchanged; this message says why the click did nothing.
+  // Quick clicks build on the list the previous click wrote, not on the
+  // config snapshot from before it, and the saves run one after another.
+  function setCallAppEnabled(
+    key: CallAppKey,
+    enabled: boolean,
+  ): Promise<unknown> {
+    if (!featureConfig) {
+      return Promise.reject(new Error("settings are still loading"));
+    }
+    setCallAppSaveError(null);
+    const base =
+      pendingDisabledCallAppsRef.current ?? featureConfig.disabledCallApps;
+    const next = toggleDisabledCallApp(base, key, enabled);
+    pendingDisabledCallAppsRef.current = next;
+    const save = callAppSaveChainRef.current
+      .then(() =>
+        // Build from the newest config when the save actually runs, so a
+        // queued save never rolls back a setting changed meanwhile.
+        invoke("set_feature_config", {
+          config: {
+            ...(latestFeatureConfigRef.current ?? featureConfig),
+            disabledCallApps: next,
+          },
+        }),
+      )
+      .catch((err) => {
+        // Only the newest click resets the base; a newer queued click
+        // keeps building on its own list.
+        if (pendingDisabledCallAppsRef.current === next) {
+          pendingDisabledCallAppsRef.current = null;
+        }
+        console.error(
+          `[settings] failed to update call app ${key}; the setting was not changed`,
+          err,
+        );
+        setCallAppSaveError("Could not save this change. Try again.");
+        throw err;
+      });
+    // The queue goes on after a failed save; the failure itself stays on
+    // `save`, which rejects for the caller.
+    callAppSaveChainRef.current = save.catch(() => undefined);
+    return save;
   }
 
   function setShowMeetingWidgetEnabled(enabled: boolean) {
@@ -9185,6 +9248,35 @@ function Setup({
             </>
           ) : null}
         </SettingsGroup>
+        {meetingsEnabled ? (
+          <SettingsGroup label="Take notes in">
+            {CALL_APP_CHOICES.map((choice) => (
+              <SettingsRow
+                key={choice.key}
+                label={choice.label}
+                description={choice.description}
+                control={
+                  <SettingsSwitch
+                    checked={!disabledCallApps.includes(choice.key)}
+                    onCheckedChange={(enabled) => {
+                      // A failure is shown under the list and logged by
+                      // setCallAppEnabled; the switch stays on the saved value.
+                      setCallAppEnabled(choice.key, enabled).catch(
+                        () => undefined,
+                      );
+                    }}
+                    label={choice.label}
+                  />
+                }
+              />
+            ))}
+            {callAppSaveError ? (
+              <p role="alert" className="px-4 py-2 text-xs text-red-500">
+                {callAppSaveError}
+              </p>
+            ) : null}
+          </SettingsGroup>
+        ) : null}
       </div>
     );
   }
