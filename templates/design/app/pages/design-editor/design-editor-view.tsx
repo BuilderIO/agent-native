@@ -130,6 +130,7 @@ import { shouldRenderDesignShareControl } from "./mcp-widget-write-capabilities"
 import {
   hasMinimalInspectorSelection,
   isRightInspectorVisible,
+  rightInspectorCanvasInset,
 } from "./minimal-inspector";
 import {
   addMotionMarkers,
@@ -1587,6 +1588,11 @@ export function renderDesignEditorView({
     mode,
     canEdit: canEditActiveVisualScreen,
   });
+  const questionFlowInsetRight = rightInspectorCanvasInset({
+    visible: rightSidebarVisible,
+    width: rightSidebarWidth,
+    minimalUi,
+  });
   const chromeInsetLeft = leftSidebarVisible
     ? DESIGN_CHROME_RAIL_WIDTH_PX + (activeLeftPanel ? leftContentWidth : 0)
     : 0;
@@ -2291,7 +2297,10 @@ export function renderDesignEditorView({
         {questionFlowActive ? (
           <div
             className="relative mx-1 h-full min-w-0 flex-1 overflow-hidden rounded-xl bg-[var(--design-editor-panel-bg)]"
-            style={{ paddingLeft: leftChromeOverlayInset }}
+            style={{
+              paddingLeft: leftChromeOverlayInset,
+              paddingRight: questionFlowInsetRight,
+            }}
           >
             <QuestionFlow
               questions={pendingQuestions ?? []}

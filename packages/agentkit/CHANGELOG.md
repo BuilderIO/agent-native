@@ -1,5 +1,24 @@
 # @agent-native/agentkit
 
+## 0.228.2
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.228.1
+
+### Patch Changes
+
+- Release all public npm packages with a patch version bump.
+
+## 0.228.0
+
+### Patch Changes
+
+- 8656de2: The README shows how to build custom renderers from the Trace and Code Block parts the default transcript uses.
+- Release all public npm packages with a patch version bump.
+
 ## 0.227.0
 
 ### Patch Changes

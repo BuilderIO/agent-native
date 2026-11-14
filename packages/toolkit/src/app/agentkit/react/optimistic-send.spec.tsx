@@ -184,6 +184,49 @@ describe("AgentKit optimistic send", () => {
     expect(messages[0]?.textContent).toContain("Plan the launch");
   });
 
+  it("anchors the sent message near the top before the thread confirms it", async () => {
+    const readiness = Promise.withResolvers<void>();
+    const chat = await renderChat({
+      history: [{ id: "user-earlier", text: "Earlier question" }],
+      readiness: () => readiness.promise,
+    });
+    const transcript = chat.container.querySelector(
+      ".agentkit-transcript",
+    ) as HTMLDivElement;
+    const spacer = chat.container.querySelector(
+      ".agentkit-turn-spacer",
+    ) as HTMLDivElement;
+    let scrollTop = 0;
+    const height = () =>
+      1_260 + (Number.parseFloat(spacer.style.blockSize) || 0);
+    Object.defineProperties(transcript, {
+      clientHeight: { configurable: true, get: () => 300 },
+      scrollHeight: { configurable: true, get: height },
+      scrollTop: {
+        configurable: true,
+        get: () => scrollTop,
+        set: (value: number) => {
+          scrollTop = Math.min(value, height() - 300);
+        },
+      },
+    });
+    // The sent copy starts 1,210px down the transcript content.
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      function (this: HTMLElement) {
+        const top = this.dataset.pending === "true" ? 1_210 - scrollTop : 0;
+        return { top, bottom: top, left: 0, right: 0 } as DOMRect;
+      },
+    );
+    await act(async () => chat.composerRef.current!.setText("And then?"));
+
+    await chat.send();
+
+    expect(chat.userMessages().at(-1)?.dataset.pending).toBe("true");
+    expect(scrollTop).toBe(1_178);
+    readiness.resolve();
+    await chat.settle();
+  });
+
   it("puts the draft back and shows the error when readiness fails", async () => {
     const readiness = Promise.withResolvers<void>();
     const chat = await renderChat({ readiness: () => readiness.promise });

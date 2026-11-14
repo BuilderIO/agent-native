@@ -127,7 +127,7 @@ export function ComposerNotice({
       data-notice={noticeId}
       role={role ?? (tone === "danger" ? "alert" : "status")}
       className={cn(
-        "agent-composer-notice flex min-w-0 items-start gap-2 rounded-md border px-3 py-1.5 text-xs leading-5 text-foreground",
+        "agent-composer-notice flex min-w-0 items-start gap-2 rounded-[var(--agent-kit-radius-sm,0.5rem)] border px-3 py-1.5 text-xs leading-5 text-foreground",
         tone === "danger"
           ? "border-destructive/30 bg-destructive/5"
           : "border-[hsl(var(--agent-kit-warning)/0.4)] bg-[hsl(var(--agent-kit-warning)/0.1)]",
@@ -139,7 +139,7 @@ export function ComposerNotice({
         className={cn(
           "mt-1 size-4 shrink-0",
           tone === "danger"
-            ? "text-destructive"
+            ? "text-[color:var(--agent-kit-danger-text)]"
             : "text-[hsl(var(--agent-kit-warning))]",
         )}
       />
@@ -167,7 +167,7 @@ export function ComposerNotice({
           aria-label={dismissLabel}
           title={dismissLabel}
           onClick={onDismiss}
-          className="-me-1.5 flex size-6 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="-me-1.5 flex size-6 shrink-0 items-center justify-center rounded-[var(--agent-kit-radius-xs,0.25rem)] text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <IconX aria-hidden="true" className="size-4" />
         </button>

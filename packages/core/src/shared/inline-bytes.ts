@@ -54,8 +54,10 @@ const INLINE_BYTE_FIELD_KEYS = new Set([
 ]);
 const BYTE_SIZE_PATTERN =
   /^\d+(?:\.\d+)?\s*(?:bytes?|b|kb|kib|mb|mib|gb|gib|tb|tib)$/i;
+// A payload is required: scrubString leaves payload-less prefixes (generated
+// code such as `'data:image/svg+xml;utf8,'+x`), so the assertion must too.
 const INLINE_DATA_URL =
-  /\bdata:[\w.+-]+\/[\w.+-]+(?:;[^,;\s"'<>]*)?,[^\s"'<>)]*/i;
+  /\bdata:[\w.+-]+\/[\w.+-]+(?:;[^,;\s"'<>]*)?,(?!\$\{)[^\s"'<>)`]+/i;
 const IMAGE_BYTE_FIELD_KEYS = new Set([
   "imagebase64",
   "imagedata",
@@ -67,7 +69,7 @@ const IMAGE_BYTE_FIELD_KEYS = new Set([
 const DATA_SCHEME = /data:/i;
 const EMBEDDED_URL_START =
   /\b(?:data:((?:[\w.+-]+\/[\w.+-]+)?)(?=[;,])|(?<![a-z\d+.-])(?!data:)[a-z][a-z\d+.-]*:\/\/|(?:https?|mailto|tel|sms):)/gi;
-const URL_TOKEN_BOUNDARY = /[\s"'<>]/;
+const URL_TOKEN_BOUNDARY = /[\s"'<>`]/;
 
 function hasInlineByteProperty(json: string): boolean {
   for (const match of json.matchAll(/"((?:\\.|[^"\\])*)"\s*:/g)) {
@@ -169,6 +171,10 @@ function findUrlSpan(
   for (let index = start; index < value.length; index += 1) {
     const char = value.charAt(index);
     if (URL_TOKEN_BOUNDARY.test(char)) return { end: index, comma };
+    // Template-literal code (`data:...,${x}`) holds no payload to omit.
+    if (isData && char === "$" && value.charAt(index + 1) === "{") {
+      return { end: index, comma };
+    }
     if (!isData && !wrapped) {
       if (char === "?" || char === "#") inQuery = true;
       if (!inQuery) {
