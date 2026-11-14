@@ -652,7 +652,9 @@ app/hooks/use-undo.test.tsx app/components/email/EmailList.keyboard-navigation.t
   account, reauth, account-specific contacts, and preserved draft account.
 - COMPOSE-012 — Type, blur, route-change, refresh, close, reopen, multi-tab, and
   concurrent-agent draft updates. Confirm app state and persistent draft stay
-  distinct and failure is visible.
+  distinct and failure is visible. When an agent update and typing overlap,
+  including after choosing the other version in the conflict prompt, confirm
+  the Gmail draft ends with the text Mail stores.
 - COMPOSE-013 — Close one or all popout/inline drafts while persistence is
   pending; choose Reopen or Delete from the recovery toast. Repeat with To-only,
   Cc-only, Bcc-only, failed save, existing Gmail draft, local fallback, and a
