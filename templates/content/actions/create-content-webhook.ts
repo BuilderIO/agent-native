@@ -202,9 +202,13 @@ export default defineAction({
         );
         // A move to another workspace locks the collection or page and refuses
         // one with webhooks, so hold the same lock and check it's still where
-        // the webhook's secret was stored.
+        // its access was checked and the webhook's secret was stored. A move
+        // between two of one owner's workspaces keeps the owner and
+        // organization but resets sharing, so the workspace is checked too.
         const locking = tx as unknown as ReturnType<typeof getDb>;
-        let owner: { ownerEmail: string; orgId: string | null } | undefined;
+        let owner:
+          | { ownerEmail: string; orgId: string | null; spaceId: string | null }
+          | undefined;
         if (scope.scopeType === "database") {
           await lockContentDatabaseMutation(locking, scope.scopeId);
           owner = firstRow(
@@ -212,6 +216,7 @@ export default defineAction({
               .select({
                 ownerEmail: schema.contentDatabases.ownerEmail,
                 orgId: schema.contentDatabases.orgId,
+                spaceId: schema.contentDatabases.spaceId,
               })
               .from(schema.contentDatabases)
               .where(eq(schema.contentDatabases.id, scope.scopeId)),
@@ -224,6 +229,7 @@ export default defineAction({
               .select({
                 ownerEmail: schema.documents.ownerEmail,
                 orgId: schema.documents.orgId,
+                spaceId: schema.documents.spaceId,
               })
               .from(schema.documents)
               .where(eq(schema.documents.id, scope.scopeId)),
@@ -232,7 +238,8 @@ export default defineAction({
         if (
           !owner ||
           owner.ownerEmail !== scope.ownerEmail ||
-          (owner.orgId ?? null) !== scope.orgId
+          (owner.orgId ?? null) !== scope.orgId ||
+          (owner.spaceId ?? null) !== scope.spaceId
         ) {
           throw new ActionContractError(
             `The ${scope.scopeType === "database" ? "collection" : "page"} moved to another workspace while the webhook was being added. Add it again.`,
