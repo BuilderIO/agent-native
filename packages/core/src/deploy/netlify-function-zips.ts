@@ -194,7 +194,7 @@ export function assertNoFunctionsConfig(siteRoot: string): void {
   if (!fs.existsSync(tomlPath)) return;
   // A `functions` key is only the bundling config at the document root;
   // under [build] it is the plain functions-directory setting.
-  let inRoot = true;
+  let table: string[] = [];
   const unsupported = fs
     .readFileSync(tomlPath, "utf-8")
     .split("\n")
@@ -202,14 +202,16 @@ export function assertNoFunctionsConfig(siteRoot: string): void {
     .some((line) => {
       if (line.startsWith("#")) return false;
       if (line.startsWith("[")) {
-        inRoot = false;
-        const segments = line
+        table = line
           .replace(/^\[+|\]+\s*(#.*)?$/g, "")
           .split(".")
           .map((segment) => segment.trim().replace(/^["']|["']$/g, ""));
-        return segments.includes("functions");
+        return table.includes("functions");
       }
-      return inRoot && /^["']?functions["']?\s*[.=]/.test(line);
+      if (!/^["']?functions["']?\s*[.=]/.test(line)) return false;
+      // Only a plain [build] functions directory is supported; the same key at
+      // the root or in a context-scoped build table changes what is deployed.
+      return !(table.length === 1 && table[0] === "build");
     });
   if (unsupported) {
     throw new Error(
