@@ -356,6 +356,12 @@ AUTH_REQUIRE_EMAIL_VERIFICATION=1
 
 将示例地址替换为每个工作区首位管理员的已验证邮箱。在空数据库上，该管理员先登录并成为初始组织的所有者，然后可在 Settings → Organization → Members 中邀请团队成员。完整的初始化流程请参阅[受管理的部署](/docs/administered-deployments)。
 
+## 确定性函数 ZIP {#workspace-netlify-function-zips}
+
+Netlify 会对每个函数的完整 ZIP 计算哈希，而它的打包器每次运行写入条目的顺序都不同，因此未更改的函数每次部署都会重新上传。请使用 `npx @agent-native/core@latest netlify-deploy` 发布，而不是自己调用 `netlify deploy`。该命令使用已安装的 Netlify CLI 自带的打包器压缩函数，用排序后的条目和固定时间戳重写每个 ZIP，写入函数清单，然后在同一条命令中运行 `netlify deploy`。路由、计划任务和后台设置都会保留。自己的 `netlify deploy` 参数放在命令之后；默认值为 `--prod --dir=dist --functions=.netlify/functions-internal`。
+
+CLI 只会在两分钟内读取该清单。如果 CLI 启动时清单更旧，或 CLI 丢弃了它，命令会输出一行 `manifest-expired` 并以非零状态退出，而不是悄悄使用不稳定的 ZIP 部署。
+
 ## 下一步
 
 - [**Deployment**](/docs/deployment) — 在部署工作区之前选择一个持久数据库、一个 Nitro 预设和一个平台

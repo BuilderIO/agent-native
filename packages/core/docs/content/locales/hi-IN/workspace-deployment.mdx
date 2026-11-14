@@ -356,6 +356,12 @@ AUTH_REQUIRE_EMAIL_VERIFICATION=1
 
 उदाहरण वाले पते की जगह हर workspace के पहले administrator का verified email दें। खाली database पर वह पहले sign in करता है, शुरुआती organization का owner बनता है, और फिर Settings → Organization → Members में टीम को invite कर सकता है। पूरी bootstrap प्रक्रिया के लिए [Administered deployments](/docs/administered-deployments) देखें।
 
+## निर्धारक फ़ंक्शन ZIP {#workspace-netlify-function-zips}
+
+Netlify हर फ़ंक्शन की पूरी ZIP का हैश बनाता है, और उसका बंडलर हर बार प्रविष्टियों को अलग क्रम में लिखता है, इसलिए अपरिवर्तित फ़ंक्शन भी हर डिप्लॉय में दोबारा अपलोड होते हैं। खुद `netlify deploy` चलाने के बजाय `npx @agent-native/core@latest netlify-deploy` से प्रकाशित करें। यह कमांड इंस्टॉल की गई Netlify CLI के अपने बंडलर से फ़ंक्शन ज़िप करता है, हर ZIP को क्रमबद्ध प्रविष्टियों और स्थिर टाइमस्टैम्प के साथ दोबारा लिखता है, फ़ंक्शन मैनिफ़ेस्ट बनाता है, फिर उसी कमांड में `netlify deploy` चलाता है। रूट, शेड्यूल और बैकग्राउंड सेटिंग्स बनी रहती हैं। अपने `netlify deploy` आर्ग्युमेंट कमांड के बाद दें; डिफ़ॉल्ट `--prod --dir=dist --functions=.netlify/functions-internal` है।
+
+CLI उस मैनिफ़ेस्ट को केवल दो मिनट तक पढ़ती है। अगर CLI शुरू होते समय वह उससे पुराना हो, या CLI उसे छोड़ दे, तो कमांड `manifest-expired` लाइन छापता है और चुपचाप अस्थिर ZIP के साथ डिप्लॉय करने के बजाय शून्येतर कोड से बाहर निकलता है।
+
 ## आगे क्या है
 
 - [**तैनाती**](/docs/deployment) — कार्यस्थान तैनात करने से पहले एक स्थायी डेटाबेस, एक Nitro preset, और एक platform चुनें

@@ -776,6 +776,7 @@
     "react-i18next": "17.0.8",
     "run": "2.0.1",
     "safe-regex2": "5.1.1",
+    "smol-toml": "1.9.1",
     "turndown": "^7.2.4",
     "undici": "^7.28.0",
     "ws": "^8.22.0",
