@@ -5,16 +5,16 @@ import { join } from "path";
 import { defineAction, noteExternalWrite } from "@agent-native/core/action";
 import type { ActionRunContext } from "@agent-native/core/action";
 import { track } from "@agent-native/core/tracking";
-import {
-  CHART_PALETTES,
-  CHART_THEMES,
-  renderStaticChartSvg,
-} from "@agent-native/toolkit/dashboard/report-chart-svg";
 import type { ChartConfiguration, ChartType } from "chart.js";
 import type { ChartJSNodeCanvas as ChartJSNodeCanvasType } from "chartjs-node-canvas";
 import { z } from "zod";
 
 import { getAnalyticsMediaDir } from "../server/lib/media-dir.js";
+import {
+  CHART_PALETTES,
+  CHART_THEMES,
+  renderStaticChartSvg,
+} from "../server/lib/report-chart-svg.js";
 import { signedSvgMediaUrl } from "../server/lib/signed-media.js";
 import { cliBoolean } from "./schema-helpers";
 

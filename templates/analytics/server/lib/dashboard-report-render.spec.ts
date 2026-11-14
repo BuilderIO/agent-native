@@ -45,7 +45,7 @@ vi.mock("./dashboard-panel-query", () => ({
     return query;
   },
 }));
-vi.mock("@agent-native/toolkit/dashboard/report-chart-svg", () => ({
+vi.mock("./report-chart-svg", () => ({
   REPORT_CHART_FONT_FAMILY: "Liberation Sans",
   renderReportChartSvg: mocks.renderReportChartSvg,
   renderFunnelChartSvg: mocks.renderFunnelChartSvg,

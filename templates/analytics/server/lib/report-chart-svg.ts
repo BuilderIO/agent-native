@@ -1,23 +1,25 @@
+import { OG_FONT_FAMILY } from "@agent-native/core/server";
+
 import {
   estimateTextWidth,
   isCategoryAxis,
   planCategoryAxis,
   spanLabelX,
   trimToWidth,
-} from "./chart-axis-labels.js";
-import { formatDollars } from "./format-dollars.js";
-import { durationTicks, formatDuration } from "./format-duration.js";
+} from "../../shared/chart-axis-labels";
 import {
   funnelOutcomeShare,
   type DashboardFunnelItem,
   type DashboardFunnelOutcomeSummary,
-} from "./funnel-chart.js";
-import { isSafeSvgHexColor } from "./svg-color.js";
+} from "../../shared/dashboard-funnel";
+import { formatDollars } from "../../shared/format-dollars";
+import { durationTicks, formatDuration } from "../../shared/format-duration";
+import { isSafeSvgHexColor } from "../../shared/svg-color";
 import {
   FUNNEL_OUTCOME_REPORT_COLORS,
   FUNNEL_OUTCOME_SEGMENTS,
   type FunnelOutcomeSegment,
-} from "./tokens/funnel-outcome-colors.js";
+} from "../../shared/tokens/funnel-outcome-colors";
 
 export { estimateTextWidth };
 
@@ -59,16 +61,6 @@ export type ReportChartSeries = {
   formatter?: ReportChartValueFormatter;
   /** Combo charts only: draw this series as bars or as a line. */
   mark?: "bar" | "line";
-};
-
-/**
- * How a report chart looks where it is shown. Emails and images keep the
- * defaults (light, the rasterizer's font); a chart drawn into a page passes
- * the page's theme and `BROWSER_FONT_FAMILY`.
- */
-export type ReportChartAppearance = {
-  theme?: "light" | "dark";
-  fontFamily?: string;
 };
 
 export type ChartSvgTheme = {
@@ -119,14 +111,9 @@ export const CHART_PALETTES: Record<"dark" | "light", readonly string[]> = {
   ],
 };
 
-/**
- * The font report images are rasterized with. It must stay equal to core's
- * `OG_FONT_FAMILY`, which loads it for the rasterizer; a server spec checks.
- */
-export const REPORT_CHART_FONT_FAMILY = "Liberation Sans";
+export const REPORT_CHART_FONT_FAMILY = OG_FONT_FAMILY;
 
-/** The font a chart drawn into a web page uses. */
-export const BROWSER_FONT_FAMILY =
+const BROWSER_FONT_FAMILY =
   "ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif";
 
 const NEUTRAL_COLOR = "#71717a";
@@ -1262,8 +1249,6 @@ function renderOutcomeFunnelSvg({
   height,
   formatter,
   colors,
-  theme: themeName,
-  fontFamily,
 }: {
   title?: string;
   subtitle?: string;
@@ -1273,10 +1258,10 @@ function renderOutcomeFunnelSvg({
   height: number;
   formatter?: ReportChartValueFormatter;
   colors?: string[];
-} & ReportChartAppearance): string {
-  const theme = CHART_THEMES[themeName ?? "light"];
-  const palette = CHART_PALETTES[themeName ?? "light"];
-  const font = escapeXml(fontFamily ?? REPORT_CHART_FONT_FAMILY);
+}): string {
+  const theme = CHART_THEMES.light;
+  const palette = CHART_PALETTES.light;
+  const font = REPORT_CHART_FONT_FAMILY;
   const safeWidth = clampSize(width, 360, 2000);
   const header = renderChartHeader({
     title: title ?? "",
@@ -1397,8 +1382,6 @@ export function renderFunnelChartSvg({
   height,
   formatter,
   colors,
-  theme: themeName,
-  fontFamily,
 }: {
   title?: string;
   subtitle?: string;
@@ -1409,7 +1392,7 @@ export function renderFunnelChartSvg({
   height: number;
   formatter?: ReportChartValueFormatter;
   colors?: string[];
-} & ReportChartAppearance): string {
+}): string {
   if (outcomes) {
     return renderOutcomeFunnelSvg({
       title,
@@ -1420,13 +1403,10 @@ export function renderFunnelChartSvg({
       height,
       formatter,
       colors,
-      theme: themeName,
-      fontFamily,
     });
   }
-  const theme = CHART_THEMES[themeName ?? "light"];
-  const palette = CHART_PALETTES[themeName ?? "light"];
-  const font = escapeXml(fontFamily ?? REPORT_CHART_FONT_FAMILY);
+  const theme = CHART_THEMES.light;
+  const palette = CHART_PALETTES.light;
   const safeWidth = clampSize(width, 360, 2000);
   const safeHeight = clampSize(height, 240, 1200);
   const header = renderChartHeader({
@@ -1434,7 +1414,7 @@ export function renderFunnelChartSvg({
     subtitle: subtitle ?? "",
     width: safeWidth,
     theme,
-    fontFamily: font,
+    fontFamily: REPORT_CHART_FONT_FAMILY,
     fit: true,
   });
   const top = header.headerBottom + 30;
@@ -1466,11 +1446,11 @@ export function renderFunnelChartSvg({
       ? `<text x="${barLeft.toFixed(1)}" y="${(top + visible.length * rowHeight + 18).toFixed(1)}" font-size="12" fill="${theme.tickColor}">${escapeXml(`+${hidden} more stages`)}</text>`
       : "";
 
-  return `<svg xmlns="http://www.w3.org/2000/svg" width="${safeWidth}" height="${safeHeight}" viewBox="0 0 ${safeWidth} ${safeHeight}" font-family="${font}" role="img" aria-label="${escapeXml(title ?? "Funnel chart")}">
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${safeWidth}" height="${safeHeight}" viewBox="0 0 ${safeWidth} ${safeHeight}" font-family="${REPORT_CHART_FONT_FAMILY}" role="img" aria-label="${escapeXml(title ?? "Funnel chart")}">
   <rect width="${safeWidth}" height="${safeHeight}" rx="8" fill="${theme.background}"/>
   ${header.titleMarkup}
   ${header.subtitleMarkup}
-  <g font-family="${font}">
+  <g font-family="${REPORT_CHART_FONT_FAMILY}">
     ${bars}
     ${overflow}
   </g>
@@ -1548,8 +1528,6 @@ export function renderReportChartSvg({
   stacked,
   events,
   bands,
-  theme: themeName,
-  fontFamily,
 }: {
   events?: ReportChartEvent[];
   bands?: ReportChartBand[];
@@ -1561,10 +1539,9 @@ export function renderReportChartSvg({
   width: number;
   height: number;
   stacked?: boolean;
-} & ReportChartAppearance): string {
-  const theme = CHART_THEMES[themeName ?? "light"];
-  const palette = CHART_PALETTES[themeName ?? "light"];
-  const font = escapeXml(fontFamily ?? REPORT_CHART_FONT_FAMILY);
+}): string {
+  const theme = CHART_THEMES.light;
+  const palette = CHART_PALETTES.light;
   const normalizedLabels = labels.map((label) => String(label ?? ""));
 
   if (type === "pie") {
@@ -1577,7 +1554,7 @@ export function renderReportChartSvg({
       height,
       theme,
       palette,
-      fontFamily: font,
+      fontFamily: REPORT_CHART_FONT_FAMILY,
     });
   }
 
@@ -1599,7 +1576,7 @@ export function renderReportChartSvg({
     width,
     height,
     theme,
-    fontFamily: font,
+    fontFamily: REPORT_CHART_FONT_FAMILY,
     stacked: stacked ?? false,
     fit: true,
     events,

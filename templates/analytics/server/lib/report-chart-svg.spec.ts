@@ -1,21 +1,17 @@
-import { OG_FONT_FAMILY } from "@agent-native/core/server";
+import { describe, expect, it, vi } from "vitest";
+
+vi.mock("@agent-native/core/server", () => ({
+  OG_FONT_FAMILY: "Liberation Sans",
+}));
+
+import { resolveDashboardFunnelRows } from "../../shared/dashboard-funnel";
 import {
   estimateTextWidth,
   REPORT_CHART_FONT_FAMILY,
   renderFunnelChartSvg,
   renderReportChartSvg,
   type ReportChartType,
-} from "@agent-native/toolkit/dashboard/report-chart-svg";
-import { describe, expect, it } from "vitest";
-
-import { resolveDashboardFunnelRows } from "../../shared/dashboard-funnel";
-
-// The renderer lives in toolkit so pages can draw it, and the rasterizer
-// loads core's font; a rename on either side would draw emails in a
-// fallback font with the wrong text widths.
-it("draws report charts in the font the rasterizer loads", () => {
-  expect(REPORT_CHART_FONT_FAMILY).toBe(OG_FONT_FAMILY);
-});
+} from "./report-chart-svg.js";
 
 const base = {
   title: "Weekly signups",

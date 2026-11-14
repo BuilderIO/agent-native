@@ -1,21 +1,40 @@
-import type {
-  DashboardFunnelItem,
-  DashboardFunnelOutcomeIssue,
-  DashboardFunnelOutcomeProblem,
-  DashboardFunnelOutcomes,
-  DashboardFunnelOutcomeSummary,
-} from "@agent-native/toolkit/dashboard/funnel-chart";
-
 import type { FunnelOutcomesConfig } from "../app/pages/adhoc/sql-dashboard/types";
 
-export {
-  funnelOutcomeShare,
-  type DashboardFunnelItem,
-  type DashboardFunnelOutcomeIssue,
-  type DashboardFunnelOutcomeProblem,
-  type DashboardFunnelOutcomes,
-  type DashboardFunnelOutcomeSummary,
-} from "@agent-native/toolkit/dashboard/funnel-chart";
+export interface DashboardFunnelOutcomes {
+  completed: number;
+  skipped: number;
+  /** Shown but neither completed, skipped nor left: went on another way. */
+  movedOn: number;
+  left: number;
+  optional: boolean;
+}
+
+export interface DashboardFunnelItem {
+  label: string;
+  value: number;
+  percentOfFirst: number;
+  dropOffPercent: number | null;
+  /** Set when `config.funnelOutcomes` applies and this stage's columns add up. */
+  outcomes?: DashboardFunnelOutcomes;
+}
+
+export type DashboardFunnelOutcomeProblem =
+  | "not-a-count"
+  | "overfull"
+  | "not-a-flag";
+
+export interface DashboardFunnelOutcomeIssue {
+  label: string;
+  problem: DashboardFunnelOutcomeProblem;
+}
+
+export interface DashboardFunnelOutcomeSummary {
+  keys: FunnelOutcomesConfig;
+  /** Configured columns the result lacks; no stage splits while any is missing. */
+  missingColumns: string[];
+  /** Stages that draw a plain bar, or draw without their Optional tag. */
+  issues: DashboardFunnelOutcomeIssue[];
+}
 
 export interface DashboardFunnelRows {
   labelKey: string;
@@ -114,6 +133,11 @@ function resolveOutcomes(
       ? flagValue(row[keys.optionalKey]) === true
       : false,
   };
+}
+
+/** `part` as a percentage of the people shown a stage. */
+export function funnelOutcomeShare(part: number, shown: number): number {
+  return shown > 0 ? (part / shown) * 100 : 0;
 }
 
 export function resolveDashboardFunnelRows(
