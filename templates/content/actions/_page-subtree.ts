@@ -153,11 +153,18 @@ function blocked(message: string, errorCode: string): never {
   throw new ActionContractError(message, { errorCode, statusCode: 409 });
 }
 
+/**
+ * Refuses a subtree that can't leave its space. A copy can't take collections
+ * yet. A move takes the collections whose pages are in the subtree, so it
+ * passes `collectionsMove` and refuses only rows of a collection left behind.
+ */
 export async function assertSubtreeCanChangeSpace(
   db: ContentDb,
   documents: PageSubtreeDocument[],
+  { collectionsMove = false }: { collectionsMove?: boolean } = {},
 ) {
   const ids = documents.map((document) => document.id);
+  const idSet = new Set(ids);
   if (
     documents.some(
       (document) =>
@@ -169,15 +176,18 @@ export async function assertSubtreeCanChangeSpace(
       "PAGE_SOURCE_OWNED",
     );
   }
-  if ((await subtreeCollectionDocumentIds(db, ids)).size > 0) {
+  if (
+    !collectionsMove &&
+    (await subtreeCollectionDocumentIds(db, ids)).size > 0
+  ) {
     blocked(
       "Pages that contain collections can't move to another workspace yet.",
       "PAGE_CONTAINS_COLLECTION",
     );
   }
   for (const idGroup of groups(ids)) {
-    const [rowMembership] = await db
-      .select({ id: schema.contentDatabaseItems.id })
+    const rowCollections: Array<{ documentId: string }> = await db
+      .select({ documentId: schema.contentDatabases.documentId })
       .from(schema.contentDatabaseItems)
       .innerJoin(
         schema.contentDatabases,
@@ -188,11 +198,16 @@ export async function assertSubtreeCanChangeSpace(
           inArray(schema.contentDatabaseItems.documentId, idGroup),
           isNull(schema.contentDatabases.systemRole),
         ),
+      );
+    if (
+      rowCollections.some(
+        (collection) => !collectionsMove || !idSet.has(collection.documentId),
       )
-      .limit(1);
-    if (rowMembership) {
+    ) {
       blocked(
-        "Collection rows can't move to another workspace yet.",
+        collectionsMove
+          ? "A collection's rows can only move to another workspace with the whole collection."
+          : "Collection rows can't move to another workspace yet.",
         "PAGE_IS_COLLECTION_ROW",
       );
     }
