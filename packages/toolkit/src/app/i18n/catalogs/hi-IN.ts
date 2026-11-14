@@ -1519,6 +1519,11 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "{{agent}} से पूछा जा रहा है...",
   "tool.elapsed": "{{duration}} बीत चुके",
   "tool.askingAgentFailed": "{{agent}} से पूछते समय त्रुटि हुई",
+  "tool.agentApprovalTitle": "{{agent}} को आपकी अनुमति चाहिए",
+  "tool.agentApprovalReview": "{{agent}} में समीक्षा करें",
+  "tool.agentApprovalReturn": "{{agent}} में स्वीकृति दें, फिर यहाँ जारी रखें।",
+  "tool.agentApprovalContinueMessage":
+    "मैंने {{agent}} में स्वीकृति दे दी है। कृपया जारी रखें।",
   "tool.failedWithoutDetails": "त्रुटि का कोई विवरण उपलब्ध नहीं है।",
   "tool.input": "इनपुट",
   "tool.inputWithLabel": "इनपुट - {{label}}",

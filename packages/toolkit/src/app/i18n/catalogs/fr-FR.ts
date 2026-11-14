@@ -1082,6 +1082,12 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "Consultation de {{agent}}...",
   "tool.elapsed": "Temps écoulé : {{duration}}",
   "tool.askingAgentFailed": "Erreur lors de la consultation de {{agent}}",
+  "tool.agentApprovalTitle": "{{agent}} a besoin de votre approbation",
+  "tool.agentApprovalReview": "Vérifier dans {{agent}}",
+  "tool.agentApprovalReturn":
+    "Approuvez-le dans {{agent}}, puis continuez ici.",
+  "tool.agentApprovalContinueMessage":
+    "Je l’ai approuvé dans {{agent}}. Veuillez continuer.",
   "tool.failedWithoutDetails": "Aucun détail d’erreur disponible.",
   "tool.input": "Entrée",
   "tool.inputWithLabel": "Entrée - {{label}}",

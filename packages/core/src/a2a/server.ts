@@ -961,8 +961,15 @@ export function mountA2A(
           await import("../server/request-context.js");
         let execution: import("./types.js").A2AActionExecutionResult;
         try {
+          // The action runs in the scope its task ran in, not the browser's
+          // active workspace: a personal task's action stays personal.
           execution = await runWithRequestContext(
-            { userEmail: session.email, orgId: session.orgId ?? undefined },
+            {
+              userEmail: session.email,
+              ...(approval.orgId
+                ? { orgId: approval.orgId }
+                : { orgScope: "personal" as const }),
+            },
             () =>
               withExecutionFence(fence, () =>
                 config.executeApproval!(approval, {

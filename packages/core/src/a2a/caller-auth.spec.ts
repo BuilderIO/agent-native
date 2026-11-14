@@ -235,8 +235,37 @@ describe("resolveA2ACallerAuth", () => {
     );
   });
 
-  it("does not mint an unscoped user token when the active org has no domain", async () => {
+  it("sends a personal-scope user token when the active org has no domain", async () => {
     process.env.A2A_SECRET = "global-a2a-secret";
+    getOrgDomainMock.mockResolvedValueOnce(null);
+
+    await runWithRequestContext(
+      { userEmail: "alice+qa@agent-native.test", orgId: "org-qa" },
+      async () => {
+        const auth = await resolveA2ACallerAuth({
+          audience: "https://peer.example.test",
+        });
+
+        expect(auth.apiKey).toBeTruthy();
+        expect(auth.apiKeyFallbacks).toBeUndefined();
+        const { payload } = await jose.jwtVerify(
+          auth.apiKey!,
+          new TextEncoder().encode("global-a2a-secret"),
+        );
+        expect(payload).toMatchObject({
+          sub: "alice+qa@agent-native.test",
+          aud: "https://peer.example.test",
+        });
+        // The caller's local org ID would not resolve on a peer app, so the
+        // token carries no workspace claim at all.
+        expect(payload).not.toHaveProperty("org_domain");
+        expect(payload).not.toHaveProperty("org_id");
+      },
+    );
+  });
+
+  it("sends no token for a domainless org without a deployment secret", async () => {
+    delete process.env.A2A_SECRET;
     getOrgDomainMock.mockResolvedValueOnce(null);
 
     await runWithRequestContext(

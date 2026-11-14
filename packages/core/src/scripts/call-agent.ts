@@ -34,7 +34,7 @@ import {
   isLlmCredentialError,
 } from "../agent/engine/credential-errors.js";
 import type { ActionRunContext } from "../agent/production-agent.js";
-import type { ActionTool } from "../agent/types.js";
+import type { A2APeerApproval, ActionTool } from "../agent/types.js";
 import { A2A_CONTINUATION_QUEUED_MARKER } from "../integrations/a2a-continuation-marker.js";
 import { trackingIdentityProperties } from "../observability/tracking-identity.js";
 import { getOrgDomain, getOrgA2ASecret } from "../org/context.js";
@@ -142,12 +142,15 @@ function terminalTaskError(value: unknown): {
   responseText?: string;
   errorCode?: string;
   connectionProvider?: string;
+  approval?: A2APeerApproval;
 } | null {
   if (!value || typeof value !== "object") return null;
   const candidate = value as Record<string, unknown>;
   if (candidate.name !== "A2ATaskTerminalError") return null;
   const connectionProvider = connectionRequestProvider(candidate.task);
+  const approval = peerApprovalRequest(candidate.task);
   return {
+    ...(approval ? { approval } : {}),
     state: stringifyValue(candidate.state ?? "failed"),
     ...(typeof candidate.taskId === "string"
       ? { taskId: candidate.taskId }
@@ -224,6 +227,48 @@ function connectionRequestProvider(task: unknown): string | undefined {
   const provider =
     typeof request.provider === "string" ? request.provider.trim() : "";
   return provider && provider.length <= 120 ? provider : undefined;
+}
+
+// The receiver's agent-chat plugin sets this when one of its actions waits for
+// a person to approve it in that app.
+function peerApprovalRequest(task: unknown): A2APeerApproval | undefined {
+  const request = (task as Partial<Task> | undefined)?.status?.message?.metadata
+    ?.agentNativeApproval as Partial<A2APeerApproval> | undefined;
+  if (!request || typeof request !== "object") return undefined;
+  const id = typeof request.id === "string" ? request.id.trim() : "";
+  const tool = typeof request.tool === "string" ? request.tool.trim() : "";
+  const url = typeof request.url === "string" ? request.url.trim() : "";
+  if (!id || id.length > 200 || !tool || tool.length > 200) return undefined;
+  if (!url || url.length > 2_048) return undefined;
+  return { id, tool, url };
+}
+
+// The chat links the person straight to this page, so it must be the peer's
+// own approval page for this approval, on the peer's origin.
+function approvalOnPeerOrigin(
+  approval: A2APeerApproval | undefined,
+  agentUrl: string,
+): A2APeerApproval | undefined {
+  if (!approval) return undefined;
+  let peer: URL;
+  let page: URL;
+  try {
+    peer = new URL(agentUrl);
+    page = new URL(approval.url, peer);
+  } catch {
+    // coercion-ok: an unparseable approval URL gets no card; the text still names it.
+    return undefined;
+  }
+  if (
+    (page.protocol !== "https:" && page.protocol !== "http:") ||
+    page.origin !== peer.origin ||
+    page.username ||
+    page.password ||
+    !page.pathname.endsWith(`/a2a/approvals/${encodeURIComponent(approval.id)}`)
+  ) {
+    return undefined;
+  }
+  return { ...approval, url: page.href };
 }
 
 // A connection is made by the user in the peer app; the model can neither
@@ -525,12 +570,18 @@ function remoteAgentAuthFailure(
 ): { message: string; errorCode: string } | null {
   if (value instanceof RemoteAgentCredentialRejectedError) {
     if (!hostedAuthConfigured) {
-      if (callerWorkspace?.orgId && !callerWorkspace.orgDomain?.trim()) {
+      // With A2A_SECRET set, a domainless workspace still sends the user's
+      // personal identity, so a rejection there is an ordinary auth failure.
+      if (
+        callerWorkspace?.orgId &&
+        !callerWorkspace.orgDomain?.trim() &&
+        !getGlobalA2ASecret()
+      ) {
         return {
           message:
             `Error: The ${agentName} agent rejected the A2A request (HTTP ${value.statusCode}). ` +
-            "This workspace has no domain configured, so the caller could not send a workspace-scoped identity. " +
-            "Set the workspace domain or configure explicit credentials for this agent, then retry.",
+            "This workspace has no domain configured and this app has no A2A_SECRET, so the caller could not send a verified identity. " +
+            "Set the same A2A_SECRET on both apps, set the workspace domain, or configure explicit credentials for this agent, then retry.",
           errorCode: "a2a_caller_org_domain_missing",
         };
       }
@@ -1170,6 +1221,7 @@ export async function run(
       let lastSentLength = 0;
       const agentCallId = randomUUID();
       let terminalStatus: "done" | "pending" | "error" = "done";
+      let pendingApproval: A2APeerApproval | undefined;
       const existingContinuationText = taskId
         ? null
         : await formatExistingIntegrationContinuationIfRetry(agent, message);
@@ -1330,6 +1382,10 @@ export async function run(
           );
           invocationTerminalCode = inputRequired.terminalCode;
           responseText = inputRequired.text;
+          // Without a taskId there is nothing to continue after approving.
+          pendingApproval = terminal.taskId
+            ? approvalOnPeerOrigin(terminal.approval, agent.url)
+            : undefined;
         } else if (terminalTaskError(pollErr)) {
           terminalStatus = "error";
           const terminal = terminalTaskError(pollErr)!;
@@ -1397,6 +1453,9 @@ export async function run(
         durationMs: Date.now() - callStartedAt,
         ...(invocationTerminalCode
           ? { terminalCode: invocationTerminalCode }
+          : {}),
+        ...(terminalStatus === "pending" && pendingApproval
+          ? { approval: pendingApproval }
           : {}),
       });
 
@@ -1616,8 +1675,8 @@ async function invokeReadOnlyAppAction(
     !getGlobalA2ASecret()
   ) {
     return (
-      `Error calling ${agent.name} action ${action}: this workspace has no domain configured, ` +
-      "so the request cannot include workspace-scoped A2A identity. Set the workspace domain or configure explicit credentials for this agent."
+      `Error calling ${agent.name} action ${action}: this workspace has no domain configured and this app has no A2A_SECRET, ` +
+      "so the request cannot include a verified A2A identity. Set the same A2A_SECRET on both apps, set the workspace domain, or configure explicit credentials for this agent."
     );
   }
 
