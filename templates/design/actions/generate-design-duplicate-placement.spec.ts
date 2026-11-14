@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { placementTestFixtures } from "./generate-design.test-fixtures.js";
+
+import { placementTestFixtures } from "./_generate-design.test-fixtures.js";
 
 const { action, mocks, resetDesignDataMutation, setExistingFile, track } =
   placementTestFixtures;

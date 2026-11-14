@@ -177,6 +177,7 @@ vi.mock("drizzle-orm", () => ({
   inArray: mocks.inArray,
   gt: vi.fn((left, right) => ({ left, right })),
   isNull: mocks.isNull,
+  // raw-sql-ok: This test double only records fragments and never executes SQL.
   sql: vi.fn((strings, ...values) => ({ strings, values })),
 }));
 

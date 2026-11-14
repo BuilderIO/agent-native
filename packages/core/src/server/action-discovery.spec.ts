@@ -4,6 +4,7 @@ import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { workspaceRoot } from "../../vitest.workspace-root.js";
 import { isActionDefinitionError } from "../action.js";
 import {
   filterFrameworkToolGroups,
@@ -28,6 +29,20 @@ afterEach(() => {
 });
 
 describe("action discovery", () => {
+  it("excludes the Design test fixture from dev action discovery", async () => {
+    const files = await listDevActionFiles(
+      path.join(workspaceRoot, "templates/design"),
+    );
+    expect(
+      files.some((file) => path.basename(file) === "generate-design.ts"),
+    ).toBe(true);
+    expect(
+      files.some((file) =>
+        path.basename(file).includes("generate-design.test-fixtures"),
+      ),
+    ).toBe(false);
+  });
+
   it(
     "loads TypeScript action files from plain source directories",
     async () => {

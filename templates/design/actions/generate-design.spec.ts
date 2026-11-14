@@ -1,11 +1,11 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { placementTestFixtures } from "./generate-design.test-fixtures.js";
 import {
   executeAgentToolCall,
   type ActionEntry,
 } from "../../../packages/core/src/agent/production-agent.js";
 import { MAX_SANE_FRAME_DIMENSION_PX } from "../shared/responsive-frame-layout.js";
+import { placementTestFixtures } from "./_generate-design.test-fixtures.js";
 
 const { action, mocks, resetDesignDataMutation, setExistingFile, track } =
   placementTestFixtures;
