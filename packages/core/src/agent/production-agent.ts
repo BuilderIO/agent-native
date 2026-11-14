@@ -62,6 +62,7 @@ import {
   runPreparedActionCall,
   boundActionCallIntent,
   preparedCallArguments,
+  preparedCallApprovalLabel,
   preparedCallNeedsApproval,
   recordInvalidActionCall,
   resolveToolMaxResultChars,
@@ -1433,6 +1434,10 @@ export interface ActionEntry {
         args: any,
         ctx?: import("../action.js").ActionRunContext,
       ) => boolean | Promise<boolean>);
+  approvalLabel?(
+    args: unknown,
+    ctx?: import("../action.js").ActionRunContext,
+  ): string;
   allowPersistentApproval?: boolean;
   /**
    * Identifies what this entry does under its name. Approvals, including
@@ -10247,28 +10252,33 @@ export async function runAgentLoop(opts: {
         const approvalUserEmail = requiresWriteApproval
           ? undefined
           : getRequestUserEmail();
+        const approvalContext = {
+          ...(approvalUserEmail === undefined
+            ? {}
+            : { userEmail: approvalUserEmail }),
+          orgId: getRequestOrgId() ?? null,
+          ...(opts.appId === undefined ? {} : { appId: opts.appId }),
+          caller: opts.actionCaller ?? "tool",
+          ...(opts.automation === undefined
+            ? {}
+            : { automation: opts.automation }),
+          ...(opts.networkProtocol === undefined
+            ? {}
+            : { networkProtocol: opts.networkProtocol }),
+          ...(opts.networkId === undefined
+            ? {}
+            : { networkId: opts.networkId }),
+          ...(opts.networkPeer === undefined
+            ? {}
+            : { networkPeer: opts.networkPeer }),
+        };
         let mustApprove =
           requiresWriteApproval ||
-          (await preparedCallNeedsApproval(actionEntry, intent, {
-            ...(approvalUserEmail === undefined
-              ? {}
-              : { userEmail: approvalUserEmail }),
-            orgId: getRequestOrgId() ?? null,
-            ...(opts.appId === undefined ? {} : { appId: opts.appId }),
-            caller: opts.actionCaller ?? "tool",
-            ...(opts.automation === undefined
-              ? {}
-              : { automation: opts.automation }),
-            ...(opts.networkProtocol === undefined
-              ? {}
-              : { networkProtocol: opts.networkProtocol }),
-            ...(opts.networkId === undefined
-              ? {}
-              : { networkId: opts.networkId }),
-            ...(opts.networkPeer === undefined
-              ? {}
-              : { networkPeer: opts.networkPeer }),
-          }));
+          (await preparedCallNeedsApproval(
+            actionEntry,
+            intent,
+            approvalContext,
+          ));
         if (
           mustApprove &&
           opts.requireWriteApproval !== true &&
@@ -10301,6 +10311,11 @@ export async function runAgentLoop(opts: {
           }
           const askId =
             (await opts.onApprovalRequired?.(approvalBinding())) || undefined;
+          // A private call's arguments stay out of the chat, so its card
+          // keeps the generic question.
+          const approvalLabel = isPrivateCall()
+            ? undefined
+            : preparedCallApprovalLabel(actionEntry, intent, approvalContext);
           await send({
             type: "tool_start",
             id: toolCall.id,
@@ -10313,6 +10328,7 @@ export async function runAgentLoop(opts: {
             input: liveToolInput as Record<string, string>,
             approvalKey,
             argumentsHash,
+            ...(approvalLabel ? { label: approvalLabel } : {}),
             ...(actionEntry.allowPersistentApproval === false
               ? { allowPersistentApproval: false }
               : {}),
