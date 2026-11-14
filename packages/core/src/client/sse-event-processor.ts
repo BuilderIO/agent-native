@@ -10,7 +10,10 @@ import {
   BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
   isTerminalRecoveryErrorCode,
 } from "../agent/engine/error-detail.js";
-import type { AgentChatRichEventEnvelope } from "../agent/types.js";
+import type {
+  A2APeerApproval,
+  AgentChatRichEventEnvelope,
+} from "../agent/types.js";
 import type { ArtifactReceipt } from "../artifacts/detect.js";
 import type { AgentMcpAppPayload } from "../mcp-client/app-result.js";
 import { normalizeConnectRequiredResult } from "../shared/connect-required.js";
@@ -148,6 +151,8 @@ export interface SSEEvent {
   agentCallId?: string;
   durationMs?: number;
   terminalCode?: string;
+  /** A peer approval on a pending `agent_call` (mirrors AgentChatEvent). */
+  approval?: A2APeerApproval;
   snapshot?: A2AAgentActivitySnapshot;
   reason?: string;
   // Agent task fields
@@ -316,6 +321,35 @@ export const SSE_ACTION_PREPARATION_STALL_TIMEOUT_MS = 90_000;
  * shorter window and kills a run the server believes is healthy.
  */
 export const SSE_IN_FLIGHT_WORK_TIMEOUT_MS = 15 * 60_000;
+
+/** What an agent call's approval card needs, on the tool call's metadata. */
+interface AgentCallApprovalMeta extends A2APeerApproval {
+  taskId: string;
+}
+
+function peerApprovalForCard(ev: SSEEvent): AgentCallApprovalMeta | undefined {
+  const approval = ev.approval;
+  const taskId = typeof ev.taskId === "string" ? ev.taskId.trim() : "";
+  if (!approval || typeof approval !== "object" || !taskId) return undefined;
+  const { id, tool, url } = approval;
+  if (
+    typeof id !== "string" ||
+    !id ||
+    typeof tool !== "string" ||
+    !tool ||
+    typeof url !== "string"
+  ) {
+    return undefined;
+  }
+  try {
+    const { protocol } = new URL(url);
+    if (protocol !== "https:" && protocol !== "http:") return undefined;
+  } catch {
+    // coercion-ok: a card needs an absolute page link; the reply text remains.
+    return undefined;
+  }
+  return { id, tool, url, taskId };
+}
 
 /**
  * Open-work delta for one event: +1 when a tool call or A2A delegation starts,
@@ -2088,6 +2122,10 @@ export function processEvent(
           (!ev.agentCallId || part.toolCallId === ev.agentCallId) &&
           part.result === undefined
         ) {
+          // A peer waiting on a person isn't working, so the call settles
+          // with a card instead of staying pending.
+          const approval =
+            ev.status === "pending" ? peerApprovalForCard(ev) : undefined;
           part.result =
             ev.status === "error"
               ? "Error calling agent"
@@ -2096,7 +2134,11 @@ export function processEvent(
                 : "Done";
           part.structuredMeta = {
             ...part.structuredMeta,
-            ...(ev.status === "pending" ? { agentPending: true } : {}),
+            ...(approval
+              ? { agentApproval: approval }
+              : ev.status === "pending"
+                ? { agentPending: true }
+                : {}),
             ...(ev.durationMs != null
               ? { agentDurationMs: ev.durationMs }
               : {}),

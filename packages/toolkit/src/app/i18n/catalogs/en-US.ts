@@ -1543,6 +1543,11 @@ const messages = {
   "tool.askingAgent": "Asking {{agent}}...",
   "tool.elapsed": "{{duration}} elapsed",
   "tool.askingAgentFailed": "Error asking {{agent}}",
+  "tool.agentApprovalTitle": "{{agent}} needs your approval",
+  "tool.agentApprovalReview": "Review in {{agent}}",
+  "tool.agentApprovalReturn": "Approve it in {{agent}}, then continue here.",
+  "tool.agentApprovalContinueMessage":
+    "I approved it in {{agent}}. Please continue.",
   "tool.failedWithoutDetails": "No error details are available.",
   "tool.input": "Input",
   "tool.inputWithLabel": "Input - {{label}}",

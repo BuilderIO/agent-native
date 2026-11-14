@@ -53,6 +53,7 @@ function AgentNativeI18nProvider(props: AgentNativeI18nProviderProps) {
 
 const builderHandoffMocks = vi.hoisted(() => ({
   useAgentChatContext: vi.fn(),
+  sendToAgentChat: vi.fn(),
 }));
 
 vi.mock("../ConnectBuilderCard.js", () => ({
@@ -88,6 +89,7 @@ vi.mock("@agent-native/core/client/agent-chat", async (importOriginal) => ({
     typeof import("@agent-native/core/client/agent-chat")
   >()),
   useAgentChatContext: builderHandoffMocks.useAgentChatContext,
+  sendToAgentChat: builderHandoffMocks.sendToAgentChat,
 }));
 
 vi.mock("../mcp-apps/McpAppRenderer.js", () => ({
@@ -825,6 +827,99 @@ describe("ToolCallDisplay native renderers", () => {
     expect(
       container.querySelector("[data-agent-native-cube-loader]"),
     ).not.toBeNull();
+  });
+
+  describe("a call waiting on the peer's approval", () => {
+    const approvalUrl =
+      "https://slides.agent-native.test/_agent-native/a2a/approvals/approval-1";
+    const renderWaiting = (
+      id: string,
+      props: { isRunning?: boolean; isError?: boolean } = {},
+    ) =>
+      act(() => {
+        root.render(
+          <ToolCallDisplay
+            toolName="agent:Slides"
+            args={{}}
+            result="Slides needs approval before it can create the deck."
+            isRunning={false}
+            structuredMeta={{
+              agentApproval: {
+                id,
+                tool: "create-deck",
+                url: approvalUrl,
+                taskId: "task-child",
+              },
+            }}
+            {...props}
+          />,
+        );
+      });
+    const button = (label: string) =>
+      Array.from(container.querySelectorAll("button")).find(
+        (candidate) => candidate.textContent?.trim() === label,
+      );
+
+    beforeEach(() => {
+      builderHandoffMocks.sendToAgentChat.mockReset();
+    });
+
+    it("opens the peer's page, then continues the same task once", () => {
+      const open = vi.spyOn(window, "open").mockReturnValue(null);
+      renderWaiting("approval-continue");
+
+      expect(container.textContent).toContain("Slides needs your approval");
+      expect(container.textContent).toContain("create-deck");
+      expect(
+        container.querySelector("[data-agent-native-cube-loader]"),
+      ).toBeNull();
+
+      act(() => button("Review in Slides")?.click());
+
+      expect(open).toHaveBeenCalledWith(
+        approvalUrl,
+        "_blank",
+        "noopener,noreferrer",
+      );
+      expect(container.textContent).toContain(
+        "Approve it in Slides, then continue here.",
+      );
+
+      act(() => button("Continue")?.click());
+
+      expect(builderHandoffMocks.sendToAgentChat).toHaveBeenCalledTimes(1);
+      expect(builderHandoffMocks.sendToAgentChat).toHaveBeenCalledWith({
+        message: "I approved it in Slides. Please continue.",
+        context: expect.stringContaining(
+          'agent="Slides" and taskId="task-child"',
+        ),
+        submit: true,
+      });
+      expect(container.textContent).not.toContain("Slides needs your approval");
+
+      // A reload renders the same tool call again; the card stays closed.
+      act(() => root.render(null));
+      renderWaiting("approval-continue");
+      expect(container.textContent).not.toContain("Slides needs your approval");
+    });
+
+    it("closes without continuing when the person cancels", () => {
+      renderWaiting("approval-cancel");
+
+      act(() => button("Cancel")?.click());
+
+      expect(container.textContent).not.toContain("Slides needs your approval");
+      expect(builderHandoffMocks.sendToAgentChat).not.toHaveBeenCalled();
+    });
+
+    it.each([
+      ["still running", { isRunning: true }],
+      ["failed", { isError: true }],
+    ])("shows no card while the call is %s", (label, props) => {
+      renderWaiting(`approval-${label}`, props);
+
+      expect(container.textContent).not.toContain("Slides needs your approval");
+    });
   });
 
   it("shows activity tool cards as running while the chat runs", () => {

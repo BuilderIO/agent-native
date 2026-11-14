@@ -3,7 +3,10 @@ import type {
   A2AAgentActivityToolCall,
 } from "@agent-native/core/a2a";
 import type { ActionChatUIConfig } from "@agent-native/core/action-ui";
-import { formatAgentChatContextItemsForPrompt } from "@agent-native/core/client/agent-chat";
+import {
+  formatAgentChatContextItemsForPrompt,
+  sendToAgentChat,
+} from "@agent-native/core/client/agent-chat";
 import type {
   AgentCallProgress,
   ContentPart,
@@ -51,6 +54,10 @@ import React, {
   useRef,
 } from "react";
 
+import {
+  ApprovalCard,
+  type ApprovalCardAction,
+} from "../../agentkit/react/approval-card.js";
 import { AgentKitDisclosureSummary } from "../../agentkit/react/components.js";
 import type { AgentChatDataChartLayout } from "../../agentkit/react/data-chart-layout.js";
 import {
@@ -1015,6 +1022,11 @@ function ToolCallDisplayGeneric({
             ? structuredMeta.agentDurationMs
             : agentActivity?.durationMs
         }
+        approval={
+          isAgentError
+            ? undefined
+            : readAgentCallApproval(structuredMeta?.agentApproval)
+        }
         workedForRowLayout={workedForRowLayout}
         formatWorkedForDuration={formatWorkedForDuration}
       />
@@ -1166,6 +1178,7 @@ function AgentCallCell({
   isError,
   errorText,
   durationMs,
+  approval,
   workedForRowLayout,
   formatWorkedForDuration,
 }: {
@@ -1178,6 +1191,7 @@ function AgentCallCell({
   isError: boolean;
   errorText?: string;
   durationMs?: number;
+  approval?: AgentCallApproval;
   workedForRowLayout?: AgentChatWorkedForRowLayout;
   formatWorkedForDuration?: (durationMs: number) => string;
 }) {
@@ -1355,7 +1369,148 @@ function AgentCallCell({
           ) : null}
         </div>
       </AnimatedCollapse>
+      {approval && !isRunning ? (
+        <AgentCallApprovalCard
+          key={approval.id}
+          agentName={agentName}
+          approval={approval}
+        />
+      ) : null}
     </div>
+  );
+}
+
+/** A peer's approval request, set on a pending call by the SSE processor. */
+interface AgentCallApproval {
+  id: string;
+  tool: string;
+  url: string;
+  taskId: string;
+}
+
+function readAgentCallApproval(value: unknown): AgentCallApproval | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const { id, tool, url, taskId } = value as Record<string, unknown>;
+  return typeof id === "string" &&
+    id &&
+    typeof tool === "string" &&
+    tool &&
+    typeof url === "string" &&
+    url &&
+    typeof taskId === "string" &&
+    taskId
+    ? { id, tool, url, taskId }
+    : undefined;
+}
+
+const SETTLED_AGENT_CALL_APPROVAL_PREFIX = "agent-native:agent-call-approval:";
+
+// A reload re-renders the same tool call, so a card the person already
+// continued or dismissed stays closed for the rest of the session.
+function isAgentCallApprovalSettled(id: string): boolean {
+  try {
+    return (
+      window.sessionStorage.getItem(SETTLED_AGENT_CALL_APPROVAL_PREFIX + id) ===
+      "settled"
+    );
+  } catch {
+    // coercion-ok: without session storage the card just shows again on reload.
+    return false;
+  }
+}
+
+function rememberAgentCallApprovalSettled(id: string): void {
+  try {
+    window.sessionStorage.setItem(
+      SETTLED_AGENT_CALL_APPROVAL_PREFIX + id,
+      "settled",
+    );
+  } catch {
+    // coercion-ok: without session storage the card just shows again on reload.
+  }
+}
+
+/**
+ * The peer runs the action only after the person approves it on the peer's
+ * own page. Continuing then resumes the same delegated task, which returns the
+ * approved action's result.
+ */
+export function AgentCallApprovalCard({
+  agentName,
+  approval,
+}: {
+  agentName: string;
+  approval: AgentCallApproval;
+}) {
+  const t = useT();
+  const [phase, setPhase] = useState<"review" | "continue" | "settled">(() =>
+    typeof window !== "undefined" && isAgentCallApprovalSettled(approval.id)
+      ? "settled"
+      : "review",
+  );
+  if (phase === "settled") return null;
+
+  const settle = () => {
+    rememberAgentCallApprovalSettled(approval.id);
+    setPhase("settled");
+  };
+  const review = () => {
+    window.open(approval.url, "_blank", "noopener,noreferrer");
+    setPhase("continue");
+  };
+  const reviewLabel = t("agentChat.tool.agentApprovalReview", {
+    agent: agentName,
+  });
+  const cancel: ApprovalCardAction = {
+    id: "cancel",
+    label: t("agentChat.common.cancel"),
+    onPress: settle,
+  };
+  const actions: ApprovalCardAction[] =
+    phase === "review"
+      ? [
+          {
+            id: "review",
+            label: reviewLabel,
+            intent: "primary",
+            onPress: review,
+          },
+          cancel,
+        ]
+      : [
+          {
+            id: "continue",
+            label: t("agentChat.common.continue"),
+            intent: "primary",
+            onPress: () => {
+              sendToAgentChat({
+                message: t("agentChat.tool.agentApprovalContinueMessage", {
+                  agent: agentName,
+                }),
+                context:
+                  `The user approved the pending action in ${agentName}. ` +
+                  `Call call-agent with agent="${agentName}" and taskId="${approval.taskId}" ` +
+                  "and no message to continue that same task.",
+                submit: true,
+              });
+              settle();
+            },
+          },
+          { id: "review", label: reviewLabel, onPress: review },
+          cancel,
+        ];
+  return (
+    <ApprovalCard
+      title={t("agentChat.tool.agentApprovalTitle", { agent: agentName })}
+      detail={approval.tool}
+      status={
+        phase === "review"
+          ? t("agentChat.approval.pending")
+          : t("agentChat.tool.agentApprovalReturn", { agent: agentName })
+      }
+      className="agent-call-approval-card mt-2 mb-0 w-full max-w-[30rem]"
+      actions={actions}
+    />
   );
 }
 

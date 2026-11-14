@@ -1569,6 +1569,12 @@ const messages: ToolkitAgentChatTranslation = {
   "tool.askingAgent": "{{agent}} に問い合わせ中...",
   "tool.elapsed": "{{duration}} 経過",
   "tool.askingAgentFailed": "{{agent}} への問い合わせ中にエラーが発生しました",
+  "tool.agentApprovalTitle": "{{agent}} で承認が必要です",
+  "tool.agentApprovalReview": "{{agent}} で確認",
+  "tool.agentApprovalReturn":
+    "{{agent}} で承認してから、ここで続行してください。",
+  "tool.agentApprovalContinueMessage":
+    "{{agent}} で承認しました。続けてください。",
   "tool.failedWithoutDetails": "エラーの詳細はありません。",
   "tool.input": "入力",
   "tool.inputWithLabel": "入力 - {{label}}",
