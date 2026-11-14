@@ -2,6 +2,9 @@
 //!
 //! - `clips://pause` toggles pause; `?state=on` pauses, `?state=off` resumes
 //! - `clips://stop` stops the running recording
+//! - `clips://restart` and `clips://cancel` open the recording bar's
+//!   "Start a new recording?" and "Discard …?" questions; nothing is lost
+//!   until the user confirms there
 //! - `clips://dictate?mode=hands-free` starts dictation that keeps going until
 //!   the next press (of this link, the dictation key or Escape)
 //! - `clips://dictate?mode=push&state=down|up` is push-to-talk: dictation runs
@@ -25,6 +28,10 @@ pub enum ControlLink {
     /// `None` toggles; `Some(true)` pauses; `Some(false)` resumes.
     Pause(Option<bool>),
     Stop,
+    /// Asks to start over; the recording bar confirms first.
+    Restart,
+    /// Asks to discard; the recording bar confirms first.
+    Cancel,
     Dictate(DictateLink),
 }
 
@@ -57,6 +64,8 @@ pub fn parse_control_link(raw: &str) -> Option<ControlLink> {
     match url.host_str()? {
         "pause" => state_param(&url).ok().map(ControlLink::Pause),
         "stop" => Some(ControlLink::Stop),
+        "restart" => Some(ControlLink::Restart),
+        "cancel" | "discard" => Some(ControlLink::Cancel),
         "dictate" => match (param("mode").as_deref(), param("state").as_deref()) {
             (Some("hands-free"), None) => Some(ControlLink::Dictate(DictateLink::HandsFree)),
             (Some("push"), Some("down")) => Some(ControlLink::Dictate(DictateLink::PushDown)),
@@ -80,6 +89,14 @@ pub fn handle_control_link(app: &AppHandle, link: ControlLink) {
         }
         ControlLink::Stop => {
             crate::tray::stop_recording_from_link(app);
+        }
+        ControlLink::Restart => {
+            let _ = app.emit("clips:recorder-restart-request", ());
+        }
+        ControlLink::Cancel => {
+            // Same as the cancel shortcut: before capture starts it cancels,
+            // once it runs the recording bar asks before discarding.
+            let _ = app.emit("clips:recorder-cancel", ());
         }
         ControlLink::Dictate(action) => {
             crate::shortcuts::dictate_from_link(app, action);
@@ -107,6 +124,15 @@ mod tests {
         );
         assert_eq!(parse_control_link("clips://pause?state=maybe"), None);
         assert_eq!(parse_control_link("clips://stop"), Some(ControlLink::Stop));
+        assert_eq!(
+            parse_control_link("clips://restart"),
+            Some(ControlLink::Restart)
+        );
+        assert_eq!(parse_control_link("clips://cancel"), Some(ControlLink::Cancel));
+        assert_eq!(
+            parse_control_link("clips://discard"),
+            Some(ControlLink::Cancel)
+        );
     }
 
     #[test]
