@@ -160,6 +160,21 @@ function getRuntimeDependencyNames(cwd: string, coreRoot: string): Set<string> {
   return dependencies;
 }
 
+// The bundler resolves a parser from Core's own files, so only a parser installed where
+// Core can see it can be bundled. One nobody installed stays an optional-peer external,
+// and its loader reports the missing peer instead of the bundler failing the build.
+function installedIngestionPeers(coreRoot: string): string[] {
+  return CORE_BUNDLED_INGESTION_OPTIONAL_PEERS.filter((name) =>
+    findDependencyManifestPath(name, coreRoot),
+  );
+}
+
+export function getBundledCoreIngestionPeers(cwd: string): string[] {
+  const coreRoot = findCorePackageRoot(cwd);
+  if (!coreRoot) return [...CORE_BUNDLED_INGESTION_OPTIONAL_PEERS];
+  return installedIngestionPeers(coreRoot);
+}
+
 export function getMissingCoreOptionalPeers(cwd: string): string[] {
   const coreRoot = findCorePackageRoot(cwd);
   if (!coreRoot) return [];
@@ -171,7 +186,7 @@ export function getMissingCoreOptionalPeers(cwd: string): string[] {
   };
   const runtimeDependencies = getRuntimeDependencyNames(cwd, coreRoot);
   const bundledIngestionPeers = new Set<string>(
-    CORE_BUNDLED_INGESTION_OPTIONAL_PEERS,
+    installedIngestionPeers(coreRoot),
   );
   return Object.entries(corePackage.peerDependenciesMeta ?? {})
     .filter(

@@ -73,6 +73,7 @@ import {
 import { mcpEmbedStaticAssetRouteRules } from "../shared/mcp-embed-headers.js";
 import {
   CORE_BUNDLED_INGESTION_OPTIONAL_PEERS,
+  getBundledCoreIngestionPeers,
   getMissingCoreOptionalPeers,
 } from "../shared/optional-peer-ssr.js";
 import {
@@ -5076,10 +5077,20 @@ export function assertSingleTemplateNetlifyBuildOutput(
     );
   }
 
+  const bundledIngestionPeers = getBundledCoreIngestionPeers(projectCwd);
+  const uninstalledIngestionPeers =
+    CORE_BUNDLED_INGESTION_OPTIONAL_PEERS.filter(
+      (dependency) => !bundledIngestionPeers.includes(dependency),
+    );
+  if (uninstalledIngestionPeers.length > 0) {
+    console.log(
+      `[deploy] Optional ingestion parser(s) not installed, left as optional peers: ${uninstalledIngestionPeers.join(", ")}`,
+    );
+  }
   const bareIngestionImports: string[] = [];
   walkServerJavaScriptFiles(serverDir, (filePath) => {
     const source = fs.readFileSync(filePath, "utf-8");
-    for (const dependency of CORE_BUNDLED_INGESTION_OPTIONAL_PEERS) {
+    for (const dependency of bundledIngestionPeers) {
       if (hasBareRuntimeImport(source, dependency)) {
         bareIngestionImports.push(
           `${dependency} in ${path.relative(projectCwd, filePath)}`,

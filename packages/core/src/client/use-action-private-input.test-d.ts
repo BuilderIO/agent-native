@@ -14,7 +14,7 @@ declare global {
   }
 }
 
-export function privateMutationTypeContract() {
+export function usePrivateMutationTypeContract() {
   const options = {
     privateInputs: true,
     uiOnly: true,
@@ -54,7 +54,7 @@ export function privateMutationTypeContract() {
   return { invalid, invalidCallback };
 }
 
-export function normalMutationTypeContract() {
+export function useNormalMutationTypeContract() {
   const normal = useActionMutation("store-ui-value", {
     onSuccess: (data, variables) => {
       expectTypeOf(data).toEqualTypeOf<{ echoed: string }>();

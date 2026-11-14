@@ -1,10 +1,15 @@
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { describe, expect, it } from "vitest";
 
-import { CORE_BUNDLED_INGESTION_OPTIONAL_PEERS } from "./optional-peer-ssr";
+import {
+  CORE_BUNDLED_INGESTION_OPTIONAL_PEERS,
+  getBundledCoreIngestionPeers,
+  getMissingCoreOptionalPeers,
+} from "./optional-peer-ssr";
 
 /**
  * A parser that is loaded through `loadOptionalPeer` is only usable at runtime when it
@@ -62,5 +67,62 @@ describe("ingestion parsers are bundled, not left to the app to install", () => 
       unlisted,
       "loadOptionalPeer parsers that a deployed app cannot resolve",
     ).toEqual([]);
+  });
+});
+
+describe("ingestion parsers the app never installed", () => {
+  function writeJson(file: string, value: unknown) {
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify(value));
+  }
+
+  function appWithCore(installed: string[]): string {
+    const app = fs.mkdtempSync(path.join(os.tmpdir(), "optional-peer-ssr-"));
+    writeJson(path.join(app, "package.json"), {
+      name: "app",
+      dependencies: { "@agent-native/core": "*" },
+    });
+    writeJson(
+      path.join(app, "node_modules", "@agent-native", "core", "package.json"),
+      {
+        name: "@agent-native/core",
+        peerDependencies: { jszip: "*", xlsx: "*", "@sentry/node": "*" },
+        peerDependenciesMeta: {
+          jszip: { optional: true },
+          xlsx: { optional: true },
+          "@sentry/node": { optional: true },
+        },
+      },
+    );
+    for (const name of installed) {
+      writeJson(path.join(app, "node_modules", name, "package.json"), {
+        name,
+      });
+    }
+    return app;
+  }
+
+  it("bundles an installed parser and keeps an uninstalled one external", () => {
+    const app = appWithCore(["jszip"]);
+    try {
+      expect(getBundledCoreIngestionPeers(app)).toEqual(["jszip"]);
+      expect(getMissingCoreOptionalPeers(app)).toEqual([
+        "@sentry/node",
+        "xlsx",
+      ]);
+    } finally {
+      fs.rmSync(app, { recursive: true, force: true });
+    }
+  });
+
+  it("expects every parser bundled when Core cannot be located", () => {
+    const app = fs.mkdtempSync(path.join(os.tmpdir(), "optional-peer-ssr-"));
+    try {
+      expect(getBundledCoreIngestionPeers(app)).toEqual([
+        ...CORE_BUNDLED_INGESTION_OPTIONAL_PEERS,
+      ]);
+    } finally {
+      fs.rmSync(app, { recursive: true, force: true });
+    }
   });
 });
