@@ -5,6 +5,7 @@ const mockResourceGetByPath = vi.fn();
 const mockResourcePut = vi.fn();
 const mockResourcePutIfAbsent = vi.fn();
 const mockResourcePutIfCurrent = vi.fn();
+const mockResourcePutIfSnapshot = vi.fn();
 const mockResourceDelete = vi.fn();
 const mockResourceDeleteIfCurrent = vi.fn();
 const mockResourceDeleteByPath = vi.fn();
@@ -12,6 +13,8 @@ const mockResourceList = vi.fn();
 const mockResourceListAccessible = vi.fn();
 const mockResourceListOrganization = vi.fn();
 const mockResourceMove = vi.fn();
+const mockResourceStoredPathsTaken = vi.fn();
+const mockIsSameLocalWorkspaceFile = vi.fn();
 const mockResourceEffectiveContext = vi.fn();
 const mockEnsurePersonalDefaults = vi.fn();
 const mockCanWriteLocalWorkspaceResourcePath = vi.fn();
@@ -41,6 +44,8 @@ vi.mock("./store.js", () => ({
     mockCanWriteLocalWorkspaceResourcePath(...args),
   isLocalWorkspaceResourceId: (...args: any[]) =>
     mockIsLocalWorkspaceResourceId(...args),
+  isSameLocalWorkspaceFile: (...args: unknown[]) =>
+    mockIsSameLocalWorkspaceFile(...args),
   isLegacyOrganizationWorkspaceFile: (...args: any[]) =>
     mockIsLegacyOrganizationWorkspaceFile(...args),
   isLegacySharedResourceVisibleToOrganization: () => true,
@@ -49,6 +54,8 @@ vi.mock("./store.js", () => ({
   resourcePut: (...args: any[]) => mockResourcePut(...args),
   resourcePutIfAbsent: (...args: any[]) => mockResourcePutIfAbsent(...args),
   resourcePutIfCurrent: (...args: any[]) => mockResourcePutIfCurrent(...args),
+  resourcePutIfSnapshot: (...args: unknown[]) =>
+    mockResourcePutIfSnapshot(...args),
   resourceDelete: (...args: any[]) => mockResourceDelete(...args),
   resourceDeleteIfCurrent: (...args: any[]) =>
     mockResourceDeleteIfCurrent(...args),
@@ -59,6 +66,8 @@ vi.mock("./store.js", () => ({
   resourceListOrganization: (...args: any[]) =>
     mockResourceListOrganization(...args),
   resourceMove: (...args: any[]) => mockResourceMove(...args),
+  resourceStoredPathsTaken: (...args: unknown[]) =>
+    mockResourceStoredPathsTaken(...args),
   resourceEffectiveContext: (...args: any[]) =>
     mockResourceEffectiveContext(...args),
   ensurePersonalDefaults: (...args: any[]) =>
@@ -149,6 +158,24 @@ import {
   handleImportResourcePack,
 } from "./handlers.js";
 
+/** Makes the exact stored-path check report these paths as taken. */
+function holdPaths(...held: string[]) {
+  mockResourceStoredPathsTaken.mockImplementation(
+    async (_owner: string, paths: string[]) =>
+      new Set(paths.filter((path) => held.includes(path))),
+  );
+}
+
+function localSkill(name: string) {
+  return {
+    id: `local-workspace-resource:skills/${name}/SKILL.md`,
+    path: `skills/${name}/SKILL.md`,
+    owner: "__workspace__",
+    content: name,
+    mimeType: "text/markdown",
+  };
+}
+
 describe("resource handlers", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -156,8 +183,11 @@ describe("resource handlers", () => {
     mockEnsurePersonalDefaults.mockResolvedValue(undefined);
     mockResourceGet.mockResolvedValue(null);
     mockResourceGetByPath.mockReset().mockResolvedValue(null);
+    mockResourceStoredPathsTaken.mockReset().mockResolvedValue(new Set());
+    mockIsSameLocalWorkspaceFile.mockReset().mockResolvedValue(false);
     mockResourcePutIfAbsent.mockResolvedValue(null);
     mockResourcePutIfCurrent.mockReset().mockResolvedValue(null);
+    mockResourcePutIfSnapshot.mockReset().mockResolvedValue(null);
     mockResourceDeleteIfCurrent.mockResolvedValue(true);
     mockCanWriteLocalWorkspaceResourcePath.mockResolvedValue(false);
     mockIsLocalWorkspaceResourceId.mockReturnValue(false);
@@ -1364,6 +1394,352 @@ Legacy webhook.`,
       expect(mockResourceMove).toHaveBeenCalledWith("r1", "new.md");
     });
 
+    it("refuses a rename onto a taken path and suggests a free one", async () => {
+      mockResourceGet.mockResolvedValue({
+        id: "r1",
+        path: "notes/draft.md",
+        owner: "test@test.com",
+        content: "content",
+        mimeType: "text/markdown",
+      });
+      holdPaths("notes/todo.md", "notes/todo-2.md");
+
+      const result = await handleUpdateResource({
+        _params: { id: "r1" },
+        _body: { path: "notes/todo.md" },
+        context: {},
+      });
+
+      expect(lastStatus).toBe(409);
+      expect(result).toEqual({
+        error:
+          'A resource named "notes/todo.md" already exists. Pick another name, such as "notes/todo-3.md", which is free.',
+        errorCode: "name_taken",
+        details: { name: "notes/todo.md", suggestion: "notes/todo-3.md" },
+      });
+      expect(mockResourceStoredPathsTaken).toHaveBeenCalledWith(
+        "test@test.com",
+        ["notes/todo.md"],
+        { localFiles: false },
+      );
+      expect(mockResourceMove).not.toHaveBeenCalled();
+      expect(mockResourcePut).not.toHaveBeenCalled();
+    });
+
+    it("refuses without a suggestion when every numbered path it checks is taken", async () => {
+      mockResourceGet.mockResolvedValue({
+        id: "r1",
+        path: "notes/draft.md",
+        owner: "test@test.com",
+        content: "content",
+        mimeType: "text/markdown",
+      });
+      mockResourceStoredPathsTaken.mockImplementation(
+        async (_owner: string, paths: string[]) => new Set(paths),
+      );
+
+      const result = await handleUpdateResource({
+        _params: { id: "r1" },
+        _body: { path: "notes/todo.md" },
+        context: {},
+      });
+
+      expect(lastStatus).toBe(409);
+      expect(result).toEqual({
+        error:
+          'A resource named "notes/todo.md" already exists. Rename or delete that one first.',
+      });
+      expect(mockResourceMove).not.toHaveBeenCalled();
+    });
+
+    it("suggests a skill's next folder rather than renaming its SKILL.md", async () => {
+      mockResourceGet.mockResolvedValue({
+        id: "r1",
+        path: "skills/draft/SKILL.md",
+        owner: "test@test.com",
+        content: "content",
+        mimeType: "text/markdown",
+      });
+      holdPaths("skills/review/SKILL.md");
+
+      const result = await handleUpdateResource({
+        _params: { id: "r1" },
+        _body: { path: "skills/review/SKILL.md" },
+        context: {},
+      });
+
+      expect(lastStatus).toBe(409);
+      expect(result).toMatchObject({
+        errorCode: "name_taken",
+        details: {
+          name: "skills/review/SKILL.md",
+          suggestion: "skills/review-2/SKILL.md",
+        },
+      });
+    });
+
+    it("refuses a rename when another write takes the path during the move", async () => {
+      mockResourceGet.mockResolvedValue({
+        id: "r1",
+        path: "old.md",
+        owner: "test@test.com",
+        content: "content",
+        mimeType: "text/markdown",
+      });
+      mockResourceMove.mockRejectedValueOnce(
+        Object.assign(
+          new Error('duplicate key value violates unique constraint "x"'),
+          { code: "23505" },
+        ),
+      );
+
+      const result = await handleUpdateResource({
+        _params: { id: "r1" },
+        _body: { path: "new.md" },
+        context: {},
+      });
+
+      expect(lastStatus).toBe(409);
+      expect(result).toMatchObject({
+        errorCode: "name_taken",
+        details: { name: "new.md", suggestion: "new-2.md" },
+      });
+      expect(mockResourcePut).not.toHaveBeenCalled();
+    });
+
+    it("still fails a move that breaks for another reason", async () => {
+      mockResourceGet.mockResolvedValue({
+        id: "r1",
+        path: "old.md",
+        owner: "test@test.com",
+        content: "content",
+        mimeType: "text/markdown",
+      });
+      mockResourceMove.mockRejectedValueOnce(new Error("connection reset"));
+
+      await expect(
+        handleUpdateResource({
+          _params: { id: "r1" },
+          _body: { path: "new.md" },
+          context: {},
+        }),
+      ).rejects.toThrow("connection reset");
+      expect(mockResourcePut).not.toHaveBeenCalled();
+    });
+
+    it("refuses to move a local workspace file onto one that exists, instead of replacing it", async () => {
+      mockIsLocalWorkspaceResourceId.mockReturnValue(true);
+      mockCanWriteLocalWorkspaceResourcePath.mockResolvedValue(true);
+      mockResourceGet.mockResolvedValue(localSkill("draft"));
+      holdPaths("skills/review/SKILL.md");
+
+      const result = await handleUpdateResource({
+        _params: { id: "local-workspace-resource:skills/draft/SKILL.md" },
+        _body: { path: "skills/review/SKILL.md" },
+        context: {},
+      });
+
+      expect(lastStatus).toBe(409);
+      expect(result).toMatchObject({
+        errorCode: "name_taken",
+        details: { suggestion: "skills/review-2/SKILL.md" },
+      });
+      expect(mockResourceStoredPathsTaken).toHaveBeenCalledWith(
+        "__workspace__",
+        ["skills/review/SKILL.md"],
+        { localFiles: true },
+      );
+      expect(mockResourcePut).not.toHaveBeenCalled();
+      expect(mockResourceDelete).not.toHaveBeenCalled();
+    });
+
+    it("suggests the first free local name, past one it can't read", async () => {
+      mockIsLocalWorkspaceResourceId.mockReturnValue(true);
+      mockCanWriteLocalWorkspaceResourcePath.mockResolvedValue(true);
+      mockResourceGet.mockResolvedValue(localSkill("draft"));
+      mockResourceStoredPathsTaken.mockImplementation(
+        async (_owner: string, paths: string[]) => {
+          if (
+            paths.includes("skills/review-2/SKILL.md") ||
+            paths.includes("skills/review-4/SKILL.md")
+          ) {
+            throw new Error("EISDIR: illegal operation on a directory");
+          }
+          return new Set(
+            paths.filter((path) => path === "skills/review/SKILL.md"),
+          );
+        },
+      );
+
+      const result = await handleUpdateResource({
+        _params: { id: "local-workspace-resource:skills/draft/SKILL.md" },
+        _body: { path: "skills/review/SKILL.md" },
+        context: {},
+      });
+
+      expect(lastStatus).toBe(409);
+      expect(result).toMatchObject({
+        errorCode: "name_taken",
+        details: { suggestion: "skills/review-3/SKILL.md" },
+      });
+      expect(mockResourcePut).not.toHaveBeenCalled();
+    });
+
+    it("offers no numbered name for a local control file, which can't be written", async () => {
+      mockIsLocalWorkspaceResourceId.mockReturnValue(true);
+      mockCanWriteLocalWorkspaceResourcePath.mockResolvedValue(true);
+      mockResourceGet.mockResolvedValue(localSkill("draft"));
+      holdPaths("AGENTS.md");
+
+      const result = await handleUpdateResource({
+        _params: { id: "local-workspace-resource:skills/draft/SKILL.md" },
+        _body: { path: "AGENTS.md" },
+        context: {},
+      });
+
+      expect(lastStatus).toBe(409);
+      expect(result).toEqual({
+        error:
+          'A resource named "AGENTS.md" already exists. Rename or delete that one first.',
+      });
+      expect(mockResourcePut).not.toHaveBeenCalled();
+      expect(mockResourceDelete).not.toHaveBeenCalled();
+    });
+
+    it("keeps a local file that a case-insensitive disk finds at its new letter case", async () => {
+      mockIsLocalWorkspaceResourceId.mockReturnValue(true);
+      mockCanWriteLocalWorkspaceResourcePath.mockResolvedValue(true);
+      mockResourceGet.mockResolvedValue(localSkill("review"));
+      holdPaths("skills/Review/SKILL.md");
+      mockIsSameLocalWorkspaceFile.mockResolvedValue(true);
+
+      const result = await handleUpdateResource({
+        _params: { id: "local-workspace-resource:skills/review/SKILL.md" },
+        _body: { path: "skills/Review/SKILL.md" },
+        context: {},
+      });
+
+      expect(lastStatus).toBe(409);
+      expect(result).toEqual({
+        error:
+          '"skills/Review/SKILL.md" names this same file, so it can\'t be renamed to it. To change only its letter case, rename it to another name first.',
+      });
+      expect(mockIsSameLocalWorkspaceFile).toHaveBeenCalledWith({
+        path: "skills/review/SKILL.md",
+        otherPath: "skills/Review/SKILL.md",
+      });
+      expect(mockResourcePut).not.toHaveBeenCalled();
+      expect(mockResourceDelete).not.toHaveBeenCalled();
+    });
+
+    it("moves a local file to a free path, then deletes the old one", async () => {
+      mockIsLocalWorkspaceResourceId.mockReturnValue(true);
+      mockCanWriteLocalWorkspaceResourcePath.mockResolvedValue(true);
+      mockResourceGet.mockResolvedValue(localSkill("draft"));
+      const moved = {
+        ...localSkill("review"),
+        content: "# draft",
+      };
+      mockResourcePutIfSnapshot.mockResolvedValue({
+        before: null,
+        resource: moved,
+      });
+
+      const result = await handleUpdateResource({
+        _params: { id: "local-workspace-resource:skills/draft/SKILL.md" },
+        _body: { path: "skills/review/SKILL.md" },
+        context: {},
+      });
+
+      expect(result).toEqual(moved);
+      expect(mockResourcePutIfSnapshot).toHaveBeenCalledWith(
+        expect.objectContaining({
+          previous: null,
+          owner: "__workspace__",
+          path: "skills/review/SKILL.md",
+        }),
+      );
+      expect(mockResourcePut).not.toHaveBeenCalled();
+      expect(mockResourceDeleteIfCurrent).toHaveBeenCalledWith(
+        localSkill("draft"),
+      );
+      // Only the file it copied: a copy in the other skill root wasn't read.
+      expect(mockResourceDelete).not.toHaveBeenCalled();
+    });
+
+    it("keeps a local file that changed during its rename, and takes the copy back", async () => {
+      mockIsLocalWorkspaceResourceId.mockReturnValue(true);
+      mockCanWriteLocalWorkspaceResourcePath.mockResolvedValue(true);
+      mockResourceGet.mockResolvedValue(localSkill("draft"));
+      const moved = { ...localSkill("review"), content: "draft" };
+      mockResourcePutIfSnapshot.mockResolvedValue({
+        before: null,
+        resource: moved,
+      });
+      // Another write changed the old file after it was read.
+      mockResourceDeleteIfCurrent
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(true);
+
+      const result = await handleUpdateResource({
+        _params: { id: "local-workspace-resource:skills/draft/SKILL.md" },
+        _body: { path: "skills/review/SKILL.md" },
+        context: {},
+      });
+
+      expect(lastStatus).toBe(409);
+      expect(result).toEqual({
+        error: "Resource changed before it could be renamed",
+      });
+      expect(mockResourceDeleteIfCurrent).toHaveBeenNthCalledWith(
+        1,
+        localSkill("draft"),
+      );
+      expect(mockResourceDeleteIfCurrent).toHaveBeenNthCalledWith(2, moved);
+      expect(mockResourceDelete).not.toHaveBeenCalled();
+    });
+
+    it("takes the copy back when the old local file can't be deleted", async () => {
+      mockIsLocalWorkspaceResourceId.mockReturnValue(true);
+      mockCanWriteLocalWorkspaceResourcePath.mockResolvedValue(true);
+      mockResourceGet.mockResolvedValue(localSkill("draft"));
+      const moved = { ...localSkill("review"), content: "draft" };
+      mockResourcePutIfSnapshot.mockResolvedValue({
+        before: null,
+        resource: moved,
+      });
+      mockResourceDeleteIfCurrent
+        .mockRejectedValueOnce(new Error("EACCES: permission denied"))
+        .mockResolvedValueOnce(true);
+
+      await expect(
+        handleUpdateResource({
+          _params: { id: "local-workspace-resource:skills/draft/SKILL.md" },
+          _body: { path: "skills/review/SKILL.md" },
+          context: {},
+        }),
+      ).rejects.toThrow("EACCES: permission denied");
+      expect(mockResourceDeleteIfCurrent).toHaveBeenNthCalledWith(2, moved);
+    });
+
+    it("refuses a local rename when another write takes the path first", async () => {
+      mockIsLocalWorkspaceResourceId.mockReturnValue(true);
+      mockCanWriteLocalWorkspaceResourcePath.mockResolvedValue(true);
+      mockResourceGet.mockResolvedValue(localSkill("draft"));
+      // Free when checked, then created by another write before this one.
+      mockResourcePutIfSnapshot.mockResolvedValue(null);
+
+      const result = await handleUpdateResource({
+        _params: { id: "local-workspace-resource:skills/draft/SKILL.md" },
+        _body: { path: "skills/review/SKILL.md" },
+        context: {},
+      });
+
+      expect(lastStatus).toBe(409);
+      expect(result).toMatchObject({ errorCode: "name_taken" });
+      expect(mockResourceDelete).not.toHaveBeenCalled();
+    });
+
     it("updates local workspace resources", async () => {
       const existing = {
         id: "local-workspace-resource:agents",
@@ -1533,8 +1909,16 @@ Legacy webhook.`,
 
       expect(lastStatus).toBe(409);
       expect(result).toEqual({
-        error: 'A resource already exists at path "renamed.md"',
+        error:
+          'A resource named "renamed.md" already exists. Pick another name, such as "renamed-2.md", which is free.',
+        errorCode: "name_taken",
+        details: { name: "renamed.md", suggestion: "renamed-2.md" },
       });
+      expect(mockResourceStoredPathsTaken).toHaveBeenCalledWith(
+        "__organization__:org-1",
+        expect.arrayContaining(["renamed-2.md"]),
+        { localFiles: false },
+      );
       expect(mockResourcePut).not.toHaveBeenCalled();
       expect(mockResourcePutIfAbsent).toHaveBeenCalledWith(
         "__organization__:org-1",

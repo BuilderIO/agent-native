@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 
+import { isNameTaken } from "../../free-name/index.js";
+import { actionErrorMessage } from "../use-action.js";
 import type { BuiltinCapability } from "./use-builtin-capabilities.js";
 import {
   resourceDownloadUrl,
+  resourceWriteError,
   withAgentScratchFolder,
   withMcpServersFolder,
   type TreeNode,
@@ -40,6 +43,43 @@ describe("resourceDownloadUrl", () => {
     expect(resourceDownloadUrl("resource/with?query")).toBe(
       "/_agent-native/resources/resource%2Fwith%3Fquery?download=1",
     );
+  });
+});
+
+describe("resourceWriteError", () => {
+  it("keeps a refusal's message and free name", async () => {
+    const error = await resourceWriteError(
+      new Response(
+        JSON.stringify({
+          error: 'A resource named "a.md" already exists.',
+          errorCode: "name_taken",
+          details: { name: "a.md", suggestion: "a-2.md" },
+        }),
+        { status: 409, statusText: "Conflict" },
+      ),
+      "Update failed: Conflict",
+    );
+    expect(error.message).toBe('A resource named "a.md" already exists.');
+    expect(actionErrorMessage(error)).toBe(error.message);
+    expect(error).toMatchObject({ status: 409 });
+    expect(isNameTaken(error)).toBe(true);
+  });
+
+  it("falls back when the body isn't JSON, and never shows a 5xx body", async () => {
+    const plain = await resourceWriteError(
+      new Response("<html>", { status: 502, statusText: "Bad Gateway" }),
+      "Update failed: Bad Gateway",
+    );
+    expect(plain.message).toBe("Update failed: Bad Gateway");
+    expect(plain).toMatchObject({ status: 502 });
+
+    const masked = await resourceWriteError(
+      new Response(JSON.stringify({ error: "Internal server error" }), {
+        status: 500,
+      }),
+      "Update failed",
+    );
+    expect(actionErrorMessage(masked)).toBeUndefined();
   });
 });
 

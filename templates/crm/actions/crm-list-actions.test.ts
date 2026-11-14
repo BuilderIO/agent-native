@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { runWithRequestContext } from "@agent-native/core/server";
-import { and, asc, eq, isNull } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull } from "drizzle-orm";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 
 import {
@@ -236,6 +236,90 @@ describe("create-crm-list", () => {
     const second = await newList("Pipeline");
     expect(first.apiSlug).toBe("pipeline");
     expect(second.apiSlug).toBe("pipeline_2");
+  });
+
+  it("takes the next slug when a list the caller can't see holds it", async () => {
+    const now = new Date().toISOString();
+    await getDb().insert(schema.crmLists).values({
+      id: "list_hidden_pipeline",
+      connectionId: CONNECTION_ID,
+      name: "Hidden Pipeline",
+      apiSlug: "hidden_pipeline",
+      parentObjectType: "companies",
+      description: "",
+      defaultViewId: null,
+      archived: false,
+      position: 0,
+      source: "local",
+      ownerEmail: OTHER,
+      orgId: null,
+      visibility: "private",
+      createdAt: now,
+      updatedAt: now,
+    });
+
+    const list = await newList("Hidden Pipeline");
+    expect(list.apiSlug).toBe("hidden_pipeline_2");
+    expect(list.ownerEmail).toBe(OWNER);
+  });
+
+  it("finds a free slug past more than a page of taken ones", async () => {
+    const now = new Date().toISOString();
+    const crowdedIds = Array.from(
+      { length: 104 },
+      (_, index) => `list_crowded_${index + 1}`,
+    );
+    await getDb()
+      .insert(schema.crmLists)
+      .values(
+        crowdedIds.map((id, index) => ({
+          id,
+          connectionId: CONNECTION_ID,
+          name: "Crowded",
+          apiSlug: index === 0 ? "crowded" : `crowded_${index + 1}`,
+          parentObjectType: "companies",
+          description: "",
+          defaultViewId: null,
+          archived: false,
+          position: 0,
+          source: "local",
+          ownerEmail: OWNER,
+          orgId: null,
+          visibility: "private",
+          createdAt: now,
+          updatedAt: now,
+        })),
+      );
+
+    try {
+      const list = await newList("Crowded");
+      expect(list.apiSlug).toBe("crowded_105");
+    } finally {
+      // Later tests read the owner's lists a page of 100 at a time.
+      await getDb()
+        .delete(schema.crmLists)
+        .where(inArray(schema.crmLists.id, crowdedIds));
+    }
+  });
+
+  it("gives creates made at the same moment their own slugs", async () => {
+    const lists = await Promise.all(
+      Array.from({ length: 5 }, () => newList("Board Race")),
+    );
+    expect(
+      lists.map((list) => list.apiSlug).sort((a, b) => a.localeCompare(b)),
+    ).toEqual([
+      "board_race",
+      "board_race_2",
+      "board_race_3",
+      "board_race_4",
+      "board_race_5",
+    ]);
+    const rows = await getDb()
+      .select({ id: schema.crmLists.id })
+      .from(schema.crmLists)
+      .where(eq(schema.crmLists.name, "Board Race"));
+    expect(rows).toHaveLength(5);
   });
 });
 

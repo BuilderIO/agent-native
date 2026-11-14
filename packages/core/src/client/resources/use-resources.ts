@@ -341,6 +341,35 @@ export function useCreateResource() {
   });
 }
 
+/**
+ * The error for a resource write that came back not ok. It keeps the status
+ * and, when the server explains a refusal (a rename onto a taken name, say),
+ * its message, `errorCode` and `details`, so the write-failure toast shows the
+ * message and `isNameTaken` finds the free name.
+ */
+export async function resourceWriteError(
+  res: Response,
+  fallback: string,
+): Promise<Error> {
+  // coercion-ok: a body that isn't JSON has no message to keep; the error still says what failed through `fallback` and the status.
+  const body = (await res.json().catch(() => null)) as {
+    error?: unknown;
+    errorCode?: unknown;
+    details?: unknown;
+  } | null;
+  const message = typeof body?.error === "string" ? body.error : undefined;
+  return Object.assign(new Error(message ?? fallback), {
+    status: res.status,
+    ...(message !== undefined && res.status < 500
+      ? { actionMessage: message }
+      : {}),
+    ...(typeof body?.errorCode === "string"
+      ? { errorCode: body.errorCode }
+      : {}),
+    ...(body?.details !== undefined ? { details: body.details } : {}),
+  });
+}
+
 export function useUpdateResource() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -361,7 +390,9 @@ export function useUpdateResource() {
           body: JSON.stringify(body),
         },
       );
-      if (!res.ok) throw new Error(`Update failed: ${res.statusText}`);
+      if (!res.ok) {
+        throw await resourceWriteError(res, `Update failed: ${res.statusText}`);
+      }
       return res.json() as Promise<Resource>;
     },
     onSuccess: (_data, variables) => {
