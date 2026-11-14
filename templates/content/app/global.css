@@ -2823,6 +2823,15 @@ audio.media-block__content {
   }
 }
 
+/* Discussion quotes a thread's text in the colours of its highlight. */
+.discussion-subject-quote {
+  background-color: hsl(45 93% 47% / 0.14);
+  box-shadow: inset 2px 0 0 hsl(45 93% 40% / 0.5);
+}
+button.discussion-subject-quote:hover {
+  background-color: hsl(45 93% 47% / 0.24);
+}
+
 /* Property rows and Collection markers with Comments use the highlight colours. */
 .comment-property-row--active {
   background-color: hsl(45 93% 47% / 0.16);

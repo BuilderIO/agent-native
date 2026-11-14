@@ -114,10 +114,15 @@ import {
 import {
   commentThreadOrderFacts,
   compareDiscussionEntries,
+  DISCUSSION_SECTION_LABELS,
+  DISCUSSION_SECTIONS,
   DISCUSSION_SORTS,
   DISCUSSION_TARGETS,
   DiscussionComposer,
+  discussionRankTarget,
+  discussionTextOrderFacts,
   discussionThreadTarget,
+  DiscussionThreadSubject,
   DiscussionToolbar,
   isPageCommentThread,
   suggestionMatchesSearch,
@@ -1155,6 +1160,11 @@ interface CommentsSidebarOptions {
   anchoredSuggestionIds?: string[] | null;
   onActivateSuggestion?: (id: string) => void;
   onSelectedThreadChange?: (id: string | null) => void;
+  /**
+   * Discussion's Show: a Property thread's Property in Info, or, once the page
+   * has scrolled to a thread's text, whatever else showing it takes.
+   */
+  onShowThreadSubject?: (thread: CommentThread) => void;
   onHoveredThreadChange?: (id: string | null) => void;
   /** The thread whose highlight the pointer is on. */
   hoveredThreadId?: string | null;
@@ -1266,6 +1276,7 @@ export function CommentsSidebar({
   anchoredSuggestionIds,
   onActivateSuggestion,
   onSelectedThreadChange,
+  onShowThreadSubject,
   onHoveredThreadChange,
   hoveredThreadId,
   currentUserEmail,
@@ -2057,18 +2068,12 @@ export function CommentsSidebar({
       createdAt: string,
       lastActivityAt: string,
       offset: number | undefined,
-    ): DiscussionOrderFacts => {
-      const top = threadPositions.get(threadId)?.documentTop;
-      return top === undefined
-        ? {
-            rank: 3,
-            position: offset ?? Infinity,
-            createdAt,
-            lastActivityAt,
-            id,
-          }
-        : { rank: 2, position: top, createdAt, lastActivityAt, id };
-    };
+    ): DiscussionOrderFacts =>
+      discussionTextOrderFacts(
+        { createdAt, lastActivityAt, id },
+        threadPositions.get(threadId)?.documentTop,
+        offset,
+      );
     return [
       ...historyDraftSuggestions.map((suggestion) => ({
         kind: "draft" as const,
@@ -2372,6 +2377,25 @@ export function CommentsSidebar({
     if (pendingComment) onPendingDone(pendingComment.id);
   };
 
+  // A page comment posted from the composer at the top lands under On the
+  // page, at the foot of a long Discussion, so it comes into view once it
+  // draws and its author sees it there.
+  const [revealThreadId, setRevealThreadId] = useState<string | null>(null);
+  useEffect(() => {
+    if (!revealThreadId) return;
+    const card = historyPortalContainer?.querySelector(
+      `[data-thread-card="${cssEscape(revealThreadId)}"]`,
+    );
+    if (!(card instanceof HTMLElement)) return;
+    setRevealThreadId(null);
+    card.scrollIntoView({
+      block: "nearest",
+      behavior: window.matchMedia("(prefers-reduced-motion: reduce)").matches
+        ? "auto"
+        : "smooth",
+    });
+  }, [historyPortalContainer, revealThreadId, threads]);
+
   // A comment on the whole page: no quote and no Property.
   const pageSubmitting = draftStore.isSubmittingDraft("page");
   const handlePageSubmit = async (
@@ -2392,6 +2416,7 @@ export function CommentsSidebar({
       });
       pageDraft.finishSubmission(clientOperationId);
       keepPostedThread(result.threadId);
+      setRevealThreadId(result.threadId);
       return { id: result.id, threadId: result.threadId };
     } catch (error) {
       // An unconfirmed save keeps its card, which offers the check instead.
@@ -3418,6 +3443,30 @@ export function CommentsSidebar({
         });
       }
     };
+    const quote =
+      threadQuotes.get(thread.threadId) ?? commentThreadQuote(thread, t);
+    const propertyTarget = thread.property
+      ? propertyThreadTarget(thread.property, documentProperties)
+      : null;
+    // Show goes to a Property that is still on the Page, or to text the page
+    // has placed, which leaves out resolved threads and other tabs' text.
+    const showable = propertyTarget
+      ? propertyTarget.state === "current" || propertyTarget.state === "changed"
+      : threadPositions.has(thread.threadId);
+    const showSubject =
+      onShowThreadSubject && showable
+        ? () => {
+            if (!thread.property) {
+              seekToThread(thread);
+              onActivateThread?.(thread.threadId);
+              scrollToCommentAnchor(
+                scrollContainerRef?.current ?? null,
+                threadPositions.get(thread.threadId)?.documentTop,
+              );
+            }
+            onShowThreadSubject(thread);
+          }
+        : undefined;
     return (
       <ThreadView
         key={thread.threadId}
@@ -3481,14 +3530,17 @@ export function CommentsSidebar({
         threadActions={thread.clip ? undefined : renderThreadActions?.(thread)}
         currentUserEmail={currentUserEmail}
         currentUserName={currentUserName}
-        quote={
-          threadQuotes.get(thread.threadId) ?? commentThreadQuote(thread, t)
-        }
+        quote={quote}
         showQuote={inStack || !!thread.clip}
-        propertyTarget={
-          thread.property
-            ? propertyThreadTarget(thread.property, documentProperties)
-            : null
+        propertyTarget={propertyTarget}
+        subject={
+          surface === "panel" ? (
+            <DiscussionThreadSubject
+              quote={quote}
+              propertyTarget={propertyTarget}
+              onShow={showSubject}
+            />
+          ) : undefined
         }
         anchorUnavailable={
           measuredThreadIds.has(thread.threadId) &&
@@ -4010,10 +4062,7 @@ export function CommentsSidebar({
       />
     );
     const composer = canComment ? (
-      <div
-        ref={pageComposerBoxRef}
-        className="sticky bottom-0 z-10 mt-auto border-t border-border bg-background"
-      >
+      <div ref={pageComposerBoxRef} className="border-b border-border/60">
         <DiscussionComposer
           ref={pageComposerHandleRef}
           currentUserEmail={currentUserEmail}
@@ -4043,10 +4092,11 @@ export function CommentsSidebar({
         data-comments-history
         data-comments-sidebar
       >
-        {/* Below the panel's sticky h-12 header, not under it. */}
-        <div className="sticky top-12 z-10 border-b border-border bg-background">
+        {/* The page panel's header sits above this scroller, so pin at 0. */}
+        <div className="sticky top-0 z-10 border-b border-border bg-background">
           {toolbar}
         </div>
+        {composer}
         <div
           className="flex flex-col divide-y divide-border/60"
           data-comments-feed
@@ -4102,6 +4152,26 @@ export function CommentsSidebar({
                   activeThreadId === entry.thread.threadId,
                 );
               };
+              // In page order, the feed reads in sections: Properties, then
+              // the text, then the page as a whole.
+              if (!groupsByTab && historySort === "page")
+                return DISCUSSION_SECTIONS.map((target) => {
+                  const entries = feed.filter(
+                    (entry) =>
+                      discussionRankTarget(entry.order.rank) === target,
+                  );
+                  return entries.length ? (
+                    <Fragment key={`section:${target}`}>
+                      <h3
+                        className="bg-muted/40 px-4 py-1.5 text-xs font-medium text-muted-foreground"
+                        data-discussion-section={target}
+                      >
+                        {t(DISCUSSION_SECTION_LABELS[target])}
+                      </h3>
+                      {entries.map(renderEntry)}
+                    </Fragment>
+                  ) : null;
+                });
               if (!groupsByTab) return feed.map(renderEntry);
               return groupCommentsByTab(
                 feed,
@@ -4128,7 +4198,6 @@ export function CommentsSidebar({
             })()
           )}
         </div>
-        {composer}
       </div>
     );
   }
@@ -4985,7 +5054,7 @@ function SuggestionThreadView({
           replyDrafts.setMentions(suggestion.threadId, entries)
         }
         onHeightChange={onHeightChange}
-        onSubmitReply={() => {
+        onSubmitReply={async () => {
           if (
             !canReply ||
             !root ||
@@ -4993,7 +5062,7 @@ function SuggestionThreadView({
             reply.isPending ||
             replyDrafts.isSubmitting(suggestion.threadId)
           )
-            return;
+            return false;
           const replyMentions = [
             ...new Map(
               findCommentMentions(draft, mentions.map(draftMention)).flatMap(
@@ -5020,31 +5089,32 @@ function SuggestionThreadView({
           );
           const clientOperationId = retryId ?? crypto.randomUUID();
           replyDrafts.beginSubmission(suggestion.threadId, clientOperationId);
-          reply.mutate(
-            {
+          // Awaited rather than handed callbacks, which TanStack skips once the
+          // card unmounts, so the submission always finishes. Whether it saved
+          // tells Discussion to close the box.
+          try {
+            await reply.mutateAsync({
               resourceType: "document",
               resourceId: documentId,
               commentId: root.id,
               clientOperationId,
               body: draft.trim(),
               mentions: replyMentions,
-            },
-            {
-              onError: (error) => {
-                replyDrafts.restoreSubmittedDraft(
-                  suggestion.threadId,
-                  clientOperationId,
-                  uncertainAfterFailure(error, retryId !== undefined, {
-                    payload,
-                    operationId: clientOperationId,
-                  }),
-                );
-              },
-              onSettled: () => {
-                replyDrafts.finishSubmission(clientOperationId);
-              },
-            },
-          );
+            });
+            return true;
+          } catch (error) {
+            replyDrafts.restoreSubmittedDraft(
+              suggestion.threadId,
+              clientOperationId,
+              uncertainAfterFailure(error, retryId !== undefined, {
+                payload,
+                operationId: clientOperationId,
+              }),
+            );
+            return false;
+          } finally {
+            replyDrafts.finishSubmission(clientOperationId);
+          }
         }}
         onResolve={() => {}}
         canComment={canReply}
@@ -5177,6 +5247,7 @@ function ThreadView({
   quote,
   showQuote = false,
   propertyTarget,
+  subject,
   anchorUnavailable = false,
   onClose,
   popoverTitle,
@@ -5229,6 +5300,8 @@ function ThreadView({
   showQuote?: boolean;
   /** The Property a thread is on, shown above it on every surface. */
   propertyTarget?: PropertyThreadTarget | null;
+  /** What the thread is about, in place of its quote and Property line. */
+  subject?: ReactNode;
   anchorUnavailable?: boolean;
   onClose?: () => void;
   popoverTitle?: string;
@@ -5268,7 +5341,8 @@ function ThreadView({
   onReplyMentionsChange: (mentions: MentionEntry[]) => void;
   onAiDraftChange?: (draft: CommentAiDraft | null) => void;
   onHeightChange: (threadId: string, height: number) => void;
-  onSubmitReply: () => void;
+  /** Sends the reply; what it resolves to is truthy once the reply is saved. */
+  onSubmitReply: () => unknown;
   onResolve: () => void;
   canComment: boolean;
   canResolve: boolean;
@@ -5289,6 +5363,7 @@ function ThreadView({
   const replyInputRef = useRef<TiptapComposerHandle>(null);
   const cardRef = useRef<HTMLDivElement>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
+  const replyBoxRef = useRef<HTMLDivElement>(null);
   const seenEntryCount = useRef(thread.comments.length);
   const leftAlone = useLeftAloneCountdown({
     ref: cardRef,
@@ -5361,6 +5436,57 @@ function ThreadView({
   const timestamp = useCommentTimestamp();
   const isRail = surface === "rail";
   const isPanel = surface === "panel";
+
+  // A reply box opening low in Discussion comes fully into view, its Send
+  // included; one already in view stays where it is.
+  const replyBoxShown = isExpanded && canComment && !resolved;
+  useEffect(() => {
+    if (!isPanel || !replyBoxShown) return;
+    const box = replyBoxRef.current;
+    let frame = 0;
+    const bringIntoView = () => {
+      cancelAnimationFrame(frame);
+      frame = requestAnimationFrame(() => {
+        const reduceMotion = window.matchMedia(
+          "(prefers-reduced-motion: reduce)",
+        ).matches;
+        box?.scrollIntoView({
+          block: "nearest",
+          behavior: reduceMotion ? "auto" : "smooth",
+        });
+      });
+    };
+    bringIntoView();
+    // Focus lands a moment after the box opens and grows its composer by the
+    // toolbar, Send included, so it comes into view again then.
+    box?.addEventListener("focusin", bringIntoView, { once: true });
+    return () => {
+      cancelAnimationFrame(frame);
+      box?.removeEventListener("focusin", bringIntoView);
+    };
+  }, [isPanel, replyBoxShown]);
+
+  // In Discussion a saved reply closes its box and hands focus to the
+  // thread's Reply, unless the reader has gone on to something else.
+  const submitReply = async () => {
+    const saved = await onSubmitReply();
+    // A card that unmounted while the reply saved has no box left to close.
+    if (!isPanel || !saved || !cardRef.current) return;
+    const active = globalThis.document.activeElement;
+    if (
+      active &&
+      active !== globalThis.document.body &&
+      !replyBoxRef.current?.contains(active)
+    )
+      return;
+    onCollapse();
+    requestAnimationFrame(() => {
+      const reply = cardRef.current?.querySelector(
+        "[data-comment-reply-action]",
+      );
+      if (reply instanceof HTMLElement) reply.focus({ preventScroll: true });
+    });
+  };
   // The panel keeps long threads scannable: the first comment and the latest
   // replies, with the rest one click away. Comments and suggestions alike.
   const [showAllReplies, setShowAllReplies] = useState(false);
@@ -5516,13 +5642,14 @@ function ThreadView({
         )}
         data-comment-thread-body
       >
-        {propertyTarget ? (
+        {subject}
+        {propertyTarget && subject === undefined ? (
           <PropertyThreadTargetLabel
             className="-mb-1"
             target={propertyTarget}
           />
         ) : null}
-        {(isPanel || showQuote) && quote ? (
+        {(isPanel || showQuote) && quote && subject === undefined ? (
           canExpand ? (
             <button
               type="button"
@@ -5661,8 +5788,9 @@ function ThreadView({
         ) : null}
       </div>
 
-      {isExpanded && canComment && !resolved && (
+      {replyBoxShown && (
         <div
+          ref={replyBoxRef}
           data-comment-reply-composer
           className={cn(
             "flex shrink-0 items-start gap-2.5 px-4 pb-4",
@@ -5688,7 +5816,7 @@ function ThreadView({
             onChange={onReplyChange}
             mentions={replyMentions}
             onMentionsChange={onReplyMentionsChange}
-            onSubmit={onSubmitReply}
+            onSubmit={() => void submitReply()}
             onAiSubmit={onAiSubmit}
             aiDraft={aiDraft}
             onAiDraftChange={onAiDraftChange}

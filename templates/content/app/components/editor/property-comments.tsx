@@ -140,6 +140,25 @@ export function propertyThreadTarget(
   };
 }
 
+/** A Property thread's name and value as they read above the thread. */
+export function propertyThreadTargetText(
+  target: PropertyThreadTarget,
+  t: ReturnType<typeof useT>,
+): { name: string; value: string | null } {
+  const value =
+    target.value === null ? null : target.value || t("comments.propertyEmpty");
+  return {
+    name:
+      target.state === "removed"
+        ? t("comments.propertyRemoved", { name: target.name })
+        : target.name,
+    value:
+      value !== null && target.state === "changed"
+        ? t("comments.propertyWas", { value })
+        : value,
+  };
+}
+
 /** The line a Property thread shows in place of quoted text. */
 export function PropertyThreadTargetLabel({
   target,
@@ -149,8 +168,7 @@ export function PropertyThreadTargetLabel({
   className?: string;
 }) {
   const t = useT();
-  const value =
-    target.value === null ? null : target.value || t("comments.propertyEmpty");
+  const { name, value } = propertyThreadTargetText(target, t);
   return (
     <span
       className={cn(
@@ -159,19 +177,11 @@ export function PropertyThreadTargetLabel({
       )}
       data-comment-property-target={target.state}
     >
-      <span className="shrink-0 font-medium text-foreground/80">
-        {target.state === "removed"
-          ? t("comments.propertyRemoved", { name: target.name })
-          : target.name}
-      </span>
+      <span className="shrink-0 font-medium text-foreground/80">{name}</span>
       {value === null ? null : (
         <>
           <span aria-hidden="true">·</span>
-          <span className="min-w-0 truncate">
-            {target.state === "changed"
-              ? t("comments.propertyWas", { value })
-              : value}
-          </span>
+          <span className="min-w-0 truncate">{value}</span>
         </>
       )}
     </span>

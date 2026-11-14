@@ -247,6 +247,7 @@ import {
   commentThreadAt,
   commentThreadHoverHandlers,
   commentThreadMarkSelector,
+  commentThreadQuote,
   type CommentBlockTarget,
 } from "./comment-block-anchors";
 import {
@@ -274,7 +275,13 @@ import {
   type DatabaseItemPreviewRow,
 } from "./DatabaseItemPreviewPlaceholder";
 import { directoryWidgetEditability } from "./directory-widget-editability";
-import { isPageCommentThread } from "./discussion-panel";
+import {
+  DiscussionPeekBar,
+  discussionPeekThread,
+  isPageCommentThread,
+  pageCommentMarks,
+  pulseShownSubject,
+} from "./discussion-panel";
 import {
   displacedTypingMarkdown,
   keepDisplacedTyping,
@@ -3470,6 +3477,13 @@ function PageEditorSessionBody({
   >([]);
   const [utilityPanel, setUtilityPanel] = useState<DocumentUtilityPanel>(null);
   const [commentsBrowseOpen, setCommentsBrowseOpen] = useState(false);
+  // The thread whose text Show uncovered by moving Discussion aside, on a
+  // window where the panel covers the page. Whatever opens Discussion for
+  // something else clears it; a suggested edit selected there would
+  // otherwise sit in the hidden panel behind the bar.
+  const [discussionPeekThreadId, setDiscussionPeekThreadId] = useState<
+    string | null
+  >(null);
   const [showCommentIndicators, setShowCommentIndicators] = useState(true);
   const [primaryFieldAvailability, setPrimaryFieldAvailability] = useState<{
     scope: string;
@@ -9184,6 +9198,7 @@ function PageEditorSessionBody({
       setPendingComment(null, { keepWritten: true });
       setHoveredThreadId(null);
       setSelectedThreadId(threadId);
+      setDiscussionPeekThreadId(null);
       // With the panel open there is no margin to open beside.
       setCommentsBrowseOpen(
         preserveBrowseContext || !!pageThread || pagePanelOpenRef.current,
@@ -9204,6 +9219,7 @@ function PageEditorSessionBody({
     ) => {
       setPendingComment({ quotedText, offsetTop, anchor, range, fieldId });
       setCommentsBrowseOpen(false);
+      setDiscussionPeekThreadId(null);
       setUtilityPanel("comments");
       setSelectedThreadId(null);
       setHoveredThreadId(null);
@@ -9222,6 +9238,7 @@ function PageEditorSessionBody({
         ...(fieldId ? { fieldId } : {}),
       });
       setCommentsBrowseOpen(false);
+      setDiscussionPeekThreadId(null);
       setUtilityPanel("comments");
       setSelectedThreadId(null);
       setHoveredThreadId(null);
@@ -9250,6 +9267,7 @@ function PageEditorSessionBody({
                 ...(fieldId ? { fieldId } : {}),
               });
               setCommentsBrowseOpen(false);
+              setDiscussionPeekThreadId(null);
               setUtilityPanel("comments");
               setSelectedThreadId(null);
               setHoveredThreadId(null);
@@ -9375,19 +9393,116 @@ function PageEditorSessionBody({
     !blockFieldComments.tabSwitchPending &&
     ((!!pendingComment && blockFieldComments.pendingVisible) ||
       !!selectedThreadId);
+  // Discussion steps aside only where it covers the page, and comes back once
+  // the window has room for it beside the page, or once its thread resolves
+  // or goes away.
+  const peekThread = discussionPeekThread(
+    threads,
+    discussionPeekThreadId,
+    pagePanel.tab === "comments" && pagePanelLayout.mode !== "dock",
+  );
+  const peeking = !!peekThread;
+  useEffect(() => {
+    if (!discussionPeekThreadId || peeking) return;
+    const threadId = discussionPeekThreadId;
+    setDiscussionPeekThreadId(null);
+    // Ended on its own while Discussion stays open: focus that went with the
+    // bar's button lands on the thread's Show, or on the tab once the thread
+    // is gone. Focus somewhere else stays where it is.
+    if (pagePanel.tab !== "comments") return;
+    const active = globalThis.document.activeElement;
+    if (active && active !== globalThis.document.body) return;
+    requestAnimationFrame(() => {
+      const target =
+        pagePanelRef.current?.querySelector(
+          `[data-thread-card="${CSS.escape(threadId)}"] button[data-discussion-subject]`,
+        ) ??
+        globalThis.document.querySelector(
+          `[data-page-editor-owner="${CSS.escape(pageEditorOwner)}"] [data-document-panel-tab="comments"]`,
+        );
+      if (target instanceof HTMLElement) target.focus({ preventScroll: true });
+    });
+  }, [discussionPeekThreadId, pageEditorOwner, pagePanel.tab, peeking]);
+
   // Escape closes what is innermost, so a reply box or a card goes first. A
-  // reply left open in Discussion doesn't show behind another tab, so it
-  // doesn't hold Escape there.
+  // reply left open in Discussion doesn't show behind another tab, or while
+  // Discussion has stepped aside, so it doesn't hold Escape then.
   const { openReply } = replyDrafts;
   pagePanelEscapeRef.current = pagePanelEscapeCloses({
     tab: pagePanel.tab,
-    replyOpen: !!(openReply?.threadId || openReply?.suggestionId),
+    replyOpen: !peeking && !!(openReply?.threadId || openReply?.suggestionId),
     commentCardOpen: showAnchoredCommentPopover,
   });
 
   // A phone's sheet covers the page under the header, so nothing behind it
   // takes focus; the header's tabs stay live above it to switch or close.
-  const pageUnderSheet = !!pagePanel.tab && pagePanelLayout.mode === "sheet";
+  const pageUnderSheet =
+    !!pagePanel.tab && pagePanelLayout.mode === "sheet" && !peeking;
+
+  const pagePanelModeRef = useRef(pagePanelLayout.mode);
+  pagePanelModeRef.current = pagePanelLayout.mode;
+  // Discussion's Show. A Property opens in Info, its row marked as the
+  // thread's; text, which the sidebar has scrolled to, rings once and, where
+  // the panel covers it, has Discussion step aside.
+  const showThreadSubject = useCallback((thread: CommentThread) => {
+    const propertyId = thread.property?.propertyId;
+    if (propertyId) {
+      setDiscussionPeekThreadId(null);
+      setSelectedSuggestionId(null);
+      setHoveredThreadId(null);
+      setSelectedThreadId(thread.threadId);
+      setCommentsBrowseOpen(false);
+      setUtilityPanel("info");
+      // Info draws in the panel's next frame.
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => {
+          const row = pagePanelRef.current?.querySelector<HTMLElement>(
+            `[data-property-row="${CSS.escape(propertyId)}"]`,
+          );
+          if (!row) return;
+          row.scrollIntoView({
+            block: "center",
+            behavior: window.matchMedia("(prefers-reduced-motion: reduce)")
+              .matches
+              ? "auto"
+              : "smooth",
+          });
+          pulseShownSubject([row]);
+          // The row's open threads, or with none open, its way to start one.
+          row
+            .querySelector<HTMLElement>(
+              "[data-property-comment-marker], [data-property-comment-start]",
+            )
+            ?.focus({ preventScroll: true });
+        }),
+      );
+      return;
+    }
+    // The highlight redraws as the thread becomes the selected one, so the
+    // ring waits for it.
+    requestAnimationFrame(() =>
+      requestAnimationFrame(() =>
+        pulseShownSubject(
+          pageCommentMarks(scrollContainerRef.current, thread.threadId),
+        ),
+      ),
+    );
+    if (pagePanelModeRef.current !== "dock") {
+      setDiscussionPeekThreadId(thread.threadId);
+    }
+  }, []);
+  const leaveDiscussionPeek = useCallback(() => {
+    const threadId = discussionPeekThreadId;
+    setDiscussionPeekThreadId(null);
+    if (!threadId) return;
+    // Back where Show was pressed, on the thread's Show.
+    requestAnimationFrame(() => {
+      const show = pagePanelRef.current?.querySelector(
+        `[data-thread-card="${CSS.escape(threadId)}"] [data-discussion-subject]`,
+      );
+      if (show instanceof HTMLElement) show.focus({ preventScroll: true });
+    });
+  }, [discussionPeekThreadId]);
 
   const pagePanelTab = pagePanel.tab;
   useEffect(() => {
@@ -9469,6 +9584,7 @@ function PageEditorSessionBody({
     setSelectedThreadId(null);
     setSelectedSuggestionId(suggestionId);
     setCommentsBrowseOpen(false);
+    setDiscussionPeekThreadId(null);
     setUtilityPanel("comments");
     requestAnimationFrame(() => {
       const escaped = globalThis.CSS?.escape
@@ -9551,6 +9667,7 @@ function PageEditorSessionBody({
       }
       setPendingComment({ quotedText, offsetTop, anchor, range });
       setCommentsBrowseOpen(false);
+      setDiscussionPeekThreadId(null);
       setUtilityPanel("comments");
       setSelectedThreadId(null);
       setHoveredThreadId(null);
@@ -9642,6 +9759,7 @@ function PageEditorSessionBody({
       });
       setSelectedSuggestionId(null);
       setCommentsBrowseOpen(false);
+      setDiscussionPeekThreadId(null);
       setUtilityPanel("comments");
       setSelectedThreadId(null);
       setHoveredThreadId(null);
@@ -9672,6 +9790,7 @@ function PageEditorSessionBody({
   const handleUtilityPanelChange = useCallback(
     (nextPanel: DocumentUtilityPanel) => {
       if (!nextPanel) replyDrafts.setOpenReply(null);
+      setDiscussionPeekThreadId(null);
       setUtilityPanel(nextPanel);
       if (nextPanel === "comments") {
         setCommentsBrowseOpen(true);
@@ -9686,6 +9805,11 @@ function PageEditorSessionBody({
 
   const handlePagePanelChange = useCallback(
     (next: DocumentPagePanelTab | null) => {
+      // Discussion's tab or key brings back the Discussion that stepped aside.
+      if (next === "comments" && peeking) {
+        leaveDiscussionPeek();
+        return;
+      }
       const activeElement = globalThis.document.activeElement;
       if (
         next &&
@@ -9714,7 +9838,7 @@ function PageEditorSessionBody({
       }
       handleUtilityPanelChange(next);
     },
-    [handleUtilityPanelChange, showAgentTab],
+    [handleUtilityPanelChange, leaveDiscussionPeek, peeking, showAgentTab],
   );
 
   // The page's text takes Escape before the window does, so it closes an open
@@ -9747,7 +9871,12 @@ function PageEditorSessionBody({
     }
   }, [agentInPanel, handleUtilityPanelChange, utilityPanelTab]);
 
-  const openPanelTab = showAgentTab && agent.open ? "agent" : requestedPanelTab;
+  // Discussion stepped aside shows as closed, so its tab and key bring it back.
+  const openPanelTab = peeking
+    ? null
+    : showAgentTab && agent.open
+      ? "agent"
+      : requestedPanelTab;
   const showCommentsTab = canComment && !isLocalFileDocument;
   const ownsPageEvent = (event: KeyboardEvent) => {
     const owner = documentEditorEventOwner(event);
@@ -9822,6 +9951,7 @@ function PageEditorSessionBody({
     clearCommentFocus();
     setPendingComment(null);
     setSelectedSuggestionId(suggestion.id);
+    setDiscussionPeekThreadId(null);
     setUtilityPanel("comments");
     setCommentsBrowseOpen(true);
     replyDrafts.setOpenReply(suggestion.threadId, suggestion.id, false);
@@ -10327,6 +10457,7 @@ function PageEditorSessionBody({
       return next;
     });
     setSelectedSuggestionId(first.id);
+    setDiscussionPeekThreadId(null);
     setUtilityPanel("comments");
     setCommentsBrowseOpen(true);
   };
@@ -10718,6 +10849,9 @@ function PageEditorSessionBody({
       anchoredSuggestionIds={reviewAnchoredSuggestionIds}
       onActivateSuggestion={activateSuggestionOrThread}
       onSelectedThreadChange={setSelectedThreadId}
+      onShowThreadSubject={
+        presentation === "history" ? showThreadSubject : undefined
+      }
       onHoveredThreadChange={setHoveredThreadId}
       hoveredThreadId={hoveredThreadId}
       currentUserEmail={session?.email}
@@ -11062,7 +11196,7 @@ function PageEditorSessionBody({
           }
           if (
             target?.closest(
-              "[data-comments-sidebar], [data-comments-history], [data-comment-menu], [data-document-utility-panel]",
+              "[data-comments-sidebar], [data-comments-history], [data-comment-menu], [data-document-utility-panel], [data-discussion-peek]",
             )
           ) {
             return;
@@ -12049,7 +12183,7 @@ function PageEditorSessionBody({
         </div>
 
         <DocumentPagePanel
-          open={!!pagePanel.tab}
+          open={!!pagePanel.tab && !peeking}
           tab={pagePanel.rendered}
           layout={pagePanelLayout}
           panelId={pagePanelId}
@@ -12062,6 +12196,15 @@ function PageEditorSessionBody({
         >
           {pagePanelBody}
         </DocumentPagePanel>
+        {peekThread ? (
+          <DiscussionPeekBar
+            key={peekThread.threadId}
+            thread={peekThread}
+            quote={commentThreadQuote(peekThread, t)}
+            sheet={pagePanelLayout.mode === "sheet"}
+            onBack={leaveDiscussionPeek}
+          />
+        ) : null}
       </div>
     </BlockRegistryProvider>
   );
