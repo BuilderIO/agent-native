@@ -3709,7 +3709,8 @@ body[data-clips-route]:not([data-clips-route="popover"]) #root {
 }
 
 .meeting-notification-provider-slack {
-  background: #611f69;
+  background: var(--brand);
+  color: var(--bg);
 }
 
 .meeting-notification-provider-other {
