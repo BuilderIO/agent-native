@@ -5,6 +5,28 @@ use super::*;
 const LIVE_UPLOAD_POLL_MS: u64 = 250;
 const LIVE_UPLOAD_CHUNK_ATTEMPTS: u32 = 5;
 const LIVE_UPLOAD_RETRY_BASE_MS: u64 = 500;
+const LIVE_UPLOAD_RETRY_MAX_MS: u64 = 30_000;
+
+fn live_upload_retry_backoff_ms(attempt: u32) -> u64 {
+    let shift = attempt.saturating_sub(1).min(16);
+    (LIVE_UPLOAD_RETRY_BASE_MS << shift).min(LIVE_UPLOAD_RETRY_MAX_MS)
+}
+
+// Connection drops, timeouts and 408/425/429/499/5xx retry until the network
+// is back instead of parking the clip for a manual retry.
+fn is_transient_live_upload_error(err: &str) -> bool {
+    if err.starts_with("native recording upload failed:") {
+        return true;
+    }
+    let Some(rest) = err.strip_prefix("native recording upload returned ") else {
+        return false;
+    };
+    let code = rest
+        .split_whitespace()
+        .next()
+        .and_then(|code| code.trim_end_matches(':').parse::<u16>().ok());
+    matches!(code, Some(408 | 425 | 429 | 499 | 500 | 502 | 503 | 504))
+}
 
 pub(super) struct LiveUploadCtrl {
     pub(super) finalize: AtomicBool,
@@ -241,10 +263,10 @@ async fn send_live_upload_post_with_retry(
             Ok(verification_pending) => return Ok(verification_pending),
             Err(err) => err,
         };
-        if attempt >= LIVE_UPLOAD_CHUNK_ATTEMPTS {
+        if !is_transient_live_upload_error(&err) && attempt >= LIVE_UPLOAD_CHUNK_ATTEMPTS {
             return Err(err);
         }
-        let backoff_ms = LIVE_UPLOAD_RETRY_BASE_MS << (attempt - 1);
+        let backoff_ms = live_upload_retry_backoff_ms(attempt);
         eprintln!(
             "[live-upload] {rec}: chunk #{index} attempt {attempt}/{LIVE_UPLOAD_CHUNK_ATTEMPTS} failed: {err}; retrying in {backoff_ms}ms"
         );
@@ -415,6 +437,27 @@ async fn live_upload_loop(
 #[cfg(test)]
 mod clip_upload_config_tests {
     use super::*;
+
+    #[test]
+    fn retry_backoff_doubles_then_caps_at_thirty_seconds() {
+        assert_eq!(live_upload_retry_backoff_ms(1), 500);
+        assert_eq!(live_upload_retry_backoff_ms(5), 8_000);
+        assert_eq!(live_upload_retry_backoff_ms(7), 30_000);
+        assert_eq!(live_upload_retry_backoff_ms(500), 30_000);
+    }
+
+    #[test]
+    fn only_network_and_server_errors_retry_until_online() {
+        assert!(is_transient_live_upload_error(
+            "native recording upload failed: error sending request"
+        ));
+        assert!(is_transient_live_upload_error(
+            "native recording upload returned 503 Service Unavailable: "
+        ));
+        assert!(!is_transient_live_upload_error(
+            "native recording upload returned 413 Payload Too Large: "
+        ));
+    }
 
     #[test]
     fn local_only_clip_upload_is_explicitly_allowed() {
