@@ -173,6 +173,9 @@ export interface PreparedFunctionZip {
 export function assertNoFunctionsConfig(siteRoot: string): void {
   const tomlPath = path.join(siteRoot, "netlify.toml");
   if (!fs.existsSync(tomlPath)) return;
+  // A `functions` key is only the bundling config at the document root;
+  // under [build] it is the plain functions-directory setting.
+  let inRoot = true;
   const unsupported = fs
     .readFileSync(tomlPath, "utf-8")
     .split("\n")
@@ -180,13 +183,14 @@ export function assertNoFunctionsConfig(siteRoot: string): void {
     .some((line) => {
       if (line.startsWith("#")) return false;
       if (line.startsWith("[")) {
+        inRoot = false;
         const segments = line
           .replace(/^\[+|\]+\s*(#.*)?$/g, "")
           .split(".")
           .map((segment) => segment.trim().replace(/^["']|["']$/g, ""));
         return segments.includes("functions");
       }
-      return /^["']?functions["']?\s*[.=]/.test(line);
+      return inRoot && /^["']?functions["']?\s*[.=]/.test(line);
     });
   if (unsupported) {
     throw new Error(
