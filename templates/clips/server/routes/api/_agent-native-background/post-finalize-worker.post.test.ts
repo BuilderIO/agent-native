@@ -16,6 +16,8 @@ const mockFinalizeRun = vi.hoisted(() => vi.fn());
 const mockFinalizeEndedMeetingsForRecording = vi.hoisted(() => vi.fn());
 const mockEnsureRecordingThumbnail = vi.hoisted(() => vi.fn());
 const mockMarkThumbnailFailed = vi.hoisted(() => vi.fn());
+const mockEnsureRecordingSeekable = vi.hoisted(() => vi.fn());
+const mockEnsureRecordingAudioLevel = vi.hoisted(() => vi.fn());
 const mockUpdateReturning = vi.hoisted(() =>
   vi.fn(async () => [{ id: "rec-1" }]),
 );
@@ -98,7 +100,19 @@ vi.mock("../../../../actions/lib/finalize-ended-meetings.js", () => ({
 }));
 
 vi.mock("../../../../actions/lib/ensure-seekable-video.js", () => ({
-  ensureRecordingSeekable: vi.fn(),
+  ensureRecordingSeekable: (...args: unknown[]) =>
+    mockEnsureRecordingSeekable(...args),
+}));
+
+vi.mock("../../../lib/audio-level.js", () => ({
+  ensureRecordingAudioLevel: (...args: unknown[]) =>
+    mockEnsureRecordingAudioLevel(...args),
+  isRetryableAudioLevelStatus: (status: string) =>
+    [
+      "skipped-fetch-failed",
+      "skipped-measure-failed",
+      "skipped-upload-failed",
+    ].includes(status),
 }));
 
 vi.mock("../../../lib/ensure-recording-thumbnail.js", () => ({
@@ -831,6 +845,208 @@ describe("post-finalize worker", () => {
       recordingId: "rec-1",
       ownerEmail: "owner@example.test",
     });
+  });
+
+  function mockReadyRecordingRow() {
+    mockDb.select.mockImplementationOnce(() => {
+      const builder = {
+        from: vi.fn(() => builder),
+        where: vi.fn(() => builder),
+        limit: vi.fn(async () => [
+          {
+            id: "rec-1",
+            ownerEmail: "owner@example.test",
+            orgId: "org-1",
+            status: "ready",
+            uploadGenerationId: null,
+          },
+        ]),
+      };
+      return builder;
+    });
+  }
+
+  it("levels the audio after the seekable remux in the same job", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "seekable",
+      token: "valid-token",
+    });
+    mockReadyRecordingRow();
+    const order: string[] = [];
+    mockEnsureRecordingSeekable.mockImplementation(async () => {
+      order.push("seekable");
+      return { recordingId: "rec-1", status: "optimized", changed: true };
+    });
+    mockEnsureRecordingAudioLevel.mockImplementation(async () => {
+      order.push("audio-level");
+      return { recordingId: "rec-1", status: "boosted", changed: true };
+    });
+
+    await expect(
+      handler({} as Parameters<typeof handler>[0]),
+    ).resolves.toMatchObject({
+      ok: true,
+      kind: "seekable",
+      result: { status: "optimized" },
+      audioLevel: { status: "boosted" },
+    });
+    expect(order).toEqual(["seekable", "audio-level"]);
+    expect(mockEnsureRecordingAudioLevel).toHaveBeenCalledWith({
+      recordingId: "rec-1",
+      ownerEmail: "owner@example.test",
+    });
+  });
+
+  it("keeps the seekable result when audio leveling throws", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "seekable",
+      token: "valid-token",
+    });
+    mockReadyRecordingRow();
+    mockEnsureRecordingSeekable.mockResolvedValue({
+      recordingId: "rec-1",
+      status: "already-optimized",
+      changed: false,
+    });
+    mockEnsureRecordingAudioLevel.mockRejectedValue(new Error("ffmpeg died"));
+
+    await expect(
+      handler({} as Parameters<typeof handler>[0]),
+    ).resolves.toMatchObject({
+      ok: true,
+      kind: "seekable",
+      result: { status: "already-optimized" },
+      audioLevel: { status: "skipped-measure-failed", detail: "ffmpeg died" },
+    });
+  });
+
+  it("runs a standalone audio-level job for a ready recording", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "audio-level",
+      token: "valid-token",
+    });
+    mockReadyRecordingRow();
+    mockEnsureRecordingAudioLevel.mockResolvedValue({
+      recordingId: "rec-1",
+      status: "already-normal",
+      changed: false,
+    });
+
+    await expect(
+      handler({} as Parameters<typeof handler>[0]),
+    ).resolves.toMatchObject({
+      ok: true,
+      kind: "audio-level",
+      result: { status: "already-normal" },
+    });
+    expect(mockEnsureRecordingSeekable).not.toHaveBeenCalled();
+  });
+
+  it("retries a transient audio-level failure as a delayed job", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "audio-level",
+      token: "valid-token",
+      retryAttempt: 1,
+    });
+    mockReadyRecordingRow();
+    mockEnsureRecordingAudioLevel.mockResolvedValue({
+      recordingId: "rec-1",
+      status: "skipped-fetch-failed",
+      changed: false,
+    });
+
+    await expect(
+      handler({} as Parameters<typeof handler>[0]),
+    ).resolves.toMatchObject({
+      ok: true,
+      kind: "audio-level",
+      retryScheduled: true,
+      retryAttempt: 2,
+    });
+    expect(mockDispatchPostFinalizeJob).toHaveBeenCalledWith(
+      expect.objectContaining({
+        recordingId: "rec-1",
+        kind: "audio-level",
+        retryAttempt: 2,
+        requireAccepted: true,
+      }),
+    );
+  });
+
+  it("stops retrying audio leveling after the last attempt", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "audio-level",
+      token: "valid-token",
+      retryAttempt: 3,
+    });
+    mockReadyRecordingRow();
+    mockEnsureRecordingAudioLevel.mockResolvedValue({
+      recordingId: "rec-1",
+      status: "skipped-upload-failed",
+      changed: false,
+    });
+
+    await expect(
+      handler({} as Parameters<typeof handler>[0]),
+    ).resolves.toMatchObject({ ok: true, retryExhausted: true });
+    expect(mockDispatchPostFinalizeJob).not.toHaveBeenCalled();
+  });
+
+  it("schedules an audio-level retry when leveling fails inside the seekable job", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "seekable",
+      token: "valid-token",
+    });
+    mockReadyRecordingRow();
+    mockEnsureRecordingSeekable.mockResolvedValue({
+      recordingId: "rec-1",
+      status: "optimized",
+      changed: true,
+    });
+    mockEnsureRecordingAudioLevel.mockRejectedValue(new Error("busy"));
+
+    await expect(
+      handler({} as Parameters<typeof handler>[0]),
+    ).resolves.toMatchObject({
+      kind: "seekable",
+      result: { status: "optimized" },
+      audioLevelRetryScheduled: true,
+    });
+    expect(mockDispatchPostFinalizeJob).toHaveBeenCalledWith(
+      expect.objectContaining({ kind: "audio-level", retryAttempt: 1 }),
+    );
+  });
+
+  it("fails the seekable job when the audio-level retry cannot be dispatched", async () => {
+    mockReadBody.mockResolvedValue({
+      recordingId: "rec-1",
+      kind: "seekable",
+      token: "valid-token",
+    });
+    mockReadyRecordingRow();
+    mockEnsureRecordingSeekable.mockResolvedValue({
+      recordingId: "rec-1",
+      status: "optimized",
+      changed: true,
+    });
+    mockEnsureRecordingAudioLevel.mockResolvedValue({
+      recordingId: "rec-1",
+      status: "skipped-fetch-failed",
+      changed: false,
+    });
+    mockDispatchPostFinalizeJob.mockRejectedValueOnce(
+      new Error("worker unavailable"),
+    );
+
+    await expect(handler({} as Parameters<typeof handler>[0])).rejects.toThrow(
+      "worker unavailable",
+    );
   });
 
   it("retries transient thumbnail failures with bounded durable delays", async () => {
