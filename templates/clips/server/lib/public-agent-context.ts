@@ -1,4 +1,4 @@
-import { mkdtemp, open, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, open, rm, stat, statfs, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -63,6 +63,7 @@ import { recordAgentView } from "./agent-views.js";
 import { isSupportedImageMimeType } from "./image-signature.js";
 import {
   RecordingMediaFetchError,
+  logFrameMediaCleanupFailure,
   sanitizeRecordingMediaError,
 } from "./recording-media-fetch-error.js";
 import {
@@ -179,6 +180,13 @@ export function describeAgentAccessFailure(
 
 const DEFAULT_MAX_AGENT_FRAME_MEDIA_BYTES = 200 * 1024 * 1024;
 const DEFAULT_MAX_AGENT_FRAME_MEDIA_FILE_BYTES = 512 * 1024 * 1024;
+const MAX_CONCURRENT_AGENT_FRAME_MEDIA_FILES = 2;
+const AGENT_FRAME_DISK_RESERVE_BYTES = 128 * 1024 * 1024;
+const agentFrameFileReservations = new Map<
+  symbol,
+  { budget: number; allocated: number }
+>();
+const pendingAgentFrameCleanups = new Set<() => Promise<void>>();
 export const MAX_PUBLIC_AGENT_HISTORY_ITEMS = 100;
 export const CLIPS_AGENT_ACCESS_TTL_SECONDS = 2 * 60 * 60;
 export { CLIPS_AGENT_ACCESS_PARAM };
@@ -220,9 +228,104 @@ function maxAgentFrameMediaBytes(): number {
 function maxAgentFrameMediaFileBytes(): number {
   const configured = Number(process.env.CLIPS_AGENT_FRAME_MAX_MEDIA_FILE_BYTES);
   if (Number.isFinite(configured) && configured > 0) {
-    return Math.max(1, Math.floor(configured));
+    return Math.min(
+      DEFAULT_MAX_AGENT_FRAME_MEDIA_FILE_BYTES,
+      Math.max(1, Math.floor(configured)),
+    );
   }
   return DEFAULT_MAX_AGENT_FRAME_MEDIA_FILE_BYTES;
+}
+
+async function acquireAgentFrameMediaFileAdmission(
+  maxBytes: number,
+  tempRoot: string,
+  rangeFallbackSize?: number,
+): Promise<{
+  maxBytes: number;
+  release: () => void;
+  recordAllocation: (blocks: number) => void;
+  finishDownload: () => void;
+} | null> {
+  await Promise.allSettled(
+    [...pendingAgentFrameCleanups].map((cleanup) => cleanup()),
+  );
+  if (
+    agentFrameFileReservations.size >= MAX_CONCURRENT_AGENT_FRAME_MEDIA_FILES
+  ) {
+    if (rangeFallbackSize !== undefined) return null;
+    throw new RecordingMediaFetchError(
+      "Recording media file capacity exceeded.",
+      503,
+    );
+  }
+  const reservation = Symbol();
+  const entry = { budget: 0, allocated: 0 };
+  agentFrameFileReservations.set(reservation, entry);
+  try {
+    // Allocations made after this snapshot may not be reflected by statfs.
+    const snapshot = new Map(
+      [...agentFrameFileReservations].map(([key, value]) => [
+        key,
+        { ...value },
+      ]),
+    );
+    const { bavail, bsize } = await statfs(tempRoot).catch(() => {
+      throw new RecordingMediaFetchError(
+        "Recording temporary storage is unavailable.",
+        503,
+      );
+    });
+    const available = bavail * bsize;
+    if (!Number.isSafeInteger(available) || available < 0) {
+      throw new Error("Recording temporary storage availability is invalid.");
+    }
+    let reserved = 0;
+    for (const [key, value] of snapshot) {
+      if (key === reservation) continue;
+      reserved +=
+        value.budget > 0
+          ? value.budget - value.allocated
+          : (agentFrameFileReservations.get(key)?.budget ?? 0);
+    }
+    for (const [key, value] of agentFrameFileReservations) {
+      if (!snapshot.has(key)) reserved += value.budget;
+    }
+    const budget = Math.min(
+      maxBytes,
+      available - AGENT_FRAME_DISK_RESERVE_BYTES - reserved,
+    );
+    if (rangeFallbackSize !== undefined && budget < rangeFallbackSize) {
+      agentFrameFileReservations.delete(reservation);
+      return null;
+    }
+    if (budget < 1) {
+      throw new RecordingMediaFetchError(
+        "Recording temporary storage capacity exceeded.",
+        503,
+      );
+    }
+    entry.budget = budget;
+    return {
+      maxBytes: budget,
+      recordAllocation: (blocks) => {
+        const bytes = blocks * 512;
+        if (!Number.isSafeInteger(bytes) || bytes < 0) {
+          throw new Error("Recording temporary file allocation is invalid.");
+        }
+        entry.allocated = Math.min(budget, bytes);
+      },
+      finishDownload: () => {
+        // Older statfs snapshots retain the pre-close growth reservation.
+        entry.budget = entry.allocated;
+      },
+      release: () => {
+        agentFrameFileReservations.delete(reservation);
+      },
+    };
+  } catch (error) {
+    agentFrameFileReservations.delete(reservation);
+    throw error;
+  }
 }
 
 function frameMediaTooLargeMessage(size: number, maxBytes: number) {
@@ -237,11 +340,20 @@ function assertFrameMediaSize(size: number | null | undefined) {
   }
 }
 
-function assertFrameMediaFileSize(size: number | null | undefined) {
+function assertFrameMediaFileSize(
+  size: number | null | undefined,
+  maxBytes: number,
+  configuredMaxBytes = maxBytes,
+) {
   if (!Number.isFinite(size ?? NaN) || (size ?? 0) <= 0) return;
-  const maxBytes = maxAgentFrameMediaFileBytes();
   if ((size ?? 0) > maxBytes) {
-    throw new Error(frameMediaTooLargeMessage(size ?? 0, maxBytes));
+    if (maxBytes < configuredMaxBytes && (size ?? 0) <= configuredMaxBytes) {
+      throw new RecordingMediaFetchError(
+        "Recording temporary storage capacity exceeded.",
+        503,
+      );
+    }
+    throw new Error(frameMediaTooLargeMessage(size ?? 0, configuredMaxBytes));
   }
 }
 
@@ -313,14 +425,23 @@ async function readResponseBytesWithLimit(
 async function writeResponseBodyToFileWithLimit(
   response: Response,
   path: string,
+  maxBytes: number,
+  configuredMaxBytes: number,
+  recordAllocation: (blocks: number) => void,
 ): Promise<void> {
-  const maxBytes = maxAgentFrameMediaFileBytes();
   const contentLength = Number(response.headers.get("content-length"));
-  if (Number.isFinite(contentLength) && contentLength > maxBytes) {
-    throw new Error(frameMediaTooLargeMessage(contentLength, maxBytes));
+  try {
+    assertFrameMediaFileSize(contentLength, maxBytes, configuredMaxBytes);
+  } catch (error) {
+    await response.body?.cancel().catch(() => {});
+    throw error;
   }
 
-  const file = await open(path, "wx");
+  // observed-write-ok: request-scoped temporary media, removed after use.
+  const file = await open(path, "wx").catch(async (error: unknown) => {
+    await response.body?.cancel().catch(() => {});
+    throw error;
+  });
   let totalBytes = 0;
   try {
     if (!response.body) {
@@ -333,10 +454,9 @@ async function writeResponseBodyToFileWithLimit(
           502,
         );
       }
-      if (bytes.byteLength > maxBytes) {
-        throw new Error(frameMediaTooLargeMessage(bytes.byteLength, maxBytes));
-      }
+      assertFrameMediaFileSize(bytes.byteLength, maxBytes, configuredMaxBytes);
       await file.write(bytes);
+      recordAllocation((await file.stat()).blocks);
       return;
     }
 
@@ -358,12 +478,13 @@ async function writeResponseBodyToFileWithLimit(
         if (done) break;
         if (!value) continue;
         totalBytes += value.byteLength;
-        if (totalBytes > maxBytes) {
-          await reader.cancel().catch(() => {});
-          throw new Error(frameMediaTooLargeMessage(totalBytes, maxBytes));
-        }
+        assertFrameMediaFileSize(totalBytes, maxBytes, configuredMaxBytes);
         await file.write(value);
+        recordAllocation((await file.stat()).blocks);
       }
+    } catch (error) {
+      await reader.cancel().catch(() => {});
+      throw error;
     } finally {
       reader.releaseLock();
     }
@@ -1244,6 +1365,7 @@ export async function fetchRecordingMediaResponse(
   }
 
   if (!response.ok) {
+    await response.body?.cancel().catch(() => {});
     throw new RecordingMediaFetchError(
       `Recording media fetch failed: HTTP ${response.status} ${response.statusText}`,
       response.status,
@@ -1348,14 +1470,27 @@ export async function loadRecordingMediaFile(
     throw new Error(embedFramesUnavailableReason(embedProvider));
   }
   const fallbackMimeType = recordingFallbackMimeType(recording);
-  // Unknown or understated sizes retain the capped download path; they cannot
-  // authorize a signed read of an otherwise unverified source.
-  if (
+  const maxFileBytes = maxAgentFrameMediaFileBytes();
+  const rangeEligible =
     typeof recording.videoSizeBytes === "number" &&
-    recording.videoSizeBytes > maxAgentFrameMediaFileBytes() &&
+    Number.isSafeInteger(recording.videoSizeBytes) &&
+    recording.videoSizeBytes > 0 &&
     (recording.storageMode === "own" || recording.storageMode === "hosted") &&
     isRangeVideoFormat(recording.videoFormat) &&
-    !isLocalRecordingBlob(videoUrl)
+    !isLocalRecordingBlob(videoUrl);
+  const oversized = recording.videoSizeBytes > maxFileBytes;
+  const tempRoot = tmpdir();
+  const admission = oversized
+    ? null
+    : await acquireAgentFrameMediaFileAdmission(
+        maxFileBytes,
+        tempRoot,
+        rangeEligible ? recording.videoSizeBytes : undefined,
+      );
+  if (
+    rangeEligible &&
+    !admission &&
+    (recording.storageMode === "own" || recording.storageMode === "hosted")
   ) {
     const storageMode = recording.storageMode;
     const deadline = Date.now() + FRAME_RANGE_DEADLINE_MS;
@@ -1433,18 +1568,65 @@ export async function loadRecordingMediaFile(
       if (!handedOff && !timedOut) release();
     }
   }
-  assertFrameMediaFileSize(recording.videoSizeBytes);
-  const dir = await mkdtemp(join(tmpdir(), "clips-agent-frame-"));
+  assertFrameMediaFileSize(recording.videoSizeBytes, maxFileBytes);
+  if (!admission) {
+    throw new RecordingMediaFetchError(
+      "Recording temporary storage capacity exceeded.",
+      503,
+    );
+  }
+  const { release } = admission;
+  let dir: string;
+  try {
+    // observed-write-ok: request-scoped temporary directory, removed after use.
+    dir = await mkdtemp(join(tempRoot, "clips-agent-frame-"));
+  } catch {
+    release();
+    throw new RecordingMediaFetchError(
+      "Recording temporary storage is unavailable.",
+      503,
+    );
+  }
   const path = join(
     dir,
     recording.videoFormat === "mp4" ? "input.mp4" : "input.webm",
   );
-  const cleanup = () => rm(dir, { recursive: true, force: true });
+  // Only this request's directory is retried; its reservation stays until removal.
+  let cleanupPromise: Promise<void> | undefined;
+  const cleanup = () => {
+    cleanupPromise ??= (async () => {
+      try {
+        try {
+          // observed-write-ok: removes only this request's temporary directory.
+          await rm(dir, { recursive: true, force: true });
+        } catch {
+          // observed-write-ok: retries removal of this request's temporary directory.
+          await rm(dir, { recursive: true, force: true });
+        }
+        pendingAgentFrameCleanups.delete(cleanup);
+        release();
+      } catch (error) {
+        pendingAgentFrameCleanups.add(cleanup);
+        throw error;
+      }
+    })().catch((error: unknown) => {
+      cleanupPromise = undefined;
+      throw error;
+    });
+    return cleanupPromise;
+  };
 
   try {
     if (isLocalRecordingBlob(videoUrl)) {
       const media = await loadRecordingMediaBytes(recording);
+      assertFrameMediaFileSize(
+        media.bytes.byteLength,
+        admission.maxBytes,
+        maxFileBytes,
+      );
       await writeFile(path, media.bytes);
+      admission.recordAllocation((await stat(path)).blocks);
+      admission.finishDownload();
       return { path, mimeType: media.mimeType, cleanup };
     }
 
@@ -1452,7 +1634,14 @@ export async function loadRecordingMediaFile(
       recordingId: recording.id,
       storageMode: recording.storageMode,
     });
-    await writeResponseBodyToFileWithLimit(response, path);
+    await writeResponseBodyToFileWithLimit(
+      response,
+      path,
+      admission.maxBytes,
+      maxFileBytes,
+      admission.recordAllocation,
+    );
+    admission.finishDownload();
     return {
       path,
       mimeType: pickSourceMimeType(
@@ -1462,7 +1651,26 @@ export async function loadRecordingMediaFile(
       cleanup,
     };
   } catch (error) {
-    await cleanup().catch(() => {});
-    throw error;
+    const failure =
+      error instanceof Error &&
+      "syscall" in error &&
+      typeof error.syscall === "string"
+        ? new RecordingMediaFetchError(
+            "Recording temporary storage is unavailable.",
+            503,
+          )
+        : error;
+    try {
+      await cleanup();
+    } catch (cleanupError) {
+      logFrameMediaCleanupFailure(cleanupError);
+      throw Object.assign(
+        failure instanceof Error
+          ? failure
+          : new Error("Recording media download failed."),
+        { cleanupError },
+      );
+    }
+    throw failure;
   }
 }

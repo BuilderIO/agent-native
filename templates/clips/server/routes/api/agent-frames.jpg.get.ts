@@ -21,6 +21,8 @@ import {
 import { buildAgentEditedTimeline } from "../../lib/agent-edited-timeline.js";
 import type { RemoteFrameInput } from "../../lib/agent-frame-range.js";
 import {
+  cleanupAfterFrameFailure,
+  cleanupAfterFrameSuccess,
   describeFrameFailure,
   frameFailureStatus,
   loadAgentFrameAccess,
@@ -218,6 +220,7 @@ export default defineEventHandler(async (event: H3Event) => {
       );
       return sourceMs === null ? null : timeline.fromSourceMs(sourceMs);
     };
+    let cleanupStarted = false;
     try {
       const fps =
         parsed.value.fps ??
@@ -237,7 +240,11 @@ export default defineEventHandler(async (event: H3Event) => {
         ? await probeEditedDurationMs(media.path)
         : timeline.durationMs;
       const plan = planWithin(fps, durationMs);
-      if (!plan.ok) return requestFailure(event, plan);
+      if (!plan.ok) {
+        cleanupStarted = true;
+        await cleanupAfterFrameFailure(media.cleanup);
+        return requestFailure(event, plan);
+      }
       const result = await extractSheetWithStaleDurationRecovery({
         mediaPath: media.path,
         remote: media.remote,
@@ -248,10 +255,13 @@ export default defineEventHandler(async (event: H3Event) => {
             ? planWithin(fps, timeline.fromSourceMs(actualSourceMs))
             : null,
       });
+      cleanupStarted = true;
+      await cleanupAfterFrameSuccess(media.cleanup);
       applySheetHeaders(event, result.plan);
       return Buffer.from(result.sheet);
-    } finally {
-      await media.cleanup().catch(() => {});
+    } catch (error) {
+      if (!cleanupStarted) await cleanupAfterFrameFailure(media.cleanup);
+      throw error;
     }
   } catch (err) {
     const status = frameFailureStatus(err);
