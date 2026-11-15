@@ -219,7 +219,7 @@ describe("createFetchToolEntry", () => {
 
   it("attaches public image responses as vision context", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response("jpeg bytes", {
+      new Response(new Uint8Array([255, 216, 0, 4]), {
         status: 200,
         statusText: "OK",
         headers: { "content-type": "image/jpeg" },
@@ -233,7 +233,7 @@ describe("createFetchToolEntry", () => {
       statusText: "OK",
       contentType: "image/jpeg",
       url: "https://93.184.216.34/frame.jpg",
-      _agentImages: [{ data: "anBlZyBieXRlcw==", mediaType: "image/jpeg" }],
+      _agentImages: [{ data: "/9gABA==", mediaType: "image/jpeg" }],
     });
   });
 
@@ -285,11 +285,12 @@ describe("createFetchToolEntry", () => {
         }),
       );
 
-      const result = await createFetchToolEntry()["web-request"].run(args);
-
-      expect(result).toContain("HTTP 200 OK");
-      expect(result).not.toContain("anBlZyBieXRlcw==");
-      expect(result).not.toContain("_agentImages");
+      await expect(
+        createFetchToolEntry()["web-request"].run(args),
+      ).rejects.toMatchObject({
+        errorCode: "web_request_binary_response",
+        message: expect.not.stringContaining("jpeg bytes"),
+      });
     },
   );
 
@@ -451,6 +452,101 @@ describe("createFetchToolEntry", () => {
       expect(String((caught as Error).message)).not.toContain(marker);
       expect(String((caught as Error).message)).not.toContain("\0");
       expect(mockWriteWorkspaceFile).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    { name: "binary MIME", bytes: [65, 66], contentType: "application/zip" },
+    { name: "image MIME", bytes: [65, 66], contentType: "image/png" },
+    { name: "invalid UTF-8", bytes: [255, 254], contentType: "text/plain" },
+    { name: "NUL", bytes: [0], contentType: "text/plain" },
+    { name: "ZIP control bytes", bytes: [3, 4], contentType: "text/plain" },
+    {
+      name: "escape sequence",
+      bytes: [27, 91, 50, 74],
+      contentType: "text/plain",
+    },
+    { name: "DEL", bytes: [127], contentType: "text/plain" },
+  ])(
+    "does not expose $name in inline HTTP errors",
+    async ({ bytes, contentType }) => {
+      const marker = "synthetic-inline-binary-marker";
+      const body = new Uint8Array([
+        ...new TextEncoder().encode(marker),
+        ...bytes,
+      ]);
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(body, {
+          status: 503,
+          headers: { "content-type": contentType },
+        }),
+      );
+
+      let caught: unknown;
+      try {
+        await runWebRequest("https://example.com/error");
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toMatchObject({
+        errorCode: "http_503",
+        message: expect.stringContaining("UTF-8 text only"),
+      });
+      expect(String((caught as Error).message)).not.toContain(marker);
+    },
+  );
+
+  it("rejects binary MIME before reporting an HTTP 200 provider failure", async () => {
+    const body = JSON.stringify({
+      ok: false,
+      error: "synthetic-provider-marker",
+    });
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(body, { headers: { "content-type": "application/zip" } }),
+    );
+    await expect(
+      createFetchToolEntry()["web-request"].run({
+        url: "https://slack.com/api/chat.postMessage",
+        method: "POST",
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "web_request_binary_response",
+      message: expect.not.stringContaining("synthetic-provider-marker"),
+    });
+  });
+
+  it.each([undefined, "scratch/result.txt"])(
+    "rejects valid UTF-8 binary control bytes before inline output or saving (%s)",
+    async (saveToFile) => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(new Uint8Array([80, 75, 3, 4]), {
+          headers: { "content-type": "text/plain" },
+        }),
+      );
+      await expect(
+        runSavedWebRequest({ url: "https://example.com/data", saveToFile }),
+      ).rejects.toMatchObject({ errorCode: "web_request_binary_response" });
+      expect(mockWriteWorkspaceFile).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([200, 503])(
+    "preserves normal Unicode text and whitespace in inline responses (%s)",
+    async (status) => {
+      const body = "こんにちは\tcolumn\r\nnext\fpage";
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(body, {
+          status,
+          headers: { "content-type": "text/plain" },
+        }),
+      );
+      const result = runWebRequest("https://example.com/text");
+      if (status === 200) await expect(result).resolves.toContain(body);
+      else
+        await expect(result).rejects.toMatchObject({
+          errorCode: "http_503",
+          message: expect.stringContaining(body),
+        });
     },
   );
 

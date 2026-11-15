@@ -523,24 +523,20 @@ export function createFetchToolEntry(
               },
             );
           }
-          if (saveToFilePath) {
-            const binaryError = () =>
-              fail(
-                `HTTP ${response.status} ${response.statusText}\n\nsaveToFile stores UTF-8 text only. Binary data requires configured blob/file storage via an appropriate app capability.`,
-                { errorCode: httpErrorCode ?? "web_request_binary_response" },
-              );
-            if (isBinaryContentType(contentType)) binaryError();
-            try {
-              body = new TextDecoder("utf-8", { fatal: true }).decode(
-                bodyResult.bytes,
-              );
-            } catch {
-              return binaryError();
-            }
-            if (body.includes("\0")) binaryError();
-          } else {
-            body = new TextDecoder().decode(bodyResult.bytes);
+          const binaryError = () =>
+            fail(
+              `HTTP ${response.status} ${response.statusText}\n\nweb-request accepts UTF-8 text only. Binary data requires configured blob/file storage via an appropriate app capability.`,
+              { errorCode: httpErrorCode ?? "web_request_binary_response" },
+            );
+          if (isBinaryContentType(contentType)) binaryError();
+          try {
+            body = new TextDecoder("utf-8", { fatal: true }).decode(
+              bodyResult.bytes,
+            );
+          } catch {
+            return binaryError();
           }
+          if (/[\x00-\x08\x0b\x0e-\x1f\x7f]/.test(body)) binaryError();
           body = redactString(body, secretValues);
           if (response.ok) {
             const { providerApiResponseOutcomeForUrl } =

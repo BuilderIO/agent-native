@@ -2407,6 +2407,7 @@ export async function executeProviderApiRequest(
           body: pageBody,
           maxBytes: effectiveMaxBytes,
           maxResponseBytes: effectiveMaxBytes,
+          requireTextForSave: Boolean(args.saveToFile),
           timeoutMs: clampTimeout(args.timeoutMs),
           signal: args.signal,
           secretValues: auth.secretValues,
@@ -2417,7 +2418,10 @@ export async function executeProviderApiRequest(
               pageUrl.href,
               auth.secretValues,
             ),
-            requestKey,
+            requestKey:
+              requestKey && args.saveToFile
+                ? `${requestKey}:text-save`
+                : requestKey,
           },
         }),
         config,
@@ -3442,6 +3446,7 @@ async function executeCustomProviderApiRequest(
         body: pageBody,
         maxBytes: effectiveMaxBytes,
         maxResponseBytes: effectiveMaxBytes,
+        requireTextForSave: Boolean(args.saveToFile),
         timeoutMs: clampTimeout(args.timeoutMs),
         signal: args.signal,
         secretValues: auth.secretValues,
@@ -3452,7 +3457,10 @@ async function executeCustomProviderApiRequest(
             pageUrl.href,
             auth.secretValues,
           ),
-          requestKey,
+          requestKey:
+            requestKey && args.saveToFile
+              ? `${requestKey}:text-save`
+              : requestKey,
         },
       });
       return {
@@ -6777,7 +6785,9 @@ async function readResponseTextWithLimit(
         kept.push(value.subarray(0, value.byteLength - (size - maxBytes)));
         await reader.cancel();
         return {
-          text: new TextDecoder().decode(Buffer.concat(kept, maxBytes)),
+          text: requireTextForSave
+            ? `(response too large - max ${maxBytes} bytes)`
+            : new TextDecoder().decode(Buffer.concat(kept, maxBytes)),
           truncated: true,
           size,
           sizeIsLowerBound: true,
@@ -6790,6 +6800,17 @@ async function readResponseTextWithLimit(
   if (requireTextForSave && bytes.includes(0)) {
     throw new Error(
       `Cannot save provider response containing NUL bytes (content type: ${displayType}) as a text workspace file.`,
+    );
+  }
+  if (
+    requireTextForSave &&
+    bytes.some(
+      (byte) =>
+        byte < 9 || byte === 11 || (byte >= 14 && byte < 32) || byte === 127,
+    )
+  ) {
+    throw new Error(
+      `Cannot save provider response containing binary control bytes (content type: ${displayType}) as a text workspace file.`,
     );
   }
   let text: string;
