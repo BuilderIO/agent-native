@@ -94,12 +94,12 @@ it("applies empty and omitted regex flags identically alongside padded optional 
   ]);
   expect(result.status, result.output).toBe("completed");
   const operations =
-    patchDeck.tool.parameters?.properties?.operations?.items?.anyOf;
+    patchDeck.tool.parameters?.properties.operations.items?.anyOf;
   const slidePatch = operations?.find(
-    (branch) => branch.properties?.op?.const === "patch-slide",
+    (branch) => branch.properties?.op.const === "patch-slide",
   );
-  const regexEdit = slidePatch?.properties?.edits?.items?.anyOf?.find(
-    (branch) => branch.properties?.op?.const === "regex-replace",
+  const regexEdit = slidePatch?.properties?.edits.items?.anyOf?.find(
+    (branch) => branch.properties?.op.const === "regex-replace",
   );
   expect(regexEdit?.properties?.flags).toMatchObject({
     type: "string",
