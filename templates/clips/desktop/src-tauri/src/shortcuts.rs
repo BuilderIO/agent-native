@@ -1229,11 +1229,11 @@ fn wake_popover_for_recording_shortcut(app: &tauri::AppHandle) {
 /// stop), which toggle mode depends on.
 fn schedule_voice_start(app: &tauri::AppHandle, source: &'static str, press: u64) {
     remember_voice_target(app);
-    wake_popover_for_voice(app);
+    let wake = wake_popover_for_press(app);
     let app = app.clone();
     thread::spawn(move || {
         thread::sleep(Duration::from_millis(80));
-        let sent = with_gate(&app, |gate, _| {
+        with_gate(&app, |gate, _| {
             let due = gate.start_due(press);
             // Sent under the gate's lock, which the release also takes, so
             // a stop can't go out before its start.
@@ -1249,12 +1249,27 @@ fn schedule_voice_start(app: &tauri::AppHandle, source: &'static str, press: u64
                     voice_stop_payload(source, Some(held)),
                 );
             }
-            due != StartDue::Cancelled
+            if due == StartDue::Cancelled {
+                hide_wake_if_latest(gate, &app, wake);
+            }
         });
-        if !sent {
-            hide_voice_wake_popover(&app);
-        }
     });
+}
+
+/// Wakes the popover for a voice press, numbered so only the latest wake's
+/// press may hide it again.
+fn wake_popover_for_press(app: &tauri::AppHandle) -> u64 {
+    let wake = with_gate(app, |gate, _| gate.note_wake());
+    wake_popover_for_voice(app);
+    wake
+}
+
+/// A press that sends nothing hides the popover it woke, unless a newer
+/// press (or hands-free link) woke it since and still needs it.
+fn hide_wake_if_latest(gate: &DictationGate, app: &tauri::AppHandle, wake: u64) {
+    if gate.latest_wake(wake) {
+        hide_voice_wake_popover(app);
+    }
 }
 
 /// One Fn press, shared by its key-up and its delayed start, so a tap let go
@@ -1496,9 +1511,10 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
                         // A press while a push-to-talk link owns the
                         // dictation starts nothing, and its release (which
                         // finds no press of its own) stops nothing.
-                        if begin_voice_press(&app_for_cb, PressInput::Fn).0 != PressClaim::Owns {
+                        let (claim, fn_press) = begin_voice_press(&app_for_cb, PressInput::Fn);
+                        let (PressClaim::Owns, Some(fn_press)) = (claim, fn_press) else {
                             return CallbackResult::Keep;
-                        }
+                        };
                         dlog!("[clips-tray] Fn down — starting voice dictation");
                         note_voice_press();
                         remember_voice_target(&app_for_cb);
@@ -1506,23 +1522,31 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
                         *current_press_for_cb
                             .lock()
                             .unwrap_or_else(|e| e.into_inner()) = Some(press.clone());
-                        wake_popover_for_voice(&app_for_cb);
+                        let wake = wake_popover_for_press(&app_for_cb);
                         let app_for_emit = app_for_cb.clone();
                         let press_for_start = press.clone();
                         thread::spawn(move || {
                             thread::sleep(Duration::from_millis(80));
                             press_for_start.start_due(|start| {
-                                let events = fn_start_events(
-                                    start,
-                                    FN_TAP_ENABLED.load(Ordering::SeqCst),
-                                    || should_emit_delayed_voice_start(&app_for_emit, "fn"),
-                                );
-                                if events.is_empty() {
-                                    hide_voice_wake_popover(&app_for_emit);
-                                }
-                                for (name, payload) in events {
-                                    let _ = app_for_emit.emit(name, payload);
-                                }
+                                with_gate(&app_for_emit, |gate, _| {
+                                    // A hands-free link pressed during the
+                                    // delay called this start off.
+                                    let events = if gate.start_allowed(fn_press) {
+                                        fn_start_events(
+                                            start,
+                                            FN_TAP_ENABLED.load(Ordering::SeqCst),
+                                            || should_emit_delayed_voice_start(&app_for_emit, "fn"),
+                                        )
+                                    } else {
+                                        Vec::new()
+                                    };
+                                    if events.is_empty() {
+                                        hide_wake_if_latest(gate, &app_for_emit, wake);
+                                    }
+                                    for (name, payload) in events {
+                                        let _ = app_for_emit.emit(name, payload);
+                                    }
+                                });
                             });
                         });
                         install_fn_release_watchdog(
@@ -1819,6 +1843,12 @@ struct DictationGate {
     /// alternate, so the next link up is that press's, unless a link down
     /// comes first, which means its up was lost.
     link_held_after_takeover: bool,
+    /// Presses numbered up to this had their delayed start called off by a
+    /// hands-free link press (it decides what runs now).
+    starts_cancelled_through: u64,
+    /// Counts popover wakes; a delayed start that sends nothing hides the
+    /// woken popover only if no newer wake has happened since its own.
+    wake: u64,
 }
 
 impl DictationGate {
@@ -1832,11 +1862,37 @@ impl DictationGate {
             listener: None,
             pending_hands_free: None,
             link_held_after_takeover: false,
+            starts_cancelled_through: 0,
+            wake: 0,
         }
     }
 
     fn armed(&self) -> bool {
-        self.owner.is_some() || self.hands_free
+        self.owner
+            .is_some_and(|owner| !self.start_called_off(owner))
+            || self.hands_free
+    }
+
+    /// A held key press whose delayed start a hands-free link called off:
+    /// it still holds its key, but nothing ran, so its release stops nothing.
+    fn start_called_off(&self, owner: OwnerPress) -> bool {
+        !owner.start_sent && owner.id <= self.starts_cancelled_through
+    }
+
+    /// Whether press `id` may still send its start (Fn times its own).
+    fn start_allowed(&self, id: u64) -> bool {
+        id > self.starts_cancelled_through
+    }
+
+    /// A popover wake; its number.
+    fn note_wake(&mut self) -> u64 {
+        self.wake += 1;
+        self.wake
+    }
+
+    /// No popover wake has happened since `wake`.
+    fn latest_wake(&self, wake: u64) -> bool {
+        self.wake == wake
     }
 
     /// The press that owns the dictation, if any.
@@ -1903,6 +1959,10 @@ impl DictationGate {
 
     /// The wake delay of press `id` is over.
     fn start_due(&mut self, id: u64) -> StartDue {
+        if !self.start_allowed(id) {
+            self.released_taps.retain(|tap| tap.id != id);
+            return StartDue::Cancelled;
+        }
         if let Some(owner) = self.owner.as_mut().filter(|owner| owner.id == id) {
             if owner.start_sent {
                 return StartDue::Cancelled;
@@ -1926,6 +1986,9 @@ impl DictationGate {
             return Release::NotOwner;
         };
         self.owner = None;
+        if self.start_called_off(owner) {
+            return Release::NotOwner;
+        }
         let held = now.saturating_duration_since(owner.since);
         if owner.start_sent {
             Release::Stop(held)
@@ -1968,8 +2031,10 @@ impl DictationGate {
             self.owner = None;
             self.link_held_after_takeover = true;
         }
-        self.released_taps
-            .retain(|tap| tap.input != PressInput::Link);
+        // Any press still in its wake delay (a key or Fn too) has its start,
+        // or its tap, called off, so it can't race this press's start/stop.
+        self.starts_cancelled_through = self.next_press;
+        self.released_taps.clear();
         let deliver_now = if self.listener.is_some() {
             true
         } else {
@@ -2103,7 +2168,7 @@ pub fn take_pending_dictate_link(app: AppHandle, listener: String) -> bool {
     let pending = with_gate(&app, |gate, now| gate.listener_ready(&listener, now));
     if pending {
         eprintln!("[clips-tray] dictate link — delivering the hands-free press held at startup");
-        wake_popover_for_voice(&app);
+        wake_popover_for_press(&app);
     }
     pending
 }
@@ -2156,7 +2221,7 @@ pub fn dictate_from_link(app: &AppHandle, action: crate::deep_links::DictateLink
                 return;
             }
             eprintln!("[clips-tray] dictate link — hands-free start/stop");
-            wake_popover_for_voice(app);
+            wake_popover_for_press(app);
             let app = app.clone();
             thread::spawn(move || {
                 // Same wake delay as a key press, so the woken popover runs it.
@@ -2621,6 +2686,86 @@ mod dictation_gate_tests {
                 false,
             ),
         ]);
+    }
+
+    #[test]
+    fn a_hands_free_press_calls_off_a_key_start_still_in_its_wake_delay() {
+        use Step::{Due, HandsFreeLink, Press, Release};
+        // A held key: its start never goes out, and its release stops
+        // nothing; the next key press works normally.
+        run(&[
+            (0, Press(Shortcut), Claim(Owns), true),
+            (
+                30,
+                HandsFreeLink,
+                Out::HandsFree {
+                    capture: false,
+                    now: true,
+                },
+                false,
+            ),
+            (80, Due(1), CANCELLED, false),
+            (90, Press(Shortcut), Claim(Ignored), false),
+            (200, Release(Shortcut), NOT_OWNER, false),
+            (300, Press(Shortcut), Claim(Owns), true),
+            (380, Due(2), HOLD, true),
+            (400, Release(Shortcut), STOP, false),
+        ]);
+        // A key tap let go just before: its start-and-stop never goes out.
+        run(&[
+            (0, Press(Shortcut), Claim(Owns), true),
+            (20, Release(Shortcut), DEFERRED, false),
+            (
+                30,
+                HandsFreeLink,
+                Out::HandsFree {
+                    capture: true,
+                    now: true,
+                },
+                false,
+            ),
+            (80, Due(1), CANCELLED, false),
+        ]);
+        // A key whose start already went out keeps its run and its release.
+        run(&[
+            (0, Press(Shortcut), Claim(Owns), true),
+            (80, Due(1), HOLD, true),
+            (
+                100,
+                HandsFreeLink,
+                Out::HandsFree {
+                    capture: false,
+                    now: true,
+                },
+                true,
+            ),
+            (200, Release(Shortcut), STOP, false),
+        ]);
+    }
+
+    #[test]
+    fn a_hands_free_press_calls_off_an_fn_start_still_in_its_wake_delay() {
+        let t0 = Instant::now();
+        let mut gate = DictationGate::new();
+        gate.listener_ready("a", t0);
+        assert_eq!(gate.press(Fn, t0), Owns);
+        let fn_press = gate.owner_press().unwrap();
+        gate.hands_free_link(t0 + ms(30));
+        assert!(!gate.start_allowed(fn_press));
+        gate.release(Fn, t0 + ms(200));
+        assert_eq!(gate.press(Fn, t0 + ms(300)), Owns);
+        assert!(gate.start_allowed(gate.owner_press().unwrap()));
+    }
+
+    #[test]
+    fn only_the_latest_wake_hides_the_popover() {
+        let mut gate = DictationGate::new();
+        let older = gate.note_wake();
+        let newer = gate.note_wake();
+        // The older press's start was called off; a newer hands-free link
+        // woke the popover since and still needs it.
+        assert!(!gate.latest_wake(older));
+        assert!(gate.latest_wake(newer));
     }
 
     #[test]

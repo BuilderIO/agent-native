@@ -103,8 +103,22 @@ pub fn tray_recording_active() -> bool {
     TRAY_RECORDING.load(std::sync::atomic::Ordering::SeqCst)
 }
 
+/// Counts recordings: bumped each time one starts, so a stop link can be
+/// tied to the recording it was sent for.
+static TRAY_RECORDING_GENERATION: std::sync::atomic::AtomicU64 =
+    std::sync::atomic::AtomicU64::new(0);
+
+/// The running recording's number, if one runs.
+fn current_recording() -> Option<u64> {
+    tray_recording_active()
+        .then(|| TRAY_RECORDING_GENERATION.load(std::sync::atomic::Ordering::SeqCst))
+}
+
 fn apply_tray_mode(app: &tauri::AppHandle, active: bool, title: Option<String>) {
-    TRAY_RECORDING.store(active, std::sync::atomic::Ordering::SeqCst);
+    let was_active = TRAY_RECORDING.swap(active, std::sync::atomic::Ordering::SeqCst);
+    if active && !was_active {
+        TRAY_RECORDING_GENERATION.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+    }
     TRAY_LAST_WRITE_MS.store(now_ms(), std::sync::atomic::Ordering::SeqCst);
     let Some(tray) = app.tray_by_id("main") else {
         return;
@@ -531,9 +545,15 @@ mod tests {
     }
 }
 
-/// A `clips://stop` waiting for the popover to take it, since when.
-static PENDING_STOP_LINK: std::sync::Mutex<Option<std::time::Instant>> =
-    std::sync::Mutex::new(None);
+/// A `clips://stop` waiting for the popover to take it: since when, and the
+/// recording it was sent for.
+#[derive(Debug, Clone, Copy)]
+struct PendingStopLink {
+    at: std::time::Instant,
+    recording: u64,
+}
+
+static PENDING_STOP_LINK: std::sync::Mutex<Option<PendingStopLink>> = std::sync::Mutex::new(None);
 
 /// A stop link older than this is dropped rather than stopping a later
 /// recording.
@@ -541,10 +561,17 @@ const STOP_LINK_HOLD_LIMIT: std::time::Duration = std::time::Duration::from_secs
 
 /// Takes the waiting stop link, once; false when there is none or it's too
 /// old to act on.
-fn take_stop_link(pending: &mut Option<std::time::Instant>, now: std::time::Instant) -> bool {
-    pending
-        .take()
-        .is_some_and(|at| now.saturating_duration_since(at) < STOP_LINK_HOLD_LIMIT)
+fn take_stop_link(
+    pending: &mut Option<PendingStopLink>,
+    now: std::time::Instant,
+    recording: Option<u64>,
+) -> bool {
+    // Also false once the recording it was sent for (the one running now is
+    // `recording`) has ended, so it can't stop a later one.
+    pending.take().is_some_and(|link| {
+        now.saturating_duration_since(link.at) < STOP_LINK_HOLD_LIMIT
+            && recording == Some(link.recording)
+    })
 }
 
 /// `clips://stop`: stops the running recording, and does nothing when no
@@ -555,11 +582,15 @@ fn take_stop_link(pending: &mut Option<std::time::Instant>, now: std::time::Inst
 /// recording bar, which must acknowledge, or else directly.
 pub fn stop_recording_from_link(app: &tauri::AppHandle) {
     use tauri::Emitter;
-    if !tray_recording_active() || crate::util::is_meeting_active(app) {
+    let Some(recording) = current_recording().filter(|_| !crate::util::is_meeting_active(app))
+    else {
         dlog!("[clips-tray] stop link ignored: no recording running");
         return;
-    }
-    *PENDING_STOP_LINK.lock().unwrap_or_else(|e| e.into_inner()) = Some(std::time::Instant::now());
+    };
+    *PENDING_STOP_LINK.lock().unwrap_or_else(|e| e.into_inner()) = Some(PendingStopLink {
+        at: std::time::Instant::now(),
+        recording,
+    });
     let _ = app.emit("clips:stop-link", ());
 }
 
@@ -568,6 +599,7 @@ pub fn take_pending_stop_link() -> bool {
     take_stop_link(
         &mut PENDING_STOP_LINK.lock().unwrap_or_else(|e| e.into_inner()),
         std::time::Instant::now(),
+        current_recording(),
     )
 }
 
@@ -577,19 +609,30 @@ mod stop_link_tests {
     use std::time::{Duration, Instant};
 
     #[test]
-    fn a_stop_link_is_taken_once_while_fresh() {
+    fn a_stop_link_is_taken_once_while_fresh_and_for_its_own_recording() {
         let t0 = Instant::now();
-        for (taken_after, want) in [
-            (Duration::from_millis(0), true),
-            (Duration::from_secs(5), true),
-            (STOP_LINK_HOLD_LIMIT, false),
+        // (taken after, recording running then, taken)
+        for (taken_after, running, want) in [
+            (Duration::from_millis(0), Some(1), true),
+            (Duration::from_secs(5), Some(1), true),
+            (STOP_LINK_HOLD_LIMIT, Some(1), false),
+            // Its recording ended before the popover took it.
+            (Duration::from_millis(100), None, false),
+            // And a later recording started since: left running.
+            (Duration::from_millis(100), Some(2), false),
         ] {
-            let mut pending = Some(t0);
-            assert_eq!(take_stop_link(&mut pending, t0 + taken_after), want);
+            let mut pending = Some(PendingStopLink {
+                at: t0,
+                recording: 1,
+            });
+            assert_eq!(
+                take_stop_link(&mut pending, t0 + taken_after, running),
+                want
+            );
             // Taken (or dropped) once: the event and the listener's startup
             // check can't both act on it.
-            assert!(!take_stop_link(&mut pending, t0 + taken_after));
+            assert!(!take_stop_link(&mut pending, t0 + taken_after, running));
         }
-        assert!(!take_stop_link(&mut None, t0));
+        assert!(!take_stop_link(&mut None, t0, Some(1)));
     }
 }

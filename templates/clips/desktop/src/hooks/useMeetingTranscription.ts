@@ -1035,6 +1035,12 @@ export function useMeetingTranscription({
             requestAudioState(false);
           }),
         );
+        // clips://pause with no state toggles.
+        addUnlisten(
+          listen("clips:recorder-toggle-pause", () => {
+            requestAudioState(!desiredPaused);
+          }),
+        );
 
         pendingPillInitRef.current = {
           meetingId: resolvedMeetingId,

@@ -2747,13 +2747,18 @@ export function installDesktopVoiceDictation(
   // clips://dictate?mode=hands-free: starts a dictation that runs until the
   // next press (this link, the dictation key or Escape); pressed while one
   // runs, it stops it.
+  // Stops the running (or starting) dictation. A start that hasn't made a
+  // session yet may never settle, so its completion can't be left to disarm
+  // hands-free (and Escape).
+  const stopIncludingPendingStart = () => {
+    const stillStarting = !session;
+    stop();
+    if (stillStarting && handsFreeActive) setHandsFreeActive(false);
+  };
+
   const startOrStopHandsFreeFromLink = () => {
     if (session || startInFlight) {
-      const stillStarting = !session;
-      stop();
-      // A start that hasn't made a session yet may never settle, so its
-      // completion can't be left to disarm hands-free (and Escape).
-      if (stillStarting && handsFreeActive) setHandsFreeActive(false);
+      stopIncludingPendingStart();
       return;
     }
     setHandsFreeActive(true);
@@ -2781,7 +2786,7 @@ export function installDesktopVoiceDictation(
           startOrStopHandsFreeFromLink();
           return;
         case "stop-hands-free":
-          stop();
+          stopIncludingPendingStart();
           return;
         case "start-link":
           // Push-to-talk link down, whatever the key's mode setting is.
