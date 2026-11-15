@@ -1842,23 +1842,19 @@ impl CustomScreenCaptureWriter {
             return;
         };
         mixer_guard.set_pause_offset(self.pause_offset());
-        if source == MixSource::Mic {
+        let started = self.started.load(Ordering::SeqCst);
+        let session_start_seconds = started
+            .then(|| f64::from_bits(self.session_start_bits.load(Ordering::SeqCst)))
+            .filter(|start| !start.is_nan());
+        let meter_snapshot =
+            mixer_guard.push_and_floor(source, &interleaved, pts_seconds, session_start_seconds);
+        if let Some(meter_snapshot) = meter_snapshot {
             if let Ok(mut snapshot) = self.mic_meter_snapshot.lock() {
-                *snapshot = Some(MixerMicSnapshot {
-                    pts_seconds,
-                    pause_offset_seconds: mixer_guard.pause_offset_seconds,
-                    anchor_seconds: mixer_guard.anchor_seconds,
-                    out_pos: mixer_guard.out_pos,
-                });
+                *snapshot = Some(meter_snapshot);
             }
         }
-        mixer_guard.push(source, &interleaved, pts_seconds);
-        if !self.started.load(Ordering::SeqCst) {
+        if !started {
             return;
-        }
-        let start_secs = f64::from_bits(self.session_start_bits.load(Ordering::SeqCst));
-        if !start_secs.is_nan() {
-            mixer_guard.set_min_start(start_secs);
         }
         let emitted = match mixer_guard.drain_ready(false) {
             Ok(buffers) => buffers,
@@ -3024,6 +3020,30 @@ impl LiveAudioMixer {
             }
         }
         self.pause_offset_seconds = seconds;
+    }
+
+    /// Pushes a buffer, then applies the session-start floor (when the writer
+    /// has started). For a mic buffer, returns the timeline the meter needs,
+    /// taken after both: the anchor this push may have set and the output
+    /// position the floor may have raised, so pre-session samples the mixer
+    /// drops are dropped by the meter too.
+    fn push_and_floor(
+        &mut self,
+        source: MixSource,
+        interleaved: &[f32],
+        pts_seconds: f64,
+        session_start_seconds: Option<f64>,
+    ) -> Option<MixerMicSnapshot> {
+        self.push(source, interleaved, pts_seconds);
+        if let Some(start_seconds) = session_start_seconds {
+            self.set_min_start(start_seconds);
+        }
+        (source == MixSource::Mic).then(|| MixerMicSnapshot {
+            pts_seconds,
+            pause_offset_seconds: self.pause_offset_seconds,
+            anchor_seconds: self.anchor_seconds,
+            out_pos: self.out_pos,
+        })
     }
 
     fn set_min_start(&mut self, start_seconds: f64) {
@@ -5533,6 +5553,32 @@ mod mic_meter_tests {
                 elapsed / SECONDS as f64 * 100.0
             );
         }
+    }
+
+    #[test]
+    fn the_meter_snapshot_includes_the_session_start_floor() {
+        // The first mic buffer (100 ms from 10.0 s) straddles the session
+        // start at 10.05 s: the mixer anchors on it and floors its output at
+        // 50 ms, so the first half is never saved.
+        let mut mixer = LiveAudioMixer::new(false, true, false, true).unwrap();
+        let speech: Vec<f32> = soft_speech().iter().copied().cycle().take(4_800).collect();
+        let stereo: Vec<f32> = speech.iter().flat_map(|&s| [s, s]).collect();
+        let snapshot = mixer
+            .push_and_floor(MixSource::Mic, &stereo, 10.0, Some(10.05))
+            .unwrap();
+        // As `set_min_start` computes it (2401: 0.05 s is not exact in f64).
+        let floor = ((10.05 - 10.0) * 48_000.0_f64).ceil() as i64;
+        assert!((2_400..=2_401).contains(&floor));
+        assert_eq!(snapshot.anchor_seconds, Some(10.0));
+        assert_eq!(snapshot.out_pos, floor);
+        // System audio is not snapshotted for the meter.
+        assert_eq!(
+            mixer.push_and_floor(MixSource::System, &stereo, 10.0, Some(10.05)),
+            None
+        );
+        // With that snapshot the meter drops the same pre-session samples as
+        // a real MixerTimeline + MixGainStage floored at 50 ms.
+        assert_gain_matches_mixer(&[(10.0, speech)], false, 10.0, snapshot.out_pos);
     }
 
     #[test]
