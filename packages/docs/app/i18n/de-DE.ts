@@ -508,6 +508,13 @@ const deDE = {
   },
   homepage: {
     hero: {
+      tweaks: {
+        speed: "Fließgeschwindigkeit",
+        color: "Farbe {{index}}",
+        opacity: "Deckkraft",
+        grain: "Faserkörnung",
+        angle: "Fächerwinkel",
+      },
       title: "Das Framework für agentische Anwendungen",
       bodyLine1:
         "Entwickle autonome Agenten mit intuitiven Benutzeroberflächen.",

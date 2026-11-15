@@ -509,6 +509,13 @@ const frFR = {
   },
   homepage: {
     hero: {
+      tweaks: {
+        speed: "Vitesse du mouvement",
+        color: "Couleur {{index}}",
+        opacity: "Opacité",
+        grain: "Grain des fibres",
+        angle: "Angle de l’éventail",
+      },
       title: "Le framework des applications agentic",
       bodyLine1: "Créez des agents autonomes avec des interfaces intuitives.",
       bodyLine2: "Apportez votre propre LLM. Déployez où vous voulez.",

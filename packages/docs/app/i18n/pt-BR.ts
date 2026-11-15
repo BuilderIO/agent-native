@@ -507,6 +507,13 @@ const ptBR = {
   },
   homepage: {
     hero: {
+      tweaks: {
+        speed: "Velocidade do fluxo",
+        color: "Cor {{index}}",
+        opacity: "Opacidade",
+        grain: "Granulação das fibras",
+        angle: "Ângulo do leque",
+      },
       title: "O framework para aplicativos agentic",
       bodyLine1: "Crie agentes autônomos com interfaces intuitivas.",
       bodyLine2: "Traga seu próprio LLM. Implante em qualquer lugar.",

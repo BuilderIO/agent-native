@@ -509,6 +509,13 @@ const esES = {
   },
   homepage: {
     hero: {
+      tweaks: {
+        speed: "Velocidad del flujo",
+        color: "Color {{index}}",
+        opacity: "Opacidad",
+        grain: "Grano de las fibras",
+        angle: "Ángulo del abanico",
+      },
       title: "El framework de aplicaciones agentic",
       bodyLine1: "Crea agentes autónomos con interfaces intuitivas.",
       bodyLine2: "Usa tu propio LLM. Despliega donde quieras.",

@@ -288,3 +288,19 @@
     --b-t-label-2: 11px;
   }
 }
+
+.hero-sail {
+  top: -76px;
+  left: calc(max(0px, (100vw - 1266px) / 2) + 250px);
+  width: calc(min(100vw, 1266px) * 1.1);
+  height: 761px;
+}
+
+@media (max-width: 639px) {
+  .hero-sail {
+    top: -76px;
+    left: 0;
+    width: 100%;
+    height: 560px;
+  }
+}

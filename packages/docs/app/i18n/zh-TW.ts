@@ -490,6 +490,13 @@ const messages = {
   },
   homepage: {
     hero: {
+      tweaks: {
+        speed: "流動速度",
+        color: "色彩 {{index}}",
+        opacity: "不透明度",
+        grain: "纖維顆粒",
+        angle: "扇形角度",
+      },
       title: "面向 agentic 應用的框架",
       bodyLine1: "建置配備直覺式 UI 的自主型 agent。",
       bodyLine2: "使用你自己的 LLM，隨處部署。",

@@ -501,6 +501,13 @@ const jaJP = {
   },
   homepage: {
     hero: {
+      tweaks: {
+        speed: "流れの速さ",
+        color: "色 {{index}}",
+        opacity: "不透明度",
+        grain: "繊維の粒状感",
+        angle: "扇の角度",
+      },
       title: "agentic アプリケーションのための framework",
       bodyLine1: "直感的な UI を備えた自律型エージェントを構築できます。",
       bodyLine2: "好きな LLM を持ち込んで、どこにでもデプロイできます。",

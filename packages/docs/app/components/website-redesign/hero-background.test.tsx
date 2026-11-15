@@ -37,7 +37,7 @@ describe("HeroBackground", () => {
       .mockReturnValue(null);
     const { container } = render(<HeroBackground />);
     const canvas = container.querySelector("canvas");
-    expect(getContext).toHaveBeenCalledWith("webgl", {
+    expect(getContext).toHaveBeenCalledWith("webgl2", {
       alpha: true,
       antialias: false,
     });

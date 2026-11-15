@@ -499,6 +499,13 @@ const koKR = {
   },
   homepage: {
     hero: {
+      tweaks: {
+        speed: "흐름 속도",
+        color: "색상 {{index}}",
+        opacity: "불투명도",
+        grain: "섬유 입자",
+        angle: "부채 각도",
+      },
       title: "에이전틱 애플리케이션 프레임워크",
       bodyLine1: "직관적인 UI를 갖춘 자율형 에이전트를 구축하세요.",
       bodyLine2: "원하는 LLM을 사용하고 어디에나 배포하세요.",

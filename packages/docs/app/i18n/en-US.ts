@@ -501,6 +501,13 @@ const enUS = {
   },
   homepage: {
     hero: {
+      tweaks: {
+        speed: "Flow speed",
+        color: "Color {{index}}",
+        opacity: "Opacity",
+        grain: "Fiber grain",
+        angle: "Fan angle",
+      },
       title: "The agentic application framework",
       bodyLine1: "Build autonomous agents with intuitive UIs.",
       bodyLine2: "Bring your own LLM. Deploy anywhere.",
