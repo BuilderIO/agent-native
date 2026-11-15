@@ -4028,8 +4028,9 @@ async function startNativeFullscreenRecording(
           throw err;
         }
         id = createRes.id;
-        // oxlint-disable-next-line typescript/no-unnecessary-condition -- an older server can omit uploadMode
-        uploadMode = createRes.uploadMode ?? uploadMode;
+        // createServerRecording already maps a missing uploadMode to "buffered".
+        uploadMode = createRes.uploadMode;| undefined = createRes.uploadMode;
+        uploadMode = serverUploadMode ?? uploadMode;
       }
 
       await countdownPromise;
