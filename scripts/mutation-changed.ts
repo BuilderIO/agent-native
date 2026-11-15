@@ -69,6 +69,7 @@ function installStryker(withVitestPeer = true): string | null {
       path.join(STRYKER_DIR, "package.json"),
       `${JSON.stringify({ private: true }, null, 2)}\n`,
     );
+    // guard:allow-bare-pnpm — mutation testing runs on Linux and macOS: the Stryker launcher it starts is a shell script
     const install = spawnSync(
       "npm",
       [

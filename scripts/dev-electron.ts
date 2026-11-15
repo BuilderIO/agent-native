@@ -3,6 +3,8 @@ import { execFileSync, execSync, spawn } from "child_process";
 import fs from "fs";
 import path from "path";
 
+import { pnpmCommand, stopProcessTree } from "./lib/pnpm-command.ts";
+
 const argv = process.argv.slice(2);
 
 function hasFlag(name: string): boolean {
@@ -183,7 +185,7 @@ requestedApps.forEach((appName, i) => {
   names.push(appName);
   const delayMs = Math.round(i * STAGGER_DELAY_S * 1000);
   commands.push(
-    `node scripts/dev-electron-template.ts ${JSON.stringify(appName)} ${port} ${delayMs}`,
+    `node scripts/dev-electron-template.ts ${appName} ${port} ${delayMs}`,
   );
   colors.push(appColors[i % appColors.length]);
 });
@@ -232,28 +234,27 @@ requestedApps.forEach((app) => {
   }
 });
 
-const proc = spawn(
-  "npx",
-  [
-    "concurrently",
-    "--kill-others-on-fail",
-    "-n",
-    names.join(","),
-    "-c",
-    colors.join(","),
-    ...commands,
-  ],
-  {
-    stdio: "inherit",
-    cwd: path.resolve("."),
-  },
-);
+const concurrently = pnpmCommand([
+  "exec",
+  "concurrently",
+  "--kill-others-on-fail",
+  "-n",
+  names.join(","),
+  "-c",
+  colors.join(","),
+  ...commands,
+]);
+const proc = spawn(concurrently.command, concurrently.args, {
+  stdio: "inherit",
+  cwd: path.resolve("."),
+  shell: concurrently.shell,
+});
 
 proc.on("exit", (code) => process.exit(code ?? 0));
 
 for (const sig of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
   process.on(sig, () => {
-    proc.kill(sig);
+    stopProcessTree(proc, sig);
     setTimeout(() => {
       try {
         proc.kill("SIGKILL");
