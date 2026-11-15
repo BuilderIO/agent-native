@@ -111,6 +111,7 @@ let addPullRequests: typeof import("./add-github-pull-requests.js").default;
 let refreshSource: typeof import("./refresh-content-database-source.js").default;
 let getSource: typeof import("./get-content-database-source.js").default;
 let updateDocument: typeof import("./update-document.js").default;
+let getDocument: typeof import("./get-document.js").default;
 let runSweep: typeof import("./_github-pull-requests-freshness.js").runGitHubPullRequestsSweep;
 let refreshPage: typeof import("./_github-source-freshness.js").refreshGitHubPageBeforeRead;
 let addAs: typeof import("./_github-pull-requests-source.js").addGitHubPullRequests;
@@ -135,6 +136,7 @@ beforeAll(async () => {
     .default;
   getSource = (await import("./get-content-database-source.js")).default;
   updateDocument = (await import("./update-document.js")).default;
+  getDocument = (await import("./get-document.js")).default;
   ({ runGitHubPullRequestsSweep: runSweep } =
     await import("./_github-pull-requests-freshness.js"));
   ({ refreshGitHubPageBeforeRead: refreshPage } =
@@ -859,5 +861,80 @@ describe("GitHub pull request collections", () => {
       getSource.run({ databaseId: result.database.id }),
     );
     expect(status.source?.metadata.githubPullRequests?.added).toBe(0);
+  });
+
+  it("gives a pull request a new row when its page was deleted from Trash", async () => {
+    const key = pullRequest("site", 170, { title: "Deleted for good" });
+    const result = made(
+      await newCollection({ search: "", urls: ["acme/site#170"] }),
+    );
+    const row = await rowByTitle(result.database.id, "Deleted for good");
+    // Deleting a page from Trash takes the page and its place in the
+    // collection, but not the link's record of its pull request.
+    await getDb()
+      .delete(schema.documentPropertyValues)
+      .where(eq(schema.documentPropertyValues.documentId, row.documentId));
+    await getDb()
+      .delete(schema.contentDatabaseItems)
+      .where(eq(schema.contentDatabaseItems.documentId, row.documentId));
+    await getDb()
+      .delete(schema.documents)
+      .where(eq(schema.documents.id, row.documentId));
+
+    const added = await as(() =>
+      addPullRequests.run({
+        databaseId: result.database.id,
+        urls: ["acme/site#170"],
+      }),
+    );
+    expect(added.pullRequests).toEqual([
+      expect.objectContaining({ key, created: true }),
+    ]);
+    // Page ids follow the link and the pull request, so the new page takes
+    // the old one's id, which deleting it freed.
+    expect(await liveTitles(result.database.id)).toEqual(["Deleted for good"]);
+    await refresh(result.database.id);
+    expect(await liveTitles(result.database.id)).toEqual(["Deleted for good"]);
+  });
+
+  it("brings a pull request's page up to GitHub when it's opened on its own", async () => {
+    const key = pullRequest("site", 180, { title: "Before opening" });
+    github.state.found = [key];
+    const result = made(await newCollection());
+    const row = await rowByTitle(result.database.id, "Before opening");
+    await getDb()
+      .update(schema.contentDatabaseSources)
+      .set({ lastRefreshedAt: new Date(Date.now() - 5 * 60_000).toISOString() })
+      .where(eq(schema.contentDatabaseSources.databaseId, result.database.id));
+
+    changePullRequest(key, { title: "After opening" });
+    const page = await as(() => getDocument.run({ id: row.documentId }));
+    expect(page).toMatchObject({ title: "After opening" });
+  });
+
+  it("leaves a link the background checked a few minutes ago, and checks it after five", async () => {
+    const key = pullRequest("lately", 190, { title: "Checked lately" });
+    github.state.found = [key];
+    const search = "is:pr is:open repo:acme/lately";
+    const result = made(await newCollection({ search }));
+    // Other tests' collections may be due too; only this one counts.
+    const searchedHere = () =>
+      github.state.searches.filter((each) => each.search === search);
+    const checkedAgo = async (ms: number) =>
+      await getDb()
+        .update(schema.contentDatabaseSources)
+        .set({ lastRefreshedAt: new Date(Date.now() - ms).toISOString() })
+        .where(
+          eq(schema.contentDatabaseSources.databaseId, result.database.id),
+        );
+
+    await checkedAgo(2 * 60_000);
+    github.state.searches = [];
+    await runSweep({ deadlineAt: Date.now() + 60_000 });
+    expect(searchedHere()).toEqual([]);
+
+    await checkedAgo(5 * 60_000);
+    await runSweep({ deadlineAt: Date.now() + 60_000 });
+    expect(searchedHere()).toEqual([{ search, user: owner }]);
   });
 });

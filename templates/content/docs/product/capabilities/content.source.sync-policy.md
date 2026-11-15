@@ -172,8 +172,10 @@ relation to one keeps its row. GitHub owns each row's title and its columns
 (Repository, State, Review, Checks, dates, and Days open), which Content shows
 read-only, while the Page body, comments, and Content-only columns stay
 Content's. Rows the search stops finding move to Trash only when the whole
-search was read. The same freshness paths check GitHub before stale reads and
-on the background sweep. `create-github-pull-request-collection.ts` makes one,
+search was read, and only if GitHub still shows their pull requests. The same
+freshness paths check GitHub before a read more than a minute stale, and the
+background sweep checks each link every five minutes, since a check reads
+every pull request again. `create-github-pull-request-collection.ts` makes one,
 and `actions/github-pull-requests-source.db.test.ts` exercises it.
 
 Existing change sets, guarded writes, source metadata, local synchronization,

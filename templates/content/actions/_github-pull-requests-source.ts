@@ -6,7 +6,7 @@ import {
 } from "@agent-native/core/action";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { getRequestOrgId } from "@agent-native/core/server/request-context";
-import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import { recordCreatedDocumentsHistory } from "../server/lib/document-history.js";
@@ -663,7 +663,7 @@ async function insertRows(tx: Db, write: RowWrite, rows: PlannedRow[]) {
 interface RowChange {
   existing: SourceRow;
   row: PlannedRow;
-  title: string | undefined;
+  title: string;
 }
 
 /**
@@ -680,7 +680,7 @@ async function updateRows(
   const changed = new Set<string>();
   for (const { existing, row, title } of changes) {
     // GitHub owns the title, so a rename in Content goes back at the next sync.
-    if (title === undefined || title === row.pullRequest.title) continue;
+    if (title === row.pullRequest.title) continue;
     await tx
       .update(schema.documents)
       .set({ title: row.pullRequest.title, updatedAt: write.now })
@@ -1072,13 +1072,16 @@ async function writeRows(args: {
       );
       const fresh: PlannedRow[] = [];
       const changes: RowChange[] = [];
+      // Records whose pages were deleted from Trash, which get new pages.
+      const gone: string[] = [];
       for (const row of planned.values()) {
         const linked = existing.get(row.key);
-        if (!linked) {
+        const title = linked && titles.get(linked.documentId);
+        if (!linked || title === undefined) {
+          if (linked) gone.push(linked.id);
           fresh.push(row);
           continue;
         }
-        const title = titles.get(linked.documentId);
         if (
           rowState(linked)?.hash === row.hash &&
           title === row.pullRequest.title
@@ -1088,6 +1091,11 @@ async function writeRows(args: {
         changes.push({ existing: linked, row, title });
       }
       const updated = await updateRows(tx, write, changes);
+      for (const chunk of chunks(gone, bulkChunkSizeForColumnCount(1))) {
+        await tx
+          .delete(schema.contentDatabaseSourceRows)
+          .where(inArray(schema.contentDatabaseSourceRows.id, chunk));
+      }
       await insertRows(tx, write, fresh);
       const rows = await readSourceRows(tx, source.id);
       return { created: fresh.length, updated, rows };
@@ -1478,7 +1486,7 @@ export async function syncGitHubPullRequests(
         : {
             code: "unavailable",
             message:
-              "Content couldn't bring the pull requests up to date. It tries again within a minute.",
+              "Content couldn't bring the pull requests up to date. It tries again within five minutes, or when the collection is read.",
             at: now,
           });
     if (!named && problem) {
@@ -1654,18 +1662,18 @@ export async function addGitHubPullRequests(args: {
     throw tooManyAddedError();
   }
   const existing = await readSourceRows(getDb(), loaded.source.id);
-  // A row whose page someone moved to Trash keeps its record, so adding it
-  // would hand back the Trash page. Restoring it is the page's own action,
-  // with its own access check.
   const rowPages = wanted.flatMap(([key, ref]) => {
     const row = existing.get(key);
-    return row ? [{ ref, documentId: row.documentId }] : [];
+    return row ? [{ key, ref, documentId: row.documentId }] : [];
   });
-  const trashed = rowPages.length
-    ? new Set(
-        (
+  const pages = new Map(
+    rowPages.length
+      ? (
           await getDb()
-            .select({ id: schema.documents.id })
+            .select({
+              id: schema.documents.id,
+              trashedAt: schema.documents.trashedAt,
+            })
             .from(schema.documents)
             .where(
               and(
@@ -1674,13 +1682,15 @@ export async function addGitHubPullRequests(args: {
                   rowPages.map((page) => page.documentId),
                 ),
                 eq(schema.documents.ownerEmail, loaded.database.ownerEmail),
-                isNotNull(schema.documents.trashedAt),
               ),
             )
-        ).map((document) => document.id),
-      )
-    : new Set<string>();
-  const inTrash = rowPages.filter((page) => trashed.has(page.documentId));
+        ).map((page) => [page.id, page.trashedAt] as const)
+      : [],
+  );
+  // A row whose page someone moved to Trash keeps its record, so adding it
+  // would hand back the Trash page. Restoring it is the page's own action,
+  // with its own access check.
+  const inTrash = rowPages.filter((page) => !!pages.get(page.documentId));
   if (inTrash.length > 0) {
     const names = inTrash.map(
       ({ ref }) => `${ref.owner}/${ref.repo}#${ref.number}`,
@@ -1690,7 +1700,14 @@ export async function addGitHubPullRequests(args: {
       { errorCode: "ROW_IN_TRASH", statusCode: 409 },
     );
   }
-  const missing = wanted.filter(([key]) => !existing.has(key));
+  // A record whose page was deleted from Trash has no row, so the pull
+  // request gets a new one.
+  const present = new Set(
+    rowPages
+      .filter((page) => pages.has(page.documentId))
+      .map((page) => page.key),
+  );
+  const missing = wanted.filter(([key]) => !present.has(key));
   let read: Array<GitHubPullRequestRecord | null> = [];
   if (missing.length > 0) {
     try {
@@ -1776,7 +1793,7 @@ export async function addGitHubPullRequests(args: {
       title: typeof values.title === "string" ? values.title : "",
       documentId: row.documentId,
       databaseItemId: row.databaseItemId,
-      created: !existing.has(key),
+      created: !present.has(key),
     };
   });
 }

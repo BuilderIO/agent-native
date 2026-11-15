@@ -81,7 +81,7 @@ export function githubPullRequestsMetadataRecord(
     pushMode: "none",
     pushModeLabel: "View only",
     pushModeDescription:
-      "Rows follow GitHub. Change a pull request in GitHub; Content updates within about a minute.",
+      "Rows follow GitHub. Change a pull request in GitHub; Content updates within about a minute while the collection is open, and within five minutes otherwise.",
     readMode: "github-api",
     connectionId: state.connectionId,
     notes:

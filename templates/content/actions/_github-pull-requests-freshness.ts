@@ -29,8 +29,13 @@ const READ_SYNC_BUDGET_MS = 3_000;
 const SWEEP_SYNC_BUDGET_MS = 20_000;
 /** Links the background sync checks at once. */
 const SWEEP_CONCURRENCY = 4;
-/** The background sync skips links a read or another sync checked this recently. */
-const SWEEP_RECHECK_MS = 45_000;
+/**
+ * The background sync skips links a read or another sync checked this
+ * recently, so it checks each link about every five minutes. GitHub can't say
+ * cheaply whether anything changed, so each check reads every pull request
+ * again; a read still checks a link more than a minute old.
+ */
+const SWEEP_RECHECK_MS = 4.5 * 60_000;
 /** Links one background sync reads, least recently checked first; the rest wait a minute. */
 const SWEEP_MAX_LINKS = 200;
 
@@ -160,8 +165,9 @@ export async function refreshGitHubPullRequestsBeforeRead(
 
 /**
  * The background sync: brings every pull request collection up to GitHub,
- * so a merge shows within about a minute with no one asking. Each sync runs
- * as the person who linked the collection.
+ * so a merge shows within about five minutes with no one asking, and within
+ * a minute for anyone reading it. Each sync runs as the person who linked the
+ * collection.
  */
 export async function runGitHubPullRequestsSweep(
   context: RecurringSweepContext,

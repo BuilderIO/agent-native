@@ -238,7 +238,7 @@ async function bringInPullRequests({
       problem: {
         code: "unavailable",
         message:
-          "Content couldn't bring the pull requests in yet. It tries again within a minute.",
+          "Content couldn't bring the pull requests in yet. It tries again within five minutes, or when the collection is read.",
         at: new Date().toISOString(),
       },
     };
@@ -297,7 +297,7 @@ async function bringInPullRequests({
 
 export default defineAction({
   description:
-    "Make a new collection of GitHub pull requests, view only: each pull request a GitHub search finds is a row, plus any added by link, with Repository, State, Review, Checks, dates and Days open as read-only columns that update within about a minute. Pull requests added by link stay after they merge or close, so other collections can point at them with a relation. Add more later with add-github-pull-requests.",
+    "Make a new collection of GitHub pull requests, view only: each pull request a GitHub search finds is a row, plus any added by link, with Repository, State, Review, Checks, dates and Days open as read-only columns that update within about a minute of a read, and within five minutes otherwise. Pull requests added by link stay after they merge or close, so other collections can point at them with a relation. Add more later with add-github-pull-requests.",
   mcpTool: true,
   // It only makes a new collection, so it never replaces anyone's content.
   mcpAnnotations: {

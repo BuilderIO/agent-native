@@ -132,9 +132,13 @@ export default defineAction({
     if (!args.id) throw new Error("--id is required");
 
     let access = await resolveDocumentAccess(args.id);
+    // A GitHub file's page says so; a pull request's row is an ordinary
+    // page in its collection, so any page under a parent asks too.
     if (
-      access?.resource.sourceMode === "github" &&
+      access &&
       !access.resource.trashedAt &&
+      (access.resource.sourceMode === "github" ||
+        (!access.resource.sourceMode && access.resource.parentId)) &&
       (await refreshGitHubPageBeforeRead(access.resource.id))
     ) {
       access = await resolveDocumentAccess(args.id);
