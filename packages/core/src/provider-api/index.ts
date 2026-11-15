@@ -41,6 +41,10 @@ import {
   resolveWorkspaceConnectionForApp,
   type WorkspaceConnection,
 } from "../workspace-connections/store.js";
+import {
+  recordProviderCall,
+  type ProviderCallCensusKey,
+} from "./call-census.js";
 import type {
   CustomProviderConfig,
   CustomProviderAuthKind,
@@ -115,7 +119,9 @@ export type ProviderApiMethod =
   | "PUT"
   | "PATCH"
   | "DELETE"
-  | "HEAD";
+  | "HEAD"
+  | "PROPFIND"
+  | "REPORT";
 
 export interface FetchAllPagesConfig {
   cursorPath: string;
@@ -494,6 +500,8 @@ export type ProviderApiCredentialResolver = (
 export interface ProviderApiRuntimeOptions {
   appId: string;
   maxResponseBytes?: number;
+  /** Do not replay unsafe requests after their first dispatch attempt. */
+  unsafeRequestPolicy?: "single-attempt";
   providerIds?: readonly (ProviderApiId | string)[];
   providerOverrides?: readonly ProviderApiConfig[];
   localCredentialSource?: string;
@@ -505,6 +513,9 @@ export interface ProviderApiRuntimeOptions {
 
 export interface ProviderApiRuntime {
   providerIds: readonly ProviderApiId[];
+  readonly requestCapabilities?: Readonly<{
+    singleAttemptUnsafeRequests: boolean;
+  }>;
   listCatalog(
     provider?: ProviderApiId | string,
   ): ReturnType<typeof listProviderApiCatalog> | Promise<unknown[]>;
@@ -2061,6 +2072,10 @@ export function createProviderApiRuntime(
   };
   const runtime: ProviderApiRuntime = {
     providerIds,
+    requestCapabilities: Object.freeze({
+      singleAttemptUnsafeRequests:
+        runtimeOptions.unsafeRequestPolicy === "single-attempt",
+    }),
     listCatalog: (provider) =>
       listProviderApiCatalogWithCustom(
         provider,
@@ -2321,6 +2336,7 @@ export async function executeProviderApiRequest(
   const endpoint = await resolveBaseUrl(config, runtime, ctx, args);
   const placeholders = await resolvePlaceholders(config, runtime, ctx, args);
   const method = normalizeMethod(args.method);
+  const singleAttempt = resolveSingleAttempt(runtime, method, args);
   const url = buildProviderUrl({
     config,
     baseUrl: endpoint.url,
@@ -2410,6 +2426,12 @@ export async function executeProviderApiRequest(
           timeoutMs: clampTimeout(args.timeoutMs),
           signal: args.signal,
           secretValues: auth.secretValues,
+          census: providerCallCensusKey(
+            config.id,
+            runtime,
+            method,
+            args.connectionId,
+          ),
           quota: {
             identity: quotaIdentity,
             method,
@@ -2467,6 +2489,7 @@ export async function executeProviderApiRequest(
   const response = applyBodyEnvelopeOutcome(
     await fetchWithTimeout(url.href, {
       method,
+      singleAttempt,
       headers,
       body,
       maxBytes: effectiveMaxBytes,
@@ -2474,6 +2497,12 @@ export async function executeProviderApiRequest(
       timeoutMs: clampTimeout(args.timeoutMs),
       signal: args.signal,
       secretValues: auth.secretValues,
+      census: providerCallCensusKey(
+        config.id,
+        runtime,
+        method,
+        args.connectionId,
+      ),
       quota: {
         identity: quotaIdentity,
         method,
@@ -3342,6 +3371,7 @@ async function executeCustomProviderApiRequest(
 ): Promise<unknown> {
   const ctx = requireRuntimeCredentialContext(runtime, customConfig.id);
   const method = normalizeMethod(args.method);
+  const singleAttempt = resolveSingleAttempt(runtime, method, args);
   const baseUrl = customConfig.baseUrl;
 
   const syntheticConfig: ProviderApiConfig = {
@@ -3441,6 +3471,12 @@ async function executeCustomProviderApiRequest(
         timeoutMs: clampTimeout(args.timeoutMs),
         signal: args.signal,
         secretValues: auth.secretValues,
+        census: providerCallCensusKey(
+          customConfig.id,
+          runtime,
+          method,
+          args.connectionId,
+        ),
         quota: {
           identity: quotaIdentity,
           method,
@@ -3491,6 +3527,7 @@ async function executeCustomProviderApiRequest(
 
   const response = await fetchWithTimeout(url.href, {
     method,
+    singleAttempt,
     headers,
     body,
     maxBytes: effectiveMaxBytes,
@@ -3498,6 +3535,12 @@ async function executeCustomProviderApiRequest(
     timeoutMs: clampTimeout(args.timeoutMs),
     signal: args.signal,
     secretValues: auth.secretValues,
+    census: providerCallCensusKey(
+      customConfig.id,
+      runtime,
+      method,
+      args.connectionId,
+    ),
     quota: {
       identity: quotaIdentity,
       method,
@@ -3838,6 +3881,17 @@ export async function defaultProviderApiCredentialResolver(
             ? { scopeId: options.ctx.orgId ?? undefined }
             : {}),
       };
+    }
+    // An explicit source is authoritative; a missing or revoked grant must
+    // never be substituted by a generic user/org credential. A key the
+    // connection simply does not hold is absent; any other status means the
+    // selected connection itself cannot be used, which callers must not read as
+    // "use the provider default".
+    if (options.connectionId?.trim()) {
+      if (result.status === "missing_ref") return null;
+      throw new Error(
+        `The selected workspace connection is not available (${result.status}).`,
+      );
     }
   }
 
@@ -4527,17 +4581,22 @@ async function resolveAuth(
         };
       }
     }
-    const token = await getGoogleServiceAccountToken(auth.scopes, runtime, ctx);
+    const token = await getGoogleServiceAccountToken(
+      auth.scopes,
+      runtime,
+      ctx,
+      {
+        config,
+        args,
+        ...(auth.workspaceProvider
+          ? { workspaceProvider: auth.workspaceProvider }
+          : {}),
+      },
+    );
     return {
-      headers: { Authorization: `Bearer ${token}` },
-      credentialSources: [
-        {
-          key: "GOOGLE_APPLICATION_CREDENTIALS_JSON",
-          provider: config.id,
-          source: runtime.localCredentialSource ?? "app_local",
-        },
-      ],
-      secretValues: [token],
+      headers: { Authorization: `Bearer ${token.token}` },
+      credentialSources: [omitCredentialValue(token.credential)],
+      secretValues: [token.token, token.credential.value],
     };
   }
   if (auth.type === "oauth-bearer") {
@@ -4629,6 +4688,7 @@ async function resolveAuth(
       keys: auth.fallbackKeys ?? [auth.key],
       ctx,
       runtime,
+      connectionId: args.connectionId,
     });
     return {
       headers: { [auth.header]: credential.value },
@@ -4698,6 +4758,7 @@ async function resolveAuth(
       keys: auth.fallbackKeys ?? [auth.key],
       ctx,
       runtime,
+      connectionId: args.connectionId,
     });
     return {
       headers: { Authorization: `Bearer ${credential.value}` },
@@ -4973,76 +5034,156 @@ async function getGoogleServiceAccountToken(
   scopes: readonly string[],
   runtime: ProviderApiRuntimeOptions,
   ctx: CredentialContext,
-): Promise<string> {
-  const cacheKey = createHash("sha256")
-    .update(
-      `${runtime.appId}:${ctx.orgId ?? ctx.userEmail}:${scopes.join(" ")}`,
-    )
-    .digest("hex");
-  const cached = googleServiceTokenCache.get(cacheKey);
-  if (cached && Date.now() < cached.expiresAt - 30_000) return cached.token;
-
-  const credsJson = await resolveCredentialValue({
-    config: getProviderApiConfig("gcloud", runtime.providerOverrides),
-    runtime,
-    ctx,
-    key: "GOOGLE_APPLICATION_CREDENTIALS_JSON",
-    args: { provider: "gcloud", path: "/" },
-  });
-  if (!credsJson) {
-    throw new Error("GOOGLE_APPLICATION_CREDENTIALS_JSON not configured");
-  }
-  let creds: {
-    type?: string;
-    client_email?: string;
-    private_key?: string;
-    token_uri?: string;
-  };
-  try {
-    creds = JSON.parse(credsJson) as typeof creds;
-  } catch {
-    throw new Error(
-      "GOOGLE_APPLICATION_CREDENTIALS_JSON is not valid JSON. Upload a service account JSON key.",
-    );
-  }
-  if (!creds.client_email || !creds.private_key) {
-    throw new Error(
-      "GOOGLE_APPLICATION_CREDENTIALS_JSON must be a service account JSON key.",
-    );
-  }
-
-  const now = Math.floor(Date.now() / 1000);
-  const aud = await resolveGoogleServiceAccountTokenUri(creds.token_uri);
-  const jwt = await signRs256Jwt(
-    {
-      iss: creds.client_email,
-      scope: scopes.join(" "),
-      aud,
-      iat: now,
-      exp: now + 3600,
-    },
-    creds.private_key,
+  source: {
+    config: ProviderApiConfig;
+    args: ProviderApiRequestArgs;
+    workspaceProvider?: string;
+  },
+): Promise<{ token: string; credential: ProviderApiResolvedCredential }> {
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(),
+    clampTimeout(source.args.timeoutMs),
   );
-  const res = await fetch(aud, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-      assertion: jwt,
-    }),
-  });
-  if (!res.ok) {
-    throw new Error(`Google OAuth error ${res.status}: ${await res.text()}`);
+  const signal = source.args.signal
+    ? AbortSignal.any([source.args.signal, controller.signal])
+    : controller.signal;
+  try {
+    signal.throwIfAborted();
+    // Resolve before consulting the cache so source revocation is observed on
+    // every use. Cache identity includes exact credential material, never its
+    // plaintext value, as well as actor, source and authorization scopes.
+    const connectionId = source.args.connectionId?.trim();
+    // Without an explicit connection the lookup is the one this exchange has
+    // always made, through the gcloud provider's own credential order. Only a
+    // selected connection binds the lookup to the requesting provider.
+    const credential = await resolveCredentialResult(
+      connectionId
+        ? {
+            config: source.config,
+            runtime,
+            ctx,
+            key: "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+            args: source.args,
+            ...(source.workspaceProvider
+              ? { workspaceProvider: source.workspaceProvider }
+              : {}),
+          }
+        : {
+            config: getProviderApiConfig("gcloud", runtime.providerOverrides),
+            runtime,
+            ctx,
+            key: "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+            args: { provider: "gcloud", path: "/", signal },
+          },
+    );
+    if (
+      connectionId &&
+      (!credential?.value ||
+        credential.source !== "workspace_connection" ||
+        credential.connectionId !== connectionId)
+    ) {
+      throw new Error(
+        "The selected service account credential is not available.",
+      );
+    }
+    if (!credential?.value) {
+      throw new Error("GOOGLE_APPLICATION_CREDENTIALS_JSON not configured");
+    }
+    signal.throwIfAborted();
+    const credsJson = credential.value;
+    const cacheKey = createHash("sha256")
+      .update(
+        JSON.stringify([
+          runtime.appId,
+          ctx.orgId ?? null,
+          ctx.userEmail,
+          ctx.credentialScope ?? null,
+          source.config.id,
+          connectionId ?? null,
+          scopes,
+          createHash("sha256").update(credsJson).digest("hex"),
+        ]),
+      )
+      .digest("hex");
+    const cached = googleServiceTokenCache.get(cacheKey);
+    if (cached && Date.now() < cached.expiresAt - 30_000)
+      return { token: cached.token, credential };
+
+    let creds: {
+      type?: string;
+      client_email?: string;
+      private_key?: string;
+      token_uri?: string;
+    };
+    try {
+      creds = JSON.parse(credsJson) as typeof creds;
+    } catch {
+      throw new Error(
+        "GOOGLE_APPLICATION_CREDENTIALS_JSON is not valid JSON. Upload a service account JSON key.",
+      );
+    }
+    if (!creds.client_email || !creds.private_key) {
+      throw new Error(
+        "GOOGLE_APPLICATION_CREDENTIALS_JSON must be a service account JSON key.",
+      );
+    }
+
+    const now = Math.floor(Date.now() / 1000);
+    const aud = await resolveGoogleServiceAccountTokenUri(creds.token_uri);
+    const jwt = await signRs256Jwt(
+      {
+        iss: creds.client_email,
+        scope: scopes.join(" "),
+        aud,
+        iat: now,
+        exp: now + 3600,
+      },
+      creds.private_key,
+    );
+    signal.throwIfAborted();
+    const res = await fetch(aud, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
+        assertion: jwt,
+      }),
+      signal,
+    });
+    if (!res.ok) {
+      throw new Error(`Google OAuth error ${res.status}: ${await res.text()}`);
+    }
+    const data: unknown = await res.json();
+    // A token whose request was cancelled while its body was read is never cached.
+    signal.throwIfAborted();
+    if (
+      !isPlainRecord(data) ||
+      "error" in data ||
+      typeof data.access_token !== "string" ||
+      !data.access_token ||
+      /\s/u.test(data.access_token) ||
+      (data.expires_in !== undefined &&
+        (typeof data.expires_in !== "number" ||
+          !Number.isSafeInteger(data.expires_in) ||
+          data.expires_in <= 0))
+    ) {
+      throw new Error("Google OAuth returned an invalid token response.");
+    }
+    const expiresAt = Date.now() + (data.expires_in ?? 3600) * 1000;
+    if (!Number.isSafeInteger(expiresAt))
+      throw new Error("Google OAuth returned an invalid token response.");
+    for (const [key, entry] of googleServiceTokenCache) {
+      if (entry.expiresAt <= Date.now()) googleServiceTokenCache.delete(key);
+    }
+    googleServiceTokenCache.set(cacheKey, {
+      token: data.access_token,
+      expiresAt,
+    });
+    return { token: data.access_token, credential };
+  } finally {
+    clearTimeout(timeout);
   }
-  const data = (await res.json()) as {
-    access_token: string;
-    expires_in?: number;
-  };
-  googleServiceTokenCache.set(cacheKey, {
-    token: data.access_token,
-    expiresAt: Date.now() + (data.expires_in ?? 3600) * 1000,
-  });
-  return data.access_token;
 }
 
 async function resolveOAuthBearerToken(options: {
@@ -6390,7 +6531,9 @@ function normalizeMethod(
     normalized === "PUT" ||
     normalized === "PATCH" ||
     normalized === "DELETE" ||
-    normalized === "HEAD"
+    normalized === "HEAD" ||
+    normalized === "PROPFIND" ||
+    normalized === "REPORT"
   ) {
     return normalized;
   }
@@ -6442,6 +6585,43 @@ function runtimeOptionsAppId(runtime: ProviderApiRuntimeOptions): string {
   return runtime.appId || "app";
 }
 
+function resolveSingleAttempt(
+  runtime: ProviderApiRuntimeOptions,
+  method: ProviderApiMethod,
+  args: ProviderApiRequestArgs,
+): boolean {
+  const singleAttempt =
+    runtime.unsafeRequestPolicy === "single-attempt" &&
+    method !== "GET" &&
+    method !== "HEAD";
+  if (singleAttempt && args.fetchAllPages) {
+    throw new Error(
+      "Unsafe pagination is unavailable under the single-attempt policy.",
+    );
+  }
+  return singleAttempt;
+}
+
+/**
+ * Attribution key for the always-on provider call census, resolved at the
+ * request boundary so every app sharing a provider client is countable. The
+ * operation is the HTTP method only: paths can carry account ids and are
+ * never recorded.
+ */
+function providerCallCensusKey(
+  providerId: string,
+  runtime: ProviderApiRuntimeOptions,
+  method: ProviderApiMethod,
+  connectionId?: string | null,
+): ProviderCallCensusKey {
+  return {
+    app: runtimeOptionsAppId(runtime),
+    provider: providerId,
+    operation: method.toLowerCase(),
+    connection: connectionId ?? null,
+  };
+}
+
 async function fetchWithTimeout(
   optionsUrl: string,
   options: {
@@ -6455,6 +6635,8 @@ async function fetchWithTimeout(
     secretValues?: string[];
     quota?: ProviderApiFetchQuotaOptions;
     discardRedirectBody?: boolean;
+    census?: ProviderCallCensusKey;
+    singleAttempt?: boolean;
   },
 ): Promise<ProviderApiHttpResponse> {
   const runOnce = async (): Promise<ProviderApiHttpResponse> => {
@@ -6491,6 +6673,7 @@ async function fetchWithTimeout(
         ...(options.discardRedirectBody !== undefined
           ? { discardRedirectBody: options.discardRedirectBody }
           : {}),
+        ...(options.census ? { census: options.census } : {}),
       });
     } catch (error) {
       throw normalizeFetchError(error, {
@@ -6513,6 +6696,7 @@ async function fetchWithTimeout(
         requestKey: options.quota.requestKey,
       },
       execute: runOnce,
+      ...(options.singleAttempt ? { singleAttempt: true } : {}),
       inspect: (result) => ({
         status: result.status,
         headers: result.headers,
@@ -6615,10 +6799,18 @@ async function fetchProviderResponse(
     maxResponseBytes?: number;
     secretValues: string[];
     discardRedirectBody?: boolean;
+    census?: ProviderCallCensusKey;
   },
 ): Promise<ProviderApiHttpResponse> {
   const startedAt = Date.now();
-  const res = await fetch(url, fetchOptions);
+  let res: Response;
+  try {
+    res = await fetch(url, fetchOptions);
+  } catch (error) {
+    if (options.census) recordProviderCall(options.census, null);
+    throw error;
+  }
+  if (options.census) recordProviderCall(options.census, res.status);
   const elapsedMs = Date.now() - startedAt;
   const headers = redactSecrets(
     headersToObject(res.headers),

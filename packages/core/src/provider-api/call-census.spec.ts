@@ -105,6 +105,24 @@ describe("provider call census", () => {
     ]);
   });
 
+  it("keeps personal connection ids distinct past their namespace prefix", () => {
+    recordProviderCall(
+      { ...KEY, connection: "pconn1:aaaa1111bbbb" },
+      200,
+      1_000,
+    );
+    recordProviderCall(
+      { ...KEY, connection: "pconn1:aaaa2222bbbb" },
+      200,
+      1_000,
+    );
+    expect(flushProviderCallCensus()).toBe(2);
+    expect(lines().map((line) => line.connection)).toEqual([
+      "aaaa1111",
+      "aaaa2222",
+    ]);
+  });
+
   it("counts a call that never got a response as status 0 and a failure", () => {
     recordProviderCall(KEY, null, 1_000);
     flushProviderCallCensus();

@@ -151,6 +151,8 @@ const {
 const { createGitHubRepoFilesAction } =
   await import("./actions/github-repo-files.js");
 const { resetProviderQuotaStateForTests } = await import("./quota-governor.js");
+const { flushProviderCallCensus, resetProviderCallCensusForTests } =
+  await import("./call-census.js");
 
 const credentialContext = {
   userEmail: "ada@example.com",
@@ -287,6 +289,413 @@ describe("provider API runtime", () => {
         headers: { "content-type": "application/json" },
       }),
     );
+  });
+
+  describe("WebDAV request transport", () => {
+    const runtime = () =>
+      createProviderApiRuntime({
+        appId: "test-app",
+        getCredentialContext: () => credentialContext,
+        getCustomProviders: async () => [
+          {
+            id: "dav-test",
+            scope: "org",
+            scopeId: "org-1",
+            label: "DAV test",
+            baseUrl: "https://dav.example.test",
+            auth: {
+              type: "basic",
+              usernameKey: "DAV_USER",
+              passwordKey: "DAV_PASSWORD",
+            },
+            docsUrls: [],
+            allowedHostSuffixes: [],
+            defaultHeaders: {},
+            notes: "",
+            createdAt: 0,
+            updatedAt: 0,
+          },
+        ],
+      });
+
+    beforeEach(() => {
+      resolveCredential.mockImplementation(async (key: string) =>
+        key === "DAV_USER" ? "synthetic-user" : "synthetic-password",
+      );
+    });
+
+    it.each([
+      [
+        "PROPFIND",
+        '<D:propfind xmlns:D="DAV:"><D:prop><D:current-user-principal/></D:prop></D:propfind>',
+      ],
+      [
+        "REPORT",
+        '<C:calendar-query xmlns:D="DAV:" xmlns:C="urn:ietf:params:xml:ns:caldav"><D:prop><D:getetag/></D:prop><C:filter><C:comp-filter name="VCALENDAR"><C:comp-filter name="VEVENT"><C:time-range start="20261101T000000Z" end="20261102T000000Z"/></C:comp-filter></C:comp-filter></C:filter></C:calendar-query>',
+      ],
+    ] as const)(
+      "sends %s XML and returns a bounded multistatus response",
+      async (method, body) => {
+        const xml = '<D:multistatus xmlns:D="DAV:"/>';
+        const fetchMock = vi.mocked(globalThis.fetch);
+        fetchMock.mockResolvedValueOnce(
+          new Response(xml, {
+            status: 207,
+            headers: { "content-type": "application/xml" },
+          }),
+        );
+        const result = await runtime().executeRequest({
+          provider: "dav-test",
+          method,
+          path: "/calendar",
+          body,
+          headers: { Depth: "1", "Content-Type": "application/xml" },
+          maxBytes: 1000,
+        });
+        expect(result).toMatchObject({
+          response: { status: 207, ok: true, text: xml, truncated: false },
+        });
+        expect(fetchMock).toHaveBeenCalledOnce();
+        expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({
+          method,
+          body,
+          redirect: "manual",
+          headers: {
+            Depth: "1",
+            "Content-Type": "application/xml",
+            Authorization: `Basic ${Buffer.from("synthetic-user:synthetic-password").toString("base64")}`,
+          },
+        });
+      },
+    );
+
+    it.each(["PROPFIND", "REPORT"] as const)(
+      "does not forward %s credentials across a redirect or unapproved host",
+      async (method) => {
+        const fetchMock = vi.mocked(globalThis.fetch);
+        fetchMock.mockResolvedValueOnce(
+          new Response(null, {
+            status: 302,
+            headers: { location: "https://attacker.example.test/" },
+          }),
+        );
+        const result = await runtime().executeRequest({
+          provider: "dav-test",
+          method,
+          path: "/",
+        });
+        expect(result).toMatchObject({ response: { status: 302, ok: false } });
+        expect(fetchMock).toHaveBeenCalledOnce();
+        expect(fetchMock.mock.calls[0]?.[1]?.redirect).toBe("manual");
+        await expect(
+          runtime().executeRequest({
+            provider: "dav-test",
+            method,
+            path: "https://attacker.example.test/",
+          }),
+        ).rejects.toThrow(/configured provider host/);
+        expect(fetchMock).toHaveBeenCalledOnce();
+      },
+    );
+
+    it("caps and redacts DAV responses", async () => {
+      vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+        new Response(`synthetic-password${"x".repeat(2000)}`, { status: 207 }),
+      );
+      const result = await runtime().executeRequest({
+        provider: "dav-test",
+        method: "REPORT",
+        path: "/",
+        maxBytes: 1000,
+      });
+      expect(result).toMatchObject({
+        response: {
+          status: 207,
+          truncated: true,
+          text: expect.not.stringContaining("synthetic-password"),
+        },
+      });
+    });
+
+    it("refuses credentials from a different owner before dispatch", async () => {
+      resolveCredentialDetailed.mockImplementation(async (key: string) => ({
+        value: await resolveCredential(key),
+        scope: "org",
+        scopeId: "other-org",
+      }));
+      const fetchMock = vi.mocked(globalThis.fetch);
+      await expect(
+        runtime().executeRequest({
+          provider: "dav-test",
+          method: "PROPFIND",
+          path: "/",
+        }),
+      ).rejects.toThrow(/same organization or workspace/);
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+
+    it("still rejects unsupported methods before dispatch", async () => {
+      const fetchMock = vi.mocked(globalThis.fetch);
+      await expect(
+        runtime().executeRequest({
+          provider: "dav-test",
+          method: "CONNECT" as never,
+          path: "/",
+        }),
+      ).rejects.toThrow("Unsupported HTTP method: CONNECT");
+      expect(fetchMock).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("single-attempt unsafe requests", () => {
+    const customProviders = async () => [
+      {
+        id: "test-api",
+        scope: "org" as const,
+        scopeId: "org-1",
+        label: "Test",
+        baseUrl: "https://api.example.test",
+        auth: { type: "bearer" as const, credentialKey: "TEST_TOKEN" },
+        docsUrls: [],
+        allowedHostSuffixes: [],
+        defaultHeaders: {},
+        notes: "",
+        createdAt: 0,
+        updatedAt: 0,
+      },
+    ];
+    const runtime = (unsafeRequestPolicy?: "single-attempt") =>
+      createProviderApiRuntime({
+        appId: "test-app",
+        providerIds: ["github"],
+        getCredentialContext: () => credentialContext,
+        getCustomProviders: customProviders,
+        ...(unsafeRequestPolicy ? { unsafeRequestPolicy } : {}),
+      });
+    const request = {
+      provider: "github" as const,
+      method: "POST" as const,
+      path: "/repos/example-owner/example-repo/issues",
+      auth: "none" as const,
+      body: { title: "synthetic" },
+    };
+    const customRequest = {
+      provider: "test-api",
+      method: "POST" as const,
+      path: "/messages",
+      auth: "none" as const,
+    };
+    const limited = () =>
+      vi
+        .mocked(globalThis.fetch)
+        .mockReset()
+        .mockImplementation(
+          async () =>
+            new Response('{"error":"limited"}', {
+              status: 429,
+              headers: {
+                "retry-after": "0",
+                "content-type": "application/json",
+              },
+            }),
+        );
+
+    beforeEach(() => {
+      vi.stubEnv("AGENT_NATIVE_PROVIDER_API_MAX_ATTEMPTS", "9");
+    });
+
+    it("advertises the constructor policy as a runtime capability", () => {
+      expect(runtime().requestCapabilities?.singleAttemptUnsafeRequests).toBe(
+        false,
+      );
+      expect(
+        runtime("single-attempt").requestCapabilities
+          ?.singleAttemptUnsafeRequests,
+      ).toBe(true);
+    });
+
+    it("returns the upstream 429 after one dispatch even with a larger environment limit", async () => {
+      const fetchMock = limited();
+      expect(
+        await runtime("single-attempt").executeRequest(request),
+      ).toMatchObject({
+        response: { status: 429, json: { error: "limited" } },
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it.each(["POST", "PUT", "PATCH", "DELETE", "PROPFIND", "REPORT"] as const)(
+      "caps %s at one attempt",
+      async (method) => {
+        const fetchMock = limited();
+        expect(
+          await runtime("single-attempt").executeRequest({
+            ...request,
+            method,
+          }),
+        ).toMatchObject({ response: { status: 429 } });
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+      },
+    );
+
+    it("keeps default unsafe retries and ignores a request-level policy property", async () => {
+      const fetchMock = vi.mocked(globalThis.fetch);
+      fetchMock
+        .mockReset()
+        .mockResolvedValueOnce(
+          new Response("{}", { status: 429, headers: { "retry-after": "0" } }),
+        )
+        .mockResolvedValueOnce(new Response('{"ok":true}', { status: 200 }));
+      expect(
+        await runtime().executeRequest(
+          Object.assign({}, request, { unsafeRequestPolicy: "single-attempt" }),
+        ),
+      ).toMatchObject({ response: { status: 200 } });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it("does not allow request fields to relax the constructor policy", async () => {
+      const fetchMock = limited();
+      expect(
+        await runtime("single-attempt").executeRequest(
+          Object.assign({}, request, { unsafeRequestPolicy: "default" }),
+        ),
+      ).toMatchObject({ response: { status: 429 } });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("keeps GET retries under an opted-in runtime", async () => {
+      const fetchMock = vi.mocked(globalThis.fetch);
+      fetchMock
+        .mockReset()
+        .mockResolvedValueOnce(
+          new Response("{}", { status: 429, headers: { "retry-after": "0" } }),
+        )
+        .mockResolvedValueOnce(new Response("[]", { status: 200 }));
+      expect(
+        await runtime("single-attempt").executeRequest({
+          ...request,
+          method: "GET",
+          body: undefined,
+        }),
+      ).toMatchObject({ response: { status: 200 } });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+    });
+
+    it("does not replay a transport failure", async () => {
+      const fetchMock = vi.mocked(globalThis.fetch);
+      fetchMock.mockReset().mockRejectedValue(new TypeError("socket reset"));
+      await expect(
+        runtime("single-attempt").executeRequest(request),
+      ).rejects.toThrow();
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it("applies the policy to custom providers", async () => {
+      const fetchMock = limited();
+      expect(
+        await runtime("single-attempt").executeRequest(customRequest),
+      ).toMatchObject({ response: { status: 429 } });
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it.each([
+      ["built-in", request],
+      ["custom", customRequest],
+    ] as const)(
+      "rejects unsafe pagination on a %s provider without a request",
+      async (_kind, base) => {
+        const fetchMock = vi.mocked(globalThis.fetch);
+        fetchMock.mockClear();
+        await expect(
+          runtime("single-attempt").executeRequest({
+            ...base,
+            fetchAllPages: { cursorPath: "next", cursorParam: "cursor" },
+          }),
+        ).rejects.toThrow(
+          "Unsafe pagination is unavailable under the single-attempt policy.",
+        );
+        expect(fetchMock).not.toHaveBeenCalled();
+      },
+    );
+  });
+
+  describe("provider call census", () => {
+    const runtime = () =>
+      createProviderApiRuntime({
+        appId: "census-app",
+        providerIds: ["github"],
+        getCredentialContext: () => credentialContext,
+      });
+    const censusLines = (log: ReturnType<typeof vi.spyOn>) =>
+      log.mock.calls
+        .map(([entry]) => JSON.parse(String(entry)) as Record<string, unknown>)
+        .filter((entry) => entry.event === "provider.api.calls");
+
+    beforeEach(() => resetProviderCallCensusForTests());
+
+    it("counts calls per app and method without recording paths, queries or full connection ids", async () => {
+      const log = vi.spyOn(console, "info").mockImplementation(() => {});
+      vi.mocked(globalThis.fetch)
+        .mockReset()
+        .mockImplementation(
+          async () =>
+            new Response("[]", {
+              status: 200,
+              headers: { "content-type": "application/json" },
+            }),
+        );
+      const args = {
+        provider: "github" as const,
+        auth: "none" as const,
+        connectionId: "conn-9f2c1d7a5e6b4c3d8a1f",
+        path: "/orgs/example-member/repos",
+        query: { q: "sensitive query" },
+      };
+      await runtime().executeRequest(args);
+      await runtime().executeRequest(args);
+      expect(flushProviderCallCensus()).toBe(1);
+      const census = censusLines(log);
+      expect(census).toMatchObject([
+        {
+          app: "census-app",
+          provider: "github",
+          operation: "get",
+          connection: "conn-9f2",
+          count: 2,
+          failures: 0,
+          statuses: { "200": 2 },
+        },
+      ]);
+      expect(JSON.stringify(census)).not.toMatch(
+        /example-member|sensitive|github\.com|ada@|c1d7a5e6/,
+      );
+    });
+
+    it("records a network failure as a status-0 call", async () => {
+      const log = vi.spyOn(console, "info").mockImplementation(() => {});
+      vi.mocked(globalThis.fetch)
+        .mockReset()
+        .mockRejectedValue(new TypeError("fetch failed"));
+      await expect(
+        runtime().executeRequest({
+          provider: "github",
+          auth: "none",
+          method: "DELETE",
+          path: "/repos/example-owner/example-repo",
+        }),
+      ).rejects.toThrow();
+      flushProviderCallCensus();
+      expect(censusLines(log)).toMatchObject([
+        {
+          app: "census-app",
+          operation: "delete",
+          count: 1,
+          failures: 1,
+          statuses: { "0": 1 },
+        },
+      ]);
+    });
   });
 
   it("advertises only an exposed runtime and preserves scoped custom credential failures", async () => {
@@ -1462,6 +1871,46 @@ describe("provider API runtime", () => {
         }),
       }),
     );
+  });
+
+  it("never falls back to another connection's GitHub token when the selected connection has none", async () => {
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: { id: "conn-a", label: "A", scopes: [] },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    const lookups: Array<string | null | undefined> = [];
+    const runtime = createProviderApiRuntime({
+      appId: "headless",
+      providerIds: ["github"],
+      getCredentialContext: () => credentialContext,
+      // Models the real resolver: only the unselected connection holds a key.
+      resolveCredential: async (lookup) => {
+        lookups.push(lookup.connectionId);
+        return lookup.connectionId === "conn-a"
+          ? null
+          : {
+              key: lookup.key,
+              value: "other-connection-token",
+              source: "workspace_connection",
+              provider: lookup.provider,
+            };
+      },
+    });
+
+    await expect(
+      runtime.executeRequest({
+        provider: "github",
+        path: "/user",
+        connectionId: "conn-a",
+      }),
+    ).rejects.toThrow();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(lookups.length).toBeGreaterThan(0);
+    expect(lookups.every((id) => id === "conn-a")).toBe(true);
   });
 
   it("prefers a shared GitHub OAuth connection over Analytics' legacy token resolver", async () => {
