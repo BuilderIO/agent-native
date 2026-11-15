@@ -1496,7 +1496,6 @@ export class AppSyncState {
           if (error instanceof SyncEventReadError) throw error;
           throw new SyncEventReadError();
         }
-        if (!event) throw new SyncEventReadError();
         if (!rowCursor && typeof event.cursorId === "string") {
           rowCursor = { version: event.version, id: event.cursorId };
         }
