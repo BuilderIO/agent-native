@@ -1943,6 +1943,8 @@ const overrides = {
     discardFailedCreatePageDescription:
       "इससे लंबित निर्माण और कोई भी सहेजा नहीं गया ड्राफ़्ट साफ़ हो जाएगा। अगर पेज पहले से सहेजा गया है, तो वह आपके कार्यक्षेत्र में बना रहेगा।",
     failedDeletePage: "पेज हटाया नहीं जा सका",
+    workspaceReferenceProtected:
+      "कार्यक्षेत्र के संदर्भ सुरक्षित हैं और उन्हें पेज की तरह बदला नहीं जा सकता।",
     failedPermanentDeletePage: "पेज को स्थायी रूप से हटाया नहीं जा सका",
     failedRestorePage: "पेज पुनर्स्थापित नहीं किया जा सका",
     failedMovePage: "पेज स्थानांतरित नहीं हो सका",

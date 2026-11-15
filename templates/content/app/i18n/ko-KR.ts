@@ -1972,6 +1972,8 @@ const overrides = {
     discardFailedCreatePageDescription:
       "대기 중인 생성과 저장되지 않은 초안을 지웁니다. 페이지가 이미 저장되었다면 워크스페이스에 계속 남아 있습니다.",
     failedDeletePage: "페이지를 삭제하지 못했습니다",
+    workspaceReferenceProtected:
+      "워크스페이스 참조는 보호되어 있으며 페이지로 변경할 수 없습니다.",
     failedPermanentDeletePage: "페이지를 영구적으로 삭제하지 못했습니다",
     failedRestorePage: "페이지를 복원하지 못했습니다",
     failedMovePage: "페이지를 이동하지 못했습니다",

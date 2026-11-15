@@ -2039,6 +2039,8 @@ const overrides = {
     discardFailedCreatePageDescription:
       "Dadurch werden die ausstehende Erstellung und alle ungespeicherten Entwürfe gelöscht. Falls die Seite bereits gespeichert wurde, bleibt sie in deinem Arbeitsbereich erhalten.",
     failedDeletePage: "Seite konnte nicht gelöscht werden",
+    workspaceReferenceProtected:
+      "Arbeitsbereichsreferenzen sind geschützt und können nicht als Seiten geändert werden.",
     failedPermanentDeletePage: "Seite konnte nicht dauerhaft gelöscht werden",
     failedRestorePage: "Seite konnte nicht wiederhergestellt werden",
     failedMovePage: "Seite konnte nicht verschoben werden",

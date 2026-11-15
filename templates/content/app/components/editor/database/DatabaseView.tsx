@@ -271,6 +271,7 @@ import { useLocalStorage } from "@/hooks/use-local-storage";
 import { useStableCallback } from "@/hooks/use-stable-callback";
 import { useStableRecord } from "@/hooks/use-stable-record";
 import { messagesByLocale } from "@/i18n-data";
+import { workspaceReferenceErrorMessage } from "@/lib/content-action-errors";
 import { readPageShapeHint, rememberPageShape } from "@/lib/page-startup-hints";
 import { startupAnchor } from "@/lib/startup-timing";
 import { cn } from "@/lib/utils";
@@ -5600,6 +5601,7 @@ function DatabaseItemPreview({
   onClose: () => void;
   onOpenPage: () => void;
 }) {
+  const t = useT();
   const queryClient = useQueryClient();
   const contentSpaces = useContentSpaces();
   const deleteDocument = useDeleteDocument();
@@ -5659,7 +5661,13 @@ function DatabaseItemPreview({
     } catch (error) {
       toast.error(dbText("failedToDuplicateRow"), {
         description:
-          error instanceof Error ? error.message : dbText("somethingWentWrong"),
+          workspaceReferenceErrorMessage(
+            error,
+            t("sidebar.workspaceReferenceProtected"),
+          ) ??
+          (error instanceof Error
+            ? error.message
+            : dbText("somethingWentWrong")),
       });
     }
   }
@@ -5792,9 +5800,19 @@ function DatabaseItemPreview({
                       onSelect={(event) => {
                         event.preventDefault();
                         setActionsMenuOpen(false);
-                        void deletePreviewPage(true).catch(() =>
-                          toast.error(dbText("failedToSavePagePreview")),
-                        );
+                        void deletePreviewPage(true).catch((error) => {
+                          const description = workspaceReferenceErrorMessage(
+                            error,
+                            t("sidebar.workspaceReferenceProtected"),
+                          );
+                          if (description) {
+                            toast.error(dbText("failedToSavePagePreview"), {
+                              description,
+                            });
+                          } else {
+                            toast.error(dbText("failedToSavePagePreview"));
+                          }
+                        });
                       }}
                     >
                       {sidebarText("removeFromFavorites")}
@@ -5981,6 +5999,7 @@ function DatabaseTableView({
   onDeletedPreviewItems: (items: ContentDatabaseItem[]) => boolean;
   onOpenPage: (item: ContentDatabaseItem) => void;
 }) {
+  const t = useT();
   const tableViewportRef = useRef<HTMLDivElement>(null);
   const [viewportWidth, setViewportWidth] = useState<number>();
   useEffect(() => {
@@ -6391,7 +6410,11 @@ function DatabaseTableView({
     } catch (err) {
       toast.error(dbText("failedToRemoveEverySelectedRowFromDatabase"), {
         description:
-          err instanceof Error ? err.message : dbText("somethingWentWrong"),
+          workspaceReferenceErrorMessage(
+            err,
+            t("sidebar.workspaceReferenceProtected"),
+          ) ??
+          (err instanceof Error ? err.message : dbText("somethingWentWrong")),
       });
     }
   }
@@ -6430,7 +6453,11 @@ function DatabaseTableView({
     } catch (err) {
       toast.error(dbText("failedToDuplicateEverySelectedRow"), {
         description:
-          err instanceof Error ? err.message : dbText("somethingWentWrong"),
+          workspaceReferenceErrorMessage(
+            err,
+            t("sidebar.workspaceReferenceProtected"),
+          ) ??
+          (err instanceof Error ? err.message : dbText("somethingWentWrong")),
       });
     } finally {
       setIsDuplicatingSelected(false);
@@ -20195,7 +20222,11 @@ export function RowActionsCell({
     } catch (err) {
       toast.error(dbText("failedToDuplicateRow"), {
         description:
-          err instanceof Error ? err.message : dbText("somethingWentWrong"),
+          workspaceReferenceErrorMessage(
+            err,
+            t("sidebar.workspaceReferenceProtected"),
+          ) ??
+          (err instanceof Error ? err.message : dbText("somethingWentWrong")),
       });
     }
   }
@@ -20233,7 +20264,11 @@ export function RowActionsCell({
           : dbText("failedToRemoveRowFromDatabase"),
         {
           description:
-            err instanceof Error ? err.message : dbText("somethingWentWrong"),
+            workspaceReferenceErrorMessage(
+              err,
+              t("sidebar.workspaceReferenceProtected"),
+            ) ??
+            (err instanceof Error ? err.message : dbText("somethingWentWrong")),
         },
       );
     }

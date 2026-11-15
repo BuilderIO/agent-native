@@ -2031,6 +2031,72 @@ describe("DatabaseView UI regressions", () => {
 
   it.each([
     {
+      error: Object.assign(
+        new Error("Workspace references cannot be duplicated as pages"),
+        {
+          errorCode: "WORKSPACE_CATALOG_REFERENCE_PROTECTED",
+        },
+      ),
+      description: "sidebar.workspaceReferenceProtected",
+    },
+    { error: new Error("Unrelated failure"), description: "Unrelated failure" },
+  ])(
+    "reports row duplication failures without exposing protected-reference server text",
+    async ({ error, description }) => {
+      const row = commentableRow("a", "Alpha", true);
+      databaseResponse.items = [
+        { ...row, document: { ...row.document, canView: true } },
+      ];
+      benignMutation.mutateAsync.mockRejectedValueOnce(error);
+      await renderDatabaseView();
+      const trigger = container.querySelector(
+        '[aria-label="Row actions for Alpha"]',
+      );
+      if (!trigger) throw new Error("Alpha has no row menu.");
+
+      await mousePointerDown(trigger);
+      await selectMenuItem("Duplicate row");
+      expect(toastErrorMock).toHaveBeenCalledWith("Failed to duplicate row", {
+        description,
+      });
+    },
+  );
+
+  it("shows the protected-reference refusal when removing a row", async () => {
+    const row = commentableRow("a", "Alpha", true);
+    databaseResponse.items = [
+      { ...row, document: { ...row.document, canView: true } },
+    ];
+    benignMutation.mutateAsync.mockRejectedValueOnce(
+      Object.assign(
+        new Error("Workspace references cannot be removed as pages"),
+        {
+          errorCode: "WORKSPACE_CATALOG_REFERENCE_PROTECTED",
+        },
+      ),
+    );
+    await renderDatabaseView();
+    const trigger = container.querySelector(
+      '[aria-label="Row actions for Alpha"]',
+    );
+    if (!trigger) throw new Error("Alpha has no row menu.");
+    await mousePointerDown(trigger);
+    await selectMenuItem("Remove from collection");
+    const dialog = document.querySelector<HTMLElement>('[role="alertdialog"]');
+    const confirm = dialog && findButtonByText(dialog, "Remove");
+    if (!confirm) throw new Error("Removal confirmation is not available.");
+    await act(async () => {
+      confirm.click();
+      await Promise.resolve();
+    });
+    expect(toastErrorMock).toHaveBeenCalledWith(
+      "Failed to remove row from collection",
+      { description: "sidebar.workspaceReferenceProtected" },
+    );
+  });
+
+  it.each([
+    {
       reader: "someone who can't edit the collection",
       canEdit: false,
       items: ["Open page", "sidebar.copyLink", "editor.comment"],

@@ -1992,6 +1992,8 @@ const overrides = {
     discardFailedCreatePageDescription:
       "保留中の作成と未保存の下書きを消去します。ページがすでに保存されている場合は、ワークスペースに残ります。",
     failedDeletePage: "ページを削除できませんでした",
+    workspaceReferenceProtected:
+      "ワークスペースへの参照は保護されており、ページとして変更できません。",
     failedPermanentDeletePage: "ページを完全に削除できませんでした",
     failedRestorePage: "ページを復元できませんでした",
     failedMovePage: "ページを移動できませんでした",

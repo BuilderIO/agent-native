@@ -2009,6 +2009,7 @@ const overrides = {
     discardFailedCreatePageDescription:
       "这会清除待处理的创建和任何未保存的草稿。如果页面已经保存，它仍会保留在你的工作区中。",
     failedDeletePage: "删除页面失败",
+    workspaceReferenceProtected: "工作区引用受到保护，不能作为页面更改。",
     failedPermanentDeletePage: "永久删除页面失败",
     failedRestorePage: "恢复页面失败",
     failedMovePage: "移动页面失败",

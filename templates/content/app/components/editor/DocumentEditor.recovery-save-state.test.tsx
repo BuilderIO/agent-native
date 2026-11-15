@@ -16,6 +16,7 @@ import { Editor } from "@tiptap/core";
 import { act, createElement, type ComponentProps, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter } from "react-router";
+import { toast } from "sonner";
 import {
   afterEach,
   beforeEach,
@@ -43,6 +44,7 @@ const fixture = vi.hoisted(() => ({
   }[],
   toolbar: null as {
     onUtilityPanelChange?: (tab: "info" | "comments" | null) => void;
+    onDelete?: () => Promise<void>;
   } | null,
   fields: null as DocumentPropertiesResponse | null,
   realAdditionalEditors: false,
@@ -729,6 +731,23 @@ async function runConnectedRequest(request: () => Promise<unknown>) {
   expect(result).not.toBeNull();
   return result;
 }
+
+it("shows the localized protected-reference refusal when deleting a page", async () => {
+  const toastError = vi.spyOn(toast, "error").mockImplementation(() => "toast");
+  await act(async () => renderEditor({ host: "page" }));
+  fixture.mutation.mutateAsync.mockRejectedValueOnce(
+    Object.assign(
+      new Error("Workspace references cannot be deleted as pages"),
+      {
+        errorCode: "WORKSPACE_CATALOG_REFERENCE_PROTECTED",
+      },
+    ),
+  );
+  await act(async () => fixture.toolbar?.onDelete?.());
+  expect(toastError).toHaveBeenCalledWith("sidebar.failedDeletePage", {
+    description: "sidebar.workspaceReferenceProtected",
+  });
+});
 
 it("confirms an actually edited settled VisualEditor through the server barrier without reauthoring its applied save", async () => {
   fixture.realPrimaryEditor = true;
