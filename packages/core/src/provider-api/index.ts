@@ -2471,6 +2471,7 @@ export async function executeProviderApiRequest(
       body,
       maxBytes: effectiveMaxBytes,
       maxResponseBytes: effectiveMaxBytes,
+      requireTextForSave: Boolean(args.saveToFile),
       timeoutMs: clampTimeout(args.timeoutMs),
       signal: args.signal,
       secretValues: auth.secretValues,
@@ -2478,7 +2479,10 @@ export async function executeProviderApiRequest(
         identity: quotaIdentity,
         method,
         target: describeProviderRequestTarget(url.href, auth.secretValues),
-        requestKey,
+        requestKey:
+          requestKey && args.saveToFile
+            ? `${requestKey}:text-save`
+            : requestKey,
       },
     }),
     config,
@@ -3489,12 +3493,20 @@ async function executeCustomProviderApiRequest(
     return { ...metadata, items };
   }
 
+  const requestKey = createProviderRequestDedupeKey({
+    method,
+    url: url.href,
+    body,
+    headers,
+    maxBytes: effectiveMaxBytes,
+  });
   const response = await fetchWithTimeout(url.href, {
     method,
     headers,
     body,
     maxBytes: effectiveMaxBytes,
     maxResponseBytes: effectiveMaxBytes,
+    requireTextForSave: Boolean(args.saveToFile),
     timeoutMs: clampTimeout(args.timeoutMs),
     signal: args.signal,
     secretValues: auth.secretValues,
@@ -3502,13 +3514,8 @@ async function executeCustomProviderApiRequest(
       identity: quotaIdentity,
       method,
       target: describeProviderRequestTarget(url.href, auth.secretValues),
-      requestKey: createProviderRequestDedupeKey({
-        method,
-        url: url.href,
-        body,
-        headers,
-        maxBytes: effectiveMaxBytes,
-      }),
+      requestKey:
+        requestKey && args.saveToFile ? `${requestKey}:text-save` : requestKey,
     },
   });
 
@@ -6455,6 +6462,7 @@ async function fetchWithTimeout(
     secretValues?: string[];
     quota?: ProviderApiFetchQuotaOptions;
     discardRedirectBody?: boolean;
+    requireTextForSave?: boolean;
   },
 ): Promise<ProviderApiHttpResponse> {
   const runOnce = async (): Promise<ProviderApiHttpResponse> => {
@@ -6488,6 +6496,7 @@ async function fetchWithTimeout(
           ? { maxResponseBytes: options.maxResponseBytes }
           : {}),
         secretValues,
+        requireTextForSave: options.requireTextForSave,
         ...(options.discardRedirectBody !== undefined
           ? { discardRedirectBody: options.discardRedirectBody }
           : {}),
@@ -6615,6 +6624,7 @@ async function fetchProviderResponse(
     maxResponseBytes?: number;
     secretValues: string[];
     discardRedirectBody?: boolean;
+    requireTextForSave?: boolean;
   },
 ): Promise<ProviderApiHttpResponse> {
   const startedAt = Date.now();
@@ -6641,6 +6651,8 @@ async function fetchProviderResponse(
   const rawText = await readResponseTextWithLimit(
     res,
     clampMaxBytes(options.maxBytes, options.maxResponseBytes),
+    options.requireTextForSave ? headers["content-type"] : undefined,
+    options.requireTextForSave,
   );
   const redactedText = redactString(rawText.text, options.secretValues);
   const parsed = tryParseJson(redactedText);
@@ -6718,14 +6730,32 @@ function describeProviderRequestTarget(
 async function readResponseTextWithLimit(
   response: Response,
   maxBytes: number,
+  contentType?: string,
+  requireTextForSave = false,
 ): Promise<{
   text: string;
   truncated: boolean;
   size: number;
   sizeIsLowerBound?: true;
 }> {
+  const mediaType =
+    response.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() ??
+    "";
+  const redactedType = contentType?.split(";")[0]?.trim().toLowerCase() ?? "";
+  const displayType = /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/.test(
+    redactedType,
+  )
+    ? redactedType.slice(0, 100)
+    : "unknown";
+  if (requireTextForSave && isBinaryProviderContentType(mediaType)) {
+    await response.body?.cancel();
+    throw new Error(
+      `Cannot save binary provider response (content type: ${displayType}) as a text workspace file. Use a binary storage capability instead.`,
+    );
+  }
   const contentLength = response.headers.get("content-length");
   if (contentLength && Number(contentLength) > maxBytes) {
+    await response.body?.cancel();
     return {
       text: `(response too large - ${contentLength} bytes, max ${maxBytes})`,
       truncated: true,
@@ -6743,25 +6773,46 @@ async function readResponseTextWithLimit(
       const { done, value } = await reader.read();
       if (done) break;
       size += value.byteLength;
-      kept.push(value);
       if (size > maxBytes) {
+        kept.push(value.subarray(0, value.byteLength - (size - maxBytes)));
         await reader.cancel();
         return {
-          text: new TextDecoder().decode(
-            Buffer.concat(kept, size).subarray(0, maxBytes),
-          ),
+          text: new TextDecoder().decode(Buffer.concat(kept, maxBytes)),
           truncated: true,
           size,
           sizeIsLowerBound: true,
         };
       }
+      kept.push(value);
     }
   }
-  return {
-    text: new TextDecoder().decode(Buffer.concat(kept, size)),
-    truncated: false,
-    size,
-  };
+  const bytes = Buffer.concat(kept, size);
+  if (requireTextForSave && bytes.includes(0)) {
+    throw new Error(
+      `Cannot save provider response containing NUL bytes (content type: ${displayType}) as a text workspace file.`,
+    );
+  }
+  let text: string;
+  try {
+    text = new TextDecoder("utf-8", { fatal: requireTextForSave }).decode(
+      bytes,
+    );
+  } catch {
+    throw new Error(
+      `Cannot save provider response with invalid UTF-8 (content type: ${displayType}) as a text workspace file.`,
+    );
+  }
+  return { text, truncated: false, size };
+}
+
+function isBinaryProviderContentType(mediaType: string): boolean {
+  if (mediaType.endsWith("+json") || mediaType.endsWith("+xml")) return false;
+  return (
+    /^(image|audio|video|font)\//.test(mediaType) ||
+    /^application\/(?:octet-stream|pdf|zip|x-zip-compressed|gzip|x-gzip|x-tar|x-bzip2|x-xz|zstd|x-rar-compressed|vnd\.rar|x-7z-compressed|wasm|protobuf|x-protobuf|msword|vnd\.ms-[^/]+|vnd\.openxmlformats-officedocument\.[^/]+|vnd\.oasis\.opendocument\.[^/]+)$/.test(
+      mediaType,
+    )
+  );
 }
 
 function headersToObject(headers: Headers): Record<string, string> {
