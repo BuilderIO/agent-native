@@ -533,6 +533,96 @@ describe("PPTX reference hydration", () => {
     expect(slides[5].vectorShapesOmitted).toBeGreaterThan(0);
   });
 
+  it("prioritizes hydrated slides and reports every later shape and text box as omitted", async () => {
+    const geometry = {
+      kind: "custom",
+      paths: [
+        {
+          w: 100,
+          h: 100,
+          commands: Array.from({ length: 40 }, (_, i) => ({
+            kind: "lnTo",
+            points: [{ x: i, y: i }],
+          })),
+        },
+      ],
+    };
+    const shape = (i: number) => ({
+      id: String(i),
+      kind: "shape",
+      x: i,
+      y: 0,
+      width: 100,
+      height: 100,
+      geometry,
+    });
+    const text = {
+      id: "label",
+      kind: "text",
+      x: 1,
+      y: 2,
+      width: 10,
+      height: 10,
+      paragraphs: [{ runs: [{ content: "late label" }] }],
+    };
+    const slides = Array.from({ length: 25 }, (_, index) => ({
+      texts: [],
+      images: [],
+      elements:
+        index === 0
+          ? [shape(0), shape(1)]
+          : index === 19
+            ? [
+                {
+                  id: "last",
+                  kind: "shape",
+                  x: 19,
+                  y: 0,
+                  width: 10,
+                  height: 10,
+                },
+              ]
+            : index >= 20
+              ? [shape(index), text, { id: "image", kind: "image" }]
+              : [],
+    }));
+    mockParsePptx.mockResolvedValue({ title: "", slides });
+    const result = await action.run({
+      filePath: "reference.pptx",
+      format: "pptx",
+    });
+    const actual = (result as any).slides;
+    expect(actual).toHaveLength(25);
+    expect(
+      actual[0].vectorShapes.map((value: { order: number }) => value.order),
+    ).toEqual([0, 1]);
+    expect(actual[0].vectorShapesOmitted).toBe(0);
+    expect(actual[19].vectorShapes).toHaveLength(1);
+    for (const slide of actual.slice(20)) {
+      expect(slide.vectorShapes).toEqual([]);
+      expect(slide.vectorShapesOmitted).toBe(2);
+    }
+    const hydrated = await hydrateReferenceDocuments(
+      [
+        {
+          path: "reference.pptx",
+          originalName: "reference.pptx",
+          filename: "reference.pptx",
+          type: "application/octet-stream",
+          size: 100,
+        },
+      ],
+      { callActionImpl: vi.fn().mockResolvedValue(result) },
+    );
+    expect(hydrated.status).toBe("hydrated");
+    if (hydrated.status !== "hydrated")
+      throw new Error("Reference was not hydrated");
+    expect(hydrated.context).toContain(
+      "5 slide(s) omitted from this reference context",
+    );
+    expect(hydrated.context).toContain("10 parsed vector shape(s) omitted");
+  });
+
   it("reserves vector capacity for later slides and reports every omitted shape", async () => {
     const element = (i: number) => ({
       id: String(i),

@@ -80,6 +80,8 @@ export const pptxReferenceShapeSchema = z.object({
   lineTailEnd: lineEnd.optional(),
 });
 
+export const MAX_PPTX_SLIDES_IN_CONTEXT = 20;
+
 const MAX_SHAPE_CHARS = 3000;
 const MAX_TOTAL_SHAPE_CHARS = 6000;
 const MAX_SHAPES = 100;
@@ -106,12 +108,19 @@ function sourceTextForShape(element: ParsedElement) {
 }
 
 export function summarizePptxShapes(slides: ParsedSlide[]) {
-  const summaries = slides.map(() => ({
+  const summaries = slides.map((slide, index) => ({
     shapes: [] as z.infer<typeof pptxReferenceShapeSchema>[],
-    omitted: 0,
+    omitted:
+      index < MAX_PPTX_SLIDES_IN_CONTEXT
+        ? 0
+        : (slide.elements ?? []).filter(
+            (element) => element.kind === "shape" || element.kind === "text",
+          ).length,
   }));
   const positions = slides.map(() => 0);
-  const active = new Set(slides.map((_, index) => index));
+  const active = new Set(
+    slides.slice(0, MAX_PPTX_SLIDES_IN_CONTEXT).map((_, index) => index),
+  );
   let remaining = MAX_TOTAL_SHAPE_CHARS;
   let count = 0;
   while (active.size > 0) {

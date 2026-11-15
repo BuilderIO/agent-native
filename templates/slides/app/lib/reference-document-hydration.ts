@@ -2,7 +2,10 @@ import { callAction } from "@agent-native/core/client/hooks";
 
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 
-import { pptxReferenceShapeSchema } from "../../shared/pptx-reference-shapes";
+import {
+  MAX_PPTX_SLIDES_IN_CONTEXT,
+  pptxReferenceShapeSchema,
+} from "../../shared/pptx-reference-shapes";
 
 export const REFERENCE_HYDRATION_TIMEOUT_MS = 3 * 60 * 1000;
 
@@ -14,7 +17,6 @@ const MAX_CHARS_PER_REFERENCE = 12_000;
 const MAX_TOTAL_REFERENCE_CHARS = 36_000;
 const MIN_PARTIAL_REFERENCE_CHARS = 600;
 const MAX_PDF_PAGES_IN_CONTEXT = 20;
-const MAX_PPTX_SLIDES_IN_CONTEXT = 20;
 const MAX_DOCX_SECTIONS_IN_CONTEXT = 20;
 
 export type ReferenceDocumentFormat = "pdf" | "pptx" | "docx";
