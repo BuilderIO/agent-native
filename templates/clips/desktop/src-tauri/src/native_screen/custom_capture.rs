@@ -839,6 +839,9 @@ pub(crate) struct CustomScreenCaptureWriter {
     mixes_system_audio: bool,
     /// Unique per writer (shared by its clones); keys the mic meter's state.
     meter_id: u64,
+    /// The mixer timeline as the last mic buffer was pushed, taken under the
+    /// mixer lock together with that push.
+    mic_meter_snapshot: Arc<Mutex<Option<MixerMicSnapshot>>>,
 }
 
 struct CustomScreenCaptureWriterState {
@@ -905,7 +908,7 @@ struct CustomScreenCaptureOutputHandler {
     recording_enabled: Arc<AtomicBool>,
     mic_ready: Option<Arc<AtomicBool>>,
     /// Hands mic buffers to the meter's worker thread (see `spawn_mic_meter`).
-    mic_meter: std::sync::mpsc::Sender<MicMeterJob>,
+    mic_meter: Arc<MicMeterQueue>,
     watch: Arc<CaptureWatch>,
 }
 
@@ -1153,6 +1156,7 @@ impl Clone for CustomScreenCaptureWriter {
             applies_mic_auto_gain: self.applies_mic_auto_gain,
             mixes_system_audio: self.mixes_system_audio,
             meter_id: self.meter_id,
+            mic_meter_snapshot: Arc::clone(&self.mic_meter_snapshot),
         }
     }
 }
@@ -1173,7 +1177,7 @@ impl CustomScreenCaptureOutputHandler {
             clip_sink: Arc::clone(&self.clip_sink),
             recording_enabled: Arc::clone(&self.recording_enabled),
             mic_ready: self.mic_ready.clone(),
-            mic_meter: self.mic_meter.clone(),
+            mic_meter: Arc::clone(&self.mic_meter),
             watch: Arc::clone(&self.watch),
         }
     }
@@ -1193,33 +1197,39 @@ impl CustomScreenCaptureOutputHandler {
         )
     }
 
-    /// Every writer saving the mic right now that denoises and boosts it,
-    /// the one the bar shows first. Each gets the same mic buffers.
-    fn mic_meter_sources(&self) -> Vec<MicMeterSource> {
-        let clip_sink = self.clip_sink.lock().ok().and_then(|slot| {
-            slot.as_ref()
-                .filter(|clip| clip.gate.accepts())
-                .and_then(|clip| MicMeterSource::of(&clip.writer))
-        });
-        saving_mic_writers(
-            MicMeterSource::of(&self.writer),
-            self.recording_enabled.load(Ordering::Relaxed),
-            clip_sink,
-        )
+    /// The writers that just pushed this mic buffer into a mixer that
+    /// denoises and boosts it, with the timeline taken under that push's lock:
+    /// the main writer first, then a live Clip sink.
+    fn mic_meter_sources(&self, pts_seconds: f64) -> Vec<MicMeterSource> {
+        let mut sources = Vec::with_capacity(2);
+        sources.extend(MicMeterSource::pushed(&self.writer, pts_seconds));
+        if let Ok(slot) = self.clip_sink.lock() {
+            if let Some(clip) = slot.as_ref() {
+                sources.extend(MicMeterSource::pushed(&clip.writer, pts_seconds));
+            }
+        }
+        sources
     }
 
-    /// Queues the buffer for the meter's worker thread. The writers are
-    /// snapshotted here, in order with the mixers' own pushes; the denoise and
-    /// gain run off the capture thread.
+    /// Queues the buffer for the meter's worker thread, after the writers'
+    /// appends; the denoise and gain run off the capture thread. Without the
+    /// worker, the bar gets the raw peak so it never goes quiet by mistake.
     fn emit_microphone_level(&self, samples: Vec<f32>, pts_seconds: f64) {
         if samples.is_empty() {
             return;
         }
-        let _ = self.mic_meter.send(MicMeterJob {
+        let job = MicMeterJob {
             samples,
             pts_seconds,
-            sources: self.mic_meter_sources(),
-        });
+            sources: self.mic_meter_sources(pts_seconds),
+            queued_at: Instant::now(),
+        };
+        if let Some(level) = self.mic_meter.send(job) {
+            let _ = self.app.emit(
+                "voice:audio-level",
+                serde_json::json!({ "level": level, "source": "mic" }),
+            );
+        }
     }
 }
 
@@ -1261,12 +1271,24 @@ impl SCStreamOutputTrait for CustomScreenCaptureOutputHandler {
             if panic_result.is_err() {
                 eprintln!("[mixer] panic while publishing shared {of_type:?} PCM");
             }
+            self.append_to_writers(&sample_buffer, of_type);
             if matches!(of_type, SCStreamOutputType::Microphone) {
                 if let Some((samples, pts_seconds)) = decoded_mic.take() {
                     self.emit_microphone_level(samples, pts_seconds);
                 }
             }
+            return;
         }
+        self.append_to_writers(&sample_buffer, of_type);
+    }
+}
+
+impl CustomScreenCaptureOutputHandler {
+    fn append_to_writers(
+        &self,
+        sample_buffer: &screencapturekit::cm::CMSampleBuffer,
+        of_type: SCStreamOutputType,
+    ) {
         if !self.recording_enabled.load(Ordering::SeqCst) {
             return;
         }
@@ -1304,13 +1326,13 @@ impl SCStreamOutputTrait for CustomScreenCaptureOutputHandler {
         if let Ok(slot) = self.clip_sink.lock() {
             if let Some(clip) = slot.as_ref().filter(|clip| clip.gate.accepts()) {
                 let _ = objc2::exception::catch(std::panic::AssertUnwindSafe(|| {
-                    clip.writer.append_sample(&sample_buffer, of_type);
+                    clip.writer.append_sample(sample_buffer, of_type);
                 }));
             }
         }
         let panic_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
             let exc_result = objc2::exception::catch(std::panic::AssertUnwindSafe(|| {
-                self.writer.append_sample(&sample_buffer, of_type);
+                self.writer.append_sample(sample_buffer, of_type);
             }));
             if let Err(exc) = exc_result {
                 let detail = describe_objc_exception(exc);
@@ -1509,6 +1531,7 @@ impl CustomScreenCaptureWriter {
                 applies_mic_auto_gain: mix_live && include_audio && voice_cleanup_enabled,
                 mixes_system_audio: mix_live && capture_system_audio,
                 meter_id: NEXT_WRITER_METER_ID.fetch_add(1, Ordering::Relaxed),
+                mic_meter_snapshot: Arc::new(Mutex::new(None)),
             })
         }
     }
@@ -1819,6 +1842,16 @@ impl CustomScreenCaptureWriter {
             return;
         };
         mixer_guard.set_pause_offset(self.pause_offset());
+        if source == MixSource::Mic {
+            if let Ok(mut snapshot) = self.mic_meter_snapshot.lock() {
+                *snapshot = Some(MixerMicSnapshot {
+                    pts_seconds,
+                    pause_offset_seconds: mixer_guard.pause_offset_seconds,
+                    anchor_seconds: mixer_guard.anchor_seconds,
+                    out_pos: mixer_guard.out_pos,
+                });
+            }
+        }
         mixer_guard.push(source, &interleaved, pts_seconds);
         if !self.started.load(Ordering::SeqCst) {
             return;
@@ -2216,55 +2249,148 @@ const MIC_METER_MAX_WRITERS: usize = 4;
 /// fixed, so more zeros would not change it.
 const MIC_METER_MAX_GAP_FEED_SECONDS: i64 = 10;
 
-/// The writers saving the mic right now with the recording's denoise and
-/// `MicAutoGain` (each `Some` only when that writer applies them): the main
-/// writer while it records, then a live Clip sink. Empty when the saved mic
-/// stays raw.
-fn saving_mic_writers<T>(
-    main_writer: Option<T>,
-    main_recording: bool,
-    live_clip_sink: Option<T>,
-) -> Vec<T> {
-    main_writer
-        .filter(|_| main_recording)
-        .into_iter()
-        .chain(live_clip_sink)
-        .collect()
-}
+/// Mic buffers the meter's queue holds (0.5 s of 10 ms buffers). If the
+/// worker falls that far behind, newer buffers are dropped and the meter
+/// starts over rather than catching up on old audio.
+const MIC_METER_QUEUE_BUFFERS: usize = 50;
 
-/// One mic buffer for the meter, with the writers saving it at that moment.
+/// A level older than this when the worker gets to it is not sent: the bar
+/// stamps levels on arrival, so a late one would describe old audio.
+const MIC_METER_MAX_LEVEL_AGE: Duration = Duration::from_millis(200);
+
+/// One mic buffer for the meter, with the writers that just saved it.
 struct MicMeterJob {
     samples: Vec<f32>,
     pts_seconds: f64,
     sources: Vec<MicMeterSource>,
+    queued_at: Instant,
+}
+
+/// The capture side of the mic meter: a bounded queue to the worker thread.
+/// When the worker can't be reached (it failed to start or stopped), it
+/// says so once in the capture-health log and falls back to the raw peak.
+struct MicMeterQueue {
+    sender: Option<std::sync::mpsc::SyncSender<MicMeterJob>>,
+    /// Buffers dropped because the queue was full; the worker resets on them.
+    dropped: Arc<AtomicU64>,
+    unavailable_logged: AtomicBool,
+    fallback_tick: AtomicU32,
+}
+
+impl MicMeterQueue {
+    fn new(sender: Option<std::sync::mpsc::SyncSender<MicMeterJob>>) -> Self {
+        Self {
+            sender,
+            dropped: Arc::new(AtomicU64::new(0)),
+            unavailable_logged: AtomicBool::new(false),
+            fallback_tick: AtomicU32::new(0),
+        }
+    }
+
+    /// Queues `job`. Returns a level for the capture thread to send itself
+    /// only when the worker is unavailable (the raw peak, every third buffer).
+    fn send(&self, job: MicMeterJob) -> Option<f32> {
+        use std::sync::mpsc::TrySendError;
+        let Some(sender) = self.sender.as_ref() else {
+            return self.fallback_level(&job.samples);
+        };
+        match sender.try_send(job) {
+            Ok(()) => None,
+            Err(TrySendError::Full(_)) => {
+                self.dropped.fetch_add(1, Ordering::Relaxed);
+                None
+            }
+            Err(TrySendError::Disconnected(job)) => self.fallback_level(&job.samples),
+        }
+    }
+
+    fn fallback_level(&self, samples: &[f32]) -> Option<f32> {
+        if !self.unavailable_logged.swap(true, Ordering::Relaxed) {
+            crate::logfile::diagnostic(
+                "[capture-health] mic meter worker unavailable; showing the raw mic level",
+            );
+        }
+        let tick = self.fallback_tick.fetch_add(1, Ordering::Relaxed);
+        (tick % 3 == 0).then(|| peak_level(samples))
+    }
+}
+
+/// The worker side: runs every queued buffer through `MicMeter` in order,
+/// starts over after dropped buffers (its mirrored state no longer matches),
+/// and returns every third level that is still fresh.
+struct MicMeterWorker {
+    meter: MicMeter,
+    dropped: Arc<AtomicU64>,
+    tick: u32,
+}
+
+impl MicMeterWorker {
+    fn new(dropped: Arc<AtomicU64>) -> Self {
+        Self {
+            meter: MicMeter::new(),
+            dropped,
+            tick: 0,
+        }
+    }
+
+    fn handle(&mut self, job: &MicMeterJob, now: Instant) -> Option<f32> {
+        if self.dropped.swap(0, Ordering::Relaxed) > 0 {
+            self.meter = MicMeter::new();
+        }
+        let level = self
+            .meter
+            .level(&job.samples, job.pts_seconds, &job.sources);
+        let tick = self.tick;
+        self.tick = self.tick.wrapping_add(1);
+        let fresh = now.saturating_duration_since(job.queued_at) <= MIC_METER_MAX_LEVEL_AGE;
+        (tick % 3 == 0 && fresh).then_some(level)
+    }
 }
 
 /// Runs the mic meter on its own thread: mirroring each writer's denoise and
 /// gain costs about 0.9% of a core per writer (`mic_meter_cpu_cost`), which
-/// stays off the ScreenCaptureKit callback. Every buffer is processed in
-/// order (the channel is unbounded), so the mirrored state stays exact; every
-/// third level is sent to the bar. The thread ends when the capture handler,
-/// which holds the senders, is dropped.
-fn spawn_mic_meter(app: AppHandle) -> std::sync::mpsc::Sender<MicMeterJob> {
-    let (sender, jobs) = std::sync::mpsc::channel::<MicMeterJob>();
+/// stays off the ScreenCaptureKit callback. The thread ends when the capture
+/// handler, which holds the sender, is dropped. A failed start or a panic is
+/// logged, and the capture side then shows the raw level.
+fn spawn_mic_meter(app: AppHandle) -> MicMeterQueue {
+    let (sender, jobs) = std::sync::mpsc::sync_channel::<MicMeterJob>(MIC_METER_QUEUE_BUFFERS);
+    let queue = MicMeterQueue::new(Some(sender));
+    let mut worker = MicMeterWorker::new(Arc::clone(&queue.dropped));
     let spawned = std::thread::Builder::new()
         .name("clips-mic-meter".into())
         .spawn(move || {
-            let mut meter = MicMeter::new();
-            for (tick, job) in jobs.into_iter().enumerate() {
-                let level = meter.level(&job.samples, job.pts_seconds, &job.sources);
-                if tick % 3 == 0 {
-                    let _ = app.emit(
-                        "voice:audio-level",
-                        serde_json::json!({ "level": level, "source": "mic" }),
-                    );
+            let run = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                for job in jobs {
+                    if let Some(level) = worker.handle(&job, Instant::now()) {
+                        let _ = app.emit(
+                            "voice:audio-level",
+                            serde_json::json!({ "level": level, "source": "mic" }),
+                        );
+                    }
                 }
+            }));
+            if run.is_err() {
+                crate::logfile::diagnostic("[capture-health] mic meter worker panicked");
             }
         });
-    if let Err(error) = spawned {
-        eprintln!("[mixer] mic meter thread failed to start: {error}");
+    match spawned {
+        Ok(_) => queue,
+        Err(error) => {
+            crate::logfile::diagnostic(&format!(
+                "[capture-health] mic meter worker failed to start: {error}"
+            ));
+            MicMeterQueue::new(None)
+        }
     }
-    sender
+}
+
+/// The mixer timeline as a mic buffer was pushed, taken under the mixer lock.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct MixerMicSnapshot {
+    pts_seconds: f64,
+    pause_offset_seconds: f64,
+    anchor_seconds: Option<f64>,
+    out_pos: i64,
 }
 
 /// A writer whose mic processing the meter mirrors.
@@ -2282,22 +2408,37 @@ struct MicMeterSource {
 }
 
 impl MicMeterSource {
-    /// `Some` when `writer` denoises and boosts the mic.
-    fn of(writer: &CustomScreenCaptureWriter) -> Option<Self> {
+    /// `Some` when `writer` denoises and boosts the mic and just pushed the
+    /// buffer at `pts_seconds` into its mixer.
+    fn pushed(writer: &CustomScreenCaptureWriter, pts_seconds: f64) -> Option<Self> {
         if !writer.applies_mic_auto_gain {
             return None;
         }
-        let (mixer_anchor_seconds, mixer_out_pos) = writer
-            .mixer
-            .as_ref()
-            .and_then(|mixer| mixer.lock().ok())
-            .map_or((None, 0), |mixer| (mixer.anchor_seconds, mixer.out_pos));
+        let snapshot = writer.mic_meter_snapshot.lock().ok()?.take();
+        Self::from_snapshot(
+            writer.meter_id,
+            writer.mixes_system_audio,
+            snapshot,
+            pts_seconds,
+        )
+    }
+
+    /// The source for the buffer at `pts_seconds`, if `snapshot` is from it;
+    /// a writer that skipped this buffer (not recording, sink paused) leaves
+    /// none, or an older one.
+    fn from_snapshot(
+        writer_id: u64,
+        mixes_system_audio: bool,
+        snapshot: Option<MixerMicSnapshot>,
+        pts_seconds: f64,
+    ) -> Option<Self> {
+        let snapshot = snapshot.filter(|snapshot| snapshot.pts_seconds == pts_seconds)?;
         Some(Self {
-            writer_id: writer.meter_id,
-            pause_offset_seconds: writer.pause_offset(),
-            mixes_system_audio: writer.mixes_system_audio,
-            mixer_anchor_seconds,
-            mixer_out_pos,
+            writer_id,
+            pause_offset_seconds: snapshot.pause_offset_seconds,
+            mixes_system_audio,
+            mixer_anchor_seconds: snapshot.anchor_seconds,
+            mixer_out_pos: snapshot.out_pos,
         })
     }
 }
@@ -4517,7 +4658,7 @@ pub(crate) fn start_custom_screencapturekit_backend_at(
         clip_sink: Arc::clone(&clip_sink),
         recording_enabled: Arc::clone(&recording_enabled),
         mic_ready: mic_ready.clone(),
-        mic_meter: spawn_mic_meter(app.clone()),
+        mic_meter: Arc::new(spawn_mic_meter(app.clone())),
         watch: Arc::clone(&watch),
     };
 
@@ -5395,20 +5536,101 @@ mod mic_meter_tests {
     }
 
     #[test]
-    fn only_writers_that_boost_and_save_are_metered() {
-        // Main writer mixes live with voice cleanup on and is recording.
-        assert_eq!(saving_mic_writers(Some(1), true, None), vec![1]);
-        // Main writer only buffers raw audio, but a live Clip sink boosts it.
-        assert_eq!(saving_mic_writers(None, true, Some(2)), vec![2]);
-        assert_eq!(saving_mic_writers(None, false, Some(2)), vec![2]);
-        // Both boost: both are tracked, the main writer shown.
-        assert_eq!(saving_mic_writers(Some(1), true, Some(2)), vec![1, 2]);
-        // A boosting main writer that is not recording yet saves nothing.
-        assert_eq!(saving_mic_writers(Some(1), false, None), Vec::<i32>::new());
-        // Nothing boosts: raw.
+    fn a_writer_is_metered_only_with_the_timeline_from_this_mic_push() {
+        let snapshot = MixerMicSnapshot {
+            pts_seconds: 12.5,
+            pause_offset_seconds: 1.0,
+            anchor_seconds: Some(10.0),
+            out_pos: 4_800,
+        };
+        // The writer pushed this buffer: its timeline, taken with the push.
         assert_eq!(
-            saving_mic_writers::<i32>(None, true, None),
-            Vec::<i32>::new()
+            MicMeterSource::from_snapshot(7, true, Some(snapshot), 12.5),
+            Some(MicMeterSource {
+                writer_id: 7,
+                pause_offset_seconds: 1.0,
+                mixes_system_audio: true,
+                mixer_anchor_seconds: Some(10.0),
+                mixer_out_pos: 4_800,
+            })
         );
+        // It skipped this buffer (not recording, sink paused): an older
+        // snapshot or none, so the writer is not metered for it.
+        assert_eq!(
+            MicMeterSource::from_snapshot(7, true, Some(snapshot), 12.51),
+            None
+        );
+        assert_eq!(MicMeterSource::from_snapshot(7, true, None, 12.5), None);
+    }
+
+    fn job(samples: Vec<f32>, pts_seconds: f64, queued_at: Instant) -> MicMeterJob {
+        MicMeterJob {
+            samples,
+            pts_seconds,
+            sources: vec![writer(1, 0.0)],
+            queued_at,
+        }
+    }
+
+    #[test]
+    fn the_meter_queue_is_bounded_and_the_worker_starts_over_after_drops() {
+        let (sender, jobs) = std::sync::mpsc::sync_channel(MIC_METER_QUEUE_BUFFERS);
+        let queue = MicMeterQueue::new(Some(sender));
+        let now = Instant::now();
+        for i in 0..MIC_METER_QUEUE_BUFFERS + 5 {
+            assert_eq!(queue.send(job(soft_speech(), i as f64 * 0.01, now)), None);
+        }
+        assert_eq!(jobs.try_iter().count(), MIC_METER_QUEUE_BUFFERS);
+        assert_eq!(queue.dropped.load(Ordering::Relaxed), 5);
+        // The worker drops its mirrored state on the next buffer it handles.
+        let mut worker = MicMeterWorker::new(Arc::clone(&queue.dropped));
+        let noise = background_noise(400);
+        for (i, buffer) in noise.iter().enumerate() {
+            worker.handle(&job(buffer.clone(), i as f64 * BUFFER_SECONDS, now), now);
+        }
+        assert!(worker.meter.writers[&1].auto_gain.levelled);
+        queue.dropped.fetch_add(1, Ordering::Relaxed);
+        worker.handle(&job(noise[0].clone(), AFTER_NOISE, now), now);
+        assert!(!worker.meter.writers[&1].auto_gain.levelled);
+        assert_eq!(queue.dropped.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn the_worker_sends_every_third_fresh_level_only() {
+        let mut worker = MicMeterWorker::new(Arc::new(AtomicU64::new(0)));
+        let queued = Instant::now();
+        let fresh = queued + MIC_METER_MAX_LEVEL_AGE;
+        let stale = queued + MIC_METER_MAX_LEVEL_AGE + Duration::from_millis(1);
+        let speech = soft_speech();
+        let sent: Vec<bool> = (0..6)
+            .map(|i| {
+                worker
+                    .handle(&job(speech.clone(), i as f64 * 0.01, queued), fresh)
+                    .is_some()
+            })
+            .collect();
+        assert_eq!(sent, [true, false, false, true, false, false]);
+        // A late level is not sent, but the buffer still advances the state.
+        let before = worker.meter.writers[&1].auto_gain.mean_square;
+        let late: Vec<f32> = speech.iter().copied().cycle().take(1024).collect();
+        assert_eq!(worker.handle(&job(late, 0.06, queued), stale), None);
+        assert_ne!(worker.meter.writers[&1].auto_gain.mean_square, before);
+    }
+
+    #[test]
+    fn without_the_worker_the_capture_side_sends_the_raw_level() {
+        // The worker failed to start.
+        let queue = MicMeterQueue::new(None);
+        let now = Instant::now();
+        let levels: Vec<Option<f32>> = (0..4)
+            .map(|i| queue.send(job(soft_speech(), i as f64 * 0.01, now)))
+            .collect();
+        assert_eq!(levels, [Some(0.01), None, None, Some(0.01)]);
+        assert!(queue.unavailable_logged.load(Ordering::Relaxed));
+        // The worker stopped: sends fail, and the same fallback applies.
+        let (sender, jobs) = std::sync::mpsc::sync_channel(MIC_METER_QUEUE_BUFFERS);
+        drop(jobs);
+        let queue = MicMeterQueue::new(Some(sender));
+        assert_eq!(queue.send(job(soft_speech(), 0.0, now)), Some(0.01));
     }
 }
