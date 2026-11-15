@@ -6741,7 +6741,9 @@ async function fetchWithTimeout(
   if (result.bodyValidationError) {
     if (result.status !== 429) {
       fail(
-        `Cannot save binary or invalid UTF-8 provider response (HTTP ${result.status}).`,
+        result.status >= 200 && result.status < 300
+          ? `${result.bodyValidationError.message} (HTTP ${result.status}).`
+          : `Cannot save binary or invalid UTF-8 provider response (HTTP ${result.status}).`,
         {
           errorCode: "provider_response_invalid",
           statusCode:
@@ -6907,7 +6909,7 @@ async function fetchProviderResponse(
       options.requireTextForSave,
     );
   } catch (error) {
-    if (res.ok || !(error instanceof ProviderResponseBodyValidationError)) {
+    if (!(error instanceof ProviderResponseBodyValidationError)) {
       throw error;
     }
     // The governor must observe 429 headers before this rejection escapes.
