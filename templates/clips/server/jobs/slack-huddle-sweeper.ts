@@ -3,17 +3,16 @@
  *
  * The Slack events webhook stores a huddle and answers Slack right away; the
  * participant fill (Slack profile lookups) runs after the response. This
- * sweep is its durable retry: it fills again from every huddle stored or
- * updated in the last two hours, which catches a fill that failed or was cut
- * off after the response, people Slack could not describe at the time (rate
- * limits, outages), a stop-time fill that left people pending, and shares
- * that did not go through. Every step is idempotent, and Slack profiles are
- * cached, so a sweep with nothing left to do makes no Slack calls.
+ * sweep is its durable retry: a huddle stays due (slack_huddles.next_fill_at)
+ * from the moment it is stored until a fill completes, and a fill that left
+ * people Slack could not describe, or a share that failed, makes it due again
+ * with exponential backoff (5 min doubling to 6 h, about a day of attempts).
+ * Every step is idempotent, and Slack profiles are cached.
  */
 
 import { claimLease } from "../lib/recording-leases.js";
 import { slackHuddleDeps } from "../lib/slack-huddle-oauth.js";
-import { sweepRecentSlackHuddles } from "../lib/slack-huddles-store.js";
+import { sweepDueSlackHuddles } from "../lib/slack-huddles-store.js";
 
 const SWEEP_INTERVAL_MS = 5 * 60 * 1000;
 // One instance per interval sweeps, like the thumbnail sweeper.
@@ -23,7 +22,7 @@ let skippingLogged = false;
 let running = false;
 
 export async function runSlackHuddleSweepOnce(): Promise<void> {
-  const result = await sweepRecentSlackHuddles(slackHuddleDeps());
+  const result = await sweepDueSlackHuddles(slackHuddleDeps());
   if (result.filled || result.pending || result.failed) {
     console.log(
       `[slack-huddle-sweeper] ${result.huddles} huddles: ${result.filled} participants added, ${result.pending} lookups pending, ${result.failed} failed.`,

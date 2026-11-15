@@ -757,6 +757,10 @@ export const slackHuddles = table(
     dateEnd: bigint("date_end", { mode: "number" }),
     startedBy: text("started_by"),
     participantIdsJson: text("participant_ids_json").notNull().default("[]"),
+    // When the sweep should fill again (null: nothing pending). Set when the
+    // huddle is stored and when a fill leaves people or shares pending.
+    nextFillAt: text("next_fill_at"),
+    fillAttempts: integer("fill_attempts").notNull().default(0),
     createdAt: text("created_at").notNull().default(now()),
     updatedAt: text("updated_at").notNull().default(now()),
   },

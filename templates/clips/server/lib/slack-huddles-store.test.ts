@@ -15,9 +15,10 @@ import {
   fillMeetingsForHuddle,
   fillSlackHuddleParticipantsForMeeting,
   handleSlackHuddleEvent,
-  HUDDLE_SWEEP_WINDOW_MS,
+  HUDDLE_FILL_MAX_ATTEMPTS,
+  HUDDLE_FILL_RETRY_BASE_MS,
   storeSlackHuddleEvent,
-  sweepRecentSlackHuddles,
+  sweepDueSlackHuddles,
   huddleParticipantId,
   insertHuddleParticipants,
   upsertSlackHuddle,
@@ -82,6 +83,8 @@ const DDL = `
     date_end BIGINT,
     started_by TEXT,
     participant_ids_json TEXT NOT NULL DEFAULT '[]',
+    next_fill_at TEXT,
+    fill_attempts INTEGER NOT NULL DEFAULT 0,
     created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
     updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
   );
@@ -431,15 +434,27 @@ describe("huddle participants reported after the meeting was shared", () => {
   });
 });
 
-describe("storeSlackHuddleEvent + sweepRecentSlackHuddles", () => {
-  it("stores the huddle without calling Slack, and the sweep fills it later", async () => {
+type FillState = { next_fill_at: string | null; fill_attempts: number };
+
+async function fillState(): Promise<FillState> {
+  const [row] = await rows<FillState>(
+    `SELECT next_fill_at, fill_attempts FROM slack_huddles`,
+  );
+  return row;
+}
+
+const SOON = () => Date.now() + HUDDLE_FILL_RETRY_BASE_MS + 60_000;
+
+describe("storeSlackHuddleEvent + sweepDueSlackHuddles", () => {
+  it("stores the huddle without calling Slack, keeps it due until the sweep fills it", async () => {
     const event = huddleEvent({ history: ["U0OWNER", "U0ANNA"] });
     const stored = await storeSlackHuddleEvent(deps, event);
     expect(stored?.participantIds).toEqual(["U0OWNER", "U0ANNA"]);
     expect(fetchImpl).not.toHaveBeenCalled();
     expect(await participants()).toEqual([]);
+    expect((await fillState()).next_fill_at).not.toBeNull();
 
-    const swept = await sweepRecentSlackHuddles(deps);
+    const swept = await sweepDueSlackHuddles(deps);
     expect(swept).toMatchObject({
       huddles: 1,
       filled: 2,
@@ -450,9 +465,14 @@ describe("storeSlackHuddleEvent + sweepRecentSlackHuddles", () => {
       "anna@example.test",
       "nevil@example.test",
     ]);
+    // Complete: no longer due.
+    expect(await fillState()).toEqual({ next_fill_at: null, fill_attempts: 0 });
+    expect(await sweepDueSlackHuddles(deps, SOON())).toMatchObject({
+      huddles: 0,
+    });
   });
 
-  it("retries a fill that failed after the webhook answered", async () => {
+  it("retries a failed fill with backoff until it completes", async () => {
     const event = huddleEvent({ history: ["U0OWNER", "U0ANNA"] });
     const huddle = await storeSlackHuddleEvent(deps, event);
     const failing = {
@@ -461,35 +481,86 @@ describe("storeSlackHuddleEvent + sweepRecentSlackHuddles", () => {
         throw new Error("secret store unavailable");
       },
     };
+    const before = Date.now();
     await expect(fillMeetingsForHuddle(failing, huddle!)).rejects.toThrow(
       "secret store unavailable",
     );
-    expect(await sweepRecentSlackHuddles(failing)).toMatchObject({
+    const first = await fillState();
+    expect(first.fill_attempts).toBe(1);
+    expect(Date.parse(first.next_fill_at!)).toBeGreaterThanOrEqual(
+      before + HUDDLE_FILL_RETRY_BASE_MS,
+    );
+    // Not due yet; due after the backoff.
+    expect(await sweepDueSlackHuddles(deps)).toMatchObject({ huddles: 0 });
+    expect(await sweepDueSlackHuddles(failing, SOON())).toMatchObject({
       huddles: 1,
       failed: 1,
     });
-    expect(await participants()).toEqual([]);
+    const second = await fillState();
+    expect(second.fill_attempts).toBe(2);
+    expect(Date.parse(second.next_fill_at!) - Date.now()).toBeGreaterThan(
+      2 * HUDDLE_FILL_RETRY_BASE_MS - 60_000,
+    );
 
-    expect(await sweepRecentSlackHuddles(deps)).toMatchObject({
-      filled: 2,
-      failed: 0,
-    });
+    expect(
+      await sweepDueSlackHuddles(
+        deps,
+        Date.now() + 3 * HUDDLE_FILL_RETRY_BASE_MS,
+      ),
+    ).toMatchObject({ filled: 2, failed: 0 });
+    expect(await fillState()).toEqual({ next_fill_at: null, fill_attempts: 0 });
   });
 
-  it("leaves huddles older than the sweep window alone", async () => {
-    await storeSlackHuddleEvent(deps, huddleEvent({ history: ["U0OWNER"] }));
-    const later = Date.now() + HUDDLE_SWEEP_WINDOW_MS + 60_000;
-    expect(await sweepRecentSlackHuddles(deps, later)).toMatchObject({
-      huddles: 0,
+  it("retries a failed share too", async () => {
+    let shareFails = true;
+    deps.onHuddleParticipants = async () => {
+      if (shareFails) throw new Error("share failed");
+    };
+    const huddle = await storeSlackHuddleEvent(
+      deps,
+      huddleEvent({ history: ["U0OWNER", "U0ANNA"] }),
+    );
+    await expect(fillMeetingsForHuddle(deps, huddle!)).rejects.toThrow(
+      "share failed",
+    );
+    expect((await fillState()).fill_attempts).toBe(1);
+    shareFails = false;
+    expect(await sweepDueSlackHuddles(deps, SOON())).toMatchObject({
+      huddles: 1,
+      failed: 0,
+    });
+    expect((await fillState()).next_fill_at).toBeNull();
+  });
+
+  it("gives up after the last attempt", async () => {
+    const huddle = await storeSlackHuddleEvent(
+      deps,
+      huddleEvent({ history: ["U0OWNER", "U0ANNA"] }),
+    );
+    await client.exec(
+      `UPDATE slack_huddles SET fill_attempts = ${HUDDLE_FILL_MAX_ATTEMPTS - 1}`,
+    );
+    deps.readToken = async () => {
+      throw new Error("secret store unavailable");
+    };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await expect(fillMeetingsForHuddle(deps, huddle!)).rejects.toThrow();
+    warn.mockRestore();
+    expect(await fillState()).toEqual({
+      next_fill_at: null,
+      fill_attempts: HUDDLE_FILL_MAX_ATTEMPTS,
     });
   });
 });
 
 describe("fillSlackHuddleParticipantsForMeeting", () => {
-  it("adds the people Slack described at stop, and the sweep adds the rest", async () => {
+  it("keeps a huddle with people pending at stop due, however old, until the sweep adds them", async () => {
+    // Stored three days ago and long filled: only the stop-time fill makes
+    // it due again.
+    const old = new Date(Date.now() - 3 * 24 * 60 * 60 * 1000).toISOString();
     await client.exec(`
-      INSERT INTO slack_huddles (id, team_id, channel_id, message_ts, date_start, date_end, started_by, participant_ids_json, updated_at)
-      VALUES ('h1', 'T0TEAM', 'C0CGLR8LS6P', '1794473298.000100', 1794473298, 1794475234, 'U0OWNER', '["U0OWNER","U0ANNA","U0BOB"]', '${new Date().toISOString()}');
+      INSERT INTO slack_huddles (id, team_id, channel_id, message_ts, date_start, date_end, started_by, participant_ids_json, updated_at, next_fill_at)
+      VALUES ('h1', 'T0TEAM', 'C0CGLR8LS6P', '1794473298.000100', 1794473298, 1794475234, 'U0OWNER', '["U0OWNER","U0ANNA","U0BOB"]', '${old}', NULL);
     `);
     let limited = true;
     const answer = fetchImpl.getMockImplementation() as (
@@ -500,17 +571,32 @@ describe("fillSlackHuddleParticipantsForMeeting", () => {
         ? new Response("upstream error", { status: 503 })
         : answer(url),
     );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
 
     expect(
       await fillSlackHuddleParticipantsForMeeting(deps, "huddle-meeting"),
     ).toBe(2);
+    expect((await fillState()).fill_attempts).toBe(1);
+    // Still failing on the first retry: due again, later.
+    expect(await sweepDueSlackHuddles(deps, SOON())).toMatchObject({
+      pending: 1,
+    });
+    expect((await fillState()).fill_attempts).toBe(2);
+
     limited = false;
-    expect(await sweepRecentSlackHuddles(deps)).toMatchObject({ filled: 1 });
+    expect(
+      await sweepDueSlackHuddles(
+        deps,
+        Date.now() + 3 * HUDDLE_FILL_RETRY_BASE_MS,
+      ),
+    ).toMatchObject({ filled: 1, pending: 0 });
+    warn.mockRestore();
     expect((await participants()).map((p) => p.email)).toEqual([
       "anna@example.test",
       "bob@example.test",
       "nevil@example.test",
     ]);
+    expect((await fillState()).next_fill_at).toBeNull();
   });
 
   it("fills a stopped Slack meeting from a huddle stored earlier, idempotently", async () => {
