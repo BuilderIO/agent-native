@@ -2230,25 +2230,6 @@ fn mic_meter_follows_recording_gain(
     (main_writer_applies_gain && main_writer_recording) || live_clip_sink_applies_gain == Some(true)
 }
 
-/// The meter gain for a quiet mic. The recording boosts it up to
-/// `MIC_AGC_MAX_GAIN` (see `MicAutoGain`) when voice cleanup is on, so the
-/// meter applies a matching gain: otherwise a mic that records fine looks
-/// silent and the bar warns "No mic sound". Digital silence stays at zero.
-fn next_meter_gain(gain: f32, rms: f32) -> f32 {
-    if !gain.is_finite() || gain < MIC_AGC_MIN_GAIN {
-        return MIC_AGC_MIN_GAIN;
-    }
-    if rms < MIC_AGC_NOISE_FLOOR_RMS {
-        return gain;
-    }
-    let target = (MIC_AGC_TARGET_RMS / rms).clamp(MIC_AGC_MIN_GAIN, MIC_AGC_MAX_GAIN);
-    if target < gain {
-        target
-    } else {
-        gain + (target - gain) * 0.1
-    }
-}
-
 /// The writer whose mic processing the meter mirrors, and its pause offset.
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct MicMeterSource {
@@ -2282,7 +2263,10 @@ impl MicMeterSource {
 /// gain stage.
 struct MicMeter {
     denoiser: MicDenoiser,
-    gain: f32,
+    /// The recording's own gain stage (`MicAutoGain`, same parameters), fed
+    /// the same denoised samples, so the meter's boost follows the saved
+    /// audio's warmup, duck and boost timing exactly.
+    auto_gain: MicAutoGain,
     last_level: f32,
     source: Option<MicMeterSource>,
 }
@@ -2291,7 +2275,7 @@ impl MicMeter {
     fn new() -> Self {
         Self {
             denoiser: MicDenoiser::new(),
-            gain: MIC_AGC_MIN_GAIN,
+            auto_gain: MicAutoGain::for_meter(AUDIO_OUTPUT_SAMPLE_RATE as i32),
             last_level: 0.0,
             source: None,
         }
@@ -2304,7 +2288,7 @@ impl MicMeter {
 
     fn restart(&mut self) {
         self.restart_denoiser();
-        self.gain = MIC_AGC_MIN_GAIN;
+        self.auto_gain = MicAutoGain::for_meter(AUDIO_OUTPUT_SAMPLE_RATE as i32);
     }
 
     /// `mono` is 48 kHz mono mic audio starting at `pts_seconds` (the source
@@ -2347,15 +2331,14 @@ impl MicMeter {
         self.last_level
     }
 
-    /// Peak level of `samples` after the meter gain, which it also updates.
+    /// Peak level of denoised mono `samples` after the recording's mic gain,
+    /// applied per sample as `MixGainStage` does (its mic channels are equal).
     fn boosted_level(&mut self, samples: &[f32]) -> f32 {
-        if samples.is_empty() {
-            return 0.0;
-        }
-        let sum: f32 = samples.iter().map(|sample| sample * sample).sum();
-        let rms = (sum / samples.len() as f32).sqrt();
-        self.gain = next_meter_gain(self.gain, rms);
-        (peak_level(samples) * self.gain).min(1.0)
+        samples
+            .iter()
+            .map(|&sample| (sample * self.auto_gain.next_gain(sample, sample)).abs())
+            .fold(0.0_f32, f32::max)
+            .min(1.0)
     }
 }
 
@@ -2376,11 +2359,22 @@ struct MicAutoGain {
     warmup_coefficient: f32,
     duck_coefficient: f32,
     boost_coefficient: f32,
+    log_levelled: bool,
 }
 
 impl MicAutoGain {
+    /// The mic meter's copy of the recording's gain stage: identical, but it
+    /// doesn't log, so the capture-health log only reports the recording.
+    fn for_meter(sample_rate: i32) -> Self {
+        Self {
+            log_levelled: false,
+            ..Self::new(sample_rate)
+        }
+    }
+
     fn new(sample_rate: i32) -> Self {
         Self {
+            log_levelled: true,
             mean_square: 0.0,
             gain: 1.0,
             levelled: false,
@@ -2408,11 +2402,13 @@ impl MicAutoGain {
             if !self.levelled && (self.gain - target).abs() <= target * MIC_AGC_CONVERGED_TOLERANCE
             {
                 self.levelled = true;
-                crate::logfile::diagnostic(&format!(
-                    "[capture-health] mic auto-gain levelled: rms={rms:.6} gain={:.2} capped={}",
-                    self.gain,
-                    self.gain >= MIC_AGC_MAX_GAIN * 0.99
-                ));
+                if self.log_levelled {
+                    crate::logfile::diagnostic(&format!(
+                        "[capture-health] mic auto-gain levelled: rms={rms:.6} gain={:.2} capped={}",
+                        self.gain,
+                        self.gain >= MIC_AGC_MAX_GAIN * 0.99
+                    ));
+                }
             }
         }
         self.gain
@@ -4982,11 +4978,12 @@ mod mic_meter_tests {
         let mut meter = MicMeter::new();
         let speech = soft_speech();
         let mut level = 0.0;
-        for _ in 0..60 {
+        // About 3 s: past MicAutoGain's warmup and boost time constants.
+        for _ in 0..300 {
             level = meter.boosted_level(&speech);
         }
         assert!(level >= 0.05, "level {level}");
-        assert!(meter.gain <= MIC_AGC_MAX_GAIN);
+        assert!(meter.auto_gain.gain <= MIC_AGC_MAX_GAIN);
     }
 
     #[test]
@@ -5064,7 +5061,8 @@ mod mic_meter_tests {
         // The saved mic goes raw: raw peak, and learned state and gain dropped.
         let mut meter = settled_meter(&noise, source(1, 0.0));
         assert_eq!(meter.level(&soft_speech(), next_pts, None), 0.01);
-        assert_eq!(meter.gain, MIC_AGC_MIN_GAIN);
+        assert_eq!(meter.auto_gain.gain, MIC_AGC_MIN_GAIN);
+        assert!(!meter.auto_gain.levelled);
         assert_eq!(meter.source, None);
         let boosting_again = meter.level(&noise[0], next_pts + BUFFER_SECONDS, source(1, 0.0));
         assert!(
@@ -5089,7 +5087,32 @@ mod mic_meter_tests {
 
     #[test]
     fn a_loud_voice_is_not_boosted() {
-        assert_eq!(next_meter_gain(4.0, 0.3), MIC_AGC_MIN_GAIN);
-        assert_eq!(next_meter_gain(f32::NAN, 0.01), MIC_AGC_MIN_GAIN);
+        let mut meter = MicMeter::new();
+        let loud: Vec<f32> = (0..480)
+            .map(|i| if i % 2 == 0 { 0.3 } else { -0.3 })
+            .collect();
+        // The envelope starts at zero, so the first buffers get a small lift
+        // (as in the recording); once it settles the gain returns to unity.
+        let levels: Vec<f32> = (0..300).map(|_| meter.boosted_level(&loud)).collect();
+        assert!(levels.iter().all(|&level| level <= 0.33), "{levels:?}");
+        assert!((levels[299] - 0.3).abs() < 0.001, "settled {}", levels[299]);
+    }
+
+    #[test]
+    fn meter_gain_follows_the_recordings_gain_stage_sample_for_sample() {
+        // Silence, then a quiet voice starting: the onset where a faster meter
+        // gain would hide the warning while the saved audio is still quiet.
+        let mut signal = vec![0.0_f32; 48_000];
+        signal.extend(soft_speech().iter().copied().cycle().take(3 * 48_000));
+        let mut meter = MicMeter::new();
+        let mut recording = MixGainStage::new(AUDIO_OUTPUT_SAMPLE_RATE as i32, true);
+        for buffer in signal.chunks(1024) {
+            let saved_peak = buffer
+                .iter()
+                .map(|&sample| recording.frame((0.0, 0.0), (sample, sample)).0.abs())
+                .fold(0.0_f32, f32::max);
+            assert_eq!(meter.boosted_level(buffer), saved_peak);
+        }
+        assert_eq!(meter.auto_gain.gain, recording.mic.gain);
     }
 }
