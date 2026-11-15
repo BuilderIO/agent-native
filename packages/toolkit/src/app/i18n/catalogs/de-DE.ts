@@ -2411,12 +2411,15 @@ const messages: ToolkitAgentChatTranslation = {
     "Beispieldaten in diesem Browser für Präsentationen verwenden.",
   "settingsShell.appGroup.labsFootnote":
     "Diese neuen, instabilen Funktionen können Fehler enthalten.",
+  "settingsShell.appGroup.labsHostDecided":
+    "Diese Einstellung wird für dich festgelegt und kann hier nicht geändert werden.",
   "settingsShell.appGroup.labsLoadError":
     "Deine Labs konnten nicht geladen werden.",
   "settingsShell.appGroup.labsReadError":
     "Die gespeicherte Auswahl konnte nicht gelesen werden. Wähle Ein oder Aus, um sie erneut festzulegen.",
   "settingsShell.appGroup.labsSaveError":
     "{{lab}} konnte nicht geändert werden. Versuche es erneut.",
+  "settingsShell.appGroup.labsUseDefault": "Standard verwenden",
   "settingsShell.appGroup.mcpAbout":
     "Verbinde {{app}} mit Claude, ChatGPT, Cursor oder einer anderen KI-App, die MCP unterstützt. Diese App kann dann in {{app}} für dich arbeiten. Sie sieht nur, was du sehen kannst.",
   "settingsShell.appGroup.mcpAppCards": "App-Karten in Chat-Apps",

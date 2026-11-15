@@ -3,6 +3,12 @@
 All notable user-facing changes to Agent-Native Content are documented here. Open it any
 time from the command menu (Cmd+K → "What's new").
 
+## 2026-11-14
+
+### Fixed
+
+- When Content can't check whether Clips in pages are turned on, a Clip says so and offers Try again, instead of saying Clips are turned off.
+
 ## 2026-11-10
 
 ### Fixed

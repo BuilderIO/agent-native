@@ -3,6 +3,12 @@
 All notable user-facing changes to Design are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-14
+
+### Fixed
+
+- Labs that Builder decides for you show as set and can't be switched, instead of showing a choice that wasn't applied. A Lab you changed can go back to its default with Use default.
+
 ## 2026-11-12
 
 ### Improved

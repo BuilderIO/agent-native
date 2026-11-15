@@ -52,8 +52,12 @@ function errorCodeOf(error: unknown): ClipPlaybackErrorCode | null {
   return isClipPlaybackErrorCode(code) ? code : null;
 }
 
-/** Clips didn't answer, or asked to be asked later: the next try may work. */
+/**
+ * Clips didn't answer or asked to be asked later, or Content couldn't read its
+ * flag: the next try may work.
+ */
 const OUTAGES = new Set<ClipPlayerError>([
+  "clip_embed_unavailable",
   "clips_unreachable",
   "clip_rate_limited",
   "refresh_failed",

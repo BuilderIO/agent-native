@@ -2288,11 +2288,14 @@ const messages: ToolkitAgentChatTranslation = {
     "プレゼンテーション用に、このブラウザでサンプルデータを使用します。",
   "settingsShell.appGroup.labsFootnote":
     "これらの新しい不安定な機能にはバグがある可能性があります。",
+  "settingsShell.appGroup.labsHostDecided":
+    "この設定はあらかじめ決められているため、ここでは変更できません。",
   "settingsShell.appGroup.labsLoadError": "ラボを読み込めませんでした。",
   "settingsShell.appGroup.labsReadError":
     "保存された設定を読み込めませんでした。オンまたはオフを選んで設定し直してください。",
   "settingsShell.appGroup.labsSaveError":
     "{{lab}} を変更できませんでした。もう一度お試しください。",
+  "settingsShell.appGroup.labsUseDefault": "デフォルトを使用",
   "settingsShell.appGroup.mcpAbout":
     "{{app}} を Claude、ChatGPT、Cursor など、MCP に対応した AI アプリに接続します。接続したアプリは、あなたに代わって {{app}} で作業できます。アプリが見られるのは、あなたが見られるものだけです。",
   "settingsShell.appGroup.mcpAppCards": "チャットアプリでのアプリカード",

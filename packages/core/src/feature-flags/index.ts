@@ -13,6 +13,7 @@ export {
   defaultFeatureFlagRules,
   evaluateFeatureFlag,
   evaluateFeatureFlagRules,
+  evaluateFeatureFlagStrict,
   FeatureFlagRulesError,
   hasActiveFeatureFlagRollout,
   isFeatureFlagEnabled,

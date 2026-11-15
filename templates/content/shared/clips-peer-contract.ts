@@ -89,6 +89,8 @@ export const CONTENT_CLIP_NOT_CONFIGURED = "content_clips_not_configured";
 export const CLIP_PLAYBACK_ERRORS = {
   /** The Clip block's flag is off for this reader. */
   disabled: "clip_embed_disabled",
+  /** The Clip block's flag couldn't be read, so Content can't say it's on. */
+  flagUnavailable: "clip_embed_unavailable",
   /** The page doesn't exist or the reader can't read it. */
   documentNotFound: "document_not_found",
   /** This Content or Clips deployment has no usable peer secret. */
@@ -243,6 +245,7 @@ export const CONTENT_CLIP_UPLOAD_KEY = /^[A-Za-z0-9_-]{16,64}$/;
  */
 export const CLIP_UPLOAD_ERRORS = {
   disabled: CLIP_PLAYBACK_ERRORS.disabled,
+  flagUnavailable: CLIP_PLAYBACK_ERRORS.flagUnavailable,
   documentNotFound: CLIP_PLAYBACK_ERRORS.documentNotFound,
   /** The caller can read the page but not edit it. */
   editRequired: "document_edit_required",

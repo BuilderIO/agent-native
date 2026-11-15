@@ -219,6 +219,50 @@ describe("useLabState / useLab / useLabs session gating", () => {
     expect(state).toMatchObject({ isError: false, enabled: true });
   });
 
+  it("reads a bare-key lab as off once its state can't be read, and a definition as its default", async () => {
+    sessionMocks.useSession.mockReturnValue({ status: "authenticated" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        new Response(JSON.stringify({ error: "unavailable" }), {
+          status: 400,
+          headers: { "Content-Type": "application/json" },
+        }),
+      ),
+    );
+
+    const results: Record<string, boolean> = {};
+    function Probe() {
+      results.bareKey = useLab("voice");
+      results.definition = useLab({ key: "voice", defaultEnabled: true });
+      return null;
+    }
+
+    await mountProbe(Probe);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
+
+    expect(results).toEqual({ bareKey: false, definition: true });
+  });
+
+  it("reads a bare-key lab as on while a signed-in answer is on its way", async () => {
+    sessionMocks.useSession.mockReturnValue({ status: "authenticated" });
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => new Promise<Response>(() => {})),
+    );
+
+    let lab: boolean | undefined;
+    function Probe() {
+      lab = useLab("voice");
+      return null;
+    }
+
+    await mountProbe(Probe);
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 10)));
+
+    expect(lab).toBe(true);
+  });
+
   it("reports isLoading while the session itself is still resolving", async () => {
     sessionMocks.useSession.mockReturnValue({ status: "loading" });
     vi.stubGlobal("fetch", vi.fn());

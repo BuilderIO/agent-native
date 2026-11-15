@@ -3,6 +3,12 @@
 All notable user-facing changes to Clips are documented here. Open it any time
 from the command menu (Cmd+K → "What's new") or from Settings.
 
+## 2026-11-14
+
+### Improved
+
+- A Lab you changed can go back to its default with Use default in Settings › Labs, so it follows later rollouts again.
+
 ## 2026-11-12
 
 ### Improved

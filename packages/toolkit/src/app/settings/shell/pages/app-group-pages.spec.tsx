@@ -36,6 +36,7 @@ const labsActions = vi.hoisted(() => ({
   query: { data: undefined as LabStates | undefined },
   isError: false,
   mutate: vi.fn(),
+  refetch: vi.fn(),
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
   useDemoModeStatus: () => ({
@@ -50,7 +51,7 @@ vi.mock("@agent-native/core/client/use-action", () => ({
     data: labsActions.query.data,
     isLoading: labsActions.query.data === undefined && !labsActions.isError,
     isError: labsActions.isError,
-    refetch: vi.fn(),
+    refetch: labsActions.refetch,
   }),
   useActionMutation: () => ({
     mutate: labsActions.mutate,
@@ -195,6 +196,7 @@ describe("app group pages", () => {
     header = null;
     labsActions.query.data = undefined;
     labsActions.isError = false;
+    labsActions.refetch.mockReset();
     orgState.value = { orgId: "org-1", orgName: "Builder.io", role: "member" };
     jobsTab.props = null;
     changelogCard.props = null;
@@ -531,6 +533,94 @@ describe("app group pages", () => {
           modelConfigChanged,
         );
       }
+    });
+
+    it("shows a lab the host decides as set, and doesn't let it change", async () => {
+      labsActions.query.data = {
+        "clips.wisprflow": { enabled: false, source: "default", mixed: false },
+        "clips.meetings": { enabled: true, source: "host", mixed: false },
+      };
+      await renderPage(LabsSettingsPage, { input: { labs } });
+      const hosted = switchFor("Meetings and transcription");
+      expect(hosted?.getAttribute("aria-checked")).toBe("true");
+      expect(hosted?.disabled).toBe(true);
+      expect(switchFor("Voice dictation")?.disabled).toBe(false);
+      expect(container.textContent).toContain(
+        "This one is set for you, so it can't be changed here.",
+      );
+      expect(
+        container.querySelector(
+          '[aria-label="Meetings and transcription: Use default"]',
+        ),
+      ).toBeNull();
+    });
+
+    it("shows what the server applies once a save reads back, not the choice", async () => {
+      labsActions.query.data = {
+        "clips.meetings": { enabled: false, source: "default", mixed: false },
+      };
+      await renderPage(LabsSettingsPage, { input: { labs } });
+      const toggle = switchFor("Meetings and transcription");
+      act(() => toggle?.click());
+      expect(toggle?.getAttribute("aria-checked")).toBe("true");
+
+      labsActions.query.data = {
+        "clips.meetings": { enabled: false, source: "host", mixed: false },
+      };
+      labsActions.refetch.mockResolvedValue({ isSuccess: true });
+      const [, options] = labsActions.mutate.mock.calls[0] ?? [];
+      act(() => {
+        (options as { onSuccess?: () => void } | undefined)?.onSuccess?.();
+      });
+      await flush();
+
+      expect(labsActions.refetch).toHaveBeenCalled();
+      expect(
+        switchFor("Meetings and transcription")?.getAttribute("aria-checked"),
+      ).toBe("false");
+    });
+
+    it("keeps the saved choice showing when its read-back fails", async () => {
+      labsActions.query.data = {
+        "clips.meetings": { enabled: false, source: "default", mixed: false },
+      };
+      await renderPage(LabsSettingsPage, { input: { labs } });
+      const toggle = switchFor("Meetings and transcription");
+      act(() => toggle?.click());
+
+      labsActions.refetch.mockResolvedValue({ isSuccess: false });
+      const [, options] = labsActions.mutate.mock.calls[0] ?? [];
+      act(() => {
+        (options as { onSuccess?: () => void } | undefined)?.onSuccess?.();
+      });
+      await flush();
+
+      expect(toggle?.getAttribute("aria-checked")).toBe("true");
+    });
+
+    it("clears a saved choice with Use default, and offers it only for a saved choice", async () => {
+      labsActions.query.data = {
+        "clips.wisprflow": { enabled: false, source: "choice", mixed: false },
+        "clips.meetings": { enabled: false, source: "default", mixed: false },
+      };
+      await renderPage(LabsSettingsPage, { input: { labs } });
+      expect(
+        container.querySelector(
+          '[aria-label="Meetings and transcription: Use default"]',
+        ),
+      ).toBeNull();
+      const reset = container.querySelector<HTMLButtonElement>(
+        '[aria-label="Voice dictation: Use default"]',
+      );
+      expect(reset?.disabled).toBe(false);
+      act(() => reset?.click());
+      expect(labsActions.mutate).toHaveBeenCalledWith(
+        { key: "clips.wisprflow", enabled: null },
+        expect.any(Object),
+      );
+      expect(switchFor("Voice dictation")?.getAttribute("aria-checked")).toBe(
+        "false",
+      );
     });
 
     it("offers explicit choices for inherited mixed settings", async () => {

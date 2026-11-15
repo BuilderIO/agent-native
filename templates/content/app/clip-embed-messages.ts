@@ -23,6 +23,8 @@ const en = {
   commentsTruncated: "Showing the first {{count}} comments",
   notFound: "This Clip isn't available, or you don't have access.",
   disabled: "Clips in pages aren't turned on.",
+  flagUnavailable:
+    "Couldn't check whether Clips in pages are turned on. Try again.",
   notConfigured: "Clips isn't connected to Content here.",
   expired: "This Clip has expired.",
   passwordRequired: "This Clip has a password. Open it in Clips to watch.",
@@ -109,6 +111,8 @@ const translations: Record<
     commentsTruncated: "Se muestran los primeros {{count}} comentarios",
     notFound: "Este clip no está disponible o no tienes acceso.",
     disabled: "Los clips en páginas no están activados.",
+    flagUnavailable:
+      "No se pudo comprobar si los clips en páginas están activados. Inténtalo de nuevo.",
     notConfigured: "Clips no está conectado a Content aquí.",
     expired: "Este clip ha caducado.",
     passwordRequired: "Este clip tiene contraseña. Ábrelo en Clips para verlo.",
@@ -192,6 +196,8 @@ const translations: Record<
     commentsTruncated: "Affichage des {{count}} premiers commentaires",
     notFound: "Ce clip n’est pas disponible, ou vous n’y avez pas accès.",
     disabled: "Les clips dans les pages ne sont pas activés.",
+    flagUnavailable:
+      "Impossible de vérifier si les clips dans les pages sont activés. Réessayez.",
     notConfigured: "Clips n’est pas connecté à Content ici.",
     expired: "Ce clip a expiré.",
     passwordRequired:
@@ -277,6 +283,8 @@ const translations: Record<
     commentsTruncated: "Die ersten {{count}} Kommentare werden angezeigt",
     notFound: "Dieser Clip ist nicht verfügbar, oder du hast keinen Zugriff.",
     disabled: "Clips in Seiten sind nicht aktiviert.",
+    flagUnavailable:
+      "Es konnte nicht geprüft werden, ob Clips in Seiten aktiviert sind. Versuche es erneut.",
     notConfigured: "Clips ist hier nicht mit Content verbunden.",
     expired: "Dieser Clip ist abgelaufen.",
     passwordRequired:
@@ -361,6 +369,8 @@ const translations: Record<
     commentsTruncated: "Mostrando os primeiros {{count}} comentários",
     notFound: "Este clip não está disponível ou você não tem acesso.",
     disabled: "Clips em páginas não estão ativados.",
+    flagUnavailable:
+      "Não foi possível verificar se os Clips em páginas estão ativados. Tente novamente.",
     notConfigured: "O Clips não está conectado ao Content aqui.",
     expired: "Este clip expirou.",
     passwordRequired: "Este clip tem senha. Abra-o no Clips para assistir.",
@@ -444,6 +454,7 @@ const translations: Record<
     commentsTruncated: "仅显示前 {{count}} 条评论",
     notFound: "此片段不可用，或你没有访问权限。",
     disabled: "页面中的片段功能尚未开启。",
+    flagUnavailable: "无法确认页面中的片段功能是否已开启。请重试。",
     notConfigured: "此处的 Content 尚未连接 Clips。",
     expired: "此片段已过期。",
     passwordRequired: "此片段设有密码。请在 Clips 中打开观看。",
@@ -519,6 +530,7 @@ const translations: Record<
     commentsTruncated: "僅顯示前 {{count}} 則留言",
     notFound: "此片段無法使用，或你沒有存取權限。",
     disabled: "頁面中的片段功能尚未開啟。",
+    flagUnavailable: "無法確認頁面中的片段功能是否已開啟。請再試一次。",
     notConfigured: "此處的 Content 尚未連接 Clips。",
     expired: "此片段已過期。",
     passwordRequired: "此片段設有密碼。請在 Clips 中開啟觀看。",
@@ -594,6 +606,8 @@ const translations: Record<
     commentsTruncated: "最初の {{count}} 件のコメントを表示しています",
     notFound: "このクリップは利用できないか、アクセス権がありません。",
     disabled: "ページ内のクリップは有効になっていません。",
+    flagUnavailable:
+      "ページ内のクリップが有効かどうかを確認できませんでした。もう一度お試しください。",
     notConfigured: "ここでは Clips が Content に接続されていません。",
     expired: "このクリップは期限切れです。",
     passwordRequired:
@@ -678,6 +692,8 @@ const translations: Record<
     commentsTruncated: "처음 {{count}}개의 댓글만 표시합니다",
     notFound: "이 클립을 사용할 수 없거나 접근 권한이 없습니다.",
     disabled: "페이지의 클립 기능이 켜져 있지 않습니다.",
+    flagUnavailable:
+      "페이지의 클립 기능이 켜져 있는지 확인할 수 없습니다. 다시 시도하세요.",
     notConfigured: "여기서는 Clips가 Content에 연결되어 있지 않습니다.",
     expired: "이 클립은 만료되었습니다.",
     passwordRequired:
@@ -757,6 +773,8 @@ const translations: Record<
     commentsTruncated: "पहली {{count}} टिप्पणियां दिखाई जा रही हैं",
     notFound: "यह क्लिप उपलब्ध नहीं है, या आपके पास इसकी पहुंच नहीं है।",
     disabled: "पेजों में क्लिप चालू नहीं हैं।",
+    flagUnavailable:
+      "पता नहीं चल सका कि पेजों में क्लिप चालू हैं या नहीं। फिर से कोशिश करें।",
     notConfigured: "यहां Clips, Content से जुड़ा नहीं है।",
     expired: "इस क्लिप की समय-सीमा खत्म हो गई है।",
     passwordRequired: "इस क्लिप पर पासवर्ड है। देखने के लिए इसे Clips में खोलें।",
@@ -837,6 +855,8 @@ const translations: Record<
     commentsTruncated: "يتم عرض أول {{count}} تعليق",
     notFound: "هذا المقطع غير متاح، أو ليس لديك صلاحية الوصول إليه.",
     disabled: "المقاطع في الصفحات غير مفعّلة.",
+    flagUnavailable:
+      "تعذّر التحقق مما إذا كانت المقاطع في الصفحات مفعّلة. حاول مرة أخرى.",
     notConfigured: "Clips غير متصل بـ Content هنا.",
     expired: "انتهت صلاحية هذا المقطع.",
     passwordRequired: "هذا المقطع محمي بكلمة مرور. افتحه في Clips لمشاهدته.",

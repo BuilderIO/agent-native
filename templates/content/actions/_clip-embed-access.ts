@@ -1,5 +1,9 @@
 import { fail } from "@agent-native/core/action";
-import { isFeatureFlagEnabled } from "@agent-native/core/feature-flags";
+import {
+  evaluateFeatureFlagStrict,
+  type FeatureFlagScope,
+} from "@agent-native/core/feature-flags";
+import { captureError } from "@agent-native/core/server";
 import {
   getRequestOrgId,
   getRequestUserEmail,
@@ -41,6 +45,10 @@ const FAILURES: Record<
   [CLIP_PLAYBACK_ERRORS.disabled]: {
     statusCode: 404,
     message: "Clips in pages are not turned on",
+  },
+  [CLIP_PLAYBACK_ERRORS.flagUnavailable]: {
+    statusCode: 503,
+    message: "Could not check whether Clips in pages are turned on",
   },
   [CLIP_PLAYBACK_ERRORS.documentNotFound]: {
     statusCode: 404,
@@ -109,6 +117,30 @@ export function failClip(
 ): never {
   const { message, statusCode } = FAILURES[code];
   fail(message, { errorCode: code, statusCode });
+}
+
+/**
+ * Whether Clips in pages is on for this caller. A flag that can't be read
+ * refuses like Off, but as its own retryable failure: an outage must not
+ * read as an operator's choice.
+ */
+async function requireClipEmbedFlag(
+  scope: FeatureFlagScope,
+  codes: {
+    disabled: ClipPlaybackErrorCode;
+    unavailable: ClipPlaybackErrorCode;
+  },
+): Promise<void> {
+  let enabled: boolean;
+  try {
+    enabled = await evaluateFeatureFlagStrict(CLIP_EMBED_FLAG.key, scope);
+  } catch (error) {
+    captureError(error, {
+      tags: { source: "content-clips", op: "clip-embed-flag" },
+    });
+    failClip(codes.unavailable);
+  }
+  if (!enabled) failClip(codes.disabled);
 }
 
 async function documentState(documentId: string) {
@@ -197,11 +229,16 @@ async function authorizeReader(documentId: string) {
   // A signed-out reader has no org of their own, so an org's rollout reaches
   // its public pages only through the page's org.
   const flagOrgId = readerEmail ? getRequestOrgId() : state.orgId;
-  const enabled = await isFeatureFlagEnabled(CLIP_EMBED_FLAG, {
-    ...(readerEmail ? { userEmail: readerEmail } : {}),
-    ...(flagOrgId !== undefined ? { orgId: flagOrgId } : {}),
-  });
-  if (!enabled) failClip(CLIP_PLAYBACK_ERRORS.disabled);
+  await requireClipEmbedFlag(
+    {
+      ...(readerEmail ? { userEmail: readerEmail } : {}),
+      ...(flagOrgId !== undefined ? { orgId: flagOrgId } : {}),
+    },
+    {
+      disabled: CLIP_PLAYBACK_ERRORS.disabled,
+      unavailable: CLIP_PLAYBACK_ERRORS.flagUnavailable,
+    },
+  );
 
   const reader: ClipReader = readerEmail
     ? {
@@ -236,11 +273,13 @@ export async function authorizeClipUploader(
   if (!state || state.trashedAt) failClip(CLIP_UPLOAD_ERRORS.documentNotFound);
 
   const orgId = getRequestOrgId();
-  const enabled = await isFeatureFlagEnabled(CLIP_EMBED_FLAG, {
-    userEmail: email,
-    ...(orgId !== undefined ? { orgId } : {}),
-  });
-  if (!enabled) failClip(CLIP_UPLOAD_ERRORS.disabled);
+  await requireClipEmbedFlag(
+    { userEmail: email, ...(orgId !== undefined ? { orgId } : {}) },
+    {
+      disabled: CLIP_UPLOAD_ERRORS.disabled,
+      unavailable: CLIP_UPLOAD_ERRORS.flagUnavailable,
+    },
+  );
 
   return { kind: "signed-in", email, name: getRequestUserName() ?? null };
 }

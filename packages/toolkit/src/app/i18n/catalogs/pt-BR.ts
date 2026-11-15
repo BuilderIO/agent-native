@@ -2426,12 +2426,15 @@ const messages: ToolkitAgentChatTranslation = {
     "Use dados de exemplo neste navegador para apresentações.",
   "settingsShell.appGroup.labsFootnote":
     "Esses recursos novos e instáveis podem ter bugs.",
+  "settingsShell.appGroup.labsHostDecided":
+    "Isso já está definido para você, então não pode ser alterado aqui.",
   "settingsShell.appGroup.labsLoadError":
     "Não foi possível carregar seus Labs.",
   "settingsShell.appGroup.labsReadError":
     "Não foi possível ler esta escolha salva. Escolha Ativado ou Desativado para defini-la novamente.",
   "settingsShell.appGroup.labsSaveError":
     "Não foi possível alterar {{lab}}. Tente novamente.",
+  "settingsShell.appGroup.labsUseDefault": "Usar o padrão",
   "settingsShell.appGroup.mcpAbout":
     "Conecte {{app}} ao Claude, ao ChatGPT, ao Cursor ou a qualquer app de IA compatível com MCP. Esse app poderá trabalhar em {{app}} por você. Ele só vê o que você pode ver.",
   "settingsShell.appGroup.mcpAppCards": "Cartões do app em apps de chat",

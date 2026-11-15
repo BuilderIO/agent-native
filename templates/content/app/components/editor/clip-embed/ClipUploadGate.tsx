@@ -40,6 +40,7 @@ const STARTING_RETRY_MS = [2_000, 5_000, 10_000];
 
 const UPLOAD_ERROR_MESSAGES: Record<ClipUploadErrorCode, string> = {
   clip_embed_disabled: "clipEmbed.disabled",
+  clip_embed_unavailable: "clipEmbed.flagUnavailable",
   document_not_found: "clipEmbed.notFound",
   document_edit_required: "clipEmbed.uploadEditRequired",
   clips_not_configured: "clipEmbed.notConfigured",
@@ -77,7 +78,12 @@ function afterFailedStart(error: unknown): "retry" | "hold" | null {
     ) {
       return "retry";
     }
-    return code === CLIP_UPLOAD_ERRORS.rateLimited ? "hold" : null;
+    // Content couldn't read its flag, so nothing reached Clips: the file
+    // waits for Try again rather than being dropped as refused.
+    return code === CLIP_UPLOAD_ERRORS.rateLimited ||
+      code === CLIP_UPLOAD_ERRORS.flagUnavailable
+      ? "hold"
+      : null;
   }
   // A request that never got an answer has no status, and one that timed
   // out is given 408 by the client, not by Content.

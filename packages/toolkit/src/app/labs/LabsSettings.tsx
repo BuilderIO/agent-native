@@ -23,7 +23,12 @@ interface LabsSettingsState {
   enabled: (lab: LabDefinition) => boolean;
   mixed: (lab: LabDefinition) => boolean;
   hasError: (lab: LabDefinition) => boolean;
-  toggle: (lab: LabDefinition, enabled: boolean) => void;
+  /** The host product decides it, so the user's choice wouldn't apply. */
+  hostDecided: (lab: LabDefinition) => boolean;
+  /** The user saved a choice, so the lab no longer follows its default. */
+  chosen: (lab: LabDefinition) => boolean;
+  /** `null` clears the saved choice. */
+  toggle: (lab: LabDefinition, enabled: boolean | null) => void;
   /** Switches wait for the server's answer; they can't save before it. */
   disabled: boolean;
   loadFailed: boolean;
@@ -47,18 +52,27 @@ function useLabsSettingsState(
 ): LabsSettingsState {
   const valuesQuery = useActionQuery<LabStates>("get-lab-states" as never);
   const setLab = useActionMutation<
-    { key: string; enabled: boolean; values: LabStates },
-    { key: string; enabled: boolean }
+    { key: string; enabled: boolean; states: LabStates },
+    { key: string; enabled: boolean | null }
   >("set-lab" as never);
   const [overrides, setOverrides] = useState<Record<string, boolean>>({});
   const [failedKey, setFailedKey] = useState<string | null>(null);
   const values = valuesQuery.data;
 
   const toggle = useCallback(
-    (lab: LabDefinition, enabled: boolean) => {
+    (lab: LabDefinition, enabled: boolean | null) => {
       const key = lab.key;
       setFailedKey(null);
-      setOverrides((current) => ({ ...current, [key]: enabled }));
+      if (enabled !== null) {
+        setOverrides((current) => ({ ...current, [key]: enabled }));
+      }
+      const dropOverride = () =>
+        setOverrides((current) => {
+          if (current[key] !== enabled) return current;
+          const next = { ...current };
+          delete next[key];
+          return next;
+        });
       setLab.mutate(
         { key, enabled },
         {
@@ -66,16 +80,15 @@ function useLabsSettingsState(
             window.dispatchEvent(
               new CustomEvent("agent-engine:configured-changed"),
             );
-            void valuesQuery.refetch();
+            // What the server applies can differ from the choice, so the row
+            // shows the server's answer once it reads back.
+            void Promise.resolve(valuesQuery.refetch()).then((result) => {
+              if (result?.isSuccess) dropOverride();
+            });
           },
           onError: () => {
             setFailedKey(key);
-            setOverrides((current) => {
-              if (current[key] !== enabled) return current;
-              const next = { ...current };
-              delete next[key];
-              return next;
-            });
+            dropOverride();
           },
         },
       );
@@ -106,6 +119,21 @@ function useLabsSettingsState(
     hasError: (lab) => {
       const state = values?.[lab.key];
       return state !== undefined && "error" in state;
+    },
+    hostDecided: (lab) => {
+      const state = values?.[lab.key];
+      return (
+        state !== undefined && !("error" in state) && state.source === "host"
+      );
+    },
+    chosen: (lab) => {
+      const state = values?.[lab.key];
+      return (
+        overrides[lab.key] === undefined &&
+        state !== undefined &&
+        !("error" in state) &&
+        state.source === "choice"
+      );
     },
     toggle,
     disabled: !values || setLab.isPending,
@@ -144,6 +172,7 @@ function LabRows({ state }: { state: LabsSettingsState }) {
         const failed = state.failedLab?.key === lab.key;
         const unreadable = state.hasError(lab);
         const mixed = state.mixed(lab);
+        const hostDecided = state.hostDecided(lab);
         return (
           <SettingsRow
             key={lab.key}
@@ -162,6 +191,15 @@ function LabRows({ state }: { state: LabsSettingsState }) {
                 </span>
               ) : mixed ? (
                 (lab.inheritedMixedDescription ?? description)
+              ) : hostDecided ? (
+                <>
+                  {description ? (
+                    <span className="block">{description}</span>
+                  ) : null}
+                  <span className="block">
+                    {t("agentChat.settingsShell.appGroup.labsHostDecided")}
+                  </span>
+                </>
               ) : (
                 description
               )
@@ -191,12 +229,26 @@ function LabRows({ state }: { state: LabsSettingsState }) {
                   </Button>
                 </div>
               ) : (
-                <Switch
-                  checked={state.enabled(lab)}
-                  onChange={(next) => state.toggle(lab, next)}
-                  disabled={state.disabled}
-                  aria-label={label}
-                />
+                <div className="flex items-center gap-2">
+                  {state.chosen(lab) ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={state.disabled}
+                      onClick={() => state.toggle(lab, null)}
+                      aria-label={`${label}: ${t("agentChat.settingsShell.appGroup.labsUseDefault")}`}
+                    >
+                      {t("agentChat.settingsShell.appGroup.labsUseDefault")}
+                    </Button>
+                  ) : null}
+                  <Switch
+                    checked={state.enabled(lab)}
+                    onChange={(next) => state.toggle(lab, next)}
+                    disabled={state.disabled || hostDecided}
+                    aria-label={label}
+                  />
+                </div>
               )
             }
           />

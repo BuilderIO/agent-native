@@ -2246,11 +2246,14 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.appGroup.demoModeDescription":
     "प्रस्तुतियों के लिए इस ब्राउज़र में नमूना डेटा का उपयोग करें।",
   "settingsShell.appGroup.labsFootnote": "इन नई, अस्थिर सुविधाओं में बग हो सकते हैं।",
+  "settingsShell.appGroup.labsHostDecided":
+    "यह आपके लिए तय किया गया है, इसलिए इसे यहाँ नहीं बदला जा सकता।",
   "settingsShell.appGroup.labsLoadError": "आपकी लैब्स लोड नहीं हो सकीं।",
   "settingsShell.appGroup.labsReadError":
     "इस सहेजे गए विकल्प को पढ़ा नहीं जा सका। इसे फिर से सेट करने के लिए चालू या बंद चुनें।",
   "settingsShell.appGroup.labsSaveError":
     "{{lab}} बदला नहीं जा सका। फिर से कोशिश करें।",
+  "settingsShell.appGroup.labsUseDefault": "डिफ़ॉल्ट इस्तेमाल करें",
   "settingsShell.appGroup.mcpAbout":
     "{{app}} को Claude, ChatGPT, Cursor या MCP का समर्थन करने वाले किसी भी AI ऐप से कनेक्ट करें। फिर वह ऐप आपके लिए {{app}} में काम कर सकता है। वह केवल वही देखता है जो आप देख सकते हैं।",
   "settingsShell.appGroup.mcpAppCards": "चैट ऐप्स में ऐप कार्ड",

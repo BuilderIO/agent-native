@@ -2246,11 +2246,14 @@ const messages: ToolkitAgentChatTranslation = {
     "프레젠테이션을 위해 이 브라우저에서 샘플 데이터를 사용합니다.",
   "settingsShell.appGroup.labsFootnote":
     "이 새롭고 불안정한 기능에는 버그가 있을 수 있습니다.",
+  "settingsShell.appGroup.labsHostDecided":
+    "이 설정은 이미 정해져 있어 여기서 변경할 수 없습니다.",
   "settingsShell.appGroup.labsLoadError": "실험실 기능을 불러오지 못했습니다.",
   "settingsShell.appGroup.labsReadError":
     "저장된 선택 항목을 읽을 수 없습니다. 다시 설정하려면 켜기 또는 끄기를 선택하세요.",
   "settingsShell.appGroup.labsSaveError":
     "{{lab}}을(를) 변경하지 못했습니다. 다시 시도하세요.",
+  "settingsShell.appGroup.labsUseDefault": "기본값 사용",
   "settingsShell.appGroup.mcpAbout":
     "{{app}}을(를) Claude, ChatGPT, Cursor 또는 MCP를 지원하는 AI 앱에 연결하세요. 연결된 앱은 사용자를 대신해 {{app}}에서 작업할 수 있습니다. 앱은 사용자가 볼 수 있는 것만 볼 수 있습니다.",
   "settingsShell.appGroup.mcpAppCards": "채팅 앱의 앱 카드",

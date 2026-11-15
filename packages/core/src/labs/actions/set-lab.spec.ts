@@ -41,4 +41,51 @@ describe("set-lab action", () => {
       states,
     });
   });
+
+  it("clears a saved choice when enabled is null", async () => {
+    const states = {
+      "clips.editor": { enabled: false, source: "default", mixed: false },
+    } as const;
+    mocks.setUserLabStates.mockResolvedValue(states);
+
+    expect(action.schema.parse({ key: "clips.editor", enabled: null })).toEqual(
+      { key: "clips.editor", enabled: null },
+    );
+    await expect(
+      action.run(
+        { key: "clips.editor", enabled: null },
+        { userEmail: "alice@example.com", orgId: "org-1" },
+      ),
+    ).resolves.toEqual({
+      key: "clips.editor",
+      enabled: false,
+      values: { "clips.editor": false },
+      states,
+    });
+    expect(mocks.setUserLabStates).toHaveBeenCalledWith(
+      "alice@example.com",
+      "clips.editor",
+      null,
+      { orgId: "org-1" },
+    );
+  });
+
+  it("reports a cleared lab whose legacy flags can't be read as off, without failing the saved clear", async () => {
+    const states = {
+      "clips.editor": { error: "legacy-unavailable" },
+    } as const;
+    mocks.setUserLabStates.mockResolvedValue(states);
+
+    await expect(
+      action.run(
+        { key: "clips.editor", enabled: null },
+        { userEmail: "alice@example.com" },
+      ),
+    ).resolves.toEqual({
+      key: "clips.editor",
+      enabled: false,
+      values: {},
+      states,
+    });
+  });
 });

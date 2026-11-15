@@ -275,7 +275,7 @@ export async function getUserLabs(
 export async function setUserLab(
   email: string,
   key: string,
-  enabled: boolean,
+  enabled: boolean | null,
   scope: FeatureFlagScope = {},
 ): Promise<Record<string, boolean>> {
   return projectReadableLabValues(
@@ -283,15 +283,20 @@ export async function setUserLab(
   );
 }
 
+/**
+ * Saves one user's choice for a lab. `null` clears it, so the lab follows its
+ * legacy flags or its default again, and with them any later rollout.
+ */
 export async function setUserLabStates(
   email: string,
   key: string,
-  enabled: boolean,
+  enabled: boolean | null,
   scope: FeatureFlagScope = {},
 ): Promise<Record<string, UserLabStateResult>> {
   if (!getLabDefinition(key)) {
     throw new Error(`Unknown lab: ${key}`);
   }
+  if (enabled === null) await clearFormerLabChoice(email, key);
   let effectiveValues: Record<string, UserLabStateResult> | undefined;
   await mutateUserSetting(email, LABS_SETTING_KEY, async (current) => {
     validLabSetting(LABS_SETTING_KEY, current);
@@ -300,12 +305,34 @@ export async function setUserLabStates(
         ? await getUserSetting(email, LEGACY_LABS_SETTING_KEY)
         : null;
     validLabSetting(LEGACY_LABS_SETTING_KEY, legacy);
-    const next = { ...(legacy ?? {}), ...(current ?? {}), [key]: enabled };
+    const next: Record<string, unknown> = {
+      ...(legacy ?? {}),
+      ...(current ?? {}),
+    };
+    if (enabled === null) delete next[key];
+    else next[key] = enabled;
     const states = await resolveStoredLabStates(email, next, scope);
     effectiveValues = states;
     return next;
   });
   return effectiveValues!;
+}
+
+/**
+ * Reads merge the former setting key beneath the current one, so a cleared
+ * choice has to leave it too, or its old value would come back.
+ */
+async function clearFormerLabChoice(email: string, key: string) {
+  const former = validLabSetting(
+    LEGACY_LABS_SETTING_KEY,
+    await getUserSetting(email, LEGACY_LABS_SETTING_KEY),
+  );
+  if (!former || !Object.hasOwn(former, key)) return;
+  await mutateUserSetting(email, LEGACY_LABS_SETTING_KEY, (current) => {
+    const next = { ...validLabSetting(LEGACY_LABS_SETTING_KEY, current) };
+    delete next[key];
+    return next;
+  });
 }
 
 function projectReadableLabValues(

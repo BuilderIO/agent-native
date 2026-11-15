@@ -2289,10 +2289,13 @@ const messages = {
     "Use sample data in this browser for presentations.",
   "settingsShell.appGroup.labsFootnote":
     "These new, unstable features may have bugs.",
+  "settingsShell.appGroup.labsHostDecided":
+    "This one is set for you, so it can't be changed here.",
   "settingsShell.appGroup.labsLoadError": "Couldn't load your labs.",
   "settingsShell.appGroup.labsReadError":
     "Couldn't read this saved choice. Choose On or Off to set it again.",
   "settingsShell.appGroup.labsSaveError": "Couldn't change {{lab}}. Try again.",
+  "settingsShell.appGroup.labsUseDefault": "Use default",
   "settingsShell.appGroup.mcpAbout":
     "Connect {{app}} to Claude, ChatGPT, Cursor, or any AI app that supports MCP. That app can then work in {{app}} for you. It sees only what you can see.",
   "settingsShell.appGroup.mcpAppCards": "App cards in chat apps",
