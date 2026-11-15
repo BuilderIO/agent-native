@@ -256,6 +256,18 @@ describe("useClipPlayback", () => {
     expect(latest?.error).toBe("refresh_failed");
   });
 
+  it("keeps playing and asks again when Content couldn't check whether Clips are on", async () => {
+    playbackQuery().refetch.mockResolvedValue(down("clip_embed_unavailable"));
+    render();
+
+    await elapse(4 * 60_000 + 30_000);
+    expect(playbackQuery().refetch).toHaveBeenCalledTimes(1);
+    expect(latest?.error).toBeNull();
+    await elapse(5_000);
+    expect(playbackQuery().refetch).toHaveBeenCalledTimes(2);
+    expect(latest?.grant?.playback.videoUrl).toBe(grant(1).playback.videoUrl);
+  });
+
   it("stops at once when Clips or Content refuses a refresh", async () => {
     playbackQuery().refetch.mockResolvedValue(down("clip_embed_disabled"));
     render();

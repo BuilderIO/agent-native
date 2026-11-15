@@ -33,7 +33,7 @@ vi.mock("@agent-native/core/client/app-model-default", () => ({
 }));
 
 const labsActions = vi.hoisted(() => ({
-  query: { data: undefined as LabStates | undefined },
+  query: { data: undefined as LabStates | undefined, updatedAt: 0 },
   isError: false,
   isPending: false,
   mutate: vi.fn(),
@@ -50,6 +50,7 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 vi.mock("@agent-native/core/client/use-action", () => ({
   useActionQuery: () => ({
     data: labsActions.query.data,
+    dataUpdatedAt: labsActions.query.updatedAt,
     isLoading: labsActions.query.data === undefined && !labsActions.isError,
     isError: labsActions.isError,
     refetch: labsActions.refetch,
@@ -196,6 +197,7 @@ describe("app group pages", () => {
     navigate = vi.fn();
     header = null;
     labsActions.query.data = undefined;
+    labsActions.query.updatedAt = 0;
     labsActions.isError = false;
     labsActions.isPending = false;
     labsActions.refetch.mockReset();
@@ -583,7 +585,7 @@ describe("app group pages", () => {
       ).toBe("false");
     });
 
-    it("keeps the saved choice showing when its read-back fails", async () => {
+    it("keeps the saved choice showing when its read-back fails, until a later read lands", async () => {
       labsActions.query.data = {
         "clips.meetings": { enabled: false, source: "default", mixed: false },
       };
@@ -597,8 +599,26 @@ describe("app group pages", () => {
         (options as { onSuccess?: () => void } | undefined)?.onSuccess?.();
       });
       await flush();
+      await renderPage(LabsSettingsPage, { input: { labs } });
 
       expect(toggle?.getAttribute("aria-checked")).toBe("true");
+
+      // A later read, here after another tab turned it off, shows the
+      // server's answer again, and Use default comes back for the choice.
+      labsActions.query.data = {
+        "clips.meetings": { enabled: false, source: "choice", mixed: false },
+      };
+      labsActions.query.updatedAt = 1;
+      await renderPage(LabsSettingsPage, { input: { labs } });
+
+      expect(
+        switchFor("Meetings and transcription")?.getAttribute("aria-checked"),
+      ).toBe("false");
+      expect(
+        container.querySelector(
+          '[aria-label="Meetings and transcription: Use default"]',
+        ),
+      ).not.toBeNull();
     });
 
     it("clears a saved choice with Use default, and offers it only for a saved choice", async () => {

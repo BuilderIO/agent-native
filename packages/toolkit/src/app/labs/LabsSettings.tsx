@@ -57,22 +57,35 @@ function useLabsSettingsState(
   >("set-lab" as never);
   const [overrides, setOverrides] = useState<Record<string, boolean>>({});
   const [failedKey, setFailedKey] = useState<string | null>(null);
+  // Saves whose own read-back failed. Their choice stays on screen until a
+  // later read lands, then the row shows the server's answer again.
+  const unreadSaves = useRef(new Map<string, boolean>());
   const values = valuesQuery.data;
+
+  const dropOverride = useCallback((key: string, enabled: boolean | null) => {
+    setOverrides((current) => {
+      if (current[key] !== enabled) return current;
+      const next = { ...current };
+      delete next[key];
+      return next;
+    });
+  }, []);
+
+  const readAt = valuesQuery.dataUpdatedAt;
+  useEffect(() => {
+    const unread = unreadSaves.current;
+    for (const [key, enabled] of unread) dropOverride(key, enabled);
+    unread.clear();
+  }, [readAt, dropOverride]);
 
   const toggle = useCallback(
     (lab: LabDefinition, enabled: boolean | null) => {
       const key = lab.key;
       setFailedKey(null);
+      unreadSaves.current.delete(key);
       if (enabled !== null) {
         setOverrides((current) => ({ ...current, [key]: enabled }));
       }
-      const dropOverride = () =>
-        setOverrides((current) => {
-          if (current[key] !== enabled) return current;
-          const next = { ...current };
-          delete next[key];
-          return next;
-        });
       setLab.mutate(
         { key, enabled },
         {
@@ -83,17 +96,18 @@ function useLabsSettingsState(
             // What the server applies can differ from the choice, so the row
             // shows the server's answer once it reads back.
             void valuesQuery.refetch().then((result) => {
-              if (result.isSuccess) dropOverride();
+              if (result.isSuccess) dropOverride(key, enabled);
+              else if (enabled !== null) unreadSaves.current.set(key, enabled);
             });
           },
           onError: () => {
             setFailedKey(key);
-            dropOverride();
+            dropOverride(key, enabled);
           },
         },
       );
     },
-    [setLab, valuesQuery.refetch],
+    [setLab, valuesQuery.refetch, dropOverride],
   );
 
   const visible = values ? labs.filter((lab) => hasOwn(values, lab.key)) : labs;
