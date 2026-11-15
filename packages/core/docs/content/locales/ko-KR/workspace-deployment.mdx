@@ -166,6 +166,8 @@ npx @agent-native/core@latest deploy
 
 `PATH`, `PWD`, `npm_*`, `PNPM_*`처럼 실행할 때마다 바뀌지만 빌드에는 영향을 주지 않는 변수는 이미 키에서 제외되어 있습니다. 배포 환경이 자체 변수(예: 실행 ID)를 추가한다면 `AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE`에 나열하세요. 끝에 `*`를 붙이면 접두사와 일치합니다. 그 밖의 모든 변수는 키에 반영되므로 `VITE_*`나 `DATABASE_URL`이 바뀌면 모든 앱이 다시 빌드됩니다.
 
+`AGENT_NATIVE_BUILD_ID`를 커밋으로 설정하는 워크스페이스는 그렇지 않으면 커밋마다 모든 앱을 다시 빌드합니다. 캐시가 켜져 있으면 이 변수는 키에서 제외되고 각 앱은 자체 키에서 파생된 id(`content-…`)로 빌드되므로, 변경되지 않은 앱은 새 커밋에서도 같은 출력을 복원합니다. Netlify 응답에는 여전히 `x-agent-native-build-sha`에 커밋이 담기고, `x-agent-native-app-build-id`에 앱에 포함된 id가 담깁니다. 배포는 예상 값을 `.netlify/agent-native-served-builds.json`에 기록하며, `@agent-native/core/deploy/served-build`의 `checkServedAppBuild`가 실시간 응답을 이 값과 비교합니다. `DEPLOY_ID`가 우선하며 키에 남습니다.
+
 매번 깨끗한 디스크에서 시작하는 호스팅 빌더는 캐시로 얻는 이점이 없습니다. 그런 곳에서는 `AGENT_NATIVE_DEPLOY_CACHE=false`로 설정해 빌드 후 수행되는 복사를 건너뛰세요.
 
 ## Docker Compose로 작업 공간 자체 호스팅하기 {#workspace-docker-compose}

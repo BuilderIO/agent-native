@@ -166,6 +166,8 @@ Cache की समस्या कभी hit नहीं गिनी जा�
 
 जो variables हर run में बदलते हैं पर build तक नहीं पहुँचते, जैसे `PATH`, `PWD`, `npm_*` और `PNPM_*`, वे पहले से key से बाहर हैं। अगर कोई deploy environment अपने variables जोड़ता है (जैसे run id), तो उसे `AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE` में सूचीबद्ध करें; अंत का `*` किसी prefix से मेल खाता है। बाकी सब कुछ गिना जाता है, इसलिए बदला हुआ `VITE_*` या `DATABASE_URL` हर ऐप को दोबारा build करवाता है।
 
+जो workspace `AGENT_NATIVE_BUILD_ID` को अपने commit पर सेट करता है, वह अन्यथा हर commit पर हर app को फिर से build करेगा। cache चालू होने पर यह variable key से बाहर रहता है और हर app उसकी अपनी key से निकले id (`content-…`) के साथ build होता है, इसलिए बिना बदला app नए commit पर वही output restore करता है। Netlify responses में commit अब भी `x-agent-native-build-sha` में रहता है, और app का baked id `x-agent-native-app-build-id` में। deploy अपेक्षित मान `.netlify/agent-native-served-builds.json` में लिखता है, और `@agent-native/core/deploy/served-build` का `checkServedAppBuild` किसी live response की उनसे तुलना करता है। `DEPLOY_ID` को प्राथमिकता मिलती है और वह key में बना रहता है।
+
 जो hosted builders हर बार साफ़ disk से शुरू होते हैं, उन्हें cache से कुछ नहीं मिलता। वहाँ `AGENT_NATIVE_DEPLOY_CACHE=false` सेट करें ताकि हर build के बाद cache जो copy बनाता है वह छोड़ दी जाए।
 
 ## Docker Compose के साथ Self-hosted कार्यस्थान {#workspace-docker-compose}

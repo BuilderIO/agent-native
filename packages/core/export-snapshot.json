@@ -216,6 +216,7 @@
     "./deploy/netlify-static-headers": [
       "dist/deploy/netlify-static-headers.js"
     ],
+    "./deploy/served-build": ["dist/deploy/served-build.js"],
     "./guards": ["dist/guards/index.d.ts", "dist/guards/index.js"],
     "./application-state": ["dist/application-state/index.js"],
     "./settings": ["dist/settings/index.js"],
