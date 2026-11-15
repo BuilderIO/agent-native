@@ -86,6 +86,11 @@ sizes, adjust a button's color or spacing directly, then ask Claude to apply the
 pending edits to your source. See the [Visual Edit guide](./skills/visual-edit/README.md)
 for the full walkthrough and sharing details.
 
+To bring an effect or section from another site into yours, use `/remix`: it
+puts both sites on the Design canvas, rebuilds the part you select in your own
+design system, and gives every animated effect live knobs. See the
+[Remix guide](./skills/remix/README.md).
+
 Bring your LLM, SQL database, tools, and infrastructure. Everything you build stays yours.
 
 See Agent-Native in action:

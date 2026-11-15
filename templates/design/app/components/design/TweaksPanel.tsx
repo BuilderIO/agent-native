@@ -47,14 +47,7 @@ export function TweaksPanelContent({
   return (
     <div className={cn("space-y-1.5", className)}>
       {tweaks.length > 0 ? (
-        tweaks.map((tweak) => (
-          <TweakControl
-            key={tweak.id}
-            tweak={tweak}
-            value={values[tweak.id] ?? tweak.defaultValue}
-            onChange={(v) => onChange(tweak.id, v)}
-          />
-        ))
+        <TweakControls tweaks={tweaks} values={values} onChange={onChange} />
       ) : (
         <div className="flex flex-col items-center gap-2 py-6 text-center">
           <IconAdjustmentsHorizontal className="size-5 text-muted-foreground/40" />
@@ -91,6 +84,21 @@ export function TweaksPanelContent({
       </p>
     </div>
   );
+}
+
+export function TweakControls({
+  tweaks,
+  values,
+  onChange,
+}: Pick<TweaksPanelContentProps, "tweaks" | "values" | "onChange">) {
+  return tweaks.map((tweak) => (
+    <TweakControl
+      key={tweak.id}
+      tweak={tweak}
+      value={values[tweak.id] ?? tweak.defaultValue}
+      onChange={(v) => onChange(tweak.id, v)}
+    />
+  ));
 }
 
 export function TweaksPanel({

@@ -118,7 +118,7 @@ Skills 位於 `.agents/skills/<name>/SKILL.md`，包含針對代理的詳細指�
 
 ## 應用程式支援的 skills {#app-backed-skills}
 
-目前應用支援的 skills 包括 Plan 的 `visual-plan`、`visual-recap` 和 `visualize-repo`，Design 的 `visual-edit`，Assets 的 `assets`，以及用於 repository 支援的 docs/blog/MDX 編輯的 `content`。
+目前應用支援的 skills 包括 Plan 的 `visual-plan`、`visual-recap` 和 `visualize-repo`，Design 的 `visual-edit` 和 `remix`，Assets 的 `assets`，以及用於 repository 支援的 docs/blog/MDX 編輯的 `content`。
 
 <Callout tone="info">
 
@@ -344,6 +344,7 @@ Hosted 是預設安裝路徑。本機啟動是明確的定制，
 npx @agent-native/core@latest skills add visual-plan
 npx @agent-native/core@latest skills add visualize-repo
 npx @agent-native/core@latest skills add visual-edit
+npx @agent-native/core@latest skills add remix
 npx @agent-native/core@latest skills add assets
 
 # 回購優先內容 docs/blog/MDX 編輯。

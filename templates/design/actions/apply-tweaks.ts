@@ -41,7 +41,9 @@ export default defineAction({
     "radius, dark-mode, etc.) for a design. Merges the selections into " +
     "designs.data.tweakSelections so the tuned design survives reload and " +
     "is what get-design-snapshot / export-coding-handoff hand off. Other " +
-    "design data keys (tweaks, lastPrompt, ...) are left intact.",
+    "design data keys (tweaks, lastPrompt, ...) are left intact. Read the " +
+    "definitions (with their element `scope`) and current values with " +
+    "get-design-snapshot.",
   schema: z.object({
     designId: z.string().describe("Design project ID to apply tweaks to"),
     selections: z

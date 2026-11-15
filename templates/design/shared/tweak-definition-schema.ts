@@ -32,5 +32,28 @@ export const tweakDefinitionsSchema = z.array(
       .optional()
       .describe("CSS custom property the tweak sets"),
     unit: z.string().optional().describe("Unit shown with the value"),
+    scope: z
+      .object({
+        screenId: z
+          .string()
+          .optional()
+          .describe("Screen (file) id the tweak belongs to"),
+        nodeId: z
+          .string()
+          .optional()
+          .describe(
+            "data-agent-native-node-id of the element the tweak drives, such as a shader or 3D canvas",
+          ),
+        selector: z
+          .string()
+          .optional()
+          .describe(
+            "CSS selector of that element, for URL-backed screens without node ids",
+          ),
+      })
+      .optional()
+      .describe(
+        "Where the knob shows in the inspector's Tweaks section: when that screen, the element, or one of its ancestors or descendants is selected. Omit for a design-wide tweak that shows on every screen.",
+      ),
   }),
 );

@@ -118,7 +118,7 @@ Skills は `.agents/skills/<name>/SKILL.md` にあり、エージェント向け
 
 ## アプリベースの skills {#app-backed-skills}
 
-現在の app-backed skills には、Plan の `visual-plan`、`visual-recap`、`visualize-repo`、Design の `visual-edit`、Assets の `assets`、repo-backed docs/blog/MDX editing 用の `content` が含まれます。
+現在の app-backed skills には、Plan の `visual-plan`、`visual-recap`、`visualize-repo`、Design の `visual-edit` と `remix`、Assets の `assets`、repo-backed docs/blog/MDX editing 用の `content` が含まれます。
 
 <Callout tone="info">
 
@@ -344,6 +344,7 @@ Hosted はデフォルトのインストール パスです。ローカル起動
 npx @agent-native/core@latest skills add visual-plan
 npx @agent-native/core@latest skills add visualize-repo
 npx @agent-native/core@latest skills add visual-edit
+npx @agent-native/core@latest skills add remix
 npx @agent-native/core@latest skills add assets
 
 # リポジトリ優先コンテンツ docs/blog/MDX 編集。

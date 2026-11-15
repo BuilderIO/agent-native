@@ -560,7 +560,11 @@ export default defineAction({
     "create-file or generate-design are auto-placed, so omit canvasFrames " +
     "unless intentionally placing or moving a frame. Full placement objects " +
     "must provide complete numeric geometry; path-addressed updates may change " +
-    "individual numeric fields.",
+    "individual numeric fields. Tweak knobs live at data path `tweaks`: an " +
+    "array of definitions, each with an optional `scope` " +
+    "({ screenId, nodeId, selector }) that shows it in the inspector's Tweaks " +
+    "section when that screen or element, or an ancestor or descendant of it, " +
+    "is selected. Set knob values with apply-tweaks.",
   schema: z
     .object({
       id: z.string().describe("Design ID"),
