@@ -3883,8 +3883,16 @@ export async function defaultProviderApiCredentialResolver(
       };
     }
     // An explicit source is authoritative; a missing or revoked grant must
-    // never be substituted by a generic user/org credential.
-    if (options.connectionId?.trim()) return null;
+    // never be substituted by a generic user/org credential. A key the
+    // connection simply does not hold is absent; any other status means the
+    // selected connection itself cannot be used, which callers must not read as
+    // "use the provider default".
+    if (options.connectionId?.trim()) {
+      if (result.status === "missing_ref") return null;
+      throw new Error(
+        `The selected workspace connection is not available (${result.status}).`,
+      );
+    }
   }
 
   const credential = await resolveCredentialDetailed(options.key, options.ctx);
@@ -5150,6 +5158,9 @@ async function getGoogleServiceAccountToken(
     const expiresAt = Date.now() + (data.expires_in ?? 3600) * 1000;
     if (!Number.isSafeInteger(expiresAt))
       throw new Error("Google OAuth returned an invalid token response.");
+    for (const [key, entry] of googleServiceTokenCache) {
+      if (entry.expiresAt <= Date.now()) googleServiceTokenCache.delete(key);
+    }
     googleServiceTokenCache.set(cacheKey, {
       token: data.access_token,
       expiresAt,

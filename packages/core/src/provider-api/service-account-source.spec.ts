@@ -165,18 +165,39 @@ describe("service-account exact source identity", () => {
     expect(tokenExchanges).toBe(3);
   });
   it("never substitutes legacy org credentials when an explicit workspace source is unavailable", async () => {
-    workspaceResolve.mockResolvedValue({ available: false });
+    workspaceResolve.mockResolvedValue({
+      available: false,
+      status: "not_available",
+    });
     legacyResolve.mockResolvedValue({
       value: "legacy-source-credential",
       scope: "org",
       scopeId: "source-org",
+    });
+    await expect(
+      defaultProviderApiCredentialResolver({
+        appId: "source-isolation-app",
+        provider: "bigquery",
+        workspaceProvider: "bigquery",
+        key: "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+        connectionId: "missing-source",
+        ctx: { userEmail: "member@example.test", orgId: "source-org" },
+        localCredentialSource: "app_local",
+      }),
+    ).rejects.toThrow("selected workspace connection is not available");
+    expect(legacyResolve).not.toHaveBeenCalled();
+  });
+  it("reports a key the selected connection does not hold as absent, not as an unusable connection", async () => {
+    workspaceResolve.mockResolvedValue({
+      available: false,
+      status: "missing_ref",
     });
     const result = await defaultProviderApiCredentialResolver({
       appId: "source-isolation-app",
       provider: "bigquery",
       workspaceProvider: "bigquery",
       key: "GOOGLE_APPLICATION_CREDENTIALS_JSON",
-      connectionId: "missing-source",
+      connectionId: "source-a",
       ctx: { userEmail: "member@example.test", orgId: "source-org" },
       localCredentialSource: "app_local",
     });
