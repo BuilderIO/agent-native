@@ -674,7 +674,11 @@ describe("app group pages", () => {
       const [, options] = labsActions.mutate.mock.calls[0] ?? [];
       act(() => {
         answer(options, {
-          "clips.wisprflow": { enabled: false, source: "default", mixed: false },
+          "clips.wisprflow": {
+            enabled: false,
+            source: "default",
+            mixed: false,
+          },
         });
       });
 
@@ -716,10 +720,11 @@ describe("app group pages", () => {
       );
       on?.focus();
       act(() => on?.click());
+      // A browser drops focus from a control the save disables.
+      on?.blur();
 
       labsActions.isPending = true;
       await renderPage(LabsSettingsPage, { input: { labs } });
-      on?.blur();
       const [, options] = labsActions.mutate.mock.calls[0] ?? [];
       act(() => {
         (options as { onError?: () => void } | undefined)?.onError?.();
