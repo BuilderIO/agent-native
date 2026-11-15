@@ -6303,6 +6303,47 @@ describe("provider API runtime", () => {
       },
     );
 
+    it.each(
+      ["hubspot", "test-api"].flatMap((provider) =>
+        [false, true].flatMap((paginated) =>
+          [302, 307, 404].map((status) => ({ provider, paginated, status })),
+        ),
+      ),
+    )(
+      "reports invalid HTTP $status $provider saves as errors (paginated: $paginated)",
+      async ({ provider, paginated, status }) => {
+        vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+          new Response("private-binary-payload", {
+            status,
+            headers: {
+              "content-type": "application/zip",
+              location: "https://example.test/private-location",
+              "x-private-header": "private-header-secret",
+            },
+          }),
+        );
+        const result = createProviderApiRequestAction(runtime()).run({
+          provider,
+          path: "/records",
+          auth: "none",
+          saveToFile: "scratch/response.txt",
+          ...(paginated
+            ? { fetchAllPages: { cursorPath: "next", cursorParam: "cursor" } }
+            : {}),
+        });
+        await expect(result).rejects.toMatchObject({
+          name: "ActionContractError",
+          statusCode: status < 400 ? 502 : status,
+          errorCode: "provider_response_invalid",
+          message: expect.stringContaining(`HTTP ${status}`),
+        });
+        const error = await result.catch((err: unknown) => err);
+        expect(String(error)).not.toContain("private-");
+        expect(JSON.stringify(error)).not.toContain("private-");
+        expect(writeWorkspaceFile).not.toHaveBeenCalled();
+      },
+    );
+
     it.each(["hubspot", "test-api"])(
       "preserves text HTTP errors in a paginated %s save",
       async (provider) => {

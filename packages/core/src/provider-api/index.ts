@@ -6558,7 +6558,8 @@ async function fetchWithTimeout(
         `Cannot save binary or invalid UTF-8 provider response (HTTP ${result.status}).`,
         {
           errorCode: "provider_response_invalid",
-          statusCode: result.status,
+          statusCode:
+            result.status >= 400 && result.status < 600 ? result.status : 502,
         },
       );
     }
