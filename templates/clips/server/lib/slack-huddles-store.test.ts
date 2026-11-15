@@ -578,6 +578,34 @@ describe("huddle retry accounting", () => {
     expect((await fillState()).fill_attempts).toBe(1);
   });
 
+  it("charges the swept huddle too when the fill of a better-matching huddle fails", async () => {
+    const now = new Date().toISOString();
+    await client.exec(`
+      INSERT INTO slack_huddles (id, team_id, channel_id, message_ts, date_start, participant_ids_json, next_fill_at)
+      VALUES ('best', 'T0TEAM', 'C0BEST', '1.1', 1794473298, '["U0OWNER","U0ANNA"]', NULL),
+             ('swept', 'T0TEAM', 'C0SWEPT', '2.2', 1794473388, '["U0OWNER","U0BOB"]', '${now}');
+    `);
+    deps.readToken = async () => {
+      throw new Error("secret store unavailable");
+    };
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    expect(await sweepDueSlackHuddles(deps)).toMatchObject({
+      huddles: 1,
+      failed: 1,
+    });
+    warn.mockRestore();
+    const state = await rows<FillState & { id: string }>(
+      `SELECT id, next_fill_at, fill_attempts FROM slack_huddles ORDER BY id`,
+    );
+    for (const row of state) {
+      expect(row.fill_attempts).toBe(1);
+      expect(Date.parse(row.next_fill_at!)).toBeGreaterThan(Date.now());
+    }
+    expect(state.map((row) => row.id)).toEqual(["best", "swept"]);
+    // Backed off: the next sweep does not pick the swept huddle up again.
+    expect(await sweepDueSlackHuddles(deps)).toMatchObject({ huddles: 0 });
+  });
+
   it("keeps a huddle due when the token failed, and fills it once the person reconnects", async () => {
     deps.readToken = async () => null;
     await handleSlackHuddleEvent(

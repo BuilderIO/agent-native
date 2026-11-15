@@ -710,7 +710,10 @@ export async function fillMeetingsForHuddle(
     }
   } catch (error) {
     failure = error instanceof HuddleFillError ? error.original : error;
-    markIncomplete(error instanceof HuddleFillError ? error.huddle : huddle);
+    // The swept huddle is charged on every failure (so its backoff grows),
+    // plus the huddle whose fill failed when that is a different one.
+    markIncomplete(huddle);
+    if (error instanceof HuddleFillError) markIncomplete(error.huddle);
   }
   for (const due of incomplete) {
     await scheduleHuddleFillRetry(deps.db, due).catch((err) =>
