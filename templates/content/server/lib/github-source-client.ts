@@ -828,7 +828,8 @@ ${PULL_REQUEST_FIELDS}`,
 
 /**
  * Reads pull requests by repository and number, many in one query. One
- * GitHub can't find, or the connection can't see, is null.
+ * GitHub can't find, or the connection can't see, is null. GitHub answers a
+ * private repository the connection can't see as not found.
  */
 export async function readGitHubPullRequests(
   target: GitHubRequestTarget,
@@ -855,12 +856,22 @@ export async function readGitHubPullRequests(
         variables,
       },
     });
-    // A repository GitHub can't find comes back as null beside a NOT_FOUND
-    // error, and the rest of the answer still holds.
-    const { data } = graphqlResult(
-      response,
-      "GitHub couldn't read the pull requests",
-    );
+    // A repository or pull request GitHub can't find comes back as null
+    // beside a NOT_FOUND error, and the rest of the answer still holds. Any
+    // other error can leave a pull request null that still exists, and the
+    // sync moves rows it can't find to Trash, so it counts as no answer.
+    const failure = "GitHub couldn't read the pull requests";
+    const { data, errors } = graphqlResult(response, failure);
+    const error = errors.find((each) => each.type !== "NOT_FOUND");
+    if (error) {
+      throw new GitHubSourceError(
+        "unavailable",
+        typeof error.message === "string"
+          ? `${failure}: ${error.message}`
+          : `${failure}: it answered only in part.`,
+        response.status,
+      );
+    }
     page.forEach((_, index) => {
       found.push(pullRequestRecord(asRecord(data[`r${index}`]).pullRequest));
     });

@@ -256,8 +256,18 @@ async function bringInPullRequests({
         actor,
       });
     } catch (error) {
-      if (!(error instanceof ActionContractError)) throw error;
-      addError = error.message;
+      // The collection is made by now, so even a failure that can't be
+      // named returns it, rather than an error that reads as nothing made.
+      if (error instanceof ActionContractError) {
+        addError = error.message;
+      } else {
+        console.warn(
+          "[github-pull-requests] adding links to a new collection failed:",
+          error instanceof Error ? error.message : String(error),
+        );
+        addError =
+          "Content couldn't add them yet. Adding them again with add-github-pull-requests is safe.";
+      }
     }
   }
   await writeAppState("refresh-signal", { ts: Date.now() }).catch(

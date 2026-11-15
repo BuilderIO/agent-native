@@ -111,6 +111,7 @@ let runSweep: typeof import("./_github-pull-requests-freshness.js").runGitHubPul
 let refreshPage: typeof import("./_github-source-freshness.js").refreshGitHubPageBeforeRead;
 let addAs: typeof import("./_github-pull-requests-source.js").addGitHubPullRequests;
 let GitHubSourceError: typeof import("../server/lib/github-source-client.js").GitHubSourceError;
+let GitHubSourceDeadlineError: typeof import("../server/lib/github-source-client.js").GitHubSourceDeadlineError;
 let spaceId: string;
 
 const as = async <T>(run: () => T | Promise<T>): Promise<Awaited<T>> =>
@@ -136,7 +137,7 @@ beforeAll(async () => {
     await import("./_github-source-freshness.js"));
   ({ addGitHubPullRequests: addAs } =
     await import("./_github-pull-requests-source.js"));
-  ({ GitHubSourceError } =
+  ({ GitHubSourceError, GitHubSourceDeadlineError } =
     await import("../server/lib/github-source-client.js"));
   await as(() =>
     import("./_content-spaces.js").then((m) =>
@@ -299,6 +300,27 @@ async function rowByTitle(databaseId: string, title: string) {
 
 async function refresh(databaseId: string) {
   return await as(() => refreshSource.run({ databaseId }));
+}
+
+/** Changes the link's saved state, as time passing or another add would. */
+async function changeLink(
+  databaseId: string,
+  change: (state: Record<string, unknown>) => void,
+) {
+  const where = eq(schema.contentDatabaseSources.databaseId, databaseId);
+  const source = (
+    await getDb()
+      .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
+      .from(schema.contentDatabaseSources)
+      .where(where)
+  ).at(0);
+  if (!source) throw new Error("The collection has no link.");
+  const metadata = JSON.parse(source.metadataJson);
+  change(metadata.githubPullRequests);
+  await getDb()
+    .update(schema.contentDatabaseSources)
+    .set({ metadataJson: JSON.stringify(metadata) })
+    .where(where);
 }
 
 describe("GitHub pull request collections", () => {
@@ -664,26 +686,12 @@ describe("GitHub pull request collections", () => {
 
   it("holds two adds at once to the cap on pull requests added by link", async () => {
     const result = made(await newCollection());
-    const where = eq(
-      schema.contentDatabaseSources.databaseId,
-      result.database.id,
-    );
-    const source = (
-      await getDb()
-        .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
-        .from(schema.contentDatabaseSources)
-        .where(where)
-    ).at(0);
-    if (!source) throw new Error("The collection has no link.");
-    const metadata = JSON.parse(source.metadataJson);
-    metadata.githubPullRequests.added = Array.from(
-      { length: 499 },
-      (_, index) => `acme/old#${index + 1}`,
-    );
-    await getDb()
-      .update(schema.contentDatabaseSources)
-      .set({ metadataJson: JSON.stringify(metadata) })
-      .where(where);
+    await changeLink(result.database.id, (state) => {
+      state.added = Array.from(
+        { length: 499 },
+        (_, index) => `acme/old#${index + 1}`,
+      );
+    });
     pullRequest("site", 110);
     pullRequest("site", 111);
 
@@ -717,5 +725,64 @@ describe("GitHub pull request collections", () => {
     changePullRequest(key, { title: "New title" });
     expect(await as(() => refreshPage(row.documentId))).toBe(true);
     expect(await liveTitles(result.database.id)).toEqual(["New title"]);
+  });
+
+  it("says on the link when syncs keep running out of time, but not after one", async () => {
+    const key = pullRequest("site", 130, { title: "Slow to answer" });
+    github.state.found = [key];
+    const result = made(await newCollection());
+    const problem = async () =>
+      (await as(() => getSource.run({ databaseId: result.database.id }))).source
+        ?.metadata.githubPullRequests?.problem;
+
+    github.state.failure = new GitHubSourceDeadlineError();
+    await refresh(result.database.id);
+    expect(await problem()).toBeNull();
+
+    await changeLink(result.database.id, (state) => {
+      state.syncedAt = new Date(Date.now() - 10 * 60_000).toISOString();
+    });
+    await refresh(result.database.id);
+    expect(await problem()).toMatchObject({
+      code: "unavailable",
+      message: expect.stringContaining("for a while"),
+    });
+    expect(await liveTitles(result.database.id)).toEqual(["Slow to answer"]);
+
+    // The next sync that's answered clears it.
+    github.state.failure = null;
+    await refresh(result.database.id);
+    expect(await problem()).toBeNull();
+  });
+
+  it("stops reading a pull request added by link once its row shows it merged with its checks done", async () => {
+    const key = pullRequest("docs", 140, { title: "Merged by link" });
+    const result = made(
+      await newCollection({ search: "", urls: ["acme/docs#140"] }),
+    );
+
+    changePullRequest(key, {
+      state: "merged",
+      closedAt: new Date().toISOString(),
+      checks: "running",
+    });
+    github.state.reads = [];
+    await refresh(result.database.id);
+    // Checks still running, so it's read again next time.
+    changePullRequest(key, { checks: "passing" });
+    await refresh(result.database.id);
+    expect(github.state.reads).toEqual([[key], [key]]);
+
+    github.state.reads = [];
+    await refresh(result.database.id);
+    expect(github.state.reads).toEqual([]);
+    const byName = await columns(result.database.id);
+    const row = await rowByTitle(result.database.id, "Merged by link");
+    expect(
+      await optionName(
+        columnId(byName, "Checks"),
+        await value(row.documentId, columnId(byName, "Checks")),
+      ),
+    ).toBe("Passing");
   });
 });

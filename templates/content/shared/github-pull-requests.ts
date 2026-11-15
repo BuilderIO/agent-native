@@ -243,6 +243,19 @@ export function githubPullRequestDaysOpen(
   return Math.max(0, Math.floor((now - opened) / DAY_MS));
 }
 
+/**
+ * Whether a row's values can't change any more: merged, with its checks
+ * done. A merged pull request can't reopen, so a sync stops reading one
+ * added by link once its row shows that.
+ */
+export function githubPullRequestValuesSettled(
+  values: Record<string, unknown>,
+): boolean {
+  return (
+    values.state === STATE_NAMES.merged && values.checks !== CHECK_NAMES.running
+  );
+}
+
 /** A row's column values, by column key, as of `now`. */
 export function githubPullRequestValues(
   pr: GitHubPullRequestRecord,

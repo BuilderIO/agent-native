@@ -24,6 +24,7 @@ import {
   githubPullRequestKey,
   githubPullRequestsSourceName,
   githubPullRequestValues,
+  githubPullRequestValuesSettled,
   githubPullRequestWebUrl,
   type GitHubPullRequestColumn,
   type GitHubPullRequestColumnKey,
@@ -72,6 +73,8 @@ const SYNC_LEASE_MS = 2 * 60 * 1000;
 const ROW_STATE_KEY = "$githubPullRequest";
 /** How long adding by link waits on GitHub. */
 const ADD_READ_BUDGET_MS = 10_000;
+/** How long syncs can run out of time before the collection says so. */
+const SLOW_SYNCS_SHOWN_AFTER_MS = 5 * 60 * 1000;
 
 const OPTION_COLORS: DocumentPropertyOptionColor[] = [
   "blue",
@@ -654,27 +657,28 @@ async function insertRows(tx: Db, write: RowWrite, rows: PlannedRow[]) {
   );
 }
 
-/** Brings a row's title and values up to its pull request; true when one changed. */
-async function updateRow(
+/** A linked row whose pull request changed, with its page's title now. */
+interface RowChange {
+  existing: SourceRow;
+  row: PlannedRow;
+  title: string | undefined;
+}
+
+/**
+ * Brings changed rows' titles and values up to their pull requests, a few
+ * statements at a time, since Days open changes every day for every open
+ * pull request. Returns how many rows changed.
+ */
+async function updateRows(
   tx: Db,
   write: RowWrite,
-  existing: SourceRow,
-  row: PlannedRow,
-): Promise<boolean> {
-  const document = rowAt(
-    await tx
-      .select({ title: schema.documents.title })
-      .from(schema.documents)
-      .where(
-        and(
-          eq(schema.documents.id, existing.documentId),
-          eq(schema.documents.ownerEmail, write.database.ownerEmail),
-        ),
-      ),
-  );
-  let changed = false;
-  // GitHub owns the title, so a rename in Content goes back at the next sync.
-  if (document && document.title !== row.pullRequest.title) {
+  changes: RowChange[],
+): Promise<number> {
+  if (!changes.length) return 0;
+  const changed = new Set<string>();
+  for (const { existing, row, title } of changes) {
+    // GitHub owns the title, so a rename in Content goes back at the next sync.
+    if (title === undefined || title === row.pullRequest.title) continue;
     await tx
       .update(schema.documents)
       .set({ title: row.pullRequest.title, updatedAt: write.now })
@@ -684,69 +688,114 @@ async function updateRow(
           eq(schema.documents.ownerEmail, write.database.ownerEmail),
         ),
       );
-    changed = true;
+    changed.add(existing.id);
   }
   const columns = [...write.columns.values()];
-  const stored = columns.length
-    ? await tx
+  for (const column of columns) {
+    await ensureOptions(
+      tx,
+      column,
+      changes.map(({ row }) => row.values[column.key]),
+      write.now,
+    );
+  }
+  const stored = new Map<
+    string,
+    typeof schema.documentPropertyValues.$inferSelect
+  >();
+  if (columns.length) {
+    const propertyIds = columns.map((column) => column.propertyId);
+    const documentIds = changes.map(({ existing }) => existing.documentId);
+    for (const chunk of chunks(
+      documentIds,
+      bulkChunkSizeForColumnCount(1) - propertyIds.length,
+    )) {
+      const values = await tx
         .select()
         .from(schema.documentPropertyValues)
         .where(
           and(
-            eq(schema.documentPropertyValues.documentId, existing.documentId),
-            inArray(
-              schema.documentPropertyValues.propertyId,
-              columns.map((column) => column.propertyId),
-            ),
+            inArray(schema.documentPropertyValues.documentId, chunk),
+            inArray(schema.documentPropertyValues.propertyId, propertyIds),
           ),
-        )
-    : [];
-  const storedByProperty = new Map(
-    stored.map((value) => [value.propertyId, value] as const),
-  );
-  for (const column of columns) {
-    await ensureOptions(tx, column, [row.values[column.key]], write.now);
-    const normalized = columnValue(column, row);
-    const current = storedByProperty.get(column.propertyId);
-    if (normalized === null) {
-      if (current) {
-        await tx
-          .delete(schema.documentPropertyValues)
-          .where(eq(schema.documentPropertyValues.id, current.id));
-        changed = true;
+        );
+      for (const value of values) {
+        stored.set(`${value.documentId}:${value.propertyId}`, value);
       }
-      continue;
     }
-    const valueJson = serializePropertyValue(normalized);
-    if (current?.valueJson === valueJson) continue;
-    changed = true;
-    if (current) {
-      await tx
-        .update(schema.documentPropertyValues)
-        .set({ valueJson, updatedAt: write.now })
-        .where(eq(schema.documentPropertyValues.id, current.id));
-    } else {
-      await tx.insert(schema.documentPropertyValues).values({
-        id: nanoid(),
+  }
+  const upserts: Array<typeof schema.documentPropertyValues.$inferInsert> = [];
+  const deletes: string[] = [];
+  for (const { existing, row } of changes) {
+    for (const column of columns) {
+      const normalized = columnValue(column, row);
+      const current = stored.get(`${existing.documentId}:${column.propertyId}`);
+      if (normalized === null) {
+        if (current) {
+          deletes.push(current.id);
+          changed.add(existing.id);
+        }
+        continue;
+      }
+      const valueJson = serializePropertyValue(normalized);
+      if (current?.valueJson === valueJson) continue;
+      changed.add(existing.id);
+      upserts.push({
+        id: current?.id ?? nanoid(),
         ownerEmail: write.database.ownerEmail,
         documentId: existing.documentId,
         propertyId: column.propertyId,
         valueJson,
-        createdAt: write.now,
+        createdAt: current?.createdAt ?? write.now,
         updatedAt: write.now,
       });
     }
   }
-  await tx
-    .update(schema.contentDatabaseSourceRows)
-    .set(
-      sourceRowFields(write, row, {
+  await inStatements(upserts, (values) =>
+    tx
+      .insert(schema.documentPropertyValues)
+      .values(values)
+      .onConflictDoUpdate({
+        target: schema.documentPropertyValues.id,
+        set: {
+          valueJson: sql`excluded.value_json`,
+          updatedAt: sql`excluded.updated_at`,
+        },
+      }),
+  );
+  for (const chunk of chunks(deletes, bulkChunkSizeForColumnCount(1))) {
+    await tx
+      .delete(schema.documentPropertyValues)
+      .where(inArray(schema.documentPropertyValues.id, chunk));
+  }
+  await inStatements(
+    changes.map(({ existing, row }) => ({
+      ...existing,
+      ...sourceRowFields(write, row, {
         itemId: existing.databaseItemId,
         documentId: existing.documentId,
       }),
-    )
-    .where(eq(schema.contentDatabaseSourceRows.id, existing.id));
-  return changed;
+    })),
+    (values) =>
+      tx
+        .insert(schema.contentDatabaseSourceRows)
+        .values(values)
+        .onConflictDoUpdate({
+          target: schema.contentDatabaseSourceRows.id,
+          set: {
+            sourceQualifiedId: sql`excluded.source_qualified_id`,
+            sourceDisplayKey: sql`excluded.source_display_key`,
+            sourceValuesJson: sql`excluded.source_values_json`,
+            provenance: sql`excluded.provenance`,
+            syncState: sql`excluded.sync_state`,
+            freshness: sql`excluded.freshness`,
+            lastSyncedAt: sql`excluded.last_synced_at`,
+            lastSourceUpdatedAt: sql`excluded.last_source_updated_at`,
+            updatedAt: sql`excluded.updated_at`,
+          },
+        }),
+  );
+  return changed.size;
 }
 
 /** Each page's title, in one read rather than one a row. */
@@ -1020,21 +1069,23 @@ async function writeRows(args: {
         }),
       );
       const fresh: PlannedRow[] = [];
-      let updated = 0;
+      const changes: RowChange[] = [];
       for (const row of planned.values()) {
         const linked = existing.get(row.key);
         if (!linked) {
           fresh.push(row);
           continue;
         }
+        const title = titles.get(linked.documentId);
         if (
           rowState(linked)?.hash === row.hash &&
-          titles.get(linked.documentId) === row.pullRequest.title
+          title === row.pullRequest.title
         ) {
           continue;
         }
-        if (await updateRow(tx, write, linked, row)) updated += 1;
+        changes.push({ existing: linked, row, title });
       }
+      const updated = await updateRows(tx, write, changes);
       await insertRows(tx, write, fresh);
       const rows = await readSourceRows(tx, source.id);
       return { created: fresh.length, updated, rows };
@@ -1248,6 +1299,16 @@ export async function syncGitHubPullRequests(
       connectionId: state.connectionId,
       signal: budget.signal,
     };
+    // A pull request added by link is read until its row shows it merged
+    // with its checks done, and not again, so a long list of them doesn't
+    // cost a read each sync.
+    const settled = new Set(
+      [...(await readSourceRows(getDb(), options.sourceId))]
+        .filter(([, row]) =>
+          githubPullRequestValuesSettled(parseJsonObject(row.sourceValuesJson)),
+        )
+        .map(([key]) => key),
+    );
     const { searched, searchTotal, added } = await readAsLinker(
       state,
       database.orgId,
@@ -1263,7 +1324,7 @@ export async function syncGitHubPullRequests(
           (found?.pullRequests ?? []).map(githubPullRequestKey),
         );
         const toRead = state.added
-          .filter((key) => !foundKeys.has(key))
+          .filter((key) => !foundKeys.has(key) && !settled.has(key))
           .map(refFromKey)
           .filter((ref): ref is GitHubPullRequestRef => !!ref);
         return {
@@ -1344,13 +1405,30 @@ export async function syncGitHubPullRequests(
     return result;
   } catch (error) {
     if (error instanceof GitHubSourceDeadlineError) {
-      // Only this run ran out of time; the next one tries again.
+      // One run out of time isn't worth showing; the next one tries again.
+      // Runs that keep running out are, so the Sources panel says why the
+      // rows stopped catching up.
+      const slow: GitHubPullRequestsState["problem"] = {
+        code: "unavailable",
+        message:
+          "GitHub hasn't answered in time for a while. The background sync keeps trying.",
+        at: now,
+      };
       await release(
-        (current) => ({ ...current, checkedAt: now }),
+        (current) => ({
+          ...current,
+          checkedAt: now,
+          problem:
+            Date.parse(now) - Date.parse(current.syncedAt ?? current.linkedAt) >
+            SLOW_SYNCS_SHOWN_AFTER_MS
+              ? slow
+              : current.problem,
+        }),
         (next) => ({
           syncState: next.problem ? "error" : "linked",
           freshness: "stale",
           lastRefreshedAt: now,
+          ...(next.problem === slow ? { lastError: slow.message } : {}),
         }),
       ).catch(warnLeaseNotReleased);
       return {
