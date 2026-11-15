@@ -19,17 +19,18 @@ import { launchDarklyConfig } from "./launchdarkly.js";
 import { mcpConfig } from "./mcp.js";
 import { migrationConfig } from "./migration.js";
 import { nativeCapabilities } from "./native-capabilities.js";
+import { notificationsConfig } from "./notifications.js";
 import { observabilityConfig } from "./observability.js";
 import { onboardingConfig } from "./onboarding.js";
 import { openAiAppsConfig } from "./openai-apps.js";
 import { pluginsConfig } from "./plugins.js";
 import { privateBlobConfig } from "./private-blob.js";
 import { runtimeConfig } from "./runtime.js";
-import { testIdentityConfig } from "./test-identity.js";
 import type {
   AppConfigSectionInputs,
   AppConfigSectionOutputs,
 } from "./sections.js";
+import { testIdentityConfig } from "./test-identity.js";
 import { workspaceConfig } from "./workspace.js";
 
 export const nativeCapabilitySchema = z.enum(nativeCapabilities);
@@ -94,6 +95,7 @@ export const appConfigSchema = z.object({
   mcp: mcpConfig.prefault({}),
   migration: migrationConfig.prefault({}),
   native: nativeManifestSchema.optional(),
+  notifications: notificationsConfig.prefault({}),
   observability: observabilityConfig.prefault({}),
   onboarding: onboardingConfig.prefault({}),
   openAiApps: openAiAppsConfig.prefault({}),
