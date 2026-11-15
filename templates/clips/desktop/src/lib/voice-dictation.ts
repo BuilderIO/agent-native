@@ -640,7 +640,6 @@ export function installDesktopVoiceDictation(
   const dictationInput = (event: DictationInputEvent): DictationInputAction => {
     const next = reduceDictationInput(pressOwner, event, {
       handsFree: handsFreeActive,
-      busy: !!session || startInFlight,
     });
     pressOwner = next.owner;
     return next.action;
@@ -2837,7 +2836,9 @@ export function installDesktopVoiceDictation(
   // listener existed; ask for it now.
   void shortcutStartListener
     .then(() =>
-      disposed
+      // A disabled install couldn't start it: leave it (and link presses)
+      // waiting natively for an enabled one.
+      disposed || !enabled
         ? false
         : invoke<boolean>("take_pending_dictate_link", {
             listener: dictationListenerId,

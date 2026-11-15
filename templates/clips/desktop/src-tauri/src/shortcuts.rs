@@ -1987,12 +1987,14 @@ impl DictationGate {
         }
     }
 
-    /// The frontend's listener is (re)installed: no hands-free run from an
-    /// earlier page load is left, presses go straight to it from now on,
-    /// and true when a held hands-free press should start now.
+    /// The frontend's listener is (re)installed: no hands-free run or live
+    /// flow from an earlier page load is left (the new one reports its own),
+    /// presses go straight to it from now on, and true when a held
+    /// hands-free press should start now.
     fn listener_ready(&mut self, listener: &str, now: Instant) -> bool {
         self.listener = Some(listener.to_owned());
         self.hands_free = false;
+        self.flow_live = false;
         self.pending_hands_free
             .take()
             .is_some_and(|at| now.saturating_duration_since(at) < HANDS_FREE_LINK_HOLD_LIMIT)
@@ -2618,6 +2620,19 @@ mod dictation_gate_tests {
                 },
                 false,
             ),
+        ]);
+    }
+
+    #[test]
+    fn a_reloaded_listener_does_not_keep_the_old_pages_live_flow() {
+        use Step::{Flow, ListenerGone, ListenerUp, Press};
+        run(&[
+            (0, Flow("recording"), Done, false),
+            (100, Press(Link), Claim(StopOnly), false),
+            // The webview reloads mid-dictation.
+            (200, ListenerGone("a"), Done, false),
+            (300, ListenerUp("b"), Out::Pending(false), false),
+            (400, Press(Link), Claim(Owns), true),
         ]);
     }
 

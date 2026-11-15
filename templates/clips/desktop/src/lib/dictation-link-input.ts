@@ -28,8 +28,6 @@ export type DictationInputAction =
 
 export interface DictationInputContext {
   handsFree: boolean;
-  /** A dictation is running or starting. */
-  busy: boolean;
 }
 
 export function reduceDictationInput(
@@ -43,8 +41,11 @@ export function reduceDictationInput(
         return { owner: "none", action: "hands-free-link" };
       case "link":
         if (context.handsFree) return { owner, action: "stop-hands-free" };
-        // A dictation this press didn't start: leave it, and its up with it.
-        if (event.stopOnly || context.busy) return { owner, action: "ignore" };
+        // A dictation this press didn't start: native sends it stop-only.
+        if (event.stopOnly) return { owner, action: "ignore" };
+        // Native gave this press the dictation, even if an earlier tap is
+        // still starting or finishing here: it owns it, and its start waits
+        // behind that tap.
         return { owner: "link", action: "start-link" };
       case "key":
         // Native only sends a key start for a press that owns the dictation,

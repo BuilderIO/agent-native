@@ -2183,7 +2183,12 @@ describe("desktop voice dictation runs", () => {
       await dispatch("voice:shortcut-start", { source: "fn" });
       await vi.advanceTimersByTimeAsync(SHORT_TAP_MS);
       expect(calls("native_speech_start")).toBe(1);
-      await dispatch("voice:shortcut-start", { source: "link" });
+      // Native sends a link pressed during a run it didn't start as
+      // stop-only.
+      await dispatch("voice:shortcut-start", {
+        source: "link",
+        stopOnly: true,
+      });
       await dispatch("voice:shortcut-stop", { source: "link" });
       await vi.advanceTimersByTimeAsync(RELEASE_TAIL_MS);
       expect(calls("native_speech_stop")).toBe(0);
@@ -2334,6 +2339,38 @@ describe("desktop voice dictation runs", () => {
         "dictation_listener_gone",
         take?.[1],
       );
+    });
+
+    it("leaves a hands-free link held at startup for an enabled install", async () => {
+      tauri.invoke.mockImplementation((command) =>
+        Promise.resolve(
+          command === "take_pending_dictate_link"
+            ? true
+            : command === "complete_voice_dictation"
+              ? "inserted"
+              : undefined,
+        ),
+      );
+      setPlatform("MacIntel");
+      const { installDesktopVoiceDictation } =
+        await import("./voice-dictation");
+      const options = {
+        serverUrl: "https://clips.test",
+        shortcut: "both" as const,
+        mode: "push-to-talk" as const,
+        engine: "native" as const,
+        polish: "off" as const,
+      };
+      dispose = installDesktopVoiceDictation({ ...options, enabled: false });
+      await settle();
+      await vi.advanceTimersByTimeAsync(SHORT_TAP_MS);
+      expect(calls("take_pending_dictate_link")).toBe(0);
+      dispose();
+      dispose = installDesktopVoiceDictation({ ...options, enabled: true });
+      await settle();
+      await vi.advanceTimersByTimeAsync(SHORT_TAP_MS);
+      expect(calls("take_pending_dictate_link")).toBe(1);
+      expect(calls("native_speech_start")).toBe(1);
     });
 
     it("asks for a hands-free link held at startup once its listener is up", async () => {

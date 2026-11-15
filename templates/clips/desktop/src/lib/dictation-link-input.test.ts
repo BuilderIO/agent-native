@@ -11,14 +11,13 @@ type Row = [
   name: string,
   owner: DictationPressOwner,
   event: DictationInputEvent,
-  context: { handsFree: boolean; busy: boolean },
+  context: { handsFree: boolean },
   next: DictationPressOwner,
   action: DictationInputAction,
 ];
 
-const idle = { handsFree: false, busy: false };
-const busy = { handsFree: false, busy: true };
-const handsFree = { handsFree: true, busy: true };
+const idle = { handsFree: false };
+const handsFree = { handsFree: true };
 
 const rows: Row[] = [
   [
@@ -30,12 +29,20 @@ const rows: Row[] = [
     "start-link",
   ],
   [
-    "link down leaves a run it didn't start",
+    "a native-owned link down owns it behind a tap still starting",
     "none",
     { kind: "start", source: "link" },
-    busy,
-    "none",
-    "ignore",
+    idle,
+    "link",
+    "start-link",
+  ],
+  [
+    "a native-owned link down after an earlier link tap",
+    "link",
+    { kind: "start", source: "link" },
+    idle,
+    "link",
+    "start-link",
   ],
   [
     "stop-only link down starts nothing",
@@ -57,7 +64,7 @@ const rows: Row[] = [
     "link up stops its own run",
     "link",
     { kind: "stop", source: "link" },
-    busy,
+    idle,
     "none",
     "stop-link",
   ],
@@ -65,7 +72,7 @@ const rows: Row[] = [
     "link up leaves a run it didn't start",
     "none",
     { kind: "stop", source: "link" },
-    busy,
+    idle,
     "none",
     "ignore",
   ],
@@ -73,7 +80,7 @@ const rows: Row[] = [
     "link up after a key took over",
     "key",
     { kind: "stop", source: "link" },
-    busy,
+    idle,
     "key",
     "ignore",
   ],
@@ -89,7 +96,7 @@ const rows: Row[] = [
     "a native key takeover replaces the link",
     "link",
     { kind: "start", source: "key" },
-    busy,
+    idle,
     "key",
     "key",
   ],
@@ -97,7 +104,7 @@ const rows: Row[] = [
     "key up ends the key's press",
     "key",
     { kind: "stop", source: "key" },
-    busy,
+    idle,
     "none",
     "key",
   ],
@@ -105,7 +112,7 @@ const rows: Row[] = [
     "hands-free link clears a push owner",
     "link",
     { kind: "start", source: "link-hands-free" },
-    busy,
+    idle,
     "none",
     "hands-free-link",
   ],
