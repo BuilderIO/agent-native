@@ -1,4 +1,7 @@
-import { useActionQuery } from "@agent-native/core/client/hooks";
+import {
+  actionErrorCode,
+  useActionQuery,
+} from "@agent-native/core/client/hooks";
 import { useAvatarUrl } from "@agent-native/core/client/hooks";
 import { useDemoModeStatus } from "@agent-native/core/client/hooks";
 import { useSession } from "@agent-native/core/client/hooks";
@@ -173,7 +176,7 @@ export function BuilderCreditNotice({
   showAtLimitOnly?: boolean;
   className?: string;
 }) {
-  const { data: org } = useOrg();
+  const { data: org, refetch: refetchOrg } = useOrg();
   const chatEngine = useChatEngineChoice();
   const builderCreditStatus = useActionQuery<{
     /**
@@ -194,7 +197,7 @@ export function BuilderCreditNotice({
   } | null>(
     "get-builder-credit-status",
     {
-      orgId: org?.orgId ?? null,
+      orgId: org?.orgId ?? "",
       ...(chatEngine ? { engine: chatEngine } : {}),
     },
     {
@@ -203,6 +206,11 @@ export function BuilderCreditNotice({
       refetchInterval: 60_000,
       // The 60s poll is the retry; retrying a Builder outage multiplies it.
       retry: false,
+      onServerError: (error) => {
+        if (actionErrorCode(error) === "builder_credit_org_mismatch") {
+          void refetchOrg();
+        }
+      },
     },
   );
   const t = useT();
