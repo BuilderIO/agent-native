@@ -962,6 +962,189 @@ describe("ddl-guard", () => {
       },
     );
 
+    it("accepts a concurrent column created after the timeout re-probe", async () => {
+      const { ensureColumnExists } = await import("./ddl-guard.js");
+      let created = false;
+      let attempts = 0;
+      const duplicate = new Error("failed query", {
+        cause: Object.assign(new Error("column already exists"), {
+          code: "42701",
+        }),
+      });
+      const { client, calls } = recordingClient((sql) => {
+        if (/FROM information_schema\.columns/.test(sql)) {
+          return {
+            rows: [
+              { table_name: "foo", column_name: "id" },
+              ...(created ? [{ table_name: "foo", column_name: "bar" }] : []),
+            ],
+          };
+        }
+        if (/ALTER TABLE/.test(sql)) {
+          if (++attempts === 1)
+            throw Object.assign(new Error("lock timeout"), { code: "55P03" });
+          created = true;
+          throw duplicate;
+        }
+        return undefined;
+      });
+      await expect(
+        ensureColumnExists(
+          "foo",
+          "bar",
+          "ALTER TABLE foo ADD COLUMN bar TEXT",
+          {
+            injectedClient: client,
+          },
+        ),
+      ).resolves.toBe(true);
+      expect(calls.filter((sql) => /ALTER TABLE/.test(sql))).toHaveLength(2);
+      expect(calls.filter((sql) => sql === "ROLLBACK")).toHaveLength(2);
+      expect(
+        calls.filter((sql) => /FROM information_schema\.columns/.test(sql)),
+      ).toHaveLength(3);
+    });
+
+    it.each([false, undefined, "throws"] as const)(
+      "preserves the duplicate error when the post-retry probe is %s",
+      async (result) => {
+        const { ensureSchemaObject } = await import("./ddl-guard.js");
+        const duplicate = Object.assign(new Error("column already exists"), {
+          code: "42701",
+        });
+        let attempts = 0;
+        const { client, calls } = recordingClient((sql) => {
+          if (/ALTER TABLE/.test(sql)) {
+            if (++attempts === 1)
+              throw Object.assign(new Error("lock timeout"), { code: "55P03" });
+            throw duplicate;
+          }
+          return undefined;
+        });
+        const probeError = new Error("schema probe failed");
+        const probe = vi
+          .fn()
+          .mockResolvedValueOnce(false)
+          .mockResolvedValueOnce(false);
+        if (result === "throws") probe.mockRejectedValueOnce(probeError);
+        else probe.mockResolvedValueOnce(result);
+        const error = await ensureSchemaObject({
+          probe,
+          ddl: "ALTER TABLE foo ADD COLUMN bar TEXT",
+          label: "column foo.bar",
+          injectedClient: client,
+        }).catch((err: unknown) => err);
+        if (result === false) expect(error).toBe(duplicate);
+        else if (result === "throws") {
+          expect(error).toBeInstanceOf(AggregateError);
+          expect((error as AggregateError).errors).toEqual([
+            duplicate,
+            probeError,
+          ]);
+        } else
+          expect(error).toMatchObject({
+            message: expect.stringMatching(/could not re-probe/),
+            cause: duplicate,
+          });
+        expect(probe).toHaveBeenCalledTimes(3);
+        expect(calls.filter((sql) => sql === "ROLLBACK")).toHaveLength(2);
+      },
+    );
+
+    it("accepts a duplicate relation after a retry when the object exists", async () => {
+      const { ensureSchemaObject } = await import("./ddl-guard.js");
+      let attempts = 0;
+      const { client } = recordingClient((sql) => {
+        if (/CREATE TABLE/.test(sql)) {
+          if (++attempts === 1)
+            throw Object.assign(new Error("lock timeout"), { code: "55P03" });
+          throw Object.assign(new Error("relation exists"), { code: "42P07" });
+        }
+        return undefined;
+      });
+      const probe = vi
+        .fn()
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(true);
+      await expect(
+        ensureSchemaObject({
+          probe,
+          ddl: "CREATE TABLE foo (id TEXT)",
+          label: "table foo",
+          injectedClient: client,
+        }),
+      ).resolves.toBe(true);
+      expect(attempts).toBe(2);
+      expect(probe).toHaveBeenCalledTimes(3);
+    });
+
+    it.each([
+      ["duplicate on the first attempt", "42701", false],
+      ["unrelated unique violation on a retry", "23505", true],
+      ["other duplicate object on a retry", "42710", true],
+    ])(
+      "propagates %s without a duplicate re-probe",
+      async (_label, code, retry) => {
+        const { ensureSchemaObject } = await import("./ddl-guard.js");
+        const error = Object.assign(new Error("DDL failed"), { code });
+        let attempts = 0;
+        const { client } = recordingClient((sql) => {
+          if (/ALTER TABLE/.test(sql)) {
+            if (++attempts === 1 && retry)
+              throw Object.assign(new Error("lock timeout"), { code: "55P03" });
+            throw error;
+          }
+          return undefined;
+        });
+        const probe = vi.fn(async () => false);
+        await expect(
+          ensureSchemaObject({
+            probe,
+            ddl: "ALTER TABLE foo ADD COLUMN bar TEXT",
+            label: "column foo.bar",
+            injectedClient: client,
+          }),
+        ).rejects.toBe(error);
+        expect(probe).toHaveBeenCalledTimes(retry ? 2 : 1);
+      },
+    );
+
+    it("does not hide a failed reset after duplicate DDL on a retry", async () => {
+      const { ensureSchemaObject } = await import("./ddl-guard.js");
+      const duplicate = Object.assign(new Error("column exists"), {
+        code: "42701",
+      });
+      const resetError = new Error("reset failed");
+      let attempts = 0;
+      const { client } = recordingClient((sql) => {
+        if (/ALTER TABLE/.test(sql)) {
+          if (++attempts === 1)
+            throw Object.assign(new Error("lock timeout"), { code: "55P03" });
+          throw duplicate;
+        }
+        if (/RESET lock_timeout/.test(sql) && attempts === 2) throw resetError;
+        return undefined;
+      });
+      const probe = vi
+        .fn()
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(true);
+      const result = await ensureSchemaObject({
+        probe,
+        ddl: "ALTER TABLE foo ADD COLUMN bar TEXT",
+        label: "column foo.bar",
+        injectedClient: { execute: client.execute },
+      }).catch((error: unknown) => error);
+      expect(result).toBeInstanceOf(AggregateError);
+      expect((result as AggregateError).errors).toEqual([
+        duplicate,
+        resetError,
+      ]);
+      expect(probe).toHaveBeenCalledTimes(2);
+    });
+
     it("refreshes the schema snapshot after a concurrent creator wins", async () => {
       vi.stubEnv("DATABASE_URL", "postgres://localhost:5432/db");
       const { ensureTableExists } = await import("./ddl-guard.js");

@@ -348,14 +348,53 @@ export async function ensureSchemaObject(options: {
       `ensureSchemaObject: could not probe required schema "${label}"; refusing to issue DDL`,
     );
   }
+  const isDuplicateSchemaError = (err: unknown): boolean => {
+    let current = err;
+    let code: string | undefined;
+    const seen = new Set<object>();
+    for (let depth = 0; depth < 8; depth += 1) {
+      if (typeof current !== "object" || current === null) break;
+      if (current instanceof AggregateError || seen.has(current)) return false;
+      seen.add(current);
+      const error = current as { code?: unknown; cause?: unknown };
+      if (typeof error.code === "string" && /^[0-9A-Z]{5}$/.test(error.code)) {
+        code = error.code;
+      }
+      if (error.cause == null) break;
+      if (depth === 7) return false;
+      current = error.cause;
+    }
+    return code === "42701" || code === "42P07";
+  };
   for (let attempt = 0; attempt < 3; attempt += 1) {
     let ran: boolean;
     try {
-      ran = await withLegacyServerlessSchemaDdl(() =>
-        runGuardedDdl(ddl, { lockTimeout, timeoutMs, injectedClient }),
-      );
-    } finally {
-      invalidateSchemaSnapshot(injectedClient);
+      try {
+        ran = await withLegacyServerlessSchemaDdl(() =>
+          runGuardedDdl(ddl, { lockTimeout, timeoutMs, injectedClient }),
+        );
+      } finally {
+        invalidateSchemaSnapshot(injectedClient);
+      }
+    } catch (err) {
+      if (attempt === 0 || !isDuplicateSchemaError(err)) throw err;
+      let existsAfterDuplicate: boolean | undefined;
+      try {
+        existsAfterDuplicate = await probe();
+      } catch (probeError) {
+        throw new AggregateError(
+          [err, probeError],
+          `ensureSchemaObject: could not re-probe required schema "${label}" after duplicate DDL`,
+        );
+      }
+      if (existsAfterDuplicate === true) return true;
+      if (existsAfterDuplicate === undefined) {
+        throw new Error(
+          `ensureSchemaObject: could not re-probe required schema "${label}" after duplicate DDL`,
+          { cause: err },
+        );
+      }
+      throw err;
     }
     if (ran) return true;
     const existsAfterTimeout = await probe();
