@@ -348,17 +348,22 @@ export async function ensureSchemaObject(options: {
       `ensureSchemaObject: could not probe required schema "${label}"; refusing to issue DDL`,
     );
   }
-  const ran = await withLegacyServerlessSchemaDdl(() =>
-    runGuardedDdl(ddl, { lockTimeout, timeoutMs, injectedClient }),
-  );
-  invalidateSchemaSnapshot(injectedClient);
-  if (ran) return true;
-  const existsAfterTimeout = await probe();
-  if (existsAfterTimeout === true) return true;
-  if (existsAfterTimeout === undefined) {
-    throw new Error(
-      `ensureSchemaObject: could not re-probe required schema "${label}" after a lock-timed-out DDL`,
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    const ran = await withLegacyServerlessSchemaDdl(() =>
+      runGuardedDdl(ddl, { lockTimeout, timeoutMs, injectedClient }),
     );
+    invalidateSchemaSnapshot(injectedClient);
+    if (ran) return true;
+    const existsAfterTimeout = await probe();
+    if (existsAfterTimeout === true) return true;
+    if (existsAfterTimeout === undefined) {
+      throw new Error(
+        `ensureSchemaObject: could not re-probe required schema "${label}" after a lock-timed-out DDL`,
+      );
+    }
+    if (attempt < 2) {
+      await new Promise((resolve) => setTimeout(resolve, 100 * (attempt + 1)));
+    }
   }
   throw new Error(
     `ensureSchemaObject: required schema "${label}" is still missing after a ` +
@@ -516,8 +521,8 @@ export async function runGuardedDdl(
     options.timeoutMs === undefined
       ? ddl
       : { sql: ddl, timeoutMs: options.timeoutMs };
-  try {
-    if (typeof client.transaction === "function") {
+  if (typeof client.transaction === "function") {
+    try {
       await client.transaction(async (tx) => {
         await tx.execute(`SET LOCAL lock_timeout = '${lockTimeout}'`);
         await tx.execute(
@@ -525,19 +530,23 @@ export async function runGuardedDdl(
         );
         await tx.execute(statement);
       });
-    } else {
-      try {
-        await client.execute(`SET lock_timeout = '${lockTimeout}'`);
-        await client.execute(statement);
-      } finally {
-        await client.execute(`RESET lock_timeout`).catch(() => {});
-      }
+      return true;
+    } catch (err) {
+      if (isLockTimeoutError(err)) return false;
+      throw err;
     }
-    return true;
-  } catch (err) {
-    if (isLockTimeoutError(err)) {
-      return false;
+  }
+
+  try {
+    try {
+      await client.execute(`SET lock_timeout = '${lockTimeout}'`);
+      await client.execute(statement);
+      return true;
+    } catch (err) {
+      if (isLockTimeoutError(err)) return false;
+      throw err;
     }
-    throw err;
+  } finally {
+    await client.execute(`RESET lock_timeout`);
   }
 }

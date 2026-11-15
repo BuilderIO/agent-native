@@ -752,6 +752,161 @@ describe("ddl-guard", () => {
       expect(probeCount).toBe(2);
     });
 
+    it("retries a lock timeout in a fresh transaction after rollback", async () => {
+      vi.stubEnv("DATABASE_URL", "postgres://localhost:5432/db");
+      const { ensureSchemaObject } = await import("./ddl-guard.js");
+      let attempts = 0;
+      const { client, calls } = recordingClient((sql) => {
+        if (/CREATE TABLE/.test(sql) && ++attempts === 1) {
+          throw Object.assign(new Error("lock timeout"), { code: "55P03" });
+        }
+        return undefined;
+      });
+      const probe = vi.fn(async () => false);
+      const execute = vi.spyOn(client, "execute");
+
+      await expect(
+        ensureSchemaObject({
+          probe,
+          ddl: "CREATE TABLE foo (id TEXT)",
+          label: "table foo",
+          lockTimeout: "2s",
+          timeoutMs: 5000,
+          injectedClient: client,
+        }),
+      ).resolves.toBe(true);
+      expect(probe).toHaveBeenCalledTimes(2);
+      expect(
+        execute.mock.calls.filter(([sql]) => typeof sql === "object"),
+      ).toEqual([
+        [{ sql: "CREATE TABLE foo (id TEXT)", timeoutMs: 5000 }],
+        [{ sql: "CREATE TABLE foo (id TEXT)", timeoutMs: 5000 }],
+      ]);
+      expect(calls).toEqual([
+        "BEGIN",
+        "SET LOCAL lock_timeout = '2s'",
+        "SET LOCAL idle_in_transaction_session_timeout = '30s'",
+        "CREATE TABLE foo (id TEXT)",
+        "ROLLBACK",
+        "BEGIN",
+        "SET LOCAL lock_timeout = '2s'",
+        "SET LOCAL idle_in_transaction_session_timeout = '30s'",
+        "CREATE TABLE foo (id TEXT)",
+        "COMMIT",
+      ]);
+    });
+
+    it("refreshes the schema snapshot after a concurrent creator wins", async () => {
+      vi.stubEnv("DATABASE_URL", "postgres://localhost:5432/db");
+      const { ensureTableExists } = await import("./ddl-guard.js");
+      let created = false;
+      const { client, calls } = recordingClient((sql) => {
+        if (/FROM information_schema\.columns/.test(sql)) {
+          return {
+            rows: created ? [{ table_name: "foo", column_name: "id" }] : [],
+          };
+        }
+        if (/CREATE TABLE/.test(sql)) {
+          created = true;
+          throw Object.assign(new Error("lock timeout"), { code: "55P03" });
+        }
+        return undefined;
+      });
+      await expect(
+        ensureTableExists("foo", "CREATE TABLE foo (id TEXT)", {
+          injectedClient: client,
+        }),
+      ).resolves.toBe(true);
+      expect(
+        calls.filter((sql) => /FROM information_schema\.columns/.test(sql)),
+      ).toHaveLength(2);
+      expect(calls.filter((sql) => /CREATE TABLE/.test(sql))).toHaveLength(1);
+      expect(calls).toContain("ROLLBACK");
+    });
+
+    it("stops immediately if a re-probe becomes unreadable after a retry", async () => {
+      vi.stubEnv("DATABASE_URL", "postgres://localhost:5432/db");
+      const { ensureSchemaObject } = await import("./ddl-guard.js");
+      const { client, calls } = recordingClient((sql) => {
+        if (/CREATE TABLE/.test(sql)) {
+          throw Object.assign(new Error("lock timeout"), { code: "55P03" });
+        }
+        return undefined;
+      });
+      const probe = vi
+        .fn()
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(false)
+        .mockResolvedValueOnce(undefined);
+      await expect(
+        ensureSchemaObject({
+          probe,
+          ddl: "CREATE TABLE foo (id TEXT)",
+          label: "table foo",
+          injectedClient: client,
+        }),
+      ).rejects.toThrow(/could not re-probe required schema/);
+      expect(probe).toHaveBeenCalledTimes(3);
+      expect(calls.filter((sql) => sql === "ROLLBACK")).toHaveLength(2);
+    });
+
+    it("retries without a transaction only after resetting the session timeout", async () => {
+      vi.stubEnv("DATABASE_URL", "postgres://localhost:5432/db");
+      const { ensureSchemaObject } = await import("./ddl-guard.js");
+      let attempts = 0;
+      const { client, calls } = recordingClient((sql) => {
+        if (/CREATE TABLE/.test(sql) && ++attempts === 1) {
+          throw Object.assign(new Error("lock timeout"), { code: "55P03" });
+        }
+        return undefined;
+      });
+      await expect(
+        ensureSchemaObject({
+          probe: async () => false,
+          ddl: "CREATE TABLE foo (id TEXT)",
+          label: "table foo",
+          injectedClient: { execute: client.execute },
+        }),
+      ).resolves.toBe(true);
+      expect(calls).toEqual([
+        "SET lock_timeout = '3s'",
+        "CREATE TABLE foo (id TEXT)",
+        "RESET lock_timeout",
+        "SET lock_timeout = '3s'",
+        "CREATE TABLE foo (id TEXT)",
+        "RESET lock_timeout",
+      ]);
+    });
+
+    it("does not retry if resetting a session lock timeout fails", async () => {
+      vi.stubEnv("DATABASE_URL", "postgres://localhost:5432/db");
+      const { ensureSchemaObject } = await import("./ddl-guard.js");
+      const resetError = Object.assign(new Error("reset lock timeout failed"), {
+        code: "55P03",
+      });
+      const { client, calls } = recordingClient((sql) => {
+        if (/CREATE TABLE/.test(sql))
+          throw Object.assign(new Error("lock timeout"), { code: "55P03" });
+        if (/RESET lock_timeout/.test(sql)) throw resetError;
+        return undefined;
+      });
+      const probe = vi.fn(async () => false);
+      await expect(
+        ensureSchemaObject({
+          probe,
+          ddl: "CREATE TABLE foo (id TEXT)",
+          label: "table foo",
+          injectedClient: { execute: client.execute },
+        }),
+      ).rejects.toBe(resetError);
+      expect(probe).toHaveBeenCalledTimes(1);
+      expect(calls).toEqual([
+        "SET lock_timeout = '3s'",
+        "CREATE TABLE foo (id TEXT)",
+        "RESET lock_timeout",
+      ]);
+    });
+
     it("THROWS (does not memoize success) when DDL lock-times out and the object is STILL missing", async () => {
       vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
       const { ensureSchemaObject } = await import("./ddl-guard.js");
@@ -770,14 +925,18 @@ describe("ddl-guard", () => {
             },
           }),
       } as any;
+      const probe = vi.fn(async () => false);
+      const transaction = vi.spyOn(client, "transaction");
       await expect(
         ensureSchemaObject({
-          probe: async () => false,
+          probe,
           ddl: "CREATE TABLE foo (id TEXT)",
           label: "table foo",
           injectedClient: client,
         }),
       ).rejects.toThrow(/still missing after a lock-timed-out DDL/);
+      expect(transaction).toHaveBeenCalledTimes(3);
+      expect(probe).toHaveBeenCalledTimes(4);
     });
 
     it("rethrows a non-lock-timeout DDL error without re-probing", async () => {
