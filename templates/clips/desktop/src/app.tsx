@@ -255,6 +255,7 @@ import {
 } from "./lib/recording-shortcut-stop";
 import { boundedCleanup } from "./lib/recording-start-guard";
 import {
+  captureIdentityOnStartAttempt,
   RecordingStartStopState,
   stopDuringStart,
 } from "./lib/recording-start-stop";
@@ -4392,8 +4393,12 @@ export function App({
           },
           // Native begin / Rewind start was sent: capture may already be live,
           // so a Stop from here on finishes the take instead of cancelling.
-          onCaptureStartAttempted: () => {
+          onCaptureStartAttempted: (recordingId) => {
             startStop.markCaptureMayBeLive();
+            sessionCaptureIdentityRef.current = captureIdentityOnStartAttempt(
+              sessionCaptureIdentityRef.current,
+              recordingId,
+            );
             if (recordingStartAttemptRef.current === attempt) {
               captureStartedDuringStartRef.current = true;
             }

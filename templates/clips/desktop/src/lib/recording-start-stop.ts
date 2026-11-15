@@ -49,3 +49,16 @@ export function stopDuringStart(
   cancelStart();
   return "cancelled";
 }
+
+/**
+ * The capture identity a tagged Stop must match once native begin / Rewind
+ * start was sent. The recording id is known then, before the start is
+ * acknowledged, so a Stop tagged with it is not dropped while the
+ * acknowledgement is pending.
+ */
+export function captureIdentityOnStartAttempt(
+  current: string | null,
+  recordingId: string | null,
+): string | null {
+  return current ?? recordingId;
+}

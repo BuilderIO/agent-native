@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 
 import {
+  parseRecorderStopPayload,
+  recorderStopPayloadTargetsRecording,
+} from "./recorder-events";
+import {
+  captureIdentityOnStartAttempt,
   RecordingStartStopState,
   stopDuringStart,
 } from "./recording-start-stop";
@@ -58,5 +63,26 @@ describe("stopDuringStart (Stop event and record shortcut)", () => {
     expect(stopDuringStart(state, cancel)).toBe("finishing");
     expect(cancel).not.toHaveBeenCalled();
     expect(state.outcomeForStarted(false)).toBe("finish-stop");
+  });
+});
+
+describe("captureIdentityOnStartAttempt", () => {
+  it("lets a Stop tagged with the recording id through while the start acknowledgement is pending", () => {
+    const tagged = parseRecorderStopPayload({ recordingId: "rec-1" });
+    // Before: no identity yet (e.g. Rewind), so the tagged Stop was dropped.
+    expect(recorderStopPayloadTargetsRecording(tagged, null)).toBe(false);
+    // onCaptureStartAttempted("rec-1") now sets the identity before the ack.
+    const identity = captureIdentityOnStartAttempt(null, "rec-1");
+    expect(recorderStopPayloadTargetsRecording(tagged, identity)).toBe(true);
+    const state = new RecordingStartStopState();
+    state.markCaptureMayBeLive();
+    expect(stopDuringStart(state, () => {})).toBe("finishing");
+  });
+
+  it("keeps an identity that is already known", () => {
+    expect(captureIdentityOnStartAttempt("capture-1", "rec-1")).toBe(
+      "capture-1",
+    );
+    expect(captureIdentityOnStartAttempt("capture-1", null)).toBe("capture-1");
   });
 });

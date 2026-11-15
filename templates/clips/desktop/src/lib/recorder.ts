@@ -3207,6 +3207,8 @@ async function tryStartRewindFullscreenRecording(
   wantsAudio: boolean,
   audioCue: AudioCue,
 ): Promise<RecorderHandle | null> {
+  // Which capture session this start owns (see claimCaptureSession).
+  let captureGeneration = 0;
   if (
     params.mode === "camera" ||
     (wantsCamera && params.localRecordingMode === "separate") ||
@@ -3361,6 +3363,7 @@ async function tryStartRewindFullscreenRecording(
       async activate(preparedRecording, captureLive) {
         throwIfRecordingStartAborted(params.signal);
         const activationStarted = performance.now();
+        captureGeneration = claimCaptureSession();
         params.onCaptureStartAttempted?.(
           localOnly ? null : preparedRecording.id || null,
         );
@@ -3528,6 +3531,7 @@ async function tryStartRewindFullscreenRecording(
                 includeMic,
                 includeSystemAudio,
               },
+              captureGeneration,
             );
             savePromise.catch(() => {});
             await invoke("hide_recording_chrome").catch(() => {});
@@ -3556,6 +3560,7 @@ async function tryStartRewindFullscreenRecording(
               includeSystemAudio,
               hasCamera: wantsCamera,
             },
+            captureGeneration,
           );
           console.log(
             `[rewind-latency] stop command dispatched in ${Math.round(performance.now() - stopStarted)}ms`,
@@ -3731,6 +3736,8 @@ async function startNativeFullscreenRecording(
   audioCue: AudioCue,
 ): Promise<RecorderHandle> {
   console.log("[clips-recorder] using native macOS capture");
+  // Which capture session this start owns (see claimCaptureSession).
+  let captureGeneration = 0;
   const localRecordingMode = params.localRecordingMode ?? "off";
   const localOnly = localRecordingMode !== "off";
   const includeCameraOverlay = wantsCamera && localRecordingMode !== "separate";
@@ -4004,6 +4011,7 @@ async function startNativeFullscreenRecording(
       await countdownPromise;
       assertStartupActive();
       beginStartedAt = Date.now();
+      captureGeneration = claimCaptureSession();
       params.onCaptureStartAttempted?.(localOnly ? null : id || null);
       const beginPromise = invoke("native_fullscreen_recording_begin", {
         recordingId: id,
@@ -4291,6 +4299,7 @@ async function startNativeFullscreenRecording(
                   fileRole:
                     localRecordingMode === "composed" ? "composed" : "desktop",
                 },
+                captureGeneration,
               ),
               localCameraExport
                 ? localCameraExport.stop(durationMs)
@@ -4350,6 +4359,7 @@ async function startNativeFullscreenRecording(
             hasAudio: wantsRecordedAudio,
             hasCamera: wantsCamera,
           },
+          captureGeneration,
         );
         uploadPromise.catch(() => {});
         try {
@@ -4660,12 +4670,40 @@ function bubbleSizeRatioForName(size: string | null | undefined): number {
 let abandonedCaptureSettling: Promise<void> | null = null;
 const captureStopListeners = new Set<() => void>();
 
-/** Sends a native / Rewind stop command and tells a waiting start that the
- * active capture session is being released. */
+/**
+ * Fences the shared native / Rewind capture session. Each start claims a new
+ * generation the moment it sends its begin / Rewind start command; a stop
+ * whose start has since been superseded is refused, so a late stop from an
+ * abandoned start can never end a newer recording.
+ */
+let captureSessionGeneration = 0;
+
+function claimCaptureSession(): number {
+  captureSessionGeneration += 1;
+  return captureSessionGeneration;
+}
+
+export class CaptureSessionSupersededError extends Error {
+  constructor() {
+    super("A newer recording owns the capture session; not stopping it.");
+    this.name = "CaptureSessionSupersededError";
+  }
+}
+
+/** Sends a native / Rewind stop command for the session `generation` owns,
+ * and tells a waiting start that the active capture session is being
+ * released. */
 function invokeCaptureStop<T>(
   command: string,
   args: Record<string, unknown>,
+  generation: number,
 ): Promise<T> {
+  if (generation !== captureSessionGeneration) {
+    console.warn(
+      `[clips-recorder] ${command} skipped: a newer recording owns the capture session`,
+    );
+    return Promise.reject(new CaptureSessionSupersededError());
+  }
   const promise = invoke<T>(command, args);
   for (const listener of [...captureStopListeners]) listener();
   return promise;
@@ -4698,8 +4736,10 @@ async function waitForAbandonedCapture(signal?: AbortSignal): Promise<void> {
     });
   } catch (err) {
     if (!(err instanceof RecordingStartTimeoutError)) throw err;
+    // Safe to go on: this start claims a newer capture session when it
+    // sends its begin, so the old start's late stop is refused.
     console.warn(
-      "[clips-recorder] abandoned start did not settle; starting anyway",
+      "[clips-recorder] abandoned start did not settle; starting anyway (its late stop is fenced)",
     );
   }
 }

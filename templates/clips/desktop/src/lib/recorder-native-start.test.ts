@@ -1446,6 +1446,52 @@ describe("native recording startup", () => {
     await handle.cancel();
   });
 
+  it("refuses an abandoned start's late stop once a newer recording owns the capture session", async () => {
+    const begin = deferred<void>();
+    nativeCommands.set(
+      "native_fullscreen_recording_begin",
+      () => begin.promise,
+    );
+    const controller = new AbortController();
+    const first = startRecording({ ...params, signal: controller.signal });
+    const failed = expect(first).rejects.toMatchObject({ name: "AbortError" });
+    await vi.advanceTimersByTimeAsync(3_600);
+    controller.abort();
+    await failed;
+    nativeCommands.delete("native_fullscreen_recording_begin");
+
+    // The old take's stop stalls before it reaches the native stop command.
+    const chrome = deferred<void>();
+    nativeCommands.set("hide_recording_chrome", () => chrome.promise);
+    const second = startRecording(params);
+    begin.resolve();
+    await flush();
+    expect(calls("native_fullscreen_recording_stop_and_upload")).toHaveLength(
+      0,
+    );
+
+    // The wait gives up; the new start sends its own begin.
+    nativeCommands.delete("hide_recording_chrome");
+    await vi.advanceTimersByTimeAsync(90_000);
+    await vi.advanceTimersByTimeAsync(3_600);
+    const handle = await second;
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(2);
+
+    // The old stop finally continues: it must not stop the new recording.
+    chrome.resolve();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(calls("native_fullscreen_recording_stop_and_upload")).toHaveLength(
+      0,
+    );
+
+    // The new recording's own stop still works.
+    void handle.stop();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(calls("native_fullscreen_recording_stop_and_upload")).toHaveLength(
+      1,
+    );
+  });
+
   it("keeps microphone-off local capture native and skips transcription", async () => {
     const pending = startRecording({
       ...params,
