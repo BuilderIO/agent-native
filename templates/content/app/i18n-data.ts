@@ -868,7 +868,7 @@ const editorPropertiesMessages = {
   noMatchingOptions: "No matching options",
   noMatchingPropertyTypes: "No matching property types",
   typeChangeUnavailable:
-    "Property type changes are unavailable in ordinary database setup.",
+    "Property type changes are unavailable to protect existing values.",
   notMappedToBuilder: "Not mapped to Builder.",
   onlyBlocksPropertyWarning:
     "This is the only blocks property present in this object type. This will delete the main content (body) for all objects of this type.",

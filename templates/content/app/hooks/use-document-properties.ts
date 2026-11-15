@@ -96,7 +96,7 @@ type GuardedConfigurePropertyResult = {
 
 export class PropertyTypeChangeUnavailableError extends Error {
   constructor() {
-    super("Property type changes are unavailable in ordinary database setup.");
+    super("Property type changes are unavailable to protect existing values.");
     this.name = "PropertyTypeChangeUnavailableError";
   }
 }
@@ -443,6 +443,7 @@ export function useConfigureDocumentProperty(
   documentId: string,
   databaseId: string,
   databaseDocumentId = documentId,
+  currentProperty?: Pick<DocumentPropertyDefinition, "id" | "type">,
 ) {
   const queryClient = useQueryClient();
   const getSetupSnapshot = () =>
@@ -518,24 +519,31 @@ export function useConfigureDocumentProperty(
     },
   });
   type ScopedVariables = Omit<ConfigureDocumentPropertyRequest, "databaseId">;
+  const prepare = (variables: ScopedVariables) => {
+    if (
+      currentProperty &&
+      variables.id === currentProperty.id &&
+      variables.type !== currentProperty.type
+    ) {
+      throw new PropertyTypeChangeUnavailableError();
+    }
+    return guardedConfigurePropertyInput(
+      withoutBlocksOptions({
+        ...variables,
+        databaseId,
+        ...(currentProperty && variables.id === currentProperty.id
+          ? { expectedType: currentProperty.type }
+          : {}),
+      }),
+      getSetupSnapshot(),
+    );
+  };
   return {
     ...mutation,
     mutate: (variables: ScopedVariables, options?: unknown) =>
-      mutation.mutate(
-        guardedConfigurePropertyInput(
-          withoutBlocksOptions({ ...variables, databaseId }),
-          getSetupSnapshot(),
-        ),
-        options as never,
-      ),
+      mutation.mutate(prepare(variables), options as never),
     mutateAsync: (variables: ScopedVariables, options?: unknown) =>
-      mutation.mutateAsync(
-        guardedConfigurePropertyInput(
-          withoutBlocksOptions({ ...variables, databaseId }),
-          getSetupSnapshot(),
-        ),
-        options as never,
-      ),
+      mutation.mutateAsync(prepare(variables), options as never),
   } as UseMutationResult<
     ConfigureDocumentPropertyResponse | GuardedConfigurePropertyResult,
     Error,

@@ -386,6 +386,7 @@ export interface ConfigureDocumentPropertyRequest {
   databaseId: string;
   name: string;
   type: DocumentPropertyType;
+  expectedType?: DocumentPropertyType;
   description?: string;
   icon?: IconValue | null;
   visibility?: DocumentPropertyVisibility;

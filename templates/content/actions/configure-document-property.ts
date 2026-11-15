@@ -117,6 +117,10 @@ const legacyConfigureDocumentPropertySchema = z
       ),
     icon: iconValueSchema.nullable().optional(),
     type: z.enum(CREATABLE_DOCUMENT_PROPERTY_TYPES).describe("Property type"),
+    expectedType: z
+      .enum(CREATABLE_DOCUMENT_PROPERTY_TYPES)
+      .optional()
+      .describe("Current property type required for this update"),
     naturalKey: z
       .boolean()
       .optional()
@@ -314,6 +318,18 @@ export default defineAction({
           );
         if (!lockedDefinition)
           throw new Error(`Property "${args.id}" not found`);
+        if (
+          args.expectedType !== undefined &&
+          lockedDefinition.type !== args.expectedType
+        ) {
+          throw new ActionContractError(
+            "The property type changed. Refresh before editing it.",
+            {
+              errorCode: "PROPERTY_TYPE_CHANGED",
+              statusCode: 409,
+            },
+          );
+        }
         if (
           lockedDatabase.naturalKeyPropertyId === args.id &&
           type !== "text"

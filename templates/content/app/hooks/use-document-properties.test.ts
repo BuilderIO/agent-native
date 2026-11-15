@@ -675,6 +675,41 @@ describe("useConfigureDocumentProperty", () => {
     );
   });
 
+  it("blocks a type conversion without a cached mutation contract while allowing same-type edits", async () => {
+    const transport = vi.fn(async (_input: unknown) => undefined);
+    useQueryClient.mockReturnValue(new QueryClient());
+    useActionMutation.mockReturnValue({ mutateAsync: transport });
+    const configure = useConfigureDocumentProperty(
+      "database-page-1",
+      "database-1",
+      "database-page-1",
+      { id: "text-1", type: "text" },
+    );
+    const request = {
+      id: "text-1",
+      documentId: "database-page-1",
+      name: "Notes",
+      type: "number" as const,
+    };
+    expect(() => configure.mutateAsync(request)).toThrow(
+      "Property type changes are unavailable",
+    );
+    expect(transport).not.toHaveBeenCalled();
+    await configure.mutateAsync({
+      ...request,
+      type: "text",
+      description: "Details",
+    });
+    expect(transport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "text",
+        expectedType: "text",
+        description: "Details",
+      }),
+      undefined,
+    );
+  });
+
   it("retains legacy configuration for an existing nonordinary property of the same type", async () => {
     const transport = vi.fn(async (_input: unknown) => undefined);
     const queryClient = new QueryClient();
@@ -818,7 +853,7 @@ describe("useConfigureDocumentProperty", () => {
         options: {},
       }),
     ).toThrow(
-      "Property type changes are unavailable in ordinary database setup.",
+      "Property type changes are unavailable to protect existing values.",
     );
     expect(transport).not.toHaveBeenCalled();
     await configure.mutateAsync({

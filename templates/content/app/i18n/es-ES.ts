@@ -989,7 +989,7 @@ const editor = {
     noMatchingOptions: "No hay opciones coincidentes",
     noMatchingPropertyTypes: "No hay tipos de propiedad coincidentes",
     typeChangeUnavailable:
-      "No se puede cambiar el tipo de propiedad en la configuración normal de la base de datos.",
+      "No se puede cambiar el tipo de propiedad para proteger los valores existentes.",
     notMappedToBuilder: "No asignado al constructor.",
     onlyBlocksPropertyWarning:
       "Esta es la única propiedad de bloques presente en este tipo de objeto. Esto eliminará el contenido principal (cuerpo) de todos los objetos de este tipo.",

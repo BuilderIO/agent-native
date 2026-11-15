@@ -952,8 +952,7 @@ const editor = {
     noFilesOrMedia: "لا توجد ملفات أو وسائل الإعلام",
     noMatchingOptions: "لا توجد خيارات مطابقة",
     noMatchingPropertyTypes: "لا توجد أنواع عقارات مطابقة",
-    typeChangeUnavailable:
-      "لا يمكن تغيير نوع الخاصية في إعداد قاعدة البيانات العادي.",
+    typeChangeUnavailable: "لا يمكن تغيير نوع الخاصية لحماية القيم الحالية.",
     notMappedToBuilder: "لم يتم تعيينه إلى Builder.",
     onlyBlocksPropertyWarning:
       "هذه هي خاصية الكتل الوحيدة الموجودة في هذا النوع من الكائنات. سيؤدي هذا إلى حذف المحتوى الرئيسي (النص) لجميع الكائنات من هذا النوع.",

@@ -397,6 +397,93 @@ describe("document property metadata persistence", () => {
     },
   );
 
+  it.each(["rejected", "successful"] as const)(
+    "preserves a newer same-field refresh after a %s write and later edit",
+    async (outcome) => {
+      const initial = {
+        name: "Status",
+        type: "select" as const,
+        description: "",
+        visibility: "always_show" as const,
+        options: { options },
+        icon: null,
+      };
+      let resolve!: () => void;
+      let reject!: (error: Error) => void;
+      const pending = new Promise<void>((done, fail) => {
+        resolve = done;
+        reject = fail;
+      });
+      const writes: Array<typeof initial> = [];
+      const queue = createPropertyMetadataUpdateQueue(
+        initial,
+        async (metadata) => {
+          writes.push(metadata as typeof initial);
+          if (writes.length === 1) await pending;
+        },
+      );
+      const first = queue.enqueue((value) => ({
+        ...value,
+        name: "Older local name",
+      }));
+      const result =
+        outcome === "rejected"
+          ? expect(first).rejects.toThrow("conflict")
+          : expect(first).resolves.toBeUndefined();
+      await Promise.resolve();
+      await Promise.resolve();
+      queue.replace({ ...initial, name: "Newer remote name" });
+      const second = queue.enqueue((value) => ({
+        ...value,
+        description: "Later edit",
+      }));
+      if (outcome === "rejected") reject(new Error("conflict"));
+      else resolve();
+      await result;
+      await second;
+      expect(writes[1]).toEqual({
+        ...initial,
+        name: "Newer remote name",
+        description: "Later edit",
+      });
+    },
+  );
+
+  it("does not replay an older write after a refreshed field changes and changes back", async () => {
+    const initial = {
+      name: "Status",
+      type: "select" as const,
+      description: "",
+      visibility: "always_show" as const,
+      options: { options },
+      icon: null,
+    };
+    let resolve!: () => void;
+    const pending = new Promise<void>((done) => {
+      resolve = done;
+    });
+    const writes: Array<typeof initial> = [];
+    const queue = createPropertyMetadataUpdateQueue(initial, async (value) => {
+      writes.push(value as typeof initial);
+      if (writes.length === 1) await pending;
+    });
+    const first = queue.enqueue((value) => ({
+      ...value,
+      name: "Older local name",
+    }));
+    await Promise.resolve();
+    await Promise.resolve();
+    queue.replace({ ...initial, name: "Remote change" });
+    queue.replace(initial);
+    const second = queue.enqueue((value) => ({
+      ...value,
+      description: "Later edit",
+    }));
+    resolve();
+    await Promise.all([first, second]);
+    expect(writes[1]).toEqual({ ...initial, description: "Later edit" });
+  });
+
   it("keeps a pending successful edit when the menu is reopened", async () => {
     const initial = {
       name: "Status",

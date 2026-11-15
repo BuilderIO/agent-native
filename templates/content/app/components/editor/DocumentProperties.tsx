@@ -940,12 +940,35 @@ export function createPropertyMetadataUpdateQueue(
 ) {
   let current = initialMetadata;
   let tail: Promise<unknown> = Promise.resolve();
+  const fields = [
+    "name",
+    "type",
+    "description",
+    "visibility",
+    "options",
+    "icon",
+  ] as const;
+  const refreshVersions = {
+    name: 0,
+    type: 0,
+    description: 0,
+    visibility: 0,
+    options: 0,
+    icon: 0,
+  };
   const pending: Array<
     (metadata: PropertyMetadataSnapshot) => PropertyMetadataSnapshot
   > = [];
 
   return {
     replace(metadata: PropertyMetadataSnapshot) {
+      for (const field of fields) {
+        if (
+          JSON.stringify(current[field]) !== JSON.stringify(metadata[field])
+        ) {
+          refreshVersions[field] += 1;
+        }
+      }
       current = metadata;
     },
     snapshot() {
@@ -959,25 +982,23 @@ export function createPropertyMetadataUpdateQueue(
         .catch(() => undefined)
         .then(async () => {
           const base = current;
+          const versions = { ...refreshVersions };
           const snapshot = update(base);
           const result = await persist(snapshot);
-          // A refresh during the write may contain changes to other fields.
+          // A refresh can supersede the same field before this write answers.
+          const confirmed = <K extends keyof PropertyMetadataSnapshot>(
+            field: K,
+          ) =>
+            refreshVersions[field] === versions[field]
+              ? snapshot[field]
+              : current[field];
           current = {
-            name: snapshot.name !== base.name ? snapshot.name : current.name,
-            type: snapshot.type !== base.type ? snapshot.type : current.type,
-            description:
-              snapshot.description !== base.description
-                ? snapshot.description
-                : current.description,
-            visibility:
-              snapshot.visibility !== base.visibility
-                ? snapshot.visibility
-                : current.visibility,
-            options:
-              snapshot.options !== base.options
-                ? snapshot.options
-                : current.options,
-            icon: snapshot.icon !== base.icon ? snapshot.icon : current.icon,
+            name: confirmed("name"),
+            type: confirmed("type"),
+            description: confirmed("description"),
+            visibility: confirmed("visibility"),
+            options: confirmed("options"),
+            icon: confirmed("icon"),
           };
           return result;
         });
@@ -1682,6 +1703,7 @@ export function PropertyManagementPopover({
     documentId,
     databaseId,
     databaseDocumentId,
+    { id: property.definition.id, type: property.definition.type },
   );
   const duplicate = useDuplicateDocumentProperty(documentId, databaseId);
   const remove = useDeleteDocumentProperty(documentId, databaseId);

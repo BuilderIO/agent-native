@@ -971,7 +971,7 @@ const editor = {
     noMatchingOptions: "일치하는 옵션이 없습니다.",
     noMatchingPropertyTypes: "일치하는 속성 유형이 없습니다.",
     typeChangeUnavailable:
-      "일반 데이터베이스 설정에서는 속성 유형을 변경할 수 없습니다.",
+      "기존 값을 보호하기 위해 속성 유형을 변경할 수 없습니다.",
     notMappedToBuilder: "빌더에 매핑되지 않았습니다.",
     onlyBlocksPropertyWarning:
       "이는 이 객체 유형에 존재하는 유일한 블록 특성입니다. 이 유형의 모든 개체에 대한 기본 콘텐츠(본문)가 삭제됩니다.",

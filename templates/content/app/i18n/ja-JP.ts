@@ -979,7 +979,7 @@ const editor = {
     noMatchingOptions: "一致するオプションはありません",
     noMatchingPropertyTypes: "一致するプロパティ タイプがありません",
     typeChangeUnavailable:
-      "通常のデータベース設定ではプロパティの種類を変更できません。",
+      "既存の値を保護するため、プロパティの種類は変更できません。",
     notMappedToBuilder: "ビルダーにマッピングされていません。",
     onlyBlocksPropertyWarning:
       "これは、このオブジェクト タイプに存在する唯一のブロック プロパティです。これにより、このタイプのすべてのオブジェクトのメイン コンテンツ (本文) が削除されます。",
