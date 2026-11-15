@@ -38,6 +38,7 @@ import {
   assertPoolConnectionAvailable,
   runHoldingPoolConnection,
 } from "./pool-self-deadlock.js";
+import { getDbDependencies } from "./readiness.js";
 import { getSqlFragmentParameterOffsets, isSqlFragment } from "./sql.js";
 
 let _pgDrizzle: Promise<{ drizzle: any; postgres: any }> | undefined;
@@ -1015,6 +1016,8 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
   let _db: any;
   let _dbReady: Promise<any> | undefined;
   let _dbGeneration = 0;
+  let dependenciesReady = 0;
+  let dependenciesPending: Promise<void> | undefined;
 
   // The Drizzle instance is bound to a shared pool, so a `closeDbExec()` (test
   // teardown, script cleanup) must invalidate it rather than leave this store
@@ -1027,6 +1030,8 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
     _dbGeneration += 1;
     _db = undefined;
     _dbReady = undefined;
+    dependenciesReady = 0;
+    dependenciesPending = undefined;
   };
   function resetOnPoolClose(driver?: string, url?: string): void {
     if (_closeHookRegistered) return;
@@ -1211,6 +1216,27 @@ export function createGetDb<T extends Record<string, unknown>>(schema: T) {
   }
 
   function getDb(): PgDatabase<PgQueryResultHKT, T> {
+    const dependencies = getDbDependencies(getDb);
+    if (dependencies && dependenciesReady !== dependencies.size) {
+      if (!dependenciesPending) {
+        const count = dependencies.size;
+        const generation = _dbGeneration;
+        dependenciesPending = Promise.all(
+          [...dependencies].map((ready) => ready()),
+        )
+          .then(() => {
+            if (generation === _dbGeneration) dependenciesReady = count;
+          })
+          .finally(() => {
+            if (generation === _dbGeneration) dependenciesPending = undefined;
+          });
+        dependenciesPending.catch(() => {});
+      }
+      return createLazyProxy(
+        dependenciesPending.then(() => getDb()),
+        [],
+      ) as PgDatabase<PgQueryResultHKT, T>;
+    }
     const url = getRuntimeDatabaseUrl("pglite:./data/pglite");
     const activePgliteClient = isPgliteUrl(url)
       ? getActivePgliteTransactionClient(url)

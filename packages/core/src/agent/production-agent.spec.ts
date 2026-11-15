@@ -59,6 +59,7 @@ import * as questionIntakeExperiment from "../observability/question-intake-expe
 import * as appRoles from "../org/app-roles.js";
 import { attachmentFailureToError } from "../private-blob/attachment-errors.js";
 import { createProviderApiRequestAction } from "../provider-api/actions/provider-api.js";
+import type { Resource, ResourceMeta } from "../resources/store.js";
 import { loadActionsFromStaticRegistry } from "../server/action-discovery.js";
 import { createUrlTools } from "../server/agent-chat/context-tools.js";
 import * as processRunFailure from "../server/agent-chat/process-run-failure.js";
@@ -21646,6 +21647,246 @@ describe("runAgentLoop", () => {
     );
   });
 
+  it("strips invalid placeholders from a read-only tool instead of refusing it", async () => {
+    // A lookup cannot clear anything, so a null placeholder beside a meaningful
+    // `false` is not ambiguous: testers lost the first email send in every app
+    // because tool-search refused `query: null` next to
+    // `readOnlyOnly: false` and the model gave up.
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "tool-call-error",
+            id: "lookup-call",
+            name: "find-tools",
+            input: {
+              task: "Send an email",
+              query: null,
+              names: ["core-send-email"],
+              readOnlyOnly: false,
+            },
+            error: "input/query must be string",
+          };
+          yield { type: "assistant-content", parts: [] };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "Found it." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const run = vi.fn(async () => "found");
+    const events: AgentChatEvent[] = [];
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "find-tools": {
+          tool: {
+            description: "Find tools",
+            parameters: {
+              type: "object",
+              properties: {
+                task: { type: "string" },
+                query: { type: "string" },
+                names: { type: "array", items: { type: "string" } },
+                readOnlyOnly: { type: "boolean" },
+              },
+            },
+          },
+          readOnly: true,
+          run,
+        },
+      },
+      send: (event) => events.push(event),
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run.mock.calls[0]?.[0]).toEqual({
+      task: "Send an email",
+      names: ["core-send-email"],
+      readOnlyOnly: false,
+    });
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ errorCode: "ambiguous_tool_placeholders" }),
+    );
+  });
+
+  it("drops a request id the model chose when the action makes it optional", async () => {
+    // The class: the model supplies an idempotency key it cannot know is stable,
+    // so a reused one makes the write guard answer REQUEST_ID_CONFLICT, so an
+    // agent could not create a record for exactly this reason.
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call",
+                id: "create-thing-call",
+                name: "create-thing",
+                input: {
+                  name: "QA probe",
+                  requestId: "3f1a0b8e-2f8e-4b0a-9c1a-1d2e3f4a5b6c",
+                },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "Done." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const run = vi.fn(async () => "created");
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "create-thing": {
+          ...actionEntry({ readOnly: false }),
+          tool: {
+            description: "Create thing",
+            parameters: {
+              type: "object",
+              properties: {
+                name: { type: "string" },
+                requestId: { type: "string" },
+              },
+              required: ["name"],
+            },
+          },
+          run,
+        },
+      },
+      send: () => {},
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run.mock.calls[0][0]).toEqual({ name: "QA probe" });
+  });
+
+  it("keeps a request id the tool schema requires", async () => {
+    let streamCalls = 0;
+    const engine: AgentEngine = {
+      name: "test",
+      label: "Test",
+      defaultModel: "test-model",
+      supportedModels: ["test-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(): AsyncIterable<EngineEvent> {
+        streamCalls += 1;
+        if (streamCalls === 1) {
+          yield {
+            type: "assistant-content",
+            parts: [
+              {
+                type: "tool-call",
+                id: "required-id-call",
+                name: "create-receipted",
+                input: {
+                  name: "QA probe",
+                  requestId: "3f1a0b8e-2f8e-4b0a-9c1a-1d2e3f4a5b6c",
+                },
+              },
+            ],
+          };
+          yield { type: "stop", reason: "tool_use" };
+          return;
+        }
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text", text: "Done." }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+    const run = vi.fn(async () => "created");
+
+    await runAgentLoop({
+      engine,
+      model: "test-model",
+      systemPrompt: "system",
+      tools: [],
+      messages: [{ role: "user", content: [{ type: "text", text: "go" }] }],
+      actions: {
+        "create-receipted": {
+          ...actionEntry({ readOnly: false }),
+          tool: {
+            description: "Create receipted thing",
+            parameters: {
+              type: "object",
+              properties: {
+                name: { type: "string" },
+                requestId: { type: "string" },
+              },
+              required: ["name", "requestId"],
+            },
+          },
+          run,
+        },
+      },
+      send: () => {},
+      signal: new AbortController().signal,
+    });
+
+    expect(run).toHaveBeenCalledTimes(1);
+    expect(run.mock.calls[0][0]).toEqual({
+      name: "QA probe",
+      requestId: "3f1a0b8e-2f8e-4b0a-9c1a-1d2e3f4a5b6c",
+    });
+  });
+
   it("strips null placeholders beside a chosen false and runs the tool", async () => {
     const optionSchema = z.object({
       label: z.string().min(1),
@@ -23817,6 +24058,353 @@ describe("runAgentLoop", () => {
       expect(ran).toEqual(["check", "other"]);
     } finally {
       findProfile.mockRestore();
+    }
+  });
+
+  async function readAgentChatEvents(
+    response: unknown,
+  ): Promise<AgentChatEvent[]> {
+    if (!(response instanceof ReadableStream)) return [];
+    const reader = response.getReader();
+    let buffer = "";
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += new TextDecoder().decode(value);
+    }
+    const events: AgentChatEvent[] = [];
+    for (const line of buffer.split("\n")) {
+      if (!line.startsWith("data: ")) continue;
+      const payload = line.slice("data: ".length).trim();
+      if (!payload) continue;
+      try {
+        events.push(JSON.parse(payload) as AgentChatEvent);
+      } catch {
+        // A keepalive or other non-JSON SSE payload is not a chat event.
+      }
+    }
+    return events;
+  }
+
+  function agentResourceMeta(
+    id: string,
+    resourcePath: string,
+    owner: string,
+  ): ResourceMeta {
+    return {
+      id,
+      path: resourcePath,
+      owner,
+      mimeType: "text/markdown",
+      size: 0,
+      createdAt: 1,
+      updatedAt: 1,
+      createdBy: "user",
+      visibility: "workspace",
+      threadId: null,
+      runId: null,
+      expiresAt: null,
+      metadata: null,
+    };
+  }
+
+  function agentStoredResource(
+    id: string,
+    resourcePath: string,
+    owner: string,
+    content: string,
+  ): Resource {
+    return { ...agentResourceMeta(id, resourcePath, owner), content };
+  }
+
+  function recordingProfileEngine(
+    runs: Array<{
+      model: string;
+      systemPrompt: string;
+      messagesText: string;
+    }>,
+  ): AgentEngine {
+    return {
+      name: "test",
+      label: "Test",
+      defaultModel: "main-model",
+      supportedModels: ["main-model", "alpha-model", "beta-model"],
+      capabilities: {
+        thinking: false,
+        promptCaching: false,
+        vision: false,
+        computerUse: false,
+        parallelToolCalls: false,
+      },
+      async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
+        runs.push({
+          model: opts.model,
+          systemPrompt: opts.systemPrompt,
+          messagesText: JSON.stringify(opts.messages),
+        });
+        yield { type: "text-delta", text: `ran ${opts.model}` };
+        yield {
+          type: "assistant-content",
+          parts: [{ type: "text" as const, text: `ran ${opts.model}` }],
+        };
+        yield { type: "stop", reason: "end_turn" };
+      },
+    };
+  }
+
+  function boundReferenceRequest(threadId: string, resourceId: unknown) {
+    return mockEvent(
+      new Request("http://app.example.com/_agent-native/agent-chat", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          message: "go",
+          threadId,
+          references: [
+            {
+              type: "custom-agent",
+              name: "Alpha",
+              refId: "alpha",
+              metadata: { resourceId },
+            },
+          ],
+        }),
+      }),
+    );
+  }
+
+  it("resolves a bound custom-agent reference by its recorded resource id, not the legacy path lookup", async () => {
+    const store = await import("../resources/store.js");
+    const agents = await import("../resources/agents.js");
+    const listSpy = vi
+      .spyOn(store, "resourceListAccessible")
+      .mockImplementation(async (_owner: string, prefix?: string) =>
+        prefix === "agents/"
+          ? [
+              agentResourceMeta(
+                "agent-a",
+                "agents/alpha.md",
+                "owner@example.com",
+              ),
+            ]
+          : [],
+      );
+    const getSpy = vi
+      .spyOn(store, "resourceGet")
+      .mockImplementation(async (id: string) =>
+        id === "agent-a"
+          ? agentStoredResource(
+              "agent-a",
+              "agents/alpha.md",
+              "owner@example.com",
+              "---\nname: Alpha\nmodel: alpha-model\n---\nAlpha instructions",
+            )
+          : null,
+      );
+    // A reverted production loop would reach this legacy lookup and run Beta at
+    // the same path. The strict resolver must never call it.
+    const legacySpy = vi
+      .spyOn(agents, "findAccessibleCustomAgent")
+      .mockResolvedValue({
+        id: "alpha",
+        path: "agents/alpha.md",
+        name: "Beta",
+        instructions: "Beta instructions",
+        model: "beta-model",
+      });
+
+    const runs: Array<{
+      model: string;
+      systemPrompt: string;
+      messagesText: string;
+    }> = [];
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: recordingProfileEngine(runs),
+      actions: {},
+    });
+
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "owner@example.com", run: {} },
+        () =>
+          handler(boundReferenceRequest("thread-bound-resource-id", "agent-a")),
+      );
+      const events = await readAgentChatEvents(response);
+
+      expect(getSpy).toHaveBeenCalledWith("agent-a");
+      expect(legacySpy).not.toHaveBeenCalled();
+
+      const profileRun = runs.find((run) => run.model === "alpha-model");
+      expect(profileRun).toBeDefined();
+      expect(profileRun?.systemPrompt).toContain("Alpha instructions");
+      expect(profileRun?.systemPrompt).not.toContain("Beta instructions");
+      expect(runs.some((run) => run.model === "beta-model")).toBe(false);
+
+      expect(events).toContainEqual({
+        type: "agent_call",
+        agent: "Alpha",
+        status: "done",
+        eventId: expect.any(String),
+        seq: expect.any(Number),
+      });
+      expect(
+        events.some(
+          (event) => event.type === "agent_call" && event.status === "error",
+        ),
+      ).toBe(false);
+    } finally {
+      legacySpy.mockRestore();
+      getSpy.mockRestore();
+      listSpy.mockRestore();
+    }
+  });
+
+  it("fails closed on a malformed resource id in a bound custom-agent reference without legacy fallback", async () => {
+    const store = await import("../resources/store.js");
+    const agents = await import("../resources/agents.js");
+    const listSpy = vi
+      .spyOn(store, "resourceListAccessible")
+      .mockImplementation(async () => []);
+    const getSpy = vi.spyOn(store, "resourceGet").mockResolvedValue(null);
+    const legacySpy = vi
+      .spyOn(agents, "findAccessibleCustomAgent")
+      .mockResolvedValue({
+        id: "alpha",
+        path: "agents/alpha.md",
+        name: "Beta",
+        instructions: "Beta instructions",
+        model: "beta-model",
+      });
+
+    const runs: Array<{
+      model: string;
+      systemPrompt: string;
+      messagesText: string;
+    }> = [];
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: recordingProfileEngine(runs),
+      actions: {},
+    });
+
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "owner@example.com", run: {} },
+        () => handler(boundReferenceRequest("thread-malformed-id", 123)),
+      );
+      const events = await readAgentChatEvents(response);
+
+      expect(legacySpy).not.toHaveBeenCalled();
+      expect(
+        listSpy.mock.calls.some(([, prefix]) => prefix === "agents/"),
+      ).toBe(false);
+      expect(getSpy).not.toHaveBeenCalled();
+      expect(runs.some((run) => run.model === "beta-model")).toBe(false);
+      expect(runs.some((run) => run.model === "alpha-model")).toBe(false);
+
+      expect(events).toContainEqual({
+        type: "agent_call",
+        agent: "Alpha",
+        status: "error",
+        eventId: expect.any(String),
+        seq: expect.any(Number),
+      });
+      expect(
+        events.some(
+          (event) => event.type === "agent_call" && event.status === "done",
+        ),
+      ).toBe(false);
+      expect(
+        runs.some((run) => run.messagesText.includes("Profile not found")),
+      ).toBe(true);
+    } finally {
+      legacySpy.mockRestore();
+      getSpy.mockRestore();
+      listSpy.mockRestore();
+    }
+  });
+
+  it("fails closed when a bound custom-agent resource id is no longer listed, without legacy fallback", async () => {
+    const store = await import("../resources/store.js");
+    const agents = await import("../resources/agents.js");
+    const listSpy = vi
+      .spyOn(store, "resourceListAccessible")
+      .mockImplementation(async (_owner: string, prefix?: string) =>
+        prefix === "agents/"
+          ? [
+              agentResourceMeta(
+                "agent-b",
+                "agents/alpha.md",
+                "owner@example.com",
+              ),
+            ]
+          : [],
+      );
+    const getSpy = vi
+      .spyOn(store, "resourceGet")
+      .mockImplementation(async (id: string) =>
+        id === "agent-b"
+          ? agentStoredResource(
+              "agent-b",
+              "agents/alpha.md",
+              "owner@example.com",
+              "---\nname: Beta\nmodel: beta-model\n---\nBeta instructions",
+            )
+          : null,
+      );
+    const legacySpy = vi
+      .spyOn(agents, "findAccessibleCustomAgent")
+      .mockResolvedValue({
+        id: "alpha",
+        path: "agents/alpha.md",
+        name: "Beta",
+        instructions: "Beta instructions",
+        model: "beta-model",
+      });
+
+    const runs: Array<{
+      model: string;
+      systemPrompt: string;
+      messagesText: string;
+    }> = [];
+    const handler = createProductionAgentHandler({
+      systemPrompt: "Test",
+      engine: recordingProfileEngine(runs),
+      actions: {},
+    });
+
+    try {
+      const response = await runWithRequestContext(
+        { userEmail: "owner@example.com", run: {} },
+        () => handler(boundReferenceRequest("thread-stale-id", "agent-a")),
+      );
+      const events = await readAgentChatEvents(response);
+
+      expect(legacySpy).not.toHaveBeenCalled();
+      expect(getSpy).not.toHaveBeenCalled();
+      expect(runs.some((run) => run.model === "beta-model")).toBe(false);
+      expect(runs.some((run) => run.model === "alpha-model")).toBe(false);
+
+      expect(events).toContainEqual({
+        type: "agent_call",
+        agent: "Alpha",
+        status: "error",
+        eventId: expect.any(String),
+        seq: expect.any(Number),
+      });
+      expect(
+        events.some(
+          (event) => event.type === "agent_call" && event.status === "done",
+        ),
+      ).toBe(false);
+      expect(
+        runs.some((run) => run.messagesText.includes("Profile not found")),
+      ).toBe(true);
+    } finally {
+      legacySpy.mockRestore();
+      getSpy.mockRestore();
+      listSpy.mockRestore();
     }
   });
 

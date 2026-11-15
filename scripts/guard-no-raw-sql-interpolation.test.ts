@@ -2134,6 +2134,94 @@ describe("raw SQL interpolation guard", () => {
     ).toHaveLength(1);
   });
 
+  it("traces the SQL inside trusted budget wrappers without trusting names or casts", () => {
+    const safe = source([
+      'import { sql, withSqlBudget as budget } from "@agent-native/core/db";',
+      "database.execute(budget(sql`SELECT ${sql.value(id)}`, { timeoutMs: 25, maxAttempts: 1 }));",
+    ]);
+    const namespace = source([
+      'import * as core from "@agent-native/core/db";',
+      "database.execute(core.withSqlBudget(core.sql`SELECT ${core.sql.value(id)}`, { timeoutMs: 25, maxAttempts: 1 }));",
+    ]);
+    const localAlias = source([
+      'import { sql, withSqlBudget } from "@agent-native/core/db";',
+      "const budget = withSqlBudget;",
+      "database.execute(budget(sql`SELECT ${sql.value(id)}`, { timeoutMs: 25, maxAttempts: 1 }));",
+    ]);
+    const indexedNamespace = source([
+      'import * as core from "@agent-native/core/db";',
+      'database.execute(core["withSqlBudget"](core.sql`SELECT ${core.sql.value(id)}`, { timeoutMs: 25, maxAttempts: 1 }));',
+    ]);
+    const cast = source([
+      'import { withSqlBudget, type SqlFragment } from "@agent-native/core/db";',
+      "const raw = `SELECT * FROM records WHERE id = ${id}`;",
+      "database.execute(withSqlBudget(raw as unknown as SqlFragment, { timeoutMs: 25, maxAttempts: 1 }));",
+    ]);
+    const fake = source([
+      'import { withSqlBudget } from "./other.js";',
+      "database.execute(withSqlBudget(`SELECT * FROM ${table}`, { timeoutMs: 25, maxAttempts: 1 }));",
+    ]);
+    const fakeNamespace = source([
+      'import * as core from "./other.js";',
+      "database.execute(core.withSqlBudget(`SELECT * FROM ${table}`, { timeoutMs: 25, maxAttempts: 1 }));",
+    ]);
+    const shadow = source([
+      'import { withSqlBudget } from "@agent-native/core/db";',
+      "function run(withSqlBudget: (value: string) => string) { database.execute(withSqlBudget(`SELECT * FROM ${table}`)); }",
+      "run((value) => value);",
+    ]);
+    const deep = source([
+      'import { withSqlBudget, type SqlFragment } from "@agent-native/core/db";',
+      'const prefix = "SELECT * FROM ";',
+      "const raw = prefix + table;",
+      "database.execute(withSqlBudget(raw as unknown as SqlFragment, { timeoutMs: 25, maxAttempts: 1 }));",
+    ]);
+    const aliasCast = source([
+      'import { withSqlBudget, type SqlFragment } from "@agent-native/core/db";',
+      "const budget = withSqlBudget;",
+      "const raw = `SELECT * FROM ${table} WHERE id = ${id}`;",
+      "database.execute(budget(raw as unknown as SqlFragment, { timeoutMs: 25, maxAttempts: 1 }));",
+    ]);
+    const reassigned = source([
+      'import { withSqlBudget } from "@agent-native/core/db";',
+      "let budget = withSqlBudget;",
+      "budget = (value) => value;",
+      "database.execute(budget(`SELECT * FROM ${table}`));",
+    ]);
+    const changed = new Set([1, 2, 3, 4]);
+    expect(findRawSqlInterpolationViolations(FILE, safe, changed)).toEqual([]);
+    expect(findRawSqlInterpolationViolations(FILE, namespace, changed)).toEqual(
+      [],
+    );
+    expect(
+      findRawSqlInterpolationViolations(FILE, localAlias, changed),
+    ).toEqual([]);
+    expect(
+      findRawSqlInterpolationViolations(FILE, indexedNamespace, changed),
+    ).toEqual([]);
+    expect(findRawSqlInterpolationViolations(FILE, cast, changed)).not.toEqual(
+      [],
+    );
+    expect(findRawSqlInterpolationViolations(FILE, fake, changed)).not.toEqual(
+      [],
+    );
+    expect(
+      findRawSqlInterpolationViolations(FILE, fakeNamespace, changed),
+    ).not.toEqual([]);
+    expect(
+      findRawSqlInterpolationViolations(FILE, shadow, changed),
+    ).not.toEqual([]);
+    expect(findRawSqlInterpolationViolations(FILE, deep, changed)).not.toEqual(
+      [],
+    );
+    expect(
+      findRawSqlInterpolationViolations(FILE, aliasCast, changed),
+    ).not.toEqual([]);
+    expect(
+      findRawSqlInterpolationViolations(FILE, reassigned, changed),
+    ).not.toEqual([]);
+  });
+
   it("recognizes exact imported SqlFragment annotations", () => {
     const text = source([
       'import type { SqlFragment } from "./db/sql.js";',
@@ -2167,6 +2255,25 @@ describe("raw SQL interpolation guard", () => {
     expect(
       findRawSqlInterpolationViolations(FILE, rawCast, new Set([4])),
     ).toHaveLength(1);
+  });
+
+  it("recognizes the imported budgeted fragment type without trusting raw casts", () => {
+    const safe = source([
+      'import type { BudgetedSqlFragment } from "@agent-native/core/db";',
+      "declare const query: BudgetedSqlFragment;",
+      "database.execute(query);",
+    ]);
+    const unsafe = source([
+      'import type { BudgetedSqlFragment } from "@agent-native/core/db";',
+      "const query = `SELECT * FROM ${table}` as unknown as BudgetedSqlFragment;",
+      "database.execute(query);",
+    ]);
+    expect(
+      findRawSqlInterpolationViolations(FILE, safe, new Set([1, 2, 3])),
+    ).toEqual([]);
+    expect(
+      findRawSqlInterpolationViolations(FILE, unsafe, new Set([1, 2, 3])),
+    ).not.toEqual([]);
   });
 
   it("retains a string parameter's incoming value after conditional writes", () => {

@@ -10,9 +10,13 @@ function extractInvitationId(event: H3Event): string | undefined {
   const fromRouter = getRouterParam(event, "id");
   if (fromRouter) return fromRouter;
   const path = getRequestURL(event).pathname;
+  // Inside the mounted org plugin the path is already stripped to its own tail
+  // (`/<id>`, `/<id>/accept`); un-mounted callers see the whole path.
   const match =
     path.match(/^\/([^/]+)\/accept\/?$/) ??
-    path.match(/\/org\/invitations\/([^/]+)\/accept\/?$/);
+    path.match(/\/org\/invitations\/([^/]+)\/accept\/?$/) ??
+    path.match(/\/org\/invitations\/([^/]+)\/?$/) ??
+    path.match(/^\/([^/]+)\/?$/);
   return match?.[1] ? decodeURIComponent(match[1]) : undefined;
 }
 
@@ -755,13 +759,135 @@ export const listMembersHandler = defineEventHandler(async (event: H3Event) => {
       image: profile?.image ?? null,
     };
   });
+  // When each member was last active, from the usage ledger the app already
+  // writes. The members list is the one place a workspace admin looks this up,
+  // and it used to show name/email/role only.
+  const lastActive = await memberLastActive(
+    ctx.orgId,
+    membersWithProfiles.map((member) => member.email),
+  );
   return {
-    members: membersWithProfiles,
+    members: membersWithProfiles.map((member) => ({
+      ...member,
+      lastActiveAt: lastActive.get(member.email.toLowerCase()) ?? null,
+    })),
     totalCount,
     hasMore,
     nextOffset: hasMore ? offset + membersWithProfiles.length : null,
   };
 });
+
+/**
+ * Email → last usage timestamp for the given members, in one query.
+ *
+ * The usage ledger is created on first write, so a workspace that has not run
+ * anything yet answers with no rows at all: that is "never active", not an
+ * error, and it must not make the members list fail.
+ */
+async function memberLastActive(
+  orgId: string,
+  emails: readonly string[],
+): Promise<Map<string, number>> {
+  const wanted = [...new Set(emails.map((email) => email.trim().toLowerCase()))]
+    .filter(Boolean)
+    .slice(0, 500);
+  if (wanted.length === 0) return new Map();
+  try {
+    const e = await exec();
+    // raw-sql-ok: interpolates only a generated ? placeholder list; emails are bound
+    const { rows } = await e.execute({
+      sql: `SELECT LOWER(owner_email) AS email, MAX(created_at) AS lastActiveAt
+            FROM token_usage
+            WHERE org_id = ? AND LOWER(owner_email) IN (${wanted.map(() => "?").join(", ")})
+            GROUP BY LOWER(owner_email)`,
+      args: [orgId, ...wanted],
+    });
+    const result = new Map<string, number>();
+    for (const row of rows as Record<string, unknown>[]) {
+      const email = String(row.email ?? "").toLowerCase();
+      const at = Number(row.lastActiveAt ?? row.last_active_at);
+      if (email && Number.isFinite(at) && at > 0) result.set(email, at);
+    }
+    // The token ledger only sees members who used the agent. A workspace whose
+    // people use the app itself still has sign-in activity, and the reference
+    // states when each member was last active regardless, so fall back to the
+    // last time their session was touched.
+    const missing = wanted.filter((email) => !result.has(email));
+    if (missing.length > 0) {
+      await fillFromSessions(missing, result);
+    }
+    return result;
+  } catch {
+    return new Map();
+  }
+}
+
+/**
+ * Last session activity per member, as epoch ms, for members the token ledger
+ * has never seen. Split out so the merge rule is testable without a database.
+ */
+export function mergeLastActive(
+  target: Map<string, number>,
+  rows: readonly unknown[],
+): Map<string, number> {
+  for (const row of rows as Record<string, unknown>[]) {
+    const email = String(row.email ?? "").toLowerCase();
+    const at = Number(row.lastActiveAt ?? row.last_active_at);
+    if (!email || !Number.isFinite(at) || at <= 0) continue;
+    const current = target.get(email);
+    target.set(email, current === undefined ? at : Math.max(current, at));
+  }
+  return target;
+}
+
+async function fillFromSessions(
+  missing: readonly string[],
+  result: Map<string, number>,
+): Promise<void> {
+  // Two auth layouts exist across deployments: the current session table with a
+  // user_id join, and the older token/email table. Neither is guaranteed, so
+  // each is tried on its own and a failure just leaves that source silent.
+  const marks = missing.map(() => "?").join(", ");
+  // raw-sql-ok: interpolates only a generated ? placeholder list; emails are bound
+  const queries: { sql: string; args: unknown[] }[] = [
+    {
+      sql: `SELECT LOWER(u.email) AS email,
+                   MAX(EXTRACT(EPOCH FROM s.updated_at) * 1000) AS lastActiveAt
+            FROM session s
+            JOIN "user" u ON u.id = s.user_id
+            WHERE LOWER(u.email) IN (${marks})
+            GROUP BY LOWER(u.email)`,
+      args: [...missing],
+    },
+    {
+      sql: `SELECT LOWER("email") AS email, MAX(created_at) AS lastActiveAt
+            FROM sessions
+            WHERE LOWER("email") IN (${marks})
+            GROUP BY LOWER("email")`,
+      args: [...missing],
+    },
+    // A per-app schema can hide the shared auth tables from an unqualified name.
+    {
+      sql: `SELECT LOWER(u.email) AS email,
+                   MAX(EXTRACT(EPOCH FROM s.updated_at) * 1000) AS lastActiveAt
+            FROM public.session s
+            JOIN public."user" u ON u.id = s.user_id
+            WHERE LOWER(u.email) IN (${marks})
+            GROUP BY LOWER(u.email)`,
+      args: [...missing],
+    },
+  ];
+  for (const query of queries) {
+    try {
+      const e = await exec();
+      const { rows } = await e.execute(query);
+      mergeLastActive(result, rows as unknown[]);
+      // coercion-ok: probing optional auth table layouts; a missing table is no source
+    } catch {
+      // A deployment without this auth table simply has no source here.
+    }
+  }
+}
 
 function clampInteger(
   input: string | null,
@@ -803,7 +929,7 @@ export interface SingleInviteResult {
   emailError?: string;
 }
 
-interface SingleInviteFailure {
+export interface SingleInviteFailure {
   email: string;
   error: string;
 }
@@ -1051,6 +1177,50 @@ export const listInvitationsHandler = defineEventHandler(
       appRoles: r.appRolesJson ? JSON.parse(String(r.appRolesJson)) : {},
     }));
     return { invitations };
+  },
+);
+
+/**
+ * Cancel a pending invitation. An invite that cannot be withdrawn leaves a person in
+ * the roster who was never asked twice, and there was no way back from a typo.
+ */
+export const cancelInvitationHandler = defineEventHandler(
+  async (event: H3Event) => {
+    const ctx = await getOrgContext(event);
+    if (!ctx.orgId) {
+      throw createError({
+        statusCode: 400,
+        message: "You must belong to an organization to cancel an invitation",
+      });
+    }
+    if (ctx.role !== "owner" && ctx.role !== "admin") {
+      throw createError({
+        statusCode: 403,
+        message: "Only owners and admins can cancel invitations",
+      });
+    }
+
+    const invitationId = extractInvitationId(event);
+    if (!invitationId) {
+      throw createError({
+        statusCode: 400,
+        message: "Invitation ID required",
+      });
+    }
+
+    const e = await exec();
+    const result = await e.execute({
+      sql: `UPDATE org_invitations SET status = 'canceled'
+            WHERE id = ? AND org_id = ? AND status = 'pending'`,
+      args: [invitationId, ctx.orgId],
+    });
+    if (Number(result.rowsAffected) === 0) {
+      throw createError({
+        statusCode: 404,
+        message: "No pending invitation with that id",
+      });
+    }
+    return { id: invitationId, status: "canceled" };
   },
 );
 

@@ -4120,13 +4120,15 @@ describe("design connect bridge endpoints", () => {
         { timeout: 10_000 },
       );
 
+      // Vite watches the root through symlinks (macOS /var → /private/var).
+      const watchedStylesheetPath = fs.realpathSync(stylesheetPath);
       const stylesheetChange = new Promise<void>((resolve, reject) => {
         const timeout = setTimeout(
           () => reject(new Error("Vite did not observe the stylesheet edit")),
           5_000,
         );
         const onChange = (changedPath: string) => {
-          if (path.resolve(changedPath) !== stylesheetPath) return;
+          if (path.resolve(changedPath) !== watchedStylesheetPath) return;
           clearTimeout(timeout);
           vite.watcher.off("change", onChange);
           resolve();

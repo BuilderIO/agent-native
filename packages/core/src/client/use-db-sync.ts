@@ -1672,11 +1672,10 @@ export function useDbSync(
     let pendingInvalidateEvents: SyncEvent[] = [];
     let invalidateTimer: ReturnType<typeof setTimeout> | null = null;
     let disposed = false;
-    const pendingTrailingRefreshes: Array<{
-      filters: InvalidateFilters | undefined;
-      completion: Promise<unknown>;
-      predicateIdentity?: (query: Query) => boolean;
-    }> = [];
+    // Each entry names the in-flight queries one batch found busy. A batch built
+    // with a fresh predicate still overlaps the same fetches, so pending work is
+    // deduped by query, never by filter identity.
+    const pendingTrailingRefreshes: Array<{ queries: ReadonlySet<Query> }> = [];
 
     function flushInvalidateBatch() {
       if (invalidateTimer) {
@@ -1774,27 +1773,10 @@ export function useDbSync(
 
       if (invalidating.length > 0 && queryClient) {
         const asked: InvalidateFilters[] = [];
-        const hasPendingTrailingRefresh = (
-          filters: InvalidateFilters | undefined,
-          predicateIdentity?: (query: Query) => boolean,
-        ) =>
-          pendingTrailingRefreshes.some((pending) => {
-            if (pending.filters?.dedupeKey !== filters?.dedupeKey) return false;
-            if (filters?.dedupeKey) return true;
-            const pendingKey = pending.filters?.queryKey;
-            const filterKey = filters?.queryKey;
-            if (pendingKey || filterKey) {
-              if (
-                !pendingKey ||
-                !filterKey ||
-                pendingKey.length !== filterKey.length
-              ) {
-                return false;
-              }
-              return pendingKey.every((key, index) => key === filterKey[index]);
-            }
-            return pending.predicateIdentity === predicateIdentity;
-          });
+        const hasPendingTrailingRefresh = (query: Query) =>
+          pendingTrailingRefreshes.some((pending) =>
+            pending.queries.has(query),
+          );
 
         const invalidateWithoutCancel = (requested?: InvalidateFilters) => {
           asked.push(requested ?? {});
@@ -1805,29 +1787,43 @@ export function useDbSync(
               !hasTerminalAuthFailure(query) &&
               (callerPredicate?.(query) ?? true),
           };
-          const needsTrailingRefresh =
-            (queryClient.isFetching?.(normalizedFilters) ?? 0) > 0;
+          // The trailing refresh is for the reads that were still in flight and
+          // so may have answered from before this change. The idle reads were
+          // just refetched; refreshing them again is a second request per event.
+          // The query client only calls the predicate on fetching queries, so it
+          // names exactly the busy ones.
+          const busyQueries = new Set<Query>();
+          queryClient.isFetching?.({
+            ...normalizedFilters,
+            predicate: (query: Query) => {
+              const matches = normalizedFilters.predicate?.(query) ?? true;
+              if (matches && !hasPendingTrailingRefresh(query))
+                busyQueries.add(query);
+              return matches;
+            },
+          });
           const completion = queryClient.invalidateQueries(normalizedFilters, {
             cancelRefetch: false,
           });
           if (
             !disposed &&
-            needsTrailingRefresh &&
-            completion instanceof Promise &&
-            !hasPendingTrailingRefresh(normalizedFilters, callerPredicate)
+            busyQueries.size > 0 &&
+            completion instanceof Promise
           ) {
-            const pending = {
-              filters: normalizedFilters,
-              completion,
-              predicateIdentity: callerPredicate,
-            };
+            const pending = { queries: busyQueries };
             pendingTrailingRefreshes.push(pending);
             void completion.then(
               () => {
                 const index = pendingTrailingRefreshes.indexOf(pending);
                 if (index < 0) return;
                 pendingTrailingRefreshes.splice(index, 1);
-                if (!disposed) queryClient.invalidateQueries(normalizedFilters);
+                if (!disposed)
+                  queryClient.invalidateQueries({
+                    ...normalizedFilters,
+                    predicate: (query: Query) =>
+                      busyQueries.has(query) &&
+                      (normalizedFilters.predicate?.(query) ?? true),
+                  });
               },
               () => {
                 const index = pendingTrailingRefreshes.indexOf(pending);

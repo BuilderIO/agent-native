@@ -22,6 +22,7 @@ export function execGuardCommand(command, args, options = {}) {
 export function resolveDiffBase(cwd) {
   for (const name of DIFF_BASE_ENV) {
     const value = process.env[name];
+    if (value && /^[0-9a-f]{40}$/i.test(value)) return value;
     if (value) return value.startsWith("origin/") ? value : `origin/${value}`;
   }
   for (const candidate of ["origin/main", "main"]) {

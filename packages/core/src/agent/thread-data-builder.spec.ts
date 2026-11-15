@@ -2117,7 +2117,7 @@ describe("buildAssistantMessage", () => {
       runError: {
         errorCode: "missing_api_key",
         message:
-          "No LLM provider is connected. Open Settings > Agent > AI providers, then use Builder.io (free tier available) or add a provider key.",
+          "No LLM provider is connected. Open Settings > Agent > AI providers, then connect Builder.io or add a provider key.",
       },
     });
   });

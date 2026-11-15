@@ -173,6 +173,13 @@ export interface Booking {
   status: BookingStatus;
   location?: Location;
   attendees: Attendee[];
+  /**
+   * Whether the persisted attendee order is unambiguous. `false` labels
+   * UNKNOWN legacy multi-attendee bookings whose stored rows carried no
+   * position, so the first array entry must not be treated as the primary
+   * attendee. Omitted/`true` means the order is known.
+   */
+  attendeeOrderKnown?: boolean;
   references: BookingReference[];
   customResponses?: Record<string, any>;
   cancellationReason?: string;

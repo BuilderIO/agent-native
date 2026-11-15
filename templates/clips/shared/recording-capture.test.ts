@@ -43,6 +43,15 @@ describe("screen capture quality policy", () => {
       expect(value).not.toHaveProperty("exact");
     }
   });
+
+  it("uses the resolved native monitor resolution when supplied", () => {
+    const options = screenCaptureDisplayOptions("monitor", false, {
+      width: 3456,
+      height: 2234,
+    });
+    expect(options.video.width).toEqual({ ideal: 3456, max: 3456 });
+    expect(options.video.height).toEqual({ ideal: 2234, max: 2234 });
+  });
 });
 
 describe("screen capture audio policy", () => {

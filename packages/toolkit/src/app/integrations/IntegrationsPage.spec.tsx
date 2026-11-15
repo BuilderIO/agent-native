@@ -504,6 +504,80 @@ describe("IntegrationsPage", () => {
     },
   );
 
+  it("opens the connected row's own page, the way its catalog tile does", async () => {
+    mcpMocks.useMcpServers.mockReturnValue({
+      data: {
+        user: [
+          {
+            id: "notion",
+            scope: "user",
+            name: "Notion",
+            url: "https://mcp.example.com/notion",
+            authMode: "oauth",
+            createdAt: 1,
+            status: { state: "connected", toolCount: 4 },
+          },
+        ],
+        org: [],
+        orgId: "acme",
+        role: "member",
+      },
+      isError: false,
+      isSuccess: true,
+      isLoading: false,
+    });
+    await render();
+    const link = container.querySelector<HTMLAnchorElement>(
+      '[data-connected-server-link="Notion"]',
+    );
+    expect(link).not.toBeNull();
+    expect(link!.getAttribute("href")).toContain(
+      "/settings/integrations/notion",
+    );
+  });
+
+  it("offers Reconnect on a healthy connection too, so a stale token can be renewed without Remove", async () => {
+    const mutateAsync = vi.fn().mockResolvedValue(undefined);
+    mcpMocks.useReconnectMcpServer.mockReturnValue({ mutateAsync });
+    mcpMocks.useMcpServers.mockReturnValue({
+      data: {
+        user: [
+          {
+            id: "notion",
+            scope: "user",
+            name: "Notion",
+            url: "https://mcp.example.com/notion",
+            authMode: "oauth",
+            createdAt: 1,
+            status: { state: "connected", toolCount: 4 },
+          },
+        ],
+        org: [],
+        orgId: "acme",
+        role: "member",
+      },
+      isError: false,
+      isSuccess: true,
+      isLoading: false,
+    });
+    await render();
+
+    const trigger = container.querySelector<HTMLButtonElement>(
+      'button[aria-label="More actions for Notion"]',
+    );
+    expect(trigger).not.toBeNull();
+    await act(async () => {
+      trigger!.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      );
+    });
+    const items = Array.from(
+      document.querySelectorAll('[role="menuitem"]'),
+    ).map((item) => item.textContent);
+    expect(items).toContain("Reconnect");
+    expect(items).toContain("Remove");
+  });
+
   it("starts OAuth again for an OAuth server whose connection was refused", async () => {
     const mutateAsync = vi.fn().mockResolvedValue(undefined);
     mcpMocks.useReconnectMcpServer.mockReturnValue({ mutateAsync });

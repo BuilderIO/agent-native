@@ -106,3 +106,38 @@ export function fetchFirstRunOnboardingStatus(): Promise<boolean> {
   });
   return firstRunStatusRequest;
 }
+
+/** Complete an app-owned first-run surface only after its native saves succeed. */
+export interface FirstRunCompletionScope {
+  expectedUserEmail: string;
+  expectedOrgId: string;
+}
+
+export async function completeFirstRunOnboarding(
+  scope?: FirstRunCompletionScope,
+): Promise<void> {
+  const response = await fetch(
+    agentNativePath("/_agent-native/onboarding/first-run/complete"),
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      credentials: "same-origin",
+      body: JSON.stringify(scope ?? {}),
+    },
+  );
+  if (!response.ok) {
+    throw new Error(`first-run completion failed: ${response.status}`);
+  }
+  const result: unknown = await response.json();
+  if (
+    !result ||
+    typeof result !== "object" ||
+    !("ok" in result) ||
+    result.ok !== true
+  ) {
+    throw new Error("First-run completion was not acknowledged.");
+  }
+  if (typeof window !== "undefined") {
+    window.dispatchEvent(new CustomEvent("agent-native:first-run-completed"));
+  }
+}

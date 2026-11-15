@@ -6,6 +6,7 @@ vi.mock("../db/client.js", () => ({
 }));
 
 import { resetAppConfigForTests } from "../app-config/index.js";
+import { AUTH_SIGNUP_DOMAIN_NOT_ALLOWED_CODE } from "../shared/auth-copy.js";
 import {
   enforceSignupAdmission,
   INVITE_ONLY_SIGNUP_CODE,
@@ -65,6 +66,45 @@ describe("invite-only signup admission", () => {
     await expect(
       enforceSignupAdmission({
         email: "unknown@company.test",
+        emailVerified: false,
+      }),
+    ).rejects.toMatchObject({ message: INVITE_ONLY_SIGNUP_CODE });
+  });
+});
+
+describe("deployment email domain restriction", () => {
+  it.each([
+    "outside@example.test",
+    "person@builder.io.attacker.test",
+    "person@sub.builder.io",
+  ])("rejects %s even with open signup", async (email) => {
+    process.env.AUTH_SIGNUP = "open";
+    process.env.AUTH_ALLOWED_EMAIL_DOMAINS = "builder.io";
+    // A domain refusal now carries its own typed code so the message can name
+    // the admitted domains instead of the generic invite-only copy.
+    await expect(
+      enforceSignupAdmission({ email, emailVerified: true }),
+    ).rejects.toMatchObject({
+      message: AUTH_SIGNUP_DOMAIN_NOT_ALLOWED_CODE,
+    });
+    expect(mockExecute).not.toHaveBeenCalled();
+  });
+  it("admits a verified exact-domain account", async () => {
+    process.env.AUTH_SIGNUP = "open";
+    process.env.AUTH_ALLOWED_EMAIL_DOMAINS = "builder.io";
+    await expect(
+      enforceSignupAdmission({
+        email: "Person@Builder.io",
+        emailVerified: true,
+      }),
+    ).resolves.toBeUndefined();
+  });
+  it("refuses an unverified allowed-domain claim", async () => {
+    process.env.AUTH_SIGNUP = "open";
+    process.env.AUTH_ALLOWED_EMAIL_DOMAINS = "builder.io";
+    await expect(
+      enforceSignupAdmission({
+        email: "person@builder.io",
         emailVerified: false,
       }),
     ).rejects.toMatchObject({ message: INVITE_ONLY_SIGNUP_CODE });

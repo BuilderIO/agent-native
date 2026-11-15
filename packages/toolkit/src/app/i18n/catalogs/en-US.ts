@@ -732,7 +732,7 @@ const messages = {
   "errorMessages.invalidAttachment":
     "The model provider rejected this attachment's format or size. For images, export a smaller PNG, JPEG, GIF, or WebP; for documents, use a supported file format or paste the relevant text, then attach it again.",
   "errorMessages.noProviderConnected":
-    "No LLM provider is connected. Open Settings > Agent > AI providers, then use Builder.io (free tier available) or add a provider key.",
+    "No LLM provider is connected. Open Settings > Agent > AI providers, then connect Builder.io or add a provider key.",
   "errorMessages.openBuilderSpaceSettings": "Open Builder space settings",
   "errorMessages.providerAuthentication":
     "The model provider rejected the saved API key. Update the key in Settings → Integrations → API keys, then retry.",
@@ -773,6 +773,10 @@ const messages = {
   "history.searching": "Searching...",
   "history.untitledChat": "Chat",
   "history.yesterday": "Yesterday",
+  "history.today": "Today",
+  "commandMenu.systemGroup": "Application",
+  "share.alreadyInvited": "Already invited",
+  "share.notInvitedToPage": "Not invited to page",
   "history.mine": "My chats",
   "history.sharedWithYou": "Shared with you",
   "history.showAll": "Show all",
@@ -2219,6 +2223,10 @@ const messages = {
   "settingsShell.account.passwordSaved": "Password updated",
   "settingsShell.account.photoError": "Could not update photo.",
   "settingsShell.account.photoUpdated": "Photo updated",
+  "settingsShell.account.photoRemoved": "Photo removed",
+  "settingsShell.account.removePhoto": "Remove photo",
+  "settingsShell.account.emailDeliveryUnavailable":
+    "Email delivery is not set up here",
   "settingsShell.account.profilePhoto": "Profile photo",
   "settingsShell.account.requestCopyDescription":
     "An administrator verifies your identity and follows up.",
@@ -3434,7 +3442,7 @@ const messages = {
   "message.responseFailed": "Response failed",
   "message.waitingForApproval": "Waiting for approval",
   "message.waitingForInput": "Waiting for input",
-  "message.workSummaryFailedCount": "{{summary}}, {{count}} failed",
+  "message.workSummaryFailedCount": "{{summary}}, failed attempts: {{count}}",
   "message.taskStatusPending": "Pending",
   "message.taskStatusRunning": "Running",
   "message.taskStatusCompleted": "Done",

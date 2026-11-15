@@ -172,6 +172,25 @@ describe("workspaceProviderOAuthUrl", () => {
     expect(assign).not.toHaveBeenCalled();
   });
 
+  it("reports a blocked popup and allows the next user attempt to open it", () => {
+    const blocked = vi.fn();
+    const first = stubFramedUi(null);
+    startWorkspaceProviderOAuth("notion", {
+      appId: "calendar",
+      onPopupBlocked: blocked,
+    });
+    expect(blocked).toHaveBeenCalledTimes(1);
+    expect(first.assign).not.toHaveBeenCalled();
+    const retry = stubFramedUi({ closed: false } as Window);
+    startWorkspaceProviderOAuth("notion", {
+      appId: "calendar",
+      onPopupBlocked: blocked,
+    });
+    expect(retry.open).toHaveBeenCalledTimes(1);
+    expect(retry.assign).not.toHaveBeenCalled();
+    expect(blocked).toHaveBeenCalledTimes(1);
+  });
+
   it("applies the caller's return path when the embedded flow completes", () => {
     const popup = { closed: false } as Window;
     const { assign, listeners } = stubFramedUi(popup);

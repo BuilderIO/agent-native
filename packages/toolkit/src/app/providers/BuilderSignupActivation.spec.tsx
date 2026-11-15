@@ -30,6 +30,7 @@ vi.mock("@agent-native/core/client/use-session", async (importOriginal) => ({
 
 vi.mock("@agent-native/core/client/onboarding/first-run-enabled", () => ({
   isFirstRunOnboardingEnabled: () => false,
+  resolveFirstRunOnboardingMode: () => "off",
 }));
 
 vi.mock("@agent-native/core/client/analytics", () => ({
