@@ -2486,30 +2486,25 @@ pub async fn set_flow_bar_expanded(app: AppHandle, expanded: bool) -> Result<(),
     Ok(())
 }
 
-/// Whether the frontend's dictation flow is idle (no dictation starting,
-/// listening or finishing).
-pub(crate) fn voice_flow_idle() -> bool {
-    VOICE_FLOW_IDLE.load(Ordering::SeqCst)
-}
-
 pub fn install_voice_flow_state_listener(app: &tauri::App) {
-    app.listen("voice:state-change", |event| {
-        let idle = serde_json::from_str::<serde_json::Value>(event.payload())
+    let handle = app.handle().clone();
+    app.listen("voice:state-change", move |event| {
+        let state = serde_json::from_str::<serde_json::Value>(event.payload())
             .ok()
             .and_then(|payload| {
                 payload
                     .get("state")
                     .and_then(|state| state.as_str())
-                    .map(|state| state == "idle")
-            })
-            .unwrap_or(true);
-        VOICE_FLOW_IDLE.store(idle, Ordering::SeqCst);
+                    .map(str::to_owned)
+            });
+        VOICE_FLOW_IDLE.store(state.as_deref().unwrap_or("idle") == "idle", Ordering::SeqCst);
+        crate::shortcuts::note_voice_flow_state(&handle, state.as_deref().unwrap_or("idle"));
     });
 }
 
 #[tauri::command]
 pub async fn hide_flow_bar(app: AppHandle) -> Result<(), String> {
-    crate::shortcuts::set_dictation_active_and_sync_escape(&app, false);
+    crate::shortcuts::note_flow_hidden(&app);
     if let Some(w) = app.get_webview_window(FLOW_BAR_LABEL) {
         let _ = w.hide();
     }
