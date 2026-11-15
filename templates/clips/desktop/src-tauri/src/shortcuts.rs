@@ -391,6 +391,14 @@ static PENDING_VOICE_START: Mutex<PendingVoiceStart> = Mutex::new(PendingVoiceSt
     held: None,
 });
 
+/// A push-to-talk link's own delayed start, kept apart from the shortcuts'
+/// so a link press can't overwrite a shortcut tap still waiting to go out.
+static PENDING_LINK_VOICE_START: Mutex<PendingVoiceStart> = Mutex::new(PendingVoiceStart {
+    pending: false,
+    released: false,
+    held: None,
+});
+
 struct VoicePress {
     at: Instant,
     /// Whether a dictation run has already timed itself from this press.
@@ -1167,7 +1175,7 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
                         note_voice_press();
                         eprintln!("[clips-tray] {source} down — starting voice dictation");
                         sync_dictation_escape_shortcut(app.clone(), true);
-                        emit_voice_start(app, source);
+                        emit_voice_start(app, source, &PENDING_VOICE_START);
                     }
                 }
                 tauri_plugin_global_shortcut::ShortcutState::Released => {
@@ -1227,10 +1235,14 @@ fn wake_popover_for_recording_shortcut(app: &tauri::AppHandle) {
     let _ = app.emit("clips:popover-visible", false);
 }
 
-fn emit_voice_start(app: &tauri::AppHandle, source: &'static str) {
+fn emit_voice_start(
+    app: &tauri::AppHandle,
+    source: &'static str,
+    pending: &'static Mutex<PendingVoiceStart>,
+) {
     remember_voice_target(app);
     wake_popover_for_voice(app);
-    *lock_pending_voice_start(&PENDING_VOICE_START) = PendingVoiceStart {
+    *lock_pending_voice_start(pending) = PendingVoiceStart {
         pending: true,
         released: false,
         held: None,
@@ -1241,7 +1253,7 @@ fn emit_voice_start(app: &tauri::AppHandle, source: &'static str) {
         // A tap shorter than the wake delay is still a deliberate press
         // (toggle mode depends on it), so deliver it as start + stop in
         // order rather than dropping it.
-        voice_start_due(&PENDING_VOICE_START, |released| {
+        voice_start_due(pending, |released| {
             if released.is_some() || is_dictation_active(&app) {
                 let _ = app.emit(
                     "voice:shortcut-start",
@@ -1789,6 +1801,15 @@ impl PressOwner {
         }
     }
 
+    /// A hands-free link press ends (or replaces) a push link's dictation, so
+    /// the push link stops owning it: its later up then leaves the
+    /// hands-free run, and its Escape, alone.
+    fn hands_free_takes_over(&mut self) {
+        if self.0 == Some(PressInput::Link) {
+            self.0 = None;
+        }
+    }
+
     /// A release of `input`: true when it owned the dictation, so it stops it.
     fn release(&mut self, input: PressInput) -> bool {
         if self.0 == Some(input) {
@@ -1953,7 +1974,7 @@ pub fn dictate_from_link(app: &AppHandle, action: crate::deep_links::DictateLink
             note_voice_press();
             eprintln!("[clips-tray] dictate link down — starting voice dictation");
             sync_dictation_escape_shortcut(app.clone(), true);
-            emit_voice_start(app, "link");
+            emit_voice_start(app, "link", &PENDING_LINK_VOICE_START);
         }
         DictateLink::PushUp => {
             if !end_voice_press(PressInput::Link) {
@@ -1963,7 +1984,7 @@ pub fn dictate_from_link(app: &AppHandle, action: crate::deep_links::DictateLink
             eprintln!("[clips-tray] dictate link up — stopping voice dictation");
             sync_dictation_escape_shortcut(app.clone(), false);
             let held = held_since_press();
-            release_voice_start(&PENDING_VOICE_START, held, || {
+            release_voice_start(&PENDING_LINK_VOICE_START, held, || {
                 let _ = app.emit("voice:shortcut-stop", voice_stop_payload("link", held));
             });
         }
@@ -1974,6 +1995,7 @@ pub fn dictate_from_link(app: &AppHandle, action: crate::deep_links::DictateLink
             if !dictation_running(app) {
                 remember_voice_target(app);
             }
+            lock_press_owner().hands_free_takes_over();
             if !lock_dictate_link_queue().press(Instant::now()) {
                 eprintln!(
                     "[clips-tray] dictate link — hands-free press held until dictation is ready"
@@ -2042,6 +2064,51 @@ mod dictation_link_tests {
         assert!(owner.release(PressInput::Shortcut));
         assert_eq!(owner.press(PressInput::Link, true), PressClaim::StopOnly);
         assert!(!owner.release(PressInput::Link));
+    }
+
+    #[test]
+    fn a_hands_free_press_leaves_a_held_push_links_up_nothing_to_stop() {
+        let mut owner = PressOwner::default();
+        assert_eq!(owner.press(PressInput::Link, false), PressClaim::Owns);
+        owner.hands_free_takes_over();
+        // The push link's up no longer stops (or disarms Escape for) the
+        // hands-free run that followed.
+        assert!(!owner.release(PressInput::Link));
+        // A key's dictation is left to the key.
+        assert_eq!(owner.press(PressInput::Shortcut, false), PressClaim::Owns);
+        owner.hands_free_takes_over();
+        assert!(owner.release(PressInput::Shortcut));
+    }
+
+    #[test]
+    fn a_link_press_keeps_a_shortcut_tap_waiting_to_go_out() {
+        let shortcut = Mutex::new(PendingVoiceStart::default());
+        let link = Mutex::new(PendingVoiceStart::default());
+        // A shortcut tap let go before its delayed start fires.
+        *lock_pending_voice_start(&shortcut) = PendingVoiceStart {
+            pending: true,
+            released: false,
+            held: None,
+        };
+        release_voice_start(&shortcut, Some(Duration::from_millis(90)), || {
+            panic!("the stop waits for the delayed start")
+        });
+        // A link press arrives meanwhile, in its own slot.
+        *lock_pending_voice_start(&link) = PendingVoiceStart {
+            pending: true,
+            released: false,
+            held: None,
+        };
+        // The shortcut's start still goes out as the whole tap.
+        assert_eq!(
+            voice_start_due(&shortcut, |released| released),
+            Some(Some(Duration::from_millis(90)))
+        );
+        // The link's start goes out as a hold; its up then sends the stop.
+        assert_eq!(voice_start_due(&link, |released| released), None);
+        let mut stopped = false;
+        release_voice_start(&link, None, || stopped = true);
+        assert!(stopped);
     }
 
     #[test]
