@@ -6,7 +6,7 @@ import {
 } from "@agent-native/core/action";
 import { runWithRequestContext } from "@agent-native/core/server";
 import { getRequestOrgId } from "@agent-native/core/server/request-context";
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, isNotNull, isNull, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
 import { recordCreatedDocumentsHistory } from "../server/lib/document-history.js";
@@ -75,6 +75,8 @@ const ROW_STATE_KEY = "$githubPullRequest";
 const ADD_READ_BUDGET_MS = 10_000;
 /** How long syncs can run out of time before the collection says so. */
 const SLOW_SYNCS_SHOWN_AFTER_MS = 5 * 60 * 1000;
+/** How many rows one Trash transaction moves, so its locks stay few. */
+const TRASH_BATCH_ROWS = 50;
 
 const OPTION_COLORS: DocumentPropertyOptionColor[] = [
   "blue",
@@ -1094,73 +1096,95 @@ async function writeRows(args: {
 }
 
 /**
- * Moves a row whose pull request left the search to Trash, unless it was
- * added by link since the sync read the link. Returns false when there was
- * nothing to move.
+ * Moves rows whose pull requests left the search to Trash, a batch to a
+ * transaction, skipping any added by link since the sync read the link.
+ * Returns how many moved.
  */
-async function trashRow(
+async function trashRows(
   loaded: LoadedSource,
-  row: SourceRow,
-  key: string,
+  leaving: Array<{ key: string; row: SourceRow }>,
   now: string,
   claimId: string,
-): Promise<boolean> {
-  return getDb().transaction(async (tx: Db) => {
-    const { ownerEmail } = loaded.database;
-    // The page's other collections may sort before this one, so the whole
-    // group is locked in order before the link check takes this collection.
-    const locks = await lockLifecycleGroup(tx, {
-      operation: "trash",
-      roots: [{ id: row.documentId, ownerEmail }],
-      alsoLockDatabaseIds: [loaded.database.id],
-    });
-    const state = await lockLink(
-      tx,
-      loaded.database,
-      loaded.source.id,
-      claimId,
-    );
-    if (state.added.includes(key)) return false;
-    const record = rowAt(
-      await tx
-        .select({ id: schema.contentDatabaseSourceRows.id })
+): Promise<number> {
+  const { ownerEmail } = loaded.database;
+  let moved = 0;
+  for (const batch of chunks(leaving, TRASH_BATCH_ROWS)) {
+    moved += await getDb().transaction(async (tx: Db) => {
+      // The pages' other collections may sort before this one, so the whole
+      // group is locked in order before the link check takes this collection.
+      const locks = await lockLifecycleGroup(tx, {
+        operation: "trash",
+        roots: batch.map(({ row }) => ({ id: row.documentId, ownerEmail })),
+        alsoLockDatabaseIds: [loaded.database.id],
+      });
+      const state = await lockLink(
+        tx,
+        loaded.database,
+        loaded.source.id,
+        claimId,
+      );
+      const added = new Set(state.added);
+      const candidates = batch.filter(({ key }) => !added.has(key));
+      if (!candidates.length) return 0;
+      const records = await tx
+        .select({
+          id: schema.contentDatabaseSourceRows.id,
+          documentId: schema.contentDatabaseSourceRows.documentId,
+        })
         .from(schema.contentDatabaseSourceRows)
         .where(
-          and(
-            eq(schema.contentDatabaseSourceRows.id, row.id),
-            eq(schema.contentDatabaseSourceRows.documentId, row.documentId),
+          inArray(
+            schema.contentDatabaseSourceRows.id,
+            candidates.map(({ row }) => row.id),
           ),
-        ),
-    );
-    if (!record) return false;
-    const document = rowAt(
-      await tx
-        .select({ trashedAt: schema.documents.trashedAt })
-        .from(schema.documents)
-        .where(
-          and(
-            eq(schema.documents.id, row.documentId),
-            eq(schema.documents.ownerEmail, ownerEmail),
-          ),
-        ),
-    );
-    let moved = false;
-    if (document && !document.trashedAt) {
-      await trashDocumentSubtree(
-        tx,
-        row.documentId,
-        ownerEmail,
-        now,
-        locks,
-        "github",
+        );
+      const linked = new Set(
+        records.map((record) => `${record.id}:${record.documentId}`),
       );
-      moved = true;
-    }
-    await tx
-      .delete(schema.contentDatabaseSourceRows)
-      .where(eq(schema.contentDatabaseSourceRows.id, row.id));
-    return moved;
-  });
+      const going = candidates.filter(({ row }) =>
+        linked.has(`${row.id}:${row.documentId}`),
+      );
+      if (!going.length) return 0;
+      const live = new Set(
+        (
+          await tx
+            .select({ id: schema.documents.id })
+            .from(schema.documents)
+            .where(
+              and(
+                inArray(
+                  schema.documents.id,
+                  going.map(({ row }) => row.documentId),
+                ),
+                eq(schema.documents.ownerEmail, ownerEmail),
+                isNull(schema.documents.trashedAt),
+              ),
+            )
+        ).map((document) => document.id),
+      );
+      let count = 0;
+      for (const { row } of going) {
+        if (!live.has(row.documentId)) continue;
+        await trashDocumentSubtree(
+          tx,
+          row.documentId,
+          ownerEmail,
+          now,
+          locks,
+          "github",
+        );
+        count += 1;
+      }
+      await tx.delete(schema.contentDatabaseSourceRows).where(
+        inArray(
+          schema.contentDatabaseSourceRows.id,
+          going.map(({ row }) => row.id),
+        ),
+      );
+      return count;
+    });
+  }
+  return moved;
 }
 
 export interface GitHubPullRequestsSyncResult {
@@ -1254,8 +1278,8 @@ export interface SyncGitHubPullRequestsOptions {
 /**
  * Brings a linked collection up to GitHub: a row for each pull request the
  * search finds and each one added by link, and Trash for rows the search no
- * longer finds. GitHub is read in one or two queries before anything is
- * written, so a sync either writes every row or none.
+ * longer finds. Everything it needs from GitHub is read before anything is
+ * written, so a failed read leaves every row as it was.
  */
 export async function syncGitHubPullRequests(
   options: SyncGitHubPullRequestsOptions,
@@ -1299,17 +1323,18 @@ export async function syncGitHubPullRequests(
       connectionId: state.connectionId,
       signal: budget.signal,
     };
+    const stored = await readSourceRows(getDb(), options.sourceId);
     // A pull request added by link is read until its row shows it merged
     // with its checks done, and not again, so a long list of them doesn't
     // cost a read each sync.
     const settled = new Set(
-      [...(await readSourceRows(getDb(), options.sourceId))]
+      [...stored]
         .filter(([, row]) =>
           githubPullRequestValuesSettled(parseJsonObject(row.sourceValuesJson)),
         )
         .map(([key]) => key),
     );
-    const { searched, searchTotal, added } = await readAsLinker(
+    const { searched, searchTotal, added, stillShown } = await readAsLinker(
       state,
       database.orgId,
       async () => {
@@ -1327,12 +1352,34 @@ export async function syncGitHubPullRequests(
           .filter((key) => !foundKeys.has(key) && !settled.has(key))
           .map(refFromKey)
           .filter((ref): ref is GitHubPullRequestRef => !!ref);
+        const added = toRead.length
+          ? await readGitHubPullRequests(target, toRead)
+          : [];
+        // A search leaves out what the linker can no longer see, which
+        // isn't a sign the pull request left the search. So a row it
+        // stopped finding moves to Trash only if GitHub still shows its pull
+        // request; otherwise it stays as it was, as an added one does.
+        const complete = !found || found.total <= found.pullRequests.length;
+        const leaving = complete
+          ? [...stored.keys()]
+              .filter(
+                (key) => !foundKeys.has(key) && !state.added.includes(key),
+              )
+              .map(refFromKey)
+              .filter((ref): ref is GitHubPullRequestRef => !!ref)
+          : [];
+        const shown = leaving.length
+          ? await readGitHubPullRequests(target, leaving)
+          : [];
         return {
           searched: found?.pullRequests ?? [],
           searchTotal: found?.total ?? null,
-          added: toRead.length
-            ? await readGitHubPullRequests(target, toRead)
-            : [],
+          added,
+          stillShown: new Set(
+            shown
+              .filter((pr): pr is GitHubPullRequestRecord => !!pr)
+              .map(githubPullRequestKey),
+          ),
         };
       },
     );
@@ -1354,34 +1401,12 @@ export async function syncGitHubPullRequests(
     const wanted = new Set(pullRequests.map(githubPullRequestKey));
     const latest = (await readSource(options.sourceId))?.state ?? state;
     const keep = new Set([...wanted, ...latest.added]);
-    if (complete) {
-      // A search leaves out what the linker can no longer see, which isn't
-      // a sign the pull request left the search. So a row it stopped
-      // finding moves to Trash only if GitHub still shows its pull request;
-      // otherwise it stays as it was, as an added one does.
-      const leaving = [...written.rows.keys()].filter((key) => !keep.has(key));
-      const refs = leaving
-        .map(refFromKey)
-        .filter((ref): ref is GitHubPullRequestRef => !!ref);
-      const shown = refs.length
-        ? await readAsLinker(state, database.orgId, () =>
-            readGitHubPullRequests(target, refs),
-          )
-        : [];
-      const stillShown = new Set(
-        shown
-          .filter((pr): pr is GitHubPullRequestRecord => !!pr)
-          .map(githubPullRequestKey),
-      );
-      for (const key of leaving) {
-        const row = written.rows.get(key);
-        if (!row || !stillShown.has(key)) continue;
-        if (await trashRow(loaded, row, key, now, claimId)) {
-          result.trashed += 1;
-        }
-        written.rows.delete(key);
-      }
-    }
+    const leaving = [...stillShown].flatMap((key) => {
+      const row = written.rows.get(key);
+      return row && !keep.has(key) ? [{ key, row }] : [];
+    });
+    result.trashed = await trashRows(loaded, leaving, now, claimId);
+    for (const { key } of leaving) written.rows.delete(key);
     result.rows = written.rows.size;
     result.searchTotal = searchTotal;
     result.problem = !complete ? tooManyResults(searchTotal, now) : null;
@@ -1629,6 +1654,42 @@ export async function addGitHubPullRequests(args: {
     throw tooManyAddedError();
   }
   const existing = await readSourceRows(getDb(), loaded.source.id);
+  // A row whose page someone moved to Trash keeps its record, so adding it
+  // would hand back the Trash page. Restoring it is the page's own action,
+  // with its own access check.
+  const rowPages = wanted.flatMap(([key, ref]) => {
+    const row = existing.get(key);
+    return row ? [{ ref, documentId: row.documentId }] : [];
+  });
+  const trashed = rowPages.length
+    ? new Set(
+        (
+          await getDb()
+            .select({ id: schema.documents.id })
+            .from(schema.documents)
+            .where(
+              and(
+                inArray(
+                  schema.documents.id,
+                  rowPages.map((page) => page.documentId),
+                ),
+                eq(schema.documents.ownerEmail, loaded.database.ownerEmail),
+                isNotNull(schema.documents.trashedAt),
+              ),
+            )
+        ).map((document) => document.id),
+      )
+    : new Set<string>();
+  const inTrash = rowPages.filter((page) => trashed.has(page.documentId));
+  if (inTrash.length > 0) {
+    const names = inTrash.map(
+      ({ ref }) => `${ref.owner}/${ref.repo}#${ref.number}`,
+    );
+    throw new ActionContractError(
+      `The row for ${names.join(", ")} is in Trash. Restore it from Trash, then add it again.`,
+      { errorCode: "ROW_IN_TRASH", statusCode: 409 },
+    );
+  }
   const missing = wanted.filter(([key]) => !existing.has(key));
   let read: Array<GitHubPullRequestRecord | null> = [];
   if (missing.length > 0) {

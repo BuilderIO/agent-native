@@ -25,6 +25,8 @@ const github = vi.hoisted(() => {
     /** How many the search says it finds in all, when not just `found`. */
     total: null as number | null,
     failure: null as Error | null,
+    /** A failure for reads by number only, after the search answered. */
+    readFailure: null as Error | null,
     /** Each search, and who ran it. */
     searches: [] as Array<{ search: string; user: string | undefined }>,
     /** The keys each read by number asked for. */
@@ -39,6 +41,7 @@ const github = vi.hoisted(() => {
       state.found = [];
       state.total = null;
       state.failure = null;
+      state.readFailure = null;
       state.searches = [];
       state.reads = [];
     },
@@ -76,6 +79,7 @@ vi.mock("../server/lib/github-source-client.js", async (importOriginal) => {
     ) => {
       github.state.reads.push(refs.map(github.key));
       if (github.state.failure) throw github.state.failure;
+      if (github.state.readFailure) throw github.state.readFailure;
       return refs.map(
         (ref) => github.state.pullRequests.get(github.key(ref)) ?? null,
       );
@@ -784,5 +788,76 @@ describe("GitHub pull request collections", () => {
         await value(row.documentId, columnId(byName, "Checks")),
       ),
     ).toBe("Passing");
+  });
+
+  it("writes nothing when a read after the search fails", async () => {
+    const staying = pullRequest("site", 150, { title: "Staying" });
+    const leaving = pullRequest("site", 151, { title: "Leaving" });
+    github.state.found = [staying, leaving];
+    const result = made(await newCollection());
+
+    // The search answers, with a new title and one pull request fewer, but
+    // the read that checks the one it stopped finding fails.
+    changePullRequest(staying, { title: "Staying, renamed" });
+    github.state.found = [staying];
+    github.state.readFailure = new GitHubSourceError(
+      "unavailable",
+      "GitHub couldn't read the pull requests.",
+      502,
+    );
+    await refresh(result.database.id);
+    expect(await liveTitles(result.database.id)).toEqual([
+      "Leaving",
+      "Staying",
+    ]);
+    const status = await as(() =>
+      getSource.run({ databaseId: result.database.id }),
+    );
+    expect(status.source?.metadata.githubPullRequests?.problem).toMatchObject({
+      code: "unavailable",
+    });
+
+    github.state.readFailure = null;
+    await refresh(result.database.id);
+    expect(await liveTitles(result.database.id)).toEqual(["Staying, renamed"]);
+  });
+
+  it("moves more rows to Trash in one sync than one transaction takes", async () => {
+    const keys = Array.from({ length: 55 }, (_, index) =>
+      pullRequest("bulk", index + 1, { title: `Bulk ${index + 1}` }),
+    );
+    const kept = pullRequest("bulk", 100, { title: "Kept" });
+    github.state.found = [...keys, kept];
+    const result = made(await newCollection());
+    expect(await liveTitles(result.database.id)).toHaveLength(56);
+
+    github.state.found = [kept];
+    const refreshed = await refresh(result.database.id);
+    expect(refreshed).toMatchObject({ githubChanged: true });
+    expect(await liveTitles(result.database.id)).toEqual(["Kept"]);
+  });
+
+  it("refuses to add a pull request whose row is in Trash, rather than return the Trash page", async () => {
+    const key = pullRequest("site", 160, { title: "Trashed by hand" });
+    github.state.found = [key];
+    const result = made(await newCollection());
+    const row = await rowByTitle(result.database.id, "Trashed by hand");
+    await getDb()
+      .update(schema.documents)
+      .set({ trashedAt: new Date().toISOString(), trashRootId: row.documentId })
+      .where(eq(schema.documents.id, row.documentId));
+
+    await expect(
+      as(() =>
+        addPullRequests.run({
+          databaseId: result.database.id,
+          urls: ["acme/site#160"],
+        }),
+      ),
+    ).rejects.toThrow("The row for acme/site#160 is in Trash");
+    const status = await as(() =>
+      getSource.run({ databaseId: result.database.id }),
+    );
+    expect(status.source?.metadata.githubPullRequests?.added).toBe(0);
   });
 });
