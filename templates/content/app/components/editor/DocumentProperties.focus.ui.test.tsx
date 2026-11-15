@@ -1,7 +1,6 @@
 // @vitest-environment happy-dom
 
 import type { DocumentProperty } from "@shared/api";
-import { act } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -49,8 +48,6 @@ vi.mock("@/hooks/use-document-properties", async (importOriginal) => ({
   useDeleteDocumentProperty: () => mutations.remove,
   useDocumentProperties: () => ({ data: undefined }),
 }));
-
-import { PropertyTypeChangeUnavailableError } from "@/hooks/use-document-properties";
 
 import {
   PropertyManagementPopover,
@@ -112,162 +109,35 @@ beforeEach(() => {
     mutations.duplicate,
     mutations.remove,
   ]) {
-    mutation.mutateAsync.mockReset().mockResolvedValue({});
+    mutation.mutateAsync.mockClear();
   }
-  mutations.reportFailure.mockReset();
+  mutations.reportFailure.mockClear();
 });
 
 describe("property management menu", () => {
-  it.each(["guard", "transport"])(
-    "reports a rejected type change from %s and preserves metadata for the next edit",
-    async (kind) => {
-      const failure =
-        kind === "guard"
-          ? new PropertyTypeChangeUnavailableError()
-          : new Error("Transport failed");
-      mutations.configure.mutateAsync.mockImplementationOnce(() => {
-        if (kind === "guard") throw failure;
-        return Promise.reject(failure);
-      });
-      const original =
-        kind === "guard"
-          ? property("text", "Status", "existing")
-          : property("select", "Status", "draft", statusOptions);
-      renderUi(
-        <PropertyManagementPopover
-          property={original}
-          documentId="document"
-          databaseId="database"
-          icon={TYPE_ICONS[original.definition.type]}
-        />,
-      );
-      await click(byLabel("editor.properties.propertyMenuFor(Status)"));
-      await nextFrame();
-      const typeMenu = [
-        ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-      ].find((item) => item.textContent.startsWith("editor.properties.type"));
-      if (!typeMenu) throw new Error("No Type submenu");
-      await focus(typeMenu);
-      await press(typeMenu, "ArrowRight");
-      await nextFrame();
-      const number = [
-        ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-      ].find(
-        (item) => item.textContent.trim() === "editor.propertyTypes.number",
-      );
-      if (!number) throw new Error("No Number choice");
-      await click(number);
-      if (kind === "guard") {
-        expect(mutations.reportFailure).toHaveBeenCalledWith(failure, {
-          label: "editor.properties.typeChangeUnavailable",
-        });
-      } else {
-        expect(mutations.reportFailure).toHaveBeenCalledWith(failure);
-      }
-      expect(typeMenu.textContent).toContain(
-        `editor.propertyTypes.${original.definition.type}`,
-      );
-      expect(byLabel("editor.properties.propertyName")).toBeTruthy();
-      const description = byLabel<HTMLTextAreaElement>(
-        "editor.properties.description",
-      );
-      await focus(description);
-      await typeInto(description, "A description");
-      await focus(byLabel("editor.properties.propertyName"));
-      expect(mutations.configure.mutateAsync).toHaveBeenLastCalledWith(
-        expect.objectContaining({
-          type: original.definition.type,
-          options: original.definition.options,
-          description: "A description",
-        }),
-      );
-    },
-  );
-
-  it("restores a rejected option removal and reports the failure", async () => {
-    const failure = new Error("Removal rejected");
-    mutations.configure.mutateAsync.mockRejectedValueOnce(failure);
+  it("refuses column type changes before writing and still allows metadata edits", async () => {
+    const original = property("text", "Notes", "Existing value");
     renderUi(
       <PropertyManagementPopover
-        property={property("select", "Status", "draft", statusOptions)}
-        documentId="document"
-        databaseId="database"
-        icon={TYPE_ICONS.select}
-      />,
-    );
-    await click(byLabel("editor.properties.propertyMenuFor(Status)"));
-    await click(byLabel("editor.properties.removeOption(Draft)"));
-    expect(mutations.reportFailure).toHaveBeenCalledWith(failure);
-    expect(byLabel("editor.properties.renameOption(Draft)")).toBeTruthy();
-    expect(byLabel("editor.properties.renameOption(Review)")).toBeTruthy();
-  });
-
-  it("keeps a later option edit when an earlier option removal fails", async () => {
-    let reject!: (error: Error) => void;
-    const first = new Promise<Record<string, never>>((_resolve, fail) => {
-      reject = fail;
-    });
-    mutations.configure.mutateAsync.mockImplementationOnce(() => first);
-    renderUi(
-      <PropertyManagementPopover
-        property={property("select", "Status", "draft", statusOptions)}
-        documentId="document"
-        databaseId="database"
-        icon={TYPE_ICONS.select}
-      />,
-    );
-    await click(byLabel("editor.properties.propertyMenuFor(Status)"));
-    await click(byLabel("editor.properties.removeOption(Draft)"));
-    await click(byLabel("editor.properties.removeOption(Review)"));
-    const failure = new Error("Removal rejected");
-    await act(async () => {
-      reject(failure);
-      await new Promise((resolve) => setTimeout(resolve, 0));
-    });
-    expect(mutations.reportFailure).toHaveBeenCalledWith(failure);
-    expect(mutations.configure.mutateAsync).toHaveBeenLastCalledWith(
-      expect.objectContaining({
-        options: { options: [statusOptions.options[0]] },
-      }),
-    );
-    expect(byLabel("editor.properties.renameOption(Draft)")).toBeTruthy();
-    expect(queryByLabel("editor.properties.renameOption(Review)")).toBeNull();
-  });
-
-  it("restores the visible name after an option rename is rejected", async () => {
-    const failure = new Error("Rename rejected");
-    mutations.configure.mutateAsync.mockRejectedValueOnce(failure);
-    renderUi(
-      <PropertyManagementPopover
-        property={property("select", "Status", "draft", statusOptions)}
-        documentId="document"
-        databaseId="database"
-        icon={TYPE_ICONS.select}
-      />,
-    );
-    await click(byLabel("editor.properties.propertyMenuFor(Status)"));
-    const option = byLabel<HTMLInputElement>(
-      "editor.properties.renameOption(Draft)",
-    );
-    await focus(option);
-    await typeInto(option, "Unsaved");
-    await focus(byLabel("editor.properties.propertyName"));
-    expect(mutations.reportFailure).toHaveBeenCalledWith(failure);
-    expect(
-      byLabel<HTMLInputElement>("editor.properties.renameOption(Draft)").value,
-    ).toBe("Draft");
-  });
-
-  it("closes the menu after a supported type change succeeds", async () => {
-    renderUi(
-      <PropertyManagementPopover
-        property={property("text", "Notes", "")}
+        property={original}
         documentId="document"
         databaseId="database"
         icon={TYPE_ICONS.text}
+        sorts={[]}
+        filters={[]}
+        onSortsChange={vi.fn()}
+        onFiltersChange={vi.fn()}
       />,
     );
+    const menuItem = (text: string) => {
+      const item = [
+        ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+      ].find((candidate) => candidate.textContent?.trim() === text);
+      if (!item) throw new Error(`No menu item "${text}"`);
+      return item;
+    };
     await click(byLabel("editor.properties.propertyMenuFor(Notes)"));
+    await click(menuItem("editor.properties.editField"));
     const typeMenu = [
       ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
     ].find((item) => item.textContent.startsWith("editor.properties.type"));
@@ -275,16 +145,36 @@ describe("property management menu", () => {
     await focus(typeMenu);
     await press(typeMenu, "ArrowRight");
     await nextFrame();
-    const number = [
-      ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-    ].find((item) => item.textContent.trim() === "editor.propertyTypes.number");
-    if (!number) throw new Error("No Number choice");
-    await click(number);
-    expect(mutations.configure.mutateAsync).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "number" }),
-    );
+
+    await click(menuItem("editor.propertyTypes.text"));
     expect(mutations.reportFailure).not.toHaveBeenCalled();
-    expect(queryByLabel("editor.properties.propertyName")).toBeNull();
+    expect(mutations.configure.mutateAsync).not.toHaveBeenCalled();
+    for (const target of ["number", "blocks"]) {
+      await click(menuItem(`editor.propertyTypes.${target}`));
+      expect(mutations.configure.mutateAsync).not.toHaveBeenCalled();
+      expect(typeMenu.textContent).toContain("editor.propertyTypes.text");
+      expect(byLabel("editor.properties.propertyName")).toBeTruthy();
+    }
+    expect(mutations.reportFailure).toHaveBeenCalledTimes(2);
+    expect(mutations.reportFailure).toHaveBeenCalledWith(expect.any(Error), {
+      label: "editor.properties.typeChangeUnavailable",
+    });
+    expect(original.value).toBe("Existing value");
+    const description = byLabel<HTMLTextAreaElement>(
+      "editor.properties.description",
+    );
+    await focus(description);
+    await typeInto(description, "Notes details");
+    await focus(byLabel("editor.properties.propertyName"));
+    expect(mutations.configure.mutateAsync).toHaveBeenCalledTimes(1);
+    expect(mutations.configure.mutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "text-property",
+        type: "text",
+        options: {},
+        description: "Notes details",
+      }),
+    );
   });
 
   it("focuses and selects the property name when the menu opens", async () => {

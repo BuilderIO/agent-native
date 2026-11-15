@@ -153,7 +153,6 @@ import {
 import {
   documentPropertiesReadFailed,
   documentPropertiesResponseMatchesScope,
-  PropertyTypeChangeUnavailableError,
   useConfigureDocumentProperty,
   useContentDatabaseRowSearch,
   useDeleteDocumentProperty,
@@ -940,71 +939,17 @@ export function createPropertyMetadataUpdateQueue(
 ) {
   let current = initialMetadata;
   let tail: Promise<unknown> = Promise.resolve();
-  const fields = [
-    "name",
-    "type",
-    "description",
-    "visibility",
-    "options",
-    "icon",
-  ] as const;
-  const refreshVersions = {
-    name: 0,
-    type: 0,
-    description: 0,
-    visibility: 0,
-    options: 0,
-    icon: 0,
-  };
-  const pending: Array<
-    (metadata: PropertyMetadataSnapshot) => PropertyMetadataSnapshot
-  > = [];
 
   return {
     replace(metadata: PropertyMetadataSnapshot) {
-      for (const field of fields) {
-        if (
-          JSON.stringify(current[field]) !== JSON.stringify(metadata[field])
-        ) {
-          refreshVersions[field] += 1;
-        }
-      }
       current = metadata;
-    },
-    snapshot() {
-      return pending.reduce((metadata, update) => update(metadata), current);
     },
     enqueue(
       update: (metadata: PropertyMetadataSnapshot) => PropertyMetadataSnapshot,
     ) {
-      pending.push(update);
-      const write = tail
-        .catch(() => undefined)
-        .then(async () => {
-          const base = current;
-          const versions = { ...refreshVersions };
-          const snapshot = update(base);
-          const result = await persist(snapshot);
-          // A refresh can supersede the same field before this write answers.
-          const confirmed = <K extends keyof PropertyMetadataSnapshot>(
-            field: K,
-          ) =>
-            refreshVersions[field] === versions[field]
-              ? snapshot[field]
-              : current[field];
-          current = {
-            name: confirmed("name"),
-            type: confirmed("type"),
-            description: confirmed("description"),
-            visibility: confirmed("visibility"),
-            options: confirmed("options"),
-            icon: confirmed("icon"),
-          };
-          return result;
-        });
-      tail = write.finally(() => {
-        pending.shift();
-      });
+      current = update(current);
+      const snapshot = current;
+      tail = tail.catch(() => undefined).then(() => persist(snapshot));
       return tail;
     },
   };
@@ -1703,7 +1648,6 @@ export function PropertyManagementPopover({
     documentId,
     databaseId,
     databaseDocumentId,
-    { id: property.definition.id, type: property.definition.type },
   );
   const duplicate = useDuplicateDocumentProperty(documentId, databaseId);
   const remove = useDeleteDocumentProperty(documentId, databaseId);
@@ -1801,31 +1745,11 @@ export function PropertyManagementPopover({
     property.definition.type === "status" ||
     property.definition.type === "multi_select";
 
-  useEffect(() => {
-    metadataUpdateQueueRef.current.replace({
-      name: property.definition.name,
-      type: property.definition.type,
-      description: property.definition.description,
-      visibility: property.definition.visibility,
-      options: property.definition.options,
-      icon: property.definition.icon ?? null,
-    });
-    setOptionsDraft(
-      metadataUpdateQueueRef.current.snapshot().options.options ?? [],
-    );
-  }, [
-    property.definition.name,
-    property.definition.type,
-    property.definition.description,
-    property.definition.visibility,
-    property.definition.options,
-    property.definition.icon,
-  ]);
-
   function resetDraft() {
     setName(property.definition.name);
     setDescription(property.definition.description);
     setNewOption("");
+    setOptionsDraft(property.definition.options.options ?? []);
     metadataUpdateQueueRef.current.replace({
       name: property.definition.name,
       type: property.definition.type,
@@ -1834,9 +1758,6 @@ export function PropertyManagementPopover({
       options: property.definition.options,
       icon: property.definition.icon ?? null,
     });
-    setOptionsDraft(
-      metadataUpdateQueueRef.current.snapshot().options.options ?? [],
-    );
   }
 
   useEffect(() => {
@@ -1877,23 +1798,13 @@ export function PropertyManagementPopover({
   async function updateOptions(
     update: (options: DocumentPropertyOption[]) => DocumentPropertyOption[],
   ) {
-    const queue = metadataUpdateQueueRef.current;
-    const write = queue.enqueue((current) => ({
+    setOptionsDraft((current) => update(current));
+    await metadataUpdateQueueRef.current.enqueue((current) => ({
       ...current,
       options: {
         options: update(current.options.options ?? []),
       },
     }));
-    setOptionsDraft(queue.snapshot().options.options ?? []);
-    try {
-      await write;
-      return true;
-    } catch (error) {
-      reportWriteFailure(error);
-      return false;
-    } finally {
-      setOptionsDraft(queue.snapshot().options.options ?? []);
-    }
   }
 
   persistMetadataSnapshotRef.current = (metadata) =>
@@ -1933,24 +1844,10 @@ export function PropertyManagementPopover({
     await configureProperty({ description: nextDescription });
   }
 
-  async function updateType(nextType: DocumentPropertyType) {
+  function updateType(nextType: DocumentPropertyType) {
     if (nextType === property.definition.type) return;
-    try {
-      await configureProperty({
-        type: nextType,
-        options: defaultPropertyOptions(nextType),
-      });
-    } catch (error) {
-      if (error instanceof PropertyTypeChangeUnavailableError) {
-        reportWriteFailure(error, {
-          label: t("editor.properties.typeChangeUnavailable"),
-        });
-      } else {
-        reportWriteFailure(error);
-      }
-      return;
-    }
-    setOpen(false);
+    const label = t("editor.properties.typeChangeUnavailable");
+    reportWriteFailure(new Error(label), { label });
   }
 
   async function updateVisibility(nextVisibility: DocumentPropertyVisibility) {
@@ -1984,7 +1881,7 @@ export function PropertyManagementPopover({
   async function addOption() {
     const optionName = newOption.trim();
     if (!optionName) return;
-    const saved = await updateOptions((existing) => [
+    await updateOptions((existing) => [
       ...existing,
       makeOption(
         optionName,
@@ -1992,7 +1889,7 @@ export function PropertyManagementPopover({
         existing.map((item) => item.id),
       ),
     ]);
-    if (saved) setNewOption("");
+    setNewOption("");
   }
 
   async function removeOption(id: string) {
@@ -2310,7 +2207,7 @@ export function PropertyManagementPopover({
                         disabled={disabled}
                         onSelect={(event) => {
                           event.preventDefault();
-                          void updateType(propertyType);
+                          updateType(propertyType);
                         }}
                       >
                         <span className="flex-1">

@@ -94,13 +94,6 @@ type GuardedConfigurePropertyResult = {
   value: DocumentPropertyDefinition & { naturalKey?: boolean };
 };
 
-export class PropertyTypeChangeUnavailableError extends Error {
-  constructor() {
-    super("Property type changes are unavailable to protect existing values.");
-    this.name = "PropertyTypeChangeUnavailableError";
-  }
-}
-
 const guardedOrdinaryPropertyTypes = new Set([
   "text",
   "number",
@@ -136,21 +129,13 @@ function guardedConfigurePropertyInput(
   snapshot: ContentDatabaseResponse | undefined,
 ): GuardedConfigurePropertyInput | ConfigureDocumentPropertyRequest {
   const contract = snapshot?.mutationContract;
-  if (!contract || contract.target.databaseId !== request.databaseId) {
+  if (
+    !contract ||
+    contract.target.databaseId !== request.databaseId ||
+    !guardedOrdinaryPropertyTypes.has(request.type)
+  ) {
     return request;
   }
-  const existing = request.id
-    ? snapshot.properties.find(
-        (property) => property.definition.id === request.id,
-      )?.definition
-    : undefined;
-  if (request.id && !existing) {
-    throw new Error("The property is unavailable. Refresh before editing it.");
-  }
-  if (existing && existing.type !== request.type) {
-    throw new PropertyTypeChangeUnavailableError();
-  }
-  if (!guardedOrdinaryPropertyTypes.has(request.type)) return request;
   const { authorityScope: _authorityScope, ...target } = contract.target;
   const guard = {
     target,
@@ -189,8 +174,16 @@ function guardedConfigurePropertyInput(
     };
   }
 
+  const existing = snapshot.properties.find(
+    (property) => property.definition.id === request.id,
+  )?.definition;
   if (!existing) {
     throw new Error("The property is unavailable. Refresh before editing it.");
+  }
+  if (existing.type !== request.type) {
+    throw new Error(
+      "Property type changes are unavailable in ordinary database setup.",
+    );
   }
   const patch: Record<string, unknown> = {};
   if (request.icon !== undefined) patch.icon = request.icon;
@@ -443,7 +436,6 @@ export function useConfigureDocumentProperty(
   documentId: string,
   databaseId: string,
   databaseDocumentId = documentId,
-  currentProperty?: Pick<DocumentPropertyDefinition, "id" | "type">,
 ) {
   const queryClient = useQueryClient();
   const getSetupSnapshot = () =>
@@ -519,31 +511,24 @@ export function useConfigureDocumentProperty(
     },
   });
   type ScopedVariables = Omit<ConfigureDocumentPropertyRequest, "databaseId">;
-  const prepare = (variables: ScopedVariables) => {
-    if (
-      currentProperty &&
-      variables.id === currentProperty.id &&
-      variables.type !== currentProperty.type
-    ) {
-      throw new PropertyTypeChangeUnavailableError();
-    }
-    return guardedConfigurePropertyInput(
-      withoutBlocksOptions({
-        ...variables,
-        databaseId,
-        ...(currentProperty && variables.id === currentProperty.id
-          ? { expectedType: currentProperty.type }
-          : {}),
-      }),
-      getSetupSnapshot(),
-    );
-  };
   return {
     ...mutation,
     mutate: (variables: ScopedVariables, options?: unknown) =>
-      mutation.mutate(prepare(variables), options as never),
+      mutation.mutate(
+        guardedConfigurePropertyInput(
+          withoutBlocksOptions({ ...variables, databaseId }),
+          getSetupSnapshot(),
+        ),
+        options as never,
+      ),
     mutateAsync: (variables: ScopedVariables, options?: unknown) =>
-      mutation.mutateAsync(prepare(variables), options as never),
+      mutation.mutateAsync(
+        guardedConfigurePropertyInput(
+          withoutBlocksOptions({ ...variables, databaseId }),
+          getSetupSnapshot(),
+        ),
+        options as never,
+      ),
   } as UseMutationResult<
     ConfigureDocumentPropertyResponse | GuardedConfigurePropertyResult,
     Error,
