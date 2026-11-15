@@ -34,3 +34,18 @@ export class RecordingStartStopState {
     return this.stopRequested || attemptAborted ? "finish-stop" : "keep";
   }
 }
+
+/**
+ * The one Stop decision for a recording that is still starting, shared by
+ * every Stop source (the Stop event and the record shortcut). Before capture
+ * may be live it cancels the start; after that it only records the Stop, so
+ * the resolved handle goes through the normal stop / finalize flow.
+ */
+export function stopDuringStart(
+  state: RecordingStartStopState | null,
+  cancelStart: () => void,
+): "cancelled" | "finishing" {
+  if (state && !state.requestStop()) return "finishing";
+  cancelStart();
+  return "cancelled";
+}

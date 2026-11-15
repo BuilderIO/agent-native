@@ -1,6 +1,9 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
-import { RecordingStartStopState } from "./recording-start-stop";
+import {
+  RecordingStartStopState,
+  stopDuringStart,
+} from "./recording-start-stop";
 
 describe("RecordingStartStopState", () => {
   it("cancels the start when Stop lands before capture may be live", () => {
@@ -30,5 +33,30 @@ describe("RecordingStartStopState", () => {
     expect(state.outcomeForStarted(false)).toBe("keep");
     state.markCaptureMayBeLive();
     expect(state.outcomeForStarted(false)).toBe("keep");
+  });
+});
+
+describe("stopDuringStart (Stop event and record shortcut)", () => {
+  it("cancels the start when no capture may be live", () => {
+    const cancel = vi.fn();
+    expect(stopDuringStart(new RecordingStartStopState(), cancel)).toBe(
+      "cancelled",
+    );
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
+  it("cancels when there is no start state (a restart in flight)", () => {
+    const cancel = vi.fn();
+    expect(stopDuringStart(null, cancel)).toBe("cancelled");
+    expect(cancel).toHaveBeenCalledOnce();
+  });
+
+  it("does not cancel a record-shortcut Stop once capture may be live, and finishes the take", () => {
+    const state = new RecordingStartStopState();
+    state.markCaptureMayBeLive();
+    const cancel = vi.fn();
+    expect(stopDuringStart(state, cancel)).toBe("finishing");
+    expect(cancel).not.toHaveBeenCalled();
+    expect(state.outcomeForStarted(false)).toBe("finish-stop");
   });
 });

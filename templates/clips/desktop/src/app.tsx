@@ -254,7 +254,10 @@ import {
   requestRecordingShortcutStop,
 } from "./lib/recording-shortcut-stop";
 import { boundedCleanup } from "./lib/recording-start-guard";
-import { RecordingStartStopState } from "./lib/recording-start-stop";
+import {
+  RecordingStartStopState,
+  stopDuringStart,
+} from "./lib/recording-start-stop";
 import { REWIND_AGENT_PROMPT } from "./lib/rewind-agent-prompt";
 import { getRewindStartErrorKind } from "./lib/rewind-start-error";
 import { getRewindStatusPresentation } from "./lib/rewind-status";
@@ -1276,6 +1279,7 @@ export function App({
   const recorderRef = useRef<RecorderHandle | null>(recorder);
   recorderRef.current = recorder;
   const recordingStartAttemptRef = useRef<RecordingStartAttempt | null>(null);
+  const recordingStartStopRef = useRef<RecordingStartStopState | null>(null);
   const recordingStartAttemptIdRef = useRef<string | null>(null);
   const captureStartedDuringStartRef = useRef(false);
   const [recordingStartPending, setRecordingStartPending] = useState(false);
@@ -4299,6 +4303,7 @@ export function App({
     let handle: RecorderHandle | null = null;
     let stoppedDuringStart = false;
     const startStop = new RecordingStartStopState();
+    recordingStartStopRef.current = startStop;
     let unlistenStartupStop: (() => void) | null = null;
     let startError: unknown = null;
     let parkPopoverTimer: number | null = null;
@@ -4317,12 +4322,12 @@ export function App({
             )
           )
             return;
-          if (startStop.requestStop()) {
+          stopDuringStart(startStop, () => {
             attempt.cancel();
             emit("clips:countdown-cancel", {
               attemptId: startAttemptId,
             }).catch(() => {});
-          }
+          });
         },
       );
       await ensureRecorderStopListener();
@@ -4492,6 +4497,7 @@ export function App({
       }
       if (recordingStartAttemptRef.current === attempt) {
         recordingStartAttemptRef.current = null;
+        recordingStartStopRef.current = null;
         recordingStartAttemptIdRef.current = null;
         captureStartedDuringStartRef.current = false;
         setRecordingStartPending(false);
@@ -4623,12 +4629,19 @@ export function App({
 
   recordShortcutHandlerRef.current = () => {
     if (recordingStartAttemptRef.current || restartInFlightRef.current) {
-      if (restartInFlightRef.current) restartCancelledRef.current = true;
-      recordingStartAttemptRef.current?.cancel();
-      const attemptId = recordingStartAttemptIdRef.current;
-      if (attemptId) {
-        emit("clips:countdown-cancel", { attemptId }).catch(() => {});
-      }
+      // Same decision as the Stop event: once capture may be live, the start
+      // finishes and its take goes through the normal stop / finalize flow.
+      stopDuringStart(
+        recordingStartAttemptRef.current ? recordingStartStopRef.current : null,
+        () => {
+          if (restartInFlightRef.current) restartCancelledRef.current = true;
+          recordingStartAttemptRef.current?.cancel();
+          const attemptId = recordingStartAttemptIdRef.current;
+          if (attemptId) {
+            emit("clips:countdown-cancel", { attemptId }).catch(() => {});
+          }
+        },
+      );
       return;
     }
     if (recorder) {
