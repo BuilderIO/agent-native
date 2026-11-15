@@ -81,6 +81,7 @@ export function parseGitHubPullRequestUrl(
   try {
     url = new URL(/^https?:\/\//i.test(text) ? text : `https://${text}`);
   } catch {
+    // coercion-ok: text that isn't a URL isn't a pull request link, and null is this function's documented answer for that.
     return null;
   }
   const host = url.hostname.toLowerCase();

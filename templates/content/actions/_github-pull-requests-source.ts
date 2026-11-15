@@ -641,14 +641,24 @@ async function updateRow(
   const [document] = await tx
     .select({ title: schema.documents.title })
     .from(schema.documents)
-    .where(eq(schema.documents.id, existing.documentId));
+    .where(
+      and(
+        eq(schema.documents.id, existing.documentId),
+        eq(schema.documents.ownerEmail, write.database.ownerEmail),
+      ),
+    );
   let changed = false;
   // GitHub owns the title, so a rename in Content goes back at the next sync.
   if (document && document.title !== row.pullRequest.title) {
     await tx
       .update(schema.documents)
       .set({ title: row.pullRequest.title, updatedAt: write.now })
-      .where(eq(schema.documents.id, existing.documentId));
+      .where(
+        and(
+          eq(schema.documents.id, existing.documentId),
+          eq(schema.documents.ownerEmail, write.database.ownerEmail),
+        ),
+      );
     changed = true;
   }
   const columns = [...write.columns.values()];
@@ -715,13 +725,22 @@ async function updateRow(
 }
 
 /** Each page's title, in one read rather than one a row. */
-async function documentTitles(db: Db, documentIds: string[]) {
+async function documentTitles(
+  db: Db,
+  ownerEmail: string,
+  documentIds: string[],
+) {
   const titles = new Map<string, string>();
   for (const chunk of chunks(documentIds, bulkChunkSizeForColumnCount(1))) {
     const rows = await db
       .select({ id: schema.documents.id, title: schema.documents.title })
       .from(schema.documents)
-      .where(inArray(schema.documents.id, chunk));
+      .where(
+        and(
+          eq(schema.documents.ownerEmail, ownerEmail),
+          inArray(schema.documents.id, chunk),
+        ),
+      );
     for (const row of rows) titles.set(row.id, row.title);
   }
   return titles;
@@ -959,6 +978,7 @@ async function writeRows(args: {
       const existing = await readSourceRows(tx, source.id);
       const titles = await documentTitles(
         tx,
+        database.ownerEmail,
         [...planned.keys()].flatMap((key) => {
           const linked = existing.get(key);
           return linked ? [linked.documentId] : [];
