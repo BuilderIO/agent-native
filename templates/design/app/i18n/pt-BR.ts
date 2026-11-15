@@ -1048,6 +1048,33 @@ export default {
     },
   },
   designEditor: {
+    livePreview: {
+      share: "Compartilhar prévia ao vivo",
+      instructions:
+        "Execute ngrok ou cloudflared tunnel --url para seu app e cole a URL HTTPS pública. Sua máquina continua usando localhost; outras pessoas podem ver o túnel ou sugerir alterações na captura publicada.",
+      tunnelUrl: "URL do túnel",
+      save: "Salvar",
+      live: "Prévia ao vivo",
+      suggest: "Sugerir na captura",
+      localOnly: "Prévia ao vivo apenas na máquina do proprietário",
+    },
+    referenceCopy: {
+      staticNotice:
+        "O JavaScript está desativado; conteúdo dinâmico pode estar ausente.",
+      captureAction: "Capturar imagem estática",
+      capturePrompt:
+        "Capture a tela e o DOM desta URL de referência pública e adicione-os como tela estática de referência neste canvas. Identifique como captura, não como página ao vivo.",
+      unavailable: "Esta página pode bloquear quadros ou não ter carregado.",
+      load: "Carregar cópia de referência",
+      label: "Cópia de referência · página pública, somente leitura",
+      noBridge: "Conecte uma ponte local para carregar uma cópia pública.",
+      snapshot: "Usar captura publicada",
+      capture: "Peça ao agente uma captura de tela e do DOM.",
+      failed: "A cópia falhou. Capture a tela e o DOM.",
+      loading: "Carregando cópia de referência…",
+      original: "Tentar página original",
+    },
+
     sourceLoadFailed: "Não foi possível carregar esta tela.",
     selectionPublishFailed:
       "O agente pode não ver sua seleção mais recente. Selecione-a novamente.",

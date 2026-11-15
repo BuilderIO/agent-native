@@ -4,6 +4,7 @@ import {
   LiveCursorOverlay,
 } from "@agent-native/toolkit/collab-ui";
 import type { MotionPrototypeTransitionDecodeResult } from "@shared/motion-prototype-transition";
+import { visualEditPreviewForViewer } from "@shared/visual-edit-preview";
 
 import { DesignCanvas } from "@/components/design/DesignCanvas";
 import { prettyScreenName } from "@/lib/screen-names";
@@ -187,6 +188,7 @@ export function renderSingleScreenCanvas({
   const { motionDockOpen } = editorHistory;
   const { hoveredCanvasSelector, hoveredCanvasSelectorCandidates } =
     editorContentAndComponents;
+  const { localhostPreviewTokenQuery } = editorFilesAndSaving;
   const { handleMotionCanvasPathTracksChange } = editorContentAndComponents;
   const {
     spacePanActive,
@@ -401,7 +403,32 @@ export function renderSingleScreenCanvas({
             ? undefined
             : activeScreenExternalSnapshotHtml
         }
+        referenceBridgeUrl={
+          !activeScreenSnapshotOnly
+            ? Object.values(
+                localhostPreviewTokenQuery.data?.connections ?? {},
+              ).find((item) => item.bridgeUrl && item.previewToken)?.bridgeUrl
+            : undefined
+        }
+        referencePreviewToken={
+          !activeScreenSnapshotOnly
+            ? Object.values(
+                localhostPreviewTokenQuery.data?.connections ?? {},
+              ).find((item) => item.bridgeUrl && item.previewToken)
+                ?.previewToken
+            : undefined
+        }
         snapshotOnly={activeScreenSnapshotOnly}
+        sharedTunnelUrl={
+          activeScreenSnapshotOnly && liveCollaborationEnabled
+            ? visualEditPreviewForViewer({
+                localUrl:
+                  activeOverviewScreen?.url ?? activeOverviewScreen?.previewUrl,
+                tunnelUrl: activeOverviewScreen?.tunnelUrl,
+                isOwner: false,
+              })
+            : undefined
+        }
         blockPreviewInteraction={remoteVisualEditPending && mode === "interact"}
         onExternalContentSnapshot={
           activeScreenSnapshotOnly

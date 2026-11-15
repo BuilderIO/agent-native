@@ -26,6 +26,57 @@ page-capable browser, otherwise the hosted Design MCP at
 bridge, auth, and handoff rules; this skill covers only what remix adds. Never
 start a local Design server.
 
+## Put Design Beside The Chat
+
+Use \`open-visual-edit\` with \`target: "inline-browser"\` (default),
+\`"system-browser"\`, or \`"desktop"\`. Inline uses the host's browser or
+MCP App; system browser uses the local opener; desktop reuses
+\`agentnative://open\` through the existing open route. Read the visual-edit
+skill's launch contract: hosted calls return \`launch.status: "host-required"\`
+with browser and desktop URLs for the local host. Verify the installed protocol
+handler before dispatching the desktop URL. \`"dispatched"\` is an opener
+receipt, not proof that Design rendered. If \`"desktop-not-detected"\`,
+\`"blocked"\`, or \`"failed"\`, use \`launch.browserUrl\` and state the
+result plainly. Never claim the desktop opened when it was not detected.
+
+The credential-free desktop/browser URL does not transfer the inline editor's
+one-time capability or sign in the desktop. Account-backed editing needs a
+signed-in desktop owner/editor and the paired local bridge; signed-out links
+retain the existing public snapshot/suggestion permissions.
+
+In desktop Interact mode, external HTTPS URL screens use isolated native Chrome
+views with their own cookies. The canvas uses captured previews when a native
+view cannot fit the canvas geometry. Browser hosts use the local bridge's
+read-only reference copy for public unauthenticated pages that refuse framing,
+or a captured static screen when that is unavailable; a reference copy is not
+an authenticated interactive browser session.
+
+## Share The Canvas And Local Preview
+
+Account-backed sharing requires sign-in. Reuse the existing Share control or
+\`share-resource\` / \`set-resource-visibility\` for viewer, commenter, and
+editor permissions; public links allow view/comment, while named collaborators
+can receive edit access. Call \`get-visual-edit-collaboration\` with
+\`designId\` to read \`shareUrl\` and per-screen \`previews\` tunnel mappings.
+A link does not grant permissions by itself.
+
+For a live remote preview, the owner runs ngrok or
+\`cloudflared tunnel --url http://localhost:5173\` and uses **Share live preview**,
+or calls \`update-visual-edit-preview\` with \`{designId, fileId, tunnelUrl}\`.
+Use the public HTTPS base URL; pass \`null\` to remove it. The owner keeps
+loading localhost. Remote viewers load the tunnel as a read-only preview;
+without one, they see the last published snapshot and the owner-machine notice.
+The tunnel exposes the owner's app publicly: do not forward bridge tokens,
+credentials, or private app data into the URL.
+
+Collaborators comment with existing frame/canvas review pins. For localhost
+suggestions, **Suggest on snapshot** uses the existing pending handoff rather
+than writing source through the tunnel. The owner's coding agent reads
+\`get-visual-edit-pending\`, applies the source changes locally, then calls
+\`acknowledge-visual-edit-pending\` with the returned revision and pulls again.
+Publish an updated shared fallback preview with \`publish-visual-edit-snapshot\`
+when no live tunnel is available.
+
 ## Ask Only What Is Missing
 
 Two inputs decide the job. Ask for one only when the request leaves it out:

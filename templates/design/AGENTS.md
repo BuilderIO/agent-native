@@ -33,25 +33,26 @@ Use `pnpm action docs-search --query "<topic>"` or `pnpm action docs-search --sl
 
 | Action | Purpose |
 | --- | --- |
-| `list-design-templates` / `list-designs` | Search paged templates/designs |
+| `list-design-templates` / `list-designs` | Search designs/templates |
 | `read-composer-source` | Read bounded Design/Slides/Figma sources |
-| `place-figma-frames` | Place attached Figma frames by ref |
+| `place-figma-frames` | Place attached Figma refs |
 | `delete-file` | Delete a screen when requested |
 | `create-design-from-template` | Copy template; source screens stay locked |
-| `get-design-snapshot` / `get-design-template` | Inspect design or source template |
+| `get-design-snapshot` / `get-design-template` | Inspect designs/templates |
 | `open-visual-edit` | Open localhost screens |
-| `get-visual-edit-collaboration` / `update-visual-edit-collaboration` | Read/set collaboration opt-in |
+| `get-visual-edit-collaboration` / `update-visual-edit-collaboration` | Share link, tunnels / opt-in |
+| `update-visual-edit-preview` | Set/remove public tunnel per screen |
 | `add-localhost-screens` / `update-screen-source` | Add screens; change source mode |
-| `add-session-replay-screenshots-to-board` | Add private replay screenshots |
+| `add-session-replay-screenshots-to-board` | Place private replay captures |
 | `stage-journey-canvas-frames` | Stage storyboard PNGs |
 | `discard-journey-canvas-frame-import` | Discard staged storyboard import |
-| `create-journey-canvas` | Create provenance-backed storyboard; see journey-storyboards |
+| `create-journey-canvas` | Create storyboard; see journey-storyboards |
 | `add-breakpoint` / `remove-breakpoint` | Manage responsive frames |
 | `edit-design` | Adapt a design/screen |
 | `apply-visual-edit` | Apply deterministic layer edits |
 | `move-design-element` | Move a layer between screens |
 | `get-motion-timeline` / `apply-motion-edit` / `remove-motion-timeline` | Read/edit/remove motion timelines |
-| `create-design` / `generate-design` | Start empty design / generate a fresh screen |
+| `create-design` / `generate-design` | Start design / generate screen |
 | `present-design-variants` | Generate 2–5 variants |
 | `view-screen` / `navigate` | Read current screen / move UI |
 | `get-view-settings` / `update-view-settings` | Read/update view toggles |
@@ -60,9 +61,9 @@ Use `pnpm action docs-search --query "<topic>"` or `pnpm action docs-search --sl
 | `prepare-native-scene-export` | Pin scene for PNG |
 | `get-native-render-contexts` / `request-native-local-export` / `get-native-local-export` | Export native PNG |
 | `generate-screens` | Plan screens |
-| `take-design-screenshot` / `export-png` | Inspect responsive images / export PNG |
+| `take-design-screenshot` / `export-png` | Inspect images / export PNG |
 | `export-html` / `export-hubspot-html` / `export-zip` / `export-design-as-figma-svg` | Export finished work |
-| `export-coding-handoff` | Export code; outside-agent calls need approval (7-day bearer URLs) |
+| `export-coding-handoff` | Export code (7-day bearer URLs); outside agents need approval |
 
 ## Core Rules
 

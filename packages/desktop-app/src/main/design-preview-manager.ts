@@ -7,6 +7,10 @@ import {
 } from "electron";
 
 import {
+  designPreviewResponseHeaders,
+  designPreviewChromeUserAgent,
+} from "../../shared/design-preview-headers";
+import {
   resolveDesktopDesignPreviewPlacement,
   type DesktopDesignPreviewRect,
 } from "../../shared/design-preview-placement";
@@ -71,6 +75,21 @@ function configurePreviewSession(partition: string): Electron.Session {
   const previewSession = session.fromPartition(partition);
   if (configuredPreviewSessions.has(previewSession)) return previewSession;
   configuredPreviewSessions.add(previewSession);
+
+  previewSession.setUserAgent(
+    designPreviewChromeUserAgent(previewSession.getUserAgent()),
+  );
+  // Only this isolated Design screen session relaxes embedding restrictions.
+  // App windows keep their CSP; all non-framing directives remain enforced.
+  previewSession.webRequest.onHeadersReceived((details, callback) => {
+    callback({
+      responseHeaders: designPreviewResponseHeaders(
+        partition,
+        details.resourceType,
+        details.responseHeaders ?? {},
+      ),
+    });
+  });
 
   previewSession.setPermissionCheckHandler(() => false);
   previewSession.setPermissionRequestHandler(

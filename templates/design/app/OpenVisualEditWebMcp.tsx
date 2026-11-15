@@ -24,6 +24,11 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 
+import type {
+  VisualEditLaunchResult,
+  VisualEditLaunchTarget,
+} from "../shared/visual-edit-launch.js";
+import { dispatchVisualEditBrowserLaunch } from "./lib/visual-edit-launch.js";
 import {
   clearLocalhostBridgeFetchProxy,
   installLocalhostBridgeFetchProxy,
@@ -43,6 +48,7 @@ export interface OpenVisualEditWebMcpResult {
   overview: boolean;
   urlPath: string;
   openUrl: string;
+  launch?: VisualEditLaunchResult;
 }
 
 type OpenVisualEditActionResult = OpenVisualEditWebMcpResult & {
@@ -70,6 +76,7 @@ export interface OpenVisualEditWebMcpInput {
   startY?: number;
   gap?: number;
   navigate?: boolean;
+  target?: VisualEditLaunchTarget;
   publicReadOnly?: boolean;
 }
 
@@ -273,6 +280,12 @@ export function createOpenVisualEditWebMcpActions(options?: {
           startX: { type: "number" },
           startY: { type: "number" },
           gap: { type: "number" },
+          target: {
+            type: "string",
+            enum: ["inline-browser", "system-browser", "desktop"],
+            description:
+              "Launch destination. Defaults to inline-browser; desktop detection is available to local CLI hosts.",
+          },
           navigate: {
             type: "boolean",
             description:
@@ -313,7 +326,15 @@ export function createOpenVisualEditWebMcpActions(options?: {
           openUrl,
           embedStartUrl,
         } = result;
-        if (input.navigate !== false && embedStartUrl) {
+        const launch =
+          input.navigate !== false && result.launch
+            ? await dispatchVisualEditBrowserLaunch(result.launch)
+            : result.launch;
+        if (
+          input.navigate !== false &&
+          (input.target ?? "inline-browser") === "inline-browser" &&
+          embedStartUrl
+        ) {
           window.location.replace(
             new URL(embedStartUrl, window.location.href).toString(),
           );
@@ -329,6 +350,7 @@ export function createOpenVisualEditWebMcpActions(options?: {
           overview,
           urlPath,
           openUrl,
+          ...(launch ? { launch } : {}),
         };
       },
     }),

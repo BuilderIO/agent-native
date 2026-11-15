@@ -1023,6 +1023,32 @@ export default {
     },
   },
   designEditor: {
+    livePreview: {
+      share: "分享实时预览",
+      instructions:
+        "为应用运行 ngrok 或 cloudflared tunnel --url，然后粘贴公开 HTTPS 地址。你的设备继续加载 localhost；其他人可查看隧道或在已发布快照上提出修改。",
+      tunnelUrl: "隧道地址",
+      save: "保存",
+      live: "实时预览",
+      suggest: "在快照上建议",
+      localOnly: "实时预览仅限所有者的设备",
+    },
+    referenceCopy: {
+      staticNotice: "JavaScript 已禁用；动态内容可能缺失。",
+      captureAction: "捕获静态快照",
+      capturePrompt:
+        "捕获此公开参考地址的截图和 DOM 快照，并作为静态参考屏幕添加到此设计画布。请标注为快照，而非实时页面。",
+      unavailable: "此页面可能禁止嵌入或加载失败。",
+      load: "加载参考副本",
+      label: "参考副本 · 公开页面，只读",
+      noBridge: "连接本地桥接以加载公开参考副本。",
+      snapshot: "使用已发布快照",
+      capture: "请让代理捕获截图和 DOM 快照。",
+      failed: "参考副本加载失败，请改为捕获截图和 DOM 快照。",
+      loading: "正在加载参考副本…",
+      original: "尝试原页面",
+    },
+
     sourceLoadFailed: "无法加载此屏幕。",
     selectionPublishFailed: "智能体可能看不到你最新的选择。请重新选择。",
     liveCollaboration: {

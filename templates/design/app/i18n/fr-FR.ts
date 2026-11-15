@@ -1052,6 +1052,33 @@ export default {
     },
   },
   designEditor: {
+    livePreview: {
+      share: "Partager l’aperçu en direct",
+      instructions:
+        "Lancez ngrok ou cloudflared tunnel --url pour votre application, puis collez son URL HTTPS publique. Votre machine conserve localhost ; les autres peuvent voir le tunnel ou suggérer des modifications sur la capture publiée.",
+      tunnelUrl: "URL du tunnel",
+      save: "Enregistrer",
+      live: "Aperçu en direct",
+      suggest: "Suggérer sur la capture",
+      localOnly: "Aperçu en direct uniquement sur la machine du propriétaire",
+    },
+    referenceCopy: {
+      staticNotice:
+        "JavaScript est désactivé ; le contenu dynamique peut manquer.",
+      captureAction: "Capturer une image statique",
+      capturePrompt:
+        "Capturez l’écran et le DOM de cette URL de référence publique et ajoutez-les comme écran de référence statique à ce canevas. Indiquez qu’il s’agit d’une capture, pas d’une page en direct.",
+      unavailable: "Cette page peut bloquer les cadres ou ne pas avoir chargé.",
+      load: "Charger une copie de référence",
+      label: "Copie de référence · page publique, lecture seule",
+      noBridge: "Connectez un pont local pour charger une copie publique.",
+      snapshot: "Utiliser la capture publiée",
+      capture: "Demandez à l’agent une capture d’écran et du DOM.",
+      failed: "Échec de la copie. Capturez l’écran et le DOM.",
+      loading: "Chargement de la copie de référence…",
+      original: "Essayer la page originale",
+    },
+
     sourceLoadFailed: "Impossible de charger cet écran.",
     selectionPublishFailed:
       "L'agent ne verra peut-être pas votre dernière sélection. Sélectionnez-la à nouveau.",

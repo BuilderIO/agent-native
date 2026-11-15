@@ -1055,6 +1055,36 @@ export default {
     },
   },
   designEditor: {
+    livePreview: {
+      share: "Live-Vorschau teilen",
+      instructions:
+        "Starte ngrok oder cloudflared tunnel --url für deine App und füge die öffentliche HTTPS-URL ein. Dein Rechner nutzt weiter localhost; andere sehen den Tunnel oder schlagen Änderungen am veröffentlichten Abbild vor.",
+      tunnelUrl: "Tunnel-URL",
+      save: "Speichern",
+      live: "Live-Vorschau",
+      suggest: "Am Abbild vorschlagen",
+      localOnly: "Live-Vorschau nur auf dem Rechner des Eigentümers",
+    },
+    referenceCopy: {
+      staticNotice:
+        "JavaScript ist deaktiviert; dynamische Inhalte fehlen möglicherweise.",
+      captureAction: "Statisches Abbild erfassen",
+      capturePrompt:
+        "Erfasse Screenshot und DOM dieser öffentlichen Referenz-URL und füge sie als statischen Referenzbildschirm zur Designfläche hinzu. Kennzeichne ihn als Abbild, nicht als Live-Seite.",
+      unavailable:
+        "Diese Seite blockiert möglicherweise Frames oder konnte nicht geladen werden.",
+      load: "Referenzkopie laden",
+      label: "Referenzkopie · öffentliche Seite, schreibgeschützt",
+      noBridge:
+        "Verbinde eine lokale Bridge, um eine öffentliche Referenzkopie zu laden.",
+      snapshot: "Veröffentlichtes Abbild verwenden",
+      capture: "Bitte den Agenten um einen Screenshot und ein DOM-Abbild.",
+      failed:
+        "Referenzkopie fehlgeschlagen. Erfasse stattdessen Screenshot und DOM.",
+      loading: "Referenzkopie wird geladen…",
+      original: "Originalseite versuchen",
+    },
+
     sourceLoadFailed: "Dieser Bildschirm konnte nicht geladen werden.",
     selectionPublishFailed:
       "Der Agent sieht deine neueste Auswahl möglicherweise nicht. Wähle sie erneut aus.",

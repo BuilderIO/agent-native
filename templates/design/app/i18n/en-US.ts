@@ -969,6 +969,33 @@ export default {
     },
   },
   designEditor: {
+    livePreview: {
+      share: "Share live preview",
+      instructions:
+        "Run ngrok or cloudflared tunnel --url for your app, then paste its public HTTPS URL. Your machine keeps loading localhost; others can view the tunnel or suggest edits on the published snapshot.",
+      tunnelUrl: "Tunnel URL",
+      save: "Save",
+      live: "Live preview",
+      suggest: "Suggest on snapshot",
+      localOnly: "Live preview only on the owner’s machine",
+    },
+    referenceCopy: {
+      staticNotice: "JavaScript is disabled; dynamic content may be missing.",
+      captureAction: "Capture static snapshot",
+      capturePrompt:
+        "Capture a screenshot and DOM snapshot of this public reference URL and add them as a static reference screen on this design canvas. Keep it labelled as a snapshot, not a live page.",
+      unavailable: "This page may block framing or failed to load.",
+      load: "Load reference copy",
+      label: "Reference copy · public page, read only",
+      noBridge: "Connect a local bridge to load a public reference copy.",
+      snapshot: "Use published snapshot",
+      capture: "Ask your agent to capture a screenshot and DOM snapshot.",
+      failed:
+        "Reference copy failed. Capture a screenshot and DOM snapshot instead.",
+      loading: "Loading reference copy…",
+      original: "Try original page",
+    },
+
     sourceLoadFailed: "Could not load this screen.",
     selectionPublishFailed:
       "The agent may not see your latest selection. Select it again.",

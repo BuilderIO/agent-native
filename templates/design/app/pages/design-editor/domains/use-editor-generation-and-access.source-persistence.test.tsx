@@ -175,7 +175,11 @@ function designData(overrides: Partial<DesignData>): DesignData {
   };
 }
 
-type Surface = { isSignedIn: boolean; isVisualEditSurface: boolean };
+type Surface = {
+  isSignedIn: boolean;
+  isVisualEditSurface: boolean;
+  isLiveCanvasShareLink?: boolean;
+};
 
 const unmounts: Array<() => Promise<void>> = [];
 
@@ -213,6 +217,7 @@ async function mountAccess(
       queryClient,
       shellMode: false,
       isVisualEditSurface: next.isVisualEditSurface,
+      isLiveCanvasShareLink: next.isLiveCanvasShareLink === true,
       readOnlyWidget: false,
       viewMode: "single",
       viewModeRef,
@@ -833,4 +838,38 @@ describe("automatic canonical source persistence", () => {
     expect(sync.acknowledgeOutboxEntry).not.toHaveBeenCalled();
     expect(mocks.toast.error).toHaveBeenCalledTimes(1);
   });
+});
+
+describe("shared Visual Edit roles", () => {
+  it.each(["private", "public"] as const)(
+    "keeps %s share viewers read-only while commenters can suggest",
+    async (visibility) => {
+      const surface = {
+        isSignedIn: true,
+        isVisualEditSurface: true,
+        isLiveCanvasShareLink: true,
+      };
+      const { access, rerender } = await mountAccess(
+        surface,
+        designData({
+          visibility,
+          accessRole: "viewer",
+          canPersistSource: false,
+        }),
+      );
+      expect(access().canEditLiveScreens).toBe(false);
+      expect(access().canCommentDesign).toBe(false);
+      await rerender(
+        surface,
+        designData({
+          visibility,
+          accessRole: "commenter",
+          canPersistSource: false,
+        }),
+      );
+      expect(access().canEditLiveScreens).toBe(true);
+      expect(access().canCommentDesign).toBe(true);
+      expect(access().canEditDesign).toBe(false);
+    },
+  );
 });

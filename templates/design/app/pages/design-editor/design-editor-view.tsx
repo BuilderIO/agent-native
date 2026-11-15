@@ -65,6 +65,7 @@ import {
 import type { MotionDockEasingSegment } from "@/components/design/MotionDock";
 import { NudgeAmountDialog } from "@/components/design/NudgeAmountDialog";
 import { QuestionFlow } from "@/components/design/QuestionFlow";
+import { ShareLivePreview } from "@/components/design/ShareLivePreview";
 import { DesignAccessState } from "@/components/DesignAccessState";
 import { Button } from "@/components/ui/button";
 import {
@@ -377,6 +378,7 @@ export function renderDesignEditorView({
     handleResponsiveEditScopeChange,
     activeScreenBaseWidthPx,
     activeScreenSnapshotOnly,
+    activeOverviewScreen,
     activeCanvasSourceType,
     handleBreakpointBarRemove,
   } = editorActiveScreenAndGeometry;
@@ -1369,6 +1371,14 @@ export function renderDesignEditorView({
 
     return (
       <div className="flex items-center">
+        {canEditDesign && activeOverviewScreen?.sourceType === "localhost" ? (
+          <ShareLivePreview
+            key={activeOverviewScreen.id}
+            designId={id}
+            fileId={activeOverviewScreen.id}
+            tunnelUrl={activeOverviewScreen.tunnelUrl}
+          />
+        ) : null}
         <ShareButton
           resourceType="design"
           resourceId={id}
