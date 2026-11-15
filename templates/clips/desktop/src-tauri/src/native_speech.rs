@@ -821,16 +821,19 @@ pub(crate) mod macos {
     /// lid closed, when the built-in mic only sends silence. Only a Bluetooth
     /// default is passed over for the built-in mic: opening a Bluetooth mic
     /// switches the headset to its low-quality call mode and glitches what is
-    /// playing. Returns `None` when neither exists, so capture falls back to
-    /// whatever macOS hands out.
+    /// playing. `is_bluetooth` returns `None` when the transport cannot be
+    /// read; such a default is treated like Bluetooth, so only a default that
+    /// is confirmed not to be Bluetooth wins over the built-in mic. Returns
+    /// `None` when neither exists, so capture falls back to whatever macOS
+    /// hands out.
     pub(crate) fn unselected_input<'a, D>(
         devices: &'a [D],
         is_default: impl Fn(&D) -> bool,
         is_built_in: impl Fn(&D) -> bool,
-        is_bluetooth: impl Fn(&D) -> bool,
+        is_bluetooth: impl Fn(&D) -> Option<bool>,
     ) -> Option<&'a D> {
         if let Some(default) = devices.iter().find(|device| is_default(device)) {
-            if !is_bluetooth(default) {
+            if is_bluetooth(default) == Some(false) {
                 return Some(default);
             }
         }
@@ -839,10 +842,9 @@ pub(crate) mod macos {
 
     /// True when CoreAudio reports the input as a Bluetooth (classic or LE)
     /// device. An input whose transport cannot be read counts as not Bluetooth.
-    fn is_bluetooth_input(device: &AudioInputDevice) -> bool {
-        let Ok(object_id) = audio_object_id_for_uid(&device.id) else {
-            return false;
-        };
+    /// `None` when CoreAudio cannot resolve the device or read its transport.
+    fn is_bluetooth_input(device: &AudioInputDevice) -> Option<bool> {
+        let object_id = audio_object_id_for_uid(&device.id).ok()?;
         let mut transport: u32 = 0;
         let mut data_size = size_of::<u32>() as u32;
         let address = AudioObjectPropertyAddress {
@@ -860,9 +862,13 @@ pub(crate) mod macos {
                 NonNull::new_unchecked((&mut transport as *mut u32).cast::<c_void>()),
             )
         };
-        status == kAudioHardwareNoError
-            && (transport == kAudioDeviceTransportTypeBluetooth
-                || transport == kAudioDeviceTransportTypeBluetoothLE)
+        if status != kAudioHardwareNoError {
+            return None;
+        }
+        Some(
+            transport == kAudioDeviceTransportTypeBluetooth
+                || transport == kAudioDeviceTransportTypeBluetoothLE,
+        )
     }
 
     fn audio_object_id_for_uid(uid: &str) -> Result<AudioObjectID, String> {
@@ -2137,7 +2143,8 @@ pub(crate) mod macos {
         struct Mic {
             name: &'static str,
             default: bool,
-            bluetooth: bool,
+            /// `None`: the transport could not be read.
+            bluetooth: Option<bool>,
         }
 
         fn pick(devices: &[Mic]) -> Option<&'static str> {
@@ -2156,12 +2163,12 @@ pub(crate) mod macos {
                 Mic {
                     name: "MacBook Pro Microphone",
                     default: false,
-                    bluetooth: false,
+                    bluetooth: Some(false),
                 },
                 Mic {
                     name: "JBL Quantum Stream Talk",
                     default: true,
-                    bluetooth: false,
+                    bluetooth: Some(false),
                 },
             ];
             assert_eq!(pick(&devices), Some("JBL Quantum Stream Talk"));
@@ -2173,12 +2180,12 @@ pub(crate) mod macos {
                 Mic {
                     name: "AirPods Pro",
                     default: true,
-                    bluetooth: true,
+                    bluetooth: Some(true),
                 },
                 Mic {
                     name: "MacBook Pro Microphone",
                     default: false,
-                    bluetooth: false,
+                    bluetooth: Some(false),
                 },
             ];
             assert_eq!(pick(&devices), Some("MacBook Pro Microphone"));
@@ -2189,11 +2196,29 @@ pub(crate) mod macos {
             let devices = [Mic {
                 name: "AirPods Pro",
                 default: true,
-                bluetooth: true,
+                bluetooth: Some(true),
             }];
             assert_eq!(pick(&devices), None);
             let none: [Mic; 0] = [];
             assert_eq!(pick(&none), None);
+        }
+
+        #[test]
+        fn unselected_input_treats_an_unreadable_default_like_bluetooth() {
+            let devices = [
+                Mic {
+                    name: "Unknown Headset",
+                    default: true,
+                    bluetooth: None,
+                },
+                Mic {
+                    name: "MacBook Pro Microphone",
+                    default: false,
+                    bluetooth: Some(false),
+                },
+            ];
+            assert_eq!(pick(&devices), Some("MacBook Pro Microphone"));
+            assert_eq!(pick(&devices[..1]), None);
         }
 
         #[test]
