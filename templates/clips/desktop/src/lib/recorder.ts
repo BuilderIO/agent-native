@@ -3365,7 +3365,11 @@ async function tryStartRewindFullscreenRecording(
         );
         const startPromise =
           invoke<RewindClipBackendStatus>("rewind_clip_start");
-        await guardRecordingStart(startPromise, { signal: params.signal });
+        // Not raced against Stop: once the start is sent, Rewind may already
+        // be capturing. A Stop now lets the start finish and then stops and
+        // saves the take (see startRecording); only a failed or timed-out
+        // start cancels.
+        await guardRecordingStart(startPromise);
         if (localOnly) {
           params.onCaptureStartRequested?.(null, preparedRecording.id || null);
         } else {
@@ -4006,8 +4010,10 @@ async function startNativeFullscreenRecording(
         localOnly,
         hasCamera: wantsCamera,
       });
-      await guardRecordingStart(beginPromise, { signal: params.signal });
-      assertStartupActive();
+      // Not raced against Stop: once begin is sent, capture may be live. A Stop
+      // now lets begin finish and then stops and saves the take (see
+      // startRecording); only a failed or timed-out begin cancels.
+      await guardRecordingStart(beginPromise);
       // Report capture as started in the same tick begin succeeds: a stop that
       // lands while Preparing is still closing must keep the take, not be
       // treated as a startup cancellation.
@@ -4656,16 +4662,19 @@ export async function startRecording(
     recordingId: string;
     promise: Promise<RecorderStopResult>;
   } | null = null;
-  // Set once capture is reported live. From then on a Stop must keep the
-  // take: the late-resolving handle is stopped and saved (onLateResolve), so
-  // native capture is not cancelled here.
-  let captureLive = false;
+  // "starting": nothing is captured yet, so a Stop cancels the startup.
+  // "capturing": the native begin / Rewind start command has been sent, so
+  // capture may already be live even before it is acknowledged. From then on
+  // a Stop never cancels capture here: the start is left to finish and the
+  // late-resolving handle is stopped and saved (onLateResolve). A start that
+  // then fails cleans up on its own failure path.
+  let startupState: "starting" | "capturing" = "starting";
   const cancelStartup = () => {
     startController.abort();
     void emit("clips:countdown-cancel", {
       attemptId: countdownAttemptId,
     }).catch(() => {});
-    if (captureLive) return;
+    if (startupState === "capturing") return;
     void invoke("native_fullscreen_recording_cancel").catch(() => {});
     void invoke("hide_recording_chrome").catch(() => {});
   };
@@ -4686,10 +4695,11 @@ export async function startRecording(
       ...recordingParams,
       signal: startController.signal,
       onCaptureStartAttempted: (recordingId) => {
+        startupState = "capturing";
         requestedRecordingId = recordingId;
       },
       onCaptureStartRequested: (recordingId, captureIdentity) => {
-        captureLive = true;
+        startupState = "capturing";
         requestedRecordingId = recordingId;
         if (recordingId) rememberRewindClipOriginForStart(recordingId, params);
         if (captureIdentity === undefined) {

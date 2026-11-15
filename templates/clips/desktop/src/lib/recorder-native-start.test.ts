@@ -1706,6 +1706,89 @@ describe("Preparing after the countdown", () => {
     await handle.cancel();
   });
 
+  it("keeps the take when Stop lands while native begin is still being acknowledged", async () => {
+    const begin = deferred<void>();
+    nativeCommands.set(
+      "native_fullscreen_recording_begin",
+      () => begin.promise,
+    );
+    const controller = new AbortController();
+    const onCaptureStartFailed = vi.fn();
+    const pending = startRecording({
+      ...params,
+      lookbackEnabled: true,
+      signal: controller.signal,
+      onCaptureStartFailed,
+    });
+    const failed = expect(pending).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    await vi.advanceTimersByTimeAsync(3_600);
+    const id = createdRecordingId();
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(1);
+
+    // Stop before begin is acknowledged: capture may already be live.
+    controller.abort();
+    await failed;
+    expect(calls("native_fullscreen_recording_cancel")).toHaveLength(0);
+
+    begin.resolve();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(calls("native_fullscreen_recording_cancel")).toHaveLength(0);
+    expect(calls("native_fullscreen_recording_stop_and_upload")).toHaveLength(
+      1,
+    );
+    expect(onCaptureStartFailed).not.toHaveBeenCalled();
+    expect(getRewindClipOrigin(id)).not.toBeNull();
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        String(url).includes(`/api/uploads/${id}/abort`),
+      ),
+    ).toBe(false);
+  });
+
+  it("keeps the take when Stop lands while the Rewind start is still being acknowledged", async () => {
+    nativeCommands.set("rewind_clip_status", async () => ({
+      compatibility: "compatible",
+      active: false,
+    }));
+    const rewindStart = deferred<void>();
+    nativeCommands.set("rewind_clip_start", () => rewindStart.promise);
+    const controller = new AbortController();
+    const onCaptureStartFailed = vi.fn();
+    const pending = startRecording({
+      ...params,
+      source: "full-screen",
+      lookbackEnabled: true,
+      signal: controller.signal,
+      onCaptureStartFailed,
+    });
+    const failed = expect(pending).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    await vi.advanceTimersByTimeAsync(3_600);
+    const id = createdRecordingId();
+    expect(calls("rewind_clip_start")).toHaveLength(1);
+
+    // Stop before the start is acknowledged: Rewind may already be capturing.
+    controller.abort();
+    await failed;
+    expect(calls("rewind_clip_cancel")).toHaveLength(0);
+    expect(calls("native_fullscreen_recording_cancel")).toHaveLength(0);
+
+    rewindStart.resolve();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(calls("rewind_clip_cancel")).toHaveLength(0);
+    expect(calls("rewind_clip_stop_and_upload")).toHaveLength(1);
+    expect(onCaptureStartFailed).not.toHaveBeenCalled();
+    expect(getRewindClipOrigin(id)).not.toBeNull();
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        String(url).includes(`/api/uploads/${id}/abort`),
+      ),
+    ).toBe(false);
+  });
+
   it("hides Preparing when the server create fails after it was shown", async () => {
     const create = deferred<Response>();
     fetchMock.mockImplementationOnce(() => create.promise);
