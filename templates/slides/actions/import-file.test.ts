@@ -1,4 +1,8 @@
+import JSZip from "jszip";
+import pptxgen from "pptxgenjs";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+
+import { hydrateReferenceDocuments } from "../app/lib/reference-document-hydration";
 
 const mockWorkflowsEnabled = vi.hoisted(() => vi.fn(async () => true));
 vi.mock("@agent-native/core/feature-flags", () => ({
@@ -213,6 +217,203 @@ beforeEach(() => {
   });
   mockUploadFile.mockResolvedValue({
     url: "https://files.example/source-page.png",
+  });
+});
+
+describe("PPTX reference hydration", () => {
+  it("carries positioned vector shapes and complete custom geometry without image bytes", async () => {
+    const pptx = new pptxgen();
+    const slide = pptx.addSlide();
+    slide.addShape(pptx.ShapeType.rect, {
+      x: 1,
+      y: 1,
+      w: 2,
+      h: 1,
+      fill: { color: "FF0000" },
+      line: { color: "0000FF", width: 2 },
+    });
+    slide.addShape(pptx.ShapeType.ellipse, {
+      x: 4,
+      y: 2,
+      w: 1,
+      h: 1,
+      fill: { color: "00FF00" },
+    });
+    slide.addImage({
+      data: "image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/aWQAAAAASUVORK5CYII=",
+      x: 6,
+      y: 1,
+      w: 1,
+      h: 1,
+    });
+    const bytes = await pptx.write({ outputType: "nodebuffer" });
+    const zip = await JSZip.loadAsync(bytes as Buffer);
+    const slideFile = zip.file("ppt/slides/slide1.xml");
+    if (!slideFile) throw new Error("Generated slide missing");
+    const xml = await slideFile.async("string");
+    const customGeometry =
+      '<a:custGeom><a:avLst/><a:pathLst><a:path w="100" h="100"><a:moveTo><a:pt x="0" y="0"/></a:moveTo><a:lnTo><a:pt x="100" y="0"/></a:lnTo><a:lnTo><a:pt x="50" y="100"/></a:lnTo><a:close/></a:path></a:pathLst></a:custGeom>';
+    const modified = xml.replace(
+      /<a:prstGeom\b[^>]*>.*?<\/a:prstGeom>/,
+      customGeometry,
+    );
+    expect(modified).not.toBe(xml);
+    zip.file("ppt/slides/slide1.xml", modified);
+    const data = await zip.generateAsync({ type: "nodebuffer" });
+    mockReadUserUploadedFile.mockResolvedValue({
+      data,
+      filename: "reference.pptx",
+    });
+    const { parsePptxPresentation } = await vi.importActual<
+      typeof import("@agent-native/core/ingestion")
+    >("@agent-native/core/ingestion");
+    mockParsePptx.mockImplementation(parsePptxPresentation);
+
+    const result = await action.run({
+      filePath: "reference.pptx",
+      format: "pptx",
+      maxChars: 12000,
+    });
+    const first = (result as any).slides[0];
+    expect(first.vectorShapes).toHaveLength(2);
+    expect(first).toMatchObject({ widthEmu: 9144000, heightEmu: 5143500 });
+    expect(first.vectorShapes[0]).toMatchObject({
+      order: 0,
+      x: 914400,
+      y: 914400,
+      width: 1828800,
+      height: 914400,
+      fill: "#FF0000",
+      lineColor: "#0000FF",
+      geometry: {
+        kind: "custom",
+        paths: [
+          {
+            w: 100,
+            h: 100,
+            commands: [
+              { kind: "moveTo", points: [{ x: 0, y: 0 }] },
+              { kind: "lnTo", points: [{ x: 100, y: 0 }] },
+              { kind: "lnTo", points: [{ x: 50, y: 100 }] },
+              { kind: "close" },
+            ],
+          },
+        ],
+      },
+    });
+    expect(first.vectorShapes[1]).toMatchObject({
+      order: 1,
+      shapeType: "ellipse",
+    });
+    expect(first.imageCount).toBe(1);
+    expect(JSON.stringify(result)).not.toContain("iVBORw0KGgo");
+    const hydrated = await hydrateReferenceDocuments(
+      [
+        {
+          path: "reference.pptx",
+          originalName: "reference.pptx",
+          filename: "reference.pptx",
+          type: "application/octet-stream",
+          size: data.length,
+        },
+      ],
+      { callActionImpl: vi.fn().mockResolvedValue(result) },
+    );
+    expect(hydrated.status).toBe("hydrated");
+    if (hydrated.status !== "hydrated")
+      throw new Error("Reference was not hydrated");
+    expect(hydrated.context).toContain('"shapeType":"ellipse"');
+    expect(hydrated.context).toContain('"kind":"moveTo"');
+    expect(hydrated.context).not.toContain('"data"');
+    expect(hydrated.context).toContain("1 image(s) not represented");
+  });
+
+  it("omits entire oversized or unsupported shapes and reports the loss", async () => {
+    const commands = Array.from({ length: 101 }, (_, i) => ({
+      kind: "lnTo",
+      points: [{ x: i, y: i }],
+    }));
+    mockParsePptx.mockResolvedValue({
+      title: "",
+      theme: undefined,
+      hiddenSlideCount: 2,
+      slides: [
+        {
+          widthEmu: 1000,
+          heightEmu: 500,
+          texts: [],
+          images: [],
+          tablesDegraded: 2,
+          elements: [
+            {
+              id: "huge",
+              kind: "shape",
+              x: 0,
+              y: 0,
+              width: 100,
+              height: 100,
+              geometry: {
+                kind: "custom",
+                paths: [{ w: 100, h: 100, commands }],
+              },
+            },
+            {
+              id: "invalid",
+              kind: "shape",
+              x: 0,
+              y: 0,
+              width: 100,
+              height: 100,
+              shapeType: "data:secret",
+            },
+            ...Array.from({ length: 150 }, (_, i) => ({
+              id: String(i),
+              kind: "shape",
+              x: i,
+              y: 0,
+              width: 10,
+              height: 10,
+              shapeType: "rect",
+              secret: "do-not-send",
+            })),
+          ],
+        },
+      ],
+    });
+    const result = await action.run({
+      filePath: "reference.pptx",
+      format: "pptx",
+    });
+    const slide = (result as any).slides[0];
+    expect(slide.vectorShapesOmitted).toBeGreaterThan(2);
+    expect(slide.vectorShapes.length + slide.vectorShapesOmitted).toBe(152);
+    expect(JSON.stringify(slide.vectorShapes).length).toBeLessThan(6500);
+    expect(JSON.stringify(result)).not.toContain("do-not-send");
+    expect(
+      slide.vectorShapes.every(
+        (shape: { geometry?: unknown }) => !shape.geometry,
+      ),
+    ).toBe(true);
+    const hydrated = await hydrateReferenceDocuments(
+      [
+        {
+          path: "reference.pptx",
+          originalName: "reference.pptx",
+          filename: "reference.pptx",
+          type: "application/octet-stream",
+          size: 100,
+        },
+      ],
+      { callActionImpl: vi.fn().mockResolvedValue(result) },
+    );
+    expect(hydrated.status).toBe("hydrated");
+    if (hydrated.status !== "hydrated")
+      throw new Error("Reference was not hydrated");
+    expect(hydrated.context).toContain(
+      `${slide.vectorShapesOmitted} parsed vector shape(s) omitted`,
+    );
+    expect(hydrated.context).toContain("2 table(s) degraded");
+    expect(hydrated.context).toContain("2 hidden slide(s) excluded");
   });
 });
 

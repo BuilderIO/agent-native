@@ -207,6 +207,91 @@ describe("hydrateReferenceDocuments", () => {
     expect(result.context).toContain("Slide 0 [title]: Title slide");
   });
 
+  it("only carries validated shape fields and reports omitted slides", async () => {
+    const shape = {
+      order: 0,
+      kind: "shape",
+      x: 1,
+      y: 2,
+      width: 3,
+      height: 4,
+      shapeType: "rect",
+      image: { data: "secret-binary" },
+      extra: "secret-field",
+    };
+    const callActionImpl = vi.fn().mockResolvedValue({
+      format: "pptx",
+      vectorSummaryNotice: "untrusted notice",
+      slides: Array.from({ length: 21 }, (_, index) => ({
+        index,
+        texts: "",
+        widthEmu: 100,
+        heightEmu: 50,
+        vectorShapes: [shape],
+        vectorShapesOmitted: 0,
+      })),
+    });
+    const result = await hydrateReferenceDocuments([uploaded("deck.pptx")], {
+      callActionImpl,
+    });
+    expect(result.status).toBe("hydrated");
+    if (result.status !== "hydrated")
+      throw new Error("Reference was not hydrated");
+    expect(result.context).toContain('"shapeType":"rect"');
+    expect(result.context).not.toContain("secret-binary");
+    expect(result.context).not.toContain("secret-field");
+    expect(result.context).not.toContain("untrusted notice");
+    expect(result.context).toContain("1 slide(s) omitted");
+  });
+
+  it("never emits a partial vector record when the reference budget cuts through one", async () => {
+    const geometry = {
+      kind: "custom",
+      paths: [
+        {
+          w: 100,
+          h: 100,
+          commands: Array.from({ length: 40 }, (_, i) => ({
+            kind: "lnTo",
+            points: [{ x: i, y: i }],
+          })),
+        },
+      ],
+    };
+    const shape = {
+      order: 0,
+      kind: "shape",
+      x: 1,
+      y: 2,
+      width: 3,
+      height: 4,
+      geometry,
+    };
+    const callActionImpl = vi.fn().mockResolvedValue({
+      format: "pptx",
+      vectorSummaryNotice: "partial coverage",
+      slides: [
+        {
+          index: 0,
+          texts: "x".repeat(11000),
+          widthEmu: 100,
+          heightEmu: 50,
+          vectorShapes: [shape, { ...shape, order: 1 }],
+          vectorShapesOmitted: 0,
+        },
+      ],
+    });
+    const result = await hydrateReferenceDocuments([uploaded("deck.pptx")], {
+      callActionImpl,
+    });
+    expect(result.status).toBe("hydrated");
+    if (result.status !== "hydrated")
+      throw new Error("Reference was not hydrated");
+    expect(result.context).toContain("Canvas: 100 x 50 EMU");
+    expect(result.context).toContain("[truncated]");
+    expect(result.context).not.toContain("  Vector: ");
+  });
+
   it("carries DOCX sections", async () => {
     const callActionImpl = vi.fn().mockResolvedValue({
       format: "docx",

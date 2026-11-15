@@ -2,6 +2,8 @@ import { callAction } from "@agent-native/core/client/hooks";
 
 import type { UploadedFile } from "@/components/editor/PromptDialog";
 
+import { pptxReferenceShapeSchema } from "../../shared/pptx-reference-shapes";
+
 export const REFERENCE_HYDRATION_TIMEOUT_MS = 3 * 60 * 1000;
 
 export const REFERENCE_HYDRATION_DEADLINE_MS = 4 * 60 * 1000;
@@ -62,7 +64,9 @@ function asArray(value: unknown): unknown[] {
 
 function truncate(value: string, maxChars: number): string {
   if (value.length <= maxChars) return value;
-  return `${value.slice(0, maxChars).trimEnd()}\n[truncated]`;
+  const lineStart = value.lastIndexOf("\n", maxChars - 1) + 1;
+  const end = value.startsWith("  Vector: ", lineStart) ? lineStart : maxChars;
+  return `${value.slice(0, end).trimEnd()}\n[truncated]`;
 }
 
 function describeStyleDigest(result: Record<string, unknown>): string[] {
@@ -168,7 +172,13 @@ function describePptx(result: Record<string, unknown>): string[] {
     lines.push("");
   }
   lines.push("Extracted slides:");
-  const slides = asArray(result.slides)
+  if (typeof result.vectorSummaryNotice === "string") {
+    lines.push(
+      "Vector summaries describe only supported parsed shapes, not faithful images or complete slide coverage; the parser may omit unsupported content or incomplete custom geometry. A [truncated] marker means the reference is partial.",
+    );
+  }
+  const allSlides = asArray(result.slides);
+  const slides = allSlides
     .map(asRecord)
     .filter((slide): slide is Record<string, unknown> => slide !== null)
     .slice(0, MAX_PPTX_SLIDES_IN_CONTEXT);
@@ -177,6 +187,67 @@ function describePptx(result: Record<string, unknown>): string[] {
     const layout = asString(slide.layoutHint);
     lines.push(
       `- Slide ${String(slide.index ?? "?")}${layout ? ` [${layout}]` : ""}: ${texts ?? "(no text)"}`,
+    );
+    if (Array.isArray(slide.vectorShapes)) {
+      const width = slide.widthEmu;
+      const height = slide.heightEmu;
+      if (
+        typeof width === "number" &&
+        Number.isFinite(width) &&
+        width > 0 &&
+        typeof height === "number" &&
+        Number.isFinite(height) &&
+        height > 0
+      ) {
+        lines.push(
+          `  Canvas: ${width} x ${height} EMU; shape coordinates and sizes are in EMU, order follows parsed slide elements.`,
+        );
+      } else {
+        lines.push(
+          "  Slide dimensions unavailable; shape coordinates are in EMU.",
+        );
+      }
+      let invalid = 0;
+      for (const value of slide.vectorShapes.slice(0, 100)) {
+        const shape = pptxReferenceShapeSchema.safeParse(value);
+        if (!shape.success || JSON.stringify(shape.data).length > 3000) {
+          invalid++;
+          continue;
+        }
+        lines.push(`  Vector: ${JSON.stringify(shape.data)}`);
+      }
+      const omitted =
+        typeof slide.vectorShapesOmitted === "number" &&
+        Number.isSafeInteger(slide.vectorShapesOmitted) &&
+        slide.vectorShapesOmitted > 0
+          ? slide.vectorShapesOmitted
+          : 0;
+      invalid += Math.max(0, slide.vectorShapes.length - 100);
+      if (omitted + invalid > 0)
+        lines.push(
+          `  ${omitted + invalid} parsed vector shape(s) omitted due to limits or unsupported data.`,
+        );
+      if (typeof slide.imageCount === "number" && slide.imageCount > 0)
+        lines.push(
+          `  ${slide.imageCount} image(s) not represented by these vectors.`,
+        );
+      if (typeof slide.tablesDegraded === "number" && slide.tablesDegraded > 0)
+        lines.push(
+          `  ${slide.tablesDegraded} table(s) degraded during parsing.`,
+        );
+    }
+  }
+  if (allSlides.length > slides.length)
+    lines.push(
+      `${allSlides.length - slides.length} slide(s) omitted from this reference context.`,
+    );
+  if (
+    typeof result.hiddenSlideCount === "number" &&
+    Number.isSafeInteger(result.hiddenSlideCount) &&
+    result.hiddenSlideCount > 0
+  ) {
+    lines.push(
+      `${result.hiddenSlideCount} hidden slide(s) excluded by the parser.`,
     );
   }
   return lines;
