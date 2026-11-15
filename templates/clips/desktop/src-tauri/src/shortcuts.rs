@@ -1128,6 +1128,8 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
                 let _ = app.emit("clips:monitor-picker-cancelled", ());
                 return;
             }
+            // A press whose release was lost no longer holds Escape.
+            with_gate(app, |gate, now| gate.expire_stale_owner(now));
             if is_dictation_active(app) {
                 let _ = app.emit("voice:cancel", ());
                 return;
@@ -1849,6 +1851,16 @@ impl DictationGate {
         }
     }
 
+    /// The lost-release check for `press`: drops it if it went stale. True
+    /// while it still owns the dictation (so the check runs again).
+    fn expire_if_lost(&mut self, press: u64, now: Instant) -> bool {
+        if self.owner_press() != Some(press) {
+            return false;
+        }
+        self.expire_stale_owner(now);
+        self.owner_press() == Some(press)
+    }
+
     fn press(&mut self, input: PressInput, now: Instant) -> PressClaim {
         if input == PressInput::Link && !self.listener_ready {
             // A cold start from the link: nothing could hear the start, so
@@ -1986,13 +1998,30 @@ fn with_gate<T>(app: &AppHandle, transition: impl FnOnce(&mut DictationGate, Ins
 
 /// A press; on `Owns` also the press's id for its delayed start.
 pub(crate) fn begin_voice_press(app: &AppHandle, input: PressInput) -> (PressClaim, Option<u64>) {
-    with_gate(app, |gate, now| {
+    let (claim, press) = with_gate(app, |gate, now| {
         let claim = gate.press(input, now);
         (
             claim,
             gate.owner_press().filter(|_| claim == PressClaim::Owns),
         )
-    })
+    });
+    if let Some(press) = press {
+        watch_for_lost_release(app, press);
+    }
+    (claim, press)
+}
+
+/// Checks, through the gate, every `STALE_OWNER_AFTER` while `press` owns
+/// the dictation, so a press whose release never comes is dropped (and the
+/// held-key flag and Escape with it) even when no other input follows.
+fn watch_for_lost_release(app: &AppHandle, press: u64) {
+    let app = app.clone();
+    thread::spawn(move || loop {
+        thread::sleep(STALE_OWNER_AFTER);
+        if !with_gate(&app, |gate, now| gate.expire_if_lost(press, now)) {
+            return;
+        }
+    });
 }
 
 /// A release of an input that sends its own stop (Fn). True when it owned
@@ -2116,6 +2145,8 @@ mod dictation_gate_tests {
         Press(PressInput),
         /// The wake delay of the n-th press (numbered from 1) is over.
         Due(u64),
+        /// The lost-release check of the n-th press runs.
+        Check(u64),
         Release(PressInput),
         HandsFree(bool),
         Flow(&'static str),
@@ -2129,8 +2160,13 @@ mod dictation_gate_tests {
         Claim(PressClaim),
         Start(StartDue),
         Rel(Rel),
-        HandsFree { capture: bool, now: bool },
+        HandsFree {
+            capture: bool,
+            now: bool,
+        },
         Pending(bool),
+        /// The lost-release check keeps running.
+        Watching(bool),
         Done,
     }
 
@@ -2166,6 +2202,7 @@ mod dictation_gate_tests {
                 Step::ListenerReady => Out::Pending(gate.listener_ready(now)),
                 Step::Press(input) => Claim(gate.press(input, now)),
                 Step::Due(press) => Start(gate.start_due(press)),
+                Step::Check(press) => Out::Watching(gate.expire_if_lost(press, now)),
                 Step::Release(input) => Out::Rel(match gate.release(input, now) {
                     Release::Stop(_) => Rel::Stop,
                     Release::Deferred => Deferred,
@@ -2416,6 +2453,32 @@ mod dictation_gate_tests {
             (1_000, Press(Shortcut), Claim(Ignored), true),
             (3_000, Press(Shortcut), Claim(Owns), true),
             (3_100, Release(Shortcut), DEFERRED, false),
+        ]);
+    }
+
+    #[test]
+    fn a_lost_release_with_no_input_after_it_disarms_escape_on_its_own() {
+        use Step::{Check, Due, Flow, Press};
+        run(&[
+            (0, Press(Link), Claim(Owns), true),
+            (80, Due(1), HOLD, true),
+            (100, Flow("recording"), Done, true),
+            // The run ends (Escape, an error) at 1 s; the link's up is lost
+            // and nothing else happens.
+            (1_000, Flow("idle"), Done, true),
+            (1_500, Check(1), Out::Watching(true), true),
+            (2_000, Check(1), Out::Watching(false), false),
+        ]);
+        // A press still running its dictation is kept, however long.
+        run(&[
+            (0, Press(Shortcut), Claim(Owns), true),
+            (80, Due(1), HOLD, true),
+            (100, Flow("recording"), Done, true),
+            (10_000, Check(1), Out::Watching(true), true),
+            // Once a newer press owns it, the old check stops.
+            (10_100, Step::Release(Shortcut), STOP, false),
+            (10_200, Press(Fn), Claim(Owns), true),
+            (12_000, Check(1), Out::Watching(false), true),
         ]);
     }
 
