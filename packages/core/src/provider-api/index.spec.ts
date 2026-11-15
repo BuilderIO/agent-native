@@ -1873,6 +1873,46 @@ describe("provider API runtime", () => {
     );
   });
 
+  it("never falls back to another connection's GitHub token when the selected connection has none", async () => {
+    resolveWorkspaceConnectionForApp.mockResolvedValue({
+      available: true,
+      connection: { id: "conn-a", label: "A", scopes: [] },
+      appAccess: { available: true },
+      reason: "Available.",
+    });
+    const fetchMock = vi.spyOn(globalThis, "fetch");
+    const lookups: Array<string | null | undefined> = [];
+    const runtime = createProviderApiRuntime({
+      appId: "headless",
+      providerIds: ["github"],
+      getCredentialContext: () => credentialContext,
+      // Models the real resolver: only the unselected connection holds a key.
+      resolveCredential: async (lookup) => {
+        lookups.push(lookup.connectionId);
+        return lookup.connectionId === "conn-a"
+          ? null
+          : {
+              key: lookup.key,
+              value: "other-connection-token",
+              source: "workspace_connection",
+              provider: lookup.provider,
+            };
+      },
+    });
+
+    await expect(
+      runtime.executeRequest({
+        provider: "github",
+        path: "/user",
+        connectionId: "conn-a",
+      }),
+    ).rejects.toThrow();
+
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(lookups.length).toBeGreaterThan(0);
+    expect(lookups.every((id) => id === "conn-a")).toBe(true);
+  });
+
   it("prefers a shared GitHub OAuth connection over Analytics' legacy token resolver", async () => {
     resolveCredential.mockResolvedValue({
       key: "GITHUB_TOKEN",

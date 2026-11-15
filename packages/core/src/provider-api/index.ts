@@ -4688,6 +4688,7 @@ async function resolveAuth(
       keys: auth.fallbackKeys ?? [auth.key],
       ctx,
       runtime,
+      connectionId: args.connectionId,
     });
     return {
       headers: { [auth.header]: credential.value },
@@ -4757,6 +4758,7 @@ async function resolveAuth(
       keys: auth.fallbackKeys ?? [auth.key],
       ctx,
       runtime,
+      connectionId: args.connectionId,
     });
     return {
       headers: { Authorization: `Bearer ${credential.value}` },
