@@ -8,6 +8,7 @@ import {
   rmSync,
   writeFileSync,
 } from "node:fs";
+import { createRequire } from "node:module";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { test } from "node:test";
@@ -96,6 +97,118 @@ function runHealth(options: {
     rmSync(root, { recursive: true, force: true });
   }
 }
+
+test("chat health reports only the latest terminal turns", () => {
+  const root = mkdtempSync(join(tmpdir(), "chat-health-sql-test-"));
+  try {
+    const templates = join(dirname(script), "../templates");
+    const app = join(templates, "chat-health-test-fixture");
+    const pglite = createRequire(join(templates, "chat/package.json")).resolve(
+      "@electric-sql/pglite",
+    );
+    const preload = join(root, "preload.cjs");
+    writeFileSync(
+      preload,
+      `
+const fs = require("node:fs");
+const moduleApi = require("node:module");
+const { PGlite } = require(${JSON.stringify(pglite)});
+const db = new PGlite();
+const start = Date.now() - 8_000_000;
+const rows = [
+  ["ok", "ok", "completed", null, null, 10, 0],
+  ["failed", "failed", "errored", "provider_error", null, 40, 0],
+  ["truncated", "truncated", "truncated", null, "limit", 60, 0],
+  ["user", "user", "aborted", null, "aborted:user", 20, 0],
+  ["stalled", "stalled", "errored", "timeout", null, 700, 0],
+  ["unknown", "unknown", "expired", null, "unknown_terminal", 30, 0],
+  ["running", "running", "running", null, null, 4000, 0],
+  ["old", "retried", "errored", "old_error", null, 50, 0],
+  ["new", "retried", "running", "active_error", null, 3000, 100],
+];
+const ready = (async () => {
+  await db.exec("CREATE TABLE agent_runs (id text, turn_id text, status text, error_code text, terminal_reason text, started_at bigint, completed_at bigint, heartbeat_at bigint)");
+  for (const [id, turn, status, code, reason, duration, offset] of rows) {
+    const began = start + offset * 1000;
+    const ended = began + duration * 1000;
+    await db.query("INSERT INTO agent_runs VALUES ($1, $2, $3, $4, $5, $6, $7, $8)",
+      [id, turn, status, code, reason, began, status === "running" ? null : ended, status === "running" ? ended : null]);
+  }
+})();
+const originalRequire = moduleApi.createRequire;
+const originalReaddir = fs.readdirSync;
+const originalExists = fs.existsSync;
+const originalRead = fs.readFileSync;
+fs.readdirSync = (path, ...args) => path === ${JSON.stringify(templates)} ? ["chat-health-test-fixture"] : originalReaddir(path, ...args);
+fs.existsSync = (path) => path === ${JSON.stringify(join(app, ".env"))} || path === ${JSON.stringify(join(app, "package.json"))} || originalExists(path);
+fs.readFileSync = (path, ...args) => path === ${JSON.stringify(join(app, ".env"))} ? "DATABASE_URL=postgres://example.invalid/test\\n" : originalRead(path, ...args);
+moduleApi.createRequire = (path) => path === ${JSON.stringify(join(app, "package.json"))} ? () => () => ({
+  async unsafe(query, params = []) { await ready; return (await db.query(query, params)).rows; },
+  async end() { await db.close(); },
+}) : originalRequire(path);
+moduleApi.syncBuiltinESMExports();
+`,
+    );
+    const result = spawnSync(
+      process.execPath,
+      [
+        "--require",
+        preload,
+        script,
+        "--app",
+        "chat-health-test-fixture",
+        "--json",
+      ],
+      { encoding: "utf8", env: { PATH: process.env.PATH } },
+    );
+    if (result.error) throw result.error;
+    assert.equal(result.status, 0, result.stderr);
+    const report = JSON.parse(result.stdout);
+    assert.equal(report.unreachable.length, 0);
+    const measured = report.apps[0];
+    assert.deepEqual(
+      {
+        turns: measured.turns,
+        ok: measured.ok,
+        user_stopped: measured.user_stopped,
+        bad: measured.bad,
+        scored: measured.scored,
+        p50_wait_s: measured.p50_wait_s,
+        p90_wait_s: measured.p90_wait_s,
+        max_wait_s: measured.max_wait_s,
+        stalled: measured.stalled,
+      },
+      {
+        turns: 6,
+        ok: 1,
+        user_stopped: 1,
+        bad: 4,
+        scored: 5,
+        p50_wait_s: 35,
+        p90_wait_s: 380,
+        max_wait_s: 700,
+        stalled: 1,
+      },
+    );
+    assert.deepEqual(
+      measured.reasons.sort((a: { reason: string }, b: { reason: string }) =>
+        a.reason.localeCompare(b.reason),
+      ),
+      ["limit", "provider_error", "timeout", "unknown_terminal"].map(
+        (reason) => ({ reason, turns: 1 }),
+      ),
+    );
+    assert.deepEqual(report.fleet, {
+      turns: 6,
+      bad: 4,
+      stalled: 1,
+      scored: 5,
+      badRate: 0.8,
+    });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("chat health times SELECT 1 separately from the pressure query", () => {
   const slowPressure = runHealth({

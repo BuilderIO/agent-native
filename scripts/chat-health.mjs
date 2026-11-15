@@ -140,7 +140,8 @@ SELECT
       AND f.status <> 'completed'
       AND coalesce(f.terminal_reason, '') NOT LIKE 'aborted:user%'
   )::int AS stalled
-FROM final_run f JOIN turn_span s USING (turn_id)`;
+FROM final_run f JOIN turn_span s USING (turn_id)
+WHERE f.status <> 'running'`;
 
 const TURN_REASONS_SQL = `
 WITH final_run AS (
@@ -154,7 +155,7 @@ WITH final_run AS (
 )
 SELECT coalesce(error_code, terminal_reason, '(none)') AS reason, count(*)::int AS turns
 FROM final_run
-WHERE status <> 'completed'
+WHERE status NOT IN ('completed', 'running')
   AND coalesce(terminal_reason, '') NOT LIKE 'aborted:user%'
 GROUP BY 1
 ORDER BY turns DESC
