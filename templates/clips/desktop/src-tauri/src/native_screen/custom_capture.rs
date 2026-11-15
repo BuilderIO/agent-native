@@ -2387,6 +2387,9 @@ struct MixerMicSnapshot {
     pause_offset_seconds: f64,
     anchor_seconds: Option<f64>,
     out_pos: i64,
+    /// The mixer's shared peak limiter gain (`MixGainStage::limiter`), which
+    /// loud system audio pulls below 1 for the mic too.
+    limiter_gain: f32,
 }
 
 /// A writer whose mic processing the meter mirrors.
@@ -2401,6 +2404,9 @@ struct MicMeterSource {
     /// the mixer will.
     mixer_anchor_seconds: Option<f64>,
     mixer_out_pos: i64,
+    /// The mixer's peak limiter gain as of this mic buffer; the saved mic is
+    /// scaled by it after `MicAutoGain`.
+    mixer_limiter_gain: f32,
 }
 
 impl MicMeterSource {
@@ -2435,6 +2441,7 @@ impl MicMeterSource {
             mixes_system_audio,
             mixer_anchor_seconds: snapshot.anchor_seconds,
             mixer_out_pos: snapshot.out_pos,
+            mixer_limiter_gain: snapshot.limiter_gain,
         })
     }
 }
@@ -2549,6 +2556,9 @@ impl WriterMicMeter {
             let cleaned: Vec<f32> = frame.iter().step_by(2).copied().collect();
             level = level.max(self.push_timeline(&cleaned, frame_pts, source));
         }
+        // The mixer's shared peak limiter scales the boosted mic too, so loud
+        // system audio can push the saved mic down; use its current gain.
+        let level = level * source.mixer_limiter_gain.clamp(0.0, 1.0);
         self.last_level = level;
         level
     }
@@ -3043,6 +3053,7 @@ impl LiveAudioMixer {
             pause_offset_seconds: self.pause_offset_seconds,
             anchor_seconds: self.anchor_seconds,
             out_pos: self.out_pos,
+            limiter_gain: self.gain.limiter.gain,
         })
     }
 
@@ -5240,6 +5251,7 @@ mod mic_meter_tests {
             mixes_system_audio: false,
             mixer_anchor_seconds: None,
             mixer_out_pos: 0,
+            mixer_limiter_gain: 1.0,
         }
     }
 
@@ -5397,6 +5409,7 @@ mod mic_meter_tests {
                 mixes_system_audio,
                 mixer_anchor_seconds: Some(anchor),
                 mixer_out_pos: out_pos,
+                mixer_limiter_gain: 1.0,
             };
             let meter_peak = meter.push_timeline(samples, *pts, &source);
             let stereo: Vec<f32> = samples.iter().flat_map(|&s| [s, s]).collect();
@@ -5582,12 +5595,40 @@ mod mic_meter_tests {
     }
 
     #[test]
+    fn the_meter_applies_the_mixers_shared_peak_limiter() {
+        // Loud system audio drives the mixer's shared limiter below unity.
+        let mut mixer = LiveAudioMixer::new(false, true, true, true).unwrap();
+        for _ in 0..4_800 {
+            mixer.gain.frame((0.99, 0.99), (0.0, 0.0));
+        }
+        let limiter_gain = mixer.gain.limiter.gain;
+        assert!(limiter_gain < 0.95, "limiter gain {limiter_gain}");
+        // The mic snapshot carries that gain from the mixer's own state.
+        let stereo = vec![0.0_f32; 960];
+        let snapshot = mixer
+            .push_and_floor(MixSource::Mic, &stereo, 1.0, None)
+            .unwrap();
+        assert_eq!(snapshot.limiter_gain, limiter_gain);
+        // The meter scales the boosted mic by it, as the saved mix does.
+        let noise = background_noise(2);
+        let source = |gain| MicMeterSource {
+            mixer_limiter_gain: gain,
+            ..writer(1, 0.0)
+        };
+        let unlimited = WriterMicMeter::new().level(&noise[0], 0.0, &source(1.0));
+        let limited = WriterMicMeter::new().level(&noise[0], 0.0, &source(limiter_gain));
+        assert!(unlimited > 0.0);
+        assert_eq!(limited, unlimited * limiter_gain);
+    }
+
+    #[test]
     fn a_writer_is_metered_only_with_the_timeline_from_this_mic_push() {
         let snapshot = MixerMicSnapshot {
             pts_seconds: 12.5,
             pause_offset_seconds: 1.0,
             anchor_seconds: Some(10.0),
             out_pos: 4_800,
+            limiter_gain: 0.7,
         };
         // The writer pushed this buffer: its timeline, taken with the push.
         assert_eq!(
@@ -5598,6 +5639,7 @@ mod mic_meter_tests {
                 mixes_system_audio: true,
                 mixer_anchor_seconds: Some(10.0),
                 mixer_out_pos: 4_800,
+                mixer_limiter_gain: 0.7,
             })
         );
         // It skipped this buffer (not recording, sink paused): an older
