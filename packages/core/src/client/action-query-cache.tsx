@@ -1003,6 +1003,18 @@ export async function bindActionQueryCache(
   }
 }
 
+/** Stop accepting new persisted results until a session check resolves. */
+export function suspendActionQueryCacheBinding(
+  client: QueryClient,
+): () => void {
+  const suspended = binding?.client === client ? binding : undefined;
+  if (!suspended) return () => {};
+  setActionQueryCacheBindingToken(undefined);
+  return () => {
+    if (binding === suspended) setActionQueryCacheBindingToken(suspended.token);
+  };
+}
+
 /** Sign-out: stop, drop this document's results, and delete every stored
  * record. */
 export async function clearActionQueryCache(

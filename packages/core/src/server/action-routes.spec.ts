@@ -1447,6 +1447,7 @@ describe("mountActionRoutes", () => {
   });
 
   it("preserves an empty GET scope and a typed credit conflict over HTTP", async () => {
+    mockResolveOrgScopeForEmail.mockResolvedValue({ status: "unknown" });
     const { fail } = await import("../action.js");
     const { mountActionRoutes } = await import("./action-routes.js");
     const mounted: Array<{ path: string; handler: any }> = [];

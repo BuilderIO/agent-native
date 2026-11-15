@@ -1,3 +1,4 @@
+import { suspendActionQueryCacheBinding } from "@agent-native/core/client/action-query-cache";
 import {
   actionErrorCode,
   useActionQuery,
@@ -19,6 +20,11 @@ import {
   CHAT_MODEL_SELECTION_CHANGED_EVENT,
   chatModelSelectionStorageKey,
 } from "@agent-native/core/client/use-chat-models";
+import {
+  notifySessionInvalidated,
+  sessionReadIdentity,
+  sessionReadIdentityStatus,
+} from "@agent-native/core/client/use-session";
 import { setBrowserDemoModeEnabled } from "@agent-native/core/demo/browser-state";
 import { buildSettingsRoute } from "@agent-native/core/navigation";
 import { shouldOfferWorkspace } from "@agent-native/core/org/workspace-url";
@@ -75,6 +81,7 @@ import {
   IconPresentation,
   IconSelector,
 } from "@tabler/icons-react";
+import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import {
   useEffect,
   useMemo,
@@ -167,6 +174,15 @@ function useChatEngineChoice(): string | undefined {
   return engine;
 }
 
+const creditScopeRecoveries = new WeakMap<QueryClient, Promise<void>>();
+const suspendedCreditScopes = new WeakMap<
+  QueryClient,
+  {
+    identity: ReturnType<typeof sessionReadIdentity>;
+    resume: () => void;
+  }
+>();
+
 export function BuilderCreditNotice({
   compact = false,
   showAtLimitOnly = false,
@@ -176,7 +192,25 @@ export function BuilderCreditNotice({
   showAtLimitOnly?: boolean;
   className?: string;
 }) {
-  const { data: org, refetch: refetchOrg } = useOrg();
+  const { data: org, refetch: refetchOrg, isError: orgError } = useOrg();
+  const { session, status: sessionStatus, error: sessionError } = useSession();
+  const queryClient = useQueryClient();
+  useEffect(() => {
+    const suspended = suspendedCreditScopes.get(queryClient);
+    if (
+      !suspended ||
+      !org ||
+      orgError ||
+      sessionError ||
+      sessionStatus !== "authenticated" ||
+      (session?.orgId ?? null) !== (org.orgId ?? null) ||
+      sessionReadIdentityStatus(sessionReadIdentity()) !== "current"
+    )
+      return;
+    if (sessionReadIdentityStatus(suspended.identity) === "current")
+      suspended.resume();
+    suspendedCreditScopes.delete(queryClient);
+  }, [queryClient, org, orgError, session, sessionError, sessionStatus]);
   const chatEngine = useChatEngineChoice();
   const builderCreditStatus = useActionQuery<{
     /**
@@ -201,15 +235,84 @@ export function BuilderCreditNotice({
       ...(chatEngine ? { engine: chatEngine } : {}),
     },
     {
-      enabled: Boolean(org?.email),
+      enabled:
+        Boolean(org?.email) &&
+        !orgError &&
+        !sessionError &&
+        sessionStatus === "authenticated" &&
+        (session?.orgId ?? null) === (org?.orgId ?? null),
       staleTime: 30_000,
       refetchInterval: 60_000,
       // The 60s poll is the retry; retrying a Builder outage multiplies it.
       retry: false,
       onServerError: (error) => {
-        if (actionErrorCode(error) === "builder_credit_org_mismatch") {
-          void refetchOrg();
-        }
+        if (
+          actionErrorCode(error) !== "builder_credit_org_mismatch" ||
+          creditScopeRecoveries.has(queryClient)
+        )
+          return;
+        const recover = async () => {
+          const previousIdentity = sessionReadIdentity();
+          const resumeBinding = suspendActionQueryCacheBinding(queryClient);
+          suspendedCreditScopes.set(queryClient, {
+            identity: previousIdentity,
+            resume: resumeBinding,
+          });
+          const staleQueries = queryClient
+            .getQueryCache()
+            .getAll()
+            .filter(
+              (query) =>
+                !(
+                  query.queryKey[0] === "action" &&
+                  query.queryKey[1] === "get-builder-credit-status"
+                ),
+            );
+          const cancellations = staleQueries.map((query) => {
+            const cancelled = query.cancel({ silent: true });
+            query.setState({
+              data: undefined,
+              dataUpdatedAt: 0,
+              ...(query.state.status === "success"
+                ? { status: "pending" as const }
+                : {}),
+            });
+            return cancelled;
+          });
+          const sessionRead = notifySessionInvalidated();
+          const identity = sessionReadIdentity();
+          await Promise.all([sessionRead, ...cancellations]);
+          if (sessionReadIdentityStatus(identity) !== "current") return;
+          const refreshedOrg = await refetchOrg({ throwOnError: true });
+          if (
+            sessionReadIdentityStatus(previousIdentity) === "current" &&
+            (refreshedOrg.data?.orgId ?? null) === (session?.orgId ?? null)
+          ) {
+            resumeBinding();
+            suspendedCreditScopes.delete(queryClient);
+          }
+          await queryClient.invalidateQueries({
+            predicate: (query) =>
+              query.queryKey[0] !== "org-me" &&
+              !(
+                query.queryKey[0] === "action" &&
+                query.queryKey[1] === "get-builder-credit-status"
+              ),
+          });
+        };
+        const recovery = recover();
+        creditScopeRecoveries.set(queryClient, recovery);
+        void recovery
+          .catch((error: unknown) => {
+            console.warn(
+              "Unable to refresh organization after credit scope changed",
+              error,
+            );
+          })
+          .finally(() => {
+            if (creditScopeRecoveries.get(queryClient) === recovery)
+              creditScopeRecoveries.delete(queryClient);
+          });
       },
     },
   );
@@ -236,6 +339,10 @@ export function BuilderCreditNotice({
 
   if (
     builderCreditStatus.isError ||
+    orgError ||
+    sessionError ||
+    sessionStatus !== "authenticated" ||
+    (session?.orgId ?? null) !== (org?.orgId ?? null) ||
     !(showAtLimitOnly ? exhausted : nearLimit)
   ) {
     return null;
