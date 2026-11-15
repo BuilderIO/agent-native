@@ -1,8 +1,10 @@
 import {
+  platformWaitUntil,
   recordChange,
   runWithRequestContext,
   type RecurringSweepContext,
 } from "@agent-native/core/server";
+import { getRequestRunContext } from "@agent-native/core/server/request-context";
 import { and, asc, eq, isNull, lt, or, sql } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
@@ -23,9 +25,15 @@ import {
  * most once a minute.
  */
 export const GITHUB_PULL_REQUESTS_STALE_MS = 60_000;
-/** How long a read waits on GitHub; the background sync finishes the rest. */
-const READ_SYNC_BUDGET_MS = 3_000;
-/** One link's share of a background sync, which has 90 seconds in all. */
+/**
+ * How long a read waits on GitHub. A sync still going then carries on after
+ * the response, and open pages update when it finishes.
+ */
+const READ_WAIT_MS = 3_000;
+/**
+ * One link's share of a background sync, which has 90 seconds in all. A sync
+ * a read starts has as long.
+ */
 const SWEEP_SYNC_BUDGET_MS = 20_000;
 /** Links the background sync checks at once. */
 const SWEEP_CONCURRENCY = 4;
@@ -120,8 +128,10 @@ async function announceSync(
 /**
  * Checks GitHub before a read of a pull request collection, or one of its
  * pages, when the link hasn't been checked for a minute. Never fails the
- * read. True when a sync changed or may have changed rows, so the caller
- * reads again.
+ * read, and holds it at most three seconds: a search of a few hundred pull
+ * requests takes several requests, so a sync still going then finishes after
+ * the response and tells open pages when it does. True when a sync changed
+ * or may have changed rows, so the caller reads again.
  */
 export async function refreshGitHubPullRequestsBeforeRead(
   link: GitHubPullRequestsLink,
@@ -129,37 +139,50 @@ export async function refreshGitHubPullRequestsBeforeRead(
   if (checkedWithin(link.lastRefreshedAt, GITHUB_PULL_REQUESTS_STALE_MS)) {
     return false;
   }
-  const until = Date.now() + READ_SYNC_BUDGET_MS;
-  let result: GitHubPullRequestsSyncResult;
-  try {
-    result = await syncGitHubPullRequests({
+  const until = Date.now() + READ_WAIT_MS;
+  const owner = linkState(link.metadataJson)?.linkedBy || null;
+  const sync: Promise<GitHubPullRequestsSyncResult | null> =
+    syncGitHubPullRequests({
       sourceId: link.sourceId,
-      budgetMs: READ_SYNC_BUDGET_MS,
-    });
-    if (result.state === "busy") {
-      // Another read or the background sync is asking GitHub. Wait for it in
-      // this read's time, then read again.
-      await waitForGitHubPullRequestsSync(link.sourceId, until);
-      return true;
-    }
-  } catch (error) {
-    // coercion-ok: the read goes on with the rows Content has; the next read or background sync tries GitHub again.
-    console.warn(
-      "[github-pull-requests] check before read failed:",
-      error instanceof Error ? error.message : String(error),
+      budgetMs: SWEEP_SYNC_BUDGET_MS,
+    }).then(
+      async (result) => {
+        await announceSync(link, owner, result).catch((error: unknown) => {
+          console.warn(
+            "[github-pull-requests] change event failed:",
+            error instanceof Error ? error.message : String(error),
+          );
+        });
+        return result;
+      },
+      (error: unknown) => {
+        // coercion-ok: the read goes on with the rows Content has; the next read or background sync tries GitHub again.
+        console.warn(
+          "[github-pull-requests] check before read failed:",
+          error instanceof Error ? error.message : String(error),
+        );
+        return null;
+      },
     );
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const waited = new Promise<"waited">((resolve) => {
+    timer = setTimeout(() => resolve("waited"), READ_WAIT_MS);
+  });
+  const result = await Promise.race([sync, waited]).finally(() =>
+    clearTimeout(timer),
+  );
+  if (result === "waited") {
+    const waitUntil = getRequestRunContext()?.waitUntil ?? platformWaitUntil();
+    if (waitUntil) waitUntil(sync);
     return false;
   }
-  await announceSync(
-    link,
-    linkState(link.metadataJson)?.linkedBy || null,
-    result,
-  ).catch((error: unknown) => {
-    console.warn(
-      "[github-pull-requests] change event failed:",
-      error instanceof Error ? error.message : String(error),
-    );
-  });
+  if (!result) return false;
+  if (result.state === "busy") {
+    // Another read or the background sync is asking GitHub. Wait for it in
+    // this read's time, then read again.
+    await waitForGitHubPullRequestsSync(link.sourceId, until);
+    return true;
+  }
   return githubPullRequestsSyncChangedRows(result);
 }
 

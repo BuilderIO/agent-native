@@ -558,6 +558,36 @@ describe("Reading pull requests by number", () => {
     ]);
   });
 
+  it("reads GitHub's MERGED state as merged and CLOSED as closed", async () => {
+    github.response = {
+      status: 200,
+      json: {
+        data: {
+          r0: {
+            pullRequest: {
+              ...node,
+              state: "MERGED",
+              closedAt: "2026-11-03T00:00:00Z",
+            },
+          },
+          r1: {
+            pullRequest: {
+              ...node,
+              number: 1,
+              state: "CLOSED",
+              closedAt: "2026-11-03T00:00:00Z",
+              repository: { name: "gone", owner: { login: "acme" } },
+            },
+          },
+        },
+      },
+    };
+    await expect(readGitHubPullRequests({}, refs)).resolves.toMatchObject([
+      { number: 12, state: "merged" },
+      { number: 1, state: "closed" },
+    ]);
+  });
+
   it("refuses an answer with any other error, since a pull request it left null may still be there", async () => {
     github.response = {
       status: 200,

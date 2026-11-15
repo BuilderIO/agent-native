@@ -31,6 +31,8 @@ const github = vi.hoisted(() => {
     searches: [] as Array<{ search: string; user: string | undefined }>,
     /** The keys each read by number asked for. */
     reads: [] as string[][],
+    /** When set, searches answer only once it settles. */
+    gate: null as Promise<void> | null,
   };
   return {
     state,
@@ -44,6 +46,7 @@ const github = vi.hoisted(() => {
       state.readFailure = null;
       state.searches = [];
       state.reads = [];
+      state.gate = null;
     },
   };
 });
@@ -63,6 +66,7 @@ vi.mock("../server/lib/github-source-client.js", async (importOriginal) => {
       limit: number,
     ) => {
       github.state.searches.push({ search, user: getRequestUserEmail() });
+      if (github.state.gate) await github.state.gate;
       if (github.state.failure) throw github.state.failure;
       const found = github.state.found.flatMap((key) => {
         const pr = github.state.pullRequests.get(key);
@@ -112,6 +116,12 @@ let refreshSource: typeof import("./refresh-content-database-source.js").default
 let getSource: typeof import("./get-content-database-source.js").default;
 let updateDocument: typeof import("./update-document.js").default;
 let getDocument: typeof import("./get-document.js").default;
+let getDatabase: typeof import("./get-content-database.js").default;
+let addItem: typeof import("./add-database-item.js").default;
+let duplicateItem: typeof import("./duplicate-database-item.js").default;
+let attachSource: typeof import("./attach-content-database-source.js").default;
+let deleteDocument: typeof import("./delete-document.js").default;
+let restoreDocument: typeof import("./restore-document.js").default;
 let runSweep: typeof import("./_github-pull-requests-freshness.js").runGitHubPullRequestsSweep;
 let refreshPage: typeof import("./_github-source-freshness.js").refreshGitHubPageBeforeRead;
 let addAs: typeof import("./_github-pull-requests-source.js").addGitHubPullRequests;
@@ -137,6 +147,12 @@ beforeAll(async () => {
   getSource = (await import("./get-content-database-source.js")).default;
   updateDocument = (await import("./update-document.js")).default;
   getDocument = (await import("./get-document.js")).default;
+  getDatabase = (await import("./get-content-database.js")).default;
+  addItem = (await import("./add-database-item.js")).default;
+  duplicateItem = (await import("./duplicate-database-item.js")).default;
+  attachSource = (await import("./attach-content-database-source.js")).default;
+  deleteDocument = (await import("./delete-document.js")).default;
+  restoreDocument = (await import("./restore-document.js")).default;
   ({ runGitHubPullRequestsSweep: runSweep } =
     await import("./_github-pull-requests-freshness.js"));
   ({ refreshGitHubPageBeforeRead: refreshPage } =
@@ -937,4 +953,126 @@ describe("GitHub pull request collections", () => {
     await runSweep({ deadlineAt: Date.now() + 60_000 });
     expect(searchedHere()).toEqual([{ search, user: owner }]);
   });
+
+  it("refuses rows of Content's own and another source in a pull request collection", async () => {
+    const key = pullRequest("site", 200, { title: "Only from GitHub" });
+    github.state.found = [key];
+    const result = made(await newCollection());
+    const row = await rowByTitle(result.database.id, "Only from GitHub");
+    const item = (
+      await getDb()
+        .select({ id: schema.contentDatabaseItems.id })
+        .from(schema.contentDatabaseItems)
+        .where(eq(schema.contentDatabaseItems.documentId, row.documentId))
+    ).at(0);
+    if (!item) throw new Error("No item for the row.");
+
+    await expect(
+      as(() => duplicateItem.run({ itemId: item.id })),
+    ).rejects.toThrow("its rows come from GitHub");
+    const discovered = await as(() =>
+      getDatabase.run({ databaseId: result.database.id }),
+    );
+    const contract =
+      "mutationContract" in discovered ? discovered.mutationContract : null;
+    if (!contract) throw new Error("The collection has no mutation contract.");
+    await expect(
+      as(() =>
+        addItem.run({
+          target: contract.target,
+          expectedSchemaRevision: contract.schemaRevision,
+          idempotencyKey: "github-prs-new-row",
+          title: "Local draft",
+        }),
+      ),
+    ).rejects.toThrow("its rows come from GitHub");
+    await expect(
+      as(() =>
+        attachSource.run({
+          databaseId: result.database.id,
+          sourceType: "mock-local",
+        }),
+      ),
+    ).rejects.toThrow("source settings can't change here");
+    expect(await liveTitles(result.database.id)).toEqual(["Only from GitHub"]);
+  });
+
+  it("takes a restored row out of the collection once its pull request left the search, and keeps one it still follows", async () => {
+    const left = pullRequest("site", 210, { title: "Left the search" });
+    const stays = pullRequest("site", 211, { title: "Still found" });
+    github.state.found = [left, stays];
+    const result = made(await newCollection());
+    const leftRow = await rowByTitle(result.database.id, "Left the search");
+    const staysRow = await rowByTitle(result.database.id, "Still found");
+    await as(() => deleteDocument.run({ id: leftRow.documentId }));
+    await as(() => deleteDocument.run({ id: staysRow.documentId }));
+
+    // The search stops finding the first while its row is in Trash.
+    github.state.found = [stays];
+    await refresh(result.database.id);
+    await as(() => restoreDocument.run({ id: leftRow.documentId }));
+    await as(() => restoreDocument.run({ id: staysRow.documentId }));
+
+    // The first comes back as an ordinary page, out of the rows, and the
+    // second is still its pull request's row.
+    expect(await liveTitles(result.database.id)).toEqual(["Still found"]);
+    const page = (
+      await getDb()
+        .select({ trashedAt: schema.documents.trashedAt })
+        .from(schema.documents)
+        .where(eq(schema.documents.id, leftRow.documentId))
+    ).at(0);
+    expect(page).toEqual({ trashedAt: null });
+    changePullRequest(stays, { title: "Still found, renamed" });
+    await refresh(result.database.id);
+    expect(
+      (await rowByTitle(result.database.id, "Still found, renamed")).documentId,
+    ).toBe(staysRow.documentId);
+
+    // When the search finds the first again, it gets one row, not two.
+    github.state.found = [left, stays];
+    await refresh(result.database.id);
+    expect(await liveTitles(result.database.id)).toEqual([
+      "Left the search",
+      "Still found, renamed",
+    ]);
+    expect(
+      (await rowByTitle(result.database.id, "Left the search")).documentId,
+    ).not.toBe(leftRow.documentId);
+  });
+
+  it("goes on with the rows Content has when GitHub is slow, and finishes the sync after the read", async () => {
+    const key = pullRequest("site", 220, { title: "Before a slow read" });
+    github.state.found = [key];
+    const result = made(await newCollection());
+    const row = await rowByTitle(result.database.id, "Before a slow read");
+    await getDb()
+      .update(schema.contentDatabaseSources)
+      .set({ lastRefreshedAt: new Date(Date.now() - 5 * 60_000).toISOString() })
+      .where(eq(schema.contentDatabaseSources.databaseId, result.database.id));
+    changePullRequest(key, { title: "After a slow read" });
+    let answer = () => {};
+    github.state.gate = new Promise<void>((resolve) => {
+      answer = resolve;
+    });
+
+    const started = Date.now();
+    expect(await as(() => refreshPage(row.documentId))).toBe(false);
+    expect(Date.now() - started).toBeLessThan(4_500);
+    expect(await liveTitles(result.database.id)).toEqual([
+      "Before a slow read",
+    ]);
+
+    changes.length = 0;
+    answer();
+    await vi.waitFor(
+      async () => {
+        expect(await liveTitles(result.database.id)).toEqual([
+          "After a slow read",
+        ]);
+        expect(changes).not.toEqual([]);
+      },
+      { timeout: 10_000, interval: 50 },
+    );
+  }, 30_000);
 });
