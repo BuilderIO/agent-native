@@ -15394,6 +15394,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       kind?: string;
       info: unknown;
     }>;
+    nativeElements: Element[];
   } {
     var shieldPointerEvents = shieldOverlay.style.pointerEvents;
     var selectionPointerEvents = selectionOverlay.style.pointerEvents;
@@ -15409,17 +15410,21 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     highlightOverlay.style.pointerEvents = highlightPointerEvents;
     // Hit testing skips pointer-events:none layers; add the visible ones back
     // where they paint so a decorative canvas behind a wrapper is reachable.
+    var nativeTargets = pointTargets.filter(function (hit) {
+      return !!hit && !isOverlayElement(hit);
+    });
     pointTargets = mergeVisualLayersAtPoint(
       document,
       clientX,
       clientY,
-      pointTargets.filter(function (hit) {
-        return !!hit && !isOverlayElement(hit);
-      }),
+      nativeTargets,
       isVisualLayerScanExcluded,
     ).stack;
 
     var elements: Element[] = [];
+    // What native hit testing returned, in stack order: only these can be the
+    // default target. Merged-in layers are alternates, never the pick.
+    var nativeElements: Element[] = [];
     var layerCandidates: Array<{
       key: string;
       label: string;
@@ -15447,6 +15452,9 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
           return;
         }
         elements.push(candidate);
+        if (nativeTargets.indexOf(pointTarget) !== -1) {
+          nativeElements.push(candidate);
+        }
         var candidateInfo = getElementInfo(
           candidate,
           portableComputedStylesCache,
@@ -15473,7 +15481,11 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         portableComputedStylesCache.restoreCssomHooks();
       }
     }
-    return { elements: elements, layerCandidates: layerCandidates };
+    return {
+      elements: elements,
+      layerCandidates: layerCandidates,
+      nativeElements: nativeElements,
+    };
   }
 
   function stackCycleTarget(
@@ -15501,10 +15513,9 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     stopNativeInteraction(e);
     blurActiveTextEditor();
     var collected = collectLayerHitCandidates(e.clientX, e.clientY);
-    var candidateElements = collected.elements;
     var layerCandidates = collected.layerCandidates;
 
-    var target = candidateElements[0] || null;
+    var target = collected.nativeElements[0] || null;
     // Empty background inside a screen is the screen itself: right-click
     // selects the frame under the pointer and opens its menu. The board has no such
     // owner, so its empty canvas keeps the canvas menu.

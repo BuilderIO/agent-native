@@ -55,23 +55,34 @@ const MIN_LAYER_EXTENT_PX = 2;
 
 const CANVAS_CONTEXT_KINDS_KEY = "__agentNativeCanvasContextKinds";
 
+// Built at runtime: this module is inlined into the bridge, itself an inline
+// <script>, where a literal closing tag would end it early.
+const SCRIPT_CLOSE = ["</", "script>"].join("");
+
 /**
  * Head script that records which context each canvas opened. Probing a canvas
  * with `getContext` would create a context on an unused one and lock its type,
  * breaking a page that later asks for a different kind, so WebGL is detected
  * only from this record (or a renderer's own marker).
  */
-export const CANVAS_CONTEXT_RECORDER_SCRIPT = `<script data-agent-native-canvas-context-recorder>(function(){try{var p=window.HTMLCanvasElement&&HTMLCanvasElement.prototype;if(!p||p.__agentNativeContextRecorder)return;var kinds=new WeakMap();window.${CANVAS_CONTEXT_KINDS_KEY}=kinds;var original=p.getContext;p.getContext=function(type){var ctx=original.apply(this,arguments);if(ctx&&!kinds.has(this))kinds.set(this,String(type));return ctx;};p.__agentNativeContextRecorder=true;}catch(e){console.error("[agent-native] canvas context recorder failed",e);}})();</script>`;
+export const CANVAS_CONTEXT_RECORDER_SCRIPT = `<script data-agent-native-canvas-context-recorder>(function(){try{var p=window.HTMLCanvasElement&&HTMLCanvasElement.prototype;if(!p||p.__agentNativeContextRecorder)return;var kinds=new WeakMap();window.${CANVAS_CONTEXT_KINDS_KEY}=kinds;var original=p.getContext;p.getContext=function(type){var ctx=original.apply(this,arguments);if(ctx&&!kinds.has(this))kinds.set(this,String(type));return ctx;};p.__agentNativeContextRecorder=true;}catch(e){console.error("[agent-native] canvas context recorder failed",e);}})();${SCRIPT_CLOSE}`;
 
+/**
+ * Puts the recorder first in the document's head. Only the markup before the
+ * first script, style or body is searched: a `<head>` further down is text in
+ * a script, not the head. Call it on the page's own markup, before any bridge
+ * script is added, whose string literals contain such text.
+ */
 export function injectCanvasContextRecorder(html: string): string {
-  const headOpen = /<head(?:\s[^>]*)?>/i.exec(html);
-  if (headOpen) {
-    const end = headOpen.index + headOpen[0].length;
-    return (
-      html.slice(0, end) + CANVAS_CONTEXT_RECORDER_SCRIPT + html.slice(end)
-    );
-  }
-  return CANVAS_CONTEXT_RECORDER_SCRIPT + html;
+  const rawStart = /<(?:script|style|body)\b/i.exec(html)?.index ?? html.length;
+  const prefix = html.slice(0, rawStart);
+  const opener =
+    /<head(?:\s[^>]*)?>/i.exec(prefix) ??
+    /<html(?:\s[^>]*)?>/i.exec(prefix) ??
+    /^\s*<!doctype[^>]*>/i.exec(prefix);
+  if (!opener) return CANVAS_CONTEXT_RECORDER_SCRIPT + html;
+  const end = opener.index + opener[0].length;
+  return html.slice(0, end) + CANVAS_CONTEXT_RECORDER_SCRIPT + html.slice(end);
 }
 
 function recordedCanvasContextKind(canvas: Element): string | null {
@@ -192,6 +203,31 @@ function scanElements(
   }
 }
 
+// True when an element with `z-index: auto` still paints as its own stacking
+// context, trapping the z-index of everything inside it.
+function createsStackingContext(cs: CSSStyleDeclaration): boolean {
+  return (
+    cs.position === "fixed" ||
+    cs.position === "sticky" ||
+    Number(cs.opacity) < 1 ||
+    [
+      cs.transform,
+      cs.translate,
+      cs.rotate,
+      cs.scale,
+      cs.perspective,
+      cs.filter,
+      cs.backdropFilter,
+      cs.clipPath,
+      cs.maskImage,
+    ].some((value) => !!value && value !== "none") ||
+    (!!cs.mixBlendMode && cs.mixBlendMode !== "normal") ||
+    cs.isolation === "isolate" ||
+    /layout|paint|strict|content/.test(cs.contain) ||
+    /transform|opacity|filter|perspective/.test(cs.willChange)
+  );
+}
+
 // Stacking buckets in CSS paint order: negative z, in-flow, positioned
 // (auto/0), positive z. An element's bucket below `stopAt` is decided by the
 // outermost stacking context on its path, as the spec paints it.
@@ -209,12 +245,19 @@ function paintLevel(el: Element, stopAt: Element | null): [number, number] {
     const isPositioned = cs.position !== "static";
     if (isPositioned) positioned = true;
     const zIndex = parseInt(cs.zIndex, 10);
-    if (Number.isNaN(zIndex)) continue;
     const parentDisplay =
       view && node.parentElement
         ? view.getComputedStyle(node.parentElement).display
         : "";
-    if (isPositioned || /flex|grid/.test(parentDisplay)) z = zIndex;
+    if (
+      !Number.isNaN(zIndex) &&
+      (isPositioned || /flex|grid/.test(parentDisplay))
+    ) {
+      z = zIndex;
+    } else if (createsStackingContext(cs)) {
+      z = 0;
+      positioned = true;
+    }
   }
   if (z !== null && z < 0) return [0, z];
   if (z !== null && z > 0) return [3, z];

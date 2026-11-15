@@ -16,6 +16,8 @@ export interface PendingTweakSave {
 export interface ConfirmedTweakSelections {
   selections: TweakSelections;
   hash: string;
+  /** Revision of the save that produced this base; absent when seeded from the server. */
+  revision?: number;
 }
 
 /** The one save this tab has on the wire, and the base it leaves if it lands. */

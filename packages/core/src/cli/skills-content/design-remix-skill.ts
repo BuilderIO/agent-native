@@ -39,8 +39,11 @@ stack. Follow the repo's instructions and reuse its components and conventions.
 Use the current canvas selection, or open the hosted editor at
 \`https://design.agent-native.com\`. Connect and place screens as
 \`/visual-edit\` does (WebMCP \`open-visual-edit\` in a page-capable browser,
-otherwise hosted Design MCP at \`https://design.agent-native.com/mcp\`). Read
-visual-edit for bridge, auth, and handoff rules. Never start a local Design server.
+otherwise hosted Design MCP at \`https://design.agent-native.com/mcp\`). Design
+mode depends on the \`visual-edit\` skill for bridge, auth, and handoff rules:
+read it, and if it is not installed run
+\`npx @agent-native/core@latest skills add visual-edit\` first (repo mode does
+not need it). Never start a local Design server.
 
 Ask only for a missing source or destination; a new site can be scaffolded in
 the user's stack. Infer style from the destination. If the prompt already
@@ -133,8 +136,11 @@ Render the rebuild with the source's original colors beside a capture of the
 source at the same viewport and the same animation time (pin the clock or the
 time uniform). Compare silhouette, placement, scale, texture, and motion;
 change the rebuild and recapture until the two read as the same effect. Only
-then swap in the destination's colors. Show the user that side-by-side, and
-name any remaining difference.
+then apply the destination's brand layer (colors, fonts, iconography, logos,
+copy). Fonts and copy change text wrapping and placement, so compare layout
+again after the swap and fix drift without undoing the brand mapping. Show the
+user the original-colors side-by-side and the final one, and name any remaining
+difference.
 
 ## Swappable Assets
 

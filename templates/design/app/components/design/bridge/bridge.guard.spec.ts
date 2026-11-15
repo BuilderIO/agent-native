@@ -1517,6 +1517,13 @@ describe("generated bridge modules", () => {
   const bridgeFiles = getBridgeFiles();
 
   for (const filename of bridgeFiles) {
+    it(`${filename} generated script has no literal closing script tag`, () => {
+      // source-read-ok: The bridge is injected as an inline <script>; a literal closing tag in its text ends it early.
+      expect(readFileSync(generatedPath(filename), "utf-8")).not.toMatch(
+        /<\/script/i,
+      );
+    });
+
     it(`${filename} → .generated/bridge/${filename.replace(".bridge.ts", ".generated.ts")} is up to date`, async () => {
       const outPath = generatedPath(filename);
 

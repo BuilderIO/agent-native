@@ -60,6 +60,7 @@ import { normalizeScreenHtml } from "@shared/screen-annotation";
 import { sourceContentHash } from "@shared/source-workspace";
 import { sanitizeVisualEditSnapshotHtml } from "@shared/visual-edit-snapshot";
 import {
+  CANVAS_CONTEXT_RECORDER_SCRIPT,
   injectCanvasContextRecorder,
   isVisualLayerKind,
 } from "@shared/visual-layers";
@@ -3748,7 +3749,10 @@ export function DesignCanvas({
       imageDiagBridge;
     let frameDocument: string;
     if (/<\/(?:body|html)\s*>/i.test(frameContent)) {
-      frameDocument = injectDocumentMarkup(frameContent, bridgeToInject);
+      frameDocument = injectDocumentMarkup(
+        injectCanvasContextRecorder(frameContent),
+        bridgeToInject,
+      );
     } else {
       const frameStyle = [
         getEmbeddedFrameBackgroundStyle({
@@ -3760,11 +3764,9 @@ export function DesignCanvas({
           embeddedFrame?.contentOffsetY ?? 0,
         ),
       ].join("");
-      frameDocument = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${frameStyle}</head><body>${localizedContent}${bridgeToInject}</body></html>`;
+      frameDocument = `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">${frameStyle}${CANVAS_CONTEXT_RECORDER_SCRIPT}</head><body>${localizedContent}${bridgeToInject}</body></html>`;
     }
-    frameDocument = injectCanvasContextRecorder(
-      inlineDesignStylesheets(frameDocument, designStylesheets),
-    );
+    frameDocument = inlineDesignStylesheets(frameDocument, designStylesheets);
     if (isEmbeddedFrame) {
       frameDocument = appendContentSizeReporter(
         frameDocument,

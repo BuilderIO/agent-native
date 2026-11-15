@@ -131,3 +131,69 @@ describe("visual layers behind a pick", () => {
     }
   });
 });
+
+describe("stacking and targets", () => {
+  async function openMarkup(markup: string): Promise<Page> {
+    const page = await browser.newPage({
+      viewport: { width: 800, height: 600 },
+    });
+    await page.setContent(
+      `<!doctype html><html><head>${CANVAS_CONTEXT_RECORDER_SCRIPT}</head><body style="margin:0">${markup}</body></html>`,
+    );
+    await page.addScriptTag({ content: hydratedEditorChromeBridgeScript() });
+    await page.waitForSelector('[data-agent-native-edit-overlay="shield"]');
+    await page.evaluate(() => {
+      (window as any).__messages = [];
+      window.addEventListener("message", (event: MessageEvent) => {
+        (window as any).__messages.push(event.data);
+      });
+    });
+    return page;
+  }
+
+  it("right-click targets the content under a pointer-events:none scrim, and lists the scrim as an alternate", async () => {
+    const page = await openMarkup(`
+      <section data-agent-native-node-id="hero" style="position:relative;width:600px;height:400px">
+        <h1 data-agent-native-node-id="title" style="margin:0;font:32px sans-serif">Ship faster</h1>
+        <div data-agent-native-node-id="scrim" style="position:absolute;inset:0;z-index:5;pointer-events:none;background:rgba(0,0,0,.3)"></div>
+      </section>`);
+    try {
+      await page.mouse.click(20, 20, { button: "right" });
+      const menu = await waitForMessage(
+        page,
+        'message.type === "element-contextmenu"',
+      );
+      expect(menu.payload.sourceId).not.toBe("scrim");
+      const ids = menu.layerCandidates.map(
+        (candidate: Message) => candidate.info?.sourceId,
+      );
+      expect(ids).toContain("scrim");
+      expect(ids.indexOf("scrim")).toBeLessThan(ids.indexOf("title"));
+    } finally {
+      await page.close();
+    }
+  });
+
+  it("orders a layer by its outermost stacking context, not its own z-index", async () => {
+    const page = await openMarkup(`
+      <div style="position:relative;width:300px;height:300px">
+        <div data-agent-native-node-id="trap" style="transform:translateZ(0);position:absolute;inset:0">
+          <canvas data-agent-native-node-id="deep" width="300" height="300" style="position:absolute;inset:0;z-index:10;pointer-events:none"></canvas>
+        </div>
+        <div data-agent-native-node-id="sibling" style="position:absolute;inset:0;z-index:1;pointer-events:none;background:rgba(255,0,0,.4)"></div>
+      </div>`);
+    try {
+      await page.mouse.click(20, 20, { button: "right" });
+      const menu = await waitForMessage(
+        page,
+        'message.type === "element-contextmenu"',
+      );
+      const ids = menu.layerCandidates.map(
+        (candidate: Message) => candidate.info?.sourceId,
+      );
+      expect(ids.indexOf("sibling")).toBeLessThan(ids.indexOf("deep"));
+    } finally {
+      await page.close();
+    }
+  });
+});

@@ -86,6 +86,7 @@ export function useTweaks({
   const tweakSaveRevisionRef = useRef(0);
   const tweakSaveInFlightRef = useRef<InFlightTweakSave | null>(null);
   const keepaliveTweakSaveRevisionRef = useRef(0);
+  const keepaliveTweakSaveInFlightRef = useRef<InFlightTweakSave | null>(null);
   const confirmedTweakSelectionsRef = useRef<ConfirmedTweakSelections>({
     selections: {},
     hash: tweakSelectionsHash({}),
@@ -136,6 +137,7 @@ export function useTweaks({
       createTweakSaveOutboxEntry,
       id,
       journalTweakOutboxEntry,
+      keepaliveTweakSaveInFlightRef,
       keepaliveTweakSaveRevisionRef,
       noteSaveLeftQueued,
       pendingTweakSaveRef,

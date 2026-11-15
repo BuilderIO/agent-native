@@ -1284,7 +1284,8 @@ export const editorChromeBridgeScript: string = `"use strict";
   var VISUAL_LAYER_SCAN_MAX_ELEMENTS = 6e3;
   var MIN_LAYER_EXTENT_PX = 2;
   var CANVAS_CONTEXT_KINDS_KEY = "__agentNativeCanvasContextKinds";
-  var CANVAS_CONTEXT_RECORDER_SCRIPT = \`<script data-agent-native-canvas-context-recorder>(function(){try{var p=window.HTMLCanvasElement&&HTMLCanvasElement.prototype;if(!p||p.__agentNativeContextRecorder)return;var kinds=new WeakMap();window.\${CANVAS_CONTEXT_KINDS_KEY}=kinds;var original=p.getContext;p.getContext=function(type){var ctx=original.apply(this,arguments);if(ctx&&!kinds.has(this))kinds.set(this,String(type));return ctx;};p.__agentNativeContextRecorder=true;}catch(e){console.error("[agent-native] canvas context recorder failed",e);}})();<\\/script>\`;
+  var SCRIPT_CLOSE = ["</", "script>"].join("");
+  var CANVAS_CONTEXT_RECORDER_SCRIPT = \`<script data-agent-native-canvas-context-recorder>(function(){try{var p=window.HTMLCanvasElement&&HTMLCanvasElement.prototype;if(!p||p.__agentNativeContextRecorder)return;var kinds=new WeakMap();window.\${CANVAS_CONTEXT_KINDS_KEY}=kinds;var original=p.getContext;p.getContext=function(type){var ctx=original.apply(this,arguments);if(ctx&&!kinds.has(this))kinds.set(this,String(type));return ctx;};p.__agentNativeContextRecorder=true;}catch(e){console.error("[agent-native] canvas context recorder failed",e);}})();\${SCRIPT_CLOSE}\`;
   function recordedCanvasContextKind(canvas) {
     const view = canvas.ownerDocument.defaultView;
     const kinds = view ? view[CANVAS_CONTEXT_KINDS_KEY] : void 0;
@@ -1365,6 +1366,19 @@ export const editorChromeBridgeScript: string = `"use strict";
       visit(el, el.getBoundingClientRect());
     }
   }
+  function createsStackingContext(cs) {
+    return cs.position === "fixed" || cs.position === "sticky" || Number(cs.opacity) < 1 || [
+      cs.transform,
+      cs.translate,
+      cs.rotate,
+      cs.scale,
+      cs.perspective,
+      cs.filter,
+      cs.backdropFilter,
+      cs.clipPath,
+      cs.maskImage
+    ].some((value) => !!value && value !== "none") || !!cs.mixBlendMode && cs.mixBlendMode !== "normal" || cs.isolation === "isolate" || /layout|paint|strict|content/.test(cs.contain) || /transform|opacity|filter|perspective/.test(cs.willChange);
+  }
   function paintLevel(el, stopAt) {
     const view = el.ownerDocument.defaultView;
     let z = null;
@@ -1375,9 +1389,13 @@ export const editorChromeBridgeScript: string = `"use strict";
       const isPositioned = cs.position !== "static";
       if (isPositioned) positioned = true;
       const zIndex = parseInt(cs.zIndex, 10);
-      if (Number.isNaN(zIndex)) continue;
       const parentDisplay = view && node.parentElement ? view.getComputedStyle(node.parentElement).display : "";
-      if (isPositioned || /flex|grid/.test(parentDisplay)) z = zIndex;
+      if (!Number.isNaN(zIndex) && (isPositioned || /flex|grid/.test(parentDisplay))) {
+        z = zIndex;
+      } else if (createsStackingContext(cs)) {
+        z = 0;
+        positioned = true;
+      }
     }
     if (z !== null && z < 0) return [0, z];
     if (z !== null && z > 0) return [3, z];
@@ -12608,16 +12626,18 @@ export const editorChromeBridgeScript: string = `"use strict";
       shieldOverlay.style.pointerEvents = shieldPointerEvents;
       selectionOverlay.style.pointerEvents = selectionPointerEvents;
       highlightOverlay.style.pointerEvents = highlightPointerEvents;
+      var nativeTargets = pointTargets.filter(function(hit) {
+        return !!hit && !isOverlayElement(hit);
+      });
       pointTargets = mergeVisualLayersAtPoint(
         document,
         clientX,
         clientY,
-        pointTargets.filter(function(hit) {
-          return !!hit && !isOverlayElement(hit);
-        }),
+        nativeTargets,
         isVisualLayerScanExcluded
       ).stack;
       var elements = [];
+      var nativeElements = [];
       var layerCandidates = [];
       var portableComputedStylesCache = portableStyleSnapshotsReadOnDemand ? void 0 : createPortableStyleComputedStylesCache();
       try {
@@ -12629,6 +12649,9 @@ export const editorChromeBridgeScript: string = `"use strict";
             return;
           }
           elements.push(candidate);
+          if (nativeTargets.indexOf(pointTarget) !== -1) {
+            nativeElements.push(candidate);
+          }
           var candidateInfo = getElementInfo(
             candidate,
             portableComputedStylesCache
@@ -12652,7 +12675,11 @@ export const editorChromeBridgeScript: string = `"use strict";
           portableComputedStylesCache.restoreCssomHooks();
         }
       }
-      return { elements, layerCandidates };
+      return {
+        elements,
+        layerCandidates,
+        nativeElements
+      };
     }
     function stackCycleTarget(clientX, clientY, currentEl) {
       if (!currentEl) return null;
@@ -12674,9 +12701,8 @@ export const editorChromeBridgeScript: string = `"use strict";
       stopNativeInteraction(e);
       blurActiveTextEditor();
       var collected = collectLayerHitCandidates(e.clientX, e.clientY);
-      var candidateElements = collected.elements;
       var layerCandidates = collected.layerCandidates;
-      var target = candidateElements[0] || null;
+      var target = collected.nativeElements[0] || null;
       if (!target && !designCanvasBoardSurface && document.body) {
         target = document.body;
       }

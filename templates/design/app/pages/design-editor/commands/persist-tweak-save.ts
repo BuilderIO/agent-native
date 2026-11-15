@@ -35,6 +35,8 @@ export interface PersistTweakSaveArgs {
   ) => DesignSaveOutboxEntry | null;
   id: string | undefined;
   journalTweakOutboxEntry: (entry: DesignSaveOutboxEntry) => Promise<boolean>;
+  /** The page-exit keepalive still on the wire, and the base it leaves if it lands. */
+  keepaliveTweakSaveInFlightRef: RefObject<InFlightTweakSave | null>;
   /** Highest revision a page-exit keepalive has sent. */
   keepaliveTweakSaveRevisionRef: RefObject<number>;
   noteSaveLeftQueued: () => void;
@@ -77,14 +79,25 @@ function confirmTweakSave(
   result: ApplyTweaksResult | undefined,
 ) {
   const { id, pendingTweakSaveRef, queryClient } = args;
+  // Page-exit keepalives overlap the normal save, so responses can arrive out
+  // of order; an older one must not roll the confirmed base back.
+  const staleConfirmation =
+    (args.confirmedTweakSelectionsRef.current.revision ?? 0) > sent.revision;
   const applied = (result?.appliedTweaks ??
     sent.selections) as PendingTweakSave["selections"];
-  const hash =
-    typeof result?.selectionsHash === "string"
+  const hash = staleConfirmation
+    ? args.confirmedTweakSelectionsRef.current.hash
+    : typeof result?.selectionsHash === "string"
       ? result.selectionsHash
       : tweakSelectionsHash(applied);
-  args.confirmedTweakSelectionsRef.current = { selections: applied, hash };
-  if (id && result?.appliedTweaks) {
+  if (!staleConfirmation) {
+    args.confirmedTweakSelectionsRef.current = {
+      selections: applied,
+      hash,
+      revision: sent.revision,
+    };
+  }
+  if (id && result?.appliedTweaks && !staleConfirmation) {
     queryClient.setQueryData(
       designMetadataQueryKey(id),
       (old: Record<string, unknown> | undefined) => {
@@ -140,6 +153,7 @@ export function sendLatestTweakSave(args: PersistTweakSaveArgs): void {
     createTweakSaveOutboxEntry,
     id,
     journalTweakOutboxEntry,
+    keepaliveTweakSaveInFlightRef,
     keepaliveTweakSaveRevisionRef,
     noteSaveLeftQueued,
     pendingTweakSaveRef,
@@ -153,7 +167,15 @@ export function sendLatestTweakSave(args: PersistTweakSaveArgs): void {
   const pending = pendingTweakSaveRef.current;
   if (!pending) return;
   const confirmed = confirmedTweakSelectionsRef.current;
-  const sendPending = rebaseTweakSaveForSend(pending, confirmed.hash);
+  const rebased = rebaseTweakSaveForSend(pending, confirmed.hash);
+  // A keepalive that lands first moves the server base; accept that one too.
+  const keepaliveBase = keepaliveTweakSaveInFlightRef.current;
+  const sendPending: PendingTweakSave = keepaliveBase
+    ? {
+        ...rebased,
+        inFlightSelectionsHash: keepaliveBase.selectionsHashIfApplied,
+      }
+    : rebased;
   const entry = createTweakSaveOutboxEntry(sendPending);
   if (!entry) return;
   tweakSaveInFlightRef.current = {
@@ -223,8 +245,11 @@ export function sendLatestTweakSaveKeepalive(args: PersistTweakSaveArgs): void {
     createTweakSaveOutboxEntry,
     id,
     journalTweakOutboxEntry,
+    keepaliveTweakSaveInFlightRef,
     keepaliveTweakSaveRevisionRef,
+    noteSaveLeftQueued,
     pendingTweakSaveRef,
+    t,
     tweakSaveInFlightRef,
   } = args;
   const pending = pendingTweakSaveRef.current;
@@ -241,6 +266,19 @@ export function sendLatestTweakSaveKeepalive(args: PersistTweakSaveArgs): void {
   const entry = createTweakSaveOutboxEntry(sendPending);
   if (!entry) return;
   keepaliveTweakSaveRevisionRef.current = sendPending.revision;
+  const keepaliveBase: InFlightTweakSave = {
+    revision: sendPending.revision,
+    selectionsHashIfApplied: selectionsHashIfApplied(
+      confirmedTweakSelectionsRef.current,
+      sendPending.selections,
+    ),
+  };
+  keepaliveTweakSaveInFlightRef.current = keepaliveBase;
+  const settle = () => {
+    if (keepaliveTweakSaveInFlightRef.current === keepaliveBase) {
+      keepaliveTweakSaveInFlightRef.current = null;
+    }
+  };
   let result: ApplyTweaksResult | undefined;
   void sendJournaledTweakSaveKeepalive({
     journal: () => journalTweakOutboxEntry(entry),
@@ -260,14 +298,27 @@ export function sendLatestTweakSaveKeepalive(args: PersistTweakSaveArgs): void {
     acknowledge: () => acknowledgeOutboxEntry(entry),
   })
     .then((landed) => {
+      settle();
       if (landed) confirmTweakSave(args, sendPending, result);
       else if (keepaliveTweakSaveRevisionRef.current === sendPending.revision) {
         // The browser refused the keepalive: let the next page exit retry.
         keepaliveTweakSaveRevisionRef.current = sendPending.revision - 1;
       }
     })
-    // coercion-ok: the page is usually gone by now. The snapshot stays in
-    // pendingTweakSaveRef and its journaled entry stays in the outbox, so a
-    // page that is still open re-sends it and reports through the normal save.
-    .catch(() => {});
+    .catch(async (error: unknown) => {
+      settle();
+      // Let the next page exit send this snapshot again.
+      if (keepaliveTweakSaveRevisionRef.current === sendPending.revision) {
+        keepaliveTweakSaveRevisionRef.current = sendPending.revision - 1;
+      }
+      const conflict =
+        classifyTweakSaveFailure(error, true, false) === "conflict";
+      // A conflicting snapshot can never be replayed, so it must not wait in
+      // the outbox as an unsaved change.
+      if (conflict) await acknowledgeOutboxEntry(entry);
+      // A hidden page is on its way out; only a page still open can be told.
+      if (document.visibilityState !== "visible") return;
+      if (conflict) toast.error(t("designEditor.toasts.tweakConflict"));
+      else noteSaveLeftQueued();
+    });
 }

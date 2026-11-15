@@ -6,8 +6,15 @@ import type { PendingTweakSave } from "@/pages/design-editor/tweak-save";
 
 import {
   sendLatestTweakSave,
+  sendLatestTweakSaveKeepalive,
   type PersistTweakSaveArgs,
 } from "./persist-tweak-save";
+
+const keepaliveCall = vi.hoisted(() => vi.fn());
+vi.mock("@agent-native/core/client/hooks", () => ({
+  tryCallActionKeepalive: keepaliveCall,
+  useActionMutation: vi.fn(),
+}));
 
 vi.mock("sonner", () => ({
   toast: { error: vi.fn(), warning: vi.fn(), success: vi.fn() },
@@ -50,6 +57,7 @@ function setup(options: {
       }),
     id: "design-1",
     journalTweakOutboxEntry: vi.fn(async () => options.journaled ?? true),
+    keepaliveTweakSaveInFlightRef: { current: null },
     keepaliveTweakSaveRevisionRef: { current: 0 },
     noteSaveLeftQueued,
     pendingTweakSaveRef: { current: PENDING },
@@ -159,5 +167,89 @@ describe("runPersistTweakSave queued-save signal", () => {
     await runToCompletion(args);
 
     expect(noteSaveLeftQueued).not.toHaveBeenCalled();
+  });
+});
+
+describe("overlapping page-exit keepalive and normal saves", () => {
+  beforeEach(() => {
+    vi.stubGlobal("navigator", { onLine: true });
+    vi.stubGlobal("document", { visibilityState: "visible" });
+    keepaliveCall.mockReset();
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("ignores a save response older than the confirmed base", async () => {
+    const newerHash = tweakSelectionsHash({ a: 1 });
+    const { args } = setup({
+      apply: async () => ({
+        appliedTweaks: {},
+        selectionsHash: tweakSelectionsHash({}),
+      }),
+    });
+    args.confirmedTweakSelectionsRef.current = {
+      selections: { a: 1 },
+      hash: newerHash,
+      revision: 5,
+    };
+
+    await runToCompletion(args);
+
+    expect(args.confirmedTweakSelectionsRef.current.hash).toBe(newerHash);
+    expect(args.queryClient.setQueryData).not.toHaveBeenCalled();
+  });
+
+  it("accepts the base a keepalive on the wire will leave", async () => {
+    const { args } = setup({ apply: async () => ({ appliedTweaks: {} }) });
+    args.keepaliveTweakSaveInFlightRef.current = {
+      revision: 1,
+      selectionsHashIfApplied: "hash-after-keepalive",
+    };
+
+    await runToCompletion(args);
+
+    expect(args.applyTweaksAsync).toHaveBeenCalledWith(
+      expect.objectContaining({
+        inFlightSelectionsHash: "hash-after-keepalive",
+      }),
+    );
+  });
+
+  it("clears a conflicting keepalive and lets the next page exit retry", async () => {
+    const { args } = setup({ apply: async () => ({}) });
+    keepaliveCall.mockReturnValue({
+      accepted: true,
+      completion: Promise.reject(
+        Object.assign(new Error("Tweaks changed"), { status: 409 }),
+      ),
+    });
+
+    sendLatestTweakSaveKeepalive(args);
+    await vi.waitFor(() =>
+      expect(args.keepaliveTweakSaveInFlightRef.current).toBeNull(),
+    );
+    await vi.waitFor(() =>
+      expect(args.acknowledgeOutboxEntry).toHaveBeenCalledOnce(),
+    );
+
+    expect(args.keepaliveTweakSaveRevisionRef.current).toBe(0);
+    expect(args.noteSaveLeftQueued).not.toHaveBeenCalled();
+  });
+
+  it("reports a failed keepalive that stays journaled when the page is still open", async () => {
+    const { args, noteSaveLeftQueued } = setup({ apply: async () => ({}) });
+    keepaliveCall.mockReturnValue({
+      accepted: true,
+      completion: Promise.reject(
+        Object.assign(new Error("Internal server error"), { status: 500 }),
+      ),
+    });
+
+    sendLatestTweakSaveKeepalive(args);
+    await vi.waitFor(() => expect(noteSaveLeftQueued).toHaveBeenCalledOnce());
+
+    expect(args.acknowledgeOutboxEntry).not.toHaveBeenCalled();
+    expect(args.keepaliveTweakSaveRevisionRef.current).toBe(0);
   });
 });

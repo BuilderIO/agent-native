@@ -88,4 +88,15 @@ describe("tweaksForSelection", () => {
   it("shows nothing with no selection", () => {
     expect(shown([])).toEqual([]);
   });
+
+  it("keeps a node-scoped knob without a screen id to the screens that have the node", () => {
+    const unscopedToScreen = [tweak("hero-glow", { nodeId: "wave" })];
+    const shownOn = (screenId: string) =>
+      tweaksForSelection(unscopedToScreen, [{ screenId }], (id) =>
+        id === "home" ? SCREEN_HTML : "<html><body></body></html>",
+      ).map((t) => t.id);
+
+    expect(shownOn("home")).toEqual(["hero-glow"]);
+    expect(shownOn("pricing")).toEqual([]);
+  });
 });
