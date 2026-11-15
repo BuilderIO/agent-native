@@ -47,10 +47,23 @@ export type HuddleMeeting = {
 
 export type HuddleDeps = {
   db: HuddleDb;
-  /** The connection's decrypted Slack user token, or null when it is gone. */
+  /**
+   * The connection's decrypted Slack user token, or null when it is gone.
+   * Throws when the token could not be read right now.
+   */
   readToken: (connection: SlackUserConnection) => Promise<string | null>;
+  /**
+   * A huddle event matched a meeting: give the huddle's people access to what
+   * the meeting already shared (it may have been stopped and shared before
+   * they joined). Gets every huddle e-mail, not only new rows, so a retried
+   * event can finish a share an earlier attempt could not.
+   */
+  onHuddleParticipants?: (meetingId: string, emails: string[]) => Promise<void>;
   fetchImpl?: typeof fetch;
 };
+
+/** users.info calls one huddle runs at once. */
+const PROFILE_LOOKUP_CONCURRENCY = 8;
 
 const connectionColumns = {
   id: schema.slackUserConnections.id,
@@ -308,6 +321,36 @@ async function markConnectionFailed(
     .where(eq(schema.slackUserConnections.id, connection.id));
 }
 
+/** Run fn over items, at most `limit` at a time; every outcome is kept. */
+async function settleWithLimit<T, R>(
+  items: readonly T[],
+  limit: number,
+  fn: (item: T) => Promise<R>,
+): Promise<PromiseSettledResult<R>[]> {
+  const results: PromiseSettledResult<R>[] = new Array(items.length);
+  let next = 0;
+  async function worker(): Promise<void> {
+    while (next < items.length) {
+      const index = next++;
+      try {
+        results[index] = { status: "fulfilled", value: await fn(items[index]) };
+      } catch (reason) {
+        results[index] = { status: "rejected", reason };
+      }
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(limit, items.length) }, () => worker()),
+  );
+  return results;
+}
+
+/**
+ * Everyone in the huddle Slack will describe, or null when the connection's
+ * token is gone or rejected (the connection is then marked failed). Throws
+ * when Slack could not answer for someone, so a fill never completes with
+ * people silently missing; a retry asks again for the ones not cached.
+ */
 async function resolvePeople(
   deps: HuddleDeps,
   connection: SlackUserConnection,
@@ -318,25 +361,71 @@ async function resolvePeople(
     await markConnectionFailed(deps.db, connection, "token_missing");
     return null;
   }
-  const people: SlackPerson[] = [];
-  for (const slackUserId of huddle.participantIds) {
-    try {
-      const person = await fetchSlackPerson({
+  const results = await settleWithLimit(
+    huddle.participantIds,
+    PROFILE_LOOKUP_CONCURRENCY,
+    (slackUserId) =>
+      fetchSlackPerson({
         token,
         teamId: huddle.teamId,
         slackUserId,
         fetchImpl: deps.fetchImpl,
-      });
-      if (person) people.push(person);
-    } catch (error) {
-      if (error instanceof SlackTokenError) {
-        await markConnectionFailed(deps.db, connection, error.slackError);
-        return null;
-      }
-      throw error;
+      }),
+  );
+  const people: SlackPerson[] = [];
+  let failure: unknown = null;
+  for (const result of results) {
+    if (result.status === "fulfilled") {
+      if (result.value) people.push(result.value);
+    } else if (result.reason instanceof SlackTokenError) {
+      await markConnectionFailed(deps.db, connection, result.reason.slackError);
+      return null;
+    } else {
+      failure ??= result.reason;
     }
   }
+  if (failure) throw failure;
   return people;
+}
+
+type MeetingFill = { added: number; emails: string[] };
+
+async function fillMeeting(
+  deps: HuddleDeps,
+  meeting: HuddleMeeting,
+  connections?: SlackUserConnection[],
+): Promise<MeetingFill | null> {
+  const owned =
+    connections ?? (await connectionsForOwner(deps.db, meeting.ownerEmail));
+  for (const connection of owned) {
+    const huddles = await candidateHuddles(
+      deps.db,
+      connection.teamId,
+      meeting.actualStart,
+    );
+    const huddle = pickHuddleForMeeting(
+      huddles,
+      meeting,
+      connection.slackUserId,
+    );
+    if (!huddle) continue;
+    const people = await resolvePeople(deps, connection, huddle);
+    if (!people) continue;
+    const added = await insertHuddleParticipants(deps.db, {
+      meetingId: meeting.id,
+      huddle,
+      people,
+    });
+    const emails = [
+      ...new Set(
+        people
+          .map((person) => person.email?.trim().toLowerCase())
+          .filter((email): email is string => !!email),
+      ),
+    ];
+    return { added, emails };
+  }
+  return null;
 }
 
 /**
@@ -348,24 +437,7 @@ export async function fillMeetingFromStoredHuddles(
   meeting: HuddleMeeting,
   connections?: SlackUserConnection[],
 ): Promise<number> {
-  const owned = connections ?? (await connectionsForOwner(deps.db, meeting.ownerEmail));
-  for (const connection of owned) {
-    const huddles = await candidateHuddles(
-      deps.db,
-      connection.teamId,
-      meeting.actualStart,
-    );
-    const huddle = pickHuddleForMeeting(huddles, meeting, connection.slackUserId);
-    if (!huddle) continue;
-    const people = await resolvePeople(deps, connection, huddle);
-    if (!people) continue;
-    return insertHuddleParticipants(deps.db, {
-      meetingId: meeting.id,
-      huddle,
-      people,
-    });
-  }
-  return 0;
+  return (await fillMeeting(deps, meeting, connections))?.added ?? 0;
 }
 
 /**
@@ -388,9 +460,18 @@ export async function handleSlackHuddleEvent(
   const huddle = await upsertSlackHuddle(deps.db, parsed);
   let filled = 0;
   for (const connection of connections) {
-    const meetings = await candidateMeetings(deps.db, connection.ownerEmail, huddle);
+    const meetings = await candidateMeetings(
+      deps.db,
+      connection.ownerEmail,
+      huddle,
+    );
     for (const meeting of meetings) {
-      filled += await fillMeetingFromStoredHuddles(deps, meeting, [connection]);
+      const fill = await fillMeeting(deps, meeting, [connection]);
+      if (!fill) continue;
+      filled += fill.added;
+      if (fill.emails.length && deps.onHuddleParticipants) {
+        await deps.onHuddleParticipants(meeting.id, fill.emails);
+      }
     }
   }
   return { huddle: true, filled };

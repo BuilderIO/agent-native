@@ -140,7 +140,10 @@ export function mergeSlackHuddles(
     dateStart: Math.min(existing.dateStart, update.dateStart),
     dateEnd: update.dateEnd ?? existing.dateEnd,
     startedBy: existing.startedBy ?? update.startedBy,
-    participantIds: slackUserIds(existing.participantIds, update.participantIds),
+    participantIds: slackUserIds(
+      existing.participantIds,
+      update.participantIds,
+    ),
   };
 }
 
@@ -151,11 +154,9 @@ export type HuddleMatchMeeting = {
 
 type Ranked<T> = { huddle: T; exact: boolean; distanceMs: number };
 
-function rankHuddle<T extends Pick<SlackHuddle, "dateStart" | "dateEnd" | "participantIds">>(
-  huddle: T,
-  meetingStartMs: number,
-  slackUserId: string,
-): Ranked<T> | null {
+function rankHuddle<
+  T extends Pick<SlackHuddle, "dateStart" | "dateEnd" | "participantIds">,
+>(huddle: T, meetingStartMs: number, slackUserId: string): Ranked<T> | null {
   if (!huddle.participantIds.includes(slackUserId)) return null;
   const startMs = huddle.dateStart * 1000;
   const diffMs = Math.abs(meetingStartMs - startMs);
@@ -183,7 +184,11 @@ function rankHuddle<T extends Pick<SlackHuddle, "dateStart" | "dateEnd" | "parti
  */
 export function pickHuddleForMeeting<
   T extends Pick<SlackHuddle, "dateStart" | "dateEnd" | "participantIds">,
->(huddles: readonly T[], meeting: HuddleMatchMeeting, slackUserId: string): T | null {
+>(
+  huddles: readonly T[],
+  meeting: HuddleMatchMeeting,
+  slackUserId: string,
+): T | null {
   const meetingStartMs = Date.parse(meeting.actualStart);
   if (!Number.isFinite(meetingStartMs)) return null;
 
@@ -218,13 +223,6 @@ export function clearSlackUserCache(): void {
   userCache.clear();
 }
 
-export class SlackTokenError extends Error {
-  constructor(readonly slackError: string) {
-    super(`Slack rejected the user token: ${slackError}`);
-    this.name = "SlackTokenError";
-  }
-}
-
 const TOKEN_ERRORS = new Set([
   "invalid_auth",
   "not_authed",
@@ -234,10 +232,41 @@ const TOKEN_ERRORS = new Set([
   "missing_scope",
 ]);
 
+export class SlackTokenError extends Error {
+  constructor(readonly slackError: string) {
+    super(`Slack rejected the user token: ${slackError}`);
+    this.name = "SlackTokenError";
+  }
+
+  /** True for Slack errors that mean the token itself no longer works. */
+  static isTokenError(slackError: string): boolean {
+    return TOKEN_ERRORS.has(slackError);
+  }
+}
+
+/**
+ * Slack could not answer right now (rate limit, outage, timeout, unknown
+ * error). The lookup must be retried: treating it as "no such user" would
+ * finish a fill with people missing.
+ */
+export class SlackLookupError extends Error {
+  constructor(readonly slackError: string) {
+    super(`Slack user lookup failed: ${slackError}`);
+    this.name = "SlackLookupError";
+  }
+}
+
+/** users.info answers that really mean "nothing to say about this user". */
+const ABSENT_USER_ERRORS = new Set(["user_not_found", "user_not_visible"]);
+
+/** One users.info call never waits longer than this. */
+export const SLACK_LOOKUP_TIMEOUT_MS = 2_500;
+
 /**
  * Name and e-mail for a Slack user from `users.info`, cached for six hours.
  * Null for bots, deleted users and users Slack will not describe. Throws
- * SlackTokenError when the token itself no longer works.
+ * SlackTokenError when the token itself no longer works, and SlackLookupError
+ * when Slack could not answer (nothing is cached then, so a retry asks again).
  */
 export async function fetchSlackPerson(options: {
   token: string;
@@ -245,6 +274,7 @@ export async function fetchSlackPerson(options: {
   slackUserId: string;
   fetchImpl?: typeof fetch;
   nowMs?: number;
+  timeoutMs?: number;
 }): Promise<SlackPerson | null> {
   const nowMs = options.nowMs ?? Date.now();
   const cacheKey = `${options.teamId}:${options.slackUserId}`;
@@ -253,19 +283,30 @@ export async function fetchSlackPerson(options: {
 
   const fetchImpl = options.fetchImpl ?? fetch;
   const url = `https://slack.com/api/users.info?user=${encodeURIComponent(options.slackUserId)}`;
-  const response = await fetchImpl(url, {
-    headers: { Authorization: `Bearer ${options.token}` },
-  });
+  let response: Response;
+  try {
+    response = await fetchImpl(url, {
+      headers: { Authorization: `Bearer ${options.token}` },
+      signal: AbortSignal.timeout(options.timeoutMs ?? SLACK_LOOKUP_TIMEOUT_MS),
+    });
+  } catch (err) {
+    throw new SlackLookupError(
+      err instanceof Error ? `${err.name}: ${err.message}` : String(err),
+    );
+  }
+  // coercion-ok: an unreadable body is reported as http_<status> below.
   const body = asRecord(await response.json().catch(() => null));
   if (!body || body.ok !== true) {
     const error = asString(body?.error) ?? `http_${response.status}`;
-    if (TOKEN_ERRORS.has(error)) throw new SlackTokenError(error);
-    // user_not_found and friends: nothing to say about this user. Rate limits
-    // and outages are not cached, so the next attempt asks again.
-    if (error === "user_not_found" || error === "user_not_visible") {
-      userCache.set(cacheKey, { person: null, expiresAt: nowMs + USER_CACHE_TTL_MS });
+    if (SlackTokenError.isTokenError(error)) throw new SlackTokenError(error);
+    if (ABSENT_USER_ERRORS.has(error)) {
+      userCache.set(cacheKey, {
+        person: null,
+        expiresAt: nowMs + USER_CACHE_TTL_MS,
+      });
+      return null;
     }
-    return null;
+    throw new SlackLookupError(error);
   }
 
   const user = asRecord(body.user);

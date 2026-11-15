@@ -1,61 +1,13 @@
 import { defineAction, fail } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
-import shareResource from "@agent-native/core/sharing/actions/share-resource";
 import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
-import { normalizeOwnerEmail } from "../server/lib/recordings.js";
+import { sharePublicMeetingResourcesWithParticipants } from "../server/lib/meeting-participant-shares.js";
 import { slackHuddleDeps } from "../server/lib/slack-huddle-oauth.js";
 import { fillSlackHuddleParticipantsForMeeting } from "../server/lib/slack-huddles-store.js";
-
-type ShareableResourceType = "meeting" | "recording";
-
-async function sharePublicMeetingResourcesWithParticipants(args: {
-  meetingId: string;
-  recordingId: string | null;
-  recordingVisibility: string | null | undefined;
-  ownerEmail: string;
-  participants: Array<{ email: string }>;
-}) {
-  const ownerEmail = normalizeOwnerEmail(args.ownerEmail);
-  const participantEmails = [
-    ...new Set(
-      args.participants
-        .map((participant) => normalizeOwnerEmail(participant.email))
-        .filter((email) => email && email !== ownerEmail),
-    ),
-  ];
-  if (!participantEmails.length) return;
-
-  const resources: Array<{
-    resourceType: ShareableResourceType;
-    resourceId: string;
-  }> = [
-    { resourceType: "meeting", resourceId: args.meetingId },
-    ...(args.recordingId && args.recordingVisibility === "public"
-      ? [{ resourceType: "recording" as const, resourceId: args.recordingId }]
-      : []),
-  ];
-
-  await Promise.all(
-    resources.flatMap(({ resourceType, resourceId }) =>
-      participantEmails.map((principalId) =>
-        Promise.resolve(
-          shareResource.run({
-            resourceType,
-            resourceId,
-            principalType: "user",
-            principalId,
-            role: "viewer",
-            notify: false,
-          }),
-        ),
-      ),
-    ),
-  );
-}
 
 export default defineAction({
   description:

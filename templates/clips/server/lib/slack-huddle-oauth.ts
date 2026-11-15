@@ -10,7 +10,12 @@
  * tells the two flows apart by the `app` in the OAuth state, so the Slack app
  * needs no extra redirect URL.
  */
-import { randomUUID } from "node:crypto";
+import {
+  createHash,
+  randomBytes,
+  randomUUID,
+  timingSafeEqual,
+} from "node:crypto";
 
 import { writeAppState } from "@agent-native/core/application-state";
 import { exchangeSlackOAuthCode } from "@agent-native/core/integrations";
@@ -31,11 +36,12 @@ import {
 } from "@agent-native/core/server";
 import { runWithRequestContext } from "@agent-native/core/server/request-context";
 import { and, desc, eq, sql } from "drizzle-orm";
-import { getQuery, type H3Event } from "h3";
+import { deleteCookie, getCookie, getQuery, setCookie, type H3Event } from "h3";
 
 import { getDb, schema } from "../db/index.js";
+import { shareStoppedMeetingWithHuddleParticipants } from "./meeting-participant-shares.js";
 import { getActiveOrganizationId, sameOwnerEmail } from "./recordings.js";
-import { SLACK_HUDDLE_USER_SCOPES } from "./slack-huddles.js";
+import { SLACK_HUDDLE_USER_SCOPES, SlackTokenError } from "./slack-huddles.js";
 import type { HuddleDeps, SlackUserConnection } from "./slack-huddles-store.js";
 
 export const CLIPS_SLACK_HUDDLES_OAUTH_APP_ID = `${
@@ -43,6 +49,51 @@ export const CLIPS_SLACK_HUDDLES_OAUTH_APP_ID = `${
 }:slack-huddles`;
 
 const SLACK_AUTHORIZE_URL = "https://slack.com/oauth/v2/authorize";
+
+/**
+ * Binds a "Connect Slack for huddles" flow to the browser that started it.
+ * /api/slack/huddles/install puts a random nonce in this httpOnly cookie and
+ * its hash in the signed state; the callback only stores a token when the
+ * same browser brings the cookie back and is signed in as the state's owner.
+ */
+export const SLACK_HUDDLES_OAUTH_COOKIE = "clips_slack_huddles_oauth";
+const SLACK_HUDDLES_OAUTH_TTL_SECONDS = 10 * 60;
+
+function hashFlowNonce(nonce: string): string {
+  return createHash("sha256").update(nonce).digest("base64url");
+}
+
+function sameFlowHash(a: string, b: string): boolean {
+  const left = Buffer.from(a);
+  const right = Buffer.from(b);
+  return left.length === right.length && timingSafeEqual(left, right);
+}
+
+/**
+ * Why a callback may not store a token for this state, or null when it may:
+ * the browser must hold the flow cookie that matches the signed state, and
+ * have a Clips session for the person who started the flow.
+ */
+export function slackHuddlesCallbackRejection(options: {
+  state: OAuthStatePayload;
+  sessionEmail: string | null | undefined;
+  flowNonce: string | null | undefined;
+}): string | null {
+  const { state, sessionEmail, flowNonce } = options;
+  if (!state.owner || !state.flowId) {
+    return "Start the Slack connection from Clips Settings so it can be linked to your account.";
+  }
+  if (!flowNonce || !sameFlowHash(hashFlowNonce(flowNonce), state.flowId)) {
+    return "This Slack connection was started in another browser. Start it again from Clips Settings in this browser.";
+  }
+  if (!sessionEmail) {
+    return "Sign in to Clips in this browser, then start the Slack connection again from Settings.";
+  }
+  if (!sameOwnerEmail(sessionEmail, state.owner)) {
+    return "You are signed in as someone else than the person who started this Slack connection.";
+  }
+  return null;
+}
 
 export type SlackHuddleConnectionListItem = {
   id: string;
@@ -58,7 +109,10 @@ export function isSlackHuddlesConnectState(state: OAuthStatePayload): boolean {
   return state.app === CLIPS_SLACK_HUDDLES_OAUTH_APP_ID;
 }
 
-export function slackHuddleTokenKey(teamId: string, slackUserId: string): string {
+export function slackHuddleTokenKey(
+  teamId: string,
+  slackUserId: string,
+): string {
   return `clips-slack-huddles:${teamId}:${slackUserId}:user-token`;
 }
 
@@ -110,12 +164,22 @@ export async function buildSlackHuddlesInstallUrl(
     typeof query.return === "string"
       ? safeReturnPath(query.return)
       : "/settings";
+  const flowNonce = randomBytes(32).toString("base64url");
+  setCookie(event, SLACK_HUDDLES_OAUTH_COOKIE, flowNonce, {
+    httpOnly: true,
+    secure: redirectUri.startsWith("https://"),
+    // Lax: the cookie must ride Slack's top-level redirect back to Clips.
+    sameSite: "lax",
+    path: "/",
+    maxAge: SLACK_HUDDLES_OAUTH_TTL_SECONDS,
+  });
   const state = encodeOAuthState({
     redirectUri,
     owner,
     desktop,
     addAccount: true,
     app: CLIPS_SLACK_HUDDLES_OAUTH_APP_ID,
+    flowId: hashFlowNonce(flowNonce),
     returnUrl: requestedReturn !== "/" ? requestedReturn : "/settings",
   });
 
@@ -182,15 +246,27 @@ export async function handleSlackHuddlesOAuthCallback(
   state: OAuthStatePayload,
 ) {
   const query = getQuery(event);
+  // One flow, one callback: the nonce is spent whatever happens next.
+  const flowNonce = getCookie(event, SLACK_HUDDLES_OAUTH_COOKIE);
+  deleteCookie(event, SLACK_HUDDLES_OAUTH_COOKIE, { path: "/" });
+
   const slackError = query.error as string | undefined;
   if (slackError) {
     return oauthErrorPage(`Slack connection failed: ${slackError}`);
   }
-  if (!state.owner) {
-    return oauthErrorPage(
-      "Start the Slack connection from Clips Settings so it can be linked to your account.",
-    );
+  // The token is only stored for the Clips user and browser that started the
+  // flow: a live session for the state's owner plus the flow cookie.
+  const session = await getSession(event);
+  const rejection = slackHuddlesCallbackRejection({
+    state,
+    sessionEmail: session?.email,
+    flowNonce,
+  });
+  if (rejection || !session?.email) {
+    return oauthErrorPage(rejection ?? "Sign in to Clips first.");
   }
+  const userEmail = session.email;
+
   const code = query.code as string | undefined;
   if (!code) return oauthErrorPage("Missing authorization code from Slack.");
 
@@ -199,15 +275,6 @@ export async function handleSlackHuddlesOAuthCallback(
   if (!clientId || !clientSecret) {
     return oauthErrorPage(
       "Slack OAuth is not configured (missing client id/secret).",
-    );
-  }
-
-  const session = await getSession(event);
-  const userEmail = session?.email ?? state.owner;
-  // The flow must finish as the person who started it.
-  if (!sameOwnerEmail(userEmail, state.owner)) {
-    return oauthErrorPage(
-      "You are signed in as someone else than the person who started this Slack connection.",
     );
   }
 
@@ -287,7 +354,43 @@ export async function listSlackHuddleConnections(
     .orderBy(desc(schema.slackUserConnections.updatedAt));
 }
 
-/** Disconnect one of your own huddle connections: revoke and forget the token. */
+/**
+ * Revoke a Slack user token. Resolves when Slack revoked it or no longer
+ * accepts it; throws when that is not confirmed (network, outage, rate limit).
+ */
+export async function revokeSlackUserToken(
+  token: string,
+  fetchImpl: typeof fetch = fetch,
+): Promise<void> {
+  type RevokeAnswer = { ok?: unknown; error?: unknown } | null;
+  let response: Response;
+  try {
+    response = await fetchImpl("https://slack.com/api/auth.revoke", {
+      method: "POST",
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+  } catch (err) {
+    throw new Error(
+      `Slack could not be reached to revoke the token: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  // coercion-ok: a non-JSON answer is handled as an unconfirmed revoke below.
+  const body = (await response.json().catch(() => null)) as RevokeAnswer;
+  const status = response.status;
+  if (body?.ok === true) return;
+  const error = typeof body?.error === "string" ? body.error : `http_${status}`;
+  // A token Slack no longer accepts is already as good as revoked.
+  if (SlackTokenError.isTokenError(error)) return;
+  throw new Error(`Slack did not revoke the token: ${error}`);
+}
+
+/**
+ * Disconnect one of your own huddle connections: revoke and forget the token.
+ * The token is only deleted once Slack confirmed the revoke (or no longer
+ * accepts it), so a failed revoke can be retried instead of leaving a live
+ * token Clips can no longer reach.
+ */
 export async function disconnectSlackHuddleConnection(options: {
   id: string;
   userEmail: string;
@@ -301,29 +404,41 @@ export async function disconnectSlackHuddleConnection(options: {
     .limit(1);
   if (!row || !sameOwnerEmail(row.ownerEmail, options.userEmail)) return false;
 
-  const secret = await readAppSecret({
+  const secretRef = {
     key: row.tokenSecretRef,
-    scope: "user",
+    scope: "user" as const,
     scopeId: row.ownerEmail,
-  }).catch(() => null);
+  };
+  let secret: Awaited<ReturnType<typeof readAppSecret>>;
+  try {
+    secret = await readAppSecret(secretRef);
+  } catch (err) {
+    const reason = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `Could not read the stored Slack token. Try again. (${reason})`,
+    );
+  }
   if (secret?.value) {
-    // Best effort: a token Slack already revoked is fine to forget.
-    await (options.fetchImpl ?? fetch)("https://slack.com/api/auth.revoke", {
-      method: "POST",
-      headers: { Authorization: `Bearer ${secret.value}` },
-    }).catch(() => {});
+    try {
+      await revokeSlackUserToken(secret.value, options.fetchImpl);
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      await db
+        .update(schema.slackUserConnections)
+        .set({ lastError: reason, updatedAt: new Date().toISOString() })
+        .where(eq(schema.slackUserConnections.id, row.id));
+      throw new Error(`${reason}. The connection was kept; try again.`);
+    }
   }
   // The connection only counts as disconnected once the token is gone: a
   // failed delete throws, the row stays connected and the user can retry.
   try {
-    await deleteAppSecret({
-      key: row.tokenSecretRef,
-      scope: "user",
-      scopeId: row.ownerEmail,
-    });
+    await deleteAppSecret(secretRef);
   } catch (err) {
     const reason = err instanceof Error ? err.message : String(err);
-    throw new Error(`Could not delete the stored Slack token. Try again. (${reason})`);
+    throw new Error(
+      `Could not delete the stored Slack token. Try again. (${reason})`,
+    );
   }
 
   await db
@@ -341,17 +456,22 @@ export async function disconnectSlackHuddleConnection(options: {
 async function readConnectionToken(
   connection: SlackUserConnection,
 ): Promise<string | null> {
-  // An unreadable secret counts as missing: the connection is then marked
-  // failed and the person reconnects.
+  // Null only when the secret is really gone (the connection is then marked
+  // failed). A read or decryption failure throws, so a transient secret-store
+  // problem fails this attempt instead of breaking the connection for good.
   const secret = await readAppSecret({
     key: connection.tokenSecretRef,
     scope: "user",
     scopeId: connection.ownerEmail,
-  }).catch(() => null);
+  });
   return secret?.value ?? null;
 }
 
 /** Live dependencies for slack-huddles-store. */
 export function slackHuddleDeps(): HuddleDeps {
-  return { db: getDb(), readToken: readConnectionToken };
+  return {
+    db: getDb(),
+    readToken: readConnectionToken,
+    onHuddleParticipants: shareStoppedMeetingWithHuddleParticipants,
+  };
 }

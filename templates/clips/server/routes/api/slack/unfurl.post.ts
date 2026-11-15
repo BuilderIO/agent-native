@@ -48,11 +48,15 @@ export default defineEventHandler(async (event) => {
   // User message events from "Connect Slack for
   // huddles" arrive here too. Huddle messages fill meeting participants;
   // every other message is acknowledged and dropped, never unfurled.
+  // A failure answers 500 so Slack retries the event; handling it again is
+  // idempotent (the huddle merges, participants and shares are upserts).
   if (isSlackMessageEventPayload(payload)) {
     try {
       await handleSlackHuddleEvent(slackHuddleDeps(), payload);
     } catch (err) {
       console.error("[clips-slack] Failed to read Slack huddle:", err);
+      setResponseStatus(event, 500);
+      return { ok: false, error: "huddle event processing failed" };
     }
     return { ok: true };
   }

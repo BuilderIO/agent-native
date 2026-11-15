@@ -8,6 +8,7 @@ import {
   mergeSlackHuddles,
   parseSlackHuddleEvent,
   pickHuddleForMeeting,
+  SlackLookupError,
   SlackTokenError,
   type SlackHuddle,
 } from "./slack-huddles.js";
@@ -100,7 +101,10 @@ describe("parseSlackHuddleEvent", () => {
       }),
     ).toBeNull();
     expect(
-      parseSlackHuddleEvent({ type: "event_callback", event: { type: "link_shared" } }),
+      parseSlackHuddleEvent({
+        type: "event_callback",
+        event: { type: "link_shared" },
+      }),
     ).toBeNull();
     expect(parseSlackHuddleEvent({ type: "url_verification" })).toBeNull();
     expect(parseSlackHuddleEvent(null)).toBeNull();
@@ -112,7 +116,10 @@ describe("parseSlackHuddleEvent", () => {
     ).toBeNull();
     expect(
       parseSlackHuddleEvent(
-        huddleMessage({ ...ROOM, participant_history: ["U0OWNER", "B0BOT", 7, "U0OWNER"] }),
+        huddleMessage({
+          ...ROOM,
+          participant_history: ["U0OWNER", "B0BOT", 7, "U0OWNER"],
+        }),
       )?.participantIds,
     ).toEqual(["U0OWNER", "U0ANNA"]);
   });
@@ -132,7 +139,11 @@ describe("mergeSlackHuddles", () => {
   it("keeps everyone either message saw and the end once known", () => {
     const first = parseSlackHuddleEvent(huddleMessage())!;
     const edit = parseSlackHuddleEvent(
-      huddleEdit({ ...ROOM, date_end: 1794475234, participant_history: ["U0EVE"] }),
+      huddleEdit({
+        ...ROOM,
+        date_end: 1794475234,
+        participant_history: ["U0EVE"],
+      }),
     )!;
     const merged = mergeSlackHuddles(first, edit);
     expect(merged.dateEnd).toBe(1794475234);
@@ -197,7 +208,9 @@ describe("pickHuddleForMeeting", () => {
         "U0OWNER",
       ),
     ).toBe(running);
-    const ended = huddle(1794473298 - 20 * 60, 1794473298 - 10 * 60, ["U0OWNER"]);
+    const ended = huddle(1794473298 - 20 * 60, 1794473298 - 10 * 60, [
+      "U0OWNER",
+    ]);
     expect(
       pickHuddleForMeeting(
         [ended],
@@ -279,6 +292,74 @@ describe("fetchSlackPerson", () => {
       }),
     ).rejects.toBeInstanceOf(SlackTokenError);
   });
+
+  it("throws on rate limits, outages and timeouts, and asks again next time", async () => {
+    const args = { token: "t", teamId: "T0TEAM", slackUserId: "U0ANNA" };
+    const limited = vi.fn(async () =>
+      slackResponse({ ok: false, error: "ratelimited" }, 429),
+    );
+    await expect(
+      fetchSlackPerson({
+        ...args,
+        fetchImpl: limited as unknown as typeof fetch,
+      }),
+    ).rejects.toBeInstanceOf(SlackLookupError);
+
+    const outage = vi.fn(
+      async () => new Response("bad gateway", { status: 502 }),
+    );
+    await expect(
+      fetchSlackPerson({
+        ...args,
+        fetchImpl: outage as unknown as typeof fetch,
+      }),
+    ).rejects.toMatchObject({ slackError: "http_502" });
+
+    const hanging = vi.fn(
+      (_url: string, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener("abort", () =>
+            reject(init.signal?.reason),
+          );
+        }),
+    );
+    await expect(
+      fetchSlackPerson({
+        ...args,
+        timeoutMs: 10,
+        fetchImpl: hanging as unknown as typeof fetch,
+      }),
+    ).rejects.toBeInstanceOf(SlackLookupError);
+
+    // Nothing was cached: the next call asks Slack again.
+    const found = vi.fn(async () =>
+      slackResponse({
+        ok: true,
+        user: { id: "U0ANNA", profile: { real_name: "Anna" } },
+      }),
+    );
+    expect(
+      await fetchSlackPerson({
+        ...args,
+        fetchImpl: found as unknown as typeof fetch,
+      }),
+    ).toMatchObject({ name: "Anna" });
+  });
+
+  it("caches a user Slack says is not there", async () => {
+    const missing = vi.fn(async () =>
+      slackResponse({ ok: false, error: "user_not_found" }),
+    );
+    const args = {
+      token: "t",
+      teamId: "T0TEAM",
+      slackUserId: "U0GONE",
+      fetchImpl: missing as unknown as typeof fetch,
+    };
+    expect(await fetchSlackPerson(args)).toBeNull();
+    expect(await fetchSlackPerson(args)).toBeNull();
+    expect(missing).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("buildHuddleParticipantRows", () => {
@@ -290,7 +371,11 @@ describe("buildHuddleParticipantRows", () => {
         { slackUserId: "U0OWNER", name: "Owner", email: "owner@example.test" },
         { slackUserId: "U0ANNA", name: "Anna", email: "anna@example.test" },
         { slackUserId: "U0GUEST", name: "Guest", email: null },
-        { slackUserId: "U0ANNA2", name: "Anna again", email: "ANNA@example.test" },
+        {
+          slackUserId: "U0ANNA2",
+          name: "Anna again",
+          email: "ANNA@example.test",
+        },
         { slackUserId: "U0BOB", name: "Bob", email: "bob@example.test" },
       ],
       existingEmails: ["Bob@Example.test"],
