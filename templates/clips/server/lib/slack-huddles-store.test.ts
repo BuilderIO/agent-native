@@ -10,10 +10,14 @@ import {
   vi,
 } from "vitest";
 
-import { clearSlackUserCache } from "./slack-huddles.js";
+import { clearSlackUserCache, SlackTokenError } from "./slack-huddles.js";
 import {
+  fillMeetingsForHuddle,
   fillSlackHuddleParticipantsForMeeting,
   handleSlackHuddleEvent,
+  HUDDLE_SWEEP_WINDOW_MS,
+  storeSlackHuddleEvent,
+  sweepRecentSlackHuddles,
   huddleParticipantId,
   insertHuddleParticipants,
   upsertSlackHuddle,
@@ -198,10 +202,12 @@ describe("handleSlackHuddleEvent", () => {
     expect(await handleSlackHuddleEvent(deps, first)).toEqual({
       huddle: true,
       filled: 4,
+      pending: 0,
     });
     expect(await handleSlackHuddleEvent(deps, first)).toEqual({
       huddle: true,
       filled: 0,
+      pending: 0,
     });
 
     const ended = huddleEvent({
@@ -212,6 +218,7 @@ describe("handleSlackHuddleEvent", () => {
     expect(await handleSlackHuddleEvent(deps, ended)).toEqual({
       huddle: true,
       filled: 1,
+      pending: 0,
     });
 
     expect(await participants()).toEqual([
@@ -242,7 +249,7 @@ describe("handleSlackHuddleEvent", () => {
       deps,
       huddleEvent({ history: ["U0ANNA", "U0BOB"] }),
     );
-    expect(result).toEqual({ huddle: true, filled: 0 });
+    expect(result).toEqual({ huddle: true, filled: 0, pending: 0 });
     expect(await rows(`SELECT id FROM slack_huddles`)).toEqual([]);
     expect(fetchImpl).not.toHaveBeenCalled();
   });
@@ -259,7 +266,7 @@ describe("handleSlackHuddleEvent", () => {
         text: "hi",
       },
     });
-    expect(result).toEqual({ huddle: false, filled: 0 });
+    expect(result).toEqual({ huddle: false, filled: 0, pending: 0 });
   });
 
   it("marks the connection failed when Slack revoked the token", async () => {
@@ -279,7 +286,7 @@ describe("handleSlackHuddleEvent", () => {
 });
 
 describe("handleSlackHuddleEvent failures", () => {
-  it("fails without storing participants when Slack cannot answer, and a retry fills everyone", async () => {
+  it("keeps the people Slack described when one lookup fails, and a later fill adds the rest", async () => {
     let limited = true;
     const answer = fetchImpl.getMockImplementation() as (
       url: string,
@@ -288,19 +295,22 @@ describe("handleSlackHuddleEvent failures", () => {
       if (limited && new URL(url).searchParams.get("user") === "U0BOB") {
         return new Response(
           JSON.stringify({ ok: false, error: "ratelimited" }),
-          {
-            status: 429,
-          },
+          { status: 429 },
         );
       }
       return answer(url);
     });
     const event = huddleEvent({ history: ["U0OWNER", "U0ANNA", "U0BOB"] });
 
-    await expect(handleSlackHuddleEvent(deps, event)).rejects.toThrow(
-      "ratelimited",
-    );
-    expect(await participants()).toEqual([]);
+    expect(await handleSlackHuddleEvent(deps, event)).toEqual({
+      huddle: true,
+      filled: 2,
+      pending: 1,
+    });
+    expect((await participants()).map((p) => p.email)).toEqual([
+      "anna@example.test",
+      "nevil@example.test",
+    ]);
     expect(await rows(`SELECT status FROM slack_user_connections`)).toEqual([
       { status: "connected" },
     ]);
@@ -308,7 +318,8 @@ describe("handleSlackHuddleEvent failures", () => {
     limited = false;
     expect(await handleSlackHuddleEvent(deps, event)).toEqual({
       huddle: true,
-      filled: 3,
+      filled: 1,
+      pending: 0,
     });
   });
 
@@ -325,6 +336,19 @@ describe("handleSlackHuddleEvent failures", () => {
     expect(
       await rows(`SELECT status, last_error FROM slack_user_connections`),
     ).toEqual([{ status: "connected", last_error: null }]);
+  });
+
+  it("marks the connection failed when the token can never be decrypted", async () => {
+    deps.readToken = async () => {
+      throw new SlackTokenError("token_unreadable");
+    };
+    await handleSlackHuddleEvent(
+      deps,
+      huddleEvent({ history: ["U0OWNER", "U0ANNA"] }),
+    );
+    expect(
+      await rows(`SELECT status, last_error FROM slack_user_connections`),
+    ).toEqual([{ status: "error", last_error: "token_unreadable" }]);
   });
 
   it("marks the connection failed only when the token is really gone", async () => {
@@ -407,7 +431,88 @@ describe("huddle participants reported after the meeting was shared", () => {
   });
 });
 
+describe("storeSlackHuddleEvent + sweepRecentSlackHuddles", () => {
+  it("stores the huddle without calling Slack, and the sweep fills it later", async () => {
+    const event = huddleEvent({ history: ["U0OWNER", "U0ANNA"] });
+    const stored = await storeSlackHuddleEvent(deps, event);
+    expect(stored?.participantIds).toEqual(["U0OWNER", "U0ANNA"]);
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(await participants()).toEqual([]);
+
+    const swept = await sweepRecentSlackHuddles(deps);
+    expect(swept).toMatchObject({
+      huddles: 1,
+      filled: 2,
+      pending: 0,
+      failed: 0,
+    });
+    expect((await participants()).map((p) => p.email)).toEqual([
+      "anna@example.test",
+      "nevil@example.test",
+    ]);
+  });
+
+  it("retries a fill that failed after the webhook answered", async () => {
+    const event = huddleEvent({ history: ["U0OWNER", "U0ANNA"] });
+    const huddle = await storeSlackHuddleEvent(deps, event);
+    const failing = {
+      ...deps,
+      readToken: async () => {
+        throw new Error("secret store unavailable");
+      },
+    };
+    await expect(fillMeetingsForHuddle(failing, huddle!)).rejects.toThrow(
+      "secret store unavailable",
+    );
+    expect(await sweepRecentSlackHuddles(failing)).toMatchObject({
+      huddles: 1,
+      failed: 1,
+    });
+    expect(await participants()).toEqual([]);
+
+    expect(await sweepRecentSlackHuddles(deps)).toMatchObject({
+      filled: 2,
+      failed: 0,
+    });
+  });
+
+  it("leaves huddles older than the sweep window alone", async () => {
+    await storeSlackHuddleEvent(deps, huddleEvent({ history: ["U0OWNER"] }));
+    const later = Date.now() + HUDDLE_SWEEP_WINDOW_MS + 60_000;
+    expect(await sweepRecentSlackHuddles(deps, later)).toMatchObject({
+      huddles: 0,
+    });
+  });
+});
+
 describe("fillSlackHuddleParticipantsForMeeting", () => {
+  it("adds the people Slack described at stop, and the sweep adds the rest", async () => {
+    await client.exec(`
+      INSERT INTO slack_huddles (id, team_id, channel_id, message_ts, date_start, date_end, started_by, participant_ids_json, updated_at)
+      VALUES ('h1', 'T0TEAM', 'C0CGLR8LS6P', '1794473298.000100', 1794473298, 1794475234, 'U0OWNER', '["U0OWNER","U0ANNA","U0BOB"]', '${new Date().toISOString()}');
+    `);
+    let limited = true;
+    const answer = fetchImpl.getMockImplementation() as (
+      url: string,
+    ) => Promise<Response>;
+    fetchImpl.mockImplementation(async (url: string) =>
+      limited && new URL(url).searchParams.get("user") === "U0BOB"
+        ? new Response("upstream error", { status: 503 })
+        : answer(url),
+    );
+
+    expect(
+      await fillSlackHuddleParticipantsForMeeting(deps, "huddle-meeting"),
+    ).toBe(2);
+    limited = false;
+    expect(await sweepRecentSlackHuddles(deps)).toMatchObject({ filled: 1 });
+    expect((await participants()).map((p) => p.email)).toEqual([
+      "anna@example.test",
+      "bob@example.test",
+      "nevil@example.test",
+    ]);
+  });
+
   it("fills a stopped Slack meeting from a huddle stored earlier, idempotently", async () => {
     await client.exec(`
       INSERT INTO slack_huddles (id, team_id, channel_id, message_ts, date_start, date_end, started_by, participant_ids_json)

@@ -98,8 +98,21 @@ import {
   CLIPS_SLACK_HUDDLES_OAUTH_APP_ID,
   disconnectSlackHuddleConnection,
   handleSlackHuddlesOAuthCallback,
+  readConnectionToken,
   SLACK_HUDDLES_OAUTH_COOKIE,
 } from "./slack-huddle-oauth.js";
+import { SlackTokenError } from "./slack-huddles.js";
+
+/** Shaped like core's AppSecretDecryptionError (not exported by core). */
+function decryptionError(): Error {
+  return Object.assign(
+    new Error("A saved connection could not be decrypted."),
+    {
+      name: "AppSecretDecryptionError",
+      errorCode: "app_secret_unreadable",
+    },
+  );
+}
 
 const OWNER = "nevil@example.test";
 const BASE = "https://clips.example.test";
@@ -325,5 +338,62 @@ describe("disconnectSlackHuddleConnection", () => {
       }),
     ).resolves.toBe(true);
     expect(mocks.deleteAppSecret).toHaveBeenCalledTimes(1);
+  });
+
+  it("disconnects a token that can never be decrypted, without trying to revoke it", async () => {
+    mocks.readAppSecret.mockRejectedValue(decryptionError());
+    const fetchImpl = vi.fn();
+    await expect(
+      disconnectSlackHuddleConnection({
+        id: "conn-1",
+        userEmail: OWNER,
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+      }),
+    ).resolves.toBe(true);
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(mocks.deleteAppSecret).toHaveBeenCalledTimes(1);
+    expect(mocks.updates).toContainEqual(
+      expect.objectContaining({ status: "disconnected" }),
+    );
+  });
+
+  it("keeps the connection when the token cannot be read right now", async () => {
+    mocks.readAppSecret.mockRejectedValue(new Error("connection reset"));
+    await expect(
+      disconnectSlackHuddleConnection({ id: "conn-1", userEmail: OWNER }),
+    ).rejects.toThrow(/Could not read the stored Slack token/);
+    expect(mocks.deleteAppSecret).not.toHaveBeenCalled();
+  });
+});
+
+describe("readConnectionToken", () => {
+  const connection = {
+    id: "conn-1",
+    ownerEmail: OWNER,
+    teamId: "T0TEAM",
+    slackUserId: "U0OWNER",
+    tokenSecretRef: "secret-ref",
+  };
+
+  it("reports a token that can never be decrypted as a dead token", async () => {
+    mocks.readAppSecret.mockRejectedValue(decryptionError());
+    const error = await readConnectionToken(connection).catch((e) => e);
+    expect(error).toBeInstanceOf(SlackTokenError);
+    expect(error.slackError).toBe("token_unreadable");
+  });
+
+  it("passes other read failures through, so the connection is kept", async () => {
+    mocks.readAppSecret.mockRejectedValue(new Error("connection reset"));
+    await expect(readConnectionToken(connection)).rejects.toThrow(
+      "connection reset",
+    );
+    await expect(readConnectionToken(connection)).rejects.not.toBeInstanceOf(
+      SlackTokenError,
+    );
+  });
+
+  it("returns null when the token is gone", async () => {
+    mocks.readAppSecret.mockResolvedValue(null);
+    expect(await readConnectionToken(connection)).toBeNull();
   });
 });

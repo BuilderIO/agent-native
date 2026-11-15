@@ -345,18 +345,33 @@ async function settleWithLimit<T, R>(
   return results;
 }
 
+type ResolvedPeople = {
+  people: SlackPerson[];
+  /** Huddle members Slack could not describe right now; a later fill retries them. */
+  pending: number;
+};
+
 /**
- * Everyone in the huddle Slack will describe, or null when the connection's
- * token is gone or rejected (the connection is then marked failed). Throws
- * when Slack could not answer for someone, so a fill never completes with
- * people silently missing; a retry asks again for the ones not cached.
+ * Everyone in the huddle Slack describes, plus how many lookups failed for
+ * now (rate limit, outage, timeout). Null when the connection's token is
+ * gone, unreadable or rejected: the connection is then marked failed so the
+ * person reconnects. A failed lookup never drops the people that did resolve.
  */
 async function resolvePeople(
   deps: HuddleDeps,
   connection: SlackUserConnection,
   huddle: SlackHuddle,
-): Promise<SlackPerson[] | null> {
-  const token = await deps.readToken(connection);
+): Promise<ResolvedPeople | null> {
+  let token: string | null;
+  try {
+    token = await deps.readToken(connection);
+  } catch (error) {
+    if (error instanceof SlackTokenError) {
+      await markConnectionFailed(deps.db, connection, error.slackError);
+      return null;
+    }
+    throw error;
+  }
   if (!token) {
     await markConnectionFailed(deps.db, connection, "token_missing");
     return null;
@@ -373,7 +388,7 @@ async function resolvePeople(
       }),
   );
   const people: SlackPerson[] = [];
-  let failure: unknown = null;
+  let pending = 0;
   for (const result of results) {
     if (result.status === "fulfilled") {
       if (result.value) people.push(result.value);
@@ -381,14 +396,17 @@ async function resolvePeople(
       await markConnectionFailed(deps.db, connection, result.reason.slackError);
       return null;
     } else {
-      failure ??= result.reason;
+      pending++;
+      console.warn(
+        "[clips-slack] Huddle participant lookup failed, retried later:",
+        result.reason instanceof Error ? result.reason.message : result.reason,
+      );
     }
   }
-  if (failure) throw failure;
-  return people;
+  return { people, pending };
 }
 
-type MeetingFill = { added: number; emails: string[] };
+type MeetingFill = { added: number; emails: string[]; pending: number };
 
 async function fillMeeting(
   deps: HuddleDeps,
@@ -409,21 +427,21 @@ async function fillMeeting(
       connection.slackUserId,
     );
     if (!huddle) continue;
-    const people = await resolvePeople(deps, connection, huddle);
-    if (!people) continue;
+    const resolved = await resolvePeople(deps, connection, huddle);
+    if (!resolved) continue;
     const added = await insertHuddleParticipants(deps.db, {
       meetingId: meeting.id,
       huddle,
-      people,
+      people: resolved.people,
     });
     const emails = [
       ...new Set(
-        people
+        resolved.people
           .map((person) => person.email?.trim().toLowerCase())
           .filter((email): email is string => !!email),
       ),
     ];
-    return { added, emails };
+    return { added, emails, pending: resolved.pending };
   }
   return null;
 }
@@ -431,6 +449,7 @@ async function fillMeeting(
 /**
  * Fill one meeting from the best stored huddle its owner was in. Returns the
  * number of participants added (0 when no huddle fits or all are there).
+ * People Slack could not describe yet are left for the sweep to add.
  */
 export async function fillMeetingFromStoredHuddles(
   deps: HuddleDeps,
@@ -440,25 +459,46 @@ export async function fillMeetingFromStoredHuddles(
   return (await fillMeeting(deps, meeting, connections))?.added ?? 0;
 }
 
+export type HuddleFillResult = { filled: number; pending: number };
+
 /**
- * A Slack message event. Non-huddle messages and huddles without a connected
- * participant are ignored and nothing is stored.
+ * Store the huddle of a Slack message event. Cheap (one transaction, no
+ * Slack calls), so the webhook does it before acknowledging. Null for
+ * non-huddle messages and huddles without a connected participant, which
+ * are not stored.
  */
-export async function handleSlackHuddleEvent(
+export async function storeSlackHuddleEvent(
   deps: HuddleDeps,
   payload: unknown,
-): Promise<{ huddle: boolean; filled: number }> {
+): Promise<SlackHuddle | null> {
   const parsed = parseSlackHuddleEvent(payload);
-  if (!parsed) return { huddle: false, filled: 0 };
+  if (!parsed) return null;
   const connections = await connectionsForSlackUsers(
     deps.db,
     parsed.teamId,
     parsed.participantIds,
   );
-  if (!connections.length) return { huddle: true, filled: 0 };
+  if (!connections.length) return null;
+  return upsertSlackHuddle(deps.db, parsed);
+}
 
-  const huddle = await upsertSlackHuddle(deps.db, parsed);
+/**
+ * Fill every Slack meeting a connected participant of this stored huddle
+ * could have recorded it in, and share stopped public meetings with the
+ * huddle's people. Idempotent: run again by the sweep until nothing is
+ * pending.
+ */
+export async function fillMeetingsForHuddle(
+  deps: HuddleDeps,
+  huddle: SlackHuddle,
+): Promise<HuddleFillResult> {
+  const connections = await connectionsForSlackUsers(
+    deps.db,
+    huddle.teamId,
+    huddle.participantIds,
+  );
   let filled = 0;
+  let pending = 0;
   for (const connection of connections) {
     const meetings = await candidateMeetings(
       deps.db,
@@ -469,12 +509,64 @@ export async function handleSlackHuddleEvent(
       const fill = await fillMeeting(deps, meeting, [connection]);
       if (!fill) continue;
       filled += fill.added;
+      pending += fill.pending;
       if (fill.emails.length && deps.onHuddleParticipants) {
         await deps.onHuddleParticipants(meeting.id, fill.emails);
       }
     }
   }
-  return { huddle: true, filled };
+  return { filled, pending };
+}
+
+/**
+ * A Slack message event, stored and filled in one go. The webhook splits the
+ * two (store, acknowledge, fill after the response); this is both in order.
+ */
+export async function handleSlackHuddleEvent(
+  deps: HuddleDeps,
+  payload: unknown,
+): Promise<{ huddle: boolean; filled: number; pending: number }> {
+  if (!parseSlackHuddleEvent(payload)) {
+    return { huddle: false, filled: 0, pending: 0 };
+  }
+  const huddle = await storeSlackHuddleEvent(deps, payload);
+  if (!huddle) return { huddle: true, filled: 0, pending: 0 };
+  return { huddle: true, ...(await fillMeetingsForHuddle(deps, huddle)) };
+}
+
+/** Huddles changed this recently are filled again by the sweep. */
+export const HUDDLE_SWEEP_WINDOW_MS = 2 * 60 * 60 * 1000;
+
+/**
+ * The durable retry: fill again from every huddle stored or updated in the
+ * window. Catches up fills that ran after the webhook answered and failed,
+ * lookups Slack could not answer, and shares that did not go through. Each
+ * huddle is independent; one failing does not stop the others.
+ */
+export async function sweepRecentSlackHuddles(
+  deps: HuddleDeps,
+  nowMs = Date.now(),
+): Promise<HuddleFillResult & { huddles: number; failed: number }> {
+  const sinceIso = new Date(nowMs - HUDDLE_SWEEP_WINDOW_MS).toISOString();
+  const rows = await deps.db
+    .select()
+    .from(schema.slackHuddles)
+    .where(gte(schema.slackHuddles.updatedAt, sinceIso));
+  const total = { huddles: rows.length, failed: 0, filled: 0, pending: 0 };
+  for (const row of rows) {
+    try {
+      const result = await fillMeetingsForHuddle(deps, rowToHuddle(row));
+      total.filled += result.filled;
+      total.pending += result.pending;
+    } catch (err) {
+      total.failed++;
+      console.warn(
+        "[clips-slack] Huddle sweep failed for one huddle:",
+        err instanceof Error ? err.message : String(err),
+      );
+    }
+  }
+  return total;
 }
 
 /**

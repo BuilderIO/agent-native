@@ -1,3 +1,4 @@
+import { platformWaitUntil } from "@agent-native/core/server";
 import {
   defineEventHandler,
   getRequestHeader,
@@ -7,7 +8,10 @@ import {
 
 import { slackHuddleDeps } from "../../../lib/slack-huddle-oauth.js";
 import { isSlackMessageEventPayload } from "../../../lib/slack-huddles.js";
-import { handleSlackHuddleEvent } from "../../../lib/slack-huddles-store.js";
+import {
+  fillMeetingsForHuddle,
+  storeSlackHuddleEvent,
+} from "../../../lib/slack-huddles-store.js";
 import { readSlackBotTokenForPayload } from "../../../lib/slack-oauth.js";
 import {
   handleSlackLinkSharedPayload,
@@ -48,15 +52,29 @@ export default defineEventHandler(async (event) => {
   // User message events from "Connect Slack for
   // huddles" arrive here too. Huddle messages fill meeting participants;
   // every other message is acknowledged and dropped, never unfurled.
-  // A failure answers 500 so Slack retries the event; handling it again is
-  // idempotent (the huddle merges, participants and shares are upserts).
+  // Only storing the huddle happens before the answer (one transaction, no
+  // Slack calls), so Slack gets its acknowledgment well within 3 seconds; a
+  // store failure answers 500 so Slack retries. The participant fill runs
+  // after the response, and the slack-huddle-sweeper job retries it from the
+  // stored huddle if it fails or is cut off.
   if (isSlackMessageEventPayload(payload)) {
+    const deps = slackHuddleDeps();
+    let huddle: Awaited<ReturnType<typeof storeSlackHuddleEvent>>;
     try {
-      await handleSlackHuddleEvent(slackHuddleDeps(), payload);
+      huddle = await storeSlackHuddleEvent(deps, payload);
     } catch (err) {
-      console.error("[clips-slack] Failed to read Slack huddle:", err);
+      console.error("[clips-slack] Failed to store Slack huddle:", err);
       setResponseStatus(event, 500);
       return { ok: false, error: "huddle event processing failed" };
+    }
+    if (huddle) {
+      const fill = fillMeetingsForHuddle(deps, huddle).catch((err) => {
+        console.error(
+          "[clips-slack] Huddle participant fill failed; the sweep retries it:",
+          err,
+        );
+      });
+      platformWaitUntil(event.req)?.(fill);
     }
     return { ok: true };
   }

@@ -56,6 +56,19 @@ const SLACK_AUTHORIZE_URL = "https://slack.com/oauth/v2/authorize";
  * its hash in the signed state; the callback only stores a token when the
  * same browser brings the cookie back and is signed in as the state's owner.
  */
+/**
+ * core's AppSecretDecryptionError: the stored secret exists but can never be
+ * decrypted (key rotated or lost). It is not exported from
+ * @agent-native/core/secrets, so it is recognized by its name and code.
+ */
+export function isSecretDecryptionError(err: unknown): boolean {
+  if (!err || typeof err !== "object") return false;
+  const { name, errorCode } = err as { name?: unknown; errorCode?: unknown };
+  return (
+    name === "AppSecretDecryptionError" || errorCode === "app_secret_unreadable"
+  );
+}
+
 export const SLACK_HUDDLES_OAUTH_COOKIE = "clips_slack_huddles_oauth";
 const SLACK_HUDDLES_OAUTH_TTL_SECONDS = 10 * 60;
 
@@ -413,10 +426,16 @@ export async function disconnectSlackHuddleConnection(options: {
   try {
     secret = await readAppSecret(secretRef);
   } catch (err) {
-    const reason = err instanceof Error ? err.message : String(err);
-    throw new Error(
-      `Could not read the stored Slack token. Try again. (${reason})`,
-    );
+    // A token that can never be decrypted can never be revoked either:
+    // forget it so the person can disconnect (and reconnect). Any other read
+    // failure may pass, so it is reported and the connection kept.
+    if (!isSecretDecryptionError(err)) {
+      const reason = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `Could not read the stored Slack token. Try again. (${reason})`,
+      );
+    }
+    secret = null;
   }
   if (secret?.value) {
     try {
@@ -453,18 +472,26 @@ export async function disconnectSlackHuddleConnection(options: {
   return true;
 }
 
-async function readConnectionToken(
+export async function readConnectionToken(
   connection: SlackUserConnection,
 ): Promise<string | null> {
-  // Null only when the secret is really gone (the connection is then marked
-  // failed). A read or decryption failure throws, so a transient secret-store
-  // problem fails this attempt instead of breaking the connection for good.
-  const secret = await readAppSecret({
-    key: connection.tokenSecretRef,
-    scope: "user",
-    scopeId: connection.ownerEmail,
-  });
-  return secret?.value ?? null;
+  // Null when the secret is gone; SlackTokenError("token_unreadable") when it
+  // can never be decrypted. Both mark the connection failed so the person
+  // reconnects. Any other read failure throws as is: a transient secret-store
+  // problem fails this attempt and the sweep retries, the connection stays.
+  try {
+    const secret = await readAppSecret({
+      key: connection.tokenSecretRef,
+      scope: "user",
+      scopeId: connection.ownerEmail,
+    });
+    return secret?.value ?? null;
+  } catch (err) {
+    if (isSecretDecryptionError(err)) {
+      throw new SlackTokenError("token_unreadable");
+    }
+    throw err;
+  }
 }
 
 /** Live dependencies for slack-huddles-store. */
