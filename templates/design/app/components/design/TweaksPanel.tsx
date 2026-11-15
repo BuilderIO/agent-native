@@ -86,7 +86,7 @@ export function TweaksPanelContent({
   );
 }
 
-export function TweakControls({
+function TweakControls({
   tweaks,
   values,
   onChange,

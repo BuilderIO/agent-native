@@ -217,6 +217,7 @@ import {
   normalizeRotationDegrees,
   sharedRotationValue,
 } from "./edit-panel/transform-helpers";
+import { TweakProperties } from "./edit-panel/tweak-properties";
 import {
   tweaksForSelection,
   type TweakSelectionTarget,
@@ -278,7 +279,6 @@ import type {
   ShaderSourceTransform,
 } from "./shader-source-coordination";
 import type { StatesPanelProps } from "./StatesPanel";
-import { TweakControls } from "./TweaksPanel";
 import type { ElementInfo, TextEditingState } from "./types";
 
 function elementInspectorKey(
@@ -2811,8 +2811,11 @@ export const EditPanel = memo(function EditPanel({
   const tweaksSection =
     scopedTweaks.length > 0 && onTweakChange ? (
       <PanelSection title={t("designEditor.tweaks")}>
-        <div data-design-inspector-tweaks className="space-y-1.5 px-3 pb-2">
-          <TweakControls
+        <div
+          data-design-inspector-tweaks
+          className="flex min-w-0 flex-col gap-[var(--design-inspector-grid-gap)]"
+        >
+          <TweakProperties
             tweaks={scopedTweaks}
             values={tweakValues ?? {}}
             onChange={onTweakChange}
