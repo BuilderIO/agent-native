@@ -132,8 +132,9 @@ pub(crate) mod macos {
         AVLinearPCMIsFloatKey, AVLinearPCMIsNonInterleaved, AVNumberOfChannelsKey,
     };
     use objc2_core_audio::{
-        kAudioDevicePropertyTransportType, kAudioDeviceTransportTypeBluetooth,
-        kAudioDeviceTransportTypeBluetoothLE, kAudioHardwareNoError,
+        kAudioDevicePropertyTransportType, kAudioDeviceTransportTypeAggregate,
+        kAudioDeviceTransportTypeBluetooth, kAudioDeviceTransportTypeBluetoothLE,
+        kAudioDeviceTransportTypeUnknown, kAudioHardwareNoError,
         kAudioHardwarePropertyTranslateUIDToDevice, kAudioObjectPropertyElementMain,
         kAudioObjectPropertyScopeGlobal, kAudioObjectSystemObject, AudioObjectGetPropertyData,
         AudioObjectID, AudioObjectPropertyAddress,
@@ -865,10 +866,18 @@ pub(crate) mod macos {
         if status != kAudioHardwareNoError {
             return None;
         }
-        Some(
-            transport == kAudioDeviceTransportTypeBluetooth
-                || transport == kAudioDeviceTransportTypeBluetoothLE,
-        )
+        transport_is_bluetooth(transport)
+    }
+
+    /// Whether a CoreAudio transport type is Bluetooth. `None` when the type
+    /// does not settle it: an unknown transport, or an aggregate device, which
+    /// can contain a Bluetooth microphone.
+    pub(crate) fn transport_is_bluetooth(transport: u32) -> Option<bool> {
+        match transport {
+            kAudioDeviceTransportTypeBluetooth | kAudioDeviceTransportTypeBluetoothLE => Some(true),
+            kAudioDeviceTransportTypeUnknown | kAudioDeviceTransportTypeAggregate => None,
+            _ => Some(false),
+        }
     }
 
     fn audio_object_id_for_uid(uid: &str) -> Result<AudioObjectID, String> {
@@ -2201,6 +2210,40 @@ pub(crate) mod macos {
             assert_eq!(pick(&devices), None);
             let none: [Mic; 0] = [];
             assert_eq!(pick(&none), None);
+        }
+
+        #[test]
+        fn transport_is_bluetooth_leaves_unknown_and_aggregate_unconfirmed() {
+            use super::transport_is_bluetooth;
+            use objc2_core_audio::{
+                kAudioDeviceTransportTypeAggregate, kAudioDeviceTransportTypeBluetooth,
+                kAudioDeviceTransportTypeBluetoothLE, kAudioDeviceTransportTypeBuiltIn,
+                kAudioDeviceTransportTypeUSB, kAudioDeviceTransportTypeUnknown,
+            };
+            assert_eq!(
+                transport_is_bluetooth(kAudioDeviceTransportTypeBluetooth),
+                Some(true)
+            );
+            assert_eq!(
+                transport_is_bluetooth(kAudioDeviceTransportTypeBluetoothLE),
+                Some(true)
+            );
+            assert_eq!(
+                transport_is_bluetooth(kAudioDeviceTransportTypeUSB),
+                Some(false)
+            );
+            assert_eq!(
+                transport_is_bluetooth(kAudioDeviceTransportTypeBuiltIn),
+                Some(false)
+            );
+            assert_eq!(
+                transport_is_bluetooth(kAudioDeviceTransportTypeUnknown),
+                None
+            );
+            assert_eq!(
+                transport_is_bluetooth(kAudioDeviceTransportTypeAggregate),
+                None
+            );
         }
 
         #[test]
