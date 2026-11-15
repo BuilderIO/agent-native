@@ -247,12 +247,13 @@ export async function refreshGitHubSourceBeforeRead(databaseId: string) {
 }
 
 /**
- * The same check for a read of one page that follows a GitHub file. True when
- * a sync changed or may have changed rows, so the caller reads the page again.
+ * The same check for a read of one page that follows a GitHub file or pull
+ * request. True when a sync changed or may have changed rows, so the caller
+ * reads the page again.
  */
 export async function refreshGitHubPageBeforeRead(documentId: string) {
   const [link] = await getDb()
-    .select(linkColumns)
+    .select(readLinkColumns)
     .from(schema.contentDatabaseSources)
     .innerJoin(schema.contentDatabases, sourceDatabase)
     .innerJoin(
@@ -265,11 +266,11 @@ export async function refreshGitHubPageBeforeRead(documentId: string) {
     .where(
       and(
         eq(schema.contentDatabaseItems.documentId, documentId),
-        eq(schema.contentDatabaseSources.sourceType, GITHUB_SOURCE_TYPE),
+        githubSourceTypes,
       ),
     )
     .limit(1);
-  return syncBeforeRead(link);
+  return syncLinkBeforeRead(link);
 }
 
 /**

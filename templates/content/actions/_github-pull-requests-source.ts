@@ -1294,8 +1294,27 @@ export async function syncGitHubPullRequests(
     const latest = (await readSource(options.sourceId))?.state ?? state;
     const keep = new Set([...wanted, ...latest.added]);
     if (complete) {
-      for (const [key, row] of written.rows) {
-        if (keep.has(key)) continue;
+      // A search leaves out what the linker can no longer see, which isn't
+      // a sign the pull request left the search. So a row it stopped
+      // finding moves to Trash only if GitHub still shows its pull request;
+      // otherwise it stays as it was, as an added one does.
+      const leaving = [...written.rows.keys()].filter((key) => !keep.has(key));
+      const refs = leaving
+        .map(refFromKey)
+        .filter((ref): ref is GitHubPullRequestRef => !!ref);
+      const shown = refs.length
+        ? await readAsLinker(state, database.orgId, () =>
+            readGitHubPullRequests(target, refs),
+          )
+        : [];
+      const stillShown = new Set(
+        shown
+          .filter((pr): pr is GitHubPullRequestRecord => !!pr)
+          .map(githubPullRequestKey),
+      );
+      for (const key of leaving) {
+        const row = written.rows.get(key);
+        if (!row || !stillShown.has(key)) continue;
         if (await trashRow(loaded, row, key, now, claimId)) {
           result.trashed += 1;
         }
@@ -1482,21 +1501,38 @@ export interface AddedGitHubPullRequest {
   created: boolean;
 }
 
+function tooManyAddedError() {
+  return new ActionContractError(
+    `A collection keeps at most ${GITHUB_PULL_REQUESTS_MAX_ADDED} pull requests added by link.`,
+    { errorCode: "TOO_MANY_PULL_REQUESTS", statusCode: 409 },
+  );
+}
+
 /**
  * Adds pull requests to a linked collection by link, so they stay after
  * they leave the search. Each gets its row, made now if it has none; adding
  * one again returns the same row. GitHub is read only for pull requests
- * without a row, as the person who linked the collection.
+ * without a row, as the person who linked the collection, so only they can
+ * add: anyone else could show every reader a private pull request only the
+ * linker can see.
  */
 export async function addGitHubPullRequests(args: {
   databaseId: string;
   refs: GitHubPullRequestRef[];
+  /** Who is adding them. */
+  actor: string;
 }): Promise<AddedGitHubPullRequest[]> {
   const loaded = await readLinkedGitHubPullRequests(args.databaseId);
   if (!loaded) {
     throw new ActionContractError(
       "This collection isn't linked to GitHub pull requests. Make one with create-github-pull-request-collection.",
       { errorCode: "SOURCE_NOT_FOUND", statusCode: 404 },
+    );
+  }
+  if (loaded.state.linkedBy.toLowerCase() !== args.actor.toLowerCase()) {
+    throw new ActionContractError(
+      "Only the person who linked this collection to GitHub can add pull requests to it, because Content reads them with their GitHub connection.",
+      { errorCode: "NOT_THE_LINKER", statusCode: 403 },
     );
   }
   // One entry a pull request, however many times or ways it was named.
@@ -1507,14 +1543,12 @@ export async function addGitHubPullRequests(args: {
   ];
   const keys = wanted.map(([key]) => key);
   const newlyAdded = keys.filter((key) => !loaded.state.added.includes(key));
+  // Checked here before asking GitHub, and again as the list is saved.
   if (
     loaded.state.added.length + newlyAdded.length >
     GITHUB_PULL_REQUESTS_MAX_ADDED
   ) {
-    throw new ActionContractError(
-      `A collection keeps at most ${GITHUB_PULL_REQUESTS_MAX_ADDED} pull requests added by link.`,
-      { errorCode: "TOO_MANY_PULL_REQUESTS", statusCode: 409 },
-    );
+    throw tooManyAddedError();
   }
   const existing = await readSourceRows(getDb(), loaded.source.id);
   const missing = wanted.filter(([key]) => !existing.has(key));
@@ -1573,10 +1607,15 @@ export async function addGitHubPullRequests(args: {
   // Recorded before the rows are written, so a sync that runs in between
   // keeps them, and one that fails here leaves the next sync to make them.
   if (newlyAdded.length > 0) {
-    await updateState(loaded.source.id, now, (state) => ({
-      ...state,
-      added: [...new Set([...state.added, ...newlyAdded])],
-    }));
+    // Set by the update below, which only writes over the list it read, and
+    // reads again otherwise. So two adds at once can't both fit under the cap.
+    const cap = { reached: false };
+    await updateState(loaded.source.id, now, (state) => {
+      const added = [...new Set([...state.added, ...newlyAdded])];
+      cap.reached = added.length > GITHUB_PULL_REQUESTS_MAX_ADDED;
+      return cap.reached ? null : { ...state, added };
+    });
+    if (cap.reached) throw tooManyAddedError();
   }
   const written = await writeRows({
     loaded,

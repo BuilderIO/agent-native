@@ -209,10 +209,12 @@ async function bringInPullRequests({
   database,
   sourceId,
   refs,
+  actor,
 }: {
   database: typeof schema.contentDatabases.$inferSelect;
   sourceId: string;
   refs: GitHubPullRequestRef[];
+  actor: string;
 }) {
   let sync: GitHubPullRequestsSyncResult;
   try {
@@ -248,7 +250,11 @@ async function bringInPullRequests({
   let addError: string | null = null;
   if (refs.length > 0) {
     try {
-      added = await addGitHubPullRequests({ databaseId: database.id, refs });
+      added = await addGitHubPullRequests({
+        databaseId: database.id,
+        refs,
+        actor,
+      });
     } catch (error) {
       if (!(error instanceof ActionContractError)) throw error;
       addError = error.message;
@@ -400,7 +406,12 @@ export default defineAction({
       },
       title,
       search,
-      ...(await bringInPullRequests({ database, sourceId, refs })),
+      ...(await bringInPullRequests({
+        database,
+        sourceId,
+        refs,
+        actor: userEmail,
+      })),
     };
   },
   // Everyone reading the new collection gets its rows, not just the caller.

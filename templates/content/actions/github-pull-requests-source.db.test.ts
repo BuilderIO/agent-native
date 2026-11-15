@@ -108,6 +108,8 @@ let refreshSource: typeof import("./refresh-content-database-source.js").default
 let getSource: typeof import("./get-content-database-source.js").default;
 let updateDocument: typeof import("./update-document.js").default;
 let runSweep: typeof import("./_github-pull-requests-freshness.js").runGitHubPullRequestsSweep;
+let refreshPage: typeof import("./_github-source-freshness.js").refreshGitHubPageBeforeRead;
+let addAs: typeof import("./_github-pull-requests-source.js").addGitHubPullRequests;
 let GitHubSourceError: typeof import("../server/lib/github-source-client.js").GitHubSourceError;
 let spaceId: string;
 
@@ -130,6 +132,10 @@ beforeAll(async () => {
   updateDocument = (await import("./update-document.js")).default;
   ({ runGitHubPullRequestsSweep: runSweep } =
     await import("./_github-pull-requests-freshness.js"));
+  ({ refreshGitHubPageBeforeRead: refreshPage } =
+    await import("./_github-source-freshness.js"));
+  ({ addGitHubPullRequests: addAs } =
+    await import("./_github-pull-requests-source.js"));
   ({ GitHubSourceError } =
     await import("../server/lib/github-source-client.js"));
   await as(() =>
@@ -439,7 +445,9 @@ describe("GitHub pull request collections", () => {
     const refreshed = await refresh(result.database.id);
     expect(refreshed).toMatchObject({ githubChanged: true });
     expect(await liveTitles(result.database.id)).toEqual(["Added by link"]);
-    expect(github.state.reads.at(-1)).toEqual([linked]);
+    // The added one is read by number, and the searched one once more
+    // before it moves to Trash.
+    expect(github.state.reads.slice(-2)).toEqual([[linked], [searched]]);
 
     const byName = await columns(result.database.id);
     const kept = await rowByTitle(result.database.id, "Added by link");
@@ -619,5 +627,95 @@ describe("GitHub pull request collections", () => {
       searchUrl: null,
       added: 1,
     });
+  });
+
+  it("keeps a search row whose pull request GitHub no longer shows, as when the linker loses access", async () => {
+    const shown = pullRequest("site", 90, { title: "Still shown" });
+    const hidden = pullRequest("private", 91, { title: "Lost access" });
+    github.state.found = [shown, hidden];
+    const result = made(await newCollection());
+
+    // The linker can't see it any more, so neither the search nor a read by
+    // number finds it.
+    github.state.pullRequests.delete(hidden);
+    github.state.found = [shown];
+    await refresh(result.database.id);
+    expect(await liveTitles(result.database.id)).toEqual([
+      "Lost access",
+      "Still shown",
+    ]);
+  });
+
+  it("lets only the person who linked a collection add pull requests to it", async () => {
+    pullRequest("site", 100);
+    const result = made(await newCollection());
+    const editor = "editor@example.com";
+    await expect(
+      runWithRequestContext({ userEmail: editor }, () =>
+        addAs({
+          databaseId: result.database.id,
+          refs: [{ owner: "acme", repo: "site", number: 100 }],
+          actor: editor,
+        }),
+      ),
+    ).rejects.toThrow("Only the person who linked this collection");
+    expect(github.state.reads).toEqual([]);
+  });
+
+  it("holds two adds at once to the cap on pull requests added by link", async () => {
+    const result = made(await newCollection());
+    const where = eq(
+      schema.contentDatabaseSources.databaseId,
+      result.database.id,
+    );
+    const source = (
+      await getDb()
+        .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
+        .from(schema.contentDatabaseSources)
+        .where(where)
+    ).at(0);
+    if (!source) throw new Error("The collection has no link.");
+    const metadata = JSON.parse(source.metadataJson);
+    metadata.githubPullRequests.added = Array.from(
+      { length: 499 },
+      (_, index) => `acme/old#${index + 1}`,
+    );
+    await getDb()
+      .update(schema.contentDatabaseSources)
+      .set({ metadataJson: JSON.stringify(metadata) })
+      .where(where);
+    pullRequest("site", 110);
+    pullRequest("site", 111);
+
+    const adds = await Promise.allSettled(
+      ["acme/site#110", "acme/site#111"].map((url) =>
+        as(() =>
+          addPullRequests.run({ databaseId: result.database.id, urls: [url] }),
+        ),
+      ),
+    );
+    expect(adds.filter((add) => add.status === "fulfilled")).toHaveLength(1);
+    expect(adds.find((add) => add.status === "rejected")).toMatchObject({
+      reason: { message: expect.stringContaining("at most 500") },
+    });
+    const status = await as(() =>
+      getSource.run({ databaseId: result.database.id }),
+    );
+    expect(status.source?.metadata.githubPullRequests?.added).toBe(500);
+  });
+
+  it("brings a pull request's page up to GitHub when it's read on its own", async () => {
+    const key = pullRequest("site", 120, { title: "Old title" });
+    github.state.found = [key];
+    const result = made(await newCollection());
+    const row = await rowByTitle(result.database.id, "Old title");
+    await getDb()
+      .update(schema.contentDatabaseSources)
+      .set({ lastRefreshedAt: new Date(Date.now() - 5 * 60_000).toISOString() })
+      .where(eq(schema.contentDatabaseSources.databaseId, result.database.id));
+
+    changePullRequest(key, { title: "New title" });
+    expect(await as(() => refreshPage(row.documentId))).toBe(true);
+    expect(await liveTitles(result.database.id)).toEqual(["New title"]);
   });
 });

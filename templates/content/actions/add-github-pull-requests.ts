@@ -1,4 +1,5 @@
 import { ActionContractError, defineAction } from "@agent-native/core/action";
+import { getRequestUserEmail } from "@agent-native/core/server/request-context";
 import { assertAccess } from "@agent-native/core/sharing";
 import { z } from "zod";
 
@@ -40,7 +41,7 @@ const addGitHubPullRequestsSchema = z
 
 export default defineAction({
   description:
-    "Add pull requests by link to a GitHub pull request collection, and get back each one's row. Rows added this way stay after the pull request merges or closes, so a relation to one keeps working. Adding one the collection has already returns its row unchanged, so it's safe to repeat.",
+    "Add pull requests by link to a GitHub pull request collection, and get back each one's row. Rows added this way stay after the pull request merges or closes, so a relation to one keeps working. Adding one the collection has already returns its row unchanged, so it's safe to repeat. Only the person who linked the collection can add, since Content reads GitHub with their connection.",
   mcpTool: true,
   // It only adds rows, and adding one twice returns the same row.
   mcpAnnotations: {
@@ -57,6 +58,13 @@ export default defineAction({
     summary: z.string(),
   }),
   run: async (args) => {
+    const userEmail = getRequestUserEmail();
+    if (!userEmail) {
+      throw new ActionContractError("Sign in to add pull requests.", {
+        errorCode: "AUTH_REQUIRED",
+        statusCode: 401,
+      });
+    }
     const database = await resolveDatabaseForSourceMutation(
       args.databaseId
         ? { databaseId: args.databaseId }
@@ -75,6 +83,7 @@ export default defineAction({
     const pullRequests = await addGitHubPullRequests({
       databaseId: database.id,
       refs,
+      actor: userEmail,
     });
     const created = pullRequests.filter((pr) => pr.created).length;
     return {

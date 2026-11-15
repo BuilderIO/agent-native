@@ -90,6 +90,7 @@ import {
   readGitHubBranchHead,
   readGitHubFolderTree,
   readGitHubRenames,
+  searchGitHubPullRequests,
 } from "./github-source-client";
 
 const target = { owner: "acme", repo: "site" };
@@ -478,5 +479,48 @@ describe("Reading many files at once", () => {
     await vi.waitFor(() => expect(requests).toHaveLength(1));
     budget.abort();
     await expect(read).rejects.toBeInstanceOf(GitHubSourceDeadlineError);
+  });
+});
+
+describe("Pull request searches", () => {
+  const node = {
+    number: 12,
+    title: "Fix the header",
+    url: "https://github.com/acme/site/pull/12",
+    isDraft: false,
+    state: "OPEN",
+    createdAt: "2026-11-01T00:00:00Z",
+    updatedAt: "2026-11-02T00:00:00Z",
+    closedAt: null,
+    author: { login: "octocat" },
+    repository: { name: "site", owner: { login: "acme" } },
+  };
+  const pageInfo = { hasNextPage: false, endCursor: null };
+
+  it("reads a whole answer and its count", async () => {
+    github.response = {
+      status: 200,
+      json: { data: { search: { issueCount: 1, pageInfo, nodes: [node] } } },
+    };
+    await expect(
+      searchGitHubPullRequests({}, "is:open", 50),
+    ).resolves.toMatchObject({ total: 1, pullRequests: [{ number: 12 }] });
+  });
+
+  it("refuses a search answered only in part, so no row moves to Trash on it", async () => {
+    for (const json of [
+      // No count, so there's no telling what it left out.
+      { data: { search: { pageInfo, nodes: [node] } } },
+      // A count beside errors, as when one repository couldn't be searched.
+      {
+        data: { search: { issueCount: 1, pageInfo, nodes: [node] } },
+        errors: [{ message: "Resource protected by SAML enforcement" }],
+      },
+    ]) {
+      github.response = { status: 200, json };
+      await expect(
+        searchGitHubPullRequests({}, "is:open", 50),
+      ).rejects.toMatchObject({ code: "unavailable" });
+    }
   });
 });

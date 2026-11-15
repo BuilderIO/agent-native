@@ -800,16 +800,21 @@ ${PULL_REQUEST_FIELDS}`,
     });
     const failure = "GitHub couldn't run the search";
     const { data, errors } = graphqlResult(response, failure);
-    if (!data.search || typeof data.search !== "object") {
+    const result = asRecord(data.search);
+    // A search answered only in part, with errors or without its count,
+    // can't say which pull requests it stopped finding, and the sync moves
+    // those to Trash. So it counts as no answer, and the rows stay.
+    if (errors.length > 0 || typeof result.issueCount !== "number") {
       const message = errors[0]?.message;
       throw new GitHubSourceError(
         "unavailable",
-        typeof message === "string" ? `${failure}: ${message}` : `${failure}.`,
+        typeof message === "string"
+          ? `${failure}: ${message}`
+          : `${failure}: it answered only in part.`,
         response.status,
       );
     }
-    const result = asRecord(data.search);
-    if (typeof result.issueCount === "number") total = result.issueCount;
+    total = result.issueCount;
     for (const node of graphqlNodes(result)) {
       const pullRequest = pullRequestRecord(node);
       if (pullRequest) pullRequests.push(pullRequest);
