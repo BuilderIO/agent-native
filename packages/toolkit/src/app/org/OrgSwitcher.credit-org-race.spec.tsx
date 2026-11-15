@@ -1,15 +1,5 @@
 // @vitest-environment jsdom
 
-import {
-  ActionQueryCacheGate,
-  setActionQueryCacheStorage,
-  type ActionQueryCacheStorage,
-} from "@agent-native/core/client/action-query-cache";
-import {
-  currentActionQueryCacheBinding,
-  useActionQuery,
-} from "@agent-native/core/client/hooks";
-import { notifySessionInvalidated } from "@agent-native/core/client/use-session";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act } from "react";
 import { createRoot } from "react-dom/client";
@@ -25,16 +15,16 @@ vi.mock("../../../../core/src/server/request-context.js", () => ({
 }));
 vi.mock("../../../../core/src/server/fusion-app.js", () => ({
   getBuilderCreditUsage: async () =>
-    server.activeOrg === "org-a"
+    server.activeOrg === "org-b"
       ? {
-          plan: "paid",
-          balance: 90,
-          quota: { period: "monthly", limit: 100, used: 10, remaining: 90 },
-        }
-      : {
           plan: "free",
           balance: 0,
           quota: { period: "daily", limit: 10, used: 10, remaining: 0 },
+        }
+      : {
+          plan: "paid",
+          balance: 90,
+          quota: { period: "monthly", limit: 100, used: 10, remaining: 90 },
         },
 }));
 vi.mock("../../../../core/src/usage/metrics-store.js", () => ({
@@ -68,11 +58,6 @@ import getBuilderCreditStatus from "../../../../core/src/usage/actions/get-build
 import { BuilderCreditNotice } from "./OrgSwitcher.js";
 
 const email = "person@example.com";
-const orgs = [
-  { orgId: "org-a", orgName: "Workspace A", role: "member" },
-  { orgId: "org-b", orgName: "Workspace B", role: "member" },
-];
-
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), {
     status,
@@ -81,8 +66,6 @@ function json(body: unknown, status = 200) {
 }
 
 afterEach(() => {
-  setActionQueryCacheStorage(undefined);
-  vi.restoreAllMocks();
   vi.unstubAllGlobals();
 });
 
@@ -91,65 +74,26 @@ it.each([
   { from: null, to: "org-b" },
   { from: "org-a", to: null },
 ])(
-  "recovers credit status after another client switches from $from to $to",
+  "reports a scope conflict from $from to $to until the org is refreshed",
   async ({ from, to }) => {
     server.activeOrg = from;
     server.permissionChecks = [];
-    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
-    const statusCodes: number[] = [];
-    const serverErrors: string[] = [];
+    const statuses: number[] = [];
     const requestedOrgs: (string | null)[] = [];
-    const creditBindings: (object | undefined)[] = [];
     let orgReads = 0;
-    const sessionOrgs: (string | null)[] = [];
-    let sessionUnavailable = false;
+    let sessionReads = 0;
     let orgUnavailable = false;
-    const otherReads: Array<{
-      org: string | null;
-      binding: object | undefined;
-    }> = [];
-    const records = new Map<
-      string,
-      NonNullable<Awaited<ReturnType<ActionQueryCacheStorage["get"]>>>
-    >();
-    setActionQueryCacheStorage({
-      get: async (key) => records.get(key),
-      set: async (key, value) => {
-        records.set(key, value);
-      },
-      del: async (key) => {
-        records.delete(key);
-      },
-      keys: async () => [...records.keys()],
-      clear: async () => {
-        records.clear();
-      },
-    });
-    let failure: { status: number; errorCode: string } | null = null;
     vi.stubGlobal(
       "fetch",
-      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      vi.fn(async (input: RequestInfo | URL) => {
         const url = new URL(String(input), window.location.href);
         if (url.pathname === "/_agent-native/auth/session") {
-          sessionOrgs.push(server.activeOrg);
-          if (sessionUnavailable) return json({ error: "unavailable" }, 503);
+          sessionReads++;
           return json({
             email,
             userId: "person",
             ...(server.activeOrg ? { orgId: server.activeOrg } : {}),
             testIdentity: false,
-          });
-        }
-        if (url.pathname === "/_agent-native/actions/list-other-scope") {
-          otherReads.push({
-            org: server.activeOrg,
-            binding: currentActionQueryCacheBinding(),
-          });
-          return new Response(JSON.stringify({ org: server.activeOrg }), {
-            headers: {
-              "Content-Type": "application/json",
-              "X-Agent-Native-Browser-Persist": "allow",
-            },
           });
         }
         if (url.pathname === "/_agent-native/org/me") {
@@ -158,9 +102,8 @@ it.each([
           return json({
             email,
             orgId: server.activeOrg,
-            orgName:
-              server.activeOrg === "org-a" ? "Workspace A" : "Workspace B",
-            orgs,
+            orgName: null,
+            orgs: [],
             role: "member",
             domainMatches: [],
             pendingInvitations: [],
@@ -171,44 +114,25 @@ it.each([
         ) {
           const params = Object.fromEntries(url.searchParams.entries());
           requestedOrgs.push(url.searchParams.get("orgId"));
-          creditBindings.push(currentActionQueryCacheBinding());
-          if (failure) {
-            statusCodes.push(failure.status);
-            return json(
-              { error: "Service unavailable", errorCode: failure.errorCode },
-              failure.status,
-            );
-          }
           try {
             const result = await getBuilderCreditStatus.run(params, {
               caller: "frontend",
               userEmail: email,
               orgId: server.activeOrg,
             });
-            statusCodes.push(200);
+            statuses.push(200);
             return json(result);
           } catch (error) {
-            const message =
-              error instanceof Error ? error.message : String(error);
-            const status =
-              typeof error === "object" &&
-              error !== null &&
-              "statusCode" in error &&
-              typeof error.statusCode === "number"
-                ? error.statusCode
-                : 500;
-            statusCodes.push(status);
-            if (status >= 500) serverErrors.push(message);
-            const errorCode =
-              typeof error === "object" &&
-              error !== null &&
-              "errorCode" in error &&
-              typeof error.errorCode === "string"
-                ? error.errorCode
-                : undefined;
+            const e = error as {
+              message: string;
+              statusCode?: number;
+              errorCode?: string;
+            };
+            const status = e.statusCode ?? 500;
+            statuses.push(status);
             return json(
               status < 500
-                ? { error: message, ...(errorCode ? { errorCode } : {}) }
+                ? { error: e.message, errorCode: e.errorCode }
                 : { error: "Action failed" },
               status,
             );
@@ -217,319 +141,87 @@ it.each([
         throw new Error(`Unexpected request: ${url.pathname}`);
       }),
     );
-
-    await notifySessionInvalidated();
-    const noticeClient = new QueryClient({
+    const client = new QueryClient({
       defaultOptions: { queries: { retry: false } },
     });
-    function OtherScopedQuery() {
-      const query = useActionQuery<{ org: string | null }>(
-        "list-other-scope" as never,
-        undefined,
-        { batchRefetches: false },
-      );
-      return (
-        <span data-other>
-          {query.data ? (query.data.org ?? "personal") : "loading"}
-        </span>
-      );
-    }
-    const noticeContainer = document.createElement("div");
-    document.body.append(noticeContainer);
-    const noticeRoot = createRoot(noticeContainer);
-
+    const container = document.createElement("div");
+    document.body.append(container);
+    const root = createRoot(container);
     try {
       await act(async () => {
-        noticeRoot.render(
-          <QueryClientProvider client={noticeClient}>
-            <ActionQueryCacheGate>
-              <BuilderCreditNotice />
-              <OtherScopedQuery />
-            </ActionQueryCacheGate>
+        root.render(
+          <QueryClientProvider client={client}>
+            <BuilderCreditNotice />
           </QueryClientProvider>,
         );
       });
       await act(async () => {
-        await vi.waitFor(() => expect(statusCodes).toEqual([200]));
+        await vi.waitFor(() => expect(statuses).toEqual([200]));
       });
-      expect(server.permissionChecks).toEqual([from]);
       expect(requestedOrgs).toEqual([from ?? ""]);
-
-      await vi.waitFor(async () => {
-        await act(async () => {
-          await new Promise((resolve) => setTimeout(resolve, 0));
-        });
-        expect(currentActionQueryCacheBinding()).toBeDefined();
-      });
-      await act(async () => {
-        await noticeClient.invalidateQueries({
-          queryKey: ["action", "list-other-scope"],
-        });
-      });
-      await vi.waitFor(() =>
-        expect(
-          otherReads.some((read) => read.org === from && read.binding),
-        ).toBe(true),
-      );
-      const previousBinding = currentActionQueryCacheBinding();
-      noticeClient.setQueryData(["local-draft"], { text: "unsaved edit" });
-      server.activeOrg = to;
-      expect(
-        noticeClient.getQueryData<{ orgId: string | null }>(["org-me"])?.orgId,
-      ).toBe(from);
-      const context = {
-        caller: "frontend",
-        userEmail: email,
-        orgId: to,
-      } as const;
-      await expect(
-        getBuilderCreditStatus.run({ orgId: from }, context),
-      ).rejects.toMatchObject({
-        statusCode: 409,
-        errorCode: "builder_credit_org_mismatch",
-      });
       expect(server.permissionChecks).toEqual([from]);
-      await expect(
-        getBuilderCreditStatus.run({}, context),
-      ).resolves.toMatchObject({
-        state: { kind: "exhausted" },
-        period: "daily",
-      });
-      server.permissionChecks = [];
+      const oldOrgReads = orgReads;
+      const oldSessionReads = sessionReads;
+      server.activeOrg = to;
       await act(async () => {
-        await noticeClient.invalidateQueries({
+        await client.invalidateQueries({
           queryKey: ["action", "get-builder-credit-status"],
         });
       });
-
       await vi.waitFor(async () => {
         await act(async () => {
           await new Promise((resolve) => setTimeout(resolve, 0));
         });
-        expect({
-          notice: noticeContainer.querySelector("button")?.textContent ?? "",
-          noticeOrg: noticeClient.getQueryData<{ orgId: string | null }>([
-            "org-me",
-          ])?.orgId,
-          serverErrors,
-          checkedCurrentOrg: server.permissionChecks.includes(to),
-        }).toEqual({
-          notice: "Your Builder credits are used up",
-          noticeOrg: to,
-          serverErrors: [],
-          checkedCurrentOrg: true,
-        });
+        expect(statuses).toEqual([200, 409]);
+        expect(container.querySelector("button")).toBeNull();
       });
-      expect(statusCodes).toEqual([200, 409, 200]);
-      expect(noticeClient.getQueryData(["local-draft"])).toEqual({
-        text: "unsaved edit",
-      });
-      expect(requestedOrgs).toEqual([from ?? "", from ?? "", to ?? ""]);
-      expect(creditBindings[2]).toBeDefined();
-      expect(creditBindings[2]).not.toBe(previousBinding);
-      expect(sessionOrgs).toContain(to);
-      await vi.waitFor(async () => {
-        await act(async () => {
-          await new Promise((resolve) => setTimeout(resolve, 0));
-        });
-        expect(
-          otherReads.some(
-            (read) =>
-              read.org === to &&
-              read.binding &&
-              read.binding !== previousBinding,
-          ),
-        ).toBe(true);
-        expect(noticeContainer.querySelector("[data-other]")?.textContent).toBe(
-          to ?? "personal",
-        );
-      });
+      expect(orgReads).toBe(oldOrgReads);
+      expect(sessionReads).toBe(oldSessionReads);
       expect(
-        otherReads
-          .filter((read) => read.org === to)
-          .every((read) => read.binding !== previousBinding),
-      ).toBe(true);
-      await vi.waitFor(
-        async () => {
-          await act(async () => {
-            await new Promise((resolve) => setTimeout(resolve, 0));
-          });
-          const scoped = [...records.entries()].find(
-            ([key]) => JSON.parse(key)[1] === to,
-          );
-          expect(scoped).toBeDefined();
-          expect(
-            scoped?.[1].clientState.queries.some(
-              (query) =>
-                query.queryKey[1] === "list-other-scope" &&
-                (query.state.data as { org: string | null }).org === to,
-            ),
-          ).toBe(true);
-        },
-        { timeout: 4000 },
-      );
-
-      const orgReadsBeforeOutage = orgReads;
-      failure = { status: 503, errorCode: "upstream_unavailable" };
-      await act(async () => {
-        await noticeClient.invalidateQueries({
-          queryKey: ["action", "get-builder-credit-status"],
-        });
-      });
-      await vi.waitFor(async () => {
-        await act(async () => {
-          await new Promise((resolve) => setTimeout(resolve, 0));
-        });
-        expect(
-          noticeContainer.querySelector("button")?.textContent ?? "",
-        ).not.toContain("Your Builder credits are used up");
-      });
-      expect(statusCodes).toEqual([200, 409, 200, 503]);
-      expect(orgReads).toBe(orgReadsBeforeOutage);
-
-      failure = { status: 409, errorCode: "different_conflict" };
-      await act(async () => {
-        await noticeClient.invalidateQueries({
-          queryKey: ["action", "get-builder-credit-status"],
-        });
-      });
-      expect(statusCodes).toEqual([200, 409, 200, 503, 409]);
-      expect(orgReads).toBe(orgReadsBeforeOutage);
-
-      failure = null;
-      server.activeOrg = from;
-      sessionUnavailable = true;
-      orgUnavailable = true;
-      const sessionReadsBeforeFailure = sessionOrgs.length;
-      const creditReadsBeforeFailure = statusCodes.length;
-      await act(async () => {
-        await noticeClient.invalidateQueries({
-          queryKey: ["action", "get-builder-credit-status"],
-        });
-      });
-      await vi.waitFor(async () => {
-        await act(async () => {
-          await new Promise((resolve) => setTimeout(resolve, 0));
-        });
-        expect(sessionOrgs.length).toBeGreaterThan(sessionReadsBeforeFailure);
-      });
-      expect(orgReads).toBe(orgReadsBeforeOutage);
-      expect(statusCodes).toHaveLength(creditReadsBeforeFailure + 1);
-      expect(statusCodes.at(-1)).toBe(409);
-      expect(
-        noticeClient.getQueryState([
+        client.getQueryState([
           "action",
           "get-builder-credit-status",
-          { orgId: to ?? "" },
+          { orgId: from ?? "" },
         ])?.status,
       ).toBe("error");
-      expect(noticeContainer.querySelector("button")).toBeNull();
-      expect(noticeClient.getQueryData(["local-draft"])).toEqual({
-        text: "unsaved edit",
-      });
+      expect(server.permissionChecks).toEqual([from]);
 
-      sessionUnavailable = false;
-      await vi.waitFor(
-        async () => {
-          await act(async () => {
-            await new Promise((resolve) => setTimeout(resolve, 0));
-          });
-          expect(noticeClient.getQueryState(["org-me"])?.status).toBe("error");
-        },
-        { timeout: 4000 },
-      );
-      expect(statusCodes).toHaveLength(creditReadsBeforeFailure + 1);
-      expect(noticeContainer.querySelector("button")).toBeNull();
-      expect(warning).toHaveBeenCalledWith(
-        "Unable to refresh organization after credit scope changed",
-        expect.any(Error),
-      );
-
-      orgUnavailable = false;
       await act(async () => {
-        await noticeClient.invalidateQueries({ queryKey: ["org-me"] });
+        await client.invalidateQueries({ queryKey: ["org-me"] });
       });
       await vi.waitFor(async () => {
         await act(async () => {
           await new Promise((resolve) => setTimeout(resolve, 0));
         });
+        expect(statuses).toEqual([200, 409, 200]);
         expect(
-          noticeClient.getQueryData<{ orgId: string | null }>(["org-me"])
-            ?.orgId,
-        ).toBe(from);
-        expect(currentActionQueryCacheBinding()).toBeDefined();
+          client.getQueryData<{ orgId: string | null }>(["org-me"])?.orgId,
+        ).toBe(to);
       });
-      const sameScopeBinding = currentActionQueryCacheBinding();
+      expect(requestedOrgs).toEqual([from ?? "", from ?? "", to ?? ""]);
+      expect(server.permissionChecks).toEqual([from, to]);
+      await vi.waitFor(async () => {
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+        expect(Boolean(container.querySelector("button"))).toBe(to === "org-b");
+      });
+
       orgUnavailable = true;
-      failure = { status: 409, errorCode: "builder_credit_org_mismatch" };
       await act(async () => {
-        await noticeClient.invalidateQueries({
+        await client.invalidateQueries({ queryKey: ["org-me"] });
+      });
+      expect(client.getQueryState(["org-me"])?.status).toBe("error");
+      await act(async () => {
+        await client.invalidateQueries({
           queryKey: ["action", "get-builder-credit-status"],
         });
       });
-      await vi.waitFor(async () => {
-        await act(async () => {
-          await new Promise((resolve) => setTimeout(resolve, 0));
-        });
-        expect(noticeClient.getQueryState(["org-me"])?.status).toBe("error");
-      });
-      expect(currentActionQueryCacheBinding()).toBe(sameScopeBinding);
-      failure = null;
-      orgUnavailable = false;
-      await act(async () => {
-        await noticeClient.invalidateQueries({ queryKey: ["org-me"] });
-      });
-      await vi.waitFor(async () => {
-        await act(async () => {
-          await new Promise((resolve) => setTimeout(resolve, 0));
-        });
-        expect(currentActionQueryCacheBinding()).toBe(sameScopeBinding);
-      });
-      const orgReadsBeforeSameSession = orgReads;
-      noticeClient.setQueryData(["action", "optimistic-draft"], {
-        text: "pending edit",
-      });
-      await act(async () => {
-        await notifySessionInvalidated();
-      });
-      expect(currentActionQueryCacheBinding()).toBe(sameScopeBinding);
-      expect(noticeClient.getQueryData(["action", "optimistic-draft"])).toEqual(
-        { text: "pending edit" },
-      );
-      expect(orgReads).toBe(orgReadsBeforeSameSession);
-      expect(noticeClient.getQueryData(["local-draft"])).toEqual({
-        text: "unsaved edit",
-      });
-
-      const creditReadsBeforeSessionSwitch = statusCodes.length;
-      server.activeOrg = to;
-      await act(async () => {
-        await notifySessionInvalidated();
-      });
-      await vi.waitFor(async () => {
-        await act(async () => {
-          await new Promise((resolve) => setTimeout(resolve, 0));
-        });
-        expect(
-          noticeClient.getQueryData<{ orgId: string | null }>(["org-me"])
-            ?.orgId,
-        ).toBe(to);
-        expect(noticeContainer.querySelector("button")?.textContent).toContain(
-          "Your Builder credits are used up",
-        );
-      });
-      expect(statusCodes.slice(creditReadsBeforeSessionSwitch)).not.toContain(
-        409,
-      );
-      expect(noticeClient.getQueryData(["local-draft"])).toEqual({
-        text: "unsaved edit",
-      });
+      expect(statuses).toEqual([200, 409, 200, 200]);
     } finally {
-      act(() => {
-        noticeRoot.unmount();
-      });
-      noticeContainer.remove();
-      noticeClient.clear();
+      act(() => root.unmount());
+      container.remove();
+      client.clear();
     }
   },
 );

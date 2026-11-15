@@ -1,7 +1,4 @@
-import {
-  actionErrorCode,
-  useActionQuery,
-} from "@agent-native/core/client/hooks";
+import { useActionQuery } from "@agent-native/core/client/hooks";
 import { useAvatarUrl } from "@agent-native/core/client/hooks";
 import { useDemoModeStatus } from "@agent-native/core/client/hooks";
 import { useSession } from "@agent-native/core/client/hooks";
@@ -19,11 +16,6 @@ import {
   CHAT_MODEL_SELECTION_CHANGED_EVENT,
   chatModelSelectionStorageKey,
 } from "@agent-native/core/client/use-chat-models";
-import {
-  notifySessionInvalidated,
-  sessionReadIdentity,
-  sessionReadIdentityStatus,
-} from "@agent-native/core/client/use-session";
 import { setBrowserDemoModeEnabled } from "@agent-native/core/demo/browser-state";
 import { buildSettingsRoute } from "@agent-native/core/navigation";
 import { shouldOfferWorkspace } from "@agent-native/core/org/workspace-url";
@@ -80,9 +72,7 @@ import {
   IconPresentation,
   IconSelector,
 } from "@tabler/icons-react";
-import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import {
-  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -174,8 +164,6 @@ function useChatEngineChoice(): string | undefined {
   return engine;
 }
 
-const creditScopeRecoveries = new WeakMap<QueryClient, Promise<void>>();
-
 export function BuilderCreditNotice({
   compact = false,
   showAtLimitOnly = false,
@@ -185,31 +173,7 @@ export function BuilderCreditNotice({
   showAtLimitOnly?: boolean;
   className?: string;
 }) {
-  const { data: org, refetch: refetchOrg, isError: orgError } = useOrg();
-  const { session, status: sessionStatus, error: sessionError } = useSession();
-  const queryClient = useQueryClient();
-  const recoverOrg = useCallback(() => {
-    if (creditScopeRecoveries.has(queryClient)) return;
-    const recovery = (async () => {
-      const sessionRead = notifySessionInvalidated();
-      const identity = sessionReadIdentity();
-      await sessionRead;
-      if (sessionReadIdentityStatus(identity) !== "current") return;
-      await refetchOrg({ throwOnError: true });
-    })();
-    creditScopeRecoveries.set(queryClient, recovery);
-    void recovery
-      .catch((error: unknown) => {
-        console.warn(
-          "Unable to refresh organization after credit scope changed",
-          error,
-        );
-      })
-      .finally(() => {
-        if (creditScopeRecoveries.get(queryClient) === recovery)
-          creditScopeRecoveries.delete(queryClient);
-      });
-  }, [queryClient, refetchOrg]);
+  const { data: org } = useOrg();
   const chatEngine = useChatEngineChoice();
   const builderCreditStatus = useActionQuery<{
     /**
@@ -234,47 +198,13 @@ export function BuilderCreditNotice({
       ...(chatEngine ? { engine: chatEngine } : {}),
     },
     {
-      enabled:
-        Boolean(org?.email) &&
-        !orgError &&
-        !sessionError &&
-        sessionStatus === "authenticated" &&
-        (session?.orgId ?? null) === (org?.orgId ?? null),
+      enabled: Boolean(org?.email),
       staleTime: 30_000,
       refetchInterval: 60_000,
       // The 60s poll is the retry; retrying a Builder outage multiplies it.
       retry: false,
-      onServerError: (error) => {
-        if (actionErrorCode(error) === "builder_credit_org_mismatch")
-          recoverOrg();
-      },
     },
   );
-  const creditScopeConflict =
-    actionErrorCode(builderCreditStatus.error) ===
-    "builder_credit_org_mismatch";
-  useEffect(() => {
-    if (
-      !org?.email ||
-      sessionError ||
-      sessionStatus !== "authenticated" ||
-      ((session?.orgId ?? null) === (org.orgId ?? null) &&
-        !(orgError && creditScopeConflict))
-    )
-      return;
-    if (!orgError) recoverOrg();
-    const retry = setInterval(recoverOrg, 60_000);
-    return () => clearInterval(retry);
-  }, [
-    org?.email,
-    org?.orgId,
-    orgError,
-    creditScopeConflict,
-    session?.orgId,
-    sessionError,
-    sessionStatus,
-    recoverOrg,
-  ]);
   const t = useT();
   const status = builderCreditStatus.data;
   const quota = status?.quota;
@@ -298,10 +228,6 @@ export function BuilderCreditNotice({
 
   if (
     builderCreditStatus.isError ||
-    orgError ||
-    sessionError ||
-    sessionStatus !== "authenticated" ||
-    (session?.orgId ?? null) !== (org?.orgId ?? null) ||
     !(showAtLimitOnly ? exhausted : nearLimit)
   ) {
     return null;

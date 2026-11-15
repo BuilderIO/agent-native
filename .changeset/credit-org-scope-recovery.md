@@ -3,4 +3,4 @@
 "@agent-native/toolkit": patch
 ---
 
-Recover Builder credit notices when the active organization changes without reading credits from the wrong scope.
+Report a typed conflict when the active organization changes during a Builder credit check, and preserve explicit personal scope over GET.
