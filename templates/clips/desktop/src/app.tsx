@@ -7002,6 +7002,8 @@ function Setup({
   const launchAtLoginEnabled = featureConfig?.launchAtLoginEnabled !== false;
   const autoHidePopoverEnabled = featureConfig?.autoHidePopoverEnabled === true;
   const showInScreenCapture = featureConfig?.showInScreenCapture === true;
+  const controlLinksStartCapture =
+    featureConfig?.controlLinksStartCapture === true;
   const localRecordingMode = featureConfig?.localRecordingMode ?? "off";
   const observedScreenMemory =
     featureConfig?.screenMemory ?? DEFAULT_SCREEN_MEMORY_CONFIG;
@@ -7204,6 +7206,15 @@ function Setup({
     if (!featureConfig) return;
     invoke("set_feature_config", {
       config: { ...featureConfig, autoHidePopoverEnabled: enabled },
+    }).catch((err) =>
+      console.error("[settings] set_feature_config failed", err),
+    );
+  }
+
+  function setControlLinksStartCapture(enabled: boolean) {
+    if (!featureConfig) return;
+    invoke("set_feature_config", {
+      config: { ...featureConfig, controlLinksStartCapture: enabled },
     }).catch((err) =>
       console.error("[settings] set_feature_config failed", err),
     );
@@ -9007,6 +9018,17 @@ function Setup({
                 checked={showInScreenCapture}
                 onCheckedChange={setShowInScreenCapture}
                 label="Show Clips in screen captures"
+              />
+            }
+          />
+          <SettingsRow
+            label="Allow control links to start dictation"
+            description="Lets clips:// links (Stream Deck, launchers) start dictation. Links that stop or pause always work."
+            control={
+              <SettingsSwitch
+                checked={controlLinksStartCapture}
+                onCheckedChange={setControlLinksStartCapture}
+                label="Allow control links to start dictation"
               />
             }
           />

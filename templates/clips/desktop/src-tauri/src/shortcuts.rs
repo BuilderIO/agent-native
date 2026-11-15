@@ -1751,6 +1751,9 @@ pub(crate) enum PressClaim {
     /// A held key's repeat, another input owns the dictation, or (for a
     /// push link) the frontend can't hear a start yet.
     Ignored,
+    /// A link press that would start dictation while control links aren't
+    /// allowed to (`control_links_start_capture` is off).
+    Blocked,
 }
 
 /// What an owning press's delayed start sends once the wake delay is over.
@@ -1783,6 +1786,9 @@ pub(crate) struct HandsFreePress {
     pub capture_target: bool,
     /// Goes to the frontend now; otherwise it's held for its listener.
     pub deliver_now: bool,
+    /// It would start dictation while control links aren't allowed to: it
+    /// changed nothing and goes nowhere.
+    pub blocked: bool,
 }
 
 /// An owner this old, with no dictation running, lost its release (a link
@@ -2018,9 +2024,36 @@ impl DictationGate {
         self.hands_free = false;
     }
 
-    fn hands_free_link(&mut self, now: Instant) -> HandsFreePress {
+    /// A push link down. With control links not allowed to start capture,
+    /// it may still stop a run (stop-only) but never starts one.
+    fn link_press(&mut self, now: Instant, starts_allowed: bool) -> PressClaim {
+        if starts_allowed {
+            return self.press(PressInput::Link, now);
+        }
+        if self.listener.is_none() {
+            return PressClaim::Ignored;
+        }
+        self.expire_stale_owner(now);
+        if self.owner.is_some() {
+            PressClaim::Ignored
+        } else if self.unheld_run_live() {
+            PressClaim::StopOnly
+        } else {
+            PressClaim::Blocked
+        }
+    }
+
+    fn hands_free_link(&mut self, now: Instant, starts_allowed: bool) -> HandsFreePress {
         self.expire_stale_owner(now);
         let capture_target = self.owner.is_none() && !self.unheld_run_live();
+        if capture_target && !starts_allowed {
+            // It would start a dictation: only allowed by the setting.
+            return HandsFreePress {
+                capture_target: false,
+                deliver_now: false,
+                blocked: true,
+            };
+        }
         // It ends (or replaces) a push link's dictation: the push link
         // stops holding it, and its delayed start (or tap) is called off,
         // so neither its start nor its up reaches what runs next.
@@ -2049,6 +2082,7 @@ impl DictationGate {
         HandsFreePress {
             capture_target,
             deliver_now,
+            blocked: false,
         }
     }
 
@@ -2173,6 +2207,43 @@ pub fn take_pending_dictate_link(app: AppHandle, listener: String) -> bool {
     pending
 }
 
+/// A push link down, under the "control links may start dictation" setting.
+fn begin_link_press(app: &AppHandle) -> (PressClaim, Option<u64>) {
+    let starts_allowed = crate::config::control_links_start_capture(app);
+    let (claim, press) = with_gate(app, |gate, now| {
+        let claim = gate.link_press(now, starts_allowed);
+        (
+            claim,
+            gate.owner_press().filter(|_| claim == PressClaim::Owns),
+        )
+    });
+    if let Some(press) = press {
+        watch_for_lost_release(app, press);
+    }
+    (claim, press)
+}
+
+static LINK_START_NOTICE_SHOWN: AtomicBool = AtomicBool::new(false);
+
+/// A control link tried to start dictation with the setting off: logged,
+/// and once per run a notification says where to allow it.
+fn link_start_blocked(app: &AppHandle) {
+    eprintln!(
+        "[clips-tray] dictate link ignored: control links may not start dictation \
+         (Settings → Window → Allow control links to start dictation)"
+    );
+    if LINK_START_NOTICE_SHOWN.swap(true, Ordering::SeqCst) {
+        return;
+    }
+    use tauri_plugin_notification::NotificationExt;
+    let _ = app
+        .notification()
+        .builder()
+        .title("Clips ignored a dictation link")
+        .body("To let Stream Deck and launcher links start dictation, turn on Settings → Window → Allow control links to start dictation.")
+        .show();
+}
+
 /// Called by the frontend when it takes its dictation listener down.
 #[tauri::command]
 pub fn dictation_listener_gone(app: AppHandle, listener: String) {
@@ -2188,7 +2259,7 @@ pub fn dictation_listener_gone(app: AppHandle, listener: String) {
 pub fn dictate_from_link(app: &AppHandle, action: crate::deep_links::DictateLink) {
     use crate::deep_links::DictateLink;
     match action {
-        DictateLink::PushDown => match begin_voice_press(app, PressInput::Link) {
+        DictateLink::PushDown => match begin_link_press(app) {
             (PressClaim::Owns, Some(press)) => {
                 note_voice_press();
                 eprintln!("[clips-tray] dictate link down — starting voice dictation");
@@ -2202,6 +2273,7 @@ pub fn dictate_from_link(app: &AppHandle, action: crate::deep_links::DictateLink
                     serde_json::json!({ "source": "link", "stopOnly": true }),
                 );
             }
+            (PressClaim::Blocked, _) => link_start_blocked(app),
             _ => {}
         },
         DictateLink::PushUp => {
@@ -2210,7 +2282,12 @@ pub fn dictate_from_link(app: &AppHandle, action: crate::deep_links::DictateLink
             }
         }
         DictateLink::HandsFree => {
-            let press = with_gate(app, |gate, now| gate.hands_free_link(now));
+            let starts_allowed = crate::config::control_links_start_capture(app);
+            let press = with_gate(app, |gate, now| gate.hands_free_link(now, starts_allowed));
+            if press.blocked {
+                link_start_blocked(app);
+                return;
+            }
             if press.capture_target {
                 remember_voice_target(app);
             }
@@ -2243,6 +2320,9 @@ mod dictation_gate_tests {
     /// One input to the gate.
     #[derive(Debug, Clone, Copy)]
     enum Step {
+        /// Turns "control links may start dictation" on or off (on by
+        /// default in these tables).
+        LinkStarts(bool),
         /// Listener "a" is up.
         ListenerReady,
         /// Listener with this id is up / taken down.
@@ -2271,6 +2351,8 @@ mod dictation_gate_tests {
             now: bool,
         },
         Pending(bool),
+        /// A hands-free link blocked by the setting.
+        Blocked,
         /// The lost-release check keeps running.
         Watching(bool),
         Done,
@@ -2302,9 +2384,15 @@ mod dictation_gate_tests {
     }
 
     fn run_from(gate: &mut DictationGate, t0: Instant, steps: &[(u64, Step, Out, bool)]) {
+        let mut link_starts = true;
         for (i, &(at, step, want, armed)) in steps.iter().enumerate() {
             let now = t0 + ms(at);
             let got = match step {
+                Step::LinkStarts(allowed) => {
+                    link_starts = allowed;
+                    Done
+                }
+                Step::Press(Link) => Claim(gate.link_press(now, link_starts)),
                 Step::ListenerReady => Out::Pending(gate.listener_ready("a", now)),
                 Step::ListenerUp(id) => Out::Pending(gate.listener_ready(id, now)),
                 Step::ListenerGone(id) => {
@@ -2332,10 +2420,14 @@ mod dictation_gate_tests {
                     Done
                 }
                 Step::HandsFreeLink => {
-                    let press = gate.hands_free_link(now);
-                    Out::HandsFree {
-                        capture: press.capture_target,
-                        now: press.deliver_now,
+                    let press = gate.hands_free_link(now, link_starts);
+                    if press.blocked {
+                        Out::Blocked
+                    } else {
+                        Out::HandsFree {
+                            capture: press.capture_target,
+                            now: press.deliver_now,
+                        }
                     }
                 }
             };
@@ -2750,7 +2842,7 @@ mod dictation_gate_tests {
         gate.listener_ready("a", t0);
         assert_eq!(gate.press(Fn, t0), Owns);
         let fn_press = gate.owner_press().unwrap();
-        gate.hands_free_link(t0 + ms(30));
+        gate.hands_free_link(t0 + ms(30), true);
         assert!(!gate.start_allowed(fn_press));
         gate.release(Fn, t0 + ms(200));
         assert_eq!(gate.press(Fn, t0 + ms(300)), Owns);
@@ -2766,6 +2858,54 @@ mod dictation_gate_tests {
         // woke the popover since and still needs it.
         assert!(!gate.latest_wake(older));
         assert!(gate.latest_wake(newer));
+    }
+
+    #[test]
+    fn with_control_links_off_a_link_can_stop_but_never_start_dictation() {
+        use Step::{Due, Flow, HandsFree, HandsFreeLink, LinkStarts, Press, Release};
+        // Nothing running: both kinds of link are blocked and change nothing.
+        run(&[
+            (0, LinkStarts(false), Done, false),
+            (10, Press(Link), Claim(PressClaim::Blocked), false),
+            (20, Release(Link), NOT_OWNER, false),
+            (30, HandsFreeLink, Out::Blocked, false),
+            // The dictation key still works.
+            (40, Press(Shortcut), Claim(Owns), true),
+            (120, Due(1), HOLD, true),
+            (200, Release(Shortcut), STOP, false),
+        ]);
+        // A hands-free run the user started: a link may still stop it.
+        run(&[
+            (0, LinkStarts(false), Done, false),
+            (10, HandsFree(true), Done, true),
+            (20, Flow("recording"), Done, true),
+            (30, Press(Link), Claim(StopOnly), true),
+            (40, Release(Link), NOT_OWNER, true),
+            (
+                50,
+                HandsFreeLink,
+                Out::HandsFree {
+                    capture: false,
+                    now: true,
+                },
+                true,
+            ),
+        ]);
+        // With the setting on, the same presses start dictation.
+        run(&[
+            (0, LinkStarts(true), Done, false),
+            (10, Press(Link), Claim(Owns), true),
+            (20, Release(Link), DEFERRED, false),
+            (
+                30,
+                HandsFreeLink,
+                Out::HandsFree {
+                    capture: true,
+                    now: true,
+                },
+                false,
+            ),
+        ]);
     }
 
     #[test]

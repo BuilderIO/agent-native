@@ -1020,7 +1020,11 @@ export function installDesktopVoiceDictation(
     startInFlight = true;
     startInFlightRunId = runId;
     stopRequestedBeforeReady = false;
-    if (mode === "push-to-talk" && !handsFreeActive) {
+    // A push link is push-to-talk whatever the key's mode setting is.
+    if (
+      (mode === "push-to-talk" || triggerSource === "link") &&
+      !handsFreeActive
+    ) {
       beginQuietRun(runId);
     } else {
       setFlowState("processing", "initializing", { runId });
@@ -2312,9 +2316,10 @@ export function installDesktopVoiceDictation(
     }
   };
 
-  const stop = (heldMs?: number) => {
+  // `pushLink`: a push-to-talk link's up, push-to-talk in any key mode.
+  const stop = (heldMs?: number, pushLink = false) => {
     const shortTap =
-      mode === "push-to-talk" &&
+      (mode === "push-to-talk" || pushLink) &&
       !handsFreeActive &&
       heldMs !== undefined &&
       heldMs < SHORT_TAP_MS;
@@ -2868,7 +2873,7 @@ export function installDesktopVoiceDictation(
         // it, even in toggle mode.
         if (dictationInput({ kind: "stop", source: "link" }) === "stop-link") {
           // The hold time, so a brief accidental press is a discarded tap.
-          stop(event.payload.heldMs);
+          stop(event.payload.heldMs, true);
           // A link has no double-tap gesture: an early link up must not
           // read as the first tap of the key's hands-free upgrade.
           pendingHandsFreeTapAt = null;

@@ -2327,6 +2327,21 @@ describe("desktop voice dictation runs", () => {
       );
     });
 
+    it("a brief push-to-talk link press is a discarded tap in toggle mode too", async () => {
+      await install("toggle");
+      await dispatch("voice:shortcut-start", { source: "link" });
+      await vi.advanceTimersByTimeAsync(120);
+      await dispatch("voice:shortcut-stop", { source: "link", heldMs: 120 });
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(calls("native_speech_start")).toBe(1);
+      expect(calls("native_speech_stop")).toBe(0);
+      expect(calls("show_flow_bar")).toBe(0);
+      expect(tauri.invoke).not.toHaveBeenCalledWith(
+        "complete_voice_dictation",
+        expect.anything(),
+      );
+    });
+
     it("tells native its dictation listener is gone on teardown", async () => {
       await install("push-to-talk");
       const take = tauri.invoke.mock.calls.find(
