@@ -17,6 +17,7 @@ import {
   listAvailableWorkspaceTemplates,
   listOrganizationVisibleWorkspaceApps,
   listWorkspaceApps,
+  listWorkspaceAppsForOrgAccessInventory,
   scaffoldWorkspaceAppFromTemplate,
   setAppCreationSettings,
   startWorkspaceAppCreation,
@@ -767,6 +768,32 @@ describe("listWorkspaceApps", () => {
       warn.mockRestore();
     },
   );
+
+  it("fails admin access inventory on a denied gateway instead of trusting the manifest", async () => {
+    const fetchMock = vi.fn(async () => new Response("denied", { status: 403 }));
+    vi.stubGlobal("fetch", fetchMock);
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "http://127.0.0.1:8080");
+    stubManifest([
+      { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+      { id: "retired", name: "Retired", path: "/retired" },
+    ]);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      await expect(
+        runWithRequestContext(
+          { userEmail: "admin@example.test", orgId: "org-123" },
+          () => listWorkspaceAppsForOrgAccessInventory(),
+        ),
+      ).rejects.toMatchObject({
+        statusCode: 403,
+        errorCode: "workspace_gateway_rejected",
+      });
+      expect(fetchMock).toHaveBeenCalledOnce();
+    } finally {
+      warn.mockRestore();
+    }
+  });
 
   it("derives manifest app URLs from the Vercel preview when no workspace origin is configured", async () => {
     stubNoPendingContext();
