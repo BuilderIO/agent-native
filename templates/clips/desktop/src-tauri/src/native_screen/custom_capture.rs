@@ -834,6 +834,11 @@ pub(crate) struct CustomScreenCaptureWriter {
     /// The live mixer denoises and boosts the mic (`MicAutoGain`): the
     /// output mixes live with voice cleanup on.
     applies_mic_auto_gain: bool,
+    /// The live mixer also carries system audio, which keeps its output (and
+    /// so its mic gain stage) running through gaps in the mic.
+    mixes_system_audio: bool,
+    /// Unique per writer (shared by its clones); keys the mic meter's state.
+    meter_id: u64,
 }
 
 struct CustomScreenCaptureWriterState {
@@ -1146,6 +1151,8 @@ impl Clone for CustomScreenCaptureWriter {
             audio_producer: self.audio_producer.clone(),
             audio_sidecars: self.audio_sidecars.clone(),
             applies_mic_auto_gain: self.applies_mic_auto_gain,
+            mixes_system_audio: self.mixes_system_audio,
+            meter_id: self.meter_id,
         }
     }
 }
@@ -1187,28 +1194,19 @@ impl CustomScreenCaptureOutputHandler {
         )
     }
 
-    /// The writer that is saving right now and denoises and boosts the mic
-    /// (the main writer while it records, or an attached live Clip sink), or
-    /// `None` when the saved mic stays raw.
-    fn mic_meter_source(&self) -> Option<MicMeterSource> {
+    /// Every writer saving the mic right now that denoises and boosts it,
+    /// the one the bar shows first. Each gets the same mic buffers.
+    fn mic_meter_sources(&self) -> Vec<MicMeterSource> {
         let clip_sink = self.clip_sink.lock().ok().and_then(|slot| {
             slot.as_ref()
                 .filter(|clip| clip.gate.accepts())
-                .map(|clip| MicMeterSource::of(&clip.writer))
+                .and_then(|clip| MicMeterSource::of(&clip.writer))
         });
-        let main_recording = self.recording_enabled.load(Ordering::Relaxed);
-        if !mic_meter_follows_recording_gain(
-            self.writer.applies_mic_auto_gain,
-            main_recording,
-            clip_sink.map(|(applies, _)| applies),
-        ) {
-            return None;
-        }
-        if self.writer.applies_mic_auto_gain && main_recording {
-            Some(MicMeterSource::of(&self.writer).1)
-        } else {
-            clip_sink.map(|(_, source)| source)
-        }
+        saving_mic_writers(
+            MicMeterSource::of(&self.writer),
+            self.recording_enabled.load(Ordering::Relaxed),
+            clip_sink,
+        )
     }
 
     fn emit_microphone_level(&self, samples: &[f32], pts_seconds: f64) {
@@ -1217,11 +1215,11 @@ impl CustomScreenCaptureOutputHandler {
         }
         // Track the gain on every buffer, so it follows the voice even on the
         // buffers that are not sent.
-        let source = self.mic_meter_source();
+        let sources = self.mic_meter_sources();
         let Ok(mut meter) = self.mic_meter.lock() else {
             return;
         };
-        let level = meter.level(samples, pts_seconds, source);
+        let level = meter.level(samples, pts_seconds, &sources);
         drop(meter);
         let tick = self.audio_level_tick.fetch_add(1, Ordering::Relaxed);
         if tick % 3 != 0 {
@@ -1518,6 +1516,8 @@ impl CustomScreenCaptureWriter {
                 audio_producer,
                 audio_sidecars,
                 applies_mic_auto_gain: mix_live && include_audio && voice_cleanup_enabled,
+                mixes_system_audio: mix_live && capture_system_audio,
+                meter_id: NEXT_WRITER_METER_ID.fetch_add(1, Ordering::Relaxed),
             })
         }
     }
@@ -1709,11 +1709,6 @@ impl CustomScreenCaptureWriter {
             })
             .collect::<Vec<_>>()
             .join(" | ")
-    }
-
-    /// Identifies this writer (shared by its clones) for the mic meter.
-    fn meter_id(&self) -> usize {
-        Arc::as_ptr(&self.inner) as usize
     }
 
     pub(super) fn pause_offset(&self) -> f64 {
@@ -2219,102 +2214,149 @@ fn one_pole_coefficient(tau_seconds: f32, sample_rate: i32) -> f32 {
     -(-1.0 / (tau_seconds * sample_rate as f32)).exp_m1()
 }
 
-/// Whether the meter should apply the recording's denoise and `MicAutoGain`:
-/// only when a writer that is saving right now applies them (the main writer
-/// while it records, or a live Clip sink). Raw output keeps the raw level.
-fn mic_meter_follows_recording_gain(
-    main_writer_applies_gain: bool,
-    main_writer_recording: bool,
-    live_clip_sink_applies_gain: Option<bool>,
-) -> bool {
-    (main_writer_applies_gain && main_writer_recording) || live_clip_sink_applies_gain == Some(true)
+static NEXT_WRITER_METER_ID: AtomicU64 = AtomicU64::new(1);
+
+/// Mic meter states kept for writers not saving right now (a paused Clip
+/// sink, a main writer waiting to record), most recently used first.
+const MIC_METER_MAX_WRITERS: usize = 4;
+
+/// Zero samples the meter feeds its gain stage for one mic gap at most. After
+/// a few seconds of zeros the stage's envelope is gone and its gain fixed, so
+/// more zeros would not change it.
+const MIC_METER_MAX_GAP_FEED_SECONDS: i64 = 10;
+
+/// The writers saving the mic right now with the recording's denoise and
+/// `MicAutoGain` (each `Some` only when that writer applies them): the main
+/// writer while it records, then a live Clip sink. Empty when the saved mic
+/// stays raw.
+fn saving_mic_writers<T>(
+    main_writer: Option<T>,
+    main_recording: bool,
+    live_clip_sink: Option<T>,
+) -> Vec<T> {
+    main_writer
+        .filter(|_| main_recording)
+        .into_iter()
+        .chain(live_clip_sink)
+        .collect()
 }
 
-/// The writer whose mic processing the meter mirrors, and its pause offset.
+/// A writer whose mic processing the meter mirrors.
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct MicMeterSource {
-    writer_id: usize,
+    writer_id: u64,
     pause_offset_seconds: f64,
+    mixes_system_audio: bool,
 }
 
 impl MicMeterSource {
-    /// Whether `writer` denoises and boosts the mic, and its meter source.
-    fn of(writer: &CustomScreenCaptureWriter) -> (bool, Self) {
-        (
-            writer.applies_mic_auto_gain,
-            Self {
-                writer_id: writer.meter_id(),
-                pause_offset_seconds: writer.pause_offset(),
-            },
-        )
+    /// `Some` when `writer` denoises and boosts the mic.
+    fn of(writer: &CustomScreenCaptureWriter) -> Option<Self> {
+        writer.applies_mic_auto_gain.then(|| Self {
+            writer_id: writer.meter_id,
+            pause_offset_seconds: writer.pause_offset(),
+            mixes_system_audio: writer.mixes_system_audio,
+        })
     }
 }
 
 /// The recording bar's mic level. When the saved audio is denoised and
-/// boosted, the meter runs the same denoiser first and estimates its gain
-/// from the cleaned signal, so background noise the recording removes can't
-/// hide the "No mic sound" warning. Otherwise it shows the raw peak.
-///
-/// The meter's state restarts whenever the recording path's does, with the
-/// same triggers: its denoiser gets the source timestamps, so `MicDenoiser`
-/// resets on the same gaps; it resets on a pause like
-/// `LiveAudioMixer::set_pause_offset`; and a different saving writer, or a
-/// raw saved mic, starts it fresh, since each writer has its own denoiser and
-/// gain stage.
+/// boosted, the meter mirrors that processing for each writer saving the mic
+/// and shows the first one's level, so background noise the recording
+/// removes can't hide the "No mic sound" warning. Otherwise it shows the raw
+/// peak. Each writer's meter state lives as long as the writer's own, so a
+/// paused Clip sink or a switch between writers keeps it.
 struct MicMeter {
-    denoiser: MicDenoiser,
-    /// The recording's own gain stage (`MicAutoGain`, same parameters), fed
-    /// the same denoised samples, so the meter's boost follows the saved
-    /// audio's warmup, duck and boost timing exactly.
-    auto_gain: MicAutoGain,
-    last_level: f32,
-    source: Option<MicMeterSource>,
+    writers: std::collections::HashMap<u64, WriterMicMeter>,
+    uses: u64,
 }
 
 impl MicMeter {
     fn new() -> Self {
         Self {
-            denoiser: MicDenoiser::new(),
-            auto_gain: MicAutoGain::for_meter(AUDIO_OUTPUT_SAMPLE_RATE as i32),
-            last_level: 0.0,
-            source: None,
+            writers: std::collections::HashMap::new(),
+            uses: 0,
         }
-    }
-
-    fn restart_denoiser(&mut self) {
-        self.denoiser.reset();
-        self.last_level = 0.0;
-    }
-
-    fn restart(&mut self) {
-        self.restart_denoiser();
-        self.auto_gain = MicAutoGain::for_meter(AUDIO_OUTPUT_SAMPLE_RATE as i32);
     }
 
     /// `mono` is 48 kHz mono mic audio starting at `pts_seconds` (the source
-    /// timestamp the recording's mixer also gets). `source` is the writer that
-    /// denoises and boosts the saved mic, or `None` when it stays raw.
-    fn level(&mut self, mono: &[f32], pts_seconds: f64, source: Option<MicMeterSource>) -> f32 {
+    /// timestamp the recording's mixers also get). `sources` are the writers
+    /// saving it with denoise and gain, the one to show first.
+    fn level(&mut self, mono: &[f32], pts_seconds: f64, sources: &[MicMeterSource]) -> f32 {
         if mono.is_empty() {
             return 0.0;
         }
-        let Some(source) = source else {
-            if self.source.take().is_some() {
-                self.restart();
-            }
+        let Some(shown) = sources.first() else {
             return peak_level(mono);
         };
-        match self.source {
-            Some(previous) if previous.writer_id != source.writer_id => self.restart(),
-            // Resumed after a pause: the mixer reset its denoiser, so does the meter.
-            Some(previous)
-                if source.pause_offset_seconds > previous.pause_offset_seconds + f64::EPSILON =>
-            {
-                self.restart_denoiser()
+        self.uses += 1;
+        let mut level = 0.0;
+        for source in sources {
+            let meter = self
+                .writers
+                .entry(source.writer_id)
+                .or_insert_with(WriterMicMeter::new);
+            meter.last_used = self.uses;
+            let writer_level = meter.level(mono, pts_seconds, source);
+            if source.writer_id == shown.writer_id {
+                level = writer_level;
             }
-            _ => {}
         }
-        self.source = Some(source);
+        while self.writers.len() > MIC_METER_MAX_WRITERS {
+            let Some(oldest) = self
+                .writers
+                .iter()
+                .min_by_key(|(_, meter)| meter.last_used)
+                .map(|(id, _)| *id)
+            else {
+                break;
+            };
+            self.writers.remove(&oldest);
+        }
+        level
+    }
+}
+
+/// One writer's mic processing, mirrored: `LiveAudioMixer` runs the mic
+/// through `MicDenoiser` (same timestamps, so it resets on the same gaps and,
+/// like `set_pause_offset`, on a pause), places it on its timeline with
+/// `push_at` (zero-filling gaps), and feeds every timeline sample to
+/// `MicAutoGain`. This does the same with the same types and constants.
+struct WriterMicMeter {
+    denoiser: MicDenoiser,
+    /// The recording's own gain stage (`MicAutoGain`, same parameters), fed
+    /// the same samples, so the meter's boost follows the saved audio's
+    /// warmup, duck and boost timing exactly.
+    auto_gain: MicAutoGain,
+    last_level: f32,
+    pause_offset_seconds: Option<f64>,
+    anchor_seconds: Option<f64>,
+    end_frame: Option<i64>,
+    last_used: u64,
+}
+
+impl WriterMicMeter {
+    fn new() -> Self {
+        Self {
+            denoiser: MicDenoiser::new(),
+            auto_gain: MicAutoGain::for_meter(AUDIO_OUTPUT_SAMPLE_RATE as i32),
+            last_level: 0.0,
+            pause_offset_seconds: None,
+            anchor_seconds: None,
+            end_frame: None,
+            last_used: 0,
+        }
+    }
+
+    fn level(&mut self, mono: &[f32], pts_seconds: f64, source: &MicMeterSource) -> f32 {
+        // As `LiveAudioMixer::set_pause_offset`: a resume resets the denoiser.
+        if self
+            .pause_offset_seconds
+            .is_some_and(|previous| source.pause_offset_seconds > previous + f64::EPSILON)
+        {
+            self.denoiser.reset();
+        }
+        self.pause_offset_seconds = Some(source.pause_offset_seconds);
         // The mixer's denoiser mixes stereo to mono first, so duplicated mono
         // gives it the same input.
         let stereo: Vec<f32> = mono.iter().flat_map(|&sample| [sample, sample]).collect();
@@ -2323,12 +2365,45 @@ impl MicMeter {
         if frames.is_empty() {
             return self.last_level;
         }
-        let cleaned: Vec<f32> = frames
-            .iter()
-            .flat_map(|(frame, _)| frame.iter().step_by(2).copied())
-            .collect();
-        self.last_level = self.boosted_level(&cleaned);
-        self.last_level
+        let mut level = 0.0_f32;
+        for (frame, frame_pts) in frames {
+            let cleaned: Vec<f32> = frame.iter().step_by(2).copied().collect();
+            level = level.max(self.push_timeline(&cleaned, frame_pts, source));
+        }
+        self.last_level = level;
+        level
+    }
+
+    /// As `LiveAudioMixer::push_timeline` and `MixerTimeline::push_at` for the
+    /// mic, then `MixGainStage` over the new timeline samples: a gap is filled
+    /// with zeros (capped at the mixer's 2 s, unless system audio keeps the
+    /// mixer's output and gain stage running through it), overlap is dropped.
+    /// Returns the boosted peak of the new samples.
+    fn push_timeline(&mut self, mono: &[f32], pts_seconds: f64, source: &MicMeterSource) -> f32 {
+        if mono.is_empty() {
+            return 0.0;
+        }
+        let sample_rate = AUDIO_OUTPUT_SAMPLE_RATE as i64;
+        let pts_seconds = pts_seconds - source.pause_offset_seconds;
+        let anchor = *self.anchor_seconds.get_or_insert(pts_seconds);
+        let frame_index = (((pts_seconds - anchor) * sample_rate as f64).round() as i64).max(0);
+        let mut end = *self.end_frame.get_or_insert(frame_index);
+        if frame_index > end {
+            let gap = frame_index - end;
+            let gap = if source.mixes_system_audio {
+                gap
+            } else {
+                gap.min(sample_rate * 2)
+            };
+            for _ in 0..gap.min(sample_rate * MIC_METER_MAX_GAP_FEED_SECONDS) {
+                self.auto_gain.next_gain(0.0, 0.0);
+            }
+            end += gap;
+        }
+        let overlap = (end - frame_index).max(0) as usize;
+        let fresh = mono.get(overlap..).unwrap_or_default();
+        self.end_frame = Some(end + fresh.len() as i64);
+        self.boosted_level(fresh)
     }
 
     /// Peak level of denoised mono `samples` after the recording's mic gain,
@@ -4916,6 +4991,7 @@ mod mic_meter_tests {
 
     /// The bar's "audible" line (`MIC_AUDIBLE_LEVEL` in shared/audio-meter.ts).
     const AUDIBLE: f32 = 0.012;
+    const BUFFER_SECONDS: f64 = 1024.0 / 48_000.0;
 
     fn soft_speech() -> Vec<f32> {
         // A soft mic: rms around 0.004, peaks near 0.01, below the bar's
@@ -4942,13 +5018,12 @@ mod mic_meter_tests {
             .collect()
     }
 
-    const BUFFER_SECONDS: f64 = 1024.0 / 48_000.0;
-
-    fn source(writer_id: usize, pause_offset_seconds: f64) -> Option<MicMeterSource> {
-        Some(MicMeterSource {
+    fn writer(writer_id: u64, pause_offset_seconds: f64) -> MicMeterSource {
+        MicMeterSource {
             writer_id,
             pause_offset_seconds,
-        })
+            mixes_system_audio: false,
+        }
     }
 
     /// Feeds contiguous buffers from `start_pts`; returns each level.
@@ -4956,26 +5031,28 @@ mod mic_meter_tests {
         meter: &mut MicMeter,
         buffers: &[Vec<f32>],
         start_pts: f64,
-        source: Option<MicMeterSource>,
+        sources: &[MicMeterSource],
     ) -> Vec<f32> {
         buffers
             .iter()
             .enumerate()
-            .map(|(i, buffer)| meter.level(buffer, start_pts + i as f64 * BUFFER_SECONDS, source))
+            .map(|(i, buffer)| meter.level(buffer, start_pts + i as f64 * BUFFER_SECONDS, sources))
             .collect()
     }
 
-    /// A meter that has learned the hiss of `noise` (400 buffers from pts 0).
-    fn settled_meter(noise: &[Vec<f32>], source: Option<MicMeterSource>) -> MicMeter {
+    /// A meter whose writer 1 has learned the hiss of `noise` (from pts 0).
+    fn settled_meter(noise: &[Vec<f32>]) -> MicMeter {
         let mut meter = MicMeter::new();
-        let levels = feed(&mut meter, noise, 0.0, source);
+        let levels = feed(&mut meter, noise, 0.0, &[writer(1, 0.0)]);
         assert!(levels[399] < AUDIBLE, "settled level {}", levels[399]);
         meter
     }
 
+    const AFTER_NOISE: f64 = 400.0 * BUFFER_SECONDS;
+
     #[test]
     fn a_quiet_voice_is_boosted_like_the_recording() {
-        let mut meter = MicMeter::new();
+        let mut meter = WriterMicMeter::new();
         let speech = soft_speech();
         let mut level = 0.0;
         // About 3 s: past MicAutoGain's warmup and boost time constants.
@@ -4987,107 +5064,8 @@ mod mic_meter_tests {
     }
 
     #[test]
-    fn digital_silence_stays_silent() {
-        let mut meter = MicMeter::new();
-        let silence = vec![0.0_f32; 1024];
-        for i in 0..60 {
-            let pts = i as f64 * BUFFER_SECONDS;
-            assert_eq!(meter.level(&silence, pts, source(1, 0.0)), 0.0);
-            assert_eq!(meter.level(&silence, pts, None), 0.0);
-        }
-    }
-
-    #[test]
-    fn without_recording_gain_the_meter_shows_the_raw_peak() {
-        let mut meter = MicMeter::new();
-        for i in 0..60 {
-            assert_eq!(meter.level(&soft_speech(), i as f64, None), 0.01);
-        }
-    }
-
-    #[test]
-    fn noise_the_recording_denoises_away_does_not_hide_the_warning() {
-        let noise = background_noise(400);
-        // Gain estimated from the raw signal would lift the hiss over the line.
-        let mut raw = MicMeter::new();
-        let raw_level = noise
-            .iter()
-            .map(|buffer| raw.boosted_level(buffer))
-            .last()
-            .unwrap();
-        assert!(raw_level >= AUDIBLE, "raw level {raw_level}");
-        // Through the recording's denoiser it stays below the line once the
-        // denoiser has learned the noise (~6 s in, before 400 buffers end).
-        let mut meter = MicMeter::new();
-        let levels = feed(&mut meter, &noise, 0.0, source(1, 0.0));
-        let settled = levels[300..].iter().copied().fold(0.0_f32, f32::max);
-        assert!(settled < AUDIBLE, "denoised level {settled}");
-    }
-
-    #[test]
-    fn the_meter_denoiser_restarts_on_a_pause_like_the_mixer() {
-        let noise = background_noise(400);
-        let mut meter = settled_meter(&noise, source(1, 0.0));
-        let next_pts = 400.0 * BUFFER_SECONDS;
-        // No pause: the learned state carries on.
-        assert!(meter.level(&noise[0], next_pts, source(1, 0.0)) < AUDIBLE);
-        // Resumed after a 2 s pause: the mixer's denoiser starts over, and so
-        // does the meter's, which no longer hides the hiss.
-        let resumed = meter.level(&noise[1], next_pts + 2.0, source(1, 2.0));
-        assert!(resumed >= AUDIBLE, "resumed level {resumed}");
-    }
-
-    #[test]
-    fn the_meter_denoiser_restarts_on_a_mic_timestamp_gap() {
-        let noise = background_noise(400);
-        let mut meter = settled_meter(&noise, source(1, 0.0));
-        let next_pts = 400.0 * BUFFER_SECONDS;
-        // Contiguous timestamps: the state carries on.
-        assert!(meter.level(&noise[0], next_pts, source(1, 0.0)) < AUDIBLE);
-        // Buffers dropped (a gap over MicDenoiser's 20 ms): it starts over.
-        let after_gap = meter.level(&noise[1], next_pts + BUFFER_SECONDS + 0.5, source(1, 0.0));
-        assert!(after_gap >= AUDIBLE, "level after gap {after_gap}");
-    }
-
-    #[test]
-    fn the_meter_restarts_when_the_saving_writer_changes_or_goes_raw() {
-        let noise = background_noise(400);
-        let next_pts = 400.0 * BUFFER_SECONDS;
-        // A Clip sink takes over from the main writer, both unpaused.
-        let mut meter = settled_meter(&noise, source(1, 0.0));
-        let switched = meter.level(&noise[0], next_pts, source(2, 0.0));
-        assert!(switched >= AUDIBLE, "level after switch {switched}");
-        assert_eq!(meter.source, source(2, 0.0));
-        // The saved mic goes raw: raw peak, and learned state and gain dropped.
-        let mut meter = settled_meter(&noise, source(1, 0.0));
-        assert_eq!(meter.level(&soft_speech(), next_pts, None), 0.01);
-        assert_eq!(meter.auto_gain.gain, MIC_AGC_MIN_GAIN);
-        assert!(!meter.auto_gain.levelled);
-        assert_eq!(meter.source, None);
-        let boosting_again = meter.level(&noise[0], next_pts + BUFFER_SECONDS, source(1, 0.0));
-        assert!(
-            boosting_again >= AUDIBLE,
-            "level when boosting again {boosting_again}"
-        );
-    }
-
-    #[test]
-    fn meter_gain_only_when_a_saving_writer_applies_mic_auto_gain() {
-        // Main writer mixes live with voice cleanup on and is recording.
-        assert!(mic_meter_follows_recording_gain(true, true, None));
-        // Main writer only buffers raw audio, but a live Clip sink boosts it.
-        assert!(mic_meter_follows_recording_gain(false, false, Some(true)));
-        assert!(mic_meter_follows_recording_gain(false, true, Some(true)));
-        // Voice cleanup off everywhere: the recording keeps the raw level.
-        assert!(!mic_meter_follows_recording_gain(false, true, Some(false)));
-        assert!(!mic_meter_follows_recording_gain(false, true, None));
-        // A boosting main writer that is not recording yet saves nothing.
-        assert!(!mic_meter_follows_recording_gain(true, false, None));
-    }
-
-    #[test]
     fn a_loud_voice_is_not_boosted() {
-        let mut meter = MicMeter::new();
+        let mut meter = WriterMicMeter::new();
         let loud: Vec<f32> = (0..480)
             .map(|i| if i % 2 == 0 { 0.3 } else { -0.3 })
             .collect();
@@ -5099,12 +5077,147 @@ mod mic_meter_tests {
     }
 
     #[test]
+    fn digital_silence_stays_silent() {
+        let mut meter = MicMeter::new();
+        let silence = vec![0.0_f32; 1024];
+        for i in 0..60 {
+            let pts = i as f64 * BUFFER_SECONDS;
+            assert_eq!(meter.level(&silence, pts, &[writer(1, 0.0)]), 0.0);
+            assert_eq!(meter.level(&silence, pts, &[]), 0.0);
+        }
+    }
+
+    #[test]
+    fn without_recording_gain_the_meter_shows_the_raw_peak() {
+        let mut meter = MicMeter::new();
+        for i in 0..60 {
+            assert_eq!(meter.level(&soft_speech(), i as f64, &[]), 0.01);
+        }
+    }
+
+    #[test]
+    fn noise_the_recording_denoises_away_does_not_hide_the_warning() {
+        let noise = background_noise(400);
+        // Gain estimated from the raw signal would lift the hiss over the line.
+        let mut raw = WriterMicMeter::new();
+        let raw_level = noise
+            .iter()
+            .map(|buffer| raw.boosted_level(buffer))
+            .last()
+            .unwrap();
+        assert!(raw_level >= AUDIBLE, "raw level {raw_level}");
+        // Through the recording's denoiser it stays below the line once the
+        // denoiser has learned the noise (~6 s in, before 400 buffers end).
+        let mut meter = MicMeter::new();
+        let levels = feed(&mut meter, &noise, 0.0, &[writer(1, 0.0)]);
+        let settled = levels[300..].iter().copied().fold(0.0_f32, f32::max);
+        assert!(settled < AUDIBLE, "denoised level {settled}");
+    }
+
+    #[test]
+    fn the_meter_denoiser_restarts_on_a_pause_like_the_mixer() {
+        let noise = background_noise(400);
+        let mut meter = settled_meter(&noise);
+        // No pause: the learned state carries on.
+        assert!(meter.level(&noise[0], AFTER_NOISE, &[writer(1, 0.0)]) < AUDIBLE);
+        // Resumed after a 2 s pause: the mixer's denoiser starts over, and so
+        // does the meter's, which no longer hides the hiss.
+        let resumed = meter.level(&noise[1], AFTER_NOISE + 2.0, &[writer(1, 2.0)]);
+        assert!(resumed >= AUDIBLE, "resumed level {resumed}");
+    }
+
+    #[test]
+    fn the_meter_denoiser_restarts_on_a_mic_timestamp_gap() {
+        let noise = background_noise(400);
+        let mut meter = settled_meter(&noise);
+        // Contiguous timestamps: the state carries on.
+        assert!(meter.level(&noise[0], AFTER_NOISE, &[writer(1, 0.0)]) < AUDIBLE);
+        // Buffers dropped (a gap over MicDenoiser's 20 ms): it starts over.
+        let after_gap = meter.level(
+            &noise[1],
+            AFTER_NOISE + BUFFER_SECONDS + 0.5,
+            &[writer(1, 0.0)],
+        );
+        assert!(after_gap >= AUDIBLE, "level after gap {after_gap}");
+    }
+
+    /// Pushes `chunks` (start pts, samples) through the meter's timeline and
+    /// a real `MixerTimeline` + `MixGainStage` playing `system` alongside, and
+    /// checks every boosted mic sample and the final gain match.
+    fn assert_gain_matches_mixer(chunks: &[(f64, Vec<f32>)], mixes_system_audio: bool) {
+        let rate = AUDIO_OUTPUT_SAMPLE_RATE as i64;
+        let source = MicMeterSource {
+            writer_id: 1,
+            pause_offset_seconds: 0.0,
+            mixes_system_audio,
+        };
+        let mut meter = WriterMicMeter::new();
+        let mut timeline = MixerTimeline::new();
+        let mut recording = MixGainStage::new(rate as i32, true);
+        let mut out_pos = 0_i64;
+        // As `LiveAudioMixer::drain_consumed`.
+        let drain = |timeline: &mut MixerTimeline, out_pos: i64| {
+            let consumed =
+                (((out_pos - timeline.base_frame).max(0) * 2) as usize).min(timeline.samples.len());
+            timeline.samples.drain(..consumed);
+            timeline.base_frame = timeline.base_frame.max(out_pos);
+        };
+        for (pts, samples) in chunks {
+            let meter_peak = meter.push_timeline(samples, *pts, &source);
+            let stereo: Vec<f32> = samples.iter().flat_map(|&s| [s, s]).collect();
+            let frame_index = ((pts - chunks[0].0) * rate as f64).round() as i64;
+            if mixes_system_audio {
+                // System audio keeps the mixer emitting through the mic gap.
+                while out_pos < frame_index {
+                    recording.frame((0.0, 0.0), timeline.sample_at(out_pos));
+                    out_pos += 1;
+                }
+                drain(&mut timeline, out_pos);
+            }
+            timeline.push_at(frame_index, &stereo, out_pos, rate * 2);
+            let mut saved_peak = 0.0_f32;
+            while out_pos < timeline.end_frame() {
+                let mic = timeline.sample_at(out_pos);
+                let (left, _) = recording.frame((0.0, 0.0), mic);
+                if mic != (0.0, 0.0) {
+                    saved_peak = saved_peak.max(left.abs());
+                }
+                out_pos += 1;
+            }
+            drain(&mut timeline, out_pos);
+            assert_eq!(meter_peak, saved_peak, "chunk at {pts}");
+        }
+        assert_eq!(meter.auto_gain.gain, recording.mic.gain);
+        assert_eq!(meter.auto_gain.mean_square, recording.mic.mean_square);
+    }
+
+    #[test]
+    fn meter_gain_advances_through_a_mic_gap_like_the_mixer() {
+        let speech: Vec<f32> = soft_speech().iter().copied().cycle().take(4_800).collect();
+        let mut chunks = Vec::new();
+        for i in 0..20 {
+            chunks.push((i as f64 * 0.1, speech.clone()));
+        }
+        // The mic drops out for 0.7 s (5 s with system audio) and recovers.
+        let resume = 2.0 + 0.7;
+        for i in 0..20 {
+            chunks.push((resume + i as f64 * 0.1, speech.clone()));
+        }
+        assert_gain_matches_mixer(&chunks, false);
+        let resume = 2.0 + 5.0;
+        for (i, chunk) in chunks.iter_mut().skip(20).enumerate() {
+            chunk.0 = resume + i as f64 * 0.1;
+        }
+        assert_gain_matches_mixer(&chunks, true);
+    }
+
+    #[test]
     fn meter_gain_follows_the_recordings_gain_stage_sample_for_sample() {
         // Silence, then a quiet voice starting: the onset where a faster meter
         // gain would hide the warning while the saved audio is still quiet.
         let mut signal = vec![0.0_f32; 48_000];
         signal.extend(soft_speech().iter().copied().cycle().take(3 * 48_000));
-        let mut meter = MicMeter::new();
+        let mut meter = WriterMicMeter::new();
         let mut recording = MixGainStage::new(AUDIO_OUTPUT_SAMPLE_RATE as i32, true);
         for buffer in signal.chunks(1024) {
             let saved_peak = buffer
@@ -5114,5 +5227,78 @@ mod mic_meter_tests {
             assert_eq!(meter.boosted_level(buffer), saved_peak);
         }
         assert_eq!(meter.auto_gain.gain, recording.mic.gain);
+    }
+
+    #[test]
+    fn each_writer_keeps_its_own_meter_state() {
+        let noise = background_noise(400);
+        let mut meter = settled_meter(&noise);
+        let learned_gain = meter.writers[&1].auto_gain.gain;
+        // A Clip sink takes over: its own fresh state, which shows the hiss.
+        let switched = meter.level(&noise[0], AFTER_NOISE, &[writer(2, 0.0)]);
+        assert!(switched >= AUDIBLE, "level after switch {switched}");
+        assert!(!meter.writers[&2].auto_gain.levelled);
+        // The main writer's state is untouched while the sink is shown...
+        assert_eq!(meter.writers[&1].auto_gain.gain, learned_gain);
+        // ...and carries on, still levelled, when the main writer is back.
+        meter.level(&noise[1], AFTER_NOISE + BUFFER_SECONDS, &[writer(1, 0.0)]);
+        assert!(meter.writers[&1].auto_gain.levelled);
+        assert!(meter.writers[&1].auto_gain.gain > MIC_AGC_MIN_GAIN);
+    }
+
+    #[test]
+    fn a_paused_clip_sink_keeps_its_meter_state() {
+        let noise = background_noise(400);
+        let mut meter = settled_meter(&noise);
+        let learned_gain = meter.writers[&1].auto_gain.gain;
+        // The sink pauses: nothing boosts the saved mic, the bar shows raw,
+        // and the sink's meter state is kept as the sink keeps its gain stage.
+        for i in 0..50 {
+            let pts = AFTER_NOISE + i as f64 * BUFFER_SECONDS;
+            assert_eq!(meter.level(&soft_speech(), pts, &[]), 0.01);
+        }
+        assert_eq!(meter.writers[&1].auto_gain.gain, learned_gain);
+        // It resumes: its gain stage continues instead of starting at unity.
+        meter.level(
+            &noise[0],
+            AFTER_NOISE + 50.0 * BUFFER_SECONDS,
+            &[writer(1, 1.0)],
+        );
+        assert!(meter.writers[&1].auto_gain.levelled);
+        assert!(meter.writers[&1].auto_gain.gain > MIC_AGC_MIN_GAIN);
+    }
+
+    #[test]
+    fn every_saving_writer_is_tracked_and_the_first_is_shown() {
+        let noise = background_noise(400);
+        let mut meter = settled_meter(&noise);
+        let both = [writer(1, 0.0), writer(2, 0.0)];
+        let shown = meter.level(&noise[0], AFTER_NOISE, &both);
+        assert!(shown < AUDIBLE, "shown level {shown}");
+        assert!(meter.writers.contains_key(&2));
+        // Old writers are forgotten beyond the cap, the current ones are kept.
+        for id in 3..10 {
+            meter.level(&noise[1], AFTER_NOISE, &[writer(id, 0.0), writer(1, 0.0)]);
+        }
+        assert!(meter.writers.len() <= MIC_METER_MAX_WRITERS);
+        assert!(meter.writers.contains_key(&1) && meter.writers.contains_key(&9));
+    }
+
+    #[test]
+    fn only_writers_that_boost_and_save_are_metered() {
+        // Main writer mixes live with voice cleanup on and is recording.
+        assert_eq!(saving_mic_writers(Some(1), true, None), vec![1]);
+        // Main writer only buffers raw audio, but a live Clip sink boosts it.
+        assert_eq!(saving_mic_writers(None, true, Some(2)), vec![2]);
+        assert_eq!(saving_mic_writers(None, false, Some(2)), vec![2]);
+        // Both boost: both are tracked, the main writer shown.
+        assert_eq!(saving_mic_writers(Some(1), true, Some(2)), vec![1, 2]);
+        // A boosting main writer that is not recording yet saves nothing.
+        assert_eq!(saving_mic_writers(Some(1), false, None), Vec::<i32>::new());
+        // Nothing boosts: raw.
+        assert_eq!(
+            saving_mic_writers::<i32>(None, true, None),
+            Vec::<i32>::new()
+        );
     }
 }
