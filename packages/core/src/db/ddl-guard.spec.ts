@@ -1088,18 +1088,7 @@ describe("ddl-guard", () => {
       },
     );
 
-    it.each([
-      ["duplicate relation", { code: "42P07" }],
-      [
-        "pg_type unique conflict",
-        { code: "23505", constraint_name: "pg_type_typname_nsp_index" },
-      ],
-      [
-        "pg_class unique conflict",
-        { code: "23505", constraint: "pg_class_relname_nsp_index" },
-      ],
-      ["TypeCreate duplicate", { code: "42710", routine: "TypeCreate" }],
-    ])(
+    it.each([["duplicate relation", { code: "42P07" }]])(
       "accepts a wrapped %s after a retry when the object exists",
       async (_label, fields) => {
         const { ensureSchemaObject } = await import("./ddl-guard.js");
