@@ -419,13 +419,15 @@ impl AdhocMeetingsWatcherInner {
         });
         let associated_processes: HashSet<BrowserProcessKey> =
             self.browser_processes().into_iter().collect();
-        // Forget processes no longer sampled and off readings too old to
-        // mark a turn-on.
+        // Forget processes no longer sampled. An off reading only marks a
+        // turn-on when the process was read on every poll since and it is
+        // recent enough; a gap or an unreadable sample hides the transition.
         self.browser_mic_started_on.retain(|key, _| {
             mic_by_process.contains_key(key) || associated_processes.contains(key)
         });
-        self.browser_mic_off_at.retain(|_, (off_at, _)| {
-            now.saturating_duration_since(*off_at) <= BROWSER_MIC_START_WINDOW
+        self.browser_mic_off_at.retain(|key, (off_at, _)| {
+            matches!(mic_by_process.get(key), Some(Some(_)))
+                && now.saturating_duration_since(*off_at) <= BROWSER_MIC_START_WINDOW
         });
         for (key, mic) in mic_by_process {
             match mic {
@@ -455,12 +457,15 @@ impl AdhocMeetingsWatcherInner {
                             now.saturating_duration_since(*off_at) <= BROWSER_MIC_START_WINDOW
                         })
                         .and_then(|(_, front)| *front);
-                    let origin = candidate
-                        .filter(|candidate| {
-                            (candidate.pid, candidate.bundle_id) == *key
-                                && off_front == Some(candidate.platform)
-                        })
+                    let front = candidate
+                        .filter(|candidate| (candidate.pid, candidate.bundle_id) == *key)
                         .map(|candidate| candidate.platform);
+                    if front.is_none() && off_front.is_some() {
+                        // No call site of this browser is in front yet: keep
+                        // the origin open while the off reading is recent.
+                        continue;
+                    }
+                    let origin = front.filter(|front| off_front == Some(*front));
                     self.browser_mic_started_on.insert(*key, origin);
                 }
                 _ => {}
@@ -1433,6 +1438,54 @@ mod tests {
         assert!(!state.browser_associations.contains_key("meet"));
         let confirmed = state.observe_browser_calls(start + Duration::from_secs(24), None, &on);
         assert_eq!(confirmed.live_platforms, vec!["zoom"]);
+    }
+
+    #[test]
+    fn an_off_reading_before_an_unsampled_gap_does_not_mark_a_turn_on() {
+        let start = Instant::now();
+        let meet = BrowserCallCandidate {
+            pid: 1234,
+            bundle_id: "com.google.chrome",
+            platform: "meet",
+        };
+        let key = (meet.pid, meet.bundle_id);
+        let on = browser_mic(meet.pid, Some(true));
+        let mut state = AdhocMeetingsWatcherInner::default();
+
+        state.observe_browser_calls(start, Some(meet), &browser_mic(meet.pid, Some(false)));
+        // The browser is not sampled for one poll; when it is back, its
+        // microphone is already on.
+        state.observe_browser_calls(start + Duration::from_secs(2), None, &HashMap::new());
+        assert!(!state.browser_mic_off_at.contains_key(&key));
+        for secs in [4, 6, 8, 20] {
+            let updates =
+                state.observe_browser_calls(start + Duration::from_secs(secs), Some(meet), &on);
+            assert!(updates.live_platforms.is_empty(), "after {secs}s");
+        }
+        assert!(state.browser_associations.is_empty());
+    }
+
+    #[test]
+    fn a_turn_on_seen_before_its_call_site_is_in_front_can_still_find_its_origin() {
+        let start = Instant::now();
+        let meet = BrowserCallCandidate {
+            pid: 1234,
+            bundle_id: "com.google.chrome",
+            platform: "meet",
+        };
+        let key = (meet.pid, meet.bundle_id);
+        let on = browser_mic(meet.pid, Some(true));
+        let mut state = AdhocMeetingsWatcherInner::default();
+
+        state.observe_browser_calls(start, Some(meet), &browser_mic(meet.pid, Some(false)));
+        // The first on sample has no call site in front.
+        state.observe_browser_calls(start + Duration::from_secs(2), None, &on);
+        assert!(!state.browser_mic_started_on.contains_key(&key));
+        // The next one does, while the off reading is still recent.
+        state.observe_browser_calls(start + Duration::from_secs(4), Some(meet), &on);
+        assert_eq!(state.browser_mic_started_on.get(&key), Some(&Some("meet")));
+        let confirmed = state.observe_browser_calls(start + Duration::from_secs(8), None, &on);
+        assert_eq!(confirmed.live_platforms, vec!["meet"]);
     }
 
     #[test]
