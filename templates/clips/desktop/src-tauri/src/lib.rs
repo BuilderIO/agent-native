@@ -183,7 +183,6 @@ fn present_popover(app: &tauri::AppHandle) {
     }
 }
 
-#[cfg_attr(mobile, tauri::mobile_entry_point)]
 /// Control links (pause, stop, dictate) act without opening the popover, so
 /// the app in front keeps focus; every other link opens it as before.
 fn route_deep_links(app: &tauri::AppHandle, urls: Vec<String>) {
@@ -200,6 +199,7 @@ fn route_deep_links(app: &tauri::AppHandle, urls: Vec<String>) {
     }
 }
 
+#[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     sentry_report::init();
 
