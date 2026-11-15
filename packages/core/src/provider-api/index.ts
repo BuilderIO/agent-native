@@ -5051,17 +5051,30 @@ async function getGoogleServiceAccountToken(
     // Resolve before consulting the cache so source revocation is observed on
     // every use. Cache identity includes exact credential material, never its
     // plaintext value, as well as actor, source and authorization scopes.
-    const credential = await resolveCredentialResult({
-      config: source.config,
-      runtime,
-      ctx,
-      key: "GOOGLE_APPLICATION_CREDENTIALS_JSON",
-      args: source.args,
-      ...(source.workspaceProvider
-        ? { workspaceProvider: source.workspaceProvider }
-        : {}),
-    });
     const connectionId = source.args.connectionId?.trim();
+    // Without an explicit connection the lookup is the one this exchange has
+    // always made, through the gcloud provider's own credential order. Only a
+    // selected connection binds the lookup to the requesting provider.
+    const credential = await resolveCredentialResult(
+      connectionId
+        ? {
+            config: source.config,
+            runtime,
+            ctx,
+            key: "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+            args: source.args,
+            ...(source.workspaceProvider
+              ? { workspaceProvider: source.workspaceProvider }
+              : {}),
+          }
+        : {
+            config: getProviderApiConfig("gcloud", runtime.providerOverrides),
+            runtime,
+            ctx,
+            key: "GOOGLE_APPLICATION_CREDENTIALS_JSON",
+            args: { provider: "gcloud", path: "/", signal },
+          },
+    );
     if (
       connectionId &&
       (!credential?.value ||

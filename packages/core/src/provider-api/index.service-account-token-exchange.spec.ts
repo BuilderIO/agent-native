@@ -213,3 +213,67 @@ describe("service-account token exchange", () => {
     expect(exchanges).toHaveLength(2);
   });
 });
+
+describe("service-account credential lookup", () => {
+  function lookupsFor(connectionId?: string) {
+    const lookups: { provider: string; workspaceProvider?: string }[] = [];
+    const runtime = createProviderApiRuntime({
+      appId: "token-exchange-fixture",
+      providerIds: ["bigquery"],
+      getCredentialContext: () => ({
+        userEmail: "member@example.test",
+        orgId: "exchange-fixture-org",
+        ...(connectionId ? { credentialScope: "org" as const } : {}),
+      }),
+      resolveCredential: async (lookup) => {
+        lookups.push({
+          provider: lookup.provider,
+          workspaceProvider: lookup.workspaceProvider,
+        });
+        return {
+          key: lookup.key,
+          value: JSON.stringify({
+            type: "service_account",
+            client_email: `lookup-${(counter += 1)}@example.test`,
+            private_key: PEM,
+          }),
+          source: connectionId ? "workspace_connection" : "app_local",
+          provider: lookup.provider,
+          ...(connectionId ? { connectionId } : {}),
+        };
+      },
+    });
+    return {
+      lookups,
+      run: () =>
+        runtime.executeRequest({
+          provider: "bigquery",
+          method: "GET",
+          path: "/projects/test-project/datasets",
+          ...(connectionId ? { connectionId } : {}),
+        }),
+    };
+  }
+
+  it("keeps the gcloud credential order when no connection is selected", async () => {
+    const { run, lookups } = lookupsFor();
+    stubFetch(ok({ access_token: "tok-e", expires_in: 3600 }));
+    await run();
+    const keyLookups = lookups.filter((x) => x.provider === "gcloud");
+    expect(keyLookups.length).toBeGreaterThan(0);
+    expect(keyLookups.every((x) => x.workspaceProvider === undefined)).toBe(
+      true,
+    );
+  });
+
+  it("binds the lookup to the requesting provider once a connection is selected", async () => {
+    const { run, lookups } = lookupsFor("selected-source");
+    stubFetch(ok({ access_token: "tok-f", expires_in: 3600 }));
+    await run();
+    expect(
+      lookups.some(
+        (x) => x.provider === "bigquery" && x.workspaceProvider === "bigquery",
+      ),
+    ).toBe(true);
+  });
+});
