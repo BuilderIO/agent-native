@@ -14,7 +14,7 @@ export async function retryOnDdlRace<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-function isPgCatalogRace(e: any): boolean {
+export function isPgCatalogRace(e: any): boolean {
   const msg = String(e?.message ?? "");
   if (e?.code === "42P07") return true;
   if (e?.code === "42710") {

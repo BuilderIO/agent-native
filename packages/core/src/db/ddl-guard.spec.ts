@@ -1051,33 +1051,50 @@ describe("ddl-guard", () => {
       },
     );
 
-    it("accepts a duplicate relation after a retry when the object exists", async () => {
-      const { ensureSchemaObject } = await import("./ddl-guard.js");
-      let attempts = 0;
-      const { client } = recordingClient((sql) => {
-        if (/CREATE TABLE/.test(sql)) {
-          if (++attempts === 1)
-            throw Object.assign(new Error("lock timeout"), { code: "55P03" });
-          throw Object.assign(new Error("relation exists"), { code: "42P07" });
-        }
-        return undefined;
-      });
-      const probe = vi
-        .fn()
-        .mockResolvedValueOnce(false)
-        .mockResolvedValueOnce(false)
-        .mockResolvedValueOnce(true);
-      await expect(
-        ensureSchemaObject({
-          probe,
-          ddl: "CREATE TABLE foo (id TEXT)",
-          label: "table foo",
-          injectedClient: client,
-        }),
-      ).resolves.toBe(true);
-      expect(attempts).toBe(2);
-      expect(probe).toHaveBeenCalledTimes(3);
-    });
+    it.each([
+      ["duplicate relation", { code: "42P07" }],
+      [
+        "pg_type unique conflict",
+        { code: "23505", constraint_name: "pg_type_typname_nsp_index" },
+      ],
+      [
+        "pg_class unique conflict",
+        { code: "23505", constraint: "pg_class_relname_nsp_index" },
+      ],
+      ["TypeCreate duplicate", { code: "42710", routine: "TypeCreate" }],
+    ])(
+      "accepts a wrapped %s after a retry when the object exists",
+      async (_label, fields) => {
+        const { ensureSchemaObject } = await import("./ddl-guard.js");
+        let attempts = 0;
+        const { client, calls } = recordingClient((sql) => {
+          if (/CREATE TABLE/.test(sql)) {
+            if (++attempts === 1)
+              throw Object.assign(new Error("lock timeout"), { code: "55P03" });
+            throw new Error("failed query", {
+              cause: Object.assign(new Error("catalog conflict"), fields),
+            });
+          }
+          return undefined;
+        });
+        const probe = vi
+          .fn()
+          .mockResolvedValueOnce(false)
+          .mockResolvedValueOnce(false)
+          .mockResolvedValueOnce(true);
+        await expect(
+          ensureSchemaObject({
+            probe,
+            ddl: "CREATE TABLE foo (id TEXT)",
+            label: "table foo",
+            injectedClient: client,
+          }),
+        ).resolves.toBe(true);
+        expect(attempts).toBe(2);
+        expect(probe).toHaveBeenCalledTimes(3);
+        expect(calls.filter((sql) => sql === "ROLLBACK")).toHaveLength(2);
+      },
+    );
 
     it.each([
       ["duplicate on the first attempt", "42701", false],
@@ -1097,7 +1114,11 @@ describe("ddl-guard", () => {
           }
           return undefined;
         });
-        const probe = vi.fn(async () => false);
+        const probe = vi
+          .fn()
+          .mockResolvedValueOnce(false)
+          .mockResolvedValueOnce(false)
+          .mockResolvedValueOnce(true);
         await expect(
           ensureSchemaObject({
             probe,
@@ -1110,40 +1131,48 @@ describe("ddl-guard", () => {
       },
     );
 
-    it("does not hide a failed reset after duplicate DDL on a retry", async () => {
-      const { ensureSchemaObject } = await import("./ddl-guard.js");
-      const duplicate = Object.assign(new Error("column exists"), {
-        code: "42701",
-      });
-      const resetError = new Error("reset failed");
-      let attempts = 0;
-      const { client } = recordingClient((sql) => {
-        if (/ALTER TABLE/.test(sql)) {
-          if (++attempts === 1)
-            throw Object.assign(new Error("lock timeout"), { code: "55P03" });
-          throw duplicate;
-        }
-        if (/RESET lock_timeout/.test(sql) && attempts === 2) throw resetError;
-        return undefined;
-      });
-      const probe = vi
-        .fn()
-        .mockResolvedValueOnce(false)
-        .mockResolvedValueOnce(false)
-        .mockResolvedValueOnce(true);
-      const result = await ensureSchemaObject({
-        probe,
-        ddl: "ALTER TABLE foo ADD COLUMN bar TEXT",
-        label: "column foo.bar",
-        injectedClient: { execute: client.execute },
-      }).catch((error: unknown) => error);
-      expect(result).toBeInstanceOf(AggregateError);
-      expect((result as AggregateError).errors).toEqual([
-        duplicate,
-        resetError,
-      ]);
-      expect(probe).toHaveBeenCalledTimes(2);
-    });
+    it.each([
+      ["duplicate column", { code: "42701" }],
+      [
+        "catalog conflict",
+        { code: "23505", constraint_name: "pg_type_typname_nsp_index" },
+      ],
+    ])(
+      "does not hide a failed reset after %s on a retry",
+      async (_label, fields) => {
+        const { ensureSchemaObject } = await import("./ddl-guard.js");
+        const duplicate = Object.assign(new Error("DDL conflict"), fields);
+        const resetError = new Error("reset failed");
+        let attempts = 0;
+        const { client } = recordingClient((sql) => {
+          if (/ALTER TABLE/.test(sql)) {
+            if (++attempts === 1)
+              throw Object.assign(new Error("lock timeout"), { code: "55P03" });
+            throw duplicate;
+          }
+          if (/RESET lock_timeout/.test(sql) && attempts === 2)
+            throw resetError;
+          return undefined;
+        });
+        const probe = vi
+          .fn()
+          .mockResolvedValueOnce(false)
+          .mockResolvedValueOnce(false)
+          .mockResolvedValueOnce(true);
+        const result = await ensureSchemaObject({
+          probe,
+          ddl: "ALTER TABLE foo ADD COLUMN bar TEXT",
+          label: "column foo.bar",
+          injectedClient: { execute: client.execute },
+        }).catch((error: unknown) => error);
+        expect(result).toBeInstanceOf(AggregateError);
+        expect((result as AggregateError).errors).toEqual([
+          duplicate,
+          resetError,
+        ]);
+        expect(probe).toHaveBeenCalledTimes(2);
+      },
+    );
 
     it("refreshes the schema snapshot after a concurrent creator wins", async () => {
       vi.stubEnv("DATABASE_URL", "postgres://localhost:5432/db");

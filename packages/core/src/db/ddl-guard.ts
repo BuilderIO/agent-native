@@ -26,7 +26,7 @@ import {
   withMigrationExecutionRuntime,
 } from "./migration-runtime.js";
 import { retainRequestDbPoolScope } from "./request-pool-context.js";
-import { dbClientGeneration } from "./runtime-facts.js";
+import { dbClientGeneration, isPgCatalogRace } from "./runtime-facts.js";
 
 const PLAIN_IDENTIFIER = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
@@ -350,7 +350,7 @@ export async function ensureSchemaObject(options: {
   }
   const isDuplicateSchemaError = (err: unknown): boolean => {
     let current = err;
-    let code: string | undefined;
+    let codedError: { code?: unknown; cause?: unknown } | undefined;
     const seen = new Set<object>();
     for (let depth = 0; depth < 8; depth += 1) {
       if (typeof current !== "object" || current === null) break;
@@ -358,13 +358,13 @@ export async function ensureSchemaObject(options: {
       seen.add(current);
       const error = current as { code?: unknown; cause?: unknown };
       if (typeof error.code === "string" && /^[0-9A-Z]{5}$/.test(error.code)) {
-        code = error.code;
+        codedError = error;
       }
       if (error.cause == null) break;
       if (depth === 7) return false;
       current = error.cause;
     }
-    return code === "42701" || code === "42P07";
+    return codedError?.code === "42701" || isPgCatalogRace(codedError);
   };
   for (let attempt = 0; attempt < 3; attempt += 1) {
     let ran: boolean;
