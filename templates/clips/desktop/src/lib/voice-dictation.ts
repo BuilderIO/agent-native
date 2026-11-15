@@ -2767,11 +2767,11 @@ export function installDesktopVoiceDictation(
   const shortcutStartListener = listen<VoiceShortcutEvent>(
     "voice:shortcut-start",
     (event) => {
-      const source = event.payload?.source;
+      const source = event.payload.source;
       if (!acceptsShortcut(source)) return;
       const action = dictationInput(
         source === "link"
-          ? { kind: "start", source, stopOnly: event.payload?.stopOnly }
+          ? { kind: "start", source, stopOnly: event.payload.stopOnly === true }
           : source === "link-hands-free"
             ? { kind: "start", source }
             : { kind: "start", source: "key" },
@@ -2858,7 +2858,7 @@ export function installDesktopVoiceDictation(
   registerListener(
     listen<VoiceShortcutEvent>("voice:shortcut-stop", (event) => {
       if (!acceptsShortcut(event.payload?.source)) return;
-      if (event.payload?.source === "link") {
+      if (event.payload.source === "link") {
         // Only the up of the link press that started this dictation ends
         // it, even in toggle mode.
         if (dictationInput({ kind: "stop", source: "link" }) === "stop-link") {
