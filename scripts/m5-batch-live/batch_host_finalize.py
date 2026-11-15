@@ -18,6 +18,7 @@ import batch_finalizer_env as env_lib
 TERMINAL = frozenset(("requeued", "verified", "queued", "final_check_failed", "failed_unisolated",
                       "source_verification_failed", "enqueue_failed", "reverting"))
 MAX_ATTEMPTS = 3
+CHECK_TIMEOUT_S = 5400  # test:fast alone exceeded the runner default of 1800s with the M5 at load 76
 RETRY_DELAY_S = 600
 DEFAULT_PATH = [str(Path.home() / ".nvm/versions/node/v24.14.0/bin")]
 
@@ -128,7 +129,9 @@ def main():
         manifest_path.write_text(json.dumps(manifest))
         print("not started: " + str(failure), file=sys.stderr)
         return env_lib.NOT_STARTED
-    return subprocess.run([sys.executable, runner, "--phase", "finalize", "--spec", str(args.job / "BATCH.json")], env=env).returncode
+    host_spec = args.job / "BATCH-FINALIZE-HOST.json"
+    host_spec.write_text(json.dumps({**spec, "timeout": max(spec.get("timeout", 0), CHECK_TIMEOUT_S)}))
+    return subprocess.run([sys.executable, runner, "--phase", "finalize", "--spec", str(host_spec)], env=env).returncode
 
 
 if __name__ == "__main__":

@@ -79,6 +79,11 @@ class HostFinalizeStepTest(unittest.TestCase):
         self.assertIn("uncollected source", reason["detail"])
 
 
+class HostTimeoutTest(unittest.TestCase):
+    def test_the_host_check_timeout_exceeds_the_runner_default(self):
+        self.assertGreater(host.CHECK_TIMEOUT_S, 1800)
+
+
 class HostEnvironmentTest(unittest.TestCase):
     def test_sandbox_markers_are_stripped_and_ci_is_set(self):
         slot = Path(tempfile.mkdtemp(dir="/tmp"))
