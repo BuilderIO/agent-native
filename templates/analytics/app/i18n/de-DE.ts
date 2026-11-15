@@ -1407,6 +1407,8 @@ export default {
     resetFilters: "Filter zurücksetzen",
     collapseFilters: "Filter ausblenden",
     expandFilters: "Filter erweitern",
+    collapseDescription: "Beschreibung einklappen",
+    expandDescription: "Beschreibung erweitern",
     drilldownChartPoints: "Diagrammpunkte",
     drilldownPreviousPage: "Vorherige Seite der Diagrammpunkte",
     drilldownNextPage: "Nächste Seite der Diagrammpunkte",

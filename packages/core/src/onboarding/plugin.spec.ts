@@ -1111,4 +1111,74 @@ describe("onboarding plugin routes", () => {
     expect(updateUserOnboardingRoleMock).not.toHaveBeenCalled();
     expect(trackMock).not.toHaveBeenCalled();
   });
+  it("keeps an app-owned questionnaire independent of shared connection completion", async () => {
+    vi.stubEnv("COOKIE_DOMAIN", ".example.com");
+    vi.stubEnv("ONBOARDING_SHARED_COMPLETION", "1");
+    vi.stubEnv("AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING", "app");
+    const nitroApp = createNitroApp();
+    await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+    appStateGetMock.mockImplementation(async (_sessionId, key) =>
+      key === FIRST_RUN_ONBOARDING_ELIGIBLE_KEY ? { orgId: "org-1" } : null,
+    );
+    const status = await dispatch(
+      nitroApp,
+      "/_agent-native/onboarding/first-run/status",
+      "GET",
+      {
+        cookie: `${FIRST_RUN_ONBOARDING_COOKIE}=1; ${SHARED_ONBOARDING_COOKIE}=${encodeSharedOnboardingCookie({ role: "design", email: "alice@example.com" })}`,
+      },
+    );
+    expect(status.body).toEqual({ firstRun: true });
+    expect(updateUserOnboardingRoleMock).not.toHaveBeenCalled();
+    expect(appStatePutMock).not.toHaveBeenCalled();
+    const completed = await dispatch(
+      nitroApp,
+      "/_agent-native/onboarding/first-run/complete",
+      "POST",
+      { "content-type": "application/json" },
+      { expectedUserEmail: "alice@example.com", expectedOrgId: "org-1" },
+    );
+    expect(completed.body).toEqual({ ok: true });
+    expect(completed.headers.get("set-cookie")).not.toContain(
+      `${SHARED_ONBOARDING_COOKIE}=`,
+    );
+  });
+  it.each([
+    { expectedUserEmail: "other@example.com", expectedOrgId: "org-1" },
+    { expectedUserEmail: "alice@example.com", expectedOrgId: "org-other" },
+    {},
+  ])(
+    "rejects changed app-completion scope before writing: %j",
+    async (input) => {
+      vi.stubEnv("AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING", "app");
+      const nitroApp = createNitroApp();
+      await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+      appStateGetMock.mockResolvedValue({ orgId: "org-1" });
+      const result = await dispatch(
+        nitroApp,
+        "/_agent-native/onboarding/first-run/complete",
+        "POST",
+        { "content-type": "application/json" },
+        input,
+      );
+      expect(result.status).toBe(409);
+      expect(appStatePutMock).not.toHaveBeenCalled();
+    },
+  );
+  it("rejects completion after the active workspace leaves the eligible workspace", async () => {
+    vi.stubEnv("AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING", "app");
+    const nitroApp = createNitroApp();
+    await createOnboardingPlugin({ skipDefaultSteps: true })(nitroApp);
+    appStateGetMock.mockResolvedValue({ orgId: "org-1" });
+    getOrgContextMock.mockResolvedValue({ orgId: "org-other" });
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/onboarding/first-run/complete",
+      "POST",
+      { "content-type": "application/json" },
+      { expectedUserEmail: "alice@example.com", expectedOrgId: "org-other" },
+    );
+    expect(result.status).toBe(409);
+    expect(appStatePutMock).not.toHaveBeenCalled();
+  });
 });

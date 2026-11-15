@@ -19,6 +19,7 @@ import {
 } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 
+import { useReaderLocale } from "../../../shared/reader-locale.js";
 import { compactOutlineButtonClassName } from "../../components/ui/button-classes.js";
 import type { ToolRendererProps } from "../tool-render-registry.js";
 import { ActionCard } from "./ActionCard.js";
@@ -110,11 +111,14 @@ function undoStateKey(widgetId: string | undefined): string | undefined {
     : undefined;
 }
 
-function formatScheduledDate(value: string | undefined): string | undefined {
+export function formatScheduledDate(
+  value: string | undefined,
+  locale: string,
+): string | undefined {
   if (!value) return undefined;
   const timestamp = Date.parse(value);
   if (!Number.isFinite(timestamp)) return value;
-  return new Intl.DateTimeFormat(undefined, {
+  return new Intl.DateTimeFormat(locale, {
     dateStyle: "medium",
     timeStyle: "short",
   }).format(timestamp);
@@ -150,6 +154,8 @@ function ActionChangeCard({
   grouped?: boolean;
 }) {
   const t = useT();
+  // A scheduled time reads in the locale the reader picked in the app, not the machine's.
+  const readerLocale = useReaderLocale();
   const undo = change.undo?.action === toolName ? change.undo : undefined;
   const stateKey = undo ? undoStateKey(widgetId) : undefined;
   const [undoState, setUndoState] = useState<
@@ -202,7 +208,7 @@ function ActionChangeCard({
         : change.detail;
   const formattedDetail =
     change.kind === "scheduled-email"
-      ? formatScheduledDate(change.detail)
+      ? formatScheduledDate(change.detail, readerLocale)
       : change.kind === "booking-link" &&
           change.detail &&
           /^\d+$/.test(change.detail)

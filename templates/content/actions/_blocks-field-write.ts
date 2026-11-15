@@ -2,7 +2,9 @@ import { ActionContractError } from "@agent-native/core";
 import { and, eq } from "drizzle-orm";
 
 import { getDb, schema } from "../server/db/index.js";
+import { documentAttributionActor } from "../server/lib/document-attribution.js";
 import { firstRow } from "../server/lib/first-row.js";
+import { syncPrivateMediaReferences } from "../server/lib/private-media-references.js";
 import { assertNoNewlySharedVideoIds } from "../server/lib/video-block-ids.js";
 import { contentDatabaseSourceFieldsAllowLocalWrite } from "../shared/source-field-policy.js";
 import { persistBlocksFieldIdentity } from "./_blocks-field-identity.js";
@@ -104,6 +106,11 @@ export async function writeStoredBlocksField(
       ],
       set: { content: args.content, updatedAt: args.now },
     });
+  await syncPrivateMediaReferences(db, {
+    documentId: args.documentId,
+    after: args.content,
+    userEmail: documentAttributionActor(),
+  });
   await persistBlocksFieldIdentity({
     db,
     ownerEmail: args.ownerEmail,

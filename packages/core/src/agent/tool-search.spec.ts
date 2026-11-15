@@ -16,6 +16,7 @@ import {
   isTargetedToolSearch,
   readLoadedToolNames,
   searchToolRegistry,
+  searchToolRegistryForRequest,
   TOOL_SEARCH_ACTION_NAME,
   withLoadedToolNames,
 } from "./tool-search.js";
@@ -41,6 +42,271 @@ function action(
 }
 
 describe("tool-search", () => {
+  it("ranks task candidates through the server boundary and keeps lexical fallback labelled", async () => {
+    const registry = {
+      "list-events": action("List calendar events"),
+      "send-email": action("Send email"),
+    };
+    const rank = vi.fn(async () => ({
+      status: "selected" as const,
+      ids: ["send-email"],
+    }));
+    const selected = await searchToolRegistryForRequest(
+      registry,
+      { task: "calendar" },
+      { taskRank: rank },
+    );
+    expect(selected).toMatchObject({
+      ranking: "jev",
+      status: "selected",
+      recommendations: [
+        { name: "send-email", kind: "tool", use: { type: "tools/call" } },
+      ],
+    });
+    expect(rank).toHaveBeenCalledOnce();
+    const fallback = await searchToolRegistryForRequest(
+      registry,
+      { task: "calendar" },
+      { taskRank: async () => ({ status: "unavailable", ids: [] }) },
+    );
+    expect(fallback).toMatchObject({
+      ranking: "bm25",
+      status: "unavailable",
+      recommendations: [{ name: "list-events" }],
+    });
+  });
+
+  it("does not poison a later lexical search with task baseline cache", async () => {
+    const registry = { "list-events": action("List calendar events") };
+    await runWithRequestContext(
+      { userEmail: "agent@example.com", run: {} },
+      async () => {
+        await searchToolRegistryForRequest(registry, { task: "calendar" });
+        const result = searchToolRegistry(registry, { query: "calendar" });
+        expect(result.repeated).toBeUndefined();
+        expect(result.results[0]?.description).toBe("List calendar events");
+      },
+    );
+  });
+
+  it("orders task fallback by BM25 score rather than registry insertion", async () => {
+    const registry = {
+      "other-calendar": action("Calendar archive"),
+      "calendar-events": action("Calendar events and availability"),
+    };
+    const result = await searchToolRegistryForRequest(registry, {
+      task: "calendar events",
+    });
+    expect(result.recommendations?.[0]?.name).toBe("calendar-events");
+  });
+
+  it("bounds a stalled candidate provider and never returns unfiltered data", async () => {
+    const registry = { "list-events": action("List calendar events") };
+    const result = await searchToolRegistryForRequest(
+      registry,
+      { task: "calendar" },
+      {
+        taskDeadline: Date.now() + 20,
+        taskCandidateProvider: async () => new Promise(() => {}),
+      },
+    );
+    expect(result).toMatchObject({
+      ranking: "bm25",
+      status: "timed_out",
+      recommendations: [],
+    });
+  });
+
+  it("includes tool parameter descriptions in task BM25 fallback", async () => {
+    const registry = {
+      send: action("Dispatch a message", {
+        to: { type: "string", description: "recipient address" },
+      }),
+    };
+    const result = await searchToolRegistryForRequest(registry, {
+      task: "recipient address",
+    });
+    expect(result.recommendations?.map((item) => item.name)).toEqual(["send"]);
+  });
+
+  it("does not start ranking after the caller cancels candidate discovery", async () => {
+    const controller = new AbortController();
+    const rank = vi.fn(async () => ({
+      status: "selected" as const,
+      ids: ["list-events"],
+    }));
+    const result = await searchToolRegistryForRequest(
+      { "list-events": action("List calendar events") },
+      { task: "calendar" },
+      {
+        taskRank: rank,
+        taskCandidateProvider: async () => {
+          controller.abort();
+          return [];
+        },
+      },
+      { caller: "mcp", signal: controller.signal },
+    );
+    expect(result.status).toBe("failed");
+    expect(rank).not.toHaveBeenCalled();
+  });
+
+  it("honors the result limit for ranked recommendations", async () => {
+    const result = await searchToolRegistryForRequest(
+      { one: action("calendar one"), two: action("calendar two") },
+      { task: "calendar", limit: 1 },
+      { taskRank: async () => ({ status: "selected", ids: ["one", "two"] }) },
+    );
+    expect(result.recommendations?.map((item) => item.name)).toEqual(["one"]);
+    expect(result.results).toHaveLength(1);
+  });
+
+  it("rejects an oversized task without calling the provider", async () => {
+    const rank = vi.fn();
+    const result = await searchToolRegistryForRequest(
+      { one: action("calendar") },
+      { task: "x".repeat(5000) },
+      { taskRank: rank },
+    );
+    expect(result).toMatchObject({
+      ranking: "bm25",
+      status: "failed",
+      recommendations: [],
+    });
+    expect(rank).not.toHaveBeenCalled();
+  });
+
+  it("marks an advertised action callable for MCP independently of plan-mode policy", async () => {
+    const registry = {
+      write: { ...action("write changes"), allowInPlanMode: false },
+    };
+    const result = await searchToolRegistryForRequest(
+      registry,
+      { task: "write" },
+      {},
+      { caller: "mcp" },
+    );
+    expect(result.recommendations?.[0]?.callable).toBe(true);
+  });
+
+  it("does not rank provider-supplied tools outside the authorized registry", async () => {
+    const rank = vi.fn(async (_task, candidates) => ({
+      status: "selected" as const,
+      ids: candidates.map((item) => item.id),
+    }));
+    const result = await searchToolRegistryForRequest(
+      { allowed: action("allowed action") },
+      { task: "action" },
+      {
+        taskRank: rank,
+        taskCandidates: [
+          {
+            id: "denied",
+            name: "denied",
+            kind: "tool",
+            description: "action",
+            use: { type: "tools/call" },
+            callable: true,
+            reason: "test",
+          },
+        ],
+      },
+    );
+    expect(result.recommendations?.map((item) => item.name)).not.toContain(
+      "denied",
+    );
+    expect(rank.mock.calls[0]?.[1].map((item) => item.id)).not.toContain(
+      "denied",
+    );
+  });
+
+  it("reports when task mode cannot load explicit names in the same call", async () => {
+    const result = await searchToolRegistryForRequest(
+      { one: action("one") },
+      { task: "find one", names: ["one"] },
+    );
+    expect(result.message).toContain("names");
+  });
+
+  it("does not expose app recommendations when read-only filtering removes open_app", async () => {
+    const provider = vi.fn(async () => [
+      {
+        id: "app:alpha",
+        name: "Alpha",
+        kind: "app" as const,
+        description: "alpha",
+        use: { type: "open_app" as const, app: "alpha", path: "/" },
+        callable: true,
+        reason: "test",
+      },
+    ]);
+    const result = await searchToolRegistryForRequest(
+      { open_app: { ...action("open alpha"), readOnly: false } },
+      { task: "alpha", readOnlyOnly: true },
+      { taskCandidateProvider: provider },
+    );
+    expect(result.recommendations).toEqual([]);
+    expect(provider.mock.calls[0]?.[0].callableActionNames).not.toContain(
+      "open_app",
+    );
+  });
+
+  it("fails closed on malformed app invocation metadata", async () => {
+    const rank = vi.fn();
+    const result = await searchToolRegistryForRequest(
+      { open_app: action("open an app") },
+      { task: "open app" },
+      {
+        taskRank: rank,
+        taskCandidateProvider: async () => [
+          {
+            id: "app:broken",
+            kind: "app",
+            name: "Broken",
+            description: "app",
+            callable: true,
+            reason: "test",
+            use: { type: "open_app" },
+          } as any,
+        ],
+      },
+    );
+    expect(result).toMatchObject({ status: "failed", recommendations: [] });
+    expect(rank).not.toHaveBeenCalled();
+  });
+
+  it("loads authorized BM25 matches when the ranker fails", async () => {
+    const result = await searchToolRegistryForRequest(
+      { "list-events": action("calendar events") },
+      { task: "calendar" },
+      { taskRank: async () => ({ status: "failed", ids: [] }) },
+    );
+    expect(result).toMatchObject({
+      ranking: "bm25",
+      status: "failed",
+      recommendations: [{ name: "list-events" }],
+    });
+    expect(extractToolSearchResultNames(result)).toEqual(["list-events"]);
+  });
+
+  it("keeps authorized tool fallback when supplemental candidate discovery fails", async () => {
+    const result = await searchToolRegistryForRequest(
+      { "list-events": action("calendar events") },
+      { task: "calendar" },
+      {
+        taskCandidateProvider: async () => {
+          throw new Error("supplemental source unavailable");
+        },
+      },
+    );
+    expect(result).toMatchObject({
+      ranking: "bm25",
+      status: "failed",
+      recommendations: [{ name: "list-events" }],
+    });
+    expect(result.message).toMatch(/supplemental/i);
+  });
+
   afterEach(() => {
     vi.unstubAllEnvs();
   });

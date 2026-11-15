@@ -57,6 +57,8 @@ const {
   listCompletedNotificationChannels,
   notificationIdForIdempotencyKey,
   releaseNotificationDelivery,
+  setNotificationArchived,
+  archiveNotifications,
 } = await import("./store.js");
 
 const ALICE = "alice@example.com";
@@ -89,7 +91,8 @@ beforeEach(async () => {
     metadata TEXT,
     delivered_channels TEXT NOT NULL DEFAULT '[]',
     created_at BIGINT NOT NULL,
-    read_at BIGINT
+    read_at BIGINT,
+    archived_at BIGINT
   )`);
   await pglite.exec(`CREATE TABLE IF NOT EXISTS notification_delivery_state (
     notification_id TEXT NOT NULL,
@@ -105,6 +108,7 @@ beforeEach(async () => {
 afterEach(async () => {
   await pglite.close();
   vi.clearAllMocks();
+  vi.unstubAllEnvs();
 });
 
 describe("insertNotification", () => {
@@ -247,6 +251,150 @@ describe("listNotifications", () => {
     await listNotifications(ALICE, { limit: -3 });
     const neg = rawClient.execute.mock.calls.at(-1)![0] as { args: unknown[] };
     expect(neg.args.at(-1)).toBe(50);
+  });
+  async function collectPages(
+    options: { unreadOnly?: boolean } = {},
+    after?: { createdAt: string; id: string },
+  ) {
+    const collected: Awaited<ReturnType<typeof listNotifications>> = [];
+    let before: string | undefined = after?.createdAt;
+    let beforeId: string | undefined = after?.id;
+    while (true) {
+      const page = await listNotifications(ALICE, {
+        limit: 20,
+        ...options,
+        ...(before ? { before, beforeId } : {}),
+      });
+      collected.push(...page);
+      if (page.length < 20) break;
+      const last = page.at(-1)!;
+      before = last.createdAt;
+      beforeId = last.id;
+    }
+    return collected;
+  }
+
+  it("pages 20 at a time through all rows sharing a timestamp exactly once", async () => {
+    const tieTime = T1;
+    const tieIds = Array.from(
+      { length: 101 },
+      (_, i) => `tie-${String(i).padStart(3, "0")}`,
+    );
+    for (const id of tieIds) {
+      await seedRow({ id, owner: ALICE, title: id, createdAt: tieTime });
+    }
+
+    const first = await listNotifications(ALICE, { limit: 20 });
+    expect(first).toHaveLength(20);
+    expect(first).toEqual(
+      [...first].sort(
+        (a, b) =>
+          b.createdAt.localeCompare(a.createdAt) || b.id.localeCompare(a.id),
+      ),
+    );
+
+    const all = await collectPages();
+    const expectedAliceIds = ["a1", "a2", "a3", ...tieIds];
+    expect(all).toHaveLength(104);
+    expect(all.map((row) => row.id)).toHaveLength(
+      new Set(all.map((row) => row.id)).size,
+    );
+    expect(new Set(all.map((row) => row.id))).toEqual(
+      new Set(expectedAliceIds),
+    );
+    expect(all.some((row) => row.owner === BOB)).toBe(false);
+    expect(all.map((row) => row.createdAt)).toEqual(
+      [...all.map((row) => row.createdAt)].sort((a, b) => b.localeCompare(a)),
+    );
+  });
+
+  it("keeps a stable old-row walk when newer rows arrive between pages", async () => {
+    const tieIds = Array.from(
+      { length: 101 },
+      (_, i) => `insert-tie-${String(i).padStart(3, "0")}`,
+    );
+    for (const id of tieIds) {
+      await seedRow({ id, owner: ALICE, title: id, createdAt: T1 });
+    }
+    const originalIds = new Set(["a1", "a2", "a3", ...tieIds]);
+    const first = await listNotifications(ALICE, { limit: 20 });
+    const last = first.at(-1)!;
+
+    await seedRow({
+      id: "inserted-after-first-page",
+      owner: ALICE,
+      title: "Inserted after first page",
+      createdAt: T3 + 1,
+    });
+
+    const remainder = await collectPages(
+      {},
+      {
+        createdAt: last.createdAt,
+        id: last.id,
+      },
+    );
+    const walk = [...first, ...remainder];
+    const oldRows = walk.filter((row) => originalIds.has(row.id));
+    expect(oldRows).toHaveLength(104);
+    expect(new Set(oldRows.map((row) => row.id))).toEqual(originalIds);
+    expect(walk.map((row) => row.id)).toHaveLength(
+      new Set(walk.map((row) => row.id)).size,
+    );
+    expect(walk.some((row) => row.id === "inserted-after-first-page")).toBe(
+      false,
+    );
+
+    const unreadIds = new Set(oldRows.map((row) => row.id));
+    await markNotificationRead("a2", ALICE);
+    const unread = await collectPages({ unreadOnly: true });
+    expect(unread.every((row) => row.readAt === null)).toBe(true);
+    expect(unread.some((row) => row.id === "a2")).toBe(false);
+    expect(
+      unread.every(
+        (row) =>
+          unreadIds.has(row.id) || row.id === "inserted-after-first-page",
+      ),
+    ).toBe(true);
+  });
+
+  it("keeps legacy timestamp-only before behavior and rejects beforeId alone", async () => {
+    await seedRow({
+      id: "legacy-tie-1",
+      owner: ALICE,
+      title: "legacy tie 1",
+      createdAt: T2,
+    });
+    await seedRow({
+      id: "legacy-tie-2",
+      owner: ALICE,
+      title: "legacy tie 2",
+      createdAt: T2,
+    });
+
+    const older = await listNotifications(ALICE, {
+      before: new Date(T2).toISOString(),
+    });
+    expect(older.map((row) => row.id)).toEqual(["a1"]);
+
+    await expect(
+      listNotifications(ALICE, { beforeId: "legacy-tie-1" }),
+    ).rejects.toThrow(/before/i);
+    await expect(listNotifications(ALICE, { beforeId: "" })).rejects.toThrow(
+      /before/i,
+    );
+    await expect(
+      listNotifications(ALICE, {
+        before: new Date(T2).toISOString(),
+        beforeId: "",
+      }),
+    ).rejects.toThrow(/nonempty/i);
+    await expect(
+      listNotifications(ALICE, {
+        before: "invalid-date",
+        beforeId: "legacy-tie-1",
+      }),
+    ).rejects.toThrow(/valid before/i);
   });
 });
 
@@ -498,5 +646,81 @@ describe("notification delivery receipts", () => {
 
     const [listed] = await listNotifications(ALICE);
     expect(listed.deliveredChannels).toEqual(["inbox", "slack"]);
+  });
+});
+
+describe("archiving", () => {
+  async function seedTwo() {
+    await seedRow({
+      id: "unread",
+      owner: ALICE,
+      title: "Unread one",
+      createdAt: 3,
+    });
+    await seedRow({
+      id: "read",
+      owner: ALICE,
+      title: "Read one",
+      createdAt: 2,
+      readAt: 2,
+    });
+    await seedRow({
+      id: "other",
+      owner: BOB,
+      title: "Someone else",
+      createdAt: 1,
+    });
+  }
+
+  it("files one notification away and brings it back", async () => {
+    await seedTwo();
+    const archived = await setNotificationArchived("unread", ALICE, true);
+    expect(archived?.archivedAt).toEqual(expect.any(String));
+    expect((await listNotifications(ALICE)).map((n) => n.id)).toEqual(["read"]);
+    expect(
+      (await listNotifications(ALICE, { archivedOnly: true })).map((n) => n.id),
+    ).toEqual(["unread"]);
+    expect(
+      (await listNotifications(ALICE, { includeArchived: true })).map(
+        (n) => n.id,
+      ),
+    ).toEqual(["unread", "read"]);
+    const restored = await setNotificationArchived("unread", ALICE, false);
+    expect(restored?.archivedAt).toBeNull();
+    expect((await listNotifications(ALICE)).map((n) => n.id)).toEqual([
+      "unread",
+      "read",
+    ]);
+  });
+
+  it("never archives another owner's notification", async () => {
+    await seedTwo();
+    expect(await setNotificationArchived("other", ALICE, true)).toBeNull();
+    expect((await listNotifications(BOB)).map((n) => n.id)).toEqual(["other"]);
+  });
+
+  it("archives one scope and reports what it changed", async () => {
+    await seedTwo();
+    expect(await archiveNotifications(ALICE, "unread")).toBe(1);
+    expect(
+      (await listNotifications(ALICE, { includeArchived: true })).map(
+        (n) => n.id,
+      ),
+    ).toEqual(["unread", "read"]);
+    expect(
+      (await listNotifications(ALICE, { archivedOnly: true })).map((n) => n.id),
+    ).toEqual(["unread"]);
+    expect(await archiveNotifications(ALICE, "read")).toBe(1);
+    expect(await archiveNotifications(ALICE, "all")).toBe(0);
+    expect(
+      (await listNotifications(ALICE, { archivedOnly: true })).map((n) => n.id),
+    ).toEqual(["unread", "read"]);
+    expect(await listNotifications(ALICE)).toEqual([]);
+  });
+
+  it("leaves an archived row out of the unread count", async () => {
+    await seedTwo();
+    await setNotificationArchived("unread", ALICE, true);
+    expect(await countUnread(ALICE)).toBe(0);
   });
 });

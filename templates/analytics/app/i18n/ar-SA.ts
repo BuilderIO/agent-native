@@ -1351,6 +1351,8 @@ export default {
     resetFilters: "إعادة تعيين عوامل التصفية",
     collapseFilters: "طي عوامل التصفية",
     expandFilters: "قم بتوسيع عوامل التصفية",
+    collapseDescription: "طي الوصف",
+    expandDescription: "توسيع الوصف",
     drilldownChartPoints: "نقاط المخطط",
     drilldownPreviousPage: "الصفحة السابقة لنقاط المخطط",
     drilldownNextPage: "الصفحة التالية لنقاط المخطط",

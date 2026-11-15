@@ -15,6 +15,12 @@ function sh(cmd) {
 }
 
 function getBaseSha() {
+  if (process.env.CI_BASE_SHA) {
+    if (!/^[a-f0-9]{40}$/.test(process.env.CI_BASE_SHA))
+      throw new Error("CI_BASE_SHA must be a full commit SHA");
+    sh(`git cat-file -e ${process.env.CI_BASE_SHA}^{commit}`);
+    return process.env.CI_BASE_SHA;
+  }
   if (process.env.GITHUB_BASE_REF) {
     sh(`git fetch origin ${process.env.GITHUB_BASE_REF}`);
     return sh(`git rev-parse origin/${process.env.GITHUB_BASE_REF}`);

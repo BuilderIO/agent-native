@@ -9,6 +9,7 @@ import {
   asc,
   isNotNull,
   isNull,
+  sql,
 } from "drizzle-orm";
 import { nanoid } from "nanoid";
 
@@ -26,6 +27,17 @@ function rowToBooking(
   attendees: any[] = [],
   references: any[] = [],
 ): Booking {
+  const filteredAttendees = attendees.filter((a) => a.bookingId === row.id);
+  const attendeeOrderKnown =
+    filteredAttendees.length <= 1 ||
+    (filteredAttendees.every(
+      (a) =>
+        typeof a.position === "number" &&
+        Number.isInteger(a.position) &&
+        a.position >= 0,
+    ) &&
+      new Set(filteredAttendees.map((a) => a.position)).size ===
+        filteredAttendees.length);
   return {
     id: row.id,
     uid: row.uid,
@@ -40,15 +52,14 @@ function rowToBooking(
     timezone: row.timezone,
     status: row.status,
     location: parseJson<Location>(row.location),
-    attendees: attendees
-      .filter((a) => a.bookingId === row.id)
-      .map((a) => ({
-        email: a.email,
-        name: a.name,
-        timezone: a.timezone ?? undefined,
-        locale: a.locale ?? undefined,
-        noShow: Boolean(a.noShow),
-      })),
+    attendeeOrderKnown,
+    attendees: filteredAttendees.map((a) => ({
+      email: a.email,
+      name: a.name,
+      timezone: a.timezone ?? undefined,
+      locale: a.locale ?? undefined,
+      noShow: Boolean(a.noShow),
+    })),
     references: references
       .filter((r) => r.bookingId === row.id)
       .map((r) => ({
@@ -74,6 +85,16 @@ function rowToBooking(
   };
 }
 
+export class BookingAttendeeOrderUnavailableError extends Error {
+  readonly errorCode = "attendee_order_unavailable";
+  readonly statusCode = 422;
+
+  constructor() {
+    super("Could not determine the primary attendee for this booking.");
+    this.name = "BookingAttendeeOrderUnavailableError";
+  }
+}
+
 function parseJson<T = any>(s: string | null | undefined): T | undefined {
   if (!s) return undefined;
   try {
@@ -95,7 +116,11 @@ export async function getBookingByUid(uid: string): Promise<Booking | null> {
   const attendees = await db
     .select()
     .from(schema.bookingAttendees)
-    .where(eq(schema.bookingAttendees.bookingId, rows[0].id));
+    .where(eq(schema.bookingAttendees.bookingId, rows[0].id))
+    .orderBy(
+      sql`${schema.bookingAttendees.position} asc nulls first`,
+      asc(schema.bookingAttendees.id),
+    );
   const references = await db
     .select()
     .from(schema.bookingReferences)
@@ -159,6 +184,11 @@ export async function listBookings(
     .from(schema.bookingAttendees)
     .where(
       or(...ids.map((id: string) => eq(schema.bookingAttendees.bookingId, id))),
+    )
+    .orderBy(
+      asc(schema.bookingAttendees.bookingId),
+      sql`${schema.bookingAttendees.position} asc nulls first`,
+      asc(schema.bookingAttendees.id),
     );
   const references = await db
     .select()
@@ -264,13 +294,14 @@ export async function insertBooking(
     });
     if (input.attendees.length > 0) {
       await tx.insert(schema.bookingAttendees).values(
-        input.attendees.map((a) => ({
+        input.attendees.map((a, index) => ({
           id: nanoid(),
           bookingId: id,
           email: a.email,
           name: a.name,
           timezone: a.timezone ?? null,
           locale: a.locale ?? null,
+          position: index,
           noShow: false,
           createdAt: now,
         })),

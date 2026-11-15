@@ -28,15 +28,6 @@ export default defineAction({
   run: async ({ family }, ctx) => {
     const email = ctx?.userEmail?.trim();
     if (!email) fail("Not authenticated.", { statusCode: 401 });
-    if (!email.toLowerCase().endsWith("@builder.io")) {
-      fail(
-        "This theme-family preference is only available to Builder accounts.",
-        {
-          errorCode: "theme_family_builder_account_required",
-          statusCode: 403,
-        },
-      );
-    }
 
     const { families } = resolveThemeFamilyConfig(
       injectedAgentNativeConfig().themeFamily,

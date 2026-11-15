@@ -93,6 +93,7 @@ describe("app config store", () => {
     });
 
     expect(getAppConfig().access).toEqual({
+      allowedEmailDomains: [],
       signup: "invited",
       orgCreation: "closed",
       autoCreateDefaultOrg: false,

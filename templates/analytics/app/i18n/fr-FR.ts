@@ -1405,6 +1405,8 @@ export default {
     resetFilters: "Réinitialiser les filtres",
     collapseFilters: "Réduire les filtres",
     expandFilters: "Développer les filtres",
+    collapseDescription: "Réduire la description",
+    expandDescription: "Développer la description",
     drilldownChartPoints: "Points du graphique",
     drilldownPreviousPage: "Page précédente des points du graphique",
     drilldownNextPage: "Page suivante des points du graphique",

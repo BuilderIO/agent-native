@@ -134,6 +134,8 @@ export interface DefineAutomationInput {
   delegatedPolicyId?: string;
   model?: string;
   reasoningEffort?: ReasoningEffort;
+  /** Last moment the automation may start a run, ISO-8601. */
+  expiresAt?: string | null;
   executionHostId?: string;
   executionEngine?: string;
   executionCwd?: string;
@@ -161,6 +163,7 @@ export interface UpdateAutomationInput {
   timezone?: string;
   model?: string | null;
   reasoningEffort?: ReasoningEffort | null;
+  expiresAt?: string | null;
   executionHostId?: string | null;
   executionEngine?: string | null;
   executionCwd?: string | null;
@@ -222,6 +225,23 @@ function automationPath(name: string): string {
     throw httpError("Automation name is required (lowercase, hyphens).", 400);
   }
   return `jobs/${normalized}.md`;
+}
+
+/**
+ * An end date is a real moment, not free text: an unparseable value would either
+ * never expire or expire immediately, so it is refused.
+ */
+function normalizeExpiration(
+  value: string | null | undefined,
+): string | undefined {
+  if (value === null || value === undefined) return undefined;
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const parsed = new Date(trimmed);
+  if (Number.isNaN(parsed.getTime())) {
+    throw httpError(`invalid expiration date "${trimmed}".`, 400);
+  }
+  return parsed.toISOString();
 }
 
 function ownerForScope(actor: AutomationActor, scope: AutomationScope): string {
@@ -754,6 +774,7 @@ export async function defineAutomation(
     );
   }
 
+  const expiresAt = normalizeExpiration(input.expiresAt);
   const mcpTools = normalizeJobMcpTools(input.mcpTools);
   const executionHostId = normalizeExecutionTarget(
     input.executionHostId,
@@ -803,6 +824,7 @@ export async function defineAutomation(
     executionEngine,
     executionCwd,
     mcpTools: mcpTools?.length ? mcpTools : undefined,
+    ...(expiresAt ? { expiresAt } : {}),
     originScopeId: input.delivery?.originScopeId,
     deliveryPlatform: input.delivery?.platform,
     deliveryDestination: input.delivery?.destination,
@@ -1125,6 +1147,11 @@ export async function updateAutomation(
     const mcpTools = normalizeJobMcpTools(input.mcpTools);
     meta.mcpTools = mcpTools?.length ? mcpTools : undefined;
     fields.mcpTools = meta.mcpTools;
+  }
+  if (input.expiresAt !== undefined) {
+    const expiresAt = normalizeExpiration(input.expiresAt);
+    meta.expiresAt = expiresAt;
+    fields.expiresAt = expiresAt;
   }
 
   const owningOrganizationId = organizationIdFromResourceOwner(

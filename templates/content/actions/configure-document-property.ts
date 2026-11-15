@@ -9,6 +9,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { firstRow } from "../server/lib/first-row.js";
 import {
   syncPrivateIconReference,
   verifyPrivateIconAssignment,
@@ -25,7 +26,6 @@ import {
   type DocumentPropertyType,
 } from "../shared/properties.js";
 import { deleteBlocksFieldIdentity } from "./_blocks-field-identity.js";
-import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import {
   configureDocumentPropertyAgentSchema,
@@ -48,7 +48,53 @@ import {
   optionsForNewProperty,
   resolvePropertyDatabaseForDocument,
 } from "./_property-utils.js";
-import { assertRelationTargetDatabase } from "./_relation-values.js";
+import {
+  assertRelationTargetDatabase,
+  lockRelationCollections,
+} from "./_relation-values.js";
+
+type PropertyCollection = typeof schema.contentDatabases.$inferSelect;
+
+/**
+ * Lock the collection, and the one a relation links to, then check neither
+ * moved to another workspace since it was read: a Property written now would
+ * keep the old owner, or link across workspaces.
+ */
+async function lockPropertyCollection(
+  tx: ReturnType<typeof getDb>,
+  database: PropertyCollection,
+  relationTarget: PropertyCollection | null,
+): Promise<PropertyCollection> {
+  await lockRelationCollections(tx, [database.id, relationTarget?.id]);
+  const lockedDatabase = firstRow(
+    await tx
+      .select()
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, database.id)),
+  );
+  if (!lockedDatabase) {
+    throw new ActionContractError("Collection not found.", {
+      errorCode: "DATABASE_NOT_FOUND",
+      statusCode: 404,
+    });
+  }
+  if (
+    (lockedDatabase.spaceId ?? null) !== (database.spaceId ?? null) ||
+    (lockedDatabase.orgId ?? null) !== (database.orgId ?? null)
+  ) {
+    throw new ActionContractError(
+      "This collection moved to another workspace. Open it there and try again.",
+      { errorCode: "DATABASE_MOVED", statusCode: 409 },
+    );
+  }
+  if (relationTarget) {
+    await assertRelationTargetDatabase(tx, {
+      sourceDatabase: lockedDatabase,
+      targetDatabaseId: relationTarget.id,
+    });
+  }
+  return lockedDatabase;
+}
 
 const legacyConfigureDocumentPropertySchema = z
   .object({
@@ -248,15 +294,11 @@ export default defineAction({
         );
       if (!existing) throw new Error(`Property "${args.id}" not found`);
       await db.transaction(async (tx) => {
-        await lockContentDatabaseMutation(
+        const lockedDatabase = await lockPropertyCollection(
           tx as unknown as ReturnType<typeof getDb>,
-          database.id,
+          database,
+          relationTarget,
         );
-        const [lockedDatabase] = await tx
-          .select()
-          .from(schema.contentDatabases)
-          .where(eq(schema.contentDatabases.id, database.id));
-        if (!lockedDatabase) throw new Error("Database not found.");
         let [lockedDefinition] = await tx
           .select()
           .from(schema.documentPropertyDefinitions)
@@ -469,15 +511,11 @@ export default defineAction({
         propertyDefinitionsPositionScope(database.id),
         async () => {
           await db.transaction(async (tx) => {
-            await lockContentDatabaseMutation(
+            const lockedDatabase = await lockPropertyCollection(
               tx as unknown as ReturnType<typeof getDb>,
-              database.id,
+              database,
+              relationTarget,
             );
-            const [lockedDatabase] = await tx
-              .select()
-              .from(schema.contentDatabases)
-              .where(eq(schema.contentDatabases.id, database.id));
-            if (!lockedDatabase) throw new Error("Database not found.");
             // A new Blocks field adds a tab to every row.
             if (isBlocksPropertyType(type))
               await lockRowsAndAssertAgentsMayEditTabs(

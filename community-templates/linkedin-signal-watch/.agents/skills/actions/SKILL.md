@@ -97,6 +97,14 @@ An action that writes a value a person or another agent may also be changing che
 
 Outcomes are counted (`save_outcome_counts`, and `save_conflict_prompt` in the browser), so prompts that could have been automatic show up.
 
+## Names That Must Stay Unique
+
+When a record's name must be unique in its parent (a file in a design, say), back the rule with a unique index and pick names with `nextFreeName` from `@agent-native/core/free-name`: `name.html`, then `name-2.html`, `name-3.html`. Don't write another copy of that loop.
+
+- **Refusing:** throw `nameTaken(record, name, suggestion)` from `@agent-native/core/free-name/server`. It is a 409 `name_taken` whose `details.suggestion` is free; pass `{ noWrite: true }` from an action that declares it as a no-write error. Don't put internal ids in the message.
+- **Creating from the UI:** let the caller ask for the next free name instead of a refusal (Design's `create-file` takes `ifNameTaken: "next-free"`), pick it on the server under the same lock as the insert, and return the saved name. Two tabs that both pick `x-copy.html` from their own list then both save.
+- **Agents** get the refusal and retry with `details.suggestion`, or edit the existing record if that was the intent.
+
 ## Return Values
 
 Return **structured data** (objects, arrays), never `JSON.stringify()` — the framework serializes the response and only tries to parse a returned string as JSON, which isn't the same contract.

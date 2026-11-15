@@ -487,6 +487,10 @@ const messages: ToolkitAgentChatTranslation = {
   "history.searching": "Pesquisando...",
   "history.untitledChat": "Chat",
   "history.yesterday": "Ontem",
+  "history.today": "Hoje",
+  "commandMenu.systemGroup": "Aplicativo",
+  "share.alreadyInvited": "Já convidado",
+  "share.notInvitedToPage": "Não convidado para a página",
   "history.mine": "Meus chats",
   "history.sharedWithYou": "Compartilhados com você",
   "history.showAll": "Mostrar tudo",
@@ -1446,7 +1450,7 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.invalidAttachment":
     "O provedor do modelo rejeitou este anexo por causa do formato ou tamanho. Para imagens, exporte uma versão menor em PNG, JPEG, GIF ou WebP; para documentos, use um formato de arquivo compatível ou cole o texto relevante e anexe novamente.",
   "errorMessages.noProviderConnected":
-    "Nenhum provedor LLM está conectado. Abra Configurações > Agente > Provedores de IA e use o Builder.io (plano gratuito disponível) ou adicione uma chave de provedor.",
+    "Nenhum provedor LLM está conectado. Abra Configurações > Agente > Provedores de IA e conecte o Builder.io ou adicione uma chave de provedor.",
   "errorMessages.openBuilderSpaceSettings":
     "Abrir as configurações do espaço do Builder",
   "errorMessages.providerAuthentication":
@@ -2351,6 +2355,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.passwordSaved": "Senha atualizada",
   "settingsShell.account.photoError": "Não foi possível atualizar a foto.",
   "settingsShell.account.photoUpdated": "Foto atualizada",
+  "settingsShell.account.photoRemoved": "Foto removida",
+  "settingsShell.account.removePhoto": "Remover foto",
+  "settingsShell.account.emailDeliveryUnavailable":
+    "O envio de e-mail não está configurado aqui",
   "settingsShell.account.profilePhoto": "Foto do perfil",
   "settingsShell.account.requestCopyDescription":
     "Um administrador verifica sua identidade e dá retorno.",
@@ -3628,7 +3636,8 @@ const messages: ToolkitAgentChatTranslation = {
   "message.responseFailed": "Falha na resposta",
   "message.waitingForApproval": "Aguardando aprovação",
   "message.waitingForInput": "Aguardando resposta",
-  "message.workSummaryFailedCount": "{{summary}}, {{count}} com falha",
+  "message.workSummaryFailedCount":
+    "{{summary}}, tentativas com falha: {{count}}",
   "message.taskStatusPending": "Pendente",
   "message.taskStatusRunning": "Em execução",
   "message.taskStatusCompleted": "Concluído",

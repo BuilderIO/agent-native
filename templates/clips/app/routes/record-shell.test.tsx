@@ -3,13 +3,119 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { MemoryRouter } from "react-router";
 import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+const { acquireRecorder, cancelRecorder } = vi.hoisted(() => ({
+  acquireRecorder: vi.fn(),
+  cancelRecorder: vi.fn(),
+}));
+
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
+}));
+
+vi.mock("@agent-native/core/client/hooks", () => ({
+  callAction: vi.fn(),
+  getBrowserTabId: () => "test-tab",
+  useSession: () => ({ session: null }),
+}));
+
+vi.mock(
+  "@agent-native/core/client/transcription/use-live-transcription",
+  () => {
+    const transcription = {
+      supported: false,
+      start: vi.fn(),
+      stop: vi.fn(),
+      stopAndWait: vi.fn(async () => ""),
+      pause: vi.fn(),
+      resume: vi.fn(),
+    };
+    return { useLiveTranscription: () => transcription };
+  },
+);
+
+vi.mock("@/hooks/use-desktop-promo", () => ({
+  useDesktopPromo: () => ({ isDesktopApp: false }),
+}));
+
+vi.mock("@/hooks/use-video-storage-status", () => ({
+  VIDEO_STORAGE_STATUS_KEY: ["video-storage-status"],
+  fetchVideoStorageStatus: vi.fn(),
+  useVideoStorageStatus: () => ({
+    data: { configured: true, localSqlChunkScratchAvailable: true },
+    isError: false,
+    isLoading: false,
+    refetch: vi.fn(),
+  }),
+}));
+
+vi.mock("@/hooks/use-local-recording-recovery", () => ({
+  offerLocalRecording: vi.fn(),
+  useLocalRecordingRecovery: vi.fn(),
+}));
+
+vi.mock("@/hooks/use-recording-leave-guard", () => ({
+  useRecordingLeaveGuard: () => ({
+    leavePromptOpen: false,
+    onDialogOpenChange: vi.fn(),
+    onCloseAutoFocus: vi.fn(),
+    confirmLeave: vi.fn(),
+  }),
+  useUnsavedRecordingUnloadWarning: vi.fn(),
+}));
+
+vi.mock("@/hooks/use-sonner-lifecycle-toast", () => ({
+  useSonnerLifecycleToast: () => ({
+    dismiss: vi.fn(),
+    error: vi.fn(),
+    info: vi.fn(),
+    start: vi.fn(),
+    success: vi.fn(),
+  }),
+}));
+
+vi.mock("@/lib/countdown-audio-cue", () => ({
+  createCountdownAudioCue: () => ({ cleanup: vi.fn(), play: vi.fn() }),
+}));
+
+vi.mock("@/components/recorder/pre-record-panel", () => ({
+  PreRecordPanel: ({ onStart }: { onStart: (options: unknown) => void }) => (
+    <button
+      type="button"
+      onClick={() =>
+        void onStart({
+          mode: "screen",
+          displaySurface: "window",
+          micDeviceId: "none",
+          cameraDeviceId: null,
+        })
+      }
+    >
+      Start test capture
+    </button>
+  ),
+}));
+
+vi.mock("@/components/capture-install-options", () => ({
+  CaptureInstallMenu: ({ children }: { children: React.ReactNode }) => children,
+}));
+
+vi.mock("@/components/recorder/recorder-engine", () => ({
+  canUseTimeslicedRecorderChunks: () => false,
+  NO_MIC_DEVICE_ID: "none",
+  RecorderEngine: class {
+    acquire = acquireRecorder;
+    cancel = cancelRecorder;
+    getUploadAbortFence = vi.fn(() => ({}));
+    hasRecordingAtRisk = vi.fn(() => false);
+    release = vi.fn(async () => {});
+  },
 }));
 
 import { AlertDialog, AlertDialogContent } from "@/components/ui/alert-dialog";
@@ -25,6 +131,7 @@ import {
   RecorderRouteStatus,
   RecordingErrorCard,
   RecordingLeaveChoices,
+  default as RecordRoute,
   shouldPreserveFirstRunStorageSetupIntent,
   shouldRequestStorageSetup,
   shouldRedirectToStorageSetupHome,
@@ -58,6 +165,8 @@ describe("record route lifecycle shell", () => {
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    acquireRecorder.mockReset();
+    cancelRecorder.mockReset();
     container = document.createElement("div");
     document.body.appendChild(container);
     root = createRoot(container);
@@ -105,6 +214,66 @@ describe("record route lifecycle shell", () => {
       ),
     ).toBe("Could not start recording.");
   });
+
+  it.each([
+    ["dismissed", "The user cancelled screen sharing"],
+    ["timed out", "Timeout starting video source"],
+  ])(
+    "shows a %s picker error and retries screen acquisition",
+    async (_state, message) => {
+      const pickerDismissed = new Error(message);
+      pickerDismissed.name = "AbortError";
+      acquireRecorder
+        .mockRejectedValueOnce(pickerDismissed)
+        .mockImplementationOnce(() => new Promise(() => {}));
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      });
+
+      act(() => {
+        root.render(
+          <QueryClientProvider client={queryClient}>
+            <MemoryRouter initialEntries={["/record?mode=screen"]}>
+              <RecordRoute />
+            </MemoryRouter>
+          </QueryClientProvider>,
+        );
+      });
+
+      const start = Array.from(container.querySelectorAll("button")).find(
+        (button) => button.textContent === "Start test capture",
+      );
+      expect(start).toBeDefined();
+      await act(async () => {
+        start?.click();
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(acquireRecorder).toHaveBeenCalledTimes(1);
+      const alert = container.querySelector('[role="alert"]');
+      expect(alert).not.toBeNull();
+      expect(alert?.textContent).toContain(
+        "recordRoute.couldNotStartRecording",
+      );
+      const retry = Array.from(container.querySelectorAll("button")).find(
+        (button) => button.textContent === "recordRoute.tryAgain",
+      );
+      expect(retry).toBeDefined();
+      await act(async () => {
+        retry?.click();
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+
+      expect(acquireRecorder).toHaveBeenCalledTimes(2);
+      expect(cancelRecorder).toHaveBeenCalledWith("upload_failed");
+    },
+  );
 
   it("preserves hosted storage outage copy when recording cannot start", () => {
     expect(

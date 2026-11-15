@@ -128,6 +128,33 @@ describe("updateLocalSavedDraft", () => {
     ]);
   });
 
+  it("links a file on this server's disk by its filename", async () => {
+    mocks.readLocalEmails.mockResolvedValue([
+      { id: "local-draft-1", isDraft: true, labelIds: ["drafts"] },
+    ]);
+
+    await updateLocalSavedDraft({
+      ownerEmail: "owner@example.com",
+      draftId: "local-draft-1",
+      to: "recipient@example.com",
+      subject: "Subject",
+      body: "Body",
+      attachments: [
+        {
+          id: "abc123.pdf",
+          filename: "abc123.pdf",
+          originalName: "invoice.pdf",
+          mimeType: "application/pdf",
+          size: 2048,
+        },
+      ],
+    });
+
+    expect(
+      mocks.writeLocalEmails.mock.calls[0]?.[1][0].attachments?.[0]?.url,
+    ).toBe("/api/media/abc123.pdf");
+  });
+
   it("fails rather than creating a replacement when the exact local draft is missing", async () => {
     await expect(
       updateLocalSavedDraft({

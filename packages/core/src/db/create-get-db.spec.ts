@@ -16,6 +16,33 @@ describe("createGetDb pooled transaction scoping", () => {
     vi.resetModules();
   });
 
+  it("waits for registered schema dependencies, shares concurrent readiness, and retries failures", async () => {
+    vi.stubEnv("DATABASE_URL", "pglite:memory");
+    const { createGetDb } = await import("./create-get-db.js");
+    const { registerDbDependency } = await import("./readiness.js");
+    const { sql } = await import("drizzle-orm");
+    const getDb = createGetDb({});
+    let attempts = 0;
+    registerDbDependency(getDb, async () => {
+      attempts++;
+      if (attempts === 1) throw new Error("schema unavailable");
+      const { getDbExec } = await import("./client.js");
+      await getDbExec().execute(
+        "CREATE TABLE dependency_probe (id TEXT PRIMARY KEY)",
+      );
+    });
+    await expect(
+      getDb().execute(sql.raw("SELECT * FROM dependency_probe")),
+    ).rejects.toThrow("schema unavailable");
+    await Promise.all([
+      getDb().execute(sql.raw("SELECT * FROM dependency_probe")),
+      getDb().execute(sql.raw("SELECT * FROM dependency_probe")),
+    ]);
+    expect(attempts).toBe(2);
+    await getDb().execute(sql.raw("SELECT * FROM dependency_probe"));
+    expect(attempts).toBe(2);
+  });
+
   it("rebuilds the PGlite Drizzle handle after database clients close", async () => {
     const dir = await mkdtemp(path.join(os.tmpdir(), "create-get-db-close-"));
     vi.stubEnv("DATABASE_URL", `pglite:${path.join(dir, "db")}`);

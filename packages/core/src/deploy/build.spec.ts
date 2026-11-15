@@ -73,11 +73,13 @@ import {
   copyDrizzleMigrationAssets,
   copyDir,
   createCloudflareModuleStubPlugin,
+  createServerIconEsmPlugin,
   emitSingleTemplateNetlifyBackgroundFunction,
   emitSingleTemplateNetlifyIntegrationRecoveryFunction,
   emitSingleTemplateNetlifyKeepWarmFunction,
   emitSingleTemplateNetlifyRecurringJobsFunction,
   resolveEsbuildCommand,
+  copyInstalledFfmpegStaticPackage,
   findInstalledFfmpegStaticPackage,
   findInstalledPackageRoot,
   findInstalledResvgPackages,
@@ -271,8 +273,7 @@ describe("Nitro server code-splitting output", { timeout: 30_000 }, () => {
     const packageChunks = fs
       .readdirSync(outputDir)
       .filter(
-        (file) =>
-          file.startsWith("agent-native-core+") && file.endsWith(".mjs"),
+        (file) => /^agent-native-core[+~]/.test(file) && file.endsWith(".mjs"),
       );
 
     expect(packageChunks).toHaveLength(1);
@@ -283,6 +284,203 @@ describe("Nitro server code-splitting output", { timeout: 30_000 }, () => {
     expect(packageChunk).toContain("core-marker");
     expect(packageChunk).toContain("creative-marker");
     await nitro.close();
+  });
+});
+
+describe("serverless lazy framework chunks", { timeout: 30_000 }, () => {
+  it("keeps optional framework code out of the initial entry graph", async () => {
+    const dir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "lazy-framework-chunks-"),
+    );
+    try {
+      const core = path.join(dir, "node_modules/@agent-native/core");
+      fs.mkdirSync(core, { recursive: true });
+      fs.writeFileSync(
+        path.join(core, "package.json"),
+        JSON.stringify({
+          type: "module",
+          exports: "./index.js",
+        }),
+      );
+      fs.writeFileSync(
+        path.join(core, "index.js"),
+        'export const ready = "ready"; export const optional = () => import("./optional.js");',
+      );
+      fs.writeFileSync(
+        path.join(core, "optional.js"),
+        'globalThis.__optionalFrameworkLoaded = (globalThis.__optionalFrameworkLoaded || 0) + 1; export const value = "optional-framework-marker";',
+      );
+      fs.writeFileSync(
+        path.join(dir, "entry.js"),
+        'export { ready, optional } from "@agent-native/core";',
+      );
+      fs.writeFileSync(
+        path.join(dir, "second.js"),
+        'export { ready, optional } from "@agent-native/core";',
+      );
+      const { rolldown } = await import(
+        createRequire(import.meta.resolve("nitro/builder")).resolve("rolldown")
+      );
+      const bundle = await rolldown({
+        input: {
+          first: path.join(dir, "entry.js"),
+          second: path.join(dir, "second.js"),
+        },
+      });
+      try {
+        const { output } = await bundle.generate({
+          format: "esm",
+          ...nitroServerCodeSplittingConfigForPreset("netlify").output,
+        });
+        const chunks = new Map(
+          output
+            .filter((item) => item.type === "chunk")
+            .map((item) => [item.fileName, item]),
+        );
+        const entries = [...chunks.values()].filter((item) => item.isEntry);
+        expect(entries).toHaveLength(2);
+        const visited = new Set<string>();
+        const visit = (name: string) => {
+          if (visited.has(name)) return;
+          visited.add(name);
+          const chunk = chunks.get(name)!;
+          expect(chunk.code).not.toContain("optional-framework-marker");
+          for (const dependency of chunk.imports) visit(dependency);
+        };
+        for (const entry of entries) visit(entry.fileName);
+        expect(
+          [...chunks.values()].some((chunk) =>
+            chunk.code.includes("optional-framework-marker"),
+          ),
+        ).toBe(true);
+        const out = path.join(dir, "built");
+        fs.mkdirSync(out);
+        for (const chunk of chunks.values()) {
+          fs.writeFileSync(path.join(out, chunk.fileName), chunk.code);
+        }
+        const urls = entries.map(
+          (entry) => pathToFileURL(path.join(out, entry.fileName)).href,
+        );
+        const observed = JSON.parse(
+          execFileSync(
+            process.execPath,
+            [
+              "--input-type=module",
+              "-e",
+              `
+            const [first, second] = await Promise.all(${JSON.stringify(urls)}.map(url => import(url)));
+            const before = globalThis.__optionalFrameworkLoaded || 0;
+            const [one, two] = await Promise.all([first.optional(), second.optional()]);
+            console.log(JSON.stringify({before, after: globalThis.__optionalFrameworkLoaded,
+              same: one === two, value: one.value, ready: first.ready === second.ready}));`,
+            ],
+            { encoding: "utf8" },
+          ),
+        );
+        expect(observed).toEqual({
+          before: 0,
+          after: 1,
+          same: true,
+          value: "optional-framework-marker",
+          ready: true,
+        });
+      } finally {
+        await bundle.close();
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("server icon ESM resolution", () => {
+  it("uses each importer's installed ESM entry without changing package versions", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "server-icon-esm-"));
+    try {
+      const plugin = createServerIconEsmPlugin(dir);
+      for (const app of ["first", "second"]) {
+        const root = path.join(dir, app);
+        const pkg = path.join(root, "node_modules/@tabler/icons-react");
+        fs.mkdirSync(pkg, { recursive: true });
+        fs.writeFileSync(
+          path.join(pkg, "package.json"),
+          JSON.stringify({
+            main: "all.cjs",
+            module: "selected.mjs",
+          }),
+        );
+        fs.writeFileSync(
+          path.join(pkg, "all.cjs"),
+          'exports.IconSelected = "selected"; exports.IconUnused = "unused-icon-marker";',
+        );
+        fs.writeFileSync(
+          path.join(pkg, "selected.mjs"),
+          'export const IconSelected = "selected"; export const IconUnused = "unused-icon-marker";',
+        );
+        const entry = path.join(root, "entry.mjs");
+        fs.writeFileSync(
+          entry,
+          'export { IconSelected } from "@tabler/icons-react";',
+        );
+        expect(plugin.resolveId("@tabler/icons-react", entry)).toBe(
+          fs.realpathSync(path.join(pkg, "selected.mjs")),
+        );
+        const { rolldown } = await import(
+          createRequire(import.meta.resolve("nitro/builder")).resolve(
+            "rolldown",
+          )
+        );
+        const bundle = await rolldown({ input: entry, plugins: [plugin] });
+        try {
+          const result = await bundle.generate({ format: "esm" });
+          const code = result.output
+            .filter((x) => x.type === "chunk")
+            .map((x) => x.code)
+            .join("\n");
+          expect(code).toContain("selected");
+          expect(code).not.toContain("unused-icon-marker");
+        } finally {
+          await bundle.close();
+        }
+      }
+      expect(plugin.resolveId("react", path.join(dir, "entry.mjs"))).toBeNull();
+      const noEsm = path.join(dir, "no-esm/node_modules/@tabler/icons-react");
+      fs.mkdirSync(noEsm, { recursive: true });
+      fs.writeFileSync(
+        path.join(noEsm, "package.json"),
+        JSON.stringify({ main: "index.cjs" }),
+      );
+      fs.writeFileSync(path.join(noEsm, "index.cjs"), "module.exports = {};");
+      expect(
+        plugin.resolveId(
+          "@tabler/icons-react",
+          path.join(dir, "no-esm/entry.mjs"),
+        ),
+      ).toBeNull();
+      for (const [app, module] of [
+        ["directory", "."],
+        ["escape", "../../../outside.mjs"],
+      ]) {
+        const pkg = path.join(dir, app!, "node_modules/@tabler/icons-react");
+        fs.mkdirSync(pkg, { recursive: true });
+        fs.writeFileSync(
+          path.join(pkg, "package.json"),
+          JSON.stringify({ module }),
+        );
+        fs.writeFileSync(
+          path.join(dir, app!, "outside.mjs"),
+          "export default 'outside';",
+        );
+        expect(
+          plugin.resolveId(
+            "@tabler/icons-react",
+            path.join(dir, app!, "entry.mjs"),
+          ),
+        ).toBeNull();
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -4518,6 +4716,60 @@ describe("findInstalledFfmpegStaticPackage", () => {
     expect(shouldBundleFfmpegStaticForServerless("win32", "x64", "x64")).toBe(
       false,
     );
+  });
+
+  it("bundles a target-arch ffmpeg from AGENT_NATIVE_FFMPEG_STATIC_DIR", () => {
+    const targetDir = fs.mkdtempSync(path.join(os.tmpdir(), "ffmpeg-target-"));
+    const serverDir = fs.mkdtempSync(path.join(os.tmpdir(), "ffmpeg-server-"));
+    fs.writeFileSync(path.join(targetDir, "ffmpeg"), "linux-x64-binary");
+    const previous = process.env.AGENT_NATIVE_FFMPEG_STATIC_DIR;
+    process.env.AGENT_NATIVE_FFMPEG_STATIC_DIR = targetDir;
+    // Only the media apps pay for the binary; the app id decides.
+    const reset = defineAppConfig({ app: { id: "clips" } });
+    try {
+      copyInstalledFfmpegStaticPackage(serverDir);
+    } finally {
+      reset();
+      resetAppConfigForTests();
+      if (previous === undefined)
+        delete process.env.AGENT_NATIVE_FFMPEG_STATIC_DIR;
+      else process.env.AGENT_NATIVE_FFMPEG_STATIC_DIR = previous;
+    }
+    const bundled = path.join(
+      serverDir,
+      "node_modules",
+      "ffmpeg-static",
+      "ffmpeg",
+    );
+    expect(fs.readFileSync(bundled, "utf8")).toBe("linux-x64-binary");
+    expect(fs.statSync(bundled).mode & 0o111).toBeTruthy();
+    fs.rmSync(targetDir, { recursive: true, force: true });
+    fs.rmSync(serverDir, { recursive: true, force: true });
+  });
+
+  it("does not bundle the ffmpeg into an app that does not need it", () => {
+    const targetDir = fs.mkdtempSync(path.join(os.tmpdir(), "ffmpeg-target-"));
+    const serverDir = fs.mkdtempSync(path.join(os.tmpdir(), "ffmpeg-server-"));
+    fs.writeFileSync(path.join(targetDir, "ffmpeg"), "linux-x64-binary");
+    const previous = process.env.AGENT_NATIVE_FFMPEG_STATIC_DIR;
+    process.env.AGENT_NATIVE_FFMPEG_STATIC_DIR = targetDir;
+    const reset = defineAppConfig({ app: { id: "mail-app" } });
+    try {
+      copyInstalledFfmpegStaticPackage(serverDir);
+    } finally {
+      reset();
+      resetAppConfigForTests();
+      if (previous === undefined)
+        delete process.env.AGENT_NATIVE_FFMPEG_STATIC_DIR;
+      else process.env.AGENT_NATIVE_FFMPEG_STATIC_DIR = previous;
+    }
+    expect(
+      fs.existsSync(
+        path.join(serverDir, "node_modules", "ffmpeg-static", "ffmpeg"),
+      ),
+    ).toBe(false);
+    fs.rmSync(targetDir, { recursive: true, force: true });
+    fs.rmSync(serverDir, { recursive: true, force: true });
   });
 });
 

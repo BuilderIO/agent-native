@@ -666,7 +666,7 @@ Actions 可以为支持 MCP 应用扩展的主机通告带有 `mcpApp` 的内联
     "name": "to",
     "in": "query",
     "type": "string",
-    "description": "Optional explicit same-origin relative redirect target. Falls back to `/<view>`, then a per-template `resolveOpenPath`."
+    "description": "Optional explicit same-origin relative redirect target. Falls back to a per-template `resolveOpenPath`, then `/<view>`."
   },
   {
     "name": "compose",
@@ -698,7 +698,7 @@ Resolves the browser session, writes a one-shot `navigate` application-state com
 1. 通过 `getSession` 解析 **浏览器** 会话（身份验证防护绕过确切路径 `/_agent-native/open`）。
 2. 如果未经身份验证，则在相同的 URL 处提供配置的登录 HTML \*\*；表单的成功处理程序重新加载 `window.location`，重新输入经过身份验证的路由 - 没有 `?next=` 管道。
 3. 使用 `requestSource: "deep-link"` 写入现有的一次性 `navigate` 应用程序状态命令（有效负载 = 每个非保留查询参数 + `view`），其范围仅限于浏览器会话的电子邮件，并将 `compose` base64url 草稿解码为 `compose-<id>` 密钥。
-4. 302-重定向到安全的同源相对路径（`to=`，或者`/<view>`，或者每个模板的`resolveOpenPath`），转发`f_*`过滤器参数，以便在`navigate`命令耗尽之前打开预先过滤的列表/仪表板。
+4. 302-重定向到安全的同源相对路径（`to=`，或者每个模板的`resolveOpenPath`，或者`/<view>`），转发`f_*`过滤器参数，以便在`navigate`命令耗尽之前打开预先过滤的列表/仪表板。
 
 跨源、方案相关 `//host` 和控制字符重定向被拒绝（开放重定向防护）。可以通过 `disableOpenRoute` 禁用每个应用程序的路线。
 

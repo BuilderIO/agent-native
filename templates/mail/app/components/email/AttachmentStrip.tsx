@@ -1,4 +1,5 @@
 import { appApiPath } from "@agent-native/core/client/api-path";
+import { composeAttachmentLink } from "@shared/compose-attachments";
 import type { ComposeAttachment } from "@shared/types";
 import {
   IconAlertCircle,
@@ -12,7 +13,8 @@ import { formatFileSize } from "@/lib/upload";
 import { cn } from "@/lib/utils";
 
 function attachmentUrl(att: ComposeAttachment): string {
-  return att.url.startsWith("/api/") ? appApiPath(att.url) : att.url;
+  const link = composeAttachmentLink(att);
+  return link.startsWith("/api/") ? appApiPath(link) : link;
 }
 
 function canPreview(att: ComposeAttachment): boolean {

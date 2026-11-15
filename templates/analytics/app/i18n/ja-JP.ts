@@ -1377,6 +1377,8 @@ export default {
     resetFilters: "フィルターをリセット",
     collapseFilters: "フィルターを折りたたむ",
     expandFilters: "フィルターを展開する",
+    collapseDescription: "説明を折りたたむ",
+    expandDescription: "説明を展開する",
     drilldownChartPoints: "グラフのデータポイント",
     drilldownPreviousPage: "グラフのデータポイントの前のページ",
     drilldownNextPage: "グラフのデータポイントの次のページ",

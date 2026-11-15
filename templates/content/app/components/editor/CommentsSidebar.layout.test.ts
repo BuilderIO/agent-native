@@ -408,8 +408,13 @@ describe("comments sidebar layout", () => {
 
     expect(source).not.toContain('container.addEventListener("scroll"');
     // The second brings an opened comment stack's selected card into view;
-    // CommentsSidebar.stacks.test.tsx covers it.
-    expect(source.match(/scrollIntoView/g)).toHaveLength(2);
+    // CommentsSidebar.stacks.test.tsx covers it. The third brings a page
+    // comment just posted into view once it draws. The fourth brings a reply
+    // box opened in Discussion fully into view as it opens.
+    expect(source.match(/scrollIntoView/g)).toHaveLength(4);
+    expect(source).toMatch(
+      /if \(!isPanel \|\| !replyBoxShown\) return;[\s\S]*?requestAnimationFrame[\s\S]*?scrollIntoView/,
+    );
     expect(source).toMatch(
       /if \(!focusRequested\) return;[\s\S]*?requestAnimationFrame[\s\S]*?target\.scrollIntoView/,
     );
@@ -615,9 +620,13 @@ describe("comments sidebar layout", () => {
     expect(source).toContain(
       "const mutationObserver = new MutationObserver(update)",
     );
-    // Its own layer keeps Safari from painting the sticky tab row across it.
+    // Its own layer, inside a scroller that is its own stacking context, keeps
+    // Safari from painting the sticky tab row across it.
     expect(source).toContain(
       'className="pointer-events-none absolute z-30 [transform:translateZ(0)]"',
+    );
+    expect(source).toContain(
+      'className="isolate flex-1 min-h-0 min-w-0 overflow-auto flex flex-col"',
     );
     expect(source).toContain("data-comments-anchored-popover");
     expect(source).toContain(
@@ -706,8 +715,9 @@ describe("comments sidebar layout", () => {
     });
 
     expect(source).toContain("data-comments-sidebar");
+    expect(source).toContain('"relative flow-root w-full min-w-0 shrink-0",');
     expect(source).toContain(
-      "relative flow-root w-full min-w-0 shrink-0 pb-16",
+      'underSubject ? "divide-y divide-border" : "pb-16"',
     );
     expect(source).not.toContain("w-80 shrink-0 overflow-auto");
     expect(source).not.toContain("overflow-auto relative");

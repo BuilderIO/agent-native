@@ -41,7 +41,10 @@ import {
   lockPagesAndAssertAgentsMayEditText,
 } from "./_document-agent-lock.js";
 import { nanoid, parseDatabaseViewConfig } from "./_property-utils.js";
-import { assertRelationTargetDatabase } from "./_relation-values.js";
+import {
+  assertRelationTargetDatabase,
+  lockRelationCollections,
+} from "./_relation-values.js";
 
 export const ordinaryPropertyTypes = [
   "text",
@@ -636,6 +639,10 @@ export async function runConfigureDocumentProperty(
   input: ConfigureDocumentPropertyAgentInput,
   provenance: CallProvenance | undefined,
 ) {
+  const relatedDatabaseId =
+    input.operation === "create" && input.definition.type === "relation"
+      ? input.definition.relatedDatabaseId
+      : null;
   return runDatabaseSetupMutation({
     operation: `configure-document-property.${input.operation}`,
     input,
@@ -647,6 +654,16 @@ export async function runConfigureDocumentProperty(
             propertyId: input.propertyId,
             patch: input.patch,
           },
+    // The relation's target is checked again under its lock in apply.
+    ...(relatedDatabaseId
+      ? {
+          lock: (tx: Parameters<typeof lockRelationCollections>[0]) =>
+            lockRelationCollections(tx, [
+              input.target.databaseId,
+              relatedDatabaseId,
+            ]),
+        }
+      : {}),
     apply: async (tx, context) => {
       if (context.database.systemRole) {
         setupError(

@@ -4,6 +4,7 @@ import {
   hasCollabState,
   seedFromText,
 } from "@agent-native/core/collab";
+import { nextFreeName } from "@agent-native/core/free-name";
 import { assertAccess } from "@agent-native/core/sharing";
 import { and, eq, inArray, like, sql } from "drizzle-orm";
 import { nanoid } from "nanoid";
@@ -317,16 +318,7 @@ function ensureExtension(
 }
 
 function uniqueFilename(filename: string, used: Set<string>): string {
-  if (!used.has(filename)) {
-    used.add(filename);
-    return filename;
-  }
-  const dot = filename.lastIndexOf(".");
-  const base = dot > 0 ? filename.slice(0, dot) : filename;
-  const ext = dot > 0 ? filename.slice(dot) : "";
-  let index = 2;
-  while (used.has(`${base}-${index}${ext}`)) index += 1;
-  const next = `${base}-${index}${ext}`;
+  const next = nextFreeName(filename, used);
   used.add(next);
   return next;
 }

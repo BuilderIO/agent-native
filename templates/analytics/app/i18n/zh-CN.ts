@@ -1299,6 +1299,8 @@ export default {
     resetFilters: "重置筛选器",
     collapseFilters: "折叠过滤器",
     expandFilters: "展开过滤器",
+    collapseDescription: "折叠说明",
+    expandDescription: "展开说明",
     drilldownChartPoints: "图表数据点",
     drilldownPreviousPage: "上一页图表数据点",
     drilldownNextPage: "下一页图表数据点",

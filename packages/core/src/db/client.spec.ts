@@ -4,6 +4,8 @@ import { join } from "node:path";
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
+import { sql as budgetSql, withSqlBudget } from "./sql.js";
+
 async function resetAppConfig(): Promise<void> {
   const { resetAppConfigForTests } = await import("../app-config/store.js");
   resetAppConfigForTests();
@@ -1787,6 +1789,36 @@ describe("Neon foreground statement budgets", () => {
     expect(pool.connect).toHaveBeenCalledOnce();
   });
 
+  it("applies a budgeted fragment to connection timeout and retry count", async () => {
+    vi.useFakeTimers();
+    vi.stubEnv("NETLIFY", "true");
+    const pool = {
+      connect: vi.fn(() => new Promise(() => {})),
+      end: vi.fn(async () => {}),
+      on: vi.fn(),
+    };
+    const Pool = vi.fn(function MockPool() {
+      return pool;
+    });
+    vi.doMock("@neondatabase/serverless", () => ({
+      Pool,
+      neon: vi.fn(),
+      neonConfig: {},
+    }));
+    const { createDbExec } = await import("./client.js");
+    const db = await createDbExec({
+      url: "postgresql://user:pass@ep-test.us-east-1.aws.neon.tech/db",
+    });
+    const pending = expect(
+      db.execute(
+        withSqlBudget(budgetSql`SELECT 1`, { timeoutMs: 25, maxAttempts: 1 }),
+      ),
+    ).rejects.toThrow("DB connect timed out after 25ms");
+    await vi.advanceTimersByTimeAsync(25);
+    await pending;
+    expect(pool.connect).toHaveBeenCalledOnce();
+  });
+
   it("sets and resets a server-side timeout for an explicitly budgeted query", async () => {
     vi.useFakeTimers();
     vi.stubEnv("NETLIFY", "true");
@@ -2715,5 +2747,28 @@ describe("retryOnConnectionError budget", () => {
 
     expect(value).toBe("ok");
     expect(attempt).toHaveBeenCalledTimes(3);
+  });
+});
+
+describe("isUniqueViolation", () => {
+  it("sees a unique violation that Drizzle wrapped as the cause", async () => {
+    const { isUniqueViolation } = await import("./client.js");
+    const driverError = Object.assign(
+      new Error(
+        'duplicate key value violates unique constraint "design_files_design_filename_unique_idx"',
+      ),
+      { code: "23505" },
+    );
+    const wrapped = new Error("Failed query: insert into design_files", {
+      cause: driverError,
+    });
+    expect(isUniqueViolation(driverError)).toBe(true);
+    expect(isUniqueViolation(wrapped)).toBe(true);
+    expect(
+      isUniqueViolation(
+        new Error("Failed query", { cause: new Error("connection reset") }),
+      ),
+    ).toBe(false);
+    expect(isUniqueViolation(undefined)).toBe(false);
   });
 });

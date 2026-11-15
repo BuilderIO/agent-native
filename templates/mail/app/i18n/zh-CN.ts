@@ -460,6 +460,13 @@ const messages = {
       openStorageSettings: "打开存储设置",
       reconnectBuilderStorage: "重新连接 Builder.io",
       useOwnStorage: "使用自己的存储",
+      storageBuilderRefusedAskAdmin:
+        "Builder.io 拒绝了 Mail 的文件存储连接，因此未能附加文件。请重新连接 Builder.io，或请所有者或管理员设置存储，然后重试。",
+      storageRefusedAskAdmin:
+        "你所在组织的存储桶拒绝了此次上传，因此未能附加文件。请让所有者或管理员检查存储桶及其密钥。",
+      storageNotConfiguredAskAdmin:
+        "尚未设置文件存储，因此未能附加文件。请连接你自己的 Builder.io 账号，或请所有者或管理员设置存储。",
+      connectBuilderStorage: "连接 Builder.io",
       failedToSendEmail: "发送邮件失败",
       messageSent: "邮件已发送。",
       failedToSaveDraft: "无法保存草稿。",

@@ -282,6 +282,49 @@ it("does not authorize an unknown pre-bind request that resolves after B binds",
   unsubscribe();
 });
 
+it("does not defer a query that has already failed, so its error can surface", async () => {
+  sessionState.set(USER_B);
+  const { records, storage } = memoryStorage();
+  const keysStarted = deferred<void>();
+  const finishKeys = deferred<void>();
+  setActionQueryCacheStorage({
+    ...storage,
+    keys: async () => {
+      keysStarted.resolve();
+      await finishKeys.promise;
+      return [...records.keys()];
+    },
+  });
+  const fetchMock = vi.fn(async () => response("after-prior-failure"));
+  vi.stubGlobal("fetch", fetchMock);
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false } },
+  });
+  // A prior failed read on this key: the custom-emoji surface's stuck state.
+  const prior = client.getQueryCache().build(client, { queryKey: QUERY_KEY });
+  prior.setState({
+    status: "error",
+    error: new Error("prior failure"),
+    fetchFailureCount: 1,
+    fetchFailureReason: new Error("prior failure"),
+    errorUpdatedAt: Date.now(),
+    errorUpdateCount: 1,
+    fetchStatus: "idle",
+    isInvalidated: false,
+    data: undefined,
+    dataUpdateCount: 0,
+    dataUpdatedAt: 0,
+  });
+
+  await mount(client);
+  await keysStarted.promise;
+  // The binding is still pending, yet a query that already failed is no longer
+  // deferred: it must be free to fetch and reach its error rather than being
+  // cancelled back to a permanent pending state.
+  expect(fetchMock.mock.calls.length).toBeGreaterThan(0);
+  finishKeys.resolve();
+});
+
 it("persists an authorized result fetched after the matching B binding", async () => {
   sessionState.set(USER_B);
   const { records, reads, storage } = memoryStorage();

@@ -27,6 +27,12 @@ export {
   type AppearancePresetId,
 } from "../appearance.js";
 export {
+  resolveThemeFamilyConfig,
+  resolveThemeFamilyPreference,
+  type ResolvedThemeFamilyConfig,
+  type ThemeFamilyConfig,
+} from "../../appearance/theme-family.js";
+export {
   applyThemeFamily,
   readStoredThemeFamily,
   THEME_FAMILY_CHANGE_EVENT,

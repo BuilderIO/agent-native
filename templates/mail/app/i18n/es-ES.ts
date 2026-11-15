@@ -485,6 +485,13 @@ const messages = {
       openStorageSettings: "Abrir ajustes de almacenamiento",
       reconnectBuilderStorage: "Volver a conectar Builder.io",
       useOwnStorage: "Usar tu propio almacenamiento",
+      storageBuilderRefusedAskAdmin:
+        "Builder.io rechazó la conexión de almacenamiento de archivos de Mail, así que el archivo no se adjuntó. Vuelve a conectar Builder.io o pide a un propietario o administrador que configure el almacenamiento y luego inténtalo de nuevo.",
+      storageRefusedAskAdmin:
+        "El bucket de almacenamiento de tu organización rechazó esta subida, así que el archivo no se adjuntó. Pide a un propietario o administrador que revise el bucket y sus claves.",
+      storageNotConfiguredAskAdmin:
+        "El almacenamiento de archivos no está configurado, así que el archivo no se adjuntó. Conecta tu propia cuenta de Builder.io o pide a un propietario o administrador que configure el almacenamiento.",
+      connectBuilderStorage: "Conectar Builder.io",
       failedToSendEmail: "No se pudo enviar el email",
       messageSent: "Mensaje enviado.",
       failedToSaveDraft: "No se pudo guardar el borrador.",

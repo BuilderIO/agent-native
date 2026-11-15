@@ -27,6 +27,7 @@ import {
   ReviewCommentMenu,
   ReviewThreadCardFrame,
   ReviewThreadMenu,
+  type ReviewComposerFormatLabels,
   type ReviewMentionOption,
   type ReviewThread,
 } from "@agent-native/toolkit/app/review";
@@ -3933,6 +3934,7 @@ function DraftComposer({
             emojiLabel={t("review.addEmoji")}
             mentionLabel={t("review.mention")}
             noMentionsLabel={t("review.noMentions")}
+            formatLabels={reviewFormatLabels(t)}
             commentToolsEnd={images.toolsEnd}
             attachments={images.strip}
             disabled={busy}
@@ -3950,6 +3952,24 @@ function DraftComposer({
       </ReviewThreadCardFrame>
     </ReviewPopoverFrame>
   );
+}
+
+// The comment box's formatting bar, in the app's language.
+function reviewFormatLabels(
+  t: ReturnType<typeof useT>,
+): ReviewComposerFormatLabels {
+  return {
+    toolbar: t("review.format.toolbar"),
+    bold: t("review.format.bold"),
+    italic: t("review.format.italic"),
+    strike: t("review.format.strike"),
+    code: t("review.format.code"),
+    link: t("review.format.link"),
+    linkField: t("review.format.linkField"),
+    linkPlaceholder: t("review.format.linkPlaceholder"),
+    applyLink: t("review.format.applyLink"),
+    removeLink: t("review.format.removeLink"),
+  };
 }
 
 // A reaction in flight shows on the chip before the server confirms it.
@@ -4165,6 +4185,7 @@ function ReviewThreadPopover({
             emojiLabel={t("review.addEmoji")}
             mentionLabel={t("review.mention")}
             noMentionsLabel={t("review.noMentions")}
+            formatLabels={reviewFormatLabels(t)}
             textareaProps={{ "aria-label": t("review.editComment") }}
             autoFocus
             disabled={updating}
@@ -4264,6 +4285,7 @@ function ReviewThreadPopover({
               emojiLabel={t("review.addEmoji")}
               mentionLabel={t("review.mention")}
               noMentionsLabel={t("review.noMentions")}
+              formatLabels={reviewFormatLabels(t)}
               textareaProps={{ "data-review-reply-input": true }}
               disabled={replying || resolving || replyImages.uploading}
               onChange={onReplyDraftChange}

@@ -693,7 +693,7 @@ Wenn der Benutzer in einem beliebigen Browser oder in einer Inline-Webansicht au
     "name": "to",
     "in": "query",
     "type": "string",
-    "description": "Optional explicit same-origin relative redirect target. Falls back to `/<view>`, then a per-template `resolveOpenPath`."
+    "description": "Optional explicit same-origin relative redirect target. Falls back to a per-template `resolveOpenPath`, then `/<view>`."
   },
   {
     "name": "compose",
@@ -725,7 +725,7 @@ Resolves the browser session, writes a one-shot `navigate` application-state com
 1. Löst die **Browsersitzung** über `getSession` auf (der Authentifizierungsschutz umgeht den genauen Pfad `/_agent-native/open`).
 2. Wenn nicht authentifiziert, wird das konfigurierte Login HTML **zugleich URL** bereitgestellt; Der Erfolgshandler des Formulars lädt `window.location` neu und gibt die authentifizierte Route erneut ein – kein `?next=`-Klempner.
 3. Schreibt den vorhandenen einmaligen `navigate`-Anwendungsstatusbefehl (Nutzlast = jeder nicht reservierte Abfrageparameter + `view`), der auf die E-Mail der Browsersitzung mit `requestSource: "deep-link"` beschränkt ist, und dekodiert einen `compose`-Base64-URL-Entwurf in einen `compose-<id>`-Schlüssel.
-4. 302-Weiterleitung zu einem sicheren relativen Pfad gleichen Ursprungs (`to=`, sonst `/<view>`, sonst ein vorlagenbasierter `resolveOpenPath`) und Weiterleiten von `f_*`-Filterparametern, sodass Listen/Dashboards vorgefiltert geöffnet werden, bevor der Befehl `navigate` überhaupt gelöscht wird.
+4. 302-Weiterleitung zu einem sicheren relativen Pfad gleichen Ursprungs (`to=`, sonst ein vorlagenbasierter `resolveOpenPath`, sonst `/<view>`) und Weiterleiten von `f_*`-Filterparametern, sodass Listen/Dashboards vorgefiltert geöffnet werden, bevor der Befehl `navigate` überhaupt gelöscht wird.
 
 Cross-Origin-, Schema-relative `//host`- und Control-Char-Weiterleitungen werden abgelehnt (Open-Redirect-Guard). Die Route kann per App über `disableOpenRoute` deaktiviert werden.
 

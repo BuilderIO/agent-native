@@ -17,6 +17,7 @@ import {
   documentEditAttribution,
   requireDocumentRequestActor,
 } from "../server/lib/document-attribution.js";
+import { syncPrivateMediaReferences } from "../server/lib/private-media-references.js";
 import type {
   ContentDatabaseMutationContract,
   ContentDatabaseRowMutationReceipt,
@@ -163,6 +164,21 @@ export type DatabaseMutationTargetInput = z.infer<
 type DatabaseRow = typeof schema.contentDatabases.$inferSelect;
 type DefinitionRow = typeof schema.documentPropertyDefinitions.$inferSelect;
 type Db = ReturnType<typeof getDb>;
+
+/** Binds the private images in written property values to their pages. */
+async function syncPropertyValueMedia(
+  tx: Db,
+  actor: string,
+  writes: Iterable<{ documentId: string; valueJson: string }>,
+): Promise<void> {
+  for (const write of writes) {
+    await syncPrivateMediaReferences(tx, {
+      documentId: write.documentId,
+      after: write.valueJson,
+      userEmail: actor,
+    });
+  }
+}
 
 export interface MutationContext {
   database: DatabaseRow;
@@ -1346,6 +1362,11 @@ async function createInsideTransaction(
         updatedAt: now,
       })),
     );
+    await syncPropertyValueMedia(
+      tx,
+      actor,
+      [...args.values.values()].map((valueJson) => ({ documentId, valueJson })),
+    );
   }
   if (shares.length > 0) {
     await tx.insert(schema.documentShares).values(
@@ -1534,6 +1555,14 @@ async function updateInsideTransaction(
       });
     }
   }
+  await syncPropertyValueMedia(
+    tx,
+    actor,
+    changedValues.map(([, valueJson]) => ({
+      documentId: args.documentId,
+      valueJson,
+    })),
+  );
   await ensureNaturalKeyClaim(tx, context, {
     itemId: args.itemId,
     documentId: args.documentId,
@@ -2592,6 +2621,7 @@ async function patchRowsInsideTransaction(
       })),
     );
   }
+  await syncPropertyValueMedia(tx, actor, [...valueUpdates, ...valueInserts]);
   rowPatchIssues(
     "NATURAL_KEY_CONFLICT",
     "Some rows claim a natural key that is already in use or cannot change; nothing was written.",

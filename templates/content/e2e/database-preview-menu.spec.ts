@@ -2,6 +2,7 @@ import {
   expect,
   test,
   type APIResponse,
+  type BrowserContext,
   type Locator,
   type Page,
   type Request,
@@ -1348,6 +1349,123 @@ test("a collection row's menu copies its link and starts a comment on its page",
     await expect(discussionComposer(page)).toBeFocused();
     await expect(page.getByText(text)).toBeVisible();
   } finally {
+    if (fixture) await cleanupDatabaseFixture(page, fixture);
+  }
+});
+
+async function registerUser(
+  context: BrowserContext,
+  origin: string,
+  email: string,
+): Promise<Page> {
+  const page = await context.newPage();
+  await page.goto(`${origin}/sign-in`, { waitUntil: "domcontentloaded" });
+  const password = "example-content-row-menu-pw";
+  const headers = { Origin: origin, Referer: `${origin}/sign-in` };
+  await page.request.post("/_agent-native/auth/register", {
+    data: { email, password, name: "Row menu reader", callbackURL: "/" },
+    headers,
+  });
+  const login = await page.request.post("/_agent-native/auth/login", {
+    data: { email, password },
+    headers,
+  });
+  expect(login.ok()).toBe(true);
+  return page;
+}
+
+test("a collection's viewers and commenters get the row menu without its edit items", async ({
+  page,
+  browser,
+}) => {
+  test.setTimeout(300_000);
+  let fixture: DatabaseFixture | null = null;
+  const contexts: BrowserContext[] = [];
+  try {
+    await ensureAuthenticatedLocalSession(page);
+    const origin = new URL(page.url()).origin;
+    fixture = await createDatabaseFixture(page, 2);
+    const row = fixture.rows[0]!;
+    // Shared with the collection only, so the reader can't open its page.
+    const closedRow = fixture.rows[1]!;
+    const stamp = Date.now();
+
+    for (const role of ["viewer", "commenter"] as const) {
+      const email = `row-menu-${role}+autoz-${stamp}@content.test`;
+      const context = await browser.newContext();
+      contexts.push(context);
+      await context.grantPermissions(["clipboard-read", "clipboard-write"], {
+        origin,
+      });
+      const reader = await registerUser(context, origin, email);
+      // A page doesn't pass its shares to rows that already exist.
+      for (const resourceId of [fixture.databaseDocumentId, row.documentId]) {
+        await presentUiCapability(page);
+        await runAction(page, "share-resource", {
+          resourceType: "document",
+          resourceId,
+          principalType: "user",
+          principalId: email,
+          role,
+          notify: false,
+        });
+      }
+      await reader.setViewportSize({ width: 1440, height: 900 });
+      await reader.goto(`/page/${fixture.databaseDocumentId}`, {
+        waitUntil: "domcontentloaded",
+        timeout: 120_000,
+      });
+
+      const rowActions = reader.getByRole("button", {
+        name: `Row actions for ${row.title}`,
+      });
+      const rowMenu = reader.getByRole("menu").filter({
+        has: reader.getByRole("menuitem", { name: "Open page" }),
+      });
+      await rowActions.click();
+      await expect(
+        reader.getByRole("button", {
+          name: `Row actions for ${closedRow.title}`,
+        }),
+      ).toHaveCount(0);
+      await expect(rowMenu.getByRole("menuitem")).toHaveText(
+        role === "commenter"
+          ? ["Open page", "Copy link", "Comment"]
+          : ["Open page", "Copy link"],
+      );
+      await rowMenu
+        .getByRole("menuitem", { name: "Copy link", exact: true })
+        .click();
+      await expect(reader.getByText("Copied page link")).toBeVisible();
+      expect(await clipboardText(reader)).toBe(`${origin}/p/${row.documentId}`);
+
+      if (role === "commenter") {
+        await rowActions.click();
+        await rowMenu
+          .getByRole("menuitem", { name: "Comment", exact: true })
+          .click();
+        await expect(previewDialog(reader)).toBeVisible();
+        await expect(discussionComposer(reader)).toBeFocused();
+        const text = `Commenter row menu comment ${stamp}`;
+        await reader.keyboard.type(text);
+        await reader
+          .locator("[data-discussion-composer]")
+          .getByRole("button", { name: "Comment", exact: true })
+          .click();
+        await expect
+          .poll(async () => {
+            const listed = await readAction(page, "list-comments", {
+              documentId: row.documentId,
+            });
+            return (listed.comments as ActionResult[]).map(
+              (entry) => entry.content,
+            );
+          })
+          .toContain(text);
+      }
+    }
+  } finally {
+    for (const context of contexts) await context.close();
     if (fixture) await cleanupDatabaseFixture(page, fixture);
   }
 });

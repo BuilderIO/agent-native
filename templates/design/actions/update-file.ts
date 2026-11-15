@@ -5,6 +5,7 @@ import {
   hasCollabState,
   type PreparedYDocMutationLease,
 } from "@agent-native/core/collab";
+import { nameTaken, nextFreeName } from "@agent-native/core/free-name/server";
 import { accessFilter, assertAccess } from "@agent-native/core/sharing";
 import { and, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
@@ -771,13 +772,20 @@ export default defineAction({
               )
               .limit(1);
             if (collision && collision.id !== id) {
-              fail(
-                `File "${filename}" already exists in design ${file.designId}`,
-                {
-                  errorCode: "filename_taken",
-                  statusCode: 409,
-                },
+              const taken = new Set(
+                (
+                  await tx
+                    .select({
+                      id: schema.designFiles.id,
+                      filename: schema.designFiles.filename,
+                    })
+                    .from(schema.designFiles)
+                    .where(eq(schema.designFiles.designId, file.designId))
+                )
+                  .filter((sibling) => sibling.id !== id)
+                  .map((sibling) => sibling.filename),
               );
+              throw nameTaken("file", filename, nextFreeName(filename, taken));
             }
             updateResult = await tx
               .update(schema.designFiles)

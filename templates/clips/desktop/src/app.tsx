@@ -259,6 +259,7 @@ import { getRewindStartErrorKind } from "./lib/rewind-start-error";
 import { getRewindStatusPresentation } from "./lib/rewind-status";
 import {
   initialDesktopSettingsTab,
+  visibleDesktopSettingsTabs,
   type DesktopSettingsTab,
 } from "./lib/settings-navigation";
 import {
@@ -7851,13 +7852,11 @@ function Setup({
     });
   }
 
-  const settingsTabIsAvailable =
-    settingsTab === "general" ||
-    settingsTab === "recording" ||
-    settingsTab === "rewind" ||
-    settingsTab === "advanced" ||
-    (settingsTab === "meetings" && meetingsLabEnabled) ||
-    (settingsTab === "dictation" && voiceDictationLabEnabled);
+  const visibleSettingsTabs = visibleDesktopSettingsTabs({
+    meetings: meetingsLabEnabled,
+    dictation: voiceDictationLabEnabled,
+  });
+  const settingsTabIsAvailable = visibleSettingsTabs.includes(settingsTab);
 
   useEffect(() => {
     if (surface !== "settings" || settingsTabIsAvailable) return;
@@ -9190,57 +9189,45 @@ function Setup({
     );
   }
 
-  const settingsTabs: Array<{
-    id: SettingsTabId;
-    label: string;
-    icon: ReactNode;
-  }> = [
-    {
-      id: "general",
+  const settingsTabDetails: Record<
+    SettingsTabId,
+    { label: string; icon: ReactNode }
+  > = {
+    general: {
       label: "General",
       icon: (
         <IconAdjustmentsHorizontal size={16} stroke={1.7} aria-hidden="true" />
       ),
     },
-    {
-      id: "recording",
+    recording: {
       label: "Recording",
       icon: <IconVideo size={16} stroke={1.7} aria-hidden="true" />,
     },
-    {
-      id: "rewind",
+    rewind: {
       label: "Rewind",
       icon: <IconHistory size={16} stroke={1.7} aria-hidden="true" />,
     },
-    ...(meetingsLabEnabled
-      ? [
-          {
-            id: "meetings" as const,
-            label: "Meetings",
-            icon: <IconCalendar size={16} stroke={1.7} aria-hidden="true" />,
-          },
-        ]
-      : []),
-    ...(voiceDictationLabEnabled
-      ? [
-          {
-            id: "dictation" as const,
-            label: "Dictation",
-            icon: <IconMicrophone size={16} stroke={1.7} aria-hidden="true" />,
-          },
-        ]
-      : []),
-    {
-      id: "labs",
+    meetings: {
+      label: "Meetings",
+      icon: <IconCalendar size={16} stroke={1.7} aria-hidden="true" />,
+    },
+    dictation: {
+      label: "Dictation",
+      icon: <IconMicrophone size={16} stroke={1.7} aria-hidden="true" />,
+    },
+    labs: {
       label: "Labs",
       icon: <IconFlask size={16} stroke={1.7} aria-hidden="true" />,
     },
-    {
-      id: "advanced",
+    advanced: {
       label: "Advanced",
       icon: <IconTool size={16} stroke={1.7} aria-hidden="true" />,
     },
-  ];
+  };
+  const settingsTabs = visibleSettingsTabs.map((id) => ({
+    id,
+    ...settingsTabDetails[id],
+  }));
   const activeSettingsTab =
     settingsTabs.find((tab) => tab.id === settingsTab) ?? settingsTabs[0];
 

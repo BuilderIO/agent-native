@@ -465,6 +465,7 @@ export function ReadOnlyMarkdownContent({
         content={content}
         onChange={() => {}}
         editable={false}
+        drawDiagrams={false}
         onOpenNotionPageLink={openPageLink}
         resolveNotionPageLink={resolvePageLink}
       />

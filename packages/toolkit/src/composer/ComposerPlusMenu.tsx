@@ -47,7 +47,7 @@ interface ComposerPlusMenuProps extends Omit<
   onSelectMode?: (mode: ComposerMode) => void;
   attachmentsEnabled?: boolean;
   extensionTools?: boolean;
-  mode?: "full" | "upload-only" | "terminal";
+  mode?: "full" | "upload-only" | "attach-only" | "terminal";
   terminalModeControl?: ComposerTerminalModeControl;
   contextMenuItems?: readonly ComposerContextMenuItem[];
 }
@@ -671,6 +671,7 @@ export function ComposerPlusMenu({
       ? mergeComposerMenuItems(terminalItems, contextMenuItems)
       : contextMenuItems;
   const terminalActionIds = new Set(terminalItems.map((item) => item.id));
+  const uploads = mode === "upload-only" || mode === "attach-only";
   return (
     <>
       <ComposerContextMenu
@@ -692,12 +693,11 @@ export function ComposerPlusMenu({
               )
             : []
         }
-        {...(mode === "upload-only" && attachmentsEnabled
+        {...(uploads && attachmentsEnabled
           ? { addAttachment: addAttachment ?? runtime.addAttachment }
           : {})}
-        {...(mode === "upload-only" && onAttachmentRequest
-          ? { onAttachmentRequest }
-          : {})}
+        {...(uploads && onAttachmentRequest ? { onAttachmentRequest } : {})}
+        attachOnly={mode === "attach-only"}
       />
       {workspace?.overlays}
     </>

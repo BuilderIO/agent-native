@@ -1,6 +1,6 @@
 import { ActionContractError } from "@agent-native/core/action";
 import { accessFilter, resolveAccess } from "@agent-native/core/sharing";
-import { and, eq, exists, inArray, isNull, or } from "drizzle-orm";
+import { and, eq, exists, inArray, isNull, or, sql } from "drizzle-orm";
 
 import { schema } from "../server/db/index.js";
 import type {
@@ -13,6 +13,7 @@ import {
   parsePropertyOptions,
 } from "../shared/properties.js";
 import { chunks } from "./_batch-utils.js";
+import { sortRowIds } from "./_row-lock-order.js";
 
 // Relation values are stored as a JSON array of row document IDs. Every read
 // and write of them goes through this module so a canonical relationship edge
@@ -92,6 +93,24 @@ export async function assertRelationTargetDatabase(
     );
   }
   return target;
+}
+
+/**
+ * Lock a relation Property's collection and the collection it links to, in
+ * row lock order. A move to another workspace locks the collections it moves,
+ * then checks the relations into and out of them, so a relation checked again
+ * under these locks can't land across a move that passed between the two.
+ */
+export async function lockRelationCollections(
+  tx: Db,
+  databaseIds: Array<string | null | undefined>,
+) {
+  for (const id of sortRowIds(databaseIds.filter((id): id is string => !!id))) {
+    await tx
+      .update(schema.contentDatabases)
+      .set({ updatedAt: sql`${schema.contentDatabases.updatedAt}` })
+      .where(eq(schema.contentDatabases.id, id));
+  }
 }
 
 /**

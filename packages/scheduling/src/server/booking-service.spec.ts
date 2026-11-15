@@ -153,6 +153,7 @@ beforeEach(async () => {
       name TEXT NOT NULL,
       timezone TEXT,
       locale TEXT,
+      position INTEGER,
       no_show BOOLEAN NOT NULL DEFAULT false,
       created_at TEXT NOT NULL
     );
