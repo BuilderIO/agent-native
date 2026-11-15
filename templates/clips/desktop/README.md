@@ -154,13 +154,13 @@ Clips registers itself to open at login by default, then runs quietly in the men
 Each link works as one Stream Deck or launcher button. Control links act
 without opening the popover, so the app in front keeps focus.
 
-| Link | What it does |
-| --- | --- |
-| `clips://pause` | Toggles pause (`?state=on` pauses, `?state=off` resumes) |
-| `clips://stop` | Stops the running recording |
-| `clips://restart`, `clips://cancel` | Ask in the recording bar first |
-| `clips://dictate?mode=hands-free` | Starts dictation; the next press (or Escape) stops it |
-| `clips://dictate?mode=push&state=down` / `state=up` | Push-to-talk between the two links |
+| Link                                                | What it does                                             |
+| --------------------------------------------------- | -------------------------------------------------------- |
+| `clips://pause`                                     | Toggles pause (`?state=on` pauses, `?state=off` resumes) |
+| `clips://stop`                                      | Stops the running recording                              |
+| `clips://restart`, `clips://cancel`                 | Ask in the recording bar first                           |
+| `clips://dictate?mode=hands-free`                   | Starts dictation; the next press (or Escape) stops it    |
+| `clips://dictate?mode=push&state=down` / `state=up` | Push-to-talk between the two links                       |
 
 Links that start dictation are off by default. Turn on **Settings -> Window ->
 Allow control links to start dictation** to use the dictate links to start.
