@@ -56,7 +56,11 @@ let timer: ReturnType<typeof setInterval> | undefined;
 
 function connectionPrefix(value: string | null | undefined): string | null {
   const trimmed = value?.trim();
-  return trimmed ? trimmed.slice(0, CONNECTION_PREFIX_LENGTH) : null;
+  // Personal connection ids carry a fixed `pconn1:` namespace; slicing it in
+  // would leave one distinguishing character and merge buckets.
+  return trimmed
+    ? trimmed.replace(/^[a-z0-9]+:/i, "").slice(0, CONNECTION_PREFIX_LENGTH)
+    : null;
 }
 
 function bucketId(entry: ProviderCallCensusKey): string {
