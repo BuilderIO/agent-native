@@ -36,6 +36,32 @@ export function cliSpawnOptions(
   };
 }
 
+/**
+ * The `[command, args, shell]` to spawn a package-manager shim such as npm or
+ * pnpm. On Windows these are `.cmd` files, which Node starts only through a
+ * shell (CVE-2024-27980; `spawn("npm.cmd", args)` fails with EINVAL), and the
+ * shell needs the command line quoted because paths may contain spaces.
+ */
+export function shimSpawnTarget(
+  command: string,
+  args: string[],
+  platform: NodeJS.Platform = process.platform,
+): [string, string[], boolean] {
+  if (platform !== "win32") return [command, args, false];
+  const quoted = args.map((arg) => {
+    // cmd.exe has no reliable way to escape these inside a quoted argument.
+    if (/["%]/.test(arg)) {
+      throw new Error(
+        `Cannot run ${command} on Windows: path contains '"' or '%': ${arg}`,
+      );
+    }
+    return /[\s&|<>^()!]/.test(arg)
+      ? `"${arg.replace(/(\\*)$/, "$1$1")}"`
+      : arg;
+  });
+  return [[command, ...quoted].join(" "), [], true];
+}
+
 export function runDevServer(
   command: string,
   args: string[],

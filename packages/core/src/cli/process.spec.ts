@@ -12,6 +12,7 @@ import {
   DEV_SERVER_SUPERVISOR_ENV,
   markDevServerReady,
   runDevServer,
+  shimSpawnTarget,
 } from "./process.js";
 
 afterEach(() => {
@@ -66,6 +67,34 @@ describe("cli process launch options", () => {
 
   it("does not enable a shell on Unix", () => {
     expect(cliSpawnOptions({}, "darwin").shell).toBe(false);
+  });
+
+  it("starts package-manager shims directly off Windows", () => {
+    expect(shimSpawnTarget("npm", ["pack", "a b"], "linux")).toEqual([
+      "npm",
+      ["pack", "a b"],
+      false,
+    ]);
+  });
+
+  it("starts npm.cmd through a shell with a quoted command line on Windows", () => {
+    expect(
+      shimSpawnTarget(
+        "npm",
+        ["pack", "--pack-destination", "C:\\Users\\Jo Doe\\Temp\\x"],
+        "win32",
+      ),
+    ).toEqual([
+      'npm pack --pack-destination "C:\\Users\\Jo Doe\\Temp\\x"',
+      [],
+      true,
+    ]);
+  });
+
+  it("names the command when a Windows argument can't be quoted", () => {
+    expect(() => shimSpawnTarget("npm", ["C:\\%TEMP%"], "win32")).toThrow(
+      /Cannot run npm on Windows: path contains/,
+    );
   });
 
   it("restarts only after the recovery exit code and keeps signal listeners bounded", async () => {
