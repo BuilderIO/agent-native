@@ -6473,7 +6473,8 @@ async function fetchWithTimeout(
     requireTextForSave?: boolean;
   },
 ): Promise<ProviderApiHttpResponse> {
-  const runOnce = async (): Promise<ProviderApiHttpResponse> => {
+  type FetchResult = ProviderApiHttpResponse & { bodyValidationError?: Error };
+  const runOnce = async (): Promise<FetchResult> => {
     const controller = new AbortController();
     const timeoutMs = clampTimeout(options.timeoutMs);
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -6521,24 +6522,42 @@ async function fetchWithTimeout(
     }
   };
 
-  if (options.quota) {
-    return executeWithProviderQuota({
-      request: {
-        identity: options.quota.identity,
-        method: options.quota.method,
-        target: options.quota.target,
-        requestKey: options.quota.requestKey,
-      },
-      execute: runOnce,
-      inspect: (result) => ({
-        status: result.status,
-        headers: result.headers,
-      }),
-      buildQuotaExhaustedResult: providerQuotaExhaustedResponse,
+  let lastBodyValidationError: Error | undefined;
+  const result = options.quota
+    ? await executeWithProviderQuota<FetchResult>({
+        request: {
+          identity: options.quota.identity,
+          method: options.quota.method,
+          target: options.quota.target,
+          requestKey: options.quota.requestKey,
+        },
+        execute: async () => {
+          const response = await runOnce();
+          lastBodyValidationError = response.bodyValidationError;
+          return response;
+        },
+        inspect: (response) => ({
+          status: response.status,
+          headers: response.headers,
+        }),
+        buildQuotaExhaustedResult: (detail) => ({
+          ...providerQuotaExhaustedResponse(detail),
+          ...(lastBodyValidationError
+            ? { bodyValidationError: lastBodyValidationError }
+            : {}),
+        }),
+      })
+    : await runOnce();
+
+  if (result.bodyValidationError) {
+    throw normalizeFetchError(result.bodyValidationError, {
+      method: options.method ?? "GET",
+      url: optionsUrl,
+      timeoutMs: clampTimeout(options.timeoutMs),
+      secretValues: options.secretValues ?? [],
     });
   }
-
-  return runOnce();
+  return result;
 }
 
 function providerQuotaExhaustedResponse(
@@ -6624,6 +6643,8 @@ function applyBodyEnvelopeOutcome<
   };
 }
 
+class ProviderResponseBodyValidationError extends Error {}
+
 async function fetchProviderResponse(
   url: string,
   fetchOptions: RequestInit & { dispatcher?: unknown },
@@ -6634,7 +6655,7 @@ async function fetchProviderResponse(
     discardRedirectBody?: boolean;
     requireTextForSave?: boolean;
   },
-): Promise<ProviderApiHttpResponse> {
+): Promise<ProviderApiHttpResponse & { bodyValidationError?: Error }> {
   const startedAt = Date.now();
   const res = await fetch(url, fetchOptions);
   const elapsedMs = Date.now() - startedAt;
@@ -6656,12 +6677,34 @@ async function fetchProviderResponse(
       truncated: false,
     };
   }
-  const rawText = await readResponseTextWithLimit(
-    res,
-    clampMaxBytes(options.maxBytes, options.maxResponseBytes),
-    options.requireTextForSave ? headers["content-type"] : undefined,
-    options.requireTextForSave,
-  );
+  let rawText: Awaited<ReturnType<typeof readResponseTextWithLimit>>;
+  try {
+    rawText = await readResponseTextWithLimit(
+      res,
+      clampMaxBytes(options.maxBytes, options.maxResponseBytes),
+      options.requireTextForSave ? headers["content-type"] : undefined,
+      options.requireTextForSave,
+    );
+  } catch (error) {
+    if (
+      res.status !== 429 ||
+      !(error instanceof ProviderResponseBodyValidationError)
+    ) {
+      throw error;
+    }
+    // The governor must observe 429 headers before this rejection escapes.
+    return {
+      status: res.status,
+      statusText: res.statusText,
+      ok: res.ok,
+      elapsedMs,
+      headers,
+      contentType: res.headers.get("content-type") ?? null,
+      size: 0,
+      truncated: false,
+      bodyValidationError: error,
+    };
+  }
   const redactedText = redactString(rawText.text, options.secretValues);
   const parsed = tryParseJson(redactedText);
   return {
@@ -6757,7 +6800,7 @@ async function readResponseTextWithLimit(
     : "unknown";
   if (requireTextForSave && isBinaryProviderContentType(mediaType)) {
     await response.body?.cancel();
-    throw new Error(
+    throw new ProviderResponseBodyValidationError(
       `Cannot save binary provider response (content type: ${displayType}) as a text workspace file. Use a binary storage capability instead.`,
     );
   }
@@ -6798,7 +6841,7 @@ async function readResponseTextWithLimit(
   }
   const bytes = Buffer.concat(kept, size);
   if (requireTextForSave && bytes.includes(0)) {
-    throw new Error(
+    throw new ProviderResponseBodyValidationError(
       `Cannot save provider response containing NUL bytes (content type: ${displayType}) as a text workspace file.`,
     );
   }
@@ -6809,7 +6852,7 @@ async function readResponseTextWithLimit(
         byte < 9 || byte === 11 || (byte >= 14 && byte < 32) || byte === 127,
     )
   ) {
-    throw new Error(
+    throw new ProviderResponseBodyValidationError(
       `Cannot save provider response containing binary control bytes (content type: ${displayType}) as a text workspace file.`,
     );
   }
@@ -6819,7 +6862,7 @@ async function readResponseTextWithLimit(
       bytes,
     );
   } catch {
-    throw new Error(
+    throw new ProviderResponseBodyValidationError(
       `Cannot save provider response with invalid UTF-8 (content type: ${displayType}) as a text workspace file.`,
     );
   }
@@ -6827,7 +6870,12 @@ async function readResponseTextWithLimit(
 }
 
 function isBinaryProviderContentType(mediaType: string): boolean {
-  if (mediaType.endsWith("+json") || mediaType.endsWith("+xml")) return false;
+  if (
+    mediaType === "application/vnd.ms-excel" ||
+    mediaType.endsWith("+json") ||
+    mediaType.endsWith("+xml")
+  )
+    return false;
   return (
     /^(image|audio|video|font)\//.test(mediaType) ||
     /^application\/(?:octet-stream|pdf|zip|x-zip-compressed|gzip|x-gzip|x-tar|x-bzip2|x-xz|zstd|x-rar-compressed|vnd\.rar|x-7z-compressed|wasm|protobuf|x-protobuf|msword|vnd\.ms-[^/]+|vnd\.openxmlformats-officedocument\.[^/]+|vnd\.oasis\.opendocument\.[^/]+)$/.test(

@@ -57,7 +57,8 @@ function isHtmlResponseContentType(contentType: string): boolean {
 function isBinaryContentType(contentType: string): boolean {
   const mediaType = contentType.toLowerCase();
   if (mediaType.endsWith("+json") || mediaType.endsWith("+xml")) return false;
-  if (mediaType === "image/svg+xml") return false;
+  if (mediaType === "image/svg+xml" || mediaType === "application/vnd.ms-excel")
+    return false;
   return (
     /^(image|audio|video|font)\//.test(mediaType) ||
     /^application\/(?:octet-stream|pdf|zip|x-zip-compressed|gzip|x-gzip|x-tar|x-bzip2|x-xz|zstd|x-rar-compressed|vnd\.rar|x-7z-compressed|wasm|protobuf|x-protobuf|msword|vnd\.ms-[^/]+|vnd\.openxmlformats-officedocument\.[^/]+|vnd\.oasis\.opendocument\.[^/]+)$/.test(

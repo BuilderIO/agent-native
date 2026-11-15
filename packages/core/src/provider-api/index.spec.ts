@@ -5807,6 +5807,155 @@ describe("provider API runtime", () => {
       });
 
     it.each(
+      ["hubspot", "test-api"].flatMap((provider) =>
+        [false, true].flatMap((paginated) => [
+          {
+            provider,
+            paginated,
+            contentType: "application/zip",
+            body: new TextEncoder().encode("private-binary-payload"),
+          },
+          {
+            provider,
+            paginated,
+            contentType: "text/plain",
+            body: new Uint8Array([112, 114, 105, 118, 97, 116, 101, 45, 255]),
+          },
+        ]),
+      ),
+    )(
+      "records a cooldown for rejected $contentType 429 $provider saves (paginated: $paginated)",
+      async ({ provider, paginated, contentType, body }) => {
+        const fetchMock = vi.mocked(globalThis.fetch);
+        fetchMock.mockReset();
+        fetchMock
+          .mockResolvedValueOnce(
+            new Response(body, {
+              status: 429,
+              headers: { "content-type": contentType, "retry-after": "120" },
+            }),
+          )
+          .mockResolvedValueOnce(
+            new Response("{}", {
+              headers: { "content-type": "application/json" },
+            }),
+          );
+        const api = runtime();
+        const request = { provider, path: "/records", auth: "none" as const };
+        const result = api.executeRequest({
+          ...request,
+          saveToFile: "scratch/response.txt",
+          ...(paginated
+            ? { fetchAllPages: { cursorPath: "next", cursorParam: "cursor" } }
+            : {}),
+        });
+        await expect(result).rejects.toThrow(/binary|UTF-8/i);
+        const error = await result.catch((err: unknown) => err);
+        expect(String(error)).not.toContain("private-");
+        expect(writeWorkspaceFile).not.toHaveBeenCalled();
+
+        const next = await api.executeRequest(request);
+        expect(next).toMatchObject({
+          response: {
+            status: 429,
+            quota: {
+              exhausted: true,
+              providerId: provider,
+              reason: "cooldown",
+            },
+          },
+        });
+        expect(JSON.stringify(next)).not.toContain("private-");
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+      },
+    );
+
+    it("retries a rejected 429 body and saves the subsequent valid response", async () => {
+      const fetchMock = vi.mocked(globalThis.fetch);
+      fetchMock.mockReset();
+      fetchMock
+        .mockResolvedValueOnce(
+          new Response(new Uint8Array([255]), {
+            status: 429,
+            headers: { "content-type": "text/plain", "retry-after": "0" },
+          }),
+        )
+        .mockResolvedValueOnce(
+          new Response("name,value\nexample,1\n", {
+            headers: { "content-type": "text/csv" },
+          }),
+        );
+      await expect(
+        runtime().executeRequest({
+          provider: "hubspot",
+          path: "/records",
+          auth: "none",
+          saveToFile: "scratch/response.csv",
+        }),
+      ).resolves.toMatchObject({ savedToFile: true, ok: true });
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(writeWorkspaceFile).toHaveBeenCalledWith(
+        { scope: "org", scopeId: "org-1" },
+        "scratch/response.csv",
+        "name,value\nexample,1\n",
+        "text/csv",
+        { maxFileBytes: 20 * 1024 * 1024 },
+      );
+    });
+
+    it("rejects every concurrent save sharing an invalid 429 response", async () => {
+      const fetchMock = vi.mocked(globalThis.fetch);
+      fetchMock.mockReset();
+      fetchMock.mockResolvedValueOnce(
+        new Response("private-binary-payload", {
+          status: 429,
+          headers: { "content-type": "application/zip", "retry-after": "120" },
+        }),
+      );
+      const api = runtime();
+      const request = {
+        provider: "hubspot",
+        path: "/records",
+        auth: "none" as const,
+        saveToFile: "scratch/response.txt",
+      };
+      const results = await Promise.allSettled([
+        api.executeRequest(request),
+        api.executeRequest(request),
+      ]);
+      expect(results).toHaveLength(2);
+      for (const result of results) {
+        expect(result.status).toBe("rejected");
+        if (result.status === "rejected") {
+          expect(String(result.reason)).toMatch(/binary/i);
+          expect(String(result.reason)).not.toContain("private-");
+        }
+      }
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(writeWorkspaceFile).not.toHaveBeenCalled();
+    });
+
+    it("rejects invalid 429 bodies when the quota governor is disabled", async () => {
+      vi.stubEnv("AGENT_NATIVE_PROVIDER_API_QUOTA_GOVERNOR", "0");
+      vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+        new Response("private-binary-payload", {
+          status: 429,
+          headers: { "content-type": "application/zip" },
+        }),
+      );
+      const result = runtime().executeRequest({
+        provider: "hubspot",
+        path: "/records",
+        auth: "none",
+        saveToFile: "scratch/response.txt",
+      });
+      await expect(result).rejects.toThrow(/binary/i);
+      const error = await result.catch((err: unknown) => err);
+      expect(String(error)).not.toContain("private-");
+      expect(writeWorkspaceFile).not.toHaveBeenCalled();
+    });
+
+    it.each(
       ["hubspot", "test-api"].flatMap((provider) => [
         {
           provider,
@@ -5826,6 +5975,11 @@ describe("provider API runtime", () => {
         {
           provider,
           contentType: "application/json",
+          body: new TextEncoder().encode("private-binary-payload\u0000"),
+        },
+        {
+          provider,
+          contentType: "application/vnd.ms-excel",
           body: new TextEncoder().encode("private-binary-payload\u0000"),
         },
         {
@@ -6102,6 +6256,13 @@ describe("provider API runtime", () => {
         "application/vnd.example+json",
       ],
       ["test-api", "image/svg+xml", "<svg/>", "<svg/>", "image/svg+xml"],
+      [
+        "hubspot",
+        "application/vnd.ms-excel; charset=utf-8",
+        "name,value\r\ncafé,1\r\n",
+        "name,value\r\ncafé,1\r\n",
+        "application/vnd.ms-excel",
+      ],
     ])(
       "saves valid %s text responses",
       async (provider, contentType, body, expected, mimeType) => {

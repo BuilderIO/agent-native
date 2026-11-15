@@ -389,6 +389,18 @@ describe("createFetchToolEntry", () => {
       status: 200,
     },
     {
+      name: "binary Excel workbook bytes",
+      bytes: [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1],
+      contentType: "application/vnd.ms-excel",
+      status: 200,
+    },
+    {
+      name: "Excel-labeled UTF-8 control bytes",
+      bytes: [0, 1, 2],
+      contentType: "application/vnd.ms-excel",
+      status: 200,
+    },
+    {
       name: "valid UTF-8 ZIP MIME",
       bytes: [65, 66],
       contentType: "application/zip",
@@ -551,6 +563,10 @@ describe("createFetchToolEntry", () => {
   );
 
   it.each([
+    {
+      contentType: "application/vnd.ms-excel",
+      body: "name,value\r\n東京,42\r\n",
+    },
     { contentType: "application/json", body: '{"greeting":"こんにちは"}' },
     { contentType: "application/problem+json", body: '{"title":"Example"}' },
     { contentType: "application/xml", body: "<message>hello</message>" },
@@ -576,6 +592,19 @@ describe("createFetchToolEntry", () => {
     );
   });
 
+  it("returns Excel-labeled UTF-8 CSV inline", async () => {
+    const body = "name,value\r\n東京,42\r\n";
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(body, {
+        headers: { "content-type": "Application/Vnd.Ms-Excel; charset=utf-8" },
+      }),
+    );
+
+    await expect(
+      runWebRequest("https://example.com/data.csv"),
+    ).resolves.toContain(body);
+  });
+
   it("reports redirects without processing or saving their binary body", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(new Uint8Array([80, 75, 0, 255]), {
@@ -597,27 +626,39 @@ describe("createFetchToolEntry", () => {
     expect(mockWriteWorkspaceFile).not.toHaveBeenCalled();
   });
 
-  it("does not include response contents or writer diagnostics in save errors", async () => {
-    const body = "synthetic-save-body-marker";
-    vi.spyOn(globalThis, "fetch").mockResolvedValue(
-      new Response(body, { headers: { "content-type": "text/plain" } }),
-    );
-    mockWriteWorkspaceFile.mockRejectedValue(
-      new Error(`database rejected ${body}`),
-    );
+  it.each([
+    "Invalid path: synthetic-save-body-marker",
+    "Only organization owners and admins can edit organization files: synthetic-save-body-marker",
+    "File exceeds the limit: synthetic-save-body-marker",
+    "database rejected synthetic-save-body-marker and synthetic-credential",
+  ])(
+    "does not expose writer exception details in save errors",
+    async (message) => {
+      const body = "synthetic-save-body-marker";
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(body, { headers: { "content-type": "text/plain" } }),
+      );
+      mockWriteWorkspaceFile.mockRejectedValue(new Error(message));
 
-    let caught: unknown;
-    try {
-      await runSavedWebRequest({
-        url: "https://example.com/data",
-        saveToFile: "scratch/data.txt",
+      let caught: unknown;
+      try {
+        await runSavedWebRequest({
+          url: "https://example.com/data",
+          saveToFile: "scratch/data.txt",
+        });
+      } catch (error) {
+        caught = error;
+      }
+      expect(caught).toMatchObject({
+        errorCode: "web_request_save_failed",
+        message: "saveToFile error: could not write workspace file.",
       });
-    } catch (error) {
-      caught = error;
-    }
-    expect(caught).toMatchObject({ errorCode: "web_request_save_failed" });
-    expect(String((caught as Error).message)).not.toContain(body);
-  });
+      expect(String((caught as Error).message)).not.toContain(body);
+      expect(String((caught as Error).message)).not.toContain(
+        "synthetic-credential",
+      );
+    },
+  );
 
   it("fails oversized response bodies before processing or saving them", async () => {
     const responseBytes = 20 * 1024 * 1024 + 1;
