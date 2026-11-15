@@ -8,7 +8,7 @@ use tauri_plugin_global_shortcut::{Code, GlobalShortcutExt, Modifiers, Shortcut}
 
 use crate::clips::{remember_voice_target, toggle_popover};
 use crate::dlog;
-use crate::state::{DictationActive, VoiceWakePopover};
+use crate::state::VoiceWakePopover;
 use crate::util::{
     hide_voice_wake_popover, is_dictation_active, is_recording_active, set_dictation_active,
     show_without_activation,
@@ -866,6 +866,7 @@ pub fn set_dictation_active_and_sync_escape(app: &AppHandle, active: bool) {
 
 #[tauri::command]
 pub fn set_dictation_escape_active(app: AppHandle, active: bool) -> Result<(), String> {
+    note_hands_free_active(active);
     set_dictation_active_and_sync_escape(&app, active);
     Ok(())
 }
@@ -1158,17 +1159,12 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
             } else {
                 "ctrl-shift-space"
             };
-            let active_state = app.try_state::<DictationActive>();
             match event.state() {
                 tauri_plugin_global_shortcut::ShortcutState::Pressed => {
-                    let mut already_active = false;
-                    if let Some(state) = active_state.as_ref() {
-                        if let Ok(mut g) = state.0.lock() {
-                            already_active = *g;
-                            *g = true;
-                        }
-                    }
-                    if !already_active {
+                    // A held key's repeats, or a press while a push-to-talk
+                    // link owns the dictation, start nothing.
+                    if begin_voice_press(app, PressInput::Shortcut) {
+                        set_dictation_active(app, true);
                         note_voice_press();
                         eprintln!("[clips-tray] {source} down — starting voice dictation");
                         sync_dictation_escape_shortcut(app.clone(), true);
@@ -1176,11 +1172,12 @@ pub fn build_shortcut_plugin() -> tauri_plugin_global_shortcut::Builder<tauri::W
                     }
                 }
                 tauri_plugin_global_shortcut::ShortcutState::Released => {
-                    if let Some(state) = active_state.as_ref() {
-                        if let Ok(mut g) = state.0.lock() {
-                            *g = false;
-                        }
+                    // Only the release of the press that started the
+                    // dictation stops it.
+                    if !end_voice_press(PressInput::Shortcut) {
+                        return;
                     }
+                    set_dictation_active(app, false);
                     eprintln!("[clips-tray] {source} up — stopping voice dictation");
                     sync_dictation_escape_shortcut(app.clone(), false);
                     let held = held_since_press();
@@ -1530,8 +1527,14 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
                     if fn_down == was_down {
                         return CallbackResult::Keep;
                     }
-                    set_dictation_active_and_sync_escape(&app_for_cb, fn_down);
                     if fn_down {
+                        // A press while a push-to-talk link owns the
+                        // dictation starts nothing, and its release (which
+                        // finds no press of its own) stops nothing.
+                        if !begin_voice_press(&app_for_cb, PressInput::Fn) {
+                            return CallbackResult::Keep;
+                        }
+                        set_dictation_active_and_sync_escape(&app_for_cb, true);
                         dlog!("[clips-tray] Fn down — starting voice dictation");
                         note_voice_press();
                         remember_voice_target(&app_for_cb);
@@ -1564,6 +1567,10 @@ fn install_fn_event_tap(app: tauri::AppHandle) {
                             press,
                         );
                     } else {
+                        if !end_voice_press(PressInput::Fn) {
+                            return CallbackResult::Keep;
+                        }
+                        set_dictation_active_and_sync_escape(&app_for_cb, false);
                         dlog!("[clips-tray] Fn up — stopping voice dictation");
                         let press = current_press_for_cb
                             .lock()
@@ -1703,7 +1710,7 @@ fn install_fn_release_watchdog(
         thread::sleep(Duration::from_millis(120));
         while prev_down.load(Ordering::SeqCst) {
             if !current_fn_flag_down() {
-                if prev_down.swap(false, Ordering::SeqCst) {
+                if prev_down.swap(false, Ordering::SeqCst) && end_voice_press(PressInput::Fn) {
                     dlog!("[clips-tray] Fn up missed — synthesizing voice stop");
                     set_dictation_active_and_sync_escape(&app, false);
                     press.release(std::time::Instant::now(), |held| {
@@ -1737,56 +1744,167 @@ fn current_fn_flag_down() -> bool {
     true
 }
 
-/// A push-to-talk link's press: idle, down while the dictation key already
-/// ran a dictation, or down and owning the dictation it started. Kept apart
-/// from the key's own flag so a link release only ends what its press began.
-const LINK_PUSH_IDLE: u8 = 0;
-const LINK_PUSH_DOWN: u8 = 1;
-const LINK_PUSH_OWNS: u8 = 2;
-static LINK_PUSH: std::sync::atomic::AtomicU8 = std::sync::atomic::AtomicU8::new(LINK_PUSH_IDLE);
-
-fn set_dictation_key_down(app: &AppHandle, down: bool) -> bool {
-    let mut was_down = false;
-    if let Some(state) = app.try_state::<DictationActive>() {
-        if let Ok(mut g) = state.0.lock() {
-            was_down = *g;
-            *g = down;
-        }
-    }
-    was_down
+/// Which input started the running press-to-talk dictation: the Fn key, a
+/// dictation shortcut, or a push-to-talk link. Only that input's release
+/// stops it; a press of another input while it runs neither starts nor (on
+/// its release) stops anything. Hands-free dictation has no owner here, so a
+/// press stops it the way the frontend decides.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum PressInput {
+    #[cfg_attr(not(target_os = "macos"), allow(dead_code))]
+    Fn,
+    Shortcut,
+    Link,
 }
 
-/// `clips://dictate` links. Push-to-talk acts exactly like the dictation key
-/// going down and up (source "link", whatever the key's mode setting is).
-/// Hands-free starts a dictation that keeps going until the next press;
-/// pressed while one runs, it stops it.
+#[derive(Debug, Default)]
+struct PressOwner(Option<PressInput>);
+
+impl PressOwner {
+    /// A press of `input`: true when it starts the dictation and owns it.
+    /// `dictation_running` says whether the current owner's dictation is
+    /// still live; an owner whose dictation already ended (its release was
+    /// lost) gives way, so a lost release can't lock the other inputs out.
+    fn press(&mut self, input: PressInput, dictation_running: bool) -> bool {
+        if self.0.is_some() && dictation_running {
+            // Held key repeat, or another input owns the dictation.
+            return false;
+        }
+        self.0 = Some(input);
+        true
+    }
+
+    /// A release of `input`: true when it owned the dictation, so it stops it.
+    fn release(&mut self, input: PressInput) -> bool {
+        if self.0 == Some(input) {
+            self.0 = None;
+            true
+        } else {
+            false
+        }
+    }
+}
+
+static PRESS_OWNER: Mutex<PressOwner> = Mutex::new(PressOwner(None));
+
+fn lock_press_owner() -> std::sync::MutexGuard<'static, PressOwner> {
+    PRESS_OWNER.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// Whether a dictation is live: a key or link is held, a hands-free run is
+/// on, or the frontend's dictation flow isn't idle (toggle mode, finishing).
+fn dictation_running(app: &AppHandle) -> bool {
+    HANDS_FREE_ACTIVE.load(Ordering::SeqCst)
+        || is_dictation_active(app)
+        || !crate::clips::voice_flow_idle()
+}
+
+pub(crate) fn begin_voice_press(app: &AppHandle, input: PressInput) -> bool {
+    let running = dictation_running(app);
+    lock_press_owner().press(input, running)
+}
+
+pub(crate) fn end_voice_press(input: PressInput) -> bool {
+    lock_press_owner().release(input)
+}
+
+/// Hands-free dictation as the frontend reports it (`set_dictation_escape_active`),
+/// kept apart from the held-key flag so it never reads as a key held down.
+static HANDS_FREE_ACTIVE: AtomicBool = AtomicBool::new(false);
+
+pub(crate) fn note_hands_free_active(active: bool) {
+    HANDS_FREE_ACTIVE.store(active, Ordering::SeqCst);
+}
+
+/// A hands-free link pressed before the frontend's dictation listener is up
+/// (a cold start from the link) waits here until the frontend asks for it.
+#[derive(Debug, Default)]
+struct HandsFreeLinkQueue {
+    listener_ready: bool,
+    pending_since: Option<Instant>,
+}
+
+/// A held press older than this is dropped rather than starting dictation
+/// long after the button was pressed.
+const HANDS_FREE_LINK_HOLD_LIMIT: Duration = Duration::from_secs(30);
+
+impl HandsFreeLinkQueue {
+    /// True when the press can go to the listener now; otherwise it's held.
+    /// A second press before the listener is up cancels the first, as a
+    /// start then a stop would.
+    fn press(&mut self, now: Instant) -> bool {
+        if self.listener_ready {
+            return true;
+        }
+        self.pending_since = match self.pending_since {
+            Some(_) => None,
+            None => Some(now),
+        };
+        false
+    }
+
+    /// The listener is up: from now on presses go straight to it. True when
+    /// a held press is still waiting for it.
+    fn listener_ready(&mut self, now: Instant) -> bool {
+        self.listener_ready = true;
+        self.pending_since
+            .take()
+            .is_some_and(|at| now.saturating_duration_since(at) < HANDS_FREE_LINK_HOLD_LIMIT)
+    }
+}
+
+static HANDS_FREE_LINK_QUEUE: Mutex<HandsFreeLinkQueue> = Mutex::new(HandsFreeLinkQueue {
+    listener_ready: false,
+    pending_since: None,
+});
+
+fn lock_hands_free_link_queue() -> std::sync::MutexGuard<'static, HandsFreeLinkQueue> {
+    HANDS_FREE_LINK_QUEUE
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+}
+
+/// Called by the frontend once its dictation listener is registered. Returns
+/// whether a hands-free link pressed before then should start now.
+#[tauri::command]
+pub fn take_pending_dictate_link(app: AppHandle) -> bool {
+    // A freshly installed listener runs no hands-free dictation yet, so a
+    // flag left by an earlier page load can't keep a start from picking
+    // its target.
+    note_hands_free_active(false);
+    let pending = lock_hands_free_link_queue().listener_ready(Instant::now());
+    if pending {
+        eprintln!("[clips-tray] dictate link — delivering the hands-free press held at startup");
+        wake_popover_for_voice(&app);
+    }
+    pending
+}
+
+/// `clips://dictate` links. Push-to-talk acts like the dictation key going
+/// down and up (source "link", whatever the key's mode setting is), and only
+/// its own release stops a dictation its own press started. Hands-free
+/// starts a dictation that keeps going until the next press; pressed while
+/// one runs, it stops it and keeps the app the dictation started in as the
+/// place the text goes.
 pub fn dictate_from_link(app: &AppHandle, action: crate::deep_links::DictateLink) {
     use crate::deep_links::DictateLink;
     match action {
         DictateLink::PushDown => {
-            // A repeated down (no up in between) leaves the state alone.
-            if LINK_PUSH
-                .compare_exchange(LINK_PUSH_IDLE, LINK_PUSH_DOWN, Ordering::SeqCst, Ordering::SeqCst)
-                .is_err()
-            {
+            if !begin_voice_press(app, PressInput::Link) {
+                // A repeated down, or the dictation key owns the dictation.
                 return;
             }
-            // A held dictation key owns the running dictation: this press
-            // neither starts nor (on its release) stops it.
-            if set_dictation_key_down(app, true) {
-                return;
-            }
-            LINK_PUSH.store(LINK_PUSH_OWNS, Ordering::SeqCst);
+            set_dictation_active(app, true);
             note_voice_press();
             eprintln!("[clips-tray] dictate link down — starting voice dictation");
             sync_dictation_escape_shortcut(app.clone(), true);
             emit_voice_start(app, "link");
         }
         DictateLink::PushUp => {
-            if LINK_PUSH.swap(LINK_PUSH_IDLE, Ordering::SeqCst) != LINK_PUSH_OWNS {
+            if !end_voice_press(PressInput::Link) {
                 return;
             }
-            set_dictation_key_down(app, false);
+            set_dictation_active(app, false);
             eprintln!("[clips-tray] dictate link up — stopping voice dictation");
             sync_dictation_escape_shortcut(app.clone(), false);
             let held = held_since_press();
@@ -1795,12 +1913,23 @@ pub fn dictate_from_link(app: &AppHandle, action: crate::deep_links::DictateLink
             });
         }
         DictateLink::HandsFree => {
+            // Only a press that starts a dictation picks where its text goes;
+            // a stop press keeps the app the dictation started in, even if
+            // another app is in front by now.
+            if !dictation_running(app) {
+                remember_voice_target(app);
+            }
+            if !lock_hands_free_link_queue().press(Instant::now()) {
+                eprintln!(
+                    "[clips-tray] dictate link — hands-free press held until dictation is ready"
+                );
+                return;
+            }
             eprintln!("[clips-tray] dictate link — hands-free start/stop");
-            remember_voice_target(app);
             wake_popover_for_voice(app);
             let app = app.clone();
             thread::spawn(move || {
-                // Same wake delay as a key press, so the popover's listener is up.
+                // Same wake delay as a key press, so the woken popover runs it.
                 thread::sleep(Duration::from_millis(80));
                 let _ = app.emit(
                     "voice:shortcut-start",
@@ -1808,5 +1937,91 @@ pub fn dictate_from_link(app: &AppHandle, action: crate::deep_links::DictateLink
                 );
             });
         }
+    }
+}
+
+#[cfg(test)]
+mod dictation_link_tests {
+    use super::*;
+
+    #[test]
+    fn only_the_input_that_started_a_dictation_stops_it() {
+        let mut owner = PressOwner::default();
+        assert!(owner.press(PressInput::Link, false));
+        // The dictation key pressed while the link's dictation runs: ignored,
+        // and so is its release.
+        assert!(!owner.press(PressInput::Shortcut, true));
+        assert!(!owner.release(PressInput::Shortcut));
+        assert!(!owner.press(PressInput::Fn, true));
+        assert!(!owner.release(PressInput::Fn));
+        // The link's own release stops it.
+        assert!(owner.release(PressInput::Link));
+        assert!(!owner.release(PressInput::Link));
+    }
+
+    #[test]
+    fn a_link_pressed_while_the_key_runs_dictation_neither_starts_nor_stops_it() {
+        let mut owner = PressOwner::default();
+        assert!(owner.press(PressInput::Shortcut, false));
+        assert!(!owner.press(PressInput::Link, true));
+        assert!(!owner.release(PressInput::Link));
+        assert!(owner.release(PressInput::Shortcut));
+    }
+
+    #[test]
+    fn a_held_key_repeat_does_not_start_again() {
+        let mut owner = PressOwner::default();
+        assert!(owner.press(PressInput::Shortcut, false));
+        assert!(!owner.press(PressInput::Shortcut, true));
+        assert!(owner.release(PressInput::Shortcut));
+    }
+
+    #[test]
+    fn a_hands_free_run_does_not_block_the_key_or_a_push_link() {
+        // Hands-free dictation takes no press owner, so with one running the
+        // key (or a push link) still gets its press through to stop it.
+        let mut owner = PressOwner::default();
+        assert!(owner.press(PressInput::Shortcut, true));
+        assert!(owner.release(PressInput::Shortcut));
+        assert!(owner.press(PressInput::Link, true));
+        assert!(owner.release(PressInput::Link));
+    }
+
+    #[test]
+    fn a_lost_link_release_does_not_lock_the_key_out() {
+        let mut owner = PressOwner::default();
+        assert!(owner.press(PressInput::Link, false));
+        // The link's up never came and its dictation has ended.
+        assert!(owner.press(PressInput::Fn, false));
+        assert!(!owner.release(PressInput::Link));
+        assert!(owner.release(PressInput::Fn));
+    }
+
+    #[test]
+    fn a_cold_start_hands_free_press_waits_for_the_listener() {
+        let t0 = Instant::now();
+        let mut queue = HandsFreeLinkQueue::default();
+        assert!(!queue.press(t0));
+        assert!(queue.listener_ready(t0 + Duration::from_secs(2)));
+        // Delivered once, and later presses go straight through.
+        assert!(!queue.listener_ready(t0 + Duration::from_secs(3)));
+        assert!(queue.press(t0 + Duration::from_secs(4)));
+    }
+
+    #[test]
+    fn a_second_press_before_the_listener_is_up_cancels_the_first() {
+        let t0 = Instant::now();
+        let mut queue = HandsFreeLinkQueue::default();
+        assert!(!queue.press(t0));
+        assert!(!queue.press(t0 + Duration::from_millis(500)));
+        assert!(!queue.listener_ready(t0 + Duration::from_secs(1)));
+    }
+
+    #[test]
+    fn a_stale_held_press_is_dropped() {
+        let t0 = Instant::now();
+        let mut queue = HandsFreeLinkQueue::default();
+        assert!(!queue.press(t0));
+        assert!(!queue.listener_ready(t0 + HANDS_FREE_LINK_HOLD_LIMIT));
     }
 }

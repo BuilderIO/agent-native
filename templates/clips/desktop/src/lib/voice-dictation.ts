@@ -623,6 +623,9 @@ export function installDesktopVoiceDictation(
   let stopRequestedBeforeReady = false;
   let pendingHandsFreeTapAt: number | null = null;
   let handsFreeActive = false;
+  // Set while the dictation running was started by a push-to-talk link's
+  // down, so only that link's up stops it.
+  let linkPushOwnsSession = false;
   const HANDS_FREE_UPGRADE_WINDOW_MS = 400;
   // A hold shorter than this is a stray tap, which leaves no trace.
   const SHORT_TAP_MS = 300;
@@ -2727,6 +2730,7 @@ export function installDesktopVoiceDictation(
   // next press (this link, the dictation key or Escape); pressed while one
   // runs, it stops it.
   const startOrStopHandsFreeFromLink = () => {
+    linkPushOwnsSession = false;
     if (session || startInFlight) {
       stop();
       return;
@@ -2739,8 +2743,9 @@ export function installDesktopVoiceDictation(
     });
   };
 
-  registerListener(
-    listen<VoiceShortcutEvent>("voice:shortcut-start", (event) => {
+  const shortcutStartListener = listen<VoiceShortcutEvent>(
+    "voice:shortcut-start",
+    (event) => {
       if (!acceptsShortcut(event.payload?.source)) return;
       if (event.payload?.source === "link-hands-free") {
         startOrStopHandsFreeFromLink();
@@ -2752,10 +2757,16 @@ export function installDesktopVoiceDictation(
           stop();
           return;
         }
+        // A dictation this press didn't start: leave it, and its up with it.
         if (session || startInFlight) return;
+        linkPushOwnsSession = true;
         void start("link");
         return;
       }
+      // The dictation key while a push-to-talk link's dictation runs: the
+      // link's up ends that one.
+      if (linkPushOwnsSession && (session || startInFlight)) return;
+      linkPushOwnsSession = false;
       if (mode === "toggle" && (session || startInFlight)) {
         stop();
         return;
@@ -2788,18 +2799,34 @@ export function installDesktopVoiceDictation(
           );
         }
       });
-    }),
+    },
   );
+  registerListener(shortcutStartListener);
+  // A hands-free link that launched the app was held natively until this
+  // listener existed; ask for it now.
+  void shortcutStartListener
+    .then(() =>
+      disposed ? false : invoke<boolean>("take_pending_dictate_link"),
+    )
+    .then((pending) => {
+      if (pending && !disposed) startOrStopHandsFreeFromLink();
+    })
+    .catch(() => {});
   registerListener(
     listen<VoiceShortcutEvent>("voice:shortcut-stop", (event) => {
       if (!acceptsShortcut(event.payload?.source)) return;
-      if (handsFreeActive) return;
       if (event.payload?.source === "link") {
-        // A push-to-talk link up ends its dictation even in toggle mode;
-        // no short-tap handling, a link has no double-tap gesture.
+        // Only the up of the link press that started this dictation ends
+        // it, even in toggle mode; no short-tap handling, a link has no
+        // double-tap gesture.
+        if (!linkPushOwnsSession) return;
+        linkPushOwnsSession = false;
+        if (handsFreeActive) return;
         stop();
         return;
       }
+      if (handsFreeActive) return;
+      if (linkPushOwnsSession && (session || startInFlight)) return;
       if (mode === "toggle") return;
       stop(event.payload.heldMs);
     }),

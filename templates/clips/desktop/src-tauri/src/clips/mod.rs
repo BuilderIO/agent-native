@@ -2486,6 +2486,12 @@ pub async fn set_flow_bar_expanded(app: AppHandle, expanded: bool) -> Result<(),
     Ok(())
 }
 
+/// Whether the frontend's dictation flow is idle (no dictation starting,
+/// listening or finishing).
+pub(crate) fn voice_flow_idle() -> bool {
+    VOICE_FLOW_IDLE.load(Ordering::SeqCst)
+}
+
 pub fn install_voice_flow_state_listener(app: &tauri::App) {
     app.listen("voice:state-change", |event| {
         let idle = serde_json::from_str::<serde_json::Value>(event.payload())

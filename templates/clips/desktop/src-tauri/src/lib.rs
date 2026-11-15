@@ -402,6 +402,7 @@ pub fn run() {
             shortcuts::set_custom_shortcuts,
             shortcuts::set_fn_shortcut_enabled,
             shortcuts::set_dictation_escape_active,
+            shortcuts::take_pending_dictate_link,
             whisper_model::whisper_models,
             whisper_model::whisper_model_status,
             whisper_model::whisper_model_download,
