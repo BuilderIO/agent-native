@@ -391,6 +391,12 @@ describe("workspace deploy build cache", () => {
 
     expect(builds).toEqual([]);
 
+    write(path.join(root, "settings.md.json"), "{}");
+
+    await deploy();
+
+    expect(builds.sort()).toEqual(APPS);
+    builds = [];
     write(path.join(root, "pnpm-lock.yaml"), "lockfileVersion: '9.1'\n");
 
     await deploy();
@@ -783,6 +789,38 @@ describe("build cache input and output integrity", () => {
         ignored,
       ),
     ).toBe(hashBuildEnv(shell, ignored));
+    for (const name of [
+      "MANPATH",
+      "INFOPATH",
+      "PAGER",
+      "MANPAGER",
+      "GIT_PAGER",
+      "LESS",
+      "LESSOPEN",
+      "LESSCLOSE",
+      "LESSHISTFILE",
+      "LESSKEY",
+      "HISTFILE",
+      "HISTSIZE",
+      "HISTCONTROL",
+      "TMUX",
+      "TMUX_PANE",
+      "STY",
+      "WINDOWID",
+      "XDG_RUNTIME_DIR",
+      "XDG_SESSION_ID",
+      "XDG_SESSION_TYPE",
+      "XDG_SESSION_CLASS",
+      "XDG_SEAT",
+      "XDG_VTNR",
+      "OSLogRateLimit",
+      "LaunchInstanceID",
+      "Apple_PubSub_Socket_Render",
+    ]) {
+      expect(hashBuildEnv({ ...env, [name]: "session" }, ignored)).toBe(
+        baseline,
+      );
+    }
     for (const config of ["XDG_CONFIG_HOME", "XDG_DATA_HOME", "LESSON_PLAN"]) {
       expect(hashBuildEnv({ ...env, [config]: "/two" }, ignored)).not.toBe(
         baseline,
