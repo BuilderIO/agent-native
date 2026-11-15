@@ -173,6 +173,46 @@ describe("ddl-guard", () => {
       ).toBe(true);
       expect(await pgTableExists("late", client)).toBe(true);
     });
+
+    it("refreshes the snapshot after a successful CREATE with a failed RESET", async () => {
+      vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
+      const { ensureTableExists } = await import("./ddl-guard.js");
+      const pg = await createTestPglite();
+      const calls: string[] = [];
+      const resetError = new Error("reset failed");
+      const client = {
+        execute: async (
+          statement: string | { sql: string; args?: unknown[] },
+        ) => {
+          const sql = typeof statement === "string" ? statement : statement.sql;
+          calls.push(sql);
+          if (sql === "RESET lock_timeout") throw resetError;
+          const result = await pg.query(
+            sql,
+            typeof statement === "string" ? [] : statement.args,
+          );
+          return { rows: result.rows, rowsAffected: result.affectedRows ?? 0 };
+        },
+      };
+      try {
+        const ensure = () =>
+          ensureTableExists("late", "CREATE TABLE late (id TEXT)", {
+            injectedClient: client,
+          });
+        const error = await ensure().catch((err: unknown) => err);
+        expect(error).toBeInstanceOf(AggregateError);
+        expect((error as AggregateError).errors).toEqual([resetError]);
+        expect(
+          (await pg.query("SELECT to_regclass('public.late') AS name")).rows,
+        ).toEqual([{ name: "late" }]);
+        await expect(ensure()).resolves.toBe(false);
+        expect(
+          calls.filter((sql) => sql === "CREATE TABLE late (id TEXT)"),
+        ).toHaveLength(1);
+      } finally {
+        await pg.close();
+      }
+    });
   });
 
   describe("AGENT_NATIVE_SKIP_ENSURE_TABLES", () => {

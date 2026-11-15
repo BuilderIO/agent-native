@@ -349,10 +349,14 @@ export async function ensureSchemaObject(options: {
     );
   }
   for (let attempt = 0; attempt < 3; attempt += 1) {
-    const ran = await withLegacyServerlessSchemaDdl(() =>
-      runGuardedDdl(ddl, { lockTimeout, timeoutMs, injectedClient }),
-    );
-    invalidateSchemaSnapshot(injectedClient);
+    let ran: boolean;
+    try {
+      ran = await withLegacyServerlessSchemaDdl(() =>
+        runGuardedDdl(ddl, { lockTimeout, timeoutMs, injectedClient }),
+      );
+    } finally {
+      invalidateSchemaSnapshot(injectedClient);
+    }
     if (ran) return true;
     const existsAfterTimeout = await probe();
     if (existsAfterTimeout === true) return true;
