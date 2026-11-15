@@ -64,6 +64,10 @@ function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
+function singleLine(value: string): string {
+  return value.replace(/[\r\n\u0085\u2028\u2029]+/g, " ");
+}
+
 type ReferencePart = string | { atomic: string };
 type ReferenceBlock = {
   text: string;
@@ -198,8 +202,10 @@ function describePptx(result: Record<string, unknown>): ReferencePart[] {
       (color): color is string => typeof color === "string",
     );
     lines.push("Measured visual language:");
-    if (fonts.length > 0) lines.push(`- Theme fonts: ${fonts.join(", ")}`);
-    if (colors.length > 0) lines.push(`- Theme colors: ${colors.join(", ")}`);
+    if (fonts.length > 0)
+      lines.push(`- Theme fonts: ${fonts.map(singleLine).join(", ")}`);
+    if (colors.length > 0)
+      lines.push(`- Theme colors: ${colors.map(singleLine).join(", ")}`);
     lines.push("");
   }
   lines.push("Extracted slides:");
@@ -216,8 +222,9 @@ function describePptx(result: Record<string, unknown>): ReferencePart[] {
   for (const slide of slides) {
     const texts = asString(slide.texts);
     const layout = asString(slide.layoutHint);
+    const index = typeof slide.index === "number" ? slide.index : "?";
     lines.push(
-      `- Slide ${String(slide.index ?? "?")}${layout ? ` [${layout}]` : ""}: ${texts ?? "(no text)"}`,
+      `- Slide ${index}${layout ? ` [${singleLine(layout)}]` : ""}: ${texts ? singleLine(texts) : "(no text)"}`,
     );
     if (Array.isArray(slide.vectorShapes)) {
       const width = slide.widthEmu;
@@ -245,7 +252,11 @@ function describePptx(result: Record<string, unknown>): ReferencePart[] {
           invalid++;
           continue;
         }
-        lines.push({ atomic: `  Vector: ${JSON.stringify(shape.data)}` });
+        const serialized = JSON.stringify(shape.data).replace(
+          /[\u0085\u2028\u2029]/g,
+          (char) => `\\u${char.charCodeAt(0).toString(16).padStart(4, "0")}`,
+        );
+        lines.push({ atomic: `  Vector: ${serialized}` });
       }
       const omitted =
         typeof slide.vectorShapesOmitted === "number" &&
@@ -267,19 +278,6 @@ function describePptx(result: Record<string, unknown>): ReferencePart[] {
           `  ${slide.tablesDegraded} table(s) degraded during parsing.`,
         );
     }
-  }
-  if (allSlides.length > slides.length)
-    lines.push(
-      `${allSlides.length - slides.length} slide(s) omitted from this reference context.`,
-    );
-  if (
-    typeof result.hiddenSlideCount === "number" &&
-    Number.isSafeInteger(result.hiddenSlideCount) &&
-    result.hiddenSlideCount > 0
-  ) {
-    lines.push(
-      `${result.hiddenSlideCount} hidden slide(s) excluded by the parser.`,
-    );
   }
   return lines;
 }
@@ -343,9 +341,26 @@ function describePptxOmissions(
   if (omitted > 0) parts.push(`${omitted} parsed vector shape(s) omitted`);
   if (labelsTruncated > 0)
     parts.push(`${labelsTruncated} shape label(s) truncated`);
-  return parts.length
-    ? `PPTX vector summary is partial: ${parts.join("; ")}.`
-    : undefined;
+  const notices = parts.length
+    ? [`PPTX vector summary is partial: ${parts.join("; ")}.`]
+    : [];
+  const slides = asArray(result.slides);
+  const includedSlides = slides
+    .filter((slide) => asRecord(slide) !== null)
+    .slice(0, MAX_PPTX_SLIDES_IN_CONTEXT);
+  if (slides.length > includedSlides.length)
+    notices.push(
+      `${slides.length - includedSlides.length} slide(s) omitted from this reference context.`,
+    );
+  if (
+    typeof result.hiddenSlideCount === "number" &&
+    Number.isSafeInteger(result.hiddenSlideCount) &&
+    result.hiddenSlideCount > 0
+  )
+    notices.push(
+      `${result.hiddenSlideCount} hidden slide(s) excluded by the parser.`,
+    );
+  return notices.length ? notices.join("\n") : undefined;
 }
 
 function describeReference(
@@ -360,7 +375,7 @@ function describeReference(
         ? describePptx(result)
         : describeDocx(result);
   const block = referenceBlock([
-    `### ${file.originalName} (${format.toUpperCase()})`,
+    `### ${singleLine(file.originalName)} (${format.toUpperCase()})`,
     ...body,
   ]);
   return {
@@ -454,7 +469,7 @@ export async function hydrateReferenceDocuments(
     "PPTX visual data is partial: reference content was truncated.";
   const omittedBlock = (outcome: (typeof reads)[number]) =>
     [
-      `### ${outcome.originalName}\nRead successfully, but omitted from this prompt because earlier references filled the reference budget. This file is the one exception to the no-reread rule above: call \`import-file\` for it if you need its content.`,
+      `### ${singleLine(outcome.originalName)}\nRead successfully, but omitted from this prompt because earlier references filled the reference budget. This file is the one exception to the no-reread rule above: call \`import-file\` for it if you need its content.`,
       outcome.omissions,
       outcome.format === "pptx" ? partialVisual : undefined,
     ]
@@ -485,7 +500,7 @@ export async function hydrateReferenceDocuments(
     suffixSize += 2 + Math.min(entry.fallback.length, entry.whole.length);
   }
   const aggregateNotice = (count: number) =>
-    `${count} reference file(s) omitted from this prompt because the reference budget was filled. Their content and PPTX vector omission details are unavailable here; call \`import-file\` for any omitted file needed.`;
+    `${count} reference file(s) omitted from this prompt because the reference budget was filled. Their content and PPTX omission details are unavailable here; call \`import-file\` for any omitted file needed.`;
   const aggregateReserve = 2 + aggregateNotice(reads.length).length;
   let remaining = MAX_TOTAL_REFERENCE_CHARS - prefix.length;
   const blocks: string[] = [];
