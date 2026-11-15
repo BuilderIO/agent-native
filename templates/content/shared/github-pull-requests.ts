@@ -75,8 +75,11 @@ export function parseGitHubPullRequestUrl(
   input: string,
 ): GitHubPullRequestRef | null {
   const text = input.trim();
-  const short = /^([^/\s#]+)\/([^/\s#]+)#(\d+)$/.exec(text);
-  if (short) return pullRequestRef(short[1]!, short[2]!, short[3]!);
+  const [, shortOwner, shortRepo, shortNumber] =
+    /^([^/\s#]+)\/([^/\s#]+)#(\d+)$/.exec(text) ?? [];
+  if (shortOwner && shortRepo && shortNumber) {
+    return pullRequestRef(shortOwner, shortRepo, shortNumber);
+  }
   let url: URL;
   try {
     url = new URL(/^https?:\/\//i.test(text) ? text : `https://${text}`);

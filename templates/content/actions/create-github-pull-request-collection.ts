@@ -15,10 +15,7 @@ import {
 } from "../shared/github-pull-requests.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
 import type { DatabaseSetupReceipt } from "./_database-setup-mutation.js";
-import {
-  getContentDatabaseSourceSnapshot,
-  resolveDatabaseForSourceMutation,
-} from "./_database-source-utils.js";
+import { resolveDatabaseForSourceMutation } from "./_database-source-utils.js";
 import {
   addGitHubPullRequests,
   createGitHubPullRequestsLink,
@@ -28,7 +25,7 @@ import {
   type AddedGitHubPullRequest,
   type GitHubPullRequestsSyncResult,
 } from "./_github-pull-requests-source.js";
-import { nanoid, serializeDatabase } from "./_property-utils.js";
+import { nanoid } from "./_property-utils.js";
 import createContentDatabase from "./create-content-database.js";
 import deleteContentDatabase from "./delete-content-database.js";
 
@@ -89,6 +86,73 @@ const createGitHubPullRequestCollectionSchema = z
       ),
   })
   .strict();
+
+/** A pull request's row, as adding by link returns it. */
+export const addedPullRequestOutputSchema = z.object({
+  url: z.string(),
+  key: z.string().describe("owner/repo#number, lowercased"),
+  title: z.string(),
+  documentId: z.string().describe("The row's page"),
+  databaseItemId: z.string(),
+  created: z
+    .boolean()
+    .describe("False when the collection had the row already"),
+});
+
+/** The collection, as both actions name it in their results. */
+export const pullRequestCollectionOutputSchema = z.object({
+  id: z.string(),
+  documentId: z.string(),
+  title: z.string(),
+});
+
+const syncOutputSchema = z.object({
+  state: z.enum(["synced", "busy", "error"]),
+  created: z.number(),
+  updated: z.number(),
+  trashed: z.number(),
+  rows: z.number(),
+  searchTotal: z.number().nullable(),
+  problem: z
+    .object({
+      code: z.enum([
+        "connection",
+        "forbidden",
+        "rate_limited",
+        "too_many_results",
+        "unavailable",
+      ]),
+      message: z.string(),
+      at: z.string(),
+    })
+    .nullable(),
+});
+
+const createGitHubPullRequestCollectionOutputSchema = z.discriminatedUnion(
+  "dryRun",
+  [
+    z.object({
+      dryRun: z.literal(true),
+      title: z.string(),
+      search: z.string().nullable(),
+      urls: z.array(z.string()),
+      summary: z.string(),
+    }),
+    z.object({
+      dryRun: z.literal(false),
+      database: pullRequestCollectionOutputSchema,
+      title: z.string(),
+      search: z.string().nullable(),
+      sync: syncOutputSchema,
+      added: z.array(addedPullRequestOutputSchema),
+      addError: z
+        .string()
+        .nullable()
+        .describe("Why the links weren't added, when they weren't"),
+      summary: z.string(),
+    }),
+  ],
+);
 
 /** Reads each link, or fails naming every one that isn't a pull request. */
 export function parsePullRequestLinks(urls: readonly string[]) {
@@ -199,15 +263,10 @@ async function bringInPullRequests({
       );
     },
   );
-  // coercion-ok: the Sources panel reads the link on its own; this is a courtesy copy.
-  const source = await getContentDatabaseSourceSnapshot(database).catch(
-    () => null,
-  );
   return {
     sync,
     added,
     addError,
-    source,
     summary: [
       `Made "${database.title}". ${githubPullRequestsSyncSummary(sync)}`,
       added.length > 0
@@ -232,6 +291,7 @@ export default defineAction({
   },
   agentInputSchema: createGitHubPullRequestCollectionSchema,
   schema: createGitHubPullRequestCollectionSchema,
+  outputSchema: createGitHubPullRequestCollectionOutputSchema,
   run: async (args) => {
     const userEmail = getRequestUserEmail();
     if (!userEmail) {
@@ -333,7 +393,11 @@ export default defineAction({
     }
     return {
       dryRun: false as const,
-      database: serializeDatabase(database),
+      database: {
+        id: database.id,
+        documentId: database.documentId,
+        title: database.title,
+      },
       title,
       search,
       ...(await bringInPullRequests({ database, sourceId, refs })),

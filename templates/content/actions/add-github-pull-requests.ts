@@ -6,8 +6,11 @@ import { documentChangeResource } from "../server/lib/document-change-resource.j
 import { GITHUB_PULL_REQUESTS_MAX_ADD_BATCH } from "../shared/github-pull-requests.js";
 import { resolveDatabaseForSourceMutation } from "./_database-source-utils.js";
 import { addGitHubPullRequests } from "./_github-pull-requests-source.js";
-import { serializeDatabase } from "./_property-utils.js";
-import { parsePullRequestLinks } from "./create-github-pull-request-collection.js";
+import {
+  addedPullRequestOutputSchema,
+  parsePullRequestLinks,
+  pullRequestCollectionOutputSchema,
+} from "./create-github-pull-request-collection.js";
 
 const addGitHubPullRequestsSchema = z
   .object({
@@ -48,6 +51,11 @@ export default defineAction({
   },
   agentInputSchema: addGitHubPullRequestsSchema,
   schema: addGitHubPullRequestsSchema,
+  outputSchema: z.object({
+    database: pullRequestCollectionOutputSchema,
+    pullRequests: z.array(addedPullRequestOutputSchema),
+    summary: z.string(),
+  }),
   run: async (args) => {
     const database = await resolveDatabaseForSourceMutation(
       args.databaseId
@@ -70,7 +78,11 @@ export default defineAction({
     });
     const created = pullRequests.filter((pr) => pr.created).length;
     return {
-      database: serializeDatabase(database),
+      database: {
+        id: database.id,
+        documentId: database.documentId,
+        title: database.title,
+      },
       pullRequests,
       summary:
         created > 0

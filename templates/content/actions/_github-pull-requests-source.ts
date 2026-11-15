@@ -199,10 +199,14 @@ async function insertColumn(
     now: string;
   },
 ): Promise<PullRequestColumn> {
-  const [maxPosition] = await tx
-    .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
-    .from(schema.documentPropertyDefinitions)
-    .where(eq(schema.documentPropertyDefinitions.databaseId, args.database.id));
+  const maxPosition = rowAt(
+    await tx
+      .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
+      .from(schema.documentPropertyDefinitions)
+      .where(
+        eq(schema.documentPropertyDefinitions.databaseId, args.database.id),
+      ),
+  );
   const propertyId = nanoid();
   // A select's choices are its fixed ones, or grow from the values, so it
   // starts without the placeholder option Content gives columns made by hand.
@@ -316,7 +320,9 @@ async function ensureOptions(
       id,
       name,
       color:
-        preset?.color ?? OPTION_COLORS[options.length % OPTION_COLORS.length]!,
+        preset?.color ??
+        rowAt(OPTION_COLORS, options.length % OPTION_COLORS.length) ??
+        "gray",
     });
     added = true;
   }
@@ -413,6 +419,14 @@ function sourceRowFields(
 }
 
 /**
+ * The row at `index`, or undefined past the end. Indexing alone types a
+ * missing row as present.
+ */
+export function rowAt<T>(rows: readonly T[], index = 0): T | undefined {
+  return rows[index];
+}
+
+/**
  * Writes rows a few statements at a time rather than one a row, each small
  * enough for SQLite's cap on the values one statement carries.
  */
@@ -420,8 +434,9 @@ async function inStatements<T extends object>(
   rows: T[],
   write: (rows: T[]) => Promise<unknown>,
 ) {
-  if (rows.length === 0) return;
-  const size = bulkChunkSizeForColumnCount(Object.keys(rows[0]!).length);
+  const first = rowAt(rows);
+  if (!first) return;
+  const size = bulkChunkSizeForColumnCount(Object.keys(first).length);
   for (const chunk of chunks(rows, size)) await write(chunk);
 }
 
@@ -439,36 +454,53 @@ async function takenDocumentIds(db: Db, ids: string[]) {
   return taken;
 }
 
+/** A new row with the page and collection item ids it gets. */
+interface PlacedRow {
+  row: PlannedRow;
+  documentId: string;
+  itemId: string;
+}
+
 /**
  * The page id each new row gets. It follows the pull request, so a retry
  * makes the same page; when a page left behind has it, like one in Trash
  * after the pull request left the search, the next free one after it.
  */
-async function newDocumentIds(db: Db, sourceId: string, keys: string[]) {
-  const ids = new Map<string, string>();
-  let unsettled = keys;
+async function placeNewRows(
+  db: Db,
+  sourceId: string,
+  rows: PlannedRow[],
+): Promise<PlacedRow[]> {
+  const placed: PlacedRow[] = [];
+  let unsettled = rows;
   for (let attempt = 0; unsettled.length > 0; attempt++) {
-    const candidates = unsettled.map(
-      (key) =>
-        [
-          key,
-          opaqueId(
-            "content_github_pr_page",
-            `${sourceId}:${key}${attempt > 0 ? `:${attempt}` : ""}`,
-          ),
-        ] as const,
-    );
+    const candidates = unsettled.map((row) => ({
+      row,
+      documentId: opaqueId(
+        "content_github_pr_page",
+        `${sourceId}:${row.key}${attempt > 0 ? `:${attempt}` : ""}`,
+      ),
+    }));
     const taken = await takenDocumentIds(
       db,
-      candidates.map(([, id]) => id),
+      candidates.map((candidate) => candidate.documentId),
     );
     unsettled = [];
-    for (const [key, id] of candidates) {
-      if (taken.has(id)) unsettled.push(key);
-      else ids.set(key, id);
+    for (const candidate of candidates) {
+      if (taken.has(candidate.documentId)) {
+        unsettled.push(candidate.row);
+      } else {
+        placed.push({
+          ...candidate,
+          itemId: opaqueId(
+            "content_github_pr_item",
+            `${sourceId}:${candidate.documentId}`,
+          ),
+        });
+      }
     }
   }
-  return ids;
+  return placed;
 }
 
 /**
@@ -479,33 +511,30 @@ async function newDocumentIds(db: Db, sourceId: string, keys: string[]) {
  */
 async function insertRows(tx: Db, write: RowWrite, rows: PlannedRow[]) {
   if (rows.length === 0) return;
-  const documentIdByKey = await newDocumentIds(
-    tx,
-    write.sourceId,
-    rows.map((row) => row.key),
-  );
-  const documentIds = rows.map((row) => documentIdByKey.get(row.key)!);
-  const itemIds = documentIds.map((id) =>
-    opaqueId("content_github_pr_item", `${write.sourceId}:${id}`),
-  );
-  const [maxDocument] = await tx
-    .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
-    .from(schema.documents)
-    .where(
-      and(
-        eq(schema.documents.ownerEmail, write.database.ownerEmail),
-        eq(schema.documents.parentId, write.database.documentId),
+  const placed = await placeNewRows(tx, write.sourceId, rows);
+  const documentIds = placed.map((entry) => entry.documentId);
+  const maxDocument = rowAt(
+    await tx
+      .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
+      .from(schema.documents)
+      .where(
+        and(
+          eq(schema.documents.ownerEmail, write.database.ownerEmail),
+          eq(schema.documents.parentId, write.database.documentId),
+        ),
       ),
-    );
-  const [maxItem] = await tx
-    .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
-    .from(schema.contentDatabaseItems)
-    .where(eq(schema.contentDatabaseItems.databaseId, write.database.id));
+  );
+  const maxItem = rowAt(
+    await tx
+      .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
+      .from(schema.contentDatabaseItems)
+      .where(eq(schema.contentDatabaseItems.databaseId, write.database.id)),
+  );
   const documentPosition = createAppendPositionAllocator(maxDocument?.max);
   const itemPosition = createAppendPositionAllocator(maxItem?.max);
   await inStatements(
-    rows.map((row, index) => ({
-      id: documentIds[index]!,
+    placed.map(({ row, documentId }) => ({
+      id: documentId,
       spaceId: write.database.spaceId ?? write.databaseDocument.spaceId,
       ownerEmail: write.database.ownerEmail,
       orgId: write.database.orgId,
@@ -516,8 +545,8 @@ async function insertRows(tx: Db, write: RowWrite, rows: PlannedRow[]) {
       icon: null,
       position: documentPosition(),
       isFavorite: 0,
-      hideFromSearch: write.databaseDocument.hideFromSearch ?? 0,
-      visibility: write.databaseDocument.visibility ?? "private",
+      hideFromSearch: write.databaseDocument.hideFromSearch,
+      visibility: write.databaseDocument.visibility,
       createdBy: write.actor,
       updatedBy: write.actor,
       createdAt: write.now,
@@ -526,8 +555,8 @@ async function insertRows(tx: Db, write: RowWrite, rows: PlannedRow[]) {
     (values) => tx.insert(schema.documents).values(values),
   );
   await inStatements(
-    documentIds.map((documentId, index) => ({
-      id: itemIds[index]!,
+    placed.map(({ documentId, itemId }) => ({
+      id: itemId,
       ownerEmail: write.database.ownerEmail,
       orgId: write.database.orgId,
       databaseId: write.database.id,
@@ -569,12 +598,12 @@ async function insertRows(tx: Db, write: RowWrite, rows: PlannedRow[]) {
   await recordCreatedDocumentsHistory({
     db: tx,
     ownerEmail: write.database.ownerEmail,
-    documents: rows.map((row, index) => ({
-      documentId: documentIds[index]!,
+    documents: placed.map(({ row, documentId }) => ({
+      documentId,
       title: row.pullRequest.title,
       content: "",
       cause: {
-        groupId: `github-pull-requests:${write.sourceId}:${write.now}:${documentIds[index]}`,
+        groupId: `github-pull-requests:${write.sourceId}:${write.now}:${documentId}`,
         groupKind: "operation",
         actorKind: "source",
         actorEmail: null,
@@ -594,7 +623,7 @@ async function insertRows(tx: Db, write: RowWrite, rows: PlannedRow[]) {
     );
   }
   await inStatements(
-    rows.flatMap((row, index) =>
+    placed.flatMap(({ row, documentId }) =>
       columns.flatMap((column) => {
         const normalized = columnValue(column, row);
         return normalized === null
@@ -603,7 +632,7 @@ async function insertRows(tx: Db, write: RowWrite, rows: PlannedRow[]) {
               {
                 id: nanoid(),
                 ownerEmail: write.database.ownerEmail,
-                documentId: documentIds[index]!,
+                documentId,
                 propertyId: column.propertyId,
                 valueJson: serializePropertyValue(normalized),
                 createdAt: write.now,
@@ -615,17 +644,11 @@ async function insertRows(tx: Db, write: RowWrite, rows: PlannedRow[]) {
     (values) => tx.insert(schema.documentPropertyValues).values(values),
   );
   await inStatements(
-    rows.map((row, index) => ({
-      id: opaqueId(
-        "content_source_row",
-        `${write.sourceId}:${documentIds[index]}`,
-      ),
+    placed.map(({ row, documentId, itemId }) => ({
+      id: opaqueId("content_source_row", `${write.sourceId}:${documentId}`),
       ownerEmail: write.database.ownerEmail,
       createdAt: write.now,
-      ...sourceRowFields(write, row, {
-        itemId: itemIds[index]!,
-        documentId: documentIds[index]!,
-      }),
+      ...sourceRowFields(write, row, { itemId, documentId }),
     })),
     (values) => tx.insert(schema.contentDatabaseSourceRows).values(values),
   );
@@ -638,15 +661,17 @@ async function updateRow(
   existing: SourceRow,
   row: PlannedRow,
 ): Promise<boolean> {
-  const [document] = await tx
-    .select({ title: schema.documents.title })
-    .from(schema.documents)
-    .where(
-      and(
-        eq(schema.documents.id, existing.documentId),
-        eq(schema.documents.ownerEmail, write.database.ownerEmail),
+  const document = rowAt(
+    await tx
+      .select({ title: schema.documents.title })
+      .from(schema.documents)
+      .where(
+        and(
+          eq(schema.documents.id, existing.documentId),
+          eq(schema.documents.ownerEmail, write.database.ownerEmail),
+        ),
       ),
-    );
+  );
   let changed = false;
   // GitHub owns the title, so a rename in Content goes back at the next sync.
   if (document && document.title !== row.pullRequest.title) {
@@ -769,22 +794,27 @@ interface LoadedSource {
 }
 
 async function readSource(sourceId: string): Promise<LoadedSource | null> {
-  const [target] = await getDb()
-    .select({
-      source: schema.contentDatabaseSources,
-      database: schema.contentDatabases,
-      databaseDocument: schema.documents,
-    })
-    .from(schema.contentDatabaseSources)
-    .innerJoin(
-      schema.contentDatabases,
-      eq(schema.contentDatabases.id, schema.contentDatabaseSources.databaseId),
-    )
-    .innerJoin(
-      schema.documents,
-      eq(schema.documents.id, schema.contentDatabases.documentId),
-    )
-    .where(eq(schema.contentDatabaseSources.id, sourceId));
+  const target = rowAt(
+    await getDb()
+      .select({
+        source: schema.contentDatabaseSources,
+        database: schema.contentDatabases,
+        databaseDocument: schema.documents,
+      })
+      .from(schema.contentDatabaseSources)
+      .innerJoin(
+        schema.contentDatabases,
+        eq(
+          schema.contentDatabases.id,
+          schema.contentDatabaseSources.databaseId,
+        ),
+      )
+      .innerJoin(
+        schema.documents,
+        eq(schema.documents.id, schema.contentDatabases.documentId),
+      )
+      .where(eq(schema.contentDatabaseSources.id, sourceId)),
+  );
   if (
     !target ||
     target.source.sourceType !== GITHUB_PULL_REQUESTS_SOURCE_TYPE
@@ -799,19 +829,21 @@ async function readSource(sourceId: string): Promise<LoadedSource | null> {
 
 /** The pull request link on a collection, if it has one. */
 export async function readLinkedGitHubPullRequests(databaseId: string) {
-  const [source] = await getDb()
-    .select({ id: schema.contentDatabaseSources.id })
-    .from(schema.contentDatabaseSources)
-    .where(
-      and(
-        eq(schema.contentDatabaseSources.databaseId, databaseId),
-        eq(
-          schema.contentDatabaseSources.sourceType,
-          GITHUB_PULL_REQUESTS_SOURCE_TYPE,
+  const source = rowAt(
+    await getDb()
+      .select({ id: schema.contentDatabaseSources.id })
+      .from(schema.contentDatabaseSources)
+      .where(
+        and(
+          eq(schema.contentDatabaseSources.databaseId, databaseId),
+          eq(
+            schema.contentDatabaseSources.sourceType,
+            GITHUB_PULL_REQUESTS_SOURCE_TYPE,
+          ),
         ),
-      ),
-    )
-    .limit(1);
+      )
+      .limit(1),
+  );
   return source ? await readSource(source.id) : null;
 }
 
@@ -853,16 +885,17 @@ async function claimSync(
   now: string,
 ): Promise<string | null> {
   const claimId = randomUUID();
-  let claimed = false;
+  // Set by the update below, which runs before it returns.
+  const claim = { won: false };
   await updateState(
     sourceId,
     now,
     (state) => {
-      claimed = false;
+      claim.won = false;
       if (state.claim && Date.parse(state.claim.until) > Date.parse(now)) {
         return null;
       }
-      claimed = true;
+      claim.won = true;
       return {
         ...state,
         claim: {
@@ -873,7 +906,7 @@ async function claimSync(
     },
     () => ({ syncState: "refreshing" }),
   );
-  return claimed ? claimId : null;
+  return claim.won ? claimId : null;
 }
 
 /** Waits, at most until `until`, for the sync holding the link's lease to end. */
@@ -902,11 +935,13 @@ async function lockLink(
   claimId?: string,
 ) {
   await lockContentDatabaseMutation(tx, database.id);
-  const [source] = await tx
-    .update(schema.contentDatabaseSources)
-    .set({ updatedAt: sql`${schema.contentDatabaseSources.updatedAt}` })
-    .where(eq(schema.contentDatabaseSources.id, sourceId))
-    .returning({ metadataJson: schema.contentDatabaseSources.metadataJson });
+  const source = rowAt(
+    await tx
+      .update(schema.contentDatabaseSources)
+      .set({ updatedAt: sql`${schema.contentDatabaseSources.updatedAt}` })
+      .where(eq(schema.contentDatabaseSources.id, sourceId))
+      .returning({ metadataJson: schema.contentDatabaseSources.metadataJson }),
+  );
   const state = source
     ? readGitHubPullRequestsState(parseJsonObject(source.metadataJson))
     : null;
@@ -1035,25 +1070,29 @@ async function trashRow(
       claimId,
     );
     if (state.added.includes(key)) return false;
-    const [record] = await tx
-      .select({ id: schema.contentDatabaseSourceRows.id })
-      .from(schema.contentDatabaseSourceRows)
-      .where(
-        and(
-          eq(schema.contentDatabaseSourceRows.id, row.id),
-          eq(schema.contentDatabaseSourceRows.documentId, row.documentId),
+    const record = rowAt(
+      await tx
+        .select({ id: schema.contentDatabaseSourceRows.id })
+        .from(schema.contentDatabaseSourceRows)
+        .where(
+          and(
+            eq(schema.contentDatabaseSourceRows.id, row.id),
+            eq(schema.contentDatabaseSourceRows.documentId, row.documentId),
+          ),
         ),
-      );
+    );
     if (!record) return false;
-    const [document] = await tx
-      .select({ trashedAt: schema.documents.trashedAt })
-      .from(schema.documents)
-      .where(
-        and(
-          eq(schema.documents.id, row.documentId),
-          eq(schema.documents.ownerEmail, ownerEmail),
+    const document = rowAt(
+      await tx
+        .select({ trashedAt: schema.documents.trashedAt })
+        .from(schema.documents)
+        .where(
+          and(
+            eq(schema.documents.id, row.documentId),
+            eq(schema.documents.ownerEmail, ownerEmail),
+          ),
         ),
-      );
+    );
     let moved = false;
     if (document && !document.trashedAt) {
       await trashDocumentSubtree(
@@ -1265,10 +1304,7 @@ export async function syncGitHubPullRequests(
     }
     result.rows = written.rows.size;
     result.searchTotal = searchTotal;
-    result.problem =
-      !complete && searchTotal !== null
-        ? tooManyResults(searchTotal, now)
-        : null;
+    result.problem = !complete ? tooManyResults(searchTotal, now) : null;
     await release(
       (current) => ({
         ...current,
@@ -1352,9 +1388,9 @@ export async function syncGitHubPullRequests(
 
 /** The repository and number a stored key names. */
 function refFromKey(key: string): GitHubPullRequestRef | null {
-  const match = /^([^/]+)\/([^#]+)#(\d+)$/.exec(key);
-  return match
-    ? { owner: match[1]!, repo: match[2]!, number: Number(match[3]) }
+  const [, owner, repo, number] = /^([^/]+)\/([^#]+)#(\d+)$/.exec(key) ?? [];
+  return owner && repo && number
+    ? { owner, repo, number: Number(number) }
     : null;
 }
 
@@ -1463,10 +1499,13 @@ export async function addGitHubPullRequests(args: {
       { errorCode: "SOURCE_NOT_FOUND", statusCode: 404 },
     );
   }
-  const keys = [...new Set(args.refs.map(githubPullRequestKey))];
-  const refByKey = new Map(
-    args.refs.map((ref) => [githubPullRequestKey(ref), ref] as const),
-  );
+  // One entry a pull request, however many times or ways it was named.
+  const wanted = [
+    ...new Map(
+      args.refs.map((ref) => [githubPullRequestKey(ref), ref] as const),
+    ),
+  ];
+  const keys = wanted.map(([key]) => key);
   const newlyAdded = keys.filter((key) => !loaded.state.added.includes(key));
   if (
     loaded.state.added.length + newlyAdded.length >
@@ -1478,7 +1517,7 @@ export async function addGitHubPullRequests(args: {
     );
   }
   const existing = await readSourceRows(getDb(), loaded.source.id);
-  const missing = keys.filter((key) => !existing.has(key));
+  const missing = wanted.filter(([key]) => !existing.has(key));
   let read: Array<GitHubPullRequestRecord | null> = [];
   if (missing.length > 0) {
     try {
@@ -1488,7 +1527,7 @@ export async function addGitHubPullRequests(args: {
             connectionId: loaded.state.connectionId,
             signal: AbortSignal.timeout(ADD_READ_BUDGET_MS),
           },
-          missing.map((key) => refByKey.get(key)!),
+          missing.map(([, ref]) => ref),
         ),
       );
     } catch (error) {
@@ -1521,10 +1560,9 @@ export async function addGitHubPullRequests(args: {
     }
     const unseen = missing.filter((_, index) => !read[index]);
     if (unseen.length > 0) {
-      const names = unseen.map((key) => {
-        const ref = refByKey.get(key)!;
-        return `${ref.owner}/${ref.repo}#${ref.number}`;
-      });
+      const names = unseen.map(
+        ([, ref]) => `${ref.owner}/${ref.repo}#${ref.number}`,
+      );
       throw new ActionContractError(
         `GitHub can't find ${names.join(", ")}, or the account that linked this collection can't see ${unseen.length === 1 ? "it" : "them"}.`,
         { errorCode: "PULL_REQUEST_NOT_FOUND", statusCode: 404 },
@@ -1545,7 +1583,7 @@ export async function addGitHubPullRequests(args: {
     pullRequests: read.filter((pr): pr is GitHubPullRequestRecord => !!pr),
     now,
   });
-  return keys.map((key) => {
+  return wanted.map(([key, ref]) => {
     const row = written.rows.get(key);
     if (!row) {
       throw new ActionContractError(
@@ -1555,7 +1593,7 @@ export async function addGitHubPullRequests(args: {
     }
     const values = parseJsonObject(row.sourceValuesJson);
     return {
-      url: githubPullRequestWebUrl(refByKey.get(key)!),
+      url: githubPullRequestWebUrl(ref),
       key,
       title: typeof values.title === "string" ? values.title : "",
       documentId: row.documentId,

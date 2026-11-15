@@ -11,6 +11,7 @@ import { GITHUB_PULL_REQUESTS_SOURCE_TYPE } from "../shared/github-pull-requests
 import { readGitHubPullRequestsState } from "./_github-pull-requests-metadata.js";
 import {
   githubPullRequestsSyncChangedRows,
+  rowAt,
   syncGitHubPullRequests,
   waitForGitHubPullRequestsSync,
   type GitHubPullRequestsSyncResult,
@@ -67,11 +68,13 @@ function statusShown(metadataJson: string | undefined) {
 }
 
 async function readStatusShown(sourceId: string) {
-  const [source] = await getDb()
-    .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
-    .from(schema.contentDatabaseSources)
-    .where(eq(schema.contentDatabaseSources.id, sourceId))
-    .limit(1);
+  const source = rowAt(
+    await getDb()
+      .select({ metadataJson: schema.contentDatabaseSources.metadataJson })
+      .from(schema.contentDatabaseSources)
+      .where(eq(schema.contentDatabaseSources.id, sourceId))
+      .limit(1),
+  );
   return statusShown(source?.metadataJson);
 }
 
@@ -202,8 +205,7 @@ export async function runGitHubPullRequestsSweep(
     .limit(SWEEP_MAX_LINKS);
   let next = 0;
   const worker = async () => {
-    while (next < due.length) {
-      const link = due[next++]!;
+    for (let link = rowAt(due, next++); link; link = rowAt(due, next++)) {
       const remaining = context.deadlineAt - Date.now();
       if (context.signal?.aborted || remaining < 2_000) return;
       const owner = linkState(link.metadataJson)?.linkedBy || null;

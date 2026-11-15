@@ -10051,8 +10051,7 @@ export function SourcesListView({
                 connected.sourceType === GITHUB_SOURCE_TYPE
                   ? github.description
                   : connected.sourceType === GITHUB_PULL_REQUESTS_SOURCE_TYPE
-                    ? (connected.metadata.githubPullRequests?.problem
-                        ?.message ?? undefined)
+                    ? connected.metadata.githubPullRequests?.problem?.message
                     : undefined
               }
               onClick={

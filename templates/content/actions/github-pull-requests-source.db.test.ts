@@ -183,7 +183,8 @@ function changePullRequest(
   key: string,
   change: Partial<GitHubPullRequestRecord>,
 ) {
-  const current = github.state.pullRequests.get(key)!;
+  const current = github.state.pullRequests.get(key);
+  if (!current) throw new Error(`No pull request ${key}.`);
   github.state.pullRequests.set(key, { ...current, ...change });
 }
 
@@ -243,30 +244,41 @@ async function columns(databaseId: string) {
     })
     .from(schema.documentPropertyDefinitions)
     .where(eq(schema.documentPropertyDefinitions.databaseId, databaseId));
-  return Object.fromEntries(
-    definitions.map((definition) => [definition.name, definition]),
+  return new Map(
+    definitions.map((definition) => [definition.name, definition] as const),
   );
 }
 
+function columnId(byName: Awaited<ReturnType<typeof columns>>, name: string) {
+  const column = byName.get(name);
+  if (!column) throw new Error(`No ${name} column.`);
+  return column.id;
+}
+
 async function value(documentId: string, propertyId: string) {
-  const [row] = await getDb()
-    .select({ valueJson: schema.documentPropertyValues.valueJson })
-    .from(schema.documentPropertyValues)
-    .where(
-      and(
-        eq(schema.documentPropertyValues.documentId, documentId),
-        eq(schema.documentPropertyValues.propertyId, propertyId),
-      ),
-    );
+  const row = (
+    await getDb()
+      .select({ valueJson: schema.documentPropertyValues.valueJson })
+      .from(schema.documentPropertyValues)
+      .where(
+        and(
+          eq(schema.documentPropertyValues.documentId, documentId),
+          eq(schema.documentPropertyValues.propertyId, propertyId),
+        ),
+      )
+  ).at(0);
   return row ? JSON.parse(row.valueJson) : undefined;
 }
 
 async function optionName(propertyId: string, stored: unknown) {
-  const [definition] = await getDb()
-    .select({ optionsJson: schema.documentPropertyDefinitions.optionsJson })
-    .from(schema.documentPropertyDefinitions)
-    .where(eq(schema.documentPropertyDefinitions.id, propertyId));
-  const options = JSON.parse(definition!.optionsJson).options as Array<{
+  const definition = (
+    await getDb()
+      .select({ optionsJson: schema.documentPropertyDefinitions.optionsJson })
+      .from(schema.documentPropertyDefinitions)
+      .where(eq(schema.documentPropertyDefinitions.id, propertyId))
+  ).at(0);
+  if (!definition) throw new Error(`No column ${propertyId}.`);
+  const options = JSON.parse(definition.optionsJson).options as Array<{
     id: string;
     name: string;
   }>;
@@ -307,7 +319,7 @@ describe("GitHub pull request collections", () => {
     const byName = await columns(result.database.id);
     expect(
       Object.fromEntries(
-        Object.entries(byName).map(([name, column]) => [name, column.type]),
+        [...byName].map(([name, column]) => [name, column.type]),
       ),
     ).toMatchObject({
       Repository: "select",
@@ -328,31 +340,35 @@ describe("GitHub pull request collections", () => {
     expect(draft.sourceMode).toBeNull();
     expect(
       await optionName(
-        byName.State!.id,
-        await value(draft.documentId, byName.State!.id),
+        columnId(byName, "State"),
+        await value(draft.documentId, columnId(byName, "State")),
       ),
     ).toBe("Draft");
     expect(
       await optionName(
-        byName.Review!.id,
-        await value(draft.documentId, byName.Review!.id),
+        columnId(byName, "Review"),
+        await value(draft.documentId, columnId(byName, "Review")),
       ),
     ).toBe("Changes requested");
-    expect(await value(draft.documentId, byName["Checks failing"]!.id)).toBe(
-      true,
+    expect(
+      await value(draft.documentId, columnId(byName, "Checks failing")),
+    ).toBe(true);
+    expect(await value(draft.documentId, columnId(byName, "Days open"))).toBe(
+      3,
     );
-    expect(await value(draft.documentId, byName["Days open"]!.id)).toBe(3);
-    expect(await value(draft.documentId, byName.Number!.id)).toBe(2);
-    expect(await value(draft.documentId, byName.Link!.id)).toBe(
+    expect(await value(draft.documentId, columnId(byName, "Number"))).toBe(2);
+    expect(await value(draft.documentId, columnId(byName, "Link"))).toBe(
       "https://github.com/acme/site/pull/2",
     );
-    expect(await value(draft.documentId, byName.Closed!.id)).toBeUndefined();
+    expect(
+      await value(draft.documentId, columnId(byName, "Closed")),
+    ).toBeUndefined();
 
     // Passing checks leave "Checks failing" empty, so a rollup counting
     // filled values counts only failing pull requests.
     const passing = await rowByTitle(result.database.id, "Fix the header");
     expect(
-      await value(passing.documentId, byName["Checks failing"]!.id),
+      await value(passing.documentId, columnId(byName, "Checks failing")),
     ).toBeUndefined();
 
     const fields = await getDb()
@@ -429,15 +445,17 @@ describe("GitHub pull request collections", () => {
     const kept = await rowByTitle(result.database.id, "Added by link");
     expect(
       await optionName(
-        byName.State!.id,
-        await value(kept.documentId, byName.State!.id),
+        columnId(byName, "State"),
+        await value(kept.documentId, columnId(byName, "State")),
       ),
     ).toBe("Merged");
     // Empty once closed, so a rollup's largest value is the oldest open one.
     expect(
-      await value(kept.documentId, byName["Days open"]!.id),
+      await value(kept.documentId, columnId(byName, "Days open")),
     ).toBeUndefined();
-    expect(await value(kept.documentId, byName.Closed!.id)).toMatchObject({
+    expect(
+      await value(kept.documentId, columnId(byName, "Closed")),
+    ).toMatchObject({
       start: new Date().toISOString().slice(0, 10),
     });
   });
@@ -446,7 +464,8 @@ describe("GitHub pull request collections", () => {
     const key = pullRequest("site", 21, { title: "Add search" });
     github.state.found = [key];
     const result = made(await newCollection());
-    const [row] = await rows(result.database.id);
+    const row = (await rows(result.database.id)).at(0);
+    if (!row) throw new Error("The collection has no row.");
 
     const first = await as(() =>
       addPullRequests.run({
@@ -457,7 +476,7 @@ describe("GitHub pull request collections", () => {
     expect(first.pullRequests).toEqual([
       expect.objectContaining({
         key,
-        documentId: row!.documentId,
+        documentId: row.documentId,
         created: false,
       }),
     ]);
@@ -469,7 +488,7 @@ describe("GitHub pull request collections", () => {
         urls: ["https://github.com/ACME/Site/pull/21"],
       }),
     );
-    expect(second.pullRequests[0]?.documentId).toBe(row!.documentId);
+    expect(second.pullRequests.at(0)?.documentId).toBe(row.documentId);
     expect(await rows(result.database.id)).toHaveLength(1);
 
     // Added by link, it stays when the search stops finding it.
