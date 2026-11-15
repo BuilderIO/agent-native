@@ -2218,6 +2218,27 @@ describe("desktop voice dictation runs", () => {
       expect(calls("native_speech_start")).toBe(1);
     });
 
+    it("a stop-only push link press starts nothing", async () => {
+      await install("push-to-talk");
+      await dispatch("voice:shortcut-start", { source: "link", stopOnly: true });
+      await vi.advanceTimersByTimeAsync(SHORT_TAP_MS);
+      expect(calls("native_speech_start")).toBe(0);
+      await dispatch("voice:shortcut-stop", { source: "link" });
+      await vi.advanceTimersByTimeAsync(RELEASE_TAIL_MS);
+      expect(calls("native_speech_stop")).toBe(0);
+    });
+
+    it("a stop-only push link press still stops a hands-free dictation", async () => {
+      await install("push-to-talk");
+      await dispatch("voice:shortcut-start", { source: "link-hands-free" });
+      await vi.advanceTimersByTimeAsync(SHORT_TAP_MS);
+      expect(calls("native_speech_start")).toBe(1);
+      await dispatch("voice:shortcut-start", { source: "link", stopOnly: true });
+      await vi.advanceTimersByTimeAsync(RELEASE_TAIL_MS);
+      expect(calls("native_speech_stop")).toBe(1);
+      expect(calls("native_speech_start")).toBe(1);
+    });
+
     it("asks for a hands-free link held at startup once its listener is up", async () => {
       tauri.invoke.mockImplementation((command) =>
         Promise.resolve(

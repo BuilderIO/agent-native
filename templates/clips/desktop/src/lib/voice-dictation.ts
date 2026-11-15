@@ -135,6 +135,11 @@ interface VoiceShortcutEvent {
   source?: VoiceShortcutSource;
   /** On a stop: how long the key was down, measured where it was pressed. */
   heldMs?: number;
+  /**
+   * A push-to-talk link pressed while a dictation it didn't start runs: it
+   * may stop a hands-free run, never start one.
+   */
+  stopOnly?: boolean;
 }
 
 interface DictationHistoryContext {
@@ -2758,7 +2763,7 @@ export function installDesktopVoiceDictation(
           return;
         }
         // A dictation this press didn't start: leave it, and its up with it.
-        if (session || startInFlight) return;
+        if (event.payload?.stopOnly || session || startInFlight) return;
         linkPushOwnsSession = true;
         void start("link");
         return;
