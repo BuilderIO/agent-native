@@ -1,4 +1,4 @@
-import { TextSelection } from "@tiptap/pm/state";
+import { AllSelection, TextSelection } from "@tiptap/pm/state";
 import type { Editor } from "@tiptap/react";
 import { useEffect, useState, type CSSProperties } from "react";
 
@@ -89,6 +89,7 @@ export function BubbleToolbar({
   const [coords, setCoords] = useState({ top: 0, left: 0 });
   const [showLinkInput, setShowLinkInput] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
+  const [linkText, setLinkText] = useState("");
 
   useEffect(() => {
     const update = () => {
@@ -101,7 +102,8 @@ export function BubbleToolbar({
         editor.view.dom.contains(selection.anchorNode) &&
         editor.view.dom.contains(selection.focusNode);
       if (
-        !(selectionState instanceof TextSelection) ||
+        (!(selectionState instanceof TextSelection) &&
+          !(selectionState instanceof AllSelection)) ||
         from === to ||
         !selectionInsideEditor
       ) {
@@ -140,27 +142,45 @@ export function BubbleToolbar({
     };
   }, [editor]);
 
-  const handleSetLink = () => {
-    if (linkUrl.trim()) {
-      editor
-        .chain()
-        .focus()
-        .extendMarkRange("link")
-        .setLink({ href: linkUrl.trim() })
-        .run();
-    } else {
-      editor.chain().focus().extendMarkRange("link").unsetLink().run();
-    }
+  const closeLinkEditor = () => {
     setShowLinkInput(false);
     setLinkUrl("");
+    setLinkText("");
+  };
+
+  const handleSetLink = () => {
+    const url = linkUrl.trim();
+    const text = linkText.trim();
+    const { from, to } = editor.state.selection;
+    const current = editor.state.doc.textBetween(from, to);
+    const chain = editor.chain().focus().extendMarkRange("link");
+    if (text && text !== current) {
+      chain
+        .insertContent({
+          type: "text",
+          text,
+          ...(url ? { marks: [{ type: "link", attrs: { href: url } }] } : {}),
+        })
+        .run();
+    } else if (url) {
+      chain.setLink({ href: url }).run();
+    } else {
+      chain.unsetLink().run();
+    }
+    closeLinkEditor();
+  };
+
+  const handleRemoveLink = () => {
+    editor.chain().focus().extendMarkRange("link").unsetLink().run();
+    closeLinkEditor();
   };
 
   const toggleLink = () => {
-    if (editor.isActive("link")) {
-      editor.chain().focus().unsetLink().run();
-      return;
-    }
-    setLinkUrl(editor.getAttributes("link").href || "");
+    const { from, to } = editor.state.selection;
+    setLinkUrl(
+      editor.isActive("link") ? editor.getAttributes("link").href || "" : "",
+    );
+    setLinkText(editor.state.doc.textBetween(from, to));
     setShowLinkInput(true);
   };
 
@@ -183,19 +203,35 @@ export function BubbleToolbar({
       {showLinkInput ? (
         <div className="an-rich-md-link-editor">
           <input
+            aria-label="Text"
+            placeholder="Link text"
+            value={linkText}
+            onChange={(event) => setLinkText(event.target.value)}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") handleSetLink();
+              if (event.key === "Escape") closeLinkEditor();
+            }}
+          />
+          <input
             autoFocus
+            aria-label="URL"
             type="url"
-            placeholder="Paste link..."
+            placeholder="https://example.com"
             value={linkUrl}
             onChange={(event) => setLinkUrl(event.target.value)}
             onKeyDown={(event) => {
               if (event.key === "Enter") handleSetLink();
-              if (event.key === "Escape") {
-                setShowLinkInput(false);
-                setLinkUrl("");
-              }
+              if (event.key === "Escape") closeLinkEditor();
             }}
           />
+          {editor.isActive("link") && (
+            <button type="button" onClick={handleRemoveLink}>
+              Remove
+            </button>
+          )}
+          <button type="button" onClick={closeLinkEditor}>
+            Cancel
+          </button>
           <button type="button" onClick={handleSetLink}>
             Apply
           </button>

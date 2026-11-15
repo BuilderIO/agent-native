@@ -308,6 +308,34 @@ export async function resolveAgentRunOrgScope(options: {
 }): Promise<AgentRunOrgScope> {
   const { ownerContext } = options;
   await assertOrgScopeAvailable(options.event);
+  // Only this explicit host credential can supply a personal scope here.
+  // Ordinary callers retain the resolver's existing precedence and failure handling.
+  const bearer = /^Bearer\s+(\S+)$/i.exec(
+    String(readHeaderValue(options.event, "authorization") ?? ""),
+  )?.[1];
+  if (bearer) {
+    const { verifyEmbedSessionToken } = await import("./embed-session.js");
+    const { isWorkspaceAppChatScope } =
+      await import("../shared/workspace-app-chat-capability.js");
+    const verified = verifyEmbedSessionToken(bearer);
+    if (verified.ok && isWorkspaceAppChatScope(verified.claims.scope)) {
+      const { getSession } = await import("./auth.js");
+      const session = await getSession(options.event);
+      if (
+        !session ||
+        session.token !== bearer ||
+        session.email.trim().toLowerCase() !==
+          verified.claims.ownerEmail.trim().toLowerCase()
+      )
+        throw createError({
+          statusCode: 401,
+          statusMessage: "Invalid chat session",
+        });
+      return session.orgId
+        ? { orgId: session.orgId }
+        : { orgScope: "personal" };
+    }
+  }
   const hasOwnerOrgId = Object.prototype.hasOwnProperty.call(
     ownerContext,
     "orgId",

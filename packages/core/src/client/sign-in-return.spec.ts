@@ -9,7 +9,12 @@ import {
   serverMountReturnPath,
 } from "./sign-in-return.js";
 
-function stubUi(pathname: string, search = "", apiBaseUrl?: string) {
+function stubUi(
+  pathname: string,
+  search = "",
+  apiBaseUrl?: string,
+  config: Record<string, unknown> = {},
+) {
   vi.stubGlobal("window", {
     location: {
       pathname,
@@ -18,7 +23,10 @@ function stubUi(pathname: string, search = "", apiBaseUrl?: string) {
       origin: "https://app.example.com",
       href: `https://app.example.com${pathname}${search}`,
     },
-    __AGENT_NATIVE_CONFIG__: apiBaseUrl ? { apiBaseUrl } : {},
+    __AGENT_NATIVE_CONFIG__: {
+      ...(apiBaseUrl ? { apiBaseUrl } : {}),
+      ...config,
+    },
   });
 }
 
@@ -104,5 +112,34 @@ describe("sign-in return with a separate server", () => {
     expect(serverAuthReturnPath("/clip/1", "/sign-in?c=abc")).toBe(
       "/sign-in?c=abc",
     );
+  });
+
+  // A path-mounted workspace app: the browser path already carries the mount,
+  // and the server (`getAppUrl`) joins the mount again, so the mount must be
+  // dropped once. Before this the return landed on `/calendar-app/calendar-app...`,
+  // which no route matches and the calendar catch-all explained as
+  // "Route not found" before falling back to Home.
+  it("drops the app mount from a browser path the server mounts itself", () => {
+    const workspace = {
+      workspaceRuntime: true,
+      workspaceAppPath: "/calendar-app",
+    };
+    stubUi("/calendar-app/week/2026/11/3", "", undefined, workspace);
+    expect(serverMountReturnPath("/calendar-app/week/2026/11/3")).toBe(
+      "/week/2026/11/3",
+    );
+    stubUi("/calendar-app/add-calendar-account", "", undefined, workspace);
+    expect(serverMountReturnPath("/calendar-app/add-calendar-account")).toBe(
+      "/add-calendar-account",
+    );
+    stubUi("/calendar-app", "", undefined, workspace);
+    expect(serverMountReturnPath("/calendar-app")).toBe("/");
+    stubUi("/calendar-app", "?date=2026-11-06", undefined, workspace);
+    expect(
+      serverMountReturnPath("/calendar-app", "/calendar-app?date=2026-11-06"),
+    ).toBe("/?date=2026-11-06");
+    // A caller that already passes the mount-relative path is unchanged.
+    stubUi("/calendar-app/week/2026/11/3", "", undefined, workspace);
+    expect(serverMountReturnPath("/week/2026/11/3")).toBe("/week/2026/11/3");
   });
 });

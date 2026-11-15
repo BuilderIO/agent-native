@@ -1277,6 +1277,9 @@ export async function runDbHealthProbe(
   if (db && options.schema) {
     schema = await runDatabaseSchemaHealthCheck({
       exec: dbExec as ReturnType<typeof getDbExec>,
+      // D210: `?schema=1` is the publish step's read-back, so it carries the
+      // migration ledgers too. Opt-in only — the plain health poll stays cheap.
+      migrations: true,
     });
   }
   // Same bounded-read pattern as the `SELECT 1` above, and reuses this exact
@@ -1678,6 +1681,11 @@ function parseBuilderCallbackBoolean(
 // attributes that execute when the browser renders them as an <img> src or
 // inlines them in the DOM. Mirrors SAFE_DATA_IMAGE in sanitize-html.ts.
 export const AVATAR_RASTER_MIME = /^data:image\/(png|jpe?g|gif|webp);/i;
+// The client crops the photo to a 64x64 JPEG before uploading, which lands far
+// under this. The cap is here because the write is a straight data URI from the
+// browser: without it one request could put any size of base64 in the settings
+// row that every page reads.
+export const AVATAR_MAX_DATA_URL_LENGTH = 256 * 1024;
 
 export function resolveAvatarEmailParam(
   pathname: string,
@@ -3146,11 +3154,24 @@ export function createOAuthPopupWaitingHandler() {
     if (completingWorkspaceConnection) {
       setResponseHeader(event, "Content-Language", locale);
     }
-    // Keep the opener alive until the client replaces this inert page with the
-    // provider URL. This only works while every opener document sends no COOP
-    // or `same-origin-allow-popups` (security-headers.ts); an opener sending
-    // `same-origin` severs the popup here and leaves it blank.
-    setResponseHeader(event, "Cross-Origin-Opener-Policy", "unsafe-none");
+    // The inert waiting page opts out of COOP (`unsafe-none`) so the opener can
+    // replace it with the provider URL; that only works while the opener sends
+    // no COOP or `same-origin-allow-popups` (security-headers.ts), because an
+    // opener sending `same-origin` severs the popup here and leaves it blank.
+    //
+    // The completion page must not opt out: its script posts the
+    // `agent-native:workspace-connection-complete` message to `window.opener`,
+    // and a COOP value that differs from the opener's severs that handle first
+    // (the popup reaches "Connection done" with `window.opener === null`, so
+    // the add-account dialog never closes). Match
+    // the framework pages instead.
+    setResponseHeader(
+      event,
+      "Cross-Origin-Opener-Policy",
+      completingWorkspaceConnection
+        ? "same-origin-allow-popups"
+        : "unsafe-none",
+    );
     return completingWorkspaceConnection
       ? oauthPopupCompletionHtml(
           locale,
@@ -6820,7 +6841,10 @@ export function createCoreRoutesPlugin(
       // GET    /_agent-native/runs[?active&limit]
       // GET    /_agent-native/runs/:id
       // DELETE /_agent-native/runs/:id
-      getH3App(nitroApp).use(`${P}/runs`, createProgressHandler());
+      getH3App(nitroApp).use(
+        `${P}/runs`,
+        createProgressHandler({ localApp: true }),
+      );
 
       // ─── Automations API ──────────────────────────────────────────────
       // GET  /_agent-native/automations — list all automations (parsed triggers)
@@ -6911,6 +6935,18 @@ export function createCoreRoutesPlugin(
             const data = await getSetting(
               `avatar:${decodeURIComponent(emailParam)}`,
             );
+            // Removing a photo is a decision about this account, not about the
+            // sign-in provider: the provider's picture must not come back and
+            // make the remove control look like it did nothing.
+            const removedOverride = await getSetting(
+              `avatarRemoved:${decodeURIComponent(emailParam)}`,
+            );
+            if (
+              (removedOverride as { removed?: boolean } | null)?.removed ===
+              true
+            ) {
+              return { image: null };
+            }
             const storedImage = (data as any)?.image;
             // A silhouette saved before it was recognized is not a photo either.
             if (
@@ -6954,7 +6990,42 @@ export function createCoreRoutesPlugin(
                   "image must be a data URI with a raster MIME type (png, jpeg, gif, or webp)",
               };
             }
-            await putSetting(`avatar:${session.email}`, { image });
+            if (image.length > AVATAR_MAX_DATA_URL_LENGTH) {
+              setResponseStatus(event, 413);
+              return {
+                error: `image must be at most ${AVATAR_MAX_DATA_URL_LENGTH} bytes`,
+              };
+            }
+            // The photo is the one setting that is a small raster image by
+            // design, so this write carries the inline-bytes exemption; the
+            // MIME allowlist and the size cap above are what bound it.
+            await putSetting(
+              `avatar:${session.email}`,
+              { image },
+              { allowInlineImageBytes: true },
+            );
+            await deleteSetting(`avatarRemoved:${session.email}`, {
+              requestSource: "avatar",
+            });
+            return { ok: true };
+          }
+
+          // DELETE /_agent-native/avatar — drop the current user's photo, so the
+          // initials fallback shows again (auth required).
+          if (method === "DELETE") {
+            const session = await getSession(event);
+            if (!session?.email) {
+              setResponseStatus(event, 401);
+              return { error: "unauthorized" };
+            }
+            await deleteSetting(`avatar:${session.email}`, {
+              requestSource: "avatar",
+            });
+            await putSetting(
+              `avatarRemoved:${session.email}`,
+              { removed: true, at: Date.now() },
+              { requestSource: "avatar" },
+            );
             return { ok: true };
           }
 

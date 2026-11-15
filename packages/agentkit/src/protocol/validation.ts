@@ -3171,6 +3171,30 @@ export function parseForkThreadInput(
 ): ForkThreadInput {
   const input = record(parseThreadIdInput(value, path), path);
   optionalString(input.fromMessageId, `${path}.fromMessageId`);
+  optionalString(input.beforeMessageId, `${path}.beforeMessageId`);
+  if (input.beforeMessageId !== undefined) {
+    if (
+      typeof input.beforeMessageId !== "string" ||
+      !input.beforeMessageId.trim()
+    ) {
+      throw new AgentProtocolValidationError(
+        `${path}.beforeMessageId`,
+        "expected a nonempty message id",
+      );
+    }
+    if (input.fromMessageId !== undefined) {
+      throw new AgentProtocolValidationError(
+        path,
+        "fromMessageId and beforeMessageId are mutually exclusive",
+      );
+    }
+  }
+  if (input.forkPurpose !== undefined && input.forkPurpose !== "edit") {
+    throw new AgentProtocolValidationError(
+      `${path}.forkPurpose`,
+      "expected edit",
+    );
+  }
   optionalString(input.title, `${path}.title`);
   optionalMetadata(input.metadata, `${path}.metadata`);
   return value as ForkThreadInput;

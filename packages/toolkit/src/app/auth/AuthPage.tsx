@@ -17,6 +17,7 @@ import {
   type BuilderSignupAssignment,
 } from "@agent-native/core/client/auth/builder-signup";
 import { whenConsentDecided } from "@agent-native/core/client/consent";
+import { startMobileGoogleAuth } from "@agent-native/core/client/mobile-auth";
 import { openOAuthPopup } from "@agent-native/core/client/oauth-popup";
 import { navigateForSession } from "@agent-native/core/client/use-session";
 import { normalizeLocaleCode } from "@agent-native/core/localization/shared";
@@ -72,6 +73,9 @@ const TAB_STORAGE_KEY = "an.onboarding.tab";
 const PENDING_SIGNUP_EMAIL_STORAGE_KEY = "an.onboarding.pendingSignupEmail";
 const GOOGLE_AUTH_URL_PATH = "/_agent-native/google/auth-url";
 const BUILDER_DESKTOP_RETURN_ORIGIN = "http://127.0.0.1:8080";
+// Re-enable the sign-in button this long after an OAuth exchange starts even
+// if the popup handle never reports closed and a session probe hangs.
+const OAUTH_EXCHANGE_BUSY_BOUND_MS = 30_000;
 const useIsomorphicLayoutEffect =
   typeof window === "undefined" ? React.useEffect : React.useLayoutEffect;
 
@@ -768,6 +772,7 @@ export function AuthPage(props: AuthPageProps) {
   const oauthPollInFlight = React.useRef(false);
   const oauthPopupTimer = React.useRef<number | null>(null);
   const oauthPopupGraceTimer = React.useRef<number | null>(null);
+  const oauthBusyBoundTimer = React.useRef<number | null>(null);
   const oauthFlowId = React.useRef<string | null>(null);
   const nativeOAuthFlowId = React.useRef<string | null>(null);
   const nativeOAuthRequestPending = React.useRef(false);
@@ -1260,6 +1265,10 @@ export function AuthPage(props: AuthPageProps) {
       window.clearTimeout(oauthPopupGraceTimer.current);
       oauthPopupGraceTimer.current = null;
     }
+    if (oauthBusyBoundTimer.current !== null) {
+      window.clearTimeout(oauthBusyBoundTimer.current);
+      oauthBusyBoundTimer.current = null;
+    }
     oauthPollInFlight.current = false;
   }, []);
 
@@ -1350,6 +1359,26 @@ export function AuthPage(props: AuthPageProps) {
       onAuthenticated?: (email?: string) => void,
     ) => {
       const startedAt = Date.now();
+      // Re-enable the button with a retry notice without stopping the
+      // exchange poll: a closed handle or a slow session probe is not proof
+      // the user gave up, so a late completion still finishes the flow.
+      const clearBusyForRetry = () => {
+        if (flowId !== oauthFlowId.current) return;
+        if (oauthBusyBoundTimer.current !== null) {
+          window.clearTimeout(oauthBusyBoundTimer.current);
+          oauthBusyBoundTimer.current = null;
+        }
+        setGoogleBusy(false);
+        setMagicLinkBusy(false);
+        if (kind === "magic-link") setView("magicLink");
+        setNotice(kind, {
+          kind: "error",
+          text:
+            kind === "magic-link"
+              ? t("magicLinkFailed")
+              : t("googleNeverFinished"),
+        });
+      };
       const check = async () => {
         if (oauthPollInFlight.current) return;
         oauthPollInFlight.current = true;
@@ -1399,19 +1428,11 @@ export function AuthPage(props: AuthPageProps) {
         } finally {
           oauthPollInFlight.current = false;
         }
+        if (flowId !== oauthFlowId.current) return;
         if (Date.now() - startedAt > 5 * 60 * 1000) {
           stopOAuthPolling();
           stopNativeOAuth();
-          setGoogleBusy(false);
-          setMagicLinkBusy(false);
-          if (kind === "magic-link") setView("magicLink");
-          setNotice(kind, {
-            kind: "error",
-            text:
-              kind === "magic-link"
-                ? t("magicLinkFailed")
-                : t("googleNeverFinished"),
-          });
+          clearBusyForRetry();
         }
       };
       stopOAuthPolling();
@@ -1451,14 +1472,20 @@ export function AuthPage(props: AuthPageProps) {
                   finishOAuthExchange(target);
                   return;
                 }
-                setGoogleBusy(false);
+                clearBusyForRetry();
               })
               .catch(() => {
-                if (flowId !== oauthFlowId.current) return;
-                setGoogleBusy(false);
+                clearBusyForRetry();
               });
           }, 5000);
         }, 500);
+        // Independent of `popup.closed` and of the session probe: a fixed
+        // bound keeps a hung exchange from spinning forever. Polling keeps
+        // running so a late finish still completes.
+        oauthBusyBoundTimer.current = window.setTimeout(() => {
+          oauthBusyBoundTimer.current = null;
+          clearBusyForRetry();
+        }, OAUTH_EXCHANGE_BUSY_BOUND_MS);
       }
       window.setTimeout(() => void check(), 500);
     },
@@ -1576,6 +1603,33 @@ export function AuthPage(props: AuthPageProps) {
       stopNativeOAuth();
     }
     const authUrl = googleAuthUrlPath();
+    const mobileAuth = startMobileGoogleAuth(authUrl, oauthTarget);
+    if (mobileAuth) {
+      stopOAuthPolling();
+      const showRetry = () => {
+        if (flowId !== oauthFlowId.current) return;
+        setGoogleBusy(false);
+        setNotice("google", { kind: "error", text: t("googleNeverFinished") });
+      };
+      oauthBusyBoundTimer.current = window.setTimeout(
+        showRetry,
+        OAUTH_EXCHANGE_BUSY_BOUND_MS,
+      );
+      try {
+        const result = await mobileAuth;
+        if (flowId !== oauthFlowId.current) return;
+        if (result === "signed-in") finishOAuthExchange(target);
+        else {
+          stopOAuthPolling();
+          showRetry();
+        }
+      } catch {
+        if (flowId !== oauthFlowId.current) return;
+        stopOAuthPolling();
+        showRetry();
+      }
+      return;
+    }
     if (flow === "redirect" && !nativeDesktop) {
       const params = new URLSearchParams({
         return: oauthTarget,
@@ -1709,6 +1763,8 @@ export function AuthPage(props: AuthPageProps) {
     setNotice,
     showGoogle,
     startOAuthExchange,
+    finishOAuthExchange,
+    stopOAuthPolling,
     stopNativeOAuth,
     t,
     trackingApp,

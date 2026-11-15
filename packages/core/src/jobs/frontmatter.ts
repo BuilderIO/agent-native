@@ -41,6 +41,12 @@ export interface JobFrontmatter {
   pausedReason?: string;
   pausedAt?: string;
   nextRun?: string;
+  /**
+   * Last moment this automation may start a run, ISO-8601. The scheduler
+   * disables the automation once it passes, so a task created with an end date
+   * stops instead of running forever.
+   */
+  expiresAt?: string | undefined;
   originScopeId?: string;
   deliveryPlatform?: string;
   deliveryDestination?: string;
@@ -175,6 +181,7 @@ const KNOWN_FRONTMATTER_FIELDS = new Set([
   "pausedReason",
   "pausedAt",
   "nextRun",
+  "expiresAt",
   "originScopeId",
   "deliveryPlatform",
   "deliveryDestination",
@@ -401,6 +408,9 @@ function parseKnownField(
       break;
     case "nextRun":
       meta.nextRun = value;
+      break;
+    case "expiresAt":
+      meta.expiresAt = value || undefined;
       break;
     case "originScopeId":
       meta.originScopeId = value;
@@ -649,6 +659,7 @@ export function buildJobResourceContent(
   pushString(lines, "lastFailedEventId", meta.lastFailedEventId);
   pushString(lines, "pausedReason", meta.pausedReason);
   pushString(lines, "pausedAt", meta.pausedAt);
+  pushString(lines, "expiresAt", meta.expiresAt);
   pushString(lines, "originScopeId", meta.originScopeId);
   pushString(lines, "deliveryPlatform", meta.deliveryPlatform);
   pushString(lines, "deliveryDestination", meta.deliveryDestination);

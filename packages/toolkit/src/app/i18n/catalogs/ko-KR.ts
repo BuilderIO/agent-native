@@ -725,7 +725,7 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.invalidAttachment":
     "모델 제공업체가 첨부 파일의 형식 또는 크기 때문에 거부했습니다. 이미지는 더 작은 PNG, JPEG, GIF 또는 WebP로 내보내세요. 문서는 지원되는 파일 형식을 사용하거나 관련 텍스트를 붙여 넣은 다음 다시 첨부하세요.",
   "errorMessages.noProviderConnected":
-    "연결된 LLM 제공업체가 없습니다. 설정 > 에이전트 > AI 제공업체를 열고 Builder.io(무료 플랜 제공)를 사용하거나 제공업체 키를 추가하세요.",
+    "연결된 LLM 제공업체가 없습니다. 설정 > 에이전트 > AI 제공업체를 열고 Builder.io를 연결하거나 제공업체 키를 추가하세요.",
   "errorMessages.openBuilderSpaceSettings": "Builder 스페이스 설정 열기",
   "errorMessages.providerAuthentication":
     "모델 제공업체가 저장된 API 키를 거부했습니다. 설정 → 연동 → API 키에서 키를 업데이트한 후 다시 시도하세요.",
@@ -766,6 +766,10 @@ const messages: ToolkitAgentChatTranslation = {
   "history.searching": "검색 중...",
   "history.untitledChat": "채팅",
   "history.yesterday": "어제",
+  "history.today": "오늘",
+  "commandMenu.systemGroup": "애플리케이션",
+  "share.alreadyInvited": "이미 초대됨",
+  "share.notInvitedToPage": "페이지에 초대되지 않음",
   "history.mine": "내 채팅",
   "history.sharedWithYou": "나와 공유된 채팅",
   "history.showAll": "모두 보기",
@@ -2179,6 +2183,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.passwordSaved": "비밀번호가 업데이트되었습니다",
   "settingsShell.account.photoError": "사진을 업데이트할 수 없습니다.",
   "settingsShell.account.photoUpdated": "사진이 업데이트되었습니다",
+  "settingsShell.account.photoRemoved": "사진이 삭제되었습니다",
+  "settingsShell.account.removePhoto": "사진 삭제",
+  "settingsShell.account.emailDeliveryUnavailable":
+    "여기에는 이메일 전송이 설정되어 있지 않습니다",
   "settingsShell.account.profilePhoto": "프로필 사진",
   "settingsShell.account.requestCopyDescription":
     "관리자가 본인 확인 후 후속 조치를 합니다.",
@@ -3363,7 +3371,7 @@ const messages: ToolkitAgentChatTranslation = {
   "message.responseFailed": "응답 실패",
   "message.waitingForApproval": "승인 대기 중",
   "message.waitingForInput": "입력 대기 중",
-  "message.workSummaryFailedCount": "{{summary}}, {{count}}개 실패",
+  "message.workSummaryFailedCount": "{{summary}}, 실패한 시도: {{count}}",
   "message.taskStatusPending": "대기 중",
   "message.taskStatusRunning": "실행 중",
   "message.taskStatusCompleted": "완료",

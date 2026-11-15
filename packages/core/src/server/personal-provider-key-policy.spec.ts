@@ -261,6 +261,71 @@ describe("isPersonalProviderKeyUseRestricted", () => {
     await expect(isPersonalProviderKeyUseRestricted(input)).resolves.toBe(true);
     expect(mocks.getOrgSetting).toHaveBeenCalledTimes(2);
   });
+
+  it("fresh asks bypass the memo and replace the cached answer", async () => {
+    mocks.request.ctx = {};
+    restricted(false);
+    const input = { email: "member@example.com", orgId: "org-1" };
+    await expect(isPersonalProviderKeyUseRestricted(input)).resolves.toBe(
+      false,
+    );
+
+    restricted(true);
+    await expect(
+      isPersonalProviderKeyUseRestricted({ ...input, fresh: true }),
+    ).resolves.toBe(true);
+    expect(mocks.getOrgSetting).toHaveBeenLastCalledWith(
+      "org-1",
+      "restrict-personal-provider-keys",
+      { bypassCache: true },
+    );
+
+    await expect(isPersonalProviderKeyUseRestricted(input)).resolves.toBe(true);
+    expect(mocks.getOrgSetting).toHaveBeenCalledTimes(2);
+  });
+
+  it("fresh bypasses a stale settings snapshot while default memo stays cached", async () => {
+    mocks.request.ctx = {};
+    restricted(false);
+    const input = { email: "member@example.com", orgId: "org-1" };
+    await expect(isPersonalProviderKeyUseRestricted(input)).resolves.toBe(
+      false,
+    );
+
+    // A different request changed the policy. The default answer is still the
+    // old memoized promise; a fresh ask must read the native setting again.
+    restricted(true);
+    await expect(
+      isPersonalProviderKeyUseRestricted({ ...input, fresh: true }),
+    ).resolves.toBe(true);
+    await expect(isPersonalProviderKeyUseRestricted(input)).resolves.toBe(true);
+  });
+
+  it("an old rejected pending cannot delete a newer fresh cache entry", async () => {
+    mocks.request.ctx = {};
+    let rejectOld: ((error: Error) => void) | undefined;
+    mocks.getOrgSetting.mockImplementationOnce(
+      () =>
+        new Promise((_resolve, reject) => {
+          rejectOld = reject;
+        }),
+    );
+    const input = { email: "member@example.com", orgId: "org-1" };
+    const old = isPersonalProviderKeyUseRestricted(input);
+    const oldSettled = old.catch(() => undefined);
+
+    restricted(true);
+    await expect(
+      isPersonalProviderKeyUseRestricted({ ...input, fresh: true }),
+    ).resolves.toBe(true);
+    mocks.getOrgSetting.mockClear();
+
+    rejectOld?.(new Error("old failed read"));
+    await oldSettled;
+
+    await expect(isPersonalProviderKeyUseRestricted(input)).resolves.toBe(true);
+    expect(mocks.getOrgSetting).not.toHaveBeenCalled();
+  });
 });
 
 describe("policy reads and writes", () => {

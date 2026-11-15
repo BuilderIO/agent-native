@@ -16,6 +16,8 @@ export interface AgentChatMcpOptions {
   enabled?: boolean;
   catalog?: "app" | "directory";
   connectorCatalog?: string[];
+  taskCandidates?: MCPConfig["taskCandidates"];
+  readOnlyResources?: boolean;
   directoryProfile?: {
     connectorCatalog: string[];
     directoryRoute?: false;
@@ -97,6 +99,8 @@ export interface ResolvedAgentChatMcp {
   enabled: boolean;
   catalog: "app" | "directory" | undefined;
   connectorCatalog: string[] | undefined;
+  taskCandidates: MCPConfig["taskCandidates"];
+  readOnlyResources: boolean | undefined;
   directoryProfile: AgentChatMcpOptions["directoryProfile"] | undefined;
   externalAgents: ExternalAgentPolicy | undefined;
   builtinCrossAppTools: boolean | undefined;
@@ -180,6 +184,8 @@ export function resolveAgentChatMcpOptions(
     enabled: enabled ?? true,
     catalog: mcp.catalog,
     connectorCatalog,
+    taskCandidates: mcp.taskCandidates,
+    readOnlyResources: mcp.readOnlyResources,
     directoryProfile: mcp.directoryProfile,
     externalAgents: pick(
       "externalAgents",

@@ -22,7 +22,7 @@ const dispatchAuthPlugin = async (nitroApp: any) => {
   const plugin = createToolkitAuthPlugin({
     googleOnly,
     marketing: marketing as any,
-    workspaceAppPublicPaths: ["/"],
+    workspaceAppPublicPaths: authConfig.workspaceAppPublicPaths ?? ["/"],
     // This route authenticates its own audience-bound service bearer before any
     // asset lookup; the session guard cannot authenticate peer services.
     publicPaths: [

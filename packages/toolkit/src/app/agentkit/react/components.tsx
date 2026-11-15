@@ -202,6 +202,7 @@ import {
   agentKitTurnInProgress,
   pendingSubmissionFiles,
 } from "./pending-submissions.js";
+import { visibleQueuedRows } from "./queued-row-visibility.js";
 import { parseStackTrace, StackTrace } from "./stack-trace.js";
 import { Terminal } from "./terminal.js";
 
@@ -5676,6 +5677,7 @@ async function forkAndResubmitMessage({
   const forkedThread = await controller.forkThread(
     threadId,
     previousMessage?.id,
+    previousMessage ? undefined : { beforeMessageId: sourceMessage.id },
   );
   onThreadForked?.(forkedThread);
   await controller.sendMessage({
@@ -7126,6 +7128,7 @@ export interface AgentKitComposerProps extends Omit<
     | "onSlashCommand"
     | "plusMenuMode"
     | "voiceEnabled"
+    | "voiceChatEnabled"
     | "onVoiceChatStart"
     | "autoFocus"
     | "disabled"
@@ -7139,6 +7142,7 @@ export interface AgentKitComposerProps extends Omit<
     | "availableModels"
     | "modelListLoading"
     | "selectedModel"
+    | "defaultModel"
     | "selectedEngine"
     | "selectedEffort"
     | "placeholder"
@@ -7153,6 +7157,7 @@ export interface AgentKitComposerProps extends Omit<
     | "onAgentChange"
     | "onModelSelectorOpenChange"
     | "modelStatusChecksEnabled"
+    | "modelTriggerNamesSelectionOnly"
     | "showMissingApiKeySetup"
     | "setupCardVisible"
     | "onModelConnectionRequiredChange"
@@ -7167,6 +7172,9 @@ export interface AgentKitComposerProps extends Omit<
     | "onRetryContextItem"
     | "onPasteContext"
     | "contextMenuItems"
+    | "mentionItems"
+    | "mentionItemsError"
+    | "mentionPopoverDensity"
     | "attachmentAdapter"
     | "inlineTextAttachments"
     | "extraActionButton"
@@ -7230,10 +7238,17 @@ export function AgentKitComposer({
   includeDefaultSlashCommands,
   includeDefaultSlashSkills,
   onSlashCommand,
+  mentionItems,
+  mentionItemsError,
+  mentionPopoverDensity,
   plusMenuMode,
   voiceEnabled = false,
+  // Let a host keep dictation while the primary resting control is Send;
+  // defaults to today's behaviour for every other app.
+  voiceChatEnabled,
   onVoiceChatStart,
   autoFocus = true,
+  defaultModel,
   toolbarSlot,
   disabled,
   isReferenceTarget,
@@ -7260,6 +7275,7 @@ export function AgentKitComposer({
   onAgentChange,
   onModelSelectorOpenChange,
   modelStatusChecksEnabled,
+  modelTriggerNamesSelectionOnly,
   requireAgentEngine = false,
   showMissingApiKeySetup,
   setupCardVisible,
@@ -7735,10 +7751,10 @@ export function AgentKitComposer({
       await controller.assertAiSetupReady({
         engine: typeof selectedEngine === "string" ? selectedEngine : undefined,
       });
-      const forkedThread = await controller.forkThread(
-        threadId,
-        previousMessage?.id,
-      );
+      const forkedThread = await controller.forkThread(threadId, undefined, {
+        beforeMessageId: editingMessage.id,
+        forkPurpose: "edit",
+      });
       submitFailureDraftScopeRef.current = `agentkit:${forkedThread.id}`;
       onThreadForked(forkedThread);
       const uploadedAttachments = uploadFiles.length
@@ -7922,6 +7938,24 @@ export function AgentKitComposer({
         focusComposer();
       });
   };
+  // The queue renders what the thread holds, minus rows the transcript already proves were delivered
+  // (a delivered "Send now" row outlived its run and stuck on screen).
+  const queuedRows = visibleQueuedRows({
+    active,
+    queuedMessages: thread.queuedMessages.map((message) => ({
+      id: message.id,
+      text: splitAgentKitMessageContext(message.text).message,
+      ...(message.delivery ? { delivery: message.delivery } : {}),
+    })),
+    messages: thread.messages.map((message) => ({
+      role: message.role,
+      text: splitAgentKitMessageContext(messageText(message)).message,
+    })),
+  });
+  const queuedRowIds = new Set(queuedRows.map((row) => row.id));
+  const visibleQueuedMessages = thread.queuedMessages.filter((message) =>
+    queuedRowIds.has(message.id),
+  );
   const Queue = slots.queue;
   const Suggestions = slots.suggestions;
   const suggestions = selectAgentSuggestions(thread);
@@ -7973,7 +8007,7 @@ export function AgentKitComposer({
         {queueCapability.visible ? (
           Queue ? (
             <Queue
-              items={thread.queuedMessages.map((message) => {
+              items={visibleQueuedMessages.map((message) => {
                 const metadata = stripAgentContextMetadata(message.metadata);
                 return {
                   ...message,
@@ -7990,7 +8024,7 @@ export function AgentKitComposer({
           ) : (
             <MessageQueueDrawer
               variant="recessed"
-              items={thread.queuedMessages.map((message) => ({
+              items={visibleQueuedMessages.map((message) => ({
                 id: message.id,
                 text: splitAgentKitMessageContext(message.text).message,
                 images: (message.attachments ?? []).flatMap((attachment) => {
@@ -8106,6 +8140,9 @@ export function AgentKitComposer({
             onRetryContextItem,
             onPasteContext,
             contextMenuItems,
+            mentionItems,
+            mentionItemsError,
+            mentionPopoverDensity,
             inlineTextAttachments,
             disabled,
             isReferenceTarget,
@@ -8119,6 +8156,7 @@ export function AgentKitComposer({
             availableModels,
             modelListLoading,
             selectedModel,
+            defaultModel,
             selectedEngine,
             selectedEffort,
             onModelChange,
@@ -8129,6 +8167,7 @@ export function AgentKitComposer({
             onAgentChange,
             onModelSelectorOpenChange,
             modelStatusChecksEnabled,
+            modelTriggerNamesSelectionOnly,
             requireAgentEngine,
             showMissingApiKeySetup,
             setupCardVisible,
@@ -8146,6 +8185,7 @@ export function AgentKitComposer({
             slashSkills,
             onSlashCommand,
             voiceEnabled,
+            voiceChatEnabled,
             onVoiceChatStart,
             replyPlaceholder: placeholder ?? labels.composerReplyPlaceholder,
             onEscape: editingMessage ? cancelEditing : undefined,
@@ -10395,7 +10435,14 @@ export function AgentKitChat({
                         <ErrorState
                           error={visibleConnectionError}
                           threadId={threadId}
-                          recover={recovery.execute}
+                          // A successful reconnect answers the failed history read, so the notice it
+                          // raised goes with it. A failed reconnect throws and
+                          // leaves the notice up with its own recovery error.
+                          recover={async () => {
+                            const result = await recovery.execute();
+                            clearConnectionNotice();
+                            return result;
+                          }}
                           recovering={recovery.pending}
                           {...(recovery.error === undefined
                             ? {}

@@ -40,6 +40,7 @@ import React, {
 import { useLocation, useNavigate } from "react-router";
 
 import { Skeleton } from "../../ui/skeleton.js";
+import { DESKTOP_DOWNLOAD_URL } from "../desktop-download.js";
 import { resolveFeedbackUrl } from "../feedback/FeedbackButton.js";
 import { ErrorReportActions, FeedbackButton } from "../feedback/index.js";
 import { RunsTrayMenuItem } from "../progress/index.js";
@@ -610,6 +611,12 @@ export interface AgentPanelProps extends Omit<
     | null
     | undefined;
   isolateHistoryByScope?: boolean;
+  /** Offer a New chat action inside the chat-history switcher popover. */
+  historyShowNewChat?: boolean;
+  /** Group the switcher's chats under date headings (Today, Yesterday, …). */
+  historyGroupByDate?: boolean;
+  /** Show one history entry per edited chat lineage. Defaults to false. */
+  collapseHistoryEdits?: boolean;
   composerAutoFocus?: MultiTabAssistantChatProps["composerAutoFocus"];
   /** @deprecated Scope context now appears inside the composer. */
   showScopeBadge?: MultiTabAssistantChatProps["showScopeBadge"];
@@ -814,6 +821,9 @@ function AgentPanelInner({
   restoreActiveThread = true,
   scope,
   isolateHistoryByScope = false,
+  historyShowNewChat = false,
+  historyGroupByDate = false,
+  collapseHistoryEdits = false,
   composerAutoFocus,
   showScopeBadge,
   browserTabId,
@@ -1082,7 +1092,7 @@ function AgentPanelInner({
   const codeUnavailableCtaLabel =
     codeAccess?.unavailableCtaLabel ?? t("agentPanel.downloadDesktop");
   const codeUnavailableCtaHref =
-    codeAccess?.unavailableCtaHref ?? "https://www.agent-native.com/download";
+    codeAccess?.unavailableCtaHref ?? DESKTOP_DOWNLOAD_URL;
   const codeUnavailableSecondaryCtaLabel =
     codeAccess?.unavailableSecondaryCtaLabel ??
     t("agentPanel.connectBuilderIo");
@@ -2268,6 +2278,9 @@ function AgentPanelInner({
               restoreActiveThread={restoreActiveThread}
               scope={scope}
               isolateHistoryByScope={isolateHistoryByScope}
+              historyShowNewChat={historyShowNewChat}
+              historyGroupByDate={historyGroupByDate}
+              collapseHistoryEdits={collapseHistoryEdits}
               composerAutoFocus={composerAutoFocus}
               showScopeBadge={showScopeBadge}
               browserTabId={browserTabId}

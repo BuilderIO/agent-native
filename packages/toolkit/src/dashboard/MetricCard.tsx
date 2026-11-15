@@ -1,5 +1,9 @@
 import type { ComponentType } from "react";
 
+import {
+  formatLocaleNumber,
+  useReaderLocale,
+} from "../app/shared/reader-locale.js";
 import { Card, CardContent, CardHeader, CardTitle } from "../ui/card.js";
 import { Skeleton } from "../ui/skeleton.js";
 
@@ -20,6 +24,7 @@ export function MetricCard({
   loading,
   error,
 }: MetricCardProps) {
+  const readerLocale = useReaderLocale();
   return (
     <Card className="border-border/50 bg-card">
       <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
@@ -37,7 +42,7 @@ export function MetricCard({
           <>
             <div className="text-2xl font-bold">
               {typeof value === "number"
-                ? value.toLocaleString()
+                ? formatLocaleNumber(value, readerLocale)
                 : (value ?? "-")}
             </div>
             {description && (

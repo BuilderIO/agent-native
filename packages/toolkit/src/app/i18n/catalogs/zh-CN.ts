@@ -687,7 +687,7 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.invalidAttachment":
     "模型提供商因附件格式或大小不受支持而拒绝了该附件。图片请导出为更小的 PNG、JPEG、GIF 或 WebP；文档请使用受支持的文件格式，或粘贴相关文本，然后重新附加。",
   "errorMessages.noProviderConnected":
-    "尚未连接 LLM 提供商。打开设置 > 智能体 > AI 提供商，然后使用 Builder.io（提供免费套餐）或添加提供商密钥。",
+    "尚未连接 LLM 提供商。打开设置 > 智能体 > AI 提供商，然后连接 Builder.io 或添加提供商密钥。",
   "errorMessages.openBuilderSpaceSettings": "打开 Builder 空间设置",
   "errorMessages.providerAuthentication":
     "模型提供商拒绝了已保存的 API 密钥。请在设置 → 集成 → API 密钥中更新密钥，然后重试。",
@@ -727,6 +727,10 @@ const messages: ToolkitAgentChatTranslation = {
   "history.searching": "正在搜索...",
   "history.untitledChat": "聊天",
   "history.yesterday": "昨天",
+  "history.today": "今天",
+  "commandMenu.systemGroup": "应用",
+  "share.alreadyInvited": "已邀请",
+  "share.notInvitedToPage": "未受邀访问页面",
   "history.mine": "我的聊天",
   "history.sharedWithYou": "与您共享",
   "history.showAll": "显示全部",
@@ -2052,6 +2056,9 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.passwordSaved": "密码已更新",
   "settingsShell.account.photoError": "无法更新照片。",
   "settingsShell.account.photoUpdated": "照片已更新",
+  "settingsShell.account.photoRemoved": "照片已移除",
+  "settingsShell.account.removePhoto": "移除照片",
+  "settingsShell.account.emailDeliveryUnavailable": "此处未设置邮件发送",
   "settingsShell.account.profilePhoto": "头像",
   "settingsShell.account.requestCopyDescription":
     "管理员会核实您的身份并跟进。",
@@ -3108,7 +3115,7 @@ const messages: ToolkitAgentChatTranslation = {
   "message.responseFailed": "回复失败",
   "message.waitingForApproval": "等待批准",
   "message.waitingForInput": "等待输入",
-  "message.workSummaryFailedCount": "{{summary}}，{{count}} 项失败",
+  "message.workSummaryFailedCount": "{{summary}}，失败的尝试：{{count}}",
   "message.taskStatusPending": "待处理",
   "message.taskStatusRunning": "运行中",
   "message.taskStatusCompleted": "已完成",

@@ -12,9 +12,11 @@ import {
   AUTO_CONTINUE_OF_RUN_METADATA_KEY,
   CONTINUE_OF_RUN_METADATA_KEY,
 } from "../../agent/auto-continue.js";
-import type {
-  AgentChatStructuredContentPart,
-  AgentChatStructuredMessage,
+import {
+  normalizeAgentActionScope,
+  type AgentActionScope,
+  type AgentChatStructuredContentPart,
+  type AgentChatStructuredMessage,
 } from "../../agent/types.js";
 import type { AgentMcpAppPayload } from "../../mcp-client/app-result.js";
 import { RUN_NOT_STARTED_METADATA_KEY } from "../../shared/agent-chat-run-not-started.js";
@@ -990,6 +992,8 @@ export interface CreateAgentNativeChatRuntimeOptions {
   readonly engine?: string;
   readonly effort?: ReasoningEffort;
   readonly scope?: unknown;
+  /** Requested action scope; captured once and authorized by the server. */
+  readonly actionScope?: AgentActionScope;
 }
 
 const DEFAULT_RUNTIME_CAPABILITIES: AgentChatRuntimeCapabilities = {
@@ -1296,6 +1300,56 @@ async function* streamResponseEvents<TEvent extends AgentChatRuntimeEventBase>(
       yield mapped;
     }
   }
+}
+
+/**
+ * The facts of a submission exist twice in one request: inside `submissionPayload`, and
+ * as the body's own `threadId` / message id / text / `references` / `options`. The
+ * server refuses a start when the two disagree, comparing them field by field and
+ * answering 400 "submissionPayload does not match this message"
+ * (packages/core/src/agent/production-agent.ts).
+ *
+ * That makes every layer that changes one side a guaranteed refusal rather than a
+ * merge: a transport wrapper that injects context patches `references` on the request
+ * and leaves the payload alone, and a queued message that is rebuilt before it is sent
+ * drifts the same way. Rather than asking each of those layers to remember to patch two
+ * copies, the payload the client sends is DERIVED from the body here — one copy, one
+ * value, and a wrapper's change reaches it because it changed the body.
+ *
+ * Only the cross-checked fields are taken from the body; anything else the payload
+ * carries (its metadata, its fingerprint) is left exactly as it was.
+ */
+export function submissionPayloadForRequest(
+  payload: unknown,
+  body: {
+    threadId: string;
+    agentKitMessageId?: string;
+    text: string;
+    references?: readonly unknown[];
+    options?: unknown;
+  },
+): unknown {
+  if (
+    payload === null ||
+    typeof payload !== "object" ||
+    Array.isArray(payload)
+  ) {
+    return payload;
+  }
+  const derived: Record<string, unknown> = {
+    ...(payload as Record<string, unknown>),
+    threadId: body.threadId,
+    text: body.text,
+  };
+  if (body.agentKitMessageId) derived.id = body.agentKitMessageId;
+  // The server compares `references ?? []` and `options ?? {}`, so an absent key and an
+  // empty one are the same fact: mirror the body exactly instead of inventing values.
+  if (body.references && body.references.length > 0) {
+    derived.references = body.references;
+  } else delete derived.references;
+  if (body.options === undefined) delete derived.options;
+  else derived.options = body.options;
+  return derived;
 }
 
 function defaultHttpRuntimeRequest(input: {
@@ -5142,6 +5196,10 @@ export function createAgentNativeChatRuntime(
   options: CreateAgentNativeChatRuntimeOptions = {},
   telemetry: AgentNativeChatRuntimeTelemetry = {},
 ): AgentChatRuntime<AgentChatRuntimeKnownEvent> {
+  const actionScope =
+    options.actionScope === undefined
+      ? undefined
+      : normalizeAgentActionScope(options.actionScope);
   const apiUrl = options.apiUrl ?? agentNativePath("/_agent-native/agent-chat");
   const runtimeId = options.id ?? "agent-native";
   const fetchImpl = options.fetch ?? fetch;
@@ -5406,6 +5464,9 @@ export function createAgentNativeChatRuntime(
         approvedToolCalls,
         approvedToolCallAskIds,
       );
+      // The transport requires a string here; a session without a thread id falls back
+      // to the option, and an app without either has no thread to address.
+      const requestThreadId = session.threadId ?? options.threadId ?? "";
       return {
         message: prompt,
         ...(latestUserMessage?.id
@@ -5416,9 +5477,22 @@ export function createAgentNativeChatRuntime(
         ...(structuredHistory?.length ? { structuredHistory } : {}),
         ...(loadedSkillSlugs.length ? { loadedSkillSlugs } : {}),
         turnId: requestTurnId,
-        threadId: session.threadId ?? options.threadId,
+        threadId: requestThreadId,
         ...(turn.submissionPayload !== undefined
-          ? { submissionPayload: turn.submissionPayload }
+          ? {
+              submissionPayload: submissionPayloadForRequest(
+                turn.submissionPayload,
+                {
+                  threadId: requestThreadId,
+                  ...(latestUserMessage?.id
+                    ? { agentKitMessageId: latestUserMessage.id }
+                    : {}),
+                  text: prompt,
+                  ...(turn.references ? { references: turn.references } : {}),
+                  ...(turn.options ? { options: turn.options } : {}),
+                },
+              ),
+            }
           : {}),
         ...(turn.references?.length ? { references: turn.references } : {}),
         ...(turn.options ? { options: turn.options } : {}),
@@ -5449,6 +5523,7 @@ export function createAgentNativeChatRuntime(
           : {}),
         ...(options.browserTabId ? { browserTabId: options.browserTabId } : {}),
         ...(options.scope ? { scope: options.scope } : {}),
+        ...(actionScope === undefined ? {} : { actionScope }),
         ...(turn.attachments?.length ? { attachments: turn.attachments } : {}),
         ...(turn.metadata ? { metadata: turn.metadata } : {}),
       };

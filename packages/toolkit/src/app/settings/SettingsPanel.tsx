@@ -292,7 +292,7 @@ function UseBuilderCard({
   trackingSource = "settings_panel_builder_card",
   trackingFlow = "connect_llm",
   label,
-  subtitle = "Builder.io free credits to start - no API key needed.",
+  subtitle = "Use the workspace's Builder.io connection - no API key needed.",
   dim,
   compact = false,
 }: {
@@ -316,6 +316,35 @@ function UseBuilderCard({
   const effectiveOrgName = builderFlow.orgName ?? orgName;
   const effectiveCredentialSource =
     credentialSource ?? builderFlow.credentialSource;
+  const storedGrantControls = (["personal", "org"] as const)
+    .filter(
+      (scope) =>
+        builderFlow.grants?.[scope] &&
+        (scope === "personal" || builderFlow.canConnect.org),
+    )
+    .map((scope) => (
+      <span
+        key={scope}
+        role="group"
+        aria-label={t(
+          `agentChat.settingsModel.${scope === "org" ? "organization" : "personal"}`,
+        )}
+        className="inline-flex items-center gap-1.5 text-xs text-muted-foreground"
+      >
+        <span>
+          {t(
+            `agentChat.settingsModel.${scope === "org" ? "organization" : "personal"}`,
+          )}
+        </span>
+        <BuilderConnectionMenu
+          flow={builderFlow}
+          scope={scope}
+          trackingSource={trackingSource}
+          trackingFlow={trackingFlow}
+          variant="text"
+        />
+      </span>
+    ));
   const bgClass = dim ? "" : "bg-accent/30";
   const titleCls = isPage ? "text-sm" : "text-[11px]";
   const bodyCls = isPage ? "text-xs" : "text-[10px]";
@@ -378,31 +407,39 @@ function UseBuilderCard({
 
   if (compact) {
     return (
-      <DeferredBuilderConnectPopover
-        flow={builderFlow}
-        onConnect={(provisionAccount) =>
-          builderFlow.start({
-            trackingSource,
-            trackingFlow,
-            provisionAccount,
-          })
-        }
-      >
-        <Button
-          type="button"
-          intent="primary"
-          emphasis="solid"
-          disabled={builderFlow.connecting}
-          className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-wait disabled:opacity-70"
+      <>
+        <DeferredBuilderConnectPopover
+          flow={builderFlow}
+          onConnect={(provisionAccount) =>
+            builderFlow.start({
+              trackingSource,
+              trackingFlow,
+              provisionAccount,
+            })
+          }
         >
-          {builderFlow.connecting
-            ? t("agentChat.composer.connectingBuilder")
-            : connectLabel}
-          {builderFlow.connecting ? (
-            <IconLoader2 size={14} className="animate-spin" />
-          ) : null}
-        </Button>
-      </DeferredBuilderConnectPopover>
+          <Button
+            type="button"
+            intent="primary"
+            emphasis="solid"
+            disabled={builderFlow.connecting}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:cursor-wait disabled:opacity-70"
+          >
+            {builderFlow.connecting
+              ? t("agentChat.composer.connectingBuilder")
+              : connectLabel}
+            {builderFlow.connecting ? (
+              <IconLoader2 size={14} className="animate-spin" />
+            ) : null}
+          </Button>
+        </DeferredBuilderConnectPopover>
+        {storedGrantControls}
+        {builderFlow.error ? (
+          <p role="alert" className="text-xs text-destructive">
+            {builderFlow.error}
+          </p>
+        ) : null}
+      </>
     );
   }
 
@@ -485,6 +522,7 @@ function UseBuilderCard({
           ) : null}
         </Button>
       </DeferredBuilderConnectPopover>
+      {storedGrantControls}
     </div>
   );
 }
@@ -3637,6 +3675,12 @@ function SettingsPanelContent({
                 control={
                   <a
                     href={dispatchAllAppsHref}
+                    // Cross-app destination: it leaves this app for the apps
+                    // directory, so it opens a new tab as the external-link
+                    // icon promises, instead of replacing the page the reader is
+                    // composing in.
+                    target="_blank"
+                    rel="noopener noreferrer"
                     className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-1.5 text-sm font-medium text-foreground no-underline transition-colors hover:bg-accent/40"
                   >
                     {t("dispatch.pages.browseApps")}

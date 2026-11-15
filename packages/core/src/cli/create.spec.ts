@@ -2103,14 +2103,29 @@ describe("community workspace template sources", () => {
     ).rejects.toThrow("app selectors are only for workspace repositories");
   });
 
-  it("sanitizes community app display names before terminal selection", () => {
+  it("does not execute a community workspace config while discovering apps", async () => {
+    const root = path.join(tmpDir, "untrusted-workspace");
+    writeWorkspaceRoot(root, { workspaceCore: "@source/shared" });
+    writeApp(root, "mail");
+    const marker = path.join(root, "executed");
+    fs.writeFileSync(
+      path.join(root, "agent-native.config.ts"),
+      `import fs from "node:fs"; fs.writeFileSync(${JSON.stringify(marker)}, "bad"); export default {};`,
+    );
+    expect(
+      (await _discoverCommunityWorkspaceApps(root)).map((app) => app.name),
+    ).toEqual(["mail"]);
+    expect(fs.existsSync(marker)).toBe(false);
+  });
+
+  it("sanitizes community app display names before terminal selection", async () => {
     const root = path.join(tmpDir, "terminal-safe-workspace");
     writeWorkspaceRoot(root, { workspaceCore: "@source/shared" });
     writeApp(root, "mail", {
       displayName: "Inbox\u001b[2J\u009b31m\u202eHidden",
     });
 
-    const [app] = _discoverCommunityWorkspaceApps(root);
+    const [app] = await _discoverCommunityWorkspaceApps(root);
 
     expect(app?.label).toBe("Inbox�[2J�31m�Hidden");
     expect(app?.label).not.toMatch(
@@ -2169,9 +2184,9 @@ describe("community workspace template sources", () => {
     const appDir = path.join(malformedAppRoot, "apps", "broken");
     fs.mkdirSync(appDir, { recursive: true });
     fs.writeFileSync(path.join(appDir, "package.json"), "{nope");
-    expect(() => _discoverCommunityWorkspaceApps(malformedAppRoot)).toThrow(
-      'app "broken" has an unreadable package.json',
-    );
+    await expect(
+      _discoverCommunityWorkspaceApps(malformedAppRoot),
+    ).rejects.toThrow('app "broken" has an unreadable package.json');
   });
 
   it("resolves source catalogs and canonical shared plugins for standalone leaves", () => {

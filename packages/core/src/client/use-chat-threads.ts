@@ -27,6 +27,7 @@ export type ChatThreadVisibility = "private" | "org" | "public";
 
 export interface ChatThreadSummary {
   id: string;
+  editRootId?: string;
   title: string;
   preview: string;
   messageCount: number;
@@ -101,6 +102,7 @@ export interface UseChatThreadsOptions {
   routeThreadId?: string | null;
   includeExternal?: boolean;
   includeHidden?: boolean;
+  collapseEdits?: boolean;
   isolateHistoryByScope?: boolean;
   /** Narrows the history list and search. Defaults to `all`. */
   ownership?: ChatThreadOwnership;
@@ -191,6 +193,7 @@ export interface ChatThreadListPageRequest {
   includeExternal?: boolean;
   includeArchived?: boolean;
   includeHidden?: boolean;
+  collapseEdits?: boolean;
   scope?: ChatThreadScope | null;
 }
 
@@ -279,6 +282,7 @@ async function requestChatThreadListPage(
   if (request.includeExternal) params.set("includeExternal", "1");
   if (request.includeArchived) params.set("includeArchived", "1");
   if (request.includeHidden) params.set("includeHidden", "1");
+  if (request.collapseEdits) params.set("collapseEdits", "1");
   appendChatThreadScopeParams(params, request.scope);
   const search = params.toString();
   const res = await fetch(`${apiUrl}/threads${search ? `?${search}` : ""}`);
@@ -337,7 +341,11 @@ export class ChatThreadMutationError extends Error {
 export async function hideChatThread(
   threadId: string,
   hidden: boolean,
-  options: { apiUrl?: string; scope?: ChatThreadScope | null } = {},
+  options: {
+    apiUrl?: string;
+    scope?: ChatThreadScope | null;
+    collapseEdits?: boolean;
+  } = {},
 ): Promise<boolean> {
   const apiUrl = options.apiUrl ?? agentNativePath("/_agent-native/agent-chat");
   const response = await fetch(
@@ -348,7 +356,10 @@ export async function hideChatThread(
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ hidden }),
+      body: JSON.stringify({
+        hidden,
+        ...(options.collapseEdits ? { collapseEdits: true } : {}),
+      }),
     },
   );
   if (!response.ok) throw new ChatThreadMutationError(response.status);
@@ -363,6 +374,7 @@ async function fetchThreadListPage(
   scope?: ChatThreadScope | null,
   ownership?: ChatThreadOwnership,
   includeHidden = false,
+  collapseEdits = false,
 ): Promise<ChatThreadSummary[] | undefined> {
   // The lifecycle list keeps optimistic local drafts beside server rows, so it
   // tolerates summaries without ownership metadata; the ownership-aware lists
@@ -375,6 +387,7 @@ async function fetchThreadListPage(
       scope,
       ownership,
       includeHidden,
+      collapseEdits,
     });
     return page.threads as ChatThreadSummary[];
   } catch (error) {
@@ -606,6 +619,7 @@ export function useChatThreads(
   const restoreActiveThread = options?.restoreActiveThread !== false;
   const includeExternal = options?.includeExternal === true;
   const includeHidden = options?.includeHidden === true;
+  const collapseEdits = options?.collapseEdits === true;
   const ownership = options?.ownership;
   const isolateHistoryByScope = options?.isolateHistoryByScope === true;
   const browserTabId =
@@ -1140,6 +1154,7 @@ export function useChatThreads(
           historyScope,
           ownership,
           includeHidden,
+          collapseEdits,
         );
         if (requestId !== latestFetchRequestRef.current) return undefined;
         if (!loaded) {
@@ -1385,6 +1400,7 @@ export function useChatThreads(
       historyScopeKey,
       includeExternal,
       includeHidden,
+      collapseEdits,
       isolateHistory,
       ownership,
       routeControlsActiveThread,
@@ -1726,7 +1742,10 @@ export function useChatThreads(
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ pinned }),
+            body: JSON.stringify({
+              pinned,
+              ...(collapseEdits ? { collapseEdits: true } : {}),
+            }),
           },
         );
         if (!res.ok) {
@@ -1745,7 +1764,7 @@ export function useChatThreads(
         return false;
       }
     },
-    [apiUrl, fetchThreads, historyScope],
+    [apiUrl, fetchThreads, historyScope, collapseEdits],
   );
 
   const hideThread = useCallback(
@@ -1764,6 +1783,7 @@ export function useChatThreads(
         return await hideChatThread(threadId, hidden, {
           apiUrl,
           scope: historyScope,
+          collapseEdits,
         });
       } catch (error) {
         if (previous)
@@ -1777,7 +1797,7 @@ export function useChatThreads(
         throw error;
       }
     },
-    [apiUrl, historyScope],
+    [apiUrl, historyScope, collapseEdits],
   );
 
   const archiveThread = useCallback(
@@ -1822,7 +1842,10 @@ export function useChatThreads(
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ archived: true }),
+            body: JSON.stringify({
+              archived: true,
+              ...(collapseEdits ? { collapseEdits: true } : {}),
+            }),
           },
         );
         if (!res.ok) {
@@ -1844,7 +1867,7 @@ export function useChatThreads(
         return false;
       }
     },
-    [apiUrl, fetchThreads, historyScope],
+    [apiUrl, fetchThreads, historyScope, collapseEdits],
   );
 
   const renameThread = useCallback(
@@ -1883,7 +1906,10 @@ export function useChatThreads(
           {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ title: nextTitle }),
+            body: JSON.stringify({
+              title: nextTitle,
+              ...(collapseEdits ? { collapseEdits: true } : {}),
+            }),
           },
         );
         if (!res.ok) {
@@ -1904,6 +1930,7 @@ export function useChatThreads(
       clearUserRenamedThread,
       fetchThreads,
       historyScope,
+      collapseEdits,
       markUserRenamedThread,
     ],
   );
@@ -2014,7 +2041,7 @@ export function useChatThreads(
       try {
         const res = await fetch(
           withChatThreadScope(
-            `${apiUrl}/threads/${encodeURIComponent(id)}`,
+            `${apiUrl}/threads/${encodeURIComponent(id)}${collapseEdits ? "?collapseEdits=1" : ""}`,
             historyScope,
           ),
           {
@@ -2041,7 +2068,7 @@ export function useChatThreads(
         }
       }
     },
-    [apiUrl, clearUserRenamedThread, createThread, historyScope],
+    [apiUrl, clearUserRenamedThread, createThread, historyScope, collapseEdits],
   );
 
   // Reads scope through refs so this callback survives every setThreads. Scope
@@ -2359,6 +2386,7 @@ export function useChatThreads(
       try {
         const params = new URLSearchParams({ q: query });
         if (includeExternal) params.set("includeExternal", "1");
+        if (collapseEdits) params.set("collapseEdits", "1");
         if (includeHidden) params.set("includeHidden", "1");
         if (ownership && ownership !== "all") {
           params.set("ownership", ownership);
@@ -2385,6 +2413,7 @@ export function useChatThreads(
       historyScope,
       includeExternal,
       includeHidden,
+      collapseEdits,
       isolateHistory,
       ownership,
     ],
@@ -2454,11 +2483,35 @@ export function useChatThreads(
     void fetchThreads();
   }, [fetchThreads]);
 
-  const visibleThreads = useMemo(
-    () =>
-      includeHidden ? threads : threads.filter((thread) => !thread.hiddenAt),
-    [includeHidden, threads],
-  );
+  const visibleThreads = useMemo(() => {
+    const visible = includeHidden
+      ? threads
+      : threads.filter((thread) => !thread.hiddenAt);
+    if (!collapseEdits) return visible;
+    // Explicit opens stay in internal state for active-thread operations, but
+    // must not add older versions back to the collapsed history list.
+    const groups = new Map<string, ChatThreadSummary>();
+    for (const thread of visible) {
+      const key = JSON.stringify([
+        thread.ownerEmail?.toLowerCase() ?? null,
+        thread.orgId ?? null,
+        thread.source?.appId ?? null,
+        thread.scope?.type ?? null,
+        thread.scope?.id ?? null,
+        thread.editRootId ?? thread.id,
+      ]);
+      const previous = groups.get(key);
+      const newest =
+        !previous ||
+        thread.createdAt > previous.createdAt ||
+        (thread.createdAt === previous.createdAt && thread.id > previous.id)
+          ? thread
+          : previous;
+      const pinnedAt = Math.max(previous?.pinnedAt ?? 0, thread.pinnedAt ?? 0);
+      groups.set(key, pinnedAt ? { ...newest, pinnedAt } : newest);
+    }
+    return sortThreadSummaries([...groups.values()]);
+  }, [collapseEdits, includeHidden, threads]);
 
   return {
     threads: visibleThreads,

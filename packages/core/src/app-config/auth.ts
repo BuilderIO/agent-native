@@ -5,6 +5,14 @@ export const authConfig = z.object({
     env: "SECRETS_ENCRYPTION_KEYS_PREVIOUS",
     doc: "Comma-separated previous encryption material accepted for reads during a coordinated re-encryption. New values always use the current key. Remove after migration.",
   }),
+  identitySsoAppRegistryJson: z.string().optional().meta({
+    env: "IDENTITY_SSO_APP_REGISTRY_JSON",
+    doc: "First-party workspace application registrations used for document and agent chat trust. Parsed and validated by the workspace SSO registry resolver.",
+  }),
+  identitySsoExistingAccountsOnly: z.boolean().default(false).meta({
+    env: "AGENT_NATIVE_IDENTITY_SSO_EXISTING_ACCOUNTS_ONLY",
+    doc: "Restrict identity SSO to verified existing accounts with existing organization membership; do not provision users or organizations.",
+  }),
   disableDesktopSsoFallbackInDevelopment: z.boolean().default(false).meta({
     env: "AGENT_NATIVE_DISABLE_DESKTOP_SSO_FALLBACK",
     doc: "Disable the loopback Desktop SSO fallback in development so isolated acceptance runs can use their configured local identity. Ignored in production.",

@@ -8404,3 +8404,135 @@ describe("createAgentKitProtocolAdapter", () => {
     );
   });
 });
+
+describe("exclusive runtime fork boundaries", () => {
+  it.each([
+    ["first", 0],
+    ["later", 2],
+  ] as const)(
+    "forks before %s without resuming excluded state",
+    async (beforeMessageId, count) => {
+      async function* events(): AsyncIterable<AgentChatRuntimeEvent> {}
+      const messages = [
+        userMessage("First", "first"),
+        {
+          id: "answer",
+          role: "assistant" as const,
+          parts: [{ type: "text" as const, text: "Old answer" }],
+        },
+        userMessage("Later", "later"),
+      ];
+      const createSession = vi.fn(
+        async (input: Parameters<AgentChatRuntime["createSession"]>[0]) => ({
+          id: input?.id ?? "new",
+          runtimeId: "runtime-test",
+          threadId: input?.id,
+          startTurn: async () => ({
+            id: "turn",
+            sessionId: input?.id ?? "new",
+            events: events(),
+          }),
+        }),
+      );
+      const runtime = createRuntime(events, {
+        capabilities: {
+          messages: { streaming: true, history: true, attachments: true },
+          sessions: { create: true, persistent: true, fork: true },
+        },
+        createSession,
+        getSession: async () => ({
+          id: "source",
+          runtimeId: "runtime-test",
+          threadId: "source",
+          startTurn: async () => ({
+            id: "turn",
+            sessionId: "source",
+            events: events(),
+          }),
+          snapshot: async () => ({
+            id: "source",
+            runtimeId: "runtime-test",
+            threadId: "source",
+            messages,
+            resumeState: { old: "late-answer" },
+          }),
+        }),
+      });
+      const transport = createAgentKitProtocolAdapter(runtime, {
+        createId: () => "exclusive",
+      });
+      await transport.forkThread?.({ threadId: "source", beforeMessageId });
+      expect(createSession).toHaveBeenCalledWith(
+        expect.objectContaining({ messages: messages.slice(0, count) }),
+      );
+      expect(createSession.mock.calls[0]?.[0]).not.toHaveProperty(
+        "resumeState",
+      );
+      await expect(
+        transport.forkThread?.({
+          threadId: "source",
+          beforeMessageId: "unknown",
+        }),
+      ).rejects.toThrow("Unknown message");
+      await expect(
+        transport.forkThread?.({
+          threadId: "source",
+          beforeMessageId: "first",
+          fromMessageId: "answer",
+        }),
+      ).rejects.toThrow();
+    },
+  );
+  it("preserves full and inclusive runtime continuation state", async () => {
+    async function* events(): AsyncIterable<AgentChatRuntimeEvent> {}
+    const messages = [
+      userMessage("First", "first"),
+      userMessage("Later", "later"),
+    ];
+    const createSession = vi.fn(
+      async (input: Parameters<AgentChatRuntime["createSession"]>[0]) => ({
+        id: input?.id ?? "fork",
+        runtimeId: "runtime-test",
+        startTurn: async () => ({
+          id: "turn",
+          sessionId: "fork",
+          events: events(),
+        }),
+      }),
+    );
+    const runtime = createRuntime(events, {
+      capabilities: {
+        messages: { streaming: true, history: true, attachments: true },
+        sessions: { create: true, persistent: true, fork: true },
+      },
+      createSession,
+      getSession: async () => ({
+        id: "source",
+        runtimeId: "runtime-test",
+        startTurn: async () => ({
+          id: "turn",
+          sessionId: "source",
+          events: events(),
+        }),
+        snapshot: async () => ({
+          id: "source",
+          runtimeId: "runtime-test",
+          messages,
+          resumeState: { continuation: "original-provider-state" },
+        }),
+      }),
+    });
+    const transport = createAgentKitProtocolAdapter(runtime, {
+      createId: () => "fork",
+    });
+    for (const fromMessageId of [undefined, "first"]) {
+      await transport.forkThread?.({
+        threadId: "source",
+        ...(fromMessageId ? { fromMessageId } : {}),
+      });
+      expect(createSession.mock.calls.at(-1)?.[0]).toMatchObject({
+        resumeState: { continuation: "original-provider-state" },
+      });
+    }
+  });
+});
