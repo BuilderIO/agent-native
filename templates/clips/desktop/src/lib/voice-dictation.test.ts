@@ -2138,7 +2138,8 @@ describe("desktop voice dictation runs", () => {
       shortcut: "fn" | "both" = "both",
     ) {
       setPlatform("MacIntel");
-      const { installDesktopVoiceDictation } = await import("./voice-dictation");
+      const { installDesktopVoiceDictation } =
+        await import("./voice-dictation");
       dispose = installDesktopVoiceDictation({
         enabled: true,
         serverUrl: "https://clips.test",
@@ -2189,21 +2190,6 @@ describe("desktop voice dictation runs", () => {
       expect(calls("native_speech_start")).toBe(1);
     });
 
-    it("the dictation key's release leaves a push-to-talk link's dictation running", async () => {
-      await install("push-to-talk");
-      await dispatch("voice:shortcut-start", { source: "link" });
-      await vi.advanceTimersByTimeAsync(SHORT_TAP_MS);
-      expect(calls("native_speech_start")).toBe(1);
-      await dispatch("voice:shortcut-start", { source: "fn" });
-      await dispatch("voice:shortcut-stop", { source: "fn", heldMs: 400 });
-      await vi.advanceTimersByTimeAsync(RELEASE_TAIL_MS);
-      expect(calls("native_speech_stop")).toBe(0);
-      await dispatch("voice:shortcut-stop", { source: "link" });
-      await vi.advanceTimersByTimeAsync(RELEASE_TAIL_MS);
-      expect(calls("native_speech_stop")).toBe(1);
-      expect(calls("native_speech_start")).toBe(1);
-    });
-
     it("a push-to-talk link stops a hands-free dictation and its up starts nothing", async () => {
       await install("push-to-talk");
       await dispatch("voice:shortcut-start", { source: "link-hands-free" });
@@ -2220,7 +2206,10 @@ describe("desktop voice dictation runs", () => {
 
     it("a stop-only push link press starts nothing", async () => {
       await install("push-to-talk");
-      await dispatch("voice:shortcut-start", { source: "link", stopOnly: true });
+      await dispatch("voice:shortcut-start", {
+        source: "link",
+        stopOnly: true,
+      });
       await vi.advanceTimersByTimeAsync(SHORT_TAP_MS);
       expect(calls("native_speech_start")).toBe(0);
       await dispatch("voice:shortcut-stop", { source: "link" });
@@ -2233,10 +2222,55 @@ describe("desktop voice dictation runs", () => {
       await dispatch("voice:shortcut-start", { source: "link-hands-free" });
       await vi.advanceTimersByTimeAsync(SHORT_TAP_MS);
       expect(calls("native_speech_start")).toBe(1);
-      await dispatch("voice:shortcut-start", { source: "link", stopOnly: true });
+      await dispatch("voice:shortcut-start", {
+        source: "link",
+        stopOnly: true,
+      });
       await vi.advanceTimersByTimeAsync(RELEASE_TAIL_MS);
       expect(calls("native_speech_stop")).toBe(1);
       expect(calls("native_speech_start")).toBe(1);
+    });
+
+    // The engine is slow to start, so a link press is still starting.
+    function slowNativeStart() {
+      tauri.invoke.mockImplementation((command) =>
+        command === "native_speech_start"
+          ? new Promise<undefined>(() => {})
+          : Promise.resolve(
+              command === "complete_voice_dictation" ? "inserted" : undefined,
+            ),
+      );
+    }
+
+    it("an early link up isn't read as the key's first hands-free tap", async () => {
+      slowNativeStart();
+      await install("push-to-talk");
+      await dispatch("voice:shortcut-start", { source: "link" });
+      await vi.advanceTimersByTimeAsync(10);
+      await dispatch("voice:shortcut-stop", { source: "link" });
+      await vi.advanceTimersByTimeAsync(10);
+      await dispatch("voice:shortcut-start", { source: "fn" });
+      await vi.advanceTimersByTimeAsync(SHORT_TAP_MS);
+      expect(tauri.invoke).not.toHaveBeenCalledWith(
+        "set_dictation_escape_active",
+        { active: true },
+      );
+    });
+
+    it("a key that natively took over a starting link press can stop it", async () => {
+      slowNativeStart();
+      await install("push-to-talk");
+      await dispatch("voice:shortcut-start", { source: "link" });
+      await vi.advanceTimersByTimeAsync(10);
+      const stopsBefore =
+        calls("native_speech_stop") + calls("native_speech_cancel");
+      await dispatch("voice:shortcut-start", { source: "fn" });
+      await vi.advanceTimersByTimeAsync(10);
+      await dispatch("voice:shortcut-stop", { source: "fn", heldMs: 600 });
+      await vi.advanceTimersByTimeAsync(RELEASE_TAIL_MS);
+      expect(
+        calls("native_speech_stop") + calls("native_speech_cancel"),
+      ).toBeGreaterThan(stopsBefore);
     });
 
     it("asks for a hands-free link held at startup once its listener is up", async () => {

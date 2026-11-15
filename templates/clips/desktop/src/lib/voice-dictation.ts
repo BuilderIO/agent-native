@@ -5,6 +5,12 @@ import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 
 import { applyBacktrack } from "./backtrack";
 import {
+  reduceDictationInput,
+  type DictationInputAction,
+  type DictationInputEvent,
+  type DictationPressOwner,
+} from "./dictation-link-input";
+import {
   configureVocabularyClient,
   currentVocabulary,
   loadVocabulary,
@@ -628,9 +634,17 @@ export function installDesktopVoiceDictation(
   let stopRequestedBeforeReady = false;
   let pendingHandsFreeTapAt: number | null = null;
   let handsFreeActive = false;
-  // Set while the dictation running was started by a push-to-talk link's
-  // down, so only that link's up stops it.
-  let linkPushOwnsSession = false;
+  // Which input holds the push-to-talk dictation, as the native start/stop
+  // events say (see reduceDictationInput).
+  let pressOwner: DictationPressOwner = "none";
+  const dictationInput = (event: DictationInputEvent): DictationInputAction => {
+    const next = reduceDictationInput(pressOwner, event, {
+      handsFree: handsFreeActive,
+      busy: !!session || startInFlight,
+    });
+    pressOwner = next.owner;
+    return next.action;
+  };
   const HANDS_FREE_UPGRADE_WINDOW_MS = 400;
   // A hold shorter than this is a stray tap, which leaves no trace.
   const SHORT_TAP_MS = 300;
@@ -2735,7 +2749,6 @@ export function installDesktopVoiceDictation(
   // next press (this link, the dictation key or Escape); pressed while one
   // runs, it stops it.
   const startOrStopHandsFreeFromLink = () => {
-    linkPushOwnsSession = false;
     if (session || startInFlight) {
       stop();
       return;
@@ -2751,27 +2764,32 @@ export function installDesktopVoiceDictation(
   const shortcutStartListener = listen<VoiceShortcutEvent>(
     "voice:shortcut-start",
     (event) => {
-      if (!acceptsShortcut(event.payload?.source)) return;
-      if (event.payload?.source === "link-hands-free") {
-        startOrStopHandsFreeFromLink();
-        return;
-      }
-      if (event.payload?.source === "link") {
-        // Push-to-talk link down, whatever the key's mode setting is.
-        if (handsFreeActive) {
+      const source = event.payload?.source;
+      if (!acceptsShortcut(source)) return;
+      const action = dictationInput(
+        source === "link"
+          ? { kind: "start", source, stopOnly: event.payload?.stopOnly }
+          : source === "link-hands-free"
+            ? { kind: "start", source }
+            : { kind: "start", source: "key" },
+      );
+      switch (action) {
+        case "hands-free-link":
+          startOrStopHandsFreeFromLink();
+          return;
+        case "stop-hands-free":
           stop();
           return;
-        }
-        // A dictation this press didn't start: leave it, and its up with it.
-        if (event.payload?.stopOnly || session || startInFlight) return;
-        linkPushOwnsSession = true;
-        void start("link");
-        return;
+        case "start-link":
+          // Push-to-talk link down, whatever the key's mode setting is.
+          void start("link");
+          return;
+        case "ignore":
+        case "stop-link":
+          return;
+        case "key":
+          break;
       }
-      // The dictation key while a push-to-talk link's dictation runs: the
-      // link's up ends that one.
-      if (linkPushOwnsSession && (session || startInFlight)) return;
-      linkPushOwnsSession = false;
       if (mode === "toggle" && (session || startInFlight)) {
         stop();
         return;
@@ -2814,7 +2832,14 @@ export function installDesktopVoiceDictation(
       disposed ? false : invoke<boolean>("take_pending_dictate_link"),
     )
     .then((pending) => {
-      if (pending && !disposed) startOrStopHandsFreeFromLink();
+      if (
+        pending &&
+        !disposed &&
+        dictationInput({ kind: "start", source: "link-hands-free" }) ===
+          "hands-free-link"
+      ) {
+        startOrStopHandsFreeFromLink();
+      }
     })
     .catch(() => {});
   registerListener(
@@ -2822,16 +2847,17 @@ export function installDesktopVoiceDictation(
       if (!acceptsShortcut(event.payload?.source)) return;
       if (event.payload?.source === "link") {
         // Only the up of the link press that started this dictation ends
-        // it, even in toggle mode; no short-tap handling, a link has no
-        // double-tap gesture.
-        if (!linkPushOwnsSession) return;
-        linkPushOwnsSession = false;
-        if (handsFreeActive) return;
-        stop();
+        // it, even in toggle mode.
+        if (dictationInput({ kind: "stop", source: "link" }) === "stop-link") {
+          stop();
+          // A link has no double-tap gesture: an early link up must not
+          // read as the first tap of the key's hands-free upgrade.
+          pendingHandsFreeTapAt = null;
+        }
         return;
       }
+      dictationInput({ kind: "stop", source: "key" });
       if (handsFreeActive) return;
-      if (linkPushOwnsSession && (session || startInFlight)) return;
       if (mode === "toggle") return;
       stop(event.payload.heldMs);
     }),
