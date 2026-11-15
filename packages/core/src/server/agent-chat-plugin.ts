@@ -6119,9 +6119,13 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
               currentDevMode = !currentDevMode;
             }
             try {
-              await putSetting(AGENT_MODE_SETTING_KEY, {
-                devMode: currentDevMode,
-              });
+              await putSetting(
+                AGENT_MODE_SETTING_KEY,
+                {
+                  devMode: currentDevMode,
+                },
+                { global: true },
+              );
             } catch {
               // Persistence is best-effort — in-memory flag still applies for
               // the lifetime of this process even if the settings write fails.
@@ -8209,6 +8213,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   source: "checkpoint",
                   type: "change",
                   key: "*",
+                  visibility: "public",
                 });
               } catch {}
               return { success: true, commitSha: checkpoint.commitSha };

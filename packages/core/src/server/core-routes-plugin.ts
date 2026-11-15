@@ -3878,9 +3878,11 @@ export function createCoreRoutesPlugin(
               for (const [k, v] of Object.entries(persistedEnvVars)) {
                 if (!builderKeys.has(k)) cleaned[k] = v;
               }
-              await putSetting("persisted-env-vars", cleaned);
+              await putSetting("persisted-env-vars", cleaned, {
+                global: true,
+              });
               console.warn(
-                `[core] Removed ${scrubbed} legacy BUILDER_* key(s) from persisted-env-vars (cross-tenant leak fix).`,
+                `[core] Removed ${scrubbed} legacy BUILDER_* key(s) from persisted-env-vars.`,
               );
             } catch {
               // Couldn't rewrite the row — the skip-on-rehydrate above
@@ -6996,15 +6998,17 @@ export function createCoreRoutesPlugin(
                 error: `image must be at most ${AVATAR_MAX_DATA_URL_LENGTH} bytes`,
               };
             }
+            const avatarOwner = session.email.trim().toLowerCase();
             // The photo is the one setting that is a small raster image by
             // design, so this write carries the inline-bytes exemption; the
             // MIME allowlist and the size cap above are what bound it.
             await putSetting(
               `avatar:${session.email}`,
               { image },
-              { allowInlineImageBytes: true },
+              { owner: avatarOwner, allowInlineImageBytes: true },
             );
             await deleteSetting(`avatarRemoved:${session.email}`, {
+              owner: avatarOwner,
               requestSource: "avatar",
             });
             return { ok: true };
@@ -7018,13 +7022,15 @@ export function createCoreRoutesPlugin(
               setResponseStatus(event, 401);
               return { error: "unauthorized" };
             }
+            const avatarOwner = session.email.trim().toLowerCase();
             await deleteSetting(`avatar:${session.email}`, {
+              owner: avatarOwner,
               requestSource: "avatar",
             });
             await putSetting(
               `avatarRemoved:${session.email}`,
               { removed: true, at: Date.now() },
-              { requestSource: "avatar" },
+              { owner: avatarOwner, requestSource: "avatar" },
             );
             return { ok: true };
           }

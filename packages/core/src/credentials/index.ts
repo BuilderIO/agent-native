@@ -512,14 +512,22 @@ export async function saveCredential(
     if (!ctx.orgId) {
       throw new Error("saveCredential scope='org' requires orgId");
     }
-    await putSetting(orgCredentialSettingKey(ctx.orgId, key), {
-      value: encrypted,
-    });
+    await putSetting(
+      orgCredentialSettingKey(ctx.orgId, key),
+      {
+        value: encrypted,
+      },
+      { orgId: ctx.orgId },
+    );
     return;
   }
-  await putSetting(userCredentialSettingKey(ctx.userEmail, key), {
-    value: encrypted,
-  });
+  await putSetting(
+    userCredentialSettingKey(ctx.userEmail, key),
+    {
+      value: encrypted,
+    },
+    { owner: ctx.userEmail.trim().toLowerCase() },
+  );
 }
 
 /**
@@ -544,11 +552,15 @@ export async function deleteCredential(
     }
     await deleteAppSecret({ key, scope: "org", scopeId: ctx.orgId });
     await deleteAppSecret({ key, scope: "workspace", scopeId: ctx.orgId });
-    await deleteSetting(orgCredentialSettingKey(ctx.orgId, key));
+    await deleteSetting(orgCredentialSettingKey(ctx.orgId, key), {
+      orgId: ctx.orgId,
+    });
     return;
   }
   await deleteAppSecret({ key, scope: "user", scopeId: ctx.userEmail });
-  await deleteSetting(userCredentialSettingKey(ctx.userEmail, key));
+  await deleteSetting(userCredentialSettingKey(ctx.userEmail, key), {
+    owner: ctx.userEmail.trim().toLowerCase(),
+  });
   await deleteAppSecret({
     key,
     scope: "workspace",

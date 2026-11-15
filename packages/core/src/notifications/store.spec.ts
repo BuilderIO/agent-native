@@ -137,6 +137,7 @@ describe("insertNotification", () => {
       source: "notifications",
       type: "change",
       key: ALICE,
+      owner: ALICE,
     });
 
     const [listed] = await listNotifications(ALICE);

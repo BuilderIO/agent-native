@@ -85,6 +85,7 @@ export async function mutateContentUserSettingTransaction<
     source: "settings",
     type: mutation.value === null ? "delete" : "change",
     key: normalized,
+    owner: email.trim().toLowerCase(),
   });
   return mutation;
 }

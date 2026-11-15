@@ -1336,7 +1336,9 @@ async function migrateSharedLearnSharedDefault(client: DbExec): Promise<void> {
         }
       }
       if (migrationComplete) {
-        await markSeeded(SHARED_LEARN_SHARED_APPROVAL_MIGRATION_KEY);
+        await markSeeded(SHARED_LEARN_SHARED_APPROVAL_MIGRATION_KEY, {
+          global: true,
+        });
       }
     }
   } catch (err) {
@@ -1479,7 +1481,7 @@ async function seedDefaultResources(client: DbExec): Promise<void> {
     // Migration best-effort
   }
 
-  await markSeeded(SHARED_SEED_KEY);
+  await markSeeded(SHARED_SEED_KEY, { global: true });
 }
 
 const RESOURCE_SEED_VERSION = 1;
@@ -1504,9 +1506,12 @@ async function alreadySeeded(key: string): Promise<boolean> {
   }
 }
 
-async function markSeeded(key: string): Promise<void> {
+async function markSeeded(
+  key: string,
+  scope?: { owner?: string; global?: true },
+): Promise<void> {
   try {
-    await putSetting(key, { at: Date.now() });
+    await putSetting(key, { at: Date.now() }, scope);
   } catch {
     // coercion-ok: the marker is an optimization, not state anything reads for correctness. Failing to write it costs one repeat idempotent seed on the next cold start — the pre-marker behaviour — and the seed itself already succeeded, so there is no failure to report to the caller.
   }
@@ -1605,7 +1610,7 @@ export async function ensurePersonalDefaults(owner: string): Promise<void> {
   });
 
   _personalSeeded.add(owner);
-  await markSeeded(seedKey);
+  await markSeeded(seedKey, { owner });
 }
 
 function rowToResource(row: any): Resource {

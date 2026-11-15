@@ -172,7 +172,7 @@ describe("poll handler", () => {
         if (sql.includes("MAX(version)")) {
           return { rows: [{ max_version: 2_000 }] };
         }
-        if (sql.includes("WHERE version > ?")) {
+        if (sql.includes("WHERE (version > ?")) {
           const since = Number(query.args?.[0]) || 0;
           return {
             rows:
@@ -218,7 +218,7 @@ describe("poll handler", () => {
       version: 2_000,
       events: [expect.objectContaining(durableEvent)],
     });
-    expect(executedSql()).toContain("FROM sync_events WHERE version > ?");
+    expect(executedSql()).toContain("WHERE (version > ?");
     expect(executedSql()).toMatch(/MAX\(updated_at\)/);
     expect(executedSql()).not.toContain(
       "SELECT session_id, key, updated_at FROM application_state WHERE updated_at > ?",
@@ -245,7 +245,8 @@ describe("poll handler", () => {
       typeof query === "string" ? query : query.sql,
     );
     expect(queries).toHaveLength(1);
-    expect(queries[0]).toContain("FROM sync_events WHERE version > ?");
+    expect(queries[0]).toContain("FROM sync_events");
+    expect(queries[0]).toContain("WHERE (version > ?");
   });
 
   it("keeps a cold release-owned serverless poll on the durable cursor query", async () => {
@@ -258,7 +259,10 @@ describe("poll handler", () => {
       if (sql === "SELECT MAX(version) as max_version FROM sync_events") {
         return { rows: [{ max_version: 4_200 }] };
       }
-      if (sql.includes("FROM sync_events WHERE version > ?")) {
+      if (
+        sql.includes("FROM sync_events") &&
+        sql.includes("WHERE (version > ?")
+      ) {
         return {
           rows: [
             {
@@ -297,7 +301,7 @@ describe("poll handler", () => {
       }),
     ]);
     expect(mockExecute).toHaveBeenCalledTimes(2);
-    expect(executedSql()).toContain("FROM sync_events WHERE version > ?");
+    expect(executedSql()).toContain("WHERE (version > ?");
     expect(executedSql()).not.toMatch(
       /information_schema|MAX\(updated_at\)|FROM settings/i,
     );
@@ -442,7 +446,7 @@ describe("poll handler", () => {
         if (sql.includes("MAX(version)")) {
           return { rows: [{ max_version: 10_000 }] };
         }
-        if (sql.includes("WHERE version > ?")) {
+        if (sql.includes("WHERE (version > ?")) {
           return { rows: durableRows };
         }
         return { rows: [] };
@@ -523,7 +527,7 @@ describe("poll handler", () => {
         if (sql.includes("MAX(version)")) {
           return { rows: [{ max_version: 10_000 }] };
         }
-        if (sql.includes("WHERE version > ?")) {
+        if (sql.includes("WHERE (version > ?")) {
           return { rows: durableRows };
         }
         return { rows: [] };
@@ -582,7 +586,7 @@ describe("poll handler", () => {
         if (sql.includes("MAX(version)")) {
           return { rows: [{ max_version: 10_000 }] };
         }
-        if (sql.includes("WHERE version > ?")) {
+        if (sql.includes("WHERE (version > ?")) {
           return {
             rows: [
               { version: 2_000, event_json: JSON.stringify(pendingEvent) },
@@ -647,6 +651,7 @@ describe("poll handler", () => {
       source: "settings",
       type: "change",
       key: "theme",
+      visibility: "public",
     };
     const secondEvent = {
       version: 2_000,
@@ -662,7 +667,7 @@ describe("poll handler", () => {
         if (sql.includes("MAX(version)")) {
           return { rows: [{ max_version: 2_000 }] };
         }
-        if (sql.includes("WHERE version > ?")) {
+        if (sql.includes("WHERE (version > ?")) {
           return {
             rows: [
               { version: 2_000, event_json: JSON.stringify(firstEvent) },
@@ -700,7 +705,7 @@ describe("poll handler", () => {
 
     expect(result.version).toBe(2_000);
     expect(result.events).toEqual([
-      expect.objectContaining(firstEvent),
+      expect.objectContaining({ ...firstEvent, key: "*" }),
       expect.objectContaining(secondEvent),
     ]);
   });
@@ -713,12 +718,14 @@ describe("poll handler", () => {
       source: "action",
       type: "change",
       key: "first",
+      owner: "test@example.com",
     };
     const secondEvent = {
       version: 2_000,
       source: "action",
       type: "change",
       key: "second",
+      owner: "test@example.com",
     };
 
     mockExecute.mockImplementation(async (query: any) => {
@@ -727,8 +734,8 @@ describe("poll handler", () => {
         if (sql.includes("MAX(version)")) {
           return { rows: [{ max_version: 2_000 }] };
         }
-        if (sql.includes("(version > ? OR")) {
-          expect(query.args?.slice(0, 3)).toEqual([2_000, 2_000, "a"]);
+        if (query.args?.[1] === true) {
+          expect(query.args?.slice(0, 4)).toEqual([2_000, true, 2_000, "a"]);
           return {
             rows: [
               {
@@ -739,7 +746,7 @@ describe("poll handler", () => {
             ],
           };
         }
-        if (sql.includes("WHERE version > ?")) {
+        if (sql.includes("WHERE (version > ?")) {
           return {
             rows: [
               {
@@ -1479,6 +1486,7 @@ describe("poll handler", () => {
         source: "settings",
         type: "change",
         key: "*",
+        visibility: "public",
       },
     };
     const ownRow = {
@@ -1513,7 +1521,7 @@ describe("poll handler", () => {
         if (sql.includes("MAX(version)")) {
           return { rows: [{ max_version: 2_503 }] };
         }
-        if (sql.includes("WHERE version > ?")) {
+        if (sql.includes("WHERE (version > ?")) {
           return { rows: scopedSyncEventsRows(store, query.args) };
         }
         return { rows: [] };
@@ -1539,7 +1547,11 @@ describe("poll handler", () => {
       return { rows: [] };
     });
 
-    const { createPollHandler } = await import("./poll.js");
+    const { createPollHandler, getDefaultAppSyncState } =
+      await import("./poll.js");
+    Object.defineProperty(getDefaultAppSyncState(), "resolveAccessFn", {
+      value: async () => null,
+    });
     const handler = createPollHandler() as any;
 
     const result = await handler({ query: { since: "1000" } });
@@ -1566,14 +1578,22 @@ describe("poll handler", () => {
       return (
         typeof sql === "string" &&
         sql.includes("FROM sync_events") &&
-        sql.includes("WHERE version > ?")
+        sql.includes("WHERE (version > ?")
       );
     });
     const syncQuery = syncCall?.[0] as { sql: string; args?: unknown[] };
     expect(syncQuery.sql).toContain("owner = ?");
     expect(syncQuery.sql).toContain("org_id = ?");
     expect(syncQuery.sql).toContain("resource_type IS NOT NULL");
-    expect(syncQuery.args).toEqual([1_000, "test@example.com", null, 1_001]);
+    expect(syncQuery.args).toEqual([
+      1_000,
+      false,
+      1_000,
+      "",
+      "test@example.com",
+      null,
+      1_001,
+    ]);
   });
 
   it("scopes durable events by org_id when the caller belongs to an org, without leaking a different org's events", async () => {
@@ -1615,7 +1635,7 @@ describe("poll handler", () => {
         if (sql.includes("MAX(version)")) {
           return { rows: [{ max_version: 1_002 }] };
         }
-        if (sql.includes("WHERE version > ?")) {
+        if (sql.includes("WHERE (version > ?")) {
           return { rows: scopedSyncEventsRows(store, query.args) };
         }
         return { rows: [] };
@@ -1646,9 +1666,7 @@ describe("poll handler", () => {
 
     const result = await handler({ query: { since: "1000" } });
 
-    expect(result.events).toEqual([
-      expect.objectContaining({ key: "own-org-event" }),
-    ]);
+    expect(result.events).toEqual([expect.objectContaining({ key: "*" })]);
     expect(result.events).not.toEqual(
       expect.arrayContaining([
         expect.objectContaining({ key: "other-org-event" }),
@@ -1660,11 +1678,19 @@ describe("poll handler", () => {
       return (
         typeof sql === "string" &&
         sql.includes("FROM sync_events") &&
-        sql.includes("WHERE version > ?")
+        sql.includes("WHERE (version > ?")
       );
     });
     const syncQuery = syncCall?.[0] as { sql: string; args?: unknown[] };
-    expect(syncQuery.args).toEqual([1_000, "test@example.com", "org-1", 1_001]);
+    expect(syncQuery.args).toEqual([
+      1_000,
+      false,
+      1_000,
+      "",
+      "test@example.com",
+      "org-1",
+      1_001,
+    ]);
   });
 
   function mockLegacyScan(appStateMax: () => number): void {
@@ -1739,11 +1765,19 @@ function scopedSyncEventsRows(
   }>,
   args: unknown[] | undefined,
 ): Array<{ version: number; event_json: string }> {
-  const [since, userEmail, orgId, limit] = args ?? [];
+  const [
+    since,
+    _hasCursor,
+    _cursorVersion,
+    _cursorId,
+    userEmail,
+    orgId,
+    limit,
+  ] = args ?? [];
   return store
     .filter((row) => row.version > Number(since))
     .filter((row) => {
-      if (!row.owner && !row.orgId) return true;
+      if (!row.owner && !row.orgId) return row.event.visibility === "public";
       if (row.owner && row.owner === userEmail) return true;
       if (row.orgId && orgId != null && row.orgId === orgId) return true;
       if (row.resourceType) return true;
