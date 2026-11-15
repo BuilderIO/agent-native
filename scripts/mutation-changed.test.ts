@@ -7,6 +7,7 @@ import {
   contiguousRanges,
   mutateSpecs,
   mutationShardCount,
+  mutationShardPlan,
   selectMutationShardArtifacts,
   namedSpecs,
   survivingMutants,
@@ -72,6 +73,71 @@ test("bounds mutation workers to the complete changed-line workload", () => {
   assert.throws(
     () => mutationShardCount(["src/a.ts"]),
     /Invalid mutation range/,
+  );
+});
+
+test("groups whole files balanced by changed lines, one worker per light group", () => {
+  assert.deepEqual(mutationShardPlan([]), [
+    { group: 0, part: 0, parts: 1, specs: [] },
+  ]);
+  const specs = [
+    "src/a.ts:1-20",
+    "src/a.ts:31-40",
+    "src/b.ts:1-20",
+    "src/c.ts:1-10",
+    "src/d.ts:1-4",
+  ];
+  assert.equal(mutationShardCount(specs), 2);
+  assert.deepEqual(mutationShardPlan(specs), [
+    {
+      group: 0,
+      part: 0,
+      parts: 1,
+      specs: ["src/a.ts:1-20", "src/a.ts:31-40", "src/d.ts:1-4"],
+    },
+    {
+      group: 1,
+      part: 0,
+      parts: 1,
+      specs: ["src/b.ts:1-20", "src/c.ts:1-10"],
+    },
+  ]);
+});
+
+test("gives a heavy file several workers over its uncut ranges", () => {
+  const single = mutationShardPlan(["src/a.ts:1-10000"]);
+  assert.equal(single.length, 64);
+  assert.ok(
+    single.every(
+      (entry, part) =>
+        entry.group === 0 &&
+        entry.part === part &&
+        entry.parts === 64 &&
+        entry.specs.join() === "src/a.ts:1-10000",
+    ),
+  );
+
+  // 640 lines over 20 workers: a.ts has 15 workers' share, b.ts 4, the rest 1.
+  const plan = mutationShardPlan([
+    "src/a.ts:1-480",
+    "src/b.ts:1-130",
+    "src/c.ts:1-20",
+    "src/d.ts:1-10",
+  ]);
+  assert.equal(plan.length, 20);
+  assert.deepEqual(
+    [
+      ...new Set(
+        plan.map(
+          ({ group, parts, specs }) => `${group}:${parts}:${specs.join(" ")}`,
+        ),
+      ),
+    ],
+    [
+      "0:15:src/a.ts:1-480",
+      "1:4:src/b.ts:1-130",
+      "2:1:src/c.ts:1-20 src/d.ts:1-10",
+    ],
   );
 });
 
