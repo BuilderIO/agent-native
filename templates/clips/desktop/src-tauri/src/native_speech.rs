@@ -841,9 +841,11 @@ pub(crate) mod macos {
         devices.iter().find(|device| is_built_in(device))
     }
 
-    /// True when CoreAudio reports the input as a Bluetooth (classic or LE)
-    /// device. An input whose transport cannot be read counts as not Bluetooth.
-    /// `None` when CoreAudio cannot resolve the device or read its transport.
+    /// `Some(true)` when CoreAudio reports the input as a Bluetooth (classic or
+    /// LE) device, `Some(false)` when its transport is confirmed to be
+    /// something else. `None` (unconfirmed) when CoreAudio cannot resolve the
+    /// device or read its transport, or the transport is unknown or an
+    /// aggregate; `unselected_input` then passes it over like Bluetooth.
     fn is_bluetooth_input(device: &AudioInputDevice) -> Option<bool> {
         let object_id = audio_object_id_for_uid(&device.id).ok()?;
         let mut transport: u32 = 0;
