@@ -904,8 +904,8 @@ struct CustomScreenCaptureOutputHandler {
     clip_sink: Arc<Mutex<Option<ClipSinkSlot>>>,
     recording_enabled: Arc<AtomicBool>,
     mic_ready: Option<Arc<AtomicBool>>,
-    audio_level_tick: Arc<AtomicU32>,
-    mic_meter: Arc<Mutex<MicMeter>>,
+    /// Hands mic buffers to the meter's worker thread (see `spawn_mic_meter`).
+    mic_meter: std::sync::mpsc::Sender<MicMeterJob>,
     watch: Arc<CaptureWatch>,
 }
 
@@ -1173,8 +1173,7 @@ impl CustomScreenCaptureOutputHandler {
             clip_sink: Arc::clone(&self.clip_sink),
             recording_enabled: Arc::clone(&self.recording_enabled),
             mic_ready: self.mic_ready.clone(),
-            audio_level_tick: Arc::clone(&self.audio_level_tick),
-            mic_meter: Arc::clone(&self.mic_meter),
+            mic_meter: self.mic_meter.clone(),
             watch: Arc::clone(&self.watch),
         }
     }
@@ -1209,26 +1208,18 @@ impl CustomScreenCaptureOutputHandler {
         )
     }
 
-    fn emit_microphone_level(&self, samples: &[f32], pts_seconds: f64) {
+    /// Queues the buffer for the meter's worker thread. The writers are
+    /// snapshotted here, in order with the mixers' own pushes; the denoise and
+    /// gain run off the capture thread.
+    fn emit_microphone_level(&self, samples: Vec<f32>, pts_seconds: f64) {
         if samples.is_empty() {
             return;
         }
-        // Track the gain on every buffer, so it follows the voice even on the
-        // buffers that are not sent.
-        let sources = self.mic_meter_sources();
-        let Ok(mut meter) = self.mic_meter.lock() else {
-            return;
-        };
-        let level = meter.level(samples, pts_seconds, &sources);
-        drop(meter);
-        let tick = self.audio_level_tick.fetch_add(1, Ordering::Relaxed);
-        if tick % 3 != 0 {
-            return;
-        }
-        let _ = self.app.emit(
-            "voice:audio-level",
-            serde_json::json!({ "level": level, "source": "mic" }),
-        );
+        let _ = self.mic_meter.send(MicMeterJob {
+            samples,
+            pts_seconds,
+            sources: self.mic_meter_sources(),
+        });
     }
 }
 
@@ -1271,8 +1262,8 @@ impl SCStreamOutputTrait for CustomScreenCaptureOutputHandler {
                 eprintln!("[mixer] panic while publishing shared {of_type:?} PCM");
             }
             if matches!(of_type, SCStreamOutputType::Microphone) {
-                if let Some((samples, pts_seconds)) = decoded_mic.as_ref() {
-                    self.emit_microphone_level(samples, *pts_seconds);
+                if let Some((samples, pts_seconds)) = decoded_mic.take() {
+                    self.emit_microphone_level(samples, pts_seconds);
                 }
             }
         }
@@ -2220,9 +2211,9 @@ static NEXT_WRITER_METER_ID: AtomicU64 = AtomicU64::new(1);
 /// sink, a main writer waiting to record), most recently used first.
 const MIC_METER_MAX_WRITERS: usize = 4;
 
-/// Zero samples the meter feeds its gain stage for one mic gap at most. After
-/// a few seconds of zeros the stage's envelope is gone and its gain fixed, so
-/// more zeros would not change it.
+/// Zero samples the meter feeds its gain stage for one mixer stall at most.
+/// After a few seconds of zeros the stage's envelope is gone and its gain
+/// fixed, so more zeros would not change it.
 const MIC_METER_MAX_GAP_FEED_SECONDS: i64 = 10;
 
 /// The writers saving the mic right now with the recording's denoise and
@@ -2241,21 +2232,72 @@ fn saving_mic_writers<T>(
         .collect()
 }
 
+/// One mic buffer for the meter, with the writers saving it at that moment.
+struct MicMeterJob {
+    samples: Vec<f32>,
+    pts_seconds: f64,
+    sources: Vec<MicMeterSource>,
+}
+
+/// Runs the mic meter on its own thread: mirroring each writer's denoise and
+/// gain costs about 0.9% of a core per writer (`mic_meter_cpu_cost`), which
+/// stays off the ScreenCaptureKit callback. Every buffer is processed in
+/// order (the channel is unbounded), so the mirrored state stays exact; every
+/// third level is sent to the bar. The thread ends when the capture handler,
+/// which holds the senders, is dropped.
+fn spawn_mic_meter(app: AppHandle) -> std::sync::mpsc::Sender<MicMeterJob> {
+    let (sender, jobs) = std::sync::mpsc::channel::<MicMeterJob>();
+    let spawned = std::thread::Builder::new()
+        .name("clips-mic-meter".into())
+        .spawn(move || {
+            let mut meter = MicMeter::new();
+            for (tick, job) in jobs.into_iter().enumerate() {
+                let level = meter.level(&job.samples, job.pts_seconds, &job.sources);
+                if tick % 3 == 0 {
+                    let _ = app.emit(
+                        "voice:audio-level",
+                        serde_json::json!({ "level": level, "source": "mic" }),
+                    );
+                }
+            }
+        });
+    if let Err(error) = spawned {
+        eprintln!("[mixer] mic meter thread failed to start: {error}");
+    }
+    sender
+}
+
 /// A writer whose mic processing the meter mirrors.
 #[derive(Clone, Copy, Debug, PartialEq)]
 struct MicMeterSource {
     writer_id: u64,
     pause_offset_seconds: f64,
     mixes_system_audio: bool,
+    /// The writer's mixer timeline as of this mic buffer: its anchor (set by
+    /// whichever source arrived first) and output position (raised to the
+    /// session start by `set_min_start`), so the meter places the mic where
+    /// the mixer will.
+    mixer_anchor_seconds: Option<f64>,
+    mixer_out_pos: i64,
 }
 
 impl MicMeterSource {
     /// `Some` when `writer` denoises and boosts the mic.
     fn of(writer: &CustomScreenCaptureWriter) -> Option<Self> {
-        writer.applies_mic_auto_gain.then(|| Self {
+        if !writer.applies_mic_auto_gain {
+            return None;
+        }
+        let (mixer_anchor_seconds, mixer_out_pos) = writer
+            .mixer
+            .as_ref()
+            .and_then(|mixer| mixer.lock().ok())
+            .map_or((None, 0), |mixer| (mixer.anchor_seconds, mixer.out_pos));
+        Some(Self {
             writer_id: writer.meter_id,
             pause_offset_seconds: writer.pause_offset(),
             mixes_system_audio: writer.mixes_system_audio,
+            mixer_anchor_seconds,
+            mixer_out_pos,
         })
     }
 }
@@ -2375,27 +2417,40 @@ impl WriterMicMeter {
     }
 
     /// As `LiveAudioMixer::push_timeline` and `MixerTimeline::push_at` for the
-    /// mic, then `MixGainStage` over the new timeline samples: a gap is filled
-    /// with zeros (capped at the mixer's 2 s, unless system audio keeps the
-    /// mixer's output and gain stage running through it), overlap is dropped.
-    /// Returns the boosted peak of the new samples.
+    /// mic, then `MixGainStage` over the new timeline samples. The frame index
+    /// uses the mixer's anchor (its first source, maybe system audio); the
+    /// first push starts at the mixer's output position, so mic audio from
+    /// before the session start is dropped as the mixer drops it. When the
+    /// mixer has emitted past the mic's end (system audio kept it running
+    /// through a mic stall) its gain stage saw zeros there, so the meter's
+    /// does too; a further gap is zero-filled up to the mixer's 2 s cap, and
+    /// overlap is dropped. Returns the boosted peak of the new samples.
     fn push_timeline(&mut self, mono: &[f32], pts_seconds: f64, source: &MicMeterSource) -> f32 {
         if mono.is_empty() {
             return 0.0;
         }
         let sample_rate = AUDIO_OUTPUT_SAMPLE_RATE as i64;
         let pts_seconds = pts_seconds - source.pause_offset_seconds;
-        let anchor = *self.anchor_seconds.get_or_insert(pts_seconds);
+        // Before the mixer has any audio, this frame becomes its anchor.
+        let anchor = source
+            .mixer_anchor_seconds
+            .unwrap_or_else(|| *self.anchor_seconds.get_or_insert(pts_seconds));
         let frame_index = (((pts_seconds - anchor) * sample_rate as f64).round() as i64).max(0);
-        let mut end = *self.end_frame.get_or_insert(frame_index);
+        let mut end = self
+            .end_frame
+            .unwrap_or_else(|| frame_index.max(source.mixer_out_pos));
+        if source.mixer_out_pos > end {
+            if source.mixes_system_audio {
+                let emitted = source.mixer_out_pos - end;
+                for _ in 0..emitted.min(sample_rate * MIC_METER_MAX_GAP_FEED_SECONDS) {
+                    self.auto_gain.next_gain(0.0, 0.0);
+                }
+            }
+            end = source.mixer_out_pos;
+        }
         if frame_index > end {
-            let gap = frame_index - end;
-            let gap = if source.mixes_system_audio {
-                gap
-            } else {
-                gap.min(sample_rate * 2)
-            };
-            for _ in 0..gap.min(sample_rate * MIC_METER_MAX_GAP_FEED_SECONDS) {
+            let gap = (frame_index - end).min(sample_rate * 2);
+            for _ in 0..gap {
                 self.auto_gain.next_gain(0.0, 0.0);
             }
             end += gap;
@@ -4462,8 +4517,7 @@ pub(crate) fn start_custom_screencapturekit_backend_at(
         clip_sink: Arc::clone(&clip_sink),
         recording_enabled: Arc::clone(&recording_enabled),
         mic_ready: mic_ready.clone(),
-        audio_level_tick: Arc::new(AtomicU32::new(0)),
-        mic_meter: Arc::new(Mutex::new(MicMeter::new())),
+        mic_meter: spawn_mic_meter(app.clone()),
         watch: Arc::clone(&watch),
     };
 
@@ -5023,6 +5077,8 @@ mod mic_meter_tests {
             writer_id,
             pause_offset_seconds,
             mixes_system_audio: false,
+            mixer_anchor_seconds: None,
+            mixer_out_pos: 0,
         }
     }
 
@@ -5142,19 +5198,21 @@ mod mic_meter_tests {
     }
 
     /// Pushes `chunks` (start pts, samples) through the meter's timeline and
-    /// a real `MixerTimeline` + `MixGainStage` playing `system` alongside, and
-    /// checks every boosted mic sample and the final gain match.
-    fn assert_gain_matches_mixer(chunks: &[(f64, Vec<f32>)], mixes_system_audio: bool) {
+    /// a real `MixerTimeline` + `MixGainStage` anchored at `anchor` (the first
+    /// source's pts) with the output floored at `session_floor` (as
+    /// `set_min_start` does), with system audio optionally keeping the output
+    /// running, and checks every boosted mic peak and the final gain match.
+    fn assert_gain_matches_mixer(
+        chunks: &[(f64, Vec<f32>)],
+        mixes_system_audio: bool,
+        anchor: f64,
+        session_floor: i64,
+    ) {
         let rate = AUDIO_OUTPUT_SAMPLE_RATE as i64;
-        let source = MicMeterSource {
-            writer_id: 1,
-            pause_offset_seconds: 0.0,
-            mixes_system_audio,
-        };
         let mut meter = WriterMicMeter::new();
         let mut timeline = MixerTimeline::new();
         let mut recording = MixGainStage::new(rate as i32, true);
-        let mut out_pos = 0_i64;
+        let mut out_pos = session_floor;
         // As `LiveAudioMixer::drain_consumed`.
         let drain = |timeline: &mut MixerTimeline, out_pos: i64| {
             let consumed =
@@ -5163,9 +5221,7 @@ mod mic_meter_tests {
             timeline.base_frame = timeline.base_frame.max(out_pos);
         };
         for (pts, samples) in chunks {
-            let meter_peak = meter.push_timeline(samples, *pts, &source);
-            let stereo: Vec<f32> = samples.iter().flat_map(|&s| [s, s]).collect();
-            let frame_index = ((pts - chunks[0].0) * rate as f64).round() as i64;
+            let frame_index = (((pts - anchor) * rate as f64).round() as i64).max(0);
             if mixes_system_audio {
                 // System audio keeps the mixer emitting through the mic gap.
                 while out_pos < frame_index {
@@ -5174,6 +5230,15 @@ mod mic_meter_tests {
                 }
                 drain(&mut timeline, out_pos);
             }
+            let source = MicMeterSource {
+                writer_id: 1,
+                pause_offset_seconds: 0.0,
+                mixes_system_audio,
+                mixer_anchor_seconds: Some(anchor),
+                mixer_out_pos: out_pos,
+            };
+            let meter_peak = meter.push_timeline(samples, *pts, &source);
+            let stereo: Vec<f32> = samples.iter().flat_map(|&s| [s, s]).collect();
             timeline.push_at(frame_index, &stereo, out_pos, rate * 2);
             let mut saved_peak = 0.0_f32;
             while out_pos < timeline.end_frame() {
@@ -5191,24 +5256,34 @@ mod mic_meter_tests {
         assert_eq!(meter.auto_gain.mean_square, recording.mic.mean_square);
     }
 
+    fn speech_chunks(starts: impl Iterator<Item = f64>) -> Vec<(f64, Vec<f32>)> {
+        let speech: Vec<f32> = soft_speech().iter().copied().cycle().take(4_800).collect();
+        starts.map(|start| (start, speech.clone())).collect()
+    }
+
     #[test]
     fn meter_gain_advances_through_a_mic_gap_like_the_mixer() {
-        let speech: Vec<f32> = soft_speech().iter().copied().cycle().take(4_800).collect();
-        let mut chunks = Vec::new();
-        for i in 0..20 {
-            chunks.push((i as f64 * 0.1, speech.clone()));
-        }
         // The mic drops out for 0.7 s (5 s with system audio) and recovers.
-        let resume = 2.0 + 0.7;
-        for i in 0..20 {
-            chunks.push((resume + i as f64 * 0.1, speech.clone()));
+        for (gap, system) in [(0.7, false), (5.0, true)] {
+            let chunks = speech_chunks(
+                (0..20)
+                    .map(|i| i as f64 * 0.1)
+                    .chain((0..20).map(|i| 2.0 + gap + i as f64 * 0.1)),
+            );
+            assert_gain_matches_mixer(&chunks, system, 0.0, 0);
         }
-        assert_gain_matches_mixer(&chunks, false);
-        let resume = 2.0 + 5.0;
-        for (i, chunk) in chunks.iter_mut().skip(20).enumerate() {
-            chunk.0 = resume + i as f64 * 0.1;
-        }
-        assert_gain_matches_mixer(&chunks, true);
+    }
+
+    #[test]
+    fn meter_anchors_like_the_mixer_on_a_system_first_start() {
+        // System audio arrived first at 10.0 s and anchored the mixer; the
+        // session starts at 10.2 s (output floored there); the mic starts at
+        // 10.1 s, so its first 0.1 s is pre-start audio the mixer drops.
+        let chunks = speech_chunks((0..30).map(|i| 10.1 + i as f64 * 0.1));
+        assert_gain_matches_mixer(&chunks, true, 10.0, 9_600);
+        assert_gain_matches_mixer(&chunks, false, 10.0, 9_600);
+        // A mic-first start anchors on the mic, as before.
+        assert_gain_matches_mixer(&chunks, false, 10.1, 0);
     }
 
     #[test]
@@ -5282,6 +5357,41 @@ mod mic_meter_tests {
         }
         assert!(meter.writers.len() <= MIC_METER_MAX_WRITERS);
         assert!(meter.writers.contains_key(&1) && meter.writers.contains_key(&9));
+    }
+
+    /// CPU cost of the meter on the capture thread, as a share of real time
+    /// for one core. Run in release:
+    /// `cargo test --release --lib mic_meter_cpu_cost -- --ignored --nocapture`
+    #[test]
+    #[ignore]
+    fn mic_meter_cpu_cost() {
+        const SECONDS: usize = 120;
+        // 10 ms buffers of speech-level noise, as ScreenCaptureKit delivers.
+        let mut seed: u32 = 7;
+        let buffers: Vec<Vec<f32>> = (0..SECONDS * 100)
+            .map(|_| {
+                (0..480)
+                    .map(|_| {
+                        seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                        ((seed >> 8) as f32 / (1u32 << 24) as f32 - 0.5) * 0.2
+                    })
+                    .collect()
+            })
+            .collect();
+        for writers in [1_u64, 2] {
+            let sources: Vec<MicMeterSource> = (1..=writers).map(|id| writer(id, 0.0)).collect();
+            let mut meter = MicMeter::new();
+            let started = Instant::now();
+            for (i, buffer) in buffers.iter().enumerate() {
+                std::hint::black_box(meter.level(buffer, i as f64 * 0.01, &sources));
+            }
+            let elapsed = started.elapsed().as_secs_f64();
+            eprintln!(
+                "mic meter, {writers} writer(s): {:.1} us per 10 ms buffer, {:.3}% of one core",
+                elapsed / buffers.len() as f64 * 1e6,
+                elapsed / SECONDS as f64 * 100.0
+            );
+        }
     }
 
     #[test]
