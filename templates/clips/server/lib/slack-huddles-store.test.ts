@@ -17,6 +17,7 @@ import {
   handleSlackHuddleEvent,
   HUDDLE_FILL_MAX_ATTEMPTS,
   HUDDLE_FILL_RETRY_BASE_MS,
+  rearmSlackHuddlesForUser,
   storeSlackHuddleEvent,
   sweepDueSlackHuddles,
   huddleParticipantId,
@@ -550,6 +551,84 @@ describe("storeSlackHuddleEvent + sweepDueSlackHuddles", () => {
       next_fill_at: null,
       fill_attempts: HUDDLE_FILL_MAX_ATTEMPTS,
     });
+  });
+});
+
+describe("huddle retry accounting", () => {
+  it("costs one attempt per pass, however many meetings the huddle matches", async () => {
+    await client.exec(`
+      INSERT INTO clips_meetings (id, actual_start, actual_end, platform, source, owner_email)
+      VALUES ('huddle-meeting-2', '2026-11-12T08:49:00.000Z', NULL, 'slack', 'adhoc', 'nevil@example.test');
+    `);
+    const answer = fetchImpl.getMockImplementation() as (
+      url: string,
+    ) => Promise<Response>;
+    fetchImpl.mockImplementation(async (url: string) =>
+      new URL(url).searchParams.get("user") === "U0BOB"
+        ? new Response("upstream error", { status: 503 })
+        : answer(url),
+    );
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const result = await handleSlackHuddleEvent(
+      deps,
+      huddleEvent({ history: ["U0OWNER", "U0ANNA", "U0BOB"] }),
+    );
+    warn.mockRestore();
+    expect(result.pending).toBe(2); // Bob, for each of the two meetings
+    expect((await fillState()).fill_attempts).toBe(1);
+  });
+
+  it("keeps a huddle due when the token failed, and fills it once the person reconnects", async () => {
+    deps.readToken = async () => null;
+    await handleSlackHuddleEvent(
+      deps,
+      huddleEvent({ history: ["U0OWNER", "U0ANNA"] }),
+    );
+    expect(await rows(`SELECT status FROM slack_user_connections`)).toEqual([
+      { status: "error" },
+    ]);
+    const afterFailure = await fillState();
+    expect(afterFailure.next_fill_at).not.toBeNull();
+    expect(afterFailure.fill_attempts).toBe(1);
+
+    // No connected participant now: still due, not cleared.
+    expect(await sweepDueSlackHuddles(deps, SOON())).toMatchObject({
+      huddles: 1,
+      filled: 0,
+    });
+    expect((await fillState()).next_fill_at).not.toBeNull();
+
+    // Reconnect: the OAuth callback re-arms the person's recent huddles.
+    await client.exec(
+      `UPDATE slack_user_connections SET status = 'connected', last_error = NULL`,
+    );
+    await rearmSlackHuddlesForUser(
+      db,
+      "T0TEAM",
+      "U0OWNER",
+      1794473298_000 + 60_000,
+    );
+    expect((await fillState()).fill_attempts).toBe(0);
+    deps.readToken = async () => "xoxp-test";
+    expect(await sweepDueSlackHuddles(deps, SOON())).toMatchObject({
+      filled: 2,
+    });
+    expect((await fillState()).next_fill_at).toBeNull();
+  });
+
+  it("does not re-arm huddles of other people or older than a week", async () => {
+    await storeSlackHuddleEvent(deps, huddleEvent({ history: ["U0OWNER"] }));
+    await sweepDueSlackHuddles(deps);
+    expect((await fillState()).next_fill_at).toBeNull();
+    await rearmSlackHuddlesForUser(db, "T0TEAM", "U0ANNA", 1794473298_000);
+    expect((await fillState()).next_fill_at).toBeNull();
+    await rearmSlackHuddlesForUser(
+      db,
+      "T0TEAM",
+      "U0OWNER",
+      1794473298_000 + 8 * 24 * 60 * 60 * 1000,
+    );
+    expect((await fillState()).next_fill_at).toBeNull();
   });
 });
 

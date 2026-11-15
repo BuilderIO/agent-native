@@ -1449,15 +1449,21 @@ export const migrations = runMigrations(
           date_end BIGINT,
           started_by TEXT,
           participant_ids_json TEXT NOT NULL DEFAULT '[]',
-          next_fill_at TEXT,
-          fill_attempts INTEGER NOT NULL DEFAULT 0,
           created_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP),
           updated_at TEXT NOT NULL DEFAULT (CURRENT_TIMESTAMP)
         )`,
         `CREATE UNIQUE INDEX IF NOT EXISTS slack_huddles_message_unique_idx ON slack_huddles (team_id, channel_id, message_ts)`,
         `CREATE INDEX IF NOT EXISTS slack_huddles_team_start_idx ON slack_huddles (team_id, date_start)`,
-        `CREATE INDEX IF NOT EXISTS slack_huddles_next_fill_idx ON slack_huddles (next_fill_at)`,
       ].join("; "),
+    },
+    {
+      version: 107,
+      name: "slack-huddle-fill-retry",
+      // When the huddle sweeper should fill a huddle again (null: nothing
+      // pending) and how many passes it took, for the retry backoff.
+      sql: `ALTER TABLE slack_huddles ADD COLUMN IF NOT EXISTS next_fill_at TEXT;
+      ALTER TABLE slack_huddles ADD COLUMN IF NOT EXISTS fill_attempts INTEGER NOT NULL DEFAULT 0;
+      CREATE INDEX IF NOT EXISTS slack_huddles_next_fill_idx ON slack_huddles (next_fill_at)`,
     },
   ]),
   { table: "clips_migrations" },

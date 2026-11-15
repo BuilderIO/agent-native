@@ -13,6 +13,7 @@ const mocks = vi.hoisted(() => ({
   inserted: [] as unknown[],
   updates: [] as unknown[],
   connectionRow: null as Record<string, unknown> | null,
+  rearmSlackHuddlesForUser: vi.fn(async (..._args: unknown[]) => {}),
 }));
 
 vi.mock("@agent-native/core/server", () => ({
@@ -47,6 +48,11 @@ vi.mock("@agent-native/core/application-state", () => ({
 
 vi.mock("./meeting-participant-shares.js", () => ({
   shareStoppedMeetingWithHuddleParticipants: vi.fn(),
+}));
+
+vi.mock("./slack-huddles-store.js", () => ({
+  rearmSlackHuddlesForUser: (...args: unknown[]) =>
+    mocks.rearmSlackHuddlesForUser(...args),
 }));
 
 vi.mock("./recordings.js", () => ({
@@ -258,6 +264,12 @@ describe("Connect Slack for huddles: callback", () => {
         slackUserId: "U0OWNER",
       }),
     ]);
+    // Huddles a failed token left incomplete are filled again.
+    expect(mocks.rearmSlackHuddlesForUser).toHaveBeenCalledWith(
+      expect.anything(),
+      "T0TEAM",
+      "U0OWNER",
+    );
     expect(event.res.headers.getSetCookie().join("; ")).toMatch(
       new RegExp(`${SLACK_HUDDLES_OAUTH_COOKIE}=;.*Max-Age=0`, "i"),
     );

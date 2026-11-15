@@ -470,6 +470,37 @@ async function scheduleHuddleFillRetry(
     .where(huddleKey(huddle));
 }
 
+/** Huddles this recent are filled again when their participant reconnects. */
+export const HUDDLE_REARM_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * A Slack user (re)connected: make their recent huddles due again, with a
+ * fresh retry budget, so meetings a failed or missing token left incomplete
+ * get filled now.
+ */
+export async function rearmSlackHuddlesForUser(
+  db: HuddleDb,
+  teamId: string,
+  slackUserId: string,
+  nowMs = Date.now(),
+): Promise<void> {
+  if (!/^[UW][A-Z0-9]+$/.test(slackUserId)) return;
+  const nowIso = new Date(nowMs).toISOString();
+  await db
+    .update(schema.slackHuddles)
+    .set({ nextFillAt: nowIso, fillAttempts: 0 })
+    .where(
+      and(
+        eq(schema.slackHuddles.teamId, teamId),
+        gte(
+          schema.slackHuddles.dateStart,
+          Math.floor((nowMs - HUDDLE_REARM_WINDOW_MS) / 1000),
+        ),
+        sql`${schema.slackHuddles.participantIdsJson} like ${`%"${slackUserId}"%`}`,
+      ),
+    );
+}
+
 /**
  * Every fill of this huddle completed. Only clears what was pending when the
  * fill started: a newer event for the huddle keeps it due.
@@ -487,17 +518,44 @@ async function markHuddleFilled(
     );
 }
 
-type MeetingFill = { added: number; emails: string[]; pending: number };
+type MeetingFill = {
+  /** The huddle the meeting was filled from. */
+  huddle: SlackHuddle;
+  added: number;
+  emails: string[];
+  pending: number;
+  /**
+   * Not everyone could be resolved: lookups Slack could not answer, or the
+   * connection's token was missing, unreadable or rejected. The huddle stays
+   * due for the sweep.
+   */
+  incomplete: boolean;
+};
 
+/** A fill failed after its huddle was picked; says which huddle to retry. */
+class HuddleFillError extends Error {
+  constructor(
+    readonly huddle: SlackHuddle,
+    readonly original: unknown,
+  ) {
+    super(original instanceof Error ? original.message : String(original));
+    this.name = "HuddleFillError";
+  }
+}
+
+/**
+ * Fill a meeting from the best stored huddle of one of its owner's
+ * connections. Never schedules retries itself: callers do that once per
+ * huddle pass, so one pass costs one attempt.
+ */
 async function fillMeeting(
   deps: HuddleDeps,
   meeting: HuddleMeeting,
   connections?: SlackUserConnection[],
-  /** False when the caller schedules the retry for its own failure. */
-  retryOnError = true,
 ): Promise<MeetingFill | null> {
   const owned =
     connections ?? (await connectionsForOwner(deps.db, meeting.ownerEmail));
+  let unresolved: SlackHuddle | null = null;
   for (const connection of owned) {
     const huddles = await candidateHuddles(
       deps.db,
@@ -510,47 +568,71 @@ async function fillMeeting(
       connection.slackUserId,
     );
     if (!huddle) continue;
-    let resolved: ResolvedPeople | null;
-    let added: number;
     try {
-      resolved = await resolvePeople(deps, connection, huddle);
-      if (!resolved) continue;
-      added = await insertHuddleParticipants(deps.db, {
+      const resolved = await resolvePeople(deps, connection, huddle);
+      if (!resolved) {
+        // The token failed; another connection may still resolve it.
+        unresolved ??= huddle;
+        continue;
+      }
+      const added = await insertHuddleParticipants(deps.db, {
         meetingId: meeting.id,
         huddle,
         people: resolved.people,
       });
+      const emails = [
+        ...new Set(
+          resolved.people
+            .map((person) => person.email?.trim().toLowerCase())
+            .filter((email): email is string => !!email),
+        ),
+      ];
+      return {
+        huddle,
+        added,
+        emails,
+        pending: resolved.pending,
+        incomplete: resolved.pending > 0,
+      };
     } catch (error) {
-      if (retryOnError) {
-        await scheduleHuddleFillRetry(deps.db, huddle).catch(() => {});
-      }
-      throw error;
+      throw new HuddleFillError(huddle, error);
     }
-    // People Slack could not describe yet: the sweep tries this huddle again.
-    if (resolved.pending) await scheduleHuddleFillRetry(deps.db, huddle);
-    const emails = [
-      ...new Set(
-        resolved.people
-          .map((person) => person.email?.trim().toLowerCase())
-          .filter((email): email is string => !!email),
-      ),
-    ];
-    return { added, emails, pending: resolved.pending };
   }
-  return null;
+  return unresolved
+    ? { huddle: unresolved, added: 0, emails: [], pending: 0, incomplete: true }
+    : null;
+}
+
+function sameHuddle(a: SlackHuddle, b: SlackHuddle): boolean {
+  return (
+    a.teamId === b.teamId &&
+    a.channelId === b.channelId &&
+    a.messageTs === b.messageTs
+  );
 }
 
 /**
  * Fill one meeting from the best stored huddle its owner was in. Returns the
  * number of participants added (0 when no huddle fits or all are there).
- * People Slack could not describe yet are left for the sweep to add.
+ * When not everyone could be resolved, that huddle is left due for the sweep.
  */
 export async function fillMeetingFromStoredHuddles(
   deps: HuddleDeps,
   meeting: HuddleMeeting,
   connections?: SlackUserConnection[],
 ): Promise<number> {
-  return (await fillMeeting(deps, meeting, connections))?.added ?? 0;
+  let fill: MeetingFill | null;
+  try {
+    fill = await fillMeeting(deps, meeting, connections);
+  } catch (error) {
+    if (error instanceof HuddleFillError) {
+      await scheduleHuddleFillRetry(deps.db, error.huddle).catch(() => {});
+      throw error.original;
+    }
+    throw error;
+  }
+  if (fill?.incomplete) await scheduleHuddleFillRetry(deps.db, fill.huddle);
+  return fill?.added ?? 0;
 }
 
 export type HuddleFillResult = { filled: number; pending: number };
@@ -579,22 +661,31 @@ export async function storeSlackHuddleEvent(
 /**
  * Fill every Slack meeting a connected participant of this stored huddle
  * could have recorded it in, and share stopped public meetings with the
- * huddle's people. Idempotent: run again by the sweep until nothing is
- * pending.
+ * huddle's people. One pass is one attempt: every huddle left incomplete
+ * (people Slack could not describe, a failed token, an error, a failed share)
+ * gets one retry scheduled; otherwise this huddle is marked filled.
  */
 export async function fillMeetingsForHuddle(
   deps: HuddleDeps,
   huddle: SlackHuddle,
 ): Promise<HuddleFillResult> {
-  const connections = await connectionsForSlackUsers(
-    deps.db,
-    huddle.teamId,
-    huddle.participantIds,
-  );
   const startedIso = new Date().toISOString();
+  const incomplete: SlackHuddle[] = [];
+  const markIncomplete = (h: SlackHuddle) => {
+    if (!incomplete.some((other) => sameHuddle(other, h))) incomplete.push(h);
+  };
   let filled = 0;
   let pending = 0;
+  let failure: unknown = null;
   try {
+    const connections = await connectionsForSlackUsers(
+      deps.db,
+      huddle.teamId,
+      huddle.participantIds,
+    );
+    // Stored for a connected participant, but none is connected now (token
+    // failed, disconnected): keep it due; reconnecting fills it.
+    if (!connections.length) markIncomplete(huddle);
     for (const connection of connections) {
       const meetings = await candidateMeetings(
         deps.db,
@@ -602,22 +693,34 @@ export async function fillMeetingsForHuddle(
         huddle,
       );
       for (const meeting of meetings) {
-        const fill = await fillMeeting(deps, meeting, [connection], false);
+        const fill = await fillMeeting(deps, meeting, [connection]);
         if (!fill) continue;
         filled += fill.added;
         pending += fill.pending;
+        if (fill.incomplete) markIncomplete(fill.huddle);
         if (fill.emails.length && deps.onHuddleParticipants) {
-          await deps.onHuddleParticipants(meeting.id, fill.emails);
+          try {
+            await deps.onHuddleParticipants(meeting.id, fill.emails);
+          } catch (error) {
+            markIncomplete(huddle);
+            throw error;
+          }
         }
       }
     }
   } catch (error) {
-    // A lookup, insert or share failed: keep the huddle due for the sweep.
-    await scheduleHuddleFillRetry(deps.db, huddle).catch(() => {});
-    throw error;
+    failure = error instanceof HuddleFillError ? error.original : error;
+    markIncomplete(error instanceof HuddleFillError ? error.huddle : huddle);
   }
-  // fillMeeting already scheduled a retry for anything left pending.
-  if (!pending) await markHuddleFilled(deps.db, huddle, startedIso);
+  for (const due of incomplete) {
+    await scheduleHuddleFillRetry(deps.db, due).catch((err) =>
+      console.warn("[clips-slack] Could not schedule a huddle retry:", err),
+    );
+  }
+  if (failure) throw failure;
+  if (!incomplete.some((due) => sameHuddle(due, huddle))) {
+    await markHuddleFilled(deps.db, huddle, startedIso);
+  }
   return { filled, pending };
 }
 

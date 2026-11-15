@@ -42,7 +42,11 @@ import { getDb, schema } from "../db/index.js";
 import { shareStoppedMeetingWithHuddleParticipants } from "./meeting-participant-shares.js";
 import { getActiveOrganizationId, sameOwnerEmail } from "./recordings.js";
 import { SLACK_HUDDLE_USER_SCOPES, SlackTokenError } from "./slack-huddles.js";
-import type { HuddleDeps, SlackUserConnection } from "./slack-huddles-store.js";
+import {
+  rearmSlackHuddlesForUser,
+  type HuddleDeps,
+  type SlackUserConnection,
+} from "./slack-huddles-store.js";
 
 export const CLIPS_SLACK_HUDDLES_OAUTH_APP_ID = `${
   process.env.APP_NAME || "clips"
@@ -325,6 +329,10 @@ export async function handleSlackHuddlesOAuthCallback(
         tokenSecretRef: tokenKey,
         scope: user.scope,
       });
+      // Huddles a missing or failed token left incomplete fill now.
+      await rearmSlackHuddlesForUser(getDb(), teamId, user.id).catch((err) =>
+        console.warn("[clips-slack] Could not re-arm huddle fills:", err),
+      );
 
       await writeAppState("refresh-signal", { ts: Date.now() });
       return oauthCallbackResponse(event, teamName ?? teamId, {
