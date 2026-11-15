@@ -31,8 +31,8 @@ import {
   getCameraStreamWithFallback,
   shouldRequestSystemAudio,
 } from "./media-capture-constraints";
-import { planNativeFullscreenWarmOverlap } from "./native-recording-warm";
 import { submitNativeNotification } from "./native-notification";
+import { planNativeFullscreenWarmOverlap } from "./native-recording-warm";
 import {
   createPauseTransitionQueue,
   type PauseTransitionQueue,
