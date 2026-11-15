@@ -132,9 +132,11 @@ pub(crate) mod macos {
         AVLinearPCMIsFloatKey, AVLinearPCMIsNonInterleaved, AVNumberOfChannelsKey,
     };
     use objc2_core_audio::{
-        kAudioHardwareNoError, kAudioHardwarePropertyTranslateUIDToDevice,
-        kAudioObjectPropertyElementMain, kAudioObjectPropertyScopeGlobal, kAudioObjectSystemObject,
-        AudioObjectGetPropertyData, AudioObjectID, AudioObjectPropertyAddress,
+        kAudioDevicePropertyTransportType, kAudioDeviceTransportTypeBluetooth,
+        kAudioDeviceTransportTypeBluetoothLE, kAudioHardwareNoError,
+        kAudioHardwarePropertyTranslateUIDToDevice, kAudioObjectPropertyElementMain,
+        kAudioObjectPropertyScopeGlobal, kAudioObjectSystemObject, AudioObjectGetPropertyData,
+        AudioObjectID, AudioObjectPropertyAddress,
     };
     use objc2_core_audio_types::kAudioFormatLinearPCM;
     use objc2_core_media::{CMAudioFormatDescriptionGetStreamBasicDescription, CMSampleBuffer};
@@ -814,6 +816,55 @@ pub(crate) mod macos {
             || value.contains("internal microphone")
     }
 
+    /// The input dictation uses when the user chose no microphone ("Default").
+    /// It follows the Mac's default input, so a USB headset works with the
+    /// lid closed, when the built-in mic only sends silence. Only a Bluetooth
+    /// default is passed over for the built-in mic: opening a Bluetooth mic
+    /// switches the headset to its low-quality call mode and glitches what is
+    /// playing. Returns `None` when neither exists, so capture falls back to
+    /// whatever macOS hands out.
+    pub(crate) fn unselected_input<'a, D>(
+        devices: &'a [D],
+        is_default: impl Fn(&D) -> bool,
+        is_built_in: impl Fn(&D) -> bool,
+        is_bluetooth: impl Fn(&D) -> bool,
+    ) -> Option<&'a D> {
+        if let Some(default) = devices.iter().find(|device| is_default(device)) {
+            if !is_bluetooth(default) {
+                return Some(default);
+            }
+        }
+        devices.iter().find(|device| is_built_in(device))
+    }
+
+    /// True when CoreAudio reports the input as a Bluetooth (classic or LE)
+    /// device. An input whose transport cannot be read counts as not Bluetooth.
+    fn is_bluetooth_input(device: &AudioInputDevice) -> bool {
+        let Ok(object_id) = audio_object_id_for_uid(&device.id) else {
+            return false;
+        };
+        let mut transport: u32 = 0;
+        let mut data_size = size_of::<u32>() as u32;
+        let address = AudioObjectPropertyAddress {
+            mSelector: kAudioDevicePropertyTransportType,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain,
+        };
+        let status = unsafe {
+            AudioObjectGetPropertyData(
+                object_id,
+                NonNull::from(&address),
+                0,
+                std::ptr::null(),
+                NonNull::from(&mut data_size),
+                NonNull::new_unchecked((&mut transport as *mut u32).cast::<c_void>()),
+            )
+        };
+        status == kAudioHardwareNoError
+            && (transport == kAudioDeviceTransportTypeBluetooth
+                || transport == kAudioDeviceTransportTypeBluetoothLE)
+    }
+
     fn audio_object_id_for_uid(uid: &str) -> Result<AudioObjectID, String> {
         let ns_uid = NSString::from_str(uid);
         let uid_ref = Retained::as_ptr(&ns_uid) as *const c_void;
@@ -870,9 +921,12 @@ pub(crate) mod macos {
                 if has_specific_selection {
                     None
                 } else {
-                    devices
-                        .iter()
-                        .find(|device| is_built_in_input_name(&device.name))
+                    unselected_input(
+                        &devices,
+                        |device| device.is_default,
+                        |device| is_built_in_input_name(&device.name),
+                        is_bluetooth_input,
+                    )
                 }
             });
 
@@ -2079,6 +2133,68 @@ pub(crate) mod macos {
             SessionOwner, SessionRegistry, StoppedSessionDisposition,
         };
         use std::sync::Arc;
+
+        struct Mic {
+            name: &'static str,
+            default: bool,
+            bluetooth: bool,
+        }
+
+        fn pick(devices: &[Mic]) -> Option<&'static str> {
+            super::unselected_input(
+                devices,
+                |mic| mic.default,
+                |mic| mic.name.contains("MacBook"),
+                |mic| mic.bluetooth,
+            )
+            .map(|mic| mic.name)
+        }
+
+        #[test]
+        fn unselected_input_follows_a_wired_default_over_the_built_in_mic() {
+            let devices = [
+                Mic {
+                    name: "MacBook Pro Microphone",
+                    default: false,
+                    bluetooth: false,
+                },
+                Mic {
+                    name: "JBL Quantum Stream Talk",
+                    default: true,
+                    bluetooth: false,
+                },
+            ];
+            assert_eq!(pick(&devices), Some("JBL Quantum Stream Talk"));
+        }
+
+        #[test]
+        fn unselected_input_passes_over_a_bluetooth_default_for_the_built_in_mic() {
+            let devices = [
+                Mic {
+                    name: "AirPods Pro",
+                    default: true,
+                    bluetooth: true,
+                },
+                Mic {
+                    name: "MacBook Pro Microphone",
+                    default: false,
+                    bluetooth: false,
+                },
+            ];
+            assert_eq!(pick(&devices), Some("MacBook Pro Microphone"));
+        }
+
+        #[test]
+        fn unselected_input_keeps_a_bluetooth_default_without_a_built_in_mic() {
+            let devices = [Mic {
+                name: "AirPods Pro",
+                default: true,
+                bluetooth: true,
+            }];
+            assert_eq!(pick(&devices), None);
+            let none: [Mic; 0] = [];
+            assert_eq!(pick(&none), None);
+        }
 
         #[test]
         fn active_engine_owner_cannot_be_preempted_by_another_owner() {
