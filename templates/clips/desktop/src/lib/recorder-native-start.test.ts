@@ -1739,11 +1739,13 @@ describe("Preparing after the countdown", () => {
     );
     const controller = new AbortController();
     const onCaptureStartFailed = vi.fn();
+    const onCaptureStartAttempted = vi.fn();
     const pending = startRecording({
       ...params,
       lookbackEnabled: true,
       signal: controller.signal,
       onCaptureStartFailed,
+      onCaptureStartAttempted,
     });
     const failed = expect(pending).rejects.toMatchObject({
       name: "AbortError",
@@ -1751,6 +1753,9 @@ describe("Preparing after the countdown", () => {
     await vi.advanceTimersByTimeAsync(3_600);
     const id = createdRecordingId();
     expect(calls("native_fullscreen_recording_begin")).toHaveLength(1);
+    // The app hears that capture may be live before the acknowledgement, so
+    // its Stop takes the normal stop path instead of cancelling the start.
+    expect(onCaptureStartAttempted).toHaveBeenCalledWith(id);
 
     // Stop before begin is acknowledged: capture may already be live.
     controller.abort();
@@ -1781,12 +1786,14 @@ describe("Preparing after the countdown", () => {
     nativeCommands.set("rewind_clip_start", () => rewindStart.promise);
     const controller = new AbortController();
     const onCaptureStartFailed = vi.fn();
+    const onCaptureStartAttempted = vi.fn();
     const pending = startRecording({
       ...params,
       source: "full-screen",
       lookbackEnabled: true,
       signal: controller.signal,
       onCaptureStartFailed,
+      onCaptureStartAttempted,
     });
     const failed = expect(pending).rejects.toMatchObject({
       name: "AbortError",
@@ -1794,6 +1801,9 @@ describe("Preparing after the countdown", () => {
     await vi.advanceTimersByTimeAsync(3_600);
     const id = createdRecordingId();
     expect(calls("rewind_clip_start")).toHaveLength(1);
+    // The app hears that capture may be live before the acknowledgement, so
+    // its Stop takes the normal stop path instead of cancelling the start.
+    expect(onCaptureStartAttempted).toHaveBeenCalledWith(id);
 
     // Stop before the start is acknowledged: Rewind may already be capturing.
     controller.abort();

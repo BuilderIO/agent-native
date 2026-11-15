@@ -254,6 +254,7 @@ import {
   requestRecordingShortcutStop,
 } from "./lib/recording-shortcut-stop";
 import { boundedCleanup } from "./lib/recording-start-guard";
+import { RecordingStartStopState } from "./lib/recording-start-stop";
 import { REWIND_AGENT_PROMPT } from "./lib/rewind-agent-prompt";
 import { getRewindStartErrorKind } from "./lib/rewind-start-error";
 import { getRewindStatusPresentation } from "./lib/rewind-status";
@@ -4297,8 +4298,7 @@ export function App({
     setRecordingStartPending(true);
     let handle: RecorderHandle | null = null;
     let stoppedDuringStart = false;
-    let stopRequestedDuringStart = false;
-    let captureStartRequestedDuringStart = false;
+    const startStop = new RecordingStartStopState();
     let unlistenStartupStop: (() => void) | null = null;
     let startError: unknown = null;
     let parkPopoverTimer: number | null = null;
@@ -4317,8 +4317,7 @@ export function App({
             )
           )
             return;
-          stopRequestedDuringStart = true;
-          if (!captureStartRequestedDuringStart) {
+          if (startStop.requestStop()) {
             attempt.cancel();
             emit("clips:countdown-cancel", {
               attemptId: startAttemptId,
@@ -4386,11 +4385,19 @@ export function App({
           onCaptureIdentityAvailable: (captureIdentity) => {
             sessionCaptureIdentityRef.current = captureIdentity;
           },
+          // Native begin / Rewind start was sent: capture may already be live,
+          // so a Stop from here on finishes the take instead of cancelling.
+          onCaptureStartAttempted: () => {
+            startStop.markCaptureMayBeLive();
+            if (recordingStartAttemptRef.current === attempt) {
+              captureStartedDuringStartRef.current = true;
+            }
+          },
           onCaptureStartRequested: (recordingId, captureIdentity) => {
             console.log(
               `[recording-start-latency] click to capture request ${Math.round(performance.now() - recordingClickAt)}ms`,
             );
-            captureStartRequestedDuringStart = true;
+            startStop.markCaptureMayBeLive();
             if (recordingStartAttemptRef.current === attempt) {
               captureStartedDuringStartRef.current = true;
             }
@@ -4428,15 +4435,15 @@ export function App({
         }, 250);
       }
       const started = await recordingPromise;
-      if (attempt.signal.aborted && !captureStartRequestedDuringStart) {
+      const startedOutcome = startStop.outcomeForStarted(
+        attempt.signal.aborted,
+      );
+      if (startedOutcome === "cancel") {
         await boundedCleanup(started.cancel());
         attempt.ensureActive();
       }
       // Capture already began: an abandoned start stops and keeps the take.
-      if (
-        (stopRequestedDuringStart || attempt.signal.aborted) &&
-        captureStartRequestedDuringStart
-      ) {
+      if (startedOutcome === "finish-stop") {
         stoppedDuringStart = true;
         await finishRecordingStopRef.current(
           started,

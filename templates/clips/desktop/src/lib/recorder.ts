@@ -4783,6 +4783,7 @@ export async function startRecording(
       onCaptureStartAttempted: (recordingId) => {
         startupState = "capturing";
         requestedRecordingId = recordingId;
+        params.onCaptureStartAttempted?.(recordingId);
       },
       onCaptureStartRequested: (recordingId, captureIdentity) => {
         startupState = "capturing";
