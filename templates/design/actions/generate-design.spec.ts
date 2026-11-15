@@ -386,6 +386,7 @@ describe("generate-design action tool schema", () => {
     const run = vi.fn(async (input: unknown) => input);
     const padded = {
       ...validInput(),
+      files: [{ ...validInput().files[0], frameType: "unspecified" }],
       designSystemId: null,
       projectType: "prototype",
       tweaks: [],
@@ -434,6 +435,9 @@ describe("generate-design action tool schema", () => {
     expect(received.canvasFrames).toEqual([
       { filename: "index.html", x: 0, y: 0, width: 1440, height: 900 },
     ]);
+    expect(received.files).toEqual([
+      expect.objectContaining({ frameType: undefined }),
+    ]);
   });
 
   // oracle-change: frameType is back as stored screen metadata. It no longer
@@ -450,6 +454,9 @@ describe("generate-design action tool schema", () => {
       "filename",
       "frameType",
     ]);
+    expect(
+      parameters.properties.files?.items?.properties?.frameType?.enum,
+    ).toEqual(["unspecified", "hubspot-email"]);
   });
 
   it("keeps the placement and routing guidance in the field descriptions", () => {
@@ -599,6 +606,103 @@ describe("generate-design: existing-file update path (hash-guarded write)", () =
     mocks.designUpdateChain.where.mockResolvedValue(undefined);
     resetDesignDataMutation();
   });
+
+  it.each([undefined, "unspecified"] as const)(
+    "keeps existing web metadata with frameType %s",
+    async (frameType) => {
+      setExistingFile("<html><body>old</body></html>");
+      mocks.setDesignData({
+        screenMetadata: { "file-1": { frameType: "web" } },
+      });
+      const input = action.schema.parse({
+        designId: "design-1",
+        prompt: "Update artwork",
+        files: [
+          {
+            filename: "index.html",
+            fileType: "html",
+            content: "<html><body>new artwork</body></html>",
+            ...(frameType ? { frameType } : {}),
+          },
+        ],
+      });
+      const result = await action.run(input);
+      expect(result.savedFiles).toEqual([
+        { id: "file-1", filename: "index.html", fileType: "html" },
+      ]);
+      expect(mocks.getDesignData()).toMatchObject({
+        screenMetadata: { "file-1": { frameType: "web" } },
+      });
+      expect(mocks.seededCollabText.get("file-1")).toContain("new artwork");
+    },
+  );
+
+  it.each([undefined, "unspecified"] as const)(
+    "does not clear an existing email type with frameType %s",
+    async (frameType) => {
+      setExistingFile("<html><body>old email</body></html>");
+      mocks.setDesignData({
+        screenMetadata: { "file-1": { frameType: "hubspot-email" } },
+      });
+      const input = action.schema.parse({
+        designId: "design-1",
+        prompt: "Update email",
+        files: [
+          {
+            filename: "index.html",
+            fileType: "html",
+            content: "<html><body>new email</body></html>",
+            ...(frameType ? { frameType } : {}),
+          },
+        ],
+      });
+      await action.run(input);
+      expect(mocks.getDesignData()).toMatchObject({
+        screenMetadata: { "file-1": { frameType: "hubspot-email" } },
+      });
+    },
+  );
+
+  it.each(["stored", "legacy"] as const)(
+    "rejects a non-HTML replacement of an existing %s email despite neutral padding",
+    async (origin) => {
+      setExistingFile(
+        origin === "legacy"
+          ? '<html><head><meta name="agent-native:frame-type" content="hubspot-email"></head><body>old</body></html>'
+          : "<html><body>old email</body></html>",
+      );
+      if (origin === "stored") {
+        mocks.setDesignData({
+          screenMetadata: { "file-1": { frameType: "hubspot-email" } },
+        });
+      }
+      const input = action.schema.parse({
+        designId: "design-1",
+        prompt: "Create an asset",
+        files: [
+          {
+            filename: "other.html",
+            fileType: "html",
+            content: "<html><body>Other screen</body></html>",
+          },
+          {
+            filename: "index.html",
+            fileType: "asset",
+            frameType: "unspecified",
+            content: "<svg></svg>",
+          },
+        ],
+      });
+      await expect(action.run(input)).rejects.toMatchObject({
+        errorCode: "hubspot_email_html_required",
+        noWrite: true,
+        message: expect.stringMatching(/update-file[\s\S]*frameType "web"/i),
+      });
+      expect(mocks.snapshotDesignBeforeAgentEdit).not.toHaveBeenCalled();
+      expect(mocks.fileUpdateChain.set).not.toHaveBeenCalled();
+      expect(mocks.insert).not.toHaveBeenCalled();
+    },
+  );
 
   it("stores an existing file's requested frame type in its source write", async () => {
     setExistingFile("<html><body>old</body></html>");
@@ -1017,6 +1121,195 @@ describe("generate-design: new-file creation path", () => {
     mocks.designUpdateChain.where.mockResolvedValue(undefined);
     resetDesignDataMutation();
   });
+
+  it.each([undefined, "unspecified"] as const)(
+    "saves new non-email artwork without frame metadata for frameType %s",
+    async (frameType) => {
+      const input = action.schema.parse({
+        designId: "design-1",
+        prompt: "Create fixed artwork, 1080x1080",
+        files: [
+          {
+            filename: "index.html",
+            fileType: "html",
+            content: "<html><body>Artwork</body></html>",
+            ...(frameType ? { frameType } : {}),
+          },
+        ],
+      });
+      const result = await action.run(input);
+      const fileId = result.savedFiles[0]!.id;
+      expect(result.savedFiles[0]).toMatchObject({
+        filename: "index.html",
+        fileType: "html",
+      });
+      expect(mocks.seededCollabText.get(fileId)).toContain("Artwork");
+      const metadata = mocks.getDesignData().screenMetadata as Record<
+        string,
+        { frameType?: string }
+      >;
+      expect(metadata[fileId]?.frameType).toBeUndefined();
+    },
+  );
+
+  it("rejects the model's email-typed artwork and saves the corrected HTML", async () => {
+    const files = [
+      {
+        filename: "artwork.html",
+        fileType: "asset",
+        frameType: "hubspot-email",
+        content: "<html><body>Fixed artwork</body></html>",
+      },
+    ];
+    const call = (input: unknown, callId: string) =>
+      executeAgentToolCall({
+        actions: { "generate-design": action as unknown as ActionEntry },
+        name: "generate-design",
+        callId,
+        input,
+      });
+    const base = {
+      designId: "design-1",
+      prompt: "Create fixed artwork",
+      files,
+    };
+    const rejected = await call(base, "invalid-artwork");
+    expect(rejected).toMatchObject({
+      status: "failed",
+      output: expect.stringMatching(/hubspot_email_html_required/),
+      completedSideEffect: false,
+    });
+    expect(rejected.output).toMatch(/non-email artwork[\s\S]*renderable HTML/i);
+    expect(rejected.output).toMatch(/omit frameType[\s\S]*unspecified/i);
+    expect(mocks.snapshotDesignBeforeAgentEdit).not.toHaveBeenCalled();
+    expect(mocks.mutateDesignData).not.toHaveBeenCalled();
+    expect(mocks.insert).not.toHaveBeenCalled();
+    expect(mocks.fileUpdateChain.set).not.toHaveBeenCalled();
+    expect(mocks.designUpdateChain.set).not.toHaveBeenCalled();
+    expect(mocks.seededCollabText.size).toBe(0);
+
+    const corrected = await call(
+      {
+        ...base,
+        files: [{ ...files[0], fileType: "html", frameType: "unspecified" }],
+      },
+      "corrected-artwork",
+    );
+    expect(corrected.status).toBe("completed");
+    expect(mocks.insert).toHaveBeenCalledTimes(1);
+    const values = mocks.insert.mock.results[0]?.value.values;
+    expect(values).toHaveBeenCalledWith(
+      expect.objectContaining({
+        filename: "artwork.html",
+        fileType: "html",
+        content: expect.stringContaining("Fixed artwork"),
+      }),
+    );
+    expect(Array.from(mocks.seededCollabText.values())).toEqual([
+      expect.stringContaining("Fixed artwork"),
+    ]);
+  });
+
+  it("explains how to correct an asset marked as a HubSpot email before saving", async () => {
+    const email = {
+      filename: "email.html",
+      fileType: "html" as const,
+      frameType: "hubspot-email" as const,
+      content:
+        '<!doctype html><html><head></head><body><table role="presentation"><tr><td>Hello</td></tr></table></body></html>',
+    };
+    const asset = {
+      filename: "logo.svg",
+      fileType: "asset" as const,
+      content: '<svg xmlns="http://www.w3.org/2000/svg"></svg>',
+    };
+    const input = {
+      designId: "design-1",
+      prompt: "Create a sample email and logo",
+      files: [email, { ...asset, frameType: "hubspot-email" as const }],
+    };
+
+    const error = await action.run(input).then(
+      () => null,
+      (rejection: unknown) => rejection,
+    );
+
+    expect(error).toMatchObject({
+      name: "NoWriteError",
+      noWrite: true,
+      errorCode: "hubspot_email_html_required",
+      statusCode: 422,
+    });
+    expect(mocks.snapshotDesignBeforeAgentEdit).not.toHaveBeenCalled();
+    expect(mocks.mutateDesignData).not.toHaveBeenCalled();
+    expect(mocks.insert).not.toHaveBeenCalled();
+    expect(mocks.fileUpdateChain.set).not.toHaveBeenCalled();
+    expect(mocks.designUpdateChain.set).not.toHaveBeenCalled();
+    expect(mocks.seededCollabText.size).toBe(0);
+
+    const result = await action.run({ ...input, files: [email, asset] });
+    expect(result.savedFiles).toEqual([
+      { id: expect.any(String), filename: "email.html", fileType: "html" },
+      { id: expect.any(String), filename: "logo.svg", fileType: "asset" },
+    ]);
+    for (const [index, file] of [email, asset].entries()) {
+      const values = mocks.insert.mock.results[index]?.value.values;
+      expect(values).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: result.savedFiles[index]?.id,
+          designId: "design-1",
+          filename: file.filename,
+          fileType: file.fileType,
+          content: expect.stringContaining(file === email ? "Hello" : "<svg"),
+        }),
+      );
+    }
+    expect(mocks.getDesignData()).toMatchObject({
+      screenMetadata: {
+        [result.savedFiles[0]!.id]: { frameType: "hubspot-email", width: 600 },
+      },
+    });
+
+    expect(error).toBeInstanceOf(Error);
+    const message = (error as Error).message;
+    expect(message).toMatch(/fileType[\s\S]{0,80}html/i);
+    expect(message).toMatch(
+      /(?:omit|remove|unset|leave out)[\s\S]{0,80}frameType|frameType[\s\S]{0,80}(?:omit|remove|unset|leave out)/i,
+    );
+    expect(message).toMatch(/non-email artwork[\s\S]*renderable HTML/i);
+    expect(message).toMatch(/non-email asset[\s\S]*unspecified/i);
+    expect(message).toMatch(/do not clear existing email metadata/i);
+  });
+
+  it.each([undefined, "unspecified"] as const)(
+    "rejects an inferred legacy email on an asset with frameType %s",
+    async (frameType) => {
+      const input = action.schema.parse({
+        designId: "design-1",
+        prompt: "Create artwork and an asset",
+        files: [
+          {
+            filename: "index.html",
+            fileType: "html",
+            content: "<html><body>Artwork</body></html>",
+          },
+          {
+            filename: "asset.svg",
+            fileType: "asset",
+            content:
+              '<meta name="agent-native:frame-type" content="hubspot-email">',
+            ...(frameType ? { frameType } : {}),
+          },
+        ],
+      });
+      await expect(action.run(input)).rejects.toMatchObject({
+        errorCode: "hubspot_email_html_required",
+        message: expect.stringMatching(/legacy email markers/i),
+        noWrite: true,
+      });
+      expect(mocks.insert).not.toHaveBeenCalled();
+    },
+  );
 
   it("gives semantic email output a fluid email viewport without generated web breakpoints", async () => {
     const result = await action.run({
