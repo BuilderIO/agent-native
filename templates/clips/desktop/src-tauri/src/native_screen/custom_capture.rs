@@ -831,6 +831,9 @@ pub(crate) struct CustomScreenCaptureWriter {
     pause_offset_bits: Arc<AtomicU64>,
     audio_producer: Option<crate::capture_audio_bus::AudioProducer>,
     audio_sidecars: Option<Arc<AudioSidecarManager>>,
+    /// The live mixer denoises and boosts the mic (`MicAutoGain`): the
+    /// output mixes live with voice cleanup on.
+    applies_mic_auto_gain: bool,
 }
 
 struct CustomScreenCaptureWriterState {
@@ -897,9 +900,7 @@ struct CustomScreenCaptureOutputHandler {
     recording_enabled: Arc<AtomicBool>,
     mic_ready: Option<Arc<AtomicBool>>,
     audio_level_tick: Arc<AtomicU32>,
-    /// Present only when the saved audio gets `MicAutoGain`; the meter then
-    /// tracks the same boost. `None` meters the raw signal.
-    mic_meter_gain: Option<Arc<AtomicU32>>,
+    mic_meter: Arc<Mutex<MicMeter>>,
     watch: Arc<CaptureWatch>,
 }
 
@@ -1144,6 +1145,7 @@ impl Clone for CustomScreenCaptureWriter {
             pause_offset_bits: Arc::clone(&self.pause_offset_bits),
             audio_producer: self.audio_producer.clone(),
             audio_sidecars: self.audio_sidecars.clone(),
+            applies_mic_auto_gain: self.applies_mic_auto_gain,
         }
     }
 }
@@ -1165,7 +1167,7 @@ impl CustomScreenCaptureOutputHandler {
             recording_enabled: Arc::clone(&self.recording_enabled),
             mic_ready: self.mic_ready.clone(),
             audio_level_tick: Arc::clone(&self.audio_level_tick),
-            mic_meter_gain: self.mic_meter_gain.clone(),
+            mic_meter: Arc::clone(&self.mic_meter),
             watch: Arc::clone(&self.watch),
         }
     }
@@ -1185,13 +1187,33 @@ impl CustomScreenCaptureOutputHandler {
         )
     }
 
+    /// Whether a writer that is saving right now denoises and boosts the mic:
+    /// the main writer while it records, or an attached live Clip sink.
+    fn mic_meter_follows_recording_gain(&self) -> bool {
+        let clip_sink = self.clip_sink.lock().ok().and_then(|slot| {
+            slot.as_ref()
+                .filter(|clip| clip.gate.accepts())
+                .map(|clip| clip.writer.applies_mic_auto_gain)
+        });
+        mic_meter_follows_recording_gain(
+            self.writer.applies_mic_auto_gain,
+            self.recording_enabled.load(Ordering::Relaxed),
+            clip_sink,
+        )
+    }
+
     fn emit_microphone_level(&self, samples: &[f32]) {
         if samples.is_empty() {
             return;
         }
         // Track the gain on every buffer, so it follows the voice even on the
         // buffers that are not sent.
-        let level = metered_mic_level(samples, self.mic_meter_gain.as_deref());
+        let follows_gain = self.mic_meter_follows_recording_gain();
+        let Ok(mut meter) = self.mic_meter.lock() else {
+            return;
+        };
+        let level = meter.level(samples, follows_gain);
+        drop(meter);
         let tick = self.audio_level_tick.fetch_add(1, Ordering::Relaxed);
         if tick % 3 != 0 {
             return;
@@ -1486,6 +1508,7 @@ impl CustomScreenCaptureWriter {
                 pause_offset_bits: Arc::new(AtomicU64::new(0.0_f64.to_bits())),
                 audio_producer,
                 audio_sidecars,
+                applies_mic_auto_gain: mix_live && include_audio && voice_cleanup_enabled,
             })
         }
     }
@@ -2182,16 +2205,15 @@ fn one_pole_coefficient(tau_seconds: f32, sample_rate: i32) -> f32 {
     -(-1.0 / (tau_seconds * sample_rate as f32)).exp_m1()
 }
 
-/// Whether the saved audio gets `MicAutoGain`, so the meter should apply the
-/// same boost. The gain runs only in the live mixer with voice cleanup on: the
-/// main writer when it mixes live, or the Clip sink (always mixed live) when
-/// the main writer only buffers. Raw sidecar output keeps unity gain.
+/// Whether the meter should apply the recording's denoise and `MicAutoGain`:
+/// only when a writer that is saving right now applies them (the main writer
+/// while it records, or a live Clip sink). Raw output keeps the raw level.
 fn mic_meter_follows_recording_gain(
-    voice_cleanup_enabled: bool,
-    mix_live: bool,
-    defer_recording_output: bool,
+    main_writer_applies_gain: bool,
+    main_writer_recording: bool,
+    live_clip_sink_applies_gain: Option<bool>,
 ) -> bool {
-    voice_cleanup_enabled && (mix_live || defer_recording_output)
+    (main_writer_applies_gain && main_writer_recording) || live_clip_sink_applies_gain == Some(true)
 }
 
 /// The meter gain for a quiet mic. The recording boosts it up to
@@ -2213,25 +2235,69 @@ fn next_meter_gain(gain: f32, rms: f32) -> f32 {
     }
 }
 
-/// Peak level of `samples`, after the meter gain when there is one (which
-/// it also updates). Without a gain cell this is the raw peak.
-fn metered_mic_level(samples: &[f32], gain_cell: Option<&AtomicU32>) -> f32 {
-    if samples.is_empty() {
-        return 0.0;
+/// The recording bar's mic level. When the saved audio is denoised and
+/// boosted, the meter runs the same denoiser first and estimates its gain
+/// from the cleaned signal, so background noise the recording removes can't
+/// hide the "No mic sound" warning. Otherwise it shows the raw peak.
+struct MicMeter {
+    denoiser: MicDenoiser,
+    gain: f32,
+    clock_seconds: f64,
+    last_level: f32,
+}
+
+impl MicMeter {
+    fn new() -> Self {
+        Self {
+            denoiser: MicDenoiser::new(),
+            gain: MIC_AGC_MIN_GAIN,
+            clock_seconds: 0.0,
+            last_level: 0.0,
+        }
     }
-    let mut peak = 0.0_f32;
-    let mut sum = 0.0_f32;
-    for sample in samples {
-        peak = peak.max(sample.abs());
-        sum += sample * sample;
+
+    /// `mono` is 48 kHz mono mic audio.
+    fn level(&mut self, mono: &[f32], follows_recording_gain: bool) -> f32 {
+        if mono.is_empty() {
+            return 0.0;
+        }
+        if !follows_recording_gain {
+            return peak_level(mono);
+        }
+        let stereo: Vec<f32> = mono.iter().flat_map(|&sample| [sample, sample]).collect();
+        let frames = self.denoiser.process(&stereo, self.clock_seconds);
+        self.clock_seconds += mono.len() as f64 / MicDenoiser::SAMPLE_RATE;
+        // The denoiser works in 10 ms frames; a short buffer may complete none.
+        if frames.is_empty() {
+            return self.last_level;
+        }
+        let cleaned: Vec<f32> = frames
+            .iter()
+            .flat_map(|(frame, _)| frame.iter().step_by(2).copied())
+            .collect();
+        self.last_level = self.boosted_level(&cleaned);
+        self.last_level
     }
-    let Some(gain_cell) = gain_cell else {
-        return peak.min(1.0);
-    };
-    let rms = (sum / samples.len() as f32).sqrt();
-    let gain = next_meter_gain(f32::from_bits(gain_cell.load(Ordering::Relaxed)), rms);
-    gain_cell.store(gain.to_bits(), Ordering::Relaxed);
-    (peak * gain).min(1.0)
+
+    /// Peak level of `samples` after the meter gain, which it also updates.
+    fn boosted_level(&mut self, samples: &[f32]) -> f32 {
+        if samples.is_empty() {
+            return 0.0;
+        }
+        let sum: f32 = samples.iter().map(|sample| sample * sample).sum();
+        let rms = (sum / samples.len() as f32).sqrt();
+        self.gain = next_meter_gain(self.gain, rms);
+        (peak_level(samples) * self.gain).min(1.0)
+    }
+}
+
+fn peak_level(samples: &[f32]) -> f32 {
+    samples
+        .iter()
+        .copied()
+        .map(f32::abs)
+        .fold(0.0_f32, f32::max)
+        .min(1.0)
 }
 
 struct MicAutoGain {
@@ -4258,12 +4324,7 @@ pub(crate) fn start_custom_screencapturekit_backend_at(
         recording_enabled: Arc::clone(&recording_enabled),
         mic_ready: mic_ready.clone(),
         audio_level_tick: Arc::new(AtomicU32::new(0)),
-        mic_meter_gain: mic_meter_follows_recording_gain(
-            voice_cleanup_enabled,
-            mix_live,
-            defer_recording_output,
-        )
-        .then(|| Arc::new(AtomicU32::new(1.0_f32.to_bits()))),
+        mic_meter: Arc::new(Mutex::new(MicMeter::new())),
         watch: Arc::clone(&watch),
     };
 
@@ -4789,54 +4850,98 @@ mod fragment_fence_tests {
 mod mic_meter_tests {
     use super::*;
 
-    #[test]
-    fn a_quiet_voice_is_boosted_like_the_recording() {
-        let gain = AtomicU32::new(1.0_f32.to_bits());
-        // A soft mic: speech around rms 0.004, peaks near 0.01, below the
-        // bar's 0.012 "audible" line before any gain.
-        let speech: Vec<f32> = (0..480)
+    /// The bar's "audible" line (`MIC_AUDIBLE_LEVEL` in shared/audio-meter.ts).
+    const AUDIBLE: f32 = 0.012;
+
+    fn soft_speech() -> Vec<f32> {
+        // A soft mic: rms around 0.004, peaks near 0.01, below the bar's
+        // audible line before any gain.
+        (0..480)
             .map(|i| if i % 2 == 0 { 0.004 } else { -0.004 })
             .chain([0.01])
-            .collect();
+            .collect()
+    }
+
+    /// Steady hiss at rms ~0.009, as from a noisy preamp: the recording's
+    /// denoiser removes it.
+    fn background_noise(buffers: usize) -> Vec<Vec<f32>> {
+        let mut seed: u32 = 0x1234_5678;
+        (0..buffers)
+            .map(|_| {
+                (0..1024)
+                    .map(|_| {
+                        seed = seed.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                        ((seed >> 8) as f32 / (1u32 << 24) as f32 - 0.5) * 0.03
+                    })
+                    .collect()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_quiet_voice_is_boosted_like_the_recording() {
+        let mut meter = MicMeter::new();
+        let speech = soft_speech();
         let mut level = 0.0;
         for _ in 0..60 {
-            level = metered_mic_level(&speech, Some(&gain));
+            level = meter.boosted_level(&speech);
         }
         assert!(level >= 0.05, "level {level}");
-        assert!(f32::from_bits(gain.load(Ordering::Relaxed)) <= MIC_AGC_MAX_GAIN);
+        assert!(meter.gain <= MIC_AGC_MAX_GAIN);
     }
 
     #[test]
     fn digital_silence_stays_silent() {
-        let gain = AtomicU32::new(1.0_f32.to_bits());
-        let silence = vec![0.0_f32; 480];
+        let mut meter = MicMeter::new();
+        let silence = vec![0.0_f32; 1024];
         for _ in 0..60 {
-            assert_eq!(metered_mic_level(&silence, Some(&gain)), 0.0);
+            assert_eq!(meter.level(&silence, true), 0.0);
+            assert_eq!(meter.level(&silence, false), 0.0);
         }
     }
 
     #[test]
     fn without_recording_gain_the_meter_shows_the_raw_peak() {
-        let speech: Vec<f32> = (0..480)
-            .map(|i| if i % 2 == 0 { 0.004 } else { -0.004 })
-            .chain([0.01])
-            .collect();
+        let mut meter = MicMeter::new();
         for _ in 0..60 {
-            assert_eq!(metered_mic_level(&speech, None), 0.01);
+            assert_eq!(meter.level(&soft_speech(), false), 0.01);
         }
     }
 
     #[test]
-    fn meter_gain_only_when_the_recording_applies_mic_auto_gain() {
-        // Voice cleanup on and the mic goes through the live mixer.
-        assert!(mic_meter_follows_recording_gain(true, true, false));
-        // Deferred output: the Clip sink mixes live with the same setting.
-        assert!(mic_meter_follows_recording_gain(true, false, true));
-        // Voice cleanup off: the recording keeps the raw mic level.
-        assert!(!mic_meter_follows_recording_gain(false, true, false));
-        assert!(!mic_meter_follows_recording_gain(false, false, true));
-        // Raw sidecar output (rewind buffer saved as is): no gain.
-        assert!(!mic_meter_follows_recording_gain(true, false, false));
+    fn noise_the_recording_denoises_away_does_not_hide_the_warning() {
+        let noise = background_noise(400);
+        // Gain estimated from the raw signal would lift the hiss over the line.
+        let mut raw = MicMeter::new();
+        let raw_level = noise
+            .iter()
+            .map(|buffer| raw.boosted_level(buffer))
+            .last()
+            .unwrap();
+        assert!(raw_level >= AUDIBLE, "raw level {raw_level}");
+        // Through the recording's denoiser it stays below the line once the
+        // denoiser has learned the noise (~6 s in, before 400 buffers end).
+        let mut meter = MicMeter::new();
+        let levels: Vec<f32> = noise
+            .iter()
+            .map(|buffer| meter.level(buffer, true))
+            .collect();
+        let settled = levels[300..].iter().copied().fold(0.0_f32, f32::max);
+        assert!(settled < AUDIBLE, "denoised level {settled}");
+    }
+
+    #[test]
+    fn meter_gain_only_when_a_saving_writer_applies_mic_auto_gain() {
+        // Main writer mixes live with voice cleanup on and is recording.
+        assert!(mic_meter_follows_recording_gain(true, true, None));
+        // Main writer only buffers raw audio, but a live Clip sink boosts it.
+        assert!(mic_meter_follows_recording_gain(false, false, Some(true)));
+        assert!(mic_meter_follows_recording_gain(false, true, Some(true)));
+        // Voice cleanup off everywhere: the recording keeps the raw level.
+        assert!(!mic_meter_follows_recording_gain(false, true, Some(false)));
+        assert!(!mic_meter_follows_recording_gain(false, true, None));
+        // A boosting main writer that is not recording yet saves nothing.
+        assert!(!mic_meter_follows_recording_gain(true, false, None));
     }
 
     #[test]
