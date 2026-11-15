@@ -150,6 +150,8 @@ const {
 } = await import("./index.js");
 const { createGitHubRepoFilesAction } =
   await import("./actions/github-repo-files.js");
+const { createProviderApiRequestAction } =
+  await import("./actions/provider-api.js");
 const { resetProviderQuotaStateForTests } = await import("./quota-governor.js");
 const { flushProviderCallCensus, resetProviderCallCensusForTests } =
   await import("./call-census.js");
@@ -6226,6 +6228,840 @@ describe("provider API runtime", () => {
       timeoutMs: undefined,
       maxBytes: undefined,
     });
+  });
+
+  describe("provider response saves", () => {
+    const runtime = (maxResponseBytes?: number) =>
+      createProviderApiRuntime({
+        appId: "test-app",
+        maxResponseBytes,
+        providerIds: ["hubspot"],
+        getCredentialContext: () => credentialContext,
+        getCustomProviders: async () => [
+          {
+            id: "test-api",
+            scope: "org",
+            scopeId: "org-1",
+            label: "Test API",
+            baseUrl: "https://api.example.test",
+            auth: { type: "none" },
+            docsUrls: [],
+            allowedHostSuffixes: [],
+            defaultHeaders: {},
+            notes: "",
+            createdAt: 0,
+            updatedAt: 0,
+          },
+        ],
+      });
+
+    it.each(
+      ["hubspot", "test-api"].flatMap((provider) =>
+        [false, true].flatMap((paginated) => [
+          {
+            provider,
+            paginated,
+            contentType: "application/zip",
+            body: new TextEncoder().encode("private-binary-payload"),
+          },
+          {
+            provider,
+            paginated,
+            contentType: "text/plain",
+            body: new Uint8Array([112, 114, 105, 118, 97, 116, 101, 45, 255]),
+          },
+        ]),
+      ),
+    )(
+      "records a cooldown for rejected $contentType 429 $provider saves (paginated: $paginated)",
+      async ({ provider, paginated, contentType, body }) => {
+        const fetchMock = vi.mocked(globalThis.fetch);
+        fetchMock.mockReset();
+        fetchMock
+          .mockResolvedValueOnce(
+            new Response(body, {
+              status: 429,
+              headers: {
+                "content-type": contentType,
+                "retry-after": "120",
+                "x-private-header": "private-header-secret",
+              },
+            }),
+          )
+          .mockResolvedValueOnce(
+            new Response("{}", {
+              headers: { "content-type": "application/json" },
+            }),
+          );
+        const api = runtime();
+        const request = { provider, path: "/records", auth: "none" as const };
+        const result = createProviderApiRequestAction(api).run({
+          ...request,
+          saveToFile: "scratch/response.txt",
+          ...(paginated
+            ? { fetchAllPages: { cursorPath: "next", cursorParam: "cursor" } }
+            : {}),
+        });
+        await expect(result).rejects.toThrow(/binary|UTF-8/i);
+        const error = await result.catch((err: unknown) => err);
+        expect(error).toMatchObject({
+          name: "ActionContractError",
+          statusCode: 429,
+          errorCode: "provider_response_invalid",
+          details: { retryAfterSeconds: 120 },
+        });
+        expect(String(error)).toMatch(/HTTP 429/i);
+        expect(String(error)).toMatch(/retry after 120 seconds/i);
+        expect(JSON.stringify(error)).not.toContain("private-");
+        expect(String(error)).not.toContain("private-");
+        expect(writeWorkspaceFile).not.toHaveBeenCalled();
+
+        const next = await api.executeRequest(request);
+        expect(next).toMatchObject({
+          response: {
+            status: 429,
+            quota: {
+              exhausted: true,
+              providerId: provider,
+              reason: "cooldown",
+            },
+          },
+        });
+        expect(JSON.stringify(next)).not.toContain("private-");
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+      },
+    );
+
+    it("records a binary 429 cooldown without waiting for the first body byte", async () => {
+      let streamController:
+        | ReadableStreamDefaultController<Uint8Array>
+        | undefined;
+      let finishCancel: () => void = () => {};
+      const cancelFinished = new Promise<void>((resolve) => {
+        finishCancel = resolve;
+      });
+      const cancel = vi.fn(() => cancelFinished);
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          streamController = controller;
+        },
+        cancel,
+      });
+      let fetched: () => void = () => {};
+      const fetchStarted = new Promise<void>((resolve) => {
+        fetched = resolve;
+      });
+      const fetchMock = vi.mocked(globalThis.fetch);
+      fetchMock.mockReset();
+      fetchMock.mockImplementationOnce(async () => {
+        fetched();
+        return new Response(body, {
+          status: 429,
+          headers: {
+            "content-type": "application/zip",
+            "retry-after": "120",
+            "x-private-header": "private-header-secret",
+          },
+        });
+      });
+      const api = runtime();
+      const request = {
+        provider: "hubspot",
+        path: "/records",
+        auth: "none" as const,
+      };
+      const result = createProviderApiRequestAction(api).run({
+        ...request,
+        saveToFile: "scratch/response.txt",
+      });
+      const settled = result.then(
+        () => ({ kind: "resolved" as const }),
+        (error: unknown) => ({ kind: "rejected" as const, error }),
+      );
+      await fetchStarted;
+      const outcome = await Promise.race([
+        settled,
+        new Promise<{ kind: "stalled" }>((resolve) =>
+          setImmediate(() => resolve({ kind: "stalled" })),
+        ),
+      ]);
+      if (outcome.kind === "stalled" && !cancel.mock.calls.length) {
+        streamController?.close();
+      }
+      finishCancel();
+      if (outcome.kind === "stalled") await settled;
+      expect(outcome.kind).toBe("rejected");
+      if (outcome.kind !== "rejected") throw new Error("Expected a rejection");
+      expect(outcome.error).toMatchObject({
+        name: "ActionContractError",
+        statusCode: 429,
+        errorCode: "provider_response_invalid",
+        details: { retryAfterSeconds: 120 },
+      });
+      expect(String(outcome.error)).not.toContain("private-");
+      expect(JSON.stringify(outcome.error)).not.toContain("private-");
+      expect(cancel).toHaveBeenCalledOnce();
+      expect(writeWorkspaceFile).not.toHaveBeenCalled();
+
+      const next = await api.executeRequest(request);
+      expect(next).toMatchObject({
+        response: {
+          status: 429,
+          quota: { exhausted: true, reason: "cooldown" },
+        },
+      });
+      expect(JSON.stringify(next)).not.toContain("private-");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it.each(["text/plain", "application/zip"])(
+      "retries a rejected %s 429 body and saves the subsequent valid response",
+      async (contentType) => {
+        const fetchMock = vi.mocked(globalThis.fetch);
+        fetchMock.mockReset();
+        fetchMock
+          .mockResolvedValueOnce(
+            new Response(new Uint8Array([255]), {
+              status: 429,
+              headers: { "content-type": contentType, "retry-after": "0" },
+            }),
+          )
+          .mockResolvedValueOnce(
+            new Response("name,value\nexample,1\n", {
+              headers: { "content-type": "text/csv" },
+            }),
+          );
+        await expect(
+          runtime().executeRequest({
+            provider: "hubspot",
+            path: "/records",
+            auth: "none",
+            saveToFile: "scratch/response.csv",
+          }),
+        ).resolves.toMatchObject({ savedToFile: true, ok: true });
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(writeWorkspaceFile).toHaveBeenCalledWith(
+          { scope: "org", scopeId: "org-1" },
+          "scratch/response.csv",
+          "name,value\nexample,1\n",
+          "text/csv",
+          { maxFileBytes: 20 * 1024 * 1024 },
+        );
+      },
+    );
+
+    it("rejects every concurrent save sharing an invalid 429 response", async () => {
+      const fetchMock = vi.mocked(globalThis.fetch);
+      fetchMock.mockReset();
+      fetchMock.mockResolvedValueOnce(
+        new Response("private-binary-payload", {
+          status: 429,
+          headers: { "content-type": "application/zip", "retry-after": "120" },
+        }),
+      );
+      const api = runtime();
+      const request = {
+        provider: "hubspot",
+        path: "/records",
+        auth: "none" as const,
+        saveToFile: "scratch/response.txt",
+      };
+      const results = await Promise.allSettled([
+        api.executeRequest(request),
+        api.executeRequest(request),
+      ]);
+      expect(results).toHaveLength(2);
+      for (const result of results) {
+        expect(result.status).toBe("rejected");
+        if (result.status === "rejected") {
+          expect(String(result.reason)).toMatch(/binary/i);
+          expect(String(result.reason)).not.toContain("private-");
+        }
+      }
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(writeWorkspaceFile).not.toHaveBeenCalled();
+    });
+
+    it.each(["120", "private-header-secret"])(
+      "safely reports invalid 429 bodies with the quota governor disabled (Retry-After: %s)",
+      async (retryAfter) => {
+        vi.stubEnv("AGENT_NATIVE_PROVIDER_API_QUOTA_GOVERNOR", "0");
+        vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+          new Response("private-binary-payload", {
+            status: 429,
+            headers: {
+              "content-type": "application/zip",
+              "retry-after": retryAfter,
+              "x-private-header": "private-header-secret",
+            },
+          }),
+        );
+        const result = createProviderApiRequestAction(runtime()).run({
+          provider: "hubspot",
+          path: "/records",
+          query: { token: "private-query-secret" },
+          auth: "none",
+          saveToFile: "scratch/response.txt",
+        });
+        await expect(result).rejects.toThrow(/binary/i);
+        const error = await result.catch((err: unknown) => err);
+        expect(error).toMatchObject({
+          name: "ActionContractError",
+          statusCode: 429,
+          errorCode: "provider_response_invalid",
+          ...(retryAfter === "120"
+            ? { details: { retryAfterSeconds: 120 } }
+            : {}),
+        });
+        expect(String(error)).toMatch(/HTTP 429/i);
+        if (retryAfter === "120") {
+          expect(String(error)).toMatch(/retry after 120 seconds/i);
+        } else {
+          expect(error).not.toHaveProperty("details.retryAfterSeconds");
+        }
+        expect(String(error)).not.toContain("private-");
+        expect(JSON.stringify(error)).not.toContain("private-");
+        expect(writeWorkspaceFile).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(
+      ["hubspot", "test-api"].flatMap((provider) => [
+        { provider, method: "HEAD" as const, body: null, length: "999999999" },
+        { provider, method: "GET" as const, body: null, length: "0" },
+        { provider, method: "GET" as const, body: "", length: "999999999" },
+      ]),
+    )(
+      "saves empty $method $provider responses with a binary content type",
+      async ({ provider, method, body, length }) => {
+        const fetchMock = vi.mocked(globalThis.fetch);
+        fetchMock.mockResolvedValueOnce(
+          new Response(body, {
+            headers: {
+              "content-type": "application/zip",
+              "content-length": length,
+            },
+          }),
+        );
+        await expect(
+          createProviderApiRequestAction(runtime()).run({
+            provider,
+            method,
+            path: "/records",
+            auth: "none",
+            saveToFile: "scratch/response.txt",
+          }),
+        ).resolves.toMatchObject({ savedToFile: true, ok: true, bytes: 0 });
+        expect(fetchMock).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({ method }),
+        );
+        expect(writeWorkspaceFile).toHaveBeenCalledWith(
+          { scope: "org", scopeId: "org-1" },
+          "scratch/response.txt",
+          "",
+          "application/zip",
+          { maxFileBytes: 20 * 1024 * 1024 },
+        );
+      },
+    );
+
+    it.each(
+      ["hubspot", "test-api"].flatMap((provider) => [
+        {
+          provider,
+          contentType: "Application/Zip; charset=utf-8",
+          body: new TextEncoder().encode("private-binary-payload"),
+        },
+        {
+          provider,
+          contentType: "application/octet-stream",
+          body: new TextEncoder().encode("private-binary-payload"),
+        },
+        {
+          provider,
+          contentType: "application/zip",
+          body: new TextEncoder().encode("private-binary-payload"),
+          contentLength: "0",
+        },
+        {
+          provider,
+          contentType: "text/plain",
+          body: new Uint8Array([112, 114, 105, 118, 97, 116, 101, 45, 255]),
+        },
+        {
+          provider,
+          contentType: "application/json",
+          body: new TextEncoder().encode("private-binary-payload\u0000"),
+        },
+        {
+          provider,
+          contentType: "application/vnd.ms-excel",
+          body: new TextEncoder().encode("private-binary-payload\u0000"),
+        },
+        {
+          provider,
+          contentType: "",
+          body: new Uint8Array([112, 114, 105, 118, 97, 116, 101, 45, 255]),
+        },
+      ]),
+    )(
+      "rejects binary $provider responses declared $contentType without saving or exposing their body",
+      async ({ provider, contentType, body, contentLength }) => {
+        vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+          new Response(body, {
+            headers: {
+              "content-type": contentType,
+              ...(contentLength === undefined
+                ? {}
+                : { "content-length": contentLength }),
+            },
+          }),
+        );
+        const action = createProviderApiRequestAction(runtime());
+        const result = action.run({
+          provider,
+          path: "/records",
+          auth: "none",
+          saveToFile: "scratch/response.txt",
+        });
+        await expect(result).rejects.toThrow(/binary|UTF-8|NUL/i);
+        const error = await result.catch((err: unknown) => err);
+        expect(String(error)).toContain(
+          contentType ? contentType.split(";")[0].toLowerCase() : "unknown",
+        );
+        expect(String(error)).not.toContain("private-binary-payload");
+        expect(String(error)).not.toContain("private-");
+        expect(writeWorkspaceFile).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(
+      ["hubspot", "test-api"].flatMap((provider) =>
+        [200, 500].flatMap((status) => [
+          {
+            provider,
+            status,
+            contentType: "application/zip",
+            body: new TextEncoder().encode("private-binary-payload"),
+          },
+          {
+            provider,
+            status,
+            contentType: "text/plain",
+            body: new Uint8Array([112, 114, 105, 118, 97, 116, 101, 45, 255]),
+          },
+          {
+            provider,
+            status,
+            contentType: "application/json",
+            body: new TextEncoder().encode("private-binary-payload\u0000"),
+          },
+          {
+            provider,
+            status,
+            contentType: "text/plain",
+            body: new TextEncoder().encode("private-binary-payload\u0001"),
+          },
+        ]),
+      ),
+    )(
+      "rejects binary paginated $provider saves before exposing page bodies (HTTP $status, $contentType)",
+      async ({ provider, status, contentType, body }) => {
+        const fetchMock = vi.mocked(globalThis.fetch);
+        fetchMock.mockReset();
+        fetchMock.mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              results: [{ id: "first" }],
+              next: "second",
+            }),
+            { headers: { "content-type": "application/json" } },
+          ),
+        );
+        fetchMock.mockResolvedValueOnce(
+          new Response(body, {
+            status,
+            headers: { "content-type": contentType },
+          }),
+        );
+        const action = createProviderApiRequestAction(runtime());
+        const result = action.run({
+          provider,
+          path: "/records",
+          auth: "none",
+          saveToFile: "scratch/response.txt",
+          fetchAllPages: { cursorPath: "next", cursorParam: "cursor" },
+        });
+        await expect(result).rejects.toThrow(/binary|UTF-8|NUL|control/i);
+        const error = await result.catch((err: unknown) => err);
+        expect(String(error)).not.toContain("private-");
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(writeWorkspaceFile).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(
+      ["hubspot", "test-api"].flatMap((provider) =>
+        [false, true].flatMap((paginated) => [
+          {
+            provider,
+            paginated,
+            contentType: "application/zip",
+            body: new TextEncoder().encode("private-binary-payload"),
+          },
+          {
+            provider,
+            paginated,
+            contentType: "text/plain",
+            body: new Uint8Array([112, 114, 105, 118, 97, 116, 101, 45, 255]),
+          },
+        ]),
+      ),
+    )(
+      "preserves HTTP 500 for invalid $contentType $provider saves (paginated: $paginated)",
+      async ({ provider, paginated, contentType, body }) => {
+        vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+          new Response(body, {
+            status: 500,
+            headers: {
+              "content-type": contentType,
+              "x-private-header": "private-header-secret",
+            },
+          }),
+        );
+        const result = createProviderApiRequestAction(runtime()).run({
+          provider,
+          path: "/records",
+          auth: "none",
+          saveToFile: "scratch/response.txt",
+          ...(paginated
+            ? { fetchAllPages: { cursorPath: "next", cursorParam: "cursor" } }
+            : {}),
+        });
+        await expect(result).rejects.toMatchObject({
+          name: "ActionContractError",
+          statusCode: 500,
+          errorCode: "provider_response_invalid",
+        });
+        const error = await result.catch((err: unknown) => err);
+        expect(String(error)).toMatch(/HTTP 500/);
+        expect(String(error)).not.toContain("private-");
+        expect(JSON.stringify(error)).not.toContain("private-");
+        expect(writeWorkspaceFile).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(
+      ["hubspot", "test-api"].flatMap((provider) =>
+        [false, true].flatMap((paginated) =>
+          [302, 307, 404].map((status) => ({ provider, paginated, status })),
+        ),
+      ),
+    )(
+      "reports invalid HTTP $status $provider saves as errors (paginated: $paginated)",
+      async ({ provider, paginated, status }) => {
+        vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+          new Response("private-binary-payload", {
+            status,
+            headers: {
+              "content-type": "application/zip",
+              location: "https://example.test/private-location",
+              "x-private-header": "private-header-secret",
+            },
+          }),
+        );
+        const result = createProviderApiRequestAction(runtime()).run({
+          provider,
+          path: "/records",
+          auth: "none",
+          saveToFile: "scratch/response.txt",
+          ...(paginated
+            ? { fetchAllPages: { cursorPath: "next", cursorParam: "cursor" } }
+            : {}),
+        });
+        await expect(result).rejects.toMatchObject({
+          name: "ActionContractError",
+          statusCode: status < 400 ? 502 : status,
+          errorCode: "provider_response_invalid",
+          message: expect.stringContaining(`HTTP ${status}`),
+        });
+        const error = await result.catch((err: unknown) => err);
+        expect(String(error)).not.toContain("private-");
+        expect(JSON.stringify(error)).not.toContain("private-");
+        expect(writeWorkspaceFile).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(["hubspot", "test-api"])(
+      "preserves text HTTP errors in a paginated %s save",
+      async (provider) => {
+        vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+          new Response(JSON.stringify({ message: "provider failed" }), {
+            status: 500,
+            headers: { "content-type": "application/json" },
+          }),
+        );
+        await expect(
+          createProviderApiRequestAction(runtime()).run({
+            provider,
+            path: "/records",
+            auth: "none",
+            saveToFile: "scratch/response.txt",
+            fetchAllPages: { cursorPath: "next", cursorParam: "cursor" },
+          }),
+        ).rejects.toThrow(/HTTP 500.*provider failed/);
+        expect(writeWorkspaceFile).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(["hubspot", "test-api"])(
+      "rejects valid UTF-8 binary controls in a single %s response save",
+      async (provider) => {
+        vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+          new Response(
+            new TextEncoder().encode("private-binary-payload\u0001"),
+            { headers: { "content-type": "text/plain" } },
+          ),
+        );
+        await expect(
+          createProviderApiRequestAction(runtime()).run({
+            provider,
+            path: "/records",
+            auth: "none",
+            saveToFile: "scratch/response.txt",
+          }),
+        ).rejects.toThrow(/binary control/i);
+        expect(writeWorkspaceFile).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(["hubspot", "test-api"])(
+      "does not expose a truncated binary HTTP error in a paginated %s save",
+      async (provider) => {
+        const body = new Uint8Array(20 * 1024 * 1024 + 1).fill(120);
+        body.set(new TextEncoder().encode("private-binary-payload\u0000"));
+        vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+          new Response(body, {
+            status: 500,
+            headers: { "content-type": "text/plain" },
+          }),
+        );
+        const result = createProviderApiRequestAction(runtime()).run({
+          provider,
+          path: "/records",
+          auth: "none",
+          saveToFile: "scratch/response.txt",
+          fetchAllPages: { cursorPath: "next", cursorParam: "cursor" },
+        });
+        await expect(result).rejects.toThrow(/HTTP 500/);
+        const error = await result.catch((err: unknown) => err);
+        expect(String(error)).not.toContain("private-binary-payload");
+        expect(writeWorkspaceFile).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(["hubspot", "test-api"])(
+      "saves valid paginated %s JSON, including escaped control characters",
+      async (provider) => {
+        const fetchMock = vi.mocked(globalThis.fetch);
+        fetchMock.mockReset();
+        fetchMock.mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              results: [{ message: "café\u0001" }],
+              next: "second",
+            }),
+            { headers: { "content-type": "application/json" } },
+          ),
+        );
+        fetchMock.mockResolvedValueOnce(
+          new Response(
+            JSON.stringify({
+              results: [{ message: "second" }],
+            }),
+            { headers: { "content-type": "application/json" } },
+          ),
+        );
+        const action = createProviderApiRequestAction(runtime());
+        await expect(
+          action.run({
+            provider,
+            path: "/records",
+            auth: "none",
+            saveToFile: "scratch/response.json",
+            fetchAllPages: {
+              cursorPath: "next",
+              cursorParam: "cursor",
+              itemsPath: "results",
+            },
+          }),
+        ).resolves.toMatchObject({
+          savedToFile: true,
+          pagesRead: 2,
+          totalItems: 2,
+        });
+        expect(writeWorkspaceFile).toHaveBeenCalledWith(
+          { scope: "org", scopeId: "org-1" },
+          "scratch/response.json",
+          JSON.stringify(
+            [{ message: "café\u0001" }, { message: "second" }],
+            null,
+            2,
+          ),
+          "application/json",
+          { maxFileBytes: 20 * 1024 * 1024 },
+        );
+      },
+    );
+
+    it.each(["hubspot", "test-api"])(
+      "keeps concurrent paginated %s inline reads independent of save validation",
+      async (provider) => {
+        const fetchMock = vi.mocked(globalThis.fetch);
+        fetchMock.mockImplementation(
+          async () =>
+            new Response("private-binary-payload", {
+              headers: { "content-type": "application/zip" },
+            }),
+        );
+        const api = runtime(20 * 1024 * 1024);
+        const request = {
+          provider,
+          path: "/records",
+          auth: "none" as const,
+          fetchAllPages: { cursorPath: "next", cursorParam: "cursor" },
+        };
+        const [saved, inline] = await Promise.allSettled([
+          api.executeRequest({
+            ...request,
+            saveToFile: "scratch/response.txt",
+          }),
+          api.executeRequest({ ...request, maxBytes: 20 * 1024 * 1024 }),
+        ]);
+        expect(saved.status).toBe("rejected");
+        expect(inline).toMatchObject({
+          status: "fulfilled",
+          value: { items: ["private-binary-payload"] },
+        });
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(writeWorkspaceFile).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each([
+      [
+        "hubspot",
+        "application/json; charset=utf-8",
+        '{"message":"hello"}',
+        '{"message":"hello"}',
+        "application/json",
+      ],
+      [
+        "test-api",
+        "text/plain; charset=utf-8",
+        "Hello, café",
+        "Hello, café",
+        "text/plain",
+      ],
+      [
+        "hubspot",
+        "application/vnd.example+json",
+        '{"message":"hello"}',
+        '{"message":"hello"}',
+        "application/vnd.example+json",
+      ],
+      ["test-api", "image/svg+xml", "<svg/>", "<svg/>", "image/svg+xml"],
+      [
+        "hubspot",
+        "application/vnd.ms-excel; charset=utf-8",
+        "name,value\r\ncafé,1\r\n",
+        "name,value\r\ncafé,1\r\n",
+        "application/vnd.ms-excel",
+      ],
+    ])(
+      "saves valid %s text responses",
+      async (provider, contentType, body, expected, mimeType) => {
+        vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+          new Response(body, { headers: { "content-type": contentType } }),
+        );
+        const action = createProviderApiRequestAction(runtime());
+        const result = await action.run({
+          provider,
+          path: "/records",
+          auth: "none",
+          saveToFile: "scratch/response.txt",
+        });
+        expect(result).toMatchObject({
+          savedToFile: true,
+          contentType: mimeType,
+          ok: true,
+        });
+        expect(writeWorkspaceFile).toHaveBeenCalledWith(
+          { scope: "org", scopeId: "org-1" },
+          "scratch/response.txt",
+          expected,
+          mimeType,
+          { maxFileBytes: 20 * 1024 * 1024 },
+        );
+      },
+    );
+    it("stops an unbounded save stream at the byte cap without writing", async () => {
+      const cancel = vi.fn();
+      let chunks = 0;
+      const stream = new ReadableStream<Uint8Array>({
+        pull(controller) {
+          chunks++;
+          controller.enqueue(new Uint8Array(1024 * 1024).fill(120));
+        },
+        cancel,
+      });
+      vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+        new Response(stream, { headers: { "content-type": "text/plain" } }),
+      );
+      const action = createProviderApiRequestAction(runtime());
+      await expect(
+        action.run({
+          provider: "hubspot",
+          path: "/records",
+          auth: "none",
+          saveToFile: "scratch/response.txt",
+        }),
+      ).rejects.toThrow(/would persist an incomplete file/);
+      expect(cancel).toHaveBeenCalledTimes(1);
+      expect(chunks).toBeLessThanOrEqual(22);
+      expect(writeWorkspaceFile).not.toHaveBeenCalled();
+    });
+
+    it.each(["hubspot", "test-api"])(
+      "keeps concurrent %s inline reads independent of save validation",
+      async (provider) => {
+        const fetchMock = vi.mocked(globalThis.fetch);
+        fetchMock.mockImplementation(
+          async () =>
+            new Response("private-binary-payload", {
+              headers: { "content-type": "application/zip" },
+            }),
+        );
+        const api = runtime(20 * 1024 * 1024);
+        const action = createProviderApiRequestAction(api);
+        const request = { provider, path: "/records", auth: "none" as const };
+        const [saved, inline] = await Promise.allSettled([
+          action.run({ ...request, saveToFile: "scratch/response.txt" }),
+          api.executeRequest({ ...request, maxBytes: 20 * 1024 * 1024 }),
+        ]);
+        expect(saved.status).toBe("rejected");
+        if (inline.status === "rejected") throw inline.reason;
+        expect(inline).toMatchObject({
+          status: "fulfilled",
+          value: {
+            response: { text: "private-binary-payload", truncated: false },
+          },
+        });
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(writeWorkspaceFile).not.toHaveBeenCalled();
+      },
+    );
   });
 
   describe("provider response byte caps", () => {

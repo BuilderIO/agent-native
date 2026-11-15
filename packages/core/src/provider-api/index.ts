@@ -36,6 +36,7 @@ import { resolveSecret } from "../server/credential-provider.js";
 import { resolveGoogleProviderCredentialCandidates } from "../server/google-oauth-credentials.js";
 import { getCredentialContext } from "../server/request-context.js";
 import { mergeDefinitionsById } from "../shared/merge-by-id.js";
+import { parseRetryAfterMs } from "../shared/retry-after.js";
 import { resolveWorkspaceConnectionCredentialForApp } from "../workspace-connections/credentials.js";
 import {
   resolveWorkspaceConnectionForApp,
@@ -2423,6 +2424,7 @@ export async function executeProviderApiRequest(
           body: pageBody,
           maxBytes: effectiveMaxBytes,
           maxResponseBytes: effectiveMaxBytes,
+          requireTextForSave: Boolean(args.saveToFile),
           timeoutMs: clampTimeout(args.timeoutMs),
           signal: args.signal,
           secretValues: auth.secretValues,
@@ -2439,7 +2441,10 @@ export async function executeProviderApiRequest(
               pageUrl.href,
               auth.secretValues,
             ),
-            requestKey,
+            requestKey:
+              requestKey && args.saveToFile
+                ? `${requestKey}:text-save`
+                : requestKey,
           },
         }),
         config,
@@ -2494,6 +2499,7 @@ export async function executeProviderApiRequest(
       body,
       maxBytes: effectiveMaxBytes,
       maxResponseBytes: effectiveMaxBytes,
+      requireTextForSave: Boolean(args.saveToFile),
       timeoutMs: clampTimeout(args.timeoutMs),
       signal: args.signal,
       secretValues: auth.secretValues,
@@ -2507,7 +2513,10 @@ export async function executeProviderApiRequest(
         identity: quotaIdentity,
         method,
         target: describeProviderRequestTarget(url.href, auth.secretValues),
-        requestKey,
+        requestKey:
+          requestKey && args.saveToFile
+            ? `${requestKey}:text-save`
+            : requestKey,
       },
     }),
     config,
@@ -3468,6 +3477,7 @@ async function executeCustomProviderApiRequest(
         body: pageBody,
         maxBytes: effectiveMaxBytes,
         maxResponseBytes: effectiveMaxBytes,
+        requireTextForSave: Boolean(args.saveToFile),
         timeoutMs: clampTimeout(args.timeoutMs),
         signal: args.signal,
         secretValues: auth.secretValues,
@@ -3484,7 +3494,10 @@ async function executeCustomProviderApiRequest(
             pageUrl.href,
             auth.secretValues,
           ),
-          requestKey,
+          requestKey:
+            requestKey && args.saveToFile
+              ? `${requestKey}:text-save`
+              : requestKey,
         },
       });
       return {
@@ -3525,6 +3538,13 @@ async function executeCustomProviderApiRequest(
     return { ...metadata, items };
   }
 
+  const requestKey = createProviderRequestDedupeKey({
+    method,
+    url: url.href,
+    ...(body === undefined ? {} : { body }),
+    headers,
+    maxBytes: effectiveMaxBytes,
+  });
   const response = await fetchWithTimeout(url.href, {
     method,
     singleAttempt,
@@ -3532,6 +3552,7 @@ async function executeCustomProviderApiRequest(
     body,
     maxBytes: effectiveMaxBytes,
     maxResponseBytes: effectiveMaxBytes,
+    requireTextForSave: Boolean(args.saveToFile),
     timeoutMs: clampTimeout(args.timeoutMs),
     signal: args.signal,
     secretValues: auth.secretValues,
@@ -3545,13 +3566,8 @@ async function executeCustomProviderApiRequest(
       identity: quotaIdentity,
       method,
       target: describeProviderRequestTarget(url.href, auth.secretValues),
-      requestKey: createProviderRequestDedupeKey({
-        method,
-        url: url.href,
-        body,
-        headers,
-        maxBytes: effectiveMaxBytes,
-      }),
+      requestKey:
+        requestKey && args.saveToFile ? `${requestKey}:text-save` : requestKey,
     },
   });
 
@@ -6635,11 +6651,13 @@ async function fetchWithTimeout(
     secretValues?: string[];
     quota?: ProviderApiFetchQuotaOptions;
     discardRedirectBody?: boolean;
+    requireTextForSave?: boolean;
     census?: ProviderCallCensusKey;
     singleAttempt?: boolean;
   },
 ): Promise<ProviderApiHttpResponse> {
-  const runOnce = async (): Promise<ProviderApiHttpResponse> => {
+  type FetchResult = ProviderApiHttpResponse & { bodyValidationError?: Error };
+  const runOnce = async (): Promise<FetchResult> => {
     const controller = new AbortController();
     const timeoutMs = clampTimeout(options.timeoutMs);
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
@@ -6670,6 +6688,9 @@ async function fetchWithTimeout(
           ? { maxResponseBytes: options.maxResponseBytes }
           : {}),
         secretValues,
+        ...(options.requireTextForSave === undefined
+          ? {}
+          : { requireTextForSave: options.requireTextForSave }),
         ...(options.discardRedirectBody !== undefined
           ? { discardRedirectBody: options.discardRedirectBody }
           : {}),
@@ -6687,25 +6708,71 @@ async function fetchWithTimeout(
     }
   };
 
-  if (options.quota) {
-    return executeWithProviderQuota({
-      request: {
-        identity: options.quota.identity,
-        method: options.quota.method,
-        target: options.quota.target,
-        requestKey: options.quota.requestKey,
-      },
-      execute: runOnce,
-      ...(options.singleAttempt ? { singleAttempt: true } : {}),
-      inspect: (result) => ({
-        status: result.status,
-        headers: result.headers,
-      }),
-      buildQuotaExhaustedResult: providerQuotaExhaustedResponse,
-    });
-  }
+  let lastBodyValidationError: Error | undefined;
+  const result = options.quota
+    ? await executeWithProviderQuota<FetchResult>({
+        request: {
+          identity: options.quota.identity,
+          method: options.quota.method,
+          target: options.quota.target,
+          ...(options.quota.requestKey === undefined
+            ? {}
+            : { requestKey: options.quota.requestKey }),
+        },
+        execute: async () => {
+          const response = await runOnce();
+          lastBodyValidationError = response.bodyValidationError;
+          return response;
+        },
+        ...(options.singleAttempt ? { singleAttempt: true } : {}),
+        inspect: (response) => ({
+          status: response.status,
+          headers: response.headers,
+        }),
+        buildQuotaExhaustedResult: (detail) => ({
+          ...providerQuotaExhaustedResponse(detail),
+          ...(lastBodyValidationError
+            ? { bodyValidationError: lastBodyValidationError }
+            : {}),
+        }),
+      })
+    : await runOnce();
 
-  return runOnce();
+  if (result.bodyValidationError) {
+    if (result.status !== 429) {
+      fail(
+        result.status >= 200 && result.status < 300
+          ? `${result.bodyValidationError.message} (HTTP ${result.status}).`
+          : `Cannot save binary or invalid UTF-8 provider response (HTTP ${result.status}).`,
+        {
+          errorCode: "provider_response_invalid",
+          statusCode:
+            result.status >= 400 && result.status < 600 ? result.status : 502,
+        },
+      );
+    }
+    const retryAfterMs =
+      result.quota?.retryAfterMs ?? parseRetryAfterMs(result.headers);
+    const retryAfterSeconds =
+      retryAfterMs !== null && Number.isFinite(retryAfterMs)
+        ? Math.min(Math.ceil(retryAfterMs / 1000), Number.MAX_SAFE_INTEGER)
+        : undefined;
+    const retry =
+      retryAfterSeconds === undefined
+        ? ""
+        : `; retry after ${retryAfterSeconds} seconds`;
+    fail(
+      `Cannot save binary or invalid UTF-8 provider response (HTTP 429${retry}).`,
+      {
+        errorCode: "provider_response_invalid",
+        statusCode: 429,
+        ...(retryAfterSeconds === undefined
+          ? {}
+          : { details: { retryAfterSeconds } }),
+      },
+    );
+  }
+  return result;
 }
 
 function providerQuotaExhaustedResponse(
@@ -6791,6 +6858,8 @@ function applyBodyEnvelopeOutcome<
   };
 }
 
+class ProviderResponseBodyValidationError extends Error {}
+
 async function fetchProviderResponse(
   url: string,
   fetchOptions: RequestInit & { dispatcher?: unknown },
@@ -6799,9 +6868,10 @@ async function fetchProviderResponse(
     maxResponseBytes?: number;
     secretValues: string[];
     discardRedirectBody?: boolean;
+    requireTextForSave?: boolean;
     census?: ProviderCallCensusKey;
   },
-): Promise<ProviderApiHttpResponse> {
+): Promise<ProviderApiHttpResponse & { bodyValidationError?: Error }> {
   const startedAt = Date.now();
   let res: Response;
   try {
@@ -6830,10 +6900,31 @@ async function fetchProviderResponse(
       truncated: false,
     };
   }
-  const rawText = await readResponseTextWithLimit(
-    res,
-    clampMaxBytes(options.maxBytes, options.maxResponseBytes),
-  );
+  let rawText: Awaited<ReturnType<typeof readResponseTextWithLimit>>;
+  try {
+    rawText = await readResponseTextWithLimit(
+      res,
+      clampMaxBytes(options.maxBytes, options.maxResponseBytes),
+      options.requireTextForSave ? headers["content-type"] : undefined,
+      options.requireTextForSave,
+    );
+  } catch (error) {
+    if (!(error instanceof ProviderResponseBodyValidationError)) {
+      throw error;
+    }
+    // The governor must observe 429 headers before this rejection escapes.
+    return {
+      status: res.status,
+      statusText: res.statusText,
+      ok: res.ok,
+      elapsedMs,
+      headers,
+      contentType: res.headers.get("content-type") ?? null,
+      size: 0,
+      truncated: false,
+      bodyValidationError: error,
+    };
+  }
   const redactedText = redactString(rawText.text, options.secretValues);
   const parsed = tryParseJson(redactedText);
   return {
@@ -6910,14 +7001,36 @@ function describeProviderRequestTarget(
 async function readResponseTextWithLimit(
   response: Response,
   maxBytes: number,
+  contentType?: string,
+  requireTextForSave = false,
 ): Promise<{
   text: string;
   truncated: boolean;
   size: number;
   sizeIsLowerBound?: true;
 }> {
+  const mediaType =
+    response.headers.get("content-type")?.split(";")[0]?.trim().toLowerCase() ??
+    "";
+  const redactedType = contentType?.split(";")[0]?.trim().toLowerCase() ?? "";
+  const displayType = /^[a-z0-9!#$&^_.+-]+\/[a-z0-9!#$&^_.+-]+$/.test(
+    redactedType,
+  )
+    ? redactedType.slice(0, 100)
+    : "unknown";
+  if (!response.body) return { text: "", truncated: false, size: 0 };
+  const binaryForSave =
+    requireTextForSave && isBinaryProviderContentType(mediaType);
+  if (binaryForSave && response.status === 429) {
+    // Cancellation can itself wait for the stream, but the quota is already known.
+    void response.body.cancel().catch(() => undefined);
+    throw new ProviderResponseBodyValidationError(
+      `Cannot save binary provider response (content type: ${displayType}) as a text workspace file. Use a binary storage capability instead.`,
+    );
+  }
   const contentLength = response.headers.get("content-length");
-  if (contentLength && Number(contentLength) > maxBytes) {
+  if (!binaryForSave && contentLength && Number(contentLength) > maxBytes) {
+    await response.body?.cancel();
     return {
       text: `(response too large - ${contentLength} bytes, max ${maxBytes})`,
       truncated: true,
@@ -6934,26 +7047,71 @@ async function readResponseTextWithLimit(
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
+      if (value.byteLength > 0 && binaryForSave) {
+        await reader.cancel();
+        throw new ProviderResponseBodyValidationError(
+          `Cannot save binary provider response (content type: ${displayType}) as a text workspace file. Use a binary storage capability instead.`,
+        );
+      }
       size += value.byteLength;
-      kept.push(value);
       if (size > maxBytes) {
+        kept.push(value.subarray(0, value.byteLength - (size - maxBytes)));
         await reader.cancel();
         return {
-          text: new TextDecoder().decode(
-            Buffer.concat(kept, size).subarray(0, maxBytes),
-          ),
+          text: requireTextForSave
+            ? `(response too large - max ${maxBytes} bytes)`
+            : new TextDecoder().decode(Buffer.concat(kept, maxBytes)),
           truncated: true,
           size,
           sizeIsLowerBound: true,
         };
       }
+      kept.push(value);
     }
   }
-  return {
-    text: new TextDecoder().decode(Buffer.concat(kept, size)),
-    truncated: false,
-    size,
-  };
+  const bytes = Buffer.concat(kept, size);
+  if (requireTextForSave && bytes.includes(0)) {
+    throw new ProviderResponseBodyValidationError(
+      `Cannot save provider response containing NUL bytes (content type: ${displayType}) as a text workspace file.`,
+    );
+  }
+  if (
+    requireTextForSave &&
+    bytes.some(
+      (byte) =>
+        byte < 9 || byte === 11 || (byte >= 14 && byte < 32) || byte === 127,
+    )
+  ) {
+    throw new ProviderResponseBodyValidationError(
+      `Cannot save provider response containing binary control bytes (content type: ${displayType}) as a text workspace file.`,
+    );
+  }
+  let text: string;
+  try {
+    text = new TextDecoder("utf-8", { fatal: requireTextForSave }).decode(
+      bytes,
+    );
+  } catch {
+    throw new ProviderResponseBodyValidationError(
+      `Cannot save provider response with invalid UTF-8 (content type: ${displayType}) as a text workspace file.`,
+    );
+  }
+  return { text, truncated: false, size };
+}
+
+function isBinaryProviderContentType(mediaType: string): boolean {
+  if (
+    mediaType === "application/vnd.ms-excel" ||
+    mediaType.endsWith("+json") ||
+    mediaType.endsWith("+xml")
+  )
+    return false;
+  return (
+    /^(image|audio|video|font)\//.test(mediaType) ||
+    /^application\/(?:octet-stream|pdf|zip|x-zip-compressed|gzip|x-gzip|x-tar|x-bzip2|x-xz|zstd|x-rar-compressed|vnd\.rar|x-7z-compressed|wasm|protobuf|x-protobuf|msword|vnd\.ms-[^/]+|vnd\.openxmlformats-officedocument\.[^/]+|vnd\.oasis\.opendocument\.[^/]+)$/.test(
+      mediaType,
+    )
+  );
 }
 
 function headersToObject(headers: Headers): Record<string, string> {
