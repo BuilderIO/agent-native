@@ -447,14 +447,14 @@ Agent-Aufrufer sehen den Status nicht. Der Agent führt `run()` im Prozess aus, 
 
 ## Wiederholungssichere Schreibvorgänge {#retry-safe}
 
-Das Framework stuft eine fehlgeschlagene schreibende Action nach den Schreibvorgängen ein, die es den Aufruf ausführen sah: jeder Datenbank-Schreibvorgang und jeder `fetch`, der nicht GET, HEAD oder OPTIONS ist. Eine Ablehnung vor einem dieser Vorgänge, etwa eine Bearbeitung ohne Treffer, ein fehlendes Ziel oder eine 422-Validierungsablehnung, ist ein bekannter Fehler, egal wie sie geworfen wird: `fail()`, ein einfacher `Error` oder ein Fehler aus einer Bibliothek. Das Modell erhält den Fehler, korrigiert seine Argumente und versucht es erneut.
+Das Framework stuft eine fehlgeschlagene schreibende Action nach den Schreibvorgängen ein, die es den Aufruf ausführen sah: jede SQL-Anweisung, die laut ihrem Text schreiben kann, und jeder `fetch`, der nicht GET, HEAD oder OPTIONS ist. Eine Ablehnung vor einem dieser Vorgänge, etwa eine Bearbeitung ohne Treffer, ein fehlendes Ziel oder eine 422-Validierungsablehnung, ist ein bekannter Fehler, egal wie sie geworfen wird: `fail()`, ein einfacher `Error` oder ein Fehler aus einer Bibliothek. Das Modell erhält den Fehler, korrigiert seine Argumente und versucht es erneut.
 
 Schlägt ein Aufruf nach einem eigenen Schreibvorgang fehl, protokolliert die Agent-Schleife ein unbekanntes Ergebnis und blockiert dieses Tool für den Rest der **aktuellen Runde**. Das Modell sieht den Fehler, kann dieselbe Action in dieser Runde aber nicht erneut aufrufen, um seine Argumente zu korrigieren. Die nächste Nachricht der Nutzerin oder des Nutzers führt das Tool wieder normal aus.
 
-- Rufe vor einem Schreibvorgang, den das Framework nicht sieht, etwa einem Schreiben auf die Festplatte, einem Kindprozess, einer `node:http`-Anfrage oder einem Aufruf eines Anbieter-SDK, `noteExternalWrite(channel)` aus `@agent-native/core/action` auf, zum Beispiel `noteExternalWrite("local-disk")`. Ohne diesen Aufruf sieht ein Aufruf, der nach diesem Schreiben fehlschlägt, so aus, als hätte er nichts gespeichert.
+- Rufe vor einem Schreibvorgang, den das Framework nicht sieht, etwa einem Schreiben auf die Festplatte, einem Kindprozess, einer `node:http`-Anfrage, einem Aufruf eines Anbieter-SDK oder einer eigenen Datenbankfunktion deiner App, die ein `SELECT` aufruft, `noteExternalWrite(channel)` aus `@agent-native/core/action` auf, zum Beispiel `noteExternalWrite("local-disk")`. Ohne diesen Aufruf sieht ein Aufruf, der nach diesem Schreiben fehlschlägt, so aus, als hätte er nichts gespeichert.
 - `NoWriteError` oder `noWrite()` von `defineActionErrors` ist eine Übersteuerung, keine Pflicht. Verwende es, wenn der einzige Schreibvorgang vor der Ablehnung einer ist, den eine Wiederholung unschädlich wiederholt, etwa eine Anfrage, die der Server mit einem 4xx abgelehnt hat, bevor er etwas ausgeführt hat, oder ein Upload, auf den noch nichts verweist. Das Framework akzeptiert es nur, wenn keine verschachtelte schreibende Action den Handler des Aufrufs betreten hat. Die Autorregel ist der `NoWriteError`-Punkt in `.agents/skills/actions/SKILL.md`. Siehe [Fehlercodes deklarieren](#error-codes) für `noWrite()`.
 
-Setze `retrySafe: true` (oder ein Prädikat über die Eingabe), wenn eine erneute Ausführung nach jedem Fehler keine Daten duplizieren oder beschädigen kann: Die Action validiert, bevor sie schreibt, oder sie setzt einen Endzustand, etwa Ersetzen per ID. Ein Aufruf, der nach seinem eigenen Schreibvorgang fehlschlägt, bleibt dann ein bekannter Fehler. Das Modell erhält den Fehler, korrigiert seine Argumente und versucht es erneut.
+Setze `retrySafe: true` (oder ein Prädikat über die Eingabe), wenn eine erneute Ausführung nach jedem Fehler keine Daten duplizieren oder beschädigen kann: Jeder Schreibvorgang der Action setzt einen Endzustand, etwa Ersetzen per ID, sodass die Wiederholung eines bereits erfolgten Schreibvorgangs nichts ändert. Ein Aufruf, der nach seinem eigenen Schreibvorgang fehlschlägt, bleibt dann ein bekannter Fehler. Das Modell erhält den Fehler, korrigiert seine Argumente und versucht es erneut.
 
 ```ts
 export default defineAction({
@@ -464,8 +464,8 @@ export default defineAction({
     panelId: z.string().describe("Panel id to replace."),
     title: z.string().describe("New panel title."),
   }),
-  // Safe: the write is an end-state replace. A rejected call leaves
-  // nothing behind, so the model can fix its args and try again.
+  // Safe: the write is an end-state replace. Running it again after
+  // an error sets the same state, so the model can fix its args and retry.
   retrySafe: true,
   run: async ({ dashboardId, panelId, title }) => {
     /* validate, then replace-by-id … */
@@ -475,9 +475,9 @@ export default defineAction({
 
 Setze es **nicht**, wenn die Action nach der Validierung etwas anhängt, sendet oder abrechnet, außer bei Eingaben mit einem Idempotenzschlüssel, auf den die Action mit ihrem ersten Ergebnis antwortet. Vorher zu validieren reicht allein nicht, wenn ein späterer Schritt vor der Ablehnung schon gewirkt haben kann. Ein paar weitere Grenzen:
 
-- Es deckt **den eigenen Schreibvorgang dieser Action** ab. Sobald eine verschachtelte Action, die sie aufruft, ihren Handler betreten hat, protokolliert ein Fehler weiterhin ein unbekanntes Ergebnis.
+- Es deckt **den eigenen Schreibvorgang dieser Action** ab. Sobald eine verschachtelte Action, die sie aufruft, geschrieben hat, protokolliert ein Fehler weiterhin ein unbekanntes Ergebnis.
 - Eine MCP-Freigabe überspringt die Warnung „bereits ausgeführt“ für einen Aufruf, den `retrySafe` abdeckt.
-- Ein Lauf, der sich von einem Absturz erholt, kann einen unterbrochenen wiederholungssicheren Aufruf selbst erneut ausführen.
+- Wenn ein Lauf sich von einem Absturz erholt und einen unterbrochenen wiederholungssicheren Aufruf mit derselben Eingabe erneut absetzt, wird dieser Aufruf erneut ausgeführt, statt unbekannt zu bleiben.
 - Ein Deadline-Ablauf oder Abbruch nach dem Aufruf der Action blockiert das Tool weiterhin für den Rest der aktuellen Runde. Nur der eigene zurückgegebene Fehler der Action gilt als bekannter, wiederholbarer Fehler.
 
 ## Die Action-Oberfläche klein halten {#small-surface}

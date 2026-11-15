@@ -442,14 +442,14 @@ const reply = useActionMutation("reply-to-email", {
 
 ## 可安全重試的寫入 {#retry-safe}
 
-框架根據它觀察到呼叫執行過的寫入，對失敗的寫入類 action 進行分類：每一次資料庫寫入，以及每一個不是 GET、HEAD 或 OPTIONS 的 `fetch`。在這些寫入之前提出的拒絕，例如編輯未匹配到任何內容、目標不存在，或 422 驗證拒絕，無論以何種方式拋出（`fail()`、一般的 `Error` 或函式庫拋出的錯誤），都是已知失敗。模型取得錯誤，修正參數，然後重試。
+框架根據它觀察到呼叫執行過的寫入，對失敗的寫入類 action 進行分類：每一條從文字看可能寫入的 SQL 陳述式，以及每一個不是 GET、HEAD 或 OPTIONS 的 `fetch`。在這些寫入之前提出的拒絕，例如編輯未匹配到任何內容、目標不存在，或 422 驗證拒絕，無論以何種方式拋出（`fail()`、一般的 `Error` 或函式庫拋出的錯誤），都是已知失敗。模型取得錯誤，修正參數，然後重試。
 
 當呼叫在它自己執行的寫入之後失敗時，agent 迴圈會記錄一個未知結果，並在**目前回合**剩餘時間裡封鎖這個工具。模型看得到錯誤，但無法在本回合再次呼叫同一個 action 來修正參數。使用者的下一則訊息會正常執行該工具。
 
-- 在框架看不到的寫入之前，例如磁碟寫入、子行程、`node:http` 請求或供應商 SDK 呼叫，呼叫 `@agent-native/core/action` 的 `noteExternalWrite(channel)`，例如 `noteExternalWrite("local-disk")`。否則，在那次寫入之後失敗的呼叫看起來就像什麼都沒儲存。
+- 在框架看不到的寫入之前，例如磁碟寫入、子行程、`node:http` 請求、供應商 SDK 呼叫，或由 `SELECT` 呼叫的應用程式自訂資料庫函式，呼叫 `@agent-native/core/action` 的 `noteExternalWrite(channel)`，例如 `noteExternalWrite("local-disk")`。否則，在那次寫入之後失敗的呼叫看起來就像什麼都沒儲存。
 - `NoWriteError`，或 `defineActionErrors` 的 `noWrite()`，是一種覆寫手段，而不是必要項。當拒絕之前唯一的寫入是重試時可以無害重複的寫入（例如伺服器在執行任何操作之前就以 4xx 拒絕的請求，或尚未被任何內容參照的上傳）時使用它。只有當沒有巢狀的寫入 action 進入該呼叫的處理函式時，框架才會接受它。作者規則見 `.agents/skills/actions/SKILL.md` 中的 `NoWriteError` 條目。`noWrite()` 見[宣告錯誤碼](#error-codes)。
 
-當在任意錯誤後重新執行都不會重複或損壞資料時，設定 `retrySafe: true`（或一個依輸入判斷的謂詞）：action 在寫入前先做驗證，或者它設定的是一個終態，例如依 id 取代。這樣在自身寫入之後失敗的呼叫也維持為已知失敗。模型取得錯誤，修正參數，然後重試。
+當在任意錯誤後重新執行都不會重複或損壞資料時，設定 `retrySafe: true`（或一個依輸入判斷的謂詞）：action 的每一次寫入都設定一個終態，例如依 id 取代，因此重複一次已經生效的寫入不會改變任何東西。這樣在自身寫入之後失敗的呼叫也維持為已知失敗。模型取得錯誤，修正參數，然後重試。
 
 ```ts
 export default defineAction({
@@ -459,8 +459,8 @@ export default defineAction({
     panelId: z.string().describe("Panel id to replace."),
     title: z.string().describe("New panel title."),
   }),
-  // Safe: the write is an end-state replace. A rejected call leaves
-  // nothing behind, so the model can fix its args and try again.
+  // Safe: the write is an end-state replace. Running it again after
+  // an error sets the same state, so the model can fix its args and retry.
   retrySafe: true,
   run: async ({ dashboardId, panelId, title }) => {
     /* validate, then replace-by-id … */
@@ -470,9 +470,9 @@ export default defineAction({
 
 如果 action 在驗證之後會附加、傳送或收費，**不要**設定它，除非該輸入攜帶冪等鍵，且 action 用第一次結果作答。如果後續某個步驟在拒絕之前可能已經生效，光是先驗證並不夠。另外還有幾項限制：
 
-- 它只涵蓋**這個 action 自身的寫入**。一旦它呼叫的巢狀 action 進入了自己的處理函式，失敗仍會記錄為未知結果。
+- 它只涵蓋**這個 action 自身的寫入**。一旦它呼叫的巢狀 action 已經寫入，失敗仍會記錄為未知結果。
 - MCP 核准會略過 `retrySafe` 所涵蓋呼叫的「已經執行過」警告。
-- 從當機中復原的執行可以自行重跑一次被中斷的可安全重試呼叫。
+- 從當機中復原的執行如果用相同輸入再次發出一個被中斷的可安全重試呼叫，該呼叫會重新執行，而不是維持未知結果。
 - action 被呼叫之後發生的逾時或中止仍會在目前回合剩餘時間裡封鎖該工具。只有 action 自身回傳的錯誤才會被視為已知、可重試的失敗。
 
 ## 讓 action 介面保持精簡 {#small-surface}

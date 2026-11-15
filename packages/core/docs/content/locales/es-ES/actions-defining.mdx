@@ -447,14 +447,14 @@ Quien llama desde el agente no ve el estado. El agente ejecuta `run()` en proces
 
 ## Escrituras seguras para reintentar {#retry-safe}
 
-El framework clasifica una acción de escritura fallida según las escrituras que vio hacer a la llamada: cada escritura en la base de datos y cada `fetch` que no sea GET, HEAD ni OPTIONS. Un rechazo planteado antes de cualquiera de ellas, como una edición que no coincide con nada, un destino que falta o un rechazo de validación 422, es un fallo conocido se lance como se lance: `fail()`, un `Error` simple o un error de una biblioteca. El modelo recibe el error, corrige sus argumentos y reintenta.
+El framework clasifica una acción de escritura fallida según las escrituras que vio hacer a la llamada: cada sentencia SQL que, según su texto, puede escribir y cada `fetch` que no sea GET, HEAD ni OPTIONS. Un rechazo planteado antes de cualquiera de ellas, como una edición que no coincide con nada, un destino que falta o un rechazo de validación 422, es un fallo conocido se lance como se lance: `fail()`, un `Error` simple o un error de una biblioteca. El modelo recibe el error, corrige sus argumentos y reintenta.
 
 Cuando una llamada falla después de una escritura que hizo, el bucle del agente registra un resultado desconocido y bloquea esa herramienta durante el resto del **turno actual**. El modelo ve el error, pero no puede volver a llamar a la misma acción en este turno para corregir sus argumentos. El siguiente mensaje del usuario ejecuta la herramienta con normalidad.
 
-- Antes de una escritura que el framework no puede ver, como una escritura en disco, un proceso hijo, una petición `node:http` o una llamada al SDK de un proveedor, llama a `noteExternalWrite(channel)` de `@agent-native/core/action`, por ejemplo `noteExternalWrite("local-disk")`. Sin esa llamada, una llamada que falla después de esa escritura parece no haber guardado nada.
+- Antes de una escritura que el framework no puede ver, como una escritura en disco, un proceso hijo, una petición `node:http`, una llamada al SDK de un proveedor o una función de base de datos propia de tu app que llama un `SELECT`, llama a `noteExternalWrite(channel)` de `@agent-native/core/action`, por ejemplo `noteExternalWrite("local-disk")`. Sin esa llamada, una llamada que falla después de esa escritura parece no haber guardado nada.
 - `NoWriteError`, o `noWrite()` de `defineActionErrors`, es una anulación, no un requisito. Úsalo cuando la única escritura anterior al rechazo sea una que un reintento repite sin daño, como una petición que el servidor rechazó con un 4xx antes de actuar, o una subida a la que todavía nada hace referencia. El framework lo acepta solo cuando ninguna acción de escritura anidada entró en el handler de la llamada. La regla para autores es el punto de `NoWriteError` en `.agents/skills/actions/SKILL.md`. Consulta [Declarar códigos de error](#error-codes) para `noWrite()`.
 
-Define `retrySafe: true` (o un predicado sobre la entrada) cuando volver a ejecutar tras cualquier error no pueda duplicar ni corromper datos: la acción valida antes de escribir, o establece un estado final, como reemplazar por id. Así, una llamada que falla tras su propia escritura sigue siendo un fallo conocido. El modelo recibe el error, corrige sus argumentos y reintenta.
+Define `retrySafe: true` (o un predicado sobre la entrada) cuando volver a ejecutar tras cualquier error no pueda duplicar ni corromper datos: cada escritura de la acción establece un estado final, como reemplazar por id, de modo que repetir una que ya se aplicó no cambia nada. Así, una llamada que falla tras su propia escritura sigue siendo un fallo conocido. El modelo recibe el error, corrige sus argumentos y reintenta.
 
 ```ts
 export default defineAction({
@@ -464,8 +464,8 @@ export default defineAction({
     panelId: z.string().describe("Panel id to replace."),
     title: z.string().describe("New panel title."),
   }),
-  // Safe: the write is an end-state replace. A rejected call leaves
-  // nothing behind, so the model can fix its args and try again.
+  // Safe: the write is an end-state replace. Running it again after
+  // an error sets the same state, so the model can fix its args and retry.
   retrySafe: true,
   run: async ({ dashboardId, panelId, title }) => {
     /* validate, then replace-by-id … */
@@ -475,9 +475,9 @@ export default defineAction({
 
 **No** lo definas cuando la acción añade, envía o cobra después de validar, salvo en entradas que llevan una clave de idempotencia a la que la acción responde con su primer resultado. Validar primero no basta por sí solo si un paso posterior ya puede haber surtido efecto antes del rechazo. Algunos límites más:
 
-- Cubre **la propia escritura de esta acción**. Una vez que una acción anidada a la que llama ha entrado en su handler, un fallo sigue registrando un resultado desconocido.
+- Cubre **la propia escritura de esta acción**. Una vez que una acción anidada a la que llama ha escrito, un fallo sigue registrando un resultado desconocido.
 - La aprobación MCP omite la advertencia de «ya se ejecutó» para una llamada que cubre `retrySafe`.
-- Una ejecución que se recupera de un fallo puede volver a ejecutar por sí sola una llamada retry-safe interrumpida.
+- Cuando una ejecución se recupera de un fallo y vuelve a emitir una llamada retry-safe interrumpida con la misma entrada, esa llamada se ejecuta de nuevo en lugar de quedar como desconocida.
 - Un plazo agotado o una cancelación después de invocar la acción sigue bloqueando la herramienta durante el resto del turno actual. Solo el error que devuelve la propia acción se trata como un fallo conocido y reintentable.
 
 ## Mantén pequeña la superficie de acciones {#small-surface}
