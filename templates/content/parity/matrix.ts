@@ -897,11 +897,13 @@ export const parityMatrix: ParityRow[] = [
     status: "action-backed",
     actions: [
       "add-content-database-source-field-property",
+      "add-github-pull-requests",
       "attach-content-database-source",
       "bind-content-database-source-field",
       "change-content-database-source-role",
       "check-github-connection",
       "create-github-collection",
+      "create-github-pull-request-collection",
       "disconnect-content-database-source",
       "get-content-database-source",
       "link-github-folder",
@@ -920,6 +922,7 @@ export const parityMatrix: ParityRow[] = [
     coverageRefs: [
       "actions/bind-content-database-source-field.db.test.ts",
       "actions/content-database-source-actions.test.ts",
+      "actions/github-pull-requests-source.db.test.ts",
       "actions/github-source.db.test.ts",
       "actions/resync-content-database-source.db.test.ts",
       "app/components/editor/database/DatabaseView.github-sources.ui.test.tsx",

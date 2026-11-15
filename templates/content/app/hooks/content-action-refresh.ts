@@ -28,6 +28,7 @@ const COMMENT_COUNT_MUTATIONS = new Set([
 ]);
 
 const DOCUMENT_MUTATIONS = new Set([
+  "add-github-pull-requests",
   "create-and-link-notion-page",
   "decide-resource-suggestion",
   "decide-resource-suggestion-proposal",
@@ -42,6 +43,7 @@ const DOCUMENT_MUTATIONS = new Set([
   "execute-builder-source-batch",
   "execute-builder-source-execution",
   "create-github-collection",
+  "create-github-pull-request-collection",
   "import-content-source",
   "link-github-folder",
   "migrate-content-database-rows",
@@ -78,6 +80,7 @@ const DOCUMENT_MUTATIONS = new Set([
 
 const DATABASE_RESULT_MUTATIONS = new Set([
   "add-database-item",
+  "add-github-pull-requests",
   "configure-document-property",
   "delete-content-database",
   "delete-document",
@@ -90,6 +93,7 @@ const DATABASE_RESULT_MUTATIONS = new Set([
   "execute-builder-source-batch",
   "execute-builder-source-execution",
   "create-github-collection",
+  "create-github-pull-request-collection",
   "import-content-source",
   "link-github-folder",
   "migrate-content-database-rows",
@@ -118,6 +122,7 @@ const DATABASE_PRESENTATION_MUTATIONS = new Set([
 
 const DATABASE_LIFECYCLE_MUTATIONS = new Set([
   "create-github-collection",
+  "create-github-pull-request-collection",
   "delete-content-database",
   "execute-content-trash-purge",
   "permanently-delete-document",
@@ -129,8 +134,10 @@ const DATABASE_LIFECYCLE_MUTATIONS = new Set([
 ]);
 
 const DOCUMENT_DISCOVERY_MUTATIONS = new Set([
+  "add-github-pull-requests",
   "create-document",
   "create-github-collection",
+  "create-github-pull-request-collection",
   "import-content",
   "link-github-folder",
   "refresh-content-database-source",

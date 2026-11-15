@@ -8,6 +8,10 @@ export type DatabaseCreateTarget =
       reason: "loading" | "catalog" | "read-only" | "github";
     };
 
+function isGitHubSourceType(sourceType: string | undefined) {
+  return sourceType === "github" || sourceType === "github-pull-requests";
+}
+
 export function databaseCreateTarget(
   data:
     | Pick<
@@ -30,10 +34,11 @@ export function databaseCreateTarget(
   if (!data.mutationContract) {
     return { kind: "unsupported", reason: "read-only" };
   }
-  // Rows in a collection linked to a GitHub folder come from its files.
+  // Rows in a collection linked to GitHub come from its files or pull
+  // requests.
   if (
-    data.source?.sourceType === "github" ||
-    data.sources?.some((source) => source.sourceType === "github")
+    isGitHubSourceType(data.source?.sourceType) ||
+    data.sources?.some((source) => isGitHubSourceType(source.sourceType))
   ) {
     return { kind: "unsupported", reason: "github" };
   }

@@ -13,11 +13,13 @@ import { DATABASE_ROW_PATCH_LIMIT } from "./_database-row-mutation.js";
 import addComment from "./add-comment.js";
 import addContentDatabaseSourceFieldProperty from "./add-content-database-source-field-property.js";
 import addDatabaseItem from "./add-database-item.js";
+import addGitHubPullRequests from "./add-github-pull-requests.js";
 import configureDocumentProperty from "./configure-document-property.js";
 import connectNotionStatus from "./connect-notion-status.js";
 import createContentDatabase from "./create-content-database.js";
 import createDocument from "./create-document.js";
 import createGitHubCollection from "./create-github-collection.js";
+import createGitHubPullRequestCollection from "./create-github-pull-request-collection.js";
 import deleteContentDatabase from "./delete-content-database.js";
 import deleteDocument from "./delete-document.js";
 import describeContentDatabase from "./describe-content-database.js";
@@ -99,6 +101,8 @@ describe("Content action-owned agent catalogs", () => {
     "link-github-folder": linkGitHubFolder,
     "create-github-collection": createGitHubCollection,
     "sync-github-folder": syncGitHubFolder,
+    "create-github-pull-request-collection": createGitHubPullRequestCollection,
+    "add-github-pull-requests": addGitHubPullRequests,
     "read-composer-source": readComposerSource,
   };
 

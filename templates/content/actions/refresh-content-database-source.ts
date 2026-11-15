@@ -19,6 +19,11 @@ import {
   storeSecondarySourceRows,
   updateReadOnlySourceMetadata,
 } from "./_database-source-utils.js";
+import { announceGitHubPullRequestsChange } from "./_github-pull-requests-freshness.js";
+import {
+  githubPullRequestsSyncSummary,
+  syncGitHubPullRequests,
+} from "./_github-pull-requests-source.js";
 import {
   announceGitHubSyncChange,
   githubSyncChangedRows,
@@ -29,7 +34,7 @@ import { serializeDatabase } from "./_property-utils.js";
 
 export default defineAction({
   description:
-    "Refresh the local read-only source status envelope for a content collection. Mock-local, Builder CMS, and Notion database sources resync field mappings and row identity without provider writes; GitHub folders sync rows to the branch's latest commit. For paginated Builder CMS or Notion sources, set fullRefresh to true to read a bounded multi-page snapshot in one action call.",
+    "Refresh the local read-only source status envelope for a content collection. Mock-local, Builder CMS, and Notion database sources resync field mappings and row identity without provider writes; GitHub folders sync rows to the branch's latest commit, and GitHub pull request collections to GitHub. For paginated Builder CMS or Notion sources, set fullRefresh to true to read a bounded multi-page snapshot in one action call.",
   schema: z.object({
     databaseId: z.string().optional().describe("Collection ID"),
     documentId: z.string().optional().describe("Collection document/page ID"),
@@ -120,6 +125,33 @@ export default defineAction({
       githubChanged =
         githubSyncChangedRows(result) ||
         (result.state !== "busy" && shownAfter !== shownBefore);
+    } else if (source.sourceType === "github-pull-requests") {
+      const result = await syncGitHubPullRequests({
+        sourceId: source.id,
+        budgetMs: args.fullRefresh === true ? 25_000 : 10_000,
+        throwConnectionErrors: true,
+        throwUnexpectedErrors: true,
+      }).catch((error: unknown) => {
+        // A failed sync stores its problem on the link, so readers hear about it.
+        try {
+          announceGitHubPullRequestsChange(
+            database.documentId,
+            getRequestUserEmail() ?? null,
+          );
+        } catch (announceError) {
+          console.warn(
+            "[github-pull-requests] change event failed:",
+            announceError instanceof Error
+              ? announceError.message
+              : String(announceError),
+          );
+        }
+        throw error;
+      });
+      githubSummary = githubPullRequestsSyncSummary(result);
+      // The Sources panel can change without a row changing, like a problem
+      // that cleared, so every sync that ran tells readers.
+      githubChanged = result.state !== "busy";
     } else if (source.sourceType === "mock-local") {
       await resyncMockSourceSnapshot({ database, source, now });
     } else if (source.sourceType === "builder-cms") {
@@ -212,7 +244,10 @@ export default defineAction({
                 : `${snapshot.sourceName} resynced locally; field mappings and row identity now reflect the current database snapshot.`
           : "Source metadata refreshed.",
       source: snapshot,
-      ...(source.sourceType === "github" ? { githubChanged } : {}),
+      ...(source.sourceType === "github" ||
+      source.sourceType === "github-pull-requests"
+        ? { githubChanged }
+        : {}),
     };
   },
   // A GitHub sync that changed rows or the status line changed them for

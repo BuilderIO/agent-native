@@ -82,6 +82,10 @@ import {
   processWithConcurrency,
 } from "./_batch-utils.js";
 import {
+  githubPullRequestsSourceCapabilities,
+  githubPullRequestsSourceStatus,
+} from "./_github-pull-requests-metadata.js";
+import {
   githubSourceCapabilities,
   githubSourceStatus,
 } from "./_github-source-metadata.js";
@@ -538,7 +542,8 @@ function normalizeSourceType(
     value === "local-table" ||
     value === "notion-database" ||
     value === "local-folder" ||
-    value === "github"
+    value === "github" ||
+    value === "github-pull-requests"
   )
     return value;
   return "mock-local";
@@ -633,6 +638,9 @@ function sourceMetadataLabel(
   if (sourceType === "notion-database") return `notion.database.${sourceTable}`;
   if (sourceType === "local-folder") return `local.folder.${sourceTable}`;
   if (sourceType === "github") return `github.folder.${sourceTable}`;
+  if (sourceType === "github-pull-requests") {
+    return `github.pull-requests.${sourceTable}`;
+  }
   return `mock-local.${sourceTable}`;
 }
 
@@ -5861,6 +5869,10 @@ async function loadSourceSnapshot(
       federation: normalizeSourceFederation(metadata.federation),
       github:
         sourceType === "github" ? githubSourceStatus(metadata) : undefined,
+      githubPullRequests:
+        sourceType === "github-pull-requests"
+          ? githubPullRequestsSourceStatus(metadata)
+          : undefined,
     },
     fields,
     rows,
@@ -6131,6 +6143,11 @@ export function sourceCapabilitiesForType(
   }
   if (sourceType === "github") {
     return serializeSourceCapabilitiesRecord(githubSourceCapabilities());
+  }
+  if (sourceType === "github-pull-requests") {
+    return serializeSourceCapabilitiesRecord(
+      githubPullRequestsSourceCapabilities(),
+    );
   }
   if (sourceType === "notion-database") {
     return serializeSourceCapabilitiesRecord({

@@ -1,0 +1,1564 @@
+import { createHash, randomUUID } from "node:crypto";
+
+import {
+  ActionContractError,
+  isAgentConnectionRequiredError,
+} from "@agent-native/core/action";
+import { runWithRequestContext } from "@agent-native/core/server";
+import { getRequestOrgId } from "@agent-native/core/server/request-context";
+import { and, eq, inArray, sql } from "drizzle-orm";
+
+import { getDb, schema } from "../server/db/index.js";
+import { recordCreatedDocumentsHistory } from "../server/lib/document-history.js";
+import {
+  GitHubSourceDeadlineError,
+  GitHubSourceError,
+  readGitHubPullRequests,
+  searchGitHubPullRequests,
+} from "../server/lib/github-source-client.js";
+import {
+  GITHUB_PULL_REQUEST_COLUMNS,
+  GITHUB_PULL_REQUESTS_MAX_ADDED,
+  GITHUB_PULL_REQUESTS_MAX_SEARCH_ROWS,
+  GITHUB_PULL_REQUESTS_SOURCE_TYPE,
+  githubPullRequestKey,
+  githubPullRequestsSourceName,
+  githubPullRequestValues,
+  githubPullRequestWebUrl,
+  type GitHubPullRequestColumn,
+  type GitHubPullRequestColumnKey,
+  type GitHubPullRequestRecord,
+  type GitHubPullRequestRef,
+} from "../shared/github-pull-requests.js";
+import {
+  defaultPropertyOptions,
+  normalizePropertyValueWithOptions,
+  parsePropertyOptions,
+  serializePropertyOptions,
+  serializePropertyValue,
+  type DocumentPropertyOptionColor,
+  type DocumentPropertyOptions,
+} from "../shared/properties.js";
+import { bulkChunkSizeForColumnCount, chunks } from "./_batch-utils.js";
+import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
+import { ensureDocumentsFilesMembership } from "./_content-files.js";
+import { mutateContentDatabaseSourceMetadata } from "./_database-source-utils.js";
+import {
+  githubPullRequestsMetadataRecord,
+  githubPullRequestsSourceCapabilities,
+  githubPullRequestsSourceId,
+  readGitHubPullRequestsState,
+  type GitHubPullRequestsState,
+} from "./_github-pull-requests-metadata.js";
+import {
+  createAppendPositionAllocator,
+  databaseItemsPositionScope,
+  documentsPositionScope,
+  nextAppendPosition,
+  withPositionLock,
+} from "./_position-utils.js";
+import { nanoid } from "./_property-utils.js";
+import { lockLifecycleGroup, trashDocumentSubtree } from "./delete-document.js";
+
+type Db = ReturnType<typeof getDb>;
+type DatabaseRow = typeof schema.contentDatabases.$inferSelect;
+type DocumentRow = typeof schema.documents.$inferSelect;
+type SourceRow = typeof schema.contentDatabaseSourceRows.$inferSelect;
+
+export const GITHUB_PULL_REQUESTS_SYNC_OPERATION = "sync-github-pull-requests";
+/** How long a running sync holds its lease; longer than any sync's budget. */
+const SYNC_LEASE_MS = 2 * 60 * 1000;
+/** Reserved key in a source row's values for the sync's own bookkeeping. */
+const ROW_STATE_KEY = "$githubPullRequest";
+/** How long adding by link waits on GitHub. */
+const ADD_READ_BUDGET_MS = 10_000;
+
+const OPTION_COLORS: DocumentPropertyOptionColor[] = [
+  "blue",
+  "green",
+  "purple",
+  "pink",
+  "orange",
+  "yellow",
+  "red",
+  "gray",
+];
+
+function hash(value: string) {
+  return createHash("sha256").update(value).digest("hex");
+}
+
+function opaqueId(kind: string, value: string) {
+  return `${kind}_${hash(value).slice(0, 32)}`;
+}
+
+/** Only sync writes these columns, so bad JSON is corruption and throws. */
+function parseJsonObject(value: string | null | undefined) {
+  if (!value) return {} as Record<string, unknown>;
+  const parsed = JSON.parse(value) as unknown;
+  return parsed && typeof parsed === "object" && !Array.isArray(parsed)
+    ? (parsed as Record<string, unknown>)
+    : {};
+}
+
+/**
+ * Reads GitHub as the person who linked the collection. Their connection is
+ * saved under the workspace they linked it from, so a collection with no
+ * workspace of its own, in a Personal space, reads through that one.
+ */
+async function readAsLinker<T>(
+  state: Pick<GitHubPullRequestsState, "linkedBy" | "linkedOrgId">,
+  orgId: string | null,
+  run: () => Promise<T>,
+): Promise<T> {
+  const workspace = orgId ?? state.linkedOrgId;
+  return await runWithRequestContext(
+    { userEmail: state.linkedBy, ...(workspace ? { orgId: workspace } : {}) },
+    run,
+  );
+}
+
+function sourceFieldRowId(sourceId: string, key: string) {
+  return opaqueId("content_source_field", `${sourceId}:${key}`);
+}
+
+interface PullRequestColumn {
+  fieldId: string;
+  propertyId: string;
+  key: GitHubPullRequestColumnKey;
+  type: GitHubPullRequestColumn["type"];
+  options: DocumentPropertyOptions;
+}
+
+const COLUMN_BY_KEY = new Map(
+  GITHUB_PULL_REQUEST_COLUMNS.map((column) => [column.key, column] as const),
+);
+
+/**
+ * The collection's GitHub columns by key, and the keys whose column someone
+ * removed, which stay removed rather than coming back.
+ */
+async function loadColumns(db: Db, sourceId: string) {
+  const fields = await db
+    .select({
+      id: schema.contentDatabaseSourceFields.id,
+      key: schema.contentDatabaseSourceFields.sourceFieldKey,
+      propertyId: schema.contentDatabaseSourceFields.propertyId,
+    })
+    .from(schema.contentDatabaseSourceFields)
+    .where(
+      and(
+        eq(schema.contentDatabaseSourceFields.sourceId, sourceId),
+        eq(schema.contentDatabaseSourceFields.mappingType, "property"),
+      ),
+    );
+  const propertyIds = fields
+    .map((field) => field.propertyId)
+    .filter((id): id is string => !!id);
+  const properties = propertyIds.length
+    ? await db
+        .select({
+          id: schema.documentPropertyDefinitions.id,
+          type: schema.documentPropertyDefinitions.type,
+          optionsJson: schema.documentPropertyDefinitions.optionsJson,
+        })
+        .from(schema.documentPropertyDefinitions)
+        .where(inArray(schema.documentPropertyDefinitions.id, propertyIds))
+    : [];
+  const propertyById = new Map(
+    properties.map((property) => [property.id, property] as const),
+  );
+  const columns = new Map<GitHubPullRequestColumnKey, PullRequestColumn>();
+  const removed = new Set<string>();
+  for (const field of fields) {
+    const spec = COLUMN_BY_KEY.get(field.key as GitHubPullRequestColumnKey);
+    const property = field.propertyId
+      ? propertyById.get(field.propertyId)
+      : undefined;
+    if (!spec || !property || property.type !== spec.type) {
+      removed.add(field.key);
+      continue;
+    }
+    columns.set(spec.key, {
+      fieldId: field.id,
+      propertyId: property.id,
+      key: spec.key,
+      type: spec.type,
+      options: parsePropertyOptions(property.optionsJson),
+    });
+  }
+  return { columns, removed };
+}
+
+async function insertColumn(
+  tx: Db,
+  args: {
+    database: DatabaseRow;
+    sourceId: string;
+    spec: GitHubPullRequestColumn;
+    now: string;
+  },
+): Promise<PullRequestColumn> {
+  const [maxPosition] = await tx
+    .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
+    .from(schema.documentPropertyDefinitions)
+    .where(eq(schema.documentPropertyDefinitions.databaseId, args.database.id));
+  const propertyId = nanoid();
+  // A select's choices are its fixed ones, or grow from the values, so it
+  // starts without the placeholder option Content gives columns made by hand.
+  const options: DocumentPropertyOptions =
+    args.spec.type === "select"
+      ? {
+          options: (args.spec.options ?? []).map((option) => ({ ...option })),
+        }
+      : defaultPropertyOptions(args.spec.type);
+  await tx.insert(schema.documentPropertyDefinitions).values({
+    id: propertyId,
+    ownerEmail: args.database.ownerEmail,
+    orgId: args.database.orgId ?? null,
+    databaseId: args.database.id,
+    name: args.spec.name,
+    type: args.spec.type,
+    optionsJson: serializePropertyOptions(options),
+    position: nextAppendPosition(maxPosition?.max),
+    createdAt: args.now,
+    updatedAt: args.now,
+  });
+  const fieldId = sourceFieldRowId(args.sourceId, args.spec.key);
+  await tx
+    .insert(schema.contentDatabaseSourceFields)
+    .values({
+      id: fieldId,
+      ownerEmail: args.database.ownerEmail,
+      sourceId: args.sourceId,
+      propertyId,
+      localFieldKey: propertyId,
+      sourceFieldKey: args.spec.key,
+      sourceFieldLabel: args.spec.name,
+      sourceFieldType: args.spec.type,
+      mappingType: "property",
+      writeOwner: "source",
+      readOnly: 1,
+      provenance: "github pull request",
+      freshness: "fresh",
+      lastSyncedAt: args.now,
+      createdAt: args.now,
+      updatedAt: args.now,
+    })
+    .onConflictDoNothing();
+  return {
+    fieldId,
+    propertyId,
+    key: args.spec.key,
+    type: args.spec.type,
+    options,
+  };
+}
+
+/** Adds the columns a collection is missing, other than ones someone removed. */
+async function ensureColumns(
+  tx: Db,
+  args: {
+    database: DatabaseRow;
+    sourceId: string;
+    columns: Map<GitHubPullRequestColumnKey, PullRequestColumn>;
+    removed: Set<string>;
+    now: string;
+  },
+) {
+  for (const spec of GITHUB_PULL_REQUEST_COLUMNS) {
+    if (args.columns.has(spec.key) || args.removed.has(spec.key)) continue;
+    args.columns.set(
+      spec.key,
+      await insertColumn(tx, {
+        database: args.database,
+        sourceId: args.sourceId,
+        spec,
+        now: args.now,
+      }),
+    );
+  }
+}
+
+/** Adds any select options the values name, so their stored ids resolve. */
+async function ensureOptions(
+  tx: Db,
+  column: PullRequestColumn,
+  values: unknown[],
+  now: string,
+) {
+  if (column.type !== "select") return;
+  const options = [...(column.options.options ?? [])];
+  const known = new Set(
+    options.map((option) => option.name.trim().toLowerCase()),
+  );
+  const usedIds = new Set(options.map((option) => option.id));
+  const fixed = COLUMN_BY_KEY.get(column.key)?.options ?? [];
+  let added = false;
+  for (const raw of values) {
+    if (typeof raw !== "string" || !raw.trim()) continue;
+    const name = raw.trim();
+    if (known.has(name.toLowerCase())) continue;
+    known.add(name.toLowerCase());
+    // A fixed choice someone deleted comes back with its own color.
+    const preset = fixed.find((option) => option.name === name);
+    const base =
+      preset?.id ??
+      (name
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "") ||
+        "option");
+    let id = base;
+    for (let index = 2; usedIds.has(id); index++) id = `${base}-${index}`;
+    usedIds.add(id);
+    options.push({
+      id,
+      name,
+      color:
+        preset?.color ?? OPTION_COLORS[options.length % OPTION_COLORS.length]!,
+    });
+    added = true;
+  }
+  if (!added) return;
+  column.options = { ...column.options, options };
+  await tx
+    .update(schema.documentPropertyDefinitions)
+    .set({
+      optionsJson: serializePropertyOptions(column.options),
+      updatedAt: now,
+    })
+    .where(eq(schema.documentPropertyDefinitions.id, column.propertyId));
+}
+
+interface RowState {
+  key: string;
+  /** Hash of the title and values the row was written with. */
+  hash: string;
+}
+
+function rowState(row: Pick<SourceRow, "sourceValuesJson">): RowState | null {
+  const state = parseJsonObject(row.sourceValuesJson)[ROW_STATE_KEY];
+  if (!state || typeof state !== "object") return null;
+  const value = state as Record<string, unknown>;
+  return typeof value.key === "string"
+    ? { key: value.key, hash: typeof value.hash === "string" ? value.hash : "" }
+    : null;
+}
+
+/** What one pull request's row should hold now. */
+interface PlannedRow {
+  key: string;
+  pullRequest: GitHubPullRequestRecord;
+  values: Record<GitHubPullRequestColumnKey, unknown>;
+  hash: string;
+}
+
+function planRow(
+  pullRequest: GitHubPullRequestRecord,
+  now: number,
+): PlannedRow {
+  const values = githubPullRequestValues(pullRequest, now);
+  return {
+    key: githubPullRequestKey(pullRequest),
+    pullRequest,
+    values,
+    hash: hash(JSON.stringify([pullRequest.title, values])),
+  };
+}
+
+interface RowWrite {
+  db: Db;
+  database: DatabaseRow;
+  databaseDocument: DocumentRow;
+  sourceId: string;
+  actor: string;
+  now: string;
+  columns: Map<GitHubPullRequestColumnKey, PullRequestColumn>;
+}
+
+function columnValue(column: PullRequestColumn, row: PlannedRow) {
+  return normalizePropertyValueWithOptions(
+    column.type,
+    row.values[column.key],
+    column.options,
+  );
+}
+
+function sourceRowFields(
+  write: RowWrite,
+  row: PlannedRow,
+  ids: { itemId: string; documentId: string },
+) {
+  const pr = row.pullRequest;
+  return {
+    sourceId: write.sourceId,
+    databaseItemId: ids.itemId,
+    documentId: ids.documentId,
+    sourceRowId: row.key,
+    sourceQualifiedId: githubPullRequestWebUrl(pr),
+    sourceDisplayKey: `${pr.owner}/${pr.repo}#${pr.number}`,
+    sourceValuesJson: JSON.stringify({
+      title: pr.title,
+      ...row.values,
+      [ROW_STATE_KEY]: { key: row.key, hash: row.hash } satisfies RowState,
+    }),
+    provenance: "github",
+    syncState: "linked",
+    freshness: "fresh",
+    lastSyncedAt: write.now,
+    lastSourceUpdatedAt: pr.updatedAt,
+    updatedAt: write.now,
+  };
+}
+
+/**
+ * Writes rows a few statements at a time rather than one a row, each small
+ * enough for SQLite's cap on the values one statement carries.
+ */
+async function inStatements<T extends object>(
+  rows: T[],
+  write: (rows: T[]) => Promise<unknown>,
+) {
+  if (rows.length === 0) return;
+  const size = bulkChunkSizeForColumnCount(Object.keys(rows[0]!).length);
+  for (const chunk of chunks(rows, size)) await write(chunk);
+}
+
+async function takenDocumentIds(db: Db, ids: string[]) {
+  const taken = new Set<string>();
+  for (const chunk of chunks(ids, bulkChunkSizeForColumnCount(1))) {
+    // guard:allow-unscoped — page ids are unique across every owner, so a
+    // new page's id must be free of all of them. Only ids are read.
+    const rows = await db
+      .select({ id: schema.documents.id })
+      .from(schema.documents)
+      .where(inArray(schema.documents.id, chunk));
+    for (const row of rows as Array<{ id: string }>) taken.add(row.id);
+  }
+  return taken;
+}
+
+/**
+ * The page id each new row gets. It follows the pull request, so a retry
+ * makes the same page; when a page left behind has it, like one in Trash
+ * after the pull request left the search, the next free one after it.
+ */
+async function newDocumentIds(db: Db, sourceId: string, keys: string[]) {
+  const ids = new Map<string, string>();
+  let unsettled = keys;
+  for (let attempt = 0; unsettled.length > 0; attempt++) {
+    const candidates = unsettled.map(
+      (key) =>
+        [
+          key,
+          opaqueId(
+            "content_github_pr_page",
+            `${sourceId}:${key}${attempt > 0 ? `:${attempt}` : ""}`,
+          ),
+        ] as const,
+    );
+    const taken = await takenDocumentIds(
+      db,
+      candidates.map(([, id]) => id),
+    );
+    unsettled = [];
+    for (const [key, id] of candidates) {
+      if (taken.has(id)) unsettled.push(key);
+      else ids.set(key, id);
+    }
+  }
+  return ids;
+}
+
+/**
+ * Adds new pull requests' pages to the collection, a statement a table: the
+ * pages and their rows after the rows already there, the collection's
+ * shares, History's first checkpoint, the column values, and the records
+ * that tie each page to its pull request. The caller holds the lock.
+ */
+async function insertRows(tx: Db, write: RowWrite, rows: PlannedRow[]) {
+  if (rows.length === 0) return;
+  const documentIdByKey = await newDocumentIds(
+    tx,
+    write.sourceId,
+    rows.map((row) => row.key),
+  );
+  const documentIds = rows.map((row) => documentIdByKey.get(row.key)!);
+  const itemIds = documentIds.map((id) =>
+    opaqueId("content_github_pr_item", `${write.sourceId}:${id}`),
+  );
+  const [maxDocument] = await tx
+    .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
+    .from(schema.documents)
+    .where(
+      and(
+        eq(schema.documents.ownerEmail, write.database.ownerEmail),
+        eq(schema.documents.parentId, write.database.documentId),
+      ),
+    );
+  const [maxItem] = await tx
+    .select({ max: sql<unknown>`COALESCE(MAX(position), -1)` })
+    .from(schema.contentDatabaseItems)
+    .where(eq(schema.contentDatabaseItems.databaseId, write.database.id));
+  const documentPosition = createAppendPositionAllocator(maxDocument?.max);
+  const itemPosition = createAppendPositionAllocator(maxItem?.max);
+  await inStatements(
+    rows.map((row, index) => ({
+      id: documentIds[index]!,
+      spaceId: write.database.spaceId ?? write.databaseDocument.spaceId,
+      ownerEmail: write.database.ownerEmail,
+      orgId: write.database.orgId,
+      parentId: write.database.documentId,
+      title: row.pullRequest.title,
+      content: "",
+      description: "",
+      icon: null,
+      position: documentPosition(),
+      isFavorite: 0,
+      hideFromSearch: write.databaseDocument.hideFromSearch ?? 0,
+      visibility: write.databaseDocument.visibility ?? "private",
+      createdBy: write.actor,
+      updatedBy: write.actor,
+      createdAt: write.now,
+      updatedAt: write.now,
+    })),
+    (values) => tx.insert(schema.documents).values(values),
+  );
+  await inStatements(
+    documentIds.map((documentId, index) => ({
+      id: itemIds[index]!,
+      ownerEmail: write.database.ownerEmail,
+      orgId: write.database.orgId,
+      databaseId: write.database.id,
+      documentId,
+      position: itemPosition(),
+      createdAt: write.now,
+      updatedAt: write.now,
+    })),
+    (values) => tx.insert(schema.contentDatabaseItems).values(values),
+  );
+  const shares = await tx
+    .select({
+      principalType: schema.documentShares.principalType,
+      principalId: schema.documentShares.principalId,
+      role: schema.documentShares.role,
+    })
+    .from(schema.documentShares)
+    .where(eq(schema.documentShares.resourceId, write.database.documentId));
+  await inStatements(
+    documentIds.flatMap((documentId) =>
+      shares.map((share) => ({
+        id: nanoid(),
+        resourceId: documentId,
+        principalType: share.principalType,
+        principalId: share.principalId,
+        role: share.role,
+        createdBy: write.actor,
+        createdAt: write.now,
+      })),
+    ),
+    (values) => tx.insert(schema.documentShares).values(values),
+  );
+  await ensureDocumentsFilesMembership(
+    tx,
+    documentIds,
+    write.now,
+    write.database.ownerEmail,
+  );
+  await recordCreatedDocumentsHistory({
+    db: tx,
+    ownerEmail: write.database.ownerEmail,
+    documents: rows.map((row, index) => ({
+      documentId: documentIds[index]!,
+      title: row.pullRequest.title,
+      content: "",
+      cause: {
+        groupId: `github-pull-requests:${write.sourceId}:${write.now}:${documentIds[index]}`,
+        groupKind: "operation",
+        actorKind: "source",
+        actorEmail: null,
+        origin: "github",
+        operation: GITHUB_PULL_REQUESTS_SYNC_OPERATION,
+      },
+    })),
+    now: write.now,
+  });
+  const columns = [...write.columns.values()];
+  for (const column of columns) {
+    await ensureOptions(
+      tx,
+      column,
+      rows.map((row) => row.values[column.key]),
+      write.now,
+    );
+  }
+  await inStatements(
+    rows.flatMap((row, index) =>
+      columns.flatMap((column) => {
+        const normalized = columnValue(column, row);
+        return normalized === null
+          ? []
+          : [
+              {
+                id: nanoid(),
+                ownerEmail: write.database.ownerEmail,
+                documentId: documentIds[index]!,
+                propertyId: column.propertyId,
+                valueJson: serializePropertyValue(normalized),
+                createdAt: write.now,
+                updatedAt: write.now,
+              },
+            ];
+      }),
+    ),
+    (values) => tx.insert(schema.documentPropertyValues).values(values),
+  );
+  await inStatements(
+    rows.map((row, index) => ({
+      id: opaqueId(
+        "content_source_row",
+        `${write.sourceId}:${documentIds[index]}`,
+      ),
+      ownerEmail: write.database.ownerEmail,
+      createdAt: write.now,
+      ...sourceRowFields(write, row, {
+        itemId: itemIds[index]!,
+        documentId: documentIds[index]!,
+      }),
+    })),
+    (values) => tx.insert(schema.contentDatabaseSourceRows).values(values),
+  );
+}
+
+/** Brings a row's title and values up to its pull request; true when one changed. */
+async function updateRow(
+  tx: Db,
+  write: RowWrite,
+  existing: SourceRow,
+  row: PlannedRow,
+): Promise<boolean> {
+  const [document] = await tx
+    .select({ title: schema.documents.title })
+    .from(schema.documents)
+    .where(eq(schema.documents.id, existing.documentId));
+  let changed = false;
+  // GitHub owns the title, so a rename in Content goes back at the next sync.
+  if (document && document.title !== row.pullRequest.title) {
+    await tx
+      .update(schema.documents)
+      .set({ title: row.pullRequest.title, updatedAt: write.now })
+      .where(eq(schema.documents.id, existing.documentId));
+    changed = true;
+  }
+  const columns = [...write.columns.values()];
+  const stored = columns.length
+    ? await tx
+        .select()
+        .from(schema.documentPropertyValues)
+        .where(
+          and(
+            eq(schema.documentPropertyValues.documentId, existing.documentId),
+            inArray(
+              schema.documentPropertyValues.propertyId,
+              columns.map((column) => column.propertyId),
+            ),
+          ),
+        )
+    : [];
+  const storedByProperty = new Map(
+    stored.map((value) => [value.propertyId, value] as const),
+  );
+  for (const column of columns) {
+    await ensureOptions(tx, column, [row.values[column.key]], write.now);
+    const normalized = columnValue(column, row);
+    const current = storedByProperty.get(column.propertyId);
+    if (normalized === null) {
+      if (current) {
+        await tx
+          .delete(schema.documentPropertyValues)
+          .where(eq(schema.documentPropertyValues.id, current.id));
+        changed = true;
+      }
+      continue;
+    }
+    const valueJson = serializePropertyValue(normalized);
+    if (current?.valueJson === valueJson) continue;
+    changed = true;
+    if (current) {
+      await tx
+        .update(schema.documentPropertyValues)
+        .set({ valueJson, updatedAt: write.now })
+        .where(eq(schema.documentPropertyValues.id, current.id));
+    } else {
+      await tx.insert(schema.documentPropertyValues).values({
+        id: nanoid(),
+        ownerEmail: write.database.ownerEmail,
+        documentId: existing.documentId,
+        propertyId: column.propertyId,
+        valueJson,
+        createdAt: write.now,
+        updatedAt: write.now,
+      });
+    }
+  }
+  await tx
+    .update(schema.contentDatabaseSourceRows)
+    .set(
+      sourceRowFields(write, row, {
+        itemId: existing.databaseItemId,
+        documentId: existing.documentId,
+      }),
+    )
+    .where(eq(schema.contentDatabaseSourceRows.id, existing.id));
+  return changed;
+}
+
+/** Each page's title, in one read rather than one a row. */
+async function documentTitles(db: Db, documentIds: string[]) {
+  const titles = new Map<string, string>();
+  for (const chunk of chunks(documentIds, bulkChunkSizeForColumnCount(1))) {
+    const rows = await db
+      .select({ id: schema.documents.id, title: schema.documents.title })
+      .from(schema.documents)
+      .where(inArray(schema.documents.id, chunk));
+    for (const row of rows) titles.set(row.id, row.title);
+  }
+  return titles;
+}
+
+async function readSourceRows(db: Db, sourceId: string) {
+  const rows = (await db
+    .select()
+    .from(schema.contentDatabaseSourceRows)
+    .where(
+      eq(schema.contentDatabaseSourceRows.sourceId, sourceId),
+    )) as SourceRow[];
+  const byKey = new Map<string, SourceRow>();
+  for (const row of rows) {
+    const key = rowState(row)?.key ?? row.sourceRowId;
+    if (key) byKey.set(key, row);
+  }
+  return byKey;
+}
+
+interface LoadedSource {
+  source: typeof schema.contentDatabaseSources.$inferSelect;
+  database: DatabaseRow;
+  databaseDocument: DocumentRow;
+  state: GitHubPullRequestsState;
+}
+
+async function readSource(sourceId: string): Promise<LoadedSource | null> {
+  const [target] = await getDb()
+    .select({
+      source: schema.contentDatabaseSources,
+      database: schema.contentDatabases,
+      databaseDocument: schema.documents,
+    })
+    .from(schema.contentDatabaseSources)
+    .innerJoin(
+      schema.contentDatabases,
+      eq(schema.contentDatabases.id, schema.contentDatabaseSources.databaseId),
+    )
+    .innerJoin(
+      schema.documents,
+      eq(schema.documents.id, schema.contentDatabases.documentId),
+    )
+    .where(eq(schema.contentDatabaseSources.id, sourceId));
+  if (
+    !target ||
+    target.source.sourceType !== GITHUB_PULL_REQUESTS_SOURCE_TYPE
+  ) {
+    return null;
+  }
+  const state = readGitHubPullRequestsState(
+    parseJsonObject(target.source.metadataJson),
+  );
+  return state ? { ...target, state } : null;
+}
+
+/** The pull request link on a collection, if it has one. */
+export async function readLinkedGitHubPullRequests(databaseId: string) {
+  const [source] = await getDb()
+    .select({ id: schema.contentDatabaseSources.id })
+    .from(schema.contentDatabaseSources)
+    .where(
+      and(
+        eq(schema.contentDatabaseSources.databaseId, databaseId),
+        eq(
+          schema.contentDatabaseSources.sourceType,
+          GITHUB_PULL_REQUESTS_SOURCE_TYPE,
+        ),
+      ),
+    )
+    .limit(1);
+  return source ? await readSource(source.id) : null;
+}
+
+/** Applies a change to the link's state, merged into whatever is stored now. */
+async function updateState(
+  sourceId: string,
+  now: string,
+  change: (state: GitHubPullRequestsState) => GitHubPullRequestsState | null,
+  columns: (state: GitHubPullRequestsState) => Partial<{
+    sourceName: string;
+    syncState: string;
+    freshness: string;
+    lastRefreshedAt: string;
+    lastSourceUpdatedAt: string;
+    lastError: string | null;
+  }> = () => ({}),
+) {
+  await mutateContentDatabaseSourceMetadata({
+    sourceId,
+    now,
+    buildPatch: (current) => {
+      const metadata = parseJsonObject(current.metadataJson);
+      const state = readGitHubPullRequestsState(metadata);
+      const next = state ? change(state) : null;
+      if (!next) return { metadataJson: current.metadataJson };
+      return {
+        metadataJson: JSON.stringify({
+          ...metadata,
+          ...githubPullRequestsMetadataRecord(next),
+        }),
+        ...columns(next),
+      };
+    },
+  });
+}
+
+async function claimSync(
+  sourceId: string,
+  now: string,
+): Promise<string | null> {
+  const claimId = randomUUID();
+  let claimed = false;
+  await updateState(
+    sourceId,
+    now,
+    (state) => {
+      claimed = false;
+      if (state.claim && Date.parse(state.claim.until) > Date.parse(now)) {
+        return null;
+      }
+      claimed = true;
+      return {
+        ...state,
+        claim: {
+          id: claimId,
+          until: new Date(Date.parse(now) + SYNC_LEASE_MS).toISOString(),
+        },
+      };
+    },
+    () => ({ syncState: "refreshing" }),
+  );
+  return claimed ? claimId : null;
+}
+
+/** Waits, at most until `until`, for the sync holding the link's lease to end. */
+export async function waitForGitHubPullRequestsSync(
+  sourceId: string,
+  until: number,
+) {
+  for (;;) {
+    const claim = (await readSource(sourceId))?.state.claim;
+    const left = until - Date.now();
+    if (!claim || Date.parse(claim.until) <= Date.now() || left <= 0) return;
+    await new Promise((resolve) => setTimeout(resolve, Math.min(200, left)));
+  }
+}
+
+/**
+ * Takes the collection's lock, then reads the link as it stands. A sync
+ * passes its lease, and stops when the link was disconnected or another sync
+ * took over. Updating the link's row, not only reading it, holds it until
+ * the write commits.
+ */
+async function lockLink(
+  tx: Db,
+  database: DatabaseRow,
+  sourceId: string,
+  claimId?: string,
+) {
+  await lockContentDatabaseMutation(tx, database.id);
+  const [source] = await tx
+    .update(schema.contentDatabaseSources)
+    .set({ updatedAt: sql`${schema.contentDatabaseSources.updatedAt}` })
+    .where(eq(schema.contentDatabaseSources.id, sourceId))
+    .returning({ metadataJson: schema.contentDatabaseSources.metadataJson });
+  const state = source
+    ? readGitHubPullRequestsState(parseJsonObject(source.metadataJson))
+    : null;
+  if (!state) {
+    throw new ActionContractError(
+      "This collection isn't linked to GitHub pull requests.",
+      { errorCode: "SOURCE_NOT_FOUND", statusCode: 404 },
+    );
+  }
+  if (claimId && state.claim?.id !== claimId) {
+    throw new ActionContractError(
+      "This sync stopped because another sync took over, which brings the collection up to date.",
+      { errorCode: "SYNC_SUPERSEDED", statusCode: 409 },
+    );
+  }
+  return state;
+}
+
+function withAppendPositions<T>(
+  database: DatabaseRow,
+  write: () => Promise<T>,
+) {
+  return withPositionLock(
+    documentsPositionScope(database.ownerEmail, database.documentId),
+    () => withPositionLock(databaseItemsPositionScope(database.id), write),
+  );
+}
+
+/**
+ * Makes the collection's rows match these pull requests, in one transaction:
+ * new ones get pages, changed ones are brought up to date. Returns the row
+ * each pull request has now, by key, and the counts.
+ */
+async function writeRows(args: {
+  loaded: LoadedSource;
+  pullRequests: GitHubPullRequestRecord[];
+  now: string;
+  claimId?: string;
+}) {
+  const { database, databaseDocument, source, state } = args.loaded;
+  const planned = new Map<string, PlannedRow>();
+  for (const pullRequest of args.pullRequests) {
+    const row = planRow(pullRequest, Date.parse(args.now));
+    planned.set(row.key, row);
+  }
+  const db = getDb();
+  return await withAppendPositions(database, () =>
+    db.transaction(async (tx: Db) => {
+      const current = await lockLink(tx, database, source.id, args.claimId);
+      const { columns, removed } = await loadColumns(tx, source.id);
+      await ensureColumns(tx, {
+        database,
+        sourceId: source.id,
+        columns,
+        removed,
+        now: args.now,
+      });
+      const write: RowWrite = {
+        db: tx,
+        database,
+        databaseDocument,
+        sourceId: source.id,
+        actor: current.linkedBy || state.linkedBy,
+        now: args.now,
+        columns,
+      };
+      // Read under the lock, so a row another add or sync just wrote isn't
+      // written twice.
+      const existing = await readSourceRows(tx, source.id);
+      const titles = await documentTitles(
+        tx,
+        [...planned.keys()].flatMap((key) => {
+          const linked = existing.get(key);
+          return linked ? [linked.documentId] : [];
+        }),
+      );
+      const fresh: PlannedRow[] = [];
+      let updated = 0;
+      for (const row of planned.values()) {
+        const linked = existing.get(row.key);
+        if (!linked) {
+          fresh.push(row);
+          continue;
+        }
+        if (
+          rowState(linked)?.hash === row.hash &&
+          titles.get(linked.documentId) === row.pullRequest.title
+        ) {
+          continue;
+        }
+        if (await updateRow(tx, write, linked, row)) updated += 1;
+      }
+      await insertRows(tx, write, fresh);
+      const rows = await readSourceRows(tx, source.id);
+      return { created: fresh.length, updated, rows };
+    }),
+  );
+}
+
+/**
+ * Moves a row whose pull request left the search to Trash, unless it was
+ * added by link since the sync read the link. Returns false when there was
+ * nothing to move.
+ */
+async function trashRow(
+  loaded: LoadedSource,
+  row: SourceRow,
+  key: string,
+  now: string,
+  claimId: string,
+): Promise<boolean> {
+  return getDb().transaction(async (tx: Db) => {
+    const { ownerEmail } = loaded.database;
+    // The page's other collections may sort before this one, so the whole
+    // group is locked in order before the link check takes this collection.
+    const locks = await lockLifecycleGroup(tx, {
+      operation: "trash",
+      roots: [{ id: row.documentId, ownerEmail }],
+      alsoLockDatabaseIds: [loaded.database.id],
+    });
+    const state = await lockLink(
+      tx,
+      loaded.database,
+      loaded.source.id,
+      claimId,
+    );
+    if (state.added.includes(key)) return false;
+    const [record] = await tx
+      .select({ id: schema.contentDatabaseSourceRows.id })
+      .from(schema.contentDatabaseSourceRows)
+      .where(
+        and(
+          eq(schema.contentDatabaseSourceRows.id, row.id),
+          eq(schema.contentDatabaseSourceRows.documentId, row.documentId),
+        ),
+      );
+    if (!record) return false;
+    const [document] = await tx
+      .select({ trashedAt: schema.documents.trashedAt })
+      .from(schema.documents)
+      .where(
+        and(
+          eq(schema.documents.id, row.documentId),
+          eq(schema.documents.ownerEmail, ownerEmail),
+        ),
+      );
+    let moved = false;
+    if (document && !document.trashedAt) {
+      await trashDocumentSubtree(
+        tx,
+        row.documentId,
+        ownerEmail,
+        now,
+        locks,
+        "github",
+      );
+      moved = true;
+    }
+    await tx
+      .delete(schema.contentDatabaseSourceRows)
+      .where(eq(schema.contentDatabaseSourceRows.id, row.id));
+    return moved;
+  });
+}
+
+export interface GitHubPullRequestsSyncResult {
+  state: "synced" | "busy" | "error";
+  created: number;
+  updated: number;
+  trashed: number;
+  rows: number;
+  searchTotal: number | null;
+  problem: GitHubPullRequestsState["problem"];
+}
+
+function emptyResult(
+  state: GitHubPullRequestsSyncResult["state"],
+  problem: GitHubPullRequestsState["problem"] = null,
+): GitHubPullRequestsSyncResult {
+  return {
+    state,
+    created: 0,
+    updated: 0,
+    trashed: 0,
+    rows: 0,
+    searchTotal: null,
+    problem,
+  };
+}
+
+export function githubPullRequestsSyncChangedRows(
+  result: GitHubPullRequestsSyncResult,
+) {
+  return result.created + result.updated + result.trashed > 0;
+}
+
+function problemFrom(
+  error: unknown,
+  now: string,
+): NonNullable<GitHubPullRequestsState["problem"]> | null {
+  if (error instanceof GitHubSourceError) {
+    return {
+      code:
+        error.code === "connection" ||
+        error.code === "forbidden" ||
+        error.code === "rate_limited"
+          ? error.code
+          : "unavailable",
+      message: error.message,
+      at: now,
+    };
+  }
+  if (isAgentConnectionRequiredError(error)) {
+    return {
+      code: "connection",
+      message:
+        "GitHub isn't connected for the person who linked these pull requests. Reconnect GitHub, then refresh.",
+      at: now,
+    };
+  }
+  return null;
+}
+
+function tooManyResults(
+  total: number,
+  now: string,
+): NonNullable<GitHubPullRequestsState["problem"]> {
+  return {
+    code: "too_many_results",
+    message: `The search finds ${total} pull requests, and a collection follows the first ${GITHUB_PULL_REQUESTS_MAX_SEARCH_ROWS}. Narrow the search to see the rest; rows it no longer finds stay until then.`,
+    at: now,
+  };
+}
+
+function warnLeaseNotReleased(error: unknown) {
+  console.warn(
+    "[github-pull-requests] couldn't release the sync's lease:",
+    error instanceof Error ? error.message : String(error),
+  );
+}
+
+export interface SyncGitHubPullRequestsOptions {
+  sourceId: string;
+  /** End any GitHub request still waiting after this long; the next sync tries again. */
+  budgetMs: number;
+  /** Rethrow a missing GitHub connection so an interactive caller can offer to connect. */
+  throwConnectionErrors?: boolean;
+  /** Rethrow a failure the sync can't name, once it's on the link. */
+  throwUnexpectedErrors?: boolean;
+  /** Ends the sync early, as its time budget would, such as when the server stops. */
+  signal?: AbortSignal;
+}
+
+/**
+ * Brings a linked collection up to GitHub: a row for each pull request the
+ * search finds and each one added by link, and Trash for rows the search no
+ * longer finds. GitHub is read in one or two queries before anything is
+ * written, so a sync either writes every row or none.
+ */
+export async function syncGitHubPullRequests(
+  options: SyncGitHubPullRequestsOptions,
+): Promise<GitHubPullRequestsSyncResult> {
+  const now = new Date().toISOString();
+  const loaded = await readSource(options.sourceId);
+  if (!loaded) {
+    throw new ActionContractError(
+      "This collection isn't linked to GitHub pull requests.",
+      { errorCode: "SOURCE_NOT_FOUND", statusCode: 404 },
+    );
+  }
+  const claimId = await claimSync(options.sourceId, now);
+  if (!claimId) return emptyResult("busy");
+  const { state, database } = loaded;
+  const release = (
+    change: (state: GitHubPullRequestsState) => GitHubPullRequestsState,
+    columns: Parameters<typeof updateState>[3],
+  ) =>
+    updateState(
+      options.sourceId,
+      new Date().toISOString(),
+      (current) =>
+        current.claim?.id === claimId
+          ? { ...change(current), claim: null }
+          : null,
+      columns,
+    );
+
+  const budget = new AbortController();
+  const budgetTimer = setTimeout(
+    () => budget.abort(),
+    Math.max(0, options.budgetMs),
+  );
+  const endBudget = () => budget.abort();
+  if (options.signal?.aborted) endBudget();
+  options.signal?.addEventListener("abort", endBudget, { once: true });
+  const result = emptyResult("synced");
+  try {
+    const target = {
+      connectionId: state.connectionId,
+      signal: budget.signal,
+    };
+    const { searched, searchTotal, added } = await readAsLinker(
+      state,
+      database.orgId,
+      async () => {
+        const found = state.search
+          ? await searchGitHubPullRequests(
+              target,
+              state.search,
+              GITHUB_PULL_REQUESTS_MAX_SEARCH_ROWS,
+            )
+          : null;
+        const foundKeys = new Set(
+          (found?.pullRequests ?? []).map(githubPullRequestKey),
+        );
+        const toRead = state.added
+          .filter((key) => !foundKeys.has(key))
+          .map(refFromKey)
+          .filter((ref): ref is GitHubPullRequestRef => !!ref);
+        return {
+          searched: found?.pullRequests ?? [],
+          searchTotal: found?.total ?? null,
+          added: toRead.length
+            ? await readGitHubPullRequests(target, toRead)
+            : [],
+        };
+      },
+    );
+    // A pull request added by link that GitHub no longer shows keeps its
+    // row as it was, as a sign-in that lost access leaves rows in place.
+    const pullRequests = [
+      ...searched,
+      ...added.filter((pr): pr is GitHubPullRequestRecord => !!pr),
+    ];
+    const written = await writeRows({
+      loaded,
+      pullRequests,
+      now,
+      claimId,
+    });
+    result.created = written.created;
+    result.updated = written.updated;
+    const complete = searchTotal === null || searchTotal <= searched.length;
+    const wanted = new Set(pullRequests.map(githubPullRequestKey));
+    const latest = (await readSource(options.sourceId))?.state ?? state;
+    const keep = new Set([...wanted, ...latest.added]);
+    if (complete) {
+      for (const [key, row] of written.rows) {
+        if (keep.has(key)) continue;
+        if (await trashRow(loaded, row, key, now, claimId)) {
+          result.trashed += 1;
+        }
+        written.rows.delete(key);
+      }
+    }
+    result.rows = written.rows.size;
+    result.searchTotal = searchTotal;
+    result.problem =
+      !complete && searchTotal !== null
+        ? tooManyResults(searchTotal, now)
+        : null;
+    await release(
+      (current) => ({
+        ...current,
+        checkedAt: now,
+        syncedAt: new Date().toISOString(),
+        rows: result.rows,
+        searchTotal,
+        problem: result.problem,
+      }),
+      () => ({
+        syncState: "linked",
+        freshness: "fresh",
+        lastRefreshedAt: now,
+        lastSourceUpdatedAt: now,
+        lastError: null,
+      }),
+    );
+    return result;
+  } catch (error) {
+    if (error instanceof GitHubSourceDeadlineError) {
+      // Only this run ran out of time; the next one tries again.
+      await release(
+        (current) => ({ ...current, checkedAt: now }),
+        (next) => ({
+          syncState: next.problem ? "error" : "linked",
+          freshness: "stale",
+          lastRefreshedAt: now,
+        }),
+      ).catch(warnLeaseNotReleased);
+      return {
+        ...result,
+        state: "error",
+        problem: {
+          code: "unavailable",
+          message:
+            "GitHub didn't answer in time. The background sync tries again.",
+          at: now,
+        },
+      };
+    }
+    // A contract error, like the link going away mid-sync, is the caller's
+    // to see. Anything else is still a failed check: the Sources panel shows
+    // it, the rows stay as they were, and the next sync tries again.
+    const named = problemFrom(error, now);
+    const problem: GitHubPullRequestsState["problem"] =
+      named ??
+      (error instanceof ActionContractError
+        ? null
+        : {
+            code: "unavailable",
+            message:
+              "Content couldn't bring the pull requests up to date. It tries again within a minute.",
+            at: now,
+          });
+    if (!named && problem) {
+      console.warn(
+        "[github-pull-requests] sync failed:",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
+    await release(
+      (current) => ({ ...current, checkedAt: now, problem }),
+      () => ({
+        syncState: "error",
+        freshness: "stale",
+        lastRefreshedAt: now,
+        lastError: problem?.message ?? "GitHub sync failed.",
+      }),
+    ).catch(warnLeaseNotReleased);
+    if (!problem) throw error;
+    if (problem.code === "connection" && options.throwConnectionErrors) {
+      throw error;
+    }
+    if (!named && options.throwUnexpectedErrors) throw error;
+    return { ...result, state: "error", problem };
+  } finally {
+    clearTimeout(budgetTimer);
+    options.signal?.removeEventListener("abort", endBudget);
+  }
+}
+
+/** The repository and number a stored key names. */
+function refFromKey(key: string): GitHubPullRequestRef | null {
+  const match = /^([^/]+)\/([^#]+)#(\d+)$/.exec(key);
+  return match
+    ? { owner: match[1]!, repo: match[2]!, number: Number(match[3]) }
+    : null;
+}
+
+/**
+ * Creates the link: the source row, a read-only Title mapping, and the
+ * GitHub columns. Rows arrive with the first sync.
+ */
+export async function createGitHubPullRequestsLink(args: {
+  database: DatabaseRow;
+  search: string | null;
+  connectionId: string | null;
+  userEmail: string;
+  /** Throws if the collection can no longer be linked; runs under its lock. */
+  assertLinkable: (tx: Db) => Promise<void>;
+}): Promise<string> {
+  const { database } = args;
+  const sourceId = githubPullRequestsSourceId(database.id);
+  const now = new Date().toISOString();
+  const state: GitHubPullRequestsState = {
+    search: args.search,
+    added: [],
+    connectionId: args.connectionId,
+    linkedBy: args.userEmail,
+    linkedOrgId: getRequestOrgId() ?? null,
+    linkedAt: now,
+    mode: "view_only",
+    checkedAt: null,
+    syncedAt: null,
+    rows: 0,
+    searchTotal: null,
+    problem: null,
+    claim: null,
+  };
+  await getDb().transaction(async (tx: Db) => {
+    await lockContentDatabaseMutation(tx, database.id);
+    await args.assertLinkable(tx);
+    await tx.insert(schema.contentDatabaseSources).values({
+      id: sourceId,
+      ownerEmail: database.ownerEmail,
+      orgId: database.orgId,
+      databaseId: database.id,
+      sourceType: GITHUB_PULL_REQUESTS_SOURCE_TYPE,
+      sourceName: githubPullRequestsSourceName(args.search),
+      sourceTable: args.search ?? "",
+      syncState: "refreshing",
+      freshness: "unknown",
+      capabilitiesJson: JSON.stringify(githubPullRequestsSourceCapabilities()),
+      metadataJson: JSON.stringify(githubPullRequestsMetadataRecord(state)),
+      lastError: null,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await tx.insert(schema.contentDatabaseSourceFields).values({
+      id: sourceFieldRowId(sourceId, "title"),
+      ownerEmail: database.ownerEmail,
+      sourceId,
+      propertyId: null,
+      localFieldKey: "title",
+      sourceFieldKey: "title",
+      sourceFieldLabel: "Title",
+      sourceFieldType: "string",
+      mappingType: "title",
+      writeOwner: "source",
+      readOnly: 1,
+      provenance: "github pull request title",
+      freshness: "fresh",
+      lastSyncedAt: now,
+      createdAt: now,
+      updatedAt: now,
+    });
+    await ensureColumns(tx, {
+      database,
+      sourceId,
+      columns: new Map(),
+      removed: new Set(),
+      now,
+    });
+  });
+  return sourceId;
+}
+
+export interface AddedGitHubPullRequest {
+  url: string;
+  key: string;
+  title: string;
+  documentId: string;
+  databaseItemId: string;
+  /** False when the collection had the row already. */
+  created: boolean;
+}
+
+/**
+ * Adds pull requests to a linked collection by link, so they stay after
+ * they leave the search. Each gets its row, made now if it has none; adding
+ * one again returns the same row. GitHub is read only for pull requests
+ * without a row, as the person who linked the collection.
+ */
+export async function addGitHubPullRequests(args: {
+  databaseId: string;
+  refs: GitHubPullRequestRef[];
+}): Promise<AddedGitHubPullRequest[]> {
+  const loaded = await readLinkedGitHubPullRequests(args.databaseId);
+  if (!loaded) {
+    throw new ActionContractError(
+      "This collection isn't linked to GitHub pull requests. Make one with create-github-pull-request-collection.",
+      { errorCode: "SOURCE_NOT_FOUND", statusCode: 404 },
+    );
+  }
+  const keys = [...new Set(args.refs.map(githubPullRequestKey))];
+  const refByKey = new Map(
+    args.refs.map((ref) => [githubPullRequestKey(ref), ref] as const),
+  );
+  const newlyAdded = keys.filter((key) => !loaded.state.added.includes(key));
+  if (
+    loaded.state.added.length + newlyAdded.length >
+    GITHUB_PULL_REQUESTS_MAX_ADDED
+  ) {
+    throw new ActionContractError(
+      `A collection keeps at most ${GITHUB_PULL_REQUESTS_MAX_ADDED} pull requests added by link.`,
+      { errorCode: "TOO_MANY_PULL_REQUESTS", statusCode: 409 },
+    );
+  }
+  const existing = await readSourceRows(getDb(), loaded.source.id);
+  const missing = keys.filter((key) => !existing.has(key));
+  let read: Array<GitHubPullRequestRecord | null> = [];
+  if (missing.length > 0) {
+    try {
+      read = await readAsLinker(loaded.state, loaded.database.orgId, () =>
+        readGitHubPullRequests(
+          {
+            connectionId: loaded.state.connectionId,
+            signal: AbortSignal.timeout(ADD_READ_BUDGET_MS),
+          },
+          missing.map((key) => refByKey.get(key)!),
+        ),
+      );
+    } catch (error) {
+      if (error instanceof GitHubSourceDeadlineError) {
+        throw new ActionContractError(
+          "GitHub didn't answer in time. Try again.",
+          { errorCode: "GITHUB_UNAVAILABLE", statusCode: 503 },
+        );
+      }
+      const problem = problemFrom(error, new Date().toISOString());
+      if (!problem) throw error;
+      throw new ActionContractError(problem.message, {
+        errorCode:
+          problem.code === "connection"
+            ? "GITHUB_CONNECTION_REQUIRED"
+            : problem.code === "rate_limited"
+              ? "GITHUB_RATE_LIMITED"
+              : problem.code === "forbidden"
+                ? "GITHUB_FORBIDDEN"
+                : "GITHUB_UNAVAILABLE",
+        statusCode:
+          problem.code === "connection"
+            ? 401
+            : problem.code === "forbidden"
+              ? 403
+              : problem.code === "rate_limited"
+                ? 429
+                : 503,
+      });
+    }
+    const unseen = missing.filter((_, index) => !read[index]);
+    if (unseen.length > 0) {
+      const names = unseen.map((key) => {
+        const ref = refByKey.get(key)!;
+        return `${ref.owner}/${ref.repo}#${ref.number}`;
+      });
+      throw new ActionContractError(
+        `GitHub can't find ${names.join(", ")}, or the account that linked this collection can't see ${unseen.length === 1 ? "it" : "them"}.`,
+        { errorCode: "PULL_REQUEST_NOT_FOUND", statusCode: 404 },
+      );
+    }
+  }
+  const now = new Date().toISOString();
+  // Recorded before the rows are written, so a sync that runs in between
+  // keeps them, and one that fails here leaves the next sync to make them.
+  if (newlyAdded.length > 0) {
+    await updateState(loaded.source.id, now, (state) => ({
+      ...state,
+      added: [...new Set([...state.added, ...newlyAdded])],
+    }));
+  }
+  const written = await writeRows({
+    loaded,
+    pullRequests: read.filter((pr): pr is GitHubPullRequestRecord => !!pr),
+    now,
+  });
+  return keys.map((key) => {
+    const row = written.rows.get(key);
+    if (!row) {
+      throw new ActionContractError(
+        "The pull request's row couldn't be saved. Try again.",
+        { errorCode: "ROW_NOT_SAVED", statusCode: 409 },
+      );
+    }
+    const values = parseJsonObject(row.sourceValuesJson);
+    return {
+      url: githubPullRequestWebUrl(refByKey.get(key)!),
+      key,
+      title: typeof values.title === "string" ? values.title : "",
+      documentId: row.documentId,
+      databaseItemId: row.databaseItemId,
+      created: !existing.has(key),
+    };
+  });
+}
+
+/** One line on what a sync did, for refresh results and agents. */
+export function githubPullRequestsSyncSummary(
+  result: GitHubPullRequestsSyncResult,
+) {
+  if (result.state === "busy") {
+    return "Another sync is bringing these pull requests up to date.";
+  }
+  if (result.state === "error") {
+    return result.problem?.message ?? "GitHub sync failed.";
+  }
+  const changes = [
+    result.created ? `${result.created} added` : null,
+    result.updated ? `${result.updated} updated` : null,
+    result.trashed ? `${result.trashed} moved to Trash` : null,
+  ].filter(Boolean);
+  return `${result.rows} pull request${result.rows === 1 ? "" : "s"}${changes.length ? ` (${changes.join(", ")})` : ", all up to date"}.${result.problem ? ` ${result.problem.message}` : ""}`;
+}

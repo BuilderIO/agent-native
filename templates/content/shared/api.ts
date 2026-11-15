@@ -1,6 +1,7 @@
 import type { IconValue } from "@agent-native/core/icons";
 
 import type { BlocksFieldIdentity } from "./blocks-field-identity";
+import type { GitHubPullRequestsProblemCode } from "./github-pull-requests";
 import type {
   GitHubSourceProblemCode,
   GitHubSourceSkipReason,
@@ -867,7 +868,8 @@ export type ContentDatabaseSourceType =
   | "local-table"
   | "notion-database"
   | "local-folder"
-  | "github";
+  | "github"
+  | "github-pull-requests";
 export type ContentDatabaseSourceTruthPolicy =
   | "database_primary"
   | "source_primary"
@@ -1141,6 +1143,7 @@ export interface ContentDatabaseSource {
     builderModelFields?: BuilderCmsModelFieldSummary[];
     federation?: ContentDatabaseSourceFederation;
     github?: ContentGitHubSourceStatus;
+    githubPullRequests?: ContentGitHubPullRequestsSourceStatus;
   };
   fields: ContentDatabaseSourceFieldMapping[];
   rows: ContentDatabaseSourceRow[];
@@ -1181,6 +1184,29 @@ export interface ContentGitHubSourceStatus {
   storageReady: boolean;
   problem: {
     code: GitHubSourceProblemCode;
+    message: string;
+    at: string;
+  } | null;
+}
+
+/** Where a GitHub pull requests link stands, for the Sources panel and agents. */
+export interface ContentGitHubPullRequestsSourceStatus {
+  /** The GitHub search the rows follow, or null to keep only added ones. */
+  search: string | null;
+  /** The search on github.com. */
+  searchUrl: string | null;
+  /** Pull requests added by link, which stay after they merge or close. */
+  added: number;
+  mode: "view_only";
+  /** Last time Content asked GitHub. */
+  checkedAt: string | null;
+  /** Last time every row matched GitHub. */
+  syncedAt: string | null;
+  rows: number;
+  /** How many pull requests the search found in all. */
+  searchTotal: number | null;
+  problem: {
+    code: GitHubPullRequestsProblemCode;
     message: string;
     at: string;
   } | null;
