@@ -158,29 +158,30 @@ function rankHuddle<
   T extends Pick<SlackHuddle, "dateStart" | "dateEnd" | "participantIds">,
 >(huddle: T, meetingStartMs: number, slackUserId: string): Ranked<T> | null {
   if (!huddle.participantIds.includes(slackUserId)) return null;
+  // A huddle that had already ended when the recording started was not
+  // recorded, however close its start: with back-to-back huddles the earlier
+  // one must never lend its people (and their access) to the next recording.
+  if (huddle.dateEnd !== null && huddle.dateEnd * 1000 <= meetingStartMs) {
+    return null;
+  }
   const startMs = huddle.dateStart * 1000;
   const diffMs = Math.abs(meetingStartMs - startMs);
   if (diffMs <= HUDDLE_START_MATCH_WINDOW_MS) {
     return { huddle, exact: true, distanceMs: diffMs };
   }
   // Joined a huddle that was already running: the meeting starts after the
-  // huddle and before it ended.
+  // huddle started and before it ended (checked above).
   const lateMs = meetingStartMs - startMs;
   if (lateMs <= 0 || lateMs > HUDDLE_LATE_JOIN_MAX_MS) return null;
-  if (
-    huddle.dateEnd !== null &&
-    meetingStartMs > huddle.dateEnd * 1000 + HUDDLE_START_MATCH_WINDOW_MS
-  ) {
-    return null;
-  }
   return { huddle, exact: false, distanceMs: lateMs };
 }
 
 /**
  * The huddle a Clips meeting recorded, among the huddles this Slack user was
- * in. A huddle that started within two minutes of the recording wins; failing
- * that, the most recently started huddle that was still running when the
- * recording started (the owner joined late). Null when none fits.
+ * in. Only huddles still running when the recording started count (one that
+ * had already ended is never picked, however close its start). Among those, a
+ * huddle that started within two minutes of the recording wins; failing that,
+ * the most recently started one (the owner joined late). Null when none fits.
  */
 export function pickHuddleForMeeting<
   T extends Pick<SlackHuddle, "dateStart" | "dateEnd" | "participantIds">,

@@ -179,6 +179,40 @@ describe("pickHuddleForMeeting", () => {
     ).toBe(real);
   });
 
+  describe("back-to-back huddles", () => {
+    // First huddle 08:40:00-08:48:10, the next starts 08:48:30; the
+    // recording of the second starts 08:48:20 (08:48:18 is 1794473298).
+    const earlier = huddle(1794473298 - 498, 1794473298 - 8, [
+      "U0OWNER",
+      "U0ANNA",
+    ]);
+    const next = huddle(1794473298 + 12, null, ["U0OWNER", "U0BOB"]);
+    const meeting = { actualStart: "2026-11-12T08:48:20Z" };
+
+    it("never matches a huddle that ended before the recording started", () => {
+      expect(pickHuddleForMeeting([earlier], meeting, "U0OWNER")).toBeNull();
+      // Ended within the two-minute start window still does not count.
+      const short = huddle(1794473298 - 30, 1794473298 - 1, ["U0OWNER"]);
+      expect(pickHuddleForMeeting([short], meeting, "U0OWNER")).toBeNull();
+    });
+
+    it("matches the huddle that runs at or after the recording start", () => {
+      expect(pickHuddleForMeeting([earlier, next], meeting, "U0OWNER")).toBe(
+        next,
+      );
+      expect(pickHuddleForMeeting([next, earlier], meeting, "U0OWNER")).toBe(
+        next,
+      );
+    });
+
+    it("still matches a running huddle the owner joined late", () => {
+      const running = huddle(1794473298 - 600, null, ["U0OWNER"]);
+      expect(pickHuddleForMeeting([earlier, running], meeting, "U0OWNER")).toBe(
+        running,
+      );
+    });
+  });
+
   it("needs the owner in the huddle", () => {
     expect(
       pickHuddleForMeeting(

@@ -554,6 +554,79 @@ describe("storeSlackHuddleEvent + sweepDueSlackHuddles", () => {
   });
 });
 
+describe("back-to-back huddles", () => {
+  it("fills and shares a recording only from the huddle it recorded, not the one that ended just before", async () => {
+    // Meeting 'huddle-meeting' recording started 2026-11-12T08:48:28Z
+    // (1794473308). The earlier huddle ended 10 s before that; the next one
+    // started 5 s after.
+    const shared: Array<{ meetingId: string; emails: string[] }> = [];
+    deps.onHuddleParticipants = async (meetingId, emails) => {
+      shared.push({ meetingId, emails: [...emails].sort() });
+    };
+    const ended = {
+      type: "event_callback",
+      team_id: "T0TEAM",
+      event: {
+        type: "message",
+        subtype: "huddle_thread",
+        channel: "C0EARLIER",
+        user: "U0OWNER",
+        ts: "1794472800.000100",
+        room: {
+          created_by: "U0OWNER",
+          date_start: 1794472800,
+          date_end: 1794473298,
+          participant_history: ["U0OWNER", "U0CARL", "U0DANA"],
+        },
+      },
+    };
+    const next = {
+      ...ended,
+      event: {
+        ...ended.event,
+        channel: "C0NEXT",
+        ts: "1794473313.000100",
+        room: {
+          created_by: "U0OWNER",
+          date_start: 1794473313,
+          date_end: 0,
+          participant_history: ["U0OWNER", "U0ANNA"],
+        },
+      },
+    };
+
+    // The earlier huddle alone: nothing is added or shared.
+    expect(await handleSlackHuddleEvent(deps, ended)).toMatchObject({
+      filled: 0,
+    });
+    expect(await participants()).toEqual([]);
+    expect(shared).toEqual([]);
+
+    expect(await handleSlackHuddleEvent(deps, next)).toMatchObject({
+      filled: 2,
+    });
+    // A later pass over the earlier huddle still adds nothing.
+    await handleSlackHuddleEvent(deps, ended);
+    expect(
+      await fillSlackHuddleParticipantsForMeeting(deps, "huddle-meeting"),
+    ).toBe(0);
+
+    expect((await participants()).map((p) => p.email)).toEqual([
+      "anna@example.test",
+      "nevil@example.test",
+    ]);
+    // Shares only ever name the recorded huddle's people (a later event of
+    // the earlier huddle re-picks the recorded one for this meeting).
+    expect(shared.length).toBeGreaterThan(0);
+    for (const call of shared) {
+      expect(call).toEqual({
+        meetingId: "huddle-meeting",
+        emails: ["anna@example.test", "nevil@example.test"],
+      });
+    }
+  });
+});
+
 describe("huddle retry accounting", () => {
   it("costs one attempt per pass, however many meetings the huddle matches", async () => {
     await client.exec(`
