@@ -862,6 +862,54 @@ const generateDesignAction = defineAction({
       .from(schema.designFiles)
       .where(eq(schema.designFiles.designId, designId));
 
+    const existingByName = new Map(existingFiles.map((f) => [f.filename, f]));
+
+    const accessedDesignData = parseDesignDataBlob(
+      (designAccess.resource as { data?: unknown }).data,
+    );
+    // A legacy screen keeps its email type when it has no stored type and
+    // either its previous or its new HTML carries the meta marker.
+    const generatedFrameType = (
+      file: (typeof files)[number],
+      designData: unknown,
+      fileId = existingByName.get(file.filename)?.id,
+    ) => {
+      if (file.frameType) return file.frameType;
+      const stored =
+        fileId === undefined
+          ? undefined
+          : storedScreenFrameType(designData, fileId);
+      if (stored !== undefined) {
+        return stored === HUBSPOT_EMAIL_FRAME_TYPE ? stored : null;
+      }
+      const previous = existingByName.get(file.filename)?.content;
+      return isHubSpotEmailHtml(file.content) ||
+        (typeof previous === "string" && isHubSpotEmailHtml(previous))
+        ? HUBSPOT_EMAIL_FRAME_TYPE
+        : null;
+    };
+
+    for (const file of files) {
+      try {
+        assertHubSpotEmailFileType({
+          fileType: file.fileType,
+          frameType: generatedFrameType(file, accessedDesignData),
+        });
+      } catch (error) {
+        const validationError = noWriteValidationError(error);
+        if (validationError.errorCode === "hubspot_email_html_required") {
+          throw new NoWriteError(
+            `${validationError.message} For an actual email, use fileType "html" and email-safe HTML. For non-email artwork, use renderable HTML with fileType "html" and omit frameType or use "unspecified". For a genuine non-email asset, omit frameType or use "unspecified". Omission and "unspecified" do not clear existing email metadata or legacy email markers; to convert an existing email screen, use update-file to set frameType "web", or save a new non-email file without an email marker.`,
+            {
+              errorCode: validationError.errorCode,
+              statusCode: validationError.statusCode,
+            },
+          );
+        }
+        throw validationError;
+      }
+    }
+
     let hasRenderableFile = files.some(isRenderableDesignFile);
     if (!hasRenderableFile) {
       const renderable = await db
@@ -920,54 +968,6 @@ const generateDesignAction = defineAction({
         }),
       ),
     });
-
-    const existingByName = new Map(existingFiles.map((f) => [f.filename, f]));
-
-    const accessedDesignData = parseDesignDataBlob(
-      (designAccess.resource as { data?: unknown }).data,
-    );
-    // A legacy screen keeps its email type when it has no stored type and
-    // either its previous or its new HTML carries the meta marker.
-    const generatedFrameType = (
-      file: (typeof files)[number],
-      designData: unknown,
-      fileId = existingByName.get(file.filename)?.id,
-    ) => {
-      if (file.frameType) return file.frameType;
-      const stored =
-        fileId === undefined
-          ? undefined
-          : storedScreenFrameType(designData, fileId);
-      if (stored !== undefined) {
-        return stored === HUBSPOT_EMAIL_FRAME_TYPE ? stored : null;
-      }
-      const previous = existingByName.get(file.filename)?.content;
-      return isHubSpotEmailHtml(file.content) ||
-        (typeof previous === "string" && isHubSpotEmailHtml(previous))
-        ? HUBSPOT_EMAIL_FRAME_TYPE
-        : null;
-    };
-
-    for (const file of files) {
-      try {
-        assertHubSpotEmailFileType({
-          fileType: file.fileType,
-          frameType: generatedFrameType(file, accessedDesignData),
-        });
-      } catch (error) {
-        const validationError = noWriteValidationError(error);
-        if (validationError.errorCode === "hubspot_email_html_required") {
-          throw new NoWriteError(
-            `${validationError.message} For an actual email, use fileType "html" and email-safe HTML. For non-email artwork, use renderable HTML with fileType "html" and omit frameType or use "unspecified". For a genuine non-email asset, omit frameType or use "unspecified". Omission and "unspecified" do not clear existing email metadata or legacy email markers; to convert an existing email screen, use update-file to set frameType "web", or save a new non-email file without an email marker.`,
-            {
-              errorCode: validationError.errorCode,
-              statusCode: validationError.statusCode,
-            },
-          );
-        }
-        throw validationError;
-      }
-    }
 
     const annotatedFiles = files.map((file) => ({
       ...file,

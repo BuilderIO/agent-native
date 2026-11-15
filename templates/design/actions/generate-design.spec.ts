@@ -1155,11 +1155,6 @@ describe("generate-design: new-file creation path", () => {
   it("rejects the model's email-typed artwork and saves the corrected HTML", async () => {
     const files = [
       {
-        filename: "index.html",
-        fileType: "html",
-        content: "<html><body>Landing page</body></html>",
-      },
-      {
         filename: "artwork.html",
         fileType: "asset",
         frameType: "hubspot-email",
@@ -1185,21 +1180,24 @@ describe("generate-design: new-file creation path", () => {
       completedSideEffect: false,
     });
     expect(rejected.output).toMatch(/non-email artwork[\s\S]*renderable HTML/i);
+    expect(rejected.output).toMatch(/omit frameType[\s\S]*unspecified/i);
+    expect(mocks.snapshotDesignBeforeAgentEdit).not.toHaveBeenCalled();
+    expect(mocks.mutateDesignData).not.toHaveBeenCalled();
     expect(mocks.insert).not.toHaveBeenCalled();
+    expect(mocks.fileUpdateChain.set).not.toHaveBeenCalled();
+    expect(mocks.designUpdateChain.set).not.toHaveBeenCalled();
+    expect(mocks.seededCollabText.size).toBe(0);
 
     const corrected = await call(
       {
         ...base,
-        files: [
-          files[0],
-          { ...files[1], fileType: "html", frameType: "unspecified" },
-        ],
+        files: [{ ...files[0], fileType: "html", frameType: "unspecified" }],
       },
       "corrected-artwork",
     );
     expect(corrected.status).toBe("completed");
-    expect(mocks.insert).toHaveBeenCalledTimes(2);
-    const values = mocks.insert.mock.results[1]?.value.values;
+    expect(mocks.insert).toHaveBeenCalledTimes(1);
+    const values = mocks.insert.mock.results[0]?.value.values;
     expect(values).toHaveBeenCalledWith(
       expect.objectContaining({
         filename: "artwork.html",
@@ -1207,6 +1205,9 @@ describe("generate-design: new-file creation path", () => {
         content: expect.stringContaining("Fixed artwork"),
       }),
     );
+    expect(Array.from(mocks.seededCollabText.values())).toEqual([
+      expect.stringContaining("Fixed artwork"),
+    ]);
   });
 
   it("explains how to correct an asset marked as a HubSpot email before saving", async () => {
