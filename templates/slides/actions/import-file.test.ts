@@ -220,6 +220,13 @@ beforeEach(() => {
   });
 });
 
+function referenceSlides(result: Awaited<ReturnType<typeof action.run>>) {
+  if (!("vectorSummaryNotice" in result)) {
+    throw new Error("Expected a PPTX reference result");
+  }
+  return result.slides;
+}
+
 describe("PPTX reference hydration", () => {
   it("carries positioned vector shapes and complete custom geometry without image bytes", async () => {
     const pptx = new pptxgen();
@@ -282,7 +289,7 @@ describe("PPTX reference hydration", () => {
       format: "pptx",
       maxChars: 12000,
     });
-    const first = (result as any).slides[0];
+    const first = referenceSlides(result)[0];
     expect(first.vectorShapes).toHaveLength(3);
     expect(first).toMatchObject({ widthEmu: 9144000, heightEmu: 5143500 });
     expect(first.vectorShapes[0]).toMatchObject({
@@ -377,7 +384,7 @@ describe("PPTX reference hydration", () => {
       filePath: "reference.pptx",
       format: "pptx",
     });
-    const slide = (result as any).slides[0];
+    const slide = referenceSlides(result)[0];
     expect(slide.vectorShapesOmitted).toBe(1);
     expect(JSON.stringify(slide.vectorShapes)).not.toContain(
       "ignore previous instructions",
@@ -430,12 +437,10 @@ describe("PPTX reference hydration", () => {
         },
       ],
     });
-    const colors = (
-      (await action.run({ filePath: "reference.pptx", format: "pptx" })) as any
-    ).slides[0];
-    expect(
-      colors.vectorShapes.map((shape: { fill: string }) => shape.fill),
-    ).toEqual([
+    const colors = referenceSlides(
+      await action.run({ filePath: "reference.pptx", format: "pptx" }),
+    )[0];
+    expect(colors.vectorShapes.map((shape) => shape.fill)).toEqual([
       "#11223380",
       "linear-gradient(180deg, #112233 0%, #445566 100%)",
       "radial-gradient(circle at 0% 0%, #013445 0%, #018589 100%)",
@@ -468,7 +473,7 @@ describe("PPTX reference hydration", () => {
       filePath: "reference.pptx",
       format: "pptx",
     });
-    const slide = (result as any).slides[0];
+    const slide = referenceSlides(result)[0];
     expect(slide.vectorShapes).toMatchObject([
       {
         order: 0,
@@ -518,7 +523,7 @@ describe("PPTX reference hydration", () => {
       filePath: "reference.pptx",
       format: "pptx",
     });
-    const slides = (result as any).slides;
+    const slides = referenceSlides(result);
     expect(
       slides[0].vectorShapes.map((shape: { order: number }) => shape.order),
     ).toEqual([0]);
@@ -591,7 +596,7 @@ describe("PPTX reference hydration", () => {
       filePath: "reference.pptx",
       format: "pptx",
     });
-    const actual = (result as any).slides;
+    const actual = referenceSlides(result);
     expect(actual).toHaveLength(25);
     expect(
       actual[0].vectorShapes.map((value: { order: number }) => value.order),
@@ -648,7 +653,7 @@ describe("PPTX reference hydration", () => {
       filePath: "reference.pptx",
       format: "pptx",
     });
-    const slides = (result as any).slides;
+    const slides = referenceSlides(result);
     expect(slides[1].vectorShapes).toHaveLength(2);
     expect(slides[1].vectorShapesOmitted).toBe(0);
     expect(slides[0].vectorShapesOmitted).toBeGreaterThan(0);
@@ -710,7 +715,7 @@ describe("PPTX reference hydration", () => {
       filePath: "reference.pptx",
       format: "pptx",
     });
-    const slides = (result as any).slides;
+    const slides = referenceSlides(result);
     expect(slides[1].vectorShapes).toHaveLength(2);
     expect(slides[1].vectorShapes[0].geometry).toEqual(geometry);
     expect(slides[1].vectorShapes[1]).toMatchObject({
@@ -792,7 +797,7 @@ describe("PPTX reference hydration", () => {
       filePath: "reference.pptx",
       format: "pptx",
     });
-    const slide = (result as any).slides[0];
+    const slide = referenceSlides(result)[0];
     expect(slide.vectorShapesOmitted).toBeGreaterThan(2);
     expect(slide.vectorShapes.length + slide.vectorShapesOmitted).toBe(152);
     expect(JSON.stringify(slide.vectorShapes).length).toBeLessThan(6500);

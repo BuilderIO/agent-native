@@ -108,38 +108,37 @@ function sourceTextForShape(element: ParsedElement) {
 }
 
 export function summarizePptxShapes(slides: ParsedSlide[]) {
-  const summaries = slides.map((slide, index) => ({
-    shapes: [] as z.infer<typeof pptxReferenceShapeSchema>[],
-    omitted:
-      index < MAX_PPTX_SLIDES_IN_CONTEXT
-        ? 0
-        : (slide.elements ?? []).filter(
-            (element) => element.kind === "shape" || element.kind === "text",
-          ).length,
+  const entries = slides.map((slide, index) => ({
+    elements: slide.elements.entries(),
+    summary: {
+      shapes: [] as z.infer<typeof pptxReferenceShapeSchema>[],
+      omitted:
+        index < MAX_PPTX_SLIDES_IN_CONTEXT
+          ? 0
+          : slide.elements.filter(
+              (element) => element.kind === "shape" || element.kind === "text",
+            ).length,
+    },
   }));
-  const positions = slides.map(() => 0);
-  const active = new Set(
-    slides.slice(0, MAX_PPTX_SLIDES_IN_CONTEXT).map((_, index) => index),
-  );
+  const active = new Set(entries.slice(0, MAX_PPTX_SLIDES_IN_CONTEXT));
   let remaining = MAX_TOTAL_SHAPE_CHARS;
   let count = 0;
   while (active.size > 0) {
-    for (const slideIndex of active) {
-      const elements = slides[slideIndex].elements ?? [];
+    for (const entry of active) {
+      const summary = entry.summary;
+      let next = entry.elements.next();
       while (
-        positions[slideIndex] < elements.length &&
-        elements[positions[slideIndex]].kind !== "shape" &&
-        elements[positions[slideIndex]].kind !== "text"
+        !next.done &&
+        next.value[1].kind !== "shape" &&
+        next.value[1].kind !== "text"
       ) {
-        positions[slideIndex]++;
+        next = entry.elements.next();
       }
-      if (positions[slideIndex] >= elements.length) {
-        active.delete(slideIndex);
+      if (next.done) {
+        active.delete(entry);
         continue;
       }
-      const order = positions[slideIndex]++;
-      const element = elements[order];
-      const summary = summaries[slideIndex];
+      const [order, element] = next.value;
       if (count >= MAX_SHAPES || remaining <= 0) {
         summary.omitted++;
         continue;
@@ -169,11 +168,6 @@ export function summarizePptxShapes(slides: ParsedSlide[]) {
         lineHeadEnd: element.lineHeadEnd,
         lineTailEnd: element.lineTailEnd,
         ...(element.kind === "text" ? sourceTextForShape(element) : {}),
-      } satisfies Omit<ParsedElement, "id"> & {
-        order: number;
-        adjustments?: { name: string; value: number }[];
-        sourceText?: string;
-        sourceTextTruncated?: boolean;
       });
       if (!candidate.success) {
         summary.omitted++;
@@ -189,5 +183,5 @@ export function summarizePptxShapes(slides: ParsedSlide[]) {
       count++;
     }
   }
-  return summaries;
+  return entries.map((entry) => entry.summary);
 }

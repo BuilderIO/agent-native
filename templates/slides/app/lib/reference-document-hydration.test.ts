@@ -296,6 +296,50 @@ describe("hydrateReferenceDocuments", () => {
     expect(result.context).not.toContain("  Vector: ");
   });
 
+  it("retains slide text that happens to start with the vector record marker", async () => {
+    const callActionImpl = vi.fn().mockResolvedValue({
+      format: "pptx",
+      slides: [
+        {
+          index: 0,
+          texts: `Introduction\n  Vector: ${"meaningful slide text ".repeat(1000)}`,
+        },
+      ],
+    });
+    const result = await hydrateReferenceDocuments([uploaded("deck.pptx")], {
+      callActionImpl,
+    });
+    expect(result.status).toBe("hydrated");
+    if (result.status !== "hydrated")
+      throw new Error("Reference was not hydrated");
+    expect(result.context).toContain("  Vector: meaningful slide text");
+    expect(result.context).toContain("[truncated]");
+  });
+
+  it("bounds the entire returned context even when many references are omitted", async () => {
+    const callActionImpl = vi.fn().mockResolvedValue({
+      format: "pdf",
+      textPageCount: 1,
+      pages: [{ pageNum: 1, text: "x".repeat(20_000) }],
+    });
+    const files = Array.from({ length: 500 }, (_, index) =>
+      uploaded(`deck-${index}.pdf`),
+    );
+    const result = await hydrateReferenceDocuments(files, { callActionImpl });
+    expect(result.status).toBe("hydrated");
+    if (result.status !== "hydrated")
+      throw new Error("Reference was not hydrated");
+    expect(result.context.length).toBeLessThanOrEqual(36_000);
+    expect(result.readCount).toBe(500);
+    const namedReferences = result.context.match(/### deck-\d+\.pdf/g) ?? [];
+    const aggregate = result.context.match(
+      /(\d+) reference file\(s\) omitted from this prompt/,
+    );
+    expect(aggregate).not.toBeNull();
+    expect(namedReferences.length + Number(aggregate?.[1])).toBe(500);
+    expect(result.context).toContain("import-file");
+  });
+
   it("preserves PPTX vector omission markers through per-reference and combined limits", async () => {
     const pptx = {
       format: "pptx",
@@ -633,7 +677,7 @@ describe("hydrateReferenceDocuments", () => {
   });
 
   it("keeps a small reference that still fits the remaining budget", async () => {
-    const filler = "x".repeat(11_750);
+    const filler = "x".repeat(11_550);
     const callActionImpl = vi
       .fn()
       .mockImplementation(

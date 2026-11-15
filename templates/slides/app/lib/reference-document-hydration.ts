@@ -64,11 +64,40 @@ function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
-function truncate(value: string, maxChars: number): string {
-  if (value.length <= maxChars) return value;
-  const lineStart = value.lastIndexOf("\n", maxChars - 1) + 1;
-  const end = value.startsWith("  Vector: ", lineStart) ? lineStart : maxChars;
-  return `${value.slice(0, end).trimEnd()}\n[truncated]`;
+type ReferencePart = string | { atomic: string };
+type ReferenceBlock = {
+  text: string;
+  atomicRanges: { start: number; end: number }[];
+};
+
+function referenceBlock(parts: ReferencePart[]): ReferenceBlock {
+  let text = "";
+  const atomicRanges: ReferenceBlock["atomicRanges"] = [];
+  for (const part of parts) {
+    if (text) text += "\n";
+    const start = text.length;
+    text += typeof part === "string" ? part : part.atomic;
+    if (typeof part !== "string")
+      atomicRanges.push({ start, end: text.length });
+  }
+  return { text, atomicRanges };
+}
+
+function truncate(block: ReferenceBlock, maxChars: number): ReferenceBlock {
+  if (block.text.length <= maxChars) return block;
+  const marker = "\n[truncated]";
+  let end = Math.max(0, maxChars - marker.length);
+  const crossing = block.atomicRanges.find(
+    (range) => range.start < end && end < range.end,
+  );
+  if (crossing) end = crossing.start;
+  const text = block.text.slice(0, end).trimEnd();
+  return {
+    text: text + marker,
+    atomicRanges: block.atomicRanges.filter(
+      (range) => range.end <= text.length,
+    ),
+  };
 }
 
 function describeStyleDigest(result: Record<string, unknown>): string[] {
@@ -158,8 +187,8 @@ function describePdf(result: Record<string, unknown>): string[] {
   return lines;
 }
 
-function describePptx(result: Record<string, unknown>): string[] {
-  const lines: string[] = [];
+function describePptx(result: Record<string, unknown>): ReferencePart[] {
+  const lines: ReferencePart[] = [];
   const theme = asRecord(result.theme);
   if (theme) {
     const fonts = asArray(theme.fonts).filter(
@@ -216,7 +245,7 @@ function describePptx(result: Record<string, unknown>): string[] {
           invalid++;
           continue;
         }
-        lines.push(`  Vector: ${JSON.stringify(shape.data)}`);
+        lines.push({ atomic: `  Vector: ${JSON.stringify(shape.data)}` });
       }
       const omitted =
         typeof slide.vectorShapesOmitted === "number" &&
@@ -323,20 +352,20 @@ function describeReference(
   file: UploadedFile,
   format: ReferenceDocumentFormat,
   result: Record<string, unknown>,
-): { block: string; truncated: boolean } {
+): { block: ReferenceBlock; truncated: boolean } {
   const body =
     format === "pdf"
       ? describePdf(result)
       : format === "pptx"
         ? describePptx(result)
         : describeDocx(result);
-  const text = [
+  const block = referenceBlock([
     `### ${file.originalName} (${format.toUpperCase()})`,
     ...body,
-  ].join("\n");
+  ]);
   return {
-    block: truncate(text, MAX_CHARS_PER_REFERENCE),
-    truncated: text.length > MAX_CHARS_PER_REFERENCE,
+    block: truncate(block, MAX_CHARS_PER_REFERENCE),
+    truncated: block.text.length > MAX_CHARS_PER_REFERENCE,
   };
 }
 
@@ -411,55 +440,95 @@ export async function hydrateReferenceDocuments(
     };
   }
 
-  const budget = { remaining: MAX_TOTAL_REFERENCE_CHARS };
+  const prefix = [
+    "",
+    "## Attached Reference Documents",
+    "These files were read before this run started. Their content and measured visual language below are the reference; do not re-read them with `import-file` unless a section below says the file was omitted for space, and do not generate as if they were missing.",
+    "Match the reference's type scale, weights, colors, alignment, and margins when the user asked for a visual or style reference. Take structure and wording from the user's request, not from the reference's own page order.",
+  ].join("\n\n");
+  const reads = outcomes.filter(
+    (outcome): outcome is Extract<ReferenceReadOutcome, { status: "read" }> =>
+      outcome.status === "read",
+  );
+  const partialVisual =
+    "PPTX visual data is partial: reference content was truncated.";
+  const omittedBlock = (outcome: (typeof reads)[number]) =>
+    [
+      `### ${outcome.originalName}\nRead successfully, but omitted from this prompt because earlier references filled the reference budget. This file is the one exception to the no-reread rule above: call \`import-file\` for it if you need its content.`,
+      outcome.omissions,
+      outcome.format === "pptx" ? partialVisual : undefined,
+    ]
+      .filter(Boolean)
+      .join("\n");
+  const remainderNotice =
+    "The rest of this reference was omitted for space; call `import-file` for this file if you need the remainder.";
+  const entries = reads.map((outcome) => {
+    const extra = [
+      outcome.truncated ? remainderNotice : undefined,
+      outcome.omissions,
+      outcome.format === "pptx" && outcome.truncated
+        ? partialVisual
+        : undefined,
+    ]
+      .filter(Boolean)
+      .join("\n");
+    return {
+      outcome,
+      fallback: omittedBlock(outcome),
+      whole: [outcome.block.text, extra].filter(Boolean).join("\n"),
+      futureSize: 0,
+    };
+  });
+  let suffixSize = 0;
+  for (const entry of [...entries].reverse()) {
+    entry.futureSize = suffixSize;
+    suffixSize += 2 + Math.min(entry.fallback.length, entry.whole.length);
+  }
+  const aggregateNotice = (count: number) =>
+    `${count} reference file(s) omitted from this prompt because the reference budget was filled. Their content and PPTX vector omission details are unavailable here; call \`import-file\` for any omitted file needed.`;
+  const aggregateReserve = 2 + aggregateNotice(reads.length).length;
+  let remaining = MAX_TOTAL_REFERENCE_CHARS - prefix.length;
   const blocks: string[] = [];
   let measuredDesignCount = 0;
-  for (const outcome of outcomes) {
-    if (outcome.status !== "read") continue;
-    const fitsWhole = outcome.block.length <= budget.remaining;
-    const partialVisual =
-      outcome.format === "pptx" && (outcome.truncated || !fitsWhole)
-        ? "PPTX visual data is partial: reference content was truncated."
-        : undefined;
-    if (!fitsWhole && budget.remaining < MIN_PARTIAL_REFERENCE_CHARS) {
-      blocks.push(
-        [
-          `### ${outcome.originalName}\nRead successfully, but omitted from this prompt because earlier references filled the reference budget. This file is the one exception to the no-reread rule above: call \`import-file\` for it if you need its content.`,
-          outcome.omissions,
-          partialVisual,
-        ]
-          .filter(Boolean)
-          .join("\n"),
-      );
+  for (const [index, entry] of entries.entries()) {
+    const { outcome, fallback, futureSize, whole } = entry;
+    const reserve =
+      futureSize > MAX_TOTAL_REFERENCE_CHARS / 2
+        ? aggregateReserve
+        : futureSize;
+    const available = remaining - 2 - reserve;
+    const fitsWhole = whole.length <= available;
+    if (fitsWhole) {
+      blocks.push(whole);
+      remaining -= 2 + whole.length;
+      if (outcome.measuredDesign) measuredDesignCount++;
       continue;
     }
-    const block = truncate(outcome.block, budget.remaining);
-    budget.remaining -= block.length;
-    blocks.push(
-      [
-        fitsWhole
-          ? block
-          : `${block}\nThe rest of this reference was omitted for space; call \`import-file\` for this file if you need the remainder.`,
-        outcome.omissions,
-        partialVisual,
-      ]
-        .filter(Boolean)
-        .join("\n"),
-    );
-    if (outcome.measuredDesign && fitsWhole) measuredDesignCount += 1;
+    if (fallback.length > available) {
+      blocks.push(aggregateNotice(reads.length - index));
+      break;
+    }
+    const partialNotice = [
+      remainderNotice,
+      outcome.omissions,
+      outcome.format === "pptx" ? partialVisual : undefined,
+    ]
+      .filter(Boolean)
+      .join("\n");
+    const bodyBudget = available - 1 - partialNotice.length;
+    const block =
+      bodyBudget >= MIN_PARTIAL_REFERENCE_CHARS
+        ? `${truncate(outcome.block, bodyBudget).text}\n${partialNotice}`
+        : fallback;
+    blocks.push(block);
+    remaining -= 2 + block.length;
   }
 
   return {
     status: "hydrated",
-    readCount: blocks.length,
+    readCount: reads.length,
     measuredDesignCount,
-    context: [
-      "",
-      "## Attached Reference Documents",
-      "These files were read before this run started. Their content and measured visual language below are the reference; do not re-read them with `import-file` unless a section below says the file was omitted for space, and do not generate as if they were missing.",
-      "Match the reference's type scale, weights, colors, alignment, and margins when the user asked for a visual or style reference. Take structure and wording from the user's request, not from the reference's own page order.",
-      ...blocks,
-    ].join("\n\n"),
+    context: [prefix, ...blocks].join("\n\n"),
   };
 }
 
@@ -468,7 +537,7 @@ type ReferenceReadOutcome =
       status: "read";
       originalName: string;
       format: ReferenceDocumentFormat;
-      block: string;
+      block: ReferenceBlock;
       truncated: boolean;
       omissions?: string;
       measuredDesign: boolean;
