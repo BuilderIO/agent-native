@@ -67,6 +67,27 @@ describe("parseUnifiedDiff", () => {
     ]);
   });
 
+  it("leaves symlinks out of the added lines", () => {
+    const diff = [
+      "diff --git a/.agents/skills/remix b/.agents/skills/remix",
+      "new file mode 120000",
+      "index 0000000000..1111111111",
+      "--- /dev/null",
+      "+++ b/.agents/skills/remix",
+      "@@ -0,0 +1 @@",
+      "+../../skills/remix",
+      "diff --git a/src/a.ts b/src/a.ts",
+      "+++ b/src/a.ts",
+      "@@ -0,0 +2 @@",
+      "+const x = 1;",
+    ].join("\n");
+
+    const result = parseUnifiedDiff(diff, CWD);
+    expect([...(result?.keys() ?? [])]).toEqual([
+      path.resolve(CWD, "src/a.ts"),
+    ]);
+  });
+
   it("refuses to scope when a source file diffs as binary", () => {
     const diff = "Binary files a/src/a.ts and b/src/a.ts differ";
     expect(parseUnifiedDiff(diff, CWD)).toBeNull();
