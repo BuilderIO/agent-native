@@ -73,9 +73,9 @@ branch on `origin`, push to the verified head repo and ref instead (see
 ## 3. Open the PR
 
 A whole demo flow or batch of rows is one branch and one PR, with one commit
-per change. If you already have an open PR for the same flow, app, or area,
+per change. If an open PR you own already covers the same flow, app, or area,
 push to its branch instead of opening a second PR; a second PR for the same
-flow waits until the first merges.
+flow waits until the first merges. Someone else's PR follows Ownership above.
 
 Open one ready (not draft) PR right after the first push, with a factual title
 and body: what changed, why, and how it was verified. Keep source checks, CI
