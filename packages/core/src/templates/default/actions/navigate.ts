@@ -4,7 +4,7 @@ import { z } from "zod";
 
 export default defineAction({
   description:
-    "Navigate the UI to a specific view or path. Writes a navigate command to application state which the UI reads and auto-deletes.",
+    "Agent-only: navigate the UI to a specific view or path. Writes a navigate command to application state which the UI reads and auto-deletes; no browser control calls it.",
   schema: z.object({
     view: z.string().optional().describe("View name to navigate to"),
     path: z.string().optional().describe("URL path to navigate to"),

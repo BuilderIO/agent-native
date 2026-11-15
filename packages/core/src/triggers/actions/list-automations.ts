@@ -15,6 +15,10 @@ import {
   isValidCron,
   nextOccurrence,
 } from "../../jobs/cron.js";
+import {
+  isRecoveredFactoryJob,
+  jobBelongsToApp,
+} from "../../jobs/frontmatter.js";
 import { listLatestAutomationRuns } from "../../jobs/run-history.js";
 
 function nextRun(
@@ -65,6 +69,8 @@ export interface AutomationActionItem {
   pausedReason: string | null;
   pausedAt: string | null;
   nextRun: string | null;
+  /** The automation's own end date, so a list can show when it stops. */
+  expiresAt: string | null;
   createdBy: string | null;
   model: string | null;
   reasoningEffort: string | null;
@@ -201,6 +207,7 @@ export default defineAction({
           pausedReason: paused ? (meta.pausedReason ?? null) : null,
           pausedAt: paused ? (meta.pausedAt ?? null) : null,
           nextRun: nextRun(meta),
+          expiresAt: meta.expiresAt ?? null,
           createdBy: meta.createdBy ?? null,
           model: meta.model ?? null,
           reasoningEffort: meta.reasoningEffort ?? null,
@@ -215,7 +222,18 @@ export default defineAction({
           deliveryTenantId: meta.deliveryTenantId ?? null,
           canUpdate,
           effectiveRole,
-          capabilities,
+          capabilities: {
+            ...capabilities,
+            canOperate:
+              capabilities.canOperate &&
+              (jobBelongsToApp(meta, ctx.appId) ||
+                isRecoveredFactoryJob(
+                  meta,
+                  resource.path,
+                  ctx.appId,
+                  resource.owner,
+                )),
+          },
           sharing,
           creator,
         };

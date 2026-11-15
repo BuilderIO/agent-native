@@ -30,13 +30,14 @@ export default defineAction({
     description:
       "Pull a Builder docs/blog entry into Content and return local MDX files.",
   },
-  run: async ({ model, entryId, id, dryRun }) => {
+  run: async ({ model, entryId, id, dryRun }, ctx) => {
     const targetEntryId = entryId || id;
     if (!targetEntryId) throw new Error("entryId is required.");
     return await pullBuilderDocIntoContent({
       model,
       entryId: targetEntryId,
       dryRun,
+      ctx,
     });
   },
 });

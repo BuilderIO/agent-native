@@ -15,8 +15,8 @@ export default defineAction({
     recordingId: z.string().describe("Recording ID"),
   }),
   http: { method: "GET" },
-  run: async (args) => {
-    await assertCommentAccess(args.recordingId, "read");
+  run: async (args, ctx) => {
+    await assertCommentAccess(args.recordingId, "read", ctx?.requestHeaders);
 
     const db = getDb();
     const rows = await db

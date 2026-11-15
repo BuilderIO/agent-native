@@ -18,7 +18,10 @@ import {
   type PromptComposerSubmitOptions,
   type Reference,
 } from "@agent-native/toolkit/app/chat/composer/index";
-import { SESSION_REPLAY_AGENT_ACCESS_PARAM } from "@shared/session-replay-agent-access";
+import {
+  SESSION_REPLAY_AGENT_ACCESS_PARAM,
+  SESSION_REPLAY_AT_MS_PARAM,
+} from "@shared/session-replay-agent-access";
 import {
   MAX_SESSION_REPLAY_CAPTURE_OFFSET_MS,
   MAX_SESSION_REPLAY_CAPTURE_BYTES,
@@ -29,6 +32,7 @@ import {
 } from "@shared/session-replay-capture";
 import {
   isFailedSessionReplayNetworkStatus,
+  replayActionName,
   SESSION_REPLAY_CONSOLE_EVENT_TAG,
   SESSION_REPLAY_NETWORK_EVENT_TAG,
 } from "@shared/session-replay-diagnostics";
@@ -109,7 +113,10 @@ import {
   type AnyReplayEvent,
   type ReplayViewportDimensions,
 } from "../../../shared/replay-playback.js";
-import { SESSION_REPLAY_ANALYTICS_EVENT_TAG } from "../../../shared/session-events";
+import {
+  SESSION_REPLAY_ANALYTICS_EVENT_TAG,
+  SESSION_REPLAY_NAVIGATION_EVENT_TAG,
+} from "../../../shared/session-events";
 import type { SessionRecordingFriction } from "../../../shared/session-friction";
 import {
   formatPerformanceValue,
@@ -311,7 +318,7 @@ export default function SessionDetailPage() {
   const { data, isLoading, error } = useSessionReplayPlayback(recordingId);
   const recording = data?.recording;
   const initialRecordingOffsetMs = useMemo(() => {
-    const raw = searchParams.get("atMs");
+    const raw = searchParams.get(SESSION_REPLAY_AT_MS_PARAM);
     if (raw === null || !/^\d+$/.test(raw)) return null;
     const offsetMs = Number(raw);
     return Number.isSafeInteger(offsetMs) ? offsetMs : null;
@@ -3132,6 +3139,20 @@ function customReplayMarker(
     };
   }
 
+  if (tag === SESSION_REPLAY_NAVIGATION_EVENT_TAG) {
+    const path = typeof payload.path === "string" ? payload.path : "";
+    if (!options.appEvents || !path) return null;
+    return {
+      id: `nav-${timestamp}-${index}`,
+      timestamp,
+      offsetMs,
+      kind: "navigation",
+      label: "Navigate",
+      detail: path,
+      fields: [{ label: "URL", value: path }],
+    };
+  }
+
   if (tag === SESSION_REPLAY_VITALS_EVENT_TAG) {
     if (!options.performance) return null;
     return vitalsReplayMarker(
@@ -3259,20 +3280,6 @@ function customReplayMarker(
     label: tag,
     detail: typeof payload.message === "string" ? payload.message : undefined,
   };
-}
-
-const ACTION_ROUTE_PATTERN = /\/_agent-native\/actions\/([A-Za-z0-9._:%-]+)/;
-
-/** The action name when a captured request called an Agent-Native action. */
-export function replayActionName(url: string | undefined): string | null {
-  if (!url) return null;
-  const match = ACTION_ROUTE_PATTERN.exec(url);
-  if (!match) return null;
-  try {
-    return decodeURIComponent(match[1]);
-  } catch {
-    return match[1];
-  }
 }
 
 /**

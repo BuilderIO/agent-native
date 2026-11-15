@@ -47,6 +47,32 @@ describe("createRichMarkdownExtensions collaboration wiring", () => {
     }
   });
 
+  it("hands a collaborator's colour to their selection without styling it inline", () => {
+    const ydoc = new Y.Doc();
+    const awareness = new Awareness(ydoc);
+    try {
+      const caret = createRichMarkdownExtensions({
+        ydoc,
+        awareness,
+        user: { name: "Ada", color: "#60a5fa", email: "ada@example.com" },
+      }).find((ext) => ext.name === "collaborationCaret");
+      const render = (
+        caret?.options as {
+          selectionRender: (user: { color: string }) => Record<string, string>;
+        }
+      ).selectionRender;
+
+      expect(render({ color: "#db70ae" })).toEqual({
+        nodeName: "span",
+        class: "ProseMirror-yjs-selection",
+        style: "--collaboration-color: #db70ae",
+      });
+    } finally {
+      awareness.destroy();
+      ydoc.destroy();
+    }
+  });
+
   it("disables StarterKit undo/redo only in collab mode", () => {
     const findStarterKit = (
       opts?: Parameters<typeof createRichMarkdownExtensions>[0],

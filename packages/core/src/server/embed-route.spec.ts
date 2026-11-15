@@ -39,6 +39,13 @@ vi.mock("./embed-session.js", () => ({
   signEmbedSessionToken: (...a: any[]) => signEmbedSessionToken(...a),
 }));
 
+const embedTicketFromHandoff = vi.hoisted(() => vi.fn());
+
+vi.mock("./embed-handoff.js", () => ({
+  EMBED_HANDOFF_QUERY_PARAM: "handoff",
+  embedTicketFromHandoff: (...a: any[]) => embedTicketFromHandoff(...a),
+}));
+
 import { createEmbedStartRouteHandler } from "./embed-route.js";
 
 function fakeEvent(
@@ -77,6 +84,7 @@ describe("createEmbedStartRouteHandler", () => {
     signEmbedSessionToken.mockReset();
     signEmbedSessionToken.mockReturnValue("signed-token");
     setResponseHeader.mockReset();
+    embedTicketFromHandoff.mockReset();
   });
 
   afterEach(() => {
@@ -213,6 +221,53 @@ describe("createEmbedStartRouteHandler", () => {
       expect(signEmbedSessionToken).not.toHaveBeenCalled();
     },
   );
+
+  it("redeems a sibling app handoff as a locally minted ticket", async () => {
+    embedTicketFromHandoff.mockResolvedValue("local-ticket");
+    consumeEmbedSessionTicket.mockResolvedValue({
+      ownerEmail: "steve@example.com",
+      targetPath: "/inbox",
+      scope: null,
+      expiresAt: Date.now() + 60_000,
+    });
+
+    const res: Response = await createEmbedStartRouteHandler()(
+      fakeEvent("GET", { handoff: "signed-handoff" }),
+    );
+
+    expect(res.status).toBe(302);
+    expect(embedTicketFromHandoff).toHaveBeenCalledWith(
+      expect.anything(),
+      "signed-handoff",
+    );
+    expect(consumeEmbedSessionTicket).toHaveBeenCalledWith(
+      "local-ticket",
+      expect.anything(),
+    );
+    expect(setEmbedSessionCookie).toHaveBeenCalled();
+  });
+
+  it("answers a refused handoff with the expired-session page", async () => {
+    embedTicketFromHandoff.mockResolvedValue(null);
+
+    const res: Response = await createEmbedStartRouteHandler()(
+      fakeEvent("GET", { handoff: "replayed-handoff" }),
+    );
+
+    expect(res.status).toBe(401);
+    expect(consumeEmbedSessionTicket).not.toHaveBeenCalled();
+    expect(setEmbedSessionCookie).not.toHaveBeenCalled();
+  });
+
+  it("prefers a ticket over a handoff on the same start URL", async () => {
+    consumeEmbedSessionTicket.mockResolvedValue(null);
+
+    await createEmbedStartRouteHandler()(
+      fakeEvent("GET", { ticket: "ticket-123", handoff: "signed-handoff" }),
+    );
+
+    expect(embedTicketFromHandoff).not.toHaveBeenCalled();
+  });
 
   it("returns a refreshable expired-session page for stale embed tickets", async () => {
     consumeEmbedSessionTicket.mockResolvedValue(null);

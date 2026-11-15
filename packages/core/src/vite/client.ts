@@ -12,6 +12,7 @@ import {
   type HotUpdateOptions,
   type NormalizedHotChannel,
   type Plugin,
+  type Rolldown,
   type UserConfig,
   type ViteDevServer,
 } from "vite";
@@ -24,6 +25,7 @@ import {
 import {
   DEV_SERVER_RECOVERY_EXIT_CODE,
   DEV_SERVER_SUPERVISOR_ENV,
+  markDevServerReady,
 } from "../cli/process.js";
 import { getViteDevRecoveryScript } from "../client/vite-dev-recovery-script.js";
 import {
@@ -50,7 +52,10 @@ import {
 import { validateEmbedRequestOrigin } from "../server/embed-request-origin.js";
 import { resolveEmbedSessionTokenForOrigin } from "../server/embed-session.js";
 import { getForwardedRequestOriginFromHeaders } from "../server/request-origin.js";
-import { resolveAgentNativeBuildId } from "../shared/build-id.js";
+import {
+  resolveAgentNativeBuildId,
+  resolveAgentNativeCommitSha,
+} from "../shared/build-id.js";
 import {
   EMBED_SESSION_COOKIE,
   EMBED_TOKEN_QUERY_PARAM,
@@ -91,10 +96,12 @@ import {
   readAgentNativeJsonConfig,
   resolveFirstRunOnboardingBuildReplacement,
   resolveHarnessBuildReplacement,
+  resolveRequiredEnvBuildReplacement,
   writeAgentNativeBuildConfigMarker,
 } from "./agent-native-config-loader.js";
 import { agentsBundlePlugin } from "./agents-bundle-plugin.js";
 import { boundedTaskSourcePlugin } from "./bounded-task-plugin.js";
+import { browserChunkNamesPlugin } from "./browser-chunk-names-plugin.js";
 import { migrationDiagnosticPlugin } from "./migration-diagnostic-plugin.js";
 import { motionSourceProvenancePlugin } from "./motion-source-provenance-plugin.js";
 import { resolveAgentNativePackageVersions } from "./package-versions.js";
@@ -102,6 +109,9 @@ import {
   createSentrySourceMapUploadPlugin,
   isSentrySourceMapUploadEnabled,
 } from "./sentry-source-maps.js";
+import { workspaceCommonChunks } from "./workspace-common-chunks.js";
+import { workspaceRootChunks } from "./workspace-root-chunks.js";
+import { isWorkspaceUiLeaf } from "./workspace-ui-leaves.js";
 
 const require = createRequire(import.meta.url);
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -808,6 +818,10 @@ function getClientDedupe(cwd: string): string[] {
     ...(hasDep("react-router", cwd)
       ? ["react-router", "react-router/dom"]
       : []),
+    // Apps import `toast` from "sonner" directly while Toolkit's Toaster imports
+    // its own resolved copy; without deduping, the production bundle can ship two
+    // sonner instances and every toast() is lost (the dev server dedupes).
+    ...(hasDep("sonner", cwd) ? ["sonner"] : []),
   ]);
 
   const serverOnly = new Set([
@@ -1146,6 +1160,25 @@ const CORE_CLIENT_SUBPATHS = [
 const disableDepSourcemapsPlugin: Plugin = {
   name: "agent-native:no-dep-prebundle-sourcemaps",
   outputOptions: (options) => ({ ...options, sourcemap: false }),
+};
+
+const disableServedDepSourcemapsPlugin: Plugin = {
+  name: "agent-native:no-served-dep-sourcemaps",
+  apply: "serve",
+  enforce: "post",
+  transform(code, id) {
+    if (
+      process.env.AGENT_NATIVE_DEP_SOURCEMAPS === "1" ||
+      this.environment.name !== "client" ||
+      this.environment.mode !== "dev" ||
+      !this.environment.depsOptimizer?.isOptimizedDepFile(id)
+    ) {
+      return;
+    }
+    // Vite injects an identity map when no map is present. It only takes the
+    // transformed map when the code changes, so add a trailing newline.
+    return { code: `${code}\n`, map: { mappings: "" } };
+  },
 };
 
 function getDefaultOptimizeDeps(cwd: string): string[] {
@@ -2598,7 +2631,32 @@ export function isFrameworkDynamicDevPath(
 function rolldownInputFix(): Plugin {
   return {
     name: "agent-native-rolldown-input-fix",
+    enforce: "post",
     configEnvironment(_name, config) {
+      // Router plugins supply environment-specific entry naming after the root
+      // config. Preserve their route suffixes while changing the cache key.
+      if (_name === "client" && process.env.AGENT_NATIVE_WORKSPACE === "1") {
+        const optionBags = new Set([
+          config.build?.rolldownOptions,
+          config.build?.rollupOptions,
+        ]);
+        for (const buildOptions of optionBags) {
+          if (!buildOptions) continue;
+          const outputs = Array.isArray(buildOptions.output)
+            ? buildOptions.output
+            : [buildOptions.output ?? (buildOptions.output = {})];
+          for (const output of outputs) {
+            const original = output.entryFileNames;
+            output.entryFileNames = (chunk) => {
+              const pattern =
+                typeof original === "function"
+                  ? original(chunk)
+                  : (original ?? "assets/[name]-[hash].js");
+              return pattern.replace(/\[hash(?::\d+)?\]/g, "[hash:16]");
+            };
+          }
+        }
+      }
       const input = config.build?.rollupOptions?.input;
       if (!Array.isArray(input)) return;
       const fixed = input.map((entry: any) => {
@@ -2610,6 +2668,97 @@ function rolldownInputFix(): Plugin {
         return entry;
       });
       config.build!.rollupOptions!.input = fixed;
+    },
+  };
+}
+
+function workspaceIconChunks(): Plugin {
+  return {
+    name: "agent-native-workspace-icon-chunks",
+    enforce: "post",
+    transform: {
+      filter: { code: /@tabler\/icons-react/ },
+      async handler(code, id, options?) {
+        if (options?.ssr || process.env.AGENT_NATIVE_WORKSPACE !== "1") return;
+        const { rewriteWorkspaceIconImports } =
+          await import("./workspace-icon-imports.js");
+        return rewriteWorkspaceIconImports(code, id, async (specifier) =>
+          Boolean(await this.resolve(specifier, id, { skipSelf: true })),
+        );
+      },
+    },
+    configEnvironment(name, config) {
+      if (name !== "client" || process.env.AGENT_NATIVE_WORKSPACE !== "1")
+        return;
+      const options =
+        config.build?.rolldownOptions ?? config.build?.rollupOptions ?? {};
+      const originalOutput = options.output;
+      const prepareOutput = (output: Rolldown.OutputOptions) => {
+        if (output.codeSplitting === false) return output;
+        const splitting =
+          typeof output.codeSplitting === "object" ? output.codeSplitting : {};
+        return {
+          ...output,
+          codeSplitting: {
+            ...splitting,
+            groups: [
+              ...(splitting.groups ?? []).filter(
+                (group) =>
+                  group.name !== "agent-native-icons" &&
+                  group.name !== "agent-native-ui-leaves" &&
+                  group.name !== "agent-native-ui",
+              ),
+              {
+                name: "agent-native-icons",
+                // Leave catalog-only icons behind their lazy picker entry.
+                minShareCount: 2,
+                test: /node_modules[\\/]@tabler[\\/]icons-react[\\/].*[\\/]icons[\\/](?!index\.)[^\\/]+\.(?:[cm]?js)$/,
+                includeDependenciesRecursively: false,
+              },
+              {
+                name: "agent-native-ui-leaves",
+                minShareCount: 2,
+                test: isWorkspaceUiLeaf,
+                includeDependenciesRecursively: false,
+              },
+              {
+                // Coalesce external UI primitives only. First-party wrappers
+                // can depend on optional app features; merging them creates
+                // chunk cycles and makes those feature bodies load eagerly.
+                // Keep wrappers under the automatic route-aware chunker.
+                name: "agent-native-ui",
+                minShareCount: 2,
+                test: (id: string) =>
+                  /node_modules[\\/]@(?:radix-ui|floating-ui)[\\/][^\\/]+[\\/]/.test(
+                    id,
+                  ),
+                includeDependenciesRecursively: false,
+              },
+            ],
+          },
+        };
+      };
+      const output = Array.isArray(originalOutput)
+        ? originalOutput.map(prepareOutput)
+        : prepareOutput(originalOutput ?? {});
+      const outputs = Array.isArray(output) ? output : [output];
+      if (outputs.every((entry) => entry.codeSplitting === false)) return;
+      // Replace only this environment's options. Returning output arrays would
+      // concatenate them during Vite's config merge; shared root options stay intact.
+      const hadLegacyAlias = Boolean(config.build?.rollupOptions);
+      const rolldownOptions = {
+        ...options,
+        preserveEntrySignatures:
+          options.preserveEntrySignatures === false
+            ? (false as const)
+            : ("allow-extension" as const),
+        output,
+      };
+      config.build = {
+        ...config.build,
+        rolldownOptions,
+        ...(hadLegacyAlias ? { rollupOptions: rolldownOptions } : {}),
+      };
     },
   };
 }
@@ -3056,6 +3205,7 @@ function portExposer(): Plugin {
       server.httpServer?.once("listening", () => {
         const addr = server.httpServer?.address();
         if (addr && typeof addr === "object" && addr.port) {
+          markDevServerReady();
           process.env.PORT = String(addr.port); // guard:allow-env-mutation — Vite dev server port published once at boot before any request
         }
       });
@@ -4585,6 +4735,7 @@ function authClientAssetPlugin(cwd: string): Plugin {
         type: "chunk",
         id: entry,
         fileName: AUTH_CLIENT_ASSET_PATH,
+        preserveSignature: "exports-only",
       });
     },
     configureServer(server) {
@@ -4713,6 +4864,7 @@ function createAgentNativePlugins(
   return [
     migrationDiagnosticPlugin(),
     motionSourceProvenancePlugin(),
+    browserChunkNamesPlugin(),
     persistent5xxRecovery(),
     presetMarkerPlugin,
     ssrStubPlugin([
@@ -4725,6 +4877,7 @@ function createAgentNativePlugins(
     clientOptionalPeerStubPlugin(cwd),
     ...userPlugins,
     externalStoreShimPlugin(),
+    disableServedDepSourcemapsPlugin,
     appChangelogRawPlugin(),
     actionTypesPlugin(),
     agentsBundlePlugin({ agentNativeConfig: options.agentNativeConfig }),
@@ -4742,6 +4895,9 @@ function createAgentNativePlugins(
     reactRouterVirtualInvalidationMirrorPlugin(),
     silenceConnectionResets(),
     rolldownInputFix(),
+    workspaceIconChunks(),
+    workspaceCommonChunks(),
+    workspaceRootChunks(),
     ...(useServeOnlyNitroPlugin
       ? [forceServeOnly(nitroPlugin), nitroDevEnvironmentClosePlugin()]
       : includeNitro
@@ -4877,14 +5033,17 @@ function createAgentNativeConfig(
     runtimeEnv,
   );
   const harnessMode = resolveHarnessBuildReplacement(resolvedAppConfig);
+  const requiredEnv = resolveRequiredEnvBuildReplacement(resolvedAppConfig);
   if (command === "build") {
     writeAgentNativeBuildConfigMarker(cwd, {
       firstRunOnboarding: firstRunOnboardingMode,
       harness: harnessMode,
+      requiredEnv,
     });
   }
   const firstRunOnboardingBuildMode = JSON.stringify(firstRunOnboardingMode);
   const harnessBuildMode = JSON.stringify(harnessMode);
+  const requiredEnvBuildValue = JSON.stringify(requiredEnv);
   const buildId = resolveAgentNativeBuildId(process.env, "development");
   const packageVersions = resolveAgentNativePackageVersions(cwd);
   const frameworkRoutePrefix =
@@ -4975,6 +5134,9 @@ function createAgentNativeConfig(
         "process.env.AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING":
           firstRunOnboardingBuildMode,
         "process.env.AGENT_NATIVE_BUILD_HARNESS": harnessBuildMode,
+        "process.env.AGENT_NATIVE_BUILD_REQUIRED_ENV": requiredEnvBuildValue,
+        // Kept in step with the client define above.
+        __AGENT_NATIVE_APP_CONFIG__: JSON.stringify(resolvedAppConfig),
       },
     },
     logLevel:
@@ -4987,6 +5149,12 @@ function createAgentNativeConfig(
       ...(userConfig.define ?? {}),
       ...(options.define ?? {}),
       __AGENT_NATIVE_BUILD_ID__: JSON.stringify(buildId),
+      __AGENT_NATIVE_COMMIT_SHA__: JSON.stringify(
+        resolveAgentNativeCommitSha(process.env),
+      ),
+      __AGENT_NATIVE_LAZY_TOOLKIT_LOCALES__: JSON.stringify(
+        process.env.AGENT_NATIVE_LAZY_TOOLKIT_LOCALES === "1",
+      ),
       __AGENT_NATIVE_PACKAGE_VERSIONS__: JSON.stringify(packageVersions),
       __AGENT_NATIVE_CLIENT_COMPATIBILITY_VERSION__: JSON.stringify(
         options.clientCompatibilityVersion?.trim() || "",
@@ -5022,6 +5190,7 @@ function createAgentNativeConfig(
       "process.env.AGENT_NATIVE_BUILD_FIRST_RUN_ONBOARDING":
         firstRunOnboardingBuildMode,
       "process.env.AGENT_NATIVE_BUILD_HARNESS": harnessBuildMode,
+      "process.env.AGENT_NATIVE_BUILD_REQUIRED_ENV": requiredEnvBuildValue,
       ...(resolvedAppConfig.deployment?.environment
         ? {
             "process.env.AGENT_NATIVE_DEPLOYMENT_ENVIRONMENT": JSON.stringify(
@@ -5036,7 +5205,9 @@ function createAgentNativeConfig(
         process.env.GTM_CONTAINER_ID?.trim() || "",
       ),
       __AGENT_NATIVE_ROUTE_WARMUP_CONFIG__: JSON.stringify(
-        normalizeAgentNativeRouteWarmupConfig(options.routeWarmup),
+        normalizeAgentNativeRouteWarmupConfig(
+          options.routeWarmup ?? (isWorkspaceChild ? "intent" : undefined),
+        ),
       ),
       __AGENT_NATIVE_MCP_INTEGRATIONS_CONFIG__: JSON.stringify(
         normalizeMcpIntegrationsConfig(options.mcpIntegrations),
@@ -5110,6 +5281,17 @@ function createAgentNativeConfig(
     build: {
       ...userBuild,
       rolldownOptions: {
+        // Workspace modules keep app-local URLs. A longer content hash also
+        // retires cached redirects from the former shared-asset namespace.
+        ...(process.env.AGENT_NATIVE_WORKSPACE === "1"
+          ? {
+              output: {
+                entryFileNames: "assets/[name]-[hash:16].js",
+                chunkFileNames: "assets/[name]-[hash:16].js",
+                assetFileNames: "assets/[name]-[hash:16][extname]",
+              },
+            }
+          : {}),
         external: optionalBuildExternals,
         experimental: {
           lazyBarrel: _buildRolldownOptions?.experimental?.lazyBarrel ?? true,

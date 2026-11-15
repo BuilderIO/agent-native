@@ -23,6 +23,8 @@ export interface McpHttpServerConfig {
   type: "http";
   url: string;
   headers?: Record<string, string>;
+  /** Exact runtime origin for requests carrying a substituted vault key. */
+  secretRequestOrigin?: string;
   oauthAccessRefresh?: McpOAuthAccessRefresh;
   /** Internal failure marker for a server whose saved settings could not be materialized. */
   configurationError?: Error;

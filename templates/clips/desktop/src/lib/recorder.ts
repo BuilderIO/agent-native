@@ -3257,7 +3257,6 @@ async function tryStartRewindFullscreenRecording(
     const capture = await startTranscriptionCapture(
       { deviceId: params.micId, label: params.micLabel },
       includeSystemAudio,
-      { voiceProcessing: false },
     ).catch((err) => {
       if (params.signal?.aborted) throw err;
       console.warn("[clips-recorder] rewind transcription start failed:", err);
@@ -3776,7 +3775,6 @@ async function startNativeFullscreenRecording(
           label: micDeviceLabel,
         },
         wantsSystemAudio,
-        { voiceProcessing: false },
       ),
       {
         signal: params.signal,
@@ -6180,7 +6178,6 @@ async function startRecordingInner(
                 label: params.micLabel,
               },
               wantsSystemAudio,
-              { voiceProcessing: false },
             )
           : null;
       if (stopped || params.signal?.aborted) {

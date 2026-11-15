@@ -13,6 +13,10 @@ import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
 import { parseDocumentHideFromSearch } from "../server/lib/documents.js";
+import {
+  buildListRowExcerpt,
+  EXCERPT_SOURCE_CHARS,
+} from "../shared/og-description.js";
 import { favoriteDocumentIds } from "./_content-favorites.js";
 import { listContentOrganizationMemberships } from "./_content-space-access.js";
 import { serializeDatabaseMembership } from "./_database-utils.js";
@@ -30,12 +34,6 @@ import {
   hasSuggestionBodyTarget,
   INLINE_DATABASE_SUGGESTION_EXCLUSION,
 } from "./_suggestion-eligibility.js";
-
-function contentPreview(content: string, maxLength = 180) {
-  const compact = content.replace(/\s+/g, " ").trim();
-  if (compact.length <= maxLength) return compact;
-  return `${compact.slice(0, maxLength).trimEnd()}...`;
-}
 
 type EffectiveRole = "owner" | ShareRole;
 
@@ -131,7 +129,7 @@ export default defineAction({
         parentId: schema.documents.parentId,
         title: schema.documents.title,
         description: schema.documents.description,
-        contentSnippet: sql<string>`substr(${schema.documents.content}, 1, 400)`,
+        contentSnippet: sql<string>`substr(${schema.documents.content}, 1, ${sql.raw(String(EXCERPT_SOURCE_CHARS + 1))})`,
         contentLength: sql<number>`length(${schema.documents.content})`,
         hasInlineDatabase: sql<boolean>`position(${INLINE_DATABASE_SUGGESTION_EXCLUSION} in ${schema.documents.content}) > 0`,
         icon: schema.documents.icon,
@@ -404,7 +402,11 @@ export default defineAction({
           d.parentId && visibleParentIds.has(d.parentId) ? d.parentId : null,
         title: d.title,
         description: d.description,
-        contentPreview: contentPreview(d.contentSnippet),
+        contentPreview: buildListRowExcerpt({
+          content: d.contentSnippet,
+          title: d.title,
+          maxLength: 180,
+        }),
         contentLength: Number(d.contentLength) || 0,
         icon: d.icon,
         position: d.position,

@@ -1,10 +1,11 @@
+import { captureError } from "../server/capture-error.js";
 import { getSetting } from "../settings/store.js";
 import {
   CONNECT_APPS_FLAG,
   registerFeatureFlags,
   type FeatureFlagDefinition,
 } from "./registry.js";
-import { mutateFeatureFlagRules } from "./store.js";
+import { FeatureFlagRulesError, mutateFeatureFlagRules } from "./store.js";
 
 type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
@@ -24,15 +25,24 @@ export function createFeatureFlagsPlugin(options: {
     await Promise.all(
       options.legacyBooleanSetting.flagKeys.map(async (key) => {
         if (legacy[key] !== true) return;
-        await mutateFeatureFlagRules(key, {}, (current) => {
-          if (current.updatedAt !== null) return current;
-          return {
-            ...current,
-            mode: "on",
-            updatedAt: Date.now(),
-            updatedBy: "legacy-settings-migration",
-          };
-        });
+        try {
+          await mutateFeatureFlagRules(key, {}, (current) => {
+            if (current.updatedAt !== null) return current;
+            return {
+              ...current,
+              mode: "on",
+              updatedAt: Date.now(),
+              updatedBy: "legacy-settings-migration",
+            };
+          });
+        } catch (error) {
+          // An unreadable rule is still someone's rule: leave it for an
+          // operator rather than fail every other flag's migration at boot.
+          if (!(error instanceof FeatureFlagRulesError)) throw error;
+          captureError(error, {
+            tags: { source: "feature-flags", op: "legacy-settings-migration" },
+          });
+        }
       }),
     );
   };

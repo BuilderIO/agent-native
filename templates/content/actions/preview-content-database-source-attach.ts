@@ -36,7 +36,6 @@ export default defineAction({
       readBuilderCmsContentEntries({
         model: args.sourceTable,
         fieldPaths: args.fieldPaths,
-        allowCached: true,
         maxPages: 1,
       }),
       getContentDatabaseResponse(database.id, { limit: 100, offset: 0 }),

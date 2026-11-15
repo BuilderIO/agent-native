@@ -99,7 +99,14 @@ export function isSessionNavigationPending(): boolean {
 }
 
 function releaseSessionNavigation(href: string): void {
-  if (window[SESSION_NAVIGATION_FLAG] !== href) return;
+  // The stall timer can outlive window: a test environment tears it down
+  // while the timer is still pending.
+  if (
+    typeof window === "undefined" ||
+    window[SESSION_NAVIGATION_FLAG] !== href
+  ) {
+    return;
+  }
   delete window[SESSION_NAVIGATION_FLAG];
   window.dispatchEvent?.(new Event(SESSION_NAVIGATION_RELEASED_EVENT));
 }

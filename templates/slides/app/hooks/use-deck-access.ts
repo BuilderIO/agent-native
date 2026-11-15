@@ -50,5 +50,5 @@ export function useRequestDeckAccess() {
       /** Defaults to editor on the server. */
       role?: DeckAccessRequestRole;
     }
-  >("request-deck-access");
+  >("request-deck-access", { errorNotification: "caller" });
 }

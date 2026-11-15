@@ -19,6 +19,28 @@ describe("SQL execution boundary with the real cost counter", () => {
   afterEach(() => vi.restoreAllMocks());
 
   it.each(["bigquery", "first-party"] as const)(
+    "preserves %s accounting receipts through the public query helper",
+    async (source) => {
+      for (const status of ["recorded", "pending", "unavailable"] as const) {
+        const usageAccounting = {
+          status,
+          projectId: "test-project",
+          jobId: "job-" + status,
+          ...(status === "recorded" ? { usageStatus: "partial" as const } : {}),
+        };
+        callAction.mockResolvedValue({ rows: [{ n: 1 }], usageAccounting });
+        expect(await executeSqlQuery("SELECT 1", source)).toMatchObject({
+          rows: [{ n: 1 }],
+          usageAccounting,
+        });
+      }
+      expect(callAction).toHaveBeenCalledTimes(3);
+      expect(getTotalBytes()).toBe(0);
+      expect(getUnknownScans()).toBe(3);
+    },
+  );
+
+  it.each(["bigquery", "first-party"] as const)(
     "keeps a %s result with missing provider cache metadata unknown",
     async (source) => {
       callAction.mockResolvedValue({
@@ -138,7 +160,13 @@ describe("SQL execution boundary with the real cost counter", () => {
 
   it("counts first-party BigQuery bytes once and preserves cached fetch times", async () => {
     const fetchedAt = "2026-10-14T12:00:00.000Z";
+    const usageAccounting = {
+      status: "pending" as const,
+      projectId: "test-project",
+      jobId: "original-job",
+    };
     const response = {
+      usageAccounting,
       rows: [{ n: 1 }],
       bytesProcessed: 4096,
       cached: false,
@@ -152,7 +180,11 @@ describe("SQL execution boundary with the real cost counter", () => {
     for (let i = 0; i < 3; i += 1) {
       await expect(
         executeSqlQuery("SELECT 1", "first-party"),
-      ).resolves.toMatchObject({ rows: [{ n: 1 }], fetchedAt });
+      ).resolves.toMatchObject({
+        rows: [{ n: 1 }],
+        fetchedAt,
+        usageAccounting,
+      });
       expect(getTotalBytes()).toBe(4096);
       expect(getUnknownScans()).toBe(0);
     }

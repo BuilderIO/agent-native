@@ -60,6 +60,7 @@ import {
   ExecutionFenceError,
   MissingExecutionFenceError,
   lockAndAssertCurrentExecutionFences,
+  ownsLapsedTurnLease,
   StaleExecutionFenceError,
   type ExecutionFence,
   withFencedExecutionWrite,
@@ -435,7 +436,24 @@ export const agentRunsStore = defineStore({
     ...fromMigrationEntries(AGENT_RUN_MIGRATIONS_TABLE, AGENT_RUN_MIGRATIONS),
     {
       name: "thread-projection-retry-quarantine-runtime-schema",
+      // Stands in for legacy v9–v11, which a local boot skips: a database
+      // whose baseline was already recorded never re-runs the baseline's
+      // column ensures either, so this entry must create every column it
+      // touches before the index that reads them. The retry_order backfill
+      // does not belong here: a database that already recorded this entry
+      // never runs an edited body again, so the backfill lives in the
+      // append-only repair entry at the end of this list.
       run: async (exec) => {
+        await ensureColumnExists(
+          "agent_runs",
+          "thread_projection_pending",
+          "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS thread_projection_pending BOOLEAN NOT NULL DEFAULT FALSE",
+        );
+        await ensureColumnExists(
+          "agent_runs",
+          "thread_projection_retry_order",
+          "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS thread_projection_retry_order BIGINT",
+        );
         await exec.execute({
           sql: "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS thread_projection_error_code TEXT",
         });
@@ -567,6 +585,59 @@ export const agentRunsStore = defineStore({
       )`,
       ],
     },
+    {
+      name: "thread-projection-retry-order-backfill-repair",
+      kind: "data",
+      // Append-only repair for databases that recorded
+      // thread-projection-retry-quarantine-runtime-schema before its
+      // column ensures existed: the ledger skips that entry forever, so
+      // the retry_order backfill legacy v10 performed for pending rows
+      // has to land here instead of in an edited body. Marked data so
+      // hosted replays skip it entirely. The self-check makes the body
+      // once-only even for a runtime whose ledger view is unavailable:
+      // re-running the backfill against live rows would re-impose queue
+      // order on projections that are still being written.
+      run: async (exec) => {
+        const alreadyApplied = await exec.execute({
+          // Literal name of STORE_MIGRATIONS_TABLE, kept interpolation-free.
+          sql: "SELECT 1 FROM _an_store_migrations WHERE store_id = 'agent_runs' AND name = ? LIMIT 1",
+          args: ["thread-projection-retry-order-backfill-repair"],
+        });
+        if (alreadyApplied.rows.length > 0) return;
+        await ensureColumnExists(
+          "agent_runs",
+          "thread_projection_pending",
+          "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS thread_projection_pending BOOLEAN NOT NULL DEFAULT FALSE",
+        );
+        await ensureColumnExists(
+          "agent_runs",
+          "thread_projection_retry_order",
+          "ALTER TABLE agent_runs ADD COLUMN IF NOT EXISTS thread_projection_retry_order BIGINT",
+        );
+        await exec.execute({
+          sql: "CREATE SEQUENCE IF NOT EXISTS agent_run_projection_retry_order_seq",
+        });
+        await exec.execute({
+          sql: `CREATE INDEX IF NOT EXISTS agent_runs_thread_projection_retry_order_idx
+                ON agent_runs (thread_projection_retry_order ASC NULLS FIRST, completed_at ASC, id ASC)
+                WHERE thread_projection_pending IS TRUE`,
+        });
+        const unassigned = await exec.execute({
+          sql: `SELECT 1 FROM agent_runs
+                WHERE thread_projection_pending IS TRUE
+                  AND thread_projection_retry_order IS NULL
+                LIMIT 1`,
+          args: [],
+        });
+        if (unassigned.rows.length === 0) return;
+        await exec.execute({
+          sql: `UPDATE agent_runs
+                SET thread_projection_retry_order = nextval('agent_run_projection_retry_order_seq')
+                WHERE thread_projection_pending IS TRUE
+                  AND thread_projection_retry_order IS NULL`,
+        });
+      },
+    },
   ],
 });
 
@@ -575,6 +646,12 @@ export function ensureRunTables(): Promise<void> {
 }
 
 export const TURN_EXECUTION_LEASE_MS = 15_000;
+
+// A hung renewal holds the worker's only heartbeat slot, so the database gives
+// up on each of its statements well inside the lease and the next tick tries
+// again. Set once for the renewal's own short transaction: it runs every
+// 1.5 s per active run, so a per-statement setting would triple its queries.
+const LEASE_RENEWAL_STATEMENT_TIMEOUT_MS = 4_000;
 
 function truthySqlValue(value: unknown): boolean {
   return value === true || value === "t" || value === 1 || value === "1";
@@ -728,23 +805,37 @@ async function renewExecutionLease(
     throw new Error("Turn execution leases require transaction support");
   }
   await client.transaction(async (tx) => {
-    const renewed = await tx.execute({
-      sql: `UPDATE agent_execution_leases
-            SET lease_expires_at = clock_timestamp() +
-                  (CAST(? AS BIGINT) * INTERVAL '1 millisecond'),
-                updated_at = clock_timestamp()
-            WHERE thread_id = ? AND turn_id = ? AND owner_run_id = ?
-              AND generation = CAST(? AS BIGINT)
-              AND lease_expires_at > clock_timestamp()`,
-      args: [
-        TURN_EXECUTION_LEASE_MS,
-        fence.threadId,
-        fence.turnId,
-        fence.runId,
-        fence.generation,
-      ],
+    await tx.execute({
+      sql: "SELECT set_config('statement_timeout', ?, true)",
+      args: [`${LEASE_RENEWAL_STATEMENT_TIMEOUT_MS}ms`],
     });
-    if (renewed.rowsAffected !== 1) throw new StaleExecutionFenceError(fence);
+    const renew = (requireLive: boolean) =>
+      tx.execute({
+        sql: `UPDATE agent_execution_leases
+              SET lease_expires_at = clock_timestamp() +
+                    (CAST(? AS BIGINT) * INTERVAL '1 millisecond'),
+                  updated_at = clock_timestamp()
+              WHERE thread_id = ? AND turn_id = ? AND owner_run_id = ?
+                AND generation = CAST(? AS BIGINT)
+                AND (lease_expires_at > clock_timestamp() OR NOT CAST(? AS BOOLEAN))`,
+        args: [
+          TURN_EXECUTION_LEASE_MS,
+          fence.threadId,
+          fence.turnId,
+          fence.runId,
+          fence.generation,
+          requireLive,
+        ],
+      });
+    if ((await renew(true)).rowsAffected !== 1) {
+      if (
+        !renewRunLiveness ||
+        !(await ownsLapsedTurnLease(tx, fence)) ||
+        (await renew(false)).rowsAffected !== 1
+      ) {
+        throw new StaleExecutionFenceError(fence);
+      }
+    }
     if (renewRunLiveness) {
       await tx.execute({
         sql: `UPDATE agent_runs
@@ -5504,6 +5595,78 @@ export async function getThreadPrivateHistoryState(threadId: string): Promise<{
   };
 }
 
+/**
+ * The caller's own recent chat runs, newest first, with the thread title so a
+ * "recent runs" list can name them. Ownership lives on the thread row, not on
+ * agent_runs, so the join is the authorization: only threads this person owns are
+ * counted, and shared threads' runs stay out of their list.
+ *
+ * Bounded and index-backed: the runs list is polled by the progress tray, so this
+ * is one query with a LIMIT, not one query per thread.
+ */
+export async function listRecentRunsForOwner(
+  ownerEmail: string,
+  limit = 5,
+  appScope?: { sourceAppId: string | null },
+): Promise<Array<AgentRunSummary & { threadTitle: string | null }>> {
+  const sourceAppId = appScope?.sourceAppId?.trim();
+  if (appScope !== undefined && !sourceAppId) return [];
+  await ensureRunTables();
+  const bounded = Math.min(Math.max(limit, 1), 25);
+  const client = getDbExec();
+  // raw-sql-ok: the optional app filter is a fixed clause; its value is bound
+  const { rows } = await client.execute({
+    sql: `SELECT r.id, r.thread_id, r.turn_id, r.status, r.started_at, r.heartbeat_at,
+                 r.completed_at, r.last_progress_at, r.error_code, r.abort_reason,
+                 r.dispatch_mode, r.terminal_reason, r.diag_stage,
+                 r.thread_projection_error_code, r.in_flight_since, t.title
+          FROM agent_runs r
+          JOIN chat_threads t ON t.id = r.thread_id
+          WHERE LOWER(t.owner_email) = ?
+          ${appScope === undefined ? "" : "AND t.source_app_id = ?"}
+          ORDER BY r.started_at DESC
+          LIMIT ?`,
+    args: [
+      ownerEmail.trim().toLowerCase(),
+      ...(appScope === undefined ? [] : [sourceAppId]),
+      bounded,
+    ],
+  });
+  return rows.flatMap((raw) => {
+    const row = raw as Record<string, unknown>;
+    if (typeof row.id !== "string" || typeof row.thread_id !== "string")
+      return [];
+    return [
+      {
+        id: row.id,
+        threadId: row.thread_id,
+        turnId: typeof row.turn_id === "string" ? row.turn_id : null,
+        status: typeof row.status === "string" ? row.status : "unknown",
+        startedAt: Number(row.started_at ?? 0),
+        heartbeatAt: row.heartbeat_at == null ? null : Number(row.heartbeat_at),
+        completedAt: row.completed_at == null ? null : Number(row.completed_at),
+        lastProgressAt:
+          row.last_progress_at == null ? null : Number(row.last_progress_at),
+        errorCode: typeof row.error_code === "string" ? row.error_code : null,
+        abortReason:
+          typeof row.abort_reason === "string" ? row.abort_reason : null,
+        dispatchMode:
+          typeof row.dispatch_mode === "string" ? row.dispatch_mode : null,
+        terminalReason:
+          typeof row.terminal_reason === "string" ? row.terminal_reason : null,
+        diagStage: typeof row.diag_stage === "string" ? row.diag_stage : null,
+        threadProjectionErrorCode:
+          typeof row.thread_projection_error_code === "string"
+            ? row.thread_projection_error_code
+            : null,
+        inFlightSince:
+          row.in_flight_since == null ? null : Number(row.in_flight_since),
+        threadTitle: typeof row.title === "string" ? row.title : null,
+      },
+    ];
+  });
+}
+
 export async function listRunsForThread(
   threadId: string,
   options: { limit?: number; runIds?: readonly string[] } = {},
@@ -6510,6 +6673,10 @@ async function finalizeStaleRun(
   try {
     return (await projectRunThread(runId)) === "projected";
   } catch (error) {
+    console.error(
+      `[run-store] stale run ${runId} projection failed (${source}):`,
+      error instanceof Error ? error.message : error,
+    );
     captureError(error, {
       tags: {
         component: "agent-run-store",

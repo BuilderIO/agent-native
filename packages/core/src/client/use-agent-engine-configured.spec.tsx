@@ -154,7 +154,10 @@ describe("useAgentEngineConfigured", () => {
         throw new Error(`Unexpected status route: ${String(input)}`);
       }
       statusChecks += 1;
-      if (statusChecks === 2)
+      // Sustained, not a blip: a failed probe is retried a bounded number of
+      // times now, so the unavailable state needs
+      // the retries to be spent too, and the last dispatch recovers.
+      if (statusChecks >= 2 && statusChecks <= 4)
         return new Response("Unavailable", { status: 503 });
       return jsonResponse({ configured: true, chatEligible: true });
     });
@@ -170,7 +173,13 @@ describe("useAgentEngineConfigured", () => {
 
     await act(async () => {
       window.dispatchEvent(new Event("agent-engine:configured-changed"));
-      await vi.waitFor(() => expect(statusChecks).toBe(2));
+      // The probe retries a bounded number of times before it publishes a
+      // failure, so wait for the state, not for a
+      // count of checks.
+      await vi.waitFor(
+        () => expect(getAgentEngineReadiness()).toBe("unavailable"),
+        { timeout: 5_000 },
+      );
     });
 
     expect(getAgentEngineReadiness()).toBe("unavailable");
@@ -179,12 +188,14 @@ describe("useAgentEngineConfigured", () => {
 
     await act(async () => {
       window.dispatchEvent(new Event("agent-engine:configured-changed"));
-      await vi.waitFor(() => expect(statusChecks).toBe(3));
+      await vi.waitFor(() =>
+        expect(getAgentEngineReadiness()).toBe("configured"),
+      );
     });
 
     expect(getAgentEngineReadiness()).toBe("configured");
     expect(container.textContent).toBe("configured");
-    expect(statusChecks).toBe(3);
+    expect(statusChecks).toBeGreaterThanOrEqual(3);
     expect(container.querySelector("output")?.dataset.canChat).toBe("true");
   });
 
@@ -828,7 +839,10 @@ describe("useAgentEngineConfigured", () => {
     await expect(
       fetchAgentEngineConfiguredState(true, { timeoutMs: 25 }),
     ).resolves.toBe("configured");
-    expect(fetch).toHaveBeenCalledTimes(2);
+    // The exact number of probes is the module's business (a hung probe can be
+    // re-requested and a failed one is retried a bounded number of times); what
+    // this case holds is that the hung request never blocked a later caller.
+    expect(fetch.mock.calls.length).toBeGreaterThanOrEqual(2);
   });
 
   it("shares one in-flight probe with a send while readiness is unknown", async () => {
@@ -1144,8 +1158,11 @@ describe("useAgentEngineConfigured", () => {
     });
     expect(container.textContent).toBe("unknown");
 
+    // The probe now retries a bounded number of times before giving up
+    //, so the unavailable state comes after the
+    // retry budget, not on the first rejection.
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(300);
+      await vi.advanceTimersByTimeAsync(2_000);
     });
     // Never "missing": an unanswered probe is not evidence of no provider.
     expect(container.textContent).toBe("unavailable");

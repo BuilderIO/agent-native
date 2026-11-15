@@ -15,17 +15,38 @@ import {
 } from "h3";
 
 import { readBody } from "../server/h3-helpers.js";
+import { isLoopbackHost } from "../server/origin-allowlist.js";
 import { runWithRequestContext } from "../server/request-context.js";
 import type { ResolvedAliasedSecret } from "../server/secret-key-aliases.js";
+import {
+  SessionResolutionUnavailableError,
+  sessionResolutionFailure,
+} from "../server/session-resolution-errors.js";
+import { ForbiddenError } from "../sharing/errors.js";
+
+async function getSecretOrgContext(event: H3Event) {
+  const org = await import("../org/context.js");
+  try {
+    const context = await org.getOrgContext(event);
+    if (org.hasForbiddenOrgScope(event)) throw new ForbiddenError();
+    if (org.hasOrgScopeResolutionUnavailable(event))
+      throw (
+        org.getOrgScopeResolutionError(event) ??
+        new SessionResolutionUnavailableError()
+      );
+    return context;
+  } catch (cause) {
+    throw sessionResolutionFailure(cause);
+  }
+}
 
 async function canMutateWorkspaceScope(
   event: H3Event,
   scopeId: string,
 ): Promise<boolean> {
   if (scopeId.startsWith("solo:")) return true;
-  const { getOrgContext } = await import("../org/context.js");
-  const ctx = await getOrgContext(event).catch(() => null);
-  if (!ctx?.orgId) return true;
+  const ctx = await getSecretOrgContext(event);
+  if (!ctx.orgId || ctx.orgId !== scopeId) return false;
   return ctx.role === "owner" || ctx.role === "admin";
 }
 
@@ -39,8 +60,7 @@ async function canMutateOrgScope(
   event: H3Event,
   scopeId: string,
 ): Promise<boolean> {
-  const { getOrgContext } = await import("../org/context.js");
-  const ctx = await getOrgContext(event).catch(() => null);
+  const ctx = await getSecretOrgContext(event);
   if (!ctx?.orgId || ctx.orgId !== scopeId) return false;
   return ctx.role === "owner" || ctx.role === "admin";
 }
@@ -65,14 +85,19 @@ import {
 } from "./register.js";
 import {
   writeAppSecret,
+  updateAppSecretUrlAllowlist,
   deleteAppSecret,
   last4,
   listAppSecretsForScope,
   readAppSecretMeta,
-  VAULT_SYNC_DESCRIPTION_PREFIX,
   type SecretMeta,
 } from "./storage.js";
+import {
+  registeredUrlAllowlist,
+  validateUrlAllowlist,
+} from "./substitution.js";
 import { describeSecretUsage } from "./usage.js";
+import { isVaultManagedSecret } from "./vault-managed.js";
 
 export type SecretSource = "personal" | "workspace" | "vault";
 
@@ -82,12 +107,10 @@ export const SECRET_VALIDATION_UNAVAILABLE_ERROR_CODE =
 
 function secretSource(
   scope: SecretScope,
-  description: string | null | undefined,
+  meta: Pick<SecretMeta, "description" | "createdBy"> | null | undefined,
 ): SecretSource {
   if (scope === "user") return "personal";
-  return description?.startsWith(VAULT_SYNC_DESCRIPTION_PREFIX)
-    ? "vault"
-    : "workspace";
+  return isVaultManagedSecret(meta) ? "vault" : "workspace";
 }
 
 const NOT_RESOLVED: ResolvedAliasedSecret = {
@@ -100,13 +123,10 @@ async function asRequestUser<T>(
   fn: () => Promise<T>,
   anonymous: T,
 ): Promise<T> {
-  const [{ getSession }, { getOrgContext }] = await Promise.all([
-    import("../server/auth.js"),
-    import("../org/context.js"),
-  ]);
+  const { getSession } = await import("../server/auth.js");
   const session = await getSession(event);
   if (!session?.email) return anonymous;
-  const ctx = await getOrgContext(event);
+  const ctx = await getSecretOrgContext(event);
   return runWithRequestContext(
     { userEmail: session.email, orgId: ctx?.orgId ?? undefined },
     fn,
@@ -163,7 +183,7 @@ async function hasOAuthSecretForEvent(
 ): Promise<boolean> {
   if (!secret.oauthProvider) return false;
   const { getSession } = await import("../server/auth.js");
-  const session = await getSession(event).catch(() => null);
+  const session = await getSession(event);
   if (!session?.email) return false;
   const accounts = await listOAuthAccountsByOwner(
     secret.oauthProvider,
@@ -176,25 +196,22 @@ async function resolveScopeId(
   event: H3Event,
   scope: SecretScope,
 ): Promise<{ scopeId: string | null; reason?: string }> {
-  const [{ getSession }, { getOrgContext }] = await Promise.all([
-    import("../server/auth.js"),
-    import("../org/context.js"),
-  ]);
+  const { getSession } = await import("../server/auth.js");
   if (scope === "user") {
-    const session = await getSession(event).catch(() => null);
+    const session = await getSession(event);
     if (!session?.email) {
       return { scopeId: null, reason: "Authentication required" };
     }
     return { scopeId: session.email };
   }
   if (scope === "org") {
-    const ctx = await getOrgContext(event).catch(() => null);
+    const ctx = await getSecretOrgContext(event);
     if (ctx?.orgId) return { scopeId: ctx.orgId };
     return { scopeId: null, reason: "No active organization" };
   }
-  const ctx = await getOrgContext(event).catch(() => null);
+  const ctx = await getSecretOrgContext(event);
   if (ctx?.orgId) return { scopeId: ctx.orgId };
-  const session = await getSession(event).catch(() => null);
+  const session = await getSession(event);
   if (session?.email) return { scopeId: `solo:${session.email}` };
   return { scopeId: null, reason: "No workspace or session context" };
 }
@@ -324,7 +341,7 @@ export function createListSecretsHandler() {
       const meta = await readAppSecretMeta(hit);
       base.last4 = meta?.last4 || last4(effective.value);
       base.updatedAt = meta?.updatedAt;
-      base.source = secretSource(hit.scope, meta?.description);
+      base.source = secretSource(hit.scope, meta);
       base.managedHere = hit.scope === secret.scope && hit.scopeId === scopeId;
       if (base.managedHere && secret.scope === "user") {
         const shared = await asRequestUser(
@@ -346,10 +363,7 @@ export function createListSecretsHandler() {
                 scopeId: shared.scopeId,
               })
             : null;
-          const sharedSource = secretSource(
-            shared.source,
-            sharedMeta?.description,
-          );
+          const sharedSource = secretSource(shared.source, sharedMeta);
           base.overrides = sharedSource === "vault" ? "vault" : "workspace";
         }
       }
@@ -396,12 +410,26 @@ async function handleWrite(event: H3Event, secret: RegisteredSecret) {
   }
   const body = (await readBody(event).catch(() => ({}))) as {
     value?: unknown;
+    urlAllowlist?: unknown;
   };
 
   const value = typeof body.value === "string" ? body.value.trim() : "";
   if (!value) {
     setResponseStatus(event, 400);
     return { error: "value is required" };
+  }
+
+  let urlAllowlist: string | undefined;
+  if (body.urlAllowlist !== undefined) {
+    const normalized = normalizeUrlAllowlist(
+      body.urlAllowlist,
+      registeredUrlAllowlist(secret.key),
+    );
+    if (normalized.ok === false) {
+      setResponseStatus(event, 400);
+      return { error: normalized.error };
+    }
+    urlAllowlist = JSON.stringify(normalized.origins);
   }
 
   const { scopeId, reason } = await resolveScopeId(event, secret.scope);
@@ -488,6 +516,7 @@ async function handleWrite(event: H3Event, secret: RegisteredSecret) {
       value,
       scope: secret.scope,
       scopeId,
+      ...(urlAllowlist === undefined ? {} : { urlAllowlist }),
     });
   } catch (err) {
     setResponseStatus(event, 500);
@@ -694,7 +723,7 @@ function metaToPayload(meta: SecretMeta): AdHocSecretPayload {
     name: meta.key,
     scope: meta.scope,
     scopeId: meta.scopeId,
-    source: secretSource(meta.scope, meta.description),
+    source: secretSource(meta.scope, meta),
     description: meta.description,
     last4: meta.last4,
     urlAllowlist: meta.urlAllowlist,
@@ -713,6 +742,9 @@ export function createAdHocSecretHandler() {
     }
     if (method === "POST" && !name) {
       return handleAdHocWrite(event);
+    }
+    if (method === "PATCH" && name) {
+      return handleAdHocPolicyUpdate(event, name);
     }
     if (method === "DELETE" && name) {
       return handleAdHocDelete(event, name);
@@ -845,6 +877,72 @@ async function handleAdHocWrite(event: H3Event) {
   return { ok: true, key: name };
 }
 
+async function handleAdHocPolicyUpdate(event: H3Event, name: string) {
+  if (getRequiredSecret(name) || resolveSecretManagedBy(name)) {
+    setResponseStatus(event, 403);
+    return { error: "This key is managed by another settings surface" };
+  }
+  const rawBody: unknown = await readBody(event);
+  if (!rawBody || typeof rawBody !== "object" || Array.isArray(rawBody)) {
+    setResponseStatus(event, 400);
+    return { error: "A policy update body is required" };
+  }
+  const body = rawBody as {
+    scope?: unknown;
+    owner?: unknown;
+    urlAllowlist?: unknown;
+  };
+  if (
+    body.scope !== "user" &&
+    body.scope !== "org" &&
+    body.scope !== "workspace"
+  ) {
+    setResponseStatus(event, 400);
+    return { error: "A saved key scope is required" };
+  }
+  if (
+    (body.owner !== "user" && body.owner !== "org") ||
+    (body.owner === "user" && body.scope === "org") ||
+    (body.owner === "org" && body.scope === "user")
+  ) {
+    setResponseStatus(event, 400);
+    return { error: "A saved key owner is required" };
+  }
+  const normalized = normalizeUrlAllowlist(body.urlAllowlist);
+  if (normalized.ok === false) {
+    setResponseStatus(event, 400);
+    return { error: normalized.error };
+  }
+  const scope = body.scope;
+  const resolved = await resolveScopeId(
+    event,
+    scope === "workspace" && body.owner === "user" ? "user" : scope,
+  );
+  const scopeId =
+    resolved.scopeId && scope === "workspace" && body.owner === "user"
+      ? `solo:${resolved.scopeId}`
+      : resolved.scopeId;
+  if (!scopeId) {
+    setResponseStatus(event, 401);
+    return { error: resolved.reason ?? "Unable to resolve scope" };
+  }
+  if (body.owner === "org" && !(await canMutateOrgScope(event, scopeId))) {
+    setResponseStatus(event, 403);
+    return {
+      error: "Only organization owners and admins can edit shared keys",
+    };
+  }
+  const updated = await updateAppSecretUrlAllowlist(
+    { key: name, scope, scopeId },
+    normalized.origins,
+  );
+  if (!updated) {
+    setResponseStatus(event, 404);
+    return { error: "Saved key not found" };
+  }
+  return { ok: true, key: name, urlAllowlist: normalized.origins };
+}
+
 async function handleAdHocDelete(event: H3Event, name: string) {
   if (getRequiredSecret(name)) {
     setResponseStatus(event, 400);
@@ -926,6 +1024,7 @@ function extractAdHocName(event: H3Event): string | null {
 
 function normalizeUrlAllowlist(
   input: unknown,
+  maximum: readonly string[] | null = null,
 ): { ok: true; origins: string[] } | { ok: false; error: string } {
   if (!Array.isArray(input) || !input.every((v) => typeof v === "string")) {
     return { ok: false, error: "urlAllowlist must be an array of strings" };
@@ -944,13 +1043,31 @@ function normalizeUrlAllowlist(
         error: `urlAllowlist entry "${value}" is not a valid URL`,
       };
     }
-    if (url.protocol !== "https:" && url.protocol !== "http:") {
+    if (
+      url.protocol !== "https:" &&
+      !(url.protocol === "http:" && isLoopbackHost(url.host))
+    ) {
       return {
         ok: false,
-        error: `urlAllowlist entry "${value}" must use http or https`,
+        error: `urlAllowlist entry "${value}" must use https (or local loopback http)`,
+      };
+    }
+    if (url.username || url.password) {
+      return {
+        ok: false,
+        error: "urlAllowlist entries cannot contain credentials",
       };
     }
     if (!origins.includes(url.origin)) origins.push(url.origin);
+  }
+  if (
+    maximum &&
+    origins.some((origin) => !validateUrlAllowlist(origin, maximum))
+  ) {
+    return {
+      ok: false,
+      error: "urlAllowlist exceeds the registered provider policy",
+    };
   }
   return { ok: true, origins };
 }

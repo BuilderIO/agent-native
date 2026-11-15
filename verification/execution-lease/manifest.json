@@ -78,7 +78,7 @@
     }
   ],
   "coverage": {
-    "syncCommit": "b244ef680d738d722c53f48c13bc8e739e7fc8b7",
+    "syncCommit": "49ac6f19559096a310db77550dd53f6506258951",
     "code": [
       {
         "file": "packages/core/src/agent/run-store.ts",
@@ -88,7 +88,7 @@
       {
         "file": "packages/core/src/agent/run-store.ts",
         "name": "renewExecutionLease",
-        "sha256": "eeec8f605d5459db907b0015b793876e1be225cca731d32cd490f9d88bf03044"
+        "sha256": "94da594096af6c1277c8cca9cfd30aae72126b79c00152950518e0ab36da787a"
       },
       {
         "file": "packages/core/src/agent/run-store.ts",
@@ -208,7 +208,7 @@
       {
         "file": "packages/core/src/agent/execution-fence.ts",
         "name": "lockAndAssertCurrentExecutionFences",
-        "sha256": "14275075908e01dd143ff3054343b5fc7dec85001f5d2c78ba4852b14a6c1d8a"
+        "sha256": "48157f56f861fc57d57bdccbdb4083263270916502ad635694387eda7c66861b"
       },
       {
         "file": "packages/core/src/agent/execution-fence.ts",
@@ -218,7 +218,7 @@
       {
         "file": "packages/core/src/agent/production-agent.ts",
         "name": "invokeAction",
-        "sha256": "4e89b91618e6b75922f3c8c41509df7da513fbbfe44637ca7f018ebb1faa419c"
+        "sha256": "56c76e786c209b83e122550c8bcb11aa2e6253f81fc1755d8ef027cdbf2c983f"
       },
       {
         "file": "packages/core/src/jobs/background-automation-runner.ts",
@@ -280,7 +280,7 @@
       {
         "file": "packages/core/src/action.ts",
         "name": "actionCallIntent",
-        "sha256": "86deadcfd567252bcc5af5f0f0f78b10044c69ce6b93b5cc6ecd28fa7963e4b5"
+        "sha256": "f0d484133f61dedfd2aa2f518ac29100d50bd4d76933b034d2efb2b0dd6b145e"
       },
       {
         "file": "packages/core/src/action.ts",

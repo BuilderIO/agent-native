@@ -120,6 +120,30 @@ describe("detectReplayFriction", () => {
     expect(third.state.rageClickCount).toBe(1);
   });
 
+  it("reports when each rage and dead click happened", () => {
+    const found: Array<[string, number]> = [];
+    const { delta } = detectReplayFriction(
+      [
+        click(1_000),
+        click(1_200),
+        click(1_400),
+        mouseMove(3_000),
+        click(9_000),
+        mouseMove(11_000),
+      ],
+      null,
+      (kind, clickedAt) => found.push([kind, clickedAt]),
+    );
+
+    expect(found).toEqual([
+      ["rage-click", 1_400],
+      ["dead-click", 1_000],
+      ["dead-click", 9_000],
+    ]);
+    expect(delta.rageClicks).toBe(1);
+    expect(delta.deadClicks).toBe(2);
+  });
+
   it("uses the same cluster rules for a single replay batch", () => {
     expect(
       countReplayRageClicks([click(1_000), click(1_200), click(1_400)]),

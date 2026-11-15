@@ -3,6 +3,22 @@ import { describe, expect, it } from "vitest";
 import { trimDiffContext, wordDiff } from "./comment-ai-diff";
 
 describe("wordDiff", () => {
+  it.each([
+    ["the cat sat", "the cat"],
+    ["the cat", "the cat sat"],
+    ["one two three", "one three"],
+    ["one two  three", "one two three"],
+    ["keep this. drop it", "keep this. and add"],
+  ])("rebuilds both sides of %j and %j exactly", (before, after) => {
+    const side = (kind: "removed" | "added") =>
+      wordDiff(before, after)
+        .filter((segment) => segment.kind === "same" || segment.kind === kind)
+        .map(({ text }) => text)
+        .join("");
+    expect(side("removed")).toBe(before);
+    expect(side("added")).toBe(after);
+  });
+
   it("marks whole words that were added and removed", () => {
     expect(
       wordDiff(

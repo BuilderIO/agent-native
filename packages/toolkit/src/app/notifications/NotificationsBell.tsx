@@ -1,5 +1,9 @@
 import { agentNativePath, appPath } from "@agent-native/core/client/api-path";
 import { usePollLoop } from "@agent-native/core/client/use-poll-loop";
+import {
+  reportWriteFailure,
+  writeFailureFromResponse,
+} from "@agent-native/core/client/write-failure";
 import type {
   Notification as NotificationDto,
   NotificationSeverity,
@@ -16,6 +20,11 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+
+import {
+  formatLocaleDateTime,
+  useReaderLocale,
+} from "../shared/reader-locale.js";
 
 interface NotificationsBellProps {
   pollMs?: number;
@@ -38,6 +47,7 @@ export function NotificationsBell({
   emptyDescription,
   onOpenChange,
 }: NotificationsBellProps) {
+  const readerLocale = useReaderLocale();
   const [unreadCount, setUnreadCount] = useState(0);
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<NotificationDto[] | null>(null);
@@ -161,9 +171,16 @@ export function NotificationsBell({
 
   const markAllRead = async () => {
     try {
-      await fetch(agentNativePath(`/_agent-native/notifications/read-all`), {
-        method: "POST",
-      });
+      const res = await fetch(
+        agentNativePath(`/_agent-native/notifications/read-all`),
+        {
+          method: "POST",
+        },
+      );
+      if (!res.ok) {
+        reportWriteFailure(writeFailureFromResponse(res));
+        return;
+      }
       setItems((prev) =>
         prev
           ? prev.map((n) =>
@@ -172,20 +189,27 @@ export function NotificationsBell({
           : prev,
       );
       setUnreadCount(0);
-    } catch {
-      // best-effort
+    } catch (error) {
+      reportWriteFailure(error);
     }
   };
 
   const dismiss = async (id: string) => {
     try {
-      await fetch(agentNativePath(`/_agent-native/notifications/${id}`), {
-        method: "DELETE",
-      });
+      const res = await fetch(
+        agentNativePath(`/_agent-native/notifications/${id}`),
+        {
+          method: "DELETE",
+        },
+      );
+      if (!res.ok) {
+        reportWriteFailure(writeFailureFromResponse(res));
+        return;
+      }
       setItems((prev) => (prev ? prev.filter((n) => n.id !== id) : prev));
       void refresh();
-    } catch {
-      // best-effort
+    } catch (error) {
+      reportWriteFailure(error);
     }
   };
 
@@ -308,7 +332,7 @@ export function NotificationsBell({
                       </span>
                     ) : null}
                     <span className="text-[10px] text-muted-foreground/70">
-                      {new Date(n.createdAt).toLocaleString()}
+                      {formatLocaleDateTime(n.createdAt, readerLocale)}
                     </span>
                   </button>
                   <button

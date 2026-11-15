@@ -41,6 +41,7 @@ import type { Awareness } from "y-protocols/awareness";
 import type { Doc as YDoc } from "yjs";
 
 import { createCodeBlockNode } from "./CodeBlockNode.js";
+import { collabSelectionPlugin } from "./collabSelection.js";
 import {
   foldFollowUpTransactions,
   repairCollabUndo,
@@ -115,7 +116,7 @@ const CollaborationWithSafeInitialSelection = Collaboration.extend({
       };
     }
 
-    return plugins;
+    return [...plugins, collabSelectionPlugin()];
   },
 });
 
@@ -291,6 +292,13 @@ export function createSharedEditorExtensions({
         CollaborationCaret.configure({
           provider: { awareness },
           user: user ?? { name: "Anonymous", color: "#999" },
+          // Hand the collaborator's colour to the stylesheet, which tints the
+          // selection's background with it and leaves the text as it is.
+          selectionRender: (selectionUser) => ({
+            nodeName: "span",
+            class: "ProseMirror-yjs-selection",
+            style: `--collaboration-color: ${selectionUser.color}`,
+          }),
         }),
       );
     }

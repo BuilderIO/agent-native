@@ -57,6 +57,7 @@ import {
   readRoutePerformanceRange,
   routePerformanceRangeBounds,
 } from "../shared/session-performance";
+import { readTrafficEnvironment } from "../shared/traffic-environment";
 
 const SESSION_FILTER_KEYS = new Set([
   "range",
@@ -75,6 +76,7 @@ const SESSION_FILTER_KEYS = new Set([
   "hideInternal",
   "visitorType",
   "emailDomain",
+  "environment",
   "hasErrors",
   "hasNetworkErrors",
   "hasRageClicks",
@@ -353,6 +355,7 @@ export default defineAction({
               hasNetworkErrors: params.hasNetworkErrors === "true",
               hasRageClicks: params.hasRageClicks === "true",
               emailDomain: params.emailDomain || undefined,
+              environment: readTrafficEnvironment(params.environment),
               visitorType:
                 params.visitorType === "internal" ||
                 params.visitorType === "work" ||

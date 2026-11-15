@@ -704,6 +704,56 @@ function addMonths(day: string, months: number) {
   return target.toISOString().slice(0, 10);
 }
 
+/**
+ * The order an ascending sort puts a property's values in, which the sort
+ * controls name each direction after ("A → Z", "Old → new"). It follows
+ * `itemSortValue`: text and option names sort alphabetically with digit runs
+ * compared as numbers ("Step 2" before "Step 10"), numbers by value, ISO dates
+ * by time, and checkboxes unchecked first. "other" covers values with no
+ * order a person would name: a formula can return text, a number or a date,
+ * and relations and files sort by stored IDs and links.
+ */
+export type ContentDatabaseSortOrder =
+  | "text"
+  | "number"
+  | "date"
+  | "checkbox"
+  | "other";
+
+const SORT_ORDER_BY_TYPE = {
+  text: "text",
+  number: "number",
+  select: "text",
+  multi_select: "text",
+  status: "text",
+  date: "date",
+  person: "text",
+  place: "text",
+  files_media: "other",
+  checkbox: "checkbox",
+  url: "text",
+  email: "text",
+  phone: "text",
+  relation: "other",
+  blocks: "text",
+  formula: "other",
+  rollup: "number",
+  id: "number",
+  created_time: "date",
+  created_by: "text",
+  last_edited_time: "date",
+  last_edited_by: "text",
+} as const satisfies Record<DocumentPropertyType, ContentDatabaseSortOrder>;
+
+/** How a sort orders a column: the title sorts as text, and a missing type as "other". */
+export function contentDatabaseSortOrder(
+  key: string,
+  type: DocumentPropertyType | null | undefined,
+): ContentDatabaseSortOrder {
+  if (key === "name") return "text";
+  return type ? SORT_ORDER_BY_TYPE[type] : "other";
+}
+
 export function applyContentDatabaseTableQuery(
   items: ContentDatabaseItem[],
   properties: DocumentProperty[],
@@ -1133,7 +1183,7 @@ function compareDateToBound(
   );
 }
 
-function selectedFilterValues(value: string) {
+export function selectedFilterValues(value: string) {
   const trimmed = value.trim();
   if (!trimmed) return [];
   try {
@@ -1174,11 +1224,17 @@ function itemSortValue(
   sort: ContentDatabaseSort,
 ) {
   if (sort.key === "name") return item.document.title || "";
-  return propertyValueText(
+  const property =
     item.properties.find((candidate) => candidate.definition.id === sort.key) ??
-      properties.find((candidate) => candidate.definition.id === sort.key) ??
-      null,
-  );
+    properties.find((candidate) => candidate.definition.id === sort.key) ??
+    null;
+  // An unset checkbox is unchecked, so it sorts with the unchecked rows, and
+  // ascending runs unchecked → checked as the sort controls say. Its text
+  // would sort unset rows apart and "Checked" before "Unchecked".
+  if (property?.definition.type === "checkbox") {
+    return property.value ? "1" : "0";
+  }
+  return propertyValueText(property);
 }
 
 function itemFilterValue(

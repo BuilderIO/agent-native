@@ -1,6 +1,7 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { callAction } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   createContext,
   createElement,
@@ -11,7 +12,6 @@ import {
   useRef,
   type ReactNode,
 } from "react";
-import { toast } from "sonner";
 
 import {
   CALENDAR_COLOR_MODE_KEY,
@@ -399,7 +399,7 @@ function useViewPreferencesState(): ViewPreferencesContextValue {
           }
           if (confirmed) confirmedServerRevision.current += 1;
         })
-        .catch(() => {
+        .catch((error) => {
           const activeKeys = preferenceKeys.filter(
             (key) =>
               visualPreferenceRequestIds.current[key] === requestIds.get(key),
@@ -422,9 +422,9 @@ function useViewPreferencesState(): ViewPreferencesContextValue {
             );
             return next;
           });
-          toast.error(
-            `${t("settings.saveFailed")}. ${t("common.tryAgain")}`, // i18n-key-ignore generated calendar catalog
-          );
+          reportWriteFailure(error, {
+            label: `${t("settings.saveFailed")}. ${t("common.tryAgain")}`, // i18n-key-ignore generated calendar catalog
+          });
         });
     },
     [t],
@@ -739,7 +739,7 @@ function useViewPreferencesState(): ViewPreferencesContextValue {
             });
           }
         })
-        .catch(() => {
+        .catch((error) => {
           if (visibilityRequestIds.current[preferenceKey] !== requestId) return;
           delete pendingVisibility.current[preferenceKey];
           setPrefs((current) => {
@@ -761,9 +761,9 @@ function useViewPreferencesState(): ViewPreferencesContextValue {
             save(next);
             return next;
           });
-          toast.error(
-            `${t("settings.saveFailed")}. ${t("common.tryAgain")}`, // i18n-key-ignore generated calendar catalog
-          );
+          reportWriteFailure(error, {
+            label: `${t("settings.saveFailed")}. ${t("common.tryAgain")}`, // i18n-key-ignore generated calendar catalog
+          });
         });
     },
     [demo, t],
@@ -825,7 +825,7 @@ function useViewPreferencesState(): ViewPreferencesContextValue {
             });
           }
         })
-        .catch(() => {
+        .catch((error) => {
           if (colorRequestIds.current[preferenceKey] !== requestId) return;
           delete pendingGoogleColors.current[preferenceKey];
           setPrefs((current) => {
@@ -846,9 +846,9 @@ function useViewPreferencesState(): ViewPreferencesContextValue {
             save(next);
             return next;
           });
-          toast.error(
-            `${t("settings.saveFailed")}. ${t("common.tryAgain")}`, // i18n-key-ignore generated calendar catalog
-          );
+          reportWriteFailure(error, {
+            label: `${t("settings.saveFailed")}. ${t("common.tryAgain")}`, // i18n-key-ignore generated calendar catalog
+          });
         });
     },
     [demo, t],

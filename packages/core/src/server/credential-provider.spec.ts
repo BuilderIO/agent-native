@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 
 const mockReadAppSecret = vi.fn();
+const mockReadAppSecretMeta = vi.fn();
 const mockReadAppSecrets = vi.fn();
 const mockWriteAppSecret = vi.fn();
 const mockDeleteAppSecret = vi.fn();
@@ -49,6 +50,7 @@ const MockBuilderOAuthScopeError = vi.hoisted(
 
 vi.mock("../secrets/storage.js", () => ({
   readAppSecret: (...args: any[]) => mockReadAppSecret(...args),
+  readAppSecretMeta: (...args: any[]) => mockReadAppSecretMeta(...args),
   readAppSecrets: (...args: any[]) => mockReadAppSecrets(...args),
   writeAppSecret: (...args: any[]) => mockWriteAppSecret(...args),
   deleteAppSecret: (...args: any[]) => mockDeleteAppSecret(...args),
@@ -101,9 +103,11 @@ import {
   canUseDeployCredentialFallbackForRequest,
   clearBuilderGatewayAuthFailure,
   CredentialStoreUnavailableError,
+  CredentialStoreLookupError,
   assertCredentialStoreReadable,
   getBuilderCredentialAuthFailure,
   getBuilderKeyConnections,
+  hasCompletedAutomaticBuilderSignup,
   gatewayLaneUnavailableMessage,
   getProviderCredentialAuthFailure,
   isBuilderGatewayDeployConfigured,
@@ -204,10 +208,13 @@ beforeEach(() => {
   delete process.env.GOOGLE_CLIENT_SECRET;
   delete process.env.NOTION_CLIENT_ID;
   delete process.env.NOTION_CLIENT_SECRET;
+  delete process.env.ZOOM_CLIENT_ID;
+  delete process.env.ZOOM_CLIENT_SECRET;
   delete process.env.SLACK_SIGNING_SECRET;
   delete process.env.SLACK_BOT_TOKEN;
   delete process.env.GITHUB_TOKEN;
   mockReadAppSecret.mockResolvedValue(null);
+  mockReadAppSecretMeta.mockResolvedValue(null);
   mockReadAppSecrets.mockImplementation(
     async ({ keys, scope, scopeId }: any) => {
       const entries = await Promise.all(
@@ -275,6 +282,140 @@ describe("resolveCredentialWriteScope", () => {
 });
 
 describe("writeBuilderCredentials", () => {
+  it("commits an automatic signup receipt with the private key only after other writes finish", async () => {
+    let finish!: () => void;
+    mockWriteAppSecret.mockImplementationOnce(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const pending = writeBuilderCredentials(
+      "a@b.com",
+      { privateKey: "bpk-auto-private", publicKey: "public" },
+      { automaticSignupReceipt: "clips_builder_signup_v1:attempt" },
+    );
+    await vi.waitFor(() => expect(mockWriteAppSecret).toHaveBeenCalledOnce());
+    expect(mockWriteAppSecret.mock.calls[0]?.[0].key).toBe(
+      "BUILDER_PUBLIC_KEY",
+    );
+    finish();
+    await pending;
+    expect(mockWriteAppSecret.mock.calls.at(-1)?.[0]).toEqual(
+      expect.objectContaining({
+        key: "BUILDER_PRIVATE_KEY",
+        scope: "user",
+        scopeId: "a@b.com",
+        description:
+          "Automatic Builder signup: clips_builder_signup_v1:attempt",
+      }),
+    );
+  });
+
+  it("settles every failed automatic batch before returning without a receipt", async () => {
+    let finish!: () => void;
+    mockWriteAppSecret.mockImplementation(({ key }) =>
+      key === "BUILDER_PUBLIC_KEY"
+        ? Promise.reject(new Error("write unavailable"))
+        : new Promise<void>((resolve) => {
+            finish = resolve;
+          }),
+    );
+    let settled = false;
+    const pending = writeBuilderCredentials(
+      "a@b.com",
+      {
+        privateKey: "bpk-auto-private",
+        publicKey: "public",
+        orgName: "Example",
+      },
+      { automaticSignupReceipt: "clips:attempt" },
+    ).catch((error) => {
+      settled = true;
+      return error;
+    });
+    await vi.waitFor(() => expect(mockWriteAppSecret).toHaveBeenCalledTimes(2));
+    expect(settled).toBe(false);
+    expect(
+      mockWriteAppSecret.mock.calls.some(
+        ([args]) => args.key === "BUILDER_PRIVATE_KEY",
+      ),
+    ).toBe(false);
+    finish();
+    expect(await pending).toBeInstanceOf(Error);
+    expect(
+      mockWriteAppSecret.mock.calls.some(([args]) => args.description),
+    ).toBe(false);
+  });
+
+  it("reconciles only the matching completed automatic attempt and a usable personal pair", async () => {
+    mockReadAppSecretMeta.mockResolvedValue({
+      description: "Automatic Builder signup: clips:attempt",
+      updatedAt: 200,
+      last4: "••••vate",
+    });
+    mockReadAppSecrets.mockResolvedValue(
+      new Map([
+        ["BUILDER_PRIVATE_KEY", { value: "bpk-private", updatedAt: 200 }],
+        ["BUILDER_PUBLIC_KEY", { value: "public", updatedAt: 100 }],
+      ]),
+    );
+    expect(
+      await hasCompletedAutomaticBuilderSignup("a@b.com", "clips:attempt", 150),
+    ).toBe(true);
+    expect(mockReadAppSecretMeta).toHaveBeenCalledWith({
+      key: "BUILDER_PRIVATE_KEY",
+      scope: "user",
+      scopeId: "a@b.com",
+    });
+    mockReadAppSecretMeta.mockClear();
+    mockReadAppSecrets.mockClear();
+    expect(
+      await hasCompletedAutomaticBuilderSignup(
+        "a@b.com",
+        "clips:attempt",
+        150,
+        { orgId: "qa-org", role: "owner" },
+      ),
+    ).toBe(true);
+    expect(mockReadAppSecretMeta).toHaveBeenCalledWith({
+      key: "BUILDER_PRIVATE_KEY",
+      scope: "org",
+      scopeId: "qa-org",
+    });
+    expect(mockReadAppSecrets).toHaveBeenCalledWith({
+      keys: ["BUILDER_PRIVATE_KEY", "BUILDER_PUBLIC_KEY"],
+      scope: "org",
+      scopeId: "qa-org",
+    });
+    expect(
+      await hasCompletedAutomaticBuilderSignup(
+        "a@b.com",
+        "slides:attempt",
+        150,
+      ),
+    ).toBe(false);
+    expect(
+      await hasCompletedAutomaticBuilderSignup("a@b.com", "clips:attempt", 201),
+    ).toBe(false);
+    mockReadAppSecrets.mockResolvedValue(
+      new Map([
+        ["BUILDER_PRIVATE_KEY", { value: "bpk-private", updatedAt: 200 }],
+      ]),
+    );
+    expect(
+      await hasCompletedAutomaticBuilderSignup("a@b.com", "clips:attempt", 150),
+    ).toBe(false);
+    mockReadAppSecretMeta.mockResolvedValue({
+      description: null,
+      updatedAt: 200,
+      last4: "••••vate",
+    });
+    expect(
+      await hasCompletedAutomaticBuilderSignup("a@b.com", "clips:attempt", 150),
+    ).toBe(false);
+  });
+
   it("writes at user scope without options (legacy callers)", async () => {
     const target = await writeBuilderCredentials("a@b.com", {
       privateKey: "bpk-test-private",
@@ -483,9 +624,11 @@ describe("Builder credential auth failure markers", () => {
     expect(key).not.toContain("bpk-secret");
     expect(key).not.toContain("pub-secret");
     expect(value).toMatchObject({
-      message: "Invalid key",
+      message:
+        "Builder authentication failed. Sign in to Builder.io again in Settings (free tier available).",
+      provider: "builder",
       status: 401,
-      code: "unauthorized",
+      code: "builder_auth_error",
       ownerEmail: null,
       orgId: null,
     });
@@ -507,9 +650,11 @@ describe("Builder credential auth failure markers", () => {
 
     expect(failure).toMatchObject({
       fingerprint: builderCredentialFingerprint("bpk-secret", "pub-secret"),
-      message: "Invalid key",
+      message:
+        "Builder authentication failed. Sign in to Builder.io again in Settings (free tier available).",
+      provider: "builder",
       status: 401,
-      code: "unauthorized",
+      code: "builder_auth_error",
       at,
     });
     expect(mockGetSetting).toHaveBeenCalledWith(
@@ -635,7 +780,9 @@ describe("provider credential auth failure markers", () => {
     expect(key).not.toContain("sk-example-invalid");
     expect(value).toMatchObject({
       key: "OPENAI_API_KEY",
-      message: "401 status code (no body)",
+      message:
+        "The model provider rejected the saved API key. Update it in Settings.",
+      provider: "openai",
       status: 401,
       code: "http_401",
       ownerEmail: null,
@@ -666,7 +813,9 @@ describe("provider credential auth failure markers", () => {
     expect(failure).toMatchObject({
       fingerprint,
       key: "OPENAI_API_KEY",
-      message: "Invalid key",
+      message:
+        "The model provider rejected the saved API key. Update it in Settings.",
+      provider: "openai",
       status: 401,
       code: "http_401",
       at,
@@ -2001,11 +2150,17 @@ describe("resolveSecret (generic)", () => {
     await expect(resolveSecret("HUBSPOT_MCP_CLIENT_SECRET")).resolves.toBe(
       "granted-secret",
     );
-    expect(mockGetDbExec().execute).toHaveBeenCalledWith(
-      expect.objectContaining({
-        args: ["dispatch-vault", "factory", "HUBSPOT_MCP_CLIENT_SECRET"],
-      }),
-    );
+    const [query] = vi.mocked(mockGetDbExec().execute).mock.calls[0] as [
+      { sql: string; args: string[] },
+    ];
+    expect(query.args).toEqual([
+      "dispatch-vault",
+      "factory",
+      "HUBSPOT_MCP_CLIENT_SECRET",
+    ]);
+    // The grant names its key itself, so no other table is read for it.
+    expect(query.sql).toMatch(/credential_key = \?/);
+    expect(query.sql).not.toMatch(/JOIN/i);
   });
 
   it("recovers the org-scoped row when request org context is transiently missing", async () => {
@@ -2154,6 +2309,31 @@ describe("resolveSecret (generic)", () => {
         resolveSecret("SLACK_SIGNING_SECRET"),
       ).rejects.toBeInstanceOf(CredentialStoreUnavailableError);
     });
+  });
+
+  it("uses app-provided meeting-recorder OAuth client env in a signed-in production shared-database request", async () => {
+    process.env.NODE_ENV = "production";
+    process.env.ZOOM_CLIENT_ID = "recorder-deploy-client-id";
+    process.env.ZOOM_CLIENT_SECRET = "recorder-deploy-secret";
+    mockIsLocalDatabase.mockReturnValue(false);
+    mockGetRequestUserEmail.mockReturnValue("a@b.com");
+    mockReadAppSecret.mockResolvedValue(null);
+
+    // The connect flow asks for these two through resolveSecret; without them in
+    // the app-provided deploy list a hosted workspace answers "not configured"
+    // even though the pair is set on the deployment.
+    expect(await resolveSecret("ZOOM_CLIENT_ID")).toBe(
+      "recorder-deploy-client-id",
+    );
+    expect(await resolveSecret("ZOOM_CLIENT_SECRET")).toBe(
+      "recorder-deploy-secret",
+    );
+    expect(canUseDeployCredentialFallbackForRequest("ZOOM_CLIENT_ID")).toBe(
+      true,
+    );
+    expect(canUseDeployCredentialFallbackForRequest("ZOOM_CLIENT_SECRET")).toBe(
+      true,
+    );
   });
 
   it("uses app-provided Notion OAuth client env in a signed-in production shared-database request", async () => {
@@ -2644,7 +2824,7 @@ describe("unreadable credential store is not 'not configured'", () => {
       cause: expect.any(AppSecretDecryptionError),
     });
     await expect(resolveSecret("OPENAI_API_KEY")).rejects.toBeInstanceOf(
-      CredentialStoreUnavailableError,
+      CredentialStoreLookupError,
     );
   });
 
@@ -2656,13 +2836,30 @@ describe("unreadable credential store is not 'not configured'", () => {
     ).rejects.toBeInstanceOf(CredentialStoreUnavailableError);
   });
 
-  it("reports an undecryptable saved secret as unavailable instead of missing", () => {
+  it("reports an undecryptable saved secret as a permanent failure instead of missing", () => {
     expect(() =>
       assertCredentialStoreReadable({
         lookupFailed: true,
         cause: new AppSecretDecryptionError(),
       }),
-    ).toThrow(CredentialStoreUnavailableError);
+    ).toThrow(CredentialStoreLookupError);
+  });
+
+  it.each([
+    new CredentialStoreUnavailableError(new Error("fake provider outage")),
+    new CredentialStoreLookupError(new Error("fake permanent lookup failure")),
+  ])("preserves an already classified credential failure: $name", (failure) => {
+    expect(() =>
+      assertCredentialStoreReadable({ lookupFailed: true, cause: failure }),
+    ).toThrow(failure);
+    try {
+      assertCredentialStoreReadable({ lookupFailed: true, cause: failure });
+    } catch (error) {
+      expect(error).toBe(failure);
+    }
+    expect(() =>
+      assertCredentialStoreReadable({ lookupFailed: false, cause: failure }),
+    ).not.toThrow();
   });
 
   it("does not report the retryable error as a missing-LLM-credential error", () => {
@@ -3808,7 +4005,7 @@ describe("Restrict personal API keys", () => {
 
     await expect(
       resolveSecretPair(["GOOGLE_CLIENT_ID", "GOOGLE_CLIENT_SECRET"]),
-    ).rejects.toBeInstanceOf(CredentialStoreUnavailableError);
+    ).rejects.toBeInstanceOf(CredentialStoreLookupError);
     expect(
       mockReadAppSecret.mock.calls.some(([args]) => args.scope === "org"),
     ).toBe(false);
@@ -3882,7 +4079,7 @@ describe("host-managed Builder credentials", () => {
     mockGetRequestUserEmail.mockReturnValue(owner);
     mockGetRequestOrgId.mockReturnValue(undefined);
     mockReadAppSecret.mockResolvedValue(null);
-    mockReadAppSecrets.mockResolvedValue([]);
+    mockReadAppSecrets.mockResolvedValue(new Map());
   });
 
   afterEach(() => {
@@ -3932,9 +4129,14 @@ describe("host-managed Builder credentials", () => {
       key,
       value: `shared-${key}`,
     }));
-    mockReadAppSecrets.mockResolvedValue([
-      { key: "BUILDER_PRIVATE_KEY", value: "shared-key" },
-    ]);
+    mockReadAppSecrets.mockResolvedValue(
+      new Map([
+        [
+          "BUILDER_PRIVATE_KEY",
+          { key: "BUILDER_PRIVATE_KEY", value: "shared-key" },
+        ],
+      ]),
+    );
 
     await expect(
       resolveBuilderCredential("BUILDER_PRIVATE_KEY"),

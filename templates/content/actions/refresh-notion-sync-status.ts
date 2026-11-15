@@ -14,11 +14,12 @@ export default defineAction({
     id: z.string().optional().describe("Alias for --documentId"),
     autoSync: z.boolean().optional(),
   }),
-  run: async (args) => {
+  run: async (args, ctx) => {
     const documentId = resolveDocumentId(args);
     const owner = await getNotionDocumentOwner(documentId);
     return refreshDocumentSyncStatus(owner, documentId, {
       autoSync: !!args.autoSync,
+      ctx,
     });
   },
 });

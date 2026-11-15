@@ -7,6 +7,8 @@
  * Read through the `get-infrastructure-status` action (owners and admins).
  */
 
+import { z } from "zod";
+
 import { getAppConfig } from "../app-config/index.js";
 import { isLocalDatabase } from "../db/client.js";
 import { getDatabaseRuntimeFingerprint } from "../db/runtime-diagnostics.js";
@@ -96,6 +98,64 @@ export interface InfrastructureStatus {
   variables: InfrastructureVariable[];
   setupTags: InfrastructureSetupTags;
 }
+
+export const infrastructureStatusOutputSchema = z.object({
+  workspace: z.boolean(),
+  database: z.object({
+    configured: z.boolean(),
+    local: z.boolean(),
+    provider: z
+      .enum(["neon", "supabase", "aws-rds", "postgres", "pglite"])
+      .nullable(),
+    host: z.string().nullable(),
+    sourceKey: z.string().nullable(),
+    appDatabaseKey: z.string().nullable(),
+  }),
+  hosting: z.object({
+    platform: z.enum([
+      "netlify",
+      "vercel",
+      "cloudflare",
+      "render",
+      "fly",
+      "cloud-run",
+      "aws-lambda",
+      "node",
+      "local",
+    ]),
+    environment: z.string(),
+    apps: z.array(
+      z.object({
+        id: z.string(),
+        name: z.string(),
+        url: z.string().nullable(),
+        path: z.string().nullable(),
+      }),
+    ),
+    gatewayUrl: z.string().nullable(),
+  }),
+  variables: z.array(
+    z.object({
+      key: z.enum([
+        "DATABASE_URL",
+        "A2A_SECRET",
+        "BETTER_AUTH_SECRET",
+        "APP_URL",
+        "SECRETS_ENCRYPTION_KEY",
+      ]),
+      required: z.boolean(),
+      set: z.boolean(),
+      weak: z.literal(true).optional(),
+    }),
+  ),
+  setupTags: z.object({
+    model: z.enum(["required", "recommended"]).nullable(),
+    storage: z.enum(["required", "recommended"]).nullable(),
+    voice: z.enum(["required", "recommended"]).nullable(),
+    images: z.enum(["required", "recommended"]).nullable(),
+    embeddings: z.enum(["required", "recommended"]).nullable(),
+  }),
+});
 
 export function databaseProviderForHost(
   host: string | undefined,

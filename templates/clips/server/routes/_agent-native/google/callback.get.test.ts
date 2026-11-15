@@ -5,6 +5,7 @@ const getQuery = vi.hoisted(() => vi.fn());
 
 vi.mock("@agent-native/core/server", () => ({
   createOAuthSession: vi.fn(),
+  recordBuilderSignupBinding: vi.fn(),
   decodeOAuthState: vi.fn(),
   ensureGoogleAuthIdentity: vi.fn(),
   getAppUrl: vi.fn(),
@@ -89,6 +90,7 @@ describe("persistGoogleProfileImage", () => {
     const core = await import("@agent-native/core/server");
     vi.mocked(core.decodeOAuthState).mockReturnValue({
       ok: true,
+      builderSignupAttemptId: "signup-attempt",
       redirectUri:
         "https://clips.agent-native.com/_agent-native/google/callback",
     } as never);
@@ -123,6 +125,19 @@ describe("persistGoogleProfileImage", () => {
     );
 
     await expect(callbackHandler({} as never)).resolves.toBe("ok");
+
+    expect(core.recordBuilderSignupBinding).toHaveBeenCalledWith(
+      {},
+      "signup-attempt",
+      "google",
+      "new-user@example.com",
+      {
+        email: "new-user@example.com",
+        token: "session-token",
+        name: "New User",
+        emailVerified: true,
+      },
+    );
 
     expect(core.createOAuthSession).toHaveBeenCalledWith(
       {},

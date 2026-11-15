@@ -1,4 +1,5 @@
 import { Node } from "@tiptap/core";
+import type { EditorView } from "@tiptap/pm/view";
 import { ReactNodeViewRenderer } from "@tiptap/react";
 import { defaultMarkdownSerializer } from "prosemirror-markdown";
 
@@ -8,7 +9,8 @@ export interface ContentAudioOptions {
   HTMLAttributes: Record<string, unknown>;
   documentId?: string;
   canMutateMedia?: () => boolean;
-  onAudioComment?: (quotedText: string, offsetTop: number) => void;
+  /** Starts a comment on the whole audio clip at `pos` in `view`. */
+  onAudioComment?: (view: EditorView, pos: number, offsetTop: number) => void;
 }
 
 function normalizedAudioWidth(value: unknown): number | null {

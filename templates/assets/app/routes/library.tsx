@@ -109,6 +109,11 @@ import {
   type ImageLibrarySummary,
 } from "@/lib/libraries";
 import { buildPickerChatHandoffPrompt } from "@/lib/picker-chat-handoff";
+import {
+  PICKER_IMAGE_FILE_REQUEST,
+  readChosenPickerImage,
+  type ChosenPickerImage,
+} from "@/lib/picker-image-file";
 import { cn } from "@/lib/utils";
 
 import type {
@@ -2465,6 +2470,8 @@ export function AssetPickerSurface() {
     } satisfies HostConfig;
   }, [hostParamsKey]);
   const bridgeRef = useRef<EmbeddedAppBridge | null>(null);
+  // Images chosen in this picker, which the host may ask for the file of.
+  const chosenImagesRef = useRef(new Map<string, ChosenPickerImage>());
   const embedded = useMemo(
     () =>
       searchParamsEnableEmbeddedLibrary(searchParams) ||
@@ -2857,6 +2864,13 @@ export function AssetPickerSurface() {
       if (!mcpChatBridgeActive) {
         postEmbeddedSelectionMessage("chooseAsset", payload);
         if (payload.mediaType === "image") {
+          if (payload.url) {
+            chosenImagesRef.current.set(payload.assetId, {
+              url: payload.url,
+              title: payload.title,
+              mimeType: payload.mimeType,
+            });
+          }
           postEmbeddedSelectionMessage("chooseImage", payload);
         }
       }
@@ -3042,6 +3056,10 @@ export function AssetPickerSurface() {
 
   useEffect(() => {
     const bridge = createEmbeddedAppBridge({
+      onRequest: ({ name, payload }) =>
+        name === PICKER_IMAGE_FILE_REQUEST
+          ? readChosenPickerImage(chosenImagesRef.current, payload)
+          : undefined,
       onMessage: ({ name, payload }) => {
         if (name !== "configure") return;
         const next = normalizeHostConfig(payload);

@@ -10,8 +10,10 @@ describe("list-agent-engines", () => {
     source: string;
   };
   let defaultAuthority: { allowed: boolean };
+  let defaultScopeResolved: boolean;
 
   beforeEach(() => {
+    vi.doUnmock("../../agent/engine/index.js");
     vi.doUnmock("../../server/credential-provider.js");
     vi.resetModules();
     vi.doUnmock("../../settings/store.js");
@@ -69,8 +71,15 @@ describe("list-agent-engines", () => {
     }));
     defaultSetting = { value: null, source: "none" };
     defaultAuthority = { allowed: true };
+    defaultScopeResolved = true;
     vi.doMock("../../agent/default-agent-engine.js", () => ({
-      readDefaultAgentEngineSettingDetailed: vi.fn(async () => defaultSetting),
+      isDefaultAgentEngineScopeResolved: vi.fn(() => defaultScopeResolved),
+      readDefaultAgentEngineSettingDetailed: vi.fn(async () => {
+        if (!defaultScopeResolved) {
+          throw new Error("Organization scope could not be resolved.");
+        }
+        return defaultSetting;
+      }),
       resolveDefaultAgentEngineAuthority: vi.fn(async () => defaultAuthority),
     }));
     readAppSecrets = vi.fn().mockResolvedValue(new Map());
@@ -104,6 +113,16 @@ describe("list-agent-engines", () => {
       engine: "fixture-configured-model",
       model: "configured-model",
     });
+  });
+
+  it("lists engines and reports an unresolved default when org scope is unknown", async () => {
+    defaultScopeResolved = false;
+    defaultAuthority = { allowed: false };
+    const { run } = await import("./list-agent-engines.js");
+    const result = JSON.parse(await run());
+    expect(result.defaultSource).toBe("unresolved");
+    expect(result.canUpdateDefault).toBe(false);
+    expect(result.engines.length).toBeGreaterThan(0);
   });
 
   it("prefetches installed provider keys in one catalog batch", async () => {
@@ -272,7 +291,7 @@ describe("list-agent-engines", () => {
     });
   });
 
-  it("keeps an unreadable provider selection distinct from a readable unset selection", async () => {
+  it("keeps a transiently unreadable provider selection distinct from a readable unset selection", async () => {
     vi.doMock(
       "../../server/credential-provider.js",
       async (importOriginal) => ({
@@ -282,6 +301,12 @@ describe("list-agent-engines", () => {
         resolveSecretDetailed: vi.fn(async (key: string) => ({
           value: null,
           lookupFailed: key === "GOOGLE_GENERATIVE_AI_API_KEY",
+          cause:
+            key === "GOOGLE_GENERATIVE_AI_API_KEY"
+              ? Object.assign(new Error("db query timed out"), {
+                  code: "57014",
+                })
+              : undefined,
         })),
       }),
     );
@@ -305,6 +330,52 @@ describe("list-agent-engines", () => {
       state: "default",
       scope: "org",
     });
+    expect(byName("ai-sdk:google")).toMatchObject({
+      configuredError: expect.stringContaining("Could not read"),
+    });
+    expect(byName("ai-sdk:google")?.configured).toBeUndefined();
+    expect(byName("ai-sdk:openai")?.configured).toBe(false);
+    expect(byName("ai-sdk:openai")?.configuredError).toBeUndefined();
+    expect(result.current).toBeNull();
+    expect(result.currentError).toContain("Could not read");
+  });
+
+  it.each(["forbidden", "unexpected", "nonretryable lookup"])(
+    "preserves a %s failure from current-engine discovery",
+    async (kind) => {
+      const { ForbiddenError } = await import("../../sharing/access.js");
+      const { CredentialStoreLookupError } =
+        await import("../../server/credential-provider.js");
+      const cause =
+        kind === "forbidden"
+          ? new ForbiddenError()
+          : kind === "nonretryable lookup"
+            ? new CredentialStoreLookupError(new Error("discovery failed"))
+            : new Error("discovery failed");
+      vi.doMock("../../agent/engine/index.js", async (importOriginal) => ({
+        ...(await importOriginal<
+          typeof import("../../agent/engine/index.js")
+        >()),
+        detectEngineFromUserSecrets: async () => {
+          throw cause;
+        },
+      }));
+      const { run } = await import("./list-agent-engines.js");
+      await expect(run()).rejects.toBe(cause);
+    },
+  );
+
+  it("preserves a definitive refusal during per-engine readiness checks", async () => {
+    const { ForbiddenError } = await import("../../sharing/access.js");
+    const cause = new ForbiddenError();
+    vi.doMock("../../agent/engine/index.js", async (importOriginal) => ({
+      ...(await importOriginal<typeof import("../../agent/engine/index.js")>()),
+      isStoredEngineUsableForRequest: async () => {
+        throw cause;
+      },
+    }));
+    const { run } = await import("./list-agent-engines.js");
+    await expect(run()).rejects.toBe(cause);
   });
 
   it("does not report AGENT_ENGINE as current when its optional package is missing", async () => {

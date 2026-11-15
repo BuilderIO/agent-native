@@ -3083,6 +3083,11 @@ describe("private preview document drafts", () => {
     expect(copy).toMatchObject({
       ownerEmail: COLLABORATOR,
       parentId: null,
+      spaceId: (await import("./_content-spaces.js")).personalContentSpaceId(
+        COLLABORATOR,
+      ),
+      orgId: null,
+      visibility: "private",
       content: "Collaborator recovery",
     });
     const sharedHistory = await getDb()
@@ -3094,6 +3099,59 @@ describe("private preview document drafts", () => {
         expect.objectContaining({ content: "Collaborator recovery" }),
       ]),
     );
+  });
+
+  it("files an automatic recovery by who owns the page now, not what the client thinks", async () => {
+    const documentId = await createDocument();
+    const fileAs = async (user: string, content: string) => {
+      await asUser(user, () =>
+        updateDraft.run({
+          operation: "upsert",
+          documentId,
+          expectedVersion: null,
+          draft: { ...payload(content), deferredReason: "conflict" },
+        }),
+      );
+      return asUser(user, () =>
+        resolveDraft.run({
+          choice: "automatic",
+          documentId,
+          expectedDraftVersion: 1,
+          expectedDraftTitle: "Builder row",
+          expectedDraftContent: content,
+          expectedDocumentUpdatedAt: documentUpdatedAt(documentId),
+        }),
+      );
+    };
+
+    const owners = await fileAs(OWNER, "Owner recovery");
+    expect(owners).toMatchObject({ status: "resolved", choice: "use_saved" });
+    expect(owners.createdDocumentId).toBeUndefined();
+    const history = await getDb()
+      .select()
+      .from(schema.documentVersions)
+      .where(eq(schema.documentVersions.documentId, documentId));
+    expect(history).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ content: "Owner recovery" }),
+      ]),
+    );
+
+    const collaborators = await fileAs(COLLABORATOR, "Collaborator recovery");
+    expect(collaborators).toMatchObject({
+      status: "resolved",
+      choice: "save_separately",
+    });
+    const [copy] = await getDb()
+      .select()
+      .from(schema.documents)
+      .where(eq(schema.documents.id, collaborators.createdDocumentId ?? ""));
+    expect(copy).toMatchObject({
+      ownerEmail: COLLABORATOR,
+      visibility: "private",
+      content: "Collaborator recovery",
+    });
+    expect(collaborators.urlPath).toBe(`/page/${copy.id}`);
   });
 
   it("rejects a different terminal recovery choice for an already claimed draft", async () => {
@@ -3387,6 +3445,45 @@ describe("private preview document drafts", () => {
       .where(eq(schema.documents.id, documentId));
     const deleted = await asUser(OWNER, () => updateDraft.run(held));
     expect(deleted).toEqual({ status: "deleted", draft: null });
+  });
+
+  it("keeps, resolves and clears the draft of a page over 500,000 characters", async () => {
+    const documentId = await createDocument();
+    const content = "A long working note.\n\n".repeat(30_000);
+    const upsert = {
+      operation: "upsert" as const,
+      documentId,
+      expectedVersion: null,
+      draft: payload(content),
+    };
+    const remove = {
+      operation: "delete" as const,
+      documentId,
+      expectedVersion: 1,
+      expectedTitle: "Builder row",
+      expectedContent: content,
+    };
+    const resolve = {
+      choice: "use_saved" as const,
+      documentId,
+      expectedDraftVersion: 1,
+      expectedDraftTitle: "Builder row",
+      expectedDraftContent: content,
+      expectedDocumentUpdatedAt: "server-v1",
+    };
+
+    for (const args of [upsert, remove])
+      expect(
+        (await updateDraft.schema["~standard"].validate(args)).issues,
+      ).toBeUndefined();
+    expect(
+      (await resolveDraft.schema["~standard"].validate(resolve)).issues,
+    ).toBeUndefined();
+    await asUser(OWNER, () => updateDraft.run(upsert));
+    expect(await asUser(OWNER, () => updateDraft.run(remove))).toEqual({
+      status: "deleted",
+      draft: null,
+    });
   });
 
   it("keeps C2 recoverable when older C1 persistence finishes after the C2 draft", async () => {

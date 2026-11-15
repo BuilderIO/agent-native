@@ -13,6 +13,7 @@ import test from "node:test";
 
 import {
   classifyChangedPaths,
+  readAddedPaths,
   readChangedPaths,
   readDeletedPaths,
   readSameDirectoryPureDesignSpecRenames,
@@ -248,4 +249,80 @@ test("only diagnostics use the filtered Design spec list", () => {
       "needs.change-scope.outputs.design_canvas_e2e_diagnostic_specs",
     ),
   );
+});
+
+test("runs the guards when docs add or rename a page browsers load", () => {
+  const repoPath = mkdtempSync(join(tmpdir(), "ci-change-scope-added-"));
+  const runGit = (...args: string[]) => {
+    const result = spawnSync("git", ["-C", repoPath, ...args], {
+      encoding: "utf8",
+    });
+    assert.equal(
+      result.status,
+      0,
+      `git ${args.join(" ")} failed: ${result.stderr}`,
+    );
+    return result.stdout.trim();
+  };
+
+  try {
+    runGit("init", "--quiet");
+    runGit("config", "user.name", "CI Change Scope Test");
+    runGit("config", "user.email", "ci-change-scope@example.invalid");
+    const pagePath = "packages/core/docs/content/actions.md";
+    mkdirSync(join(repoPath, "packages/core/docs/content"), {
+      recursive: true,
+    });
+    writeFileSync(join(repoPath, pagePath), "# Actions\n");
+    runGit("add", "--all");
+    runGit("commit", "--quiet", "-m", "add docs page");
+    const baseSha = runGit("rev-parse", "HEAD");
+
+    const scopeFor = (message: string, change: () => void) => {
+      runGit("reset", "--hard", baseSha);
+      change();
+      runGit("add", "--all");
+      runGit("commit", "--quiet", "-m", message);
+      const headSha = runGit("rev-parse", "HEAD");
+      const addedPaths = readAddedPaths(baseSha, headSha, repoPath);
+      const scope = classifyChangedPaths(
+        readChangedPaths(baseSha, headSha, repoPath),
+        [],
+        repoPath,
+        readDeletedPaths(baseSha, headSha, repoPath),
+        addedPaths,
+      );
+      return {
+        addedPaths,
+        docsOnly: scope.docsOnly,
+        guards: scope.checks.guards,
+      };
+    };
+
+    // An edit keeps the page's name.
+    assert.deepEqual(
+      scopeFor("edit docs page", () => {
+        writeFileSync(join(repoPath, pagePath), "# Actions\n\nMore.\n");
+      }),
+      { addedPaths: [], docsOnly: true, guards: false },
+    );
+    const renamedPath = "packages/core/docs/content/cookie-notice.md";
+    assert.deepEqual(
+      scopeFor("rename docs page", () => {
+        runGit("mv", pagePath, renamedPath);
+      }),
+      { addedPaths: [renamedPath], docsOnly: true, guards: true },
+    );
+    // Plans and other repo docs never reach a browser.
+    const planPath = "docs/plans/cookie-notice.md";
+    assert.deepEqual(
+      scopeFor("add plan", () => {
+        mkdirSync(join(repoPath, "docs/plans"), { recursive: true });
+        writeFileSync(join(repoPath, planPath), "# Plan\n");
+      }),
+      { addedPaths: [planPath], docsOnly: true, guards: false },
+    );
+  } finally {
+    rmSync(repoPath, { recursive: true, force: true });
+  }
 });

@@ -137,6 +137,8 @@ https://<your-app>.agent-native.com/mcp
 
 重新安裝連接器或變更公開分享連結，無法解決已確認的已連線帳戶權限遭拒問題。
 
+上傳到非公開文件的圖片會以 `/api/private-media/<id>` 連結的形式儲存在內文中，只有登入 Content 後才能載入。代理程式透過 MCP 讀取文件時，`get-document` 和 Markdown 格式的 `pull-document` 也會回傳 `privateMediaLinks`：每個已儲存的連結，以及一個不需登入即可在一小時內開啟該圖片的 URL。一次讀取最多為 200 張圖片提供連結，其餘數量記在 `omitted` 中。需要新連結時請重新讀取文件。編輯內文時請保留已儲存的連結。
+
 <a id="access-tab"></a>
 
 ### 應用程式內的 MCP 設定 {#mcp-settings}
@@ -664,7 +666,7 @@ Actions 可以為支援 MCP 應用擴充功能的主機通告帶有 `mcpApp` 的
     "name": "to",
     "in": "query",
     "type": "string",
-    "description": "Optional explicit same-origin relative redirect target. Falls back to `/<view>`, then a per-template `resolveOpenPath`."
+    "description": "Optional explicit same-origin relative redirect target. Falls back to a per-template `resolveOpenPath`, then `/<view>`."
   },
   {
     "name": "compose",
@@ -696,7 +698,7 @@ Resolves the browser session, writes a one-shot `navigate` application-state com
 1. 透過 `getSession` 解析 **瀏覽器** 工作階段（驗證防護繞過確切路徑 `/_agent-native/open`）。
 2. 如果未經驗證，則在相同的 URL 處提供設定的登入 HTML \*\*；表單的成功處理常式重新載入 `window.location`，重新輸入經過驗證的路由 - 沒有 `?next=` 管道。
 3. 使用 `requestSource: "deep-link"` 寫入現有的一次性 `navigate` 應用程式狀態指令（有效負載 = 每個非保留查詢參數 + `view`），其範圍僅限於瀏覽器工作階段的電子郵件，並將 `compose` base64url 草稿解碼為 `compose-<id>` 金鑰。
-4. 302-重新導向到安全的同來源相對路徑（`to=`，或者`/<view>`，或者每個範本的`resolveOpenPath`），轉發`f_*`過濾器參數，以便在`navigate`指令耗盡之前開啟預先過濾的清單/儀表板。
+4. 302-重新導向到安全的同來源相對路徑（`to=`，或者每個範本的`resolveOpenPath`，或者`/<view>`），轉發`f_*`過濾器參數，以便在`navigate`指令耗盡之前開啟預先過濾的清單/儀表板。
 
 跨來源、方案相關 `//host` 和控制字符重新導向被拒絕（開放重新導向防護）。可以透過 `disableOpenRoute` 停用每個應用程式的路由。
 

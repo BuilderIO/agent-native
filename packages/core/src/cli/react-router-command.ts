@@ -22,8 +22,8 @@ export function findReactRouterInvocation(
   cwd = process.cwd(),
 ): { command: string; args: string[]; shell: boolean } {
   const shim = findBinUpwards("react-router", cwd);
-  if (shim) {
-    return { command: shim, args, shell: process.platform === "win32" };
+  if (shim && process.platform !== "win32") {
+    return { command: shim, args, shell: false };
   }
 
   const require = createRequire(path.join(cwd, "package.json"));
@@ -36,11 +36,20 @@ export function findReactRouterInvocation(
     ) {
       throw error;
     }
-    return {
-      command: "react-router",
-      args,
-      shell: process.platform === "win32",
-    };
+    const localPackageJson = shim
+      ? path.join(
+          path.dirname(path.dirname(shim)),
+          "@react-router/dev/package.json",
+        )
+      : undefined;
+    if (!localPackageJson || !fs.existsSync(localPackageJson)) {
+      return {
+        command: "react-router",
+        args,
+        shell: process.platform === "win32",
+      };
+    }
+    pkgJsonPath = localPackageJson;
   }
 
   const pkg = JSON.parse(fs.readFileSync(pkgJsonPath, "utf-8")) as {

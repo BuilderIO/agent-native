@@ -10,6 +10,7 @@ import {
   __resetProcessMemberOrgCacheForTests,
   invalidateMemberOrgCaches,
 } from "./request-org-cache.js";
+import { unbuiltWorkspaceAppIds } from "./workspace-app-access.js";
 
 const mocks = vi.hoisted(() => ({
   execute: vi.fn(),
@@ -68,6 +69,178 @@ describe("isWorkspaceAppAccessAllowed", () => {
     mocks.execute.mockReset();
     mocks.includeUser.mockReset();
     mocks.validateFederatedOrganizationMembershipForCurrentRequest.mockReset();
+  });
+
+  it.each([
+    {
+      name: "active member",
+      enabled: true,
+      visibility: "org",
+      member: true,
+      org: "org-1",
+      allowed: true,
+    },
+    {
+      name: "disabled app",
+      enabled: false,
+      visibility: "org",
+      member: true,
+      org: "org-1",
+      allowed: false,
+    },
+    {
+      name: "removed member",
+      enabled: true,
+      visibility: "org",
+      member: false,
+      org: "org-1",
+      allowed: false,
+    },
+    {
+      name: "other organization",
+      enabled: true,
+      visibility: "org",
+      member: true,
+      org: "org-2",
+      allowed: false,
+    },
+    {
+      name: "unshared private app",
+      enabled: true,
+      visibility: "private",
+      member: true,
+      org: "org-1",
+      allowed: false,
+    },
+  ])(
+    "uses authoritative shared-database access checks for $name without an HTTP hop",
+    async ({ enabled, visibility, member, org, allowed }) => {
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE_AUTH_MODE", "shared");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ACCESS_STORE", "database");
+      vi.stubEnv(
+        "AGENT_NATIVE_ORG_DIRECTORY_URL",
+        "https://directory.example.test/dispatch",
+      );
+      const fetchMock = vi
+        .fn()
+        .mockRejectedValue(new Error("No directory HTTP read expected"));
+      vi.stubGlobal("fetch", fetchMock);
+      mocks.execute
+        .mockResolvedValue({ rows: [] })
+        .mockResolvedValueOnce({
+          rows: [
+            {
+              owner_email: "owner@example.com",
+              org_id: "org-1",
+              visibility,
+              org_enabled: enabled,
+            },
+          ],
+        })
+        .mockResolvedValueOnce({ rows: member ? [{ role: "member" }] : [] });
+      mocks.includeUser.mockResolvedValue(false);
+      await expect(
+        isWorkspaceAppAccessAllowed("analytics", {
+          email: "member@example.com",
+          orgId: org,
+        }),
+      ).resolves.toBe(allowed);
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(mocks.execute).toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    { workspace: "0", auth: "shared" },
+    { workspace: "1", auth: "isolated" },
+  ])(
+    "refuses database app-access store outside a shared workspace ($workspace/$auth)",
+    async ({ workspace, auth }) => {
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE", workspace);
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ACCESS_STORE", "database");
+      vi.stubEnv("AGENT_NATIVE_WORKSPACE_AUTH_MODE", auth);
+      vi.stubEnv(
+        "AGENT_NATIVE_ORG_DIRECTORY_URL",
+        "https://directory.example.test/dispatch",
+      );
+      const fetchMock = vi.fn();
+      vi.stubGlobal("fetch", fetchMock);
+      await expect(
+        isWorkspaceAppAccessAllowed("analytics", CALLER),
+      ).rejects.toThrow("shared workspace");
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(mocks.execute).not.toHaveBeenCalled();
+    },
+  );
+
+  it("keeps the configured HTTP directory authoritative in auto mode", async () => {
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ACCESS_STORE", "auto");
+    vi.stubEnv(
+      "AGENT_NATIVE_ORG_DIRECTORY_URL",
+      "https://directory.example.test/dispatch",
+    );
+    vi.stubEnv("A2A_SECRET", "test-a2a-secret");
+    const fetchMock = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify([{ id: "analytics" }]), {
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    await expect(
+      isWorkspaceAppAccessAllowed("analytics", CALLER),
+    ).resolves.toBe(true);
+    expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it("denies database app access when its authoritative database fails", async () => {
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_AUTH_MODE", "shared");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ACCESS_STORE", "database");
+    mocks.execute.mockRejectedValue(new Error("Database unavailable"));
+    await expect(
+      isWorkspaceAppAccessAllowed("analytics", {
+        email: "member@example.com",
+        orgId: "org-1",
+      }),
+    ).resolves.toBe(false);
+  });
+
+  it("denies a removed federated member in database app-access mode", async () => {
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_AUTH_MODE", "shared");
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE_APP_ACCESS_STORE", "database");
+    mocks.execute
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            owner_email: "owner@example.com",
+            org_id: "org-1",
+            visibility: "org",
+          },
+        ],
+      })
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            role: "member",
+            identityAuthority: "https://identity.example.test",
+            identityId: "org-1",
+          },
+        ],
+      });
+    mocks.validateFederatedOrganizationMembershipForCurrentRequest.mockResolvedValue(
+      { active: false, role: null },
+    );
+    await expect(
+      isWorkspaceAppAccessAllowed("analytics", {
+        email: "member@example.com",
+        orgId: "org-1",
+      }),
+    ).resolves.toBe(false);
+    expect(
+      mocks.validateFederatedOrganizationMembershipForCurrentRequest,
+    ).toHaveBeenCalled();
   });
 
   it("allows the recorded owner in the app organization", async () => {
@@ -436,6 +609,37 @@ describe("isWorkspaceAppAccessAllowed", () => {
     ).resolves.toBe(false);
   });
 
+  it("allows a configured app for a caller whose org does not exist yet", async () => {
+    // On a hosted workspace, a brand-new account's first action was refused with
+    // "You do not have access to this workspace app" while the deny line showed
+    // sharedConfiguredApp=true with no org id — the app is the workspace's own app,
+    // offered to that caller as mode all, and only the missing org id denied it.
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([
+        {
+          id: "account-expert",
+          name: "Account Expert",
+          description: "Account workspace",
+          path: "/account-expert/",
+        },
+      ]),
+    );
+    resetAppConfigForTests();
+    // The row belongs to another organization, which is the normal state once any
+    // org has opened the app; the caller has no org yet.
+    mocks.execute.mockResolvedValue({
+      rows: [{ org_id: "org-other", visibility: "org", org_enabled: 1 }],
+    });
+
+    await expect(
+      isWorkspaceAppAccessAllowed("account-expert", {
+        email: "fresh@example.com",
+        orgId: undefined,
+      }),
+    ).resolves.toBe(true);
+  });
+
   it("registers a configured workspace app when its organization owner opens it", async () => {
     vi.stubEnv(
       "AGENT_NATIVE_WORKSPACE_APPS_JSON",
@@ -500,6 +704,41 @@ describe("isWorkspaceAppAccessAllowed", () => {
       }),
     ).resolves.toBe(false);
     expect(mocks.execute).toHaveBeenCalledTimes(2);
+  });
+
+  it("opens a registered configured workspace app for a member of another org", async () => {
+    vi.stubEnv(
+      "AGENT_NATIVE_WORKSPACE_APPS_JSON",
+      JSON.stringify([
+        {
+          id: "account-expert",
+          name: "Account Expert",
+          path: "/account-expert/",
+        },
+      ]),
+    );
+    resetAppConfigForTests();
+    mocks.execute
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            owner_email: "",
+            org_id: "org-builder",
+            visibility: "org",
+            org_enabled: true,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rows: [{ role: "member" }] });
+
+    // A personal-org member can open a configured workspace app another org
+    // claimed; app data stays scoped to the caller's org and user.
+    await expect(
+      isWorkspaceAppAccessAllowed("account-expert", {
+        email: "member@example.com",
+        orgId: "org-personal",
+      }),
+    ).resolves.toBe(true);
   });
 
   it("does not register an app missing from the workspace manifest", async () => {
@@ -1742,5 +1981,36 @@ describe("isWorkspaceAppAccessAllowed", () => {
         upstreamStatus: 401,
       });
     });
+  });
+});
+
+describe("unbuiltWorkspaceAppIds", () => {
+  const configured = [
+    { id: "mail-app" },
+    { id: "brain-app" },
+    { id: "dispatch" },
+  ];
+
+  it("names org rows for apps this deployment does not build", () => {
+    // A hosted workspace kept offering a removed app (a 404) in the switcher long after the app
+    // was removed, because the org row outlived the build.
+    expect(
+      unbuiltWorkspaceAppIds(
+        ["mail-app", "slides-app", "brain-app", "old-crm"],
+        configured,
+      ),
+    ).toEqual(["slides-app", "old-crm"]);
+  });
+
+  it("keeps every configured app, row or no row", () => {
+    expect(
+      unbuiltWorkspaceAppIds(["mail-app", "brain-app", "dispatch"], configured),
+    ).toEqual([]);
+    // No row at all for dispatch: still nothing to hide.
+    expect(unbuiltWorkspaceAppIds([], configured)).toEqual([]);
+  });
+
+  it("filters nothing without a configured catalog, so single-app deployments are untouched", () => {
+    expect(unbuiltWorkspaceAppIds(["anything"], [])).toEqual([]);
   });
 });

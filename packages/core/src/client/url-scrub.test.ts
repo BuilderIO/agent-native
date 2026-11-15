@@ -3,6 +3,31 @@ import { describe, expect, it } from "vitest";
 import { scrubUrl } from "./url-scrub";
 
 describe("scrubUrl", () => {
+  it.each([
+    "https://example.test/docs?guide=/search/reference",
+    "/docs#/search/reference",
+  ])("preserves search-shaped text outside the pathname", (url) => {
+    expect(scrubUrl(url)).toBe(url);
+  });
+
+  it.each([
+    ["/search/QA%20test/thread/fixture", "/search"],
+    [
+      "https://mail.example.test/search/QA%20test",
+      "https://mail.example.test/search",
+    ],
+    [
+      "/mail-app/search/QA%20test?account=fixture%40example.test",
+      "/mail-app/search",
+    ],
+    [
+      "/fixture%40example.test/search/QA%20test",
+      "/fixture%40example.test/search",
+    ],
+  ])("redacts addressable search content from URL paths", (url, expected) => {
+    expect(scrubUrl(url)).toBe(expected);
+  });
+
   it("redacts local Plan bridge credentials carried in a fragment", () => {
     const url =
       "https://plan.agent-native.com/local-plans/local#bridge=http%3A%2F%2F127.0.0.1%3A58201%2Flocal-plan.json%3Ftoken%3Dsecret";
@@ -176,6 +201,20 @@ describe("scrubUrl", () => {
     );
     expect(`${absolute}${relative}`).not.toContain(secret);
   });
+
+  it.each(["__an_embed_token", "clip_intake"])(
+    "redacts the signed %s token from pageview and replay URLs",
+    (param) => {
+      const secret = "signed.link.token";
+      const url = scrubUrl(
+        `https://clips.agent-native.com/record?clip_intake_id=intake_1&${param}=${secret}`,
+      );
+
+      expect(url).toBe(
+        `https://clips.agent-native.com/record?clip_intake_id=intake_1&${param}=%3Credacted%3E`,
+      );
+    },
+  );
 
   it("leaves other apps' q parameters unchanged by default", () => {
     const url = "https://example.com/search?q=public-topic";

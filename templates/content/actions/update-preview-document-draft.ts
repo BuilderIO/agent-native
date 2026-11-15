@@ -14,7 +14,7 @@ import { readPreviewDocumentDraft } from "./_preview-document-draft.js";
 const draftPayload = z
   .object({
     title: z.string().max(10_000),
-    content: z.string().max(500_000),
+    content: z.string(),
     baseDocumentUpdatedAt: z.string().max(100).nullable(),
     baseContentHash: z
       .string()
@@ -59,7 +59,7 @@ export default defineAction({
         documentId: z.string().min(1),
         expectedVersion: z.number().int().positive(),
         expectedTitle: z.string().max(10_000),
-        expectedContent: z.string().max(500_000),
+        expectedContent: z.string(),
         expectedEditorSessionId: z.string().min(1).max(200).optional(),
         expectedEditGeneration: z.number().int().nonnegative().optional(),
         ifPageHoldsDraft: z

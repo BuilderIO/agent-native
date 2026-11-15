@@ -7,6 +7,7 @@ import {
 } from "@agent-native/core/dashboard-storage";
 import type { MissingKeyResponse } from "@agent-native/core/server";
 
+import type { TrafficEnvironment } from "../../shared/traffic-environment.js";
 import {
   DASHBOARD_PANEL_SOURCES,
   type DashboardPanelQueryResult,
@@ -29,6 +30,7 @@ type AnalyticsPanelSourceRequest = PanelSourceRequest<DashboardPanelSource> & {
   forceRefresh?: boolean;
   signal?: AbortSignal;
   maxBytesBilled?: number;
+  trafficEnvironment?: TrafficEnvironment;
 };
 
 function createResolver(
@@ -43,6 +45,8 @@ function createResolver(
       const signal = (request as AnalyticsPanelSourceRequest).signal;
       const maxBytesBilled = (request as AnalyticsPanelSourceRequest)
         .maxBytesBilled;
+      const trafficEnvironment = (request as AnalyticsPanelSourceRequest)
+        .trafficEnvironment;
       return (await runDashboardPanelQuery({
         source: request.source,
         query: request.query,
@@ -51,6 +55,7 @@ function createResolver(
         ...(forceRefresh ? { forceRefresh: true } : {}),
         ...(signal ? { signal } : {}),
         ...(maxBytesBilled !== undefined ? { maxBytesBilled } : {}),
+        ...(trafficEnvironment ? { trafficEnvironment } : {}),
       })) as DashboardPanelQueryResult | AnalyticsPanelSourceFailure;
     },
   };

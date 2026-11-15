@@ -38,7 +38,8 @@ function sameBlocks(a: PlanBlock[], b: PlanBlock[]): boolean {
  * `live` what it holds now. The snapshot is merged in rather than replacing the
  * document, because the document holds collaborators' typing that the snapshot
  * predates. `keptLiveEdits` says the result holds more than the snapshot, which
- * no one else will save.
+ * no one else will save. `overlapped` says the result leaves out what the
+ * snapshot changed, so it isn't a version an edit can claim to have started from.
  *
  * `live` is `null` while the document has not been filled yet. That is not the
  * same as an empty document: merging an empty one reads as someone deleting
@@ -48,13 +49,19 @@ export function adoptSnapshot(
   base: PlanBlock[],
   live: PlanBlock[] | null,
   snapshot: PlanBlock[],
-): { target: PlanBlock[]; keptLiveEdits: boolean } {
-  if (live === null) return { target: snapshot, keptLiveEdits: false };
-  const merged = mergePlanBlocks(base, live, snapshot);
-  // Keep the live copy on overlap so the existing save path reports the
-  // conflict instead of dropping either writer's data.
-  if (!merged) return { target: live, keptLiveEdits: true };
-  return { target: merged, keptLiveEdits: !sameBlocks(merged, snapshot) };
+): { target: PlanBlock[]; keptLiveEdits: boolean; overlapped: boolean } {
+  if (live === null) {
+    return { target: snapshot, keptLiveEdits: false, overlapped: false };
+  }
+  const merge = mergePlanBlocks(base, live, snapshot);
+  // Keep the live copy on overlap so the save path asks the person, instead of
+  // dropping either writer's data.
+  if (!merge.ok) return { target: live, keptLiveEdits: true, overlapped: true };
+  return {
+    target: merge.merged,
+    keptLiveEdits: !sameBlocks(merge.merged, snapshot),
+    overlapped: false,
+  };
 }
 
 /**

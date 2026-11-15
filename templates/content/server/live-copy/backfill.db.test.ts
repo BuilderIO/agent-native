@@ -525,6 +525,22 @@ describe("which pages can be switched", () => {
           });
       },
     },
+    {
+      blocker: "collection_source",
+      setUp: async (id) => {
+        await addToCollection(id, "files");
+        await getDb()
+          .insert(schema.contentDatabaseSources)
+          .values({
+            id: `source-${id}`,
+            databaseId: `database-${id}`,
+            ownerEmail,
+            sourceType: "mock-local",
+            sourceName: "Collection source",
+            sourceTable: "synthetic-collection-source",
+          });
+      },
+    },
     { blocker: "database_row", setUp: (id) => addToCollection(id) },
   ];
 

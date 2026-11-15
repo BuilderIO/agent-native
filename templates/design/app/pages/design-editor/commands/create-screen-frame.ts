@@ -11,6 +11,7 @@ import {
   blankScreenHtml,
   nextBlankScreenFilename,
 } from "@/pages/design-editor/canvas-primitive-insert";
+import { savedFilenameFromResult } from "@/pages/design-editor/commands/file-creation-recovery";
 import { getCanvasFrameGeometry } from "@/pages/design-editor/design-data-geometry-utils";
 import type { FileCreationHistoryEntry } from "@/pages/design-editor/history";
 import type { DesignFile } from "@/pages/design-editor/types";
@@ -73,14 +74,16 @@ export function runCreateScreenFrame(
       filename,
       content,
       fileType: "html",
+      ifNameTaken: "next-free",
     } as any,
     {
       onSuccess: (result: any) => {
         const nextId = typeof result?.id === "string" ? result.id : null;
+        const savedFilename = savedFilenameFromResult(result, filename);
         if (nextId) {
           optimisticallyInsertCreatedFile({
             fileId: nextId,
-            filename,
+            filename: savedFilename,
             fileType: "html",
             content,
             result,
@@ -103,7 +106,7 @@ export function runCreateScreenFrame(
           );
           focusCreatedScreen(nextId, nextGeometry);
           recordFileCreationHistoryEntry({
-            filename,
+            filename: savedFilename,
             content,
             fileType: "html",
             geometry: nextGeometry,

@@ -73,7 +73,7 @@ describe("onboarding journey event source projection", () => {
     const responseIdentityColumns =
       ONBOARDING_JOURNEY_RESPONSE_IDENTITY_SOURCE_COLUMNS.join(", ");
 
-    expect(ONBOARDING_JOURNEY_EVENT_SOURCE_COLUMNS).toHaveLength(14);
+    expect(ONBOARDING_JOURNEY_EVENT_SOURCE_COLUMNS).toHaveLength(15);
     expect(request).toMatchObject({ limit: 4_000, offset: 4_000 });
     expect(request.eventDateRange).toEqual({
       startDate: "2026-09-24",
@@ -104,6 +104,12 @@ describe("onboarding journey event source projection", () => {
     );
     expect(rendered).toContain("LIMIT 4000 OFFSET 4000");
     expect(rendered).toMatch(/LIMIT 5000$/);
+    // The page fingerprint hashes rows the way PostgreSQL does.
+    expect(rendered).toMatch(/TO_HEX\(MD5\(COALESCE\(e\.journey_kind, ''\)/);
+    expect(rendered).toMatch(
+      /STRPOS\('0123456789abcdef', SUBSTR\(e\.journey_row_hash, 1, 1\)\)/i,
+    );
+    expect(rendered).toContain("AS journey_rows_fingerprint");
   });
 
   it("keeps the default source projection unchanged for other callers", () => {

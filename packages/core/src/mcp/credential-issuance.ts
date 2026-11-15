@@ -3,6 +3,7 @@ import {
   identityCredentialLockKey,
   readEmailRetiredAt,
 } from "../identity/retired-emails.js";
+import { isDeploymentEmailDomainAllowed } from "../org/signup-admission.js";
 import type { OrgRole } from "../org/types.js";
 import { effectiveOrgMemberRole } from "../server/personal-provider-key-policy.js";
 import { getRequestContext } from "../server/request-context.js";
@@ -36,6 +37,8 @@ export async function withMcpCredentialIssuance<T>(
   const orgId = input.orgId?.trim() || null;
   const email = input.email.trim().toLowerCase();
   const human = input.kind !== "service";
+  if (human && !isDeploymentEmailDomainAllowed(email))
+    throw new McpCredentialIssuanceError("not-member");
   const requiresMembership = orgId !== null && human;
   if (getRequestContext()?.a2aIdentityAssurance === "org-member") {
     if (!orgId || !effectiveOrgMemberRole("member", orgId, email)) {

@@ -37,6 +37,7 @@ import {
 } from "@agent-native/toolkit/ui/select";
 import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import { Spinner } from "@agent-native/toolkit/ui/spinner";
+import { Textarea } from "@agent-native/toolkit/ui/textarea";
 import {
   IconAlertCircle,
   IconExternalLink,
@@ -53,7 +54,11 @@ import {
 } from "../../integrations/index.js";
 import { effectText } from "../model/RemoveProviderDialog.js";
 import { normalizeKeyName } from "../NewKeyMenu.js";
-import { saveApiKeyValue, notifyKeysChanged } from "./api-keys-client.js";
+import {
+  saveApiKeyValue,
+  updateApiKeyOrigins,
+  notifyKeysChanged,
+} from "./api-keys-client.js";
 import {
   addableSuggestions,
   addKeyTarget,
@@ -63,6 +68,26 @@ import {
 
 const K = "agentChat.settingsApiKeys.";
 const M = "agentChat.settingsModel.";
+
+function parseExactOrigins(raw: string): string[] | null {
+  const origins = raw
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  for (const origin of origins) {
+    if (!URL.canParse(origin)) return null;
+    const url = new URL(origin);
+    const local = ["localhost", "127.0.0.1", "[::1]"].includes(url.hostname);
+    if (
+      url.origin !== origin ||
+      url.username ||
+      url.password ||
+      (url.protocol !== "https:" && !(url.protocol === "http:" && local))
+    )
+      return null;
+  }
+  return [...new Set(origins)];
+}
 
 function refreshKeys(queryClient: ReturnType<typeof useQueryClient>) {
   return queryClient.invalidateQueries({ queryKey: ["action"] });
@@ -119,6 +144,98 @@ export function KeyValueDialog(props: KeyValueDialogProps) {
   );
 }
 
+/** A saved custom key's policy can be approved without exposing its value. */
+export function KeyOriginsDialog({
+  entry,
+  open,
+  onOpenChange,
+}: {
+  entry: ApiKeyEntry;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+}) {
+  const t = useT();
+  const queryClient = useQueryClient();
+  const id = useId();
+  const [origins, setOrigins] = useState(entry.urlAllowlist?.join("\n") ?? "");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const save = async () => {
+    const parsed = parseExactOrigins(origins);
+    if (parsed === null) {
+      setError(t(`${K}invalidOrigins`));
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      await updateApiKeyOrigins({
+        name: entry.name,
+        scope: entry.storedScope,
+        owner: entry.scope,
+        urlAllowlist: parsed,
+      });
+      await refreshKeys(queryClient);
+      toast.success(t(`${K}originsSaved`));
+      onOpenChange(false);
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : String(cause));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="max-w-lg" aria-describedby={undefined}>
+        <DialogHeader>
+          <DialogTitle>{t(`${K}editOrigins`)}</DialogTitle>
+        </DialogHeader>
+        <form
+          className="grid gap-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void save();
+          }}
+        >
+          <div className="grid gap-2">
+            <Label htmlFor={id}>{t(`${K}approvedOrigins`)}</Label>
+            <Textarea
+              id={id}
+              value={origins}
+              rows={3}
+              spellCheck={false}
+              placeholder="https://api.example.com"
+              onChange={(event) => {
+                setOrigins(event.target.value);
+                setError(null);
+              }}
+            />
+            <p className="text-xs text-muted-foreground">
+              {t(`${K}originsHint`)}
+            </p>
+          </div>
+          <FormError message={error} />
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={() => onOpenChange(false)}
+            >
+              {t(`${M}cancel`)}
+            </Button>
+            <Button type="submit" disabled={saving}>
+              {saving ? <Spinner aria-hidden /> : null}
+              {t(`${M}save`)}
+            </Button>
+          </DialogFooter>
+        </form>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 /** False once the dialog content unmounts, so a late save can't close a newer dialog. */
 function useMounted() {
   const mounted = useRef(true);
@@ -161,6 +278,7 @@ function KeyValueDialogContent({
     nameHint: useId(),
     value: useId(),
     who: useId(),
+    origins: useId(),
   };
   const replacing = dialog.mode === "replace" ? dialog.entry : null;
   const forService = dialog.mode === "add" && dialog.forService === true;
@@ -169,6 +287,9 @@ function KeyValueDialogContent({
       (dialog.mode === "add" ? (dialog.initialName ?? "") : ""),
   );
   const [value, setValue] = useState("");
+  const [origins, setOrigins] = useState(
+    replacing?.urlAllowlist?.join("\n") ?? "",
+  );
   const [shared, setShared] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -205,9 +326,15 @@ function KeyValueDialogContent({
     lockedShared === null && listing.hasOrganization && listing.canManageOrg;
   const isShared = lockedShared ?? (canChoose && shared);
   const valid = !blocked && target.kind !== "empty" && !!value.trim();
+  const customOrigins =
+    target.kind === "custom" ? parseExactOrigins(origins) : [];
 
   const save = async () => {
     if (saving || !valid) return;
+    if (customOrigins === null) {
+      setError(t(`${K}invalidOrigins`));
+      return;
+    }
     setSaving(true);
     onSavingChange?.(true);
     setError(null);
@@ -218,6 +345,7 @@ function KeyValueDialogContent({
           value: value.trim(),
           registered: target.kind === "registered",
           shared: isShared,
+          ...(target.kind === "custom" ? { urlAllowlist: customOrigins } : {}),
         }),
       );
       void refreshKeys(queryClient);
@@ -328,6 +456,25 @@ function KeyValueDialogContent({
             </a>
           ) : null}
         </div>
+        {target.kind === "custom" ? (
+          <div className="grid gap-2">
+            <Label htmlFor={ids.origins}>{t(`${K}approvedOrigins`)}</Label>
+            <Textarea
+              id={ids.origins}
+              value={origins}
+              rows={2}
+              spellCheck={false}
+              placeholder="https://api.example.com"
+              onChange={(event) => {
+                setOrigins(event.target.value);
+                setError(null);
+              }}
+            />
+            <p className="text-xs text-muted-foreground">
+              {t(`${K}originsHint`)}
+            </p>
+          </div>
+        ) : null}
         {listing.hasOrganization && !blocked ? (
           <div className="grid gap-2">
             <span

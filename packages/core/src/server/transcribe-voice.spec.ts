@@ -3,6 +3,9 @@ import { EventEmitter } from "node:events";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { GATEWAY_UNAVAILABLE_VISITOR_MESSAGE } from "../agent/engine/credential-errors.js";
+import { sessionResolutionFailure } from "./session-resolution-errors.js";
+
+const getOrgContext = vi.hoisted(() => vi.fn());
 
 const state = vi.hoisted(() => ({
   hasGatewayCredential: false,
@@ -35,7 +38,7 @@ vi.mock("h3", () => ({
 }));
 
 vi.mock("./auth.js", () => ({ getSession }));
-vi.mock("../org/context.js", () => ({ getOrgContext: async () => null }));
+vi.mock("../org/context.js", () => ({ getOrgContext }));
 vi.mock("../application-state/store.js", () => ({
   appStateGet: async () => null,
 }));
@@ -79,7 +82,8 @@ vi.mock("../transcription/builder-transcription.js", () => ({
   transcribeWithBuilder,
 }));
 
-const { createTranscribeVoiceHandler } = await import("./transcribe-voice.js");
+const { createTranscribeVoiceHandler, localTranscribeBaseUrl } =
+  await import("./transcribe-voice.js");
 
 async function post(event: unknown = { node: {} }) {
   const handler = createTranscribeVoiceHandler() as unknown as (
@@ -90,6 +94,8 @@ async function post(event: unknown = { node: {} }) {
 
 describe("transcribe-voice Builder provider gate", () => {
   beforeEach(() => {
+    getOrgContext.mockReset().mockResolvedValue(null);
+    getSession.mockResolvedValue(null);
     state.status = 0;
     state.provider = "builder";
     state.secrets = {};
@@ -105,6 +111,25 @@ describe("transcribe-voice Builder provider gate", () => {
       segments: [],
     });
   });
+
+  it.each([
+    { code: "57014", status: 503 },
+    { code: "42501", status: 500 },
+  ])(
+    "propagates org failure $code before voice work",
+    async ({ code, status }) => {
+      const cause = Object.assign(new Error("Fake membership failure"), {
+        code,
+      });
+      const error = sessionResolutionFailure(cause);
+      getOrgContext.mockRejectedValue(error);
+      getSession.mockResolvedValue({ email: "member@example.test" });
+      await expect(post()).rejects.toBe(error);
+      expect(error).toMatchObject({ statusCode: status, cause });
+      expect(transcribeWithBuilder).not.toHaveBeenCalled();
+      expect(readServiceProviderChoice).not.toHaveBeenCalled();
+    },
+  );
 
   it("transcribes through the gateway lane on a credits-only deployment", async () => {
     state.hasGatewayCredential = true;
@@ -130,6 +155,44 @@ describe("transcribe-voice Builder provider gate", () => {
       getSession.mockResolvedValue(null);
       vi.unstubAllEnvs();
     }
+  });
+
+  it("accepts the desktop app's request that WebKit marks cross-site", async () => {
+    state.hasGatewayCredential = true;
+    getSession.mockResolvedValue({ email: "native@example.com" });
+    vi.stubEnv("NODE_ENV", "production");
+    const event = {
+      headers: {
+        host: "clips.example.com",
+        origin: "tauri://localhost",
+        "sec-fetch-site": "cross-site",
+        authorization: "Bearer test-native-session",
+      },
+      node: {},
+    };
+    try {
+      await expect(post(event)).resolves.toEqual({ text: "hello" });
+      expect(transcribeWithBuilder).toHaveBeenCalledOnce();
+    } finally {
+      getSession.mockResolvedValue(null);
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("rejects a web page's cross-site request", async () => {
+    const event = {
+      headers: {
+        host: "clips.example.com",
+        origin: "https://evil.example",
+        "sec-fetch-site": "cross-site",
+      },
+      node: {},
+    };
+    await expect(post(event)).resolves.toEqual({
+      error: "Cross-origin request rejected",
+    });
+    expect(state.status).toBe(403);
+    expect(transcribeWithBuilder).not.toHaveBeenCalled();
   });
 
   it("gives a visitor the one line when no lane resolves on a credits site", async () => {
@@ -416,5 +479,119 @@ describe("transcribe-voice client disconnect signal", () => {
 
     expect(signals).toHaveLength(1);
     expect(signals[0]!.aborted).toBe(true);
+  });
+});
+
+describe("transcribe-voice local loopback engine", () => {
+  const ENV = "AGENT_NATIVE_LOCAL_TRANSCRIBE_URL";
+
+  beforeEach(() => {
+    state.status = 0;
+    state.provider = "auto";
+    state.secrets = {};
+    state.hasGatewayCredential = false;
+    delete process.env[ENV];
+  });
+
+  afterEach(() => {
+    delete process.env[ENV];
+    vi.unstubAllGlobals();
+  });
+
+  it("uses the local engine when configured on loopback", async () => {
+    process.env[ENV] = "http://127.0.0.1:8787";
+    const urls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        urls.push(String(url));
+        return new Response(JSON.stringify({ text: "local hello" }), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }),
+    );
+
+    await expect(post()).resolves.toEqual({ text: "local hello" });
+    expect(urls).toEqual(["http://127.0.0.1:8787/transcribe"]);
+  });
+
+  it("ignores a non-loopback URL and never contacts it", async () => {
+    process.env[ENV] = "https://engine.example.com";
+    const urls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        urls.push(String(url));
+        throw new Error("unexpected fetch");
+      }),
+    );
+
+    const result = await post();
+    expect(urls.some((url) => url.includes("engine.example.com"))).toBe(false);
+    expect(result.error).toBeTruthy();
+  });
+
+  it("falls through to the provider chain when the local engine fails", async () => {
+    process.env[ENV] = "http://127.0.0.1:8787";
+    state.provider = "gemini";
+    state.secrets = { GOOGLE_GENERATIVE_AI_API_KEY: "test-gemini-key" };
+    const urls: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (url: string) => {
+        urls.push(String(url));
+        if (String(url).startsWith("http://127.0.0.1:8787")) {
+          return new Response("engine down", { status: 502 });
+        }
+        return new Response(
+          JSON.stringify({
+            candidates: [{ content: { parts: [{ text: "gemini hello" }] } }],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        );
+      }),
+    );
+
+    await expect(post()).resolves.toEqual({ text: "gemini hello" });
+    expect(urls[0]).toBe("http://127.0.0.1:8787/transcribe");
+    expect(urls.some((url) => url.includes("generativelanguage"))).toBe(true);
+  });
+});
+
+describe("localTranscribeBaseUrl loopback boundary", () => {
+  const ENV = "AGENT_NATIVE_LOCAL_TRANSCRIBE_URL";
+  afterEach(() => {
+    delete process.env[ENV];
+  });
+
+  it("accepts loopback hosts and strips the trailing slash", () => {
+    for (const value of [
+      "http://localhost:8787/",
+      "http://127.0.0.1:8787",
+      "http://[::1]:8787/engine/",
+    ]) {
+      process.env[ENV] = value;
+      expect(localTranscribeBaseUrl()).toBeTruthy();
+    }
+    process.env[ENV] = "http://127.0.0.1:8787/";
+    expect(localTranscribeBaseUrl()).toBe("http://127.0.0.1:8787");
+  });
+
+  it("refuses remote hosts, non-http schemes and invalid values", () => {
+    for (const value of [
+      "https://engine.example.com",
+      "http://192.168.1.5:8787",
+      "http://10.0.0.1:8787",
+      "file:///tmp/engine",
+      "not a url",
+      "",
+      "   ",
+    ]) {
+      process.env[ENV] = value;
+      expect(localTranscribeBaseUrl()).toBeNull();
+    }
+    delete process.env[ENV];
+    expect(localTranscribeBaseUrl()).toBeNull();
   });
 });

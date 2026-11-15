@@ -3,6 +3,7 @@ import { randomUUID } from "node:crypto";
 import { jwtVerify } from "jose";
 
 import { AGENT_AUDIT_LOG_CREATE_SQL } from "../audit/store.js";
+import { sql } from "../db/sql.js";
 import {
   decryptSecretValue,
   encryptSecretValue,
@@ -154,6 +155,7 @@ export const IDENTITY_REKEY_COLUMNS: readonly IdentityColumn[] = [
   { table: "agent_harness_sessions", column: "owner_email" },
   { table: "workspace_apps", column: "owner_email" },
   { table: "private_icon_assets", column: "owner_email" },
+  { table: "private_media", column: "owner_email" },
   { table: "application_state", column: "session_id", mode: "state-session" },
   { table: "oauth_tokens", column: "owner", mode: "unsupported-oauth" },
   { table: "workspace_connections", column: "owner_email" },
@@ -322,6 +324,8 @@ export const IDENTITY_REKEY_IGNORED_COLUMNS = new Set([
   "tool_history.actor_email",
   "tool_history.owner_email",
   "agent_resource_versions.created_by",
+  // Creator attribution on a Vault key, kept as written; the key is owned by its scope.
+  "app_secrets.created_by",
   "agent_review_comments.created_by",
   "agent_human_review_summaries.created_by",
   "organizations.created_by",
@@ -524,14 +528,16 @@ export function assertIdentityColumnRows(
   return resolveIdentityColumns(rows);
 }
 
+export const IDENTITY_SCHEMA_COLUMNS_QUERY = sql`
+  SELECT table_name, column_name FROM information_schema.columns
+  WHERE table_schema = 'public'
+  ORDER BY table_name, column_name
+`;
+
 export async function assertIdentityColumnsRegistered(
   db: IdentityRekeyDb,
 ): Promise<IdentityColumn[]> {
-  const rows = await db.unsafe(
-    `SELECT table_name, column_name FROM information_schema.columns
-     WHERE table_schema = 'public'
-     ORDER BY table_name, column_name`,
-  );
+  const rows = await db.unsafe(IDENTITY_SCHEMA_COLUMNS_QUERY.sql);
   return resolveIdentityColumns(rows);
 }
 

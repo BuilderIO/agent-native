@@ -266,6 +266,7 @@ function AlertDialog({
   const [enabled, setEnabled] = useState(rule.enabled);
   const mutation = useActionMutation<unknown, AlertMutationInput>(
     "manage-usage-alert",
+    { errorNotification: "caller" },
   );
 
   const name = ruleName(t, rule);

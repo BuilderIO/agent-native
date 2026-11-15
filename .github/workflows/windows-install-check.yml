@@ -13,6 +13,7 @@ on:
       - "pnpm-workspace.yaml"
       - "scripts/prebuild-workspace-packages.ts"
       - "scripts/lib/pnpm-command.ts"
+      - "scripts/lib/pnpm-command.test.ts"
       - "packages/*/package.json"
       - "packages/*/scripts/**"
       - ".github/actions/setup-pnpm/**"
@@ -35,3 +36,8 @@ jobs:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4.3.1
 
       - uses: ./.github/actions/setup-pnpm
+
+      # Its Windows-only tests start pnpm through cmd.exe, as a script that
+      # pnpm didn't start would, which no Linux job can check.
+      - name: Test the pnpm helper on Windows
+        run: node --experimental-strip-types --test scripts/lib/pnpm-command.test.ts

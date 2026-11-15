@@ -8,9 +8,10 @@
  * deferred their count this way.
  *
  * `countOutcome` bumps an in-memory window and, for the first hit in a window,
- * hands one event to each analytics provider's `track()`, which the built-in
- * providers only queue; nothing waits for delivery. So call it in the request
- * and keep it from changing the response:
+ * hands one event to each analytics provider's `track()`. On serverless the
+ * built-in providers send it at once and hold the request's `waitUntil` until
+ * the send ends, which only a send started inside the request can reach. So
+ * call it in the request and keep it from changing the response:
  *
  *   try {
  *     countOutcome("<thing>_counts", dimensions);

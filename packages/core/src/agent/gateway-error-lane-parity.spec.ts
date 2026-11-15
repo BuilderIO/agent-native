@@ -80,8 +80,12 @@ interface GatewayFailure {
   rejectWith?: () => unknown;
   fetchImpl?: () => (url: string, init?: RequestInit) => Promise<Response>;
   env?: Record<string, string>;
+  identityMessage?: string;
   expect?: Partial<Record<keyof typeof PARITY_CHECKED, unknown>>;
 }
+
+const TOKEN_BUDGET_MESSAGE =
+  "Request too large on tokens per minute (TPM): Limit 8000, Requested 8700.";
 
 const FAILURES: GatewayFailure[] = [
   {
@@ -104,6 +108,18 @@ const FAILURES: GatewayFailure[] = [
         },
       ]),
     expect: { isContextTooLongError: true, isRetryableError: false },
+  },
+  {
+    label: "413 request exceeds the provider's per-minute token budget",
+    response: () =>
+      jsonErrorResponse(413, {
+        error: {
+          message: TOKEN_BUDGET_MESSAGE,
+          code: "rate_limit_exceeded",
+        },
+      }),
+    identityMessage: TOKEN_BUDGET_MESSAGE,
+    expect: { isContextTooLongError: false, isRetryableError: false },
   },
   {
     label: "in-stream invalid_request on broken history",
@@ -372,6 +388,9 @@ describe("gateway failures classify identically on both lanes", () => {
 
       expect(credits.stop.error).toBe(GATEWAY_UNAVAILABLE_VISITOR_MESSAGE);
       expect(identity.stop.error).not.toBe(GATEWAY_UNAVAILABLE_VISITOR_MESSAGE);
+      if (failure.identityMessage !== undefined) {
+        expect(identity.stop.error).toBe(failure.identityMessage);
+      }
 
       expect(credits.persistedErrorCode).toBe(identity.persistedErrorCode);
       expect(credits.stop.errorCode).toBe(identity.stop.errorCode);

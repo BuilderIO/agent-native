@@ -187,4 +187,41 @@ describe("Design save failure classification", () => {
     expect(patchProofStatusAfterPersistedSave(false)).toBe("failed");
     expect(patchProofStatusAfterPersistedSave(true)).toBe("applied");
   });
+
+  it("classifies an unverifiable live version as retryable, whether or not the browser is online", () => {
+    const unverifiable = Object.assign(
+      new Error(
+        "Could not verify a source file's live version. Re-read the design and retry.",
+      ),
+      { status: 409, errorCode: "source_version_unverifiable" },
+    );
+    expect(classifyDesignSaveFailure(unverifiable, true)).toBe("unverified");
+    expect(classifyDesignSaveFailure(unverifiable, false)).toBe("unverified");
+  });
+
+  it("keeps a typed or worded stale-file 409 a conflict", () => {
+    expect(
+      classifyDesignSaveFailure(
+        Object.assign(new Error("File changed since it was read."), {
+          status: 409,
+        }),
+        true,
+      ),
+    ).toBe("conflict");
+    expect(
+      classifyDesignSaveFailure(
+        Object.assign(new Error("x"), {
+          status: 409,
+          errorCode: "source_version_conflict",
+        }),
+        true,
+      ),
+    ).toBe("conflict");
+  });
+
+  it("reports a fetch failure while offline as offline", () => {
+    expect(
+      classifyDesignSaveFailure(new TypeError("Failed to fetch"), false),
+    ).toBe("offline");
+  });
 });

@@ -37,6 +37,7 @@ vi.mock("@/components/deck/SlideRenderer", () => ({
 vi.mock("@/lib/export-pdf-client", () => ({ exportDeckAsPdf: vi.fn() }));
 vi.mock("./present-channel", () => ({
   openPresentChannel: () => mocks.channel,
+  presentChannelSupported: () => true,
 }));
 
 import PresentationView from "./PresentationView";

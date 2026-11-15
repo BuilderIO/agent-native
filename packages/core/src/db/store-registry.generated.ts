@@ -274,6 +274,10 @@ export const FRAMEWORK_STORES: ReadonlyArray<
       ),
   ],
   [
+    "private_media",
+    () => import("../private-media/store.js").then((m) => m.privateMediaStore),
+  ],
+  [
     "progress",
     () => import("../progress/store.js").then((m) => m.progressStore),
   ],

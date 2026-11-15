@@ -270,6 +270,25 @@ describe("validateDashboardConfig multi-select options", () => {
     expect(validateDashboardConfig(select)).toContain("must be a string");
   });
 
+  it("rejects a traffic default the traffic filter doesn't offer", () => {
+    const traffic = (value: string) => ({
+      name: "Usage",
+      filters: [
+        {
+          id: "traffic_environment",
+          label: "Traffic",
+          type: "select",
+          default: value,
+        },
+      ],
+      panels: [],
+    });
+    expect(validateDashboardConfig(traffic("staging"))).toContain(
+      "default must be all, production or beta on the traffic filter",
+    );
+    expect(validateDashboardConfig(traffic("production"))).toBeNull();
+  });
+
   it("rejects a malformed option on a select filter, which the read path would refuse", () => {
     const config = {
       name: "Plans",

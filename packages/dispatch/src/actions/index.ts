@@ -101,7 +101,6 @@ import setHostedAppsSettings from "./set-hosted-apps-settings.js";
 import setMcpAppAccess from "./set-mcp-app-access.js";
 import setVaultAccessSettings from "./set-vault-access-settings.js";
 import startWorkspaceAppCreation from "./start-workspace-app-creation.js";
-import syncVaultToApp from "./sync-vault-to-app.js";
 import unarchiveWorkspaceApp from "./unarchive-workspace-app.js";
 import updateVaultSecret from "./update-vault-secret.js";
 import updateWorkspaceAppMetadata from "./update-workspace-app-metadata.js";
@@ -213,7 +212,6 @@ export const dispatchActions: Record<string, ActionEntry> = {
   "set-mcp-app-access": setMcpAppAccess,
   "set-vault-access-settings": setVaultAccessSettings,
   "start-workspace-app-creation": startWorkspaceAppCreation,
-  "sync-vault-to-app": syncVaultToApp,
   "unarchive-workspace-app": unarchiveWorkspaceApp,
   "update-workspace-app-metadata": updateWorkspaceAppMetadata,
   "update-vault-secret": updateVaultSecret,

@@ -473,9 +473,12 @@ async function createSweepHandler(options: AgentChatPluginOptions | null = {}) {
     );
 }
 
+const QUEUED_TEST_APP_ID = "queued-submission-fixture";
+
 async function mountAgentChatRoutes() {
   const h3App = createApp();
   createAgentChatPlugin({
+    appId: QUEUED_TEST_APP_ID,
     actions: () => ({}),
     a2aAgentDelegation: false,
     frameworkTools: "minimal",
@@ -619,7 +622,10 @@ describe("queued submission inbox recurring sweep", () => {
   it("reads queued receipt status only after resolving thread access", async () => {
     const threadId = `thread-${randomUUID()}`;
     const messageId = `queued-${randomUUID()}`;
-    await createThread("user@example.com", { id: threadId });
+    await createThread("user@example.com", {
+      id: threadId,
+      source: { appId: QUEUED_TEST_APP_ID },
+    });
     await mutateThreadQueuedMessages(
       threadId,
       {
@@ -631,6 +637,7 @@ describe("queued submission inbox recurring sweep", () => {
 
     const h3App = createApp();
     createAgentChatPlugin({
+      appId: QUEUED_TEST_APP_ID,
       actions: () => ({}),
       a2aAgentDelegation: false,
       frameworkTools: "minimal",
@@ -653,6 +660,7 @@ describe("queued submission inbox recurring sweep", () => {
     const inaccessibleThreadId = `thread-${randomUUID()}`;
     await createThread("another-user@example.com", {
       id: inaccessibleThreadId,
+      source: { appId: QUEUED_TEST_APP_ID },
     });
     const inaccessibleResponse = await h3App.fetch(
       new Request(receiptPath(inaccessibleThreadId)),
@@ -663,7 +671,10 @@ describe("queued submission inbox recurring sweep", () => {
 
   it("persists approval denial before draining queued submissions", async () => {
     const threadId = `thread-${randomUUID()}`;
-    await createThread("user@example.com", { id: threadId });
+    await createThread("user@example.com", {
+      id: threadId,
+      source: { appId: QUEUED_TEST_APP_ID },
+    });
     const approvalId = await createAgentToolApproval({
       ownerEmail: "user@example.com",
       threadId,
@@ -697,7 +708,10 @@ describe("queued submission inbox recurring sweep", () => {
   it("does not clear a shared editor's card when the approval belongs to another owner", async () => {
     const threadId = `thread-${randomUUID()}`;
     const approvalOwner = "approval-owner@example.com";
-    await createThread(approvalOwner, { id: threadId });
+    await createThread(approvalOwner, {
+      id: threadId,
+      source: { appId: QUEUED_TEST_APP_ID },
+    });
     await grantThreadUserShare(
       threadId,
       "user@example.com",
@@ -743,7 +757,10 @@ describe("queued submission inbox recurring sweep", () => {
     const submittedRunId = `submitted-${randomUUID()}`;
     const incumbentRunId = `incumbent-${randomUUID()}`;
     const actor = { email: "user@example.com", anonymous: false };
-    await createThread(actor.email, { id: threadId });
+    await createThread(actor.email, {
+      id: threadId,
+      source: { appId: QUEUED_TEST_APP_ID },
+    });
     await mutateThreadQueuedMessages(
       threadId,
       {
@@ -777,6 +794,7 @@ describe("queued submission inbox recurring sweep", () => {
 
     const h3App = createApp();
     createAgentChatPlugin({
+      appId: QUEUED_TEST_APP_ID,
       actions: () => ({}),
       a2aAgentDelegation: false,
       frameworkTools: "minimal",
@@ -900,7 +918,10 @@ describe("queued submission inbox recurring sweep", () => {
     const threadId = `thread-${randomUUID()}`;
     const messageId = `queued-${randomUUID()}`;
     const actor = { email: "user@example.com", anonymous: false };
-    await createThread(actor.email, { id: threadId });
+    await createThread(actor.email, {
+      id: threadId,
+      source: { appId: QUEUED_TEST_APP_ID },
+    });
     inboxHarness.claimBusyResponse = true;
     const h3App = await mountAgentChatRoutes();
 
@@ -2281,6 +2302,149 @@ describe("queued submission inbox recurring sweep", () => {
         getQueuedSubmissionReceipt(threadId, nextMessageId),
       ).resolves.toMatchObject({ state: "submitted" });
     } finally {
+      clock.mockRestore();
+      consoleError.mockRestore();
+    }
+  }, 20_000);
+
+  it("admits a completion-drain receipt that waited out a busy thread without a sweep", async () => {
+    const threadId = `thread-${randomUUID()}`;
+    const headMessageId = "busy-completion-head";
+    const actor = { email: "inbox-owner@example.com", anonymous: false };
+    await createThread(actor.email, { id: threadId });
+    await mutateThreadQueuedMessages(
+      threadId,
+      {
+        type: "append",
+        message: { id: headMessageId, threadId, text: headMessageId },
+      },
+      { actor },
+    );
+    inboxHarness.admit = async (body) => {
+      const receipt = await getQueuedSubmissionReceipt(
+        String(body.threadId),
+        String(body.agentKitMessageId),
+      );
+      if (!receipt) throw new Error("Queued receipt disappeared before admit");
+      const db = getDbExec();
+      if (!db.transaction) throw new Error("Test database has no transaction");
+      await db.transaction((tx) =>
+        markQueuedSubmissionSubmitted(tx, {
+          threadId: receipt.threadId,
+          messageId: receipt.messageId,
+          runId: `run-${receipt.messageId}`,
+          actor: receipt.actor,
+          message: receipt.message,
+        }),
+      );
+      return `run-${receipt.messageId}`;
+    };
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    try {
+      await createSweepHandler();
+      inboxHarness.activeRun = {
+        runId: "run-busy-at-completion",
+        threadId,
+        turnId: "turn-busy-at-completion",
+        status: "running",
+        inFlight: true,
+      };
+      const completeRun = inboxHarness.completeRun;
+      if (!completeRun) throw new Error("Run completion callback not captured");
+      await completeRun(
+        {
+          events: [],
+          runId: "run-busy-at-completion",
+          startedAt: Date.now() - 1_000,
+          status: "completed",
+          threadId,
+          turnId: "turn-busy-at-completion",
+        },
+        threadId,
+      );
+      // The thread stays busy longer than the drain's stable-idle window.
+      await new Promise((resolve) => setTimeout(resolve, 3_000));
+      expect(inboxHarness.admissions).toEqual([]);
+      inboxHarness.activeRun = null;
+
+      await vi.waitFor(
+        () => {
+          expect(
+            inboxHarness.admissions.map((body) => body.agentKitMessageId),
+          ).toEqual([headMessageId]);
+        },
+        { timeout: 5_000 },
+      );
+    } finally {
+      inboxHarness.activeRun = null;
+      consoleError.mockRestore();
+    }
+  }, 20_000);
+
+  it("logs and leaves a receipt queued once its thread stays busy past the retry limit", async () => {
+    const threadId = `thread-${randomUUID()}`;
+    const headMessageId = "busy-forever-head";
+    const actor = { email: "inbox-owner@example.com", anonymous: false };
+    await createThread(actor.email, { id: threadId });
+    await mutateThreadQueuedMessages(
+      threadId,
+      {
+        type: "append",
+        message: { id: headMessageId, threadId, text: headMessageId },
+      },
+      { actor },
+    );
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+    const start = Date.now();
+    let offset = 0;
+    const clock = vi
+      .spyOn(Date, "now")
+      .mockImplementation(() => start + offset);
+    try {
+      await createSweepHandler();
+      inboxHarness.activeRun = {
+        runId: "run-busy-forever",
+        threadId,
+        turnId: "turn-busy-forever",
+        status: "running",
+        inFlight: true,
+      };
+      const completeRun = inboxHarness.completeRun;
+      if (!completeRun) throw new Error("Run completion callback not captured");
+      await completeRun(
+        {
+          events: [],
+          runId: "run-busy-forever",
+          startedAt: Date.now() - 1_000,
+          status: "completed",
+          threadId,
+          turnId: "turn-busy-forever",
+        },
+        threadId,
+      );
+      // Let the first busy check defer the receipt, then pass the retry limit
+      // (10 minutes, matching QUEUED_SUBMISSION_BUSY_RETRY_LIMIT_MS).
+      await new Promise((resolve) => setTimeout(resolve, 2_500));
+      offset = 10 * 60_000 + 1;
+
+      await vi.waitFor(
+        () => {
+          expect(consoleError).toHaveBeenCalledWith(
+            expect.stringContaining("stayed behind a busy thread"),
+          );
+        },
+        { timeout: 8_000 },
+      );
+      expect(inboxHarness.admissions).toEqual([]);
+      await expect(
+        getQueuedSubmissionReceipt(threadId, headMessageId),
+      ).resolves.toMatchObject({ state: "queued" });
+    } finally {
+      inboxHarness.activeRun = null;
       clock.mockRestore();
       consoleError.mockRestore();
     }

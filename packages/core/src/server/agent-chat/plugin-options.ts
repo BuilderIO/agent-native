@@ -21,6 +21,8 @@ import type { AgentChatMcpIcon, AgentChatMcpOptions } from "./mcp-options.js";
 export type NitroPluginDef = (nitroApp: any) => void | Promise<void>;
 
 export interface AgentChatPluginOptions {
+  /** Trusted hosts may explicitly aggregate thread access across apps. */
+  threadAccessScope?: "local" | "aggregate";
   onAgentTurnStart?: (
     scope: AgentChatScope,
     run: Pick<ActiveRun, "threadId" | "runId">,

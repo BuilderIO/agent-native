@@ -1,3 +1,4 @@
+import { assertAccess } from "@agent-native/core/sharing";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 vi.mock("@agent-native/core/sharing", () => ({
@@ -108,6 +109,36 @@ describe("apply-builder-edits", () => {
       userEmail: "user@example.com",
       orgId: "org_1",
     });
+  });
+
+  it("refuses a disabled caller as a typed 400 and claims nothing", async () => {
+    isFullAppBuildingEnabled.mockResolvedValueOnce(false);
+
+    await expect(
+      action.run({ designId: "design_1" } as never),
+    ).rejects.toMatchObject({
+      errorCode: "full_app_building_disabled",
+      statusCode: 400,
+      message: "Full app building is not enabled",
+    });
+    expect(updateCalls).toHaveLength(0);
+  });
+
+  it("refuses a design with no Builder app as a typed 400 and claims nothing", async () => {
+    vi.mocked(assertAccess).mockResolvedValueOnce({
+      role: "editor",
+      resource: { id: "design_1", title: "My App", data: "{}" },
+    } as never);
+
+    await expect(
+      action.run({ designId: "design_1" } as never),
+    ).rejects.toMatchObject({
+      errorCode: "fusion_app_linkage_required",
+      statusCode: 400,
+      message: "This design has no Builder app. Call create-builder-app first.",
+    });
+    expect(updateCalls).toHaveLength(0);
+    expect(sendFusionBranchMessage).not.toHaveBeenCalled();
   });
 
   it("returns sentCount 0 when nothing is pending", async () => {

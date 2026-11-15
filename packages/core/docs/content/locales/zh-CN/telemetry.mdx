@@ -86,6 +86,29 @@ AGENT_NATIVE_TELEMETRY_DEBUG=1 npx @agent-native/core --version
 
 `error` 是[崩溃报告](#crash-reports)中介绍的简短消息提示。
 
+### 项目活动 {#project-activity}
+
+这些事件显示运行过 `create` 的机器中，有多少继续启动了开发服务器并完成了生产构建，以及它们来自哪些模板。
+
+| 事件                  | 时机                                                                                                  | 属性                                                |
+| --------------------- | ----------------------------------------------------------------------------------------------------- | --------------------------------------------------- |
+| `cli_create_finished` | `create` 完成、被取消或失败时。                                                                       | `outcome`, `templates`, `projectKind`, `failedStep` |
+| `cli_dev_ready`       | 开发服务器在一次 `dev` 运行中首次开始监听时。重启不会再次发送；在工作区中，只有最先启动的应用会发送。 | `workspace`, `appCount`, `readySeconds`             |
+| `cli_deploy_finished` | `build` 或 `deploy` 完成或失败时。                                                                    | `outcome`, `preset`, `failedStep`                   |
+
+| 属性           | 含义                                                                                                                                                                                   |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `outcome`      | `completed` 或 `failed`。`create` 还可能发送 `cancelled`。                                                                                                                             |
+| `templates`    | 所选模板，以逗号分隔。Agent-Native 自己的模板按名称发送。社区模板以 `community` 发送，其他名称以 `unknown` 发送，因此绝不会发送 URL。                                                  |
+| `projectKind`  | `create` 创建的内容：`workspace`、`standalone`、`headless` 或 `workspace-add`（添加到工作区的应用）。                                                                                  |
+| `failedStep`   | 失败的运行停在哪一步。`create`：`choose`、`scaffold` 或 `finish`。`build`：`doctor`、`react-router-build`、`vite-build` 或 `deploy-build`。`deploy`：`prepare`、`build` 或 `package`。 |
+| `workspace`    | `dev` 是否在工作区中运行。                                                                                                                                                             |
+| `appCount`     | 工作区中的应用数量；不在工作区中时为 1。                                                                                                                                               |
+| `readySeconds` | 从 `dev` 启动到服务器开始监听的秒数。                                                                                                                                                  |
+| `preset`       | 构建面向的托管平台：`aws`、`azure`、`bun`、`cloudflare`、`deno`、`firebase`、`netlify`、`node` 或 `vercel`。面向其他平台的预设以 `other` 发送。                                        |
+
+`deploy` 只构建应用并打印发布它的命令，因此 `completed` 表示构建已完成，而不是有内容已上线。这两个完成事件在命令退出时通过一个短暂运行的辅助进程发出，退出最多等待它 1.5 秒。这段等待会叠加在之前等待其他事件的时间之上。在 `create` 的提示处按 Ctrl+C 计为 `cancelled`。用 Ctrl+C 停止 `build` 或 `deploy` 时，不会发送完成事件。
+
 ### 安装技能 {#installing-skills}
 
 这些事件跟随 `skills add` 和 `npx @agent-native/skills`，让我们看到安装在哪里中断。Agent-Native 自己目录中的技能按名称发送。来自其他来源的技能，例如本地清单或其他仓库，以 `custom` 发送。

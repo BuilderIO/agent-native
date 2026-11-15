@@ -53,6 +53,8 @@ export interface RegisteredSecret {
   kind: SecretKind;
   required?: boolean;
   validator?: SecretValidator;
+  /** Approved origins for outbound `${keys.NAME}` requests. */
+  urlAllowlist?: readonly string[];
   oauthProvider?: string;
   oauthConnectUrl?: string;
   /** What this app uses the key for. Framework uses merge in at read time. */

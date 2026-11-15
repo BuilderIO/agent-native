@@ -1,2 +1,2 @@
 export const NFM_CONTAINER_SYNTAX =
-  'Children of <callout>, <details>, <columns>, <column>, and <synced_block> sit one tab deeper than their tags, as in <callout icon="💡">\n\tText\n</callout>; a <details> keeps its <summary> line at the tags\' indent.';
+  'Children of <callout>, <details>, <columns>, <column>, and <synced_block> sit one tab deeper than their tags, as in <callout icon="💡">\n\tText\n</callout>; a <details> keeps its <summary> line at the tags\' indent. A <column> may give its width as ratio, a percentage of the row, as in <column ratio="60">; give every column in a set one, or none for equal widths.';

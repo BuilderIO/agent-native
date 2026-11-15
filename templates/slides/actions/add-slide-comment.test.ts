@@ -157,6 +157,32 @@ describe("add-slide-comment", () => {
     );
 
     expect(state.inserted.authorName).toBe("AI Agent");
+    expect(state.inserted.authorKind).toBe("agent");
+  });
+
+  it("labels comments from other external callers as agent-authored", async () => {
+    await run(
+      { deckId: "deck-1", slideId: "slide-1", content: "Looks good" },
+      { caller: "mcp" },
+    );
+
+    expect(state.inserted.authorKind).toBe("agent");
+  });
+
+  it("records comments typed in a widget as person-authored", async () => {
+    await run(
+      { deckId: "deck-1", slideId: "slide-1", content: "Looks good" },
+      { caller: "mcp-widget-write" },
+    );
+
+    expect(state.inserted.authorKind).toBe("person");
+    expect(state.inserted.authorName).not.toBe("AI Agent");
+  });
+
+  it("records frontend comments as person-authored", async () => {
+    await run({ deckId: "deck-1", slideId: "slide-1", content: "Looks good" });
+
+    expect(state.inserted.authorKind).toBe("person");
   });
 
   it("rejects a reply whose thread belongs to a different slide", async () => {

@@ -923,7 +923,13 @@ export function useCollabReconcile({
             recentEmittedRef.current.includes(normalizedValue))) ||
         (editorUnchangedSinceApply &&
           (value === lastAppliedValueRef.current ||
-            normalizedValue === lastAppliedSerializedRef.current))
+            normalizedValue === lastAppliedSerializedRef.current)) ||
+        // A newer timestamp on the body this editor already took in, as from
+        // a rename, brings nothing to apply. Replacing the doc with that body
+        // would delete what has been typed since.
+        (!!contentRevision &&
+          authoritativeBaseRef.current?.revision === contentRevision &&
+          value === lastAppliedValueRef.current)
       ) {
         peerWait.deadline = null;
         if (currentMarkdown === normalizedValue) {

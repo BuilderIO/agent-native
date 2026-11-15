@@ -18,7 +18,7 @@ vi.mock("@agent-native/core/client/i18n", async () => {
     }
     return text;
   };
-  return { useT: () => t };
+  return { useT: () => t, useLocale: () => ({ locale: "en-US" }) };
 });
 
 const modelDefault = vi.hoisted(() => ({
@@ -85,15 +85,33 @@ vi.mock("../../../chat/index.js", () => ({
     </button>
   ),
 }));
-vi.mock("../../../resources/index.js", () => ({
+vi.mock("../../../resources/McpAccessSettings.js", () => ({
+  McpHostMark: () => <span />,
   McpAccessSettings: ({
     appName,
     hideHeader,
+    helpText,
+    guideId,
+    onSelectGuide,
+    guideHref,
   }: {
     appName: string;
     hideHeader: boolean;
+    helpText?: string;
+    guideId?: string | null;
+    onSelectGuide: (id: string) => void;
+    guideHref: (id: string) => string;
   }) => (
-    <div data-testid="mcp" data-app={appName} data-hide-header={hideHeader} />
+    <div
+      data-testid="mcp"
+      data-app={appName}
+      data-hide-header={hideHeader}
+      data-help={helpText}
+      data-guide={guideId}
+      data-cursor-href={guideHref("cursor")}
+    >
+      <button onClick={() => onSelectGuide("cursor")}>Choose Cursor</button>
+    </div>
   ),
 }));
 const changelogCard = vi.hoisted(() => ({
@@ -563,35 +581,27 @@ describe("app group pages", () => {
   });
 
   describe("MCP server", () => {
-    it("names the app in the about line and links Integrations", async () => {
+    it("routes client choices through the Settings shell", async () => {
       await renderPage(McpServerSettingsPage);
-      expect(container.textContent).toContain(
-        "Connect Clips to Claude, ChatGPT, Cursor, or any AI app that supports MCP.",
-      );
       const mcp = container.querySelector('[data-testid="mcp"]');
       expect(mcp?.getAttribute("data-app")).toBe("Clips");
       expect(mcp?.getAttribute("data-hide-header")).toBe("true");
-      expect(container.textContent).toContain(
-        "For tools the agent itself uses, see Integrations.",
+      expect(mcp?.getAttribute("data-cursor-href")).toBe(
+        "/settings/mcp/cursor",
       );
-      const link = [...container.querySelectorAll("a")].find(
-        (anchor) => anchor.textContent === "Integrations",
-      );
-      act(() => {
-        link?.dispatchEvent(
-          new MouseEvent("click", { bubbles: true, cancelable: true }),
-        );
-      });
-      expect(navigate).toHaveBeenCalledWith("integrations");
+      expect(mcp?.getAttribute("data-guide")).toBeNull();
+      expect(header).toBeNull();
+      act(() => container.querySelector<HTMLButtonElement>("button")?.click());
+      expect(navigate).toHaveBeenCalledWith("mcp", "cursor");
     });
 
     it("uses the app's own about line when it passes one", async () => {
       await renderPage(McpServerSettingsPage, {
         input: { mcpAbout: "Find recordings from any MCP app." },
       });
-      expect(container.textContent).toContain(
-        "Find recordings from any MCP app.",
-      );
+      expect(
+        container.querySelector("[data-testid=mcp]")?.getAttribute("data-help"),
+      ).toBe("Find recordings from any MCP app.");
     });
   });
 

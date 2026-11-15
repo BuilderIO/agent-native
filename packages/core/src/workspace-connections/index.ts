@@ -1,4 +1,17 @@
 export {
+  createWorkspaceCredentialActions,
+  type WorkspaceCredentialActions,
+} from "./workspace-credential-actions.js";
+export {
+  readWorkspaceCredentialProfile,
+  WorkspaceCredentialError,
+  type WorkspaceCredentialProfile,
+  type WorkspaceCredentialServiceOptions,
+} from "./workspace-credentials.js";
+
+export { insertWorkspaceConnectionGrantIfAbsent } from "./insert-grant.js";
+
+export {
   credentialKeyAliases,
   credentialKeyMatches,
   lookupKeysForRef,
@@ -79,6 +92,7 @@ export {
 } from "./store.js";
 
 export {
+  resolveExplicitUserConnectionCredential,
   resolveWorkspaceConnectionCredentialForApp,
   resolveWorkspaceConnectionCredentialsForApp,
   type ResolveWorkspaceConnectionCredentialForAppOptions,

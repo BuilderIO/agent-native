@@ -62,6 +62,21 @@ describe("getOnboardingHtml", () => {
     vi.unstubAllEnvs();
   });
 
+  it("adds trusted head customization without replacing the sign-in page", () => {
+    const html = getOnboardingHtml({
+      authHeadHtml:
+        '<style id="custom-auth">.card { border-radius: 0 }</style>',
+    });
+
+    expect(html).toContain(
+      '<style id="custom-auth">.card { border-radius: 0 }</style>',
+    );
+    expect(html.indexOf('id="custom-auth"')).toBeLessThan(
+      html.indexOf("</head>"),
+    );
+    expect(html).toContain('<main data-auth-view="signup" />');
+  });
+
   it("does not include local upgrade copy in SSR HTML by default", () => {
     const html = getOnboardingHtml();
 
@@ -254,6 +269,25 @@ describe("getOnboardingHtml", () => {
         getOnboardingHtml({ requestPath: "/sign-in?c=continuation" }),
       ).initialView,
     ).toBe("login");
+  });
+
+  it("opens the sign-in view for a bare /sign-in request (QA AUTH-08)", () => {
+    // A plain /sign-in used to fall through to the signup form, so an existing
+    // user asking to sign in was shown "Create an account".
+    expect(
+      readAuthPageData(getOnboardingHtml({ requestPath: "/sign-in" }))
+        .initialView,
+    ).toBe("login");
+    expect(
+      readAuthPageData(
+        getOnboardingHtml({ requestPath: "/mail/_agent-native/sign-in" }),
+      ).initialView,
+    ).toBe("login");
+    // The signup entry still opens signup.
+    expect(
+      readAuthPageData(getOnboardingHtml({ requestPath: "/signup" }))
+        .initialView,
+    ).toBe("signup");
   });
 
   it("passes local-dev sign-in configuration to the auth renderer", () => {

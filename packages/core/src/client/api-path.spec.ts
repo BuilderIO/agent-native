@@ -20,6 +20,49 @@ describe("agentNativePath", () => {
     vi.unstubAllEnvs();
   });
 
+  it("uses the origin session authority for explicit shared workspace authentication", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE_AUTH_MODE", "shared");
+    vi.stubEnv("VITE_APP_BASE_PATH", "/calendar");
+    vi.stubGlobal("window", {
+      location: { pathname: "/calendar" },
+      __AGENT_NATIVE_CONFIG__: { workspaceAppPath: "/calendar" },
+    });
+    expect(agentNativePath("/_agent-native/auth/session")).toBe(
+      "/_agent-native/auth/session",
+    );
+    expect(agentNativePath("/_agent-native/actions/list-events")).toBe(
+      "/calendar/_agent-native/actions/list-events",
+    );
+  });
+
+  it("keeps explicit remote API-base session routing", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE_AUTH_MODE", "shared");
+    vi.stubGlobal("window", {
+      location: { pathname: "/calendar" },
+      __AGENT_NATIVE_CONFIG__: {
+        apiBaseUrl: "https://api.example.test/calendar",
+      },
+    });
+    expect(agentNativePath("/_agent-native/auth/session")).toBe(
+      "https://api.example.test/calendar/_agent-native/auth/session",
+    );
+  });
+
+  it("keeps isolated workspace session checks under their app mount", () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE_AUTH_MODE", "isolated");
+    vi.stubEnv("VITE_APP_BASE_PATH", "/calendar");
+    vi.stubGlobal("window", {
+      location: { pathname: "/calendar" },
+      __AGENT_NATIVE_CONFIG__: { workspaceAppPath: "/calendar" },
+    });
+    expect(agentNativePath("/_agent-native/auth/session")).toBe(
+      "/calendar/_agent-native/auth/session",
+    );
+  });
+
   it("leaves non-framework paths alone", () => {
     vi.stubGlobal("window", { location: { pathname: "/docs/dashboard" } });
 

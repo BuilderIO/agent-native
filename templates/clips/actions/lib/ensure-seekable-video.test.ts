@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const recording = vi.hoisted(() => ({
   id: "recording-example",
@@ -7,8 +7,14 @@ const recording = vi.hoisted(() => ({
   videoFormat: "webm",
   storageMode: null as "own" | "hosted" | null,
   sourceAppName: null,
+  durationMs: 1000,
+  width: 1280,
+  height: 720,
+  hasAudio: true,
+  mediaUpdatedAt: "2026-11-01T00:00:00.000Z",
 }));
 const repairedBytes = vi.hoisted(() => new Uint8Array([9, 8, 7, 6]));
+const mockProbeMediaInfo = vi.hoisted(() => vi.fn());
 const mockUploadRecordingMedia = vi.hoisted(() => vi.fn());
 const mockReadAppState = vi.hoisted(() => vi.fn());
 const mockWriteAppState = vi.hoisted(() => vi.fn());
@@ -52,10 +58,21 @@ vi.mock("@shared/upload-limits.js", () => ({
   MAX_UPLOAD_BYTES: 1024 * 1024,
 }));
 
+// raw-sql-ok: a mock that records the template parts; no SQL is built
 vi.mock("drizzle-orm", () => ({
   and: vi.fn((...args: unknown[]) => args),
   eq: vi.fn((column: unknown, value: unknown) => ({ column, value })),
+  sql: vi.fn((strings: TemplateStringsArray, ...values: unknown[]) => ({
+    sql: strings.join("?"),
+    values,
+  })),
 }));
+
+/** The guarded value that fills a column only while it is still 0. */
+const filled = (column: string, value: number) => ({
+  sql: "coalesce(nullif(?, 0), ?)",
+  values: [column, value],
+});
 
 vi.mock("../../server/db/index.js", () => ({
   getDb: () => mockDb,
@@ -68,6 +85,11 @@ vi.mock("../../server/db/index.js", () => ({
       videoFormat: "recordings.videoFormat",
       storageMode: "recordings.storageMode",
       sourceAppName: "recordings.sourceAppName",
+      durationMs: "recordings.durationMs",
+      width: "recordings.width",
+      height: "recordings.height",
+      hasAudio: "recordings.hasAudio",
+      mediaUpdatedAt: "recordings.mediaUpdatedAt",
     },
   },
 }));
@@ -101,6 +123,7 @@ vi.mock("../../server/lib/video-remux.js", () => ({
   makeSeekable: (...args: unknown[]) => mockMakeSeekable(...args),
   normalizeTimelineToMp4: (...args: unknown[]) =>
     mockNormalizeTimelineToMp4(...args),
+  probeMediaInfo: (...args: unknown[]) => mockProbeMediaInfo(...args),
 }));
 
 vi.mock("../../shared/loom.js", () => ({
@@ -127,6 +150,12 @@ describe("ensureRecordingSeekable timeline normalization", () => {
     mockReadAppState.mockResolvedValue(null);
     mockWriteAppState.mockResolvedValue(undefined);
     mockClearSeekableRepairPending.mockResolvedValue(undefined);
+    mockProbeMediaInfo.mockResolvedValue({
+      durationMs: 1000,
+      width: 1280,
+      height: 720,
+      hasAudio: true,
+    });
     mockMakeSeekable.mockResolvedValue({
       bytes: new Uint8Array([1, 2, 3]),
       changed: false,
@@ -339,5 +368,180 @@ describe("ensureRecordingSeekable timeline normalization", () => {
         detail: "Recording changed while repaired media was uploading.",
       }),
     );
+  });
+
+  describe("measuring a streamed upload", () => {
+    const given = {
+      durationMs: 1000,
+      width: 1280,
+      height: 720,
+      hasAudio: true,
+    };
+    const run = () =>
+      ensureRecordingSeekable({
+        recordingId: recording.id,
+        ownerEmail: "owner@example.com",
+      });
+
+    afterEach(() => {
+      Object.assign(recording, given);
+    });
+
+    it("saves what the upload left out and clears an audio claim the file doesn't back up", async () => {
+      Object.assign(recording, {
+        durationMs: 0,
+        width: 0,
+        height: 0,
+        hasAudio: true,
+      });
+      mockProbeMediaInfo.mockResolvedValue({
+        durationMs: 4200,
+        width: 320,
+        height: 240,
+        hasAudio: false,
+      });
+
+      await run();
+
+      // An exact match: `mediaUpdatedAt` stays, since transcripts are tied to it.
+      expect(mockUpdateSet).toHaveBeenCalledWith({
+        durationMs: filled("recordings.durationMs", 4200),
+        width: filled("recordings.width", 320),
+        height: filled("recordings.height", 240),
+        hasAudio: false,
+        updatedAt: expect.any(String),
+      });
+      expect(mockUpdateWhere).toHaveBeenCalledWith(
+        expect.arrayContaining([
+          { column: "recordings.videoUrl", value: recording.videoUrl },
+          {
+            column: "recordings.mediaUpdatedAt",
+            value: recording.mediaUpdatedAt,
+          },
+        ]),
+      );
+      expect(mockWriteAppState).toHaveBeenCalledWith(
+        "refresh-signal",
+        expect.anything(),
+      );
+    });
+
+    it("keeps the numbers the upload gave", async () => {
+      Object.assign(recording, { durationMs: 9000, width: 0, height: 0 });
+      mockProbeMediaInfo.mockResolvedValue({
+        durationMs: 4200,
+        width: 320,
+        height: 240,
+        hasAudio: true,
+      });
+
+      await run();
+
+      expect(mockUpdateSet).toHaveBeenCalledWith({
+        width: filled("recordings.width", 320),
+        height: filled("recordings.height", 240),
+        updatedAt: expect.any(String),
+      });
+    });
+
+    it("writes nothing when the file agrees with the row", async () => {
+      await run();
+
+      expect(mockProbeMediaInfo).toHaveBeenCalled();
+      expect(mockUpdateSet).not.toHaveBeenCalled();
+    });
+
+    it("doesn't read a file with nothing left to learn from it", async () => {
+      Object.assign(recording, { hasAudio: false });
+
+      await run();
+
+      expect(mockProbeMediaInfo).not.toHaveBeenCalled();
+    });
+
+    it("keeps an audio claim the probe couldn't settle", async () => {
+      Object.assign(recording, { durationMs: 0 });
+      mockProbeMediaInfo.mockResolvedValue({
+        durationMs: 4200,
+        width: null,
+        height: null,
+        hasAudio: null,
+      });
+
+      await run();
+
+      expect(mockUpdateSet).toHaveBeenCalledWith({
+        durationMs: filled("recordings.durationMs", 4200),
+        updatedAt: expect.any(String),
+      });
+    });
+
+    it("still finishes the job when the probe fails", async () => {
+      Object.assign(recording, { durationMs: 0 });
+      mockProbeMediaInfo.mockRejectedValue(new Error("ffmpeg went away"));
+
+      const result = await run();
+
+      expect(result.status).toBe("already-optimized");
+      expect(mockUpdateSet).not.toHaveBeenCalled();
+    });
+
+    it("writes what it measured in the swap when it replaces the media", async () => {
+      Object.assign(recording, { durationMs: 0, width: 0, height: 0 });
+      mockMakeSeekable.mockResolvedValue({
+        bytes: repairedBytes,
+        changed: true,
+      });
+      mockProbeMediaInfo.mockResolvedValue({
+        durationMs: 4200,
+        width: 320,
+        height: 240,
+        hasAudio: false,
+      });
+      mockReturning.mockResolvedValue([
+        {
+          id: recording.id,
+          videoUrl: "https://cdn.example.com/repaired.mp4",
+          videoFormat: "webm",
+        },
+      ]);
+
+      const result = await run();
+
+      expect(result.status).toBe("optimized");
+      // Measured from the replacement, not the file it replaces.
+      expect(mockProbeMediaInfo).toHaveBeenCalledWith(repairedBytes, "webm");
+      expect(mockUpdateSet).toHaveBeenCalledTimes(1);
+      expect(mockUpdateSet).toHaveBeenCalledWith(
+        expect.objectContaining({
+          durationMs: filled("recordings.durationMs", 4200),
+          width: filled("recordings.width", 320),
+          height: filled("recordings.height", 240),
+          hasAudio: false,
+          videoUrl: "https://cdn.example.com/repaired.mp4",
+          mediaUpdatedAt: expect.any(String),
+        }),
+      );
+    });
+
+    it("saves nothing it measured when the replacement never uploads", async () => {
+      Object.assign(recording, { durationMs: 0, width: 0, height: 0 });
+      mockProbeMediaInfo.mockResolvedValue({
+        durationMs: 4170,
+        width: 320,
+        height: 240,
+        hasAudio: false,
+      });
+      mockUploadRecordingMedia.mockRejectedValue(new Error("upload failed"));
+
+      const result = await ensureRecordingSeekable({
+        recordingId: recording.id,
+        ownerEmail: "owner@example.com",
+        normalizeTimeline: true,
+      });
+
+      expect(result.status).toBe("skipped-upload-failed");
+      expect(mockDb.update).not.toHaveBeenCalled();
+    });
   });
 });

@@ -6,6 +6,7 @@ import {
   MAX_SESSION_REPLAY_CAPTURE_CHUNKS,
   MAX_SESSION_REPLAY_CAPTURE_EVENTS,
 } from "@shared/session-replay-capture";
+import { replayActionName } from "@shared/session-replay-diagnostics";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -23,7 +24,6 @@ import {
   replayManifestSupportsStreaming,
   REPLAY_OVERLAY_STYLE_RULES,
   replayDevToolsIssueCount,
-  replayActionName,
   replayAvailabilityErrorKey,
   replayOffsetAfterTimestamp,
   replayInitialViewportDimensions,
@@ -552,6 +552,23 @@ describe("session replay app event markers", () => {
       ["navigation", "Navigate"],
       ["custom", "Network error"],
     ]);
+  });
+
+  it("marks in-app route changes only with the Lab on", () => {
+    const routeChange = [
+      {
+        type: 5,
+        timestamp: 2_000,
+        data: { tag: "agent-native.navigation", payload: { path: "/deck/1" } },
+      },
+    ];
+
+    expect(buildReplayMarkers(routeChange)).toEqual([]);
+    expect(
+      buildReplayMarkers(routeChange, { appEvents: true }).map(
+        ({ kind, label, detail }) => ({ kind, label, detail }),
+      ),
+    ).toEqual([{ kind: "navigation", label: "Navigate", detail: "/deck/1" }]);
   });
 
   it("shows named app events and failed actions with the Lab on", () => {

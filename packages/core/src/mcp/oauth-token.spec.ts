@@ -1,6 +1,8 @@
 import * as jose from "jose";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { resetAppConfigForTests } from "../app-config/index.js";
+
 vi.mock("../server/better-auth-instance.js", () => ({
   getAuthSecret: () => "fallback-auth-secret",
 }));
@@ -30,6 +32,7 @@ const baseSign = {
 };
 
 beforeEach(() => {
+  resetAppConfigForTests();
   process.env = { ...ORIGINAL_ENV };
   delete process.env.A2A_SECRET;
 });
@@ -548,4 +551,16 @@ describe("verifyMcpOAuthAccessToken rejection branches", () => {
   it("rejects a structurally invalid token string", async () => {
     expect(await verifyMcpOAuthAccessToken("not-a-jwt", RESOURCE)).toBeNull();
   });
+});
+
+it("rejects an older personal access token after the deployment domain policy changes", async () => {
+  const token = await signMcpOAuthAccessToken(baseSign);
+  expect((await verifyMcpOAuthAccessToken(token, RESOURCE)) !== null).toBe(
+    true,
+  );
+  process.env.AUTH_ALLOWED_EMAIL_DOMAINS = "builder.io";
+  resetAppConfigForTests();
+  expect((await verifyMcpOAuthAccessToken(token, RESOURCE)) === null).toBe(
+    true,
+  );
 });

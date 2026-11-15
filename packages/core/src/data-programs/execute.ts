@@ -17,6 +17,7 @@ import { createHash } from "node:crypto";
 import type { ActionRunContext } from "../action.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import type { SandboxCodeEvaluator } from "../coding-tools/run-code.js";
+import type { SandboxExecutionRow } from "../coding-tools/sandbox/index.js";
 import { resolveAccess, type AccessContext } from "../sharing/access.js";
 import {
   buildDataProgramPrelude,
@@ -26,6 +27,7 @@ import {
 import {
   getActiveRun,
   getDataProgram,
+  getLatestFinishedRunOutcome,
   getLatestSuccessfulRun,
   recordDataProgramRun,
   updateDataProgramRun,
@@ -39,6 +41,11 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 const BACKGROUND_TIMEOUT_MS = 10 * 60 * 1000;
 const LOGS_TAIL_MAX_CHARS = 4096;
 
+/**
+ * `program_error` is an error the program's own code threw, and its message is
+ * that error's. `sandbox_error` is the sandbox or its executor failing, and its
+ * message can carry server detail.
+ */
 export type DataProgramErrorCode =
   | "program_not_found"
   | "access_denied"
@@ -46,6 +53,7 @@ export type DataProgramErrorCode =
   | "timeout"
   | "emit_missing"
   | "emit_shape_invalid"
+  | "program_error"
   | "sandbox_error"
   | "run_code_unavailable"
   | "background_pending"
@@ -184,6 +192,36 @@ function truncateLogs(stdout: string, stderr: string): string {
   return combined.slice(-LOGS_TAIL_MAX_CHARS);
 }
 
+// How each evaluator reports an error the program threw: the node evaluator
+// prints "Unhandled error: <message>", and the Run evaluator's RunError for a
+// guest throw reads "RUN_ERROR: <message>".
+const THROWN_ERROR_PREFIXES = ["Unhandled error:", "RUN_ERROR:"];
+
+// Node's own report of an error the program's code raised before the wrapper
+// could catch it, such as "SyntaxError: missing ) after argument list" or
+// "Error [ERR_MODULE_NOT_FOUND]: Cannot find package 'x'".
+const UNCAUGHT_ERROR_LINE = /^[A-Za-z]*Error(?: \[[A-Z_]+\])?:/;
+
+/**
+ * What a program that threw said, read from its stderr. Without a known
+ * prefix, the last line shaped like a JavaScript error is the error. Anything
+ * else, such as the Run evaluator's "Run was interrupted before it completed.",
+ * is the sandbox failing rather than the program, so it reads as nothing.
+ */
+function thrownProgramMessage(stderr: string): string | undefined {
+  let last: string | undefined;
+  for (const line of stderr.split("\n")) {
+    const text = line.trim();
+    for (const prefix of THROWN_ERROR_PREFIXES) {
+      if (text.startsWith(prefix)) {
+        return text.slice(prefix.length).trim() || text;
+      }
+    }
+    if (UNCAUGHT_ERROR_LINE.test(text)) last = text;
+  }
+  return last;
+}
+
 function lastGoodFromRun(run: {
   rowsJson: string | null;
   schemaJson: string | null;
@@ -303,6 +341,20 @@ async function executeProgramCode(
       maxBytes: MAX_PROGRAM_RESULT_BYTES,
     });
     if (!parsed.ok) {
+      // A run that fails before emit() never prints a result, so report what
+      // the program threw, or else that the sandbox failed, rather than a
+      // missing emit().
+      if (parsed.error.code === "emit_missing" && result.exitCode !== 0) {
+        const thrown = thrownProgramMessage(result.stderr);
+        return {
+          ok: false,
+          code: thrown ? "program_error" : "sandbox_error",
+          message:
+            thrown ??
+            "The sandbox stopped before the program emitted a result.",
+          logsTail,
+        };
+      }
       return {
         ok: false,
         code: parsed.error.code,
@@ -319,10 +371,12 @@ async function executeProgramCode(
       logsTail,
     };
   } catch (err) {
+    // The run row and get-data-program show this message to every viewer.
+    console.error("[data-programs] sandbox executor failed:", err);
     return {
       ok: false,
       code: "sandbox_error",
-      message: err instanceof Error ? err.message : String(err),
+      message: "The sandbox failed before the program finished.",
       logsTail: "",
     };
   }
@@ -413,13 +467,15 @@ export async function runDataProgram(
     );
   }
 
+  // A background program checks its queued run before its cache, so a run a
+  // Refresh queued shows once it finishes rather than once the cache expires.
+  if (program.background) {
+    return runBackgroundProgram(program, args, paramsHash, timeoutMs);
+  }
+
   if (!args.forceRefresh) {
     const cached = await resolveCacheHit(program, paramsHash);
     if (cached) return cached;
-  }
-
-  if (program.background) {
-    return runBackgroundProgram(program, args, paramsHash, timeoutMs);
   }
 
   return runForegroundProgram(program, args, paramsHash, timeoutMs);
@@ -431,6 +487,9 @@ async function resolveCacheHit(
 ): Promise<DataProgramSuccess | null> {
   const latestSuccess = await getLatestSuccessfulRun(program.id, paramsHash);
   if (!latestSuccess || !latestSuccess.rowsJson) return null;
+  // A save can change the code, so rows from a run started before it aren't
+  // fresh, however young or manual.
+  if (latestSuccess.startedAt < Date.parse(program.updatedAt)) return null;
 
   const now = Date.now();
   const asOf = latestSuccess.finishedAt ?? latestSuccess.startedAt;
@@ -550,18 +609,70 @@ async function runBackgroundProgram(
   const backgroundTimeout = Math.max(timeoutMs, BACKGROUND_TIMEOUT_MS);
 
   const active = await getActiveRun(program.id, paramsHash);
+  let statusUnknown = false;
+  let finishedFailure: BackgroundRunFailure | null = null;
   if (active?.executionId && args.ctx.userEmail) {
-    const execution = await getSandboxExecutionForOwner(
-      active.executionId,
-      args.ctx.userEmail,
-    );
+    // A failed check leaves the run for the next read to finish, rather than
+    // failing a read the cache can still answer.
+    let execution: SandboxExecutionRow | null = null;
+    try {
+      execution = await getSandboxExecutionForOwner(
+        active.executionId,
+        args.ctx.userEmail,
+        args.ctx.orgId ?? null,
+      );
+    } catch (err) {
+      console.error(
+        `[data-programs] couldn't check background run ${active.id}:`,
+        err,
+      );
+    }
+    // An execution this viewer can't find won't report back either.
+    statusUnknown = execution === null;
     if (
       execution &&
       execution.status !== "queued" &&
       execution.status !== "running"
     ) {
-      await finalizeBackgroundRun(active.id, execution);
+      try {
+        finishedFailure = await finalizeBackgroundRun(active.id, execution);
+      } catch (err) {
+        // The run stays queued for the next read to save. Until then the
+        // caller gets the failure and the last good rows, not older rows
+        // passed off as the newest.
+        console.error(
+          `[data-programs] couldn't save background run ${active.id}:`,
+          err,
+        );
+        return failureWithLastGood(
+          program.id,
+          paramsHash,
+          "sandbox_error",
+          "This data program's finished background run couldn't be saved. The next read tries again.",
+        );
+      }
     }
+  }
+
+  // Includes a run finalized just above, which serves as a fresh hit rather
+  // than queueing another run behind it.
+  if (!args.forceRefresh) {
+    // Checked before the cache, or a Refresh that failed hides behind the rows
+    // it was meant to replace until they expire. Queueing another run behind
+    // it would run the broken program again on every read.
+    const failed =
+      finishedFailure ??
+      (active ? null : await recentBackgroundFailure(program, paramsHash));
+    if (failed) {
+      return failureWithLastGood(
+        program.id,
+        paramsHash,
+        failed.code,
+        failed.message,
+      );
+    }
+    const cached = await resolveCacheHit(program, paramsHash);
+    if (cached) return cached;
   }
 
   const stillActive = await getActiveRun(program.id, paramsHash);
@@ -616,6 +727,17 @@ async function runBackgroundProgram(
     }
   }
 
+  // With no rows to serve, a run whose state couldn't be read isn't reported
+  // as still computing.
+  if (statusUnknown) {
+    return failureWithLastGood(
+      program.id,
+      paramsHash,
+      "sandbox_error",
+      "This data program's background run couldn't be checked. Try again.",
+    );
+  }
+
   return failureWithLastGood(
     program.id,
     paramsHash,
@@ -624,11 +746,49 @@ async function runBackgroundProgram(
   );
 }
 
+interface BackgroundRunFailure {
+  code: DataProgramErrorCode;
+  message: string;
+}
+
+// A failed run answers reads for as long as a successful one would; a forced
+// refresh or an edit to the program retries it sooner.
+async function recentBackgroundFailure(
+  program: DataProgramRow,
+  paramsHash: string,
+): Promise<BackgroundRunFailure | null> {
+  const latest = await getLatestFinishedRunOutcome(program.id, paramsHash);
+  if (latest?.status !== "failed" && latest?.status !== "timed_out") {
+    return null;
+  }
+  if (latest.startedAt < Date.parse(program.updatedAt)) return null;
+  const asOf = latest.finishedAt ?? latest.startedAt;
+  if (
+    program.refreshMode !== "manual" &&
+    Date.now() - asOf >= program.refreshTtlMs
+  ) {
+    return null;
+  }
+  return {
+    code: (latest.errorCode as DataProgramErrorCode | null) ?? "sandbox_error",
+    message: latest.errorMessage ?? "Background execution failed.",
+  };
+}
+
+/** Saves a finished run. Returns the failure it saved, or null on success. */
 async function finalizeBackgroundRun(
   runId: string,
-  execution: { status: string; stdout: string; stderr: string },
-): Promise<void> {
-  const finishedAt = Date.now();
+  execution: {
+    status: string;
+    stdout: string;
+    stderr: string;
+    error?: string | null;
+    finishedAt?: number | null;
+  },
+): Promise<BackgroundRunFailure | null> {
+  // When the program finished, not when a read noticed, so a panel's clock
+  // doesn't make the rows look newer than they are.
+  const finishedAt = execution.finishedAt ?? Date.now();
   if (execution.status === "succeeded") {
     const parsed = parseDataProgramResult(execution.stdout, {
       maxRows: MAX_PROGRAM_ROWS,
@@ -646,7 +806,7 @@ async function finalizeBackgroundRun(
         logsTail: truncateLogs(execution.stdout, execution.stderr),
         finishedAt,
       });
-      return;
+      return null;
     }
     await updateDataProgramRun(runId, {
       status: "failed",
@@ -655,17 +815,46 @@ async function finalizeBackgroundRun(
       logsTail: truncateLogs(execution.stdout, execution.stderr),
       finishedAt,
     });
-    return;
+    return { code: parsed.error.code, message: parsed.error.message };
   }
 
+  if (execution.status === "timed_out") {
+    const timedOut: BackgroundRunFailure = {
+      code: "timeout",
+      message: "Background execution timed out.",
+    };
+    await updateDataProgramRun(runId, {
+      status: "timed_out",
+      errorCode: timedOut.code,
+      errorMessage: timedOut.message,
+      logsTail: truncateLogs(execution.stdout, execution.stderr),
+      finishedAt,
+    });
+    return timedOut;
+  }
+
+  // A set `error` means the executor itself failed; otherwise the program
+  // threw, and its message is the one to show. The executor's own message can
+  // carry server detail, so it goes to the server log and the run keeps a
+  // fixed one.
+  const thrown = execution.error
+    ? undefined
+    : thrownProgramMessage(execution.stderr);
+  if (execution.error) {
+    console.error(
+      `[data-programs] background run ${runId} failed in the executor:`,
+      execution.error,
+    );
+  }
+  const failed: BackgroundRunFailure = thrown
+    ? { code: "program_error", message: thrown }
+    : { code: "sandbox_error", message: "Background execution failed." };
   await updateDataProgramRun(runId, {
-    status: execution.status === "timed_out" ? "timed_out" : "failed",
-    errorCode: execution.status === "timed_out" ? "timeout" : "sandbox_error",
-    errorMessage:
-      execution.status === "timed_out"
-        ? "Background execution timed out."
-        : "Background execution failed.",
+    status: "failed",
+    errorCode: failed.code,
+    errorMessage: failed.message,
     logsTail: truncateLogs(execution.stdout, execution.stderr),
     finishedAt,
   });
+  return failed;
 }

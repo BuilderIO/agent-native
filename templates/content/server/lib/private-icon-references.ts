@@ -10,6 +10,7 @@ import {
   assertPrivateIconId,
   ownsPrivateIcon,
 } from "./private-icon-authority.js";
+import { syncPrivateMediaReferences } from "./private-media-references.js";
 
 type Database = ReturnType<typeof getDb>;
 type ElementType = "document" | "property" | "view" | "callout";
@@ -294,6 +295,22 @@ export async function syncPrivateCalloutReferences(
         ),
       );
   }
+}
+
+/**
+ * Every private asset a body write can add to a page: callout icons and
+ * images. Call this, not the callout check alone, wherever a body is saved.
+ */
+export async function syncPrivateBodyReferences(
+  db: Database,
+  input: Parameters<typeof syncPrivateCalloutReferences>[1],
+): Promise<void> {
+  await syncPrivateMediaReferences(db, {
+    documentId: input.documentId,
+    after: input.after,
+    userEmail: input.userEmail,
+  });
+  await syncPrivateCalloutReferences(db, input);
 }
 
 export async function registerPrivateCalloutIcon(input: {

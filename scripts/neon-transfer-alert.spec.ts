@@ -174,7 +174,8 @@ describe("Neon transfer alert", () => {
           ...process.env,
           NEON_API_KEY: "",
           NEON_ORG_ID: "test-placeholder-org",
-          SLACK_NEON_TRANSFER_WEBHOOK_URL: "",
+          QA_SLACK_BOT_TOKEN: "",
+          SLACK_CHANNEL: "",
         },
       },
     );
@@ -199,7 +200,8 @@ describe("Neon transfer alert", () => {
           ...process.env,
           NEON_API_KEY: "",
           NEON_ORG_ID: "test-placeholder-org",
-          SLACK_NEON_TRANSFER_WEBHOOK_URL: "",
+          QA_SLACK_BOT_TOKEN: "",
+          SLACK_CHANNEL: "",
         },
       },
     );
@@ -221,7 +223,8 @@ describe("Neon transfer alert", () => {
           ...process.env,
           NEON_API_KEY: "test-placeholder-key",
           NEON_ORG_ID: "",
-          SLACK_NEON_TRANSFER_WEBHOOK_URL: "",
+          QA_SLACK_BOT_TOKEN: "",
+          SLACK_CHANNEL: "",
         },
       },
     );
@@ -229,7 +232,7 @@ describe("Neon transfer alert", () => {
     assert.match(result.stderr, /NEON_ORG_ID required/);
   });
 
-  it("returns could-not-run when the Slack webhook is missing for a send", () => {
+  it("returns could-not-run when the Slack bot token is missing for a send", () => {
     const result = spawnSync(
       process.execPath,
       [
@@ -243,12 +246,16 @@ describe("Neon transfer alert", () => {
           ...process.env,
           NEON_API_KEY: "test-placeholder-key",
           NEON_ORG_ID: "test-placeholder-org",
-          SLACK_NEON_TRANSFER_WEBHOOK_URL: "",
+          QA_SLACK_BOT_TOKEN: "",
+          SLACK_CHANNEL: "",
         },
       },
     );
     assert.equal(result.status, 2);
-    assert.match(result.stderr, /SLACK_NEON_TRANSFER_WEBHOOK_URL is required/);
+    assert.match(
+      result.stderr,
+      /QA_SLACK_BOT_TOKEN and SLACK_CHANNEL are required/,
+    );
   });
 
   it("returns could-not-run for a live backtest without the Neon API key", () => {
@@ -265,7 +272,8 @@ describe("Neon transfer alert", () => {
           ...process.env,
           NEON_API_KEY: "",
           NEON_ORG_ID: "test-placeholder-org",
-          SLACK_NEON_TRANSFER_WEBHOOK_URL: "",
+          QA_SLACK_BOT_TOKEN: "",
+          SLACK_CHANNEL: "",
         },
       },
     );

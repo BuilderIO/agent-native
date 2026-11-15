@@ -44,8 +44,20 @@ describe("dbPressureWarnings", () => {
     });
     expect(warnings).toHaveLength(3);
     expect(warnings.join(" ")).toContain("idle-in-transaction");
-    expect(warnings.join(" ")).toContain("the database itself is slow");
+    expect(warnings).toContain("SELECT 1 took 6000ms");
     expect(warnings.join(" ")).toContain("stampeding");
+  });
+
+  it("warns only when SELECT 1 exceeds the threshold", () => {
+    expect(
+      dbPressureWarnings({ ...HEALTHY, trivialQueryMs: MAX_TRIVIAL_QUERY_MS }),
+    ).toEqual([]);
+    expect(
+      dbPressureWarnings({
+        ...HEALTHY,
+        trivialQueryMs: MAX_TRIVIAL_QUERY_MS + 1,
+      }),
+    ).toEqual(["SELECT 1 took 1001ms"]);
   });
 
   it("ignores brief idle transactions, which are normal", () => {

@@ -170,6 +170,19 @@ describe("audit-contrast", () => {
     );
   });
 
+  it("fails loudly when the editor is stale and audits nothing", async () => {
+    mockListBrowserSessions.mockResolvedValue([session("tab-this", "deck-1")]);
+    mockCallBrowserSession.mockResolvedValue({
+      ...cleanResult(),
+      renderKey: "stale-render-key",
+    });
+
+    await expect(run({ deckId: "deck-1" })).rejects.toMatchObject({
+      errorCode: "contrast_audit_stale_render",
+      statusCode: 409,
+    });
+  });
+
   it("fails loudly when no editor has the deck open", async () => {
     mockListBrowserSessions.mockResolvedValue([
       session("tab-other", "deck-2"),

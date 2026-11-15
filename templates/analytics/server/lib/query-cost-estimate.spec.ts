@@ -401,4 +401,27 @@ describe("estimateResolvedPanel", () => {
     ).resolves.toMatchObject({ panelId: "p3", status: "not_estimated" });
     expect(mocks.dryRun).not.toHaveBeenCalled();
   });
+
+  it("prices a first-party panel at the traffic it reads", async () => {
+    mocks.renderFirstParty.mockResolvedValueOnce({ target: "sql-store" });
+
+    await estimateResolvedPanel(
+      {
+        panelId: "p1",
+        title: "Events",
+        source: "first-party",
+        query: "SELECT 1",
+        trafficEnvironment: "production",
+      },
+      scope,
+      null,
+    );
+
+    expect(mocks.renderFirstParty).toHaveBeenCalledWith(
+      "SELECT 1",
+      scope,
+      undefined,
+      { trafficEnvironment: "production" },
+    );
+  });
 });

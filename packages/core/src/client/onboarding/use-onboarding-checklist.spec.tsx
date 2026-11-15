@@ -39,14 +39,15 @@ describe("useOnboardingChecklist", () => {
       await new Promise((resolve) => setTimeout(resolve, 20));
     });
 
-  async function mount() {
+  async function mount(
+    client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    }),
+  ) {
     function Probe() {
       latest = useOnboardingChecklist("getting-started");
       return null;
     }
-    const client = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    });
     await act(async () => {
       root.render(
         <QueryClientProvider client={client}>
@@ -139,5 +140,26 @@ describe("useOnboardingChecklist", () => {
     });
 
     expect(latest.collapsed).toBe(false);
+  });
+
+  it("opts a failed collapse save into the shared write-failure toast", async () => {
+    fetchMock.mockResolvedValue(Response.json(summary));
+    appState.write.mockRejectedValue(new Error("offline"));
+    const client = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const surfaced: unknown[] = [];
+    client.getMutationCache().subscribe((event) => {
+      if (event.type === "updated" && event.action.type === "error") {
+        surfaced.push(event.mutation.meta?.surfaceError);
+      }
+    });
+    await mount(client);
+
+    await act(async () => {
+      await latest.setCollapsed(true).catch(() => undefined);
+    });
+
+    expect(surfaced).toEqual([true]);
   });
 });

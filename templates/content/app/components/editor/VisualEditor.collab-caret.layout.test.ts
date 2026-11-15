@@ -18,7 +18,7 @@ describe("VisualEditor collaboration caret layout", () => {
     );
 
     expect(css).toMatch(
-      /\.content-editor \.collaboration-carets__selection[\s\S]*?background-color:\s*currentColor\s*!important;/,
+      /\.content-editor \.collaboration-carets__selection[\s\S]*?background-color:\s*color-mix\(\s*in srgb,\s*var\(--collaboration-color, currentColor\) 20%,\s*transparent\s*\)\s*!important;/,
     );
   });
 });

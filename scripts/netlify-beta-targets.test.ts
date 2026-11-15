@@ -25,9 +25,10 @@ describe("beta affected-site selection", () => {
       betaSitesForChangedPaths(["templates/chat/app/root.tsx"]),
       ["chat"],
     );
-    assert.deepEqual(betaSitesForChangedPaths(["packages/docs/app/root.tsx"]), [
-      "fw",
-    ]);
+    assert.deepEqual(
+      betaSitesForChangedPaths(["packages/docs/app/root.tsx"]),
+      [],
+    );
   });
 
   it("publishes every site that depends on a changed shared package", () => {

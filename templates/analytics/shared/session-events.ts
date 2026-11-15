@@ -2,6 +2,10 @@ import { z } from "zod";
 
 /** rrweb custom-event tag the core recorder uses for tracked app events. */
 export const SESSION_REPLAY_ANALYTICS_EVENT_TAG = "agent-native.event";
+/** rrweb custom-event tag the core recorder uses for agent chat lifecycle marks. */
+export const SESSION_REPLAY_AGENT_CHAT_EVENT_TAG = "agent-native.chat";
+/** rrweb custom-event tag the core recorder uses when the page's path changes. */
+export const SESSION_REPLAY_NAVIGATION_EVENT_TAG = "agent-native.navigation";
 
 /** Sessions URL params for did/didn't event conditions (repeatable). */
 export const SESSION_DID_EVENT_PARAM = "event";

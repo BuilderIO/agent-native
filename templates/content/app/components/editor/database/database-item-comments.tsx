@@ -9,15 +9,24 @@ import {
   TooltipTrigger,
 } from "@/components/ui/tooltip";
 
+import { databaseRowOpenTarget } from "./row-open-target";
+
 /**
- * Opens a row with its Comments showing: one thread when `threadId` is set,
- * a new comment on the Property `propertyId` names, otherwise the list.
+ * What a row's Comments open on: one thread, a new comment on one Property,
+ * or a new comment on the whole Page. Without one, they open on the list.
+ */
+export type DatabaseItemCommentTarget =
+  | { threadId: string }
+  | { propertyId: string }
+  | { pageComment: true };
+
+/**
+ * Opens a row with its Comments showing, on `target` or else the list.
  * Without a provider, rows show no Comment markers.
  */
 export type OpenDatabaseItemComments = (
   item: ContentDatabaseItem,
-  threadId: string | null,
-  propertyId?: string,
+  target: DatabaseItemCommentTarget | null,
 ) => void;
 
 export const DatabaseItemCommentsContext =
@@ -48,6 +57,7 @@ export function DatabaseRowCommentCount({
           className={databaseCommentMarkerClassName}
           aria-label={label}
           data-database-row-comments={count}
+          {...databaseRowOpenTarget(item.document.id)}
           onClick={(event) => {
             event.stopPropagation();
             openComments(item, null);

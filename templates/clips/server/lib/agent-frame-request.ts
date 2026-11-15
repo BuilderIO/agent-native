@@ -256,6 +256,19 @@ export function describeFrameFailure(error: unknown, status: number) {
     };
   }
 
+  if (
+    error instanceof RecordingMediaFetchError &&
+    (error.message === "Recording range budget exceeded." ||
+      error.message === "Recording range request budget exceeded.")
+  ) {
+    return {
+      failureKind: "processing",
+      error: message,
+      nextStep:
+        "This frame request exceeded the media-read budget. Try a shorter frame-sheet range or request individual frames; some timestamps may still exceed the limit.",
+    };
+  }
+
   const nextStep =
     status === 413
       ? "The stored media is too large for frame inspection. The share link may still be valid; report that frames cannot be inspected at this size."

@@ -23,6 +23,7 @@ import {
   blankScreenHtml,
   canvasPrimitiveInsertionHostNodeId,
   extractCanvasPrimitiveHtml,
+  nextDuplicatedFilename,
   updateCanvasPolygonSvgGeometry,
 } from "./canvas-primitive-insert";
 import { writeBackVectorEditedPenPath } from "./clone-and-pen-edit";
@@ -2238,5 +2239,21 @@ describe("drawing on an authored container nests into it", () => {
         liveDocumentFor(authored),
       ),
     ).toEqual({ kind: "frame", nodeId: "card" });
+  });
+});
+
+describe("nextDuplicatedFilename", () => {
+  it("names a copy after its source and skips copy names already taken", () => {
+    const file = (filename: string) =>
+      ({ id: filename, filename, fileType: "html", content: "" }) as never;
+    expect(nextDuplicatedFilename([file("home.html")], "home.html")).toBe(
+      "home-copy.html",
+    );
+    expect(
+      nextDuplicatedFilename(
+        [file("home.html"), file("home-copy.html"), file("home-copy-2.html")],
+        "home.html",
+      ),
+    ).toBe("home-copy-3.html");
   });
 });

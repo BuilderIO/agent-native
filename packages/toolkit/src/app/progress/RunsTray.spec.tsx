@@ -1,6 +1,10 @@
 // @vitest-environment happy-dom
 
 import {
+  WRITE_FAILURE_EVENT,
+  type WriteFailureDetail,
+} from "@agent-native/core/client/write-failure";
+import {
   DropdownMenu,
   DropdownMenuContent,
 } from "@agent-native/toolkit/ui/dropdown-menu";
@@ -233,6 +237,73 @@ describe("RunsTrayMenuItem", () => {
     });
     expect(runsTrigger?.getAttribute("aria-expanded")).toBe("true");
     expect(document.activeElement).toBe(runsTrigger);
+  });
+
+  it("reports a stop the server rejected", async () => {
+    const now = new Date().toISOString();
+    const fetchMock = vi.fn(
+      async (input: RequestInfo | URL, init?: RequestInit) => {
+        if (String(input).includes("/agent-chat/runs/list")) {
+          return Response.json({
+            status: "ok",
+            runs: [
+              {
+                id: "menu-run-5",
+                kind: "agent-team",
+                source: "agent-teams",
+                title: "Manage the active run",
+                status: "running",
+                goalId: "agent-teams",
+                needsInput: false,
+                needsApproval: false,
+                createdAt: now,
+                updatedAt: now,
+                sourceRecord: { threadId: "thread-menu-5" },
+                metadata: { parentThreadId: "thread-parent-5" },
+              },
+            ],
+          });
+        }
+        if (init?.method === "POST") return new Response("{}", { status: 500 });
+        return Response.json([]);
+      },
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    const failures: WriteFailureDetail[] = [];
+    const onFailure = (event: Event) =>
+      failures.push((event as CustomEvent<WriteFailureDetail>).detail);
+    window.addEventListener(WRITE_FAILURE_EVENT, onFailure);
+
+    await act(async () => {
+      root.render(
+        <DropdownMenu open>
+          <DropdownMenuContent forceMount>
+            <RunsTrayMenuItem pollMs={0} />
+          </DropdownMenuContent>
+        </DropdownMenu>,
+      );
+    });
+    await act(async () => {
+      document
+        .querySelector('[aria-label^="Agent runs"]')
+        ?.dispatchEvent(
+          new MouseEvent("click", { bubbles: true, cancelable: true }),
+        );
+      await vi.waitFor(() =>
+        expect(document.body.textContent).toContain("Manage the active run"),
+      );
+    });
+    await act(async () => {
+      document
+        .querySelector('[aria-label="Stop Manage the active run"]')
+        ?.dispatchEvent(
+          new MouseEvent("click", { bubbles: true, cancelable: true }),
+        );
+      await vi.waitFor(() => expect(failures).toHaveLength(1));
+    });
+    window.removeEventListener(WRITE_FAILURE_EVENT, onFailure);
+
+    expect((failures[0]?.error as { status?: number }).status).toBe(500);
   });
 
   it("does not stop a run when a pointer gesture starts on another run", async () => {

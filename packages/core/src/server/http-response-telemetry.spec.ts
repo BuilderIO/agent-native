@@ -12,6 +12,10 @@ import {
   SPAN_STATUS_ERROR,
 } from "../observability/tracing.js";
 import {
+  flushTrackingSendsForResponse,
+  sendPostHogEvent,
+} from "../tracking/providers.js";
+import {
   getHttpRequestTelemetryId,
   installHttpResponseTelemetryHooks,
   normalizeHttpTelemetryPath,
@@ -552,6 +556,91 @@ describe("http response telemetry", () => {
 
       expect(Date.now() - startedAt).toBeLessThan(1_000);
       expect(forceFlush).toHaveBeenCalledOnce();
+    });
+
+    describe("analytics sends", () => {
+      let releaseSends: () => void = () => undefined;
+      let fetchMock: ReturnType<typeof vi.fn>;
+
+      beforeEach(() => {
+        const releases: Array<() => void> = [];
+        releaseSends = () => {
+          for (const release of releases.splice(0)) release();
+        };
+        fetchMock = vi.fn(
+          () =>
+            new Promise<Response>((resolve) => {
+              releases.push(() => resolve(new Response("{}")));
+            }),
+        );
+        vi.stubGlobal("fetch", fetchMock);
+        vi.stubEnv("POSTHOG_API_KEY", "ph_test");
+      });
+
+      afterEach(async () => {
+        // Send anything a test left queued while fetch is still the stub.
+        vi.stubEnv("NETLIFY", "true");
+        const flushed = flushTrackingSendsForResponse();
+        releaseSends();
+        await flushed;
+        vi.unstubAllGlobals();
+      });
+
+      it("hands a send still under way to the request's waitUntil with the export", async () => {
+        vi.stubEnv("NETLIFY", "true");
+        const event = eventFor("/_agent-native/actions/save-document");
+        const handedOff: Promise<unknown>[] = [];
+        Object.assign(event.req, {
+          waitUntil: (promise: Promise<unknown>) => handedOff.push(promise),
+        });
+        releaseFlush();
+        // Sent mid-request by code that never sees the request event.
+        expect(sendPostHogEvent("qa_event", {}, "u1")).toBe(true);
+
+        const { settled } = await respond(event);
+
+        expect(settled()).toBe(true);
+        expect(handedOff).toHaveLength(1);
+        let exported = false;
+        void handedOff[0].then(() => {
+          exported = true;
+        });
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        expect(exported).toBe(false);
+        releaseSends();
+        await handedOff[0];
+        expect(exported).toBe(true);
+      });
+
+      it("holds the response no longer than the deadline for a send still under way and no waitUntil exists", async () => {
+        vi.stubEnv("NETLIFY", "true");
+        releaseFlush();
+        const { requestHooks, responseHooks } = createHooks();
+        const event = eventFor("/some/page");
+        await requestHooks[0](event);
+        sendPostHogEvent("qa_event", {}, "u1");
+        const startedAt = Date.now();
+        await responseHooks[0](new Response("ok"), event);
+
+        const held = Date.now() - startedAt;
+        expect(held).toBeGreaterThanOrEqual(200);
+        expect(held).toBeLessThan(1_000);
+      });
+
+      it("leaves a long-running server's batch queued at the end of a request", async () => {
+        const event = eventFor("/some/page");
+        const handedOff: Promise<unknown>[] = [];
+        Object.assign(event.req, {
+          waitUntil: (promise: Promise<unknown>) => handedOff.push(promise),
+        });
+        releaseFlush();
+        sendPostHogEvent("qa_event", {}, "u1");
+
+        await respond(event);
+        await handedOff[0];
+
+        expect(fetchMock).not.toHaveBeenCalled();
+      });
     });
   });
 

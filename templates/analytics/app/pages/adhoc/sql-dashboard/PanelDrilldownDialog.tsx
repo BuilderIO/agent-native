@@ -263,7 +263,7 @@ export function PanelDrilldownDialog({
     totalMatching !== chartValue;
 
   const title = datum
-    ? `${panel.title}: ${datum.x}${datum.series ? ` · ${datum.series}` : ""}`
+    ? `${panel.title}: ${datum.x || t("sqlDashboard.noXValue")}${datum.series ? ` · ${datum.series}` : ""}`
     : panel.title;
 
   return (

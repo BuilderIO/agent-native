@@ -1,4 +1,5 @@
 import { normalizeApiBaseUrl } from "../shared/api-base-url.js";
+import { resolveAppHomePath } from "../shared/app-home-path.js";
 import {
   FRAMEWORK_INTERNAL_ROUTE_PREFIX,
   matchesPathPrefix,
@@ -390,6 +391,32 @@ export function appBasePath(): string {
   return resolveAppBasePath();
 }
 
+/** Public home projection, or the same workspace-manifest default as SSR. */
+export function appHomePath(): string {
+  const projected =
+    typeof window === "undefined"
+      ? undefined
+      : (
+          window as Window & {
+            __AGENT_NATIVE_CONFIG__?: { appHomePath?: unknown };
+          }
+        ).__AGENT_NATIVE_CONFIG__?.appHomePath;
+  const env = clientEnv();
+  const workspaceId =
+    env?.VITE_AGENT_NATIVE_WORKSPACE_APP_ID ??
+    env?.AGENT_NATIVE_WORKSPACE_APP_ID;
+  const appsJson =
+    env?.VITE_AGENT_NATIVE_WORKSPACE_APPS_JSON ??
+    env?.AGENT_NATIVE_WORKSPACE_APPS_JSON;
+  return resolveAppHomePath(
+    {
+      ...(typeof projected === "string" ? { homePath: projected } : {}),
+      ...(typeof workspaceId === "string" ? { workspaceId } : {}),
+    },
+    typeof appsJson === "string" ? { appsJson } : undefined,
+  );
+}
+
 function workspaceAppMountPaths(): Set<string> | null {
   const projected =
     typeof window === "undefined"
@@ -536,6 +563,23 @@ export function agentNativePath(path: string): string {
     queryOrFragment === -1 ? path : path.slice(0, queryOrFragment);
   if (!matchesPathPrefix(pathname, FRAMEWORK_INTERNAL_ROUTE_PREFIX))
     return path;
+  // Shared workspaces have one session authority at the origin. Starting a
+  // separate app function just to re-read that session adds a cold-start
+  // waterfall before the app can render. Data/actions retain their app paths.
+  // Explicit remote API bases keep their existing credential/mount routing.
+  const env = clientEnv();
+  if (
+    pathname === "/_agent-native/auth/session" &&
+    isWorkspaceRuntime() &&
+    (env?.VITE_AGENT_NATIVE_WORKSPACE_AUTH_MODE ??
+      env?.AGENT_NATIVE_WORKSPACE_AUTH_MODE) === "shared" &&
+    !apiBaseUrl()
+  ) {
+    initializeAgentNativeClient();
+    return toPublicFrameworkPath(path, {
+      publicPrefix: frameworkRoutePrefix(),
+    });
+  }
   return appServerPath(
     toPublicFrameworkPath(path, { publicPrefix: frameworkRoutePrefix() }),
   );

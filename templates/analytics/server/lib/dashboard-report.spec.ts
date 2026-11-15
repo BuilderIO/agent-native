@@ -5,6 +5,7 @@ import type {
   SqlPanel,
 } from "../../app/pages/adhoc/sql-dashboard/types";
 import { SETUP_INCIDENT } from "../../shared/annotation-fixtures";
+import { newDashboardTrafficFilter } from "../../shared/traffic-environment";
 import type {
   RenderedReportEmail,
   ReportPanelData,
@@ -661,6 +662,22 @@ describe("dashboard report email", () => {
     expect(snapshot.filters).toEqual({ f_plan: "", f_tier: "pro" });
     // The link must reopen with the selection cleared, not with the default.
     expect(snapshot.dashboardUrl).toContain("f_plan=__empty__");
+  });
+
+  it("reads only the traffic a report saved, not a dashboard default set later", async () => {
+    mocks.getReportDashboard.mockResolvedValue(
+      dashboardWith([panel("p1")], [newDashboardTrafficFilter()]),
+    );
+
+    const unsaved = await collectReportSnapshot(subscription());
+    expect(unsaved.filters.f_traffic_environment).toBe("all");
+    expect(unsaved.dashboardUrl).toContain("f_traffic_environment=all");
+
+    const saved = await collectReportSnapshot({
+      ...subscription(),
+      filters: { f_traffic_environment: "beta" },
+    });
+    expect(saved.filters.f_traffic_environment).toBe("beta");
   });
 
   it("reads the dashboard under the subscription owner's access scope", async () => {

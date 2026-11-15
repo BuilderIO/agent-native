@@ -1,8 +1,8 @@
 import { agentResourcePackMessagesForLocale } from "./agent-resources-messages.js";
-import { consentBannerMessagesForLocale } from "./consent-banner-messages.js";
 import * as englishSupplementalMessages from "./core-messages/supplemental/en-US.js";
 import { environmentBadgeMessagesForLocale } from "./environment-badge-messages.js";
 import { iconPickerMessagesForLocale } from "./icon-picker-messages.js";
+import { consentBannerMessagesForLocale } from "./privacy-choice-messages.js";
 import { saveConflictMessagesForLocale } from "./save-conflict-messages.js";
 import {
   DEFAULT_LOCALE,
@@ -10,6 +10,7 @@ import {
   type BuiltinLocaleCode,
   type LocaleCode,
 } from "./shared.js";
+import { writeFailureMessagesForLocale } from "./write-failure-messages.js";
 
 export type CoreLocaleMessages = Record<string, unknown>;
 
@@ -118,6 +119,7 @@ export async function loadCoreMessagesForLocale(
     environmentBadge: environmentBadgeMessagesForLocale(locale),
     iconPicker: iconPickerMessagesForLocale(locale),
     saveConflict: saveConflictMessagesForLocale(locale),
+    writeFailure: writeFailureMessagesForLocale(locale),
     settings: {
       ...supplementalMessages.mcpSettingsMessages,
       ...supplementalMessages.privacySettingsMessages,
@@ -131,6 +133,7 @@ const englishCoreMessages = {
   environmentBadge: englishSupplementalMessages.environmentBadgeMessages,
   iconPicker: iconPickerMessagesForLocale(DEFAULT_LOCALE),
   saveConflict: saveConflictMessagesForLocale(DEFAULT_LOCALE),
+  writeFailure: writeFailureMessagesForLocale(DEFAULT_LOCALE),
   settings: {
     ...englishSupplementalMessages.mcpSettingsMessages,
     ...englishSupplementalMessages.privacySettingsMessages,

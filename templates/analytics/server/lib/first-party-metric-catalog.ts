@@ -1,6 +1,10 @@
 import { testIdentityEmailSql } from "@agent-native/core/shared";
 
 import {
+  designBuilderSignupQueries,
+  DESIGN_BUILDER_SIGNUP_EVENT_SOURCE,
+} from "./design-builder-signup-metrics.js";
+import {
   JOURNEY_COHORT_EVENT_NAMES,
   JOURNEY_COHORT_PARTITION_EVENT_NAMES,
   JOURNEY_INTEGRATION_EVENT_NAMES,
@@ -1108,10 +1112,13 @@ function buildOnboardingEventsCte(
     includeIdentityBridge?: boolean;
     excludeHttpResponses?: boolean;
     excludeNonProductionHosts?: boolean;
+    emailFilterSql?: string;
+    eventSource?: "analytics_events" | "builder_signup_source";
   } = {},
 ): string {
   const dateRangeFilter =
     options.dateRangeFilter ?? DASHBOARD_TIME_RANGE_FILTER;
+  const eventSource = options.eventSource ?? "analytics_events";
   const includeIdentityBridge = options.includeIdentityBridge !== false;
   const observationCutoffFilter = options.observationCutoffSql
     ? `\n      AND e.timestamp::timestamptz < ${options.observationCutoffSql}`
@@ -1134,7 +1141,7 @@ function buildOnboardingEventsCte(
       CASE WHEN NULLIF(e.user_id, '') LIKE '%@%.%' THEN e.user_id END
     )) AS linked_email,
     NULLIF(e.properties::jsonb ->> 'auth_user_id', '') AS auth_user_id
-    FROM analytics_events e
+    FROM ${eventSource} e
     WHERE ${dateRangeFilter}${observationCutoffFilter}${receivedAtCutoffFilter}
       AND ${DASHBOARD_APP_FILTER}
       AND ${FIRST_PARTY_TEMPLATE_FILTER}
@@ -1168,19 +1175,22 @@ function buildOnboardingEventsCte(
       CASE WHEN NULLIF(e.user_key, '') LIKE '%@%.%' THEN e.user_key END,
       CASE WHEN NULLIF(e.properties::jsonb ->> 'auth_user_id', '') LIKE '%@%.%' THEN e.properties::jsonb ->> 'auth_user_id' END
     ) AS funnel_user_email
-  FROM analytics_events e
+  FROM ${eventSource} e
   ${identityBridgeJoin}
   WHERE ${dateRangeFilter}${observationCutoffFilter}${receivedAtCutoffFilter}${excludeHttpResponsesFilter}${excludeNonProductionHostsFilter}
     AND ${DASHBOARD_APP_FILTER}
     AND ${FIRST_PARTY_TEMPLATE_FILTER}
 ), onboarding_events AS (
   SELECT * FROM scoped_onboarding_events
-  WHERE ${FUNNEL_EMAIL_FILTER}
+  WHERE ${options.emailFilterSql ?? FUNNEL_EMAIL_FILTER}
     AND NOT ${testIdentityEmailSql("funnel_user_email")}
 )`;
 }
 
 const ONBOARDING_EVENTS_CTE = buildOnboardingEventsCte();
+const BUILDER_SIGNUP_QUERIES = designBuilderSignupQueries(
+  `${DESIGN_BUILDER_SIGNUP_EVENT_SOURCE}, ${buildOnboardingEventsCte({ emailFilterSql: "TRUE", eventSource: "builder_signup_source" }).slice(5)}`,
+);
 const SIGNIFICANT_ACTION_FILTER = `((event_name IN ('action_completed', 'core_action_completed') AND COALESCE(properties::jsonb ->> 'success', 'true') = 'true') OR event_name = 'app.first_action' OR (event_name = 'action.response' AND COALESCE(properties::jsonb ->> 'success', '') = 'true' AND COALESCE(upper(properties::jsonb ->> 'method'), '') <> 'GET'))`;
 const ACTION_RESPONSE_WEIGHT_SQL = `CASE WHEN NULLIF(properties::jsonb ->> 'sample_weight', '') IS NOT NULL THEN (properties::jsonb ->> 'sample_weight')::numeric WHEN COALESCE(properties::jsonb ->> 'success', '') = 'true' AND COALESCE((properties::jsonb ->> 'duration_ms')::numeric, 1000) < 1000 AND COALESCE((properties::jsonb ->> 'status_code')::int, 200) < 400 AND NULLIF(properties::jsonb ->> 'framework_ready_wait_ms', '') IS NULL AND NULLIF(properties::jsonb ->> 'startup_db_operation_wall_ms', '') IS NULL THEN 10 ELSE 1 END`;
 const ACTION_RESPONSE_OUTCOME_CLASS_SQL = `CASE WHEN COALESCE(properties::jsonb ->> 'outcome', '') = 'cancelled' THEN 'cancelled' WHEN COALESCE(properties::jsonb ->> 'outcome', '') = 'timeout' AND COALESCE(properties::jsonb ->> 'page_hidden', '') = 'true' THEN 'suspended' WHEN COALESCE(properties::jsonb ->> 'success', '') = 'true' THEN 'success' ELSE 'failure' END`;
@@ -1606,7 +1616,13 @@ function buildOnboardingJourneyEventCtes(
     CASE WHEN NULLIF(e.session_id, '') IS NOT NULL THEN
       MAX(CASE WHEN e.event_name IN (${sqlNameList(JOURNEY_INTEGRATION_EVENT_NAMES)}) THEN 1 ELSE 0 END)
         OVER (PARTITION BY e.session_id)
-      ELSE 0 END AS has_standalone_setup
+      ELSE 0 END AS has_standalone_setup,
+    CASE WHEN NULLIF(e.session_id, '') IS NOT NULL THEN
+      MIN(lower(e.funnel_user_email)) OVER (PARTITION BY e.session_id)
+    END AS session_email_min,
+    CASE WHEN NULLIF(e.session_id, '') IS NOT NULL THEN
+      MAX(lower(e.funnel_user_email)) OVER (PARTITION BY e.session_id)
+    END AS session_email_max
   FROM onboarding_journey_identity_events e
 ), candidate_onboarding_events AS (
   SELECT e.*,
@@ -1647,6 +1663,8 @@ function buildOnboardingJourneyEventCtes(
     END AS session_id,
     e.timestamp, e.event_name, e.path, e.properties, e.template_name,
     e.template, e.app,
+    CASE WHEN e.session_email_min = e.session_email_max
+      THEN md5(e.session_email_min) END AS session_email_hash,
     CASE
       WHEN NULLIF(e.session_id, '') IS NOT NULL
         THEN CASE WHEN e.has_cohort = 1 THEN 'onboarding' ELSE 'standalone_setup' END
@@ -1694,7 +1712,29 @@ function buildOnboardingJourneyEventCtes(
 )
 `;
 }
-const ONBOARDING_JOURNEY_EVENTS_SUFFIX = `
+/**
+ * A number from the first six hex digits of an md5, written with functions
+ * both engines share. Summed over a read, it fingerprints the read's rows.
+ */
+function sqlMd5Prefix24(hashSql: string): string {
+  return [20, 16, 12, 8, 4, 0]
+    .map(
+      (shift, index) =>
+        `(strpos('0123456789abcdef', substr(${hashSql}, ${index + 1}, 1)) - 1) * ${2 ** shift}`,
+    )
+    .join("\n    + ");
+}
+
+// Every page also counts and fingerprints the whole read, so the caller can
+// tell whether separate OFFSET pages read the same rows in the same order. The
+// fingerprint covers the sort key and the session's email hash.
+const ONBOARDING_JOURNEY_EVENTS_SUFFIX = `, fingerprinted_journey_events AS (
+  SELECT e.*,
+    md5(COALESCE(e.journey_kind, '') || '|' || COALESCE(e.session_id, '')
+      || '|' || e.timestamp::text || '|' || e.id
+      || '|' || COALESCE(e.session_email_hash, '')) AS journey_row_hash
+  FROM journey_events e
+)
 SELECT e.id, e.session_id, e.timestamp::text AS timestamp, e.event_name, e.path,
   e.journey_kind,
   NULLIF(e.properties::jsonb ->> 'auth_user_id', '') AS auth_user_id,
@@ -1734,8 +1774,13 @@ SELECT e.id, e.session_id, e.timestamp::text AS timestamp, e.event_name, e.path,
   END AS attempt_id,
   NULLIF(e.properties::jsonb ->> 'event_alias_id', '') AS alias_id,
   NULLIF(e.properties::jsonb ->> 'sessionReplayId', '') AS session_replay_id,
-  NULLIF(e.properties::jsonb ->> 'sessionReplayStartedAt', '') AS session_replay_started_at
-FROM journey_events e
+  NULLIF(e.properties::jsonb ->> 'sessionReplayStartedAt', '') AS session_replay_started_at,
+  e.session_email_hash,
+  COUNT(*) OVER () AS journey_total_rows,
+  SUM(
+    ${sqlMd5Prefix24("e.journey_row_hash")}
+  ) OVER () AS journey_rows_fingerprint
+FROM fingerprinted_journey_events e
 ORDER BY e.journey_kind, e.session_id, e.timestamp, e.id
 LIMIT {{journeyLimit}} OFFSET {{journeyOffset}}`;
 
@@ -1762,6 +1807,20 @@ export interface OnboardingJourneyTerminalStep {
 export interface OnboardingJourneyPersonMember extends OnboardingJourneyTerminalStep {
   app: string;
   authUserId: string | null;
+  /**
+   * MD5 of the session's one lowercase email, when all of its emails agree.
+   * The warehouse hashes it, so no address reaches query text or results.
+   */
+  emailHash?: string | null;
+  /**
+   * Every email hash and direct auth ID of the person this member stands for,
+   * when several sessions were joined into one person. Later activity matches
+   * any.
+   */
+  aliases?: {
+    emailHashes: readonly string[];
+    authUserIds: readonly string[];
+  };
 }
 
 export interface OnboardingJourneyEventsFilters {
@@ -2055,7 +2114,20 @@ export function onboardingJourneyPersonFollowupDateRange(
   };
 }
 
-/** Cross-session person follow-up uses direct auth IDs and returns aggregates only. */
+/** The email hash a person follow-up can match on, or null. */
+export function onboardingPersonFollowupEmailHash(
+  value: string | null | undefined,
+): string | null {
+  return value && /^[0-9a-f]{32}$/.test(value) ? value : null;
+}
+
+/**
+ * Cross-session person follow-up matches later events by any of the member's
+ * email hashes or direct auth IDs, and returns aggregates only. An unmatched
+ * event in the member's own session counts only when it names no one, with
+ * neither a sign-in ID nor an email; a member with no identity keeps every
+ * event of its session.
+ */
 export function buildOnboardingJourneyPersonFollowupSql(
   filters: OnboardingJourneyEventsFilters,
   members: readonly OnboardingJourneyPersonMember[],
@@ -2073,34 +2145,84 @@ export function buildOnboardingJourneyPersonFollowupSql(
   }
 
   const allowedApps = new Set<string>(FIRST_PARTY_TEMPLATE_NAMES);
-  const terminalRows = members
-    .map((member, index) => {
-      const app = member.app.toLowerCase();
-      const authUserId = member.authUserId;
-      if (
-        !member.sessionId ||
-        !member.stepKey ||
-        !Number.isSafeInteger(member.tsMs) ||
-        !allowedApps.has(app) ||
-        (authUserId !== null &&
-          (!authUserId ||
-            authUserId.trim() !== authUserId ||
-            /^org:/i.test(authUserId)))
-      ) {
-        throw new Error("Invalid onboarding person follow-up member");
-      }
-      const payload = sqlStringLiteral(
+  const isDirectAuthUserId = (value: string) =>
+    value.length > 0 && value.trim() === value && !/^org:/i.test(value);
+  const sessionIds = new Set<string>();
+  const memberPayloads: string[] = [];
+  const aliasPayloads: string[] = [];
+  for (const member of members) {
+    const app = member.app.toLowerCase();
+    const authUserId = member.authUserId;
+    const emailHash = member.emailHash ?? null;
+    const authUserIds = new Set([
+      ...(authUserId === null ? [] : [authUserId]),
+      ...(member.aliases?.authUserIds ?? []),
+    ]);
+    const emailHashes = new Set([
+      ...(emailHash === null ? [] : [emailHash]),
+      ...(member.aliases?.emailHashes ?? []),
+    ]);
+    if (
+      !member.sessionId ||
+      sessionIds.has(member.sessionId) ||
+      !member.stepKey ||
+      !Number.isSafeInteger(member.tsMs) ||
+      !allowedApps.has(app) ||
+      (authUserId === null && authUserIds.size > 0) ||
+      (emailHash === null && emailHashes.size > 0) ||
+      [...authUserIds].some((value) => !isDirectAuthUserId(value)) ||
+      [...emailHashes].some(
+        (value) => onboardingPersonFollowupEmailHash(value) !== value,
+      )
+    ) {
+      throw new Error("Invalid onboarding person follow-up member");
+    }
+    sessionIds.add(member.sessionId);
+    memberPayloads.push(
+      JSON.stringify({
+        sessionId: member.sessionId,
+        stepKey: member.stepKey,
+        app,
+        timestamp: new Date(member.tsMs).toISOString(),
+        authUserId,
+        emailHash,
+      }),
+    );
+    for (const value of authUserIds) {
+      aliasPayloads.push(
         JSON.stringify({
           sessionId: member.sessionId,
-          stepKey: member.stepKey,
-          app,
-          timestamp: new Date(member.tsMs).toISOString(),
-          authUserId,
+          authUserId: value,
+          emailHash: null,
         }),
       );
-      return `SELECT ${payload}${index === 0 ? " AS member_payload" : ""}`;
-    })
-    .join(" UNION ALL ");
+    }
+    for (const value of emailHashes) {
+      aliasPayloads.push(
+        JSON.stringify({
+          sessionId: member.sessionId,
+          authUserId: null,
+          emailHash: value,
+        }),
+      );
+    }
+  }
+  // An all-unavailable cohort has no aliases; one row that matches nothing
+  // keeps the CTE valid.
+  if (!aliasPayloads.length) {
+    aliasPayloads.push(
+      JSON.stringify({ sessionId: null, authUserId: null, emailHash: null }),
+    );
+  }
+  const unionRows = (payloads: readonly string[], column: string) =>
+    payloads
+      .map(
+        (payload, index) =>
+          `SELECT ${sqlStringLiteral(payload)}${index === 0 ? ` AS ${column}` : ""}`,
+      )
+      .join(" UNION ALL ");
+  const terminalRows = unionRows(memberPayloads, "member_payload");
+  const aliasRows = unionRows(aliasPayloads, "alias_payload");
 
   const dateRange = onboardingJourneyPersonFollowupDateRange(
     filters,
@@ -2129,10 +2251,19 @@ export function buildOnboardingJourneyPersonFollowupSql(
     terminal_row.member_payload::jsonb ->> 'app' AS terminal_app,
     (terminal_row.member_payload::jsonb ->> 'timestamp')::timestamptz AS terminal_at,
     terminal_row.member_payload::jsonb ->> 'authUserId' AS auth_user_id,
-    CASE WHEN terminal_row.member_payload::jsonb ->> 'authUserId' IS NULL THEN 'unavailable' ELSE 'identified' END AS identity_status
+    CASE WHEN terminal_row.member_payload::jsonb ->> 'authUserId' IS NULL
+      AND terminal_row.member_payload::jsonb ->> 'emailHash' IS NULL
+      THEN 'unavailable' ELSE 'identified' END AS identity_status
   FROM (
   {{terminalRows}}
   ) terminal_row
+), member_aliases AS (
+  SELECT alias_row.alias_payload::jsonb ->> 'sessionId' AS session_id,
+    alias_row.alias_payload::jsonb ->> 'authUserId' AS auth_user_id,
+    alias_row.alias_payload::jsonb ->> 'emailHash' AS email_hash
+  FROM (
+  {{aliasRows}}
+  ) alias_row
 ), activity_events AS (
   SELECT e.session_id, e.timestamp::timestamptz AS event_at,
     lower(${appExpression}) AS activity_app,
@@ -2163,9 +2294,9 @@ export function buildOnboardingJourneyPersonFollowupSql(
   WHERE has_test = 0
     AND ('{{emailFilter}}' IN ('', 'all') OR ('{{emailFilter}}' = 'exclude_builder' AND has_builder = 0) OR ('{{emailFilter}}' = 'only_builder' AND has_builder = 1))
 ), filtered_activity_events AS (
-  SELECT activity.*
+  SELECT activity.*, md5(lower(activity.funnel_user_email)) AS activity_email_hash
   FROM activity_events activity
-  WHERE (
+  WHERE ((
     NULLIF(activity.session_id, '') IS NOT NULL
     AND EXISTS (
       SELECT 1 FROM included_activity_sessions included
@@ -2175,27 +2306,52 @@ export function buildOnboardingJourneyPersonFollowupSql(
     NULLIF(activity.session_id, '') IS NULL
     AND ${FUNNEL_EMAIL_FILTER.replace(/funnel_user_email/g, "activity.funnel_user_email")}
     AND NOT ${testIdentityEmailSql("activity.funnel_user_email")}
-  )
-), activity_evidence AS (
-  SELECT member.member_id, member.terminal_step_key, member.identity_status,
-    MAX(CASE WHEN later.session_id = member.session_id
-      AND later.activity_app = member.terminal_app THEN 1 ELSE 0 END) AS selected_session_activity,
-    MAX(CASE WHEN later.event_at IS NOT NULL AND (
-      later.session_id IS DISTINCT FROM member.session_id
-      OR later.activity_app IS DISTINCT FROM member.terminal_app
-    ) THEN 1 ELSE 0 END) AS outside_session_or_app_activity
+  ))
+    AND (
+      activity.session_id IN (
+        SELECT session_id FROM terminal_members WHERE session_id IS NOT NULL
+      )
+      OR activity.auth_user_id IN (
+        SELECT auth_user_id FROM member_aliases WHERE auth_user_id IS NOT NULL
+      )
+      OR md5(lower(activity.funnel_user_email)) IN (
+        SELECT email_hash FROM member_aliases WHERE email_hash IS NOT NULL
+      )
+    )
+), matched_activity AS (
+  SELECT member.member_id, later.session_id AS later_session_id, later.activity_app
+  FROM member_aliases alias
+  JOIN terminal_members member ON member.session_id = alias.session_id
+  JOIN filtered_activity_events later ON later.auth_user_id = alias.auth_user_id
+  WHERE later.event_at > member.terminal_at
+    AND later.event_at < member.terminal_at + INTERVAL '${ONBOARDING_PERSON_FOLLOWUP_HORIZON_DAYS} days'
+  UNION ALL
+  SELECT member.member_id, later.session_id AS later_session_id, later.activity_app
+  FROM member_aliases alias
+  JOIN terminal_members member ON member.session_id = alias.session_id
+  JOIN filtered_activity_events later ON later.activity_email_hash = alias.email_hash
+  WHERE later.event_at > member.terminal_at
+    AND later.event_at < member.terminal_at + INTERVAL '${ONBOARDING_PERSON_FOLLOWUP_HORIZON_DAYS} days'
+  UNION ALL
+  SELECT member.member_id, later.session_id AS later_session_id, later.activity_app
   FROM terminal_members member
-  LEFT JOIN filtered_activity_events later ON
-    later.event_at > member.terminal_at
+  JOIN filtered_activity_events later ON later.session_id = member.session_id
+  WHERE later.event_at > member.terminal_at
     AND later.event_at < member.terminal_at + INTERVAL '${ONBOARDING_PERSON_FOLLOWUP_HORIZON_DAYS} days'
     AND (
-      (member.identity_status = 'identified' AND later.auth_user_id = member.auth_user_id)
-      OR (later.session_id = member.session_id AND (
-        member.identity_status = 'unavailable'
-        OR later.auth_user_id IS NULL
-        OR later.auth_user_id = member.auth_user_id
-      ))
+      member.identity_status = 'unavailable'
+      OR (later.auth_user_id IS NULL AND later.activity_email_hash IS NULL)
     )
+), activity_evidence AS (
+  SELECT member.member_id, member.terminal_step_key, member.identity_status,
+    MAX(CASE WHEN matched.later_session_id = member.session_id
+      AND matched.activity_app = member.terminal_app THEN 1 ELSE 0 END) AS selected_session_activity,
+    MAX(CASE WHEN matched.member_id IS NOT NULL AND (
+      matched.later_session_id IS DISTINCT FROM member.session_id
+      OR matched.activity_app IS DISTINCT FROM member.terminal_app
+    ) THEN 1 ELSE 0 END) AS outside_session_or_app_activity
+  FROM terminal_members member
+  LEFT JOIN matched_activity matched ON matched.member_id = member.member_id
   WHERE member.session_id IS NOT NULL
   GROUP BY member.member_id, member.terminal_step_key, member.identity_status
 ), classified AS (
@@ -2233,6 +2389,7 @@ ORDER BY terminal_step_key`;
 
   return fillOnboardingJourneySql(query, {
     terminalRows,
+    aliasRows,
     activityStartDate,
     activityEndDate,
     activityStart,
@@ -3230,6 +3387,96 @@ const ENTRIES: FirstPartyMetric[] = [
           label: "Settings handoffs",
           format: "number",
         },
+      ],
+    },
+  },
+  {
+    key: "design-builder-signup-ab",
+    title: "Design Builder signup A/B",
+    chartType: "table",
+    source: "first-party",
+    width: 6,
+    windowed: false,
+    buildSql: fixed(BUILDER_SIGNUP_QUERIES.comparison),
+    config: {
+      description:
+        "Visitor-assignment cohorts include signup abandoners. Signup, Builder connection, prompt, and first design are measured within 24 hours of first exposure. Milestones are independent; custom keys can produce a design without connecting Builder. Use the mature first-design rate for comparisons; D1 and D7 use fully observed 24–48h and day 7–8 windows. Null rates mean no eligible denominator. Historical outcome events can supply signup links before enrollment tracking was added.",
+      columns: [
+        { key: "environment", label: "Environment" },
+        { key: "variant", label: "Variant" },
+        { key: "exposed_visitors", label: "Exposed", format: "number" },
+        { key: "signed_up_24h", label: "Signed up", format: "number" },
+        {
+          key: "builder_connected_24h",
+          label: "Builder connected",
+          format: "number",
+        },
+        { key: "first_prompt_24h", label: "First prompt", format: "number" },
+        { key: "first_design_24h", label: "First design", format: "number" },
+        {
+          key: "first_design_rate",
+          label: "First design rate",
+          format: "percent",
+        },
+        {
+          key: "mature_24h_visitors",
+          label: "24h mature visitors",
+          format: "number",
+        },
+        {
+          key: "mature_first_design_rate",
+          label: "Mature first design rate",
+          format: "percent",
+        },
+        { key: "d1_eligible", label: "D1 eligible", format: "number" },
+        {
+          key: "d1_return_rate",
+          label: "D1 return / exposed",
+          format: "percent",
+        },
+        { key: "d7_eligible", label: "D7 eligible", format: "number" },
+        {
+          key: "d7_return_rate",
+          label: "D7 return / exposed",
+          format: "percent",
+        },
+      ],
+    },
+  },
+  {
+    key: "design-builder-signup-outcomes",
+    title: "Design Builder signup outcomes",
+    chartType: "table",
+    source: "first-party",
+    width: 3,
+    windowed: false,
+    buildSql: fixed(BUILDER_SIGNUP_QUERIES.outcomes),
+    config: {
+      description:
+        "Latest recorded outcome per exposed assignment. Replayed responses count once; not_recorded includes signup abandoners and unfinished activations. Missing assignment requests appear separately in tracking health.",
+      columns: [
+        { key: "environment", label: "Environment" },
+        { key: "variant", label: "Variant" },
+        { key: "status", label: "Status" },
+        { key: "code", label: "Reason" },
+        { key: "visitors", label: "Visitors", format: "number" },
+      ],
+    },
+  },
+  {
+    key: "design-builder-signup-tracking-health",
+    title: "Design Builder signup tracking health",
+    chartType: "table",
+    source: "first-party",
+    width: 3,
+    windowed: false,
+    buildSql: fixed(BUILDER_SIGNUP_QUERIES.quality),
+    config: {
+      description:
+        "Tracking completeness within the selected window. No signup link can mean abandonment. Cohort counts honor the employee filter; operational error counters cover all observed Design traffic across environments. Unattributed requests are not assigned to either experiment arm.",
+      columns: [
+        { key: "metric", label: "Metric" },
+        { key: "count", label: "Count", format: "number" },
       ],
     },
   },

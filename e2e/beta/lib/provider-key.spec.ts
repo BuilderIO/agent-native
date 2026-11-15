@@ -273,3 +273,82 @@ test("rejects a key that can list models but cannot execute luna", async () => {
     globalThis.fetch = originalFetch;
   }
 });
+
+for (const code of [
+  "credit_balance_exhausted",
+  "project_spend_limit_exceeded",
+  "organization_spend_limit_exceeded",
+  "organization_usage_limit_exceeded",
+  "slow_down",
+  "rate_limit_exceeded",
+  "insufficient_quota",
+]) {
+  test(`reports the whitelisted provider failure code ${code} without its message`, async () => {
+    const originalFetch = globalThis.fetch;
+    let calls = 0;
+    globalThis.fetch = (async () =>
+      ++calls === 1
+        ? new Response("{}", { status: 200 })
+        : Response.json(
+            {
+              error: {
+                code,
+                message: "credential sk-example-sensitive must never appear",
+              },
+            },
+            { status: 429, headers: { "retry-after": "12" } },
+          )) as typeof fetch;
+    try {
+      await assert.rejects(
+        validateOpenAiKey("sk-example-sensitive"),
+        (error: unknown) => {
+          assert.ok(error instanceof Error);
+          assert.match(
+            error.message,
+            new RegExp(
+              `HTTP 429; provider_code=${code}; retry_after_seconds=12`,
+            ),
+          );
+          assert.ok(!error.message.includes("sk-example-sensitive"));
+          assert.ok(!error.message.includes("must never appear"));
+          return true;
+        },
+      );
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+}
+
+test("omits unknown provider codes and untrusted retry-after values", async () => {
+  const originalFetch = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = (async () =>
+    ++calls === 1
+      ? new Response("{}", { status: 200 })
+      : Response.json(
+          {
+            error: {
+              code: "sk-example-sensitive",
+              message: "private account details",
+            },
+          },
+          { status: 429, headers: { "retry-after": "sk-example-sensitive" } },
+        )) as typeof fetch;
+  try {
+    await assert.rejects(
+      validateOpenAiKey("sk-example-sensitive"),
+      (error: unknown) => {
+        assert.ok(error instanceof Error);
+        assert.match(error.message, /HTTP 429/);
+        assert.ok(!error.message.includes("sk-example-sensitive"));
+        assert.ok(!error.message.includes("private account details"));
+        assert.ok(!error.message.includes("provider_code="));
+        assert.ok(!error.message.includes("retry_after_seconds="));
+        return true;
+      },
+    );
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});

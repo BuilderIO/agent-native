@@ -6,6 +6,7 @@
     "related": false,
     "pool": "forks"
   },
+  "tempDirName": "../../.tmp",
   "coverageAnalysis": "perTest",
   "dryRunTimeoutMinutes": 20,
   "mutate": [

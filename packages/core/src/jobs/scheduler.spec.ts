@@ -471,6 +471,37 @@ Inspect the workspace.`,
     },
   );
 
+  it("disables an automation whose end date has passed instead of running it", async () => {
+    resourceListAllOwnersMock.mockResolvedValue([
+      {
+        id: "resource-expired",
+        owner: "alice+jobs@agent-native.test",
+        path: "jobs/expired-digest.md",
+        content: `---
+schedule: "* * * * *"
+nextRun: "1970-01-01T00:00:00.000Z"
+enabled: true
+expiresAt: "2026-01-01T00:00:00.000Z"
+createdBy: alice+jobs@agent-native.test
+---
+
+Summarize the inbox.`,
+      },
+    ]);
+
+    await processRecurringJobs({
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+    });
+
+    expect(startRunMock).not.toHaveBeenCalled();
+    const content: string = resourcePutMock.mock.calls.at(-1)![2];
+    const { meta } = parseJobResource(content);
+    expect(meta.enabled).toBe(false);
+    expect(meta.nextRun).toBeUndefined();
+  });
+
   it("does not manually overlap an active automation", async () => {
     const resource = {
       id: "resource-running",
@@ -983,6 +1014,30 @@ Process the feedback.`,
     );
   });
 
+  it("runs an automation another instance created right after a tick that found none", async () => {
+    const deps = {
+      getActions: () => ({}),
+      getSystemPrompt: async () => "system",
+      engine: testEngine,
+      model: "test-model",
+    };
+    resourceListAllOwnersMock.mockResolvedValueOnce([]);
+    await processRecurringJobs(deps);
+    expect(createThreadMock).not.toHaveBeenCalled();
+
+    // The new job (the default due one) was written elsewhere, so this
+    // process saw no resource event for it.
+    await processRecurringJobs(deps);
+
+    expect(resourceListAllOwnersMock).toHaveBeenCalledTimes(2);
+    expect(createThreadMock).toHaveBeenCalledWith(
+      "alice+jobs@agent-native.test",
+      expect.objectContaining({
+        title: expect.stringContaining("Job: daily-report"),
+      }),
+    );
+  });
+
   it("runs multiple due automations from one scan without serial starvation", async () => {
     let releaseFirst: () => void = () => {};
     const firstRunGate = new Promise<void>((resolve) => {
@@ -1310,7 +1365,9 @@ Run job ${index}.`,
           typeof email === "string" &&
           email.startsWith("blocked-")
         ) {
-          throw new Error("connection terminated");
+          throw Object.assign(new Error("connection terminated"), {
+            code: "08006",
+          });
         }
         return { rows: [{ "1": 1 }], rowsAffected: 1 };
       },

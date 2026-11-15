@@ -1128,6 +1128,44 @@ describe("update-document compare-and-swap", () => {
     });
   });
 
+  it("saves an editor generation for a page over 500,000 characters", async () => {
+    // The body copies were capped at 500,000 while `content` was not, so the
+    // editor's every save of a longer page was refused and the page never opened.
+    const before = `${"A long working note.\n\n".repeat(30_000)}Before`;
+    const after = `${before}\n\nAfter`;
+    const id = await createDocument({ content: before });
+    const baseRevision = documentRevisionToken(0, before);
+    const args = {
+      id,
+      content: after,
+      baseRevision,
+      authoredBaseRevision: baseRevision,
+      authoredBaseContent: before,
+      authoredCandidateContent: after,
+      editorSessionId: nextId("long-page-session"),
+      editorEditGeneration: 1,
+      editorSnapshotTitle: "Untitled",
+      editorSnapshotContent: after,
+      browserSaveAttemptId: nextId("long-page-attempt"),
+    };
+
+    const parsed =
+      await updateDocumentAction.schema["~standard"].validate(args);
+    expect(parsed.issues).toBeUndefined();
+    const saved = await runWithRequestContext({ userEmail: OWNER }, () =>
+      updateDocumentAction.run(args, {
+        caller: "frontend",
+        userEmail: OWNER,
+      }),
+    );
+
+    expect(saved).toMatchObject({ browserSaveAttempt: { result: "applied" } });
+    expect(await documentRow(id)).toMatchObject({
+      content: after,
+      bodyRevision: 1,
+    });
+  });
+
   it("allows a frontend metadata save that echoes the unchanged body", async () => {
     const id = await createDocument({ title: "Before", content: "Body" });
     const result = await runWithRequestContext({ userEmail: OWNER }, () =>

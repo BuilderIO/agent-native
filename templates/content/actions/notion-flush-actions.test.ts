@@ -82,6 +82,8 @@ describe("user-triggered Notion action flushes", () => {
     expect(mocks.pushDocumentToNotion).toHaveBeenCalledWith(
       "owner@example.com",
       "doc-1",
+      false,
+      { ctx: undefined },
     );
   });
 

@@ -30,6 +30,7 @@ import {
 } from "../ui/tooltip.js";
 import { cn } from "../utils.js";
 import { ComposerNotice } from "./composer-notice.js";
+import { COMPOSER_POPOVER_SURFACE_CLASS } from "./popover-surface.js";
 import { useComposerRuntimeAdapters } from "./runtime-adapters.js";
 
 export interface MessageQueueItem {
@@ -102,12 +103,13 @@ export interface MessageQueueDrawerProps {
 }
 
 // Row heights and the gap between rows are fixed so the recessed drawer can
-// animate to an exact block size; change them together with the h-9 / h-16
-// row classes and the list's gap-1.
-const QUEUE_ROW_PX = 36;
+// animate to an exact block size; change them together with the h-8 / h-16
+// row classes and the list's gap-1. The 8px inset keeps the 8px row radius
+// concentric with the composer's 16px corner.
+const QUEUE_ROW_PX = 32;
 const QUEUE_IMAGE_ROW_PX = 64;
 const QUEUE_ROW_GAP_PX = 4;
-const QUEUE_INSET_PX = 4;
+const QUEUE_INSET_PX = 8;
 const RECESSED_QUEUE_MAX_PX = 160;
 
 function queueRowHeight(item: MessageQueueItem): number {
@@ -191,6 +193,9 @@ export function MessageQueueDrawer({
   const dragToReorder =
     labels.dragToReorder ??
     t("agentChat.queue.dragToReorder", { defaultValue: "Drag to reorder" });
+  const attachedImageLabel = t("agentChat.queue.attachedImage", {
+    defaultValue: "Attached image",
+  });
   const moveUpLabel =
     labels.moveUp ?? t("agentChat.queue.moveUp", { defaultValue: "Move up" });
   const moveDownLabel =
@@ -480,7 +485,7 @@ export function MessageQueueDrawer({
           "p-[var(--agent-message-queue-inset)] data-[empty=true]:p-0",
           recessed
             ? "rounded-t-[var(--agent-message-queue-radius)] rounded-b-none"
-            : "w-full overflow-hidden rounded-[var(--agent-message-queue-radius)] border border-border/80 bg-background shadow-sm animate-in fade-in-0 duration-200 motion-reduce:animate-none",
+            : "w-full overflow-hidden rounded-[var(--agent-message-queue-radius)] border border-border bg-background shadow-sm animate-in fade-in-0 duration-200 motion-reduce:animate-none",
           className,
         )}
       >
@@ -514,7 +519,7 @@ export function MessageQueueDrawer({
                   "group relative flex min-h-0 min-w-0 shrink-0 gap-1 rounded-[calc(var(--agent-message-queue-radius)-var(--agent-message-queue-inset))] px-1 text-sm leading-5 animate-in fade-in-0 duration-150 motion-reduce:animate-none",
                   hasImages
                     ? "h-16 items-start pt-1 pb-0"
-                    : "h-9 items-center py-0",
+                    : "h-8 items-center py-0",
                   dragging
                     ? "z-10 bg-accent shadow-sm"
                     : "transition-[transform,background-color] duration-150 ease-out hover:bg-accent/50 motion-reduce:transition-none",
@@ -547,7 +552,7 @@ export function MessageQueueDrawer({
                           onPointerUp={() => endDrag(true)}
                           onPointerCancel={() => endDrag(false)}
                           className={cn(
-                            "absolute inset-0 flex touch-none items-center justify-center rounded-md text-muted-foreground opacity-0 transition-opacity duration-150 hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 group-data-[dragging=true]:opacity-100 disabled:hidden motion-reduce:transition-none",
+                            "absolute inset-0 flex touch-none items-center justify-center rounded-[var(--agent-kit-radius-sm,0.5rem)] text-muted-foreground opacity-0 transition-opacity duration-150 hover:text-foreground focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100 group-data-[dragging=true]:opacity-100 disabled:hidden motion-reduce:transition-none",
                             dragging ? "cursor-grabbing" : "cursor-grab",
                           )}
                         >
@@ -568,9 +573,10 @@ export function MessageQueueDrawer({
                 >
                   <div
                     data-agent-message-queue-text="true"
-                    className="flex h-6 min-w-0 items-center text-sm leading-5 text-foreground"
+                    className="flex min-h-6 min-w-0 items-center text-sm leading-5 text-foreground"
                   >
-                    <span className="min-w-0 truncate">
+                    {/* Keyboard focus has no hover, so focus expands the message. */}
+                    <span className="min-w-0 truncate group-focus-within:whitespace-normal group-focus-within:[overflow-wrap:anywhere]">
                       {renderText ? renderText(item) : item.text}
                     </span>
                   </div>
@@ -583,8 +589,8 @@ export function MessageQueueDrawer({
                         <img
                           key={`${item.id}-image-${imageIndex}`}
                           src={src}
-                          alt=""
-                          className="size-8 shrink-0 rounded-md border border-border/60 object-cover"
+                          alt={attachedImageLabel}
+                          className="size-8 shrink-0 rounded-[var(--agent-kit-radius-sm,0.5rem)] border border-border object-cover"
                         />
                       ))}
                     </div>
@@ -676,6 +682,7 @@ export function MessageQueueDrawer({
                         align="end"
                         side="top"
                         sideOffset={4}
+                        className={COMPOSER_POPOVER_SURFACE_CLASS}
                       >
                         {actions.map((action) => {
                           const menuItem = (
@@ -685,7 +692,7 @@ export function MessageQueueDrawer({
                               onSelect={() => action.onSelect(item)}
                               className={cn(
                                 action.destructive &&
-                                  "text-destructive focus:text-destructive",
+                                  "text-[color:var(--agent-kit-danger-text)] focus:text-[color:var(--agent-kit-danger-text)]",
                               )}
                             >
                               {action.label}

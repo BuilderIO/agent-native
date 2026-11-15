@@ -141,16 +141,30 @@ export async function getSettings(
   keys: readonly string[],
   options?: StoreReadOptions,
 ): Promise<Map<string, Record<string, unknown> | null>> {
-  const uniqueKeys = [...new Set(keys)];
+  const raw = await getSettingsRaw(keys, options);
   const result = new Map<string, Record<string, unknown> | null>();
+  for (const [key, value] of raw)
+    result.set(key, value == null ? null : parseSettingValue(key, value));
+  return result;
+}
+
+/**
+ * Like `getSettings`, but returns each stored value unparsed, so a caller can
+ * tell a row that isn't JSON from a missing one.
+ */
+export async function getSettingsRaw(
+  keys: readonly string[],
+  options?: StoreReadOptions,
+): Promise<Map<string, string | null>> {
+  const uniqueKeys = [...new Set(keys)];
+  const result = new Map<string, string | null>();
   if (uniqueKeys.length === 0) return result;
 
   const cache = options?.transaction ? null : requestSettingsCache();
   const misses: string[] = [];
   for (const key of uniqueKeys) {
     if (!options?.bypassCache && cache?.has(key)) {
-      const cached = cache.get(key);
-      result.set(key, cached == null ? null : parseSettingValue(key, cached));
+      result.set(key, cache.get(key) ?? null);
     } else {
       misses.push(key);
     }
@@ -175,13 +189,42 @@ export async function getSettings(
   for (const key of misses) {
     const raw = rawByKey.get(key) ?? null;
     if (!options?.bypassCache) cache?.set(key, raw);
-    result.set(key, raw == null ? null : parseSettingValue(key, raw));
+    result.set(key, raw);
   }
   return result;
 }
 
 export interface StoreWriteOptions {
   requestSource?: string;
+  /**
+   * Allow this write to keep an inline image data URI.
+   *
+   * Settings never carry inline image or file bodies: they would put megabytes
+   * of base64 in a row every page reads, so `assertNoInlineImageBytes` rejects
+   * them. The one setting that is an image by design is the account photo
+   * (`avatar:<email>`, a 64x64 raster the avatar route validates and caps), so
+   * that route asks for the exemption explicitly. Nothing else passes it.
+   */
+  allowInlineImageBytes?: boolean;
+}
+
+export interface StoreMutationOptions extends StoreWriteOptions {
+  /** Initialize the settings store before the transaction and publish the change only after commit. */
+  transaction?: DbExec;
+  /**
+   * Server-only guard invoked with each PRESENT stored snapshot before the
+   * updater: a stored JSON `null`, array or scalar included. For user settings
+   * the legacy-migration value is validated too. Throw to reject the mutation
+   * without writing. Absent by default, so existing callers are unchanged and
+   * no stored `null` is rejected globally.
+   *
+   * The hook validates the value as it is stored; it does not change migration
+   * or null semantics. A permissive guard that accepts a canonical JSON `null`
+   * still falls through to the same absent-row migration branch as before, and
+   * a permissive guard that accepts a legacy `null` leaves migration
+   * bookkeeping value-based exactly as before.
+   */
+  validateStoredValue?: (value: unknown) => void | Promise<void>;
 }
 
 export interface StoreMutationOptions extends StoreWriteOptions {
@@ -209,8 +252,18 @@ export async function mutateSetting(
     const raw =
       snapshot.rows.length === 0 ? null : (snapshot.rows[0]?.value as string);
     const current = raw == null ? null : JSON.parse(raw);
+    // `raw !== null` means the row is present. Validate the parsed value even
+    // when it is `null`: the updater cannot tell a stored JSON `null` (or an
+    // array/scalar) from an absent row on its own, so without this guard its
+    // absent-row fallback would silently overwrite the corruption. Runs on
+    // every CAS attempt, including before the unchanged-row fast path.
+    if (raw !== null && options?.validateStoredValue) {
+      await options.validateStoredValue(current);
+    }
     const next = await updater(current);
-    assertNoInlineImageBytes(next, `setting "${key}"`);
+    if (!options?.allowInlineImageBytes) {
+      assertNoInlineImageBytes(next, `setting "${key}"`);
+    }
     const nextRaw = JSON.stringify(next);
     // An unchanged value is not a write: it would bump updated_at and publish
     // a settings event that makes every open page refetch for nothing.
@@ -263,7 +316,9 @@ export async function putSetting(
   value: Record<string, unknown>,
   options?: StoreWriteOptions,
 ): Promise<void> {
-  assertNoInlineImageBytes(value, `setting "${key}"`);
+  if (!options?.allowInlineImageBytes) {
+    assertNoInlineImageBytes(value, `setting "${key}"`);
+  }
   const serialized = JSON.stringify(value);
   await ensureTable();
   const client = getDbExec();

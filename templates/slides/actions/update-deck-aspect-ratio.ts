@@ -1,5 +1,4 @@
 import { defineAction, fail } from "@agent-native/core/action";
-import { writeAppState } from "@agent-native/core/application-state";
 import { assertAccess } from "@agent-native/core/sharing";
 import { eq } from "drizzle-orm";
 import { z } from "zod";
@@ -79,10 +78,6 @@ export default defineAction({
     } else {
       await notifyClients(deckId);
     }
-    await writeAppState("refresh-signal", {
-      ts: now,
-      source: "update-deck-aspect-ratio",
-    });
     return { id: deckId, aspectRatio };
   },
 });

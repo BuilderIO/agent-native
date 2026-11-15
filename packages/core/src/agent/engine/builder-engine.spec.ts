@@ -268,7 +268,7 @@ describe("createBuilderEngine", () => {
     expect(fetchSpy).not.toHaveBeenCalled();
   });
 
-  it("preserves optional action schemas in GPT gateway requests", async () => {
+  it("sends GPT gateway tools out of strict mode with optional schemas intact", async () => {
     const inputSchema = {
       type: "object",
       properties: {
@@ -298,6 +298,30 @@ describe("createBuilderEngine", () => {
     );
     const body = JSON.parse(requestFetch.mock.calls[0][1]!.body as string);
     expect(body.tools[0].input_schema).toEqual(inputSchema);
+    expect(body.tools[0].strict).toBe(false);
+  });
+
+  it("leaves the strict flag off Claude gateway tools", async () => {
+    const requestFetch = vi.fn<typeof fetch>().mockResolvedValue(
+      jsonlResponse([
+        { type: "text", text: "Done" },
+        { type: "stop", stop_reason: "end_turn" },
+      ]),
+    );
+    vi.stubGlobal("fetch", requestFetch);
+    await collectEvents(
+      createBuilderEngine().stream({
+        ...BASE_OPTS,
+        tools: [
+          {
+            name: "list-events",
+            description: "List events",
+            inputSchema: { type: "object", properties: {} },
+          },
+        ],
+      }),
+    );
+    const body = JSON.parse(requestFetch.mock.calls[0][1]!.body as string);
     expect(body.tools[0]).not.toHaveProperty("strict");
   });
 
@@ -308,9 +332,28 @@ describe("createBuilderEngine", () => {
     const events = await collectEvents(engine.stream(BASE_OPTS));
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("error");
+    // Changed on purpose: a run with no
+    // signed-in member reports that reason; a signed-in run with nothing
+    // connected still reports missing credentials (next test).
+    expect(stop?.errorCode).toBe("missing_credentials");
+    expect(stop?.error).toContain("no signed-in workspace member");
+    expect(stop?.error).not.toContain("BUILDER_PRIVATE_KEY");
+    expect(stop?.error).not.toMatch(/free tier/i);
+  });
+
+  it("reports missing credentials, not the run reason, when a signed-in member has nothing connected", async () => {
+    credentialState.builderPrivateKey = null;
+    oauthState.ownerEmail = "person@example.com";
+    oauthState.stored = false;
+    oauthState.accessToken = null;
+    vi.unstubAllEnvs();
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("missing_credentials");
     expect(stop?.error).toContain("Settings > Agent > AI providers");
-    expect(stop?.error).not.toContain("BUILDER_PRIVATE_KEY");
+    expect(stop?.error).not.toContain("no signed-in workspace member");
+    expect(stop?.error).not.toMatch(/free tier/i);
   });
 
   it("uses per-user Builder OAuth without legacy space credentials", async () => {
@@ -435,6 +478,8 @@ describe("createBuilderEngine", () => {
 
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("error");
+    // No signed-in member on this run: the code is unchanged, the reason is
+    // the run's own.
     expect(stop?.errorCode).toBe("missing_credentials");
     expect(fetchSpy).not.toHaveBeenCalled();
   });
@@ -484,6 +529,8 @@ describe("createBuilderEngine", () => {
 
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("error");
+    // No signed-in member on this run: the code is unchanged, the reason is
+    // the run's own.
     expect(stop?.errorCode).toBe("missing_credentials");
     expect(fetchSpy).not.toHaveBeenCalled();
   });
@@ -1041,8 +1088,10 @@ describe("createBuilderEngine", () => {
       credentialState.recordBuilderGatewayAuthFailure,
     ).toHaveBeenCalledWith({
       status: 401,
-      code: "unauthorized",
-      message: "Invalid key",
+      code: "builder_auth_error",
+      provider: "builder",
+      message:
+        "Builder authentication failed. Sign in to Builder.io again in Settings (free tier available).",
     });
     expect(oauthState.markReconnect).not.toHaveBeenCalled();
   });
@@ -1448,8 +1497,10 @@ describe("createBuilderEngine", () => {
       credentialState.recordBuilderGatewayAuthFailure,
     ).toHaveBeenCalledWith({
       status: 403,
-      code: "http_403",
-      message: "Invalid token",
+      code: "builder_auth_error",
+      provider: "builder",
+      message:
+        "Builder authentication failed. Sign in to Builder.io again in Settings (free tier available).",
     });
   });
 
@@ -1942,8 +1993,10 @@ describe("createBuilderEngine", () => {
       credentialState.recordBuilderGatewayAuthFailure,
     ).toHaveBeenCalledWith({
       status: 403,
-      code: "http_403",
-      message: "Invalid or inactive personal access token",
+      code: "builder_auth_error",
+      provider: "builder",
+      message:
+        "Builder authentication failed. Sign in to Builder.io again in Settings (free tier available).",
     });
   });
 
@@ -1968,12 +2021,19 @@ describe("createBuilderEngine", () => {
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("builder_auth_error");
-    expect(stop?.error).toBe("Invalid or inactive personal access token");
+    expect(stop?.error).toBe(
+      "Builder authentication failed. Sign in to Builder.io again in Settings (free tier available).",
+    );
+    expect(stop?.error).not.toContain(
+      "Invalid or inactive personal access token",
+    );
     expect(
       credentialState.recordBuilderGatewayAuthFailure,
     ).toHaveBeenCalledWith({
       code: "builder_auth_error",
-      message: "Invalid or inactive personal access token",
+      provider: "builder",
+      message:
+        "Builder authentication failed. Sign in to Builder.io again in Settings (free tier available).",
     });
   });
 
@@ -2696,6 +2756,129 @@ describe("createBuilderEngine", () => {
     expect(warning.mock.calls.flat().join(" ")).not.toContain(
       privateProviderMessage,
     );
+  });
+
+  it("treats an uncoded masked envelope on invalid_request as a non-retryable internal error", async () => {
+    const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "invalid_request",
+            requestId: "req_masked_envelope",
+            error:
+              "Sorry, this was caused by an internal error. ERROR ID: ee0d523bbb22473387d71fd97da220ea",
+          },
+        ]),
+      ),
+    );
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.errorCode).toBe("builder_gateway_internal_error");
+    expect(stop?.providerRetryable).toBe(false);
+    const logged = warning.mock.calls.flat().join(" ");
+    expect(logged).toContain("requestId=req_masked_envelope");
+    expect(logged).toContain("providerMessagePresent=true");
+    expect(logged).toContain("code=builder_gateway_internal_error");
+    expect(logged).toMatch(
+      /requestShape=\{"model":"[^"]+","payloadBytes":\d+,"toolCount":\d+,"messageCount":\d+\}/,
+    );
+    expect(logged).not.toContain("Sorry, this was caused by an internal error");
+  });
+
+  it.each([
+    {
+      name: "only error",
+      event: { error: "x" },
+      expected: "providerMessagePresent=true",
+    },
+    {
+      name: "only message",
+      event: { message: "x" },
+      expected: "providerMessagePresent=true",
+    },
+    {
+      name: "only detail",
+      event: { detail: "x" },
+      expected: "providerMessagePresent=true",
+    },
+    {
+      name: "none of them",
+      event: {},
+      expected: "providerMessagePresent=false",
+    },
+  ])(
+    "logs whether the gateway sent a message ($name)",
+    async ({ event, expected }) => {
+      const warning = vi.spyOn(console, "warn").mockImplementation(() => {});
+      vi.stubGlobal(
+        "fetch",
+        vi
+          .fn()
+          .mockResolvedValue(
+            jsonlResponse([
+              { type: "stop", reason: "invalid_request", ...event },
+            ]),
+          ),
+      );
+
+      await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+      const logged = warning.mock.calls.flat().join(" ");
+      expect(logged).toContain(expected);
+      expect(logged).toContain("requestId=(none)");
+    },
+  );
+
+  it("keeps a provider_internal_error envelope on invalid_request retryable", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "invalid_request",
+            requestId: "req_coded_envelope",
+            errorCode: "provider_internal_error",
+            error:
+              "Sorry, we ran into an issue processing your request. ERROR ID: bebaeb5da13441539790834b63ff955a",
+          },
+        ]),
+      ),
+    );
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.errorCode).toBe("builder_gateway_internal_error");
+    expect(stop?.providerRetryable).toBe(true);
+  });
+
+  it("keeps an uncoded non-envelope invalid_request terminal as invalid_request", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(
+        jsonlResponse([
+          {
+            type: "stop",
+            reason: "invalid_request",
+            requestId: "req_plain_invalid",
+            error:
+              "messages.3: tool_use block must have a corresponding tool_result",
+          },
+        ]),
+      ),
+    );
+
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.errorCode).toBe("invalid_request");
+    expect(stop?.providerRetryable).toBe(false);
   });
 
   it("marks unclassified no-detail gateway stop errors as retryable", async () => {

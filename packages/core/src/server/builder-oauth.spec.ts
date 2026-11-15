@@ -252,6 +252,24 @@ describe("Builder hosted user OAuth", () => {
     });
   });
 
+  it("replaces an expired stored grant with a new OAuth result without authorizing the old grant", async () => {
+    const previous = credentials({ expiresAt: 1, reconnectRequired: true });
+    readMock.mockResolvedValue(previous);
+    getAccessTokenMock.mockRejectedValue(new Error("Previous grant expired"));
+    const fresh = credentials();
+    await saveBuilderOAuthCredentials({
+      ownerEmail: "qa@example.com",
+      orgId: DEFAULT_ORG,
+      role: "owner",
+      credentials: fresh,
+    });
+    expect(saveMock).toHaveBeenCalledWith(
+      expect.objectContaining({ credentials: savedCredentials(fresh) }),
+    );
+    expect(getAccessTokenMock).not.toHaveBeenCalled();
+    expect(readMock).not.toHaveBeenCalled();
+  });
+
   it("stores a completed grant in the explicit normalized user custody slot", async () => {
     const finished = credentials();
     finishMock.mockResolvedValue({ credentials: finished });

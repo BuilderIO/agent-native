@@ -158,6 +158,49 @@ beforeEach(() => {
   mocks.resolvePanel.mockResolvedValue(result(ROWS));
 });
 
+describe("update-dashboard traffic default", () => {
+  const trafficFilter = () =>
+    (
+      (row!.config.filters ?? []) as Array<{ id: string; default?: string }>
+    ).find(({ id }) => id === "traffic_environment");
+
+  it("starts a new dashboard on production", async () => {
+    await updateDashboard.run(
+      { dashboardId: "brand-new", config: dashboard(panel("a")) },
+      agent,
+    );
+
+    expect(trafficFilter()?.default).toBe("production");
+  });
+
+  it("leaves an existing dashboard on all traffic", async () => {
+    save(dashboard(panel("a")));
+
+    await updateDashboard.run(
+      {
+        dashboardId: "older",
+        config: { ...dashboard(panel("a")), name: "Renamed" },
+      },
+      agent,
+    );
+
+    expect(row!.config.name).toBe("Renamed");
+    expect(trafficFilter()).toBeUndefined();
+  });
+
+  it("doesn't count a built-in's first saved copy as new", async () => {
+    await updateDashboard.run(
+      {
+        dashboardId: "agent-native-templates-first-party",
+        config: dashboard(panel("a")),
+      },
+      frontend,
+    );
+
+    expect(trafficFilter()).toBeUndefined();
+  });
+});
+
 describe("update-dashboard saves that outlive their read", () => {
   const edited = () => dashboard(panel("a", "SELECT week, app, n FROM t2"));
   const concurrent = () => dashboard(panel("a"), panel("added-elsewhere"));

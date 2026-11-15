@@ -53,10 +53,16 @@ import {
 import { parseDemoDescriptor } from "../server/lib/demo-source";
 import { FirstPartyAnalyticsUnsupportedSqlError } from "../server/lib/first-party-analytics-backend.js";
 import { validateFirstPartyAnalyticsSqlForScope } from "../server/lib/first-party-analytics.js";
+import { builtinDashboardIdFor } from "../shared/builtin-dashboard-ids.js";
 import { normalizeDashboardConfig } from "../shared/dashboard-config-normalization";
 import { DASHBOARD_SQL_VALIDATION_TIMEOUT_MS } from "../shared/dashboard-report-timeouts.js";
 import { dashboardAnnotationsIssue } from "../shared/key-dates";
 import { panelLabel, stableStringify } from "../shared/panel-render-contract";
+import {
+  isTrafficFilterValue,
+  TRAFFIC_FILTER_ID,
+  withNewDashboardTrafficFilter,
+} from "../shared/traffic-environment";
 import {
   applyPanelOrder,
   compactDashboardResult,
@@ -356,6 +362,17 @@ function collectDashboardConfigIssues(
       }
       if (f.default !== undefined && typeof f.default !== "string") {
         return dashboardIssue(`config.filters[${i}].default must be a string`);
+      }
+      // A traffic default the filter doesn't offer can't be read: the page would
+      // show all traffic, and reports and save checks would fail on it.
+      if (
+        id === TRAFFIC_FILTER_ID &&
+        typeof f.default === "string" &&
+        !isTrafficFilterValue(f.default)
+      ) {
+        return dashboardIssue(
+          `config.filters[${i}].default must be all, production or beta on the traffic filter`,
+        );
       }
       if (f.type === "multi-select") {
         if (typeof f.default === "string" && f.default !== "") {
@@ -830,6 +847,9 @@ export async function validatePanelSql(
     validationController.abort();
   }, DASHBOARD_SQL_VALIDATION_TIMEOUT_MS);
   const errors: Array<string | null> = Array(bigQueryPanels.length).fill(null);
+  // A dry run that throws never got BigQuery's verdict on the SQL: missing
+  // credentials, a failed token exchange, or a dropped connection.
+  const unavailable = new Set<string>();
   let nextIndex = 0;
 
   const worker = async () => {
@@ -838,15 +858,13 @@ export async function validatePanelSql(
       const task = bigQueryPanels[taskIndex];
       if (!task) return;
 
-      let err: string | null;
       try {
-        err = await dryRunQuery(task.sql, {
+        errors[taskIndex] = await dryRunQuery(task.sql, {
           signal: validationController.signal,
         });
       } catch (e: any) {
-        err = e?.message ?? String(e);
+        unavailable.add(printable(e?.message ?? String(e)));
       }
-      errors[taskIndex] = err;
     }
   };
 
@@ -870,8 +888,13 @@ export async function validatePanelSql(
   if (options.signal?.aborted && !timedOut) {
     throw new Error("Dashboard SQL validation was cancelled");
   }
+  // A timeout or a dry run that threw is the validator's failure, not the
+  // caller's, so it fails as unavailable rather than returning invalid SQL.
   if (timedOut) {
-    return `Dashboard SQL validation timed out after ${Math.round(DASHBOARD_SQL_VALIDATION_TIMEOUT_MS / 1000)} seconds`;
+    fail(
+      `Dashboard SQL validation timed out after ${Math.round(DASHBOARD_SQL_VALIDATION_TIMEOUT_MS / 1000)} seconds`,
+      { errorCode: "sql_validation_unavailable", statusCode: 503 },
+    );
   }
 
   for (let i = 0; i < bigQueryPanels.length; i++) {
@@ -880,6 +903,12 @@ export async function validatePanelSql(
       const task = bigQueryPanels[i];
       return `panel[${task.index}] "${printable(task.panel.title || task.panel.id)}" SQL is invalid: ${printable(err)}`;
     }
+  }
+  if (unavailable.size > 0) {
+    fail(
+      `Dashboard SQL could not be validated: ${[...unavailable].join("; ")}`,
+      { errorCode: "sql_validation_unavailable", statusCode: 503 },
+    );
   }
   return null;
 }
@@ -1096,6 +1125,10 @@ export default defineAction({
       // A dashboard that does not exist yet has no base, so every panel is new.
       const before = await getDashboard(dashboardId, ctx);
       if (before) await requireEditableDashboard(dashboardId, ctx, before);
+      // A built-in's first saved copy isn't a new dashboard: it keeps its traffic.
+      if (!before && !builtinDashboardIdFor(dashboardId)) {
+        args.config = withNewDashboardTrafficFilter(args.config);
+      }
       assertValidDashboardConfig(args.config, {
         baseline: before ? before.config : null,
       });

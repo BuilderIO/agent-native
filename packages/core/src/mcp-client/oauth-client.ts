@@ -36,6 +36,8 @@ const TOKEN_EXPIRY_SKEW_MS = 60_000;
 const MAX_OAUTH_REDIRECTS = 5;
 
 export class McpOAuthRefreshUnavailableError extends Error {
+  readonly statusCode = 503;
+
   constructor() {
     super(
       "MCP OAuth token refresh failed; the saved connection can be retried.",
@@ -116,7 +118,9 @@ type GuardedFetch = (
 ) => Promise<Response>;
 
 function checkedRemoteUrl(value: string | URL, label: string): URL {
-  const result = validateRemoteUrl(String(value));
+  const result = validateRemoteUrl(String(value), {
+    allowedPrivateOrigins: configuredPrivateOrigins(),
+  });
   if (!result.ok || !result.url) {
     throw new Error(
       `MCP OAuth ${label} is not allowed: ${result.error ?? "invalid URL"}`,

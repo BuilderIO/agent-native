@@ -1,74 +1,63 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
+import type { FeatureFlagRules } from "./store.js";
+
 const globalSettings = new Map<string, Record<string, unknown> | null>();
 const orgSettings = new Map<string, Record<string, unknown> | null>();
 const corruptSettings = new Set<string>();
-const entry = (settings: typeof globalSettings, key: string) => {
-  if (corruptSettings.has(key)) throw new SyntaxError("Unexpected token");
-  return settings.has(key)
-    ? { found: true as const, value: settings.get(key) }
-    : { found: false as const };
-};
 const executeMock = vi.fn(async () => ({ rows: [] }));
 const getSettingMock = vi.fn(
   async (key: string) => globalSettings.get(key) ?? null,
 );
-const getOrgSettingMock = vi.fn(
-  async (orgId: string, key: string) =>
-    orgSettings.get(`${orgId}:${key}`) ?? null,
-);
 const ORG_KEY_RE = /^o:([^:]+):(.+)$/;
-const getSettingsMock = vi.fn(async (keys: readonly string[]) => {
-  const result = new Map<string, Record<string, unknown> | null>();
-  for (const key of keys) {
-    const match = ORG_KEY_RE.exec(key);
-    result.set(
-      key,
-      match
-        ? (orgSettings.get(`${match[1]}:${match[2]}`) ?? null)
-        : (globalSettings.get(key) ?? null),
-    );
-  }
-  return result;
-});
-
-vi.mock("../settings/store.js", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("../settings/store.js")>()),
-  getSetting: (...args: any[]) => getSettingMock(...args),
-  getSettingEntry: async (key: string) => entry(globalSettings, key),
-  getSettings: (...args: any[]) => getSettingsMock(...args),
-  putSetting: vi.fn(),
-  mutateSetting: async (
+const rawSetting = (key: string): string | null => {
+  const match = ORG_KEY_RE.exec(key);
+  const settings = match ? orgSettings : globalSettings;
+  const mapKey = match ? `${match[1]}:${match[2]}` : key;
+  if (corruptSettings.has(mapKey)) return "{";
+  return settings.has(mapKey) ? JSON.stringify(settings.get(mapKey)) : null;
+};
+const getSettingsRawMock = vi.fn(
+  async (keys: readonly string[]) =>
+    new Map(keys.map((key) => [key, rawSetting(key)])),
+);
+const mutate =
+  (settings: typeof globalSettings) =>
+  async (
     key: string,
     updater: (
       current: Record<string, unknown> | null,
     ) => Promise<Record<string, unknown>>,
   ) => {
-    const next = await updater(globalSettings.get(key) ?? null);
-    globalSettings.set(key, next);
+    if (corruptSettings.has(key)) throw new SyntaxError("Unexpected token");
+    const next = await updater(settings.get(key) ?? null);
+    settings.set(key, next);
     return next;
-  },
+  };
+const put =
+  (settings: typeof globalSettings) =>
+  async (key: string, value: Record<string, unknown>) => {
+    corruptSettings.delete(key);
+    settings.set(key, value);
+  };
+
+vi.mock("../settings/store.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../settings/store.js")>()),
+  getSetting: (...args: any[]) => getSettingMock(...args),
+  getSettingsRaw: (...args: any[]) => getSettingsRawMock(...args),
+  putSetting: (key: string, value: Record<string, unknown>) =>
+    put(globalSettings)(key, value),
+  mutateSetting: (key: string, updater: any) =>
+    mutate(globalSettings)(key, updater),
 }));
 vi.mock("../db/client.js", () => ({
   getDbExec: () => ({ execute: executeMock }),
 }));
 vi.mock("../settings/org-settings.js", () => ({
-  getOrgSetting: (...args: any[]) => getOrgSettingMock(...args),
-  getOrgSettingEntry: async (orgId: string, key: string) =>
-    entry(orgSettings, `${orgId}:${key}`),
-  putOrgSetting: vi.fn(),
-  mutateOrgSetting: async (
-    orgId: string,
-    key: string,
-    updater: (
-      current: Record<string, unknown> | null,
-    ) => Promise<Record<string, unknown>>,
-  ) => {
-    const mapKey = `${orgId}:${key}`;
-    const next = await updater(orgSettings.get(mapKey) ?? null);
-    orgSettings.set(mapKey, next);
-    return next;
-  },
+  putOrgSetting: (orgId: string, key: string, value: Record<string, unknown>) =>
+    put(orgSettings)(`${orgId}:${key}`, value),
+  mutateOrgSetting: (orgId: string, key: string, updater: any) =>
+    mutate(orgSettings)(`${orgId}:${key}`, updater),
 }));
 
 const registry = await import("./registry.js");
@@ -163,6 +152,7 @@ describe("feature flag evaluator", () => {
   it("falls back from an org override to a global rule and fails closed on storage errors", async () => {
     registry.registerFeatureFlags([{ key: "new-editor" }]);
     globalSettings.set("feature-flag:new-editor", {
+      version: 1,
       mode: "rules",
       orgIds: ["org-1"],
     });
@@ -170,7 +160,7 @@ describe("feature flag evaluator", () => {
       store.evaluateFeatureFlag("new-editor", { orgId: "org-1" }),
     ).resolves.toBe(true);
 
-    getOrgSettingMock.mockRejectedValueOnce(new Error("database unavailable"));
+    getSettingsRawMock.mockRejectedValueOnce(new Error("database unavailable"));
     await expect(
       store.evaluateFeatureFlag("new-editor", { orgId: "org-1" }),
     ).resolves.toBe(false);
@@ -200,6 +190,7 @@ describe("feature flag evaluator", () => {
         {
           key: "o:builder-org:feature-flag:new-editor",
           value: JSON.stringify({
+            version: 1,
             mode: "rules",
             orgIds: ["builder-org"],
           }),
@@ -227,8 +218,23 @@ describe("feature flag evaluator", () => {
     registry.registerFeatureFlags([{ key: "new-editor" }]);
     executeMock.mockResolvedValueOnce({
       rows: [
-        { value: JSON.stringify({ mode: "off" }) },
-        { value: JSON.stringify({ mode: "rules" }) },
+        { value: JSON.stringify({ version: 1, mode: "off" }) },
+        { value: JSON.stringify({ version: 1, mode: "rules" }) },
+      ],
+    });
+
+    await expect(store.hasActiveFeatureFlagRollout("new-editor")).resolves.toBe(
+      false,
+    );
+  });
+
+  it("does not advertise a rule that can't be read", async () => {
+    registry.registerFeatureFlags([{ key: "new-editor" }]);
+    globalSettings.set("feature-flag:new-editor", { mode: "on" });
+    executeMock.mockResolvedValueOnce({
+      rows: [
+        { key: "o:org-1:feature-flag:new-editor", value: '{"mode":"on"}' },
+        { key: "o:org-2:feature-flag:new-editor", value: "{" },
       ],
     });
 
@@ -243,48 +249,73 @@ describe("feature flag evaluator", () => {
       { key: "beta-export" },
       { key: "unconfigured-flag" },
     ]);
-    globalSettings.set("feature-flag:new-editor", { mode: "on" });
-    globalSettings.set("feature-flag:beta-export", { mode: "off" });
-    orgSettings.set("org-1:feature-flag:beta-export", { mode: "on" });
+    globalSettings.set("feature-flag:new-editor", { version: 1, mode: "on" });
+    globalSettings.set("feature-flag:beta-export", { version: 1, mode: "off" });
+    orgSettings.set("org-1:feature-flag:beta-export", {
+      version: 1,
+      mode: "on",
+    });
 
     const rules = await store.getFeatureFlagRulesForKeys(
       ["new-editor", "beta-export", "unconfigured-flag"],
       { orgId: "org-1" },
     );
 
-    expect(getSettingsMock).toHaveBeenCalledTimes(1);
-    expect(rules.get("new-editor")?.mode).toBe("on");
-    expect(rules.get("beta-export")?.mode).toBe("on");
-    expect(rules.get("unconfigured-flag")?.mode).toBe("off");
+    expect(getSettingsRawMock).toHaveBeenCalledTimes(1);
+    expect(rules.get("new-editor")).toMatchObject({
+      state: "set",
+      rules: { mode: "on" },
+    });
+    expect(rules.get("beta-export")).toMatchObject({
+      state: "set",
+      rules: { mode: "on" },
+    });
+    expect(rules.get("unconfigured-flag")).toEqual({ state: "unset" });
   });
 
   it("skips the org key entirely when no org is in scope", async () => {
     registry.registerFeatureFlags([{ key: "new-editor" }]);
-    globalSettings.set("feature-flag:new-editor", { mode: "on" });
+    globalSettings.set("feature-flag:new-editor", { version: 1, mode: "on" });
 
     const rules = await store.getFeatureFlagRulesForKeys(["new-editor"], {});
 
-    expect(getSettingsMock).toHaveBeenCalledWith(["feature-flag:new-editor"], {
-      transaction: undefined,
-    });
-    expect(rules.get("new-editor")?.mode).toBe("on");
+    expect(getSettingsRawMock).toHaveBeenCalledWith(
+      ["feature-flag:new-editor"],
+      undefined,
+    );
+    expect(rules.get("new-editor")).toMatchObject({ rules: { mode: "on" } });
   });
 
-  it("starts an atomic org mutation from the global fallback", async () => {
+  it("refuses to start an org's own rule from the global rule", async () => {
     registry.registerFeatureFlags([{ key: "new-editor" }]);
     globalSettings.set("feature-flag:new-editor", {
+      version: 1,
       mode: "rules",
       emails: ["first@example.com"],
     });
+    const addSecond = (current: FeatureFlagRules) =>
+      store.normalizeFeatureFlagRules({
+        ...current,
+        emails: [...current.emails, "second@example.com"],
+      });
 
+    await expect(
+      store.mutateFeatureFlagRules("new-editor", { orgId: "org-1" }, addSecond),
+    ).rejects.toMatchObject({
+      name: "FeatureFlagRulesError",
+      code: "follows-global",
+    });
+    expect(orgSettings.has("org-1:feature-flag:new-editor")).toBe(false);
+
+    orgSettings.set("org-1:feature-flag:new-editor", {
+      version: 1,
+      mode: "rules",
+      emails: ["first@example.com"],
+    });
     const result = await store.mutateFeatureFlagRules(
       "new-editor",
       { orgId: "org-1" },
-      (current) =>
-        store.normalizeFeatureFlagRules({
-          ...current,
-          emails: [...current.emails, "second@example.com"],
-        }),
+      addSecond,
     );
 
     expect(result.emails).toEqual(["first@example.com", "second@example.com"]);
@@ -298,6 +329,72 @@ describe("feature flag evaluator", () => {
         orgIds: ["org-1"],
       },
     );
+  });
+
+  it("starts an org's own rule from off when no rule exists yet", async () => {
+    registry.registerFeatureFlags([{ key: "new-editor" }]);
+
+    const result = await store.mutateFeatureFlagRules(
+      "new-editor",
+      { orgId: "org-1" },
+      (current) => ({ ...current, mode: "rules", emails: ["a@example.com"] }),
+    );
+
+    expect(result).toMatchObject({ mode: "rules", emails: ["a@example.com"] });
+    expect(orgSettings.get("org-1:feature-flag:new-editor")).toMatchObject({
+      version: 1,
+      emails: ["a@example.com"],
+    });
+  });
+
+  it("refuses to change a rule that can't be read, and replaces it only on request", async () => {
+    registry.registerFeatureFlags([{ key: "new-editor" }]);
+    const enable = (current: FeatureFlagRules) => ({
+      ...current,
+      mode: "rules" as const,
+      emails: [...current.emails, "me@example.com"],
+    });
+    const replacement = {
+      ...store.defaultFeatureFlagRules(),
+      mode: "rules" as const,
+      emails: ["me@example.com"],
+    };
+
+    for (const unreadable of [null, { mode: "on" }]) {
+      globalSettings.set("feature-flag:new-editor", unreadable);
+      await expect(
+        store.mutateFeatureFlagRules("new-editor", {}, enable),
+      ).rejects.toMatchObject({
+        name: "FeatureFlagRulesError",
+        code: "malformed",
+      });
+      expect(globalSettings.get("feature-flag:new-editor")).toEqual(unreadable);
+    }
+
+    orgSettings.set("org-1:feature-flag:new-editor", null);
+    corruptSettings.add("org-1:feature-flag:new-editor");
+    await expect(
+      store.mutateFeatureFlagRules("new-editor", { orgId: "org-1" }, enable),
+    ).rejects.toMatchObject({
+      name: "FeatureFlagRulesError",
+      code: "malformed",
+    });
+
+    await expect(
+      store.replaceFeatureFlagRules("new-editor", {}, replacement),
+    ).resolves.toMatchObject({ mode: "rules", emails: ["me@example.com"] });
+    await store.replaceFeatureFlagRules(
+      "new-editor",
+      { orgId: "org-1" },
+      replacement,
+    );
+    for (const scope of [{}, { orgId: "org-1" }]) {
+      const layers = await store.readFeatureFlagRuleLayers("new-editor", scope);
+      expect(store.featureFlagRuleInEffect(layers)).toMatchObject({
+        state: "set",
+        rules: { mode: "rules", emails: ["me@example.com"] },
+      });
+    }
   });
 
   it("reads routing rules strictly: unconfigured is off, malformed or unregistered throws", async () => {
@@ -338,7 +435,7 @@ describe("feature flag evaluator", () => {
       globalSettings.set("feature-flag:write-path", malformed);
       await expect(
         store.getFeatureFlagRules("write-path", {}),
-      ).resolves.toMatchObject({ mode: expect.any(String) });
+      ).resolves.toMatchObject({ mode: "off" });
       await expect(
         store.getFeatureFlagRulesStrict("write-path", {}),
       ).rejects.toMatchObject({ code: "malformed", key: "write-path" });
@@ -363,5 +460,49 @@ describe("feature flag evaluator", () => {
     await expect(
       store.getFeatureFlagRulesStrict("never-registered", {}),
     ).rejects.toMatchObject({ code: "unregistered", key: "never-registered" });
+  });
+  it("evaluates a rule that can't be read as off, wherever it is read", async () => {
+    registry.registerFeatureFlags([{ key: "new-editor" }]);
+    globalSettings.set("feature-flag:new-editor", { version: 1, mode: "on" });
+    await expect(
+      store.evaluateFeatureFlag("new-editor", { orgId: "org-2" }),
+    ).resolves.toBe(true);
+
+    for (const unreadable of [
+      null,
+      { mode: "on" },
+      { version: 1, mode: "onn" },
+    ]) {
+      orgSettings.set("org-1:feature-flag:new-editor", unreadable);
+      await expectOffForOrg1();
+    }
+    corruptSettings.add("org-1:feature-flag:new-editor");
+    await expectOffForOrg1();
+
+    globalSettings.set("feature-flag:new-editor", { mode: "on" });
+    await expect(store.evaluateFeatureFlag("new-editor", {})).resolves.toBe(
+      false,
+    );
+    await expect(
+      store.evaluateFeatureFlag("new-editor", { orgId: "org-2" }),
+    ).resolves.toBe(false);
+
+    async function expectOffForOrg1() {
+      const scope = { orgId: "org-1", userEmail: "me@example.com" };
+      const layers = await store.readFeatureFlagRuleLayers("new-editor", scope);
+      expect(layers.inEffect).toBe("org");
+      expect(layers.org).toMatchObject({ state: "unreadable" });
+      await expect(
+        store.evaluateFeatureFlag("new-editor", scope),
+      ).resolves.toBe(false);
+      expect(
+        (await store.getFeatureFlagRulesForKeys(["new-editor"], scope)).get(
+          "new-editor",
+        ),
+      ).toMatchObject({ state: "unreadable" });
+      await expect(
+        store.evaluateFeatureFlagStrict("new-editor", scope),
+      ).rejects.toMatchObject({ code: "malformed" });
+    }
   });
 });

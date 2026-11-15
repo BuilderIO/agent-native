@@ -1505,7 +1505,7 @@ export const DragHandle = Extension.create<DragHandleOptions>({
                 .delete(sourceStart, sourceEnd)
                 .insert(insertPos, sourceNode);
 
-              session.view.dispatch(markUserAction(tr).scrollIntoView());
+              session.view.dispatch(markUserAction(tr));
               dropCommitted = true;
             } else {
               try {

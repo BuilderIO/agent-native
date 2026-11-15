@@ -59,6 +59,7 @@ import {
   assertNoCloudflareWorkerStubDynamicImports,
   assertSingleTemplateNetlifyBuildOutput,
   bundleYjsRuntimeForServerlessOutput,
+  prepareVercelFunctionOutputs,
   CLOUDFLARE_SWEEP_CRON,
   CLOUDFLARE_WORKER_ESBUILD_EXTERNALS,
   CLOUDFLARE_MODULE_STUB_MODULES,
@@ -72,11 +73,13 @@ import {
   copyDrizzleMigrationAssets,
   copyDir,
   createCloudflareModuleStubPlugin,
+  createServerIconEsmPlugin,
   emitSingleTemplateNetlifyBackgroundFunction,
   emitSingleTemplateNetlifyIntegrationRecoveryFunction,
   emitSingleTemplateNetlifyKeepWarmFunction,
   emitSingleTemplateNetlifyRecurringJobsFunction,
   resolveEsbuildCommand,
+  copyInstalledFfmpegStaticPackage,
   findInstalledFfmpegStaticPackage,
   findInstalledPackageRoot,
   findInstalledResvgPackages,
@@ -84,6 +87,9 @@ import {
   isServerlessNativePlatformPackage,
   generateCloudflareModuleWorkerEntry,
   patchCloudflareModuleServerOutput,
+  collectNamedImportsFrom,
+  rewriteModuleImportSpecifier,
+  cloudflareExternalBundleEntry,
   generateProvidedPluginsNitroPluginSource,
   generateAwsLambdaStreamingRuntimeEntry,
   generateWorkerEntry,
@@ -267,8 +273,7 @@ describe("Nitro server code-splitting output", { timeout: 30_000 }, () => {
     const packageChunks = fs
       .readdirSync(outputDir)
       .filter(
-        (file) =>
-          file.startsWith("agent-native-core+") && file.endsWith(".mjs"),
+        (file) => /^agent-native-core[+~]/.test(file) && file.endsWith(".mjs"),
       );
 
     expect(packageChunks).toHaveLength(1);
@@ -279,6 +284,203 @@ describe("Nitro server code-splitting output", { timeout: 30_000 }, () => {
     expect(packageChunk).toContain("core-marker");
     expect(packageChunk).toContain("creative-marker");
     await nitro.close();
+  });
+});
+
+describe("serverless lazy framework chunks", { timeout: 30_000 }, () => {
+  it("keeps optional framework code out of the initial entry graph", async () => {
+    const dir = fs.mkdtempSync(
+      path.join(os.tmpdir(), "lazy-framework-chunks-"),
+    );
+    try {
+      const core = path.join(dir, "node_modules/@agent-native/core");
+      fs.mkdirSync(core, { recursive: true });
+      fs.writeFileSync(
+        path.join(core, "package.json"),
+        JSON.stringify({
+          type: "module",
+          exports: "./index.js",
+        }),
+      );
+      fs.writeFileSync(
+        path.join(core, "index.js"),
+        'export const ready = "ready"; export const optional = () => import("./optional.js");',
+      );
+      fs.writeFileSync(
+        path.join(core, "optional.js"),
+        'globalThis.__optionalFrameworkLoaded = (globalThis.__optionalFrameworkLoaded || 0) + 1; export const value = "optional-framework-marker";',
+      );
+      fs.writeFileSync(
+        path.join(dir, "entry.js"),
+        'export { ready, optional } from "@agent-native/core";',
+      );
+      fs.writeFileSync(
+        path.join(dir, "second.js"),
+        'export { ready, optional } from "@agent-native/core";',
+      );
+      const { rolldown } = await import(
+        createRequire(import.meta.resolve("nitro/builder")).resolve("rolldown")
+      );
+      const bundle = await rolldown({
+        input: {
+          first: path.join(dir, "entry.js"),
+          second: path.join(dir, "second.js"),
+        },
+      });
+      try {
+        const { output } = await bundle.generate({
+          format: "esm",
+          ...nitroServerCodeSplittingConfigForPreset("netlify").output,
+        });
+        const chunks = new Map(
+          output
+            .filter((item) => item.type === "chunk")
+            .map((item) => [item.fileName, item]),
+        );
+        const entries = [...chunks.values()].filter((item) => item.isEntry);
+        expect(entries).toHaveLength(2);
+        const visited = new Set<string>();
+        const visit = (name: string) => {
+          if (visited.has(name)) return;
+          visited.add(name);
+          const chunk = chunks.get(name)!;
+          expect(chunk.code).not.toContain("optional-framework-marker");
+          for (const dependency of chunk.imports) visit(dependency);
+        };
+        for (const entry of entries) visit(entry.fileName);
+        expect(
+          [...chunks.values()].some((chunk) =>
+            chunk.code.includes("optional-framework-marker"),
+          ),
+        ).toBe(true);
+        const out = path.join(dir, "built");
+        fs.mkdirSync(out);
+        for (const chunk of chunks.values()) {
+          fs.writeFileSync(path.join(out, chunk.fileName), chunk.code);
+        }
+        const urls = entries.map(
+          (entry) => pathToFileURL(path.join(out, entry.fileName)).href,
+        );
+        const observed = JSON.parse(
+          execFileSync(
+            process.execPath,
+            [
+              "--input-type=module",
+              "-e",
+              `
+            const [first, second] = await Promise.all(${JSON.stringify(urls)}.map(url => import(url)));
+            const before = globalThis.__optionalFrameworkLoaded || 0;
+            const [one, two] = await Promise.all([first.optional(), second.optional()]);
+            console.log(JSON.stringify({before, after: globalThis.__optionalFrameworkLoaded,
+              same: one === two, value: one.value, ready: first.ready === second.ready}));`,
+            ],
+            { encoding: "utf8" },
+          ),
+        );
+        expect(observed).toEqual({
+          before: 0,
+          after: 1,
+          same: true,
+          value: "optional-framework-marker",
+          ready: true,
+        });
+      } finally {
+        await bundle.close();
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("server icon ESM resolution", () => {
+  it("uses each importer's installed ESM entry without changing package versions", async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "server-icon-esm-"));
+    try {
+      const plugin = createServerIconEsmPlugin(dir);
+      for (const app of ["first", "second"]) {
+        const root = path.join(dir, app);
+        const pkg = path.join(root, "node_modules/@tabler/icons-react");
+        fs.mkdirSync(pkg, { recursive: true });
+        fs.writeFileSync(
+          path.join(pkg, "package.json"),
+          JSON.stringify({
+            main: "all.cjs",
+            module: "selected.mjs",
+          }),
+        );
+        fs.writeFileSync(
+          path.join(pkg, "all.cjs"),
+          'exports.IconSelected = "selected"; exports.IconUnused = "unused-icon-marker";',
+        );
+        fs.writeFileSync(
+          path.join(pkg, "selected.mjs"),
+          'export const IconSelected = "selected"; export const IconUnused = "unused-icon-marker";',
+        );
+        const entry = path.join(root, "entry.mjs");
+        fs.writeFileSync(
+          entry,
+          'export { IconSelected } from "@tabler/icons-react";',
+        );
+        expect(plugin.resolveId("@tabler/icons-react", entry)).toBe(
+          fs.realpathSync(path.join(pkg, "selected.mjs")),
+        );
+        const { rolldown } = await import(
+          createRequire(import.meta.resolve("nitro/builder")).resolve(
+            "rolldown",
+          )
+        );
+        const bundle = await rolldown({ input: entry, plugins: [plugin] });
+        try {
+          const result = await bundle.generate({ format: "esm" });
+          const code = result.output
+            .filter((x) => x.type === "chunk")
+            .map((x) => x.code)
+            .join("\n");
+          expect(code).toContain("selected");
+          expect(code).not.toContain("unused-icon-marker");
+        } finally {
+          await bundle.close();
+        }
+      }
+      expect(plugin.resolveId("react", path.join(dir, "entry.mjs"))).toBeNull();
+      const noEsm = path.join(dir, "no-esm/node_modules/@tabler/icons-react");
+      fs.mkdirSync(noEsm, { recursive: true });
+      fs.writeFileSync(
+        path.join(noEsm, "package.json"),
+        JSON.stringify({ main: "index.cjs" }),
+      );
+      fs.writeFileSync(path.join(noEsm, "index.cjs"), "module.exports = {};");
+      expect(
+        plugin.resolveId(
+          "@tabler/icons-react",
+          path.join(dir, "no-esm/entry.mjs"),
+        ),
+      ).toBeNull();
+      for (const [app, module] of [
+        ["directory", "."],
+        ["escape", "../../../outside.mjs"],
+      ]) {
+        const pkg = path.join(dir, app!, "node_modules/@tabler/icons-react");
+        fs.mkdirSync(pkg, { recursive: true });
+        fs.writeFileSync(
+          path.join(pkg, "package.json"),
+          JSON.stringify({ module }),
+        );
+        fs.writeFileSync(
+          path.join(dir, app!, "outside.mjs"),
+          "export default 'outside';",
+        );
+        expect(
+          plugin.resolveId(
+            "@tabler/icons-react",
+            path.join(dir, app!, "entry.mjs"),
+          ),
+        ).toBeNull();
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
 
@@ -734,6 +936,24 @@ describe("resolveNitroBuildReplacements", () => {
     expect(
       resolveNitroBuildReplacements({})[
         "process.env.AGENT_NATIVE_BUILD_HARNESS"
+      ],
+    ).toBe(JSON.stringify(""));
+  });
+
+  it("embeds the app's required env names for the configuration probe", () => {
+    expect(
+      resolveNitroBuildReplacements(
+        {},
+        undefined,
+        undefined,
+        "",
+        "",
+        '["NOTION_API_KEY"]',
+      )["process.env.AGENT_NATIVE_BUILD_REQUIRED_ENV"],
+    ).toBe(JSON.stringify('["NOTION_API_KEY"]'));
+    expect(
+      resolveNitroBuildReplacements({})[
+        "process.env.AGENT_NATIVE_BUILD_REQUIRED_ENV"
       ],
     ).toBe(JSON.stringify(""));
   });
@@ -1302,6 +1522,226 @@ export default {
         Reflect.deleteProperty(testGlobals, key);
       }
     }
+  });
+});
+
+describe("Cloudflare module bare externals", () => {
+  const poolContext = "@agent-native/core/db/request-pool-context";
+
+  it("finds and rewrites the Worker entry's own core import", () => {
+    const entry = generateCloudflareModuleWorkerEntry();
+
+    expect(collectNamedImportsFrom(entry, poolContext)).toEqual([
+      "runWithRequestDbPoolScope",
+    ]);
+    const rewritten = rewriteModuleImportSpecifier(
+      entry,
+      poolContext,
+      "./_libs/_agent-native_core_db_request-pool-context.mjs",
+    );
+    expect(rewritten).toContain(
+      'from"./_libs/_agent-native_core_db_request-pool-context.mjs";',
+    );
+    expect(rewritten).not.toContain(`"${poolContext}"`);
+  });
+
+  it("finds named imports next to a default import", () => {
+    expect(
+      collectNamedImportsFrom('import Def, { a, b as c } from "pkg";', "pkg"),
+    ).toEqual(["a", "b"]);
+    expect(
+      collectNamedImportsFrom(
+        'import Def,{a}from"pkg";import{d}from"pkg";',
+        "pkg",
+      ),
+    ).toEqual(["a", "d"]);
+  });
+
+  it("leaves out a default export imported by name", () => {
+    expect(
+      collectNamedImportsFrom('import{default as d,a}from"pkg";', "pkg"),
+    ).toEqual(["a"]);
+  });
+
+  it("still matches minified imports", () => {
+    const code = 'import{a,b as c}from"pkg";export*from"pkg";';
+
+    expect(collectNamedImportsFrom(code, "pkg")).toEqual(["a", "b"]);
+    expect(rewriteModuleImportSpecifier(code, "pkg", "./_libs/pkg.mjs")).toBe(
+      'import{a,b as c}from"./_libs/pkg.mjs";export*from"./_libs/pkg.mjs";',
+    );
+  });
+
+  it("bundles ES modules without a default export and CommonJS modules", async () => {
+    const dir = makeTempDir();
+    const esm = path.join(dir, "no-default.mjs");
+    const cjs = path.join(dir, "legacy.cjs");
+    fs.writeFileSync(esm, "export function run() { return 'esm'; }\n");
+    fs.writeFileSync(cjs, "module.exports = { run() { return 'cjs'; } };\n");
+    const esbuild = resolveEsbuildCommand();
+    const bundle = async (name: string, entryCode: string) => {
+      const outFile = path.join(dir, `${name}.mjs`);
+      execFileSync(
+        esbuild.executable,
+        [
+          ...esbuild.args,
+          "--bundle",
+          `--outfile=${outFile}`,
+          "--format=esm",
+          "--platform=neutral",
+          "--target=es2022",
+          "--log-level=error",
+        ],
+        { input: entryCode, cwd: dir, stdio: ["pipe", "pipe", "pipe"] },
+      );
+      return import(pathToFileURL(outFile).href);
+    };
+
+    const named = await bundle(
+      "named",
+      cloudflareExternalBundleEntry(esm, ["run"]),
+    );
+    expect(named.run()).toBe("esm");
+    const star = await bundle("star", cloudflareExternalBundleEntry(esm, []));
+    expect(star.run()).toBe("esm");
+    const legacy = await bundle(
+      "legacy",
+      cloudflareExternalBundleEntry(cjs, ["run"]),
+    );
+    expect(legacy.run()).toBe("cjs");
+    expect(legacy.default.run()).toBe("cjs");
+  });
+
+  it("bundles a module whose exports share names with the entry's own bindings", async () => {
+    const dir = makeTempDir();
+    const esm = path.join(dir, "colliding.mjs");
+    fs.writeFileSync(
+      esm,
+      "export const _ns = 'ns';\nexport const _mod = 'mod';\nexport const __ns = 'ns2';\n",
+    );
+    const outFile = path.join(dir, "colliding-bundle.mjs");
+    const esbuild = resolveEsbuildCommand();
+    execFileSync(
+      esbuild.executable,
+      [
+        ...esbuild.args,
+        "--bundle",
+        `--outfile=${outFile}`,
+        "--format=esm",
+        "--platform=neutral",
+        "--target=es2022",
+        "--log-level=error",
+      ],
+      {
+        input: cloudflareExternalBundleEntry(esm, ["_ns", "_mod", "__ns"]),
+        cwd: dir,
+        stdio: ["pipe", "pipe", "pipe"],
+      },
+    );
+    const mod = await import(pathToFileURL(outFile).href);
+
+    expect(mod._ns).toBe("ns");
+    expect(mod._mod).toBe("mod");
+    expect(mod.__ns).toBe("ns2");
+  });
+
+  it("keeps a named export whose value is null instead of the default export's property", async () => {
+    const dir = makeTempDir();
+    const esm = path.join(dir, "null-named.mjs");
+    fs.writeFileSync(
+      esm,
+      "export const value = null;\nexport default { value: 'default', other: 'fallback' };\n",
+    );
+    const outFile = path.join(dir, "null-named-bundle.mjs");
+    const esbuild = resolveEsbuildCommand();
+    execFileSync(
+      esbuild.executable,
+      [
+        ...esbuild.args,
+        "--bundle",
+        `--outfile=${outFile}`,
+        "--format=esm",
+        "--platform=neutral",
+        "--target=es2022",
+        "--log-level=error",
+      ],
+      {
+        input: cloudflareExternalBundleEntry(esm, ["value", "other"]),
+        cwd: dir,
+        stdio: ["pipe", "pipe", "pipe"],
+      },
+    );
+    const mod = await import(pathToFileURL(outFile).href);
+
+    expect(mod.value).toBeNull();
+    expect(mod.other).toBe("fallback");
+  });
+
+  it("keeps a default export whose value is null", async () => {
+    const dir = makeTempDir();
+    const esm = path.join(dir, "null-default.mjs");
+    fs.writeFileSync(
+      esm,
+      "export const value = 'named';\nexport default null;\n",
+    );
+    const outFile = path.join(dir, "null-default-bundle.mjs");
+    const esbuild = resolveEsbuildCommand();
+    execFileSync(
+      esbuild.executable,
+      [
+        ...esbuild.args,
+        "--bundle",
+        `--outfile=${outFile}`,
+        "--format=esm",
+        "--platform=neutral",
+        "--target=es2022",
+        "--log-level=error",
+      ],
+      {
+        input: cloudflareExternalBundleEntry(esm, ["value"]),
+        cwd: dir,
+        stdio: ["pipe", "pipe", "pipe"],
+      },
+    );
+    const mod = await import(pathToFileURL(outFile).href);
+
+    expect(mod.default).toBeNull();
+    expect(mod.value).toBe("named");
+  });
+
+  it("re-exports names that are reserved words", async () => {
+    const dir = makeTempDir();
+    const esm = path.join(dir, "reserved.mjs");
+    fs.writeFileSync(
+      esm,
+      "const c = 'class';\nconst d = 'delete';\nexport { c as class, d as delete };\n",
+    );
+    const entry = 'import{class as C,delete as D}from"pkg";';
+    const names = collectNamedImportsFrom(entry, "pkg");
+    expect(names).toEqual(["class", "delete"]);
+    const outFile = path.join(dir, "reserved-bundle.mjs");
+    const esbuild = resolveEsbuildCommand();
+    execFileSync(
+      esbuild.executable,
+      [
+        ...esbuild.args,
+        "--bundle",
+        `--outfile=${outFile}`,
+        "--format=esm",
+        "--platform=neutral",
+        "--target=es2022",
+        "--log-level=error",
+      ],
+      {
+        input: cloudflareExternalBundleEntry(esm, names),
+        cwd: dir,
+        stdio: ["pipe", "pipe", "pipe"],
+      },
+    );
+    const mod = await import(pathToFileURL(outFile).href);
+
+    expect(mod.class).toBe("class");
+    expect(mod.delete).toBe("delete");
   });
 });
 
@@ -4277,6 +4717,60 @@ describe("findInstalledFfmpegStaticPackage", () => {
       false,
     );
   });
+
+  it("bundles a target-arch ffmpeg from AGENT_NATIVE_FFMPEG_STATIC_DIR", () => {
+    const targetDir = fs.mkdtempSync(path.join(os.tmpdir(), "ffmpeg-target-"));
+    const serverDir = fs.mkdtempSync(path.join(os.tmpdir(), "ffmpeg-server-"));
+    fs.writeFileSync(path.join(targetDir, "ffmpeg"), "linux-x64-binary");
+    const previous = process.env.AGENT_NATIVE_FFMPEG_STATIC_DIR;
+    process.env.AGENT_NATIVE_FFMPEG_STATIC_DIR = targetDir;
+    // Only the media apps pay for the binary; the app id decides.
+    const reset = defineAppConfig({ app: { id: "clips" } });
+    try {
+      copyInstalledFfmpegStaticPackage(serverDir);
+    } finally {
+      reset();
+      resetAppConfigForTests();
+      if (previous === undefined)
+        delete process.env.AGENT_NATIVE_FFMPEG_STATIC_DIR;
+      else process.env.AGENT_NATIVE_FFMPEG_STATIC_DIR = previous;
+    }
+    const bundled = path.join(
+      serverDir,
+      "node_modules",
+      "ffmpeg-static",
+      "ffmpeg",
+    );
+    expect(fs.readFileSync(bundled, "utf8")).toBe("linux-x64-binary");
+    expect(fs.statSync(bundled).mode & 0o111).toBeTruthy();
+    fs.rmSync(targetDir, { recursive: true, force: true });
+    fs.rmSync(serverDir, { recursive: true, force: true });
+  });
+
+  it("does not bundle the ffmpeg into an app that does not need it", () => {
+    const targetDir = fs.mkdtempSync(path.join(os.tmpdir(), "ffmpeg-target-"));
+    const serverDir = fs.mkdtempSync(path.join(os.tmpdir(), "ffmpeg-server-"));
+    fs.writeFileSync(path.join(targetDir, "ffmpeg"), "linux-x64-binary");
+    const previous = process.env.AGENT_NATIVE_FFMPEG_STATIC_DIR;
+    process.env.AGENT_NATIVE_FFMPEG_STATIC_DIR = targetDir;
+    const reset = defineAppConfig({ app: { id: "mail-app" } });
+    try {
+      copyInstalledFfmpegStaticPackage(serverDir);
+    } finally {
+      reset();
+      resetAppConfigForTests();
+      if (previous === undefined)
+        delete process.env.AGENT_NATIVE_FFMPEG_STATIC_DIR;
+      else process.env.AGENT_NATIVE_FFMPEG_STATIC_DIR = previous;
+    }
+    expect(
+      fs.existsSync(
+        path.join(serverDir, "node_modules", "ffmpeg-static", "ffmpeg"),
+      ),
+    ).toBe(false);
+    fs.rmSync(targetDir, { recursive: true, force: true });
+    fs.rmSync(serverDir, { recursive: true, force: true });
+  });
 });
 
 describe("copyInstalledBrowserRuntimePackages", () => {
@@ -6339,7 +6833,7 @@ describe("runNitroBuildPipeline", () => {
             fs.mkdirSync(serverDir, { recursive: true });
             fs.writeFileSync(
               path.join(serverDir, "main.mjs"),
-              `const stylesheet = "/assets/global-aaaa1111.css";\nconst $9 = ${JSON.stringify(serverManifest)};`,
+              `const stylesheet = "/assets/global-aaaa1111.css";\nconst vendored = { entry: readsAVariable, size: 1 };\nconst unbalanced = { entry: "x" ];\nconst $9 = ${JSON.stringify(serverManifest)};`,
             );
           },
         },
@@ -6402,7 +6896,7 @@ describe("runNitroBuildPipeline", () => {
               fs.mkdirSync(serverDir, { recursive: true });
               fs.writeFileSync(
                 path.join(serverDir, "main.mjs"),
-                "export {};\n",
+                "const vendored = { entry: readsAVariable };\nexport {};\n",
               );
             },
           },
@@ -6412,7 +6906,7 @@ describe("runNitroBuildPipeline", () => {
           cwd,
         }),
       ).rejects.toThrow(
-        "React Router server manifest not found in Nitro output",
+        /React Router server manifest not found in Nitro output[\s\S]*readsAVariable is not defined/,
       );
     } finally {
       if (previous === undefined)
@@ -7580,6 +8074,50 @@ describe("durable-background Netlify function emit (single-template, default-on)
         throw new Error("missing");
       }),
     ).toThrow(/Could not resolve the esbuild dependency/);
+  });
+
+  it("rejects Vercel function links outside the build output", () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "an-vercel-link-"));
+    dirs.push(cwd);
+    const output = path.join(cwd, "output");
+    const functions = path.join(output, "functions");
+    const outside = path.join(cwd, "outside");
+    fs.mkdirSync(functions, { recursive: true });
+    fs.mkdirSync(outside);
+    fs.symlinkSync(outside, path.join(functions, "escape.func"), "dir");
+    expect(() => prepareVercelFunctionOutputs(output, cwd)).toThrow(
+      /leaves output/,
+    );
+    expect(
+      fs.lstatSync(path.join(functions, "escape.func")).isSymbolicLink(),
+    ).toBe(true);
+  });
+
+  it("prepares copied and linked Vercel functions for deployment", () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "an-vercel-yjs-"));
+    dirs.push(cwd);
+    const output = path.join(cwd, ".vercel", "output");
+    const functions = path.join(output, "functions");
+    const base = path.join(functions, "__server.func");
+    const copied = path.join(functions, "custom.func");
+    fs.mkdirSync(base, { recursive: true });
+    fs.writeFileSync(
+      path.join(base, "index.mjs"),
+      'import * as Y from "yjs"; export { Y };',
+    );
+    fs.cpSync(base, copied, { recursive: true });
+    const linked = path.join(functions, "linked.func");
+    fs.symlinkSync(base, linked, "dir");
+    prepareVercelFunctionOutputs(output, cwd);
+    for (const dir of [base, copied, linked]) {
+      expect(fs.lstatSync(dir).isSymbolicLink()).toBe(false);
+      expect(fs.readFileSync(path.join(dir, "index.mjs"), "utf8")).toContain(
+        "./_libs/yjs-runtime.mjs",
+      );
+      expect(fs.existsSync(path.join(dir, "_libs", "yjs-runtime.mjs"))).toBe(
+        true,
+      );
+    }
   });
 
   it("bundles one complete Yjs runtime for every serverless consumer", async () => {

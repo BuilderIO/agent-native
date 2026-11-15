@@ -13,6 +13,7 @@ import {
   readAgentNativeBuildConfigMarker,
   resolveFirstRunOnboardingBuildReplacement,
   resolveHarnessBuildReplacement,
+  resolveRequiredEnvBuildReplacement,
   writeAgentNativeBuildConfigMarker,
 } from "./agent-native-config-loader.js";
 
@@ -165,6 +166,30 @@ describe("agent-native config loading", () => {
 });
 
 describe("resolveFirstRunOnboardingBuildReplacement", () => {
+  it("keeps app-owned mode in the client and server build binding", () => {
+    expect(
+      resolveFirstRunOnboardingBuildReplacement(
+        { onboarding: { firstRun: "app" } },
+        {},
+      ),
+    ).toBe("app");
+    expect(
+      resolveFirstRunOnboardingBuildReplacement(
+        { onboarding: { firstRun: "app" } },
+        { VITE_AGENT_NATIVE_FIRST_RUN_ONBOARDING: "true" },
+      ),
+    ).toBe("app");
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-marker-"));
+    temporaryRoots.push(root);
+    writeAgentNativeBuildConfigMarker(root, {
+      firstRunOnboarding: "app",
+      harness: "null",
+    });
+    expect(readAgentNativeBuildConfigMarker(root)).toEqual({
+      firstRunOnboarding: "app",
+      harness: "null",
+    });
+  });
   it("embeds the configured mode", () => {
     expect(
       resolveFirstRunOnboardingBuildReplacement(
@@ -213,6 +238,17 @@ describe("resolveHarnessBuildReplacement", () => {
   });
 });
 
+describe("resolveRequiredEnvBuildReplacement", () => {
+  it("embeds the declared names, or an empty list", () => {
+    expect(
+      resolveRequiredEnvBuildReplacement({
+        runtime: { environment: { required: ["NOTION_API_KEY"] } },
+      }),
+    ).toBe('["NOTION_API_KEY"]');
+    expect(resolveRequiredEnvBuildReplacement({})).toBe("[]");
+  });
+});
+
 describe("agent-native build config marker", () => {
   it("round-trips first-run onboarding and harness together", () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-marker-"));
@@ -235,6 +271,53 @@ describe("agent-native build config marker", () => {
       firstRunOnboarding: "",
       harness: "null",
     });
+  });
+
+  it("round-trips required env names, and reads a marker without them", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "agent-native-marker-"));
+    temporaryRoots.push(root);
+
+    writeAgentNativeBuildConfigMarker(root, {
+      firstRunOnboarding: "off",
+      harness: "null",
+      requiredEnv: '["NOTION_API_KEY"]',
+    });
+    expect(readAgentNativeBuildConfigMarker(root)).toEqual({
+      firstRunOnboarding: "off",
+      harness: "null",
+      requiredEnv: '["NOTION_API_KEY"]',
+    });
+
+    writeAgentNativeBuildConfigMarker(root, {
+      firstRunOnboarding: "off",
+      harness: "null",
+    });
+    expect(readAgentNativeBuildConfigMarker(root)).toEqual({
+      firstRunOnboarding: "off",
+      harness: "null",
+    });
+  });
+
+  it("rejects a marker whose required env value would not parse at runtime", () => {
+    for (const requiredEnv of ["not-json", '"NOTION_API_KEY"', "[1]", 42]) {
+      const root = fs.mkdtempSync(
+        path.join(os.tmpdir(), "agent-native-marker-"),
+      );
+      temporaryRoots.push(root);
+      fs.mkdirSync(path.join(root, ".agent-native"));
+      fs.writeFileSync(
+        path.join(root, ".agent-native", "build-config.json"),
+        JSON.stringify({
+          firstRunOnboarding: "off",
+          harness: "null",
+          requiredEnv,
+        }),
+      );
+
+      expect(() => readAgentNativeBuildConfigMarker(root)).toThrow(
+        /Invalid agent-native build config marker/,
+      );
+    }
   });
 
   it("drops a previous build's marker when a new build starts", () => {

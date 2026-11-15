@@ -12,6 +12,7 @@ import { defineStore } from "../db/store-registry.js";
 import { fromMigrationEntries } from "../db/versioned-store-migrations.js";
 import { getSecretEncryptionKey } from "../secrets/crypto.js";
 import { withFencedExecutionWrite } from "./execution-fence.js";
+import { agentToolApprovalMachine } from "./tool-approval-lifecycle.js";
 import {
   AGENT_TOOL_APPROVAL_MIGRATIONS,
   AGENT_TOOL_APPROVAL_MIGRATIONS_TABLE,
@@ -199,23 +200,13 @@ export async function denyAgentToolApproval(input: {
   const now = Date.now();
   const updated = await withFencedExecutionWrite(
     (tx) =>
-      tx.execute({
-        sql: `UPDATE agent_tool_approvals
-          SET status = 'denied', updated_at = ?
-          WHERE id = ?
-            AND owner_email = ?
-            AND ((org_id IS NULL AND CAST(? AS TEXT) IS NULL) OR org_id = CAST(? AS TEXT))
-            AND thread_id = ?
-            AND status = 'pending'`,
-        args: [
-          now,
-          input.approvalId,
-          input.ownerEmail,
-          input.orgId ?? null,
-          input.orgId ?? null,
-          input.threadId,
-        ],
-      }),
+      tx.execute(sql`UPDATE agent_tool_approvals
+          SET status = ${sql.value(agentToolApprovalMachine.transition(agentToolApprovalMachine.initial, "deny"))}, updated_at = ${sql.value(now)}
+          WHERE id = ${sql.value(input.approvalId)}
+            AND owner_email = ${sql.value(input.ownerEmail)}
+            AND ((org_id IS NULL AND CAST(${sql.value(input.orgId ?? null)} AS TEXT) IS NULL) OR org_id = CAST(${sql.value(input.orgId ?? null)} AS TEXT))
+            AND thread_id = ${sql.value(input.threadId)}
+            AND status IN ${agentToolApprovalMachine.sqlIn("deny")}`),
     { threadId: input.threadId },
   );
   if (updated.rowsAffected === 1) return "denied";
@@ -476,7 +467,7 @@ export async function createAgentToolApproval(
           (id, owner_email, org_id, thread_id, turn_id, tool_name, tool_revision,
            call_id, approval_key_hash, status, expires_at, consumed_at, created_at,
            updated_at, arguments_hash)
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?, NULL, ?, ?, ?)`,
+          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)`,
         args: [
           id,
           binding.ownerEmail,
@@ -487,6 +478,7 @@ export async function createAgentToolApproval(
           binding.toolRevision ?? null,
           binding.callId,
           approvalGrantDigest("approval-key", binding.approvalKey),
+          agentToolApprovalMachine.initial,
           expiresAt,
           now,
           now,
@@ -538,7 +530,7 @@ export async function consumeAgentToolApproval(
   const result = await withFencedExecutionWrite(
     (tx) =>
       tx.execute(sql`UPDATE agent_tool_approvals
-          SET status = 'consumed', consumed_at = ${sql.value(now)}, updated_at = ${sql.value(now)}
+          SET status = ${sql.value(agentToolApprovalMachine.transition(agentToolApprovalMachine.initial, "consume"))}, consumed_at = ${sql.value(now)}, updated_at = ${sql.value(now)}
           WHERE id = (
         SELECT MIN(id) FROM agent_tool_approvals
         WHERE owner_email = ${sql.value(binding.ownerEmail)}
@@ -550,11 +542,11 @@ export async function consumeAgentToolApproval(
           AND approval_key_hash = ${sql.value(approvalGrantDigest("approval-key", binding.approvalKey))}
           AND ((arguments_hash IS NULL AND CAST(${sql.value(argumentsDigest)} AS TEXT) IS NULL) OR arguments_hash = ${sql.value(argumentsDigest)})
           ${exactApprovalFilter}
-          AND status = 'pending'
+          AND status IN ${agentToolApprovalMachine.sqlIn("consume")}
           AND expires_at > ${sql.value(now)}
         HAVING COUNT(*) = 1
           )
-          AND status = 'pending'`),
+          AND status IN ${agentToolApprovalMachine.sqlIn("consume")}`),
     {
       threadId: binding.threadId ?? undefined,
       turnId: binding.turnId ?? undefined,

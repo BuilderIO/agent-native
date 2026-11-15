@@ -109,23 +109,38 @@ export function CreateFusionAppButton() {
 개의 action을 거칩니다. `get-feature-flags`는 `useFeatureFlag()` 자신이
 호출하는 action으로, 모든 사용자가 자기 자신의 플래그를 확인해야
 하므로 로그인한 모든 호출자에게 열려 있습니다. `list-feature-flags`와
-`set-feature-flag`는 두 개의 관리 action입니다. 둘 다 조직의 소유자와
-관리자(또는 조직이 없는 경우의 관리자)로 제한되며, 둘 다 감사됩니다.
+`set-feature-flag`는 두 개의 관리 action이며, 둘 다 감사됩니다.
+
+플래그에는 저장된 규칙이 두 개 있을 수 있습니다. 전역 규칙은 모든 조직에
+적용되며, 어느 조직에 로그인했든 앱의 `AGENT_NATIVE_FEATURE_FLAG_ADMIN_EMAILS`
+목록에 있는 이메일만 이를 바꿀 수 있습니다. 조직 자체 규칙은 그 조직
+안에서만 적용되며, 그 조직의 소유자와 관리자만 바꿀 수 있습니다. 관리자
+목록에 있다고 해서 이 권한이 생기지는 않습니다. 조직에 자체 규칙이 있으면
+그 규칙이 전역 규칙을 완전히 대체합니다. 두 규칙은 병합되지 않으므로,
+플래그를 전역으로 켜도 자체 규칙이 있는 조직에는 적용되지 않습니다.
+`list-feature-flags`는 플래그마다 두 규칙, 그중 적용 중인 규칙, 그리고 읽을
+수 없었던 저장된 규칙을 보고합니다.
 
 `set-feature-flag`는 운영자가 실제로 플래그를 켤 대상을 바꾸는 방법입니다.
+`scope` 인자가 규칙을 고릅니다. `"org"`는 활성 조직의 규칙을, `"global"`은
+전역 규칙을 바꿉니다(예: `{ key: "full-app-building", operation: "off", scope: "global" }`).
+`scope`를 생략하면 활성 조직의 규칙을 바꾸고, 호출자에게 활성 조직이 없으면
+전역 규칙을 바꾸며, 결과의 `scope.kind`가 기록한 규칙을 알려 줍니다. 각
+작업은 선택한 규칙에 적용됩니다.
 
-| 작업                                           | 하는 일                                              | 예시 인자                                                                                                       |
-| ---------------------------------------------- | ---------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `enable-for-current-user`                      | 자기 자신의 계정에 대해서만 플래그를 켭니다.         | `{ key: "full-app-building", operation: "enable-for-current-user" }`                                            |
-| `off`                                          | 모두에 대해 플래그를 끄고, 모든 규칙을 초기화합니다. | `{ key: "full-app-building", operation: "off" }`                                                                |
-| `replace-rules`, 모드 `"on"`                   | 모두에 대해 플래그를 켭니다.                         | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "on" } }`                               |
-| `replace-rules`, 모드 `"rules"`와 `emails`     | 특정 계정 목록에 대해 켭니다.                        | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", emails: ["a@example.com"] } }` |
-| `replace-rules`, 모드 `"rules"`와 `orgIds`     | 특정 조직들에 대해 켭니다.                           | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", orgIds: ["org_123"] } }`       |
-| `replace-rules`, 모드 `"rules"`와 `percentage` | 퍼센트 단위 롤아웃으로 켭니다.                       | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", percentage: 10 } }`            |
+| 작업                                           | 하는 일                                      | 예시 인자                                                                                                       |
+| ---------------------------------------------- | -------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `enable-for-current-user`                      | 자기 자신의 계정에 대해서만 플래그를 켭니다. | `{ key: "full-app-building", operation: "enable-for-current-user" }`                                            |
+| `off`                                          | 규칙이 적용되는 모두에 대해 플래그를 끕니다. | `{ key: "full-app-building", operation: "off" }`                                                                |
+| `replace-rules`, 모드 `"on"`                   | 규칙이 적용되는 모두에 대해 플래그를 켭니다. | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "on" } }`                               |
+| `replace-rules`, 모드 `"rules"`와 `emails`     | 특정 계정 목록에 대해 켭니다.                | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", emails: ["a@example.com"] } }` |
+| `replace-rules`, 모드 `"rules"`와 `orgIds`     | 특정 조직들에 대해 켭니다.                   | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", orgIds: ["org_123"] } }`       |
+| `replace-rules`, 모드 `"rules"`와 `percentage` | 퍼센트 단위 롤아웃으로 켭니다.               | `{ key: "full-app-building", operation: "replace-rules", rules: { mode: "rules", percentage: 10 } }`            |
 
 플릿 운영자 UI는 공유 로그인 대신 좁게 범위가 지정된 A2A 위임을 통해
 이 동일한 action들을 호출하며, Analytics가 이들을 위한 유일한 운영자
-UI입니다. 앱은 자체적인 플래그 설정 패널을 만들어서는 안 되며, 플래그
+UI입니다. 위임된 전역 변경은 위임된 이메일이 대상 앱 자체의 관리자 목록에
+있을 때만 성공합니다. 앱은 자체적인 플래그 설정 패널을 만들어서는 안 되며, 플래그
 쓰기는 일반적인 설정 엔드포인트나 원시 SQL을 거쳐서는 안 됩니다.
 
 <Callout id="doc-block-actions-advanced-1" tone="warning">

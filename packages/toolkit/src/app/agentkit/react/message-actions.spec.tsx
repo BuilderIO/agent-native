@@ -365,7 +365,7 @@ describe("assistant reply toolbar", () => {
     expect(latest.dataset.latest).toBe("true");
     expect(older.dataset.latest).toBeUndefined();
     expect(footer("assistant-latest").dataset.placement).toBe("inline");
-    expect(latest.getAttribute("role")).toBe("group");
+    expect(latest.getAttribute("role")).toBe("toolbar");
     expect(labelsOf(set(latest, "primary"))).toEqual([
       "Copy message",
       "Good response",
@@ -820,6 +820,60 @@ describe("assistant reply toolbar", () => {
         reasoningEffort: "high",
       }),
     );
+  });
+});
+
+describe("assistant reply toolbar keyboard", () => {
+  it("costs one tab stop per reply and moves between actions with the arrow keys", async () => {
+    const { toolbar } = await renderChat();
+    const latest = toolbar("assistant-latest");
+    const stops = () =>
+      Array.from(latest.querySelectorAll("button")).filter(
+        (button) => button.tabIndex === 0,
+      );
+    expect(stops().map((button) => button.getAttribute("aria-label"))).toEqual([
+      "Copy message",
+    ]);
+
+    await act(async () => stops()[0]?.focus());
+    await act(async () => {
+      document.activeElement?.dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowRight", bubbles: true }),
+      );
+    });
+    expect(document.activeElement?.getAttribute("aria-label")).toBe(
+      "Good response",
+    );
+    expect(stops()).toEqual([document.activeElement]);
+  });
+
+  it("keeps Retry focused and enabled while its fork is in flight", async () => {
+    const fork = Promise.withResolvers<{
+      id: string;
+      createdAt: string;
+      updatedAt: string;
+    }>();
+    const { toolbar } = await renderChat({
+      transport: {
+        forkThread: vi.fn(() => fork.promise),
+        assertAiSetupReady: vi.fn(async () => undefined),
+      },
+    });
+    const latest = toolbar("assistant-latest");
+    await press(toggle(latest));
+    const retry = latest.querySelector<HTMLButtonElement>(
+      'button[aria-label="Retry"]',
+    );
+    await act(async () => retry?.focus());
+    await press(retry);
+
+    expect(retry?.disabled).toBe(false);
+    expect(retry?.getAttribute("aria-busy")).toBe("true");
+    expect(document.activeElement).toBe(retry);
+    await act(async () => {
+      fork.reject(new Error("offline"));
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
   });
 });
 

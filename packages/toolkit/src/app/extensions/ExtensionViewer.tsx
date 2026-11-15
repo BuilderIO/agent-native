@@ -4,6 +4,10 @@ import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { SESSION_REPLAY_IFRAME_ATTRIBUTE } from "@agent-native/core/client/host";
 import { isEmbedMcpChatBridgeActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
+import {
+  reportWriteFailure,
+  writeFailureFromResponse,
+} from "@agent-native/core/client/write-failure";
 import { buildExtensionHtml } from "@agent-native/core/extensions/html-shell";
 import {
   extensionPath,
@@ -76,6 +80,7 @@ import {
   useOpenUrlLatch,
 } from "./open-extension-link.js";
 import { normalizeAgentNativeExtensionSandbox } from "./portable-extension.js";
+import { useExtensionChatSubmission } from "./use-extension-chat-submission.js";
 
 const THEME_CSS_VARS = [
   "--background",
@@ -560,7 +565,9 @@ function ExtensionHistoryPopover({
         ),
         { method: "POST" },
       );
-      if (!res.ok) throw new Error("Failed to restore extension version");
+      if (!res.ok) {
+        throw writeFailureFromResponse(res);
+      }
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["extension", extensionId] }),
         queryClient.invalidateQueries({ queryKey: ["extensions"] }),
@@ -572,6 +579,8 @@ function ExtensionHistoryPopover({
         }),
       ]);
       onRestored?.();
+    } catch (error) {
+      reportWriteFailure(error);
     } finally {
       setRestoringVersion(null);
     }
@@ -731,6 +740,7 @@ export function ExtensionViewer({
   headerActions = <AgentToggleButton />,
 }: ExtensionViewerProps) {
   const t = useT();
+  const extensionChat = useExtensionChatSubmission();
   const location = useLocation();
   const navigate = useNavigate();
   const [isDark, setIsDark] = useState(false);
@@ -839,7 +849,7 @@ export function ExtensionViewer({
       if (message.type === "agent-native-send-to-chat") {
         const text = serializeChatValue(message.message);
         if (!text?.trim()) return;
-        sendToAgentChat({
+        extensionChat.send({
           message: text,
           context: serializeChatValue(message.context),
           submit: message.submit === true,
@@ -928,7 +938,7 @@ export function ExtensionViewer({
           );
         }
 
-        sendToAgentChat({
+        extensionChat.send({
           message: `Fix runtime errors in this extension. The content snapshot below was just re-read from the database — treat it as authoritative and ignore any prior version you may have generated in this chat. If in doubt, call get-extension first.\n\nErrors:\n${errors.join("\n")}`,
           context: contextParts.join("\n"),
           submit: true,
@@ -1159,16 +1169,23 @@ export function ExtensionViewer({
     );
     setIsRenaming(false);
     try {
-      await fetch(agentNativePath(`/_agent-native/extensions/${extensionId}`), {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: trimmed }),
-      });
+      const res = await fetch(
+        agentNativePath(`/_agent-native/extensions/${extensionId}`),
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: trimmed }),
+        },
+      );
+      if (!res.ok) {
+        reportWriteFailure(writeFailureFromResponse(res));
+      }
       void queryClient.invalidateQueries({
         queryKey: ["extension", extensionId],
       });
       void queryClient.invalidateQueries({ queryKey: ["extensions"] });
-    } catch {
+    } catch (error) {
+      reportWriteFailure(error);
       void queryClient.invalidateQueries({
         queryKey: ["extension", extensionId],
       });
@@ -1364,6 +1381,7 @@ export function ExtensionViewer({
               pointerEvents: openPopoverCount > 0 ? "none" : "auto",
             }}
             onLoad={() => {
+              extensionChat.cancel();
               // While the srcDoc frame waits for its CSP lists it has no
               // document yet, so this is the about:blank load. Keep the
               // spinner up until the real document loads.
@@ -1373,6 +1391,7 @@ export function ExtensionViewer({
             }}
           />
         </div>
+        {extensionChat.confirmation}
       </div>
     </TooltipProvider>
   );
@@ -1433,12 +1452,17 @@ function ToolMoreMenu({
 
   const removeFromSlot = async (slotId: string) => {
     try {
-      await fetch(
+      const res = await fetch(
         agentNativePath(
           `/_agent-native/slots/${encodeURIComponent(slotId)}/install/${encodeURIComponent(extensionId)}`,
         ),
         { method: "DELETE" },
       );
+      if (!res.ok) {
+        reportWriteFailure(writeFailureFromResponse(res));
+      }
+    } catch (error) {
+      reportWriteFailure(error);
     } finally {
       void queryClient.invalidateQueries({
         queryKey: ["slot-installs", slotId],

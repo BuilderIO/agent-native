@@ -3,7 +3,10 @@ import { z } from "zod";
 import { defineAction, fail } from "../../action.js";
 import { ForbiddenError } from "../../sharing/access.js";
 import { roleSatisfies } from "../../sharing/schema.js";
-import { resolveReviewableResourceAccess } from "../registry.js";
+import {
+  canCommentOnReviewableResource,
+  resolveReviewableResourceAccess,
+} from "../registry.js";
 import { deleteReviewComment, getReviewCommentById } from "../store.js";
 import { canDeleteReviewThread } from "../thread-delete.js";
 import type { ReviewResourceContext } from "../types.js";
@@ -51,7 +54,7 @@ export default defineAction({
       Boolean(actionCtx?.userEmail) &&
       normalizeEmail(comment.authorEmail) ===
         normalizeEmail(actionCtx?.userEmail);
-    if (!access || !roleSatisfies(access.role, "commenter")) {
+    if (!access || !canCommentOnReviewableResource(args.resourceType, access)) {
       throw new ForbiddenError("Not allowed to delete this review comment");
     }
     const isEditor = roleSatisfies(access.role, "editor");

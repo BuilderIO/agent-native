@@ -1,6 +1,26 @@
 import { z } from "zod";
 
+const privateProviderOrigin = z.url().refine((value) => {
+  const url = new URL(value);
+  return (
+    (url.protocol === "http:" || url.protocol === "https:") &&
+    !url.username &&
+    !url.password &&
+    value === url.origin
+  );
+}, "Expected an exact HTTP origin without a path or userinfo");
+
 export const analyticsConfig = z.object({
+  trustedPrivateProviderOrigins: z
+    .object({
+      grafana: z.array(privateProviderOrigin).default([]).meta({
+        doc: "Exact Grafana origins explicitly trusted to resolve to private addresses.",
+      }),
+      prometheus: z.array(privateProviderOrigin).default([]).meta({
+        doc: "Exact Prometheus origins explicitly trusted to resolve to private addresses.",
+      }),
+    })
+    .prefault({}),
   authSessionReplay: z.boolean().default(false).meta({
     doc: "Opt in to privacy-masked session replay on hosted signup and login pages.",
   }),

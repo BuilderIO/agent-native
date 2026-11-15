@@ -9,6 +9,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb, schema } from "../server/db/index.js";
+import { firstRow } from "../server/lib/first-row.js";
 import {
   syncPrivateIconReference,
   verifyPrivateIconAssignment,
@@ -25,16 +26,17 @@ import {
   type DocumentPropertyType,
 } from "../shared/properties.js";
 import { deleteBlocksFieldIdentity } from "./_blocks-field-identity.js";
-import { lockContentDatabaseMutation } from "./_content-database-mutation-lock.js";
 import { lockDatabaseMemberships } from "./_database-membership-lock.js";
 import {
   configureDocumentPropertyAgentSchema,
+  lockRowsAndAssertAgentsMayEditTabs,
   runConfigureDocumentProperty,
 } from "./_database-property-setup.js";
 import {
   refreshAfterSetup,
   setupAuditSummary,
 } from "./_database-setup-mutation.js";
+import { lockPagesAndAssertAgentsMayEditText } from "./_document-agent-lock.js";
 import {
   nextAppendPosition,
   propertyDefinitionsPositionScope,
@@ -46,7 +48,53 @@ import {
   optionsForNewProperty,
   resolvePropertyDatabaseForDocument,
 } from "./_property-utils.js";
-import { assertRelationTargetDatabase } from "./_relation-values.js";
+import {
+  assertRelationTargetDatabase,
+  lockRelationCollections,
+} from "./_relation-values.js";
+
+type PropertyCollection = typeof schema.contentDatabases.$inferSelect;
+
+/**
+ * Lock the collection, and the one a relation links to, then check neither
+ * moved to another workspace since it was read: a Property written now would
+ * keep the old owner, or link across workspaces.
+ */
+async function lockPropertyCollection(
+  tx: ReturnType<typeof getDb>,
+  database: PropertyCollection,
+  relationTarget: PropertyCollection | null,
+): Promise<PropertyCollection> {
+  await lockRelationCollections(tx, [database.id, relationTarget?.id]);
+  const lockedDatabase = firstRow(
+    await tx
+      .select()
+      .from(schema.contentDatabases)
+      .where(eq(schema.contentDatabases.id, database.id)),
+  );
+  if (!lockedDatabase) {
+    throw new ActionContractError("Collection not found.", {
+      errorCode: "DATABASE_NOT_FOUND",
+      statusCode: 404,
+    });
+  }
+  if (
+    (lockedDatabase.spaceId ?? null) !== (database.spaceId ?? null) ||
+    (lockedDatabase.orgId ?? null) !== (database.orgId ?? null)
+  ) {
+    throw new ActionContractError(
+      "This collection moved to another workspace. Open it there and try again.",
+      { errorCode: "DATABASE_MOVED", statusCode: 409 },
+    );
+  }
+  if (relationTarget) {
+    await assertRelationTargetDatabase(tx, {
+      sourceDatabase: lockedDatabase,
+      targetDatabaseId: relationTarget.id,
+    });
+  }
+  return lockedDatabase;
+}
 
 const legacyConfigureDocumentPropertySchema = z
   .object({
@@ -128,7 +176,7 @@ const legacyConfigureDocumentPropertySchema = z
 export default defineAction({
   searchHints: ["add a column", "table column", "database field"],
   description:
-    "Create an ordinary Content collection property (a `blocks` property adds a tab to every row's page) or safely update its metadata, select options, and natural-key role using an exact target, fresh schema revision, and idempotency key.",
+    "Create an ordinary Content collection property (a `blocks` property adds an empty tab to every row's page) or safely update its metadata, select options (add, update, reorder, or remove one no row or saved view filter uses), and natural-key role using an exact target, fresh schema revision, and idempotency key.",
   mcpTool: true,
   mcpApp: { structuredContent: true },
   agentInputSchema: configureDocumentPropertyAgentSchema,
@@ -154,7 +202,7 @@ export default defineAction({
       configureDocumentPropertyAgentSchema.parse(args);
     }
     if ("operation" in args) {
-      const result = await runConfigureDocumentProperty(args);
+      const result = await runConfigureDocumentProperty(args, context);
       await refreshAfterSetup(result.receipt);
       return result;
     }
@@ -246,15 +294,11 @@ export default defineAction({
         );
       if (!existing) throw new Error(`Property "${args.id}" not found`);
       await db.transaction(async (tx) => {
-        await lockContentDatabaseMutation(
+        const lockedDatabase = await lockPropertyCollection(
           tx as unknown as ReturnType<typeof getDb>,
-          database.id,
+          database,
+          relationTarget,
         );
-        const [lockedDatabase] = await tx
-          .select()
-          .from(schema.contentDatabases)
-          .where(eq(schema.contentDatabases.id, database.id));
-        if (!lockedDatabase) throw new Error("Database not found.");
         let [lockedDefinition] = await tx
           .select()
           .from(schema.documentPropertyDefinitions)
@@ -315,15 +359,44 @@ export default defineAction({
             "The primary Content (Blocks) field cannot change type. Delete it from the database view to remove the body.",
           );
         }
+        // Renaming or hiding a Blocks field renames or hides every row's tab.
+        if (
+          lockedDefinition.type === type &&
+          isBlocksPropertyType(type) &&
+          (name !== lockedDefinition.name ||
+            (args.visibility !== undefined &&
+              normalizePropertyVisibility(args.visibility) !==
+                normalizePropertyVisibility(lockedDefinition.visibility)))
+        )
+          await lockRowsAndAssertAgentsMayEditTabs(
+            tx as unknown as ReturnType<typeof getDb>,
+            database.id,
+            context,
+          );
         if (lockedDefinition.type !== type) {
           const memberships = await tx
-            .select({ id: schema.contentDatabaseItems.id })
+            .select({
+              id: schema.contentDatabaseItems.id,
+              documentId: schema.contentDatabaseItems.documentId,
+            })
             .from(schema.contentDatabaseItems)
             .where(eq(schema.contentDatabaseItems.databaseId, database.id));
           await lockDatabaseMemberships(
             tx,
             memberships.map((membership) => membership.id),
           );
+          // Leaving Blocks deletes the text this field holds on every row, and
+          // entering it adds a tab to every row.
+          if (
+            isBlocksPropertyType(
+              lockedDefinition.type as DocumentPropertyType,
+            ) !== isBlocksPropertyType(type)
+          )
+            await lockPagesAndAssertAgentsMayEditText(
+              tx as unknown as ReturnType<typeof getDb>,
+              memberships.map((membership) => membership.documentId),
+              context,
+            );
           [lockedDefinition] = await tx
             .select()
             .from(schema.documentPropertyDefinitions)
@@ -438,15 +511,18 @@ export default defineAction({
         propertyDefinitionsPositionScope(database.id),
         async () => {
           await db.transaction(async (tx) => {
-            await lockContentDatabaseMutation(
+            const lockedDatabase = await lockPropertyCollection(
               tx as unknown as ReturnType<typeof getDb>,
-              database.id,
+              database,
+              relationTarget,
             );
-            const [lockedDatabase] = await tx
-              .select()
-              .from(schema.contentDatabases)
-              .where(eq(schema.contentDatabases.id, database.id));
-            if (!lockedDatabase) throw new Error("Database not found.");
+            // A new Blocks field adds a tab to every row.
+            if (isBlocksPropertyType(type))
+              await lockRowsAndAssertAgentsMayEditTabs(
+                tx as unknown as ReturnType<typeof getDb>,
+                database.id,
+                context,
+              );
             const [maxPos] = await tx
               .select({
                 max: sql<unknown>`COALESCE(MAX(position), -1)`,

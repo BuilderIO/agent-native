@@ -12,7 +12,7 @@ vi.mock("@agent-native/core/server/request-context", () => ({
 }));
 
 vi.mock("../server/lib/dashboard-panel-query", () => ({
-  DASHBOARD_PANEL_SOURCES: ["bigquery", "demo", "program"],
+  DASHBOARD_PANEL_SOURCES: ["bigquery", "demo", "first-party", "program"],
   normalizeDashboardPanelQuery: mocks.normalizeDashboardPanelQuery,
 }));
 
@@ -24,12 +24,64 @@ const { default: queryDashboardPanel } =
   await import("./query-dashboard-panel");
 const { BigQueryMaximumBytesBilledError } =
   await import("../server/lib/bigquery");
+const { newBigQueryJobUsage } = await import("../server/lib/bigquery-usage");
 
 describe("query-dashboard-panel", () => {
   beforeEach(() => {
     mocks.getCredentialContext.mockReset();
     mocks.normalizeDashboardPanelQuery.mockReset();
     mocks.resolveAnalyticsPanelSource.mockReset();
+  });
+
+  it("passes the dashboard's traffic to the source", async () => {
+    mocks.getCredentialContext.mockReturnValue({
+      userEmail: "alice@example.com",
+      orgId: "org-1",
+    });
+    mocks.normalizeDashboardPanelQuery.mockReturnValue("select 1");
+    mocks.resolveAnalyticsPanelSource.mockImplementation(
+      async (_request, context) => {
+        expect(
+          newBigQueryJobUsage("fixture-project", "fixture-job", context),
+        ).toMatchObject({
+          workload: "dashboard-panel",
+          ownerEmail: "alice@example.com",
+          orgId: "org-1",
+        });
+        return { rows: [] };
+      },
+    );
+
+    await queryDashboardPanel.run(
+      { source: "first-party", query: "select 1", environment: "beta" },
+      {} as ActionRunContext,
+    );
+
+    expect(mocks.resolveAnalyticsPanelSource.mock.calls[0]?.[0]).toMatchObject({
+      trafficEnvironment: "beta",
+    });
+    expect(
+      queryDashboardPanel.schema.safeParse({
+        source: "first-party",
+        query: "select 1",
+        environment: "staging",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("refuses traffic for a source that can't apply it", async () => {
+    mocks.getCredentialContext.mockReturnValue({
+      userEmail: "alice@example.com",
+      orgId: "org-1",
+    });
+
+    await expect(
+      queryDashboardPanel.run(
+        { source: "bigquery", query: "select 1", environment: "beta" },
+        {} as ActionRunContext,
+      ),
+    ).rejects.toMatchObject({ errorCode: "invalid_target", statusCode: 400 });
+    expect(mocks.resolveAnalyticsPanelSource).not.toHaveBeenCalled();
   });
 
   it("preserves the dashboard panel wire shape through the source registry", async () => {

@@ -252,6 +252,7 @@ export interface DialogProps extends DesignSystemOverlayProps {
   dismissible?: boolean;
   hideClose?: boolean;
   closeLabel?: string;
+  closeDisabled?: boolean;
   initialFocusRef?: RefObject<HTMLElement | null>;
   restoreFocusRef?: RefObject<HTMLElement | null>;
 }

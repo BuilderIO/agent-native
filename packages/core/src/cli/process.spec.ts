@@ -1,18 +1,58 @@
 import { EventEmitter } from "node:events";
-import { constants as osConstants } from "node:os";
+import fs from "node:fs";
+import os, { constants as osConstants } from "node:os";
+import path from "node:path";
 
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   cliSpawnOptions,
+  DEV_SERVER_READY_FILE_ENV,
   DEV_SERVER_RECOVERY_EXIT_CODE,
   DEV_SERVER_SUPERVISOR_ENV,
+  markDevServerReady,
   runDevServer,
 } from "./process.js";
 
 afterEach(() => {
   vi.useRealTimers();
   vi.restoreAllMocks();
+});
+
+describe("markDevServerReady", () => {
+  it("records only the first listen in a run", () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "an-dev-ready-"));
+    const file = path.join(dir, "ready");
+    const env = { [DEV_SERVER_READY_FILE_ENV]: file };
+    const now = vi.spyOn(Date, "now");
+
+    try {
+      now.mockReturnValue(1000);
+      markDevServerReady(env);
+      now.mockReturnValue(2000);
+      markDevServerReady(env);
+
+      expect(fs.readFileSync(file, "utf8")).toBe("1000");
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("does nothing when agent-native dev isn't watching", () => {
+    const write = vi.spyOn(fs, "writeFileSync");
+
+    markDevServerReady({});
+
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it("never lets telemetry stop the dev server", () => {
+    const missing = path.join(os.tmpdir(), "an-missing-dir", "nested", "ready");
+
+    expect(() =>
+      markDevServerReady({ [DEV_SERVER_READY_FILE_ENV]: missing }),
+    ).not.toThrow();
+  });
 });
 
 describe("cli process launch options", () => {

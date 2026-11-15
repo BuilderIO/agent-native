@@ -100,9 +100,10 @@ afterAll(async () => {
 });
 
 describe("workspace connection store", () => {
-  it("does not run schema DDL in hosted apps without release migrations", async () => {
+  it("does not run schema DDL in hosted apps with release migrations", async () => {
     vi.stubEnv("NODE_ENV", "production");
     vi.stubEnv("NETLIFY_FUNCTION_NAME", "workspace-groups-test");
+    vi.stubEnv("AGENT_NATIVE_RELEASE_MIGRATIONS", "1");
     resetAppConfigForTests();
     const execute = vi.spyOn(sharedClient, "execute");
     try {
@@ -608,6 +609,53 @@ describe("workspace connection store", () => {
     ]);
   });
 
+  it("never resolves a personal (user-scoped) connection for another member", async () => {
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const { resolveWorkspaceConnectionsForApp, upsertWorkspaceConnection } =
+      await import("./store.js");
+
+    await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-personal" },
+      () =>
+        upsertWorkspaceConnection({
+          id: "conn-personal-alice",
+          provider: "gmail",
+          label: "Alice Gmail",
+          config: {
+            credentialMode: "oauth",
+            workspaceConnectionScope: "user",
+          },
+          allowedApps: ["mail-test-app"],
+          // Empty audience is the org-wide marker for org resources; a
+          // personal connection must stay owner-only anyway.
+          allowedUsers: [],
+        }),
+    );
+
+    const bobVisible = await runWithRequestContext(
+      { userEmail: "bob@example.com", orgId: "org-personal" },
+      () =>
+        resolveWorkspaceConnectionsForApp({
+          appId: "mail-test-app",
+          provider: "gmail",
+        }),
+    );
+    expect(bobVisible).toEqual([]);
+
+    const aliceVisible = await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-personal" },
+      () =>
+        resolveWorkspaceConnectionsForApp({
+          appId: "mail-test-app",
+          provider: "gmail",
+        }),
+    );
+    expect(aliceVisible.map((connection) => connection.id)).toEqual([
+      "conn-personal-alice",
+    ]);
+  });
+
   it("scopes personal list, upsert, and delete to the request user", async () => {
     const { runWithRequestContext } =
       await import("../server/request-context.js");
@@ -789,6 +837,83 @@ describe("workspace connection store", () => {
         });
         expect(cleared.accountId).toBeNull();
         expect(cleared.scopes).toEqual([]);
+      },
+    );
+  });
+
+  it("fails closed on malformed persisted connection restrictions", async () => {
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const {
+      upsertWorkspaceConnection,
+      resolveWorkspaceConnectionForApp,
+      listWorkspaceConnectionsForApp,
+    } = await import("./store.js");
+    await runWithRequestContext(
+      { userEmail: "alice@example.com", orgId: "org-1" },
+      async () => {
+        await upsertWorkspaceConnection({
+          id: "strict",
+          provider: "slack",
+          label: "Strict",
+        });
+        expect(
+          (
+            await resolveWorkspaceConnectionForApp({
+              appId: "brain",
+              provider: "slack",
+              connectionId: "strict",
+            })
+          ).available,
+        ).toBe(true);
+        for (const column of [
+          "allowed_apps_json",
+          "allowed_users_json",
+          "allowed_user_groups_json",
+        ]) {
+          for (const invalid of [
+            "{",
+            "{}",
+            "null",
+            "42",
+            '["alice@example.com",42]',
+            '[" "]',
+            "[null]",
+          ]) {
+            await pglite
+              .prepare(
+                `UPDATE workspace_connections SET ${column} = ? WHERE id = ?`,
+              )
+              .run(invalid, "strict");
+            await expect(
+              resolveWorkspaceConnectionForApp({
+                appId: "brain",
+                provider: "slack",
+                connectionId: "strict",
+              }),
+            ).rejects.toThrow(/invalid workspace connection restrictions/i);
+            await expect(
+              listWorkspaceConnectionsForApp({
+                appId: "brain",
+                provider: "slack",
+              }),
+            ).rejects.toThrow(/invalid workspace connection restrictions/i);
+            await pglite
+              .prepare(
+                `UPDATE workspace_connections SET ${column} = ? WHERE id = ?`,
+              )
+              .run("[]", "strict");
+          }
+        }
+        expect(
+          (
+            await resolveWorkspaceConnectionForApp({
+              appId: "brain",
+              provider: "slack",
+              connectionId: "strict",
+            })
+          ).available,
+        ).toBe(true);
       },
     );
   });
@@ -2117,6 +2242,147 @@ describe("workspace connection store", () => {
     const serialized = serializeWorkspaceConnectionGrant(grant);
     expect(JSON.stringify(serialized)).not.toContain("sk-should-not-leak");
     expect(JSON.stringify(serialized)).not.toContain("refresh-should-not-leak");
+  });
+
+  it("requires an exact owner-bound explicit grant and user vault reference even when all apps are allowed", async () => {
+    const { runWithRequestContext } =
+      await import("../server/request-context.js");
+    const { writeAppSecret } = await import("../secrets/index.js");
+    const { resolveExplicitUserConnectionCredential } =
+      await import("./credentials.js");
+    const {
+      upsertWorkspaceConnection,
+      upsertWorkspaceConnectionGrant,
+      revokeWorkspaceConnectionGrant,
+    } = await import("./store.js");
+    const owner = { userEmail: "alice@example.com", orgId: "org-1" };
+    const lookup = (key: string, connectionId = "conn-dav") =>
+      resolveExplicitUserConnectionCredential({
+        appId: "calendar-test-app",
+        provider: "icloud",
+        connectionId,
+        key,
+      });
+    await runWithRequestContext(owner, async () => {
+      await upsertWorkspaceConnection({
+        id: "conn-dav",
+        provider: "icloud",
+        allowedApps: [],
+        credentialRefs: [{ key: "DAV_UNRELATED", scope: "user" }],
+      });
+      await upsertWorkspaceConnection({
+        id: "other-dav",
+        provider: "icloud",
+        allowedApps: ["calendar-test-app"],
+      });
+      await upsertWorkspaceConnectionGrant({
+        id: "grant-dav",
+        connectionId: "conn-dav",
+        appId: "calendar-test-app",
+        credentialRefs: [
+          { key: "DAV_ONE", scope: "user" },
+          { key: "DAV_WRONG_SCOPE", scope: "org" },
+          { key: "DAV_MISSING", scope: "user" },
+        ],
+      });
+      await upsertWorkspaceConnectionGrant({
+        id: "grant-two",
+        connectionId: "other-dav",
+        appId: "calendar-test-app",
+        credentialRefs: [{ key: "DAV_TWO", scope: "user" }],
+      });
+      await writeAppSecret({
+        key: "DAV_ONE",
+        value: "synthetic-value",
+        scope: "user",
+        scopeId: owner.userEmail,
+      });
+      await writeAppSecret({
+        key: "DAV_TWO",
+        value: "synthetic-second",
+        scope: "user",
+        scopeId: owner.userEmail,
+      });
+      await writeAppSecret({
+        key: "DAV_UNRELATED",
+        value: "synthetic-other",
+        scope: "user",
+        scopeId: owner.userEmail,
+      });
+      expect(await lookup("DAV_ONE")).toMatchObject({
+        status: "resolved",
+        value: "synthetic-value",
+        provenance: {
+          connectionId: "conn-dav",
+          grantId: "grant-dav",
+          credentialRef: { source: "grant" },
+          secretScope: "user",
+          backend: "secrets",
+        },
+      });
+      expect(await lookup("DAV_UNRELATED")).toMatchObject({
+        status: "missing_ref",
+      });
+      expect(await lookup("DAV_WRONG_SCOPE")).toMatchObject({
+        status: "missing_ref",
+      });
+      vi.stubEnv("DAV_MISSING", "synthetic-fallback");
+      expect(await lookup("DAV_MISSING")).toMatchObject({
+        status: "missing_secret",
+      });
+      vi.unstubAllEnvs();
+      expect(await lookup("DAV_ONE", "other-dav")).toMatchObject({
+        status: "missing_ref",
+      });
+      expect(await lookup("DAV_TWO", "other-dav")).toMatchObject({
+        status: "resolved",
+        value: "synthetic-second",
+        provenance: {
+          connectionId: "other-dav",
+          grantId: "grant-two",
+          appAccessMode: "allowed-app",
+        },
+      });
+    });
+    await expect(
+      runWithRequestContext(
+        { userEmail: "bob@example.com", orgId: "org-1" },
+        () => lookup("DAV_ONE"),
+      ),
+    ).resolves.toMatchObject({ status: "not_available" });
+    await expect(
+      runWithRequestContext(
+        { userEmail: "alice@example.com", orgId: "other-org" },
+        () => lookup("DAV_ONE"),
+      ),
+    ).resolves.toMatchObject({ status: "not_available" });
+    await expect(
+      runWithRequestContext(
+        {
+          userEmail: "alice@example.com",
+          orgId: "org-1",
+          credentialScope: "org",
+        },
+        () => lookup("DAV_ONE"),
+      ),
+    ).resolves.toMatchObject({ status: "not_available" });
+    await runWithRequestContext(owner, async () => {
+      const originalExecute = sharedClient.execute.bind(sharedClient);
+      const execute = vi
+        .spyOn(sharedClient, "execute")
+        .mockImplementation(async (arg) => {
+          const sql = typeof arg === "string" ? arg : arg.sql;
+          if (/select[\s\S]*from app_secrets/i.test(sql))
+            throw new Error("synthetic vault failure");
+          return originalExecute(arg);
+        });
+      expect(await lookup("DAV_ONE")).toMatchObject({ status: "error" });
+      execute.mockRestore();
+      await revokeWorkspaceConnectionGrant("conn-dav", "calendar-test-app");
+      expect(await lookup("DAV_ONE")).toMatchObject({
+        status: "not_available",
+      });
+    });
   });
 
   it("resolves runtime credentials from granted workspace connection refs", async () => {

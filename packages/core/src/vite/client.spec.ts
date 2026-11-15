@@ -1683,6 +1683,41 @@ describe("route warmup config", () => {
     }
   });
 
+  it("defines the build's commit apart from its deploy id", () => {
+    const commit = "A".repeat(40);
+    vi.stubEnv("DEPLOY_ID", "665f1c2e9b1d4a0008a1b2c3");
+    vi.stubEnv("AGENT_NATIVE_BUILD_ID", commit);
+
+    try {
+      const config = defineConfig();
+      expect(config.define?.__AGENT_NATIVE_BUILD_ID__).toBe(
+        JSON.stringify("665f1c2e9b1d4a0008a1b2c3"),
+      );
+      expect(config.define?.__AGENT_NATIVE_COMMIT_SHA__).toBe(
+        JSON.stringify(commit.toLowerCase()),
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("defines no commit when the build id is not a full commit", () => {
+    vi.stubEnv("AGENT_NATIVE_BUILD_SHA", "");
+    vi.stubEnv("AGENT_NATIVE_BUILD_ID", "665f1c2e9b1d4a0008a1b2c3");
+    vi.stubEnv("COMMIT_REF", "");
+    vi.stubEnv("NETLIFY_COMMIT_REF", "");
+    vi.stubEnv("VERCEL_GIT_COMMIT_SHA", "");
+    vi.stubEnv("CF_PAGES_COMMIT_SHA", "");
+
+    try {
+      expect(defineConfig().define?.__AGENT_NATIVE_COMMIT_SHA__).toBe(
+        JSON.stringify(""),
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("uses the shared build id precedence for the client bundle", () => {
     vi.stubEnv("DEPLOY_ID", "");
     vi.stubEnv("AGENT_NATIVE_BUILD_ID", " agent-build-123 ");
@@ -1712,6 +1747,139 @@ describe("route warmup config", () => {
       selector: 'a[data-an-prefetch="render"][href]',
       maxConcurrent: 8,
     });
+  });
+
+  it("applies workspace cache keys after router environment hooks in resolved config", async () => {
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+    try {
+      const plugin = flatPlugins(agentNative()).find(
+        (p) => p?.name === "agent-native-rolldown-input-fix",
+      )!;
+      const config = await resolveConfig(
+        {
+          configFile: false,
+          envFile: false,
+          plugins: [
+            plugin,
+            {
+              name: "router-environment-fixture",
+              configEnvironment(name, environment) {
+                if (name === "client") {
+                  return {
+                    build: {
+                      rollupOptions: {
+                        output: [
+                          {
+                            entryFileNames: () =>
+                              "assets/home-client-loader-[hash].js",
+                          },
+                        ],
+                      },
+                    },
+                  };
+                }
+              },
+            },
+          ],
+        },
+        "build",
+      );
+      const output = config.environments.client.build.rolldownOptions.output;
+      expect(Array.isArray(output)).toBe(true);
+      expect((output as any)[0].entryFileNames({})).toBe(
+        "assets/home-client-loader-[hash:16].js",
+      );
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("preserves router entry suffixes while retiring its default cache keys", () => {
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+    try {
+      const plugin = flatPlugins(agentNative()).find(
+        (p) => p?.name === "agent-native-rolldown-input-fix",
+      );
+      const config = {
+        build: {
+          rolldownOptions: {
+            output: {
+              entryFileNames: ({ name }: { name: string }) =>
+                `assets/${name}-client-loader-[hash].js`,
+            },
+          },
+        },
+      };
+      (plugin!.configEnvironment as Function)("client", config);
+      expect(
+        config.build.rolldownOptions.output.entryFileNames({ name: "home" }),
+      ).toBe("assets/home-client-loader-[hash:16].js");
+      const ssr = {
+        build: { rolldownOptions: { output: { entryFileNames: "server.js" } } },
+      };
+      (plugin!.configEnvironment as Function)("ssr", ssr);
+      expect(ssr.build.rolldownOptions.output.entryFileNames).toBe("server.js");
+      const legacy = {
+        build: {
+          rollupOptions: {
+            output: { entryFileNames: "assets/legacy-[hash:8].js" },
+          },
+        },
+      };
+      (plugin!.configEnvironment as Function)("client", legacy);
+      expect(
+        (
+          legacy.build.rollupOptions.output
+            .entryFileNames as unknown as Function
+        )({}),
+      ).toBe("assets/legacy-[hash:16].js");
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
+  it("gives workspace modules fresh app-local cache keys after shared redirects", () => {
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+    try {
+      const config = defineConfig();
+      expect(config.build?.rolldownOptions?.output).toMatchObject({
+        entryFileNames: "assets/[name]-[hash:16].js",
+        chunkFileNames: "assets/[name]-[hash:16].js",
+        assetFileNames: "assets/[name]-[hash:16][extname]",
+      });
+    } finally {
+      vi.unstubAllEnvs();
+    }
+    expect(defineConfig().build?.rolldownOptions?.output).toBeUndefined();
+  });
+
+  it("warms workspace routes on intent without competing with initial app data", () => {
+    vi.stubEnv("AGENT_NATIVE_WORKSPACE", "1");
+    try {
+      const config = defineConfig();
+      const warmup = JSON.parse(
+        String(config.define?.__AGENT_NATIVE_ROUTE_WARMUP_CONFIG__),
+      );
+      expect(warmup).toMatchObject({
+        strategy: "intent",
+        data: true,
+        modules: true,
+      });
+      const explicit = defineConfig({ routeWarmup: "viewport" });
+      expect(
+        JSON.parse(
+          String(explicit.define?.__AGENT_NATIVE_ROUTE_WARMUP_CONFIG__),
+        ).strategy,
+      ).toBe("viewport");
+      const disabled = defineConfig({ routeWarmup: false });
+      expect(
+        JSON.parse(
+          String(disabled.define?.__AGENT_NATIVE_ROUTE_WARMUP_CONFIG__),
+        ).strategy,
+      ).toBe("off");
+    } finally {
+      vi.unstubAllEnvs();
+    }
   });
 
   it("allows apps to choose a route warmup strategy in one Vite config place", () => {
@@ -2683,6 +2851,64 @@ describe("agentNative Vite plugin preset", () => {
     });
   });
 
+  it("serves optimized dependencies without Vite's inline identity maps", async () => {
+    const root = fs.mkdtempSync(
+      path.join(fs.realpathSync(os.tmpdir()), "an-dep-sourcemaps-"),
+    );
+    const dep = path.join(root, "node_modules", "fixture-dep");
+    fs.mkdirSync(dep, { recursive: true });
+    fs.writeFileSync(
+      path.join(dep, "package.json"),
+      JSON.stringify({ name: "fixture-dep", main: "index.js" }),
+    );
+    fs.writeFileSync(path.join(dep, "index.js"), 'module.exports = "dep";\n');
+    fs.writeFileSync(
+      path.join(root, "app.ts"),
+      'import value from "fixture-dep"; console.log(value);\n',
+    );
+
+    const plugins = flatPlugins(agentNative());
+    const configPlugin = plugins.find((p) => p?.name === "agent-native-config");
+    const config = await configPlugin.config(
+      {},
+      { command: "serve", mode: "development" },
+    );
+    const server = await createServer({
+      root,
+      configFile: false,
+      server: { host: "127.0.0.1", port: 0, ws: false },
+      plugins: plugins.filter(
+        (p) => p?.name === "agent-native:no-served-dep-sourcemaps",
+      ),
+      optimizeDeps: {
+        ...config.optimizeDeps,
+        noDiscovery: true,
+        include: ["fixture-dep"],
+      },
+    });
+
+    try {
+      await server.listen();
+      const origin = server.resolvedUrls?.local[0];
+      expect(origin).toBeDefined();
+      const request = { headers: { "sec-fetch-dest": "script" } };
+      const app = await fetch(new URL("/app.ts", origin), request);
+      expect(app.status).toBe(200);
+      const source = await app.text();
+      expect(source).toContain("sourceMappingURL=data:");
+      const depUrl = source.match(/"([^"]+\/fixture-dep\.js\?v=[^"]+)"/)?.[1];
+      expect(depUrl).toBeDefined();
+      const dependency = await fetch(new URL(String(depUrl), origin), request);
+      expect(dependency.status).toBe(200);
+      const code = await dependency.text();
+      expect(code).toContain('module.exports = "dep"');
+      expect(code).not.toContain("sourceMappingURL=");
+    } finally {
+      await server.close();
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
   it("does not re-emit Vite's deprecated rollupOptions alias", async () => {
     const plugins = flatPlugins(agentNative());
     const configPlugin = plugins.find((p) => p?.name === "agent-native-config");
@@ -2896,7 +3122,9 @@ describe("app changelog raw imports", () => {
   });
 
   it("picks up a CHANGELOG.md created after the dev server first served it", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-changelog-raw-"));
+    const root = fs.realpathSync(
+      fs.mkdtempSync(path.join(os.tmpdir(), "an-changelog-raw-")),
+    );
     const routesDir = path.join(root, "app", "routes");
     fs.mkdirSync(routesDir, { recursive: true });
     fs.writeFileSync(
@@ -3026,7 +3254,9 @@ describe("app changelog raw imports", () => {
 
 describe("Vite runtime data watcher", () => {
   it("ignores database writes while continuing to watch source edits", async () => {
-    const root = fs.mkdtempSync(path.join(os.tmpdir(), "an-vite-watch-"));
+    const root = fs.realpathSync(
+      fs.mkdtempSync(path.join(os.tmpdir(), "an-vite-watch-")),
+    );
     const database = path.join(root, ".data", "base", "5", "16453");
     const source = path.join(root, "app.ts");
     const bridgeDir = path.join(root, ".generated", "bridge");
@@ -3941,7 +4171,8 @@ describe("Vite SSR optional dependencies", () => {
       );
 
       expect(config.ssr.external).toContain("prettier");
-      expect(config.ssr.external).toContain("xlsx");
+      // oracle-change: xlsx is now a bundled ingestion parser, so an installed copy is bundled rather than left external
+      expect(config.ssr.external).not.toContain("xlsx");
       expect(config.ssr.external).toContain("@sentry/node");
       expect(config.ssr.external).not.toContain("@opentelemetry/api");
       expect(config.build.rolldownOptions.external).toContain("prettier");
@@ -3979,15 +4210,16 @@ describe("Vite SSR optional dependencies", () => {
       );
       const missingPeers = getMissingCoreOptionalPeers(appRoot);
       expect(missingPeers).toContain("prettier");
-      expect(missingPeers).toContain("xlsx");
       expect(missingPeers).toContain("@sentry/node");
       expect(missingPeers).not.toContain("@opentelemetry/api");
       for (const peer of [
         "fast-xml-parser",
         "jszip",
+        "mammoth",
         "officeparser",
         "pdf-parse",
         "pdfjs-dist",
+        "xlsx",
       ]) {
         expect(missingPeers).not.toContain(peer);
       }
@@ -4517,6 +4749,18 @@ describe("local-core dev aliases and router dedupe", () => {
     const dedupe = _getClientDedupe(tmpDir);
     expect(dedupe).toContain("react-router");
     expect(dedupe).toContain("react-router/dom");
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
+  });
+
+  it("dedupes sonner when the app depends on it", () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "an-vite-dedupe-"));
+    fs.writeFileSync(
+      path.join(tmpDir, "package.json"),
+      JSON.stringify({ dependencies: { sonner: "^2.0.7" } }),
+    );
+
+    expect(_getClientDedupe(tmpDir)).toContain("sonner");
 
     fs.rmSync(tmpDir, { recursive: true, force: true });
   });

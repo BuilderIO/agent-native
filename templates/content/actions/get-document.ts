@@ -16,6 +16,10 @@ import { z } from "zod";
 import { getDb, schema } from "../server/db/index.js";
 import { parseDocumentHideFromSearch } from "../server/lib/documents.js";
 import { liveBodyWriterGate } from "../server/lib/live-body-writer.js";
+import {
+  privateMediaAgentLinks,
+  readsWithoutSessionCookie,
+} from "../server/lib/private-media-agent-links.js";
 import { favoriteDocumentIds } from "./_content-favorites.js";
 import {
   getDatabaseByDocumentId,
@@ -89,7 +93,7 @@ function deferFailure<T>(read: Promise<T>): () => Promise<T> {
 
 export default defineAction({
   description:
-    "Read one access-scoped document by its stable ID, including the full Markdown body and description in MCP structuredContent; the text preview may be shortened. Use list-documents or search-documents first when the ID is unknown.",
+    "Read one access-scoped document by its stable ID, including the full Markdown body and description in MCP structuredContent; the text preview may be shortened. Private images appear in the body as /api/private-media/<id>; privateMediaLinks gives each one a link that opens it without signing in for an hour. Use list-documents or search-documents first when the ID is unknown.",
   deferLoading: false,
   mcpTool: true,
   schema: z.object({
@@ -409,6 +413,13 @@ export default defineAction({
       databaseId: database?.id,
       databaseDocumentId: database?.documentId,
     });
+    // The editor loads images with the sign-in cookie; agents get links.
+    const privateMediaLinks = readsWithoutSessionCookie(ctx)
+      ? await privateMediaAgentLinks({
+          documentId: doc.id,
+          content: doc.content,
+        })
+      : undefined;
 
     track(
       "document_viewed",
@@ -441,11 +452,13 @@ export default defineAction({
         doc.collabBodyRevision === doc.bodyRevision ? revision : null,
       writePath: (await liveBodyWriterGate(doc.id)).writePath,
       contentHash: documentContentHash(doc.content ?? ""),
+      ...(privateMediaLinks ? { privateMediaLinks } : {}),
       description: doc.description,
       icon: doc.icon,
       position: doc.position,
       isFavorite: favoriteIds.has(doc.id),
       hideFromSearch: parseDocumentHideFromSearch(doc.hideFromSearch),
+      agentTextLocked: Boolean(doc.agentTextLocked),
       visibility: doc.visibility,
       source,
       accessRole: access.role,

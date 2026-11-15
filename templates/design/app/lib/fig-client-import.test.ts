@@ -28,6 +28,7 @@ vi.mock("../../shared/fig-to-frames.js", async (importOriginal) => ({
 
 import {
   FigClientImportError,
+  FigImportWorkerError,
   importFigInBrowser,
   MAX_CLIENT_FIG_BYTES,
   MAX_CLIENT_IMAGE_BYTES,
@@ -171,27 +172,19 @@ describe("importFigInBrowser", () => {
     expect(mocks.renderFigImport).not.toHaveBeenCalled();
   });
 
-  it("renders a prepared import's selection and frees it afterwards", async () => {
+  it("renders a prepared import and frees it afterwards", async () => {
     const prepared = await prepareFigImport(file);
     const dispose = vi.spyOn(prepared, "dispose");
-    const selection = new Set(["frame-1"]);
 
-    await importFigInBrowser({
-      designId: "design-1",
-      file,
-      prepared,
-      selection,
-    });
+    await importFigInBrowser({ designId: "design-1", file, prepared });
 
     expect(mocks.decodeFig).toHaveBeenCalledTimes(1);
-    expect(mocks.renderFigImport).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({ selection }),
-    );
+    // oracle-change: imports always take the whole file, so there is no page selection to assert or keep for a retry.
+    expect(mocks.renderFigImport).toHaveBeenCalledOnce();
     expect(dispose).toHaveBeenCalledOnce();
   });
 
-  it("keeps a caller's prepared import for another selection when rendering fails", async () => {
+  it("frees a prepared import when rendering fails", async () => {
     const prepared = await prepareFigImport(file);
     const dispose = vi.spyOn(prepared, "dispose");
     mocks.renderFigImport.mockImplementationOnce(() => {
@@ -202,22 +195,11 @@ describe("importFigInBrowser", () => {
       designId: "design-1",
       file,
       prepared,
-      selection: new Set(["page-1", "page-2"]),
     });
     await expect(failure).rejects.toBeInstanceOf(FigClientImportError);
     await expect(failure).rejects.toMatchObject({
-      preparedReusable: true,
       remoteMutationStarted: false,
     });
-    expect(dispose).not.toHaveBeenCalled();
-
-    await importFigInBrowser({
-      designId: "design-1",
-      file,
-      prepared,
-      selection: new Set(["page-1"]),
-    });
-    expect(mocks.decodeFig).toHaveBeenCalledTimes(1);
     expect(dispose).toHaveBeenCalledOnce();
   });
 
@@ -495,5 +477,89 @@ describe("prepareFigImport in a Worker", () => {
 
     await expect(pending).rejects.toThrow("bad .fig");
     expect(worker.terminate).toHaveBeenCalled();
+  });
+});
+
+describe("prepareFigImport worker failures", () => {
+  class FakeWorker {
+    static reply: "crash" | "decode-error" = "crash";
+    onmessage: ((event: { data: unknown }) => void) | null = null;
+    onerror:
+      | ((event: { message: string; preventDefault: () => void }) => void)
+      | null = null;
+    onmessageerror: (() => void) | null = null;
+    postMessage(request: { id: number }) {
+      queueMicrotask(() => {
+        if (FakeWorker.reply === "crash") {
+          this.onerror?.({ message: "out of memory", preventDefault() {} });
+        } else {
+          this.onmessage?.({
+            data: {
+              id: request.id,
+              ok: false,
+              error: "Invalid Zstandard frame",
+            },
+          });
+        }
+      });
+    }
+    terminate() {}
+  }
+
+  beforeEach(() => vi.stubGlobal("Worker", FakeWorker));
+  afterEach(() => vi.unstubAllGlobals());
+
+  it("marks a crashed worker apart from a file the decoder rejects", async () => {
+    FakeWorker.reply = "crash";
+    await expect(prepareFigImport(file)).rejects.toMatchObject({
+      workerFailed: true,
+      message: "The .fig import worker failed: out of memory.",
+    });
+
+    FakeWorker.reply = "decode-error";
+    const rejected = await prepareFigImport(file).catch((error) => error);
+    expect(rejected).toBeInstanceOf(Error);
+    expect(rejected).not.toHaveProperty("workerFailed");
+  });
+
+  it("marks a worker that cannot be constructed as a crash", async () => {
+    vi.stubGlobal(
+      "Worker",
+      class {
+        constructor() {
+          throw new Error("blocked by CSP");
+        }
+      },
+    );
+
+    await expect(prepareFigImport(file)).rejects.toMatchObject({
+      workerFailed: true,
+      message: "The .fig import worker failed: blocked by CSP.",
+    });
+  });
+
+  it("keeps the crash mark when the worker dies while rendering", async () => {
+    const crash = new FigImportWorkerError("The .fig import worker failed.");
+
+    await expect(
+      importFigInBrowser({
+        designId: "design-1",
+        file,
+        prepared: {
+          file,
+          summary: {
+            pageCount: 1,
+            frameCount: 1,
+            nodeCount: 1,
+            imageCount: 0,
+            pages: [],
+          },
+          render: vi.fn(async () => {
+            throw crash;
+          }),
+          dispose: vi.fn(),
+        },
+      }),
+    ).rejects.toBe(crash);
   });
 });

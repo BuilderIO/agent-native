@@ -12,11 +12,14 @@ import { signInLandingLoader } from "../client/sign-in-landing.js";
 import { decodeContinuation } from "../shared/sign-in-journey.js";
 import { createH3SSRHandler } from "./ssr-handler.js";
 
-function createHandler(homePath?: string) {
-  const loader = homePath
+function createHandler(homePath?: string, authFirst = false) {
+  const loader = authFirst
     ? ({ request }: { request: Request }) =>
-        signInLandingLoader(homePath, request)
-    : signInLandingLoader;
+        signInLandingLoader({ request, authFirst })
+    : homePath
+      ? ({ request }: { request: Request }) =>
+          signInLandingLoader(homePath, request)
+      : signInLandingLoader;
   const build = {
     entry: {
       module: {
@@ -97,6 +100,33 @@ describe("landing redirects through the SSR router", () => {
       expect(response.headers.get("X-Remix-Reload-Document")).toBe("true");
     },
   );
+
+  it("preserves the workspace auth-first continuation through mounted redirects", async () => {
+    vi.stubEnv("VITE_AGENT_NATIVE_WORKSPACE", "1");
+    vi.stubEnv("VITE_APP_BASE_PATH", "/programs");
+    const request = createHandler(undefined, true);
+    const singleFetch = await dataRedirect(
+      await request("/programs.data?filter=unread"),
+    );
+    const document = await request("/programs/?filter=unread");
+    const dataLocation = new URL(
+      singleFetch.redirect,
+      "https://app.example.test",
+    );
+    const documentLocation = new URL(
+      document.headers.get("location")!,
+      "https://app.example.test",
+    );
+    expect(dataLocation.pathname).toBe("/sign-in");
+    expect(documentLocation.pathname).toBe("/programs/sign-in");
+    expect(singleFetch.reload).toBe(true);
+    expect(document.status).toBe(302);
+    for (const location of [dataLocation, documentLocation]) {
+      expect(
+        decodeContinuation(location.searchParams.get("c"), "/programs"),
+      ).toBe("/programs/home?filter=unread");
+    }
+  });
 
   it("preserves separate server sign-in and mounted UI home continuations", async () => {
     vi.stubEnv("VITE_APP_BASE_PATH", "/programs");

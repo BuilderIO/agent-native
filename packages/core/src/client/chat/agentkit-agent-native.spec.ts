@@ -3248,6 +3248,244 @@ describe("createAgentNativeAgentKitTransport", () => {
     }
   });
 
+  it("restores a delegated agent's step after a save and reload", async () => {
+    let threadData = JSON.stringify({
+      messages: [],
+      agentKit: { messages: [] },
+    });
+    const fetcher = vi.fn(
+      async (input: string | URL | Request, init?: RequestInit) => {
+        const url = String(input);
+        if (url.endsWith("/runs/active?threadId=thread-delegate")) {
+          return json({ active: false, status: "idle" });
+        }
+        if (
+          url.endsWith("/threads/thread-delegate") &&
+          init?.method === "PUT"
+        ) {
+          const incoming = JSON.parse(JSON.parse(String(init.body)).threadData);
+          threadData = JSON.stringify(
+            mergeThreadDataForClientSave(JSON.parse(threadData), incoming),
+          );
+          return json({ ok: true });
+        }
+        if (url.endsWith("/threads/thread-delegate")) {
+          return json({
+            id: "thread-delegate",
+            createdAt: "2026-09-26T00:00:00.000Z",
+            updatedAt: "2026-09-26T00:01:00.000Z",
+            threadData,
+          });
+        }
+        return json({ error: "Not found" }, 404);
+      },
+    );
+    const transport = createAgentNativeAgentKitTransport({
+      fetch: fetcher as typeof fetch,
+      adapter: { now: () => "2026-09-26T00:01:00.000Z" },
+    });
+    const event = (sequence: number, rest: object) =>
+      ({
+        id: `delegate-${sequence}`,
+        threadId: "thread-delegate",
+        runId: "run-delegate",
+        sequence,
+        occurredAt: `2026-09-26T00:00:${String(sequence).padStart(2, "0")}.000Z`,
+        ...rest,
+      }) as AgentEvent;
+    const brain = { id: "brain", kind: "agent", label: "brain" };
+    const participant = {
+      id: "call-1",
+      name: "brain",
+      kind: "delegated-agent",
+      activeTaskId: "task-1",
+      origin: brain,
+    };
+    const task = {
+      id: "task-1",
+      title: "brain",
+      kind: "delegated-agent",
+      assignedAgentId: "call-1",
+      source: brain,
+    };
+    const activity = {
+      id: "call-1:activity",
+      kind: "agent",
+      agentId: "call-1",
+      scope: "external" as const,
+      source: brain,
+    };
+
+    await transport.persistThreadSnapshot?.({
+      threadId: "thread-delegate",
+      snapshot: {
+        id: "thread-delegate",
+        createdAt: "2026-09-26T00:00:00.000Z",
+        updatedAt: "2026-09-26T00:01:00.000Z",
+        messages: [],
+        events: [
+          event(1, { type: "run.started" }),
+          event(2, {
+            type: "agent.registered",
+            agent: { ...participant, status: "working" },
+          }),
+          event(3, {
+            type: "agent.interaction",
+            interaction: {
+              id: "call-1:delegated:1",
+              kind: "delegated",
+              agentId: "call-1",
+              scope: "external",
+              source: brain,
+            },
+          }),
+          event(4, {
+            type: "task.created",
+            task: { ...task, status: "running" },
+          }),
+          event(5, {
+            type: "activity.updated",
+            activity: {
+              ...activity,
+              label: "processing",
+              status: "running",
+              detail: "Searching notes",
+              summary: [
+                {
+                  type: "data",
+                  data: { raw: "do not persist the raw A2A snapshot" },
+                  mediaType: "application/x-agent-native-activity",
+                },
+              ],
+            },
+          }),
+          event(6, {
+            type: "activity.completed",
+            activity: {
+              ...activity,
+              label: "finished",
+              status: "completed",
+              detail: "Done · 1 step",
+              summary: [
+                {
+                  type: "text",
+                  text: "- **search-notes** · done",
+                  format: "markdown",
+                },
+                {
+                  type: "data",
+                  data: { raw: "do not persist the raw A2A snapshot" },
+                  mediaType: "application/x-agent-native-activity",
+                },
+              ],
+              metadata: { sequence: 4, durationMs: 1200, private: { a: 1 } },
+            },
+          }),
+          event(7, {
+            type: "agent.updated",
+            agent: {
+              ...participant,
+              status: "completed",
+              metadata: { durationMs: 1200 },
+            },
+          }),
+          event(8, {
+            type: "task.completed",
+            task: {
+              ...task,
+              status: "completed",
+              metadata: { durationMs: 1200 },
+            },
+          }),
+          event(9, {
+            type: "activity.completed",
+            activity: {
+              id: "tool-own",
+              kind: "tool",
+              label: "Search",
+              status: "completed",
+              detail: "The primary agent's own result",
+            },
+          }),
+          event(10, { type: "run.completed" }),
+        ],
+        runs: [
+          {
+            id: "run-delegate",
+            threadId: "thread-delegate",
+            status: "completed",
+            lastSequence: 10,
+            startedAt: "2026-09-26T00:00:01.000Z",
+            completedAt: "2026-09-26T00:00:09.000Z",
+          },
+        ],
+        activeRunIds: [],
+      },
+    });
+
+    const saved = JSON.parse(threadData);
+    expect(
+      saved.agentKit.events.map((entry: AgentEvent) => entry.type),
+    ).toEqual([
+      "run.started",
+      "agent.registered",
+      "agent.interaction",
+      "task.created",
+      "activity.updated",
+      "activity.completed",
+      "agent.updated",
+      "task.completed",
+      "activity.completed",
+      "run.completed",
+    ]);
+    expect(JSON.stringify(saved.agentKit)).not.toContain(
+      "do not persist the raw A2A snapshot",
+    );
+    expect(saved.agentKit.events[8].activity.detail).toBeUndefined();
+
+    const client = new AgentKitClient({ transport });
+    try {
+      const thread = await client.loadThread("thread-delegate");
+      expect(thread.agents["call-1"]).toEqual({
+        ...participant,
+        status: "completed",
+        metadata: { durationMs: 1200 },
+      });
+      expect(thread.agentInteractions).toEqual([
+        {
+          id: "call-1:delegated:1",
+          kind: "delegated",
+          agentId: "call-1",
+          scope: "external",
+          source: brain,
+        },
+      ]);
+      expect(thread.activities["call-1:activity"]).toEqual({
+        ...activity,
+        label: "finished",
+        status: "completed",
+        detail: "Done · 1 step",
+        summary: [
+          {
+            type: "text",
+            text: "- **search-notes** · done",
+            format: "markdown",
+          },
+        ],
+        metadata: { sequence: 4, durationMs: 1200 },
+        completedAt: "2026-09-26T00:00:10.000Z",
+      });
+      expect(thread.tasks["task-1"]).toEqual({
+        ...task,
+        status: "completed",
+        metadata: { durationMs: 1200 },
+        completedAt: "2026-09-26T00:00:10.000Z",
+      });
+    } finally {
+      await client.dispose();
+    }
+  });
+
   it("persists compact completed activity history without replacing messages", async () => {
     const repository = {
       queuedMessages: [{ id: "queued-after-snapshot-read", text: "Later" }],
