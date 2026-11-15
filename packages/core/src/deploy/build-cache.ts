@@ -124,7 +124,36 @@ const VOLATILE_ENV_NAMES = new Set([
   "TERM_PROGRAM",
   "TERM_PROGRAM_VERSION",
   "TERM_SESSION_ID",
-  "__CF_USER_TEXT_ENCODING",
+  // Login-shell and terminal state. Homebrew's shellenv rewrites the doc search
+  // paths per shell, so two launchers of one loop alternate them.
+  "MANPATH",
+  "INFOPATH",
+  "PAGER",
+  "MANPAGER",
+  "GIT_PAGER",
+  "LESS",
+  "LESSOPEN",
+  "LESSCLOSE",
+  "LESSHISTFILE",
+  "LESSKEY",
+  "HISTFILE",
+  "HISTSIZE",
+  "HISTCONTROL",
+  "TMUX",
+  "TMUX_PANE",
+  "STY",
+  "WINDOWID",
+  // Session-scoped. XDG_CONFIG_*, XDG_DATA_* and XDG_CACHE_HOME stay keyed:
+  // they choose the config and data files that git and pnpm read.
+  "XDG_RUNTIME_DIR",
+  "XDG_SESSION_ID",
+  "XDG_SESSION_TYPE",
+  "XDG_SESSION_CLASS",
+  "XDG_SEAT",
+  "XDG_VTNR",
+  "OSLogRateLimit",
+  "LaunchInstanceID",
+  "Apple_PubSub_Socket_Render",
   "AGENT_NATIVE_DEPLOY_CONCURRENCY",
 ]);
 // Lowercase, compared case-insensitively.
@@ -136,6 +165,7 @@ const VOLATILE_ENV_PREFIXES = [
   "lc_",
   "vscode_",
   "claude",
+  "__cf",
   // GitHub Actions values that change every run or step. No build reads the commit
   // through GITHUB_SHA: a build that embeds one uses AGENT_NATIVE_BUILD_ID, which
   // is keyed or replaced by a content id (see usesContentBuildId). GITHUB_REPOSITORY, GITHUB_REF and GITHUB_CLIENT_* stay too.
@@ -315,10 +345,19 @@ function hashAppSource(workspaceRoot: string, appDirInput: string): string {
   return hash.digest("hex");
 }
 
+/**
+ * Markdown at the workspace root is documentation for people and coding
+ * agents. A build reads workspace instructions from the workspace-core package
+ * dir (deploy/workspace-core.ts), never the root, so a docs-only commit must
+ * not rebuild every app.
+ */
+const ROOT_DOCS = /\.mdx?$/i;
+
 /** Files at the workspace root (lockfile, workspace config, root `.env*`). */
 function hashWorkspaceRootFiles(workspaceRoot: string): string {
   const hash = crypto.createHash("sha256");
   for (const file of gitListFiles(workspaceRoot, [":(glob)*"])) {
+    if (ROOT_DOCS.test(file)) continue;
     hashFileEntry(hash, file, path.join(workspaceRoot, file));
   }
   for (const name of listEnvFiles(workspaceRoot)) {

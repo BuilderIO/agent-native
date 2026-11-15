@@ -379,6 +379,47 @@ describe("workspace deploy build cache", () => {
 
     expect(builds).toEqual([]);
   });
+
+  it("keeps root docs out of the key but rebuilds every app for other root files", async () => {
+    write(path.join(root, "AGENTS.md"), "v1");
+    await deploy();
+    builds = [];
+    write(path.join(root, "AGENTS.md"), "v2");
+    write(path.join(root, "docs.mdx"), "new");
+
+    await deploy();
+
+    expect(builds).toEqual([]);
+
+    write(path.join(root, "settings.md.json"), "{}");
+
+    await deploy();
+
+    expect(builds.sort()).toEqual(APPS);
+    builds = [];
+    write(path.join(root, "pnpm-lock.yaml"), "lockfileVersion: '9.1'\n");
+
+    await deploy();
+
+    expect(builds.sort()).toEqual(APPS);
+    expect(
+      logs.some((l) => l.includes("cache MISS alpha") && l.includes("root")),
+    ).toBe(true);
+  });
+
+  it("hits when only the launching shell's session variables change", async () => {
+    vi.stubEnv("MANPATH", "/opt/homebrew/share/man:");
+    vi.stubEnv("XDG_RUNTIME_DIR", "/run/user/1");
+    await deploy();
+    builds = [];
+    vi.stubEnv("MANPATH", ":/opt/homebrew/share/man");
+    vi.stubEnv("XDG_RUNTIME_DIR", "/run/user/2");
+    vi.stubEnv("__CFBundleIdentifier", "com.example.terminal");
+
+    await deploy();
+
+    expect(builds).toEqual([]);
+  });
 });
 
 describe("content build ids across workspace commits", () => {
@@ -719,6 +760,72 @@ describe("build cache input and output integrity", () => {
     expect(
       hashBuildEnv({ ...env, NODE_PATH: "/modules/one" }, ignored),
     ).not.toBe(baseline);
+    const shell = {
+      ...env,
+      MANPATH: "/one",
+      INFOPATH: "/one",
+      LESS: "-R",
+      SHLVL: "1",
+      OLDPWD: "/one",
+      TMUX_PANE: "%1",
+      XDG_SESSION_ID: "1",
+      __CFBundleIdentifier: "com.example.one",
+      __CF_USER_TEXT_ENCODING: "0x1F5:0:0",
+    };
+    expect(
+      hashBuildEnv(
+        {
+          ...shell,
+          MANPATH: "/two",
+          INFOPATH: "/two",
+          LESS: "-FRX",
+          SHLVL: "3",
+          OLDPWD: "/two",
+          TMUX_PANE: "%2",
+          XDG_SESSION_ID: "2",
+          __CFBundleIdentifier: "com.example.two",
+          __CF_USER_TEXT_ENCODING: "0x1F5:0x8000100:0",
+        },
+        ignored,
+      ),
+    ).toBe(hashBuildEnv(shell, ignored));
+    for (const name of [
+      "MANPATH",
+      "INFOPATH",
+      "PAGER",
+      "MANPAGER",
+      "GIT_PAGER",
+      "LESS",
+      "LESSOPEN",
+      "LESSCLOSE",
+      "LESSHISTFILE",
+      "LESSKEY",
+      "HISTFILE",
+      "HISTSIZE",
+      "HISTCONTROL",
+      "TMUX",
+      "TMUX_PANE",
+      "STY",
+      "WINDOWID",
+      "XDG_RUNTIME_DIR",
+      "XDG_SESSION_ID",
+      "XDG_SESSION_TYPE",
+      "XDG_SESSION_CLASS",
+      "XDG_SEAT",
+      "XDG_VTNR",
+      "OSLogRateLimit",
+      "LaunchInstanceID",
+      "Apple_PubSub_Socket_Render",
+    ]) {
+      expect(hashBuildEnv({ ...env, [name]: "session" }, ignored)).toBe(
+        baseline,
+      );
+    }
+    for (const config of ["XDG_CONFIG_HOME", "XDG_DATA_HOME", "LESSON_PLAN"]) {
+      expect(hashBuildEnv({ ...env, [config]: "/two" }, ignored)).not.toBe(
+        baseline,
+      );
+    }
     for (const stable of ["GITHUB_REPOSITORY", "GITHUB_REF"]) {
       expect(hashBuildEnv({ ...ci, [stable]: "two" }, ignored)).not.toBe(
         hashBuildEnv({ ...ci, [stable]: "one" }, ignored),
