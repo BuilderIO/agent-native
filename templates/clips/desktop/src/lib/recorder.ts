@@ -3357,7 +3357,7 @@ async function tryStartRewindFullscreenRecording(
       async beforeActivate() {
         await audioCue.playBeforeCapture(params.signal);
       },
-      async activate(preparedRecording) {
+      async activate(preparedRecording, captureLive) {
         throwIfRecordingStartAborted(params.signal);
         const activationStarted = performance.now();
         params.onCaptureStartAttempted?.(
@@ -3371,6 +3371,9 @@ async function tryStartRewindFullscreenRecording(
         } else {
           params.onCaptureStartRequested?.(preparedRecording.id || null);
         }
+        // Capture is live: take Preparing down now, not after the timeline
+        // reset below.
+        captureLive();
         console.log(
           `[rewind-latency] countdown completion to start acknowledgement ${Math.round(performance.now() - activationStarted)}ms`,
         );

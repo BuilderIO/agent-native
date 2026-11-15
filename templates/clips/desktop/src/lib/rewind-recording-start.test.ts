@@ -186,4 +186,32 @@ describe("prepareRewindRecordingStart", () => {
       vi.useRealTimers();
     }
   });
+
+  it("hides Preparing when activate reports capture live, before activate returns", async () => {
+    vi.useFakeTimers();
+    try {
+      const followUp = deferred();
+      const hide = vi.fn(async () => {});
+      const startPromise = prepareRewindRecordingStart({
+        prepare: async () => "prepared",
+        countdown: async () => {},
+        cancelCountdown() {},
+        activate: async (_prepared, captureLive) => {
+          await new Promise((resolve) => setTimeout(resolve, 2_000));
+          captureLive();
+          await followUp.promise;
+          return "started";
+        },
+        preparing: { show: async () => {}, hide },
+      });
+
+      await vi.advanceTimersByTimeAsync(2_000);
+      expect(hide).toHaveBeenCalledTimes(1);
+      followUp.resolve();
+      await expect(startPromise).resolves.toBe("started");
+      expect(hide).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

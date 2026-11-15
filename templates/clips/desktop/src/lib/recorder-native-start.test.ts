@@ -1670,6 +1670,42 @@ describe("Preparing after the countdown", () => {
     ).toBe(false);
   });
 
+  it("hides Rewind Preparing once capture is live, without waiting for a slow timeline reset", async () => {
+    nativeCommands.set("rewind_clip_status", async () => ({
+      compatibility: "compatible",
+      active: false,
+    }));
+    const rewindStart = deferred<void>();
+    nativeCommands.set("rewind_clip_start", () => rewindStart.promise);
+    const reset = deferred<void>();
+    const transcript = capture();
+    transcript.resetTimeline = vi.fn(() => reset.promise);
+    mocks.transcribe.mockResolvedValue(transcript);
+    const onCaptureStartRequested = vi.fn();
+    const pending = startRecording({
+      ...params,
+      source: "full-screen",
+      onCaptureStartRequested,
+    });
+    await vi.advanceTimersByTimeAsync(
+      3_600 + PREPARING_AFTER_COUNTDOWN_DELAY_MS,
+    );
+    expect(calls("rewind_clip_start")).toHaveLength(1);
+    expect(calls("show_preparing")).toHaveLength(1);
+
+    rewindStart.resolve();
+    await flush();
+    expect(onCaptureStartRequested).toHaveBeenCalled();
+    expect(transcript.resetTimeline).toHaveBeenCalledOnce();
+    // Capture is live while the reset is still pending: Preparing is down.
+    expect(calls("hide_preparing")).toHaveLength(1);
+
+    reset.resolve();
+    const handle = await pending;
+    expect(calls("hide_preparing")).toHaveLength(1);
+    await handle.cancel();
+  });
+
   it("hides Preparing when the server create fails after it was shown", async () => {
     const create = deferred<Response>();
     fetchMock.mockImplementationOnce(() => create.promise);

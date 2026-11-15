@@ -8,7 +8,9 @@ export interface RewindRecordingStartPhases<TPrepared, TStarted> {
   countdown(): Promise<void>;
   cancelCountdown(): void;
   beforeActivate?(): Promise<void>;
-  activate(prepared: TPrepared): Promise<TStarted>;
+  /** Calls captureLive() as soon as capture is live, before any follow-up
+   * work, so Preparing comes down without waiting for activate() to return. */
+  activate(prepared: TPrepared, captureLive: () => void): Promise<TStarted>;
   /** Shown while capture is not live yet after the countdown ended
    * (preparation, start cue or activation still running). */
   preparing?: PreparingOverlay;
@@ -41,7 +43,9 @@ export async function prepareRewindRecordingStart<TPrepared, TStarted>(
   }
   try {
     await phases.beforeActivate?.();
-    return await phases.activate(prepared);
+    return await phases.activate(prepared, () => {
+      void preparing?.done();
+    });
   } finally {
     // Never delays reporting the started capture: done() logs and retries a
     // failed hide itself.
