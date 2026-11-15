@@ -166,6 +166,8 @@ A Clip's comments show in the margin. `clip-comments.test.ts` covers margin thre
 
 A thread can quote text across Blocks. Its stored quote and anchor context join each Block's text with nothing between, as every anchor does, so the editor, reload, and the server's anchor following all read it the same way; the Comments margin and panel show a space where the highlight crosses a Block. `BubbleToolbar.test.tsx` covers quoting such a selection and `CommentsSidebar.layout.test.ts` covers how its quote reads. Outside the open Page, as in a Collection's Comments or over MCP, the quote reads joined.
 
+A text thread whose quoted text was deleted doesn't move onto the same words elsewhere on the Page. A copy counts as the thread's own only while at least 12 characters of the text the thread kept beside its quote, both sides together, still sit beside it (all of that text, where the thread kept less, as on a short Page); otherwise the thread reads "Highlight unavailable" with its quote. A copy that keeps the text around it, such as the paragraph moved elsewhere, takes the thread back, as does undo; a whole-Block quote that moves takes new text on both sides, so it doesn't. Saving the Page leaves such a thread's stored anchor as it was, rather than moving it onto the copy that remains. `comment-anchors.spec.ts` covers the editor; `comment-reanchor.test.ts` covers the anchor following on save.
+
 ## Proof plan
 
 1. Create, reply, mention, resolve, reopen, edit, and delete Comments through UI and Actions.

@@ -1,4 +1,7 @@
-import { COMMENT_QUOTE_CONTEXT_LENGTH as CONTEXT_LEN } from "@shared/comment-quote-anchor";
+import {
+  COMMENT_QUOTE_CONTEXT_LENGTH as CONTEXT_LEN,
+  keepsQuoteContext,
+} from "@shared/comment-quote-anchor";
 import type { Node as ProseMirrorNode } from "@tiptap/pm/model";
 
 export interface CommentTextAnchor {
@@ -236,30 +239,33 @@ export function resolveAnchor(
     if (occurrences.length > 500) break;
   }
 
-  let chosen = hay.indexOf(quote);
-  if (occurrences.length > 1) {
-    const prefix = anchor.prefix ?? "";
-    const suffix = anchor.suffix ?? "";
-    const target =
-      typeof anchor.startOffset === "number" ? anchor.startOffset : null;
-    let bestScore = -Infinity;
-    for (const start of occurrences) {
-      const before = hay.slice(Math.max(0, start - CONTEXT_LEN), start);
-      const after = hay.slice(
-        start + quote.length,
-        start + quote.length + CONTEXT_LEN,
-      );
-      let score =
-        commonSuffixLen(before, prefix) + commonPrefixLen(after, suffix);
-      if (target != null) {
-        score -= Math.min(CONTEXT_LEN, Math.abs(start - target) / 8);
-      }
-      if (score > bestScore) {
-        bestScore = score;
-        chosen = start;
-      }
+  const prefix = anchor.prefix ?? "";
+  const suffix = anchor.suffix ?? "";
+  const target =
+    typeof anchor.startOffset === "number" ? anchor.startOffset : null;
+  let chosen: number | null = null;
+  let bestScore = -Infinity;
+  for (const start of occurrences) {
+    const before = hay.slice(Math.max(0, start - CONTEXT_LEN), start);
+    const after = hay.slice(
+      start + quote.length,
+      start + quote.length + CONTEXT_LEN,
+    );
+    const matched = {
+      prefix: commonSuffixLen(before, prefix),
+      suffix: commonPrefixLen(after, suffix),
+    };
+    if (!keepsQuoteContext(anchor, matched)) continue;
+    let score = matched.prefix + matched.suffix;
+    if (target != null) {
+      score -= Math.min(CONTEXT_LEN, Math.abs(start - target) / 8);
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      chosen = start;
     }
   }
+  if (chosen == null) return null;
 
   const from = offsetToPos(docText, chosen, "start");
   const to = offsetToPos(docText, chosen + quote.length);

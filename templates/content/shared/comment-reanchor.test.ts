@@ -303,6 +303,14 @@ describe("commentQuoteFollower", () => {
     });
   });
 
+  it("leaves a quote whose own copy is gone off the copy that remains", () => {
+    // An earlier commit deleted "Move the plan there.", leaving the anchor.
+    const previous = "Keep the plan here. Nothing else.";
+    expect(
+      commentQuoteFollower(previous, `Intro. ${previous}`)(second),
+    ).toEqual({ kind: "left" });
+  });
+
   it("leaves a page that didn't change alone", () => {
     expect(commentQuoteFollower(text, text)(second)).toEqual({
       kind: "unchanged",

@@ -135,6 +135,37 @@ describe("comment-anchors", () => {
     expect(resolveAnchor(doc, { quotedText: null })).toBeNull();
   });
 
+  describe("a quote whose own text was deleted", () => {
+    const plan = "Launch plan: ship the beta to testers on Friday.";
+    const notes = "Notes: the beta needs a new icon.";
+    const original = mkDoc([plan, notes]);
+    const from = 1 + plan.indexOf("the beta");
+    const anchor = captureAnchor(original, from, from + "the beta".length);
+
+    it("stays without a highlight when the same words remain elsewhere", () => {
+      expect(resolveAnchor(original, anchor)).toEqual({
+        from,
+        to: from + "the beta".length,
+      });
+      expect(resolveAnchor(mkDoc([notes]), anchor)).toBeNull();
+    });
+
+    it("re-attaches where the text around it still matches", () => {
+      // The paragraph moved below the notes paragraph.
+      const moved = notes.length + 2 + from;
+      expect(resolveAnchor(mkDoc([notes, plan]), anchor)).toEqual({
+        from: moved,
+        to: moved + "the beta".length,
+      });
+      // Words typed just after the quote leave the text before it.
+      const typed = mkDoc([plan.replace("beta to", "beta build to"), notes]);
+      expect(resolveAnchor(typed, anchor)).toEqual({
+        from,
+        to: from + "the beta".length,
+      });
+    });
+  });
+
   it("resolves a deleted draft at its ordered context boundary", () => {
     const doc = mkDoc(["Alpha  Gamma"]);
     expect(
