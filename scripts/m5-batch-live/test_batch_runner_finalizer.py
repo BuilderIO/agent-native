@@ -81,7 +81,15 @@ class RunnerFinalizerTest(unittest.TestCase):
             evidence_dir=self.evidence, check_commands=[["true"]], build_command=["true"], final_commands=[["true"]],
             collect_mode=True, base_sha=self.base, landing_evidence_module=self.dir / "landing.py")
 
+    def change_lockfile(self):
+        path = self.repo / "pnpm-lock.yaml"
+        path.write_text(path.read_text() + "# changed\n")
+        git(self.repo, "add", "pnpm-lock.yaml")
+        git(self.repo, "commit", "-q", "-m", "change lockfile for finalizer test")
+        self.collected = git(self.repo, "rev-parse", "HEAD")
+
     def test_cold_store_is_a_named_store_miss_not_a_silent_revert(self):
+        self.change_lockfile()
         stock_store(self.store, self.keys[1:])
         with self.assertRaises(NotStarted) as caught:
             self.make_runner().finalize()
@@ -96,8 +104,19 @@ class RunnerFinalizerTest(unittest.TestCase):
         self.assertFalse((self.calls).exists())
         self.assertFalse(list(self.evidence.glob("a-1-isolate-*.log")))
 
-    def test_warm_store_installs_offline_frozen_with_ci_and_a_short_tmpdir(self):
+    def test_unchanged_lockfile_skips_install_and_records_the_reason(self):
         stock_store(self.store, self.keys)
+        self.make_runner().finalize()
+        manifest = json.loads((self.evidence / "batch.json").read_text())
+        install = next(check for check in manifest["checks"] if check["command"][0:2] == ["pnpm", "install"])
+        self.assertTrue(install["skipped"])
+        self.assertEqual(install["skip_reason"], "pnpm-lock.yaml unchanged against base")
+        self.assertIn("skipped: pnpm-lock.yaml unchanged against base", Path(install["log_path"]).read_text())
+        self.assertFalse(self.calls.exists())
+
+    def test_changed_lockfile_installs_offline_frozen_with_ci_and_a_short_tmpdir(self):
+        stock_store(self.store, self.keys)
+        self.change_lockfile()
         self.make_runner().finalize()
         recorded = self.calls.read_text().splitlines()
         self.assertEqual(len(recorded), 1)

@@ -138,6 +138,16 @@ class BatchRunner:
         source_tree = self.git("rev-parse", "HEAD^{tree}").stdout.strip()
         reason = None
         try:
+            lockfile = self.repo / "pnpm-lock.yaml"
+            base_lockfile = self.git("cat-file", "-e", self.expected_base + ":pnpm-lock.yaml", ok=(0, 1)) if self.expected_base else None
+            if (batch_finalizer_env.is_pnpm_install(command) and base_lockfile and base_lockfile.returncode == 0
+                    and lockfile.is_file()):
+                unchanged = self.git("diff", "--quiet", self.expected_base, "HEAD", "--", "pnpm-lock.yaml", ok=(0, 1))
+                if unchanged.returncode == 0:
+                    skip_reason = "pnpm-lock.yaml unchanged against base"
+                    log.write_text("skipped: " + skip_reason + "\n")
+                    return {"command": command, "exit_code": 0, "log_path": str(log), "source_tree": source_tree,
+                            "started_at": start, "finished_at": time.time(), "skipped": True, "skip_reason": skip_reason}
             if env is None:
                 env = batch_finalizer_env.finalizer_env(os.environ, self.repo, self.batch_id[-6:])
             if batch_finalizer_env.is_pnpm_install(command):
