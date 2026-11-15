@@ -1,6 +1,5 @@
 // @vitest-environment happy-dom
 
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { toast } from "sonner";
@@ -64,8 +63,7 @@ vi.mock("@agent-native/core/client/org", () => ({
   },
 }));
 
-vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
+vi.mock("@agent-native/core/client/hooks", () => ({
   useActionQuery: mocks.useActionQuery,
   useAvatarUrl: mocks.useAvatarUrl,
   useDemoModeStatus: mocks.useDemoModeStatus,
@@ -112,10 +110,8 @@ const ownerOrg = {
 describe("OrgSwitcher (account menu)", () => {
   let container: HTMLDivElement;
   let root: Root;
-  let queryClient: QueryClient;
 
   beforeEach(() => {
-    queryClient = new QueryClient();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     mocks.useOrg.mockReset();
     mocks.useSession.mockReset();
@@ -138,12 +134,7 @@ describe("OrgSwitcher (account menu)", () => {
       mutation.onPersisted = undefined;
     }
     mocks.useSession.mockReturnValue({
-      session: {
-        email: "owner@example.com",
-        name: "Session Name",
-        orgId: "org-1",
-      },
-      status: "authenticated",
+      session: { email: "owner@example.com", name: "Session Name" },
       isLoading: false,
     });
     mocks.useActionQuery.mockReturnValue({
@@ -169,9 +160,7 @@ describe("OrgSwitcher (account menu)", () => {
 
   function render(ui: React.ReactElement) {
     act(() => {
-      root.render(
-        <QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>,
-      );
+      root.render(ui);
     });
   }
 

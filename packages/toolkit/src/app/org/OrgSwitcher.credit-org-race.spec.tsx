@@ -8,14 +8,16 @@ import { afterEach, expect, it, vi } from "vitest";
 const server = vi.hoisted(() => ({
   activeOrg: "org-a" as string | null,
   permissionChecks: [] as (string | null)[],
+  creditReads: [] as (string | null)[],
 }));
 
 vi.mock("../../../../core/src/server/request-context.js", () => ({
   getRequestOrgId: () => server.activeOrg,
 }));
 vi.mock("../../../../core/src/server/fusion-app.js", () => ({
-  getBuilderCreditUsage: async () =>
-    server.activeOrg === "org-b"
+  getBuilderCreditUsage: async () => {
+    server.creditReads.push(server.activeOrg);
+    return server.activeOrg === "org-b"
       ? {
           plan: "free",
           balance: 0,
@@ -25,7 +27,8 @@ vi.mock("../../../../core/src/server/fusion-app.js", () => ({
           plan: "paid",
           balance: 90,
           quota: { period: "monthly", limit: 100, used: 10, remaining: 90 },
-        },
+        };
+  },
 }));
 vi.mock("../../../../core/src/usage/metrics-store.js", () => ({
   canViewWorkspaceUsage: async ({ orgId }: { orgId: string | null }) => {
@@ -74,11 +77,13 @@ it.each([
   { from: null, to: "org-b" },
   { from: "org-a", to: null },
 ])(
-  "reports a scope conflict from $from to $to until the org is refreshed",
+  "reports a scope conflict from $from to $to until a manual org refresh",
   async ({ from, to }) => {
     server.activeOrg = from;
     server.permissionChecks = [];
+    server.creditReads = [];
     const statuses: number[] = [];
+    const errorCodes: (string | undefined)[] = [];
     const requestedOrgs: (string | null)[] = [];
     let orgReads = 0;
     let sessionReads = 0;
@@ -130,6 +135,7 @@ it.each([
             };
             const status = e.statusCode ?? 500;
             statuses.push(status);
+            errorCodes.push(e.errorCode);
             return json(
               status < 500
                 ? { error: e.message, errorCode: e.errorCode }
@@ -160,6 +166,7 @@ it.each([
       });
       expect(requestedOrgs).toEqual([from ?? ""]);
       expect(server.permissionChecks).toEqual([from]);
+      expect(server.creditReads).toEqual([from]);
       const oldOrgReads = orgReads;
       const oldSessionReads = sessionReads;
       server.activeOrg = to;
@@ -185,6 +192,8 @@ it.each([
         ])?.status,
       ).toBe("error");
       expect(server.permissionChecks).toEqual([from]);
+      expect(server.creditReads).toEqual([from]);
+      expect(errorCodes).toEqual(["builder_credit_org_mismatch"]);
 
       await act(async () => {
         await client.invalidateQueries({ queryKey: ["org-me"] });
@@ -199,7 +208,9 @@ it.each([
         ).toBe(to);
       });
       expect(requestedOrgs).toEqual([from ?? "", from ?? "", to ?? ""]);
+      expect(orgReads).toBe(oldOrgReads + 1);
       expect(server.permissionChecks).toEqual([from, to]);
+      expect(server.creditReads).toEqual([from, to]);
       await vi.waitFor(async () => {
         await act(async () => {
           await new Promise((resolve) => setTimeout(resolve, 0));

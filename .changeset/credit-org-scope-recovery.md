@@ -3,4 +3,4 @@
 "@agent-native/toolkit": patch
 ---
 
-Report a typed conflict when the active organization changes during a Builder credit check, and preserve explicit personal scope over GET.
+Return a typed 409 instead of a 500 when the organization changes during a Builder credit check, and send explicit personal scope from the shared notice.
