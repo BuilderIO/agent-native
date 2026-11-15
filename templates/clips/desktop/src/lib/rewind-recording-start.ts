@@ -43,6 +43,8 @@ export async function prepareRewindRecordingStart<TPrepared, TStarted>(
     await phases.beforeActivate?.();
     return await phases.activate(prepared);
   } finally {
-    await preparing?.done();
+    // Never delays reporting the started capture: done() logs and retries a
+    // failed hide itself.
+    void preparing?.done();
   }
 }

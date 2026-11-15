@@ -162,4 +162,28 @@ describe("prepareRewindRecordingStart", () => {
       vi.useRealTimers();
     }
   });
+
+  it("returns the started capture without waiting for Preparing to close", async () => {
+    vi.useFakeTimers();
+    try {
+      const activateGate = deferred<string>();
+      const hideGate = deferred();
+      const hide = vi.fn(() => hideGate.promise);
+      const startPromise = prepareRewindRecordingStart({
+        prepare: async () => "prepared",
+        countdown: async () => {},
+        cancelCountdown() {},
+        activate: () => activateGate.promise,
+        preparing: { show: async () => {}, hide },
+      });
+
+      await vi.advanceTimersByTimeAsync(PREPARING_AFTER_COUNTDOWN_DELAY_MS);
+      activateGate.resolve("started");
+      await expect(startPromise).resolves.toBe("started");
+      expect(hide).toHaveBeenCalledTimes(1);
+      hideGate.resolve();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

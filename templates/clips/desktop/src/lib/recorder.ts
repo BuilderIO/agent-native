@@ -4005,10 +4005,17 @@ async function startNativeFullscreenRecording(
       });
       await guardRecordingStart(beginPromise, { signal: params.signal });
       assertStartupActive();
+      // Report capture as started in the same tick begin succeeds: a stop that
+      // lands while Preparing is still closing must keep the take, not be
+      // treated as a startup cancellation.
+      params.onCaptureStartRequested?.(
+        localOnly ? null : id || null,
+        id || null,
+      );
     } finally {
-      await preparing.done();
+      // Never blocks the start: done() logs and retries a failed hide itself.
+      void preparing.done();
     }
-    params.onCaptureStartRequested?.(localOnly ? null : id || null, id || null);
     console.log(
       `[clips-recorder] native begin durationMs=${Date.now() - beginStartedAt} clickToLiveMs=${Date.now() - clickStartedAt}`,
     );

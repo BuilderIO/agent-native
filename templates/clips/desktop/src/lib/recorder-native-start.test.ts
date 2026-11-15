@@ -1584,6 +1584,51 @@ describe("Preparing after the countdown", () => {
     expect(mocks.emit).not.toHaveBeenCalledWith("clips:toolbar-enabled", true);
   });
 
+  it("keeps the take when Stop lands right after native begin while Preparing is still closing", async () => {
+    const warm = deferred<void>();
+    const hide = deferred<void>();
+    nativeCommands.set("native_fullscreen_recording_warm", () => warm.promise);
+    nativeCommands.set("hide_preparing", () => hide.promise);
+    const controller = new AbortController();
+    const onCaptureStartRequested = vi.fn();
+    const pending = startRecording({
+      ...params,
+      lookbackEnabled: true,
+      signal: controller.signal,
+      onCaptureStartRequested,
+    });
+    const settled = pending.then(
+      () => "started",
+      (err: unknown) => err,
+    );
+    await vi.advanceTimersByTimeAsync(
+      3_600 + PREPARING_AFTER_COUNTDOWN_DELAY_MS,
+    );
+    expect(calls("show_preparing")).toHaveLength(1);
+
+    warm.resolve();
+    await flush();
+    const id = createdRecordingId();
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(1);
+    expect(calls("hide_preparing")).toHaveLength(1);
+    // Capture is reported live without waiting for the overlay to close.
+    expect(onCaptureStartRequested).toHaveBeenCalledWith(id, id);
+
+    // Stop in that window: the take is kept, not discarded as a cancelled start.
+    controller.abort();
+    await settled;
+    hide.resolve();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(getRewindClipOrigin(id)).not.toBeNull();
+    expect(
+      fetchMock.mock.calls.some(
+        ([url, init]) =>
+          String(url).includes(`/api/uploads/${id}/abort`) &&
+          String(init?.body ?? "").includes("user_cancelled"),
+      ),
+    ).toBe(false);
+  });
+
   it("hides Preparing when the server create fails after it was shown", async () => {
     const create = deferred<Response>();
     fetchMock.mockImplementationOnce(() => create.promise);
