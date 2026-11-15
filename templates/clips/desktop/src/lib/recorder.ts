@@ -3218,6 +3218,12 @@ function preparingOverlay(): PreparingOverlay {
   return {
     show: () => invoke("show_preparing"),
     hide: () => invoke("hide_preparing"),
+    onShowFailed: () => {
+      void submitNativeNotification({
+        title: "Recording is not live yet",
+        body: "The Preparing screen could not be shown. Clips is still setting up; recording starts in a moment.",
+      }).catch(() => {});
+    },
     onHideFailed: () => {
       void submitNativeNotification({
         title: "Clips is recording",
@@ -3451,6 +3457,8 @@ async function tryStartRewindFullscreenRecording(
 
   let stopped = false;
   let stopPromise: Promise<RecorderStopResult> | null = null;
+  // Set once the Rewind stop command has been sent (see stop()).
+  let stopDispatched = false;
   let cancelPromise: Promise<void> | null = null;
   let discardPromise: Promise<RestartHandoff> | null = null;
   let stateUnlistens: UnlistenFn[] = [];
@@ -3542,7 +3550,6 @@ async function tryStartRewindFullscreenRecording(
       if (stopped) return { recordingId: id, viewUrl: `/r/${id}` };
       stopPromise = (async () => {
         stopped = true;
-        cleanupUi();
         if (!localOnly) showFinalizingFeedback();
         try {
           if (localOnly) {
@@ -3556,6 +3563,8 @@ async function tryStartRewindFullscreenRecording(
               },
               captureGeneration,
             );
+            stopDispatched = true;
+            cleanupUi();
             savePromise.catch(() => {});
             await invoke("hide_recording_chrome").catch(() => {});
             if (wantsCamera) await invoke("close_bubble").catch(() => {});
@@ -3585,6 +3594,8 @@ async function tryStartRewindFullscreenRecording(
             },
             captureGeneration,
           );
+          stopDispatched = true;
+          cleanupUi();
           console.log(
             `[rewind-latency] stop command dispatched in ${Math.round(performance.now() - stopStarted)}ms`,
           );
@@ -3654,6 +3665,15 @@ async function tryStartRewindFullscreenRecording(
           await clearRecordingState();
         }
       })();
+      // A stop that failed before its Rewind command was sent left capture
+      // running: let a later stop() try again instead of replaying the error.
+      const attempt = stopPromise;
+      attempt.catch(() => {
+        if (!stopDispatched && stopPromise === attempt) {
+          stopPromise = null;
+          stopped = false;
+        }
+      });
       return stopPromise;
     },
     async cancel() {
@@ -4311,32 +4331,40 @@ async function startNativeFullscreenRecording(
             ),
           );
         }
-        clearSegmentRotator();
-        pauseQueue?.dispose();
-        if (tickHandle) {
-          clearInterval(tickHandle);
-          tickHandle = null;
-        }
-        stateUnlistens.forEach((u) => u());
-        stateUnlistens = [];
-        if (pausedAt != null) {
-          accumulatedPauseMs += Date.now() - pausedAt;
-          pausedAt = null;
-        }
+        // The live-session machinery (timer, segment rotator, pause queue,
+        // state listeners) is torn down only once the stop command is sent:
+        // a stop that fails before that leaves capture running, and a retry
+        // needs it intact.
+        const teardownLiveSession = () => {
+          clearSegmentRotator();
+          pauseQueue?.dispose();
+          if (tickHandle) {
+            clearInterval(tickHandle);
+            tickHandle = null;
+          }
+          stateUnlistens.forEach((u) => u());
+          stateUnlistens = [];
+          if (pausedAt != null) {
+            accumulatedPauseMs += Date.now() - pausedAt;
+            pausedAt = null;
+          }
+        };
 
         if (localOnly) {
           const durationMs = Math.max(0, Date.now() - startedAt);
           try {
+            const savePromise = dispatchNativeStop<NativeFullscreenSaveResult>(
+              "native_fullscreen_recording_stop_and_save",
+              {
+                folderName: localFolderName,
+                fileRole:
+                  localRecordingMode === "composed" ? "composed" : "desktop",
+              },
+              captureGeneration,
+            );
+            teardownLiveSession();
             const [nativeResult, cameraFiles] = await Promise.all([
-              dispatchNativeStop<NativeFullscreenSaveResult>(
-                "native_fullscreen_recording_stop_and_save",
-                {
-                  folderName: localFolderName,
-                  fileRole:
-                    localRecordingMode === "composed" ? "composed" : "desktop",
-                },
-                captureGeneration,
-              ),
+              savePromise,
               localCameraExport
                 ? localCameraExport.stop(durationMs)
                 : Promise.resolve([]),
@@ -4397,6 +4425,7 @@ async function startNativeFullscreenRecording(
           },
           captureGeneration,
         );
+        teardownLiveSession();
         uploadPromise.catch(() => {});
         try {
           await Promise.race([

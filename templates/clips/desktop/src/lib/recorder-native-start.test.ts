@@ -1551,6 +1551,91 @@ describe("native recording startup", () => {
     await handle.cancel();
   });
 
+  it("keeps the live-session timer running after a stop that failed before dispatch, so the retry works", async () => {
+    const pending = startRecording(params);
+    await vi.advanceTimersByTimeAsync(3_600);
+    const handle = await pending;
+    const listen = mocks.listen.getMockImplementation();
+    if (!listen) throw new Error("listen mock has no implementation");
+    mocks.listen.mockImplementation(async (name, callback) => {
+      if (name === "clips:native-recording-finalized") {
+        throw new Error("listener registration failed");
+      }
+      return listen(name, callback);
+    });
+    const stateEmits = () =>
+      mocks.emit.mock.calls.filter(([name]) => name === "clips:recorder-state")
+        .length;
+
+    await expect(handle.stop()).rejects.toThrow("listener registration failed");
+    expect(calls("native_fullscreen_recording_stop_and_upload")).toHaveLength(
+      0,
+    );
+    // Capture is still running: its elapsed-time timer was not torn down.
+    const before = stateEmits();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(stateEmits()).toBeGreaterThan(before);
+
+    // The retry sends the stop and only then tears the timer down.
+    mocks.listen.mockImplementation(listen);
+    void handle.stop();
+    await vi.advanceTimersByTimeAsync(100);
+    expect(calls("native_fullscreen_recording_stop_and_upload")).toHaveLength(
+      1,
+    );
+    const afterStop = stateEmits();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(stateEmits()).toBe(afterStop);
+  });
+
+  it("retries an abandoned Rewind take's stop that failed before it was sent", async () => {
+    vi.resetModules();
+    const { startRecording } = await import("./recorder");
+    nativeCommands.set("rewind_clip_status", async () => ({
+      compatibility: "compatible",
+      active: false,
+    }));
+    const rewindStart = deferred<void>();
+    nativeCommands.set("rewind_clip_start", () => rewindStart.promise);
+    const controller = new AbortController();
+    const first = startRecording({
+      ...params,
+      source: "full-screen",
+      signal: controller.signal,
+    });
+    const failed = expect(first).rejects.toMatchObject({ name: "AbortError" });
+    await vi.advanceTimersByTimeAsync(3_600);
+    controller.abort();
+    await failed;
+
+    // The Rewind stop command cannot be sent the first time.
+    const invoke = mocks.invoke.getMockImplementation();
+    if (!invoke) throw new Error("invoke mock has no implementation");
+    mocks.invoke.mockImplementation((name, args) => {
+      if (name === "rewind_clip_stop_and_upload") {
+        throw new Error("IPC unavailable");
+      }
+      return invoke(name, args);
+    });
+    rewindStart.resolve();
+    await vi.advanceTimersByTimeAsync(1_000);
+    await expect(
+      startRecording({ ...params, source: "full-screen" }),
+    ).rejects.toMatchObject({ name: "PreviousRecordingStillStoppingError" });
+    expect(calls("rewind_clip_start")).toHaveLength(1);
+
+    // The next start retries the same stop, which is now sent.
+    mocks.invoke.mockImplementation(invoke);
+    nativeCommands.delete("rewind_clip_start");
+    const next = startRecording({ ...params, source: "full-screen" });
+    await vi.advanceTimersByTimeAsync(100);
+    expect(calls("rewind_clip_stop_and_upload")).toHaveLength(3);
+    await vi.advanceTimersByTimeAsync(3_600);
+    const handle = await next;
+    expect(calls("rewind_clip_start")).toHaveLength(2);
+    await handle.cancel();
+  });
+
   it("keeps microphone-off local capture native and skips transcription", async () => {
     const pending = startRecording({
       ...params,

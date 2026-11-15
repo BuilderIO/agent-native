@@ -25,6 +25,9 @@ export interface PreparingAfterCountdown {
 export interface PreparingOverlay {
   show(): Promise<void>;
   hide(): Promise<void>;
+  /** The overlay could not be shown: capture is not live yet and nothing on
+   * screen says so, so tell the user. */
+  onShowFailed?(error: unknown): void;
   /** Both hide attempts failed: the overlay may still cover the live
    * recording, so tell the user. */
   onHideFailed?(error: unknown): void;
@@ -45,8 +48,17 @@ export function showPreparingAfterCountdown(
       if (isFinished()) return;
       await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
       if (isFinished()) return;
-      showing = options.show().catch((err) => {
+      showing = options.show().catch((err: unknown) => {
         console.error("[clips-recorder] showing Preparing failed:", err);
+        if (isFinished()) return;
+        try {
+          options.onShowFailed?.(err);
+        } catch (noticeErr) {
+          console.error(
+            "[clips-recorder] Preparing show-failure notice failed:",
+            noticeErr,
+          );
+        }
       });
     },
     () => {},

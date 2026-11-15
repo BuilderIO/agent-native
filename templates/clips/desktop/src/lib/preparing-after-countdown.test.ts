@@ -113,6 +113,47 @@ describe("showPreparingAfterCountdown", () => {
     expect(order).toEqual(["show:start", "show:end", "hide"]);
   });
 
+  it("tells the user when Preparing cannot be shown while capture is not live", async () => {
+    const countdown = deferred();
+    const onShowFailed = vi.fn();
+    const failure = new Error("preparing window build failed");
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const preparing = showPreparingAfterCountdown(countdown.promise, {
+      show: async () => {
+        throw failure;
+      },
+      hide: async () => {},
+      onShowFailed,
+    });
+
+    countdown.resolve();
+    await vi.advanceTimersByTimeAsync(PREPARING_AFTER_COUNTDOWN_DELAY_MS);
+    expect(onShowFailed).toHaveBeenCalledOnce();
+    expect(onShowFailed).toHaveBeenCalledWith(failure);
+    await preparing.done();
+    error.mockRestore();
+  });
+
+  it("skips the show-failure notice when capture went live meanwhile", async () => {
+    const countdown = deferred();
+    const shown = deferred();
+    const onShowFailed = vi.fn();
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const preparing = showPreparingAfterCountdown(countdown.promise, {
+      show: () => shown.promise,
+      hide: async () => {},
+      onShowFailed,
+    });
+
+    countdown.resolve();
+    await vi.advanceTimersByTimeAsync(PREPARING_AFTER_COUNTDOWN_DELAY_MS);
+    const finishing = preparing.done();
+    shown.reject(new Error("preparing window build failed"));
+    await finishing;
+    expect(onShowFailed).not.toHaveBeenCalled();
+    error.mockRestore();
+  });
+
   it("logs a failed show and still hides whatever was built", async () => {
     const countdown = deferred();
     const hide = vi.fn(async () => {});
