@@ -728,7 +728,7 @@ describe("ddl-guard", () => {
       expect(isLockTimeoutError(result)).toBe(false);
       expect(probe).toHaveBeenCalledTimes(1);
       expect(calls).toEqual([
-        "SET lock_timeout = '1s'",
+        "SET lock_timeout = '3s'",
         "CREATE TABLE foo (id TEXT)",
         "RESET lock_timeout",
       ]);
@@ -881,7 +881,7 @@ describe("ddl-guard", () => {
     );
 
     it.each([
-      [undefined, ["1s", "1s", "1s"]],
+      [undefined, ["3s", "1s", "1s"]],
       ["60s", ["60s"]],
       ["250ms", ["250ms"]],
     ] as const)(
@@ -894,6 +894,7 @@ describe("ddl-guard", () => {
           return undefined;
         });
         const probe = vi.fn(async () => false);
+        const backoffs = vi.spyOn(globalThis, "setTimeout");
         await expect(
           ensureSchemaObject({
             probe,
@@ -912,6 +913,9 @@ describe("ddl-guard", () => {
           expected.length,
         );
         expect(probe).toHaveBeenCalledTimes(expected.length + 1);
+        expect(backoffs.mock.calls.map(([, delay]) => delay)).toEqual(
+          lockTimeout === undefined ? [100, 200] : [],
+        );
       },
     );
 
@@ -946,7 +950,7 @@ describe("ddl-guard", () => {
       ]);
       expect(calls).toEqual([
         "BEGIN",
-        "SET LOCAL lock_timeout = '1s'",
+        "SET LOCAL lock_timeout = '3s'",
         "SET LOCAL idle_in_transaction_session_timeout = '30s'",
         "CREATE TABLE foo (id TEXT)",
         "ROLLBACK",
@@ -1322,7 +1326,7 @@ describe("ddl-guard", () => {
         }),
       ).resolves.toBe(true);
       expect(calls).toEqual([
-        "SET lock_timeout = '1s'",
+        "SET lock_timeout = '3s'",
         "CREATE TABLE foo (id TEXT)",
         "RESET lock_timeout",
         "SET lock_timeout = '1s'",
@@ -1358,7 +1362,7 @@ describe("ddl-guard", () => {
       expect(isLockTimeoutError(result)).toBe(false);
       expect(probe).toHaveBeenCalledTimes(1);
       expect(calls).toEqual([
-        "SET lock_timeout = '1s'",
+        "SET lock_timeout = '3s'",
         "CREATE TABLE foo (id TEXT)",
         "RESET lock_timeout",
       ]);
@@ -1400,7 +1404,7 @@ describe("ddl-guard", () => {
         expect(isLockTimeoutError(result)).toBe(false);
         expect(probe).toHaveBeenCalledTimes(1);
         expect(calls).toEqual([
-          "SET lock_timeout = '1s'",
+          "SET lock_timeout = '3s'",
           "CREATE TABLE foo (id NO_SUCH_TYPE)",
           "RESET lock_timeout",
         ]);

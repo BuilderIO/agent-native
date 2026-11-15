@@ -373,7 +373,7 @@ export async function ensureSchemaObject(options: {
       try {
         ran = await withLegacyServerlessSchemaDdl(() =>
           runGuardedDdl(ddl, {
-            lockTimeout: lockTimeout ?? "1s",
+            lockTimeout: lockTimeout ?? (attempt === 0 ? "3s" : "1s"),
             ...(timeoutMs === undefined ? {} : { timeoutMs }),
             ...(injectedClient === undefined ? {} : { injectedClient }),
           }),
