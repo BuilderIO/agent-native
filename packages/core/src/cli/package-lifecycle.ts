@@ -762,9 +762,7 @@ async function applyTransaction(
       fs.renameSync(path.join(stage, String(index)), change.path);
     }
     const packageManager = detectPackageManager(installRoot);
-    const [command, args, shell] = shimSpawnTarget(packageManager, [
-      "install",
-    ]);
+    const [command, args, shell] = shimSpawnTarget(packageManager, ["install"]);
     const result = spawn(command, args, {
       cwd: installRoot,
       stdio: "inherit",
