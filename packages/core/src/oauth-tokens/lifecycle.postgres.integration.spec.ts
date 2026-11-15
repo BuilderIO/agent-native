@@ -82,9 +82,13 @@ async function runWorker(mode: string): Promise<WorkerResult> {
         },
         tokenExpiresAt: Date.now() - 1,
       });
-      await mutateSetting(`oauth-postgres-bootstrap:${testId}`, () => ({
-        ready: true,
-      }));
+      await mutateSetting(
+        `oauth-postgres-bootstrap:${testId}`,
+        () => ({
+          ready: true,
+        }),
+        { global: true },
+      );
       await db.execute({
         sql: `DELETE FROM public.settings WHERE key = ?`,
         args: [`oauth-postgres-bootstrap:${testId}`],

@@ -14,6 +14,7 @@ import { isTransientDatabaseError } from "../db/errors.js";
 import { AppSecretDecryptionError } from "../secrets/errors.js";
 import type { ReadSecretResult } from "../secrets/storage.js";
 import { getOrgSetting } from "../settings/org-settings.js";
+import type { StoreWriteOptions } from "../settings/store.js";
 import { ForbiddenError } from "../sharing/errors.js";
 import { BUILDER_CREDENTIAL_KEYS } from "./builder-credential-keys.js";
 import {
@@ -1737,6 +1738,13 @@ export async function getBuilderCredentialAuthFailure(
   }
 }
 
+function credentialFailureSettingsScope(): StoreWriteOptions {
+  const orgId = getRequestOrgId();
+  if (orgId) return { orgId };
+  const owner = getRequestUserEmail();
+  return owner ? { owner } : { global: true };
+}
+
 export async function recordBuilderCredentialAuthFailure(details?: {
   status?: number;
   code?: string;
@@ -1752,14 +1760,21 @@ export async function recordBuilderCredentialAuthFailure(details?: {
     const { putSetting } = await import("../settings/store.js");
     const settingKey = builderAuthFailureSettingKey(fingerprint);
     const strikes = await nextAuthFailureStrikes(settingKey);
-    await putSetting(settingKey, {
-      fingerprint,
-      ...new ProviderAuthenticationError("builder", details?.status).details(),
-      strikes,
-      at: Date.now(),
-      ownerEmail: getRequestUserEmail() ?? null,
-      orgId: getRequestOrgId() ?? null,
-    });
+    await putSetting(
+      settingKey,
+      {
+        fingerprint,
+        ...new ProviderAuthenticationError(
+          "builder",
+          details?.status,
+        ).details(),
+        strikes,
+        at: Date.now(),
+        ownerEmail: getRequestUserEmail() ?? null,
+        orgId: getRequestOrgId() ?? null,
+      },
+      credentialFailureSettingsScope(),
+    );
   } catch {
     // Best-effort marker only; the chat error is still returned to the user.
   }
@@ -1776,7 +1791,10 @@ export async function clearBuilderCredentialAuthFailure(creds: {
   if (!fingerprint) return;
   try {
     const { deleteSetting } = await import("../settings/store.js");
-    await deleteSetting(builderAuthFailureSettingKey(fingerprint));
+    await deleteSetting(
+      builderAuthFailureSettingKey(fingerprint),
+      credentialFailureSettingsScope(),
+    );
   } catch {
     // A stale failure marker should not block writing fresh credentials.
   }
@@ -1909,20 +1927,24 @@ export async function recordProviderCredentialAuthFailure(opts: {
     const { putSetting } = await import("../settings/store.js");
     const settingKey = providerAuthFailureSettingKey(fingerprint);
     const strikes = await nextAuthFailureStrikes(settingKey);
-    await putSetting(settingKey, {
-      fingerprint,
-      key,
-      ...new ProviderAuthenticationError(
-        key === BUILDER_GATEWAY_TOKEN_ENV_VAR
-          ? "builder"
-          : credentialFailureProvider(key),
-        opts.status,
-      ).details(),
-      strikes,
-      at: Date.now(),
-      ownerEmail: getRequestUserEmail() ?? null,
-      orgId: getRequestOrgId() ?? null,
-    });
+    await putSetting(
+      settingKey,
+      {
+        fingerprint,
+        key,
+        ...new ProviderAuthenticationError(
+          key === BUILDER_GATEWAY_TOKEN_ENV_VAR
+            ? "builder"
+            : credentialFailureProvider(key),
+          opts.status,
+        ).details(),
+        strikes,
+        at: Date.now(),
+        ownerEmail: getRequestUserEmail() ?? null,
+        orgId: getRequestOrgId() ?? null,
+      },
+      credentialFailureSettingsScope(),
+    );
   } catch {
     // Best-effort marker only; the chat error is still returned to the user.
   }
@@ -1936,7 +1958,10 @@ export async function clearProviderCredentialAuthFailure(opts: {
   if (!fingerprint) return;
   try {
     const { deleteSetting } = await import("../settings/store.js");
-    await deleteSetting(providerAuthFailureSettingKey(fingerprint));
+    await deleteSetting(
+      providerAuthFailureSettingKey(fingerprint),
+      credentialFailureSettingsScope(),
+    );
   } catch {
     // A stale failure marker should not block writing or using fresh keys.
   }

@@ -8,6 +8,7 @@ export {
   listSettingsByPrefix,
   getSettingsEmitter,
   SettingsScopeError,
+  SettingsEventScopeError,
   type SettingEntry,
   type StoreWriteOptions,
   type StoreMutationOptions,

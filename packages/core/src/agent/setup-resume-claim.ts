@@ -48,15 +48,21 @@ export async function claimSetupResume(opts: {
   const threadPrefix = `${CLAIM_KEY_PREFIX}${opts.ownerEmail}:${opts.threadId}:`;
   const key = `${threadPrefix}${opts.refusedRunId}`;
   let claimed = false;
-  const held = await mutateSetting(key, (current) => {
-    const heldBy = typeof current?.turnId === "string" ? current.turnId : null;
-    const live =
-      typeof current?.expiresAt === "number" && current.expiresAt > Date.now();
-    claimed = !heldBy || !live || heldBy === opts.turnId;
-    return claimed
-      ? { turnId: opts.turnId, expiresAt: Date.now() + CLAIM_TTL_MS }
-      : (current ?? {});
-  });
+  const held = await mutateSetting(
+    key,
+    (current) => {
+      const heldBy =
+        typeof current?.turnId === "string" ? current.turnId : null;
+      const live =
+        typeof current?.expiresAt === "number" &&
+        current.expiresAt > Date.now();
+      claimed = !heldBy || !live || heldBy === opts.turnId;
+      return claimed
+        ? { turnId: opts.turnId, expiresAt: Date.now() + CLAIM_TTL_MS }
+        : (current ?? {});
+    },
+    { owner: opts.ownerEmail },
+  );
   if (!claimed) return null;
   try {
     // Only a row that is still the expired value is removed, so a claim
@@ -68,7 +74,7 @@ export async function claimSetupResume(opts: {
         typeof value.expiresAt === "number" &&
         value.expiresAt <= Date.now()
       ) {
-        await deleteSettingIfValue(staleKey, value);
+        await deleteSettingIfValue(staleKey, value, { owner: opts.ownerEmail });
       }
     }
   } catch (error) {
@@ -77,7 +83,7 @@ export async function claimSetupResume(opts: {
   }
   return {
     release: async () => {
-      await deleteSettingIfValue(key, held);
+      await deleteSettingIfValue(key, held, { owner: opts.ownerEmail });
     },
   };
 }

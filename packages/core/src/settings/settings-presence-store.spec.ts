@@ -75,7 +75,7 @@ afterEach(async () => {
 
 describe("settings presence: mutateSetting guard", () => {
   it("calls the validator with each present snapshot and rejects before the updater", async () => {
-    await putSetting("guarded", { value: 1 });
+    await putSetting("guarded", { value: 1 }, { global: true });
     const order: string[] = [];
     const validator = vi.fn((value: unknown) => {
       order.push(`guard:${JSON.stringify(value)}`);
@@ -85,7 +85,10 @@ describe("settings presence: mutateSetting guard", () => {
       return { value: 2 };
     });
 
-    await mutateSetting("guarded", updater, { validateStoredValue: validator });
+    await mutateSetting("guarded", updater, {
+      global: true,
+      validateStoredValue: validator,
+    });
 
     expect(order).toEqual(['guard:{"value":1}', "updater"]);
     expect(validator).toHaveBeenCalledWith({ value: 1 });
@@ -100,7 +103,10 @@ describe("settings presence: mutateSetting guard", () => {
     const updater = vi.fn(() => ({ value: 1 }));
 
     await expect(
-      mutateSetting("null-row", updater, { validateStoredValue: validator }),
+      mutateSetting("null-row", updater, {
+        global: true,
+        validateStoredValue: validator,
+      }),
     ).rejects.toThrow("reject null");
     expect(validator).toHaveBeenCalledWith(null);
     expect(updater).not.toHaveBeenCalled();
@@ -108,13 +114,14 @@ describe("settings presence: mutateSetting guard", () => {
   });
 
   it("validates a present snapshot even when the updater returns the stored value", async () => {
-    await putSetting("steady-guard", { value: 1 });
+    await putSetting("steady-guard", { value: 1 }, { global: true });
     const validator = vi.fn();
     const updater = vi.fn((current: Record<string, unknown> | null) => ({
       ...current!,
     }));
 
     await mutateSetting("steady-guard", updater, {
+      global: true,
       validateStoredValue: validator,
     });
 
@@ -129,6 +136,7 @@ describe("settings presence: mutateSetting guard", () => {
     const updater = vi.fn(() => ({ value: 3 }));
 
     await mutateSetting("absent-row", updater, {
+      global: true,
       validateStoredValue: validator,
     });
 
@@ -138,7 +146,7 @@ describe("settings presence: mutateSetting guard", () => {
   });
 
   it("rejects through an async validator before any write, cache publication or event", async () => {
-    await putSetting("async-guarded", { value: 1 });
+    await putSetting("async-guarded", { value: 1 }, { global: true });
     const events: unknown[] = [];
     const listener = (event: unknown) => events.push(event);
     getSettingsEmitter().on("settings", listener);
@@ -150,6 +158,7 @@ describe("settings presence: mutateSetting guard", () => {
       const updater = vi.fn(() => ({ value: 9 }));
       await expect(
         mutateSetting("async-guarded", updater, {
+          global: true,
           validateStoredValue: validator,
         }),
       ).rejects.toThrow("async reject");
@@ -165,7 +174,7 @@ describe("settings presence: mutateSetting guard", () => {
   });
 
   it("awaits a resolving async validator before the updater", async () => {
-    await putSetting("async-ordered", { value: 1 });
+    await putSetting("async-ordered", { value: 1 }, { global: true });
     const order: string[] = [];
     const validator = vi.fn(async () => {
       await Promise.resolve();
@@ -178,7 +187,7 @@ describe("settings presence: mutateSetting guard", () => {
         order.push("updater");
         return { value: 2 };
       },
-      { validateStoredValue: validator },
+      { global: true, validateStoredValue: validator },
     );
 
     expect(order).toEqual(["guard", "updater"]);

@@ -118,15 +118,19 @@ let sequence = 0;
 /** Turns Content's live-body flags on or off for the test owner. */
 async function setFlags(on: boolean) {
   for (const flag of ["content.live-body-shadow", "content.live-body-writer"])
-    await putSetting(`feature-flag:${flag}`, {
-      version: 1,
-      mode: "rules",
-      emails: on ? [ownerEmail] : [],
-      orgIds: [],
-      percentage: 0,
-      updatedAt: null,
-      updatedBy: null,
-    });
+    await putSetting(
+      `feature-flag:${flag}`,
+      {
+        version: 1,
+        mode: "rules",
+        emails: on ? [ownerEmail] : [],
+        orgIds: [],
+        percentage: 0,
+        updatedAt: null,
+        updatedBy: null,
+      },
+      { global: true },
+    );
 }
 
 beforeAll(async () => {

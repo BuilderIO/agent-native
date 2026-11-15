@@ -99,6 +99,7 @@ describe("settings handlers", () => {
       const result = await putSettingHandler(event);
 
       expect(mockPutSetting).toHaveBeenCalledWith("pref", body, {
+        global: true,
         requestSource: undefined,
       });
       expect(result).toEqual(body);
@@ -116,6 +117,7 @@ describe("settings handlers", () => {
       await putSettingHandler(event);
 
       expect(mockPutSetting).toHaveBeenCalledWith("test", body, {
+        global: true,
         requestSource: "tab-42",
       });
     });
@@ -132,6 +134,7 @@ describe("settings handlers", () => {
       const result = await deleteSettingHandler(event);
 
       expect(mockDeleteSetting).toHaveBeenCalledWith("old-key", {
+        global: true,
         requestSource: undefined,
       });
       expect(result).toEqual({ ok: true });
@@ -147,6 +150,7 @@ describe("settings handlers", () => {
       await deleteSettingHandler(event);
 
       expect(mockDeleteSetting).toHaveBeenCalledWith("key", {
+        global: true,
         requestSource: "tab-1",
       });
     });

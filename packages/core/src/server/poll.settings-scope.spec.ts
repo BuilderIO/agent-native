@@ -535,10 +535,171 @@ describe("settings change feed scope", () => {
     expect(JSON.stringify(result.events)).not.toContain("nested:");
   });
 
-  it("fails with a resync signal for a malformed durable event", async () => {
+  it("matches normalized caller emails in the durable owner prefilter", async () => {
     delete process.env.AGENT_NATIVE_SYNC_EVENTS_DISABLE;
     process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
-    await pgliteRef.value?.exec(`
+    const { AppSyncState } = await import("./poll.js");
+    const state = new AppSyncState({
+      getDb: () => ({ execute: rawClient.execute }) as never,
+    });
+    await pgliteRef.value?.exec(`CREATE TABLE sync_events (
+      id TEXT PRIMARY KEY, version BIGINT NOT NULL, event_json TEXT NOT NULL,
+      source TEXT NOT NULL, type TEXT NOT NULL, event_key TEXT, owner TEXT,
+      org_id TEXT, resource_type TEXT, resource_id TEXT, created_at BIGINT NOT NULL
+    )`);
+    await rawClient.execute({
+      sql: `INSERT INTO sync_events (id, version, event_json, source, type, owner, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "normalized-owner",
+        2,
+        JSON.stringify({
+          source: "settings",
+          type: "change",
+          key: "u:alice@example.test:private",
+        }),
+        "settings",
+        "change",
+        "alice@example.test",
+        2,
+      ],
+    });
+    const result = await state.getDurableChangesSinceForUser(
+      1,
+      "  Alice@Example.TEST  ",
+      undefined,
+    );
+    expect(result.events).toMatchObject([
+      { cursorId: "normalized-owner", key: "*", owner: "alice@example.test" },
+    ]);
+    expect(
+      (
+        await state.getDurableChangesSinceForUser(
+          1,
+          "bob@example.test",
+          undefined,
+        )
+      ).events,
+    ).toEqual([]);
+  });
+
+  it("delivers explicitly public scoped events through the durable prefilter", async () => {
+    delete process.env.AGENT_NATIVE_SYNC_EVENTS_DISABLE;
+    process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
+    const { AppSyncState } = await import("./poll.js");
+    const state = new AppSyncState({
+      getDb: () => ({ execute: rawClient.execute }) as never,
+    });
+    await pgliteRef.value?.exec(`CREATE TABLE sync_events (
+      id TEXT PRIMARY KEY, version BIGINT NOT NULL, event_json TEXT NOT NULL,
+      source TEXT NOT NULL, type TEXT NOT NULL, event_key TEXT, owner TEXT,
+      org_id TEXT, resource_type TEXT, resource_id TEXT, created_at BIGINT NOT NULL
+    )`);
+    await rawClient.execute({
+      sql: `INSERT INTO sync_events (id, version, event_json, source, type, owner, org_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      args: [
+        "scoped-public",
+        2,
+        JSON.stringify({
+          source: "settings",
+          type: "change",
+          key: "private-key",
+          visibility: "public",
+        }),
+        "settings",
+        "change",
+        "alice@example.test",
+        "org-a",
+        2,
+      ],
+    });
+    const result = await state.getDurableChangesSinceForUser(
+      1,
+      "bob@example.test",
+      "org-b",
+    );
+    expect(result.events).toMatchObject([
+      { cursorId: "scoped-public", visibility: "public", key: "*" },
+    ]);
+    expect(JSON.stringify(result.events)).not.toContain("alice@example.test");
+    expect(JSON.stringify(result.events)).not.toContain("private-key");
+  });
+
+  it("rejects unscoped settings mutations before persisting or publishing", async () => {
+    const {
+      putSetting,
+      mutateSetting,
+      deleteSetting,
+      deleteSettingIfValue,
+      deleteSettingsByPrefix,
+      getSetting,
+      getSettingsEmitter,
+    } = await import("../settings/store.js");
+    await putSetting("scoped", { value: 1 }, { owner: "alice@example.test" });
+    const listener = vi.fn();
+    getSettingsEmitter().on("settings", listener);
+    const updater = vi.fn(() => ({ value: 2 }));
+    try {
+      for (const write of [
+        () => putSetting("unscoped", { value: 1 }),
+        () => mutateSetting("scoped", updater),
+        () => deleteSetting("scoped"),
+        () => deleteSettingIfValue("scoped", { value: 1 }),
+        () => deleteSettingsByPrefix("scoped"),
+        () => putSetting("blank-owner", {}, { owner: "  " }),
+      ]) {
+        await expect(write()).rejects.toMatchObject({
+          name: "SettingsEventScopeError",
+          code: "SETTINGS_SCOPE_REQUIRED",
+        });
+      }
+      expect(updater).not.toHaveBeenCalled();
+      expect(listener).not.toHaveBeenCalled();
+      expect(await getSetting("scoped")).toEqual({ value: 1 });
+      expect(await getSetting("unscoped")).toBeNull();
+    } finally {
+      getSettingsEmitter().off("settings", listener);
+    }
+  });
+
+  it("keeps a replacement access check in flight when its stale predecessor settles", async () => {
+    const { AppSyncState } = await import("./poll.js");
+    const resolvers: Array<(value: null) => void> = [];
+    const resolveAccess = vi.fn(
+      () => new Promise<null>((resolve) => resolvers.push(resolve)),
+    );
+    const state = new AppSyncState({ resolveAccess });
+    const event = { resourceType: "document", resourceId: "doc-1" };
+    expect(
+      state.getChangeVisibilityForUser(event, "alice@example.test", undefined),
+    ).toBe("pending");
+    state.invalidateCollabAccessCache("document", "doc-1");
+    expect(
+      state.getChangeVisibilityForUser(event, "alice@example.test", undefined),
+    ).toBe("pending");
+    resolvers[0]?.(null);
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(
+      state.getChangeVisibilityForUser(event, "alice@example.test", undefined),
+    ).toBe("pending");
+    expect(resolveAccess).toHaveBeenCalledTimes(2);
+    resolvers[1]?.(null);
+    await expect(
+      state.resolveChangeVisibilityForUser(
+        event,
+        "alice@example.test",
+        undefined,
+        1000,
+      ),
+    ).resolves.toBe("hidden");
+  });
+
+  it.each(["malformed-shape", "malformed-json", "unreadable-resource"])(
+    "resumes beyond an unreadable durable event (%s)",
+    async (kind) => {
+      delete process.env.AGENT_NATIVE_SYNC_EVENTS_DISABLE;
+      process.env.AGENT_NATIVE_SYNC_EVENTS_ENABLE_IN_TESTS = "1";
+      await pgliteRef.value?.exec(`
       CREATE TABLE sync_events (
         id TEXT PRIMARY KEY,
         version BIGINT NOT NULL,
@@ -553,34 +714,101 @@ describe("settings change feed scope", () => {
         created_at BIGINT NOT NULL
       )
     `);
-    await rawClient.execute({
-      sql: `INSERT INTO sync_events
-        (id, version, event_json, source, type, owner, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)`,
-      args: [
-        "malformed-shape",
-        2,
-        JSON.stringify({ type: "change", key: "private@example.test:key" }),
-        "settings",
-        "change",
-        "alice@example.test",
-        2,
-      ],
-    });
-    const { AppSyncState } = await import("./poll.js");
-    const state = new AppSyncState({
-      getDb: () => ({ execute: rawClient.execute }) as never,
-    });
+      await rawClient.execute({
+        sql: `INSERT INTO sync_events
+        (id, version, event_json, source, type, owner, resource_type, resource_id, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+          "malformed-shape",
+          2,
+          kind === "malformed-json"
+            ? "{invalid json"
+            : kind === "unreadable-resource"
+              ? JSON.stringify({ source: "resource", type: "change" })
+              : JSON.stringify({
+                  type: "change",
+                  key: "private@example.test:key",
+                }),
+          "settings",
+          "change",
+          kind === "unreadable-resource" ? null : "alice@example.test",
+          kind === "unreadable-resource" ? "document" : null,
+          kind === "unreadable-resource" ? "private-doc" : null,
+          2,
+        ],
+      });
+      const { AppSyncState, createPollHandler } = await import("./poll.js");
+      const state = new AppSyncState({
+        getDb: () => ({ execute: rawClient.execute }) as never,
+        resolveAccess: async () => {
+          throw new Error("resolver unavailable");
+        },
+      });
+      if (kind === "unreadable-resource") {
+        await expect(
+          state.resolveChangeVisibilityForUser(
+            { resourceType: "document", resourceId: "private-doc" },
+            "alice@example.test",
+            undefined,
+            1000,
+          ),
+        ).resolves.toBe("unreadable");
+      }
 
-    await expect(
-      state.getDurableChangesSinceForUser(1, "alice@example.test", undefined),
-    ).rejects.toMatchObject({
-      name: "SyncEventReadError",
-      code: "SYNC_EVENT_READ_UNAVAILABLE",
-      message:
-        "A sync event could not be read; clients must refresh their data.",
-    });
-  });
+      await expect(
+        state.getDurableChangesSinceForUser(1, "alice@example.test", undefined),
+      ).rejects.toMatchObject({
+        cursor: expect.any(String),
+        name: "SyncEventReadError",
+        code: "SYNC_EVENT_READ_UNAVAILABLE",
+        message:
+          "A sync event could not be read; clients must refresh their data.",
+      });
+      vi.spyOn(state, "seedVersionFromDb").mockResolvedValue(undefined);
+      vi.spyOn(state, "checkExternalDbChanges").mockResolvedValue(undefined);
+      mockSession.value = { email: "alice@example.test" };
+      const poll = createPollHandler(state) as (
+        event: unknown,
+      ) => Promise<{ error?: string; cursor?: string; events?: unknown[] }>;
+      const response = await poll({ query: { since: "1", cursor: "1." } });
+      expect(response).toEqual({
+        error: "SYNC_EVENT_READ_UNAVAILABLE",
+        cursor: "2.malformed-shape",
+      });
+      const resume = response.cursor;
+      expect(resume).toBe("2.malformed-shape");
+      await rawClient.execute({
+        sql: `INSERT INTO sync_events (id, version, event_json, source, type, owner, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+        args: [
+          "next-valid",
+          2,
+          JSON.stringify({
+            source: "settings",
+            type: "change",
+            key: "private-next-key",
+          }),
+          "settings",
+          "change",
+          "alice@example.test",
+          2,
+        ],
+      });
+      const next = await state.getDurableChangesSinceForUser(
+        2,
+        "alice@example.test",
+        undefined,
+        {
+          version: Number(resume?.split(".")[0]),
+          id: resume?.split(".").slice(1).join(".") ?? "",
+        },
+      );
+      expect(next.events).toMatchObject([{ cursorId: "next-valid", key: "*" }]);
+      expect(JSON.stringify(next.events)).not.toContain("private-next-key");
+      expect(
+        (await poll({ query: { since: "2", cursor: resume } })).events,
+      ).toMatchObject([{ cursorId: "next-valid", key: "*" }]);
+    },
+  );
 
   it("distinguishes an access denial from a failed access resolver", async () => {
     const { AppSyncState } = await import("./poll.js");
@@ -676,16 +904,16 @@ describe("settings change feed scope", () => {
     ).events;
     expect(
       read(aliceEvents).filter((event) => event.visibility === "public"),
-    ).toHaveLength(2);
+    ).toHaveLength(4);
     expect(
       read(bobEvents).filter((event) => event.visibility === "public"),
-    ).toHaveLength(2);
+    ).toHaveLength(4);
     expect(
       read(alice.pushed).filter((event) => event.visibility === "public"),
-    ).toHaveLength(2);
+    ).toHaveLength(4);
     expect(
       read(bob.pushed).filter((event) => event.visibility === "public"),
-    ).toHaveLength(2);
+    ).toHaveLength(4);
     expect(JSON.stringify(aliceEvents)).not.toContain("alice@example.test");
     expect(JSON.stringify(bobEvents)).not.toContain("bob@example.test");
 
@@ -700,10 +928,10 @@ describe("settings change feed scope", () => {
     )({ query: { since: "0" } });
     expect(
       read(alicePoll.events).filter((event) => event.visibility === "public"),
-    ).toHaveLength(2);
+    ).toHaveLength(4);
     expect(
       read(bobPoll.events).filter((event) => event.visibility === "public"),
-    ).toHaveLength(2);
+    ).toHaveLength(4);
     alice.close?.();
     bob.close?.();
   });

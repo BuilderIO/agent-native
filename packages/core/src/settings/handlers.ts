@@ -27,7 +27,10 @@ export const putSettingHandler = defineEventHandler(async (event: H3Event) => {
   const key = safeKey(String(getRouterParam(event, "key")));
   const body = await readBody(event);
   const requestSource = getHeader(event, "x-request-source") || undefined;
-  await putSetting(key, body, { requestSource });
+  await putSetting(key, body, {
+    global: true,
+    ...(requestSource ? { requestSource } : {}),
+  });
   return body;
 });
 
@@ -35,7 +38,10 @@ export const deleteSettingHandler = defineEventHandler(
   async (event: H3Event) => {
     const key = safeKey(String(getRouterParam(event, "key")));
     const requestSource = getHeader(event, "x-request-source") || undefined;
-    await deleteSetting(key, { requestSource });
+    await deleteSetting(key, {
+      global: true,
+      ...(requestSource ? { requestSource } : {}),
+    });
     return { ok: true };
   },
 );

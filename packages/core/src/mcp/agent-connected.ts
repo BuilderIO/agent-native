@@ -76,12 +76,16 @@ export async function trackAgentConnected(input: {
       const claimId = randomUUID();
       // Both success paths share a durable CAS claim; process-local state
       // cannot suppress reconnects across serverless invocations.
-      const claim = await mutateSetting(`agent-connected:${key}`, (current) => {
-        if (current && typeof current.claim_id !== "string") {
-          throw new Error("Invalid agent connection claim");
-        }
-        return current ?? { claim_id: claimId };
-      });
+      const claim = await mutateSetting(
+        `agent-connected:${key}`,
+        (current) => {
+          if (current && typeof current.claim_id !== "string") {
+            throw new Error("Invalid agent connection claim");
+          }
+          return current ?? { claim_id: claimId };
+        },
+        { owner: email },
+      );
       if (claim.claim_id !== claimId) continue;
       track(
         "agent_connected",

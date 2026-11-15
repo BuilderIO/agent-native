@@ -162,8 +162,12 @@ function rulesFor(emails: string[]) {
  * it from the rules on its next read.
  */
 async function setBackfillFlag(emails: string[]) {
-  await putSetting(`feature-flag:${BACKFILL}`, rulesFor(emails));
-  await deleteSetting(`feature-flag-rollout-index:${BACKFILL}`);
+  await putSetting(`feature-flag:${BACKFILL}`, rulesFor(emails), {
+    global: true,
+  });
+  await deleteSetting(`feature-flag-rollout-index:${BACKFILL}`, {
+    global: true,
+  });
 }
 
 beforeAll(async () => {
@@ -182,6 +186,7 @@ beforeAll(async () => {
     await putSetting(
       `feature-flag:${flag}`,
       rulesFor([ownerEmail, writerOnlyEmail]),
+      { global: true },
     );
   await setBackfillFlag([ownerEmail]);
   collab = await import("@agent-native/core/collab");
@@ -306,7 +311,7 @@ async function openInTab(id: string, content: string, typed?: string) {
  */
 async function commitInTabWithWriterOff(id: string) {
   const writer = "feature-flag:content.live-body-writer";
-  await putSetting(writer, rulesFor([writerOnlyEmail]));
+  await putSetting(writer, rulesFor([writerOnlyEmail]), { global: true });
   try {
     const doc = new Y.Doc();
     Y.applyUpdate(doc, await collab.getState(id));
@@ -322,7 +327,9 @@ async function commitInTabWithWriterOff(id: string) {
     doc.destroy();
     await as(ownerEmail, () => collab.applyUpdate(id, update));
   } finally {
-    await putSetting(writer, rulesFor([ownerEmail, writerOnlyEmail]));
+    await putSetting(writer, rulesFor([ownerEmail, writerOnlyEmail]), {
+      global: true,
+    });
   }
 }
 
@@ -733,7 +740,7 @@ describe("a page whose live copy a tab already opened", () => {
    */
   async function legacySaveWithWriterOff(id: string, content: string) {
     const writer = "feature-flag:content.live-body-writer";
-    await putSetting(writer, rulesFor([writerOnlyEmail]));
+    await putSetting(writer, rulesFor([writerOnlyEmail]), { global: true });
     try {
       await getDb().transaction(async (tx) => {
         const legacy = await lockLegacyBodyWrites(tx, [id], {
@@ -746,7 +753,9 @@ describe("a page whose live copy a tab already opened", () => {
           .where(eq(schema.documents.id, id));
       });
     } finally {
-      await putSetting(writer, rulesFor([ownerEmail, writerOnlyEmail]));
+      await putSetting(writer, rulesFor([ownerEmail, writerOnlyEmail]), {
+        global: true,
+      });
     }
     const behind = await page(id);
     expect(behind.content).toBe(content);
@@ -1214,7 +1223,7 @@ describe("the backfill sweep", () => {
     await getDb().delete(schema.documentSyncLinks);
     await getDb().delete(schema.contentDatabaseItems);
     await getDb().delete(schema.documents);
-    await deleteSetting("content-live-body-backfill-sweep");
+    await deleteSetting("content-live-body-backfill-sweep", { global: true });
     await setBackfillFlag([ownerEmail]);
   });
 
@@ -1406,20 +1415,24 @@ describe("the backfill sweep", () => {
 
   it("goes past a page that fails once 100 pages are held, counts it, and still finishes the pass", async () => {
     const retryAfter = new Date(Date.now() + 60 * 60_000).toISOString();
-    await putSetting("content-live-body-backfill-sweep", {
-      version: 2,
-      after: null,
-      passCompletedAt: null,
-      run: null,
-      inFlight: null,
-      // Pages held by earlier passes and deleted since.
-      held: Object.fromEntries(
-        Array.from({ length: 100 }, (_, index) => [
-          `deleted-held-${String(index).padStart(3, "0")}`,
-          { reason: "failed", error: "It broke.", attempts: 1, retryAfter },
-        ]),
-      ),
-    });
+    await putSetting(
+      "content-live-body-backfill-sweep",
+      {
+        version: 2,
+        after: null,
+        passCompletedAt: null,
+        run: null,
+        inFlight: null,
+        // Pages held by earlier passes and deleted since.
+        held: Object.fromEntries(
+          Array.from({ length: 100 }, (_, index) => [
+            `deleted-held-${String(index).padStart(3, "0")}`,
+            { reason: "failed", error: "It broke.", attempts: 1, retryAfter },
+          ]),
+        ),
+      },
+      { global: true },
+    );
     const failing = await insertPage(stored, { id: "over-limit-1" });
     const fine = await insertPage(stored, { id: "over-limit-2" });
     const logged = vi.spyOn(console, "error").mockImplementation(() => {});
@@ -1747,14 +1760,18 @@ describe("the backfill sweep", () => {
   });
 
   it("throws on sweep state it can't read rather than starting the pass over", async () => {
-    await putSetting("content-live-body-backfill-sweep", {
-      version: 2,
-      after: 42,
-      passCompletedAt: null,
-      run: null,
-      inFlight: null,
-      held: {},
-    });
+    await putSetting(
+      "content-live-body-backfill-sweep",
+      {
+        version: 2,
+        after: 42,
+        passCompletedAt: null,
+        run: null,
+        inFlight: null,
+        held: {},
+      },
+      { global: true },
+    );
 
     await expect(sweep()).rejects.toThrow(/sweep state is unreadable/);
   });

@@ -170,8 +170,8 @@ function rules(emails: string[]) {
 }
 
 async function setFlags(on: boolean) {
-  await putSetting(SHADOW, rules(on ? [OWNER] : []));
-  await putSetting(WRITER, rules(on ? [OWNER] : []));
+  await putSetting(SHADOW, rules(on ? [OWNER] : []), { global: true });
+  await putSetting(WRITER, rules(on ? [OWNER] : []), { global: true });
 }
 
 async function insertPage(id: string, content: string) {

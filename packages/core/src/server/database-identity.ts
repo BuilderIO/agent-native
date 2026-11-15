@@ -55,8 +55,11 @@ export async function recordDatabaseIdentity(): Promise<DatabaseIdentityRecordRe
     return { state: "skipped", reason: "no-app-identity" };
   }
   const recordedAt = new Date().toISOString();
-  const stored = await mutateSetting(DATABASE_IDENTITY_SETTING_KEY, (current) =>
-    isDatabaseIdentityRecord(current) ? current : { app, recordedAt },
+  const stored = await mutateSetting(
+    DATABASE_IDENTITY_SETTING_KEY,
+    (current) =>
+      isDatabaseIdentityRecord(current) ? current : { app, recordedAt },
+    { global: true },
   );
   if (!isDatabaseIdentityRecord(stored)) {
     throw new Error(

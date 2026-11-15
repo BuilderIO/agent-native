@@ -2642,12 +2642,12 @@ export async function activateBuilderAccount(
     }
     try {
       await Promise.all([
-        deleteSetting("builder-disconnected").catch(
+        deleteSetting("builder-disconnected", { global: true }).catch(
           () => false, // coercion-ok: best-effort cleanup after successful provisioning
         ),
         ...getBuilderConnectErrorCleanupKeys(ownerEmail, connectAttemptId).map(
           (key) =>
-            deleteSetting(key).catch(
+            deleteSetting(key, { owner: ownerEmail }).catch(
               () => false, // coercion-ok: best-effort cleanup after successful provisioning
             ),
         ),
@@ -4466,7 +4466,9 @@ export function createCoreRoutesPlugin(
                   errorDisposition
                 ) {
                   if (errorDisposition === "legacy") {
-                    await deleteSetting(errKey).catch(() => {});
+                    await deleteSetting(errKey, { owner: userEmail }).catch(
+                      () => {},
+                    );
                   }
                   return withConnectToken({
                     ...requestStatus,
@@ -4869,6 +4871,7 @@ export function createCoreRoutesPlugin(
                 at: Date.now(),
                 ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
               },
+              { owner: ownerEmail },
             ).catch(() => {});
             console.warn("[builder-connect] rejected cross-origin connect", {
               hasConnectToken: Boolean(connectToken),
@@ -4905,6 +4908,7 @@ export function createCoreRoutesPlugin(
                 at: Date.now(),
                 ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
               },
+              { owner: ownerEmail },
             ).catch(() => {});
             await trackBuilderLifecycle(
               event,
@@ -4978,7 +4982,7 @@ export function createCoreRoutesPlugin(
               getBuilderConnectErrorCleanupKeys(
                 ownerEmail,
                 connectAttemptId,
-              ).map((key) => deleteSetting(key)),
+              ).map((key) => deleteSetting(key, { owner: ownerEmail })),
             );
           } catch {
             // No prior error row — fine
@@ -5036,19 +5040,25 @@ export function createCoreRoutesPlugin(
               started.authorizationUrl,
               connectTracking,
             );
-            await putSetting(`builder-connect-pending:${state}`, {
-              ownerEmail,
-              orgId: connectOrgId,
-              role: connectRole,
-              ...(requestedConnectionScope
-                ? { connectionScope: requestedConnectionScope }
-                : {}),
-              encryptedOAuthFlow: encryptSecretValue(JSON.stringify(oauthFlow)),
-              redirectUri: callbackUrl,
-              expiresAt: Date.now() + BUILDER_CONNECT_PENDING_TTL_MS,
-              tracking: connectTracking,
-              ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
-            });
+            await putSetting(
+              `builder-connect-pending:${state}`,
+              {
+                ownerEmail,
+                orgId: connectOrgId,
+                role: connectRole,
+                ...(requestedConnectionScope
+                  ? { connectionScope: requestedConnectionScope }
+                  : {}),
+                encryptedOAuthFlow: encryptSecretValue(
+                  JSON.stringify(oauthFlow),
+                ),
+                redirectUri: callbackUrl,
+                expiresAt: Date.now() + BUILDER_CONNECT_PENDING_TTL_MS,
+                tracking: connectTracking,
+                ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
+              },
+              { owner: ownerEmail },
+            );
             await purgeExpiredBuilderConnectPendingStates().catch(() => 0); // coercion-ok: connect already persisted the new pending row; purge of abandoned rows must not fail OAuth start
             setCookie(
               event,
@@ -5091,6 +5101,7 @@ export function createCoreRoutesPlugin(
                 at: Date.now(),
                 ...(connectAttemptId ? { attemptId: connectAttemptId } : {}),
               },
+              { owner: ownerEmail },
             ).catch(() => {});
             setResponseStatus(event, 503);
             setResponseHeader(
@@ -5388,9 +5399,13 @@ export function createCoreRoutesPlugin(
                   scope,
                 );
                 await Promise.all([
-                  deleteSetting("builder-disconnected").catch(() => false),
-                  deleteSetting(getBuilderConnectErrorKey(ownerEmail)).catch(
+                  deleteSetting("builder-disconnected", { global: true }).catch(
                     () => false,
+                  ),
+                  deleteSetting(getBuilderConnectErrorKey(ownerEmail), {
+                    owner: ownerEmail,
+                  }).catch((error) =>
+                    captureError(error, { route: "builder.connect.cleanup" }),
                   ),
                 ]);
                 await recordBuilderConnectionAudit({
@@ -5632,6 +5647,7 @@ export function createCoreRoutesPlugin(
                     ? { attemptId: callbackAttemptId }
                     : {}),
                 },
+                { owner: ownerEmail },
               ).catch(() => {});
               await trackBuilderLifecycle(
                 event,
@@ -5725,9 +5741,10 @@ export function createCoreRoutesPlugin(
             )
           ) {
             if (Date.now() >= expiresAt) {
-              await deleteSetting(`builder-connect-pending:${state}`).catch(
-                () => false,
-              ); // coercion-ok: expired pending cleanup is best-effort; callback already failed verification
+              await deleteSetting(
+                `builder-connect-pending:${state}`,
+                ownerEmail ? { owner: ownerEmail } : { global: true },
+              ).catch(() => false); // coercion-ok: expired pending cleanup is best-effort; callback already failed verification
             }
             return fail(
               403,
@@ -5855,12 +5872,14 @@ export function createCoreRoutesPlugin(
 
           try {
             await Promise.all([
-              deleteSetting("builder-disconnected").catch(() => false), // coercion-ok: best-effort cleanup after successful OAuth save
+              deleteSetting("builder-disconnected", { global: true }).catch(
+                () => false,
+              ), // coercion-ok: best-effort cleanup after successful OAuth save
               ...getBuilderConnectErrorCleanupKeys(
                 ownerEmail,
                 callbackAttemptId,
               ).map((key) =>
-                deleteSetting(key).catch(
+                deleteSetting(key, { owner: ownerEmail }).catch(
                   () => false, // coercion-ok: best-effort cleanup after successful OAuth save
                 ),
               ),

@@ -424,12 +424,16 @@ async function register(
   if (currentFingerprint !== inputs.fingerprint) return result;
 
   try {
-    await putSetting(REGISTRATION_SETTING_KEY, {
-      channelId: channel.channelId,
-      hmacSecretEncrypted: encryptSecretValue(channel.hmacSecret),
-      fingerprint: inputs.fingerprint,
-      registeredAt: Date.now(),
-    } satisfies StoredRegistration);
+    await putSetting(
+      REGISTRATION_SETTING_KEY,
+      {
+        channelId: channel.channelId,
+        hmacSecretEncrypted: encryptSecretValue(channel.hmacSecret),
+        fingerprint: inputs.fingerprint,
+        registeredAt: Date.now(),
+      } satisfies StoredRegistration,
+      { global: true },
+    );
   } catch (err) {
     console.warn(
       `[realtime] could not persist the registration (${(err as Error)?.message ?? err}); it will be re-fetched next cold start`,

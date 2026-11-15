@@ -62,8 +62,11 @@ export interface TransactionalChange {
 export class SyncEventReadError extends Error {
   readonly code = "SYNC_EVENT_READ_UNAVAILABLE";
 
-  constructor() {
+  readonly cursor?: string;
+
+  constructor(cursor?: SyncCursor) {
     super("A sync event could not be read; clients must refresh their data.");
+    if (cursor) this.cursor = encodeSyncCursor(cursor);
     this.name = "SyncEventReadError";
   }
 }
@@ -169,9 +172,19 @@ function isEventAfterCursor(event: ChangeEvent, cursor: SyncCursor): boolean {
   return compareSyncCursors(cursorForEvent(event), cursor) > 0;
 }
 
-function withoutSettingsKey<T extends { source: string; key?: string }>(
-  event: T,
-): T {
+function withoutSettingsKey<
+  T extends {
+    source: string;
+    key?: string;
+    visibility?: "public";
+    owner?: string;
+    orgId?: string;
+  },
+>(event: T): T {
+  if (event.source === "settings" && event.visibility === "public") {
+    const { owner: _owner, orgId: _orgId, ...publicEvent } = event;
+    return { ...publicEvent, key: "*" } as T;
+  }
   return event.source === "settings" && event.key !== "*"
     ? ({ ...event, key: "*" } as T)
     : event;
@@ -888,7 +901,8 @@ export class AppSyncState {
     const resourceKey = accessResourceKey(resourceType, resourceId);
     const epoch = this.accessInvalidationEpoch.get(resourceKey) ?? 0;
     let settled = false;
-    const check = retainRequestDbPoolScope(
+    let check: Promise<void> | undefined;
+    check = retainRequestDbPoolScope(
       (async () => {
         try {
           const access = await this.resolveAccessFn(resourceType, resourceId, {
@@ -906,7 +920,9 @@ export class AppSyncState {
           this.setAccessCache(key, "unreadable", Date.now());
         } finally {
           settled = true;
-          this.accessInFlight.delete(key);
+          if (check && this.accessInFlight.get(key) === check) {
+            this.accessInFlight.delete(key);
+          }
         }
       })(),
     );
@@ -1328,7 +1344,8 @@ export class AppSyncState {
         userEmail,
         orgId,
       );
-      if (visibility === "unreadable") throw new SyncEventReadError();
+      if (visibility === "unreadable")
+        throw new SyncEventReadError(cursorForEvent(event));
       if (visibility === "visible") {
         events.push(withoutSettingsKey(event));
         lastCursor = cursorForEvent(event);
@@ -1390,7 +1407,7 @@ export class AppSyncState {
     try {
       // Scope the fetch to rows that could ever be visible to this caller
       // before paying to JSON.parse and visibility-check every deployment-wide
-      // event: deployment-global rows (no owner, no org), the caller's own
+      // event: explicitly public rows, the caller's own
       // rows, the caller's org's rows, and resource-scoped rows (access is
       // decided below by the access-aware branch, which can grant a non-owner
       // sharee, so resource-scoped rows must still flow through that check
@@ -1401,7 +1418,7 @@ export class AppSyncState {
         sql: `SELECT id, version, event_json, owner, org_id, resource_type, resource_id FROM sync_events
               WHERE (version > ? OR (? = TRUE AND version = ? AND id > ?))
               AND (
-                (owner IS NULL AND org_id IS NULL AND event_json::jsonb ->> 'visibility' = 'public')
+                (CASE WHEN pg_input_is_valid(event_json, 'jsonb') THEN event_json::jsonb ->> 'visibility' = 'public' ELSE FALSE END)
                 OR owner = ?
                 OR org_id = ?
                 OR resource_type IS NOT NULL
@@ -1412,7 +1429,7 @@ export class AppSyncState {
           cursor !== undefined,
           cursor?.version ?? since,
           cursor?.id ?? "",
-          userEmail,
+          userEmail.trim().toLowerCase(),
           orgId ?? null,
           DURABLE_READ_LIMIT + 1,
         ],
@@ -1438,7 +1455,7 @@ export class AppSyncState {
           try {
             parsed = JSON.parse(String(row.event_json));
           } catch {
-            throw new SyncEventReadError();
+            throw new SyncEventReadError(rowCursor);
           }
           if (parsed && typeof parsed === "object") {
             const parsedRecord = parsed as Record<string, unknown>;
@@ -1446,7 +1463,7 @@ export class AppSyncState {
               typeof parsedRecord.source !== "string" ||
               typeof parsedRecord.type !== "string"
             ) {
-              throw new SyncEventReadError();
+              throw new SyncEventReadError(rowCursor);
             }
             const parsedEvent = parsed as ChangeEvent;
             const {
@@ -1490,11 +1507,11 @@ export class AppSyncState {
                 : {}),
             };
           } else {
-            throw new SyncEventReadError();
+            throw new SyncEventReadError(rowCursor);
           }
         } catch (error) {
           if (error instanceof SyncEventReadError) throw error;
-          throw new SyncEventReadError();
+          throw new SyncEventReadError(rowCursor);
         }
         if (!rowCursor && typeof event.cursorId === "string") {
           rowCursor = { version: event.version, id: event.cursorId };
@@ -1505,7 +1522,8 @@ export class AppSyncState {
           userEmail,
           orgId,
         );
-        if (visibility === "unreadable") throw new SyncEventReadError();
+        if (visibility === "unreadable")
+          throw new SyncEventReadError(rowCursor);
         if (visibility === "visible") {
           events.push(withoutSettingsKey(event));
           if (rowCursor) lastCursor = rowCursor;
@@ -2251,7 +2269,10 @@ export function createPollHandler(
     } catch (error) {
       if (error instanceof SyncEventReadError) {
         setResponseStatus(event, 409);
-        return { error: error.code };
+        return {
+          error: error.code,
+          ...(error.cursor ? { cursor: error.cursor } : {}),
+        };
       }
       console.error(
         `[agent-native] Poll handler failed (request_id=${getHttpRequestTelemetryId(event) ?? "unavailable"})`,

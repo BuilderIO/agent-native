@@ -498,59 +498,72 @@ export async function runLiveBodyBackfillSweep(context: {
   let claim = undefined as Claim | undefined;
   // Core starts the sweep on every site tick without waiting for the last
   // one, so two sweeps can overlap; the lease keeps them off one pass.
-  await mutateSetting(SWEEP_STATE_KEY, (current) => {
-    const state = parseSweepState(current);
-    if (state.run && Date.parse(state.run.leaseUntil) > now) {
-      claim = { status: "busy", leaseUntil: state.run.leaseUntil };
-      return state;
-    }
-    if (
-      state.after === null &&
-      state.inFlight === null &&
-      state.passCompletedAt !== null &&
-      now - Date.parse(state.passCompletedAt) < PASS_REST_MS
-    ) {
-      claim = { status: "resting", passCompletedAt: state.passCompletedAt };
-      return state;
-    }
-    const held = { ...state.held };
-    const interrupted = state.inFlight?.documentId ?? null;
-    if (interrupted !== null) {
-      held[interrupted] = holdPage(held[interrupted], "interrupted", null, now);
-    }
-    const claimed: SweepState = {
-      ...state,
-      overHoldLimit:
-        state.after === null && state.inFlight === null
-          ? null
-          : state.overHoldLimit,
-      run: {
-        id: runId,
-        leaseUntil: new Date(context.deadlineAt).toISOString(),
-      },
-      inFlight: null,
-      held,
-    };
-    claim = { status: "claimed", state: claimed, interrupted };
-    return claimed;
-  });
+  await mutateSetting(
+    SWEEP_STATE_KEY,
+    (current) => {
+      const state = parseSweepState(current);
+      if (state.run && Date.parse(state.run.leaseUntil) > now) {
+        claim = { status: "busy", leaseUntil: state.run.leaseUntil };
+        return state;
+      }
+      if (
+        state.after === null &&
+        state.inFlight === null &&
+        state.passCompletedAt !== null &&
+        now - Date.parse(state.passCompletedAt) < PASS_REST_MS
+      ) {
+        claim = { status: "resting", passCompletedAt: state.passCompletedAt };
+        return state;
+      }
+      const held = { ...state.held };
+      const interrupted = state.inFlight?.documentId ?? null;
+      if (interrupted !== null) {
+        held[interrupted] = holdPage(
+          held[interrupted],
+          "interrupted",
+          null,
+          now,
+        );
+      }
+      const claimed: SweepState = {
+        ...state,
+        overHoldLimit:
+          state.after === null && state.inFlight === null
+            ? null
+            : state.overHoldLimit,
+        run: {
+          id: runId,
+          leaseUntil: new Date(context.deadlineAt).toISOString(),
+        },
+        inFlight: null,
+        held,
+      };
+      claim = { status: "claimed", state: claimed, interrupted };
+      return claimed;
+    },
+    { global: true },
+  );
   if (!claim) throw new Error("The backfill sweep's claim recorded no answer.");
   if (claim.status !== "claimed") return claim;
   const { state, interrupted } = claim;
   const held = { ...state.held };
   let overHoldLimit = state.overHoldLimit;
   const save = (next: Omit<SweepState, "version" | "held" | "overHoldLimit">) =>
-    mutateSetting(SWEEP_STATE_KEY, (current) => {
-      if (parseSweepState(current).run?.id !== runId) {
-        throw new SweepLeaseLost();
-      }
-      return {
-        version: 2,
-        ...next,
-        held: { ...held },
-        overHoldLimit,
-      } satisfies SweepState;
-    });
+    mutateSetting(
+      SWEEP_STATE_KEY,
+      (current) => {
+        if (parseSweepState(current).run?.id !== runId) {
+          throw new SweepLeaseLost();
+        }
+        return {
+          version: 2,
+          ...next,
+          held: { ...held },
+          overHoldLimit,
+        } satisfies SweepState;
+      },
+      { global: true },
+    );
 
   // guard:allow-unscoped — the sweep acts for each page's owner, gated by that owner's flags; it reads write-path columns only.
   const pages = await getDb()

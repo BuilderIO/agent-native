@@ -399,6 +399,7 @@ async function stableHostId(): Promise<string> {
   const stored = await mutateSetting(
     CHATGPT_SUBSCRIPTION_HOST_ID_SETTING_KEY,
     (previous) => previous ?? { hostId: created },
+    { global: true },
   );
   if (
     typeof stored.hostId !== "string" ||

@@ -243,6 +243,7 @@ export async function bindBuilderSignupAttempt(
           userId: identity.user.id,
           status: "control",
         },
+      { owner: normalizedEmail },
     );
     if (record.id === assignment.id && record.status === "control") {
       track(
@@ -276,6 +277,7 @@ export async function bindBuilderSignupAttempt(
         key,
         (current) =>
           current ?? { id: assignment.id, boundUserId: identity.user.id },
+        { owner: normalizedEmail },
       ),
     );
   if (bound.id !== assignment.id || bound.boundUserId !== identity.user.id)
@@ -288,6 +290,7 @@ export async function bindBuilderSignupAttempt(
         userId: identity.user.id,
         email: normalizedEmail,
       },
+    { owner: normalizedEmail },
   );
   setCookie(event, "an_builder_signup_pending", "1", {
     path: "/",
@@ -319,6 +322,7 @@ export async function getBuilderSignupConnectError(
 
 async function finishSignupActivation(
   key: string,
+  ownerEmail: string,
   attempt: string,
   outcome: {
     status: "connected" | "fallback";
@@ -328,23 +332,27 @@ async function finishSignupActivation(
 ) {
   let changed = false;
   const commit = () =>
-    mutateSetting(key, (current) => {
-      changed = false;
-      if (!current || current.attempt !== attempt)
-        throw new Error("Signup activation reservation ownership changed");
-      const status = z
-        .enum(["started", "connected", "fallback"])
-        .parse(current.status);
-      if (status !== "started") return current;
-      changed = true;
-      return {
-        ...current,
-        status: outcome.status,
-        code: outcome.code ?? null,
-        message: outcome.message ?? null,
-        completedAt: Date.now(),
-      };
-    });
+    mutateSetting(
+      key,
+      (current) => {
+        changed = false;
+        if (!current || current.attempt !== attempt)
+          throw new Error("Signup activation reservation ownership changed");
+        const status = z
+          .enum(["started", "connected", "fallback"])
+          .parse(current.status);
+        if (status !== "started") return current;
+        changed = true;
+        return {
+          ...current,
+          status: outcome.status,
+          code: outcome.code ?? null,
+          message: outcome.message ?? null,
+          completedAt: Date.now(),
+        };
+      },
+      { owner: ownerEmail },
+    );
   // Retrying the owned terminal write is idempotent; the provider is never retried.
   const retryCommit = async () => {
     await new Promise((resolve) => setTimeout(resolve, 250));
@@ -428,7 +436,7 @@ export function createBuilderSignupExperiment(dependencies: {
       }))
     )
       return null;
-    const result = await finishSignupActivation(key, attempt, {
+    const result = await finishSignupActivation(key, session.email, attempt, {
       status: "connected",
       code: "connection_reconciled",
     });
@@ -764,6 +772,7 @@ export function createBuilderSignupExperiment(dependencies: {
           attempt,
           userId: session.userId,
         },
+      { owner: session.email },
     );
     if (record.attempt !== attempt) return { status: "pending" as const };
     track(
@@ -787,11 +796,16 @@ export function createBuilderSignupExperiment(dependencies: {
         result = { ok: false, code: "activation_interrupted" };
       }
       try {
-        const committed = await finishSignupActivation(key, attempt, {
-          status: result.ok ? "connected" : "fallback",
-          ...(result.code ? { code: result.code } : {}),
-          ...(result.message ? { message: result.message } : {}),
-        });
+        const committed = await finishSignupActivation(
+          key,
+          session.email,
+          attempt,
+          {
+            status: result.ok ? "connected" : "fallback",
+            ...(result.code ? { code: result.code } : {}),
+            ...(result.message ? { message: result.message } : {}),
+          },
+        );
         const status = committed.status;
         if (!committed.changed)
           return {

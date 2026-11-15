@@ -257,7 +257,11 @@ class HttpStatusError extends Error {
   }
 }
 
-class SyncResyncRequiredError extends Error {}
+class SyncResyncRequiredError extends Error {
+  constructor(readonly cursor?: SyncCursor) {
+    super("Sync data must be refreshed.");
+  }
+}
 
 export type SyncEvent = {
   version?: number;
@@ -484,7 +488,7 @@ type SyncBroadcast =
       cursor?: SyncCursor;
     }
   | { type: "sse-state"; connected: boolean; capabilities: string[] }
-  | { type: "resync" }
+  | { type: "resync"; cursor?: SyncCursor }
   | { type: "sse-state-request" };
 
 type EventSubscriber = (
@@ -652,9 +656,12 @@ async function fetchPollJson<T>(
     );
     if (!res.ok) {
       if (res.status === 409) {
-        const body = (await res.json()) as { error?: unknown };
+        const body = (await res.json()) as {
+          error?: unknown;
+          cursor?: unknown;
+        };
         if (body.error === "SYNC_EVENT_READ_UNAVAILABLE") {
-          throw new SyncResyncRequiredError();
+          throw new SyncResyncRequiredError(decodeSyncCursor(body.cursor));
         }
       }
       throw new HttpStatusError(res.status);
@@ -942,10 +949,10 @@ class SyncTransport {
     }
   }
 
-  private resync(): void {
-    this.cursorRef = { ...INITIAL_SYNC_CURSOR };
+  private resync(cursor?: SyncCursor): void {
+    this.cursorRef = cursor ?? { ...INITIAL_SYNC_CURSOR };
     for (const sub of this.subscribers.values()) sub.onResync?.();
-    this.broadcast({ type: "resync" });
+    this.broadcast({ type: "resync", ...(cursor ? { cursor } : {}) });
   }
 
   private setSseConnected(connected: boolean): void {
@@ -1105,7 +1112,7 @@ class SyncTransport {
         }
         this.reschedule();
       } else if (frame?.type === "resync") {
-        this.cursorRef = { ...INITIAL_SYNC_CURSOR };
+        this.cursorRef = frame.cursor ?? { ...INITIAL_SYNC_CURSOR };
         for (const sub of this.subscribers.values()) sub.onResync?.();
       }
     };
@@ -1363,7 +1370,7 @@ class SyncTransport {
       readNextPage = false;
       if (this.stopped) return;
       if (err instanceof SyncResyncRequiredError) {
-        this.resync();
+        this.resync(err.cursor);
         readNextPage = true;
         return;
       }

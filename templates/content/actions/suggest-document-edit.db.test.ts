@@ -1561,15 +1561,19 @@ describe("suggest-document-edit on a Page written through its live copy", () => 
     registerFeatureFlags(CONTENT_FEATURE_FLAGS);
     const { putSetting } = await import("@agent-native/core/settings");
     for (const flag of ["content.live-body-shadow", "content.live-body-writer"])
-      await putSetting(`feature-flag:${flag}`, {
-        version: 1,
-        mode: "rules",
-        emails: [ctx.userEmail],
-        orgIds: [],
-        percentage: 0,
-        updatedAt: null,
-        updatedBy: null,
-      });
+      await putSetting(
+        `feature-flag:${flag}`,
+        {
+          version: 1,
+          mode: "rules",
+          emails: [ctx.userEmail],
+          orgIds: [],
+          percentage: 0,
+          updatedAt: null,
+          updatedBy: null,
+        },
+        { global: true },
+      );
   });
 
   async function switchedPage(content: string) {

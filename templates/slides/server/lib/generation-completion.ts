@@ -114,21 +114,25 @@ async function storePendingOutputs(
   outputs: GenerationFirstOutput[],
 ): Promise<void> {
   const key = `${PENDING_KEY_PREFIX}${turnKey}`;
-  await mutateSetting(key, (current) => {
-    const row = parsePendingRow(turnKey, current);
-    return {
-      ...row,
-      outputs: mergeOutputs(row?.outputs ?? [], outputs),
-      expiresAt: Date.now() + PENDING_TTL_MS,
-    };
-  });
+  await mutateSetting(
+    key,
+    (current) => {
+      const row = parsePendingRow(turnKey, current);
+      return {
+        ...row,
+        outputs: mergeOutputs(row?.outputs ?? [], outputs),
+        expiresAt: Date.now() + PENDING_TTL_MS,
+      };
+    },
+    { global: true },
+  );
   // Written first, so a failed sweep cannot lose the marker. A row is removed
   // only while it is still the expired value that was listed.
   for (const { key: staleKey, value } of await listSettingsByPrefix(
     PENDING_KEY_PREFIX,
   )) {
     if (typeof value.expiresAt === "number" && value.expiresAt <= Date.now()) {
-      await deleteSettingIfValue(staleKey, value);
+      await deleteSettingIfValue(staleKey, value, { global: true });
     }
   }
 }
@@ -149,24 +153,28 @@ async function claimFinalization(
   const stored = await getSetting(key);
   if (local.length === 0 && !parsePendingRow(turnKey, stored)) {
     // Nothing to report; an expired row is cleared while it is still the one read.
-    if (stored) await deleteSettingIfValue(key, stored);
+    if (stored) await deleteSettingIfValue(key, stored, { global: true });
     return null;
   }
   const owner = crypto.randomUUID();
   let outputs: GenerationFirstOutput[] = [];
   let claimed = false;
-  const held = await mutateSetting(key, (current) => {
-    const row = parsePendingRow(turnKey, current);
-    const lease = row?.finalizing;
-    outputs = mergeOutputs(row?.outputs ?? [], local);
-    claimed = !(lease && lease.until > Date.now() && lease.owner !== owner);
-    if (!claimed && current) return current;
-    return {
-      outputs,
-      expiresAt: Date.now() + PENDING_TTL_MS,
-      finalizing: { owner, until: Date.now() + FINALIZING_LEASE_MS },
-    };
-  });
+  const held = await mutateSetting(
+    key,
+    (current) => {
+      const row = parsePendingRow(turnKey, current);
+      const lease = row?.finalizing;
+      outputs = mergeOutputs(row?.outputs ?? [], local);
+      claimed = !(lease && lease.until > Date.now() && lease.owner !== owner);
+      if (!claimed && current) return current;
+      return {
+        outputs,
+        expiresAt: Date.now() + PENDING_TTL_MS,
+        finalizing: { owner, until: Date.now() + FINALIZING_LEASE_MS },
+      };
+    },
+    { global: true },
+  );
   return claimed ? { outputs, owner, held } : null;
 }
 
@@ -177,14 +185,18 @@ async function releaseFinalization(
 ): Promise<void> {
   const key = `${PENDING_KEY_PREFIX}${turnKey}`;
   if (!(await getSetting(key))) return;
-  await mutateSetting(key, (current) => {
-    const row = parsePendingRow(turnKey, current);
-    if (!current || !row || row.finalizing?.owner !== owner) {
-      return current ?? {};
-    }
-    const { finalizing: _released, ...rest } = row;
-    return rest;
-  });
+  await mutateSetting(
+    key,
+    (current) => {
+      const row = parsePendingRow(turnKey, current);
+      if (!current || !row || row.finalizing?.owner !== owner) {
+        return current ?? {};
+      }
+      const { finalizing: _released, ...rest } = row;
+      return rest;
+    },
+    { global: true },
+  );
 }
 
 export async function trackGenerationCompletedForRun(
@@ -209,7 +221,7 @@ export async function trackGenerationCompletedForRun(
   firstOutputsByTurn.delete(turnKey);
   const key = `${PENDING_KEY_PREFIX}${turnKey}`;
   if (run.status !== "completed") {
-    await deleteSettingIfValue(key, held);
+    await deleteSettingIfValue(key, held, { global: true });
     return;
   }
   // Every read happens before anything is reported, so a failed read gives the
@@ -259,7 +271,7 @@ export async function trackGenerationCompletedForRun(
     );
   }
   // Dropped only after every report was handed off.
-  await deleteSettingIfValue(key, held);
+  await deleteSettingIfValue(key, held, { global: true });
 }
 
 /**

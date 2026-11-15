@@ -53,7 +53,9 @@ function rules(emails: string[]) {
 
 async function setLiveBodyFlags(on: boolean) {
   for (const flag of ["content.live-body-shadow", "content.live-body-writer"])
-    await putSetting(`feature-flag:${flag}`, rules(on ? [ownerEmail] : []));
+    await putSetting(`feature-flag:${flag}`, rules(on ? [ownerEmail] : []), {
+      global: true,
+    });
 }
 
 beforeAll(async () => {

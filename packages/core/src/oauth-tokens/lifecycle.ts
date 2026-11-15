@@ -225,25 +225,31 @@ async function acquireLease(
   now: number,
   allowExpiredTakeover = false,
 ): Promise<LeaseAcquisition> {
-  const next = await mutateSetting(leaseKey(identity), (current) => {
-    const currentHolder =
-      typeof current?.holder === "string" ? current.holder : "";
-    const expiresAt =
-      typeof current?.expiresAt === "number" ? current.expiresAt : 0;
-    const currentRevision =
-      typeof current?.revision === "number" ? current.revision : -1;
-    if (currentHolder && currentHolder !== holder) {
-      if (
-        expiresAt > now ||
-        (!allowExpiredTakeover &&
-          (currentRevision === revision ||
-            (currentRevision === -1 && legacyCredential)))
-      ) {
-        return current!;
+  const next = await mutateSetting(
+    leaseKey(identity),
+    (current) => {
+      const currentHolder =
+        typeof current?.holder === "string" ? current.holder : "";
+      const expiresAt =
+        typeof current?.expiresAt === "number" ? current.expiresAt : 0;
+      const currentRevision =
+        typeof current?.revision === "number" ? current.revision : -1;
+      if (current && currentHolder && currentHolder !== holder) {
+        if (
+          expiresAt > now ||
+          (!allowExpiredTakeover &&
+            (currentRevision === revision ||
+              (currentRevision === -1 && legacyCredential)))
+        ) {
+          return current;
+        }
       }
-    }
-    return { holder, revision, expiresAt: now + leaseMs };
-  });
+      return { holder, revision, expiresAt: now + leaseMs };
+    },
+    identity.owner.scope === "user"
+      ? { owner: identity.owner.id }
+      : { orgId: identity.owner.id },
+  );
   if (next.holder === holder && next.revision === revision) return "acquired";
   if (
     (next.revision === revision || typeof next.revision !== "number") &&
@@ -259,8 +265,15 @@ async function releaseLease(
   identity: OAuthCredentialIdentity,
   holder: string,
 ): Promise<void> {
-  await mutateSetting(leaseKey(identity), (current) =>
-    current?.holder === holder ? { holder: "", expiresAt: 0 } : (current ?? {}),
+  await mutateSetting(
+    leaseKey(identity),
+    (current) =>
+      current?.holder === holder
+        ? { holder: "", expiresAt: 0 }
+        : (current ?? {}),
+    identity.owner.scope === "user"
+      ? { owner: identity.owner.id }
+      : { orgId: identity.owner.id },
   ).catch(() => undefined);
 }
 

@@ -181,10 +181,14 @@ async function releaseAlertClaim(
   claimExpiresAt: number,
 ): Promise<string | null> {
   try {
-    await deleteSettingIfValue(LAST_ALERT_SETTING_KEY, {
-      claimId,
-      claimExpiresAt,
-    });
+    await deleteSettingIfValue(
+      LAST_ALERT_SETTING_KEY,
+      {
+        claimId,
+        claimExpiresAt,
+      },
+      { global: true },
+    );
     return null;
   } catch (error) {
     const reason = "The Slack alert claim could not be released.";
@@ -222,18 +226,22 @@ export async function checkChatHealthAndAlert(
   const claimExpiresAt = now + CLAIM_LEASE_MS;
   let claim: Record<string, unknown>;
   try {
-    claim = await mutateSetting(LAST_ALERT_SETTING_KEY, (current) => {
-      const lastPagedAt = Number(current?.at ?? 0);
-      const existingClaimExpiresAt = Number(current?.claimExpiresAt ?? 0);
-      if (
-        (Number.isFinite(lastPagedAt) && now - lastPagedAt < COOLDOWN_MS) ||
-        (Number.isFinite(existingClaimExpiresAt) &&
-          existingClaimExpiresAt > now)
-      ) {
-        return current ?? {};
-      }
-      return { claimId, claimExpiresAt };
-    });
+    claim = await mutateSetting(
+      LAST_ALERT_SETTING_KEY,
+      (current) => {
+        const lastPagedAt = Number(current?.at ?? 0);
+        const existingClaimExpiresAt = Number(current?.claimExpiresAt ?? 0);
+        if (
+          (Number.isFinite(lastPagedAt) && now - lastPagedAt < COOLDOWN_MS) ||
+          (Number.isFinite(existingClaimExpiresAt) &&
+            existingClaimExpiresAt > now)
+        ) {
+          return current ?? {};
+        }
+        return { claimId, claimExpiresAt };
+      },
+      { global: true },
+    );
   } catch (error) {
     return { status: "check-failed", reason: String(error) };
   }
@@ -345,10 +353,13 @@ export async function checkChatHealthAndAlert(
   }
 
   try {
-    const finalized = await mutateSetting(LAST_ALERT_SETTING_KEY, (current) =>
-      String(current?.claimId ?? "") === claimId
-        ? { at: now, claimId }
-        : (current ?? {}),
+    const finalized = await mutateSetting(
+      LAST_ALERT_SETTING_KEY,
+      (current) =>
+        String(current?.claimId ?? "") === claimId
+          ? { at: now, claimId }
+          : (current ?? {}),
+      { global: true },
     );
     if (String(finalized.claimId ?? "") !== claimId) {
       const reason =

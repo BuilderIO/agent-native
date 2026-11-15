@@ -100,7 +100,7 @@ export async function deleteScopedSettingRecord(
     await deleteUserSetting(scope.email, key);
     return;
   }
-  await deleteSetting(key);
+  await deleteSetting(key, { global: true });
 }
 
 export async function listScopedSettingRecords(

@@ -119,14 +119,22 @@ describe("default model scope", () => {
     async (ctx) => {
       await ensureAuditTables();
       const authority = await adminAuthority(ctx.orgId, ctx.userEmail);
-      await putSetting(`${ctx.prefix}agent-engine`, {
-        engine: "old-engine",
-        model: "previous-default",
-      });
-      await putSetting(`${ctx.prefix}agent-app-model-default:calendar`, {
-        engine: "old-engine",
-        model: "old-model",
-      });
+      await putSetting(
+        `${ctx.prefix}agent-engine`,
+        {
+          engine: "old-engine",
+          model: "previous-default",
+        },
+        { global: true },
+      );
+      await putSetting(
+        `${ctx.prefix}agent-app-model-default:calendar`,
+        {
+          engine: "old-engine",
+          model: "old-model",
+        },
+        { global: true },
+      );
       await pglite.exec(`CREATE FUNCTION reject_app_reset() RETURNS trigger AS $$
       BEGIN RAISE EXCEPTION 'app default write failed'; END;
       $$ LANGUAGE plpgsql;
@@ -155,7 +163,11 @@ describe("default model scope", () => {
     const legacy = `u:${userEmail}:agent-app-model-default:calendar`;
     const defaultKey = "u:solo@example.test:agent-engine";
     for (const key of [canonical, legacy, defaultKey]) {
-      await putSetting(key, { engine: "old-engine", model: "old-model" });
+      await putSetting(
+        key,
+        { engine: "old-engine", model: "old-model" },
+        { global: true },
+      );
     }
     await runWithRequestContext(
       { userEmail, orgScope: "personal" },
@@ -253,10 +265,14 @@ describe("default model scope", () => {
   });
 
   it("keeps the legacy deployment-wide default until an org saves its own", async () => {
-    await putSetting("agent-engine", {
-      engine: "anthropic",
-      model: "claude-legacy",
-    });
+    await putSetting(
+      "agent-engine",
+      {
+        engine: "anthropic",
+        model: "claude-legacy",
+      },
+      { global: true },
+    );
 
     const before = await readDefaultAgentEngineSettingDetailed({
       userEmail: "admin-a@example.test",
@@ -298,7 +314,11 @@ describe("default model scope", () => {
   });
 
   it("clearing an org's default stops the legacy fallback for that org only", async () => {
-    await putSetting("agent-engine", { engine: "anthropic", model: "legacy" });
+    await putSetting(
+      "agent-engine",
+      { engine: "anthropic", model: "legacy" },
+      { global: true },
+    );
 
     await clearDefaultAgentEngineSelection(
       await adminAuthority(ORG_A, "admin-a@example.test"),
@@ -385,14 +405,22 @@ describe("default model scope", () => {
   });
 
   it("does not read personal or legacy defaults for an unresolved scope", async () => {
-    await putSetting("u:solo@example.test:agent-engine", {
-      engine: "anthropic",
-      model: "personal-model",
-    });
-    await putSetting("agent-engine", {
-      engine: "openai",
-      model: "legacy-model",
-    });
+    await putSetting(
+      "u:solo@example.test:agent-engine",
+      {
+        engine: "anthropic",
+        model: "personal-model",
+      },
+      { global: true },
+    );
+    await putSetting(
+      "agent-engine",
+      {
+        engine: "openai",
+        model: "legacy-model",
+      },
+      { global: true },
+    );
 
     await expect(
       readDefaultAgentEngineSettingDetailed({ userEmail: "solo@example.test" }),

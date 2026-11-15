@@ -42,8 +42,8 @@ async function setFlags(values: {
   shadow?: { emails?: string[]; orgIds?: string[] };
   writer?: { emails?: string[]; orgIds?: string[] };
 }) {
-  await putSetting(SHADOW, rules(values.shadow ?? {}));
-  await putSetting(WRITER, rules(values.writer ?? {}));
+  await putSetting(SHADOW, rules(values.shadow ?? {}), { global: true });
+  await putSetting(WRITER, rules(values.writer ?? {}), { global: true });
 }
 
 async function insertPage(
@@ -516,7 +516,7 @@ describe("live-body writer gate", () => {
     });
     await insertPage("switched");
     await insertPage("unswitched", { switched: false });
-    await putSetting(WRITER, { version: 1, mode: "onn" });
+    await putSetting(WRITER, { version: 1, mode: "onn" }, { global: true });
 
     await expect(gate.liveBodyWriterGate("switched")).rejects.toMatchObject({
       name: "FeatureFlagRulesError",

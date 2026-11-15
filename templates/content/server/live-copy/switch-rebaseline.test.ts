@@ -91,15 +91,19 @@ beforeAll(async () => {
     (await import("../../shared/feature-flags.js")).CONTENT_FEATURE_FLAGS,
   );
   for (const flag of ["content.live-body-shadow", "content.live-body-writer"])
-    await putSetting(`feature-flag:${flag}`, {
-      version: 1,
-      mode: "rules",
-      emails: [ownerEmail],
-      orgIds: [],
-      percentage: 0,
-      updatedAt: null,
-      updatedBy: null,
-    });
+    await putSetting(
+      `feature-flag:${flag}`,
+      {
+        version: 1,
+        mode: "rules",
+        emails: [ownerEmail],
+        orgIds: [],
+        percentage: 0,
+        updatedAt: null,
+        updatedBy: null,
+      },
+      { global: true },
+    );
   collab = await import("@agent-native/core/collab");
   switching = await import("./switch.js");
   contentLiveCopy = (await import("./binding.js")).contentLiveCopy;

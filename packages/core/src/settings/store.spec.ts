@@ -71,7 +71,7 @@ describe("settings store", () => {
       },
     );
     try {
-      await putSetting("probe", { x: 1 });
+      await putSetting("probe", { x: 1 }, { global: true });
     } finally {
       rawClient.execute.mockImplementation(orig);
     }
@@ -84,13 +84,13 @@ describe("settings store", () => {
   });
 
   it("round-trips a value via put/get", async () => {
-    await putSetting("theme", { value: "dark" });
+    await putSetting("theme", { value: "dark" }, { global: true });
     const result = await getSetting("theme");
     expect(result).toEqual({ value: "dark" });
   });
 
   it("rejects nested inline image bytes before setting writes", async () => {
-    await putSetting("safe", { nested: { enabled: true } });
+    await putSetting("safe", { nested: { enabled: true } }, { global: true });
     await expect(getSetting("safe")).resolves.toEqual({
       nested: { enabled: true },
     });
@@ -101,11 +101,13 @@ describe("settings store", () => {
       },
     };
     rawClient.execute.mockClear();
-    await expect(putSetting("unsafe", unsafe)).rejects.toThrow(/stores inline/);
+    await expect(
+      putSetting("unsafe", unsafe, { global: true }),
+    ).rejects.toThrow(/stores inline/);
     expect(rawClient.execute).not.toHaveBeenCalled();
 
     await expect(
-      mutateSetting("safe", () => ({ settings: unsafe })),
+      mutateSetting("safe", () => ({ settings: unsafe }), { global: true }),
     ).rejects.toThrow(/stores inline/);
     const writes = rawClient.execute.mock.calls.filter(([input]) => {
       const sql = typeof input === "string" ? input : input.sql;
@@ -144,39 +146,51 @@ describe("settings store", () => {
   });
 
   it("deletes an existing key and returns true", async () => {
-    await putSetting("to-delete", { keep: false });
-    const deleted = await deleteSetting("to-delete");
+    await putSetting("to-delete", { keep: false }, { global: true });
+    const deleted = await deleteSetting("to-delete", { global: true });
     expect(deleted).toBe(true);
     expect(await getSetting("to-delete")).toBeNull();
   });
 
   it("returns false when deleting a key that does not exist", async () => {
-    const deleted = await deleteSetting("ghost");
+    const deleted = await deleteSetting("ghost", { global: true });
     expect(deleted).toBe(false);
   });
 
   it("conditionally deletes only the inspected value", async () => {
-    await putSetting("conditional", { value: "old" });
+    await putSetting("conditional", { value: "old" }, { global: true });
 
-    expect(await deleteSettingIfValue("conditional", { value: "new" })).toBe(
-      false,
-    );
+    expect(
+      await deleteSettingIfValue(
+        "conditional",
+        { value: "new" },
+        { global: true },
+      ),
+    ).toBe(false);
     expect(await getSetting("conditional")).toEqual({ value: "old" });
-    expect(await deleteSettingIfValue("conditional", { value: "old" })).toBe(
-      true,
-    );
+    expect(
+      await deleteSettingIfValue(
+        "conditional",
+        { value: "old" },
+        { global: true },
+      ),
+    ).toBe(true);
     expect(await getSetting("conditional")).toBeNull();
   });
 
   it("preserves every concurrent read-modify-write update", async () => {
-    await putSetting("counter", { value: 0 });
+    await putSetting("counter", { value: 0 }, { global: true });
 
     await Promise.all(
       Array.from({ length: 12 }, () =>
-        mutateSetting("counter", async (current) => {
-          await Promise.resolve();
-          return { value: Number(current?.value ?? 0) + 1 };
-        }),
+        mutateSetting(
+          "counter",
+          async (current) => {
+            await Promise.resolve();
+            return { value: Number(current?.value ?? 0) + 1 };
+          },
+          { global: true },
+        ),
       ),
     );
 
@@ -186,10 +200,14 @@ describe("settings store", () => {
   it("serializes concurrent creation of a missing setting", async () => {
     await Promise.all(
       Array.from({ length: 8 }, () =>
-        mutateSetting("new-counter", async (current) => {
-          await Promise.resolve();
-          return { value: Number(current?.value ?? 0) + 1 };
-        }),
+        mutateSetting(
+          "new-counter",
+          async (current) => {
+            await Promise.resolve();
+            return { value: Number(current?.value ?? 0) + 1 };
+          },
+          { global: true },
+        ),
       ),
     );
 
@@ -205,6 +223,7 @@ describe("settings store", () => {
     try {
       await pglite.exec("BEGIN");
       await mutateSetting("transactional", () => ({ value: 1 }), {
+        global: true,
         transaction: rawClient,
       });
       expect(events).toEqual([]);
@@ -213,11 +232,12 @@ describe("settings store", () => {
 
       await pglite.exec("BEGIN");
       await mutateSetting("transactional", () => ({ value: 2 }), {
+        global: true,
         transaction: rawClient,
       });
       await pglite.exec("COMMIT");
       expect(events).toEqual([]);
-      publishSettingChange("transactional");
+      publishSettingChange("transactional", { global: true });
       expect(events).toHaveLength(1);
       expect(await getSetting("transactional")).toEqual({ value: 2 });
     } finally {
@@ -233,7 +253,11 @@ describe("settings store", () => {
     const listener = (event: unknown) => events.push(event);
     getSettingsEmitter().on("settings", listener);
     try {
-      await putSetting("u:Mixed@Example.test:preference", { value: 1 });
+      await putSetting(
+        "u:Mixed@Example.test:preference",
+        { value: 1 },
+        { global: true },
+      );
       events.length = 0;
       await pglite.exec("BEGIN");
       await mutateUserSetting(
@@ -277,7 +301,11 @@ describe("settings store", () => {
     const listener = (event: unknown) => events.push(event);
     getSettingsEmitter().on("settings", listener);
     try {
-      await putSetting("steady", { value: 1, nested: { a: [1, 2] } });
+      await putSetting(
+        "steady",
+        { value: 1, nested: { a: [1, 2] } },
+        { global: true },
+      );
       const before = await pglite.query(
         "SELECT updated_at FROM settings WHERE key = ?",
         ["steady"],
@@ -287,7 +315,9 @@ describe("settings store", () => {
 
       const results = await Promise.all(
         Array.from({ length: 5 }, () =>
-          mutateSetting("steady", (current) => ({ ...current! })),
+          mutateSetting("steady", (current) => ({ ...current! }), {
+            global: true,
+          }),
         ),
       );
 
@@ -303,7 +333,9 @@ describe("settings store", () => {
         ).rows,
       ).toEqual(before.rows);
 
-      await mutateSetting("steady", (current) => ({ ...current!, value: 2 }));
+      await mutateSetting("steady", (current) => ({ ...current!, value: 2 }), {
+        global: true,
+      });
       expect(events).toHaveLength(1);
       expect(await getSetting("steady")).toMatchObject({ value: 2 });
     } finally {
@@ -312,9 +344,17 @@ describe("settings store", () => {
   });
 
   it("lists and isolates keys by prefix", async () => {
-    await putSetting("builder-connect-pending:a", { expiresAt: 1 });
-    await putSetting("builder-connect-pending:b", { expiresAt: 2 });
-    await putSetting("other:c", { expiresAt: 3 });
+    await putSetting(
+      "builder-connect-pending:a",
+      { expiresAt: 1 },
+      { global: true },
+    );
+    await putSetting(
+      "builder-connect-pending:b",
+      { expiresAt: 2 },
+      { global: true },
+    );
+    await putSetting("other:c", { expiresAt: 3 }, { global: true });
 
     const { listSettingsByPrefix } = await import("./store.js");
     const rows = await listSettingsByPrefix("builder-connect-pending:");
@@ -325,9 +365,9 @@ describe("settings store", () => {
   });
 
   it("bounds and orders prefix reads when requested", async () => {
-    await putSetting("dashboard:c", { id: "c" });
-    await putSetting("dashboard:a", { id: "a" });
-    await putSetting("dashboard:b", { id: "b" });
+    await putSetting("dashboard:c", { id: "c" }, { global: true });
+    await putSetting("dashboard:a", { id: "a" }, { global: true });
+    await putSetting("dashboard:b", { id: "b" }, { global: true });
 
     const { listSettingsByPrefix } = await import("./store.js");
     const rows = await listSettingsByPrefix("dashboard:", { limit: 2 });
@@ -356,8 +396,8 @@ it("reads settings through a supplied transaction without another connection", a
 describe("getSettings (batched read)", () => {
   it("reads N distinct keys in a single query", async () => {
     await runWithRequestContext({ userEmail: "a@b.com" }, async () => {
-      await putSetting("k1", { v: 1 });
-      await putSetting("k2", { v: 2 });
+      await putSetting("k1", { v: 1 }, { global: true });
+      await putSetting("k2", { v: 2 }, { global: true });
       rawClient.execute.mockClear();
 
       const values = await getSettings(["k1", "k2", "k3"]);
@@ -375,7 +415,7 @@ describe("getSettings (batched read)", () => {
 
   it("seeds the request cache so a later getSetting costs no query, including for a missing key", async () => {
     await runWithRequestContext({ userEmail: "a@b.com" }, async () => {
-      await putSetting("hit", { v: 1 });
+      await putSetting("hit", { v: 1 }, { global: true });
       rawClient.execute.mockClear();
 
       await getSettings(["hit", "miss"]);
@@ -389,7 +429,7 @@ describe("getSettings (batched read)", () => {
 
   it("serves keys already in the request cache without re-querying", async () => {
     await runWithRequestContext({ userEmail: "a@b.com" }, async () => {
-      await putSetting("cached", { v: 1 });
+      await putSetting("cached", { v: 1 }, { global: true });
       await getSetting("cached");
       rawClient.execute.mockClear();
 
@@ -420,7 +460,7 @@ describe("getSettings (batched read)", () => {
   });
 
   it("isolates a corrupted key's JSON from the rest of the batch", async () => {
-    await putSetting("good", { v: 1 });
+    await putSetting("good", { v: 1 }, { global: true });
     await pglite
       .prepare(`INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)`)
       .run("corrupt", "{not valid json", Date.now());
@@ -436,7 +476,7 @@ describe("getSettings (batched read)", () => {
   });
 
   it("returns stored values unparsed, so a corrupt row stays apart from a missing one", async () => {
-    await putSetting("good", { v: 1 });
+    await putSetting("good", { v: 1 }, { global: true });
     await pglite
       .prepare(`INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)`)
       .run("corrupt", "{not valid json", Date.now());

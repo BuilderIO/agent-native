@@ -220,6 +220,23 @@ export class SettingsScopeError extends Error {
   }
 }
 
+export class SettingsEventScopeError extends Error {
+  readonly code = "SETTINGS_SCOPE_REQUIRED";
+
+  constructor() {
+    super(
+      "Settings writes require an owner, organization, or explicit global scope.",
+    );
+    this.name = "SettingsEventScopeError";
+  }
+}
+
+function assertSettingsEventScope(options?: StoreWriteOptions): void {
+  if (!options?.owner?.trim() && !options?.orgId?.trim() && !options?.global) {
+    throw new SettingsEventScopeError();
+  }
+}
+
 export type UserSettingWriteOptions = Omit<
   StoreWriteOptions,
   "owner" | "orgId" | "global"
@@ -278,8 +295,10 @@ function settingsChangeEvent(
     source: "settings",
     type,
     key,
-    ...(options?.owner && { owner: options.owner }),
-    ...(options?.orgId && { orgId: options.orgId }),
+    ...(options?.owner?.trim() && {
+      owner: options.owner.trim().toLowerCase(),
+    }),
+    ...(options?.orgId?.trim() && { orgId: options.orgId.trim() }),
     ...(options?.global && { visibility: "public" }),
     ...(options?.requestSource && { requestSource: options.requestSource }),
   };
@@ -292,6 +311,7 @@ export async function mutateSetting(
   ) => Record<string, unknown> | Promise<Record<string, unknown>>,
   options?: StoreMutationOptions,
 ): Promise<Record<string, unknown>> {
+  assertSettingsEventScope(options);
   if (!options?.transaction) await ensureTable();
   const client = options?.transaction ?? getDbExec();
   const table = settingsTable();
@@ -347,6 +367,7 @@ export function publishSettingChange(
   key: string,
   options?: StoreWriteOptions,
 ): void {
+  assertSettingsEventScope(options);
   requestSettingsCache()?.delete(key);
   settingsEmitter().emit(
     "settings",
@@ -363,6 +384,7 @@ export async function putSetting(
   value: Record<string, unknown>,
   options?: StoreWriteOptions,
 ): Promise<void> {
+  assertSettingsEventScope(options);
   if (!options?.allowInlineImageBytes) {
     assertNoInlineImageBytes(value, `setting "${key}"`);
   }
@@ -385,6 +407,7 @@ export async function deleteSetting(
   key: string,
   options?: StoreWriteOptions,
 ): Promise<boolean> {
+  assertSettingsEventScope(options);
   await ensureTable();
   const client = getDbExec();
   const table = settingsTable();
@@ -408,6 +431,7 @@ export async function deleteSettingIfValue(
   expected: Record<string, unknown>,
   options?: StoreMutationOptions,
 ): Promise<boolean> {
+  assertSettingsEventScope(options);
   if (!options?.transaction) await ensureTable();
   const client = options?.transaction ?? getDbExec();
   const table = settingsTable();
@@ -431,6 +455,7 @@ export async function deleteSettingsByPrefix(
   prefix: string,
   options?: StoreWriteOptions,
 ): Promise<number> {
+  assertSettingsEventScope(options);
   await ensureTable();
   const client = getDbExec();
   const table = settingsTable();

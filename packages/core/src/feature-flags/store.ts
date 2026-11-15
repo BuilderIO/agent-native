@@ -95,28 +95,32 @@ async function syncFeatureFlagRolloutIndex(
   rules: FeatureFlagRules,
 ): Promise<void> {
   const indexKey = rolloutIndexKey(key);
-  await mutateSetting(indexKey, async (current) => {
-    const next = normalizeFeatureFlagRolloutIndex(current) ?? {
-      version: 1 as const,
-      global: false,
-      orgIds: [],
-    };
-    if (scope.orgId?.trim()) {
-      const orgId = scope.orgId.trim();
-      const active = hasActiveRollout(rules);
-      const orgIds = active
-        ? [...new Set([...next.orgIds, orgId])].sort()
-        : next.orgIds.filter((value) => value !== orgId);
+  await mutateSetting(
+    indexKey,
+    async (current) => {
+      const next = normalizeFeatureFlagRolloutIndex(current) ?? {
+        version: 1 as const,
+        global: false,
+        orgIds: [],
+      };
+      if (scope.orgId?.trim()) {
+        const orgId = scope.orgId.trim();
+        const active = hasActiveRollout(rules);
+        const orgIds = active
+          ? [...new Set([...next.orgIds, orgId])].sort()
+          : next.orgIds.filter((value) => value !== orgId);
+        return {
+          ...next,
+          orgIds,
+        };
+      }
       return {
         ...next,
-        orgIds,
+        global: hasActiveRollout(rules),
       };
-    }
-    return {
-      ...next,
-      global: hasActiveRollout(rules),
-    };
-  });
+    },
+    scope.orgId ? { orgId: scope.orgId } : { global: true },
+  );
 }
 
 export function defaultFeatureFlagRules(): FeatureFlagRules {
@@ -404,11 +408,15 @@ export async function hasActiveFeatureFlagRollout(
 
   const { global } = await readFeatureFlagRuleLayers(key, {});
   if (storedRuleActive(global)) {
-    await mutateSetting(indexKey, async () => ({
-      version: 1,
-      global: true,
-      orgIds: [],
-    }));
+    await mutateSetting(
+      indexKey,
+      async () => ({
+        version: 1,
+        global: true,
+        orgIds: [],
+      }),
+      { global: true },
+    );
     return true;
   }
 
@@ -425,11 +433,15 @@ export async function hasActiveFeatureFlagRollout(
     })
     .filter((orgId): orgId is string => Boolean(orgId))
     .sort();
-  await mutateSetting(indexKey, async () => ({
-    version: 1,
-    global: false,
-    orgIds,
-  }));
+  await mutateSetting(
+    indexKey,
+    async () => ({
+      version: 1,
+      global: false,
+      orgIds,
+    }),
+    { global: true },
+  );
   return orgIds.length > 0;
 }
 

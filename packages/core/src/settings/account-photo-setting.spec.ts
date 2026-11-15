@@ -59,16 +59,16 @@ afterEach(async () => {
 
 describe("the account photo setting", () => {
   it("still refuses an inline image on any other setting", async () => {
-    await expect(putSetting("theme", { image: PHOTO })).rejects.toThrow(
-      /stores inline/,
-    );
+    await expect(
+      putSetting("theme", { image: PHOTO }, { global: true }),
+    ).rejects.toThrow(/stores inline/);
   });
 
   it("stores the photo when the writer asks for the exemption", async () => {
     await putSetting(
       "avatar:analyst@example.test",
       { image: PHOTO },
-      { allowInlineImageBytes: true },
+      { global: true, allowInlineImageBytes: true },
     );
     await expect(getSetting("avatar:analyst@example.test")).resolves.toEqual({
       image: PHOTO,
@@ -77,10 +77,13 @@ describe("the account photo setting", () => {
 
   it("keeps the refusal on the mutating write unless the writer asks", async () => {
     await expect(
-      mutateSetting("avatar:analyst@example.test", () => ({ image: PHOTO })),
+      mutateSetting("avatar:analyst@example.test", () => ({ image: PHOTO }), {
+        global: true,
+      }),
     ).rejects.toThrow(/stores inline/);
     await expect(
       mutateSetting("avatar:analyst@example.test", () => ({ image: PHOTO }), {
+        global: true,
         allowInlineImageBytes: true,
       }),
     ).resolves.toEqual({ image: PHOTO });

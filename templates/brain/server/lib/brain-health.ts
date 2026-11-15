@@ -104,7 +104,11 @@ export async function writeBrainEvalSnapshot(result: EvalResultLike) {
     fallbackSeeded: result.fallbackSeeded,
     ranAt: new Date().toISOString(),
   };
-  await putSetting(LAST_EVAL_SETTINGS_KEY, { ...snapshot }).catch(() => {});
+  await putSetting(
+    LAST_EVAL_SETTINGS_KEY,
+    { ...snapshot },
+    { global: true },
+  ).catch(() => {});
   return snapshot;
 }
 

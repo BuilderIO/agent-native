@@ -674,7 +674,7 @@ export function connectionPoolRegressionSuite(postgresUrl: string) {
       const key = `content-pool:${documentId}`;
       const original = { documentId, title: "Original ? $1 'quoted'" };
       const updated = { documentId, title: "Updated ? $1 'quoted'" };
-      await putSetting(key, original);
+      await putSetting(key, original, { global: true });
       try {
         await database.getDb().transaction(async () => {
           const transaction = getDbExec();
@@ -687,7 +687,7 @@ export function connectionPoolRegressionSuite(postgresUrl: string) {
           expect(await getSetting(key, { transaction })).toEqual(updated);
         });
       } finally {
-        await deleteSetting(key);
+        await deleteSetting(key, { global: true });
       }
     },
     TIMEOUT,
@@ -774,9 +774,13 @@ export function connectionPoolRegressionSuite(postgresUrl: string) {
         .update(database.schema.documents)
         .set({ orgId: ORG })
         .where(eq(database.schema.documents.id, documentId));
-      await putSetting(`u:${WRITER}:labs`, {
-        [CONTENT_CREATIVE_CONTEXT.key]: true,
-      });
+      await putSetting(
+        `u:${WRITER}:labs`,
+        {
+          [CONTENT_CREATIVE_CONTEXT.key]: true,
+        },
+        { global: true },
+      );
       if (packId) {
         await db.insert(creativeSchema.contextPacks).values({
           id: packId,
