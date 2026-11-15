@@ -939,17 +939,27 @@ export function createPropertyMetadataUpdateQueue(
 ) {
   let current = initialMetadata;
   let tail: Promise<unknown> = Promise.resolve();
+  let pending = 0;
 
   return {
     replace(metadata: PropertyMetadataSnapshot) {
-      current = metadata;
+      if (pending === 0) current = metadata;
     },
     enqueue(
       update: (metadata: PropertyMetadataSnapshot) => PropertyMetadataSnapshot,
     ) {
-      current = update(current);
-      const snapshot = current;
-      tail = tail.catch(() => undefined).then(() => persist(snapshot));
+      pending += 1;
+      const write = tail
+        .catch(() => undefined)
+        .then(async () => {
+          const snapshot = update(current);
+          const result = await persist(snapshot);
+          current = snapshot;
+          return result;
+        });
+      tail = write.finally(() => {
+        pending -= 1;
+      });
       return tail;
     },
   };
@@ -1846,10 +1856,15 @@ export function PropertyManagementPopover({
 
   async function updateType(nextType: DocumentPropertyType) {
     if (nextType === property.definition.type) return;
-    await configureProperty({
-      type: nextType,
-      options: defaultPropertyOptions(nextType),
-    });
+    try {
+      await configureProperty({
+        type: nextType,
+        options: defaultPropertyOptions(nextType),
+      });
+    } catch (error) {
+      reportWriteFailure(error);
+      return;
+    }
     setOpen(false);
   }
 

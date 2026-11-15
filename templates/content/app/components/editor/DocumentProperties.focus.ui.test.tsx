@@ -11,6 +11,7 @@ import {
   press,
   queryByLabel,
   renderUi,
+  typeInto,
 } from "@/test-utils/render-ui";
 
 const mutations = vi.hoisted(() => {
@@ -23,8 +24,13 @@ const mutations = vi.hoisted(() => {
     configure: mutation(),
     duplicate: mutation(),
     remove: mutation(),
+    reportFailure: vi.fn(),
   };
 });
+
+vi.mock("@agent-native/core/client/write-failure", () => ({
+  reportWriteFailure: mutations.reportFailure,
+}));
 
 vi.mock("@agent-native/core/client/i18n", async (importOriginal) => ({
   ...(await importOriginal<typeof import("@agent-native/core/client/i18n")>()),
@@ -97,12 +103,108 @@ async function openValueEditor(documentProperty: DocumentProperty) {
 }
 
 beforeEach(() => {
-  for (const mutation of Object.values(mutations)) {
-    mutation.mutateAsync.mockClear();
+  for (const mutation of [
+    mutations.setValue,
+    mutations.configure,
+    mutations.duplicate,
+    mutations.remove,
+  ]) {
+    mutation.mutateAsync.mockReset().mockResolvedValue({});
   }
+  mutations.reportFailure.mockReset();
 });
 
 describe("property management menu", () => {
+  it.each(["guard", "transport"])(
+    "reports a rejected type change from %s and preserves metadata for the next edit",
+    async (kind) => {
+      const failure = new Error(
+        kind === "guard"
+          ? "Property type changes are unavailable in ordinary database setup."
+          : "Transport failed",
+      );
+      mutations.configure.mutateAsync.mockImplementationOnce(() => {
+        if (kind === "guard") throw failure;
+        return Promise.reject(failure);
+      });
+      const original =
+        kind === "guard"
+          ? property("text", "Status", "existing")
+          : property("select", "Status", "draft", statusOptions);
+      renderUi(
+        <PropertyManagementPopover
+          property={original}
+          documentId="document"
+          databaseId="database"
+          icon={TYPE_ICONS[original.definition.type]}
+        />,
+      );
+      await click(byLabel("editor.properties.propertyMenuFor(Status)"));
+      await nextFrame();
+      const typeMenu = [
+        ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+      ].find((item) => item.textContent.startsWith("editor.properties.type"));
+      if (!typeMenu) throw new Error("No Type submenu");
+      await focus(typeMenu);
+      await press(typeMenu, "ArrowRight");
+      await nextFrame();
+      const number = [
+        ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+      ].find(
+        (item) => item.textContent.trim() === "editor.propertyTypes.number",
+      );
+      if (!number) throw new Error("No Number choice");
+      await click(number);
+      expect(mutations.reportFailure).toHaveBeenCalledWith(failure);
+      expect(typeMenu.textContent).toContain(
+        `editor.propertyTypes.${original.definition.type}`,
+      );
+      expect(byLabel("editor.properties.propertyName")).toBeTruthy();
+      const description = byLabel<HTMLTextAreaElement>(
+        "editor.properties.description",
+      );
+      await focus(description);
+      await typeInto(description, "A description");
+      await focus(byLabel("editor.properties.propertyName"));
+      expect(mutations.configure.mutateAsync).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          type: original.definition.type,
+          options: original.definition.options,
+          description: "A description",
+        }),
+      );
+    },
+  );
+
+  it("closes the menu after a supported type change succeeds", async () => {
+    renderUi(
+      <PropertyManagementPopover
+        property={property("text", "Notes", "")}
+        documentId="document"
+        databaseId="database"
+        icon={TYPE_ICONS.text}
+      />,
+    );
+    await click(byLabel("editor.properties.propertyMenuFor(Notes)"));
+    const typeMenu = [
+      ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ].find((item) => item.textContent.startsWith("editor.properties.type"));
+    if (!typeMenu) throw new Error("No Type submenu");
+    await focus(typeMenu);
+    await press(typeMenu, "ArrowRight");
+    await nextFrame();
+    const number = [
+      ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ].find((item) => item.textContent.trim() === "editor.propertyTypes.number");
+    if (!number) throw new Error("No Number choice");
+    await click(number);
+    expect(mutations.configure.mutateAsync).toHaveBeenCalledWith(
+      expect.objectContaining({ type: "number" }),
+    );
+    expect(mutations.reportFailure).not.toHaveBeenCalled();
+    expect(queryByLabel("editor.properties.propertyName")).toBeNull();
+  });
+
   it("focuses and selects the property name when the menu opens", async () => {
     renderUi(
       <PropertyManagementPopover

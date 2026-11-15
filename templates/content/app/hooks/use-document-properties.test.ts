@@ -675,6 +675,71 @@ describe("useConfigureDocumentProperty", () => {
     );
   });
 
+  it("rejects an ordinary text type change before transport and still permits metadata edits", async () => {
+    const transport = vi.fn(async (_input: unknown) => undefined);
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(
+      ["action", "get-content-database", { documentId: "database-page-1" }],
+      {
+        database: { id: "database-1" },
+        mutationContract: {
+          target: {
+            spaceId: "space-1",
+            databaseId: "database-1",
+            databaseDocumentId: "database-page-1",
+          },
+          schemaRevision: "S0",
+        },
+        properties: [
+          {
+            definition: {
+              id: "text-1",
+              name: "Notes",
+              type: "text",
+              options: {},
+            },
+            value: "existing",
+          },
+        ],
+      },
+    );
+    useQueryClient.mockReturnValue(queryClient);
+    useActionMutation.mockReturnValue({ mutateAsync: transport });
+    const configure = useConfigureDocumentProperty(
+      "database-page-1",
+      "database-1",
+    );
+
+    expect(() =>
+      configure.mutateAsync({
+        id: "text-1",
+        documentId: "database-page-1",
+        name: "Notes",
+        type: "number",
+        options: {},
+      }),
+    ).toThrow(
+      "Property type changes are unavailable in ordinary database setup.",
+    );
+    expect(transport).not.toHaveBeenCalled();
+    await configure.mutateAsync({
+      id: "text-1",
+      documentId: "database-page-1",
+      name: "Notes",
+      type: "text",
+      description: "Details",
+      options: {},
+    });
+    expect(transport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "update",
+        propertyId: "text-1",
+        patch: { description: "Details" },
+      }),
+      undefined,
+    );
+  });
+
   it("rejects ordinary option removal without sending a legacy replacement", () => {
     const transportMutateAsync = vi.fn(async () => undefined);
     useQueryClient.mockReturnValue({

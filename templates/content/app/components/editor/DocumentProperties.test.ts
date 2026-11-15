@@ -295,6 +295,90 @@ describe("document property option picker", () => {
 });
 
 describe("document property metadata persistence", () => {
+  it.each(["type", "options", "name"] as const)(
+    "does not carry a rejected %s edit into a queued description edit",
+    async (field) => {
+      const initial = {
+        name: "Status",
+        type: "select" as const,
+        description: "",
+        visibility: "always_show" as const,
+        options: { options },
+      };
+      const failure = new Error("write rejected");
+      let rejectFirst!: (error: Error) => void;
+      const firstWrite = new Promise<void>((_resolve, reject) => {
+        rejectFirst = reject;
+      });
+      const persisted: Array<typeof initial> = [];
+      const queue = createPropertyMetadataUpdateQueue(
+        initial,
+        async (metadata) => {
+          persisted.push(metadata as typeof initial);
+          if (persisted.length === 1) await firstWrite;
+        },
+      );
+      const rejected = queue.enqueue((current) => ({
+        ...current,
+        ...(field === "type" ? { type: "number" as const, options: {} } : {}),
+        ...(field === "options" ? { options: { options: [] } } : {}),
+        ...(field === "name" ? { name: "Rejected name" } : {}),
+      }));
+      const rejection = expect(rejected).rejects.toBe(failure);
+      const later = queue.enqueue((current) => ({
+        ...current,
+        description: "Saved description",
+      }));
+      await Promise.resolve();
+      rejectFirst(failure);
+      await rejection;
+      await later;
+
+      expect(persisted[1]).toEqual({
+        ...initial,
+        description: "Saved description",
+      });
+    },
+  );
+
+  it("keeps a pending successful edit when the menu is reopened", async () => {
+    const initial = {
+      name: "Status",
+      type: "select" as const,
+      description: "",
+      visibility: "always_show" as const,
+      options: { options },
+    };
+    let finishFirst!: () => void;
+    const firstWrite = new Promise<void>((resolve) => {
+      finishFirst = resolve;
+    });
+    const persisted: Array<typeof initial> = [];
+    const queue = createPropertyMetadataUpdateQueue(
+      initial,
+      async (metadata) => {
+        persisted.push(metadata as typeof initial);
+        if (persisted.length === 1) await firstWrite;
+      },
+    );
+    const first = queue.enqueue((current) => ({
+      ...current,
+      name: "Workflow",
+    }));
+    queue.replace(initial);
+    const second = queue.enqueue((current) => ({
+      ...current,
+      description: "Details",
+    }));
+    finishFirst();
+    await Promise.all([first, second]);
+    expect(persisted[1]).toEqual({
+      ...initial,
+      name: "Workflow",
+      description: "Details",
+    });
+  });
+
   it("serializes a fast rename and description edit without restoring the old name", async () => {
     const persisted: Array<{
       name: string;
