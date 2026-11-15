@@ -20,7 +20,15 @@ export function meetingNotificationAutoHideMs(
   return Math.max(0, latest - nowMs);
 }
 
-export type MeetingJoinProvider = "zoom" | "meet" | "teams" | "webex" | "other";
+export type MeetingJoinProvider =
+  | "zoom"
+  | "meet"
+  | "teams"
+  | "webex"
+  | "slack"
+  | "whatsapp"
+  | "phone"
+  | "other";
 
 export function detectMeetingJoinProvider(
   joinUrl: string | null | undefined,
@@ -33,6 +41,9 @@ export function detectMeetingJoinProvider(
   if (haystack.includes("teams.microsoft") || haystack.includes("teams"))
     return "teams";
   if (haystack.includes("webex")) return "webex";
+  if (/\bslack\b/.test(haystack)) return "slack";
+  if (haystack.includes("whatsapp")) return "whatsapp";
+  if (/\bphone\b/.test(haystack)) return "phone";
   return "other";
 }
 
@@ -46,6 +57,12 @@ export function joinProviderLabel(provider: MeetingJoinProvider): string {
       return "Teams";
     case "webex":
       return "Webex";
+    case "slack":
+      return "Slack";
+    case "whatsapp":
+      return "WhatsApp";
+    case "phone":
+      return "phone call";
     default:
       return "meeting";
   }

@@ -7,6 +7,21 @@ const NATIVE_CALL_APP_BUNDLE_IDS = [
   "com.microsoft.teams",
 ] as const;
 
+const SLACK_CALL_APP_BUNDLE_IDS = ["com.tinyspeck.slackmacgap"] as const;
+
+const WHATSAPP_CALL_APP_BUNDLE_IDS = [
+  "net.whatsapp.WhatsApp",
+  "desktop.WhatsApp",
+] as const;
+
+// iPhone calls relayed to the Mac and FaceTime calls: the audio runs in the
+// call daemons, not in the FaceTime window.
+const PHONE_CALL_APP_BUNDLE_IDS = [
+  "com.apple.FaceTime",
+  "com.apple.avconferenced",
+  "com.apple.telephonyutilities.callservicesd",
+] as const;
+
 const BROWSER_CALL_APP_BUNDLE_IDS = [
   "com.google.Chrome",
   "company.thebrowser.Browser",
@@ -25,6 +40,13 @@ export function callAppBundleIdsForJoinUrl(
   if (exactBrowserBundleId) return [exactBrowserBundleId];
 
   const normalizedPlatform = platform?.toLowerCase();
+  // Slack huddles have no join URL; only Slack's own processes carry the call.
+  if (normalizedPlatform === "slack") return [...SLACK_CALL_APP_BUNDLE_IDS];
+  // A browser WhatsApp Web call returned above via its exact browser bundle.
+  if (normalizedPlatform === "whatsapp") {
+    return [...WHATSAPP_CALL_APP_BUNDLE_IDS];
+  }
+  if (normalizedPlatform === "phone") return [...PHONE_CALL_APP_BUNDLE_IDS];
   if (!joinUrl) {
     if (normalizedPlatform === "meet" || normalizedPlatform === "webex") {
       return [...BROWSER_CALL_APP_BUNDLE_IDS];

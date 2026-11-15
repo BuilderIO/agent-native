@@ -753,6 +753,13 @@ async fn notify_due_meetings(app: &AppHandle, state: &MeetingsWatcherState, due:
     }
     let now_ts = chrono::Utc::now().timestamp();
     for (m, secs_until) in state.mark_notified(due, now_ts) {
+        let call_app = crate::adhoc_meetings_watcher::call_app_for_meeting(
+            m.platform.as_deref(),
+            m.join_url.as_deref(),
+        );
+        if !config.call_app_enabled(&call_app) {
+            continue;
+        }
         if config.meeting_transcription_mode == MeetingTranscriptionMode::Manual
             && !config.show_meeting_widget_enabled
         {

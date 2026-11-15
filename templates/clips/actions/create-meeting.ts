@@ -19,6 +19,8 @@ const PLATFORMS = [
   "meet",
   "teams",
   "webex",
+  "slack",
+  "whatsapp",
   "phone",
   "adhoc",
   "other",
