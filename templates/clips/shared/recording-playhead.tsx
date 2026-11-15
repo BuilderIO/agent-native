@@ -305,6 +305,40 @@ export function RecordingPlayhead({
 
   transitionSegmentsRef.current = transitionSegments;
 
+  // An open segment is pinned to its content's size when it opens. When the
+  // content changes size later, such as the meter turning into a wider mic
+  // warning mid-recording, re-run the transition so the segment and the
+  // reported layout (the native window) follow instead of clipping it.
+  useLayoutEffect(() => {
+    if (typeof ResizeObserver === "undefined") return;
+    const dimension = orientation === "vertical" ? "height" : "width";
+    const observer = new ResizeObserver(() => {
+      const resized = SEGMENTS.filter((segment) => {
+        if (!openSegmentsRef.current[segment]) return false;
+        const pinned = Number.parseFloat(
+          segmentRefs.current[segment]?.style[dimension] ?? "",
+        );
+        return (
+          Number.isFinite(pinned) &&
+          Math.abs(pinned - segmentInnerSize(segment)) >= 1
+        );
+      });
+      if (resized.length === 0) return;
+      transitionSegmentsRef.current(
+        resized.map((segment): [Segment, boolean, number] => [
+          segment,
+          true,
+          0,
+        ]),
+      );
+    });
+    for (const segment of SEGMENTS) {
+      const inner = segmentRefs.current[segment]?.firstElementChild;
+      if (inner) observer.observe(inner);
+    }
+    return () => observer.disconnect();
+  }, [orientation]);
+
   const updateExpanded = useCallback(
     (next: boolean) => {
       if (next === expanded) return;
