@@ -2603,7 +2603,11 @@ async function listWorkspaceAppsWithPrincipal(
   if (gatewayApps?.kind === "apps") {
     return finalize(gatewayApps.apps);
   }
-  if (gatewayDenial && gatewayDenial.statusCode >= 500) {
+  // An admin inventory must be complete. A gateway 403 makes the local list
+  // unverifiable, so fail instead of showing retired apps as current.
+  if (gatewayDenial && (
+    principal === "org-access-inventory" || gatewayDenial.statusCode >= 500
+  )) {
     throw gatewayDenial;
   }
   const unverified =
