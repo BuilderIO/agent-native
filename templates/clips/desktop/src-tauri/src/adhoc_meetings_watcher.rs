@@ -507,6 +507,9 @@ impl AdhocMeetingsWatcherInner {
                     evidence: CallEvidence::default(),
                 });
             if association.pid != candidate.pid || association.bundle_id != candidate.bundle_id {
+                // The same call site in another browser process: the previous
+                // call ends, so its session is cleaned up.
+                replaced.push(candidate.platform);
                 *association = BrowserCallAssociation {
                     pid: candidate.pid,
                     bundle_id: candidate.bundle_id,
@@ -1486,6 +1489,39 @@ mod tests {
         assert_eq!(state.browser_mic_started_on.get(&key), Some(&Some("meet")));
         let confirmed = state.observe_browser_calls(start + Duration::from_secs(8), None, &on);
         assert_eq!(confirmed.live_platforms, vec!["meet"]);
+    }
+
+    #[test]
+    fn the_same_call_site_in_another_browser_process_ends_the_previous_call() {
+        let start = Instant::now();
+        let first = BrowserCallCandidate {
+            pid: 1234,
+            bundle_id: "com.google.chrome",
+            platform: "meet",
+        };
+        let second = BrowserCallCandidate {
+            pid: 5678,
+            bundle_id: "com.google.chrome",
+            platform: "meet",
+        };
+        let mut state = AdhocMeetingsWatcherInner::default();
+
+        saw_mic_off(&mut state, first, start);
+        state.observe_browser_calls(start, Some(first), &browser_mic(first.pid, Some(true)));
+        let live = state.observe_browser_calls(
+            start + Duration::from_secs(4),
+            None,
+            &browser_mic(first.pid, Some(true)),
+        );
+        assert_eq!(live.live_platforms, vec!["meet"]);
+
+        // A new meet call starts in another browser process.
+        let at = start + Duration::from_secs(10);
+        saw_mic_off(&mut state, second, at);
+        let updates =
+            state.observe_browser_calls(at, Some(second), &browser_mic(second.pid, Some(true)));
+        assert_eq!(updates.ended_platforms, vec!["meet"]);
+        assert_eq!(state.browser_associations["meet"].pid, second.pid);
     }
 
     #[test]
