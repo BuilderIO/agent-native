@@ -321,17 +321,21 @@ function describeReference(
   file: UploadedFile,
   format: ReferenceDocumentFormat,
   result: Record<string, unknown>,
-): string {
+): { block: string; truncated: boolean } {
   const body =
     format === "pdf"
       ? describePdf(result)
       : format === "pptx"
         ? describePptx(result)
         : describeDocx(result);
-  return truncate(
-    [`### ${file.originalName} (${format.toUpperCase()})`, ...body].join("\n"),
-    MAX_CHARS_PER_REFERENCE,
-  );
+  const text = [
+    `### ${file.originalName} (${format.toUpperCase()})`,
+    ...body,
+  ].join("\n");
+  return {
+    block: truncate(text, MAX_CHARS_PER_REFERENCE),
+    truncated: text.length > MAX_CHARS_PER_REFERENCE,
+  };
 }
 
 function hasUsableContent(
@@ -411,11 +415,16 @@ export async function hydrateReferenceDocuments(
   for (const outcome of outcomes) {
     if (outcome.status !== "read") continue;
     const fitsWhole = outcome.block.length <= budget.remaining;
+    const partialVisual =
+      outcome.format === "pptx" && (outcome.truncated || !fitsWhole)
+        ? "PPTX visual data is partial: reference content was truncated."
+        : undefined;
     if (!fitsWhole && budget.remaining < MIN_PARTIAL_REFERENCE_CHARS) {
       blocks.push(
         [
           `### ${outcome.originalName}\nRead successfully, but omitted from this prompt because earlier references filled the reference budget. This file is the one exception to the no-reread rule above: call \`import-file\` for it if you need its content.`,
           outcome.omissions,
+          partialVisual,
         ]
           .filter(Boolean)
           .join("\n"),
@@ -430,6 +439,7 @@ export async function hydrateReferenceDocuments(
           ? block
           : `${block}\nThe rest of this reference was omitted for space; call \`import-file\` for this file if you need the remainder.`,
         outcome.omissions,
+        partialVisual,
       ]
         .filter(Boolean)
         .join("\n"),
@@ -455,7 +465,9 @@ type ReferenceReadOutcome =
   | {
       status: "read";
       originalName: string;
+      format: ReferenceDocumentFormat;
       block: string;
+      truncated: boolean;
       omissions?: string;
       measuredDesign: boolean;
     }
@@ -499,7 +511,8 @@ async function readReference(
     return {
       status: "read",
       originalName: file.originalName,
-      block: describeReference(file, format, result),
+      format,
+      ...describeReference(file, format, result),
       omissions: format === "pptx" ? describePptxOmissions(result) : undefined,
       measuredDesign: hasMeasuredDesign(format, result),
     };

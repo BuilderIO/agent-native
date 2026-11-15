@@ -443,6 +443,96 @@ describe("PPTX reference hydration", () => {
     expect(colors.vectorShapesOmitted).toBe(1);
   });
 
+  it("retains unstyled text box placement and bounded source text", async () => {
+    mockParsePptx.mockResolvedValue({
+      title: "",
+      slides: [
+        {
+          texts: [{ content: "Unstyled label" }],
+          images: [],
+          elements: [
+            {
+              id: "label",
+              kind: "text",
+              x: 100,
+              y: 200,
+              width: 300,
+              height: 400,
+              paragraphs: [{ runs: [{ content: "Unstyled label" }] }],
+            },
+          ],
+        },
+      ],
+    });
+    const result = await action.run({
+      filePath: "reference.pptx",
+      format: "pptx",
+    });
+    const slide = (result as any).slides[0];
+    expect(slide.vectorShapes).toMatchObject([
+      {
+        order: 0,
+        kind: "text",
+        x: 100,
+        y: 200,
+        width: 300,
+        height: 400,
+        sourceText: "Unstyled label",
+      },
+    ]);
+    expect(slide.vectorShapesOmitted).toBe(0);
+  });
+
+  it("distributes oversized-share shapes round-robin before revisiting a slide", async () => {
+    const geometry = {
+      kind: "custom",
+      paths: [
+        {
+          w: 100,
+          h: 100,
+          commands: Array.from({ length: 40 }, (_, i) => ({
+            kind: "lnTo",
+            points: [{ x: i, y: i }],
+          })),
+        },
+      ],
+    };
+    const element = (i: number) => ({
+      id: String(i),
+      kind: "shape",
+      x: i,
+      y: 0,
+      width: 100,
+      height: 100,
+      geometry,
+    });
+    mockParsePptx.mockResolvedValue({
+      title: "",
+      slides: Array.from({ length: 6 }, () => ({
+        texts: [],
+        images: [],
+        elements: [element(0), element(1), element(2)],
+      })),
+    });
+    const result = await action.run({
+      filePath: "reference.pptx",
+      format: "pptx",
+    });
+    const slides = (result as any).slides;
+    expect(
+      slides[0].vectorShapes.map((shape: { order: number }) => shape.order),
+    ).toEqual([0]);
+    expect(
+      slides[1].vectorShapes.map((shape: { order: number }) => shape.order),
+    ).toEqual([0]);
+    expect(
+      slides[2].vectorShapes.map((shape: { order: number }) => shape.order),
+    ).toEqual([0]);
+    for (const slide of slides)
+      expect(slide.vectorShapes.length + slide.vectorShapesOmitted).toBe(3);
+    expect(slides[5].vectorShapesOmitted).toBeGreaterThan(0);
+  });
+
   it("reserves vector capacity for later slides and reports every omitted shape", async () => {
     const element = (i: number) => ({
       id: String(i),
@@ -520,7 +610,6 @@ describe("PPTX reference hydration", () => {
               y: 0,
               width: 10,
               height: 10,
-              shapeType: "rect",
               paragraphs: [{ runs: [{ content: "L".repeat(501) }] }],
             },
           ],

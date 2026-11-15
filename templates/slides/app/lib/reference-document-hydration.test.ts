@@ -205,6 +205,7 @@ describe("hydrateReferenceDocuments", () => {
     if (result.status !== "hydrated") return;
     expect(result.context).toContain("Theme fonts: Inter, Inter Tight");
     expect(result.context).toContain("Slide 0 [title]: Title slide");
+    expect(result.context).not.toContain("PPTX visual data is partial");
   });
 
   it("only carries validated shape fields and reports omitted slides", async () => {
@@ -289,6 +290,9 @@ describe("hydrateReferenceDocuments", () => {
       throw new Error("Reference was not hydrated");
     expect(result.context).toContain("Canvas: 100 x 50 EMU");
     expect(result.context).toContain("[truncated]");
+    expect(result.context).toContain(
+      "PPTX visual data is partial: reference content was truncated.",
+    );
     expect(result.context).not.toContain("  Vector: ");
   });
 
@@ -369,6 +373,63 @@ describe("hydrateReferenceDocuments", () => {
     );
     expect(pptxBlock).toContain("omitted from this prompt");
     expect(pptxBlock).toContain("3 parsed vector shape(s) omitted");
+  });
+
+  it("reports partial PPTX visual data whenever reference budgets cut its body", async () => {
+    const callActionImpl = vi
+      .fn()
+      .mockImplementation(async (_name: string, input: { filePath: string }) =>
+        input.filePath.endsWith(".pptx")
+          ? {
+              format: "pptx",
+              vectorSummaryNotice: "coverage",
+              slides: [
+                {
+                  index: 0,
+                  texts: "x".repeat(20000),
+                  vectorShapes: [],
+                  vectorShapesOmitted: 0,
+                },
+              ],
+            }
+          : {
+              ...pdfResult,
+              pages: [
+                {
+                  pageNum: 1,
+                  text: "y".repeat(
+                    input.filePath.includes("full") ? 20000 : 10500,
+                  ),
+                },
+              ],
+            },
+      );
+    for (const files of [
+      [uploaded("deck.pptx")],
+      [
+        uploaded("a.pdf"),
+        uploaded("b.pdf"),
+        uploaded("c.pdf"),
+        uploaded("deck.pptx"),
+      ],
+      [
+        uploaded("full-a.pdf"),
+        uploaded("full-b.pdf"),
+        uploaded("full-c.pdf"),
+        uploaded("deck.pptx"),
+      ],
+    ]) {
+      const result = await hydrateReferenceDocuments(files, { callActionImpl });
+      expect(result.status).toBe("hydrated");
+      if (result.status !== "hydrated")
+        throw new Error("Reference was not hydrated");
+      const pptxBlock = result.context.slice(
+        result.context.indexOf("### deck.pptx"),
+      );
+      expect(pptxBlock).toContain(
+        "PPTX visual data is partial: reference content was truncated.",
+      );
+    }
   });
 
   it("carries DOCX sections", async () => {
