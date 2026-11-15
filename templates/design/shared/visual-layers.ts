@@ -75,11 +75,14 @@ export const CANVAS_CONTEXT_RECORDER_SCRIPT = `<script data-agent-native-canvas-
  */
 export function injectCanvasContextRecorder(html: string): string {
   const rawStart = /<(?:script|style|body)\b/i.exec(html)?.index ?? html.length;
-  const prefix = html.slice(0, rawStart);
+  // Same length, so offsets still match: a tag inside a comment is not a tag.
+  const prefix = html
+    .slice(0, rawStart)
+    .replace(/<!--[\s\S]*?(?:-->|$)/g, (comment) => " ".repeat(comment.length));
   const opener =
     /<head(?:\s[^>]*)?>/i.exec(prefix) ??
     /<html(?:\s[^>]*)?>/i.exec(prefix) ??
-    /^\s*<!doctype[^>]*>/i.exec(prefix);
+    /<!doctype[^>]*>/i.exec(prefix);
   if (!opener) return CANVAS_CONTEXT_RECORDER_SCRIPT + html;
   const end = opener.index + opener[0].length;
   return html.slice(0, end) + CANVAS_CONTEXT_RECORDER_SCRIPT + html.slice(end);

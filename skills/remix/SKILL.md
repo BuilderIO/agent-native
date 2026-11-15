@@ -162,8 +162,11 @@ tweak system, never a private UI:
 2. Register the knobs with `update-design`, setting data path `tweaks` to the
    definitions: `{ id, label, type: "slider" | "toggle" | "segment" |
    "color-swatch" | "color-swatches", min, max, step, defaultValue, cssVar,
-   unit?, scope }`. Set `scope` to `{ screenId, nodeId }` (or `selector` on a
-   URL screen) of the effect's root. Keep existing tweaks; append.
+   unit?, options?, scope }`. `segment`, `color-swatch` and
+   `color-swatches` require `options`, a list of `{ label, value, color? }`
+   choices; without it the inspector shows empty controls. Set `scope` to
+   `{ screenId, nodeId }` (or `selector` on a URL screen) of the effect's
+   root. Keep existing tweaks; append.
 3. Design shows them, already expanded, in the inspector's **Tweaks** section
    whenever the user selects that screen, the effect, or any parent or child of
    it, and never for a sibling.

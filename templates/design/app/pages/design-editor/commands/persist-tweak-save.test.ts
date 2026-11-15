@@ -1,4 +1,5 @@
 import { tweakSelectionsHash } from "@shared/resolve-tweaks";
+import { toast } from "sonner";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { createDesignSaveOutboxEntry } from "@/lib/design-save-outbox";
@@ -175,6 +176,7 @@ describe("overlapping page-exit keepalive and normal saves", () => {
     vi.stubGlobal("navigator", { onLine: true });
     vi.stubGlobal("document", { visibilityState: "visible" });
     keepaliveCall.mockReset();
+    vi.mocked(toast.error).mockClear();
   });
   afterEach(() => {
     vi.unstubAllGlobals();
@@ -251,5 +253,27 @@ describe("overlapping page-exit keepalive and normal saves", () => {
 
     expect(args.acknowledgeOutboxEntry).not.toHaveBeenCalled();
     expect(args.keepaliveTweakSaveRevisionRef.current).toBe(0);
+  });
+
+  it("tells the person a failed keepalive was not saved when nothing was journaled", async () => {
+    const { args, noteSaveLeftQueued } = setup({
+      journaled: false,
+      apply: async () => ({}),
+    });
+    keepaliveCall.mockReturnValue({
+      accepted: true,
+      completion: Promise.reject(
+        Object.assign(new Error("Internal server error"), { status: 500 }),
+      ),
+    });
+
+    sendLatestTweakSaveKeepalive(args);
+    await vi.waitFor(() => expect(toast.error).toHaveBeenCalledOnce());
+
+    expect(toast.error).toHaveBeenCalledWith(
+      "designEditor.toasts.tweakSaveNotDurable",
+    );
+    expect(noteSaveLeftQueued).not.toHaveBeenCalled();
+    expect(args.acknowledgeOutboxEntry).not.toHaveBeenCalled();
   });
 });

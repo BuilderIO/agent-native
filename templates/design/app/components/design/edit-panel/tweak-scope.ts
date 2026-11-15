@@ -95,10 +95,10 @@ export function tweakAppliesToSelection(
   const element = target.element;
   if (!element) {
     // A screen selection shows the tweaks that screen owns. Without a screen
-    // id in the scope, the target must exist on this screen; a URL-backed
-    // screen has no document to check, so it keeps the tweak.
-    if (scope.screenId || !parsedScreen) return true;
-    return findScopeElement(parsedScreen, scope) !== null;
+    // id in the scope, the target must be found on this screen; a URL-backed
+    // screen has no document to check, so the scope must name its screen.
+    if (scope.screenId) return true;
+    return !!parsedScreen && findScopeElement(parsedScreen, scope) !== null;
   }
 
   if (scopeMatches(scope, elementNodeIds(element), elementSelectors(element))) {

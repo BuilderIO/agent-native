@@ -280,8 +280,14 @@ export function sendLatestTweakSaveKeepalive(args: PersistTweakSaveArgs): void {
     }
   };
   let result: ApplyTweaksResult | undefined;
+  // The request starts before the journal write finishes, so a failure can
+  // arrive first; wait for the journal result before judging what is replayable.
+  let journalResult: Promise<boolean> = Promise.resolve(false);
   void sendJournaledTweakSaveKeepalive({
-    journal: () => journalTweakOutboxEntry(entry),
+    journal: () => {
+      journalResult = journalTweakOutboxEntry(entry);
+      return journalResult;
+    },
     send: () => {
       const attempt = tryCallActionKeepalive(
         "apply-tweaks",
@@ -311,14 +317,25 @@ export function sendLatestTweakSaveKeepalive(args: PersistTweakSaveArgs): void {
       if (keepaliveTweakSaveRevisionRef.current === sendPending.revision) {
         keepaliveTweakSaveRevisionRef.current = sendPending.revision - 1;
       }
-      const conflict =
-        classifyTweakSaveFailure(error, true, false) === "conflict";
+      const journaled = await journalResult;
+      const failureKind = classifyTweakSaveFailure(
+        error,
+        journaled,
+        navigator.onLine,
+      );
       // A conflicting snapshot can never be replayed, so it must not wait in
       // the outbox as an unsaved change.
-      if (conflict) await acknowledgeOutboxEntry(entry);
+      if (failureKind === "conflict" && journaled) {
+        await acknowledgeOutboxEntry(entry);
+      }
       // A hidden page is on its way out; only a page still open can be told.
       if (document.visibilityState !== "visible") return;
-      if (conflict) toast.error(t("designEditor.toasts.tweakConflict"));
-      else noteSaveLeftQueued();
+      if (failureKind === "conflict") {
+        toast.error(t("designEditor.toasts.tweakConflict"));
+      } else if (!journaled) {
+        toast.error(t("designEditor.toasts.tweakSaveNotDurable"));
+      } else {
+        noteSaveLeftQueued();
+      }
     });
 }

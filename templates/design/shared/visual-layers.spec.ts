@@ -33,4 +33,14 @@ describe("injectCanvasContextRecorder", () => {
       `${CANVAS_CONTEXT_RECORDER_SCRIPT}<main></main>`,
     );
   });
+
+  it("keeps the doctype first when a comment precedes it, and skips tags in comments", () => {
+    expect(
+      injectCanvasContextRecorder(
+        "<!-- <head> --><!doctype html><body></body>",
+      ),
+    ).toBe(
+      `<!-- <head> --><!doctype html>${CANVAS_CONTEXT_RECORDER_SCRIPT}<body></body>`,
+    );
+  });
 });

@@ -99,4 +99,14 @@ describe("tweaksForSelection", () => {
     expect(shownOn("home")).toEqual(["hero-glow"]);
     expect(shownOn("pricing")).toEqual([]);
   });
+
+  it("does not show a node-scoped knob without a screen id on a screen it cannot check", () => {
+    expect(
+      tweaksForSelection(
+        [tweak("hero-glow", { nodeId: "wave" })],
+        [{ screenId: "url-screen" }],
+        () => undefined,
+      ),
+    ).toEqual([]);
+  });
 });
