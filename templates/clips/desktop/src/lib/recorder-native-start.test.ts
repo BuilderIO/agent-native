@@ -1491,9 +1491,9 @@ describe("native recording startup", () => {
     await handle.cancel();
   });
 
-  it("keeps new starts blocked when an abandoned take's stop fails before it is sent", async () => {
-    // The barrier stays closed for the life of the module, so use a fresh
-    // copy and keep it from leaking into the other tests.
+  it("retries an abandoned take's stop that failed before it was sent, and starts once it is sent", async () => {
+    // Uses a fresh copy of the module so its start barrier cannot leak into
+    // the other tests.
     vi.resetModules();
     const { startRecording } = await import("./recorder");
     const begin = deferred<void>();
@@ -1510,7 +1510,8 @@ describe("native recording startup", () => {
     nativeCommands.delete("native_fullscreen_recording_begin");
 
     // The late stop fails before the native stop command is sent.
-    const listen = mocks.listen.getMockImplementation()!;
+    const listen = mocks.listen.getMockImplementation();
+    if (!listen) throw new Error("listen mock has no implementation");
     mocks.listen.mockImplementation(async (name, callback) => {
       if (name === "clips:native-recording-finalized") {
         throw new Error("listener registration failed");
@@ -1523,13 +1524,31 @@ describe("native recording startup", () => {
       0,
     );
 
-    // The session may still be running: a retry fails visibly, at once,
-    // without starting a countdown or a begin over it.
+    // The session may still be running. The next start retries that stop;
+    // it fails again, so the start fails visibly without a countdown or a
+    // begin over the old session.
     await expect(startRecording(params)).rejects.toMatchObject({
       name: "PreviousRecordingStillStoppingError",
     });
     expect(calls("show_countdown")).toHaveLength(1);
     expect(calls("native_fullscreen_recording_begin")).toHaveLength(1);
+    expect(calls("native_fullscreen_recording_stop_and_upload")).toHaveLength(
+      0,
+    );
+
+    // The listener works again: the next start's retry sends the stop, the
+    // abandoned take is saved, and the new recording starts normally.
+    mocks.listen.mockImplementation(listen);
+    const third = startRecording(params);
+    await vi.advanceTimersByTimeAsync(100);
+    expect(calls("native_fullscreen_recording_stop_and_upload")).toHaveLength(
+      1,
+    );
+    await vi.advanceTimersByTimeAsync(3_600);
+    const handle = await third;
+    expect(calls("show_countdown")).toHaveLength(2);
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(2);
+    await handle.cancel();
   });
 
   it("keeps microphone-off local capture native and skips transcription", async () => {
@@ -1912,7 +1931,7 @@ describe("Preparing after the countdown", () => {
 
   it("hides Preparing when the server create fails after it was shown", async () => {
     const create = deferred<Response>();
-    fetchMock.mockImplementationOnce(() => create.promise);
+    fetchMock.mockReturnValueOnce(create.promise);
     const pending = startRecording(params);
     const failed = expect(pending).rejects.toBeTruthy();
     await vi.advanceTimersByTimeAsync(

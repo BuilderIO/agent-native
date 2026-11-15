@@ -34,12 +34,14 @@ export function showPreparingAfterCountdown(
 ): PreparingAfterCountdown {
   const delayMs = options.delayMs ?? PREPARING_AFTER_COUNTDOWN_DELAY_MS;
   let finished = false;
+  // done() can set `finished` while the delay below is pending.
+  const isFinished = () => finished;
   let showing: Promise<void> | null = null;
   void countdown.then(
     async () => {
-      if (finished) return;
+      if (isFinished()) return;
       await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
-      if (finished) return;
+      if (isFinished()) return;
       showing = options.show().catch((err) => {
         console.error("[clips-recorder] showing Preparing failed:", err);
       });

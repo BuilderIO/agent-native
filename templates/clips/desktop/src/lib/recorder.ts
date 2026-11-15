@@ -3111,14 +3111,20 @@ export function recorderWithCaptureSuspension(
       await discardPromise;
       throw new Error("Recording was already discarded for a restart");
     }
-    stopPromise = (async () => {
+    const attempt = (async () => {
       try {
         return await stop();
       } finally {
         await release();
       }
     })();
-    return stopPromise;
+    stopPromise = attempt;
+    // Let a failed stop be retried: the wrapped handle decides whether a
+    // retry is possible (it replays the error once its stop was sent).
+    attempt.catch(() => {
+      if (stopPromise === attempt) stopPromise = null;
+    });
+    return attempt;
   };
   handle.cancel = async () => {
     if (cancelPromise) return cancelPromise;
@@ -3938,7 +3944,7 @@ async function startNativeFullscreenRecording(
       } else {
         const captureTitlePromise = captureTitleForRecording({
           mode: params.mode,
-          source: params.source,
+          ...(params.source ? { source: params.source } : {}),
         });
         const recordingPromise = (async () => {
           const captureTitle = await captureTitlePromise;
@@ -3956,7 +3962,7 @@ async function startNativeFullscreenRecording(
                 streamingUploadClient: "desktop-native",
                 authToken: params.authToken,
                 announceStorageSetup: true,
-                signal: params.signal,
+                ...(params.signal ? { signal: params.signal } : {}),
               },
             );
           } finally {
@@ -4005,6 +4011,7 @@ async function startNativeFullscreenRecording(
           throw err;
         }
         id = createRes.id;
+        // oxlint-disable-next-line typescript/no-unnecessary-condition -- an older server can omit uploadMode
         uploadMode = createRes.uploadMode ?? uploadMode;
       }
 
@@ -4115,6 +4122,8 @@ async function startNativeFullscreenRecording(
 
   let stopped = false;
   let stopPromise: Promise<RecorderStopResult> | null = null;
+  // Set once the native stop command has been sent (see stop()).
+  let stopDispatched = false;
   let cancelPromise: Promise<void> | null = null;
   let discardPromise: Promise<RestartHandoff> | null = null;
   let stateUnlistens: UnlistenFn[] = [];
@@ -4253,6 +4262,16 @@ async function startNativeFullscreenRecording(
     };
   };
 
+  const dispatchNativeStop = <T>(
+    command: string,
+    args: Record<string, unknown>,
+    generation: number,
+  ): Promise<T> => {
+    const promise = invokeCaptureStop<T>(command, args, generation);
+    stopDispatched = true;
+    return promise;
+  };
+
   const handle: RecorderHandle = {
     async stop() {
       if (stopPromise) return stopPromise;
@@ -4292,7 +4311,7 @@ async function startNativeFullscreenRecording(
           const durationMs = Math.max(0, Date.now() - startedAt);
           try {
             const [nativeResult, cameraFiles] = await Promise.all([
-              invokeCaptureStop<NativeFullscreenSaveResult>(
+              dispatchNativeStop<NativeFullscreenSaveResult>(
                 "native_fullscreen_recording_stop_and_save",
                 {
                   folderName: localFolderName,
@@ -4348,7 +4367,7 @@ async function startNativeFullscreenRecording(
           },
         );
 
-        const uploadPromise = invokeCaptureStop<NativeFullscreenUploadResult>(
+        const uploadPromise = dispatchNativeStop<NativeFullscreenUploadResult>(
           "native_fullscreen_recording_stop_and_upload",
           {
             serverUrl: params.serverUrl,
@@ -4441,6 +4460,15 @@ async function startNativeFullscreenRecording(
           await clearRecordingState();
         }
       })();
+      // A stop that failed before its native command was sent left capture
+      // running: let a later stop() try again instead of replaying the error.
+      const attempt = stopPromise;
+      attempt.catch(() => {
+        if (!stopDispatched && stopPromise === attempt) {
+          stopPromise = null;
+          stopped = false;
+        }
+      });
       return stopPromise;
     },
 
@@ -4732,6 +4760,32 @@ export class PreviousRecordingStillStoppingError extends Error {
   }
 }
 
+/** Set while an abandoned take's stop failed before it was sent: the next
+ * start tries that stop again (once per start) before giving up. */
+let retryAbandonedStop: (() => Promise<void>) | null = null;
+
+/** Resolves once `stop` has sent its native / Rewind stop command; rejects
+ * with PreviousRecordingStillStoppingError when it fails before that. */
+async function untilStopSent(
+  stopSent: { promise: Promise<void> },
+  stop: Promise<unknown>,
+): Promise<void> {
+  let dispatched = false;
+  void stopSent.promise.then(() => {
+    dispatched = true;
+  });
+  await Promise.race([
+    stopSent.promise,
+    stop.then(
+      () => undefined,
+      () => {
+        if (dispatched) return;
+        throw new PreviousRecordingStillStoppingError();
+      },
+    ),
+  ]);
+}
+
 async function waitForAbandonedCapture(signal?: AbortSignal): Promise<void> {
   const settling = abandonedCaptureSettling;
   if (!settling) return;
@@ -4740,10 +4794,18 @@ async function waitForAbandonedCapture(signal?: AbortSignal): Promise<void> {
   );
   try {
     await guardRecordingStart(settling, {
-      signal,
+      ...(signal ? { signal } : {}),
       timeoutMs: RECORDING_START_TIMEOUT_MS,
     });
   } catch (err) {
+    if (err instanceof PreviousRecordingStillStoppingError) {
+      const retry = retryAbandonedStop;
+      if (!retry) throw err;
+      console.warn("[clips-recorder] retrying the abandoned take's stop");
+      // Throws PreviousRecordingStillStoppingError again if it still fails.
+      await retry();
+      return;
+    }
     if (!(err instanceof RecordingStartTimeoutError)) throw err;
     // Never start over a take that has not been stopped: a new begin could
     // replace that native session before it is saved. Fail visibly instead;
@@ -4782,6 +4844,7 @@ export async function startRecording(
   // then fails cleans up on its own failure path.
   let startupState: "starting" | "capturing" = "starting";
   let lateStop: Promise<unknown> | null = null;
+  let lateHandle: RecorderHandle | null = null;
   const cancelStartup = () => {
     startController.abort();
     void emit("clips:countdown-cancel", {
@@ -4789,30 +4852,13 @@ export async function startRecording(
     }).catch(() => {});
     if (startupState === "capturing") {
       // Hold the next start until this take's stop command is sent, or the
-      // start itself failed (nothing to stop). A stop that fails before it was
-      // sent leaves the session running, so the barrier stays closed and
-      // every retry fails with PreviousRecordingStillStoppingError.
+      // start itself failed (nothing to stop). If the stop fails before it
+      // was sent, the session may still be running: the barrier stays closed
+      // and the next start retries this stop (see waitForAbandonedCapture).
       const stopSent = nextCaptureStopSent();
-      let stopDispatched = false;
-      void stopSent.promise.then(() => {
-        stopDispatched = true;
-      });
       const settling: Promise<void> = startPromise
         .then(
-          () =>
-            Promise.race([
-              stopSent.promise,
-              (lateStop ?? Promise.resolve()).then(
-                () => undefined,
-                () => {
-                  if (stopDispatched) return;
-                  console.error(
-                    "[clips-recorder] abandoned take's stop failed before it was sent; blocking new starts",
-                  );
-                  throw new PreviousRecordingStillStoppingError();
-                },
-              ),
-            ]),
+          () => untilStopSent(stopSent, lateStop ?? Promise.resolve()),
           () => undefined,
         )
         .finally(() => stopSent.dispose());
@@ -4823,7 +4869,35 @@ export async function startRecording(
             abandonedCaptureSettling = null;
           }
         },
-        () => {},
+        (err: unknown) => {
+          if (abandonedCaptureSettling !== settling) return;
+          console.error(
+            "[clips-recorder] abandoned take's stop failed before it was sent; blocking new starts until a retry sends it",
+            err,
+          );
+          retryAbandonedStop = async () => {
+            const handle = lateHandle;
+            if (!handle) throw new PreviousRecordingStillStoppingError();
+            const retrySent = nextCaptureStopSent();
+            try {
+              const stop = handle.stop();
+              lateStop = stop;
+              void stop.catch((stopErr) =>
+                console.warn(
+                  "[clips-recorder] abandoned take's stop retry failed:",
+                  stopErr,
+                ),
+              );
+              await untilStopSent(retrySent, stop);
+            } finally {
+              retrySent.dispose();
+            }
+            if (abandonedCaptureSettling === settling) {
+              abandonedCaptureSettling = null;
+              retryAbandonedStop = null;
+            }
+          };
+        },
       );
       return;
     }
@@ -4876,6 +4950,7 @@ export async function startRecording(
       // Capture has already begun when a start resolves this late: keep what
       // it recorded. Only a confirmed discard deletes a recording.
       onLateResolve: (handle) => {
+        lateHandle = handle;
         lateStop = handle.stop();
         void lateStop.catch((err) => {
           if (requestedRecordingId) {
