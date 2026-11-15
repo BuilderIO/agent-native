@@ -1,44 +1,52 @@
 ---
 name: remix
 description: >-
-  Take a section, effect, or interaction from one website and rebuild it in
-  another site in Design, matched to the destination's design system, with
-  swappable assets and live knobs. Use when the user asks to remix, borrow,
-  port, or recreate part of a site in theirs, or asks to "remix explain" how a
-  site's effect works.
+  Rebuild website effects in your repo or Design with exact behavior and original
+  code. Use when asked to remix, borrow, port, recreate, explain an effect, or
+  /remix source into ours.
 metadata:
   visibility: exported
 ---
 
 # Remix
 
-`/remix` takes one part of a source site (a hero, a shader background, a
-scroll effect, a 3D card) and rebuilds it inside a destination site so it looks
-the same as the source, recolored to the destination. Design is the workbench:
-the source and the destination sit side by side as screens, the user points at
-what to take and where it goes, and every effect ships with knobs in Design's
-Tweaks section.
+Use **repo mode** for a source-and-change prompt inside a repository; Design is
+not required. Use **Design mode** when the user asks for Design, a canvas or
+selection, or wants to pick visually.
 
-The editor is hosted at `https://design.agent-native.com`. Open it, connect, and
-place screens exactly as `/visual-edit` does (WebMCP `open-visual-edit` in a
-page-capable browser, otherwise the hosted Design MCP at
-`https://design.agent-native.com/mcp`). Read the visual-edit skill for the
-bridge, auth, and handoff rules; this skill covers only what remix adds. Never
-start a local Design server.
+## Repo Mode: Run End To End
 
-## Ask Only What Is Missing
+For `/remix add the stripe hero animation to ours but make it blue`, locate
+the destination hero component in the repo and proceed without questions.
+Ask only when something essential is missing and cannot be inferred, such as
+an ambiguous source page or destination. For a new site, scaffold in the user's
+stack. Follow the repo's instructions and reuse its components and conventions.
 
-Two inputs decide the job. Ask for one only when the request leaves it out:
+1. Start or reuse the destination dev server. Capture its current appearance.
+2. Drive the source in your own browser (Playwright, Chrome, or an inline
+   browser), capture the running effect and inspect its shipped code using the
+   two-step extraction below. No Design connector or canvas is needed.
+3. Implement from the behavior spec in the destination. Apply the requested
+   change: "make it blue" maps the palette to blue while keeping everything
+   else identical, subject to the original-code and asset rules below.
+4. Expose knobs as typed props or CSS custom properties with explicit defaults.
+   Verify source versus rebuild using matched screenshots and motion clips,
+   including the original-colors fidelity check below, then show before/after
+   images of the destination and the source comparison.
 
-1. **Source**: the site (and page) to remix from, e.g. `apple.com/airpods-pro`.
-2. **Destination**: the running local app or site to remix into, or "a new
-   site". For a new site, scaffold a minimal page in the user's stack and run it
-   on localhost first.
+## Design Mode: Choose On The Canvas
 
-Do not ask about style, colors, or fonts; the destination answers those. Do not
-ask which section yet; the user picks it on the canvas.
+Use the current canvas selection, or open the hosted editor at
+`https://design.agent-native.com`. Connect and place screens as
+`/visual-edit` does (WebMCP `open-visual-edit` in a page-capable browser,
+otherwise hosted Design MCP at `https://design.agent-native.com/mcp`). Read
+visual-edit for bridge, auth, and handoff rules. Never start a local Design server.
 
-## Put Both Sites On The Canvas
+Ask only for a missing source or destination; a new site can be scaffolded in
+the user's stack. Infer style from the destination. If the prompt already
+names the section and destination, use them; otherwise let the user select.
+
+### Put Both Sites On The Canvas
 
 1. Start or reuse the destination dev server and verify the route responds,
    then call `open-visual-edit` with its URL and route. That screen is the
@@ -58,7 +66,7 @@ ask which section yet; the user picks it on the canvas.
 Read the picks with `view-screen` (`designSelection`) or the `Selected objects`
 context block. Ask once if the selection names only one side.
 
-## Resolve The Pick
+### Resolve The Pick
 
 Effects usually paint on a layer the user cannot click: a
 `pointer-events: none` canvas, video, or background behind the hero wrapper.
@@ -76,26 +84,34 @@ WebGL). Before extracting:
 The user can also pick a hidden layer by hand: right-click the spot and use
 **Select layer**.
 
-## Extract From Shipped Code
+## Two-Step Clean-Room Extraction (Both Modes)
 
-The running source is the reference for how it looks; its shipped code is the
-reference for how it works. Read the code before writing any.
+### 1. Study And Write A Behavior Spec
 
-- Drive the source in your own browser (or Design's Interact mode): scroll,
-  hover, click, and resize until the effect runs, then read the network log and
-  the elements behind the selection.
-- Pull the minified JS, CSS, and HTML that drive the selected layer. Find the
-  entry point (canvas/WebGL context, `requestAnimationFrame` loop, scroll or
-  pointer listeners, GSAP/Three/Lottie/Spline imports, keyframes) and pretty-
-  print just that slice. Record shaders, uniforms, easing curves, timings,
-  breakpoints, and asset URLs as facts with their file and line.
-- Keep everything captured outside the destination repository.
-- Rebuild it in the destination in our own code, using the same math,
-  geometry, parameters, and timings you recorded. Never paste the source's
-  minified bundles, shader source, fonts, logos, icons, copy, or media into
-  the destination. Where the source samples a proprietary texture or image,
-  generate one procedurally that produces the same result. Owning the code is
-  not a licence to change the look.
+The running page shows how it looks; shipped code explains how it works.
+Drive the source in your own browser: scroll, hover, click, and resize until
+the effect runs. Inspect the relevant HTML, CSS and JavaScript, network assets,
+canvas/WebGL loop, shaders, uniforms, listeners and animation libraries.
+
+Write a behavior spec in your own words in a scratch file **outside the repo**
+before implementing. Record geometry, math in words or equations, numeric
+parameters, timings/easing, scroll and pointer mappings, layering, responsive
+rules, and asset character. Keep source citations and all captures outside the
+destination repository. Record uncertainty rather than guessing.
+
+### 2. Implement From The Spec
+
+Use the spec to write original code in the destination's own idiom and
+structure. Source is evidence, not material to translate. Do not copy verbatim
+or near-verbatim code, shader source, comments, identifiers, file structure,
+minified snippets, fonts, logos, images, models, or copy into the destination.
+Numbers, formulas and observable behavior are facts: use the same math,
+geometry, parameters and timings exactly; the expression must be ours.
+Replace proprietary textures and assets with procedural or openly licensed
+stand-ins of the same visual character, recording licence/provenance. Match
+asset role, scale and placement without copying its drawing. Review the diff
+for source expression before handoff. Original code is not a reason to relax
+behavioral fidelity; disclose unavoidable asset differences.
 
 ## Match The Source, Recolor To The Destination
 
@@ -129,7 +145,9 @@ Say in the report where to swap each one.
 
 Every shader, WebGL, canvas, 3D, or animation effect gets knobs. Expose its
 meaningful parameters (speed, intensity, colors, scale, camera, easing,
-density) through Design's tweak system, never a private UI:
+density) as typed props or CSS custom properties with defaults. Repo mode
+needs no inspector. **Only in Design mode**, also expose them through Design's
+tweak system, never a private UI:
 
 1. Bind each parameter to a CSS custom property on the effect's root and have
    the effect read it every frame (`getComputedStyle(el).getPropertyValue`), so
@@ -149,7 +167,9 @@ density) through Design's tweak system, never a private UI:
 ## Remix Explain
 
 `remix explain <part of a site>` teaches instead of porting. Extract the part as
-above, then lay out an explainer microsite on the canvas beside the source:
+above, then build original minimal demos from the spec. In repo mode, provide
+a local explainer page with typed props/CSS knobs and captures. In Design mode,
+lay out an explainer microsite on the canvas beside the source:
 
 - One small inline HTML/CSS screen per idea, left to right: the effect in
   isolation, then each layer of how it works (geometry, shader, timing, scroll
@@ -167,7 +187,8 @@ Lab) can edit GSAP-style tracks and keyframes. It is optional; knobs come first.
 
 ## Finish
 
-Show the fidelity side-by-side and the destination screen with the remix in
-place, list the knobs and the swappable assets, and name what you could not
-reproduce. Hand off source edits
-the visual-edit way: the user reviews the diff in the destination repo.
+Show source-versus-result screenshots (and clips for motion) plus destination
+before/after images. List knobs, their defaults, swappable assets, and any
+unverified behavior or remaining differences. In repo mode, report changed
+files and verification directly; in Design mode, hand off source edits the
+visual-edit way for review in the destination repo.

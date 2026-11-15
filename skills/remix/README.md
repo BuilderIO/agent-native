@@ -1,9 +1,8 @@
 # Remix
 
-Point at something you love on another website, point at the spot in your own
-site, and let your coding agent rebuild it there. Remix works in Agent-Native
-Design: the source site and your site sit side by side on one canvas, and the
-result looks like the original, recolored with your colors and fonts.
+Rebuild an effect or section from another website in your own repo with exact
+behavior and original code. Run directly in a repo, or use Agent-Native Design
+to pick visually on a canvas. Design is optional.
 
 ## Install
 
@@ -13,8 +12,8 @@ Run this from your app repository:
 npx @agent-native/core@latest skills add remix
 ```
 
-This installs the skill and connects it to Agent-Native Design. Keep your app
-running when you use `/remix`.
+This installs the skill and a Design connector for optional canvas work.
+Repo mode uses your coding agent's browser and local dev server.
 
 ## Examples to try
 
@@ -25,10 +24,23 @@ running when you use `/remix`.
 
 If you leave out the source or the destination, the agent asks for it.
 
-## Example: replace a hero background
+## Example: work directly in a repo
 
 ```text
-/remix the wave hero from that site into my homepage
+/remix add the stripe hero animation to ours but make it blue
+```
+
+The agent finds your hero component, studies the source in its own browser,
+writes a behavior spec outside the repo, and implements from that spec in your
+stack without copying source expression. It maps the palette to blue, keeps
+the behavior exact, exposes typed props or CSS custom properties with defaults,
+and verifies matched screenshots/clips. You get before/after images and a
+source-versus-result comparison without opening Design.
+
+## Example: pick visually in Design
+
+```text
+/remix in Design, the wave hero from that site into my homepage
 ```
 
 Design opens with both pages. Select the effect in the source and the hero in
@@ -54,9 +66,10 @@ three.js examples.
 ## What you get
 
 - The remixed part rebuilt in your own code, matching the original in your colors.
-- Knobs for every shader, WebGL, 3D, or animation effect, readable over MCP.
+- Typed props or CSS knobs with defaults; inspector Tweaks when using Design.
 - Swappable assets with placeholders you own; no copied code, logos, fonts, or
-  media from the source.
+  media from the source. Proprietary assets get procedural or openly licensed
+  stand-ins with the same visual character.
 
 See the [skill instructions](https://github.com/BuilderIO/agent-native/blob/main/skills/remix/SKILL.md)
 for the full flow.
