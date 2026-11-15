@@ -1,3 +1,4 @@
+import { ActionContractError } from "@agent-native/core/action";
 import { inArray } from "drizzle-orm";
 
 import { schema } from "../server/db/index.js";
@@ -15,6 +16,9 @@ export async function assertNotWorkspaceCatalogDocuments(
     .from(schema.contentSpaceCatalogItems)
     .where(inArray(schema.contentSpaceCatalogItems.documentId, documentIds));
   if (workspaceReference) {
-    throw new Error(`Workspace references cannot be ${operation} as pages`);
+    throw new ActionContractError(
+      `Workspace references cannot be ${operation} as pages`,
+      { errorCode: "WORKSPACE_CATALOG_REFERENCE_PROTECTED", statusCode: 409 },
+    );
   }
 }
