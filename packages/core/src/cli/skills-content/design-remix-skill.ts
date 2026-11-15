@@ -117,9 +117,10 @@ behavioral fidelity; disclose unavoidable asset differences.
 
 The remix must be visually near-identical to the source: same shape,
 composition, scale, placement relative to its container, texture, motion, and
-timing. By default change only colors, and fonts and copy if the part has any,
-mapping each to the destination's tokens (CSS variables, Tailwind theme, design
-system). Change anything else only when the user asks.
+timing. Unless the user says otherwise, always restyle its brand layer to the
+destination: colors, fonts, iconography (the destination's icon set), logos,
+and copy, each mapped to the destination's tokens (CSS variables, Tailwind
+theme, design system). Change anything else only when the user asks.
 
 - Use the destination's components and conventions for markup; add a component
   in its usual place rather than a pasted blob.
