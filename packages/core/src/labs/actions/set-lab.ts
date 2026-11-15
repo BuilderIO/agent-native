@@ -33,7 +33,9 @@ export default defineAction({
     const states = await setUserLabStates(email, args.key, args.enabled, {
       orgId: ctx?.orgId,
     });
-    const state: UserLabStateResult | undefined = states[args.key];
+    const state = Object.hasOwn(states, args.key)
+      ? states[args.key]
+      : undefined;
     // A cleared choice falls back to the lab's legacy flags, which may be
     // unreadable right now; the clear is saved all the same, and the state
     // says so, so it reads off like any unreadable lab.
