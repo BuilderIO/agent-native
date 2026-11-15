@@ -1018,6 +1018,74 @@ describe("generate-design: new-file creation path", () => {
     resetDesignDataMutation();
   });
 
+  it("explains how to correct an asset marked as a HubSpot email before saving", async () => {
+    const email = {
+      filename: "email.html",
+      fileType: "html" as const,
+      frameType: "hubspot-email" as const,
+      content:
+        '<!doctype html><html><head></head><body><table role="presentation"><tr><td>Hello</td></tr></table></body></html>',
+    };
+    const asset = {
+      filename: "logo.svg",
+      fileType: "asset" as const,
+      content: '<svg xmlns="http://www.w3.org/2000/svg"></svg>',
+    };
+    const input = {
+      designId: "design-1",
+      prompt: "Create a sample email and logo",
+      files: [email, { ...asset, frameType: "hubspot-email" as const }],
+    };
+
+    const error = await action.run(input).then(
+      () => null,
+      (rejection: unknown) => rejection,
+    );
+
+    expect(error).toMatchObject({
+      name: "NoWriteError",
+      noWrite: true,
+      errorCode: "hubspot_email_html_required",
+      statusCode: 422,
+    });
+    expect(mocks.snapshotDesignBeforeAgentEdit).not.toHaveBeenCalled();
+    expect(mocks.mutateDesignData).not.toHaveBeenCalled();
+    expect(mocks.insert).not.toHaveBeenCalled();
+    expect(mocks.fileUpdateChain.set).not.toHaveBeenCalled();
+    expect(mocks.designUpdateChain.set).not.toHaveBeenCalled();
+    expect(mocks.seededCollabText.size).toBe(0);
+
+    const result = await action.run({ ...input, files: [email, asset] });
+    expect(result.savedFiles).toEqual([
+      { id: expect.any(String), filename: "email.html", fileType: "html" },
+      { id: expect.any(String), filename: "logo.svg", fileType: "asset" },
+    ]);
+    for (const [index, file] of [email, asset].entries()) {
+      const values = mocks.insert.mock.results[index]?.value.values;
+      expect(values).toHaveBeenCalledWith(
+        expect.objectContaining({
+          id: result.savedFiles[index]?.id,
+          designId: "design-1",
+          filename: file.filename,
+          fileType: file.fileType,
+          content: expect.stringContaining(file === email ? "Hello" : "<svg"),
+        }),
+      );
+    }
+    expect(mocks.getDesignData()).toMatchObject({
+      screenMetadata: {
+        [result.savedFiles[0]!.id]: { frameType: "hubspot-email", width: 600 },
+      },
+    });
+
+    expect(error).toBeInstanceOf(Error);
+    const message = (error as Error).message;
+    expect(message).toMatch(/fileType[\s\S]{0,80}html/i);
+    expect(message).toMatch(
+      /(?:omit|remove|unset|leave out)[\s\S]{0,80}frameType|frameType[\s\S]{0,80}(?:omit|remove|unset|leave out)/i,
+    );
+  });
+
   it("gives semantic email output a fluid email viewport without generated web breakpoints", async () => {
     const result = await action.run({
       designId: "design-1",
