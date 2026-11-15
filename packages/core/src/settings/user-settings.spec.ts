@@ -154,7 +154,7 @@ describe("user-settings", () => {
       expect(mockPutSetting).toHaveBeenCalledWith(
         "u:alice@test.com:theme",
         { theme: "dark" },
-        undefined,
+        { owner: "alice@test.com" },
       );
     });
 
@@ -173,7 +173,7 @@ describe("user-settings", () => {
       expect(mockPutSetting).toHaveBeenCalledWith(
         "u:alice@test.com:pref",
         { v: 1 },
-        { requestSource: "tab-1" },
+        { requestSource: "tab-1", owner: "alice@test.com" },
       );
     });
   });
@@ -196,7 +196,7 @@ describe("user-settings", () => {
       expect(mockMutateSetting).toHaveBeenCalledWith(
         "u:alice@test.com:mcp-servers-remote",
         expect.any(Function),
-        undefined,
+        { owner: "alice@test.com" },
       );
       expect(updater).toHaveBeenCalledWith({
         servers: [{ id: "mcps_legacy" }],
@@ -204,7 +204,7 @@ describe("user-settings", () => {
       expect(mockDeleteSettingIfValue).toHaveBeenCalledWith(
         "u:Alice@Test.com:mcp-servers-remote",
         legacyValue,
-        undefined,
+        { owner: "alice@test.com" },
       );
     });
 
@@ -251,7 +251,7 @@ describe("user-settings", () => {
       expect(mockDeleteSettingIfValue).toHaveBeenCalledWith(
         "u:Alice@Test.com:mcp-servers-remote",
         legacyValue,
-        undefined,
+        { owner: "alice@test.com" },
       );
       expect(updater).toHaveBeenCalledWith(legacyValue);
     });
@@ -279,13 +279,13 @@ describe("user-settings", () => {
         1,
         "u:Alice@Test.com:mcp-servers-remote",
         legacyValue,
-        undefined,
+        { owner: "alice@test.com" },
       );
       expect(mockDeleteSettingIfValue).toHaveBeenNthCalledWith(
         2,
         "u:alice@test.com:mcp-servers-remote",
         { servers: legacyValue.servers },
-        undefined,
+        { owner: "alice@test.com" },
       );
     });
 
@@ -326,7 +326,7 @@ describe("user-settings", () => {
       expect(mockDeleteSettingIfValue).toHaveBeenCalledWith(
         "u:alice@test.com:old",
         current,
-        undefined,
+        { owner: "alice@test.com" },
       );
       expect(result).toBe(true);
     });
@@ -345,13 +345,13 @@ describe("user-settings", () => {
         1,
         "u:Alice@Test.com:old",
         legacyValue,
-        undefined,
+        { owner: "alice@test.com" },
       );
       expect(mockDeleteSettingIfValue).toHaveBeenNthCalledWith(
         2,
         "u:alice@test.com:old",
         normalizedValue,
-        undefined,
+        { owner: "alice@test.com" },
       );
       expect(result).toBe(true);
     });
@@ -379,7 +379,7 @@ describe("user-settings", () => {
         2,
         "u:alice@test.com:mcp-servers-remote",
         legacyValue,
-        undefined,
+        { owner: "alice@test.com" },
       );
     });
 
@@ -402,7 +402,7 @@ describe("user-settings", () => {
       expect(mockDeleteSettingIfValue).toHaveBeenCalledWith(
         "u:alice@test.com:key",
         current,
-        { requestSource: "src" },
+        { requestSource: "src", owner: "alice@test.com" },
       );
     });
 
@@ -416,7 +416,7 @@ describe("user-settings", () => {
       expect(mockDeleteSettingIfValue).toHaveBeenCalledWith(
         "u:alice@test.com:key",
         current,
-        undefined,
+        { owner: "alice@test.com" },
       );
       expect(result).toBe(false);
     });

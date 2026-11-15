@@ -13,7 +13,7 @@ import type {
 } from "./types.js";
 
 function bumpPoll(owner: string): void {
-  recordChange({ source: "runs", type: "change", key: owner });
+  recordChange({ source: "runs", type: "change", key: owner, owner });
 }
 
 export const DEFAULT_PROGRESS_RUN_STALE_MS = 5 * 60 * 1000;

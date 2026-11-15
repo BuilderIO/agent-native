@@ -196,6 +196,9 @@ export async function getSettingsRaw(
 
 export interface StoreWriteOptions {
   requestSource?: string;
+  owner?: string;
+  orgId?: string;
+  global?: true;
 }
 
 export interface StoreMutationOptions extends StoreWriteOptions {
@@ -204,6 +207,22 @@ export interface StoreMutationOptions extends StoreWriteOptions {
 }
 
 const SETTINGS_MUTATION_ATTEMPTS = 25;
+
+function settingsChangeEvent(
+  type: "change" | "delete",
+  key: string,
+  options?: StoreWriteOptions,
+): Record<string, unknown> {
+  return {
+    source: "settings",
+    type,
+    key,
+    ...(options?.owner && { owner: options.owner }),
+    ...(options?.orgId && { orgId: options.orgId }),
+    ...(options?.global && { visibility: "public" }),
+    ...(options?.requestSource && { requestSource: options.requestSource }),
+  };
+}
 
 export async function mutateSetting(
   key: string,
@@ -243,12 +262,10 @@ export async function mutateSetting(
     if (result.rowsAffected === 0) continue;
     if (!options?.transaction) {
       requestSettingsCache()?.set(key, nextRaw);
-      settingsEmitter().emit("settings", {
-        source: "settings",
-        type: "change",
-        key,
-        ...(options?.requestSource && { requestSource: options.requestSource }),
-      });
+      settingsEmitter().emit(
+        "settings",
+        settingsChangeEvent("change", key, options),
+      );
     }
     return JSON.parse(nextRaw);
   }
@@ -260,12 +277,10 @@ export function publishSettingChange(
   options?: StoreWriteOptions,
 ): void {
   requestSettingsCache()?.delete(key);
-  settingsEmitter().emit("settings", {
-    source: "settings",
-    type: "change",
-    key,
-    ...(options?.requestSource && { requestSource: options.requestSource }),
-  });
+  settingsEmitter().emit(
+    "settings",
+    settingsChangeEvent("change", key, options),
+  );
 }
 
 export function invalidateSettingRequestCache(key: string): void {
@@ -287,12 +302,10 @@ export async function putSetting(
     args: [key, serialized, Date.now()],
   });
   requestSettingsCache()?.set(key, serialized);
-  settingsEmitter().emit("settings", {
-    source: "settings",
-    type: "change",
-    key,
-    ...(options?.requestSource && { requestSource: options.requestSource }),
-  });
+  settingsEmitter().emit(
+    "settings",
+    settingsChangeEvent("change", key, options),
+  );
 }
 
 export async function deleteSetting(
@@ -308,12 +321,10 @@ export async function deleteSetting(
   });
   requestSettingsCache()?.set(key, null);
   if (result.rowsAffected > 0) {
-    settingsEmitter().emit("settings", {
-      source: "settings",
-      type: "delete",
-      key,
-      ...(options?.requestSource && { requestSource: options.requestSource }),
-    });
+    settingsEmitter().emit(
+      "settings",
+      settingsChangeEvent("delete", key, options),
+    );
     return true;
   }
   return false;
@@ -335,12 +346,10 @@ export async function deleteSettingIfValue(
 
   if (!options?.transaction) {
     requestSettingsCache()?.set(key, null);
-    settingsEmitter().emit("settings", {
-      source: "settings",
-      type: "delete",
-      key,
-      ...(options?.requestSource && { requestSource: options.requestSource }),
-    });
+    settingsEmitter().emit(
+      "settings",
+      settingsChangeEvent("delete", key, options),
+    );
   }
   return true;
 }
@@ -359,12 +368,10 @@ export async function deleteSettingsByPrefix(
   });
   requestSettingsCache()?.clear();
   if (result.rowsAffected > 0) {
-    settingsEmitter().emit("settings", {
-      source: "settings",
-      type: "delete",
-      key: prefix,
-      ...(options?.requestSource && { requestSource: options.requestSource }),
-    });
+    settingsEmitter().emit(
+      "settings",
+      settingsChangeEvent("delete", prefix, options),
+    );
   }
   return result.rowsAffected;
 }

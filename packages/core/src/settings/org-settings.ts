@@ -39,7 +39,7 @@ export async function putOrgSetting(
   value: Record<string, unknown>,
   options?: StoreWriteOptions,
 ): Promise<void> {
-  return putSetting(orgKey(orgId, key), value, options);
+  return putSetting(orgKey(orgId, key), value, { ...options, orgId });
 }
 
 export async function mutateOrgSetting(
@@ -50,7 +50,7 @@ export async function mutateOrgSetting(
   ) => Record<string, unknown> | Promise<Record<string, unknown>>,
   options?: StoreWriteOptions,
 ): Promise<Record<string, unknown>> {
-  return mutateSetting(orgKey(orgId, key), updater, options);
+  return mutateSetting(orgKey(orgId, key), updater, { ...options, orgId });
 }
 
 export async function deleteOrgSetting(
@@ -58,14 +58,14 @@ export async function deleteOrgSetting(
   key: string,
   options?: StoreWriteOptions,
 ): Promise<boolean> {
-  return deleteSetting(orgKey(orgId, key), options);
+  return deleteSetting(orgKey(orgId, key), { ...options, orgId });
 }
 
 export async function deleteAllOrgSettings(
   orgId: string,
   options?: StoreWriteOptions,
 ): Promise<number> {
-  return deleteSettingsByPrefix(`o:${orgId}:`, options);
+  return deleteSettingsByPrefix(`o:${orgId}:`, { ...options, orgId });
 }
 
 export async function listOrgSettings(

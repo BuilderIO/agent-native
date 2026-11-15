@@ -8063,6 +8063,7 @@ Non-code requests are still fine on this surface: read data, navigate the UI, su
                   source: "checkpoint",
                   type: "change",
                   key: "*",
+                  visibility: "public",
                 });
               } catch {}
               return { success: true, commitSha: checkpoint.commitSha };

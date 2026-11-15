@@ -90,7 +90,10 @@ export async function putUserSetting(
   options?: StoreWriteOptions,
 ): Promise<void> {
   try {
-    await putSetting(userKey(email, key), value, options);
+    await putSetting(userKey(email, key), value, {
+      ...options,
+      owner: email.trim().toLowerCase(),
+    });
   } finally {
     afterUserSettingWrite(key);
   }
@@ -105,7 +108,10 @@ export async function mutateUserSetting(
   options?: StoreMutationOptions,
 ): Promise<Record<string, unknown>> {
   try {
-    return await mutateUserSettingValue(email, key, updater, options);
+    return await mutateUserSettingValue(email, key, updater, {
+      ...options,
+      owner: email.trim().toLowerCase(),
+    });
   } finally {
     if (!options?.transaction) afterUserSettingWrite(key);
   }
@@ -117,7 +123,10 @@ export function publishUserSettingChange(
   options?: StoreWriteOptions,
 ): void {
   invalidateSettingRequestCache(legacyUserKey(email, key));
-  publishSettingChange(userKey(email, key), options);
+  publishSettingChange(userKey(email, key), {
+    ...options,
+    owner: email.trim().toLowerCase(),
+  });
   afterUserSettingWrite(key);
 }
 
@@ -187,7 +196,10 @@ export async function deleteUserSetting(
   options?: StoreWriteOptions,
 ): Promise<boolean> {
   try {
-    return await deleteUserSettingValue(email, key, options);
+    return await deleteUserSettingValue(email, key, {
+      ...options,
+      owner: email.trim().toLowerCase(),
+    });
   } finally {
     afterUserSettingWrite(key);
   }

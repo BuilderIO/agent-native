@@ -7,7 +7,7 @@ import { recordChange } from "../server/poll.js";
 import type { Notification, NotificationSeverity } from "./types.js";
 
 function bumpPoll(owner: string): void {
-  recordChange({ source: "notifications", type: "change", key: owner });
+  recordChange({ source: "notifications", type: "change", key: owner, owner });
 }
 
 const DELIVERY_CLAIM_LEASE_MS = 2 * 60 * 1000;

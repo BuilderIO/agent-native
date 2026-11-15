@@ -160,6 +160,14 @@ function isEventAfterCursor(event: ChangeEvent, cursor: SyncCursor): boolean {
   return compareSyncCursors(cursorForEvent(event), cursor) > 0;
 }
 
+function withoutSettingsKey<T extends { source: string; key?: string }>(
+  event: T,
+): T {
+  return event.source === "settings" && event.key !== "*"
+    ? ({ ...event, key: "*" } as T)
+    : event;
+}
+
 function syncEventsDisabled(): boolean {
   return (
     process.env.AGENT_NATIVE_SYNC_EVENTS_DISABLE === "1" ||
@@ -703,6 +711,7 @@ export class AppSyncState {
     presetId?: string,
   ): Promise<void> {
     if (!(await this.ensureSyncEventsTable())) return;
+    const safeEvent = withoutSettingsKey(event);
     const client = this.getDb();
     await client.execute({
       sql: `INSERT INTO sync_events (id, version, event_json, source, type, event_key, owner, org_id, resource_type, resource_id, created_at)
@@ -711,14 +720,14 @@ export class AppSyncState {
       args: [
         presetId ?? this.durableEventId(event, dedupeKey),
         event.version,
-        JSON.stringify(event),
-        event.source,
-        event.type,
-        event.key ?? null,
-        event.owner ?? null,
-        event.orgId ?? null,
-        event.resourceType ?? null,
-        event.resourceId ?? null,
+        JSON.stringify(safeEvent),
+        safeEvent.source,
+        safeEvent.type,
+        safeEvent.key ?? null,
+        safeEvent.owner ?? null,
+        safeEvent.orgId ?? null,
+        safeEvent.resourceType ?? null,
+        safeEvent.resourceId ?? null,
         Date.now(),
       ],
     });
@@ -968,15 +977,14 @@ export class AppSyncState {
     orgId: string | undefined,
   ): ChangeVisibility {
     const normalizedUserEmail = userEmail.trim().toLowerCase();
-    if (!event.owner && !event.orgId && !event.resourceType) return "visible";
+    if (event.visibility === "public") return "visible";
+    if (!event.owner && !event.orgId && !event.resourceType) return "hidden";
     if (
       typeof event.owner === "string" &&
       event.owner.trim().toLowerCase() === normalizedUserEmail
     ) {
       return "visible";
     }
-    if (event.visibility === "public") return "visible";
-
     if (event.resourceType && event.resourceId) {
       const key = accessCacheKey(
         normalizedUserEmail,
@@ -1016,18 +1024,20 @@ export class AppSyncState {
     },
     opts?: { dedupeKey?: string },
   ): void {
+    const safeEvent =
+      event.source === "settings" ? { ...event, key: "*" } : event;
     if (this.dbAssignedVersions && !syncEventsDisabled()) {
       this.recordChain = retainRequestDbPoolScope(
         this.recordChain
-          .then(() => this.recordWithDbVersion(event, opts?.dedupeKey))
+          .then(() => this.recordWithDbVersion(safeEvent, opts?.dedupeKey))
           .catch((error) => {
-            this.reportDurableWriteFailure(error, event);
+            this.reportDurableWriteFailure(error, safeEvent);
           }),
       );
       return;
     }
     this.version = Math.max(this.version + 1, Date.now());
-    const provisional: ChangeEvent = { ...event, version: this.version };
+    const provisional: ChangeEvent = { ...safeEvent, version: this.version };
     const cursorId = this.durableEventId(provisional, opts?.dedupeKey);
     const entry: ChangeEvent = { ...provisional, cursorId };
     this.commitEntry(entry);
@@ -1285,7 +1295,7 @@ export class AppSyncState {
         orgId,
       );
       if (visibility === "visible") {
-        events.push(event);
+        events.push(withoutSettingsKey(event));
         lastCursor = cursorForEvent(event);
         continue;
       }
@@ -1343,9 +1353,6 @@ export class AppSyncState {
     }
 
     try {
-      const compositeCursorSql = cursor
-        ? "(version > ? OR (version = ? AND id > ?))"
-        : "version > ?";
       // Scope the fetch to rows that could ever be visible to this caller
       // before paying to JSON.parse and visibility-check every deployment-wide
       // event: deployment-global rows (no owner, no org), the caller's own
@@ -1356,24 +1363,24 @@ export class AppSyncState {
       // `orgId` bind param, which makes `org_id = ?` match no row in both
       // mirroring the `event.orgId && orgId` truthy check.
       const result = await this.getDb().execute({
-        sql: `SELECT id, version, event_json FROM sync_events WHERE ${compositeCursorSql}
+        sql: `SELECT id, version, event_json, owner, org_id, resource_type, resource_id FROM sync_events
+              WHERE (version > ? OR (? = TRUE AND version = ? AND id > ?))
               AND (
-                (owner IS NULL AND org_id IS NULL)
+                (owner IS NULL AND org_id IS NULL AND event_json::jsonb ->> 'visibility' = 'public')
                 OR owner = ?
                 OR org_id = ?
                 OR resource_type IS NOT NULL
               )
             ORDER BY version ASC, id ASC LIMIT ?`,
-        args: cursor
-          ? [
-              cursor.version,
-              cursor.version,
-              cursor.id,
-              userEmail,
-              orgId ?? null,
-              DURABLE_READ_LIMIT + 1,
-            ]
-          : [since, userEmail, orgId ?? null, DURABLE_READ_LIMIT + 1],
+        args: [
+          cursor?.version ?? since,
+          cursor !== undefined,
+          cursor?.version ?? since,
+          cursor?.id ?? "",
+          userEmail,
+          orgId ?? null,
+          DURABLE_READ_LIMIT + 1,
+        ],
       });
       const events: ChangeEvent[] = [];
       let version = Math.max(this.version, since);
@@ -1399,12 +1406,44 @@ export class AppSyncState {
             typeof parsed.source === "string" &&
             typeof parsed.type === "string"
           ) {
+            const parsedEvent = parsed as ChangeEvent;
+            const {
+              owner: _eventOwner,
+              orgId: _eventOrgId,
+              resourceType: _eventResourceType,
+              resourceId: _eventResourceId,
+              ...safeEvent
+            } = parsedEvent;
             event = {
-              ...(parsed as ChangeEvent),
-              version: rawVersion || (parsed as ChangeEvent).version,
-              ...(rowId || typeof (parsed as ChangeEvent).cursorId === "string"
+              ...safeEvent,
+              version: rawVersion || parsedEvent.version,
+              ...(typeof row.owner === "string"
+                ? { owner: row.owner }
+                : row.owner === undefined &&
+                    typeof parsedEvent.owner === "string"
+                  ? { owner: parsedEvent.owner }
+                  : {}),
+              ...(typeof row.org_id === "string"
+                ? { orgId: row.org_id }
+                : row.org_id === undefined &&
+                    typeof parsedEvent.orgId === "string"
+                  ? { orgId: parsedEvent.orgId }
+                  : {}),
+              ...(typeof row.resource_type === "string"
+                ? { resourceType: row.resource_type }
+                : row.resource_type === undefined &&
+                    typeof parsedEvent.resourceType === "string"
+                  ? { resourceType: parsedEvent.resourceType }
+                  : {}),
+              ...(typeof row.resource_id === "string"
+                ? { resourceId: row.resource_id }
+                : row.resource_id === undefined &&
+                    typeof parsedEvent.resourceId === "string"
+                  ? { resourceId: parsedEvent.resourceId }
+                  : {}),
+              ...(rowId || typeof parsedEvent.cursorId === "string"
                 ? {
-                    cursorId: rowId || (parsed as ChangeEvent).cursorId,
+                    cursorId: rowId || parsedEvent.cursorId,
                   }
                 : {}),
             };
@@ -1426,7 +1465,7 @@ export class AppSyncState {
           orgId,
         );
         if (visibility === "visible") {
-          events.push(event);
+          events.push(withoutSettingsKey(event));
           if (rowCursor) lastCursor = rowCursor;
           continue;
         }
@@ -1889,7 +1928,12 @@ export class AppSyncState {
       if (settingsTs > this.lastSettingsTs) {
         if (this.lastSettingsTs > 0) {
           this.recordChange(
-            { source: "settings", type: "change", key: "*" },
+            {
+              source: "settings",
+              type: "change",
+              key: "*",
+              visibility: "public",
+            },
             { dedupeKey: `settings|${settingsTs}` },
           );
         }
