@@ -25,6 +25,9 @@ export interface PreparingAfterCountdown {
 export interface PreparingOverlay {
   show(): Promise<void>;
   hide(): Promise<void>;
+  /** Both hide attempts failed: the overlay may still cover the live
+   * recording, so tell the user. */
+  onHideFailed?(error: unknown): void;
   delayMs?: number;
 }
 
@@ -59,16 +62,27 @@ export function showPreparingAfterCountdown(
       await pending;
       // A failed hide would leave the full-screen overlay over the recording,
       // so try twice and log it. It never fails the start: capture is live.
+      // If both fail, the user is told (onHideFailed).
+      let lastError: unknown;
       for (let attempt = 1; attempt <= 2; attempt += 1) {
         try {
           await options.hide();
           return;
         } catch (err) {
+          lastError = err;
           console.error(
             `[clips-recorder] hiding Preparing failed (attempt ${attempt}/2):`,
             err,
           );
         }
+      }
+      try {
+        options.onHideFailed?.(lastError);
+      } catch (err) {
+        console.error(
+          "[clips-recorder] Preparing hide-failure notice failed:",
+          err,
+        );
       }
     },
   };

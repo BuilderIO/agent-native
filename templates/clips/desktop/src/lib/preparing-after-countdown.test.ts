@@ -155,6 +155,47 @@ describe("showPreparingAfterCountdown", () => {
     error.mockRestore();
   });
 
+  it("tells the user when Preparing still cannot be closed after both hide attempts", async () => {
+    const countdown = deferred();
+    const onHideFailed = vi.fn();
+    const failure = new Error("window busy");
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const preparing = showPreparingAfterCountdown(countdown.promise, {
+      show: async () => {},
+      hide: async () => {
+        throw failure;
+      },
+      onHideFailed,
+    });
+
+    countdown.resolve();
+    await vi.advanceTimersByTimeAsync(PREPARING_AFTER_COUNTDOWN_DELAY_MS);
+    await expect(preparing.done()).resolves.toBeUndefined();
+    expect(onHideFailed).toHaveBeenCalledOnce();
+    expect(onHideFailed).toHaveBeenCalledWith(failure);
+    error.mockRestore();
+  });
+
+  it("does not warn the user when the retried hide succeeds", async () => {
+    const countdown = deferred();
+    const onHideFailed = vi.fn();
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const preparing = showPreparingAfterCountdown(countdown.promise, {
+      show: async () => {},
+      hide: vi
+        .fn<() => Promise<void>>()
+        .mockRejectedValueOnce(new Error("window busy"))
+        .mockResolvedValueOnce(undefined),
+      onHideFailed,
+    });
+
+    countdown.resolve();
+    await vi.advanceTimersByTimeAsync(PREPARING_AFTER_COUNTDOWN_DELAY_MS);
+    await preparing.done();
+    expect(onHideFailed).not.toHaveBeenCalled();
+    error.mockRestore();
+  });
+
   it("shows nothing when the countdown is cancelled", async () => {
     const countdown = deferred();
     const options = overlay();

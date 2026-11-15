@@ -32,11 +32,15 @@ import {
   shouldRequestSystemAudio,
 } from "./media-capture-constraints";
 import { planNativeFullscreenWarmOverlap } from "./native-recording-warm";
+import { submitNativeNotification } from "./native-notification";
 import {
   createPauseTransitionQueue,
   type PauseTransitionQueue,
 } from "./pause-transition";
-import { showPreparingAfterCountdown } from "./preparing-after-countdown";
+import {
+  type PreparingOverlay,
+  showPreparingAfterCountdown,
+} from "./preparing-after-countdown";
 import { reconcileProcessingBackup } from "./processing-backup-recovery";
 import {
   classifyRecordFirstOpenFailure,
@@ -3207,6 +3211,22 @@ function recorderWithRewindOriginLifecycle(
   return handle;
 }
 
+/** The "Preparing recording" overlay shown after the countdown until capture
+ * is live. If it cannot be closed, a notification says the recording is
+ * running and the screen closes when the recording stops. */
+function preparingOverlay(): PreparingOverlay {
+  return {
+    show: () => invoke("show_preparing"),
+    hide: () => invoke("hide_preparing"),
+    onHideFailed: () => {
+      void submitNativeNotification({
+        title: "Clips is recording",
+        body: "The Preparing screen could not be closed. Your recording is running; the screen closes when you stop it.",
+      }).catch(() => {});
+    },
+  };
+}
+
 async function tryStartRewindFullscreenRecording(
   params: StartParams,
   wantsCamera: boolean,
@@ -3359,10 +3379,7 @@ async function tryStartRewindFullscreenRecording(
       cancelCountdown() {
         countdownController.abort();
       },
-      preparing: {
-        show: () => invoke("show_preparing"),
-        hide: () => invoke("hide_preparing"),
-      },
+      preparing: preparingOverlay(),
       async beforeActivate() {
         await audioCue.playBeforeCapture(params.signal);
       },
@@ -3926,10 +3943,10 @@ async function startNativeFullscreenRecording(
     // so Preparing can show for any slow step after the countdown (server
     // create, start cue, warm-up, native begin) and is hidden on every exit,
     // including a cancellation between preparation and begin.
-    const preparing = showPreparingAfterCountdown(countdownPromise, {
-      show: () => invoke("show_preparing"),
-      hide: () => invoke("hide_preparing"),
-    });
+    const preparing = showPreparingAfterCountdown(
+      countdownPromise,
+      preparingOverlay(),
+    );
     try {
       if (localOnly) {
         id = localFolderName;
