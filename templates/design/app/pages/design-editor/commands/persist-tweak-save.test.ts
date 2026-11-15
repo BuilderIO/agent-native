@@ -276,4 +276,27 @@ describe("overlapping page-exit keepalive and normal saves", () => {
     expect(noteSaveLeftQueued).not.toHaveBeenCalled();
     expect(args.acknowledgeOutboxEntry).not.toHaveBeenCalled();
   });
+
+  it("accepts an earlier keepalive's base when a later page exit sends again", async () => {
+    const { args } = setup({ apply: async () => ({}) });
+    args.keepaliveTweakSaveInFlightRef.current = {
+      revision: 1,
+      selectionsHashIfApplied: "hash-after-first-keepalive",
+    };
+    args.keepaliveTweakSaveRevisionRef.current = 1;
+    args.pendingTweakSaveRef.current = { ...PENDING, revision: 2 };
+    keepaliveCall.mockReturnValue({
+      accepted: true,
+      completion: new Promise(() => {}),
+    });
+
+    sendLatestTweakSaveKeepalive(args);
+
+    expect(keepaliveCall).toHaveBeenCalledWith(
+      "apply-tweaks",
+      expect.objectContaining({
+        inFlightSelectionsHash: "hash-after-first-keepalive",
+      }),
+    );
+  });
 });

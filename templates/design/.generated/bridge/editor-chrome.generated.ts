@@ -1365,6 +1365,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       if (!el || el.parentElement?.closest("svg")) continue;
       visit(el, el.getBoundingClientRect());
     }
+    return elements.length > limit;
   }
   function createsStackingContext(cs) {
     return cs.position === "fixed" || cs.position === "sticky" || Number(cs.opacity) < 1 || [
@@ -1420,8 +1421,8 @@ export const editorChromeBridgeScript: string = `"use strict";
     const stack = hitStack.slice();
     const added = /* @__PURE__ */ new Map();
     const body = doc.querySelector("body");
-    if (!body) return { stack, added };
-    scanElements(body, function(el, rect) {
+    if (!body) return { stack, added, truncated: false };
+    const truncated = scanElements(body, function(el, rect) {
       if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom || stack.indexOf(el) !== -1 || exclude(el)) {
         return;
       }
@@ -1437,7 +1438,7 @@ export const editorChromeBridgeScript: string = `"use strict";
       stack.splice(index, 0, el);
       added.set(el, match);
     });
-    return { stack, added };
+    return { stack, added, truncated };
   }
   function overlapArea(a, b) {
     const width = Math.min(a.right, b.right) - Math.max(a.left, b.left);
@@ -1449,9 +1450,9 @@ export const editorChromeBridgeScript: string = `"use strict";
     const targetRect = target.getBoundingClientRect();
     const targetArea = targetRect.width * targetRect.height;
     const body = doc.querySelector("body");
-    if (!body || targetArea <= 0) return [];
+    if (!body || targetArea <= 0) return { layers: [], truncated: false };
     const results = [];
-    scanElements(body, function(el, rect) {
+    const truncated = scanElements(body, function(el, rect) {
       if (el === target) return;
       const area = overlapArea(targetRect, rect);
       if (area <= 0 || exclude(el)) return;
@@ -1468,7 +1469,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     results.sort(function(a, b) {
       return effectRank(b) - effectRank(a) || b.coverage - a.coverage;
     });
-    return results.slice(0, limit);
+    return { layers: results.slice(0, limit), truncated };
   }
 
   // app/components/design/bridge/native-region-export.ts
@@ -6906,7 +6907,9 @@ export const editorChromeBridgeScript: string = `"use strict";
       rememberLiveVisualEditOriginalStyles(el);
       var intent = e ? selectionIntentFromEvent(e) : void 0;
       var payload = getElementInfo(el);
-      payload.effectCandidates = effectCandidatesForElement(el);
+      var effects = effectCandidatesForElement(el);
+      payload.effectCandidates = effects.candidates;
+      if (effects.truncated) payload.effectCandidatesTruncated = true;
       var message = {
         type: "element-select",
         payload
@@ -6925,6 +6928,9 @@ export const editorChromeBridgeScript: string = `"use strict";
           }
           var remapped = getElementInfo(el);
           remapped.effectCandidates = payload.effectCandidates;
+          if (payload.effectCandidatesTruncated) {
+            remapped.effectCandidatesTruncated = true;
+          }
           window.parent.postMessage(
             { type: "element-select", payload: remapped },
             "*"
@@ -12598,22 +12604,26 @@ export const editorChromeBridgeScript: string = `"use strict";
     }
     var MAX_EFFECT_CANDIDATES = 5;
     function effectCandidatesForElement(el) {
-      return visualLayersOverlapping(
+      var scan = visualLayersOverlapping(
         el,
         isVisualLayerScanExcluded,
         MAX_EFFECT_CANDIDATES
-      ).map(function(layer) {
-        return {
-          sourceId: getSourceId(layer.element) || void 0,
-          selector: getSelector(layer.element),
-          tagName: layer.element.tagName.toLowerCase(),
-          kind: layer.kind,
-          relation: layer.relation,
-          coverage: layer.coverage,
-          animated: layer.animated,
-          webgl: layer.kind === "webgl"
-        };
-      });
+      );
+      return {
+        truncated: scan.truncated,
+        candidates: scan.layers.map(function(layer) {
+          return {
+            sourceId: getSourceId(layer.element) || void 0,
+            selector: getSelector(layer.element),
+            tagName: layer.element.tagName.toLowerCase(),
+            kind: layer.kind,
+            relation: layer.relation,
+            coverage: layer.coverage,
+            animated: layer.animated,
+            webgl: layer.kind === "webgl"
+          };
+        })
+      };
     }
     function collectLayerHitCandidates(clientX, clientY) {
       var shieldPointerEvents = shieldOverlay.style.pointerEvents;
@@ -12645,13 +12655,14 @@ export const editorChromeBridgeScript: string = `"use strict";
           if (!pointTarget || pointTarget.nodeType !== 1) return;
           if (isOverlayElement(pointTarget)) return;
           var candidate = selectionTargetForHit(pointTarget);
-          if (!candidate || isDocumentRootElement(candidate) || isOverlayElement(candidate) || isLayerInteractionBlocked(candidate) || isTemplateCloneElement(candidate) || elements.indexOf(candidate) !== -1) {
+          if (!candidate || isDocumentRootElement(candidate) || isOverlayElement(candidate) || isLayerInteractionBlocked(candidate) || isTemplateCloneElement(candidate)) {
             return;
           }
-          elements.push(candidate);
-          if (nativeTargets.indexOf(pointTarget) !== -1) {
+          if (nativeTargets.indexOf(pointTarget) !== -1 && nativeElements.indexOf(candidate) === -1) {
             nativeElements.push(candidate);
           }
+          if (elements.indexOf(candidate) !== -1) return;
+          elements.push(candidate);
           var candidateInfo = getElementInfo(
             candidate,
             portableComputedStylesCache

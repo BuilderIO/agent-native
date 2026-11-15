@@ -75,7 +75,9 @@ Effects usually paint on a layer the user cannot click: a
 \`pointer-events: none\` canvas, video, or background behind the hero wrapper.
 Each selected element carries \`effectCandidates\`: the visible layers behind or
 inside it (kind, how much of the pick they cover, whether they animate or use
-WebGL). Before extracting:
+WebGL). \`effectCandidatesTruncated: true\` means the scan stopped early on a
+very large page, so the list may be missing layers: check the page yourself
+before concluding there is no effect. Before extracting:
 
 - One clearly effect-like candidate (say a WebGL canvas covering most of the
   pick): take it and say so in one line, e.g. "You clicked the hero container;

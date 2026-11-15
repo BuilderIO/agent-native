@@ -195,10 +195,11 @@ function matchFor(el: Element, rect: DOMRect): VisualLayerMatch | null {
   return { element: el, kind, animated };
 }
 
+/** Returns true when the document has more elements than the scan visits. */
 function scanElements(
   root: Element,
   visit: (el: Element, rect: DOMRect) => void,
-) {
+): boolean {
   const elements = root.getElementsByTagName("*");
   const limit = Math.min(elements.length, VISUAL_LAYER_SCAN_MAX_ELEMENTS);
   for (let i = 0; i < limit; i += 1) {
@@ -206,6 +207,7 @@ function scanElements(
     if (!el || el.parentElement?.closest("svg")) continue;
     visit(el, el.getBoundingClientRect());
   }
+  return elements.length > limit;
 }
 
 // True when an element with `z-index: auto` still paints as its own stacking
@@ -298,12 +300,17 @@ export function mergeVisualLayersAtPoint(
   clientY: number,
   hitStack: readonly Element[],
   exclude: (el: Element) => boolean,
-): { stack: Element[]; added: Map<Element, VisualLayerMatch> } {
+): {
+  stack: Element[];
+  added: Map<Element, VisualLayerMatch>;
+  /** The scan stopped early, so layers further down the document are missing. */
+  truncated: boolean;
+} {
   const stack = hitStack.slice();
   const added = new Map<Element, VisualLayerMatch>();
   const body = doc.querySelector("body");
-  if (!body) return { stack, added };
-  scanElements(body, function (el, rect) {
+  if (!body) return { stack, added, truncated: false };
+  const truncated = scanElements(body, function (el, rect) {
     if (
       clientX < rect.left ||
       clientX > rect.right ||
@@ -326,7 +333,7 @@ export function mergeVisualLayersAtPoint(
     stack.splice(index, 0, el);
     added.set(el, match);
   });
-  return { stack, added };
+  return { stack, added, truncated };
 }
 
 function overlapArea(a: DOMRect, b: DOMRect): number {
@@ -344,14 +351,18 @@ export function visualLayersOverlapping(
   target: Element,
   exclude: (el: Element) => boolean,
   limit: number,
-): VisualLayerOverlap[] {
+): {
+  layers: VisualLayerOverlap[];
+  /** The scan stopped early, so layers further down the document are missing. */
+  truncated: boolean;
+} {
   const doc = target.ownerDocument;
   const targetRect = target.getBoundingClientRect();
   const targetArea = targetRect.width * targetRect.height;
   const body = doc.querySelector("body");
-  if (!body || targetArea <= 0) return [];
+  if (!body || targetArea <= 0) return { layers: [], truncated: false };
   const results: VisualLayerOverlap[] = [];
-  scanElements(body, function (el, rect) {
+  const truncated = scanElements(body, function (el, rect) {
     if (el === target) return;
     const area = overlapArea(targetRect, rect);
     if (area <= 0 || exclude(el)) return;
@@ -373,5 +384,5 @@ export function visualLayersOverlapping(
   results.sort(function (a, b) {
     return effectRank(b) - effectRank(a) || b.coverage - a.coverage;
   });
-  return results.slice(0, limit);
+  return { layers: results.slice(0, limit), truncated };
 }

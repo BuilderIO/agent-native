@@ -236,6 +236,8 @@ export interface ElementInfo {
    * so this is how a pick on a wrapper finds the canvas painting behind it.
    */
   effectCandidates?: EffectCandidate[];
+  /** The scan for `effectCandidates` stopped early, so the list may be incomplete. */
+  effectCandidatesTruncated?: boolean;
   isFlexChild: boolean;
   isFlexContainer: boolean;
   isGridContainer?: boolean;

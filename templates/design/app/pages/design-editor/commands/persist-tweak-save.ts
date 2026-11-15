@@ -259,9 +259,15 @@ export function sendLatestTweakSaveKeepalive(args: PersistTweakSaveArgs): void {
     pending,
     confirmedTweakSelectionsRef.current.hash,
   );
-  const inFlight = tweakSaveInFlightRef.current;
-  const sendPending: PendingTweakSave = inFlight
-    ? { ...rebased, inFlightSelectionsHash: inFlight.selectionsHashIfApplied }
+  // An earlier keepalive still on the wire may land before this one, so its
+  // result is the base to accept; otherwise the regular save's.
+  const acceptedBase =
+    keepaliveTweakSaveInFlightRef.current ?? tweakSaveInFlightRef.current;
+  const sendPending: PendingTweakSave = acceptedBase
+    ? {
+        ...rebased,
+        inFlightSelectionsHash: acceptedBase.selectionsHashIfApplied,
+      }
     : rebased;
   const entry = createTweakSaveOutboxEntry(sendPending);
   if (!entry) return;

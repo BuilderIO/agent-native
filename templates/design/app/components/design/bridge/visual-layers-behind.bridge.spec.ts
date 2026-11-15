@@ -196,4 +196,40 @@ describe("stacking and targets", () => {
       await page.close();
     }
   });
+
+  it("says so when the layer scan stops before the end of a very large page", async () => {
+    const page = await openMarkup(`
+      <div data-agent-native-node-id="hero" style="position:relative;width:300px;height:300px"></div>
+      ${"<i></i>".repeat(6100)}
+      <canvas data-agent-native-node-id="late" width="300" height="300" style="position:absolute;left:0;top:0;pointer-events:none"></canvas>`);
+    try {
+      await page.mouse.click(20, 20);
+      const selected = await waitForMessage(
+        page,
+        'message.type === "element-select" && message.payload?.sourceId === "hero"',
+      );
+      expect(selected.payload.effectCandidatesTruncated).toBe(true);
+    } finally {
+      await page.close();
+    }
+  });
+
+  it("keeps a native hit as the right-click target when a merged layer reached the same wrapper first", async () => {
+    const page = await openMarkup(`
+      <div data-agent-native-node-id="group" style="position:relative;width:300px;height:300px">
+        <canvas data-agent-native-node-id="fx" width="300" height="300" style="position:absolute;inset:0;z-index:5;pointer-events:none"></canvas>
+        <h1 data-agent-native-node-id="title" style="margin:0;font:32px sans-serif">Ship faster</h1>
+      </div>`);
+    try {
+      await page.mouse.click(20, 20, { button: "right" });
+      const menu = await waitForMessage(
+        page,
+        'message.type === "element-contextmenu"',
+      );
+      expect(menu.payload).not.toBeNull();
+      expect(["title", "group"]).toContain(menu.payload.sourceId);
+    } finally {
+      await page.close();
+    }
+  });
 });

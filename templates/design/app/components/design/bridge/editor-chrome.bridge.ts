@@ -7577,7 +7577,9 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     rememberLiveVisualEditOriginalStyles(el);
     var intent = e ? selectionIntentFromEvent(e) : undefined;
     var payload = getElementInfo(el) as Record<string, unknown>;
-    payload.effectCandidates = effectCandidatesForElement(el);
+    var effects = effectCandidatesForElement(el);
+    payload.effectCandidates = effects.candidates;
+    if (effects.truncated) payload.effectCandidatesTruncated = true;
     var message: {
       type: string;
       payload: unknown;
@@ -7612,6 +7614,9 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         }
         var remapped = getElementInfo(el) as Record<string, unknown>;
         remapped.effectCandidates = payload.effectCandidates;
+        if (payload.effectCandidatesTruncated) {
+          remapped.effectCandidatesTruncated = true;
+        }
         (window.parent as Window).postMessage(
           { type: "element-select", payload: remapped },
           "*",
@@ -15365,22 +15370,26 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
   // effect usually paints on a pointer-events:none canvas or background behind
   // the wrapper the user actually clicked.
   function effectCandidatesForElement(el: Element) {
-    return visualLayersOverlapping(
+    var scan = visualLayersOverlapping(
       el,
       isVisualLayerScanExcluded,
       MAX_EFFECT_CANDIDATES,
-    ).map(function (layer) {
-      return {
-        sourceId: getSourceId(layer.element) || undefined,
-        selector: getSelector(layer.element),
-        tagName: layer.element.tagName.toLowerCase(),
-        kind: layer.kind,
-        relation: layer.relation,
-        coverage: layer.coverage,
-        animated: layer.animated,
-        webgl: layer.kind === "webgl",
-      };
-    });
+    );
+    return {
+      truncated: scan.truncated,
+      candidates: scan.layers.map(function (layer) {
+        return {
+          sourceId: getSourceId(layer.element) || undefined,
+          selector: getSelector(layer.element),
+          tagName: layer.element.tagName.toLowerCase(),
+          kind: layer.kind,
+          relation: layer.relation,
+          coverage: layer.coverage,
+          animated: layer.animated,
+          webgl: layer.kind === "webgl",
+        };
+      }),
+    };
   }
 
   function collectLayerHitCandidates(
@@ -15446,15 +15455,20 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
           isDocumentRootElement(candidate) ||
           isOverlayElement(candidate) ||
           isLayerInteractionBlocked(candidate) ||
-          isTemplateCloneElement(candidate) ||
-          elements.indexOf(candidate) !== -1
+          isTemplateCloneElement(candidate)
         ) {
           return;
         }
-        elements.push(candidate);
-        if (nativeTargets.indexOf(pointTarget) !== -1) {
+        // Recorded before the dedupe: a merged layer that resolved to this
+        // candidate first must not hide that native hit also reached it.
+        if (
+          nativeTargets.indexOf(pointTarget) !== -1 &&
+          nativeElements.indexOf(candidate) === -1
+        ) {
           nativeElements.push(candidate);
         }
+        if (elements.indexOf(candidate) !== -1) return;
+        elements.push(candidate);
         var candidateInfo = getElementInfo(
           candidate,
           portableComputedStylesCache,

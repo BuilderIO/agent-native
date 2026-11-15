@@ -154,6 +154,7 @@ function summarizeSelectedElement(element: ElementInfo) {
     boundingRect: element.boundingRect,
     childElementCount: element.childElementCount,
     effectCandidates: element.effectCandidates,
+    effectCandidatesTruncated: element.effectCandidatesTruncated,
     isFlexContainer: element.isFlexContainer,
     isGridContainer: element.isGridContainer,
     parentDisplay: element.parentDisplay,
