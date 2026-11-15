@@ -1080,6 +1080,16 @@ export default {
     },
     componentInstances: {
       selectLayer: "تحديد طبقة",
+      layerKinds: {
+        webgl: "لوحة رسم · WebGL",
+        canvas: "لوحة رسم",
+        video: "فيديو",
+        image: "صورة",
+        svg: "رسم SVG",
+        embed: "تضمين",
+        background: "خلفية",
+        effect: "تأثير",
+      },
       goToMain: "الانتقال إلى المكوّن الرئيسي",
       restore: "استعادة المكوّن",
       swap: "تبديل النسخة",

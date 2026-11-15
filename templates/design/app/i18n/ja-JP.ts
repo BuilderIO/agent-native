@@ -1099,6 +1099,16 @@ export default {
     },
     componentInstances: {
       selectLayer: "レイヤーを選択",
+      layerKinds: {
+        webgl: "キャンバス · WebGL",
+        canvas: "キャンバス",
+        video: "動画",
+        image: "画像",
+        svg: "SVG 画像",
+        embed: "埋め込み",
+        background: "背景",
+        effect: "エフェクト",
+      },
       goToMain: "メインコンポーネントに移動",
       restore: "コンポーネントを復元",
       swap: "インスタンスを入れ替え",

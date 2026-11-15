@@ -605,6 +605,7 @@ const BRIDGE_SAFE_IMPORTS: Readonly<Record<string, readonly string[]>> = {
     "../../../../shared/relative-position-containing-block",
     "../../../../shared/source-equivalent-selector",
     "../../../../shared/svg-shape-offset",
+    "../../../../shared/visual-layers",
   ],
   // The source-equivalent selector walker is shared with the parent canvas, which resolves
   // the selectors the bridge builds, so both sides skip the same siblings.

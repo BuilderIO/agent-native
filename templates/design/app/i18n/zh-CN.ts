@@ -1070,6 +1070,16 @@ export default {
     },
     componentInstances: {
       selectLayer: "选择图层",
+      layerKinds: {
+        webgl: "画布 · WebGL",
+        canvas: "画布",
+        video: "视频",
+        image: "图片",
+        svg: "SVG 图形",
+        embed: "嵌入",
+        background: "背景",
+        effect: "效果",
+      },
       goToMain: "转到主组件",
       restore: "恢复组件",
       swap: "交换实例",

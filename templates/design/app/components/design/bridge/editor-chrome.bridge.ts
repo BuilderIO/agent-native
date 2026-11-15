@@ -58,6 +58,11 @@ import {
   paintsBox,
   TEXT_LAYER_TAGS,
 } from "../../../../shared/text-layer-rule";
+import {
+  mergeVisualLayersAtPoint,
+  visualLayerKindFor,
+  visualLayersOverlapping,
+} from "../../../../shared/visual-layers";
 import { NATIVE_EDITOR_VIEWPORT_CLIP_RULE } from "./native-region-export";
 
 declare var __READ_ONLY__: boolean;
@@ -7571,6 +7576,8 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     var selectionGenerationAtPost = ++selectionGeneration;
     rememberLiveVisualEditOriginalStyles(el);
     var intent = e ? selectionIntentFromEvent(e) : undefined;
+    var payload = getElementInfo(el) as Record<string, unknown>;
+    payload.effectCandidates = effectCandidatesForElement(el);
     var message: {
       type: string;
       payload: unknown;
@@ -7579,7 +7586,7 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
       focusSafe?: boolean;
     } = {
       type: "element-select",
-      payload: getElementInfo(el),
+      payload: payload,
     };
     if (intent) message.intent = intent;
     if (e?.isTrusted && intent?.source === "pointer") {
@@ -7603,8 +7610,10 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
         ) {
           return;
         }
+        var remapped = getElementInfo(el) as Record<string, unknown>;
+        remapped.effectCandidates = payload.effectCandidates;
         (window.parent as Window).postMessage(
-          { type: "element-select", payload: getElementInfo(el) },
+          { type: "element-select", payload: remapped },
           "*",
         );
         remapReactDocumentProvenance();
@@ -15341,12 +15350,50 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     return fallbackTagLayerLabel(candidate.tagName.toLowerCase());
   }
 
+  function isVisualLayerScanExcluded(el: Element): boolean {
+    return (
+      isOverlayElement(el) ||
+      isDocumentRootElement(el) ||
+      isLayerInteractionBlocked(el) ||
+      isTemplateCloneElement(el)
+    );
+  }
+
+  var MAX_EFFECT_CANDIDATES = 5;
+
+  // The layers the agent should weigh before taking a pick at face value: an
+  // effect usually paints on a pointer-events:none canvas or background behind
+  // the wrapper the user actually clicked.
+  function effectCandidatesForElement(el: Element) {
+    return visualLayersOverlapping(
+      el,
+      isVisualLayerScanExcluded,
+      MAX_EFFECT_CANDIDATES,
+    ).map(function (layer) {
+      return {
+        sourceId: getSourceId(layer.element) || undefined,
+        selector: getSelector(layer.element),
+        tagName: layer.element.tagName.toLowerCase(),
+        kind: layer.kind,
+        relation: layer.relation,
+        coverage: layer.coverage,
+        animated: layer.animated,
+        webgl: layer.kind === "webgl",
+      };
+    });
+  }
+
   function collectLayerHitCandidates(
     clientX: number,
     clientY: number,
   ): {
     elements: Element[];
-    layerCandidates: Array<{ key: string; label: string; info: unknown }>;
+    layerCandidates: Array<{
+      key: string;
+      label: string;
+      kind?: string;
+      info: unknown;
+    }>;
   } {
     var shieldPointerEvents = shieldOverlay.style.pointerEvents;
     var selectionPointerEvents = selectionOverlay.style.pointerEvents;
@@ -15360,11 +15407,23 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
     shieldOverlay.style.pointerEvents = shieldPointerEvents;
     selectionOverlay.style.pointerEvents = selectionPointerEvents;
     highlightOverlay.style.pointerEvents = highlightPointerEvents;
+    // Hit testing skips pointer-events:none layers; add the visible ones back
+    // where they paint so a decorative canvas behind a wrapper is reachable.
+    pointTargets = mergeVisualLayersAtPoint(
+      document,
+      clientX,
+      clientY,
+      pointTargets.filter(function (hit) {
+        return !!hit && !isOverlayElement(hit);
+      }),
+      isVisualLayerScanExcluded,
+    ).stack;
 
     var elements: Element[] = [];
     var layerCandidates: Array<{
       key: string;
       label: string;
+      kind?: string;
       info: unknown;
     }> = [];
     // The hit stack is nested, so each candidate's subtree snapshot contains
@@ -15397,9 +15456,14 @@ declare var __INITIAL_SOURCE_OWNERSHIP__: string;
           candidateInfo.sourceId ||
           candidateInfo.selector ||
           String(layerCandidates.length);
+        var kind = visualLayerKindFor(
+          candidate,
+          window.getComputedStyle(candidate),
+        );
         layerCandidates.push({
           key: String(identity) + ":" + String(layerCandidates.length),
           label: String(label).slice(0, 80),
+          ...(kind ? { kind: kind } : {}),
           info: candidateInfo,
         });
       });

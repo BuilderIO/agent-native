@@ -3,7 +3,7 @@
 Point at something you love on another website, point at the spot in your own
 site, and let your coding agent rebuild it there. Remix works in Agent-Native
 Design: the source site and your site sit side by side on one canvas, and the
-result uses your colors, fonts, and components instead of theirs.
+result looks like the original, recolored with your colors and fonts.
 
 ## Install
 
@@ -33,8 +33,10 @@ If you leave out the source or the destination, the agent asks for it.
 
 Design opens with both pages. Select the effect in the source and the hero in
 your page (you can select both at once), and the agent reads the source's
-shipped code, rebuilds the effect in your codebase with your design tokens, and
-puts it in place.
+shipped code, rebuilds the same effect in your codebase with your color tokens,
+checks it side by side against the original, and puts it in place. If the
+effect sits behind what you clicked, the agent finds it; you can also
+right-click and choose **Select layer**.
 
 Select the new background, or anything inside it, and its **Tweaks** section
 lists knobs for speed, intensity, and colors. Drag them until it looks right;
@@ -51,7 +53,7 @@ three.js examples.
 
 ## What you get
 
-- The remixed part rebuilt in your own code, matched to your design system.
+- The remixed part rebuilt in your own code, matching the original in your colors.
 - Knobs for every shader, WebGL, 3D, or animation effect, readable over MCP.
 - Swappable assets with placeholders you own; no copied code, logos, fonts, or
   media from the source.

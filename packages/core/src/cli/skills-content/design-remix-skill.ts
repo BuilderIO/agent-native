@@ -13,10 +13,10 @@ metadata:
 # Remix
 
 \`/remix\` takes one part of a source site (a hero, a shader background, a
-scroll effect, a 3D card) and rebuilds it inside a destination site, in the
-destination's own colors, fonts, and components. Design is the workbench: the
-source and the destination sit side by side as screens, the user points at what
-to take and where it goes, and every effect ships with knobs in Design's
+scroll effect, a 3D card) and rebuilds it inside a destination site so it looks
+the same as the source, recolored to the destination. Design is the workbench:
+the source and the destination sit side by side as screens, the user points at
+what to take and where it goes, and every effect ships with knobs in Design's
 Tweaks section.
 
 The editor is hosted at \`https://design.agent-native.com\`. Open it, connect, and
@@ -58,6 +58,24 @@ ask which section yet; the user picks it on the canvas.
 Read the picks with \`view-screen\` (\`designSelection\`) or the \`Selected objects\`
 context block. Ask once if the selection names only one side.
 
+## Resolve The Pick
+
+Effects usually paint on a layer the user cannot click: a
+\`pointer-events: none\` canvas, video, or background behind the hero wrapper.
+Each selected element carries \`effectCandidates\`: the visible layers behind or
+inside it (kind, how much of the pick they cover, whether they animate or use
+WebGL). Before extracting:
+
+- One clearly effect-like candidate (say a WebGL canvas covering most of the
+  pick): take it and say so in one line, e.g. "You clicked the hero container;
+  I'm taking the WebGL canvas behind it."
+- Several plausible candidates: ask once, naming each by kind and size, and
+  select each on the canvas while you ask when a tool allows.
+- Never remix only the clicked wrapper when an effect layer sits behind it.
+
+The user can also pick a hidden layer by hand: right-click the spot and use
+**Select layer**.
+
 ## Extract From Shipped Code
 
 The running source is the reference for how it looks; its shipped code is the
@@ -72,20 +90,34 @@ reference for how it works. Read the code before writing any.
   print just that slice. Record shaders, uniforms, easing curves, timings,
   breakpoints, and asset URLs as facts with their file and line.
 - Keep everything captured outside the destination repository.
-- Rebuild the behavior in the destination's own code. Never paste the source's
-  code, shaders, fonts, logos, icons, copy, or media into the destination;
-  reimplement the technique and make or pick our own assets.
+- Rebuild it in the destination in our own code, using the same math,
+  geometry, parameters, and timings you recorded. Never paste the source's
+  minified bundles, shader source, fonts, logos, icons, copy, or media into
+  the destination. Where the source samples a proprietary texture or image,
+  generate one procedurally that produces the same result. Owning the code is
+  not a licence to change the look.
 
-## Adapt To The Destination
+## Match The Source, Recolor To The Destination
 
-- Read the destination's tokens first (CSS variables, Tailwind theme, design
-  system, fonts) and map every color, type style, radius, and spacing in the
-  remix to them. The result should look like it was always part of the
-  destination.
+The remix must be visually near-identical to the source: same shape,
+composition, scale, placement relative to its container, texture, motion, and
+timing. By default change only colors, and fonts and copy if the part has any,
+mapping each to the destination's tokens (CSS variables, Tailwind theme, design
+system). Change anything else only when the user asks.
+
 - Use the destination's components and conventions for markup; add a component
   in its usual place rather than a pasted blob.
 - Respect \`prefers-reduced-motion\`, keep the page usable without WebGL, and do
   not regress the destination's load time.
+
+## Check Fidelity Before Done
+
+Render the rebuild with the source's original colors beside a capture of the
+source at the same viewport and the same animation time (pin the clock or the
+time uniform). Compare silhouette, placement, scale, texture, and motion;
+change the rebuild and recapture until the two read as the same effect. Only
+then swap in the destination's colors. Show the user that side-by-side, and
+name any remaining difference.
 
 ## Swappable Assets
 
@@ -135,7 +167,8 @@ Lab) can edit GSAP-style tracks and keyframes. It is optional; knobs come first.
 
 ## Finish
 
-Show the destination screen with the remix in place, list the knobs and the
-swappable assets, and name what you could not reproduce. Hand off source edits
+Show the fidelity side-by-side and the destination screen with the remix in
+place, list the knobs and the swappable assets, and name what you could not
+reproduce. Hand off source edits
 the visual-edit way: the user reviews the diff in the destination repo.
 `;
