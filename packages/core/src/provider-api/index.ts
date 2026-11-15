@@ -36,6 +36,7 @@ import { resolveSecret } from "../server/credential-provider.js";
 import { resolveGoogleProviderCredentialCandidates } from "../server/google-oauth-credentials.js";
 import { getCredentialContext } from "../server/request-context.js";
 import { mergeDefinitionsById } from "../shared/merge-by-id.js";
+import { parseRetryAfterMs } from "../shared/retry-after.js";
 import { resolveWorkspaceConnectionCredentialForApp } from "../workspace-connections/credentials.js";
 import {
   resolveWorkspaceConnectionForApp,
@@ -6550,11 +6551,20 @@ async function fetchWithTimeout(
     : await runOnce();
 
   if (result.bodyValidationError) {
-    throw normalizeFetchError(result.bodyValidationError, {
+    const error = normalizeFetchError(result.bodyValidationError, {
       method: options.method ?? "GET",
       url: optionsUrl,
       timeoutMs: clampTimeout(options.timeoutMs),
       secretValues: options.secretValues ?? [],
+    });
+    const retryAfterMs =
+      result.quota?.retryAfterMs ?? parseRetryAfterMs(result.headers);
+    const retry =
+      retryAfterMs !== null && Number.isFinite(retryAfterMs)
+        ? `; retry after ${Math.ceil(retryAfterMs / 1000)} seconds`
+        : "";
+    throw new Error(`${error.message} (HTTP ${result.status}${retry})`, {
+      cause: error,
     });
   }
   return result;

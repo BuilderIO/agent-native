@@ -5832,7 +5832,11 @@ describe("provider API runtime", () => {
           .mockResolvedValueOnce(
             new Response(body, {
               status: 429,
-              headers: { "content-type": contentType, "retry-after": "120" },
+              headers: {
+                "content-type": contentType,
+                "retry-after": "120",
+                "x-private-header": "private-header-secret",
+              },
             }),
           )
           .mockResolvedValueOnce(
@@ -5851,6 +5855,8 @@ describe("provider API runtime", () => {
         });
         await expect(result).rejects.toThrow(/binary|UTF-8/i);
         const error = await result.catch((err: unknown) => err);
+        expect(String(error)).toMatch(/HTTP 429/i);
+        expect(String(error)).toMatch(/retry after 120 seconds/i);
         expect(String(error)).not.toContain("private-");
         expect(writeWorkspaceFile).not.toHaveBeenCalled();
 
@@ -5935,25 +5941,36 @@ describe("provider API runtime", () => {
       expect(writeWorkspaceFile).not.toHaveBeenCalled();
     });
 
-    it("rejects invalid 429 bodies when the quota governor is disabled", async () => {
-      vi.stubEnv("AGENT_NATIVE_PROVIDER_API_QUOTA_GOVERNOR", "0");
-      vi.mocked(globalThis.fetch).mockResolvedValueOnce(
-        new Response("private-binary-payload", {
-          status: 429,
-          headers: { "content-type": "application/zip" },
-        }),
-      );
-      const result = runtime().executeRequest({
-        provider: "hubspot",
-        path: "/records",
-        auth: "none",
-        saveToFile: "scratch/response.txt",
-      });
-      await expect(result).rejects.toThrow(/binary/i);
-      const error = await result.catch((err: unknown) => err);
-      expect(String(error)).not.toContain("private-");
-      expect(writeWorkspaceFile).not.toHaveBeenCalled();
-    });
+    it.each(["120", "private-header-secret"])(
+      "safely reports invalid 429 bodies with the quota governor disabled (Retry-After: %s)",
+      async (retryAfter) => {
+        vi.stubEnv("AGENT_NATIVE_PROVIDER_API_QUOTA_GOVERNOR", "0");
+        vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+          new Response("private-binary-payload", {
+            status: 429,
+            headers: {
+              "content-type": "application/zip",
+              "retry-after": retryAfter,
+              "x-private-header": "private-header-secret",
+            },
+          }),
+        );
+        const result = runtime().executeRequest({
+          provider: "hubspot",
+          path: "/records",
+          auth: "none",
+          saveToFile: "scratch/response.txt",
+        });
+        await expect(result).rejects.toThrow(/binary/i);
+        const error = await result.catch((err: unknown) => err);
+        expect(String(error)).toMatch(/HTTP 429/i);
+        if (retryAfter === "120") {
+          expect(String(error)).toMatch(/retry after 120 seconds/i);
+        }
+        expect(String(error)).not.toContain("private-");
+        expect(writeWorkspaceFile).not.toHaveBeenCalled();
+      },
+    );
 
     it.each(
       ["hubspot", "test-api"].flatMap((provider) => [
