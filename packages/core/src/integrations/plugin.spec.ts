@@ -3,7 +3,7 @@ import { createHmac } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { resetAppConfigForTests } from "../app-config/index.js";
-import { encodeOAuthState } from "../server/google-oauth.js";
+import { decodeOAuthState, encodeOAuthState } from "../server/google-oauth.js";
 import { ForbiddenError } from "../sharing/errors.js";
 import { IntegrationIdentityDeclinedError } from "./identity.js";
 import { createIntegrationsPlugin } from "./plugin.js";
@@ -21,6 +21,7 @@ const runWithRequestContextMock = vi.hoisted(() =>
   vi.fn((_ctx: unknown, fn: () => unknown) => fn()),
 );
 const resolveSecretMock = vi.hoisted(() => vi.fn(() => null));
+const installSlackUserGrantMock = vi.hoisted(() => vi.fn());
 const getIntegrationConfigMock = vi.hoisted(() =>
   vi.fn(async () => ({ configData: { enabled: false } })),
 );
@@ -132,6 +133,11 @@ vi.mock("../server/request-context.js", () => ({
   hasRequestContext: vi.fn(() => false),
   markRequestBoundaryInstalled: vi.fn(),
   runWithRequestContext: runWithRequestContextMock,
+}));
+
+vi.mock("./slack-user-install.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("./slack-user-install.js")>()),
+  installSlackUserGrant: installSlackUserGrantMock,
 }));
 
 vi.mock("./config-store.js", () => ({
@@ -358,6 +364,15 @@ async function dispatch(
     status: event.res.status,
     headers: event.res.headers,
   };
+}
+
+function slackRedirectHref(result: Awaited<ReturnType<typeof dispatch>>) {
+  const location = result.headers.get("location");
+  if (location) return location;
+  const html = String((result.body as { body?: string })?.body ?? "");
+  const href = html.match(/url=([^"\s]+)/)?.[1]?.replaceAll("&amp;", "&");
+  if (!href) throw new Error("Expected a Slack authorize redirect");
+  return href;
 }
 
 const adapter: PlatformAdapter = {
@@ -872,6 +887,181 @@ describe("integrations plugin routes", () => {
         expect.any(Function),
       );
     });
+  });
+
+  it("keeps the bot install redirect on bot scopes", async () => {
+    getSessionMock.mockResolvedValue({
+      email: "alice+qa@agent-native.test",
+      authUserId: "auth-user-alice",
+    });
+    resolveSecretMock.mockImplementation((key: string) => `configured-${key}`);
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/slack/oauth/install",
+    );
+    const authorize = new URL(slackRedirectHref(result));
+    expect(authorize.searchParams.get("scope")).toContain("chat:write");
+    expect(authorize.searchParams.has("user_scope")).toBe(false);
+  });
+
+  it("refuses a user-only Slack install when no internal workspace allow-list is configured", async () => {
+    vi.stubEnv("SLACK_INTERNAL_TEAM_IDS", "");
+    vi.stubEnv("SLACK_USER_INSTALL_BOOTSTRAP", undefined);
+    resetAppConfigForTests();
+    getSessionMock.mockResolvedValue({
+      email: "alice+qa@agent-native.test",
+      authUserId: "auth-user-alice",
+    });
+    resolveSecretMock.mockImplementation((key: string) => `configured-${key}`);
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/slack/oauth/install?mode=user&return=%2Fmessaging",
+    );
+
+    expect(result.status).toBe(403);
+    expect(result.body).toEqual({
+      error: "Slack user authorization is not enabled for this deployment.",
+    });
+  });
+
+  it("refuses a user-only Slack install without an account identity", async () => {
+    vi.stubEnv("SLACK_INTERNAL_TEAM_IDS", "T0INTERNAL1");
+    resetAppConfigForTests();
+    getSessionMock.mockResolvedValue({ email: "alice+qa@agent-native.test" });
+    resolveSecretMock.mockImplementation((key: string) => `configured-${key}`);
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/slack/oauth/install?mode=user",
+    );
+
+    expect(result.status).toBe(403);
+    expect(result.body).toEqual({
+      error: "Slack user authorization needs a signed-in account identity.",
+    });
+  });
+
+  it("starts a user-only Slack install for an allow-listed deployment", async () => {
+    vi.stubEnv("SLACK_INTERNAL_TEAM_IDS", "T0INTERNAL1");
+    resetAppConfigForTests();
+    getSessionMock.mockResolvedValue({
+      email: "alice+qa@agent-native.test",
+      authUserId: "auth-user-alice",
+    });
+    getOrgContextMock.mockResolvedValue({ orgId: null, role: null });
+    resolveSecretMock.mockImplementation((key: string) => `configured-${key}`);
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    const result = await dispatch(
+      nitroApp,
+      "/_agent-native/integrations/slack/oauth/install?mode=user",
+    );
+
+    const authorize = new URL(slackRedirectHref(result));
+    expect(authorize.origin + authorize.pathname).toBe(
+      "https://slack.com/oauth/v2/authorize",
+    );
+    // User-only: user_scope present, bot scope absent.
+    expect(authorize.searchParams.has("scope")).toBe(false);
+    expect(authorize.searchParams.get("user_scope")).toContain("channels:read");
+    expect(authorize.searchParams.get("user_scope")).not.toContain(
+      "chat:write",
+    );
+    // One pinned workspace is requested explicitly so the provider does not
+    // show a workspace picker first.
+    expect(authorize.searchParams.get("team")).toBe("T0INTERNAL1");
+    const state = decodeOAuthState(
+      authorize.searchParams.get("state") ?? undefined,
+      "https://app.test/_agent-native/integrations/slack/oauth/callback",
+    );
+    expect(state).toMatchObject({ ok: true, app: "agent-native:slack:user" });
+  });
+
+  it("stores a user-only Slack callback as a personal grant, never a bot installation", async () => {
+    vi.stubEnv("SLACK_INTERNAL_TEAM_IDS", "T0INTERNAL1");
+    resetAppConfigForTests();
+    getSessionMock.mockResolvedValue({
+      email: "alice+qa@agent-native.test",
+      authUserId: "auth-user-alice",
+    });
+    getOrgContextMock.mockResolvedValue({ orgId: null, role: null });
+    resolveSecretMock.mockImplementation((key: string) => `configured-${key}`);
+    installSlackUserGrantMock.mockResolvedValue({
+      grantId: "uig_synthetic",
+      teamId: "T0INTERNAL1",
+      externalUserId: "U0ALICE",
+      scopes: ["channels:read"],
+    });
+    const seenTokens: string[] = [];
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        if (url === "https://slack.com/api/oauth.v2.access") {
+          return new Response(
+            JSON.stringify({
+              ok: true,
+              app_id: "A0SYNTHETIC",
+              team: { id: "T0INTERNAL1", name: "Synthetic Workspace" },
+              authed_user: {
+                id: "U0ALICE",
+                access_token: "synthetic-user-token",
+                token_type: "user",
+                scope: "channels:read",
+              },
+            }),
+            { status: 200 },
+          );
+        }
+        seenTokens.push(new Headers(init?.headers).get("authorization") ?? "");
+        return new Response(
+          JSON.stringify({
+            ok: true,
+            team_id: "T0INTERNAL1",
+            user_id: "U0ALICE",
+          }),
+          { status: 200 },
+        );
+      }),
+    );
+    const state = encodeOAuthState({
+      redirectUri:
+        "https://app.test/_agent-native/integrations/slack/oauth/callback",
+      owner: "alice+qa@agent-native.test",
+      app: "agent-native:slack:user",
+      addAccount: true,
+      returnUrl: "/messaging",
+    });
+    const nitroApp = createNitroApp();
+    await createIntegrationsPlugin({ adapters: [adapter] })(nitroApp);
+
+    await dispatch(
+      nitroApp,
+      `/_agent-native/integrations/slack/oauth/callback?code=fake-code&state=${encodeURIComponent(state)}`,
+    );
+
+    expect(seenTokens).toEqual(["Bearer synthetic-user-token"]);
+    expect(installSlackUserGrantMock).toHaveBeenCalledTimes(1);
+    expect(installSlackUserGrantMock.mock.calls[0]?.[0]).toMatchObject({
+      allowlist: ["T0INTERNAL1"],
+      bootstrap: false,
+    });
+    expect(runWithRequestContextMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        userEmail: "alice+qa@agent-native.test",
+        authUserId: "auth-user-alice",
+      }),
+      expect.any(Function),
+    );
   });
 
   it("runs integration status checks in the signed-in request context", async () => {
