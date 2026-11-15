@@ -292,6 +292,85 @@ describe("hydrateReferenceDocuments", () => {
     expect(result.context).not.toContain("  Vector: ");
   });
 
+  it("preserves PPTX vector omission markers through per-reference and combined limits", async () => {
+    const pptx = {
+      format: "pptx",
+      vectorSummaryNotice: "coverage",
+      slides: [
+        {
+          index: 0,
+          texts: "x".repeat(20000),
+          vectorShapes: [],
+          vectorShapesOmitted: 3,
+        },
+      ],
+    };
+    const callActionImpl = vi
+      .fn()
+      .mockImplementation(async (_name: string, input: { filePath: string }) =>
+        input.filePath.endsWith(".pptx")
+          ? pptx
+          : { ...pdfResult, pages: [{ pageNum: 1, text: "y".repeat(10500) }] },
+      );
+    for (const files of [
+      [uploaded("deck.pptx")],
+      [
+        uploaded("a.pdf"),
+        uploaded("b.pdf"),
+        uploaded("c.pdf"),
+        uploaded("deck.pptx"),
+      ],
+    ]) {
+      const result = await hydrateReferenceDocuments(files, { callActionImpl });
+      expect(result.status).toBe("hydrated");
+      if (result.status !== "hydrated")
+        throw new Error("Reference was not hydrated");
+      const pptxBlock = result.context.slice(
+        result.context.indexOf("### deck.pptx"),
+      );
+      expect(pptxBlock).toContain("3 parsed vector shape(s) omitted");
+      expect(pptxBlock).toContain("[truncated]");
+    }
+  });
+
+  it("retains PPTX omission metadata even when earlier references exhaust the budget", async () => {
+    const callActionImpl = vi
+      .fn()
+      .mockImplementation(async (_name: string, input: { filePath: string }) =>
+        input.filePath.endsWith(".pptx")
+          ? {
+              format: "pptx",
+              vectorSummaryNotice: "coverage",
+              slides: [
+                {
+                  index: 0,
+                  texts: "",
+                  vectorShapes: [],
+                  vectorShapesOmitted: 3,
+                },
+              ],
+            }
+          : { ...pdfResult, pages: [{ pageNum: 1, text: "y".repeat(20000) }] },
+      );
+    const result = await hydrateReferenceDocuments(
+      [
+        uploaded("a.pdf"),
+        uploaded("b.pdf"),
+        uploaded("c.pdf"),
+        uploaded("deck.pptx"),
+      ],
+      { callActionImpl },
+    );
+    expect(result.status).toBe("hydrated");
+    if (result.status !== "hydrated")
+      throw new Error("Reference was not hydrated");
+    const pptxBlock = result.context.slice(
+      result.context.indexOf("### deck.pptx"),
+    );
+    expect(pptxBlock).toContain("omitted from this prompt");
+    expect(pptxBlock).toContain("3 parsed vector shape(s) omitted");
+  });
+
   it("carries DOCX sections", async () => {
     const callActionImpl = vi.fn().mockResolvedValue({
       format: "docx",

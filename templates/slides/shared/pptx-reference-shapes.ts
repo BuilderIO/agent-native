@@ -30,6 +30,12 @@ const lineEnd = z.object({
   w: token.optional(),
   len: token.optional(),
 });
+const color = "#[0-9a-fA-F]{6}(?:[0-9a-fA-F]{2})?";
+const decimal = "-?\\d+(?:\\.\\d+)?";
+const stop = `${color}(?: ${decimal}%)?`;
+const fillPattern = new RegExp(
+  `^(?:${color}|linear-gradient\\(${decimal}deg, ${stop}(?:, ${stop}){1,15}\\)|radial-gradient\\(circle at ${decimal}% ${decimal}%, ${stop}(?:, ${stop}){1,15}\\))$`,
+);
 
 export const pptxReferenceShapeSchema = z.object({
   order: z.number().int().nonnegative(),
@@ -61,11 +67,9 @@ export const pptxReferenceShapeSchema = z.object({
         .max(8),
     })
     .optional(),
-  fill: z
-    .string()
-    .max(256)
-    .regex(/^[#(),.%\sa-zA-Z0-9-]+$/)
-    .optional(),
+  sourceText: z.string().max(500).optional(),
+  sourceTextTruncated: z.boolean().optional(),
+  fill: z.string().max(256).regex(fillPattern).optional(),
   lineColor: z
     .string()
     .max(64)
@@ -80,65 +84,125 @@ const MAX_SHAPE_CHARS = 3000;
 const MAX_TOTAL_SHAPE_CHARS = 6000;
 const MAX_SHAPES = 100;
 
+function sourceTextForShape(element: ParsedElement) {
+  let text = "";
+  for (const [index, paragraph] of (element.paragraphs ?? []).entries()) {
+    if (index > 0) {
+      if (text.length === 500)
+        return { sourceText: text, sourceTextTruncated: true };
+      text += "\n";
+    }
+    for (const run of paragraph.runs) {
+      const room = 500 - text.length;
+      if (run.content.length > room)
+        return {
+          sourceText: text + run.content.slice(0, room),
+          sourceTextTruncated: true,
+        };
+      text += run.content;
+    }
+  }
+  return { sourceText: text || undefined, sourceTextTruncated: undefined };
+}
+
+function isVectorShape(element: ParsedElement): boolean {
+  return (
+    element.kind === "shape" ||
+    (element.kind === "text" &&
+      Boolean(
+        element.shapeType ||
+        element.geometry ||
+        element.fill ||
+        element.lineColor,
+      ))
+  );
+}
+
 export function summarizePptxShapes(slides: ParsedSlide[]) {
+  const summaries = slides.map(() => ({
+    shapes: [] as z.infer<typeof pptxReferenceShapeSchema>[],
+    omitted: 0,
+  }));
+  const accepted = slides.map(() => new Set<number>());
+  const activeSlides = slides.filter((slide) =>
+    (slide.elements ?? []).some(isVectorShape),
+  ).length;
+  const share = activeSlides
+    ? Math.floor(MAX_TOTAL_SHAPE_CHARS / activeSlides)
+    : 0;
+  const countShare = activeSlides
+    ? Math.max(1, Math.floor(MAX_SHAPES / activeSlides))
+    : 0;
+  const spent = slides.map(() => 0);
   let remaining = MAX_TOTAL_SHAPE_CHARS;
   let count = 0;
-  return slides.map((slide) => {
-    const shapes: z.infer<typeof pptxReferenceShapeSchema>[] = [];
-    let omitted = 0;
-    for (const [order, element] of (slide.elements ?? []).entries()) {
-      if (
-        element.kind !== "shape" &&
-        !(
-          element.kind === "text" &&
-          (element.shapeType ||
-            element.geometry ||
-            element.fill ||
-            element.lineColor)
-        )
-      )
-        continue;
-      const adjustments = element.shapeAdjustments
-        ? Object.entries(element.shapeAdjustments).map(([name, value]) => ({
-            name,
-            value,
-          }))
-        : undefined;
-      const candidate = pptxReferenceShapeSchema.safeParse({
-        order,
-        kind: element.kind,
-        x: element.x,
-        y: element.y,
-        width: element.width,
-        height: element.height,
-        rotation: element.rotation,
-        flipH: element.flipH,
-        flipV: element.flipV,
-        shapeType: element.shapeType,
-        adjustments,
-        geometry: element.geometry,
-        fill: element.fill,
-        lineColor: element.lineColor,
-        lineWidth: element.lineWidth,
-        lineHeadEnd: element.lineHeadEnd,
-        lineTailEnd: element.lineTailEnd,
-      } satisfies Omit<ParsedElement, "id"> & {
-        order: number;
-        adjustments?: { name: string; value: number }[];
-      });
-      if (!candidate.success) {
-        omitted++;
-        continue;
+  for (const fairPass of [true, false]) {
+    for (const [slideIndex, slide] of slides.entries()) {
+      const summary = summaries[slideIndex];
+      for (const [order, element] of (slide.elements ?? []).entries()) {
+        if (!isVectorShape(element) || accepted[slideIndex].has(order))
+          continue;
+        if (
+          count >= MAX_SHAPES ||
+          remaining <= 0 ||
+          (fairPass && summary.shapes.length >= countShare)
+        ) {
+          if (!fairPass) summary.omitted++;
+          continue;
+        }
+        const adjustments = element.shapeAdjustments
+          ? Object.entries(element.shapeAdjustments).map(([name, value]) => ({
+              name,
+              value,
+            }))
+          : undefined;
+        const candidate = pptxReferenceShapeSchema.safeParse({
+          order,
+          kind: element.kind,
+          x: element.x,
+          y: element.y,
+          width: element.width,
+          height: element.height,
+          rotation: element.rotation,
+          flipH: element.flipH,
+          flipV: element.flipV,
+          shapeType: element.shapeType,
+          adjustments,
+          geometry: element.geometry,
+          fill: element.fill,
+          lineColor: element.lineColor,
+          lineWidth: element.lineWidth,
+          lineHeadEnd: element.lineHeadEnd,
+          lineTailEnd: element.lineTailEnd,
+          ...(element.kind === "text" ? sourceTextForShape(element) : {}),
+        } satisfies Omit<ParsedElement, "id"> & {
+          order: number;
+          adjustments?: { name: string; value: number }[];
+          sourceText?: string;
+          sourceTextTruncated?: boolean;
+        });
+        if (!candidate.success) {
+          if (!fairPass) summary.omitted++;
+          continue;
+        }
+        const size = JSON.stringify(candidate.data).length;
+        if (
+          size > MAX_SHAPE_CHARS ||
+          size > remaining ||
+          (fairPass && spent[slideIndex] + size > share)
+        ) {
+          if (!fairPass) summary.omitted++;
+          continue;
+        }
+        accepted[slideIndex].add(order);
+        summary.shapes.push(candidate.data);
+        spent[slideIndex] += size;
+        remaining -= size;
+        count++;
       }
-      const size = JSON.stringify(candidate.data).length;
-      if (size > MAX_SHAPE_CHARS || size > remaining || count >= MAX_SHAPES) {
-        omitted++;
-        continue;
-      }
-      remaining -= size;
-      count++;
-      shapes.push(candidate.data);
     }
-    return { shapes, omitted };
-  });
+  }
+  for (const summary of summaries)
+    summary.shapes.sort((a, b) => a.order - b.order);
+  return summaries;
 }

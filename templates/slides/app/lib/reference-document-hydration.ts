@@ -284,6 +284,39 @@ export function hasMeasuredDesign(
   return false;
 }
 
+function describePptxOmissions(
+  result: Record<string, unknown>,
+): string | undefined {
+  let omitted = 0;
+  let labelsTruncated = 0;
+  for (const value of asArray(result.slides)) {
+    const slide = asRecord(value);
+    if (!slide) continue;
+    if (
+      typeof slide.vectorShapesOmitted === "number" &&
+      Number.isSafeInteger(slide.vectorShapesOmitted) &&
+      slide.vectorShapesOmitted > 0
+    ) {
+      omitted += slide.vectorShapesOmitted;
+    }
+    const shapes = asArray(slide.vectorShapes);
+    omitted += Math.max(0, shapes.length - 100);
+    for (const shape of shapes.slice(0, 100)) {
+      const parsed = pptxReferenceShapeSchema.safeParse(shape);
+      if (!parsed.success || JSON.stringify(parsed.data).length > 3000)
+        omitted++;
+      else if (parsed.data.sourceTextTruncated) labelsTruncated++;
+    }
+  }
+  const parts = [];
+  if (omitted > 0) parts.push(`${omitted} parsed vector shape(s) omitted`);
+  if (labelsTruncated > 0)
+    parts.push(`${labelsTruncated} shape label(s) truncated`);
+  return parts.length
+    ? `PPTX vector summary is partial: ${parts.join("; ")}.`
+    : undefined;
+}
+
 function describeReference(
   file: UploadedFile,
   format: ReferenceDocumentFormat,
@@ -380,16 +413,26 @@ export async function hydrateReferenceDocuments(
     const fitsWhole = outcome.block.length <= budget.remaining;
     if (!fitsWhole && budget.remaining < MIN_PARTIAL_REFERENCE_CHARS) {
       blocks.push(
-        `### ${outcome.originalName}\nRead successfully, but omitted from this prompt because earlier references filled the reference budget. This file is the one exception to the no-reread rule above: call \`import-file\` for it if you need its content.`,
+        [
+          `### ${outcome.originalName}\nRead successfully, but omitted from this prompt because earlier references filled the reference budget. This file is the one exception to the no-reread rule above: call \`import-file\` for it if you need its content.`,
+          outcome.omissions,
+        ]
+          .filter(Boolean)
+          .join("\n"),
       );
       continue;
     }
     const block = truncate(outcome.block, budget.remaining);
     budget.remaining -= block.length;
     blocks.push(
-      fitsWhole
-        ? block
-        : `${block}\nThe rest of this reference was omitted for space; call \`import-file\` for this file if you need the remainder.`,
+      [
+        fitsWhole
+          ? block
+          : `${block}\nThe rest of this reference was omitted for space; call \`import-file\` for this file if you need the remainder.`,
+        outcome.omissions,
+      ]
+        .filter(Boolean)
+        .join("\n"),
     );
     if (outcome.measuredDesign && fitsWhole) measuredDesignCount += 1;
   }
@@ -413,6 +456,7 @@ type ReferenceReadOutcome =
       status: "read";
       originalName: string;
       block: string;
+      omissions?: string;
       measuredDesign: boolean;
     }
   | { status: "failed"; originalName: string; message: string };
@@ -456,6 +500,7 @@ async function readReference(
       status: "read",
       originalName: file.originalName,
       block: describeReference(file, format, result),
+      omissions: format === "pptx" ? describePptxOmissions(result) : undefined,
       measuredDesign: hasMeasuredDesign(format, result),
     };
   } catch (error) {
