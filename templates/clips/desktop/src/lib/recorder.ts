@@ -4027,7 +4027,9 @@ async function startNativeFullscreenRecording(
           err,
         );
       });
-    assertStartupActive();
+    // No startup-abort check past this point: capture is live and the app was
+    // told so. A Stop that lands now must keep the take; the caller stops the
+    // returned handle instead of this path cancelling native capture.
     startedAt = Date.now();
     emit("clips:toolbar-enabled", true).catch(() => {});
     emitRecorderSession(
@@ -4651,11 +4653,16 @@ export async function startRecording(
     recordingId: string;
     promise: Promise<RecorderStopResult>;
   } | null = null;
+  // Set once capture is reported live. From then on a Stop must keep the
+  // take: the late-resolving handle is stopped and saved (onLateResolve), so
+  // native capture is not cancelled here.
+  let captureLive = false;
   const cancelStartup = () => {
     startController.abort();
     void emit("clips:countdown-cancel", {
       attemptId: countdownAttemptId,
     }).catch(() => {});
+    if (captureLive) return;
     void invoke("native_fullscreen_recording_cancel").catch(() => {});
     void invoke("hide_recording_chrome").catch(() => {});
   };
@@ -4679,6 +4686,7 @@ export async function startRecording(
         requestedRecordingId = recordingId;
       },
       onCaptureStartRequested: (recordingId, captureIdentity) => {
+        captureLive = true;
         requestedRecordingId = recordingId;
         if (recordingId) rememberRewindClipOriginForStart(recordingId, params);
         if (captureIdentity === undefined) {

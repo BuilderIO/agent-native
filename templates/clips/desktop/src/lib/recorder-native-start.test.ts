@@ -1629,6 +1629,47 @@ describe("Preparing after the countdown", () => {
     ).toBe(false);
   });
 
+  it("keeps a live native take when Stop lands during the post-begin timeline reset", async () => {
+    const reset = deferred<void>();
+    const transcript = capture();
+    transcript.resetTimeline = vi.fn(() => reset.promise);
+    mocks.transcribe.mockResolvedValueOnce(transcript);
+    const controller = new AbortController();
+    const onCaptureStartRequested = vi.fn();
+    const pending = startRecording({
+      ...params,
+      lookbackEnabled: true,
+      signal: controller.signal,
+      onCaptureStartRequested,
+    });
+    const settled = pending.then(
+      () => "started",
+      (err: unknown) => err,
+    );
+    await vi.advanceTimersByTimeAsync(3_600);
+    const id = createdRecordingId();
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(1);
+    expect(onCaptureStartRequested).toHaveBeenCalledWith(id, id);
+    expect(transcript.resetTimeline).toHaveBeenCalledOnce();
+
+    // Stop while startup still awaits the timeline reset after begin.
+    controller.abort();
+    reset.resolve();
+    await settled;
+    await vi.advanceTimersByTimeAsync(1_000);
+    // The take is stopped and saved, not cancelled.
+    expect(calls("native_fullscreen_recording_cancel")).toHaveLength(0);
+    expect(calls("native_fullscreen_recording_stop_and_upload")).toHaveLength(
+      1,
+    );
+    expect(getRewindClipOrigin(id)).not.toBeNull();
+    expect(
+      fetchMock.mock.calls.some(([url]) =>
+        String(url).includes(`/api/uploads/${id}/abort`),
+      ),
+    ).toBe(false);
+  });
+
   it("hides Preparing when the server create fails after it was shown", async () => {
     const create = deferred<Response>();
     fetchMock.mockImplementationOnce(() => create.promise);
