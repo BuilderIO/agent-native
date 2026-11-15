@@ -395,6 +395,34 @@ describe("resolveNotionMarkdownResponse", () => {
     expect(editorMarkdown).not.toMatch(/^\t<details/m);
     expect(editorMarkdown).not.toMatch(/^ {4}<details/m);
   });
+
+  it("reads Notion's line breaks in inline code, in subtrees too", async () => {
+    vi.mocked(global.fetch).mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          object: "page_markdown",
+          id: "child-block",
+          markdown: "Child `c<br>d`",
+          truncated: false,
+          unknown_block_ids: [],
+        } satisfies NotionPageMarkdown),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+
+    const result = await resolveNotionMarkdownResponse("token", {
+      object: "page_markdown",
+      id: "page-id",
+      markdown: 'Run `a<br/>b`\n<unknown id="child-block"/>',
+      truncated: false,
+      unknown_block_ids: ["child-block"],
+    });
+
+    expect(result.markdown).toBe("Run `a`<br>`b`\nChild `c`<br>`d`");
+  });
 });
 
 describe("notionFetch", () => {
@@ -772,6 +800,60 @@ describe("a Notion page ending in an empty block", () => {
     );
     // The stored form trims it, as the editor's save does.
     expect(canonicalizeNfm(remote)).toBe("# Plan");
+  });
+});
+
+describe("a Notion page with a line break in inline code", () => {
+  const originalFetch = global.fetch;
+
+  beforeEach(() => {
+    const page = {
+      id: "page-1",
+      properties: {
+        title: { type: "title", title: [{ plain_text: "Tags" }] },
+      },
+    };
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+        const url = String(input);
+        const body =
+          url.endsWith("/markdown") && !init?.method
+            ? { markdown: "Use `a<br>b` here", unknown_block_ids: [] }
+            : page;
+        return new Response(JSON.stringify(body), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }),
+    );
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    global.fetch = originalFetch;
+  });
+
+  it("pulls it as a line break and pushes back a form Notion reads the same", async () => {
+    const pulled = await readNotionPageAsDocument("token", "page-1");
+    expect(pulled.content).toBe("Use `a`<br>`b` here");
+
+    await pushDocumentToNotionPage({
+      accessToken: "token",
+      pageId: "page-1",
+      title: "Tags",
+      content: pulled.content,
+    });
+    const replace = vi
+      .mocked(global.fetch)
+      .mock.calls.find(
+        ([url, init]) =>
+          String(url).endsWith("/pages/page-1/markdown") &&
+          init?.method === "PATCH",
+      );
+    expect(JSON.parse(String(replace?.[1]?.body)).replace_content.new_str).toBe(
+      "Use `a`<br>`b` here",
+    );
   });
 });
 

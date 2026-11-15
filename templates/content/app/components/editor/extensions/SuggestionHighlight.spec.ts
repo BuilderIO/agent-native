@@ -1529,14 +1529,18 @@ describe("SuggestionHighlight", () => {
           },
         },
       ]);
-      const widget = suggestionHighlightKey
-        .getState(editorState)!
-        .decorations.find()[0] as any;
-      const dom = widget.type.toDOM() as HTMLElement;
+      const [widget] =
+        suggestionHighlightKey.getState(editorState)?.decorations.find() ?? [];
+      // A widget draws through its decoration's internal type.
+      const dom = (
+        widget as unknown as { type: { toDOM(): HTMLElement } } | undefined
+      )?.type.toDOM();
       expect(
-        [...dom.querySelectorAll("code")].map((code) => code.textContent),
+        [...(dom?.querySelectorAll("code") ?? [])].map(
+          (code) => code.textContent,
+        ),
       ).toEqual(codes);
-      expect(dom.querySelectorAll("br")).toHaveLength(breaks);
+      expect(dom?.querySelectorAll("br")).toHaveLength(breaks);
     },
   );
 

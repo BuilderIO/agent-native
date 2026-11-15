@@ -22,6 +22,7 @@ import { keepVideoBlockIds } from "../../shared/comment-block-anchor.js";
 import {
   canonicalizeNotionNfm,
   nfmToDoc,
+  notionMarkdownToNfm,
   type PMNode,
 } from "../../shared/nfm.js";
 import { getDb, schema } from "../db/index.js";
@@ -171,10 +172,11 @@ async function replaceDocumentFromExternal(args: {
   });
 }
 
-// Baselines hashed before this canonical form have no prefix. One that no
-// longer matches may differ only because the parse changed, so it cannot say
-// whether the content did.
-const CONTENT_HASH_PREFIX = "v2:";
+// Baselines hashed before this canonical form have an older prefix, or none.
+// One that no longer matches may differ only because the parse changed, so it
+// cannot say whether the content did. v3 reads text between backticks
+// literally.
+const CONTENT_HASH_PREFIX = "v3:";
 
 function hashContent(content: string | null | undefined): string {
   return `${CONTENT_HASH_PREFIX}${crypto
@@ -191,7 +193,24 @@ function changedSinceSync(
   if (!baseline) return null;
   const hash = hashContent(content);
   if (baseline.startsWith(CONTENT_HASH_PREFIX)) return hash !== baseline;
-  return hash.slice(CONTENT_HASH_PREFIX.length) === baseline ? false : null;
+  const digest = baseline.slice(baseline.indexOf(":") + 1);
+  return hash.slice(CONTENT_HASH_PREFIX.length) === digest ? false : null;
+}
+
+/**
+ * Whether a page last synced before v3 shows a <br> between backticks as text
+ * where Notion shows a line break. Content read that tag as a line break then,
+ * as Notion's markdown still does, so the page pulls Notion's copy once to get
+ * the break back.
+ */
+function showsNotionLineBreakAsTag(
+  content: string | null | undefined,
+  baseline: string | null | undefined,
+): boolean {
+  if (!content || !baseline || baseline.startsWith(CONTENT_HASH_PREFIX))
+    return false;
+  if (!content.includes("`") || !content.includes("<br")) return false;
+  return notionMarkdownToNfm(content) !== canonicalizeNotionNfm(content);
 }
 
 function parseWarnings(link: Pick<LinkRow, "warningsJson"> | null): string[] {
@@ -289,11 +308,16 @@ function buildStatus(args: {
   const remoteKnown =
     args.remoteUpdatedAt ?? link?.lastKnownRemoteUpdatedAt ?? null;
   const localUpdatedAt = args.documentUpdatedAt ?? null;
-  const remoteChanged = Boolean(
-    remoteKnown &&
-    link?.lastPulledRemoteUpdatedAt &&
-    remoteKnown > link.lastPulledRemoteUpdatedAt,
-  );
+  const remoteChanged =
+    Boolean(
+      remoteKnown &&
+      link?.lastPulledRemoteUpdatedAt &&
+      remoteKnown > link.lastPulledRemoteUpdatedAt,
+    ) ||
+    showsNotionLineBreakAsTag(
+      args.documentContent,
+      link?.lastSyncedContentHash,
+    );
   const localChanged =
     (args.documentContent != null
       ? changedSinceSync(args.documentContent, link?.lastSyncedContentHash)
@@ -1094,6 +1118,20 @@ async function pullDocumentFromNotionInner(
     });
   }
 
+  // Auto-sync pulls when only Notion looked changed. If an edit was saved here
+  // by the time both sides are read and Notion's content hasn't changed,
+  // pulling would replace that edit; leave it for a push.
+  if (!force && localChanged && !remoteChanged) {
+    return buildStatus({
+      connected: true,
+      documentId,
+      link,
+      remoteUpdatedAt: pageContent.lastEditedTime,
+      documentUpdatedAt: freshDocument.updatedAt,
+      documentContent: freshDocument.content,
+    });
+  }
+
   const newTitle = pageContent.title || freshDocument.title;
   const newContent = keepVideoBlockIds(
     freshDocument.content,
@@ -1255,12 +1293,17 @@ async function pushDocumentToNotionInner(
 
   const page = await fetchNotionPage(connection.accessToken, link.remotePageId);
   const remoteUpdatedAt = page.last_edited_time || null;
-  const timestampBumped = Boolean(
-    link.lastKnownRemoteUpdatedAt &&
-    remoteUpdatedAt &&
-    remoteUpdatedAt > link.lastKnownRemoteUpdatedAt,
-  );
-  let remoteChanged = timestampBumped;
+  // Recording a conflict moves lastKnownRemoteUpdatedAt to the remote edit's
+  // time, so after one the timestamp alone can't see that edit. Until a hash
+  // says otherwise, the recorded conflict stands.
+  const remoteChangedByTime =
+    Boolean(link.hasConflict) ||
+    Boolean(
+      link.lastKnownRemoteUpdatedAt &&
+      remoteUpdatedAt &&
+      remoteUpdatedAt > link.lastKnownRemoteUpdatedAt,
+    );
+  let remoteChanged = remoteChangedByTime;
   let remotePageContent: Awaited<
     ReturnType<typeof readNotionPageAsDocument>
   > | null = null;
@@ -1271,7 +1314,7 @@ async function pushDocumentToNotionInner(
     );
     remoteChanged =
       changedSinceSync(remotePageContent.content, link.lastSyncedContentHash) ??
-      timestampBumped;
+      remoteChangedByTime;
   }
   const localChanged =
     changedSinceSync(document.content, link.lastSyncedContentHash) ??

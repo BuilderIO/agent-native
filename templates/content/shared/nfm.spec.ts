@@ -7,7 +7,9 @@ import {
   docToNfm,
   inspectNfmFidelity,
   nfmToDoc,
+  notionMarkdownToNfm,
   parseNfmWithLosses,
+  type PMDoc,
 } from "./nfm";
 
 function found<T>(value: T | null | undefined): T {
@@ -732,7 +734,7 @@ describe("nfm converter — inline round-trips", () => {
     ["one\n\ntwo\n", "`one`<br><br>`two`<br>"],
     ["\n", "<br>"],
   ])("writes a line break in code %j between code spans", (text, nfm) => {
-    const doc = {
+    const doc: PMDoc = {
       type: "doc",
       content: [
         {
@@ -740,7 +742,7 @@ describe("nfm converter — inline round-trips", () => {
           content: [{ type: "text", text, marks: [{ type: "code" }] }],
         },
       ],
-    } as any;
+    };
 
     expect(docToNfm(doc)).toBe(nfm);
     const read = nfmToDoc(nfm).content?.[0]?.content ?? [];
@@ -758,7 +760,7 @@ describe("nfm converter — inline round-trips", () => {
   });
 
   it("keeps every mark on both sides of a line break in code", () => {
-    const doc = {
+    const doc: PMDoc = {
       type: "doc",
       content: [
         {
@@ -776,7 +778,7 @@ describe("nfm converter — inline round-trips", () => {
           ],
         },
       ],
-    } as any;
+    };
     const nfm = docToNfm(doc);
     const read = nfmToDoc(nfm).content?.[0]?.content ?? [];
 
@@ -792,6 +794,27 @@ describe("nfm converter — inline round-trips", () => {
         "link",
       ]);
     expect(canonicalizeNfm(nfm)).toBe(nfm);
+  });
+
+  it.each([
+    ["`a<br>b`", "`a`<br>`b`"],
+    ["Run `a<br/>b` now", "Run `a`<br>`b` now"],
+    ["**`a<br>b`**", "**`a`**<br>**`b`**"],
+    ["`<br>`", "<br>"],
+    ["`a`<br>`b`", "`a`<br>`b`"],
+  ])("reads Notion's %j with its line break in code", (notion, nfm) => {
+    expect(notionMarkdownToNfm(notion)).toBe(nfm);
+    // What a pull saves reads the same in Content, and in Notion again.
+    expect(canonicalizeNotionNfm(nfm)).toBe(nfm);
+    expect(notionMarkdownToNfm(nfm)).toBe(nfm);
+  });
+
+  it("reads Content's own Markdown literally after a Notion read", () => {
+    notionMarkdownToNfm("`a<br>b`");
+    expect(nfmToDoc("`a<br>b`").content?.[0]?.content).toEqual([
+      { type: "text", text: "a<br>b", marks: [{ type: "code" }] },
+    ]);
+    expect(canonicalizeNotionNfm("`a<br>b`")).toBe("`a<br>b`");
   });
 
   it("canonicalizes GitHub-style inline math without changing the expression", () => {

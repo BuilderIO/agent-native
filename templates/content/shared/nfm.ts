@@ -52,6 +52,9 @@ export interface NfmParseLoss {
 }
 
 let activeLossSink: NfmParseLoss[] | null = null;
+// Set while reading Notion's own Markdown, where a <br> between backticks is a
+// line break. See notionMarkdownToNfm.
+let readingNotionMarkdown = false;
 
 function reportLoss(kind: NfmParseLossKind, sample: string): void {
   activeLossSink?.push({ kind, sample });
@@ -474,11 +477,11 @@ function serializeInlineTextNode(
             escapeUnderscore,
             false,
             startsLine && lineIndex === 0,
-          )!
-        : { source: "", textOffsets: [0] };
-      for (const offset of part.textOffsets!)
+          )
+        : null;
+      for (const offset of part?.textOffsets ?? [0])
         textOffsets.push(source.length + offset);
-      source += part.source;
+      source += part?.source ?? "";
     });
     return { source, textOffsets: collectOffsets ? textOffsets : null };
   }
@@ -1080,6 +1083,7 @@ function parseInline(input: string, depth = 0): PMNode[] {
       const close = end - openRun;
       flush();
       let codeText = input.slice(at + openRun, close);
+      if (readingNotionMarkdown) codeText = codeText.replace(/<br\/?>/g, "\n");
       if (
         codeText.startsWith(" ") &&
         codeText.endsWith(" ") &&
@@ -3951,10 +3955,30 @@ export function canonicalizeNfm(nfm: string | null | undefined): string {
  * a change to sync.
  */
 export function canonicalizeNotionNfm(nfm: string | null | undefined): string {
-  return docToNfm(nfmToDoc(nfm ?? ""), {
-    keepTrailingEmptyBlock: true,
-    omitMediaIds: true,
-  });
+  return notionNfmFromDoc(nfmToDoc(nfm ?? ""));
+}
+
+/**
+ * `canonicalizeNotionNfm` for Markdown that Notion's API returned. Notion's
+ * default format there, v1 enhanced markdown, reads a <br> between backticks
+ * as a line break, where Content's Markdown keeps it as text, so a pulled
+ * page's line breaks in inline code stay line breaks. Notion's v2 format
+ * keeps text in code literal too; once Content reads v2, this goes.
+ */
+export function notionMarkdownToNfm(markdown: string): string {
+  const previous = readingNotionMarkdown;
+  readingNotionMarkdown = true;
+  let doc: PMDoc;
+  try {
+    doc = nfmToDoc(markdown);
+  } finally {
+    readingNotionMarkdown = previous;
+  }
+  return notionNfmFromDoc(doc);
+}
+
+function notionNfmFromDoc(doc: PMDoc): string {
+  return docToNfm(doc, { keepTrailingEmptyBlock: true, omitMediaIds: true });
 }
 
 /**
