@@ -11,14 +11,18 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke }));
 
 let listenForRecordingShortcutStopAcks: (typeof import("./recording-shortcut-stop"))["listenForRecordingShortcutStopAcks"];
 let requestRecordingShortcutStop: (typeof import("./recording-shortcut-stop"))["requestRecordingShortcutStop"];
+let stopRecordingFromLink: (typeof import("./recording-shortcut-stop"))["stopRecordingFromLink"];
 
 let unlistenAcks: (() => void) | undefined;
 
 describe("requestRecordingShortcutStop", () => {
   beforeEach(async () => {
     vi.resetModules();
-    ({ listenForRecordingShortcutStopAcks, requestRecordingShortcutStop } =
-      await import("./recording-shortcut-stop"));
+    ({
+      listenForRecordingShortcutStopAcks,
+      requestRecordingShortcutStop,
+      stopRecordingFromLink,
+    } = await import("./recording-shortcut-stop"));
     emit.mockReset().mockResolvedValue(undefined);
     invoke.mockReset().mockResolvedValue(undefined);
     listen.mockReset();
@@ -95,6 +99,28 @@ describe("requestRecordingShortcutStop", () => {
       type: "direct",
       reason: "acknowledgement-listener-not-ready",
     });
+    expect(emit).toHaveBeenLastCalledWith("clips:recorder-stop");
+  });
+
+  it.each([
+    {
+      name: "a stop link while the recording bar's listener isn't up yet still stops",
+      recorderRunning: true,
+      outcome: { type: "direct", reason: "pill-did-not-acknowledge" },
+    },
+    {
+      name: "a stop link with no recorder object stops directly",
+      recorderRunning: false,
+      outcome: undefined,
+    },
+  ])("$name", async ({ recorderRunning, outcome }) => {
+    listen.mockResolvedValue(vi.fn());
+    unlistenAcks = await listenForRecordingShortcutStopAcks();
+
+    const stop = stopRecordingFromLink(recorderRunning);
+    await vi.advanceTimersByTimeAsync(300);
+
+    await expect(stop).resolves.toEqual(outcome);
     expect(emit).toHaveBeenLastCalledWith("clips:recorder-stop");
   });
 

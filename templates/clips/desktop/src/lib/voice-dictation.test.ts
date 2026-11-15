@@ -2273,6 +2273,41 @@ describe("desktop voice dictation runs", () => {
       ).toBeGreaterThan(stopsBefore);
     });
 
+    it("a hands-free press during a start that hangs disarms Escape", async () => {
+      // Win32 uses the server engine, whose microphone request hangs here
+      // before any session exists.
+      vi.mocked(navigator.mediaDevices.getUserMedia).mockImplementation(
+        () => new Promise<MediaStream>(() => {}),
+      );
+      const { installDesktopVoiceDictation } =
+        await import("./voice-dictation");
+      dispose = installDesktopVoiceDictation({
+        enabled: true,
+        serverUrl: "https://clips.test",
+        shortcut: "both",
+        mode: "push-to-talk",
+        engine: "native",
+        polish: "off",
+      });
+      await settle();
+      const escape = () =>
+        tauri.invoke.mock.calls.filter(
+          ([command]) => command === "set_dictation_escape_active",
+        );
+      await dispatch("voice:shortcut-start", { source: "link-hands-free" });
+      await vi.advanceTimersByTimeAsync(10);
+      expect(escape().at(-1)).toEqual([
+        "set_dictation_escape_active",
+        { active: true },
+      ]);
+      await dispatch("voice:shortcut-start", { source: "link-hands-free" });
+      await vi.advanceTimersByTimeAsync(10);
+      expect(escape().at(-1)).toEqual([
+        "set_dictation_escape_active",
+        { active: false },
+      ]);
+    });
+
     it("asks for a hands-free link held at startup once its listener is up", async () => {
       tauri.invoke.mockImplementation((command) =>
         Promise.resolve(

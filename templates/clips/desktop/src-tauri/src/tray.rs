@@ -531,20 +531,15 @@ mod tests {
     }
 }
 
-/// `clips://stop`: stops the running recording the way a tray click does,
-/// and does nothing when no recording runs (a meeting is left alone).
+/// `clips://stop`: stops the running recording, and does nothing when no
+/// recording runs (a meeting is left alone). The popover stops it the way
+/// the recording shortcut does: through the recording bar, which must
+/// acknowledge, or else directly.
 pub fn stop_recording_from_link(app: &tauri::AppHandle) {
-    use tauri::{Emitter, Manager};
+    use tauri::Emitter;
     if !tray_recording_active() || crate::util::is_meeting_active(app) {
         dlog!("[clips-tray] stop link ignored: no recording running");
         return;
     }
-    if app.get_webview_window("toolbar").is_some() {
-        let _ = app.emit(
-            "clips:tray-stop-request",
-            serde_json::json!({ "fallback": true }),
-        );
-    } else {
-        let _ = app.emit("clips:recorder-stop", ());
-    }
+    let _ = app.emit("clips:stop-link", ());
 }

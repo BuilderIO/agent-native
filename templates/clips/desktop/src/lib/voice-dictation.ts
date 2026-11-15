@@ -2750,7 +2750,11 @@ export function installDesktopVoiceDictation(
   // runs, it stops it.
   const startOrStopHandsFreeFromLink = () => {
     if (session || startInFlight) {
+      const stillStarting = !session;
       stop();
+      // A start that hasn't made a session yet may never settle, so its
+      // completion can't be left to disarm hands-free (and Escape).
+      if (stillStarting && handsFreeActive) setHandsFreeActive(false);
       return;
     }
     setHandsFreeActive(true);

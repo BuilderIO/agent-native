@@ -1810,6 +1810,11 @@ struct DictationGate {
     flow_live: bool,
     listener_ready: bool,
     pending_hands_free: Option<Instant>,
+    /// A push link whose press a hands-free link took over still has its
+    /// up to come (links carry no press id): that up is swallowed, so it
+    /// can't stop a newer push press. Since when it's owed; a lost up stops
+    /// being owed after `STALE_OWNER_AFTER`.
+    owed_link_up: Option<Instant>,
 }
 
 impl DictationGate {
@@ -1822,6 +1827,7 @@ impl DictationGate {
             flow_live: false,
             listener_ready: false,
             pending_hands_free: None,
+            owed_link_up: None,
         }
     }
 
@@ -1903,6 +1909,14 @@ impl DictationGate {
     }
 
     fn release(&mut self, input: PressInput, now: Instant) -> Release {
+        if input == PressInput::Link {
+            if let Some(since) = self.owed_link_up.take() {
+                if now.saturating_duration_since(since) < STALE_OWNER_AFTER {
+                    // The taken-over press's own up.
+                    return Release::NotOwner;
+                }
+            }
+        }
         let Some(owner) = self.owner.filter(|owner| owner.input == input) else {
             return Release::NotOwner;
         };
@@ -1947,6 +1961,7 @@ impl DictationGate {
             .is_some_and(|owner| owner.input == PressInput::Link)
         {
             self.owner = None;
+            self.owed_link_up = Some(now);
         }
         self.released_taps
             .retain(|tap| tap.input != PressInput::Link);
@@ -2397,6 +2412,50 @@ mod dictation_gate_tests {
                 false,
             ),
             (80, Due(1), CANCELLED, false),
+        ]);
+    }
+
+    #[test]
+    fn a_taken_over_push_links_late_up_does_not_stop_a_newer_push_press() {
+        use Step::{Due, Flow, HandsFreeLink, Press, Release};
+        run(&[
+            (0, Press(Link), Claim(Owns), true),
+            (80, Due(1), HOLD, true),
+            (100, Flow("recording"), Done, true),
+            // Hands-free stops press 1 while its button is still down.
+            (
+                200,
+                HandsFreeLink,
+                Out::HandsFree {
+                    capture: false,
+                    now: true,
+                },
+                false,
+            ),
+            (300, Flow("idle"), Done, false),
+            (400, Press(Link), Claim(Owns), true),
+            (480, Due(2), HOLD, true),
+            // Press 1's up arrives late: swallowed, press 2 keeps running.
+            (500, Release(Link), NOT_OWNER, true),
+            (600, Release(Link), STOP, false),
+        ]);
+        // When the taken-over press's up is lost, a later press's up still
+        // stops that press.
+        run(&[
+            (0, Press(Link), Claim(Owns), true),
+            (80, Due(1), HOLD, true),
+            (
+                200,
+                HandsFreeLink,
+                Out::HandsFree {
+                    capture: false,
+                    now: true,
+                },
+                false,
+            ),
+            (3_000, Press(Link), Claim(Owns), true),
+            (3_080, Due(2), HOLD, true),
+            (3_500, Release(Link), STOP, false),
         ]);
     }
 

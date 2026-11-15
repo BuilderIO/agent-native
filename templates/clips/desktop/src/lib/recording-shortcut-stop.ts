@@ -186,3 +186,17 @@ export async function requestRecordingShortcutStop(): Promise<StopOutcome> {
   }
   return { type: "pill" };
 }
+
+/**
+ * `clips://stop`. With a recorder running it goes through the recording
+ * bar like the recording shortcut, so a bar whose listener isn't up yet
+ * (it never acknowledges) still ends in a direct stop; without one it
+ * stops directly.
+ */
+export async function stopRecordingFromLink(
+  recorderRunning: boolean,
+): Promise<StopOutcome | undefined> {
+  if (recorderRunning) return requestRecordingShortcutStop();
+  await emit("clips:recorder-stop");
+  return undefined;
+}

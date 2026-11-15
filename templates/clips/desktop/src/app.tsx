@@ -252,6 +252,7 @@ import {
 import {
   listenForRecordingShortcutStopAcks,
   requestRecordingShortcutStop,
+  stopRecordingFromLink,
 } from "./lib/recording-shortcut-stop";
 import { boundedCleanup } from "./lib/recording-start-guard";
 import { REWIND_AGENT_PROMPT } from "./lib/rewind-agent-prompt";
@@ -1353,6 +1354,7 @@ export function App({
     view: popoverView,
   };
   const recordShortcutHandlerRef = useRef<() => void>(() => {});
+  const stopLinkHandlerRef = useRef<() => void>(() => {});
   const handleStartRecordingRef = useRef<
     (options?: {
       resumeCapture?: RestartHandoff;
@@ -4663,6 +4665,31 @@ export function App({
 
     beginRecording(undefined, { revealPopoverIfMicOff: true });
   };
+
+  stopLinkHandlerRef.current = () => {
+    void stopRecordingFromLink(Boolean(recorder)).catch((error) => {
+      console.error("[clips] Stop link failed:", error);
+    });
+  };
+
+  useEffect(() => {
+    let cancelled = false;
+    let unlistenStopLink: (() => void) | undefined;
+    void listen("clips:stop-link", () => {
+      stopLinkHandlerRef.current();
+    })
+      .then((unlisten) => {
+        if (cancelled) unlisten();
+        else unlistenStopLink = unlisten;
+      })
+      .catch((error) => {
+        console.error("[clips] stop link listener failed:", error);
+      });
+    return () => {
+      cancelled = true;
+      unlistenStopLink?.();
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
