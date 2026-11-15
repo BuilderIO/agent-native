@@ -99,7 +99,7 @@ export function DesignCollaboratorsMenu({
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start" className="w-64">
-        <DropdownMenuLabel className="text-xs text-muted-foreground">
+        <DropdownMenuLabel className="text-muted-foreground">
           {label}
         </DropdownMenuLabel>
         {collaborators.map((collaborator) => {

@@ -137,6 +137,8 @@ La autenticación identifica la cuenta conectada; no amplía sus permisos sobre 
 
 Reinstalar el conector o cambiar el enlace público compartido no resuelve una denegación de permisos confirmada de la cuenta conectada.
 
+Las imágenes subidas a un documento privado se guardan en su cuerpo como enlaces `/api/private-media/<id>`, que solo cargan con una sesión de Content. Cuando un agente lee el documento por MCP, `get-document`, y `pull-document` en Markdown, también devuelven `privateMediaLinks`: cada enlace guardado junto con una URL que abre esa imagen sin iniciar sesión durante una hora. Una lectura enlaza como máximo 200 imágenes; `omitted` cuenta las demás. Vuelve a leer el documento para obtener enlaces nuevos. Conserva los enlaces guardados al editar el cuerpo.
+
 <a id="access-tab"></a>
 
 ### La opción MCP dentro de la aplicación {#mcp-settings}
@@ -701,7 +703,7 @@ Cuando el usuario hace clic en el enlace en cualquier navegador o vista web en l
     "name": "to",
     "in": "query",
     "type": "string",
-    "description": "Optional explicit same-origin relative redirect target. Falls back to `/<view>`, then a per-template `resolveOpenPath`."
+    "description": "Optional explicit same-origin relative redirect target. Falls back to a per-template `resolveOpenPath`, then `/<view>`."
   },
   {
     "name": "compose",
@@ -733,7 +735,7 @@ Resolves the browser session, writes a one-shot `navigate` application-state com
 1. Resuelve la sesión del **navegador** a través de `getSession` (el guardia de autenticación omite la ruta exacta `/_agent-native/open`).
 2. Si no está autenticado, sirve el inicio de sesión configurado HTML **en el mismo URL**; el controlador de éxito del formulario recarga `window.location` y vuelve a ingresar la ruta autenticada, sin plomería `?next=`.
 3. Escribe el comando de estado de aplicación `navigate` existente (carga útil = cada parámetro de consulta no reservado + `view`) con alcance en el correo electrónico de la sesión del navegador con `requestSource: "deep-link"` y decodifica un borrador de URL base64 de `compose` en una clave `compose-<id>`.
-4. 302-redirecciones a una ruta relativa segura del mismo origen (`to=`, si no, `/<view>`, si no, un `resolveOpenPath` por plantilla), reenviando los parámetros de filtro `f_*` para que las listas/paneles se abran prefiltrados incluso antes de que se agote el comando `navigate`.
+4. 302-redirecciones a una ruta relativa segura del mismo origen (`to=`, si no, un `resolveOpenPath` por plantilla, si no, `/<view>`), reenviando los parámetros de filtro `f_*` para que las listas/paneles se abran prefiltrados incluso antes de que se agote el comando `navigate`.
 
 Se rechazan las redirecciones de origen cruzado, `//host` relativas al esquema y caracteres de control (protección de redireccionamiento abierto). La ruta se puede desactivar por aplicación a través de `disableOpenRoute`.
 

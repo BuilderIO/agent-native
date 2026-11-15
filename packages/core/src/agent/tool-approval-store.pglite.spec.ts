@@ -262,6 +262,53 @@ describe("tool approvals bound to the arguments that run", () => {
     ).resolves.toBe("already_resolved");
   });
 
+  it("allows only one competing consumer to use a pending approval", async () => {
+    const approvalId = await createAgentToolApproval(call);
+    const attempts = await Promise.all([
+      consumeAgentToolApproval({ ...call, approvalId }),
+      consumeAgentToolApproval({ ...call, approvalId }),
+    ]);
+
+    expect(attempts.filter(Boolean)).toHaveLength(1);
+    expect(
+      (
+        await pglite.query<{ status: string; consumed_at: number | null }>(
+          "SELECT status, consumed_at FROM agent_tool_approvals WHERE id = ?",
+          [approvalId],
+        )
+      ).rows[0],
+    ).toMatchObject({ status: "consumed", consumed_at: expect.any(Number) });
+  });
+
+  it("settles a competing denial and consumption without changing the winner", async () => {
+    const approvalId = await createAgentToolApproval(call);
+    const denial = () =>
+      denyAgentToolApproval({
+        approvalId,
+        ownerEmail: scope.ownerEmail,
+        orgId: scope.orgId,
+        threadId: scope.threadId,
+      });
+    const [consumed, denied] = await Promise.all([
+      consumeAgentToolApproval({ ...call, approvalId }),
+      denial(),
+    ]);
+
+    expect(denied).toBe(consumed ? "already_resolved" : "denied");
+    await expect(
+      consumeAgentToolApproval({ ...call, approvalId }),
+    ).resolves.toBe(false);
+    await expect(denial()).resolves.toBe(denied);
+    expect(
+      (
+        await pglite.query<{ status: string }>(
+          "SELECT status FROM agent_tool_approvals WHERE id = ?",
+          [approvalId],
+        )
+      ).rows[0]?.status,
+    ).toBe(consumed ? "consumed" : "denied");
+  });
+
   it("fences approval creation and consumption to the live worker generation", async () => {
     const threadId = "approval-fence-thread";
     const turnId = "approval-fence-turn";

@@ -33,7 +33,8 @@ cascade is **desktop-base**: the widest requested device is the primary/base
 frame and each narrower device is a breakpoint frame. The default injected set
 is therefore a Desktop base plus a single Mobile (390) breakpoint frame — the
 narrower frame(s) only, never a frame at the primary desktop width and never an
-auto-added tablet.
+auto-added tablet. An empty `devices` list is the same as leaving it out;
+`fixedCanvas: true` asks for one fixed canvas with no breakpoint frames.
 
 - `add-breakpoint` — adds a device-width frame to `designs.data.breakpointSet`
   (Framer defaults: Desktop 1200 / Tablet 810 / Phone 390, or custom 320-3840).

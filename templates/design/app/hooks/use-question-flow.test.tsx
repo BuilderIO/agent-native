@@ -262,7 +262,9 @@ describe("useQuestionFlow sendContinuation tab tracking", () => {
     expect(call.context).toContain(
       "Fixed canvas: LinkedIn Single Image Ad, 1200×627px",
     );
-    expect(call.context).toContain("Pass `devices: []` to `generate-design`");
+    expect(call.context).toContain(
+      "Pass `fixedCanvas: true` to `generate-design`",
+    );
     expect(call.context).toContain(
       "run `take-design-screenshot` once with widths: [1200] and heights: [627]",
     );

@@ -22,7 +22,7 @@ import {
   type SecretScope,
   type SecretUsage,
 } from "./register.js";
-import { VAULT_SYNC_DESCRIPTION_PREFIX } from "./storage.js";
+import { isVaultManagedSecret } from "./vault-managed.js";
 
 /** App id used in effects that apply to every app. */
 export const ALL_APPS = "all";
@@ -153,9 +153,7 @@ async function resolveSharedFallback(key: string): Promise<SharedKeyFallback> {
     : null;
   return {
     status: "shared",
-    source: meta?.description?.startsWith(VAULT_SYNC_DESCRIPTION_PREFIX)
-      ? "vault"
-      : shared.source,
+    source: isVaultManagedSecret(meta) ? "vault" : shared.source,
   };
 }
 

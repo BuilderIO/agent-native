@@ -17,6 +17,8 @@ export interface JourneyEventRow {
   tsMs: number;
   eventName: string;
   authUserId?: string | null;
+  /** MD5 of the session's one email, when all of its emails agree. */
+  sessionEmailHash?: string | null;
   app?: string | null;
   templateName: string | null;
   path: string | null;

@@ -78,6 +78,16 @@ The repository already has the beginnings of this split:
 - `templates/clips/app/components/clips-command-menu.tsx` currently owns the
   Clips registry, route context, navigation handlers, and recording/meeting/
   dictation search providers.
+- `templates/content/app/components/ContentCommandMenu.tsx` registers Content's
+  commands as `appCommandGroups` descriptors (the open page, recent pages,
+  create, app actions, and asking the agent while typing) and keeps its page
+  search in `ContentCommandSearch.tsx`. It opens compact and widens into
+  search with a preview once there is a query. It uses the shell's opt-in
+  hooks: `inputAdornment` for a scope chip in the search field,
+  `onInputKeyDown` so Tab in an empty field scopes the search to the open page
+  and Backspace clears it, `closeOnSelect: false` for a command that changes the menu
+  instead of leaving it, and `selectedValue` from `renderContent` for the
+  preview.
 
 The remaining problem is that app registries are still hand-authored JSX. The
 same pattern exists in other templates, so improvements currently require

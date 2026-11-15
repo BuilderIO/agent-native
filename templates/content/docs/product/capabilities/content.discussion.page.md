@@ -27,7 +27,7 @@ proof_requirements:
   ]
 evidence: []
 superseded_by: null
-last_reviewed: "2026-10-21"
+last_reviewed: "2026-11-11"
 ---
 
 # Page Discussion
@@ -44,9 +44,10 @@ A reviewer opens a Collection row's peek and, with nothing selected, writes "Loo
 
 - Every Page has one Discussion. It holds every Comment thread the Page owns. A page comment has no quote and no Property; a text comment points at text; a Property comment points at one Property value (see `content.comment.page-owned`).
 - The Discussion panel replaces the separate Comments panel. The panel, its toolbar button, its tab, its sheet title, and their tooltips say "Discussion" in every locale. The button shows how many open threads the Page has, the same number a Collection table shows on the row.
-- The panel's composer, "Comment on this page…", starts a page comment. It supports @mentions, @AI, and reactions like any Comment. Page comments reply, resolve, reopen, notify, and react exactly like other threads, and they never show "Highlight unavailable". A text comment whose text was deleted still does, with its quote.
+- The composer at the top of the panel, "Comment on this page…", starts a page comment. It supports @mentions, @AI, and reactions like any Comment. Page comments reply, resolve, reopen, notify, and react exactly like other threads, and they never show "Highlight unavailable". A text comment whose text was deleted still does, with its quote.
 - Page comments do not appear in the margin beside the text, because they point at nothing there.
-- The panel opens in page order with only open threads. Page order is page comments first, then Property comments in Property order, then text comments in reading order, then threads whose text is gone. Newest activity puts the thread with the latest reply on top; Oldest first sorts by when each thread started.
+- The panel opens in page order with only open threads. Page order reads in three headed sections: Properties, in Property order; In the text, in reading order and then threads whose text is gone; and On the page, for page comments. Newest activity puts the thread with the latest reply on top; Oldest first sorts by when each thread started. On a Page with several Blocks fields, every order groups threads under a heading for each tab instead, keeping the order within each tab.
+- Each thread names what it is about at its top: the Property and its value, or the quoted text. Show on a Property thread opens Info at that Property, with its threads open under its row, a resolved one included. Show on a text thread scrolls the Page to the text and highlights it; where the panel covers the text, Discussion steps aside to a small bar with the text, its first comment, and the way back to the thread. A thread whose Property is gone, or whose text isn't on the Page, names it without Show.
 - Filters show as chips, like a Collection's: Status (Open by default, or Resolved), Type (Comments or Suggested edits), Points at (the Page, text, or a Property, where a thread on a video counts as text), Who (an author, or Mentions me), Tab (only on Pages with several Blocks fields), and search. Sort and filters are personal and remembered for each reader, and a search lasts until they leave the Page; none of it is saved on the Page.
 - Opening a Comment link (`?comment=`) opens the Discussion at that thread, showing it even when the reader's filters would hide it, without changing those filters. Comment emails link to the thread this way. A page comment someone has just posted also stays in view until they change a filter.
 - The same Comment Actions serve agents. `add-comment` with no quoted text, no Block, and no Property starts a page comment, and `list-comments` returns it.

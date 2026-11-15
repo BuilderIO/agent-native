@@ -485,6 +485,20 @@ User-Agent 中的 Canary 標記僅是可用性提示，不是遠端證明；驗�
 Canary 不會攔截匿名使用者前往應用程式登入頁面的導覽。使用者必須在 Desktop 設定中，為目前啟用的已註冊應用程式明確選擇工作區登入；一般應用程式登入仍是預設路徑。
 一般瀏覽器繼續使用逐一應用程式登入。自我託管應用程式僅在使用剩餘的明確 Desktop 或伺服器端聯邦路徑時需要 `AGENT_NATIVE_IDENTITY_HUB_URL`。
 
+## 自訂登入頁面
+
+Chat 範本在 `server/plugins/auth.ts` 中設定 `marketing: false`。提供 marketing 物件即可啟用面板，行動裝置會顯示於表單下方。`AuthMarketingProps` 描述轉譯後的頁面屬性，外掛接受下方的 `marketing` 欄位。`authHeadHtml` 將應用程式撰寫的可信 HTML 加在內建樣式之後。請勿傳入使用者輸入。
+
+```ts filename="server/plugins/auth.ts"
+import { createToolkitAuthPlugin } from "@agent-native/toolkit/app/auth/server";
+
+export default createToolkitAuthPlugin({
+  rootAuth: true,
+  marketing: { appName: "My app", tagline: "Make work easier" },
+  authHeadHtml: "<style>.auth-root { font-family: sans-serif; }</style>",
+});
+```
+
 ## 管理式部署與邀請
 
 管理式部署請設定 `AUTH_SIGNUP=invited`、`ORG_CREATION=closed` 和 `AUTO_CREATE_DEFAULT_ORG=0`。[管理式部署指南](/docs/administered-deployments)說明引導管理員、邀請和允許的電子郵件網域。成員邀請與依網域加入是不同規則。

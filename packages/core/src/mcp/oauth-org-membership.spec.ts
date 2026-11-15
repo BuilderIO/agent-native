@@ -12,7 +12,8 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 const signedIn = vi.hoisted(() => ({ email: null as string | null }));
 vi.mock("../server/auth.js", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../server/auth.js")>()),
-  getSession: async () => (signedIn.email ? { email: signedIn.email } : null),
+  getSession: async () =>
+    signedIn.email ? { email: signedIn.email, emailVerified: true } : null,
 }));
 // Local only: no invitation email and no analytics delivery.
 vi.mock("../server/email.js", async (importOriginal) => ({
@@ -77,6 +78,7 @@ import { accessFilter } from "../sharing/access.js";
 import { createSharesTable } from "../sharing/schema.js";
 import { requireServiceTokenCaller } from "./actions/service-token-access.js";
 import { resolveMcpIdentityOrgId, verifyAuth } from "./build-server.js";
+import { listMcpClientConnections } from "./client-connections.js";
 import { handleMcpConnect, mintOrgServiceToken } from "./connect-route.js";
 import {
   approveDeviceCode,
@@ -590,6 +592,28 @@ describe("MCP OAuth access after the user is removed from the org", () => {
       authed: true,
       identity: { userEmail: CAROL, orgId: ORG },
     });
+  });
+
+  it("records admitted MCP activity and exposes it in the Settings metadata without stamping rejected calls", async () => {
+    const startedAt = Date.now();
+    expect((await authenticateMcpRequest(alice.accessToken)).auth.authed).toBe(
+      true,
+    );
+    const metadata = await listMcpClientConnections({
+      email: ALICE,
+      orgId: ORG,
+      issuer: ORIGIN,
+    });
+    const connection = metadata.connections.find(
+      (row) => row.client === "other",
+    );
+    expect(connection?.status).toBe("connected");
+    expect(connection?.lastUsedAt).toBeGreaterThanOrEqual(startedAt);
+    const before = await refreshRowsFor(carol);
+    expect((await authenticateMcpRequest(carol.accessToken)).auth.authed).toBe(
+      false,
+    );
+    expect(await refreshRowsFor(carol)).toEqual(before);
   });
 
   it("control: the real removal path deleted Bob's membership", async () => {

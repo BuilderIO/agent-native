@@ -331,10 +331,12 @@ describe("rename-screen with real PostgreSQL", () => {
 
     expect(isNoWriteError(error)).toBe(true);
     expect(error).toMatchObject({
-      errorCode: "filename_taken",
+      errorCode: "name_taken",
       statusCode: 409,
-      message: `File "Dashboard.html" already exists in design ${DESIGN_ID}`,
+      details: { name: "Dashboard.html", suggestion: "Dashboard-2.html" },
     });
+    expect((error as Error).message).toContain("Dashboard-2.html");
+    expect((error as Error).message).not.toContain(DESIGN_ID);
     expect(await persistedFiles()).toEqual(before);
     expect(collab.applyText).not.toHaveBeenCalled();
   });

@@ -44,6 +44,7 @@ import {
   getRequestUserEmail,
   runWithRequestContext,
 } from "../server/request-context.js";
+import { runCodeStatusLines } from "./run-code-result.js";
 import {
   failExpiredSandboxExecution,
   getSandboxExecutionForOwner,
@@ -268,14 +269,14 @@ export function createRunCodeEntry(
         });
 
       const combined =
-        [stdout ? `stdout:\n${stdout}` : "", stderr ? `stderr:\n${stderr}` : ""]
+        [
+          stdout ? `stdout:\n${stdout.trimEnd()}` : "",
+          stderr ? `stderr:\n${stderr.trimEnd()}` : "",
+        ]
           .filter(Boolean)
           .join("\n\n") || "(no output)";
 
-      const lines: string[] = [];
-      if (timedOut) lines.push(`timedOut: true (${timeoutMs}ms)`);
-      if (exitCode !== 0 && exitCode !== null)
-        lines.push(`exitCode: ${exitCode}`);
+      const lines = runCodeStatusLines({ timedOut, timeoutMs, exitCode });
       if (bridgeToolsUsed.length)
         lines.push(`bridgeToolsUsed: ${bridgeToolsUsed.join(", ")}`);
       lines.push(combined);
@@ -484,7 +485,8 @@ async function describeSandboxExecutionForOwner(
     });
   }
 
-  let row = await getSandboxExecutionForOwner(executionId, owner);
+  const orgId = context?.orgId ?? getRequestContext()?.orgId ?? null;
+  let row = await getSandboxExecutionForOwner(executionId, owner, orgId);
   if (!row) {
     return structuredRunCodeError({
       executionId,
@@ -560,7 +562,20 @@ async function describeSandboxExecutionForOwner(
       `Executor lease expired after ${row.attemptCount} attempt(s); the execution environment was likely terminated before the code finished. Split the computation into smaller chunks or persist intermediate results (e.g. workspaceWrite) and run again.`,
       now,
     );
-    row = (await getSandboxExecutionForOwner(executionId, owner)) ?? row;
+    const refreshed = await getSandboxExecutionForOwner(
+      executionId,
+      owner,
+      orgId,
+    );
+    if (!refreshed) {
+      return structuredRunCodeError({
+        executionId,
+        code: "execution_not_found",
+        message: `No background execution "${executionId}" exists for this user.`,
+        guidance: "Check the executionId and your current organization access.",
+      });
+    }
+    row = refreshed;
   }
 
   return formatTerminalSandboxExecution(row);

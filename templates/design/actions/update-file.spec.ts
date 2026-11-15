@@ -1040,10 +1040,11 @@ describe("update-file: typed filename refusals", () => {
 
     expect(isActionContractError(error)).toBe(true);
     expect(error).toMatchObject({
-      errorCode: "filename_taken",
+      errorCode: "name_taken",
       statusCode: 409,
-      message: `File "taken.html" already exists in design ${DESIGN_ID}`,
+      details: { name: "taken.html", suggestion: "taken-2.html" },
     });
+    expect((error as Error).message).not.toContain(DESIGN_ID);
     expect([...designFilesStore.rows.values()]).toEqual(before);
   });
 

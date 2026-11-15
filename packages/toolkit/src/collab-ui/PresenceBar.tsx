@@ -1,4 +1,4 @@
-import { useMemo, type CSSProperties } from "react";
+import { useMemo, useState, type CSSProperties } from "react";
 
 import {
   DropdownMenu,
@@ -81,6 +81,32 @@ function injectStyles() {
   styleInjected = true;
 }
 
+function UserAvatarImage({
+  url,
+  initial,
+}: {
+  url: string | undefined;
+  initial: string;
+}) {
+  const [failed, setFailed] = useState(false);
+
+  if (!url || failed) return initial;
+
+  return (
+    <img
+      src={url}
+      alt=""
+      onError={() => setFailed(true)}
+      style={{
+        width: "100%",
+        height: "100%",
+        borderRadius: "50%",
+        objectFit: "cover",
+      }}
+    />
+  );
+}
+
 function UserAvatar({
   user,
   isFirst,
@@ -116,20 +142,11 @@ function UserAvatar({
             if (e.key === "Enter" || e.key === " ") onClick?.();
           }}
         >
-          {user.avatarUrl ? (
-            <img
-              src={user.avatarUrl}
-              alt=""
-              style={{
-                width: "100%",
-                height: "100%",
-                borderRadius: "50%",
-                objectFit: "cover",
-              }}
-            />
-          ) : (
-            initial
-          )}
+          <UserAvatarImage
+            key={user.avatarUrl}
+            url={user.avatarUrl}
+            initial={initial}
+          />
         </div>
       </TooltipTrigger>
       <TooltipContent side="bottom">

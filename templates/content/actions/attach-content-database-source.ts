@@ -138,7 +138,6 @@ export async function readCompleteBuilderCmsAttachSource(
     readEntries({
       model: sourceTable,
       fieldPaths: dependencies.fieldPaths,
-      allowCached: true,
       limit: BUILDER_CMS_ATTACH_METADATA_LIMIT,
     }),
   ]);

@@ -18,6 +18,7 @@ const callActionMock = vi.hoisted(() => vi.fn());
 const navigateMock = vi.hoisted(() => vi.fn());
 const clientMock = vi.hoisted(() => ({
   save: vi.fn(),
+  updateOrigins: vi.fn(),
   test: vi.fn(),
   notify: vi.fn(),
 }));
@@ -73,6 +74,7 @@ vi.mock("../model/ProviderDialog.js", () => ({
 
 vi.mock("./api-keys-client.js", () => ({
   saveApiKeyValue: clientMock.save,
+  updateApiKeyOrigins: clientMock.updateOrigins,
   testSavedApiKey: clientMock.test,
   notifyKeysChanged: clientMock.notify,
 }));
@@ -121,6 +123,7 @@ function entry(overrides: Partial<ApiKeyEntry>): ApiKeyEntry {
     registered: false,
     usedFor: [],
     canReplace: true,
+    canEditOrigins: true,
     canDelete: true,
     canTest: false,
     ...overrides,
@@ -216,6 +219,15 @@ function typeInto(input: HTMLInputElement, value: string) {
   input.dispatchEvent(new Event("input", { bubbles: true }));
 }
 
+function typeTextarea(input: HTMLTextAreaElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(
+    HTMLTextAreaElement.prototype,
+    "value",
+  )!.set!;
+  setter.call(input, value);
+  input.dispatchEvent(new Event("input", { bubbles: true }));
+}
+
 describe("ApiKeysSettingsPage", () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -229,6 +241,7 @@ describe("ApiKeysSettingsPage", () => {
     callActionMock.mockReset();
     navigateMock.mockReset();
     clientMock.save.mockReset();
+    clientMock.updateOrigins.mockReset();
     clientMock.test.mockReset();
     onboardingOutcomeMock.mockReset();
     onboardingAbandonmentRequestMock.mockReset();
@@ -412,6 +425,7 @@ describe("ApiKeysSettingsPage", () => {
       value: "fake-linear-value",
       registered: false,
       shared: false,
+      urlAllowlist: [],
     });
   });
 
@@ -443,6 +457,180 @@ describe("ApiKeysSettingsPage", () => {
       value: "fake-linear-value",
       registered: false,
       shared: true,
+      urlAllowlist: [],
+    });
+  });
+
+  it("sends approved exact origins with a new custom key", async () => {
+    clientMock.save.mockResolvedValue(undefined);
+    await render();
+    const header = await renderHeader();
+    await act(async () => buttonByText("Add key", header).click());
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    const [name, value] = [
+      ...dialog.querySelectorAll("input"),
+    ] as HTMLInputElement[];
+    await act(async () => typeInto(name!, "WEBHOOK_TOKEN"));
+    await act(async () => typeInto(value!, "fake-value"));
+    await act(async () =>
+      typeTextarea(
+        dialog.querySelector("textarea")!,
+        "https://api.example.test",
+      ),
+    );
+    await act(async () =>
+      dialog
+        .querySelector("form")!
+        .dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        ),
+    );
+    expect(clientMock.save).toHaveBeenCalledWith({
+      name: "WEBHOOK_TOKEN",
+      value: "fake-value",
+      registered: false,
+      shared: false,
+      urlAllowlist: ["https://api.example.test"],
+    });
+  });
+
+  it("edits an existing custom key's origins without asking for its value", async () => {
+    state.listing = listing({ keys: [entry({ urlAllowlist: null })] });
+    clientMock.updateOrigins.mockResolvedValue(undefined);
+    await render();
+    expect(row("secrets:STRIPE_SECRET_KEY").textContent).toContain(
+      "No approved origins",
+    );
+    await act(async () =>
+      pointerDown(
+        row("secrets:STRIPE_SECRET_KEY").querySelector(
+          '[aria-label="Manage STRIPE_SECRET_KEY"]',
+        ),
+      ),
+    );
+    const item = [...document.querySelectorAll('[role="menuitem"]')].find(
+      (node) => node.textContent?.trim() === "Edit origins",
+    );
+    if (!item) throw new Error("No origin policy menu item");
+    await act(async () =>
+      item.dispatchEvent(new MouseEvent("click", { bubbles: true })),
+    );
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    expect(dialog.querySelector('input[type="password"]')).toBeNull();
+    await act(async () =>
+      typeTextarea(
+        dialog.querySelector("textarea")!,
+        "https://api.example.test",
+      ),
+    );
+    await act(async () =>
+      dialog
+        .querySelector("form")!
+        .dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        ),
+    );
+    expect(clientMock.updateOrigins).toHaveBeenCalledWith({
+      name: "STRIPE_SECRET_KEY",
+      scope: "user",
+      owner: "user",
+      urlAllowlist: ["https://api.example.test"],
+    });
+    expect(clientMock.save).not.toHaveBeenCalled();
+  });
+
+  it("offers policy editing for a legacy solo row without replacing its value", async () => {
+    state.listing = listing({
+      keys: [
+        entry({
+          name: "OLD_TOKEN",
+          storedScope: "workspace",
+          canReplace: false,
+          canEditOrigins: true,
+          urlAllowlist: null,
+        }),
+      ],
+    });
+    clientMock.updateOrigins.mockResolvedValue(undefined);
+    await render();
+    await act(async () =>
+      pointerDown(
+        row("secrets:user-workspace:OLD_TOKEN").querySelector(
+          '[aria-label="Manage OLD_TOKEN"]',
+        ),
+      ),
+    );
+    const item = [...document.querySelectorAll('[role="menuitem"]')].find(
+      (node) => node.textContent?.trim() === "Edit origins",
+    );
+    if (!item) throw new Error("No origin policy menu item");
+    await act(async () =>
+      item.dispatchEvent(new MouseEvent("click", { bubbles: true })),
+    );
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    await act(async () =>
+      typeTextarea(
+        dialog.querySelector("textarea")!,
+        "https://api.example.test",
+      ),
+    );
+    await act(async () =>
+      dialog
+        .querySelector("form")!
+        .dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        ),
+    );
+    expect(clientMock.updateOrigins).toHaveBeenCalledWith({
+      name: "OLD_TOKEN",
+      scope: "workspace",
+      owner: "user",
+      urlAllowlist: ["https://api.example.test"],
+    });
+    expect(clientMock.save).not.toHaveBeenCalled();
+  });
+
+  it("keeps approved origins when rotating a custom key", async () => {
+    state.listing = listing({
+      keys: [entry({ urlAllowlist: ["https://api.example.test"] })],
+    });
+    clientMock.save.mockResolvedValue(undefined);
+    await render();
+    await act(async () =>
+      pointerDown(
+        row("secrets:STRIPE_SECRET_KEY").querySelector(
+          '[aria-label="Manage STRIPE_SECRET_KEY"]',
+        ),
+      ),
+    );
+    const item = [...document.querySelectorAll('[role="menuitem"]')].find(
+      (node) => node.textContent?.trim() === "Replace value",
+    );
+    if (!item) throw new Error("No replacement menu item");
+    await act(async () =>
+      item.dispatchEvent(new MouseEvent("click", { bubbles: true })),
+    );
+    const dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+    expect(dialog.querySelector("textarea")?.value).toBe(
+      "https://api.example.test",
+    );
+    const value = dialog.querySelector(
+      'input[type="password"]',
+    ) as HTMLInputElement;
+    await act(async () => typeInto(value, "new-fake-value"));
+    await act(async () =>
+      dialog
+        .querySelector("form")!
+        .dispatchEvent(
+          new Event("submit", { bubbles: true, cancelable: true }),
+        ),
+    );
+    expect(clientMock.save).toHaveBeenCalledWith({
+      name: "STRIPE_SECRET_KEY",
+      value: "new-fake-value",
+      registered: false,
+      shared: false,
+      urlAllowlist: ["https://api.example.test"],
     });
   });
 
@@ -532,6 +720,7 @@ describe("ApiKeysSettingsPage", () => {
       value: "fake-custom-value",
       registered: false,
       shared: false,
+      urlAllowlist: [],
     });
 
     await act(async () => buttonByText("Close", dialog).click());
@@ -769,6 +958,7 @@ describe("DeleteKeyDialog", () => {
       value: "fake-voyage-value",
       registered: false,
       shared: true,
+      urlAllowlist: [],
     });
     expect(onSaved).toHaveBeenCalled();
     expect(onOpenChange).toHaveBeenCalledWith(false);

@@ -21,33 +21,88 @@ const props = {
   initialRole: "owner" as const,
   hasPassword: false,
 };
-const tabs = () =>
-  Array.from(document.querySelectorAll('[role="tab"]')).map(
-    (tab) => tab.textContent,
-  );
-
 describe("recording sharing adoption", () => {
   const harness = shareTestHarness();
   const render = (
     extra: Partial<React.ComponentProps<typeof ShareRecordingDialog>> = {},
   ) => harness.render(<ShareRecordingDialog {...props} {...extra} />);
 
-  it("orders the owner's tabs People, Agents, Embed, Social", async () => {
+  // oracle-change: the shared single-panel dialog replaces the People, Agents, Embed and Social tabs.
+  it("shows the standard sharing controls without the old tabs", async () => {
     await render();
-    expect(tabs()).toEqual([
-      "shareDialog.people",
-      "shareDialog.agents",
-      "shareDialog.embed",
-      "shareDialog.social",
-    ]);
+    expect(document.querySelector('input[role="combobox"]')).not.toBeNull();
+    expect(button("General access")).toBeDefined();
+    expect(button("Copy link")).toBeDefined();
+    expect(button("Send to")).toBeDefined();
+    expect(document.querySelector('[role="tab"]')).toBeNull();
   });
 
-  it("summarizes password and expiry beside Advanced", async () => {
-    await render({ hasPassword: true, expiresAt: "2030-01-02T12:30:00.000Z" });
-    expect(button("shareDialog.advanced").disabled).toBe(false);
-    const summary = button("shareDialog.advanced").parentElement!.textContent;
-    expect(summary).toContain("shareDialog.passwordSet");
-    expect(summary).toContain("shareDialog.expiresOn");
+  // oracle-change: password controls now appear only for public links; expiry is no longer edited here.
+  it("shows password controls only for public access and permits editors", async () => {
+    if (!mocks.data) throw new Error("Missing share data");
+    mocks.data.visibility = "public";
+    mocks.data.role = "editor";
+    await render({ hasPassword: true, initialRole: "editor" });
+    const toggle = document.getElementById(
+      "share-password-required",
+    ) as HTMLButtonElement;
+    expect(toggle.disabled).toBe(false);
+    expect(document.getElementById("share-expiry")).toBeNull();
+    mocks.data.role = "viewer";
+    await render({ hasPassword: true, initialRole: "viewer" });
+    expect(document.getElementById("share-password-required")).toBeNull();
+  });
+
+  it.each([undefined, "viewer", "commenter", "future-role"] as const)(
+    "keeps the library dialog link-only while role is %s",
+    async (role) => {
+      mocks.accessStatus = role ? { state: "allowed", role } : undefined;
+      await render({ initialRole: undefined });
+      expect(document.querySelector('input[role="combobox"]')).toBeNull();
+      expect(
+        mocks.query.mock.calls
+          .filter(([name]) => name === "list-resource-shares")
+          .every(([, , options]) => options.enabled === false),
+      ).toBe(true);
+      expect(button("Copy link")).toBeDefined();
+    },
+  );
+
+  it.each(["owner", "admin", "editor"] as const)(
+    "loads library sharing controls after confirming %s access",
+    async (role) => {
+      mocks.accessStatus = { state: "allowed", role };
+      await render({ initialRole: undefined });
+      expect(document.querySelector('input[role="combobox"]')).not.toBeNull();
+    },
+  );
+
+  it("offers retry when library access lookup fails without loading people", async () => {
+    mocks.accessError = true;
+    await render({ initialRole: undefined });
+    expect(document.querySelector('[role="alert"]')).not.toBeNull();
+    expect(document.querySelector('input[role="combobox"]')).toBeNull();
+    await click(button("agentChat.common.retry"));
+    expect(mocks.refetch).toHaveBeenCalled();
+  });
+
+  it("hides password controls as visibility changes away from public", async () => {
+    if (!mocks.data) throw new Error("Missing share data");
+    mocks.data.visibility = "public";
+    let finish: (value: { visibility: string }) => void = () => {};
+    mocks.visibility.mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finish = resolve;
+        }),
+    );
+    await render({ hasPassword: true });
+    expect(document.getElementById("share-password-required")).not.toBeNull();
+    await select(button("General access"), "Anyone in your organization");
+    expect(document.getElementById("share-password-required")).toBeNull();
+    expect(mocks.update).not.toHaveBeenCalled();
+    mocks.data.visibility = "org";
+    await act(async () => finish({ visibility: "org" }));
   });
 
   it("shares private with the organization at once", async () => {
@@ -63,7 +118,8 @@ describe("recording sharing adoption", () => {
   });
 
   it("narrows public to organization immediately", async () => {
-    mocks.data!.visibility = "public";
+    if (!mocks.data) throw new Error("Missing share data");
+    mocks.data.visibility = "public";
     await render({ initialVisibility: "public" });
     await select(button("General access"), "Anyone in your organization");
     expect(document.querySelector('[role="alertdialog"]')).toBeNull();
@@ -75,7 +131,8 @@ describe("recording sharing adoption", () => {
   });
 
   it("invites as Viewer with notifications and the recording notification link", async () => {
-    await render();
+    mocks.accessStatus = { state: "allowed", role: "owner" };
+    await render({ initialRole: undefined, ownerEmail: "OWNER@example.test" });
     await input(
       document.querySelector<HTMLInputElement>('input[role="combobox"]')!,
       "new@example.test",
@@ -93,7 +150,9 @@ describe("recording sharing adoption", () => {
         principalId: "new@example.test",
         role: "viewer",
         notify: true,
-        resourceUrl: expect.stringContaining("/r/clip-test"),
+        resourceUrl: expect.stringMatching(
+          /\/share\/clip-test\?ref=clip_share&via=test-owner/,
+        ),
       }),
       expect.any(Object),
     );
@@ -136,131 +195,195 @@ describe("recording sharing adoption", () => {
     );
   });
 
-  it("preserves password and expiry writes independently of sharing", async () => {
-    await render();
-    await click(document.getElementById("share-password-required")!);
+  it("sets and removes passwords for public links", async () => {
+    if (!mocks.data) throw new Error("Missing share data");
+    mocks.data.visibility = "public";
+    await render({ hasPassword: false });
+    await click(
+      document.getElementById("share-password-required") as HTMLButtonElement,
+    );
+    expect(document.body.textContent).not.toContain("shareDialog.noPassword");
+    expect(
+      document
+        .querySelector('input[aria-label="playerSettings.passwordProtection"]')
+        ?.closest("[data-private]"),
+    ).not.toBeNull();
     await input(
       document.querySelector<HTMLInputElement>(
         'input[aria-label="playerSettings.passwordProtection"]',
-      )!,
-      "fake-test-password",
+      ) as HTMLInputElement,
+      "  sample-pass  ",
     );
+    const passwordInput = document.querySelector<HTMLInputElement>(
+      'input[aria-label="playerSettings.passwordProtection"]',
+    );
+    expect(passwordInput?.type).toBe("password");
+    await click(button("shareDialog.showPassword"));
+    expect(passwordInput?.type).toBe("text");
+    await click(button("shareDialog.hidePassword"));
+    expect(passwordInput?.type).toBe("password");
     await click(button("common.save"));
     expect(mocks.update).toHaveBeenCalledWith(
-      { id: "clip-test", password: "fake-test-password" },
+      { id: "clip-test", password: "sample-pass" },
       expect.any(Object),
     );
-    const expiry = document.getElementById("share-expiry") as HTMLInputElement;
-    await input(expiry, "2030-01-02T12:30");
-    const saveButtons = Array.from(
-      document.querySelectorAll<HTMLButtonElement>("button"),
-    ).filter((el) => el.textContent === "common.save");
-    await click(saveButtons[saveButtons.length - 1]!);
+    await act(async () => mocks.update.mock.calls[0][1].onSuccess());
     expect(
-      mocks.update.mock.calls[mocks.update.mock.calls.length - 1]?.[0],
-    ).toEqual({
-      id: "clip-test",
-      expiresAt: new Date("2030-01-02T12:30").toISOString(),
-    });
-    expect(mocks.visibility).not.toHaveBeenCalled();
-  });
-
-  it("points a private clip's embed back to General access", async () => {
-    await render();
-    await click(button("shareDialog.embed"));
-    expect(button("shareDialog.copyEmbedCode").disabled).toBe(true);
-    await click(button("shareDialog.changeGeneralAccess"));
-    expect(
-      document.querySelector('[role="tab"][data-state="active"]')?.textContent,
-    ).toBe("shareDialog.people");
-    expect(document.querySelector('[role="listbox"]')).not.toBeNull();
-    expect(mocks.visibility).not.toHaveBeenCalled();
-  });
-
-  it("asks an editor to have the owner open access instead", async () => {
-    mocks.data!.role = "editor";
-    await render({ initialRole: "editor" });
-    await click(button("shareDialog.embed"));
-    expect(document.body.textContent).toContain("shareDialog.askOwnerPublic");
-    expect(
-      Array.from(document.querySelectorAll("button")).some(
-        (el) => el.textContent === "shareDialog.changeGeneralAccess",
-      ),
-    ).toBe(false);
-  });
-
-  it("copies a public clip's embed code with its timestamp and autoplay", async () => {
-    mocks.data!.visibility = "public";
-    await render({ initialVisibility: "public" });
-    await click(button("shareDialog.embed"));
-    await click(button("shareDialog.customizeEmbed"));
-    await click(document.querySelector<HTMLElement>('[role="switch"]')!);
-    await input(
-      document.querySelector<HTMLInputElement>('input[type="number"]')!,
-      "42",
+      document.querySelector<HTMLInputElement>(
+        'input[aria-label="playerSettings.passwordProtection"]',
+      )?.value,
+    ).toBe("sample-pass");
+    await click(button("shareDialog.copyPassword"));
+    expect(mocks.clipboard).toHaveBeenCalledWith("sample-pass");
+    expect(button("shareUi.copied")).toBeDefined();
+    await click(
+      document.getElementById("share-password-required") as HTMLButtonElement,
     );
-    await click(button("shareDialog.copyEmbedCode"));
-    expect(
-      mocks.clipboard.mock.calls[mocks.clipboard.mock.calls.length - 1]?.[0],
-    ).toContain("?autoplay=1&t=42");
-  });
-
-  it("shows known recording access while share details load without granting manage rights", async () => {
-    mocks.data = undefined;
-    await render({ initialVisibility: "public" });
-    expect(button("General access").textContent).toContain(
-      "Anyone with the link can view",
+    expect(mocks.update).toHaveBeenCalledWith(
+      { id: "clip-test", password: null },
+      expect.any(Object),
     );
-    expect(button("General access").disabled).toBe(true);
-    expect(document.querySelector('input[role="combobox"]')).toBeNull();
   });
 
-  it("keeps protected viewer reshares out of the Agents tab", async () => {
-    mocks.data = undefined;
+  it("retains a failed password draft and clears it for another recording", async () => {
+    if (!mocks.data) throw new Error("Missing share data");
+    mocks.data.visibility = "public";
+    await render({ hasPassword: false });
+    await click(
+      document.getElementById("share-password-required") as HTMLButtonElement,
+    );
+    const draftInput = document.querySelector<HTMLInputElement>(
+      'input[aria-label="playerSettings.passwordProtection"]',
+    );
+    if (!draftInput) throw new Error("Missing password input");
+    await input(draftInput, "draft-pass");
+    await click(button("common.save"));
+    await act(async () =>
+      mocks.update.mock.calls[0][1].onError(new Error("save failed")),
+    );
+    expect(
+      document.querySelector<HTMLInputElement>(
+        'input[aria-label="playerSettings.passwordProtection"]',
+      )?.value,
+    ).toBe("draft-pass");
+    await render({ recordingId: "another-clip", hasPassword: false });
+    await click(
+      document.getElementById("share-password-required") as HTMLButtonElement,
+    );
+    expect(
+      document.querySelector<HTMLInputElement>(
+        'input[aria-label="playerSettings.passwordProtection"]',
+      )?.value,
+    ).toBe("");
+    expect(button("shareDialog.copyPassword").disabled).toBe(true);
+  });
+
+  it("hides password controls for private recordings even with stored protection", async () => {
+    await render({ hasPassword: true, expiresAt: "2030-01-02T12:30:00.000Z" });
+    expect(document.getElementById("share-password-required")).toBeNull();
+    expect(mocks.update).not.toHaveBeenCalled();
+  });
+
+  it("does not offer agent handoffs to a password-protected viewer", async () => {
     await render({
       viewerReshareOnly: true,
       initialRole: "viewer",
       initialVisibility: "public",
       hasPassword: true,
     });
-    expect(tabs()).toEqual(["shareDialog.embed", "shareDialog.social"]);
-    expect(mocks.createLink).not.toHaveBeenCalled();
-    expect(mocks.visibility).not.toHaveBeenCalled();
-  });
-
-  it("keeps editor access options while disallowing invite and visibility writes", async () => {
-    mocks.data!.role = "editor";
-    await render({ initialRole: "editor" });
-    expect(document.querySelector('input[role="combobox"]')).toBeNull();
-    expect(button("General access").disabled).toBe(true);
     expect(
-      (document.getElementById("share-password-required") as HTMLButtonElement)
-        .disabled,
+      Array.from(document.querySelectorAll("button")).some((el) =>
+        el.textContent.includes("Send to"),
+      ),
     ).toBe(false);
-    expect(document.querySelector('button[aria-label="Role"]')).toBeNull();
-  });
-
-  it("does not fetch share details for viewer reshares and keeps unprotected agent handoff", async () => {
-    mocks.data = undefined;
-    await render({
-      viewerReshareOnly: true,
-      initialRole: "viewer",
-      initialVisibility: "public",
-    });
+    expect(mocks.createLink).not.toHaveBeenCalled();
     expect(
       mocks.query.mock.calls
         .filter(([name]) => name === "list-resource-shares")
         .every(([, , options]) => options.enabled === false),
     ).toBe(true);
     expect(document.querySelector('input[role="combobox"]')).toBeNull();
-    await click(button("shareDialog.agents"));
-    await click(button("shareDialog.copyAgentPrompt"));
-    expect(mocks.clipboard).toHaveBeenCalled();
-    expect(mocks.createLink).not.toHaveBeenCalled();
-    expect(mocks.visibility).not.toHaveBeenCalled();
+    expect(button("Copy link")).toBeDefined();
   });
 
-  it("hides all share controls and blocks quick copy while redactions are pending", async () => {
+  it("keeps public viewer handoffs without loading permissions", async () => {
+    await render({
+      viewerReshareOnly: true,
+      initialRole: "viewer",
+      initialVisibility: "public",
+      hasPassword: false,
+    });
+    expect(
+      mocks.query.mock.calls
+        .filter(([name]) => name === "list-resource-shares")
+        .every(([, , options]) => options.enabled === false),
+    ).toBe(true);
+    expect(button("Send to")).toBeDefined();
+    expect(document.querySelector('input[role="combobox"]')).toBeNull();
+  });
+
+  it.each(["private", "org"] as const)(
+    "uses a scoped agent link for a %s viewer with a dormant password",
+    async (initialVisibility) => {
+      await render({
+        viewerReshareOnly: true,
+        initialRole: "viewer",
+        initialVisibility,
+        hasPassword: true,
+      });
+      await act(async () => {
+        button("Send to").dispatchEvent(
+          new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+        );
+      });
+      const item = Array.from(
+        document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+      ).find((el) => el.textContent.includes("Copy agent prompt"));
+      if (!item) throw new Error("Missing agent prompt action");
+      await click(item);
+      expect(mocks.createLink).toHaveBeenCalledWith({
+        recordingId: "clip-test",
+      });
+    },
+  );
+
+  it("copies an agent prompt using a scoped link", async () => {
+    await render();
+    await act(async () => {
+      button("Send to").dispatchEvent(
+        new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true }),
+      );
+    });
+    const item = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((el) => el.textContent.includes("Copy agent prompt"));
+    if (!item) throw new Error("Missing agent prompt action");
+    await click(item);
+    expect(mocks.createLink).toHaveBeenCalledWith({ recordingId: "clip-test" });
+    expect(mocks.clipboard).toHaveBeenCalledWith("shareDialog.agentPrompt");
+  });
+
+  it("quick copies the attributed human link and records its scope", async () => {
+    await harness.render(
+      <ShareRecordingPopover {...props}>
+        <button>Open sharing</button>
+      </ShareRecordingPopover>,
+    );
+    await click(button("recordRoute.copyLinkAction"));
+    expect(mocks.clipboard).toHaveBeenCalledWith(
+      "http://localhost:3000/share/clip-test?ref=clip_share&via=test-owner",
+    );
+    expect(mocks.track).toHaveBeenCalledWith(
+      "share_link_copied",
+      expect.objectContaining({
+        resource_id: "clip-test",
+        link_type: "share",
+        link_scope: "private",
+      }),
+    );
+  });
+
+  it("blocks sharing while redactions are pending", async () => {
     await harness.render(
       <ShareRecordingPopover {...props} pendingRedactions={2}>
         <button>Open sharing</button>
@@ -272,6 +395,7 @@ describe("recording sharing adoption", () => {
     expect(document.querySelector('input[role="combobox"]')).toBeNull();
     await click(button("recordRoute.copyLinkAction"));
     expect(mocks.clipboard).not.toHaveBeenCalled();
+    expect(mocks.track).not.toHaveBeenCalled();
     expect(mocks.query).not.toHaveBeenCalled();
   });
 });

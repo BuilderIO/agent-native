@@ -156,7 +156,16 @@ describe("document history hooks", () => {
       { documentId: "db-c" },
     ];
     const unrelated = ["action", "list-comments", { documentId: "page-1" }];
-    for (const key of [filtered, paged, unconstrained, unrelated]) {
+    const search = ["action", "search-documents", { query: "Draft" }];
+    const titles = ["action", "list-document-titles", {}];
+    for (const key of [
+      filtered,
+      paged,
+      unconstrained,
+      unrelated,
+      search,
+      titles,
+    ]) {
       client.setQueryData(key, { items: [] });
     }
     invalidateQueries.mockImplementation((filter) =>
@@ -174,6 +183,8 @@ describe("document history hooks", () => {
     expect(client.getQueryState(filtered)?.isInvalidated).toBe(true);
     expect(client.getQueryState(paged)?.isInvalidated).toBe(true);
     expect(client.getQueryState(unconstrained)?.isInvalidated).toBe(true);
+    expect(client.getQueryState(search)?.isInvalidated).toBe(true);
+    expect(client.getQueryState(titles)?.isInvalidated).toBe(true);
     expect(client.getQueryState(unrelated)?.isInvalidated).toBe(false);
     const refetch = vi.fn(async () => ({
       items: [{ id: "page-1", title: "Draft A" }],

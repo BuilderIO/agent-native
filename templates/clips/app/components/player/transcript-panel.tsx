@@ -67,6 +67,8 @@ export interface TranscriptPanelProps {
   onSeek: (ms: number) => void;
   status?: "pending" | "ready" | "failed";
   failureReason?: string | null;
+  /** Saved lines that can't be read, which isn't having no transcript. */
+  unreadable?: boolean;
   recordingTitle?: string;
   audience?: "creator" | "viewer";
   onRetry?: () => void;
@@ -174,6 +176,7 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
     onSeek,
     status,
     failureReason,
+    unreadable = false,
     recordingTitle,
     audience = "creator",
     onRetry,
@@ -408,6 +411,57 @@ export function TranscriptPanel(props: TranscriptPanelProps) {
           ) : null}
         </div>
       </div>,
+    );
+  }
+
+  // With no lines to show, search, copy and download have nothing to act on,
+  // so this renders like the failed states above, without the toolbar.
+  if (unreadable && displaySegments.length === 0 && audience === "viewer") {
+    return (
+      <div className="p-4">
+        <p className="text-sm text-muted-foreground">
+          {t("transcriptBubbles.unreadable")}
+        </p>
+      </div>
+    );
+  }
+
+  if (unreadable && displaySegments.length === 0) {
+    const importAction = importButton("button");
+    const historyAction = historyButton("button");
+    return (
+      <div className="p-4 space-y-3">
+        <div>
+          <p className="text-sm font-medium">
+            {t("transcriptBubbles.unreadable")}
+          </p>
+          {onRegenerate ? (
+            <p className="mt-1 text-sm text-muted-foreground">
+              {t("transcriptPanel.unreadableDescription")}
+            </p>
+          ) : null}
+        </div>
+        {onRegenerate || importAction || historyAction ? (
+          <div className="flex flex-wrap items-center gap-2">
+            {onRegenerate ? (
+              <Button
+                size="sm"
+                onClick={onRegenerate}
+                disabled={isRegenerating}
+              >
+                {isRegenerating ? (
+                  <IconLoader2 className="size-4 animate-spin" />
+                ) : null}
+                {isRegenerating
+                  ? t("transcriptPanel.transcribing")
+                  : t("transcriptPanel.regenerate")}
+              </Button>
+            ) : null}
+            {importAction}
+            {historyAction}
+          </div>
+        ) : null}
+      </div>
     );
   }
 

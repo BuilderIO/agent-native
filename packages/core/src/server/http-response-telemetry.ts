@@ -27,6 +27,7 @@ import {
   type TrackingEventScope,
 } from "../observability/tracing.js";
 import { trackingIdentityProperties } from "../observability/tracking-identity.js";
+import { flushTrackingSendsForResponse } from "../tracking/providers.js";
 import {
   getAppBasePathFromViteEnv,
   stripAppBasePath,
@@ -340,6 +341,9 @@ async function emitTelemetry(
     });
   const flush = async () => {
     await flushTrackingEvents(state.trackingScope);
+    // After the scope's tracking work, so the events it queues as it finishes
+    // are sent along with those still under way when the reply goes out.
+    await flushTrackingSendsForResponse();
     await flushObservability();
   };
   const exported = flush().catch((error: unknown) => {

@@ -1299,6 +1299,8 @@ export default {
     resetFilters: "重置筛选器",
     collapseFilters: "折叠过滤器",
     expandFilters: "展开过滤器",
+    collapseDescription: "折叠说明",
+    expandDescription: "展开说明",
     drilldownChartPoints: "图表数据点",
     drilldownPreviousPage: "上一页图表数据点",
     drilldownNextPage: "下一页图表数据点",
@@ -1326,6 +1328,7 @@ export default {
     drilldownOverByteCap:
       "这些记录将读取超过 {{gib}} GiB 的数据，因此未加载。请缩小仪表板的筛选条件或日期范围后重试。",
     filterSeries: "Filter",
+    noXValue: "无值",
     chartTimeRangeOverride: "覆盖此图表的时间范围",
     chartTimeRangeInherit: "仪表板范围",
     hide: "Hide",

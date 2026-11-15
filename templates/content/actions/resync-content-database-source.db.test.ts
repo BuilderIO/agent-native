@@ -220,7 +220,11 @@ vi.mock("./_builder-cms-read-client.js", async () => {
         const entry = await readBuilderCmsContentEntry(args);
         return entry
           ? { state: "found", entry, providerStatus: "http_200" }
-          : { state: "not_found", entry: null, providerStatus: "http_404" };
+          : {
+              state: "not_found",
+              entry: null,
+              providerStatus: "http_200_not_found",
+            };
       },
     ),
     readBuilderCmsContentEntries: vi.fn(

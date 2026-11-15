@@ -1,6 +1,7 @@
 import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import type { CalendarEventDraft } from "@shared/api";
 import {
   IconCalendarTime,
@@ -938,6 +939,7 @@ export function CreateEventPopover({
                   },
                   { scope: "single", sendUpdates: "none" },
                 ),
+                { onError: (error) => reportWriteFailure(error) },
               );
             }
           : undefined;

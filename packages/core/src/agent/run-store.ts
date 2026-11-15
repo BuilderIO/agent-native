@@ -6601,6 +6601,10 @@ async function finalizeStaleRun(
   try {
     return (await projectRunThread(runId)) === "projected";
   } catch (error) {
+    console.error(
+      `[run-store] stale run ${runId} projection failed (${source}):`,
+      error instanceof Error ? error.message : error,
+    );
     captureError(error, {
       tags: {
         component: "agent-run-store",

@@ -212,6 +212,8 @@ export const getGoogleDocsStatus = defineEventHandler(
     try {
       return await withSlidesRequestContext(event, async () => {
         const accounts = await listGoogleDocsAccounts(owner);
+        // A shared managed account is appended below and is not the caller's to disconnect.
+        const disconnectable = accounts.length > 0;
         let googleSlidesUrlImportError: string | undefined;
         if (
           !accounts.some((account) => hasGoogleDriveExportScope(account.scope))
@@ -244,6 +246,7 @@ export const getGoogleDocsStatus = defineEventHandler(
             ),
           )),
           connected: accounts.length > 0,
+          disconnectable,
           googleSlidesUrlImportReady: accounts.some((account) =>
             hasGoogleDriveExportScope(account.scope),
           ),
@@ -323,7 +326,7 @@ export const disconnectGoogleDocsHandler = defineEventHandler(
     }
 
     try {
-      await disconnectGoogleDocs(owner);
+      await withSlidesRequestContext(event, () => disconnectGoogleDocs(owner));
       return { ok: true };
     } catch (error) {
       setResponseStatus(event, 500);

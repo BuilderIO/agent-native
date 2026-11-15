@@ -427,6 +427,10 @@ export function isPhraseTerm(text: string): boolean {
   return queryLexemes(text).length > 1;
 }
 
+export function allOfTsquery(parts: readonly string[]): string {
+  return parts.map((part) => `(${part})`).join(" & ");
+}
+
 export function anyOfTsquery(parts: readonly (string | null)[]): string | null {
   const present = parts.filter((part): part is string => !!part);
   if (!present.length) return null;

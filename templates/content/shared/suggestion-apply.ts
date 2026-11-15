@@ -8,7 +8,9 @@ import {
 import { createContentEditorStructuralSchema } from "./content-editor-structural-schema.js";
 import { nfmToDoc } from "./nfm.js";
 import {
+  canonicalMarkdownOf,
   changedRegion,
+  placeInCanonicalForm,
   resolveMarkdownSuggestionRange,
   resolveOutsideChange,
 } from "./suggestion-rebase.js";
@@ -200,6 +202,24 @@ export function placeOnAcceptedSiblings(
 ): MarkdownRange | null {
   const rebased = rebaseOntoAcceptedSiblings(operation, accepted);
   if (!rebased) return null;
+  const placed = placeOnRebuiltText(currentMarkdown, rebased);
+  if (placed) return placed;
+  // A page an agent wrote with blank lines between blocks loses them when
+  // the editor saves it, often between one accept and the next, and then
+  // differs from the rebuilt text everywhere. Read the rebuilt text as the
+  // editor would save it instead.
+  const canonical = canonicalMarkdownOf(rebased.text);
+  if (canonical === rebased.text) return null;
+  const range = placeInCanonicalForm(rebased.text, canonical, rebased);
+  return range
+    ? placeOnRebuiltText(currentMarkdown, { ...range, text: canonical })
+    : null;
+}
+
+function placeOnRebuiltText(
+  currentMarkdown: string,
+  rebased: MarkdownRange & { text: string },
+): MarkdownRange | null {
   const { text, from, to } = rebased;
   const range = resolveOutsideChange(text, currentMarkdown, rebased);
   if (!range || currentMarkdown === text) return range;

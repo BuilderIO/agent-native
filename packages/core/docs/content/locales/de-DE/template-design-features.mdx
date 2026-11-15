@@ -88,31 +88,27 @@ unter [Mit dem Agent sprechen](/docs/template-design-agent).
 
 ### Import {#import}
 
-Ein Panel, fünf Möglichkeiten, externe Inhalte einzubringen:
+Vier Möglichkeiten, externe Inhalte einzubringen:
 
 <Table
   id="doc-block-design-import-table"
   columns={["Methode", "Wie es funktioniert"]}
   rows={[
     [
-      "Figma-Frame-URL",
-      "Fügen Sie einen Figma-Freigabelink ein. Verbinden Sie beim ersten Mal Ihr Figma-Konto. Wird als echter, bearbeitbarer Bildschirm importiert.",
+      "Figma-Link",
+      "Fügen Sie einen Link zu einer Figma-Seite oder einem Frame in den Chat ein. Verbinden Sie beim ersten Mal Ihr Figma-Konto. Wird als echte, bearbeitbare Bildschirme importiert und funktioniert auch für Dateien, die zu groß für den Import von der Festplatte sind.",
     ],
     [
       "Aus Figma einfügen",
-      "Kopieren Sie einen Frame in Figma und fügen Sie ihn dann (Cmd+V) direkt auf der Design-Arbeitsfläche ein. Dies ist ein Tastaturkürzel für die Arbeitsfläche, keine separate Schaltfläche im Import-Panel.",
+      "Kopieren Sie einen Frame in Figma und fügen Sie ihn dann (Cmd+V) auf der Design-Arbeitsfläche ein.",
     ],
     [
-      ".fig hochladen",
-      "Laden Sie eine .fig-Datei direkt hoch. Ein separater Import auf Designebene, zu unterscheiden vom Importieren einer .fig-Datei in ein Designsystem.",
-    ],
-    [
-      "HTML importieren",
-      "Fügen Sie rohes HTML in ein Textfeld ein oder laden Sie eine .html-Datei hoch, um es als Bildschirm einzubringen.",
+      "Datei → Importieren…",
+      "Wählen Sie eine .fig- oder .html-Datei. Design importiert die ganze Datei auf die Arbeitsfläche und zeigt den Fortschritt in einer Benachrichtigung. Eine .fig-Datei über den Browser-Limits wird sofort abgelehnt; verwenden Sie stattdessen einen Figma-Link. Dies ist getrennt vom Importieren einer .fig-Datei in ein Designsystem.",
     ],
     [
       "Lokale App",
-      "Nicht selbstständig über dieses Panel nutzbar. Es zeigt Installations- und Verbindungsbefehle, die zum Einfügen in einen externen Coding-Agenten gedacht sind, der dann Ihre laufende App als eigene Bildschirme in Design öffnet. Siehe /visual-edit im Entwicklerhandbuch.",
+      "Datei → Lokale App verbinden öffnet den Installationsbefehl für den /visual-edit-Skill. Ihr Coding-Agent öffnet dann Ihre laufende App als eigene Bildschirme in Design. Siehe /visual-edit im Entwicklerhandbuch.",
     ],
   ]}
 />

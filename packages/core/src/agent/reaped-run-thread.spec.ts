@@ -551,6 +551,43 @@ describe("a run the server reaps after its worker died", () => {
     expect(row).toEqual({ thread_projection_pending: false });
   });
 
+  it.each(["{}", JSON.stringify({ messages: [] })])(
+    "clears a projection whose thread never received any message (%s)",
+    async (saved) => {
+      const thread = `thread-reaped-${seq}`;
+      const turn = `turn-reaped-${seq}`;
+      const run = `run-reaped-${seq}`;
+      threads.set(thread, saved);
+      await insertRun(run, thread, turn, { dispatchMode: "foreground" });
+      await insertRunEvent(
+        run,
+        1,
+        JSON.stringify({
+          type: "tool_start",
+          tool: "send-email",
+          id: "c1",
+          input: SEND,
+        }),
+      );
+      const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+      expect(await reapIfStale(run, -1)).toBe(true);
+
+      expect(threads.get(thread)).toBe(saved);
+      expect(warn).toHaveBeenCalledWith(
+        expect.stringContaining(`dropping stopped run ${run}`),
+      );
+      warn.mockRestore();
+      const [row] = await pglite
+        .prepare(
+          `SELECT thread_projection_pending
+         FROM agent_runs WHERE id = ?`,
+        )
+        .all(run);
+      expect(row).toEqual({ thread_projection_pending: false });
+    },
+  );
+
   it("keeps the projection pending when the tail reply has no turn id", async () => {
     const thread = `thread-reaped-${seq}`;
     const turn = `turn-reaped-${seq}`;

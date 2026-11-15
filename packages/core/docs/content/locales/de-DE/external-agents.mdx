@@ -138,6 +138,8 @@ Die Authentifizierung identifiziert das verbundene Konto und erweitert dessen Do
 
 Eine Neuinstallation der Verbindung oder eine Änderung des öffentlichen Freigabelinks behebt keine bestätigte Berechtigungsverweigerung für das verbundene Konto.
 
+In ein privates Dokument hochgeladene Bilder stehen im Text als `/api/private-media/<id>`-Links, die nur mit einer Content-Anmeldung laden. Liest ein Agent das Dokument über MCP, geben `get-document` und, im Markdown-Format, `pull-document` zusätzlich `privateMediaLinks` zurück: jeden gespeicherten Link zusammen mit einer URL, die genau dieses Bild eine Stunde lang ohne Anmeldung öffnet. Ein Lesevorgang verlinkt höchstens 200 Bilder; `omitted` zählt die übrigen. Für neue Links das Dokument erneut lesen. Beim Bearbeiten des Textes die gespeicherten Links beibehalten.
+
 <a id="access-tab"></a>
 
 ### Die In-App-MCP-Einstellung {#mcp-settings}
@@ -691,7 +693,7 @@ Wenn der Benutzer in einem beliebigen Browser oder in einer Inline-Webansicht au
     "name": "to",
     "in": "query",
     "type": "string",
-    "description": "Optional explicit same-origin relative redirect target. Falls back to `/<view>`, then a per-template `resolveOpenPath`."
+    "description": "Optional explicit same-origin relative redirect target. Falls back to a per-template `resolveOpenPath`, then `/<view>`."
   },
   {
     "name": "compose",
@@ -723,7 +725,7 @@ Resolves the browser session, writes a one-shot `navigate` application-state com
 1. Löst die **Browsersitzung** über `getSession` auf (der Authentifizierungsschutz umgeht den genauen Pfad `/_agent-native/open`).
 2. Wenn nicht authentifiziert, wird das konfigurierte Login HTML **zugleich URL** bereitgestellt; Der Erfolgshandler des Formulars lädt `window.location` neu und gibt die authentifizierte Route erneut ein – kein `?next=`-Klempner.
 3. Schreibt den vorhandenen einmaligen `navigate`-Anwendungsstatusbefehl (Nutzlast = jeder nicht reservierte Abfrageparameter + `view`), der auf die E-Mail der Browsersitzung mit `requestSource: "deep-link"` beschränkt ist, und dekodiert einen `compose`-Base64-URL-Entwurf in einen `compose-<id>`-Schlüssel.
-4. 302-Weiterleitung zu einem sicheren relativen Pfad gleichen Ursprungs (`to=`, sonst `/<view>`, sonst ein vorlagenbasierter `resolveOpenPath`) und Weiterleiten von `f_*`-Filterparametern, sodass Listen/Dashboards vorgefiltert geöffnet werden, bevor der Befehl `navigate` überhaupt gelöscht wird.
+4. 302-Weiterleitung zu einem sicheren relativen Pfad gleichen Ursprungs (`to=`, sonst ein vorlagenbasierter `resolveOpenPath`, sonst `/<view>`) und Weiterleiten von `f_*`-Filterparametern, sodass Listen/Dashboards vorgefiltert geöffnet werden, bevor der Befehl `navigate` überhaupt gelöscht wird.
 
 Cross-Origin-, Schema-relative `//host`- und Control-Char-Weiterleitungen werden abgelehnt (Open-Redirect-Guard). Die Route kann per App über `disableOpenRoute` deaktiviert werden.
 

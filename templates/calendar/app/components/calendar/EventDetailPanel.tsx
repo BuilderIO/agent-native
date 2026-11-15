@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { ExtensionSlot } from "@agent-native/toolkit/app/extensions";
 import type { CalendarEvent } from "@shared/api";
 import {
@@ -305,8 +306,9 @@ export function EventDetailPanel({
             event,
           ),
           {
-            onError: () => {
+            onError: (error) => {
               lastSavedDescriptionRef.current = prev;
+              reportWriteFailure(error);
             },
           },
         );
@@ -353,9 +355,9 @@ export function EventDetailPanel({
           ),
           {
             onSuccess: () => toast.success(t("eventForm.eventUpdated")),
-            onError: () => {
+            onError: (error) => {
               setSelectedAccountEmail(event.accountEmail);
-              toast.error(t("eventForm.updateFailed"));
+              reportWriteFailure(error, { label: t("eventForm.updateFailed") });
             },
           },
         );
@@ -386,7 +388,10 @@ export function EventDetailPanel({
         ),
         {
           onSuccess: () => toast(t("eventForm.googleMeetAdded")),
-          onError: () => toast.error(t("eventForm.googleMeetAddFailed")),
+          onError: (error) =>
+            reportWriteFailure(error, {
+              label: t("eventForm.googleMeetAddFailed"),
+            }),
         },
       );
     })();
@@ -416,7 +421,8 @@ export function EventDetailPanel({
           event,
         ),
         {
-          onError: () => toast.error(t("eventForm.updateFailed")),
+          onError: (error) =>
+            reportWriteFailure(error, { label: t("eventForm.updateFailed") }),
         },
       );
     })();
@@ -456,6 +462,7 @@ export function EventDetailPanel({
             },
             event,
           ),
+          { onError: (error) => reportWriteFailure(error) },
         );
       })();
     },
@@ -471,7 +478,10 @@ export function EventDetailPanel({
           event,
         ),
         {
-          onError: () => toast.error(t("calendarView.failedUpdateEvent")),
+          onError: (error) =>
+            reportWriteFailure(error, {
+              label: t("calendarView.failedUpdateEvent"),
+            }),
         },
       );
     },

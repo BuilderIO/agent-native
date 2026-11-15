@@ -540,6 +540,175 @@ describe("AgentChat lifecycle", () => {
     expect(transcript.getAttribute("data-scrollbar-visible")).toBe("false");
   });
 
+  it.each([
+    { anchorTurns: true, sentTop: 1_178, partialTop: 1_178 },
+    { anchorTurns: false, sentTop: 960, partialTop: 1_100 },
+  ])(
+    "holds a sent message near the top until its reply fills the view (anchorTurns: $anchorTurns)",
+    async ({ anchorTurns, sentTop, partialTop }) => {
+      const threadId = `thread-anchor-${anchorTurns}`;
+      const earlier = {
+        id: "assistant-1",
+        role: "assistant" as const,
+        status: "complete" as const,
+        parts: [{ type: "text" as const, text: "Earlier answer" }],
+      };
+      const initialThread = {
+        ...createAgentThreadState(threadId),
+        messages: [earlier],
+      };
+      const resized: ResizeObserverCallback[] = [];
+      vi.stubGlobal(
+        "ResizeObserver",
+        class {
+          public constructor(callback: ResizeObserverCallback) {
+            resized.push(callback);
+          }
+          public observe() {}
+          public disconnect() {}
+        },
+      );
+      vi.stubGlobal(
+        "requestAnimationFrame",
+        (callback: FrameRequestCallback) => {
+          callback(performance.now());
+          return 0;
+        },
+      );
+      const observable = observableController({
+        connection: "connected",
+        capabilities: {},
+        capabilitiesStatus: "ready",
+        threads: { [threadId]: initialThread },
+        revision: 0,
+      });
+      const tree = mount();
+      await tree.render(
+        <AgentKitProvider
+          controller={observable.controller}
+          threadId={threadId}
+        >
+          <AgentKitChat composer={false} anchorTurns={anchorTurns} />
+        </AgentKitProvider>,
+      );
+      const transcript = tree.container.querySelector(
+        ".agentkit-transcript",
+      ) as HTMLDivElement;
+      const spacer = tree.container.querySelector(
+        ".agentkit-turn-spacer",
+      ) as HTMLDivElement;
+      // The sent message starts 1,210px down the content.
+      let contentHeight = 1_200;
+      let scrollTop = 0;
+      const spacerHeight = () => Number.parseFloat(spacer.style.blockSize) || 0;
+      Object.defineProperties(transcript, {
+        clientHeight: { configurable: true, get: () => 300 },
+        scrollHeight: {
+          configurable: true,
+          get: () => contentHeight + spacerHeight(),
+        },
+        scrollTop: {
+          configurable: true,
+          get: () => scrollTop,
+          set: (value: number) => {
+            scrollTop = Math.min(value, contentHeight + spacerHeight() - 300);
+          },
+        },
+      });
+      const rect = vi
+        .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+        .mockImplementation(function (this: HTMLElement) {
+          const top =
+            this.dataset.messageId === "user-2" ? 1_210 - scrollTop : 0;
+          return { top, bottom: top, left: 0, right: 0 } as DOMRect;
+        });
+      const update = (
+        revision: number,
+        messages: AgentMessage[],
+        height: number,
+      ) => {
+        contentHeight = height;
+        observable.update({
+          connection: "connected",
+          capabilities: {},
+          capabilitiesStatus: "ready",
+          threads: { [threadId]: { ...initialThread, messages } },
+          revision,
+        });
+      };
+      const sent = {
+        id: "user-2",
+        role: "user" as const,
+        status: "complete" as const,
+        parts: [{ type: "text" as const, text: "And then?" }],
+      };
+      const reply = (text: string) => ({
+        id: "assistant-2",
+        role: "assistant" as const,
+        status: "streaming" as const,
+        parts: [{ type: "text" as const, text }],
+      });
+      try {
+        update(1, [earlier, sent], 1_260);
+        await flush();
+        // Anchored 32px below the top, a sliver of the earlier answer above.
+        expect(scrollTop).toBe(sentTop);
+
+        update(2, [earlier, sent, reply("The reply")], 1_400);
+        await flush();
+        expect(scrollTop).toBe(partialTop);
+
+        // Filled: the spacer is gone and following moves on with the reply.
+        update(3, [earlier, sent, reply("The reply, at length")], 1_600);
+        await flush();
+        await act(async () => {
+          for (const callback of resized) callback([], {} as ResizeObserver);
+        });
+        expect(spacerHeight()).toBe(0);
+        expect(scrollTop).toBe(1_300);
+      } finally {
+        rect.mockRestore();
+        vi.unstubAllGlobals();
+        await tree.unmount();
+      }
+    },
+  );
+
+  it("does not anchor the last message of a thread that opens", async () => {
+    const threadId = "thread-anchor-open";
+    const observable = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: {
+        [threadId]: {
+          ...createAgentThreadState(threadId),
+          messages: [
+            {
+              id: "user-1",
+              role: "user" as const,
+              status: "complete" as const,
+              parts: [{ type: "text" as const, text: "Waiting" }],
+            },
+          ],
+        },
+      },
+      revision: 0,
+    });
+    const tree = mount();
+    await tree.render(
+      <AgentKitProvider controller={observable.controller} threadId={threadId}>
+        <AgentKitChat composer={false} />
+      </AgentKitProvider>,
+    );
+    await flush();
+    expect(
+      (tree.container.querySelector(".agentkit-turn-spacer") as HTMLElement)
+        .style.blockSize,
+    ).toBe("");
+    await tree.unmount();
+  });
+
   it("follows buffered layout growth without feeding updates back into React", async () => {
     const resizeObservers: Array<{
       callback: ResizeObserverCallback;
@@ -2566,9 +2735,11 @@ describe("AgentChat lifecycle", () => {
         row.querySelector(".agentkit-activity-label")?.textContent ===
         "Update slide",
     );
-    expect(failedToolRow?.textContent).not.toContain(
-      "slide_content_edit_failed",
-    );
+    expect(
+      failedToolRow
+        ?.querySelector(".agentkit-activity-summary")
+        ?.getAttribute("hidden"),
+    ).toBe("until-found");
     await act(async () => {
       failedToolRow
         ?.querySelector<HTMLElement>(
@@ -2939,12 +3110,12 @@ describe("AgentChat lifecycle", () => {
   it("shares integration badges between current work and history without mixing providers", async () => {
     const threadId = "thread-tool-sources";
     const runId = "run-tool-sources";
-    const tools: AgentToolCall[] = ["slack", "slack", "gong", "figma"].map(
+    const tools: AgentToolCall[] = ["slack", "slack", "gong", "files"].map(
       (provider, index) => ({
         id: `tool-${index}`,
         name: "provider-api-request",
         input: { provider },
-        status: provider === "figma" ? "running" : "completed",
+        status: provider === "files" ? "running" : "completed",
       }),
     );
     const thread = {
@@ -2999,7 +3170,7 @@ describe("AgentChat lifecycle", () => {
     expect(work?.dataset.open).toBe("false");
     expect(
       work?.querySelector(
-        '.agentkit-activities-summary > .agentkit-disclosure-icon-slot [data-source-id="figma"]',
+        '.agentkit-activities-summary > .agentkit-trace-line > .agentkit-disclosure-icon-slot [data-source-id="files"]',
       ),
     ).not.toBeNull();
     const clusters = work?.querySelectorAll(".agentkit-work-group");
@@ -3145,20 +3316,25 @@ describe("AgentChat lifecycle", () => {
       )?.textContent,
     ).toBe("Source Agent");
 
-    const interactionRow = tree.container.querySelector(
-      ".agentkit-agent-interaction",
+    const step = tree.container.querySelector<HTMLElement>(
+      '.agentkit-subagent-step[data-agent-id="actor-agent"]',
     );
+    expect(
+      step?.querySelector(
+        ":scope > .agentkit-activity-row > .agentkit-object .agentkit-object-label",
+      )?.textContent,
+    ).toBe("Source Agent");
+    expect(tree.container.querySelector(".agentkit-task-row")).toBeNull();
+    await act(async () =>
+      step?.querySelector<HTMLElement>(".agentkit-disclosure-summary")?.click(),
+    );
+    const interactionRow = step?.querySelector(".agentkit-agent-interaction");
     expect(
       interactionRow?.querySelector(".agentkit-agent-interaction-label")
         ?.textContent,
     ).toBe("Working");
     expect(
       interactionRow?.querySelector(".agentkit-object-label")?.textContent,
-    ).toBe("Source Agent");
-
-    expect(
-      tree.container.querySelector(".agentkit-task-row .agentkit-object-label")
-        ?.textContent,
     ).toBe("Source Agent");
     const uuidActivity = Array.from(
       tree.container.querySelectorAll<HTMLElement>(".agentkit-activity-item"),
@@ -3314,7 +3490,9 @@ describe("AgentChat lifecycle", () => {
     );
     expect(tree.container.querySelector(".agentkit-run-failure")).toBeNull();
     expect(work?.dataset.open).toBe("false");
-    expect(work?.querySelector(".agentkit-activity-summary")).toBeNull();
+    expect(
+      work?.querySelector(".agentkit-activity-summary")?.getAttribute("hidden"),
+    ).toBe("until-found");
     await act(async () =>
       work?.querySelector<HTMLElement>(".agentkit-disclosure-summary")?.click(),
     );
@@ -3322,9 +3500,11 @@ describe("AgentChat lifecycle", () => {
     const failedTool = work?.querySelector(
       '.agentkit-activity-item[data-status="failed"]',
     );
-    expect(failedTool?.textContent).not.toContain(
-      "The file could not be saved.",
-    );
+    expect(
+      failedTool
+        ?.querySelector(".agentkit-activity-summary")
+        ?.getAttribute("hidden"),
+    ).toBe("until-found");
     await act(async () => failedTool?.querySelector("button")?.click());
     expect(
       failedTool?.querySelector(".agentkit-activity-summary")?.textContent,
@@ -3402,7 +3582,7 @@ describe("AgentChat lifecycle", () => {
       "Result",
     ]);
     expect(
-      details.every((detail) => detail.getAttribute("role") === "region"),
+      details.every((detail) => detail.getAttribute("role") === "group"),
     ).toBe(true);
     expect(details.every((detail) => detail.tabIndex === 0)).toBe(true);
     expect(details[0]?.textContent).toContain("[Identifier hidden]");
@@ -3415,6 +3595,286 @@ describe("AgentChat lifecycle", () => {
     expect(details[1]?.textContent).toContain("[Content omitted]");
     expect(details[1]?.textContent).not.toContain(internalId);
     expect(details[1]?.textContent).not.toContain("beyond preview");
+    await tree.unmount();
+  });
+
+  it("shows a code tool's source as code and its other arguments beside it", async () => {
+    const threadId = "thread-tool-source";
+    const runId = "run-tool-source";
+    const internalId = "550e8400-e29b-41d4-a716-446655440000";
+    const code = `const id = "${internalId}";\nconsole.log(id);`;
+    const thread = reduceAgentEvent(createAgentThreadState(threadId), {
+      id: "event-run-code",
+      threadId,
+      runId,
+      sequence: 1,
+      occurredAt: "2026-10-01T00:00:00.000Z",
+      type: "tool.updated",
+      toolCall: {
+        id: "tool-run-code",
+        name: "run-code",
+        status: "completed",
+        input: { code, timeoutMs: 120_000, background: false },
+        output: "stdout:\nok",
+      },
+    });
+    const { controller } = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+    await tree.render(
+      <AgentKitProvider controller={controller} threadId={threadId}>
+        <AgentActivityGroup runId={runId} />
+      </AgentKitProvider>,
+    );
+    const work = tree.container.querySelector<HTMLElement>(
+      ".agentkit-activities",
+    );
+    await act(async () =>
+      work?.querySelector<HTMLElement>(".agentkit-disclosure-summary")?.click(),
+    );
+    const row = work?.querySelector<HTMLElement>(".agentkit-activity-item");
+    await act(async () => row?.querySelector("button")?.click());
+
+    const input = row?.querySelector<HTMLPreElement>(
+      ".agentkit-activity-summary-value[aria-label='Input']",
+    );
+    expect(input?.textContent).toBe('const id = "";\nconsole.log(id);');
+    const options = Array.from(
+      row?.querySelectorAll(".agentkit-activity-tool-options > div") ?? [],
+      (option) => option.textContent,
+    );
+    expect(options).toEqual(["timeoutMs120000", "backgroundfalse"]);
+    await tree.unmount();
+  });
+
+  it("keeps a short code argument in the JSON input", async () => {
+    const threadId = "thread-tool-short-code";
+    const runId = "run-tool-short-code";
+    const thread = reduceAgentEvent(createAgentThreadState(threadId), {
+      id: "event-lookup",
+      threadId,
+      runId,
+      sequence: 1,
+      occurredAt: "2026-10-01T00:00:00.000Z",
+      type: "tool.updated",
+      toolCall: {
+        id: "tool-lookup",
+        name: "lookup-country",
+        status: "completed",
+        input: { code: "US" },
+        output: "United States",
+      },
+    });
+    const { controller } = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+    await tree.render(
+      <AgentKitProvider controller={controller} threadId={threadId}>
+        <AgentActivityGroup runId={runId} />
+      </AgentKitProvider>,
+    );
+    const work = tree.container.querySelector<HTMLElement>(
+      ".agentkit-activities",
+    );
+    await act(async () =>
+      work?.querySelector<HTMLElement>(".agentkit-disclosure-summary")?.click(),
+    );
+    const row = work?.querySelector<HTMLElement>(".agentkit-activity-item");
+    await act(async () => row?.querySelector("button")?.click());
+    expect(
+      row?.querySelector(".agentkit-activity-summary-value[aria-label='Input']")
+        ?.textContent,
+    ).toContain('"code": "US"');
+    await tree.unmount();
+  });
+
+  it.each([
+    {
+      name: "a result that is only a stack replaces the raw result",
+      output: "TypeError: boom\n    at run (/work/app.js:3:9)",
+      keepsResult: false,
+    },
+    {
+      name: "a stack inside other output sits above the raw result",
+      output:
+        "stdout:\nstarting\n\nstderr:\nTypeError: boom\n    at run (/work/app.js:3:9)",
+      keepsResult: true,
+    },
+  ])("$name", async ({ output, keepsResult }) => {
+    const threadId = "thread-tool-stack";
+    const runId = "run-tool-stack";
+    const thread = reduceAgentEvent(createAgentThreadState(threadId), {
+      id: "event-run-code-stack",
+      threadId,
+      runId,
+      sequence: 1,
+      occurredAt: "2026-10-01T00:00:00.000Z",
+      type: "tool.updated",
+      toolCall: {
+        id: "tool-run-code-stack",
+        name: "run-code",
+        status: "completed",
+        input: { code: "run();" },
+        output,
+      },
+    });
+    const { controller } = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+    await tree.render(
+      <AgentKitProvider controller={controller} threadId={threadId}>
+        <AgentActivityGroup runId={runId} />
+      </AgentKitProvider>,
+    );
+    const work = tree.container.querySelector<HTMLElement>(
+      ".agentkit-activities",
+    );
+    await act(async () =>
+      work?.querySelector<HTMLElement>(".agentkit-disclosure-summary")?.click(),
+    );
+    const row = work?.querySelector<HTMLElement>(".agentkit-activity-item");
+    await act(async () => row?.querySelector("button")?.click());
+
+    const stack = row?.querySelector(".agentkit-stack-trace");
+    expect(stack?.querySelector(".agentkit-trace-title")?.textContent).toBe(
+      "TypeError: boom",
+    );
+    expect(
+      stack
+        ?.querySelector("button.agentkit-disclosure-summary")
+        ?.getAttribute("aria-expanded"),
+    ).toBe("true");
+    expect(
+      row?.querySelector(
+        ".agentkit-activity-summary-value[aria-label='Result']",
+      ) !== null,
+    ).toBe(keepsResult);
+    await tree.unmount();
+  });
+
+  it("renders a coding tool's file edit as a file change", async () => {
+    const threadId = "thread-edit";
+    const runId = "run-edit";
+    const thread = reduceAgentEvent(createAgentThreadState(threadId), {
+      id: "event-edit",
+      threadId,
+      runId,
+      sequence: 1,
+      occurredAt: "2026-10-01T00:00:00.000Z",
+      type: "tool.updated",
+      toolCall: {
+        id: "tool-edit",
+        name: "edit",
+        status: "completed",
+        input: { filePath: "src/app.ts" },
+        output: "Edited src/app.ts",
+        metadata: {
+          toolKind: "edit",
+          filePath: "src/app.ts",
+          oldText: "a",
+          newText: "b",
+        },
+      },
+    });
+    const { controller } = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+    await tree.render(
+      <AgentKitProvider controller={controller} threadId={threadId}>
+        <AgentActivityGroup runId={runId} />
+      </AgentKitProvider>,
+    );
+    const work = tree.container.querySelector<HTMLElement>(
+      ".agentkit-activities",
+    );
+    await act(async () =>
+      work?.querySelector<HTMLElement>(".agentkit-disclosure-summary")?.click(),
+    );
+    const change = work?.querySelector<HTMLElement>(
+      ".agentkit-activity-item > .agentkit-file-change",
+    );
+    expect(
+      change?.querySelector("[data-agent-file-change-path]")?.textContent,
+    ).toBe("src/app.ts");
+    expect(
+      change?.querySelector("[data-agent-file-change-stats]")?.textContent,
+    ).toBe("+1−1");
+    await tree.unmount();
+  });
+
+  it("renders a shell command call as a terminal with its streamed output", async () => {
+    const threadId = "thread-bash";
+    const runId = "run-bash";
+    const thread = reduceAgentEvent(createAgentThreadState(threadId), {
+      id: "event-bash",
+      threadId,
+      runId,
+      sequence: 1,
+      occurredAt: "2026-10-01T00:00:00.000Z",
+      type: "tool.updated",
+      toolCall: {
+        id: "tool-bash",
+        name: "bash",
+        status: "completed",
+        input: { command: "pnpm test" },
+        output: "x".repeat(3_000),
+        metadata: {
+          toolKind: "bash",
+          command: "pnpm test",
+          cwd: "/work",
+          exitCode: 1,
+        },
+      },
+    });
+    const { controller } = observableController({
+      connection: "connected",
+      capabilities: {},
+      capabilitiesStatus: "ready",
+      threads: { [threadId]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+    await tree.render(
+      <AgentKitProvider controller={controller} threadId={threadId}>
+        <AgentActivityGroup runId={runId} />
+      </AgentKitProvider>,
+    );
+    const work = tree.container.querySelector<HTMLElement>(
+      ".agentkit-activities",
+    );
+    await act(async () =>
+      work?.querySelector<HTMLElement>(".agentkit-disclosure-summary")?.click(),
+    );
+    const terminal = work?.querySelector<HTMLElement>(
+      ".agentkit-activity-item > .agentkit-terminal",
+    );
+    expect(terminal?.dataset.status).toBe("failed");
+    expect(
+      terminal?.querySelector(".agentkit-terminal-command")?.textContent,
+    ).toBe("pnpm test");
+    await act(async () => terminal?.querySelector("button")?.click());
+    // Command output is not cut at the 2,000-character tool preview.
+    expect(terminal?.querySelector("pre")?.textContent).toHaveLength(3_000);
     await tree.unmount();
   });
 
@@ -5214,7 +5674,84 @@ describe("AgentKit subscriptions and recovery", () => {
         },
       });
       await flush();
-      expect(retries()[0]?.disabled).toBe(true);
+      // Unavailable but still focusable, so a keyboard user keeps their place.
+      expect(retries()[0]?.getAttribute("aria-disabled")).toBe("true");
+    } finally {
+      await tree.unmount();
+    }
+  });
+
+  it("says why an unavailable action can't run, on focus and on press", async () => {
+    const thread = createAgentThreadState("thread-unavailable-reason");
+    thread.messages = [
+      { id: "u1", role: "user", parts: [{ type: "text", text: "Hi" }] },
+      {
+        id: "a1",
+        role: "assistant",
+        parts: [{ type: "text", text: "Hello." }],
+      },
+    ];
+    const reason = "Branching is paused while the workspace syncs.";
+    const store = observableController({
+      connection: "connected",
+      capabilities: { threadForking: true },
+      capabilityDiscovery: {
+        protocol: {
+          status: "compatible",
+          selectedVersion: 1,
+          localVersions: [1],
+          peerVersions: [1],
+        },
+        discoveredAt: "2026-11-11T00:00:00.000Z",
+        capabilities: [
+          {
+            id: "threadForking",
+            state: "unavailable",
+            error: {
+              code: "capability_unavailable",
+              message: reason,
+              capability: "threadForking",
+              retryable: true,
+            },
+          },
+        ],
+      },
+      capabilitiesStatus: "ready",
+      threads: { [thread.id]: thread },
+      revision: 0,
+    });
+    const tree = mount();
+
+    try {
+      await tree.render(
+        <AgentKitProvider
+          controller={store.controller}
+          threadId={thread.id}
+          onThreadForked={() => undefined}
+        >
+          <AgentMessageActions
+            threadId={thread.id}
+            value={thread.messages[1]!}
+          />
+        </AgentKitProvider>,
+      );
+      const retry = tree.container.querySelector<HTMLButtonElement>(
+        'button[aria-label="Retry"]',
+      );
+      expect(retry?.getAttribute("aria-disabled")).toBe("true");
+      const describedBy = retry?.getAttribute("aria-describedby");
+      expect(
+        describedBy ? document.getElementById(describedBy)?.textContent : "",
+      ).toBe(reason);
+
+      // A tap never hovers, so pressing it shows the reason.
+      await act(async () => retry?.click());
+      await flush();
+      expect(
+        Array.from(document.querySelectorAll('[role="tooltip"]')).some((tip) =>
+          tip.textContent?.includes(reason),
+        ),
+      ).toBe(true);
     } finally {
       await tree.unmount();
     }
@@ -6204,9 +6741,17 @@ describe("AgentKit subscriptions and recovery", () => {
     const feed = tree.container.querySelector(
       "[data-agent-collaboration-feed='true']",
     );
+    const step = feed?.querySelector<HTMLElement>(
+      '.agentkit-subagent-step[data-agent-id="subagent-1"]',
+    );
+    await act(async () =>
+      step?.querySelector<HTMLElement>(".agentkit-disclosure-summary")?.click(),
+    );
     expect(
-      feed?.querySelector("[data-status='completed']")?.textContent,
+      step?.querySelector(".agentkit-activity-item[data-status='completed']")
+        ?.textContent,
     ).toContain("Reading delegated files");
+    // The call it made later belongs to a later segment.
     expect(tree.container.textContent).not.toContain("read-delegated-files");
     await tree.unmount();
   });

@@ -42,6 +42,7 @@ import { assertActionAccess } from "../authorization/check-action.js";
 import { isTransientDatabaseError } from "../db/client.js";
 import { declaresFeatureFlagDelegation } from "../feature-flags/a2a-action-route.js";
 import { isFeatureFlagAdminEmail } from "../feature-flags/permissions.js";
+import { mcpCallAttribution } from "../mcp/call-attribution.js";
 import {
   hasForbiddenOrgScope,
   hasOrgScopeResolutionUnavailable,
@@ -494,7 +495,7 @@ async function storedActiveOrgId(email: string): Promise<string | undefined> {
     return normalizeOrgId(await resolveOrgIdForEmail(email));
   } catch (error) {
     if (
-      isTransientDatabaseError(error) ||
+      isTransientDatabaseError(error, { source: "database" }) ||
       !isFirstBootMissingOrgTableError(error)
     ) {
       throw error;
@@ -1647,12 +1648,13 @@ function mountActionRoutesInternal(
                   : {}),
                 ...(event.req?.signal ? { signal: event.req.signal } : {}),
                 actionName: name,
-                ...(caller === "mcp" && mcpCredential?.oauthClientId
-                  ? {
-                      mcpClient: {
-                        oauthClientId: mcpCredential.oauthClientId,
-                      },
-                    }
+                ...(caller === "mcp"
+                  ? mcpCallAttribution({
+                      request: undefined,
+                      envelope: undefined,
+                      oauthClientId: mcpCredential?.oauthClientId,
+                      userAgent: getHeader(event, "user-agent"),
+                    })
                   : {}),
                 ...(resolvedCaller?.delegationJti
                   ? {

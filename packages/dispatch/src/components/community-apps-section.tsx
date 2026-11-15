@@ -5,6 +5,7 @@ import {
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
 import { useLab } from "@agent-native/core/client/labs";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   IconArrowUpRight,
   IconCircleCheck,
@@ -110,9 +111,11 @@ export function CommunityAppsSection() {
       void catalogQuery.refetch();
       void workspaceAppsQuery.refetch();
     },
-    onError: () => {
+    onError: (error) => {
       setInstallingId(null);
-      toast.error(t("dispatch.pages.communityAppsInstallFailed"));
+      reportWriteFailure(error, {
+        label: t("dispatch.pages.communityAppsInstallFailed"),
+      });
     },
   });
 

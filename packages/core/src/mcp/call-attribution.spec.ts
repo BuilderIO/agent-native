@@ -48,4 +48,15 @@ describe("mcpCallAttribution", () => {
       }),
     ).toEqual({});
   });
+
+  it("keeps the request's User-Agent beside the client facts", () => {
+    expect(
+      mcpCallAttribution({
+        request: { params: { name: "add-comment" } },
+        envelope: undefined,
+        oauthClientId: undefined,
+        userAgent: "codex-mcp-client/0.167.0",
+      }),
+    ).toEqual({ mcpClient: { userAgent: "codex-mcp-client/0.167.0" } });
+  });
 });

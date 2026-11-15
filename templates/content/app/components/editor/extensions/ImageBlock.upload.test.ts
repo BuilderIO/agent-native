@@ -156,4 +156,54 @@ describe("image node-view upload completion", () => {
 
     await expect(completion).rejects.toBeInstanceOf(ImageRenderError);
   });
+
+  it("stops waiting as soon as it's told to, without sitting out the timeout", async () => {
+    vi.useFakeTimers();
+    const frames = new Map<number, FrameRequestCallback>();
+    let lastFrame = 0;
+    vi.stubGlobal(
+      "requestAnimationFrame",
+      vi.fn((callback: FrameRequestCallback) => {
+        lastFrame += 1;
+        frames.set(lastFrame, callback);
+        return lastFrame;
+      }),
+    );
+    vi.stubGlobal(
+      "cancelAnimationFrame",
+      vi.fn((id: number) => {
+        frames.delete(id);
+      }),
+    );
+    const runFrames = () => {
+      const queued = [...frames.values()];
+      frames.clear();
+      for (const callback of queued) callback(0);
+    };
+    const image = document.createElement("img");
+    Object.defineProperty(image, "complete", { value: false });
+    let blockGone = false;
+    let outcome: unknown = "waiting";
+    waitForRenderedImage(
+      () => image,
+      () => blockGone,
+    ).then(
+      () => {
+        outcome = "loaded";
+      },
+      (error: unknown) => {
+        outcome = error;
+      },
+    );
+
+    runFrames();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(outcome).toBe("waiting");
+
+    blockGone = true;
+    runFrames();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(outcome).toBeInstanceOf(ImageRenderError);
+    expect(frames.size).toBe(0);
+  });
 });

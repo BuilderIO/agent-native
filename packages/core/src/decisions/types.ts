@@ -106,6 +106,7 @@ export type DecisionResult =
       status: "not_configured";
       reason: "missing_credentials";
       providers: DecisionProvider[];
+      credentialKeys: ("JEV_API_KEY" | "OPENAI_API_KEY")[];
     }
   | {
       status: "failed";

@@ -2,6 +2,10 @@ import { sendToAgentChat } from "@agent-native/core/client/agent-chat";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { getBrowserTabId } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import {
+  reportWriteFailure,
+  writeFailureFromResponse,
+} from "@agent-native/core/client/write-failure";
 import { extensionPath } from "@agent-native/core/extensions/path";
 import { PromptComposer } from "@agent-native/toolkit/composer";
 import {
@@ -193,10 +197,15 @@ export function ExtensionsListPage({
     setConfirmDeleteId(null);
     const action = extension.globallyHidden ? "global-unhide" : "global-hide";
     try {
-      await fetch(
+      const res = await fetch(
         agentNativePath(`/_agent-native/extensions/${extension.id}/${action}`),
         { method: "POST" },
       );
+      if (!res.ok) {
+        reportWriteFailure(writeFailureFromResponse(res));
+      }
+    } catch (error) {
+      reportWriteFailure(error);
     } finally {
       void queryClient.invalidateQueries({ queryKey: ["extensions"] });
     }

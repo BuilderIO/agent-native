@@ -1,5 +1,9 @@
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
+import {
+  reportWriteFailure,
+  writeFailureFromResponse,
+} from "@agent-native/core/client/write-failure";
 import { cn } from "@agent-native/toolkit/utils";
 import {
   IconLoader2,
@@ -120,7 +124,7 @@ export function AgentTaskCard({
       setStatus("errored");
       setCurrentStep("");
       try {
-        await fetch(
+        const res = await fetch(
           agentNativePath(
             `/_agent-native/agent-chat/runs/run-task-${taskId}/stop`,
           ),
@@ -129,8 +133,11 @@ export function AgentTaskCard({
             headers: { "X-Agent-Native-CSRF": "1" },
           },
         );
-      } catch {
-        // best-effort
+        if (!res.ok) {
+          reportWriteFailure(writeFailureFromResponse(res));
+        }
+      } catch (error) {
+        reportWriteFailure(error);
       }
     },
     [taskId],

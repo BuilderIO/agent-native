@@ -4896,6 +4896,55 @@ describe("createAgentNativeChatRuntime", () => {
     expect(events.some((event) => event.type === "message-done")).toBe(true);
   });
 
+  it("does not warn about a missing final for an action-settled run", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        { type: "tool_start", tool: "save", id: "call-1", input: {} },
+        { type: "tool_done", tool: "save", id: "call-1", result: "saved" },
+        { type: "done", reason: "action_settled" },
+      ]),
+    );
+    const runtime = createAgentNativeChatRuntime({
+      fetch: fetchMock as typeof fetch,
+    });
+    const events = await drain(
+      (await (await runtime.createSession()).startTurn({ prompt: "Save" }))
+        .events,
+    );
+    expect(JSON.stringify(events)).not.toContain("final_response_missing");
+    expect(JSON.stringify(events)).not.toContain(
+      "without sending a final message",
+    );
+    expect(events.at(-1)).toMatchObject({ type: "done", reason: "complete" });
+  });
+
+  it("keeps a failed tool visible even if the terminal claims settlement", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(
+      sseResponse([
+        { type: "tool_start", tool: "save", id: "call-1", input: {} },
+        {
+          type: "tool_done",
+          tool: "save",
+          id: "call-1",
+          result: "failed",
+          isError: true,
+        },
+        { type: "done", reason: "action_settled" },
+      ]),
+    );
+    const runtime = createAgentNativeChatRuntime({
+      fetch: fetchMock as typeof fetch,
+    });
+    const events = await drain(
+      (await (await runtime.createSession()).startTurn({ prompt: "Save" }))
+        .events,
+    );
+    expect(JSON.stringify(events)).toContain(
+      "final_response_missing_after_tool",
+    );
+    expect(JSON.stringify(events)).toContain("failed");
+  });
+
   it("keeps legacy status events while adding structured activity", async () => {
     const fetchMock = vi.fn().mockResolvedValue(
       sseResponse([

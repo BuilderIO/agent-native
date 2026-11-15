@@ -47,6 +47,7 @@ import {
   ensureTableExists,
 } from "../../db/ddl-guard.js";
 import { defineStore } from "../../db/store-registry.js";
+import { isOrgMember } from "../../org/membership.js";
 
 export type SandboxExecutionStatus =
   | "queued"
@@ -321,15 +322,23 @@ export async function createSandboxExecution(
 export async function getSandboxExecutionForOwner(
   id: string,
   owner: string,
+  orgId: string | null,
 ): Promise<SandboxExecutionRow | null> {
   if (!id || !owner) return null;
   await ensureTable();
   const client = getDbExec();
   const result = await client.execute({
-    sql: `SELECT * FROM ${TABLE} WHERE id = ? AND owner = ? LIMIT 1`,
-    args: [id, owner],
+    sql: "SELECT * FROM sandbox_executions WHERE id = ? AND owner = ? AND org_id IS NOT DISTINCT FROM ? LIMIT 1",
+    args: [id, owner, orgId],
   });
   const raw = result.rows?.[0] as Record<string, unknown> | undefined;
+  if (
+    raw &&
+    orgId &&
+    !(await isOrgMember(orgId, owner, { requireOrganizationMetadata: true }))
+  ) {
+    return null;
+  }
   return raw ? rowFromDb(raw) : null;
 }
 

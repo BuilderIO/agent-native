@@ -51,10 +51,20 @@ function makeAppStateFetch(initialState: Record<string, unknown>) {
     requestSource?: string | undefined;
   }> = [];
   const deletes: Array<{ key: string; init: RequestInit }> = [];
+  // The tab's record of its own use (see useBrowserTabUse) is kept apart, so
+  // the writes below are the navigation sync's alone.
+  const tabUses: Array<{ method: string; body: unknown }> = [];
   const fetchMock = vi.fn(
     async (url: RequestInfo | URL, init?: RequestInit) => {
       const key = appStateKey(url);
       const method = init?.method ?? "GET";
+      if (key === "browser-tab-used") {
+        tabUses.push({
+          method,
+          body: JSON.parse(String(init?.body ?? "null")),
+        });
+        return jsonResponse({ ok: true });
+      }
       if (method === "POST" && key === "") {
         // Writes to several keys in one tick arrive as one batch.
         const { writes: batch } = JSON.parse(String(init?.body)) as {
@@ -66,6 +76,13 @@ function makeAppStateFetch(initialState: Record<string, unknown>) {
           }>;
         };
         const results = batch.map((write) => {
+          if (write.key === "browser-tab-used") {
+            tabUses.push({
+              method: write.delete ? "DELETE" : "PUT",
+              body: write.value ?? null,
+            });
+            return { ok: true, value: write.value ?? { ok: true } };
+          }
           if (write.delete) {
             delete state[write.key];
             deletes.push({ key: write.key, init: init ?? {} });
@@ -107,7 +124,7 @@ function makeAppStateFetch(initialState: Record<string, unknown>) {
       return jsonResponse(state[key] ?? null);
     },
   );
-  return { deletes, fetchMock, state, writes };
+  return { deletes, fetchMock, state, tabUses, writes };
 }
 
 function renderWithQueryClient(element: React.ReactElement) {

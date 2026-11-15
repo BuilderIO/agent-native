@@ -443,6 +443,13 @@ function protectedResourcePathFromRequest(
   }
   pathname = pathname.replace(/\/+$/, "");
   if (!pathname || pathname === "/") return undefined;
+  // RFC 9728 inserts the whole resource path after the well-known segment, so
+  // a mounted app (resource /dispatch/mcp) is asked about /dispatch/mcp.
+  const issuer = getMcpOAuthIssuer(event);
+  const basePath = issuer ? new URL(issuer).pathname.replace(/\/+$/, "") : "";
+  if (basePath && pathname.startsWith(`${basePath}/`)) {
+    pathname = pathname.slice(basePath.length);
+  }
   return (
     [
       MCP_PUBLIC_ROUTE_PREFIX,

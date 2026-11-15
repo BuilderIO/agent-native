@@ -92,6 +92,11 @@ vi.mock("../../lib/document-context.js", () => ({
     mockGetDocumentContextPath(...args),
 }));
 
+// The share-link image links have their own database test.
+vi.mock("../../lib/private-media-agent-links.js", () => ({
+  privateMediaAgentLinks: async () => undefined,
+}));
+
 import handler from "./document-agent-context.json.get";
 
 describe("GET /api/document-agent-context.json", () => {

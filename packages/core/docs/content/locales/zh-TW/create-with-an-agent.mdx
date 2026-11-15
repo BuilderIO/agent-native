@@ -35,11 +35,14 @@ description: "把一則提示詞交給 Claude、ChatGPT、Codex、Cursor 或其�
     --standalone --template chat
 3. 在新建立的 APP_NAME 資料夾中執行 `pnpm install`。
 4. 閱讀 APP_NAME/AGENTS.md，了解應用程式的結構。
-5. 用 `pnpm dev` 啟動應用程式，並讓它在背景持續執行。
+5. 用 `pnpm dev --no-open` 啟動應用程式，並讓它在背景持續執行。
 6. 讀取 `pnpm dev` 輸出的本機 URL。檢查它是否有回應，
-   例如用 `curl -I <url>`。不要開啟瀏覽器，也不要使用無頭
-   瀏覽器工具。我會自己開啟應用程式。
-7. 向我展示結果。告訴我本機 URL 和您從它得到的回應。
+   用 `curl "<url>/_agent-native/ping?configuration=1"`。回應中應包含
+   `"message":"pong"` 和設定狀態 `"ok"`。不要開啟瀏覽器，也不要
+   使用無頭瀏覽器工具。我會自己開啟應用程式。
+7. 在 APP_NAME 資料夾中執行 `pnpm action hello`。它會執行應用程式的
+   範例操作，並應輸出 "Hello, world!"。
+8. 向我展示結果。告訴我本機 URL 以及兩項檢查輸出的內容。
    不要只說設定已完成。
 
 規則：
@@ -57,6 +60,8 @@ description: "把一則提示詞交給 Claude、ChatGPT、Codex、Cursor 或其�
 - 一個新的應用程式資料夾，除非您改過名稱，否則叫 `my-app`，其中包含 `actions/`、`app/` 和一個 `AGENTS.md` 檔案。
 - `pnpm dev` 正常執行且沒有錯誤。
 - 一個本機 URL，通常是 `http://localhost:8080`，代理已經檢查過它有回應。
+- `<url>/_agent-native/ping?configuration=1` 的回應，設定狀態為 `ok`。
+- `pnpm action hello` 輸出 "Hello, world!"。
 
 然後在您自己的瀏覽器中開啟這個本機 URL。在歡迎畫面中選取 **Continue as local dev**。開始使用頁面就會出現。
 

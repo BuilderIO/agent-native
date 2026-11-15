@@ -520,6 +520,7 @@ export function registerFrameworkSecrets(): void {
       scope: "user",
       kind: "api-key",
       required: false,
+      urlAllowlist: ["https://api.figma.com"],
       validator: async (value) => {
         const response = await fetch("https://api.figma.com/v1/me", {
           headers: {

@@ -443,6 +443,8 @@ const messages = {
       "Sprechernotizen während der Präsentation anzeigen",
     presenterViewBlocked:
       "Erlaube Pop-ups, um die Referentenansicht zu öffnen.",
+    presenterViewUnsupported:
+      "Die Referentenansicht wird in diesem Browser nicht unterstützt.",
     export: "Exportieren",
     privacyPrivate: "Privat",
     privacyOrg: "Mit der Organisation geteilt",
@@ -497,6 +499,11 @@ const messages = {
   editorExport: {
     pptxFailed: "PPTX-Datei konnte nicht erstellt werden.",
     exportFailed: "Export fehlgeschlagen",
+    exportFinishedWithWarnings: "Export mit Warnungen abgeschlossen",
+    imagesDropped:
+      "{{count}} Bild(er) konnten nicht geladen werden und fehlen in der PowerPoint-Datei (Folien {{slides}}).",
+    pdfSidecarSkipped:
+      "Diese PDF wurde ohne ihre bearbeitbare Quelle exportiert. Beim erneuten Import werden die Folien aus dem Seiteninhalt neu erstellt.",
     exporting: "Wird exportiert...",
     exportPptxError: "Beim Export als PPTX ist etwas schiefgelaufen.",
     googleSlidesDownloaded: "Für Google Slides heruntergeladen",
@@ -516,6 +523,9 @@ const messages = {
     exportPdf: "Als PDF exportieren",
     exportPptx: "Als PPTX exportieren",
     connectGoogle: "Google verbinden",
+    disconnectGoogle: "Google trennen",
+    googleDisconnectFailed: "Google Drive konnte nicht getrennt werden.",
+    googleSlidesStatusUnknown: "Status konnte nicht geprüft werden",
     openInGoogleSlides: "In Google Slides öffnen",
     googleSlidesUnavailable: "Nicht verfügbar",
     googleSlidesOpenImporter: "Google Slides-Import öffnen",
@@ -537,6 +547,7 @@ const messages = {
   share: {
     createFailed: "Freigabelink konnte nicht erstellt werden",
     snapshotLinks: "Snapshot-Links",
+    snapshotLinksLoadFailed: "Snapshot-Links konnten nicht geladen werden",
     revokeLink: "Widerrufen",
     revokeFailed: "Freigabelink konnte nicht widerrufen werden",
     title: "Präsentation teilen",

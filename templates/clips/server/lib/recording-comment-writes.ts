@@ -131,11 +131,16 @@ async function savedWithKey(
   };
 }
 
-/** Saves a comment on a recording as the request's signed-in user. */
+/**
+ * Saves a comment on a recording as the request's signed-in user. Pass the
+ * request's headers so a viewer who unlocked a password-protected Clip can
+ * comment with that unlock.
+ */
 export async function saveRecordingComment(
   args: RecordingCommentInput,
+  requestHeaders?: Headers,
 ): Promise<SavedRecordingComment> {
-  await assertCommentAccess(args.recordingId);
+  await assertCommentAccess(args.recordingId, "write", requestHeaders);
 
   const authorEmail = getRequestUserEmail();
   if (!authorEmail) {
@@ -283,13 +288,16 @@ export async function saveRecordingComment(
  * Saves a reply in the thread of the comment it answers, at that comment's
  * moment of the video.
  */
-export async function saveRecordingReply(args: {
-  commentId: string;
-  content: string;
-  authorName?: string | undefined;
-  mentions?: RecordingCommentInput["mentions"];
-  idempotencyKey?: string | undefined;
-}): Promise<SavedRecordingComment> {
+export async function saveRecordingReply(
+  args: {
+    commentId: string;
+    content: string;
+    authorName?: string | undefined;
+    mentions?: RecordingCommentInput["mentions"];
+    idempotencyKey?: string | undefined;
+  },
+  requestHeaders?: Headers,
+): Promise<SavedRecordingComment> {
   const parent = firstRow(
     await getDb()
       .select()
@@ -301,14 +309,17 @@ export async function saveRecordingReply(args: {
     throw new Error(`Comment not found: ${args.commentId}`);
   }
 
-  return saveRecordingComment({
-    recordingId: parent.recordingId,
-    threadId: parent.threadId,
-    parentId: parent.id,
-    videoTimestampMs: parent.videoTimestampMs,
-    content: args.content,
-    authorName: args.authorName,
-    mentions: args.mentions,
-    idempotencyKey: args.idempotencyKey,
-  });
+  return saveRecordingComment(
+    {
+      recordingId: parent.recordingId,
+      threadId: parent.threadId,
+      parentId: parent.id,
+      videoTimestampMs: parent.videoTimestampMs,
+      content: args.content,
+      authorName: args.authorName,
+      mentions: args.mentions,
+      idempotencyKey: args.idempotencyKey,
+    },
+    requestHeaders,
+  );
 }

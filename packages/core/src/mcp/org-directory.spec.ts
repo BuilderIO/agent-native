@@ -13,6 +13,15 @@ const getOrgA2ASecretMock = vi.hoisted(() => vi.fn());
 const getOrgWorkspaceUrlMock = vi.hoisted(() => vi.fn());
 const signA2AOrganizationTokenMock = vi.hoisted(() => vi.fn());
 
+vi.mock("node:dns/promises", () => ({
+  lookup: vi.fn(async (hostname: string) => {
+    if (hostname.endsWith(".example") || hostname.endsWith(".acme.com")) {
+      return [{ address: "93.184.216.34", family: 4 }];
+    }
+    throw new Error(`Unexpected DNS lookup for ${hostname}`);
+  }),
+}));
+
 const ORIGINAL_ENV = { ...process.env };
 
 function resetEnv() {

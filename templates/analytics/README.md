@@ -33,3 +33,26 @@ pnpm dev
 ```
 
 Full docs: [agent-native.com/docs/template-analytics](https://agent-native.com/docs/template-analytics?utm_source=github&utm_medium=referral&utm_content=analytics-readme).
+
+## Private Grafana and Prometheus endpoints
+
+Private provider addresses are blocked by default. A deployment administrator
+can trust exact origins in `server/plugins/config.ts`:
+
+```ts
+import { defineAppConfig } from "@agent-native/core/server";
+
+export default defineAppConfig({
+  app: { id: "analytics" },
+  analytics: {
+    trustedPrivateProviderOrigins: {
+      grafana: ["http://grafana.internal:3000"],
+      prometheus: ["http://prometheus.internal:9090"],
+    },
+  },
+});
+```
+
+Use the same origin as the saved provider endpoint. Only Grafana and Prometheus
+requests use these exceptions; redirects to another origin remain blocked. The
+demo Prometheus source uses the Prometheus policy too.

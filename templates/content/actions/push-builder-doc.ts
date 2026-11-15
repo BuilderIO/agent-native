@@ -41,6 +41,7 @@ export default defineAction({
       path,
       files,
       dryRun,
+      ctx,
     });
     if (result.executed) {
       track(

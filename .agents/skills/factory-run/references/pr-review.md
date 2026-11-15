@@ -31,7 +31,7 @@ Never merge, close, assign, request reviewers, or push. Never run
 4. Record the outcome first, before approving or replying:
 
    ```bash
-   factory-state report upsert "<PR url>" --json '{"source":"github","triage":"approved","title":"PR #<n> <app>: <title>","note":"<WHY>","wouldReply":"<reply or empty>","confidence":[{"judgment":"review","score":85,"why":"<rubric rows>"}]}'
+   factory-state report upsert "<PR url>" --json '{"source":"github","triage":"approved","title":"PR #<n> <app>: <title>","note":"<WHY>","wouldReply":"<reply or empty>","confidence":[{"judgment":"review","score":85,"signals":["<signal id>"],"why":"<why>"}]}'
    ```
 
    `triage` is `approved`, `awaiting-author`, or `needs-person`. Only a live
@@ -54,7 +54,7 @@ End with exactly:
 OUTCOME: approved <sha> | awaiting-author | needs-person | skipped
 REPLY: <the reply text, or none>
 WHY: <one sentence: the gate, the ask, or who should act next>
-CONFIDENCE: <0-100> - <rubric rows>
+CONFIDENCE: <0-100> [<signal ids>] - <why>
 ```
 
 Score CONFIDENCE with [confidence.md](confidence.md). Under 70, don't

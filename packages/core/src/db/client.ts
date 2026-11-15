@@ -1,6 +1,9 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import path from "path";
 
+import { isConnectionError } from "./errors.js";
+export { isConnectionError, isTransientDatabaseError } from "./errors.js";
+
 import { withoutWriteObservation } from "../action-frame.js";
 import { getAppConfig } from "../app-config/index.js";
 import { getAsyncLocalStorageCtor } from "../shared/optional-node-builtins.js";
@@ -824,14 +827,24 @@ export function safeJsonParse<T>(value: unknown, fallback: T): T {
 
 export { retryOnDdlRace } from "./runtime-facts.js";
 
+/**
+ * Whether a write failed on a unique or primary key constraint. Drizzle wraps
+ * a failed query in `DrizzleQueryError` with the driver's error as `cause`, so
+ * a few levels of `cause` are checked too.
+ */
 export function isUniqueViolation(e: any): boolean {
-  if (e?.code === "23505") return true;
-  const msg = String(e?.message ?? "").toLowerCase();
-  return (
-    msg.includes("unique constraint") ||
-    msg.includes("primary key constraint") ||
-    msg.includes("duplicate key")
-  );
+  for (let depth = 0; depth < 4 && e; depth += 1, e = e?.cause) {
+    if (e?.code === "23505") return true;
+    const msg = String(e?.message ?? "").toLowerCase();
+    if (
+      msg.includes("unique constraint") ||
+      msg.includes("primary key constraint") ||
+      msg.includes("duplicate key")
+    ) {
+      return true;
+    }
+  }
+  return false;
 }
 
 export function isLocalDatabase(): boolean {
@@ -1208,90 +1221,6 @@ function explicitTransaction(
       throw err;
     }
   };
-}
-
-const CONNECTION_ERROR_CODES = new Set([
-  "ECONNRESET",
-  "ETIMEDOUT",
-  "EPIPE",
-  "ENOTFOUND",
-  "EMAXCONN",
-  "53300",
-  "CONNECT_TIMEOUT",
-  "CONNECTION_ENDED",
-  "CONNECTION_DESTROYED",
-  "CONNECTION_CLOSED",
-]);
-
-export function isConnectionError(err: any): boolean {
-  if (!err) return false;
-  const code = err.code || err.cause?.code;
-  if (code && CONNECTION_ERROR_CODES.has(code)) return true;
-  const name = err.name || err.cause?.name || "";
-  if (name === "ErrorEvent") return true;
-  const stack = String(err.stack || err.cause?.stack || "");
-  if (
-    /WebSocket\.#onSocketClose|failWebsocketConnection|onSocketClose/.test(
-      stack,
-    )
-  ) {
-    return true;
-  }
-  const msg = String(err.message || err.cause?.message || "");
-  return /ECONNRESET|ETIMEDOUT|EPIPE|EMAXCONN|too many connections|max client connections|remaining connection slots|connection.*(closed|ended|terminated)|socket hang up|websocket/i.test(
-    msg,
-  );
-}
-
-export function isTransientDatabaseError(err: unknown): boolean {
-  const error = err as {
-    code?: unknown;
-    name?: unknown;
-    message?: unknown;
-    stack?: unknown;
-    cause?: {
-      code?: unknown;
-      name?: unknown;
-      message?: unknown;
-      stack?: unknown;
-    };
-  };
-  const code = String(error?.code ?? error?.cause?.code ?? "");
-  if (
-    code === "ECHECKOUTTIMEOUT" ||
-    code === "DB_CONNECT_COOLDOWN" ||
-    code === "EMAXCONN" ||
-    code === "53300" ||
-    code === "57014" ||
-    /^08/.test(code) ||
-    /^57P0[123]$/.test(code)
-  ) {
-    return true;
-  }
-
-  const message = [error?.message, error?.cause?.message]
-    .filter((value): value is string => typeof value === "string")
-    .join(" ");
-  if (
-    /\bstatement timeout\b|\bdb (?:query|connect) timed out\b/i.test(message)
-  ) {
-    return true;
-  }
-
-  const databaseSurface = [
-    error?.name,
-    error?.cause?.name,
-    error?.stack,
-    error?.cause?.stack,
-  ]
-    .filter((value): value is string => typeof value === "string")
-    .join(" ");
-  return (
-    isConnectionError(error) &&
-    /@neondatabase|\bpostgres(?:ql)?\b|\bpg-pool\b|drizzle-orm|\/db\/client\.[cm]?[jt]s/i.test(
-      databaseSurface,
-    )
-  );
 }
 
 // A serverless gateway gives up near 30s, so a retry loop there must stop while

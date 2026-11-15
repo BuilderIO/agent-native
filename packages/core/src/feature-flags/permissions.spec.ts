@@ -36,7 +36,11 @@ describe("feature flag manager permissions", () => {
         userEmail: "ADMIN@example.com",
         orgId: "org-1",
       }),
-    ).resolves.toEqual({ email: "admin@example.com", orgId: "org-1" });
+    ).resolves.toEqual({
+      email: "admin@example.com",
+      orgId: "org-1",
+      scope: "org",
+    });
     expect(getOrgRoleForEmail).toHaveBeenCalledWith(
       "org-1",
       "admin@example.com",

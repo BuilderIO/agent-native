@@ -188,7 +188,7 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
           <TooltipContent>{t("sqlDashboard.savedViews")}</TooltipContent>
         </Tooltip>
         <DropdownMenuContent align="start" className="w-60">
-          <DropdownMenuLabel className="text-xs text-muted-foreground">
+          <DropdownMenuLabel className="text-muted-foreground">
             {t("sqlDashboard.savedViews")}
           </DropdownMenuLabel>
           {error ? (
@@ -206,7 +206,7 @@ export function ViewsMenu({ dashboardId, canEdit = true }: ViewsMenuProps) {
             views.map((v) => (
               <DropdownMenuItem
                 key={v.id}
-                className="group flex items-center justify-between gap-2"
+                className="group flex items-center justify-between"
                 onSelect={(e) => {
                   e.preventDefault();
                   applyView(v);

@@ -29,6 +29,7 @@ vi.mock("@agent-native/core/server", () => ({
 import {
   GOOGLE_DOCS_SCOPES,
   GOOGLE_DRIVE_READONLY_SCOPE,
+  disconnectGoogleDocs,
   getGoogleDocsAccessToken,
   hasGoogleDriveExportScope,
   hasGoogleDriveUploadScope,
@@ -112,6 +113,26 @@ describe("Google Slides URL import OAuth scopes", () => {
     expect(
       hasGoogleDriveUploadScope("https://www.googleapis.com/auth/drive"),
     ).toBe(true);
+  });
+
+  it("disconnect removes legacy-provider rows that share an email with the current provider", async () => {
+    const tokens = { scope: GOOGLE_DRIVE_READONLY_SCOPE };
+    oauthMocks.listOAuthAccountsByOwner.mockImplementation(
+      async (provider: string) => [
+        { accountId: "same@example.com", tokens },
+        ...(provider === "google-docs"
+          ? [{ accountId: "legacy-only@example.com", tokens }]
+          : []),
+      ],
+    );
+
+    await disconnectGoogleDocs("owner@example.com");
+
+    expect(oauthMocks.deleteOAuthTokens.mock.calls).toEqual([
+      ["google", "same@example.com", "owner@example.com"],
+      ["google-docs", "same@example.com", "owner@example.com"],
+      ["google-docs", "legacy-only@example.com", "owner@example.com"],
+    ]);
   });
 
   it("selects an export-capable account for pasted Slides imports", async () => {

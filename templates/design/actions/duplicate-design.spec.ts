@@ -248,3 +248,48 @@ describe("duplicate-design: design_created", () => {
     expect(track).toHaveBeenCalledTimes(1);
   });
 });
+
+describe("duplicate-design: typed refusals", () => {
+  async function rejectionFrom(run: () => Promise<unknown>): Promise<unknown> {
+    try {
+      await run();
+    } catch (error) {
+      return error;
+    }
+    throw new Error("Expected run to reject");
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.resolveAccess.mockReset();
+    mocks.getRequestUserEmail.mockReturnValue("user@example.com");
+    mocks.getRequestOrgId.mockReturnValue(null);
+  });
+
+  it("refuses a design the caller cannot see as a typed 404 and writes nothing", async () => {
+    mocks.resolveAccess.mockResolvedValue(null);
+
+    const error = await rejectionFrom(() => action.run({ id: "design-gone" }));
+
+    expect(error).toMatchObject({
+      errorCode: "design_not_found",
+      statusCode: 404,
+      message: "Design not found: design-gone",
+    });
+    expect(mocks.insertValues).not.toHaveBeenCalled();
+  });
+
+  it("refuses a caller with no signed-in user as a typed 401 and writes nothing", async () => {
+    setSource({ id: "design-src", title: "Original" }, []);
+    mocks.getRequestUserEmail.mockReturnValue(undefined as never);
+
+    const error = await rejectionFrom(() => action.run({ id: "design-src" }));
+
+    expect(error).toMatchObject({
+      errorCode: "unauthenticated",
+      statusCode: 401,
+      message: "Sign in to duplicate a design.",
+    });
+    expect(mocks.insertValues).not.toHaveBeenCalled();
+  });
+});

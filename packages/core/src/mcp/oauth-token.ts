@@ -180,6 +180,7 @@ export async function verifyMcpOAuthAccessToken(
   resource: string | string[] | undefined,
 ): Promise<{
   userEmail: string;
+  resource: string;
   orgId?: string | null;
   orgDomain?: string;
   scopes: string[];
@@ -250,6 +251,7 @@ export async function verifyMcpOAuthAccessToken(
     }
     return {
       userEmail: payload.sub,
+      resource: embeddedResource,
       orgId: orgIdClaim.orgId,
       orgDomain:
         typeof payload.org_domain === "string" ? payload.org_domain : undefined,

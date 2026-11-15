@@ -134,7 +134,7 @@ vi.mock("./_builder-cms-read-client.js", async () => {
           return {
             state: "not_found",
             entry: null,
-            providerStatus: "http_404",
+            providerStatus: "http_200_not_found",
           };
         }
         const found = toEntry(args.entryId, entry);

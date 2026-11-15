@@ -534,6 +534,28 @@ describe("MCP OAuth route", () => {
     }
   });
 
+  it("answers the RFC 9728 path-inserted URL of a mounted app's resource", async () => {
+    vi.stubEnv("VITE_APP_BASE_PATH", "/dispatch");
+    try {
+      const pathForm = handleMcpOAuthProtectedResourceMetadata(
+        event({
+          pathname: "/.well-known/oauth-protected-resource/dispatch/mcp",
+        }),
+      );
+      expect(pathForm.status).toBe(200);
+      await expect(pathForm.json()).resolves.toMatchObject({
+        resource: "https://mail.agent-native.com/dispatch/mcp",
+        authorization_servers: ["https://mail.agent-native.com/dispatch"],
+      });
+      const otherApp = handleMcpOAuthProtectedResourceMetadata(
+        event({ pathname: "/.well-known/oauth-protected-resource/mail/mcp" }),
+      );
+      expect(otherApp.status).toBe(404);
+    } finally {
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("prefers configured public URL over forwarded request headers for OAuth resource", async () => {
     process.env.APP_URL = "https://plan.agent-native.com";
     const protectedRes = handleMcpOAuthProtectedResourceMetadata(

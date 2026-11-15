@@ -306,7 +306,7 @@ describe("document sidebar layout", () => {
     expect(dialog).toContain("sidebar.moveToSpaceWarningShared");
     expect(dialog).toContain("sidebar.moveToSpaceWarningPrivate");
     expect(dialog).toContain("setTargetSpaceId(page?.spaceId");
-    expect(sidebar).toContain('space.kind !== "source_backed"');
+    expect(sidebar).toContain("useMovePageDialog(");
     expect(sidebar).toContain('useActionMutation("duplicate-page"');
   });
 

@@ -19,16 +19,27 @@ export {
   readAppSecret,
   hasAppSecret,
   readAppSecretMeta,
+  readAppSecretMetaById,
   deleteAppSecret,
+  deleteAppSecretById,
   getAppSecretMeta,
   listAppSecretsForScope,
+  listAppSecretSummaries,
+  updateAppSecretById,
+  AppSecretKeyConflictError,
   last4,
-  VAULT_SYNC_DESCRIPTION_PREFIX,
   type SecretRef,
   type WriteSecretArgs,
   type ReadSecretResult,
   type SecretMeta,
+  type AppSecretSummary,
+  type UpdateAppSecretPatch,
 } from "./storage.js";
+
+export {
+  VAULT_SYNC_DESCRIPTION_PREFIX,
+  isVaultManagedSecret,
+} from "./vault-managed.js";
 
 export { APP_SECRETS_CREATE_SQL, appSecrets } from "./schema.js";
 

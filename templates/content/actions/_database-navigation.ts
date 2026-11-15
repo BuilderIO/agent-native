@@ -3,7 +3,7 @@ import { createHash } from "node:crypto";
 import { fail } from "@agent-native/core/action";
 import { alias } from "@agent-native/core/db/schema";
 import { getRequestTimezone } from "@agent-native/core/server/request-context";
-import { accessFilter } from "@agent-native/core/sharing";
+import { accessFilter, type AccessContext } from "@agent-native/core/sharing";
 import {
   and,
   asc,
@@ -375,6 +375,137 @@ export const FILES_NAVIGATION_SORT_KEYS: ReadonlyMap<
   ["last_edited", "last_edited"],
 ]);
 
+/**
+ * The Files view a navigation read follows: the one asked for, else the
+ * person's active view, else the shared active view.
+ */
+function resolveNavigationView(args: {
+  database: typeof schema.contentDatabases.$inferSelect;
+  overrides: ContentDatabasePersonalViewOverrides | null;
+  viewId?: string;
+}) {
+  const sharedConfig = parseDatabaseViewConfig(args.database.viewConfigJson);
+  const viewId =
+    args.viewId ?? args.overrides?.activeViewId ?? sharedConfig.activeViewId;
+  const sharedView =
+    sharedConfig.views.find((candidate) => candidate.id === viewId) ??
+    (!args.viewId
+      ? sharedConfig.views.find(
+          (candidate) => candidate.id === sharedConfig.activeViewId,
+        )
+      : undefined);
+  if (!sharedView) {
+    fail("The selected Files view no longer exists.", {
+      errorCode: "invalid_navigation_view",
+      statusCode: 400,
+    });
+  }
+  const personalView = args.overrides?.views.find(
+    (candidate) => candidate.id === viewId,
+  );
+  return {
+    viewId,
+    sharedView,
+    personalView,
+    filters: personalView?.filters ?? sharedView.filters,
+    filterMode: personalView?.filterMode ?? sharedView.filterMode ?? "and",
+  };
+}
+
+function navigationAccessContext(
+  userEmail: string,
+  database: typeof schema.contentDatabases.$inferSelect,
+): AccessContext {
+  return { userEmail, ...(database.orgId ? { orgId: database.orgId } : {}) };
+}
+
+/**
+ * The children the Files tree draws under `parentId`: pages in the same Files
+ * database that aren't trashed, that the reader can see, and that pass the
+ * view's filter. A row's `hasChildren` is whether this finds any.
+ */
+function visibleChildren(args: {
+  parentId: typeof schema.documents.id;
+  databaseId: string;
+  accessContext: AccessContext;
+  filter: Omit<Parameters<typeof navigationFilterSql>[0], "document">;
+}) {
+  const childDocuments = alias(schema.documents, "navigation_child_documents");
+  const childItems = alias(
+    schema.contentDatabaseItems,
+    "navigation_child_memberships",
+  );
+  return getDb()
+    .select({ id: childItems.id })
+    .from(childItems)
+    .innerJoin(childDocuments, eq(childDocuments.id, childItems.documentId))
+    .where(
+      and(
+        eq(childItems.databaseId, args.databaseId),
+        eq(childDocuments.parentId, args.parentId),
+        isNull(childDocuments.trashedAt),
+        accessFilter(childDocuments, schema.documentShares, args.accessContext),
+        ...softDeletedDatabaseDocumentExclusions(childDocuments.id),
+        navigationFilterSql({
+          ...args.filter,
+          document: {
+            id: sql`${childDocuments.id}`,
+            title: sql`${childDocuments.title}`,
+            parentId: sql`${childDocuments.parentId}`,
+            ownerEmail: sql`${childDocuments.ownerEmail}`,
+            createdAt: sql`${childDocuments.createdAt}`,
+            updatedAt: sql`${childDocuments.updatedAt}`,
+          },
+        }),
+      ),
+    );
+}
+
+/**
+ * The pages among `documentIds` that have children in the Files tree, by
+ * the same rule as a navigation row's `hasChildren`. The open page's path
+ * uses it for rows the sidebar draws before their own page has loaded.
+ */
+export async function filesNavigationParentsWithChildren(args: {
+  database: typeof schema.contentDatabases.$inferSelect;
+  userEmail: string;
+  overrides: ContentDatabasePersonalViewOverrides | null;
+  documentIds: readonly string[];
+}): Promise<Set<string>> {
+  if (!args.documentIds.length) return new Set();
+  const view = resolveNavigationView(args);
+  const timeZone = getRequestTimezone();
+  const rows = await getDb()
+    .select({ id: schema.documents.id })
+    .from(schema.documents)
+    .where(
+      and(
+        inArray(schema.documents.id, [...args.documentIds]),
+        exists(
+          visibleChildren({
+            parentId: schema.documents.id,
+            databaseId: args.database.id,
+            accessContext: navigationAccessContext(
+              args.userEmail,
+              args.database,
+            ),
+            filter: {
+              filters: view.filters,
+              filterMode: view.filterMode,
+              today: contentDatabaseFilterToday(timeZone),
+              timeZone,
+              definitionById: await navigationFilterDefinitions(
+                args.database.id,
+                view.filters,
+              ),
+            },
+          }),
+        ),
+      ),
+    );
+  return new Set(rows.map((row) => row.id));
+}
+
 export async function getContentDatabaseNavigationPage(args: {
   database: typeof schema.contentDatabases.$inferSelect;
   userEmail: string;
@@ -395,33 +526,14 @@ export async function getContentDatabaseNavigationPage(args: {
 
   const cursor = args.cursor ? decodeCursor(args.cursor) : null;
   const db = getDb();
-  const accessContext = {
-    userEmail: args.userEmail,
-    orgId: args.database.orgId ?? undefined,
-  };
-  const overrides = args.overrides;
-  const sharedConfig = parseDatabaseViewConfig(args.database.viewConfigJson);
-  const viewId =
-    args.viewId ?? overrides?.activeViewId ?? sharedConfig.activeViewId;
-  const sharedView =
-    sharedConfig.views.find((candidate) => candidate.id === viewId) ??
-    (!args.viewId
-      ? sharedConfig.views.find(
-          (candidate) => candidate.id === sharedConfig.activeViewId,
-        )
-      : undefined);
-  if (!sharedView) {
-    fail("The selected Files view no longer exists.", {
-      errorCode: "invalid_navigation_view",
-      statusCode: 400,
-    });
-  }
-  const personalView = overrides?.views.find(
-    (candidate) => candidate.id === viewId,
-  );
-  const effectiveFilters = personalView?.filters ?? sharedView.filters;
-  const effectiveFilterMode =
-    personalView?.filterMode ?? sharedView.filterMode ?? "and";
+  const accessContext = navigationAccessContext(args.userEmail, args.database);
+  const {
+    viewId,
+    sharedView,
+    personalView,
+    filters: effectiveFilters,
+    filterMode: effectiveFilterMode,
+  } = resolveNavigationView(args);
   const sorts = personalView?.sorts ?? sharedView.sorts;
   // A view can have no sorts.
   const sharedSort = sorts.length > 0 ? sorts[0] : undefined;
@@ -489,11 +601,6 @@ export async function getContentDatabaseNavigationPage(args: {
     },
   });
 
-  const childDocuments = alias(schema.documents, "navigation_child_documents");
-  const childItems = alias(
-    schema.contentDatabaseItems,
-    "navigation_child_memberships",
-  );
   const favoriteItems = alias(
     schema.contentDatabaseItems,
     "navigation_favorite_memberships",
@@ -538,34 +645,18 @@ export async function getContentDatabaseNavigationPage(args: {
         isNull(databaseDocuments.deletedAt),
       ),
     );
-  const visibleChild = db
-    .select({ id: childItems.id })
-    .from(childItems)
-    .innerJoin(childDocuments, eq(childDocuments.id, childItems.documentId))
-    .where(
-      and(
-        eq(childItems.databaseId, args.database.id),
-        eq(childDocuments.parentId, schema.documents.id),
-        isNull(childDocuments.trashedAt),
-        accessFilter(childDocuments, schema.documentShares, accessContext),
-        ...softDeletedDatabaseDocumentExclusions(childDocuments.id),
-        navigationFilterSql({
-          filters: effectiveFilters,
-          filterMode: effectiveFilterMode,
-          today,
-          timeZone,
-          definitionById,
-          document: {
-            id: sql`${childDocuments.id}`,
-            title: sql`${childDocuments.title}`,
-            parentId: sql`${childDocuments.parentId}`,
-            ownerEmail: sql`${childDocuments.ownerEmail}`,
-            createdAt: sql`${childDocuments.createdAt}`,
-            updatedAt: sql`${childDocuments.updatedAt}`,
-          },
-        }),
-      ),
-    );
+  const visibleChild = visibleChildren({
+    parentId: schema.documents.id,
+    databaseId: args.database.id,
+    accessContext,
+    filter: {
+      filters: effectiveFilters,
+      filterMode: effectiveFilterMode,
+      today,
+      timeZone,
+      definitionById,
+    },
+  });
   const favoriteMembership = db
     .select({ id: favoriteItems.id })
     .from(favoriteItems)

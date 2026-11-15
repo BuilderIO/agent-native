@@ -372,6 +372,7 @@ export function useEditorActiveScreenAndGeometry({
     journalOutboxEntry,
     acknowledgeOutboxEntry,
     retryDesignSaveOutbox,
+    noteSaveLeftQueued,
     queueFileContentSave,
     flushPendingFileContentSavesForBackground,
     flushPendingTweakSave,
@@ -769,6 +770,9 @@ export function useEditorActiveScreenAndGeometry({
             queuedForRetry =
               journaled &&
               classifyDesignSaveFailure(error, navigator.onLine) === "offline";
+            // The entry stays journaled for the replay unless this failure
+            // already saved or discarded it above.
+            if (journaled && !reconciledEntryWasSaved) noteSaveLeftQueued();
           } finally {
             if (!queuedForRetry) {
               frameGeometryOperationsInFlightRef.current =
@@ -796,6 +800,7 @@ export function useEditorActiveScreenAndGeometry({
       saveDesignDataAsync,
       shellMode,
       reportSaveFailure,
+      noteSaveLeftQueued,
     ],
   );
 

@@ -1,4 +1,5 @@
 import { callAction } from "@agent-native/core/client/hooks";
+import { surfaceMutationError } from "@agent-native/core/client/write-failure";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 
 export type Snippet = {
@@ -39,6 +40,7 @@ export function useCreateSnippet() {
         operation: "create",
       }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: SNIPPETS_KEY }),
+    meta: surfaceMutationError(),
   });
 }
 
@@ -70,6 +72,7 @@ export function useUpdateSnippet() {
       }
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: SNIPPETS_KEY }),
+    meta: surfaceMutationError(),
   });
 }
 
@@ -99,5 +102,6 @@ export function useDeleteSnippet() {
       }
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: SNIPPETS_KEY }),
+    meta: surfaceMutationError(),
   });
 }

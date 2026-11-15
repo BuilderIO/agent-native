@@ -415,6 +415,18 @@ describe("create-design-from-template", () => {
     expect(result.nextRequiredAction).toContain("Do not call generate-design");
   });
 
+  it("keeps the Content pages the copy is built from", async () => {
+    const brief = {
+      source: "content" as const,
+      id: "page-one",
+      url: "https://content.example.com/_agent-native/open?documentId=page-one",
+    };
+    await action.run({ templateId: "saved-template", briefs: [brief] });
+
+    const data = JSON.parse(String(testState.insertedDesign?.data));
+    expect(data.briefs).toEqual([brief]);
+  });
+
   it("fills the design the caller already created instead of making a second one", async () => {
     const result = await action.run({
       templateId: "saved-template",
@@ -515,6 +527,54 @@ describe("create-design-from-template", () => {
       title: "Saved campaign",
     });
     expect(retryKey.length).toBeLessThanOrEqual(128);
+  });
+
+  it("does not reuse a copy for a retry with different Content pages", async () => {
+    const brief = (id: string) => ({
+      source: "content" as const,
+      id,
+      url: `https://content.example.com/_agent-native/open?documentId=${id}`,
+    });
+    const first = await action.run({
+      templateId: "saved-template",
+      newId: "retry-id",
+      briefs: [brief("page-one")],
+    });
+    expect(first.id).toBe("retry-id");
+    const stored = testState.insertedDesign;
+    const lookUp = testState.resolveAccess.getMockImplementation();
+    testState.resolveAccess.mockImplementation(
+      async (type: string, id: string) =>
+        type === "design" && id === "retry-id"
+          ? { role: "owner", resource: stored }
+          : lookUp?.(type, id),
+    );
+
+    const retried = await action.run({
+      templateId: "saved-template",
+      newId: "retry-id",
+      briefs: [brief("page-one")],
+    });
+    expect(retried.id).toBe("retry-id");
+    await expect(
+      action.run({
+        templateId: "saved-template",
+        newId: "retry-id",
+        briefs: [brief("page-two")],
+      }),
+    ).rejects.toThrow(/cannot be reused/i);
+    expect(
+      designTemplateRetryKey({
+        templateId: "saved-template",
+        title: "Saved campaign",
+        briefs: [],
+      }),
+    ).toBe(
+      designTemplateRetryKey({
+        templateId: "saved-template",
+        title: "Saved campaign",
+      }),
+    );
   });
   describe("design_created", () => {
     const createdEvents = () =>

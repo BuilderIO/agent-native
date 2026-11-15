@@ -133,6 +133,41 @@ Prefer a separate domain per app instead of one shared origin? Every app in the 
 
 </Callout>
 
+## Build cache {#workspace-build-cache}
+
+A workspace deploy builds every app, which is most of its time. The build cache skips an app whose inputs did not change and restores its previous build output, including its function bundle, instead. It is on by default and keeps entries under `node_modules/.cache/agent-native/deploy-build`.
+
+An app's cache key is a SHA-256 over:
+
+- the app's source files, as listed by `git ls-files` (tracked and untracked, not ignored), plus its `.env*` files; directories a build generates in the app (`.agent-native`, `.deploy-tmp`, `.react-router`) are left out
+- the built contents of every workspace package it depends on, so a rebuilt `@agent-native/core` invalidates every app (only the files the package publishes through its `files` field, and a package with a `dist` is hashed by its `dist`, not its `src`)
+- the workspace root files, including `pnpm-lock.yaml`
+- the Node major version, the preset, and the Core version
+- the name and value of every environment variable passed to the build, hashed and never printed
+
+Each app logs a hit or a miss. A miss names the reason and, when an earlier entry exists, which inputs changed. A finished deploy prints the totals and the time saved.
+
+```bash
+[workspace-deploy] cache HIT analytics (restored in 5.9s, saved ~43.8s)
+[workspace-deploy] cache MISS forms (no-entry: inputs changed: source); building
+[workspace-deploy] Build cache: 1 hit, 1 miss; build phase 32.3s, ~43.4s saved
+```
+
+A cache problem is never a hit. An unreadable manifest (`entry-unreadable`), a restore whose files do not match the entry (`restore-failed`), or an input that cannot be hashed (`hash-failed`, for example a workspace that is not a git repository) logs the reason and rebuilds the app. A bad entry is deleted.
+
+| Setting                    | Environment variable                   | Default                                         |
+| -------------------------- | -------------------------------------- | ----------------------------------------------- |
+| `deployCache.enabled`      | `AGENT_NATIVE_DEPLOY_CACHE`            | `true`                                          |
+| `deployCache.dir`          | `AGENT_NATIVE_DEPLOY_CACHE_DIR`        | `node_modules/.cache/agent-native/deploy-build` |
+| `deployCache.verifySample` | `AGENT_NATIVE_DEPLOY_CACHE_VERIFY`     | `0`                                             |
+| `deployCache.envIgnore`    | `AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE` | none                                            |
+
+Set `AGENT_NATIVE_DEPLOY_CACHE_VERIFY=2` to rebuild two cached apps per deploy and compare the rebuilt output to the cached output file by file, with per-build values such as the build timestamp and freshly minted function tokens masked. A difference fails the deploy and lists the files, which means the build is not reproducible or the key is missing an input. Run it in CI on a schedule rather than on every deploy.
+
+Variables that change on every run without reaching a build, such as `PATH`, `PWD`, `npm_*` and `PNPM_*`, are already left out of the key. If a deploy environment adds its own (a run id, say), list it in `AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE`; a trailing `*` matches a prefix. Anything else counts, so a changed `VITE_*` or `DATABASE_URL` rebuilds every app.
+
+Hosted builders that start from a clean disk each time gain nothing from the cache. Set `AGENT_NATIVE_DEPLOY_CACHE=false` there to skip the copy it makes after each build.
+
 ## Self-hosted Workspace with Docker Compose {#workspace-docker-compose}
 
 A workspace is not one Nitro server process today. Each app still builds to its own `.output/` directory and runs its own Node/Nitro server, so self-hosting a workspace means running several servers behind a single entry point.
@@ -366,6 +401,12 @@ workspace. On an empty database, that administrator signs in first, becomes
 the initial organization owner, and can invite teammates in Settings →
 Organization → Members. See [Administered deployments](/docs/administered-deployments)
 for the full bootstrap flow.
+
+## Deterministic function zips {#workspace-netlify-function-zips}
+
+Netlify hashes each function's whole ZIP, and its bundler writes entries in a different order every run, so unchanged functions re-upload on every deploy. Publish with `npx @agent-native/core@latest netlify-deploy` instead of calling `netlify deploy` yourself. It zips the functions with the installed Netlify CLI's own bundler, rewrites each ZIP with sorted entries and a fixed timestamp, writes the functions manifest, then runs `netlify deploy` in the same command. Routes, schedules and background settings are kept. Pass your own `netlify deploy` arguments after the command; the default is `--prod --dir=dist --functions=.netlify/functions-internal`.
+
+The CLI only reads that manifest for two minutes. If it is older when the CLI starts, or the CLI discards it, the command prints a `manifest-expired` line and exits non-zero instead of deploying with unstable ZIPs silently.
 
 ## What's next
 

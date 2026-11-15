@@ -12,7 +12,7 @@ loadEnv();
 
 async function main(): Promise<void> {
   await withMigrationRuntime(async () => {
-    await runFrameworkReleaseMigrations(null);
+    await runFrameworkReleaseMigrations(null, { requirePostgres: true });
     await creativeContextDbPlugin(null);
     await runContentMigrations(null);
     await runContentSourceMigrations(null);

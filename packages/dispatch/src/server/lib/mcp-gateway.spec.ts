@@ -2005,7 +2005,10 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
           servers: {
             target: expect.objectContaining({
               url: "https://beta.agent-workspace.builder.io/customer-ticket-triage/mcp",
-              headers: { Authorization: "Bearer signed-token" },
+              headers: {
+                Authorization: "Bearer signed-token",
+                "x-agent-native-mcp-inline-apps": "1",
+              },
             }),
           },
         }),
@@ -2310,7 +2313,10 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
           servers: {
             target: expect.objectContaining({
               url: "https://beta.agent-workspace.builder.io/dispatch/mcp",
-              headers: { Authorization: "Bearer signed-token" },
+              headers: {
+                Authorization: "Bearer signed-token",
+                "x-agent-native-mcp-inline-apps": "1",
+              },
             }),
           },
         }),
@@ -2674,7 +2680,10 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
     expect(mocks.managerConstructor).toHaveBeenCalledWith({
       servers: {
         target: expect.objectContaining({
-          headers: { Authorization: "Bearer signed-token" },
+          headers: {
+            Authorization: "Bearer signed-token",
+            "x-agent-native-mcp-inline-apps": "1",
+          },
         }),
       },
     });
@@ -3021,7 +3030,10 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       expect.objectContaining({
         servers: {
           target: expect.objectContaining({
-            headers: { Authorization: "Bearer signed-token" },
+            headers: {
+              Authorization: "Bearer signed-token",
+              "x-agent-native-mcp-inline-apps": "1",
+            },
           }),
         },
       }),
@@ -3061,7 +3073,10 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       expect.objectContaining({
         servers: {
           target: expect.objectContaining({
-            headers: { Authorization: "Bearer org-member-token" },
+            headers: {
+              Authorization: "Bearer org-member-token",
+              "x-agent-native-mcp-inline-apps": "1",
+            },
           }),
         },
       }),
@@ -3096,7 +3111,10 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       expect.objectContaining({
         servers: {
           target: expect.objectContaining({
-            headers: { Authorization: "Bearer deployment-user-token" },
+            headers: {
+              Authorization: "Bearer deployment-user-token",
+              "x-agent-native-mcp-inline-apps": "1",
+            },
           }),
         },
       }),
@@ -3106,7 +3124,10 @@ describe("createGrantedDispatchMcpEmbedSession", () => {
       expect.objectContaining({
         servers: {
           target: expect.objectContaining({
-            headers: { Authorization: "Bearer org-member-token" },
+            headers: {
+              Authorization: "Bearer org-member-token",
+              "x-agent-native-mcp-inline-apps": "1",
+            },
           }),
         },
       }),

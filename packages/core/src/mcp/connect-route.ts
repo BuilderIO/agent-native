@@ -222,6 +222,7 @@ async function mintConnectToken(params: {
   orgId: string | undefined;
   label: string | null;
   ttlDays: number;
+  clientName?: string | null;
   /** From `getMcpOAuthIssuer`; its resources are what `verifyAuth` accepts. */
   issuer: string;
   catalogScope?: "full";
@@ -237,12 +238,14 @@ async function mintConnectToken(params: {
     },
     async (tx) => {
       const jti = randomUUID();
+      const expiresAt =
+        (Math.floor(Date.now() / 1000) + params.ttlDays * 86_400) * 1000;
       const token = await signConnectToken({
         ownerEmail: params.email,
         orgId: params.orgId,
         orgDomain,
         issuer: params.issuer,
-        expiresIn: `${params.ttlDays}d`,
+        expiresIn: expiresAt / 1000,
         jti,
         ...(params.catalogScope === "full" ? { catalogScope: "full" } : {}),
       });
@@ -252,6 +255,9 @@ async function mintConnectToken(params: {
           ownerEmail: params.email,
           orgId: params.orgId ?? null,
           label: params.label,
+          clientName: params.clientName,
+          resource: mcpResourceUrl(params.issuer),
+          expiresAt,
         },
         tx,
       );
@@ -271,7 +277,7 @@ async function signConnectToken(params: {
   orgId: string | null | undefined;
   orgDomain: string | undefined;
   issuer: string;
-  expiresIn: string;
+  expiresIn: string | number;
   jti: string;
   catalogScope?: "full";
   service?: true;
@@ -1550,6 +1556,8 @@ export async function handleMcpConnect(
         orgId: defaultOrganizationId,
         label,
         ttlDays,
+        clientName:
+          typeof body.client === "string" ? body.client.slice(0, 120) : null,
         issuer,
         requestOrigin: origin,
         ...(catalogScope ? { catalogScope } : {}),
@@ -1760,12 +1768,15 @@ export async function handleMcpConnect(
               }),
             });
           }
+          const expiresAt =
+            (Math.floor(Date.now() / 1000) + DEFAULT_TOKEN_TTL_DAYS * 86_400) *
+            1000;
           const token = await signConnectToken({
             ownerEmail: claimed.ownerEmail!,
             orgId: claimed.orgId,
             orgDomain,
             issuer,
-            expiresIn: `${DEFAULT_TOKEN_TTL_DAYS}d`,
+            expiresIn: expiresAt / 1000,
             jti,
             ...(claimed.catalogScope
               ? { catalogScope: claimed.catalogScope }
@@ -1777,6 +1788,9 @@ export async function handleMcpConnect(
               ownerEmail: claimed.ownerEmail!,
               orgId: claimed.orgId,
               label: "Device connection",
+              clientName: claimed.client,
+              resource: mcpResourceUrl(issuer),
+              expiresAt,
             },
             tx,
           );

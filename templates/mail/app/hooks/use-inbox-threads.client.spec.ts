@@ -457,6 +457,7 @@ describe("useInboxThreads tab previews", () => {
     expect(useActionMutation).toHaveBeenCalledWith("sync-inbox", {
       method: "POST",
       skipActionQueryInvalidation: true,
+      errorNotification: "caller",
     });
     expect(mutateSyncAction).toHaveBeenCalledWith({
       accountEmails: ["first@example.com"],
@@ -510,6 +511,7 @@ describe("useInboxThreads tab previews", () => {
     expect(useActionMutation).toHaveBeenCalledWith("sync-inbox", {
       method: "POST",
       skipActionQueryInvalidation: true,
+      errorNotification: "caller",
     });
 
     syncHook.unmount();

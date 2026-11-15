@@ -317,10 +317,10 @@ Do not parse `.fig` files locally for this flow and do not call
 kit, generated docs, and usage guidance. This is unchanged and is specifically
 about **token/brand-kit extraction**.
 
-**When the user uploads a raw `.fig` file in the Design editor's Import panel**
-(not Design System Setup), it takes a different, narrower path: the server
-decodes the container/Kiwi document locally (`fig-file-decoder.ts`) and maps
-its `NodeChange` tree to editable HTML screens (`fig-file-to-html.ts`,
+**When the user imports a raw `.fig` file with File → Import in the Design
+editor** (not Design System Setup), it takes a different, narrower path: the
+whole file is decoded locally (`fig-file-decoder.ts`) and its
+`NodeChange` tree is mapped to editable HTML screens (`fig-file-to-html.ts`,
 `fig-file-import.ts`) through the same `saveImportedDesignFiles` path as other
 Design imports — no Builder connection required. This is explicitly scoped to
 **screens only**, not tokens: it does not create or update a design system, and
@@ -431,6 +431,24 @@ The canvas paste listener (`app/lib/figma-clipboard.ts` +
 Tell users who need a path based only on Figma's public contract to copy a
 frame **link** ("Copy link to selection" in Figma). Current Cmd+C is exact
 when `selectedNodeData` is present, with conservative fallback if it changes.
+
+#### Figma pasted into the composer
+
+Pasting a copied Figma selection into the chat composer, or attaching a .fig
+from the composer's "Figma design…" dialog, adds a chip that is reference
+context, not an import. The UI decodes it on attach (`read-figma-clipboard` for
+a paste, the in-browser .fig decoder for a file) and sends each frame's HTML,
+bounded to a context budget, with frames past it named. Nothing lands on the
+canvas. The decoded frames are stored as a core attachment ref (see
+`storing-data`), and the context names it. To make, recreate, or import the
+design, call `place-figma-frames --ref <ref>` (optionally `--frames 1,2`); it
+saves the exact frames with a write receipt. Never retype a frame's HTML through
+`generate-design`, `create-file`, or `import-design-source`: tens of kilobytes
+of markup run out the output budget and save truncated. When building something
+new from it, copy its SVG markup for logos, icons, and vectors verbatim; never
+redraw a vector with CSS shapes or new paths. Links
+attached there still need the Figma connection. Pasting on the canvas itself is
+the import path.
 
 #### Missing images after a paste without a token
 

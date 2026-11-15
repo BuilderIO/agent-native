@@ -1153,7 +1153,10 @@ describe("AgentPanel header overflow actions", () => {
     expect(panelSource).toMatch(
       /\{mode === "chat"\s*\?\s*mainTabs\.map[\s\S]*?:\s*cliTabs\.map/,
     );
-    expect(source).toContain("showCollapseButton={showCollapseButton}");
+    // oracle-change: a host's own panel has its own close, so the sidebar's collapse button stays out of it.
+    expect(source).toContain(
+      "showCollapseButton={!hostedPanel && showCollapseButton}",
+    );
   });
 
   it("keeps host CLI tabs mounted while chat is active", () => {

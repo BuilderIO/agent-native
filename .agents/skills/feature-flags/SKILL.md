@@ -114,7 +114,8 @@ shell; it is shared and cached for every visitor.
 1. Verify the off path before changing rollout state.
 2. Confirm the registered flag appears in **Analytics → Feature flags** for the
    app and is Off by default.
-3. Use **Enable for me** for initial production dogfood.
+3. Use **Enable for me** for initial production dogfood. It adds you to the
+   rule that decides your access (see Rule scopes).
 4. Expand to exact emails, organization IDs, or a percentage only from
    Analytics.
 5. Confirm the client presentation and authoritative server action agree.
@@ -135,6 +136,37 @@ role, and audit correlation id. Management is permission-checked and audited
 by the target app. Never manage flags through generic settings routes, raw SQL,
 or per-app toggle UIs.
 
+## Rule scopes
+
+A flag has up to two stored rules. The global rule (`feature-flag:<key>`)
+applies in every organization. Only emails on the target app's
+`AGENT_NATIVE_FEATURE_FLAG_ADMIN_EMAILS` list can change it, from inside any
+organization; outside production a caller with no organization can too. An
+organization's own rule (`o:<orgId>:feature-flag:<key>`) applies only there,
+and only that organization's owners and admins can change it; the admin list
+grants nothing at organization level. Evaluation uses the organization's rule
+when one exists and the global rule otherwise. They never merge: a global
+change does not reach an organization with its own rule. An organization gets
+a rule of its own only from `off` or `replace-rules`, which write a whole
+rule; `enable-for-current-user` adds to the rule in effect, so it refuses an
+organization that follows the global rule (409 `follows_global_rule`) and a
+row that can't be read (409 `rule_unreadable`).
+
+`set-feature-flag` takes `scope: "org" | "global"`. Without it, the active
+organization's rule is written, or the global rule for a caller with no
+organization, so a caller that predates scope never writes wider than before.
+The result's `scope.kind` names the rule written. `list-feature-flags` returns
+`scopes` per flag: the global rule, the caller's organization rule, which one
+is `inEffect`, and whether the caller can change each. A rule the caller
+can't change is `withheld`: its mode, percentage, and how many emails and
+organizations it targets, never which. A row that cannot be parsed is
+`unreadable`, never reported as unset; it still takes precedence and
+evaluates off, and `getFeatureFlagRulesStrict` throws on it.
+Over A2A, a global write passes only when the delegated email is on the target
+app's own list. Analytics checks that the target lists `scopes` before a
+global write, so a target that predates scope is refused rather than quietly
+writing the organization's rule.
+
 ## Rollout semantics
 
 The operator modes are **Off**, **Targeted**, and **Everyone**. Core stores them
@@ -148,7 +180,8 @@ included at a lower percentage. Do not implement bucketing in app code.
 
 Unknown definitions, missing state, malformed state, storage errors, and
 evaluation errors all return the code default (`false` in v1). Explicit Off
-wins over every target; Everyone enables every authenticated caller.
+wins over every target; Everyone enables every authenticated caller the rule
+applies to.
 
 ## Reversible experience presets
 
@@ -181,6 +214,9 @@ A permanent flag is just an if statement with a pension plan.
   have focused tests.
 - Increasing a percentage is monotonic; anonymous percentage evaluation is off.
 - Unauthorized callers cannot list targeting details or mutate flags.
+- An organization owner not on the admin list cannot write the global rule; a
+  listed admin can from inside any organization; organization writes still
+  need that organization's owner or admin.
 - Mutations are atomic, read back stored state, emit refresh, and appear in the
   audit log with the flag key.
 - Analytics represents ready, no-definition, unsupported, forbidden, legacy,

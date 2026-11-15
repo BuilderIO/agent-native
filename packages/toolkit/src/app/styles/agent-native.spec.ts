@@ -231,10 +231,10 @@ describe("agent-native shell surface tokens", () => {
     );
 
     expect(tokens).toMatch(
-      /:root\s*\{[\s\S]*?--agent-kit-composer-surface: var\(--agent-kit-raised-surface\);[\s\S]*?--agent-kit-composer-border-mix: 82%;[\s\S]*?--agent-kit-composer-focus-ring-mix: 40%;[\s\S]*?--agent-kit-composer-border-color: color-mix\([\s\S]*?--agent-kit-composer-focus-border-color: color-mix\(/s,
+      /:root\s*\{[\s\S]*?--agent-kit-composer-surface: var\(--agent-kit-raised-surface\);[\s\S]*?--agent-kit-composer-border-mix: 82%;[\s\S]*?--agent-kit-composer-focus-ring-mix: 70%;[\s\S]*?--agent-kit-composer-border-color: color-mix\([\s\S]*?--agent-kit-composer-focus-border-color: color-mix\(/s,
     );
     expect(tokens).toMatch(
-      /:is\(\.dark, :root\[data-theme="dark"\]:not\(\.light\)\)\s*\{[\s\S]*?--agent-kit-composer-surface: var\(--agent-kit-subtle-surface\);[\s\S]*?--agent-kit-composer-border-mix: 80%;[\s\S]*?--agent-kit-composer-focus-ring-mix: 40%;[\s\S]*?--agent-kit-composer-border-color: color-mix\([\s\S]*?--agent-kit-composer-focus-border-color: color-mix\(/s,
+      /:is\(\.dark, :root\[data-theme="dark"\]:not\(\.light\)\)\s*\{[\s\S]*?--agent-kit-composer-surface: var\(--agent-kit-subtle-surface\);[\s\S]*?--agent-kit-composer-border-mix: 80%;[\s\S]*?--agent-kit-composer-focus-ring-mix: 70%;[\s\S]*?--agent-kit-composer-border-color: color-mix\([\s\S]*?--agent-kit-composer-focus-border-color: color-mix\(/s,
     );
     expect(css).toMatch(
       /background:\s*var\(\s*--agent-kit-composer-surface,\s*var\(--agent-kit-raised-surface\)\s*\);/,

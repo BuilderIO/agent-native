@@ -1396,6 +1396,8 @@ export default {
     resetFilters: "Restablecer filtros",
     collapseFilters: "Contraer filtros",
     expandFilters: "Ampliar filtros",
+    collapseDescription: "Contraer descripción",
+    expandDescription: "Ampliar descripción",
     drilldownChartPoints: "Puntos del gráfico",
     drilldownPreviousPage: "Página anterior de puntos del gráfico",
     drilldownNextPage: "Página siguiente de puntos del gráfico",
@@ -1424,6 +1426,7 @@ export default {
     drilldownOverByteCap:
       "Estos registros leerían más de {{gib}} GiB, así que no se cargaron. Acota los filtros o el intervalo de fechas del panel y vuelve a intentarlo.",
     filterSeries: "Filter",
+    noXValue: "Sin valor",
     chartTimeRangeOverride: "Anular el rango de tiempo de este gráfico",
     chartTimeRangeInherit: "Rango del panel",
     hide: "Hide",

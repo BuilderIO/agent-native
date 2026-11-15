@@ -101,6 +101,7 @@ import {
   readAgentNativeBuildConfigMarker,
   resolveFirstRunOnboardingBuildReplacement,
   resolveHarnessBuildReplacement,
+  resolveRequiredEnvBuildReplacement,
 } from "../vite/agent-native-config-loader.js";
 import { boundedTaskSourcePlugin } from "../vite/bounded-task-plugin.js";
 import { createSentryServerSourceMapUploadPlugins } from "../vite/sentry-source-maps.js";
@@ -4779,6 +4780,36 @@ export function bundleYjsRuntimeForServerlessOutput(
   return bareImports;
 }
 
+export function prepareVercelFunctionOutputs(
+  outputDir: string,
+  projectCwd: string,
+): void {
+  const functionsDir = path.join(outputDir, "functions");
+  if (!fs.existsSync(functionsDir)) return;
+  const visit = (dir: string): void => {
+    for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+      const entryPath = path.join(dir, entry.name);
+      if (entry.name.endsWith(".func")) {
+        if (entry.isSymbolicLink()) {
+          const target = fs.realpathSync(entryPath);
+          const relative = path.relative(fs.realpathSync(functionsDir), target);
+          if (relative.startsWith("..") || path.isAbsolute(relative)) {
+            throw new Error(
+              `[deploy] Vercel function link leaves output: ${entryPath}`,
+            );
+          }
+          fs.unlinkSync(entryPath);
+          fs.cpSync(target, entryPath, { recursive: true });
+        }
+        bundleYjsRuntimeForServerlessOutput(entryPath, projectCwd);
+      } else if (entry.isDirectory()) {
+        visit(entryPath);
+      }
+    }
+  };
+  visit(functionsDir);
+}
+
 export function shouldBundleYjsRuntimeForPreset(targetPreset: string): boolean {
   return (
     targetPreset === "netlify" ||
@@ -6115,6 +6146,7 @@ export function resolveNitroBuildReplacements(
   projectCwd: string = cwd,
   firstRunOnboardingMode: AgentNativeFirstRunOnboardingMode | "" = "",
   harnessMode: string = "",
+  requiredEnv: string = "",
 ): Record<string, string> {
   const isEnabled = (value: string | undefined) =>
     ["1", "true", "yes", "on"].includes(value?.trim().toLowerCase() ?? "");
@@ -6174,6 +6206,7 @@ export function resolveNitroBuildReplacements(
       firstRunOnboardingMode,
     ),
     "process.env.AGENT_NATIVE_BUILD_HARNESS": JSON.stringify(harnessMode),
+    "process.env.AGENT_NATIVE_BUILD_REQUIRED_ENV": JSON.stringify(requiredEnv),
     // Bare Node/Docker has no platform marker for "this is the deployed
     // server", so the production bundle carries its own. Keep it here only:
     // the Vite config's replacements also apply to `pnpm dev`, which must
@@ -6322,6 +6355,8 @@ export default bundle;
         ),
       buildConfigMarker?.harness ??
         resolveHarnessBuildReplacement(nitroAgentConfig),
+      buildConfigMarker?.requiredEnv ??
+        resolveRequiredEnvBuildReplacement(nitroAgentConfig),
     ),
     rolldownConfig: nitroServerCodeSplittingConfig,
     rollupConfig: {
@@ -6403,7 +6438,9 @@ export default bundle;
     pruneServerlessFunctionDeadWeight(nitro.options.output.serverDir);
   }
 
-  if (shouldBundleYjsRuntimeForPreset(preset)) {
+  if (preset === "vercel") {
+    prepareVercelFunctionOutputs(nitro.options.output.dir, cwd);
+  } else if (shouldBundleYjsRuntimeForPreset(preset)) {
     bundleYjsRuntimeForServerlessOutput(nitro.options.output.serverDir, cwd);
   }
 

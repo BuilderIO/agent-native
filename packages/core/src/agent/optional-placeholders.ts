@@ -237,6 +237,9 @@ function stripOptionalToolPlaceholders(
 
 export class AmbiguousToolPlaceholdersError extends Error {
   readonly errorCode = "ambiguous_tool_placeholders";
+  // A refusal of the caller's input that ran nothing, so the HTTP action
+  // route answers 400 with this message rather than a captured 500.
+  readonly statusCode = 400;
 
   constructor() {
     super(

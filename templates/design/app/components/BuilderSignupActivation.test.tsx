@@ -5,11 +5,11 @@ import { act, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { expect, it, vi } from "vitest";
 
-const mocks = vi.hoisted(() => ({ activate: vi.fn() }));
+const mocks = vi.hoisted(() => ({ activate: vi.fn(), status: vi.fn() }));
 vi.mock("@agent-native/core/client/analytics", () => ({ track: vi.fn() }));
 vi.mock("@agent-native/core/client/auth/builder-signup", () => ({
   activateBuilderSignupAssignment: mocks.activate,
-  hasPendingBuilderSignupAssignment: () => true,
+  startBuilderSignupActivation: mocks.status,
 }));
 vi.mock("@/components/ui/skeleton", () => ({
   Skeleton: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
@@ -30,7 +30,14 @@ function Activation({ verified }: { verified: boolean }) {
   );
 }
 
-it("waits for verification without replacing an in-progress prompt when activation starts", async () => {
+it("checks eligibility without blocking on cookie hints and preserves an in-progress prompt after verification", async () => {
+  let determineEligibility: (value: string) => void = () => {};
+  mocks.status.mockImplementation(
+    () =>
+      new Promise<string>((resolve) => {
+        determineEligibility = resolve;
+      }),
+  );
   let finish: () => void = () => {};
   mocks.activate.mockImplementation(
     () =>
@@ -55,7 +62,16 @@ it("waits for verification without replacing an in-progress prompt when activati
     if (!input) throw new Error("Prompt input did not mount");
     input.value = "My unfinished design prompt";
     await act(async () => render(true));
-    expect(mocks.activate).toHaveBeenCalledOnce();
+    expect(mocks.activate).not.toHaveBeenCalled();
+    expect(container.querySelector("[inert]")).toBeNull();
+    document.cookie = "an_builder_signup_pending=1";
+    await act(async () => render(true));
+    expect(container.querySelector("[inert]")).toBeNull();
+    await act(async () => determineEligibility("eligible"));
+    await vi.waitFor(async () => {
+      await act(async () => {});
+      expect(mocks.activate).toHaveBeenCalledOnce();
+    });
     expect(container.querySelector("input")).toBe(input);
     expect(input.value).toBe("My unfinished design prompt");
     await act(async () => finish());
@@ -63,5 +79,6 @@ it("waits for verification without replacing an in-progress prompt when activati
   } finally {
     await act(async () => root.unmount());
     container.remove();
+    document.cookie = "an_builder_signup_pending=; Max-Age=0; Path=/";
   }
 });

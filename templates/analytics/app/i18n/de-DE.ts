@@ -1407,6 +1407,8 @@ export default {
     resetFilters: "Filter zurücksetzen",
     collapseFilters: "Filter ausblenden",
     expandFilters: "Filter erweitern",
+    collapseDescription: "Beschreibung einklappen",
+    expandDescription: "Beschreibung erweitern",
     drilldownChartPoints: "Diagrammpunkte",
     drilldownPreviousPage: "Vorherige Seite der Diagrammpunkte",
     drilldownNextPage: "Nächste Seite der Diagrammpunkte",
@@ -1435,6 +1437,7 @@ export default {
     drilldownOverByteCap:
       "Diese Datensätze würden mehr als {{gib}} GiB lesen und wurden deshalb nicht geladen. Grenze die Filter oder den Zeitraum des Dashboards ein und versuche es erneut.",
     filterSeries: "Filter",
+    noXValue: "Kein Wert",
     chartTimeRangeOverride: "Zeitraum für dieses Diagramm überschreiben",
     chartTimeRangeInherit: "Dashboard-Zeitraum",
     hide: "Hide",

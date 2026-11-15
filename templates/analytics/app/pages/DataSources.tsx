@@ -12,6 +12,7 @@ import { useFormatters, useT } from "@agent-native/core/client/i18n";
 import { useOrgRole } from "@agent-native/core/client/org";
 import { mcpIntegrationLogo } from "@agent-native/core/client/resources/mcp-integration-logos";
 import { actionErrorMessage } from "@agent-native/core/client/use-action";
+import { surfaceMutationError } from "@agent-native/core/client/write-failure";
 import { docsUrl } from "@agent-native/core/shared";
 import { preparePromptComposerAgentHandoff } from "@agent-native/toolkit/app/chat";
 import { useSendToAgentChat } from "@agent-native/toolkit/app/chat";
@@ -860,6 +861,7 @@ function ConnectedView({
   });
 
   const disconnectMutation = useMutation({
+    meta: surfaceMutationError(),
     mutationFn: () => disconnectDataSource(source),
     onSuccess: () => {
       setDisconnectConfirmOpen(false);

@@ -27,3 +27,11 @@ export const APP_STATE_BATCH_ROUTE_HEADER = "X-Agent-Native-App-State-Batch";
  */
 export const APP_STATE_WRITER_HEADER = "X-Agent-Native-App-State-Writer";
 export const APP_STATE_SEQ_HEADER = "X-Agent-Native-App-State-Seq";
+
+/**
+ * A browser tab writes this key when someone uses it (it gains focus, or
+ * changes route while focused) and deletes it when the page goes away. The
+ * server stores it once per app and tab, so a call that came from no tab,
+ * such as an MCP tool call, can act on the tab of this app used last.
+ */
+export const BROWSER_TAB_USED_APP_STATE_KEY = "browser-tab-used";

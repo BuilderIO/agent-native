@@ -204,6 +204,8 @@ sendToAgentChat({
 });
 ```
 
+`sendToAgentChat()`은 전달 확인이 아닌 탭 ID를 반환합니다. 로컬 전송을 확인하려면 `sendToAgentChatAndConfirm({ message, chatTarget: "local" })`을 사용하고 `delivered: false`와 `reason`을 처리하세요. 확인을 기다리며 시간 초과 시 전송을 취소합니다. 초안과 코드 대상은 지원하지 않습니다.
+
 ### AgentChatMessage {#agentchatmessage}
 
 | 옵션           | 유형       | 설명                                                                                        |

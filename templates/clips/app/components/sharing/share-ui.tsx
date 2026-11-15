@@ -7,10 +7,10 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 
 import { Button } from "@/components/ui/button";
 import {
-  Popover,
-  PopoverContent,
-  PopoverTrigger,
-} from "@/components/ui/popover";
+  Collapsible,
+  CollapsibleContent,
+  CollapsibleTrigger,
+} from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
 
 export type Visibility = ShareButtonVisibility;
@@ -64,8 +64,8 @@ export function nestedLayerDismissGuards(): {
   };
 }
 
-/** The Advanced link under General access, with a summary of what it holds. */
-export function ShareAdvancedPopover({
+/** Resource-specific controls beneath General access. */
+export function ShareAdvancedAccess({
   summary,
   disabled,
   children,
@@ -76,30 +76,18 @@ export function ShareAdvancedPopover({
 }) {
   const t = useT();
   return (
-    <>
-      <Popover>
-        <PopoverTrigger asChild>
-          <button
-            type="button"
-            disabled={disabled}
-            className="-ms-1 inline-flex items-center gap-1 rounded-sm px-1 py-0.5 font-medium transition-colors hover:bg-accent hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {t("shareDialog.advanced")}
-            <IconChevronDown className="size-3" aria-hidden="true" />
-          </button>
-        </PopoverTrigger>
-        <PopoverContent
-          align="start"
-          sideOffset={6}
-          onOpenAutoFocus={(event) => event.preventDefault()}
-          className="w-80 max-w-[calc(100vw-2rem)] space-y-3 p-3"
-        >
-          {children}
-        </PopoverContent>
-      </Popover>
-      <span aria-hidden="true">·</span>
-      <span className="min-w-0 truncate">{summary}</span>
-    </>
+    <Collapsible>
+      <CollapsibleTrigger asChild>
+        <Button type="button" variant="ghost" size="sm" disabled={disabled}>
+          {t("shareDialog.advanced")}
+          <IconChevronDown className="size-3" aria-hidden="true" />
+        </Button>
+      </CollapsibleTrigger>
+      <div className="text-xs text-muted-foreground">{summary}</div>
+      <CollapsibleContent className="space-y-3 pt-2">
+        {children}
+      </CollapsibleContent>
+    </Collapsible>
   );
 }
 

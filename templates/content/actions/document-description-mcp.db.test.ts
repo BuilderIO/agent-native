@@ -65,6 +65,7 @@ async function connect(userEmail: string, writes = true) {
     },
     {
       userEmail,
+      orgId: null,
       orgDomain: undefined,
       oauthScopes: writes ? ["mcp:read", "mcp:write"] : ["mcp:read"],
     },

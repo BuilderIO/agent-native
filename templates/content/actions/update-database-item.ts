@@ -82,7 +82,7 @@ export default defineAction({
       context,
     );
     return withContentWebhookDelivery(context, () =>
-      updateDatabaseRow(canonicalizeDatabasePropertyInput(args)),
+      updateDatabaseRow(canonicalizeDatabasePropertyInput(args), context),
     );
   },
   link: ({ result }) => {
