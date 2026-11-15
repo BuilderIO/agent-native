@@ -5,7 +5,6 @@ import {
   clearCompletedTweakSave,
   createQueuedTweakSave,
   rebaseTweakSaveForSend,
-  retainLatestFailedTweakSave,
   sendJournaledTweakSaveKeepalive,
 } from "./tweak-save";
 
@@ -43,13 +42,7 @@ describe("tweak save ordering", () => {
     });
   });
 
-  it("retains a failed latest edit but never replaces a newer queued snapshot", () => {
-    const failed = createQueuedTweakSave(
-      { density: "compact" },
-      1,
-      "base",
-      null,
-    );
+  it("clears a queued snapshot only once that revision or a later one lands", () => {
     const newer = createQueuedTweakSave(
       { density: "comfortable" },
       2,
@@ -57,10 +50,9 @@ describe("tweak save ordering", () => {
       null,
     );
 
-    expect(retainLatestFailedTweakSave(null, failed)).toBe(failed);
-    expect(retainLatestFailedTweakSave(newer, failed)).toBe(newer);
     expect(clearCompletedTweakSave(newer, 1)).toBe(newer);
     expect(clearCompletedTweakSave(newer, 2)).toBeNull();
+    expect(clearCompletedTweakSave(newer, 3)).toBeNull();
   });
 
   it("does not promise a reconnect retry when journaling also failed", () => {
@@ -94,7 +86,7 @@ describe("tweak save ordering", () => {
     ).toBe("not-saved");
   });
 
-  it("waits for a durable journal before starting the unload keepalive", async () => {
+  it("starts the unload keepalive without waiting for the journal", async () => {
     let resolveJournal!: (journaled: boolean) => void;
     const journal = () =>
       new Promise<boolean>((resolve) => {
@@ -111,10 +103,11 @@ describe("tweak save ordering", () => {
       acknowledge,
     });
 
-    expect(send).not.toHaveBeenCalled();
+    expect(send).toHaveBeenCalledOnce();
+    await Promise.resolve();
+    expect(acknowledge).not.toHaveBeenCalled();
     resolveJournal(true);
     await expect(keepalive).resolves.toBe(true);
-    expect(send).toHaveBeenCalledOnce();
     expect(acknowledge).toHaveBeenCalledOnce();
 
     await expect(
@@ -123,9 +116,21 @@ describe("tweak save ordering", () => {
         send,
         acknowledge,
       }),
-    ).resolves.toBe(false);
-    expect(send).toHaveBeenCalledOnce();
+    ).resolves.toBe(true);
+    expect(send).toHaveBeenCalledTimes(2);
     expect(acknowledge).toHaveBeenCalledOnce();
+  });
+
+  it("reports a keepalive the browser refused as not sent", async () => {
+    const acknowledge = vi.fn(async () => {});
+    await expect(
+      sendJournaledTweakSaveKeepalive({
+        journal: async () => true,
+        send: () => ({ accepted: false, completion: null }),
+        acknowledge,
+      }),
+    ).resolves.toBe(false);
+    expect(acknowledge).not.toHaveBeenCalled();
   });
 
   it("leaves the durable retry unacknowledged when keepalive fails", async () => {

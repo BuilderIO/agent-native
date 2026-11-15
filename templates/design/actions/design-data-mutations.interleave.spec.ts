@@ -325,6 +325,45 @@ describe("design data mutation interleaving", () => {
     expect(readData().tweakSelections).toMatchObject({ density: "compact" });
   });
 
+  it("accepts a page-exit snapshot whether or not this tab's in-flight save landed first", async () => {
+    const emptyBaseHash = tweakSelectionsHash({});
+    const latest = {
+      designId: "design_1",
+      selections: { density: "comfortable" },
+      expectedSelectionsHash: emptyBaseHash,
+      inFlightSelectionsHash: tweakSelectionsHash({ density: "compact" }),
+    };
+    await applyTweaks.run({
+      designId: "design_1",
+      selections: { density: "compact" },
+      expectedSelectionsHash: emptyBaseHash,
+    });
+
+    await applyTweaks.run(latest);
+
+    expect(readData().tweakSelections).toMatchObject({
+      density: "comfortable",
+    });
+  });
+
+  it("still rejects a page-exit snapshot when another writer moved the base", async () => {
+    const emptyBaseHash = tweakSelectionsHash({});
+    await applyTweaks.run({
+      designId: "design_1",
+      selections: { density: "spacious" },
+      expectedSelectionsHash: emptyBaseHash,
+    });
+
+    await expect(
+      applyTweaks.run({
+        designId: "design_1",
+        selections: { density: "comfortable" },
+        expectedSelectionsHash: emptyBaseHash,
+        inFlightSelectionsHash: tweakSelectionsHash({ density: "compact" }),
+      }),
+    ).rejects.toMatchObject({ statusCode: 409 });
+  });
+
   it("accepts an exact retry after the requested selections already landed", async () => {
     const emptyBaseHash = tweakSelectionsHash({});
     const params = {

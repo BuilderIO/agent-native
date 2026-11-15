@@ -1,7 +1,4 @@
-import {
-  tryCallActionKeepalive,
-  useReconciledState,
-} from "@agent-native/core/client/hooks";
+import { useReconciledState } from "@agent-native/core/client/hooks";
 import type { TweakDefinition } from "@shared/api";
 import {
   resolveTweaksToCssVars,
@@ -27,7 +24,8 @@ import {
   type DesignSaveOutboxEntry,
 } from "@/lib/design-save-outbox";
 import {
-  runPersistTweakSave,
+  sendLatestTweakSave,
+  sendLatestTweakSaveKeepalive,
   type PersistTweakSaveArgs,
 } from "@/pages/design-editor/commands/persist-tweak-save";
 import {
@@ -36,7 +34,8 @@ import {
 } from "@/pages/design-editor/design-data-geometry-utils";
 import {
   createQueuedTweakSave,
-  sendJournaledTweakSaveKeepalive,
+  type ConfirmedTweakSelections,
+  type InFlightTweakSave,
   type PendingTweakSave,
 } from "@/pages/design-editor/tweak-save";
 
@@ -85,9 +84,12 @@ export function useTweaks({
   const pendingTweakSaveRef = useRef<PendingTweakSave | null>(null);
   const tweakSaveTimerRef = useRef<number | null>(null);
   const tweakSaveRevisionRef = useRef(0);
-  const tweakSaveChainRef = useRef<Promise<void>>(Promise.resolve());
-  const tweakSaveInFlightRef = useRef(false);
-  const confirmedTweakSelectionsHashRef = useRef(tweakSelectionsHash({}));
+  const tweakSaveInFlightRef = useRef<InFlightTweakSave | null>(null);
+  const keepaliveTweakSaveRevisionRef = useRef(0);
+  const confirmedTweakSelectionsRef = useRef<ConfirmedTweakSelections>({
+    selections: {},
+    hash: tweakSelectionsHash({}),
+  });
   const journalTweakOutboxEntry = useCallback(
     async (entry: DesignSaveOutboxEntry) => {
       try {
@@ -117,34 +119,33 @@ export function useTweaks({
           designId: id,
           selections: pending.selections,
           expectedSelectionsHash: pending.expectedSelectionsHash,
+          ...(pending.inFlightSelectionsHash
+            ? { inFlightSelectionsHash: pending.inFlightSelectionsHash }
+            : {}),
         },
       });
     },
     [designSaveActorScope, id],
   );
-  const persistTweakSave = useCallback(
-    (pending: PendingTweakSave) =>
-      runPersistTweakSave(
-        {
-          acknowledgeOutboxEntry,
-          applyTweaksAsync,
-          canEditDesignRef,
-          confirmedTweakSelectionsHashRef,
-          createTweakSaveOutboxEntry,
-          id,
-          journalTweakOutboxEntry,
-          noteSaveLeftQueued,
-          pendingTweakSaveRef,
-          queryClient,
-          setTweakSaveActive,
-          t,
-          tweakSaveChainRef,
-          tweakSaveInFlightRef,
-          tweakSaveRevisionRef,
-          warnChangesWillRetry,
-        },
-        pending,
-      ),
+  const tweakSaveArgs = useMemo<PersistTweakSaveArgs>(
+    () => ({
+      acknowledgeOutboxEntry,
+      applyTweaksAsync,
+      canEditDesignRef,
+      confirmedTweakSelectionsRef,
+      createTweakSaveOutboxEntry,
+      id,
+      journalTweakOutboxEntry,
+      keepaliveTweakSaveRevisionRef,
+      noteSaveLeftQueued,
+      pendingTweakSaveRef,
+      queryClient,
+      setTweakSaveActive,
+      t,
+      tweakSaveInFlightRef,
+      tweakSaveRevisionRef,
+      warnChangesWillRetry,
+    }),
     [
       acknowledgeOutboxEntry,
       applyTweaksAsync,
@@ -162,10 +163,8 @@ export function useTweaks({
       window.clearTimeout(tweakSaveTimerRef.current);
       tweakSaveTimerRef.current = null;
     }
-    const pending = pendingTweakSaveRef.current;
-    pendingTweakSaveRef.current = null;
-    if (pending) persistTweakSave(pending);
-  }, [persistTweakSave]);
+    sendLatestTweakSave(tweakSaveArgs);
+  }, [tweakSaveArgs]);
   const queueTweakSave = useCallback(
     (selections: TweakSelections) => {
       if (!id || !canEditDesignRef.current) return;
@@ -175,7 +174,7 @@ export function useTweaks({
       const pending = createQueuedTweakSave(
         selections,
         revision,
-        confirmedTweakSelectionsHashRef.current,
+        confirmedTweakSelectionsRef.current.hash,
         pendingTweakSaveRef.current,
       );
       pendingTweakSaveRef.current = pending;
@@ -195,38 +194,21 @@ export function useTweaks({
   );
 
   useEffect(() => {
-    const handlePageHide = () => {
-      const pending = pendingTweakSaveRef.current;
-      if (!id || !pending || !canEditDesignRef.current) return;
-      if (tweakSaveInFlightRef.current) return;
-      const entry = createTweakSaveOutboxEntry(pending);
-      if (!entry) return;
-      void sendJournaledTweakSaveKeepalive({
-        journal: () => journalTweakOutboxEntry(entry),
-        send: () =>
-          tryCallActionKeepalive("apply-tweaks", entry.payload as any),
-        acknowledge: () => acknowledgeOutboxEntry(entry),
-      }).catch(() => {});
+    const handlePageHide = () => sendLatestTweakSaveKeepalive(tweakSaveArgs);
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === "hidden") handlePageHide();
     };
-    const handleOnline = () => {
-      if (pendingTweakSaveRef.current && !tweakSaveInFlightRef.current) {
-        flushPendingTweakSave();
-      }
-    };
+    const handleOnline = () => flushPendingTweakSave();
     window.addEventListener("pagehide", handlePageHide);
+    document.addEventListener("visibilitychange", handleVisibilityChange);
     window.addEventListener("online", handleOnline);
     return () => {
       window.removeEventListener("pagehide", handlePageHide);
+      document.removeEventListener("visibilitychange", handleVisibilityChange);
       window.removeEventListener("online", handleOnline);
       flushPendingTweakSave();
     };
-  }, [
-    acknowledgeOutboxEntry,
-    createTweakSaveOutboxEntry,
-    flushPendingTweakSave,
-    id,
-    journalTweakOutboxEntry,
-  ]);
+  }, [flushPendingTweakSave, tweakSaveArgs]);
 
   const tweaks: TweakDefinition[] = useMemo(() => {
     if (!design?.data) return [];
@@ -257,8 +239,10 @@ export function useTweaks({
       !tweakSaveInFlightRef.current &&
       pendingTweakSaveRef.current === null
     ) {
-      confirmedTweakSelectionsHashRef.current =
-        tweakSelectionsHash(persistedSelections);
+      confirmedTweakSelectionsRef.current = {
+        selections: persistedSelections,
+        hash: tweakSelectionsHash(persistedSelections),
+      };
     }
   }, [persistedSelections, tweakSaveActive]);
 

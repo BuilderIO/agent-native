@@ -1,16 +1,24 @@
-import { useActionMutation } from "@agent-native/core/client/hooks";
+import {
+  tryCallActionKeepalive,
+  useActionMutation,
+} from "@agent-native/core/client/hooks";
 import { tweakSelectionsHash } from "@shared/resolve-tweaks";
 import type { QueryClient } from "@tanstack/react-query";
 import type { Dispatch, RefObject, SetStateAction } from "react";
 import { toast } from "sonner";
 
 import type { DesignSaveOutboxEntry } from "@/lib/design-save-outbox";
-import type { PendingTweakSave } from "@/pages/design-editor/tweak-save";
+import type {
+  ConfirmedTweakSelections,
+  InFlightTweakSave,
+  PendingTweakSave,
+} from "@/pages/design-editor/tweak-save";
 import {
   classifyTweakSaveFailure,
   clearCompletedTweakSave,
   rebaseTweakSaveForSend,
-  retainLatestFailedTweakSave,
+  selectionsHashIfApplied,
+  sendJournaledTweakSaveKeepalive,
 } from "@/pages/design-editor/tweak-save";
 
 import { designMetadataQueryKey } from "../design-query-key";
@@ -21,156 +29,245 @@ export interface PersistTweakSaveArgs {
     typeof useActionMutation<undefined, undefined, "apply-tweaks">
   >["mutateAsync"];
   canEditDesignRef: RefObject<boolean>;
-  confirmedTweakSelectionsHashRef: RefObject<string>;
+  confirmedTweakSelectionsRef: RefObject<ConfirmedTweakSelections>;
   createTweakSaveOutboxEntry: (
     pending: PendingTweakSave,
   ) => DesignSaveOutboxEntry | null;
   id: string | undefined;
   journalTweakOutboxEntry: (entry: DesignSaveOutboxEntry) => Promise<boolean>;
+  /** Highest revision a page-exit keepalive has sent. */
+  keepaliveTweakSaveRevisionRef: RefObject<number>;
   noteSaveLeftQueued: () => void;
+  /** The latest unconfirmed snapshot; it stays here until a save confirms it. */
   pendingTweakSaveRef: RefObject<PendingTweakSave | null>;
   queryClient: QueryClient;
   setTweakSaveActive: Dispatch<SetStateAction<boolean>>;
   t: (key: string, options?: Record<string, unknown>) => string;
-  tweakSaveChainRef: RefObject<Promise<void>>;
-  tweakSaveInFlightRef: RefObject<boolean>;
+  tweakSaveInFlightRef: RefObject<InFlightTweakSave | null>;
   tweakSaveRevisionRef: RefObject<number>;
   warnChangesWillRetry: () => void;
 }
 
-export function runPersistTweakSave(
-  {
+type ApplyTweaksParams = Parameters<
+  PersistTweakSaveArgs["applyTweaksAsync"]
+>[0];
+
+function applyTweaksParams(
+  designId: string,
+  pending: PendingTweakSave,
+): ApplyTweaksParams {
+  return {
+    designId,
+    selections: pending.selections,
+    expectedSelectionsHash: pending.expectedSelectionsHash,
+    ...(pending.inFlightSelectionsHash
+      ? { inFlightSelectionsHash: pending.inFlightSelectionsHash }
+      : {}),
+  };
+}
+
+interface ApplyTweaksResult {
+  appliedTweaks?: Record<string, unknown>;
+  selectionsHash?: string;
+}
+
+function confirmTweakSave(
+  args: PersistTweakSaveArgs,
+  sent: PendingTweakSave,
+  result: ApplyTweaksResult | undefined,
+) {
+  const { id, pendingTweakSaveRef, queryClient } = args;
+  const applied = (result?.appliedTweaks ??
+    sent.selections) as PendingTweakSave["selections"];
+  const hash =
+    typeof result?.selectionsHash === "string"
+      ? result.selectionsHash
+      : tweakSelectionsHash(applied);
+  args.confirmedTweakSelectionsRef.current = { selections: applied, hash };
+  if (id && result?.appliedTweaks) {
+    queryClient.setQueryData(
+      designMetadataQueryKey(id),
+      (old: Record<string, unknown> | undefined) => {
+        if (!old || typeof old !== "object") return old;
+        let data: Record<string, unknown>;
+        if (old.data != null && typeof old.data !== "string") return old;
+        try {
+          const parsed = JSON.parse(old.data ?? "{}");
+          data =
+            parsed && typeof parsed === "object" && !Array.isArray(parsed)
+              ? parsed
+              : {};
+        } catch {
+          return old;
+        }
+        return {
+          ...old,
+          data: JSON.stringify({
+            ...data,
+            tweakSelections: result.appliedTweaks,
+          }),
+        };
+      },
+    );
+  }
+  const queued = clearCompletedTweakSave(
+    pendingTweakSaveRef.current,
+    sent.revision,
+  );
+  if (queued) {
+    const rebased = rebaseTweakSaveForSend(queued, hash);
+    pendingTweakSaveRef.current = rebased;
+    const rebasedEntry = args.createTweakSaveOutboxEntry(rebased);
+    if (rebasedEntry) void args.journalTweakOutboxEntry(rebasedEntry);
+  } else {
+    pendingTweakSaveRef.current = null;
+  }
+  if (args.tweakSaveRevisionRef.current <= sent.revision) {
+    args.setTweakSaveActive(false);
+  }
+}
+
+/**
+ * Sends the latest unconfirmed snapshot. Saves are latest-wins: at most one is
+ * on the wire, and edits made meanwhile wait as one snapshot, never a backlog.
+ */
+export function sendLatestTweakSave(args: PersistTweakSaveArgs): void {
+  const {
     acknowledgeOutboxEntry,
     applyTweaksAsync,
     canEditDesignRef,
-    confirmedTweakSelectionsHashRef,
+    confirmedTweakSelectionsRef,
     createTweakSaveOutboxEntry,
     id,
     journalTweakOutboxEntry,
+    keepaliveTweakSaveRevisionRef,
     noteSaveLeftQueued,
     pendingTweakSaveRef,
-    queryClient,
     setTweakSaveActive,
     t,
-    tweakSaveChainRef,
     tweakSaveInFlightRef,
     tweakSaveRevisionRef,
     warnChangesWillRetry,
-  }: PersistTweakSaveArgs,
-  pending: PendingTweakSave,
-) {
-  if (!id || !canEditDesignRef.current) return;
-  const previous = tweakSaveChainRef.current;
-  const current = previous
-    .catch(() => {})
-    .then(async () => {
-      tweakSaveInFlightRef.current = true;
-      const sendPending = rebaseTweakSaveForSend(
-        pending,
-        confirmedTweakSelectionsHashRef.current,
+  } = args;
+  if (!id || !canEditDesignRef.current || tweakSaveInFlightRef.current) return;
+  const pending = pendingTweakSaveRef.current;
+  if (!pending) return;
+  const confirmed = confirmedTweakSelectionsRef.current;
+  const sendPending = rebaseTweakSaveForSend(pending, confirmed.hash);
+  const entry = createTweakSaveOutboxEntry(sendPending);
+  if (!entry) return;
+  tweakSaveInFlightRef.current = {
+    revision: sendPending.revision,
+    selectionsHashIfApplied: selectionsHashIfApplied(
+      confirmed,
+      sendPending.selections,
+    ),
+  };
+  void (async () => {
+    const journaled = await journalTweakOutboxEntry(entry);
+    try {
+      const result = (await applyTweaksAsync(
+        applyTweaksParams(id, sendPending),
+      )) as ApplyTweaksResult;
+      confirmTweakSave(args, sendPending, result);
+      if (journaled) await acknowledgeOutboxEntry(entry);
+    } catch (error) {
+      if (tweakSaveRevisionRef.current === sendPending.revision) {
+        setTweakSaveActive(true);
+      }
+      const failureKind = classifyTweakSaveFailure(
+        error,
+        journaled,
+        navigator.onLine,
       );
-      const entry = createTweakSaveOutboxEntry(sendPending);
-      if (!entry) {
-        tweakSaveInFlightRef.current = false;
-        return;
+      // A page-exit keepalive carrying a later snapshot can land first and
+      // refuse this one. That later snapshot decides; the save that follows
+      // this one re-sends it and reports its own conflict if there is one.
+      const overtaken =
+        failureKind === "conflict" &&
+        keepaliveTweakSaveRevisionRef.current > sendPending.revision;
+      if (overtaken) {
+        // Left to the later snapshot's save.
+      } else if (failureKind === "conflict") {
+        toast.error(t("designEditor.toasts.tweakConflict"));
+      } else if (failureKind === "durable-retry") {
+        warnChangesWillRetry();
+      } else {
+        toast.error(t("designEditor.toasts.tweakSaveNotDurable"));
       }
-      const journaled = await journalTweakOutboxEntry(entry);
-      try {
-        const result = (await applyTweaksAsync(entry.payload as any)) as {
-          appliedTweaks?: Record<string, unknown>;
-          selectionsHash?: string;
-        };
-        const confirmedHash =
-          typeof result?.selectionsHash === "string"
-            ? result.selectionsHash
-            : tweakSelectionsHash(
-                result?.appliedTweaks ?? sendPending.selections,
-              );
-        confirmedTweakSelectionsHashRef.current = confirmedHash;
-        if (result?.appliedTweaks) {
-          queryClient.setQueryData(
-            designMetadataQueryKey(id),
-            (old: Record<string, unknown> | undefined) => {
-              if (!old || typeof old !== "object") return old;
-              let data: Record<string, unknown>;
-              if (old.data != null && typeof old.data !== "string") return old;
-              try {
-                const parsed = JSON.parse(old.data ?? "{}");
-                data =
-                  parsed && typeof parsed === "object" && !Array.isArray(parsed)
-                    ? parsed
-                    : {};
-              } catch {
-                return old;
-              }
-              return {
-                ...old,
-                data: JSON.stringify({
-                  ...data,
-                  tweakSelections: result.appliedTweaks,
-                }),
-              };
-            },
-          );
-        }
-        if (journaled) await acknowledgeOutboxEntry(entry);
-
-        const queuedAfterSuccess = clearCompletedTweakSave(
-          pendingTweakSaveRef.current,
-          pending.revision,
-        );
-        if (
-          queuedAfterSuccess &&
-          queuedAfterSuccess.revision > pending.revision
-        ) {
-          const rebasedQueued = rebaseTweakSaveForSend(
-            queuedAfterSuccess,
-            confirmedHash,
-          );
-          pendingTweakSaveRef.current = rebasedQueued;
-          const rebasedEntry = createTweakSaveOutboxEntry(rebasedQueued);
-          if (rebasedEntry) void journalTweakOutboxEntry(rebasedEntry);
-        } else {
-          pendingTweakSaveRef.current = queuedAfterSuccess;
-        }
-        if (tweakSaveRevisionRef.current === pending.revision) {
-          setTweakSaveActive(false);
-        }
-      } catch (error) {
-        pendingTweakSaveRef.current = retainLatestFailedTweakSave(
-          pendingTweakSaveRef.current,
-          sendPending,
-        );
-        if (tweakSaveRevisionRef.current === pending.revision) {
-          setTweakSaveActive(true);
-        }
-        const failureKind = classifyTweakSaveFailure(
-          error,
-          journaled,
-          navigator.onLine,
-        );
-        if (failureKind === "conflict") {
-          toast.error(t("designEditor.toasts.tweakConflict"));
-        } else if (failureKind === "durable-retry") {
-          warnChangesWillRetry();
-        } else {
-          toast.error(t("designEditor.toasts.tweakSaveNotDurable"));
-        }
-        // A conflicting snapshot can never be replayed into a save, and the
-        // user was just told to redo it, so it must not wait in the outbox as
-        // an unsaved change. Any other failure leaves the entry for the replay.
-        if (journaled) {
-          if (failureKind === "conflict") await acknowledgeOutboxEntry(entry);
-          else noteSaveLeftQueued();
-        }
-      } finally {
-        tweakSaveInFlightRef.current = false;
+      // A conflicting snapshot can never be replayed into a save, and the
+      // user was just told to redo it, so it must not wait in the outbox as
+      // an unsaved change. Any other failure leaves the entry for the replay.
+      if (journaled) {
+        if (failureKind === "conflict") await acknowledgeOutboxEntry(entry);
+        else noteSaveLeftQueued();
       }
-    });
-  tweakSaveChainRef.current = current;
-  void current.finally(() => {
-    if (tweakSaveChainRef.current === current) {
-      tweakSaveChainRef.current = Promise.resolve();
+    } finally {
+      tweakSaveInFlightRef.current = null;
     }
-  });
+    const next = pendingTweakSaveRef.current;
+    if (next && next.revision > sendPending.revision) sendLatestTweakSave(args);
+  })();
+}
+
+/**
+ * Page-exit flush: always sends the latest snapshot, even with a save on the
+ * wire. Either may land first, so the in-flight save's result is also an
+ * accepted base.
+ */
+export function sendLatestTweakSaveKeepalive(args: PersistTweakSaveArgs): void {
+  const {
+    acknowledgeOutboxEntry,
+    canEditDesignRef,
+    confirmedTweakSelectionsRef,
+    createTweakSaveOutboxEntry,
+    id,
+    journalTweakOutboxEntry,
+    keepaliveTweakSaveRevisionRef,
+    pendingTweakSaveRef,
+    tweakSaveInFlightRef,
+  } = args;
+  const pending = pendingTweakSaveRef.current;
+  if (!id || !pending || !canEditDesignRef.current) return;
+  if (pending.revision <= keepaliveTweakSaveRevisionRef.current) return;
+  const rebased = rebaseTweakSaveForSend(
+    pending,
+    confirmedTweakSelectionsRef.current.hash,
+  );
+  const inFlight = tweakSaveInFlightRef.current;
+  const sendPending: PendingTweakSave = inFlight
+    ? { ...rebased, inFlightSelectionsHash: inFlight.selectionsHashIfApplied }
+    : rebased;
+  const entry = createTweakSaveOutboxEntry(sendPending);
+  if (!entry) return;
+  keepaliveTweakSaveRevisionRef.current = sendPending.revision;
+  let result: ApplyTweaksResult | undefined;
+  void sendJournaledTweakSaveKeepalive({
+    journal: () => journalTweakOutboxEntry(entry),
+    send: () => {
+      const attempt = tryCallActionKeepalive(
+        "apply-tweaks",
+        applyTweaksParams(id, sendPending),
+      );
+      if (!attempt.accepted) return attempt;
+      return {
+        accepted: true,
+        completion: attempt.completion.then((value) => {
+          result = value as ApplyTweaksResult;
+        }),
+      };
+    },
+    acknowledge: () => acknowledgeOutboxEntry(entry),
+  })
+    .then((landed) => {
+      if (landed) confirmTweakSave(args, sendPending, result);
+      else if (keepaliveTweakSaveRevisionRef.current === sendPending.revision) {
+        // The browser refused the keepalive: let the next page exit retry.
+        keepaliveTweakSaveRevisionRef.current = sendPending.revision - 1;
+      }
+    })
+    // coercion-ok: the page is usually gone by now. The snapshot stays in
+    // pendingTweakSaveRef and its journaled entry stays in the outbox, so a
+    // page that is still open re-sends it and reports through the normal save.
+    .catch(() => {});
 }

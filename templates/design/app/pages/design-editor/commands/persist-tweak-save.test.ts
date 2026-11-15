@@ -5,7 +5,7 @@ import { createDesignSaveOutboxEntry } from "@/lib/design-save-outbox";
 import type { PendingTweakSave } from "@/pages/design-editor/tweak-save";
 
 import {
-  runPersistTweakSave,
+  sendLatestTweakSave,
   type PersistTweakSaveArgs,
 } from "./persist-tweak-save";
 
@@ -25,14 +25,15 @@ function setup(options: {
 }) {
   const noteSaveLeftQueued = vi.fn();
   const warnChangesWillRetry = vi.fn();
-  const tweakSaveChainRef = { current: Promise.resolve() };
   const args: PersistTweakSaveArgs = {
     acknowledgeOutboxEntry: vi.fn(async () => {}),
     applyTweaksAsync: vi.fn(
       options.apply,
     ) as unknown as PersistTweakSaveArgs["applyTweaksAsync"],
     canEditDesignRef: { current: true },
-    confirmedTweakSelectionsHashRef: { current: tweakSelectionsHash({}) },
+    confirmedTweakSelectionsRef: {
+      current: { selections: {}, hash: tweakSelectionsHash({}) },
+    },
     createTweakSaveOutboxEntry: (pending) =>
       createDesignSaveOutboxEntry({
         designId: "design-1",
@@ -49,15 +50,15 @@ function setup(options: {
       }),
     id: "design-1",
     journalTweakOutboxEntry: vi.fn(async () => options.journaled ?? true),
+    keepaliveTweakSaveRevisionRef: { current: 0 },
     noteSaveLeftQueued,
-    pendingTweakSaveRef: { current: null },
+    pendingTweakSaveRef: { current: PENDING },
     queryClient: {
       setQueryData: vi.fn(),
     } as unknown as PersistTweakSaveArgs["queryClient"],
     setTweakSaveActive: vi.fn(),
     t: (key) => key,
-    tweakSaveChainRef,
-    tweakSaveInFlightRef: { current: false },
+    tweakSaveInFlightRef: { current: null },
     tweakSaveRevisionRef: { current: 1 },
     warnChangesWillRetry,
   };
@@ -65,8 +66,8 @@ function setup(options: {
 }
 
 async function runToCompletion(args: PersistTweakSaveArgs) {
-  runPersistTweakSave(args, PENDING);
-  await args.tweakSaveChainRef.current;
+  sendLatestTweakSave(args);
+  await vi.waitFor(() => expect(args.tweakSaveInFlightRef.current).toBeNull());
 }
 
 describe("runPersistTweakSave queued-save signal", () => {
