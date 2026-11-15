@@ -5,10 +5,10 @@ number: 21
 name: "Collect structured input"
 chapter: "content.chapter.working-systems"
 order: 21
-roadmap_status: "in_validation"
+roadmap_status: "partially_implemented"
 summary: "Build Forms over the same schema, validation, and submission Actions as the Collection they populate."
 example_workflow: "A research team publishes an intake Form that validates required fields, lets an external participant submit without reading the Collection, creates exactly one record, and triggers the Collection's enrichment Rule."
-works_today: "Content already has a Form View, ordered and required questions, schema-backed controls, and an atomic Action that creates and verifies an ordinary Collection record."
+works_today: "Content already has a Form View, ordered and required questions, schema-backed controls, and an atomic Action that creates and verifies an ordinary Collection record. Only people who can edit the Collection can submit."
 remains: "Content and Agent-Native Forms need one shared engine, with polished public submission, richer validation, conditional behavior, permissions, spam protection, receipts, and dependable downstream Rule handoff."
 required_capabilities:
   [
@@ -21,7 +21,7 @@ enhancing_capabilities: ["content.rule.deterministic", "content.job.durable"]
 increments: []
 feature_proof: null
 publicness: "public"
-last_reviewed: "2026-07-29"
+last_reviewed: "2026-10-31"
 ---
 
 # Feature 21: Collect structured input

@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 
@@ -14,11 +14,12 @@ const commandArgs = separator === -1 ? [] : args.slice(separator + 1);
 const appDir = valueOf(launcherArgs, "--dir");
 const name = valueOf(launcherArgs, "--name") ?? appDir;
 const dryRun = launcherArgs.includes("--dry-run");
+const ephemeral = launcherArgs.includes("--ephemeral");
 const env = assignments(launcherArgs);
 
 if (!appDir || commandArgs.length === 0) {
   fail(
-    "Usage: tsx scripts/claude-launch.ts --dir <app> [--name <label>] [--env KEY=VALUE] -- <command> [args]",
+    "Usage: tsx scripts/claude-launch.ts --dir <app> [--name <label>] [--ephemeral] [--env KEY=VALUE] -- <command> [args]",
   );
 }
 
@@ -27,8 +28,24 @@ const packagePath = path.join(resolvedAppDir, "package.json");
 const packageName = readPackageName(packagePath);
 const appName = env.APP_NAME ?? packageName ?? path.basename(resolvedAppDir);
 const appPrefix = appName.toUpperCase().replace(/[^A-Z0-9]+/g, "_");
-const scratchDir = mkdtempSync(path.join(os.tmpdir(), "agent-native-claude-"));
-const databaseUrl = env.DATABASE_URL ?? `pglite:${scratchDir}`;
+// Previews keep their database across restarts: a user who connects storage,
+// a provider, or an account mid-session would otherwise lose it on the next
+// restart. --ephemeral is for scripted runs that need a clean database.
+const scratchDir =
+  env.DATABASE_URL === undefined && ephemeral
+    ? mkdtempSync(path.join(os.tmpdir(), "agent-native-claude-"))
+    : undefined;
+const previewDatabaseDir = path.resolve(
+  process.cwd(),
+  ".tmp",
+  "claude-launch",
+  `${(name ?? appDir)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")}-pglite`,
+);
+const databaseUrl =
+  env.DATABASE_URL ?? `pglite:${scratchDir ?? previewDatabaseDir}`;
 const childEnv: Environment = {
   ...process.env,
   ...env,
@@ -50,6 +67,10 @@ if (dryRun) {
   );
   cleanup();
   process.exit(0);
+}
+
+if (env.DATABASE_URL === undefined && !scratchDir) {
+  mkdirSync(previewDatabaseDir, { recursive: true });
 }
 
 const pnpm = pnpmCommand(command.slice(1));
@@ -119,7 +140,7 @@ function readPackageName(packagePath: string): string | undefined {
 }
 
 function cleanup(): void {
-  rmSync(scratchDir, { recursive: true, force: true });
+  if (scratchDir) rmSync(scratchDir, { recursive: true, force: true });
 }
 
 function fail(message: string): never {

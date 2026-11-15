@@ -123,6 +123,11 @@ export interface PromptComposerProps {
   onRemoveContextItem?: (key: string) => void;
   onInspectContextItem?: (key: string) => void;
   onRetryContextItem?: (key: string) => void;
+  /**
+   * Claims a paste as app context before the composer handles it. Return true
+   * when the paste was taken, so nothing is inserted or attached.
+   */
+  onPasteContext?: (clipboard: DataTransfer) => boolean;
   /** When provided, + opens this shared Add menu; a typed @ also suggests its context sources. */
   contextMenuItems?: readonly ComposerContextMenuItem[];
   /** Called when the user submits the composer. */
@@ -663,7 +668,7 @@ export function AttachmentChip({
       <div
         role="status"
         title={message}
-        className="agent-composer-attachment-chip group relative inline-flex max-w-[240px] items-center gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-xs"
+        className="agent-composer-attachment-chip group relative inline-flex max-w-[240px] items-center gap-2 rounded-[var(--agent-kit-radius-sm,0.5rem)] border border-amber-500/40 bg-amber-500/10 px-2 py-1.5 text-xs"
       >
         <IconAlertTriangle className="h-4 w-4 shrink-0 text-amber-500" />
         <span className="flex min-w-0 flex-col">
@@ -677,7 +682,7 @@ export function AttachmentChip({
             name: attachment.name,
             defaultValue: `Remove ${attachment.name}`,
           })}
-          className="flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground hover:text-foreground"
+          className="relative flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded-[var(--agent-kit-radius-xs,0.25rem)] text-muted-foreground hover:text-foreground after:absolute after:-inset-0.5 after:content-['']"
         >
           <IconX className="h-3 w-3" />
         </button>
@@ -699,7 +704,7 @@ export function AttachmentChip({
               name: attachment.name,
               defaultValue: `Preview ${attachment.name}`,
             })}
-            className="agent-composer-attachment-image group flex h-16 min-w-16 max-w-28 cursor-zoom-in items-center justify-center overflow-hidden rounded-lg border border-border/70 bg-muted/50"
+            className="agent-composer-attachment-image group flex h-16 min-w-16 max-w-28 cursor-zoom-in items-center justify-center overflow-hidden rounded-[var(--agent-kit-radius-sm,0.5rem)] border border-border bg-muted/50"
           >
             {src ? (
               <img
@@ -718,7 +723,7 @@ export function AttachmentChip({
             defaultValue: `Remove ${attachment.name}`,
           })}
           data-agent-composer-slot="attachment-remove"
-          className="absolute end-1 top-1 flex h-5 w-5 cursor-pointer items-center justify-center rounded-full border border-border/60 bg-background/90 text-muted-foreground hover:text-foreground after:absolute after:-inset-0.5 after:content-['']"
+          className="absolute end-1 top-1 flex h-5 w-5 cursor-pointer items-center justify-center rounded-[var(--agent-kit-radius-xs,0.25rem)] border border-border bg-background/90 text-muted-foreground hover:text-foreground after:absolute after:-inset-0.5 after:content-['']"
         >
           <IconX className="h-3 w-3" />
         </button>
@@ -727,8 +732,8 @@ export function AttachmentChip({
   }
 
   return (
-    <div className="agent-composer-attachment-chip group relative inline-flex max-w-[200px] items-center gap-2 rounded-md border border-border/70 bg-muted/50 px-2 py-1.5 text-xs">
-      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded bg-background agent-kit-micro-copy font-semibold uppercase text-muted-foreground">
+    <div className="agent-composer-attachment-chip group relative inline-flex max-w-[200px] items-center gap-2 rounded-[var(--agent-kit-radius-sm,0.5rem)] border border-border bg-muted/50 px-2 py-1.5 text-xs">
+      <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-[var(--agent-kit-radius-xs,0.25rem)] bg-background agent-kit-micro-copy font-semibold uppercase text-muted-foreground">
         {attachment.name.split(".").pop() ||
           t("agentChat.composer.file", { defaultValue: "file" })}
       </div>
@@ -741,7 +746,7 @@ export function AttachmentChip({
           defaultValue: `Remove ${attachment.name}`,
         })}
         data-agent-composer-slot="attachment-remove"
-        className="relative flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded text-muted-foreground hover:text-foreground after:absolute after:-inset-0.5 after:content-['']"
+        className="relative flex h-5 w-5 shrink-0 cursor-pointer items-center justify-center rounded-[var(--agent-kit-radius-xs,0.25rem)] text-muted-foreground hover:text-foreground after:absolute after:-inset-0.5 after:content-['']"
       >
         <IconX className="h-3 w-3" />
       </button>
@@ -753,8 +758,11 @@ const NO_HIDDEN_ATTACHMENTS: readonly string[] = [];
 
 function PromptAttachmentStrip({
   hiddenIds = NO_HIDDEN_ATTACHMENTS,
+  onRemoved,
 }: {
   hiddenIds?: readonly string[];
+  /** Runs after a chip is removed, so focus has somewhere to land. */
+  onRemoved?: () => void;
 }) {
   const allAttachments = useComposer((state) => state.attachments);
   const attachments = hiddenIds.length
@@ -765,8 +773,9 @@ function PromptAttachmentStrip({
   const handleRemove = useCallback(
     (id: string) => {
       void aui.composer().attachment({ id }).remove();
+      onRemoved?.();
     },
-    [aui],
+    [aui, onRemoved],
   );
 
   if (attachments.length === 0) return null;
@@ -790,6 +799,7 @@ function PromptComposerInner({
   onRemoveContextItem,
   onInspectContextItem,
   onRetryContextItem,
+  onPasteContext,
   contextMenuItems,
   placeholder,
   replyPlaceholder,
@@ -1094,6 +1104,7 @@ function PromptComposerInner({
       window.dispatchEvent(new Event("agent-engine:configured-changed"));
     }
   }, []);
+  const focusComposer = useCallback(() => localRef.current?.focus(), []);
   const firstRunOwnsSurface = useFirstRunOnboardingGateOwnsSurface();
   useEffect(() => {
     if (!autoFocus || composerDisabled || firstRunOwnsSurface) return;
@@ -1204,13 +1215,17 @@ function PromptComposerInner({
             {t("agentChat.setup.providerStatusUnavailable")}
           </ComposerNotice>
         ) : null}
-        <PromptAttachmentStrip hiddenIds={optimisticAttachmentIds} />
+        <PromptAttachmentStrip
+          hiddenIds={optimisticAttachmentIds}
+          onRemoved={focusComposer}
+        />
         <TiptapComposer
           contextItems={contextItems}
           contextMenuItems={contextMenuItems}
           onRemoveContextItem={onRemoveContextItem}
           onInspectContextItem={onInspectContextItem}
           onRetryContextItem={onRetryContextItem}
+          onPasteContext={onPasteContext}
           attachmentsEnabled={attachmentsEnabled}
           onAttachmentRequest={onAttachmentRequest}
           contextButtonTooltipDisabled={contextButtonTooltipDisabled}

@@ -274,8 +274,7 @@ export function mountMcpOAuthRoutes(
 async function handleMcpOAuthStart(
   event: H3Event,
 ): Promise<Response | Record<string, unknown>> {
-  // coercion-ok: OAuth requests fail closed when session resolution is unavailable.
-  const session = await getSessionForEvent(event).catch(() => null);
+  const session = await getSessionForEvent(event);
   if (!session?.email) return unauthorized(event);
   const principal = normalizeMcpPrincipal({ userEmail: session?.email });
   if (!principal) return unauthorized(event);
@@ -350,10 +349,7 @@ async function handleMcpOAuthStart(
   }
   const requestedScope = resolvedScope.scope;
   const requestedOrgId = text(query.orgId);
-  const org =
-    requestedScope === "org"
-      ? await getOrgContext(event).catch(() => null)
-      : null;
+  const org = requestedScope === "org" ? await getOrgContext(event) : null;
   const scope: RemoteMcpScope = requestedScope;
   const scopeId = scope === "user" ? session.email : (org?.orgId ?? "");
   if (scope === "org" && requestedOrgId && requestedOrgId !== scopeId) {
@@ -699,8 +695,7 @@ async function handleMcpOAuthCallback(
   event: H3Event,
   options: McpOAuthRoutesOptions,
 ): Promise<Response | Record<string, unknown>> {
-  // coercion-ok: OAuth callbacks fail closed when session resolution is unavailable.
-  const session = await getSessionForEvent(event).catch(() => null);
+  const session = await getSessionForEvent(event);
   if (!session?.email) return unauthorized(event);
   const authenticatedPrincipal = normalizeMcpPrincipal({
     userEmail: session?.email,
@@ -713,9 +708,8 @@ async function handleMcpOAuthCallback(
   const iss = text(query.iss);
   const providerError = text(query.error);
   const flow = readMcpOAuthFlowCookie(event);
+  const org = flow?.scope === "org" ? await getOrgContext(event) : null;
   clearMcpOAuthFlowCookies(event);
-  const org =
-    flow?.scope === "org" ? await getOrgContext(event).catch(() => null) : null;
   if (
     !state ||
     !flow ||

@@ -1338,7 +1338,6 @@ async function callTargetCreateEmbedSession(input: {
   token: string;
   url: string;
   chrome?: "full" | "minimal";
-  firstPartyMcp?: boolean;
 }): Promise<unknown> {
   const serverId = "target";
   const deadline = Date.now() + TARGET_EMBED_SESSION_BUDGET_MS;
@@ -1351,9 +1350,8 @@ async function callTargetCreateEmbedSession(input: {
             url: input.mcpUrl,
             headers: {
               Authorization: `Bearer ${input.token}`,
-              ...(input.firstPartyMcp
-                ? { "x-agent-native-mcp-inline-apps": "1" }
-                : {}),
+              // Targets hide create_embed_session from callers that don't declare inline MCP App support.
+              "x-agent-native-mcp-inline-apps": "1",
             },
           },
         },
@@ -1740,7 +1738,6 @@ async function createEmbedSessionForResolvedApp(input: {
       const result = await callTargetCreateEmbedSession({
         mcpUrl: targetMcpUrl,
         token: credential.token,
-        ...(credential.firstPartyMcp ? { firstPartyMcp: true } : {}),
         url: target.url,
         ...(chrome !== undefined ? { chrome } : {}),
       });

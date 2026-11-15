@@ -15,6 +15,11 @@ const rawClient = {
     if (/^\s*(select|with)/i.test(input.sql)) {
       return { rows: await stmt.all(...args), rowsAffected: 0 };
     }
+    // A write that returns rows reports them, as the real clients do.
+    if (/\breturning\b/i.test(input.sql)) {
+      const rows = await stmt.all(...args);
+      return { rows, rowsAffected: rows.length };
+    }
     const info = await stmt.run(...args);
     return { rows: [], rowsAffected: info.changes };
   }),

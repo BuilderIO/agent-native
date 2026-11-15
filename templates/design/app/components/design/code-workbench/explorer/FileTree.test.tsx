@@ -6,6 +6,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   useWorkbench: vi.fn(),
+  reportWriteFailure: vi.fn(),
+}));
+
+vi.mock("@agent-native/core/client/write-failure", () => ({
+  reportWriteFailure: mocks.reportWriteFailure,
 }));
 
 vi.mock("../store", () => ({
@@ -55,8 +60,6 @@ vi.mock("./file-icons", () => ({
   FileIcon: () => null,
   FolderIcon: () => null,
 }));
-
-import { DESIGN_WRITE_FAILED_EVENT } from "@/lib/design-write-failure";
 
 import { FileTree } from "./FileTree";
 
@@ -153,6 +156,7 @@ function deleteButtons(scope: ParentNode): HTMLButtonElement[] {
 
 beforeEach(() => {
   mocks.useWorkbench.mockReset();
+  mocks.reportWriteFailure.mockReset();
   container = null;
   root = null;
 });
@@ -200,24 +204,20 @@ describe("FileTree deletion confirmation", () => {
     );
   });
 
-  it("reports a failed rename as a design write failure", async () => {
-    const renameFile = vi.fn().mockRejectedValue(new Error("disk full"));
+  it("reports a failed rename as a write failure", async () => {
+    const failure = new Error("disk full");
+    const renameFile = vi.fn().mockRejectedValue(failure);
     mount("inline:design-1", vi.fn(), { renameFile });
-    const reported = vi.fn();
-    window.addEventListener(DESIGN_WRITE_FAILED_EVENT, reported);
 
-    try {
-      await commitRenameTo("renamed.html");
+    await commitRenameTo("renamed.html");
 
-      expect(renameFile).toHaveBeenCalledWith(
-        "inline:design-1",
-        "index.html",
-        "renamed.html",
-      );
-      expect(reported).toHaveBeenCalledOnce();
-    } finally {
-      window.removeEventListener(DESIGN_WRITE_FAILED_EVENT, reported);
-    }
+    expect(renameFile).toHaveBeenCalledWith(
+      "inline:design-1",
+      "index.html",
+      "renamed.html",
+    );
+    expect(mocks.reportWriteFailure).toHaveBeenCalledOnce();
+    expect(mocks.reportWriteFailure).toHaveBeenCalledWith(failure);
   });
 
   it("hands a localhost consent error to the consent flow instead of reporting it", async () => {
@@ -230,20 +230,14 @@ describe("FileTree deletion confirmation", () => {
       renameFile,
       onRequestLocalWriteConsent,
     });
-    const reported = vi.fn();
-    window.addEventListener(DESIGN_WRITE_FAILED_EVENT, reported);
 
-    try {
-      await commitRenameTo("renamed.html");
+    await commitRenameTo("renamed.html");
 
-      expect(renameFile).toHaveBeenCalledOnce();
-      expect(onRequestLocalWriteConsent).toHaveBeenCalledWith(
-        "connection-1",
-        expect.any(Function),
-      );
-      expect(reported).not.toHaveBeenCalled();
-    } finally {
-      window.removeEventListener(DESIGN_WRITE_FAILED_EVENT, reported);
-    }
+    expect(renameFile).toHaveBeenCalledOnce();
+    expect(onRequestLocalWriteConsent).toHaveBeenCalledWith(
+      "connection-1",
+      expect.any(Function),
+    );
+    expect(mocks.reportWriteFailure).not.toHaveBeenCalled();
   });
 });

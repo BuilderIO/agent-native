@@ -447,6 +447,8 @@ const messages = {
       "Afficher les notes du présentateur pendant la présentation",
     presenterViewBlocked:
       "Autorisez les fenêtres contextuelles pour ouvrir le mode présentateur.",
+    presenterViewUnsupported:
+      "Le mode présentateur n'est pas pris en charge par ce navigateur.",
     export: "Exporter",
     privacyPrivate: "Privé",
     privacyOrg: "Partagé avec l’organisation",
@@ -502,6 +504,11 @@ const messages = {
   editorExport: {
     pptxFailed: "Impossible de générer le fichier PPTX.",
     exportFailed: "Échec de l’export",
+    exportFinishedWithWarnings: "Exporté avec des avertissements",
+    imagesDropped:
+      "{{count}} image(s) n'ont pas pu être chargées et ont été omises du fichier PowerPoint (diapositives {{slides}}).",
+    pdfSidecarSkipped:
+      "Ce PDF a été exporté sans sa source modifiable. Sa réimportation reconstruira les diapositives à partir du contenu des pages.",
     exporting: "Exportation...",
     exportPptxError: "Une erreur est survenue lors de l’export en PPTX.",
     googleSlidesDownloaded: "Téléchargé pour Google Slides",
@@ -521,6 +528,9 @@ const messages = {
     exportPdf: "Exporter en PDF",
     exportPptx: "Exporter en PPTX",
     connectGoogle: "Connecter Google",
+    disconnectGoogle: "Déconnecter Google",
+    googleDisconnectFailed: "Impossible de déconnecter Google Drive.",
+    googleSlidesStatusUnknown: "Impossible de vérifier l'état",
     openInGoogleSlides: "Ouvrir dans Google Slides",
     googleSlidesUnavailable: "Indisponible",
     googleSlidesOpenImporter: "Ouvrir l'import Google Slides",
@@ -544,6 +554,7 @@ const messages = {
   share: {
     createFailed: "Impossible de créer le lien de partage",
     snapshotLinks: "Liens d'instantané",
+    snapshotLinksLoadFailed: "Impossible de charger les liens d'instantané",
     revokeLink: "Révoquer",
     revokeFailed: "Impossible de révoquer le lien de partage",
     title: "Partager la présentation",

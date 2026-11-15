@@ -42,6 +42,7 @@ import {
 } from "./_blocks-field-identity.js";
 import { reconcileInlineDatabasesForDocumentWithDb } from "./_content-database-lifecycle.js";
 import { listContentOrganizationMemberships } from "./_content-space-access.js";
+import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
 import {
   assertEditableDocument,
   documentContentHash,
@@ -338,6 +339,7 @@ export default defineAction({
     if (isLinkedLocalSource(documentId, source))
       linkedLocalRestoreUnsupported();
     assertSourceAllowsPageEdit(access.resource);
+    assertAgentsMayEditPageText(access.resource, ctx);
     const db = getDb();
     const readCurrent = async () => {
       const [current] = await db
@@ -505,6 +507,7 @@ export default defineAction({
         linkedLocalRestoreUnsupported();
       }
       assertSourceAllowsPageEdit(current);
+      assertAgentsMayEditPageText(current, ctx);
       if (current.updatedAt !== expectedUpdatedAt) {
         restoreConflict(
           "The document changed after this restore was prepared.",

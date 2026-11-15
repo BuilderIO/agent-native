@@ -4,6 +4,7 @@ import {
   useActionQuery,
 } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   contentRecentHref,
   contentRecentTargetKey,
@@ -29,7 +30,6 @@ import {
   type ReactNode,
 } from "react";
 import { Link } from "react-router";
-import { toast } from "sonner";
 
 import { QueryErrorState } from "@/components/QueryErrorState";
 import { Button } from "@/components/ui/button";
@@ -258,7 +258,9 @@ export function PersonalSidebarSections({
           });
           queryClient.setQueryData(targetStateKey, saved);
         } catch (error) {
-          toast.error(t("sidebar.failedSaveSidebarState"));
+          reportWriteFailure(error, {
+            label: t("sidebar.failedSaveSidebarState"),
+          });
           throw error;
         } finally {
           const pending = (pendingBySpace.current.get(targetSpaceId) ?? 1) - 1;

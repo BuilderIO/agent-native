@@ -286,7 +286,7 @@ export function validateNetlifyPrPreviewWorkflow(
   const previewSiteConcurrency = previewEligibleSiteNames()
     .map(
       (site) =>
-        `github.event.comment.body == '/preview ${site}' && 'authorized-${site}'`,
+        `contains(fromJSON('${JSON.stringify([`/preview ${site}`, `/preview ${site}\n`, `/preview ${site}\r\n`])}'), github.event.comment.body) && 'authorized-${site}'`,
     )
     .join(" || ");
   const expectedPreviewConcurrencyExpression = `( github.event.comment.author_association == 'OWNER' || github.event.comment.author_association == 'MEMBER' ) && github.event.comment.user.type == 'User' && ( ${previewSiteConcurrency} || format('unrecognized-{0}', github.run_id) ) || format('ignored-{0}', github.run_id)`;

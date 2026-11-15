@@ -18,6 +18,8 @@ import {
   scheduleAfterStartup,
 } from "../use-after-paint.js";
 import { useSessionPreloading } from "../use-session.js";
+import { reportWriteFailure } from "../write-failure-event.js";
+import { writeFailureFromResponse } from "../write-failure.js";
 import {
   dispatchFirstRunOnboardingStatus,
   fetchFirstRunOnboardingStatus,
@@ -1100,11 +1102,17 @@ export function useOnboarding(
         : {}),
       reason: "user_action",
     });
-    await fetch(agentNativePath("/_agent-native/onboarding/dismiss"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: "{}",
-    });
+    const response = await fetch(
+      agentNativePath("/_agent-native/onboarding/dismiss"),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      },
+    );
+    if (!response.ok) {
+      reportWriteFailure(writeFailureFromResponse(response));
+    }
     await fetchAll();
   }, [fetchAll, steps]);
 
@@ -1114,11 +1122,17 @@ export function useOnboarding(
       flow: "checklist",
       reason: "user_action",
     });
-    await fetch(agentNativePath("/_agent-native/onboarding/reopen"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: "{}",
-    });
+    const response = await fetch(
+      agentNativePath("/_agent-native/onboarding/reopen"),
+      {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: "{}",
+      },
+    );
+    if (!response.ok) {
+      reportWriteFailure(writeFailureFromResponse(response));
+    }
     await fetchAll();
   }, [fetchAll]);
 

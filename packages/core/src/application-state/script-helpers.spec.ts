@@ -324,6 +324,181 @@ describe("application-state script-helpers", () => {
     });
   });
 
+  describe("a call from no tab, pointed at the tab used last", () => {
+    async function inMcpCall<T>(
+      target:
+        | { kind: "last-used"; tabId: string; usedAt: number }
+        | { kind: "unavailable" },
+      fn: () => Promise<T>,
+      run: { browserTabId?: string } = {},
+    ): Promise<{ result: T; lookups: number }> {
+      const { runWithRequestContext } =
+        await import("../server/request-context.js");
+      let lookups = 0;
+      const result = await runWithRequestContext(
+        {
+          userEmail: "alice@test.com",
+          run: {
+            ...run,
+            browserTabTarget: {
+              resolve: async () => {
+                lookups += 1;
+                return target;
+              },
+            },
+          },
+        },
+        fn,
+      );
+      return { result, lookups };
+    }
+    const lastUsedB = {
+      kind: "last-used" as const,
+      tabId: "tab-b",
+      usedAt: 1,
+    };
+
+    it("reads and writes that tab's navigation and commands", async () => {
+      const helpers = await import("./script-helpers.js");
+      mockAppStateGet.mockResolvedValue({ view: "editor", designId: "b" });
+      mockAppStatePut.mockResolvedValue(undefined);
+
+      const { result } = await inMcpCall(lastUsedB, async () => {
+        const navigation = await helpers.readAppState("navigation");
+        const selection =
+          await helpers.readAppStateForCurrentTab("design-selection");
+        await helpers.writeAppStateForCurrentTab("navigate", { view: "x" });
+        await helpers.writeAppState("navigate", { view: "y" });
+        return { navigation, selection };
+      });
+
+      expect(result.navigation).toEqual({ view: "editor", designId: "b" });
+      expect(mockAppStateGet.mock.calls.map((call) => call[1])).toEqual([
+        "navigation:tab-b",
+        "design-selection:tab-b",
+      ]);
+      expect(mockAppStatePut.mock.calls.map((call) => call[1])).toEqual([
+        "navigate:tab-b",
+        "navigate:tab-b",
+      ]);
+      // Written as the agent, so the tab takes the command as someone else's.
+      expect(mockAppStatePut.mock.calls[0]?.[3]).toEqual({
+        requestSource: "agent",
+      });
+    });
+
+    it("doesn't make the call that tab's own", async () => {
+      const helpers = await import("./script-helpers.js");
+
+      const { result } = await inMcpCall(lastUsedB, async () => ({
+        browserTabId: helpers.getCurrentRequestBrowserTabId(),
+        stateTab: await helpers.resolveCurrentRequestStateTab(),
+      }));
+
+      expect(result).toEqual({
+        browserTabId: null,
+        stateTab: { tabId: "tab-b", unavailable: false },
+      });
+    });
+
+    it("prefers the tab a request came from and never looks one up", async () => {
+      const helpers = await import("./script-helpers.js");
+      mockAppStateGet.mockResolvedValue(null);
+
+      const { lookups } = await inMcpCall(
+        lastUsedB,
+        () => helpers.readAppState("navigation"),
+        { browserTabId: "tab-a" },
+      );
+
+      expect(mockAppStateGet).toHaveBeenCalledWith(
+        "alice@test.com",
+        "navigation:tab-a",
+      );
+      expect(lookups).toBe(0);
+    });
+
+    it("looks the tab up only for tab-scoped keys", async () => {
+      const helpers = await import("./script-helpers.js");
+      mockAppStateGet.mockResolvedValue(null);
+
+      const { lookups } = await inMcpCall(lastUsedB, () =>
+        helpers.readAppState("design-selection"),
+      );
+
+      expect(mockAppStateGet).toHaveBeenCalledWith(
+        "alice@test.com",
+        "design-selection",
+      );
+      expect(lookups).toBe(0);
+    });
+
+    it("reads no navigation when no tab was used recently, instead of the account-wide row", async () => {
+      const helpers = await import("./script-helpers.js");
+      mockAppStateGet.mockResolvedValue({ view: "editor", designId: "old" });
+
+      const { result } = await inMcpCall({ kind: "unavailable" }, async () => [
+        await helpers.readAppState("navigation"),
+        await helpers.readAppStateForCurrentTab("navigation"),
+        await helpers.readAppStateForCurrentTab("navigation", {
+          fallbackToGlobal: true,
+        }),
+      ]);
+
+      expect(result).toEqual([null, null, null]);
+      expect(mockAppStateGet).not.toHaveBeenCalled();
+    });
+
+    it("reads another key's account-wide row only on request when no tab was used recently", async () => {
+      const helpers = await import("./script-helpers.js");
+      mockAppStateGet.mockResolvedValue({ designId: "selected" });
+
+      const { result } = await inMcpCall({ kind: "unavailable" }, async () => [
+        await helpers.readAppStateForCurrentTab("design-selection"),
+        await helpers.readAppStateForCurrentTab("design-selection", {
+          fallbackToGlobal: true,
+        }),
+      ]);
+
+      expect(result).toEqual([null, { designId: "selected" }]);
+      expect(mockAppStateGet).toHaveBeenCalledTimes(1);
+      expect(mockAppStateGet).toHaveBeenCalledWith(
+        "alice@test.com",
+        "design-selection",
+      );
+    });
+
+    it("still reads the account-wide row for a request that has no tab to look for", async () => {
+      const helpers = await import("./script-helpers.js");
+      const { runWithRequestContext } =
+        await import("../server/request-context.js");
+      mockAppStateGet.mockResolvedValue({ designId: "selected" });
+
+      const result = await runWithRequestContext(
+        { userEmail: "alice@test.com" },
+        () => helpers.readAppStateForCurrentTab("design-selection"),
+      );
+
+      expect(result).toEqual({ designId: "selected" });
+    });
+
+    it("keeps every write on the account-wide rows when no tab was used recently", async () => {
+      const helpers = await import("./script-helpers.js");
+      mockAppStatePut.mockResolvedValue(undefined);
+
+      await inMcpCall({ kind: "unavailable" }, () =>
+        helpers.writeAppStateForCurrentTab("navigate", { view: "x" }),
+      );
+
+      expect(mockAppStatePut).toHaveBeenCalledWith(
+        "alice@test.com",
+        "navigate",
+        { view: "x" },
+        { requestSource: "agent" },
+      );
+    });
+  });
+
   describe("deleteAppStateByPrefix", () => {
     it("delegates to appStateDeleteByPrefix", async () => {
       process.env.AGENT_USER_EMAIL = "alice@test.com";

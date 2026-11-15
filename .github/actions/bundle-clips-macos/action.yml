@@ -1,0 +1,132 @@
+name: Bundle the universal Clips macOS app
+description: >-
+  Merges the clips-macos-<target> artifacts from build-clips-macos-arch into
+  a universal binary and ffmpeg sidecar, then bundles the app and DMG: the
+  half of `tauri build --target universal-apple-darwin` that runs after both
+  architectures compile. The release and the build check both run it; only
+  the release passes `sign: true`, which signs and notarizes the app and
+  signs the updater bundle. Credentials come in as inputs, not env, so they
+  reach only the bundle step and never the install. Requires
+  actions/checkout and, in a release, stamp-clips-release.
+
+inputs:
+  sign:
+    description: "`true` signs, notarizes and writes the signed updater bundle."
+    required: false
+    default: "false"
+  apple-certificate:
+    description: "Base64 .p12 signing certificate. Required for `sign: true`."
+    required: false
+    default: ""
+  apple-certificate-password:
+    description: "Password for apple-certificate. Required for `sign: true`."
+    required: false
+    default: ""
+  apple-signing-identity:
+    description: >-
+      Identity in apple-certificate to sign with. Empty signs with the
+      certificate's own identity, which is how the release signs.
+    required: false
+    default: ""
+  apple-id:
+    description: "Apple ID to notarize with. Required for `sign: true`."
+    required: false
+    default: ""
+  apple-password:
+    description: "App-specific password for apple-id. Required for `sign: true`."
+    required: false
+    default: ""
+  apple-team-id:
+    description: "Team to notarize under. Required for `sign: true`."
+    required: false
+    default: ""
+  updater-private-key:
+    description: "Tauri updater signing key. Required for `sign: true`."
+    required: false
+    default: ""
+  updater-private-key-password:
+    description: Password for updater-private-key, if it has one.
+    required: false
+    default: ""
+
+outputs:
+  bundle-dir:
+    description: Directory holding bundle/macos and bundle/dmg.
+    value: templates/clips/desktop/src-tauri/target/universal-apple-darwin/release/bundle
+
+runs:
+  using: composite
+  steps:
+    - name: Validate inputs
+      shell: bash
+      run: |
+        case "${{ inputs.sign }}" in true|false) ;; *)
+          echo "::error::bundle-clips-macos: sign must be true or false (got '${{ inputs.sign }}')"; exit 1;;
+        esac
+
+    - name: Require signing credentials
+      if: inputs.sign == 'true' && (inputs.apple-certificate == '' || inputs.apple-certificate-password == '' || inputs.apple-id == '' || inputs.apple-password == '' || inputs.apple-team-id == '' || inputs.updater-private-key == '')
+      shell: bash
+      run: |
+        echo "::error::bundle-clips-macos: sign: true needs the Apple certificate, its password, the notarization Apple ID, password and team, and the updater private key."
+        exit 1
+
+    # Bundling runs only the Tauri CLI, not the app's build.
+    - uses: ./.github/actions/setup-pnpm
+      with:
+        install: no-scripts
+        filter: clips-desktop
+        native-canvas-deps: "false"
+
+    - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+      with:
+        pattern: clips-macos-*
+        path: ${{ runner.temp }}/clips-macos
+
+    # Where `tauri build --target universal-apple-darwin` leaves its binary,
+    # and the sidecar name Tauri looks up for that target.
+    - name: Merge the architectures
+      working-directory: templates/clips/desktop/src-tauri
+      shell: bash
+      run: |
+        BINARY=$(node -p 'const config = require("./tauri.conf.json"); config.mainBinaryName || config.productName')
+        ARM64="$RUNNER_TEMP/clips-macos/clips-macos-aarch64-apple-darwin"
+        X64="$RUNNER_TEMP/clips-macos/clips-macos-x86_64-apple-darwin"
+        mkdir -p target/universal-apple-darwin/release binaries
+        lipo -create "$ARM64/$BINARY" "$X64/$BINARY" \
+          -output "target/universal-apple-darwin/release/$BINARY"
+        lipo -create "$ARM64/ffmpeg-aarch64-apple-darwin" "$X64/ffmpeg-x86_64-apple-darwin" \
+          -output binaries/ffmpeg-universal-apple-darwin
+        for merged in "target/universal-apple-darwin/release/$BINARY" binaries/ffmpeg-universal-apple-darwin; do
+          chmod +x "$merged"
+          lipo "$merged" -verify_arch arm64 x86_64
+        done
+
+    # tauri-action sets TAURI_BUNDLER_DMG_IGNORE_CI on macOS; without it the
+    # bundler skips the DMG's Finder window layout on CI. Tauri refuses to
+    # write updater bundles without the signing key.
+    - name: Bundle the app
+      if: inputs.sign == 'false'
+      working-directory: templates/clips/desktop
+      shell: bash
+      env:
+        TAURI_BUNDLER_DMG_IGNORE_CI: "true"
+      run: pnpm tauri bundle --target universal-apple-darwin --config '{"bundle":{"createUpdaterArtifacts":false}}'
+
+    # The Tauri CLI imports APPLE_CERTIFICATE into a temporary keychain itself,
+    # as it does under tauri-action; there is no separate import step.
+    - name: Sign, notarize and bundle the app
+      if: inputs.sign == 'true'
+      working-directory: templates/clips/desktop
+      shell: bash
+      env:
+        TAURI_BUNDLER_DMG_IGNORE_CI: "true"
+        APPLE_CERTIFICATE: ${{ inputs.apple-certificate }}
+        APPLE_CERTIFICATE_PASSWORD: ${{ inputs.apple-certificate-password }}
+        APPLE_SIGNING_IDENTITY: ${{ inputs.apple-signing-identity }}
+        APPLE_ID: ${{ inputs.apple-id }}
+        APPLE_PASSWORD: ${{ inputs.apple-password }}
+        APPLE_TEAM_ID: ${{ inputs.apple-team-id }}
+        TAURI_SIGNING_PRIVATE_KEY: ${{ inputs.updater-private-key }}
+        TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ inputs.updater-private-key-password }}
+      run: pnpm tauri bundle --target universal-apple-darwin

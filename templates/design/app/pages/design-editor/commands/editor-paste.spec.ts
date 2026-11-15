@@ -105,6 +105,22 @@ describe("runEditorPaste", () => {
     expect(event.defaultPrevented).toBe(true);
   });
 
+  it("leaves a Figma paste to a composer that claims pastes as context", () => {
+    const composer = document.createElement("div");
+    composer.setAttribute("contenteditable", "true");
+    composer.setAttribute("data-claims-paste", "true");
+    const paragraph = document.createElement("p");
+    composer.append(paragraph);
+    document.body.append(composer);
+
+    const h = harness();
+    const event = pasteEvent({ "text/html": FIGMA_HTML }, paragraph);
+    runEditorPaste(h.args, event);
+
+    expect(h.imported).toEqual([]);
+    expect(event.defaultPrevented).toBe(false);
+  });
+
   it("imports a Figma paste made while a panel textarea holds focus", () => {
     const textarea = document.createElement("textarea");
     document.body.append(textarea);

@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -74,6 +75,10 @@ vi.mock("@agent-native/core/client/hooks", () => ({
 
 vi.mock("sonner", () => ({
   toast: { success: vi.fn(), error: vi.fn() },
+}));
+
+vi.mock("@agent-native/core/client/write-failure", () => ({
+  reportWriteFailure: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/analytics", () => ({
@@ -163,6 +168,7 @@ describe("RecordingContextPanel", () => {
     removal.outcome = "success";
     vi.mocked(toast.success).mockClear();
     vi.mocked(toast.error).mockClear();
+    vi.mocked(reportWriteFailure).mockClear();
   });
 
   afterEach(() => {
@@ -371,9 +377,13 @@ describe("RecordingContextPanel", () => {
     const dialog = document.querySelector('[role="alertdialog"]');
     act(() => buttonWithText(dialog ?? document, "Remove")?.click());
 
-    expect(toast.error).toHaveBeenCalledWith(
-      "Couldn't remove earlier screen time. Try again.",
+    expect(reportWriteFailure).toHaveBeenCalledWith(
+      new Error("remove failed"),
+      {
+        label: "Couldn't remove earlier screen time. Try again.",
+      },
     );
+    expect(toast.error).not.toHaveBeenCalled();
     expect(toast.success).not.toHaveBeenCalled();
     expect(container.textContent).toContain("Screen before recording");
   });

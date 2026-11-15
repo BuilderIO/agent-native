@@ -2,12 +2,17 @@ import {
   DESIGN_HTML_INTEGRITY_SUMMARY,
   isDesignHtmlIntegrityError,
 } from "@shared/html-integrity";
+import {
+  SOURCE_VERSION_UNVERIFIABLE_ERROR_CODE,
+  saveErrorCode,
+} from "@shared/save-conflict";
 
 export type DesignSaveFailureKind =
   | "offline"
   | "intentional-abort"
   | "conflict"
   | "invalid-html"
+  | "unverified"
   | "other";
 
 function errorField(error: unknown, field: string): unknown {
@@ -46,6 +51,12 @@ export function classifyDesignSaveFailure(
   if (isDesignHtmlIntegrityError(error)) return "invalid-html";
   const name = errorField(error, "name");
   if (name === "AbortError") return "intentional-abort";
+
+  // The server could not read the file's version at all: nothing is known to
+  // have changed, so this is a retry, not a conflict.
+  if (saveErrorCode(error) === SOURCE_VERSION_UNVERIFIABLE_ERROR_CODE) {
+    return "unverified";
+  }
 
   const status = errorField(error, "status");
   const message = designSaveErrorMessage(error)?.toLowerCase() ?? "";

@@ -57,6 +57,36 @@ describe("create-recording schema", () => {
     });
   });
 
+  it("keeps the gateway's step, attempts and trace id on a start failure", () => {
+    const gatewayError = Object.assign(
+      new Error(
+        "Builder.io signed-URL request failed (502): HTML error page returned instead of JSON",
+      ),
+      {
+        name: "BuilderGatewayError",
+        step: "signed_url",
+        status: 502,
+        attempts: 3,
+        isHtml: true,
+        traceIds: ["trace-1", "trace-2", "trace-3"],
+        headers: { server: "Google Frontend" },
+      },
+    );
+
+    expect(classifyInitialUploadFailure(gatewayError)).toEqual({
+      failureCode: "multipart_start_failed",
+      failureStage: "multipart_start",
+      httpStatus: 502,
+      gateway: {
+        step: "signed_url",
+        status: 502,
+        attempts: 3,
+        traceId: "trace-3",
+        server: "Google Frontend",
+      },
+    });
+  });
+
   it("preserves typed provider failures and marks real auth setup failures", () => {
     expect(
       classifyInitialUploadFailure({

@@ -1,5 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 
+vi.mock("node:dns/promises", () => ({
+  lookup: async (hostname: string) => {
+    if (hostname !== "prom.test") {
+      throw new Error(`Unexpected DNS lookup for ${hostname}`);
+    }
+    return [{ address: "8.8.8.8", family: 4 }];
+  },
+}));
+
 const resolveCredential = vi.fn(
   async (_key: string) => undefined as string | undefined,
 );
@@ -209,7 +218,10 @@ describe("testConnection", () => {
     expect(result).toEqual({ ok: true });
     expect(fetchSpy).toHaveBeenCalledWith(
       expect.stringContaining("/api/v1/labels"),
-      expect.objectContaining({ headers: expect.any(Object) }),
+      expect.objectContaining({
+        dispatcher: expect.any(Object),
+        headers: expect.any(Object),
+      }),
     );
     fetchSpy.mockRestore();
   });
@@ -229,6 +241,10 @@ describe("testConnection", () => {
 
     expect(result.ok).toBe(false);
     expect(result.error).toMatch(/401/);
+    expect(fetchSpy).toHaveBeenCalledWith(
+      expect.stringContaining("/api/v1/labels"),
+      expect.objectContaining({ dispatcher: expect.any(Object) }),
+    );
     fetchSpy.mockRestore();
   });
 

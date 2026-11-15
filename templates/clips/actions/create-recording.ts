@@ -15,9 +15,11 @@ import { getDb, schema } from "../server/db/index.js";
 import { withReservedHostedClipAllowance } from "../server/lib/hosted-clip-allowance.js";
 import { trackRecordingCreated } from "../server/lib/recording-created.js";
 import {
+  builderGatewayFailure,
   hostedStorageAuthFailure,
   normalizeRecordingFailureCode,
   trackRecordingFailure,
+  type BuilderGatewayFailure,
   type RecordingFailureCode,
 } from "../server/lib/recording-failures.js";
 import { snapshotUploadRecoveryPolicy } from "../server/lib/recording-policy.js";
@@ -61,11 +63,13 @@ export function classifyInitialUploadFailure(
   failureCode: RecordingFailureCode;
   failureStage?: "multipart_start" | "chunk_upload" | "reset_chunks";
   httpStatus?: number;
+  gateway?: BuilderGatewayFailure;
 } {
   const details =
     error && typeof error === "object"
       ? (error as Record<string, unknown>)
       : {};
+  const gateway = builderGatewayFailure(error);
   const message =
     error instanceof Error
       ? error.message
@@ -74,9 +78,9 @@ export function classifyInitialUploadFailure(
         : typeof error === "string"
           ? error
           : "";
-  const isSignedUrlFailure = /builder\.io signed-url request failed/i.test(
-    message,
-  );
+  const isSignedUrlFailure =
+    gateway?.step === "signed_url" ||
+    /builder\.io signed-url request failed/i.test(message);
   const messageStatus = /\b(?:failed|failure|error)\s*\((\d{3})\)/i.exec(
     message,
   )?.[1];
@@ -102,6 +106,7 @@ export function classifyInitialUploadFailure(
       ...(hostedAuthFailure.status
         ? { httpStatus: hostedAuthFailure.status }
         : {}),
+      ...(gateway ? { gateway } : {}),
     };
   }
   // A nested signed-URL response does not mean the account needs reauthorization.
@@ -119,6 +124,7 @@ export function classifyInitialUploadFailure(
       failureCode: "storage_setup_required",
       failureStage,
       ...(httpStatus ? { httpStatus } : {}),
+      ...(gateway ? { gateway } : {}),
     };
   }
 
@@ -127,6 +133,7 @@ export function classifyInitialUploadFailure(
       failureCode === "unknown" ? "multipart_start_failed" : failureCode,
     failureStage,
     ...(httpStatus ? { httpStatus } : {}),
+    ...(gateway ? { gateway } : {}),
   };
 }
 

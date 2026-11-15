@@ -19,11 +19,15 @@ required_capabilities:
     "content.workspace.session-restore",
   ]
 enhancing_capabilities:
-  ["content.workspace.working-set", "content.workspace.view-instance"]
+  [
+    "content.workspace.working-set",
+    "content.workspace.view-instance",
+    "content.knowledge.related",
+  ]
 increments: []
 feature_proof: null
 publicness: "public"
-last_reviewed: "2026-07-29"
+last_reviewed: "2026-11-08"
 ---
 
 # Feature 2: Find your place again
@@ -38,3 +42,4 @@ Content makes arrival, navigation, and resumption feel dependable instead of ask
 - **Recent work:** Restores the objects and views a person was actually using, scoped by current access.
 - **Known links and invitations:** Land on the intended object with an honest access-denied state when permission is missing.
 - **Session resumption:** Reopens enough navigation and View state to pick up the work without reconstructing the route manually.
+- **Related work:** Suggests a few current, related Pages and records beside the open one, so people can move through a workspace without filing everything first. Suggestions never become declared links or Relationships on their own.

@@ -249,6 +249,7 @@ export function FirstRunOnboarding({
   >("record-first-run-builder-credits-v2-exposure" as never, {
     uiOnly: true,
     skipActionQueryInvalidation: true,
+    errorNotification: "caller",
   });
   const previewCreditsV2 =
     previewMode &&

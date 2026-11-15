@@ -1,5 +1,11 @@
 # CRM changelog
 
+## 2026-11-05
+
+### Improved
+
+- Failed saves now show a clear error message instead of failing silently.
+
 ## 2026-10-26
 
 ### Improved

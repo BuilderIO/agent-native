@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  allOfTsquery,
   anyOfTsquery,
   buildSearchVector,
   documentTokens,
@@ -249,6 +250,12 @@ describe("tsquery literals", () => {
   it("joins alternatives", () => {
     expect(anyOfTsquery(["'a':*", null, "'b' <-> 'c'"])).toBe(
       "('a':*) | ('b' <-> 'c')",
+    );
+  });
+
+  it("requires every part, each kept whole", () => {
+    expect(allOfTsquery(["'a':* | 'b':*", "'c' <-> 'd'"])).toBe(
+      "('a':* | 'b':*) & ('c' <-> 'd')",
     );
   });
 });

@@ -1,3 +1,9 @@
+import type { DbExec } from "../db/client.js";
+import {
+  assertIdentityColumnRows,
+  IDENTITY_SCHEMA_COLUMNS_QUERY,
+} from "../identity/rekey.js";
+
 function lazyFunction<TModule, TKey extends keyof TModule>(
   load: () => Promise<TModule>,
   name: TKey,
@@ -101,6 +107,15 @@ export type {
   IdentityOffboard,
   IdentityOrgScope,
 } from "../identity/rekey.js";
+
+/** Validate a migrated app database after its identity policies are registered. */
+export async function assertIdentityColumnsRegistered(
+  db: DbExec,
+): Promise<void> {
+  // raw-sql-ok: this imported fragment contains only the fixed schema query shared with rekey.
+  const { rows } = await db.execute(IDENTITY_SCHEMA_COLUMNS_QUERY);
+  assertIdentityColumnRows(rows);
+}
 export {
   checkWorkspaceAppAccess,
   claimWorkspaceAppForOrganization,

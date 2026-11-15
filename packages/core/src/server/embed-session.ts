@@ -14,6 +14,7 @@ import { getDbExec, type DbExec } from "../db/client.js";
 import { ensureColumnExists, ensureTableExists } from "../db/ddl-guard.js";
 import { defineStore } from "../db/store-registry.js";
 import { AGENT_SIDEBAR_QUERY_PARAM } from "../shared/agent-sidebar-url.js";
+import { BROWSER_TAB_QUERY_PARAM } from "../shared/browser-tab-url.js";
 import {
   EMBED_MODE_QUERY_PARAM,
   EMBED_SESSION_COOKIE,
@@ -57,6 +58,7 @@ const EMBED_PRESENTATION_QUERY_PARAMS = new Set([
   MCP_APP_CHAT_BRIDGE_QUERY_PARAM,
   MCP_DIRECTORY_WIDGET_QUERY_PARAM,
   AGENT_SIDEBAR_QUERY_PARAM,
+  BROWSER_TAB_QUERY_PARAM,
 ]);
 const OPEN_ROUTE_VIEW_PATHS: Record<string, string> = {
   ask: "/",

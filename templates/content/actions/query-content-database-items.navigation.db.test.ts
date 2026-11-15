@@ -4,7 +4,11 @@ import { join } from "node:path";
 
 import { getDbExec } from "@agent-native/core/db";
 import { runWithRequestContext } from "@agent-native/core/server";
-import { putUserSetting } from "@agent-native/core/settings";
+import {
+  deleteUserSetting,
+  getUserSetting,
+  putUserSetting,
+} from "@agent-native/core/settings";
 import { eq, inArray } from "drizzle-orm";
 import {
   afterAll,
@@ -1420,6 +1424,109 @@ describe("query-content-database-items Files navigation", () => {
       canEdit: true,
       canManage: true,
     });
+  });
+
+  it("tells each path entry whether it has Files children, as its navigation row does", async () => {
+    const { personalDatabaseViewSettingKey } =
+      await import("./_content-database-personal-view.js");
+    const settingKey = personalDatabaseViewSettingKey(DATABASE_ID);
+    const savedSetting = await getUserSetting(OWNER, settingKey);
+    await putUserSetting(OWNER, settingKey, {
+      version: CONTENT_DATABASE_PERSONAL_VIEW_OVERRIDES_VERSION,
+      activeViewId: "files",
+      views: [
+        {
+          id: "files",
+          sorts: [],
+          filters: [
+            {
+              key: "name",
+              label: "Name",
+              operator: "contains",
+              value: "Shown",
+            },
+          ],
+          filterMode: "and",
+          sidebarOrder: { mode: "name", itemIds: [] },
+        },
+      ],
+    });
+    try {
+      await addFile({ id: "arrow-root", title: "Shown root", position: 950 });
+      await addFile({
+        id: "arrow-open",
+        parentId: "arrow-root",
+        title: "Shown open",
+      });
+      await addFile({
+        id: "arrow-open-child",
+        parentId: "arrow-open",
+        title: "Shown open child",
+      });
+      // Every child of this page is one the Files tree leaves out.
+      await addFile({
+        id: "arrow-leaf",
+        parentId: "arrow-root",
+        title: "Shown leaf",
+      });
+      await addFile({
+        id: "arrow-leaf-trashed",
+        parentId: "arrow-leaf",
+        title: "Shown trashed",
+      });
+      await getDb()
+        .update(schema.documents)
+        .set({ trashedAt: new Date().toISOString() })
+        .where(eq(schema.documents.id, "arrow-leaf-trashed"));
+      await addFile({
+        id: "arrow-leaf-filtered",
+        parentId: "arrow-leaf",
+        title: "Hidden by the view",
+      });
+      await addFile({
+        id: "arrow-leaf-unreadable",
+        parentId: "arrow-leaf",
+        title: "Shown but private",
+        ownerEmail: OTHER,
+      });
+      await getDb().insert(schema.documents).values({
+        id: "arrow-leaf-outside-files",
+        spaceId: SPACE_ID,
+        parentId: "arrow-leaf",
+        ownerEmail: OWNER,
+        title: "Shown outside Files",
+        content: "",
+        visibility: "private",
+        createdAt: "2026-01-01T00:00:00.000Z",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      });
+
+      const pathOf = async (id: string) =>
+        (
+          await runWithRequestContext({ userEmail: OWNER }, () =>
+            navigationContextAction.run({ id }),
+          )
+        ).path.map((entry) => [entry.id, entry.hasChildren]);
+      expect(await pathOf("arrow-open")).toEqual([
+        ["arrow-root", true],
+        ["arrow-open", true],
+      ]);
+      expect(await pathOf("arrow-leaf")).toEqual([
+        ["arrow-root", true],
+        ["arrow-leaf", false],
+      ]);
+
+      const branch = await navigate({ parentId: "arrow-root" });
+      expect(
+        branch.items.map((item) => [item.documentId, item.hasChildren]),
+      ).toEqual([
+        ["arrow-leaf", false],
+        ["arrow-open", true],
+      ]);
+    } finally {
+      if (savedSetting === null) await deleteUserSetting(OWNER, settingKey);
+      else await putUserSetting(OWNER, settingKey, savedSetting);
+    }
   });
 
   it("ranks a child branch from its own siblings in one read", async () => {

@@ -307,6 +307,57 @@ await callAction(
 
 모든 `useActionQuery()`, `useActionMutation()`, `callAction()` 요청은 60초 타임아웃으로 제한되며, 타임아웃은 조용히 재시도하지 않고 오류로 나타납니다. `useActionQuery()`는 React Query의 abort signal을 이용해 이전 요청이 대체될 때 자동으로 취소하기도 합니다.
 
+### 실패한 쓰기 {#write-failures}
+
+사용자가 시작한 저장이 실패하면, 아무것도 보여 주지 않는 대신 공용 토스트를 표시합니다. `useActionMutation()`이 이를 자동으로 처리합니다. 실패한 `mutate()`는 훅 옵션이나 `mutate()` 호출의 `onError`가 실패를 처리하지 않는 한 토스트를 표시합니다. 실패한 `mutateAsync()`는 거부가 처리되지 않은 채 남을 때만 토스트를 표시합니다. 예를 들어 위쪽에 `try/catch`가 없는 `await`가 있는 경우입니다. 원래 오류 대신 새 `Error`를 던지는 `catch`는 보고되지 않습니다.
+
+`errorNotification` 옵션으로 이 기본 동작을 변경할 수 있습니다:
+
+| 값               | 동작                                                                                                                         |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------- |
+| `"auto"`(기본값) | 다른 처리가 없을 때만 토스트를 표시합니다.                                                                                   |
+| `"shared"`       | 직접 작성한 `onError`가 있어도 모든 실패에서 토스트를 표시합니다. 핸들러가 롤백하거나 로그만 남기는 경우에 사용합니다.       |
+| `"caller"`       | 토스트를 절대 표시하지 않습니다. 백그라운드 저장, 의도적으로 무시하는 실패, 또는 오류를 직접 렌더링하는 위치에서 사용합니다. |
+
+`errorLabel`은 토스트 제목을 이미 번역된 사용자 고유 텍스트로 바꿉니다. 아래 예시에서는 담당자 지정이 실패하면 일반 제목 대신 이 제목이 표시됩니다.
+
+```tsx
+import { useActionMutation } from "@agent-native/core/client/hooks";
+
+const assign = useActionMutation("update-ticket", {
+  errorLabel: t("tickets.assignFailed"),
+});
+
+assign.mutate({ ticketId, assignedToEmail: "jordan@example.com" });
+```
+
+다음 변경 시 재시도되는 자동 저장은 사용자의 작업을 방해하면 안 되므로, 이 기능을 사용하지 않습니다.
+
+```tsx
+import { useActionMutation } from "@agent-native/core/client/hooks";
+
+const saveDraft = useActionMutation("save-ticket-draft", {
+  errorNotification: "caller",
+});
+```
+
+`useActionMutation()`이 아닌 쓰기, 예를 들어 업로드용 `fetch`나 오류를 삼키는 `catch`는 `reportWriteFailure()`로 실패를 알립니다. 원시 `fetch`의 오류에는 상태 정보가 없으므로, 토스트에는 지정한 라벨이나 일반 제목이 표시됩니다. 원시 `useMutation()`은 `meta: surfaceMutationError(label)`를 전달하여 참여하며, 이 함수도 같은 선택적 라벨을 받습니다.
+
+```ts
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
+
+try {
+  const response = await fetch(uploadUrl, { method: "PUT", body: file });
+  if (!response.ok) throw new Error(`Upload failed with ${response.status}`);
+} catch (error) {
+  reportWriteFailure(error, { label: t("tickets.uploadFailed") });
+}
+```
+
+토스트 텍스트는 실패 유형에 따라 달라집니다. 취소된 요청은 아무것도 표시하지 않습니다. 오프라인, 시간 초과, `401`, `403`은 각각 제목 아래에 짧은 번역 메시지를 표시합니다. `5xx`는 서버가 자체 오류 텍스트를 숨기기 때문에 제목만 표시합니다. 액션이 `fail()`에서 타입이 지정된 `4xx` 오류로 거부하면, 토스트에는 액션이 작성한 메시지가 표시됩니다. [액션 실패 처리](/docs/actions-defining#failing)를 참고하세요. `401` 또는 `403`에서는 서버 텍스트가 표시되지 않습니다.
+
+`AppProviders`는 이러한 실패를 수신하는 `WriteFailureToaster` 컴포넌트를 항상 마운트합니다. 토스트는 앱의 `Toaster`를 통해 표시되므로, `toaster={null}`을 전달하는 앱은 자체 `Toaster`를 렌더링해야 합니다. `AppProviders`를 사용하지 않는 앱은 `QueryClientProvider` 안, 자체 `Toaster` 옆에서 `@agent-native/toolkit/app/shared`의 `<WriteFailureToaster />`를 렌더링해야 합니다. 그렇지 않으면 토스트가 표시되지 않습니다.
+
 ## useDbSync {#usedbsync}
 
 <Signature

@@ -200,6 +200,8 @@ sendToAgentChat({
 });
 ```
 
+`sendToAgentChat()` 回傳分頁 ID，而非送達回執。需要確認本機提交時，使用 `sendToAgentChatAndConfirm({ message, chatTarget: "local" })`，並處理 `delivered: false` 和 `reason`。它會等待提交確認並在逾時後取消。不支援僅草稿或程式碼目標請求。
+
 ### AgentChatMessage {#agentchatmessage}
 
 | 選項           | 型別       | 描述                                                                        |

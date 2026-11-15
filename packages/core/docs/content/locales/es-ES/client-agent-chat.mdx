@@ -204,6 +204,8 @@ sendToAgentChat({
 });
 ```
 
+`sendToAgentChat()` devuelve un ID de pestaña, no un acuse de entrega. Para confirmar un envío local, usa `sendToAgentChatAndConfirm({ message, chatTarget: "local" })` y gestiona `delivered: false` y `reason`. Espera la confirmación y cancela al agotarse el tiempo. No admite borradores ni destinos de código.
+
 ### AgentChatMessage {#agentchatmessage}
 
 | Opción         | Tipo       | Descripción                                                                                                              |

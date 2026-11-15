@@ -3,7 +3,11 @@ import { z } from "zod";
 import { defineAction, fail } from "../../action.js";
 import { getDbExec, type DbExec } from "../../db/client.js";
 import { notifyReviewComment } from "../notifications.js";
-import { assertReviewableResourceAccess } from "../registry.js";
+import {
+  assertReviewableResourceAccess,
+  REVIEW_SUGGESTION_ANCHOR_KIND,
+  reviewSuggestionAuthorRole,
+} from "../registry.js";
 import {
   ensureReviewTables,
   insertReviewCommentWithClient,
@@ -12,6 +16,8 @@ import {
 import {
   suggestionActorKind,
   suggestionActorKindMatchesReceipt,
+  suggestionAuthorClient,
+  suggestionAuthorSource,
 } from "./actor-kind.js";
 import { getSuggestionAdapter } from "./registry.js";
 import {
@@ -196,6 +202,30 @@ async function supersedeSuggestions(
   }
 }
 
+// So a suggestion's change event reaches everyone who can read the resource,
+// not only the actor: their open page shows it without a reload.
+function suggestionChangeResource(
+  suggestion: ResourceSuggestion | null | undefined,
+) {
+  return suggestion
+    ? {
+        resourceType: suggestion.resourceType,
+        resourceId: suggestion.resourceId,
+      }
+    : null;
+}
+
+// A failed call reaches changeResource with no result, whatever its type says.
+function decisionChangeResource(
+  result:
+    | { suggestion?: ResourceSuggestion; suggestions?: ResourceSuggestion[] }
+    | undefined,
+) {
+  return suggestionChangeResource(
+    result?.suggestion ?? result?.suggestions?.[0],
+  );
+}
+
 export const createResourceSuggestion = defineAction({
   description:
     "Create a typed pending suggestion without changing the canonical resource. Pass supersedes to replace your own earlier pending suggestions on the same resource in the same step.",
@@ -229,12 +259,16 @@ export const createResourceSuggestion = defineAction({
     openWorldHint: true,
     idempotentHint: true,
   },
+  changeResource: ({ resourceType, resourceId }) => ({
+    resourceType,
+    resourceId,
+  }),
   run: async (args, ctx) => {
     const access = await assertReviewableResourceAccess(
       args.resourceType,
       args.resourceId,
       ctx as any,
-      "commenter",
+      reviewSuggestionAuthorRole(args.resourceType),
     );
     const adapter = getSuggestionAdapter(args.adapterKind);
     if (!adapter) throw new Error("Suggestion adapter not registered");
@@ -279,6 +313,8 @@ export const createResourceSuggestion = defineAction({
           threadId: `suggestion-thread-${globalThis.crypto.randomUUID()}`,
           authorEmail,
           actorKind,
+          authorSource: suggestionAuthorSource(ctx),
+          authorClient: suggestionAuthorClient(ctx),
           baseRevision: args.baseRevision,
           status: "pending",
           summary: args.summary,
@@ -319,6 +355,7 @@ export const createResourceSuggestion = defineAction({
           targetId: created.id,
           kind: "correction",
           anchor: created.operations.map((item) => item.anchor ?? null),
+          anchorKind: REVIEW_SUGGESTION_ANCHOR_KIND,
           body: created.summary,
           authorEmail: created.authorEmail,
           createdBy: actorKind,
@@ -402,7 +439,7 @@ export const updateResourceSuggestion = defineAction({
       initial.resourceType,
       initial.resourceId,
       ctx as any,
-      "commenter",
+      reviewSuggestionAuthorRole(initial.resourceType),
     );
     const author = (ctx as any)?.userEmail;
     if (!author || author !== initial.authorEmail) {
@@ -433,7 +470,7 @@ export const updateResourceSuggestion = defineAction({
         current.resourceType,
         current.resourceId,
         { ...(ctx as any), transaction: tx },
-        "commenter",
+        reviewSuggestionAuthorRole(current.resourceType),
       );
       if (current.authorEmail !== author)
         fail("Only the author can amend this suggestion", {
@@ -498,6 +535,7 @@ export const updateResourceSuggestion = defineAction({
       };
     },
   },
+  changeResource: (_input, result) => suggestionChangeResource(result),
 });
 
 export const listResourceSuggestions = defineAction({
@@ -563,7 +601,7 @@ export const getResourceSuggestion = defineAction({
 });
 
 function decisionAccessRole(
-  suggestion: Pick<ResourceSuggestion, "authorEmail">,
+  suggestion: Pick<ResourceSuggestion, "authorEmail" | "resourceType">,
   decision: "accepted" | "rejected" | "withdrawn",
   ctx: unknown,
 ) {
@@ -575,7 +613,7 @@ function decisionAccessRole(
       errorCode: "forbidden",
     });
   }
-  return "commenter";
+  return reviewSuggestionAuthorRole(suggestion.resourceType);
 }
 
 export const decideResourceSuggestion = defineAction({
@@ -763,6 +801,7 @@ export const decideResourceSuggestion = defineAction({
         : undefined;
     },
   },
+  changeResource: (_input, result) => decisionChangeResource(result),
 });
 
 const proposalCreationSchema = z.object({
@@ -844,12 +883,16 @@ export const createResourceSuggestionProposal = defineAction({
     openWorldHint: true,
     idempotentHint: true,
   },
+  changeResource: ({ resourceType, resourceId }) => ({
+    resourceType,
+    resourceId,
+  }),
   run: async (args, ctx) => {
     await assertReviewableResourceAccess(
       args.resourceType,
       args.resourceId,
       ctx as any,
-      "commenter",
+      reviewSuggestionAuthorRole(args.resourceType),
     );
     const adapter = getSuggestionAdapter(args.adapterKind);
     if (!adapter) throw new Error("Suggestion adapter not registered");
@@ -880,7 +923,7 @@ export const createResourceSuggestionProposal = defineAction({
         args.resourceType,
         args.resourceId,
         { ...(ctx as any), transaction: tx },
-        "commenter",
+        reviewSuggestionAuthorRole(args.resourceType),
       );
       if (
         prior.requestHash !== requestHash ||
@@ -927,7 +970,7 @@ export const createResourceSuggestionProposal = defineAction({
           args.resourceType,
           args.resourceId,
           { ...(ctx as any), transaction: tx },
-          "commenter",
+          reviewSuggestionAuthorRole(args.resourceType),
         );
         const proposal = args.proposalId
           ? await getSuggestionProposal(tx, args.proposalId)
@@ -939,11 +982,40 @@ export const createResourceSuggestionProposal = defineAction({
               authorEmail,
               actorKind,
             });
-        if (!proposal)
+        if (!proposal) {
+          // A first call returns both a suggestion ID and a proposal ID, and
+          // agents appending a second edit often pass the suggestion's. Name
+          // the proposal when that suggestion is the caller's own, on this
+          // same resource: only its author can append to it.
+          const suggestion = args.proposalId
+            ? await getSuggestion(args.proposalId, tx)
+            : null;
+          if (
+            suggestion &&
+            suggestion.resourceType === args.resourceType &&
+            suggestion.resourceId === args.resourceId &&
+            suggestion.authorEmail === authorEmail &&
+            suggestion.actorKind === actorKind
+          ) {
+            fail(
+              suggestion.proposalId
+                ? `${suggestion.id} is a suggestion ID, not a proposal ID. To add this edit to the same review, pass its proposal ID: ${suggestion.proposalId}.`
+                : `${suggestion.id} is a suggestion ID, not a proposal ID, and it belongs to no proposal. Leave the proposal ID out to start a new review.`,
+              {
+                statusCode: 400,
+                errorCode: "suggestion_id_not_proposal_id",
+                details: {
+                  suggestionId: suggestion.id,
+                  proposalId: suggestion.proposalId ?? null,
+                },
+              },
+            );
+          }
           fail("Proposal not found", {
             statusCode: 404,
             errorCode: "not_found",
           });
+        }
         if (
           proposal.resourceType !== args.resourceType ||
           proposal.resourceId !== args.resourceId ||
@@ -986,6 +1058,8 @@ export const createResourceSuggestionProposal = defineAction({
               threadId: `suggestion-thread-${globalThis.crypto.randomUUID()}`,
               authorEmail,
               actorKind,
+              authorSource: suggestionAuthorSource(ctx),
+              authorClient: suggestionAuthorClient(ctx),
               baseRevision: args.baseRevision,
               status: "pending",
               summary: item.summary,
@@ -1007,6 +1081,7 @@ export const createResourceSuggestionProposal = defineAction({
                 targetId: created.id,
                 kind: "correction",
                 anchor: created.operations.map((part) => part.anchor ?? null),
+                anchorKind: REVIEW_SUGGESTION_ANCHOR_KIND,
                 body: created.summary,
                 authorEmail,
                 createdBy: actorKind,
@@ -1344,4 +1419,5 @@ export const decideResourceSuggestionProposal = defineAction({
         : undefined;
     },
   },
+  changeResource: (_input, result) => decisionChangeResource(result),
 });

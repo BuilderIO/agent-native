@@ -306,6 +306,57 @@ await callAction(
 
 كل طلب من `useActionQuery()` و`useActionMutation()` و`callAction()` محكوم بمهلة 60 ثانية، وتظهر انتهاءات المهلة كأخطاء بدلاً من إعادة المحاولة بصمت. يلغي `useActionQuery()` أيضًا الطلبات المتجاوَزة تلقائيًا، باستخدام إشارة الإلغاء (abort signal) الخاصة بـ React Query.
 
+### الكتابات الفاشلة {#write-failures}
+
+عندما يفشل حفظٌ بدأه المستخدم، يعرض التطبيق إشعارًا منبثقًا مشتركًا (toast) بدلًا من عدم عرض شيء. يقوم `useActionMutation()` بذلك تلقائيًا. يعرض `mutate()` الفاشل الإشعار، ما لم يعالج `onError` الفشلَ، سواء في خيارات الخطاف أو في استدعاء `mutate()`. أما `mutateAsync()` الفاشل فيعرض الإشعار فقط عندما يبقى الرفض غير معالج، مثل `await` لا يوجد فوقه `try/catch`. ولا يُبلَّغ عن `catch` يطلق `Error` جديدًا بدلًا من الخطأ الأصلي.
+
+يغيّر الخيار `errorNotification` هذا السلوك الافتراضي:
+
+| القيمة               | السلوك                                                                                                        |
+| -------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `"auto"` (الافتراضي) | يعرض الإشعار فقط عندما لا يعالج شيء آخر الفشل.                                                                |
+| `"shared"`           | يعرض الإشعار عند كل فشل، حتى إلى جانب `onError` الخاص بك. استخدمه عندما يقتصر المعالج على التراجع أو التسجيل. |
+| `"caller"`           | لا يعرض الإشعار أبدًا. استخدمه للحفظ في الخلفية، أو لفشل تتجاهله عمدًا، أو لموضع يعرض الخطأ بنفسه.            |
+
+يستبدل `errorLabel` عنوان الإشعار بنص مترجم من عندك. في المثال أدناه، يعرض فشلُ التعيين هذا العنوان بدلًا من العنوان العام.
+
+```tsx
+import { useActionMutation } from "@agent-native/core/client/hooks";
+
+const assign = useActionMutation("update-ticket", {
+  errorLabel: t("tickets.assignFailed"),
+});
+
+assign.mutate({ ticketId, assignedToEmail: "jordan@example.com" });
+```
+
+لا ينبغي للحفظ التلقائي الذي يعيد المحاولة عند التغيير التالي أن يقاطع المستخدم، لذلك يُعطَّل.
+
+```tsx
+import { useActionMutation } from "@agent-native/core/client/hooks";
+
+const saveDraft = useActionMutation("save-ticket-draft", {
+  errorNotification: "caller",
+});
+```
+
+الكتابة التي ليست `useActionMutation()`، مثل `fetch` لرفع ملف أو `catch` يبتلع خطأً، تعلن فشلها باستخدام `reportWriteFailure()`. لا يحمل الخطأ الصادر عن `fetch` الخام أي حالة، لذا يعرض الإشعار تسميتك أو العنوان العام. ويشارك `useMutation()` الخام عبر تمرير `meta: surfaceMutationError(label)`، وهي تقبل التسمية الاختيارية نفسها.
+
+```ts
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
+
+try {
+  const response = await fetch(uploadUrl, { method: "PUT", body: file });
+  if (!response.ok) throw new Error(`Upload failed with ${response.status}`);
+} catch (error) {
+  reportWriteFailure(error, { label: t("tickets.uploadFailed") });
+}
+```
+
+يعتمد نص الإشعار على نوع الفشل. لا يعرض الطلب الملغى أي شيء. أما انقطاع الاتصال والمهلة الزمنية و`401` و`403` فيعرض كل منها رسالة قصيرة مترجمة أسفل العنوان. ويعرض `5xx` العنوان فقط، لأن الخادم يخفي نص خطئه. وعندما ترفض action بخطأ `4xx` مُعرَّف من `fail()`، يعرض الإشعار الرسالة التي كتبتها action؛ راجع [فشل action](/docs/actions-defining#failing). ولا يعرض `401` أو `403` نص الخادم أبدًا.
+
+يركّب `AppProviders` دائمًا المكوّن الذي يستمع إلى هذه الإخفاقات، `WriteFailureToaster`. ويعرض إشعاره عبر `Toaster` الخاص بالتطبيق، لذا يجب على التطبيق الذي يمرر `toaster={null}` أن يعرض `Toaster` خاصًا به. ويجب على التطبيق الذي لا يستخدم `AppProviders` أن يعرض `<WriteFailureToaster />` من `@agent-native/toolkit/app/shared` داخل `QueryClientProvider` وبجانب `Toaster` الخاص به. ومن دونه لا يظهر أي إشعار.
+
 ## useDbSync {#usedbsync}
 
 <Signature

@@ -4024,6 +4024,282 @@ export function ensureCodeLayerNodeIdsInHtml(
   return { content, changed: true, stamped: orderedEdits.length };
 }
 
+interface IdHolder {
+  attr: ParsedAttribute;
+  element: ParsedElement;
+}
+
+function idHoldersByValue(
+  elements: readonly ParsedElement[],
+  name: string,
+): Map<string, IdHolder[]> {
+  const byValue = new Map<string, IdHolder[]>();
+  for (const element of elements) {
+    const attr = getAttribute(element, name);
+    const value = typeof attr?.value === "string" ? attr.value.trim() : "";
+    if (!attr || !value) continue;
+    const holder = { attr, element };
+    const holders = byValue.get(value);
+    if (holders) holders.push(holder);
+    else byValue.set(value, [holder]);
+  }
+  for (const holders of byValue.values()) {
+    holders.sort((a, b) => a.attr.start - b.attr.start);
+  }
+  return byValue;
+}
+
+const IDENTITY_ATTRIBUTE_RE =
+  /\s(?:data-agent-native-node-id|id)\s*=\s*(?:"[^"]*"|'[^']*'|[^\s/>]+)/gi;
+
+function identityFreeMarkup(html: string, element: ParsedElement): string {
+  return html
+    .slice(element.start, element.end)
+    .replace(IDENTITY_ATTRIBUTE_RE, "");
+}
+
+/**
+ * Which holders keep an id. A holder whose markup matches one that already had
+ * the id is the original, wherever a copy was inserted. Holders that match
+ * nothing (identical or edited copies) take the rest in document order.
+ */
+function holdersToKeep(
+  previous: readonly string[],
+  next: readonly string[],
+  quota: number,
+): Set<number> {
+  const unmatched = new Map<string, number>();
+  for (const markup of previous) {
+    unmatched.set(markup, (unmatched.get(markup) ?? 0) + 1);
+  }
+  const keep = new Set<number>();
+  next.forEach((markup, index) => {
+    const count = unmatched.get(markup) ?? 0;
+    if (keep.size >= quota || count === 0) return;
+    unmatched.set(markup, count - 1);
+    keep.add(index);
+  });
+  for (let index = 0; keep.size < quota && index < next.length; index += 1) {
+    keep.add(index);
+  }
+  return keep;
+}
+
+const RENAMEABLE_HTML_ID_RE = /^[A-Za-z][\w:.-]*$/;
+const ID_LIST_REFERENCE_ATTRIBUTES = new Set([
+  "aria-activedescendant",
+  "aria-controls",
+  "aria-describedby",
+  "aria-details",
+  "aria-errormessage",
+  "aria-flowto",
+  "aria-labelledby",
+  "aria-owns",
+  "for",
+  "form",
+  "headers",
+  "list",
+]);
+
+function rewriteIdReferences(
+  name: string,
+  value: string,
+  oldId: string,
+  newId: string,
+): string {
+  if (name === "href" || name === "xlink:href") {
+    return value === `#${oldId}` ? `#${newId}` : value;
+  }
+  let next = value;
+  if (ID_LIST_REFERENCE_ATTRIBUTES.has(name)) {
+    next = next.replace(/\S+/g, (token) => (token === oldId ? newId : token));
+  }
+  if (next.includes("url(")) {
+    const escaped = oldId.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    next = next.replace(
+      new RegExp(`url\\((['"]?)#${escaped}\\1\\)`, "g"),
+      `url($1#${newId}$1)`,
+    );
+  }
+  return next;
+}
+
+/**
+ * Rewrites references to a renamed id inside the element that was renamed.
+ * `current` holds values already rewritten by a more deeply nested rename, so
+ * the innermost copy's references win.
+ */
+function rewriteReferencesInSubtree(
+  html: string,
+  elements: readonly ParsedElement[],
+  element: ParsedElement,
+  oldId: string,
+  newId: string,
+  current: Map<number, { start: number; end: number; value: string }>,
+): void {
+  for (const candidate of elements) {
+    if (candidate.start < element.start || candidate.start >= element.end) {
+      continue;
+    }
+    for (const attr of candidate.attributes) {
+      if (typeof attr.value !== "string") continue;
+      const raw = html.slice(attr.start, attr.end);
+      const equals = raw.indexOf("=");
+      const afterEquals = raw.slice(equals + 1);
+      const rest = afterEquals.trimStart();
+      const quote = rest.charAt(0);
+      const quoted = quote === '"' || quote === "'";
+      const valueStart =
+        attr.start +
+        equals +
+        1 +
+        (afterEquals.length - rest.length) +
+        (quoted ? 1 : 0);
+      const rawValue = quoted ? rest.slice(1, rest.indexOf(quote, 1)) : rest;
+      const existing = current.get(valueStart)?.value ?? rawValue;
+      const rewritten = rewriteIdReferences(
+        attr.lowerName,
+        existing,
+        oldId,
+        newId,
+      );
+      if (rewritten !== existing) {
+        current.set(valueStart, {
+          start: valueStart,
+          end: valueStart + rawValue.length,
+          value: rewritten,
+        });
+      }
+    }
+  }
+}
+
+/**
+ * An edit that copies an element copies its ids with it. Each id keeps the
+ * holders the write did not add: a holder matching a previous holder's markup
+ * keeps the id, and the others get a fresh node id or, for a markup `id`, the
+ * next free `-N` suffix. A markup `id` is only renamed when it existed before
+ * the write, so a new id repeated across freshly authored markup is left
+ * alone. References to a renamed id inside the renamed subtree follow it.
+ * Copies with identical markup cannot be told apart from their text, so
+ * document order decides which of them keeps the id.
+ */
+export function reconcileIntroducedIdsInHtml(
+  previousHtml: string,
+  nextHtml: string,
+): { content: string; restampedNodeIds: number; renamedHtmlIds: number } {
+  const unchanged = {
+    content: nextHtml,
+    restampedNodeIds: 0,
+    renamedHtmlIds: 0,
+  };
+  if (
+    nextHtml === previousHtml ||
+    !previousHtml.trim() ||
+    isStandaloneHttpUrl(previousHtml) ||
+    isStandaloneHttpUrl(nextHtml)
+  ) {
+    return unchanged;
+  }
+  const previousElements = parseHtmlElements(previousHtml);
+  const nextElements = parseHtmlElements(nextHtml);
+  const edits: Array<{ start: number; end: number; value: string }> = [];
+
+  const previousNodeIds = idHoldersByValue(
+    previousElements,
+    "data-agent-native-node-id",
+  );
+  const nextNodeIds = idHoldersByValue(
+    nextElements,
+    "data-agent-native-node-id",
+  );
+  const usedNodeIds = new Set(nextNodeIds.keys());
+  let restampedNodeIds = 0;
+  for (const [value, holders] of nextNodeIds) {
+    const before = previousNodeIds.get(value) ?? [];
+    const keep = holdersToKeep(
+      before.map((holder) => identityFreeMarkup(previousHtml, holder.element)),
+      holders.map((holder) => identityFreeMarkup(nextHtml, holder.element)),
+      Math.max(before.length, 1),
+    );
+    holders.forEach(({ attr }, index) => {
+      if (keep.has(index)) return;
+      const fresh = freshNodeId(
+        usedNodeIds,
+        `reconciled:${value}:${attr.start}`,
+      );
+      edits.push({
+        start: attr.start,
+        end: attr.end,
+        value: `data-agent-native-node-id="${escapeHtmlAttribute(fresh)}"`,
+      });
+      restampedNodeIds += 1;
+    });
+  }
+
+  const previousHtmlIds = idHoldersByValue(previousElements, "id");
+  const nextHtmlIds = idHoldersByValue(nextElements, "id");
+  const usedHtmlIds = new Set(nextHtmlIds.keys());
+  const renamed: Array<{
+    element: ParsedElement;
+    oldId: string;
+    newId: string;
+  }> = [];
+  for (const [value, holders] of nextHtmlIds) {
+    const before = previousHtmlIds.get(value) ?? [];
+    if (before.length < 1 || !RENAMEABLE_HTML_ID_RE.test(value)) continue;
+    const keep = holdersToKeep(
+      before.map((holder) => identityFreeMarkup(previousHtml, holder.element)),
+      holders.map((holder) => identityFreeMarkup(nextHtml, holder.element)),
+      before.length,
+    );
+    holders.forEach(({ attr, element }, index) => {
+      if (keep.has(index)) return;
+      let suffix = 2;
+      while (usedHtmlIds.has(`${value}-${suffix}`)) suffix += 1;
+      const newId = `${value}-${suffix}`;
+      usedHtmlIds.add(newId);
+      edits.push({
+        start: attr.start,
+        end: attr.end,
+        value: `${attr.name}="${newId}"`,
+      });
+      renamed.push({ element, oldId: value, newId });
+    });
+  }
+
+  const referenceValues = new Map<
+    number,
+    { start: number; end: number; value: string }
+  >();
+  const innermostFirst = [...renamed].sort(
+    (a, b) =>
+      a.element.end - a.element.start - (b.element.end - b.element.start),
+  );
+  for (const { element, oldId, newId } of innermostFirst) {
+    rewriteReferencesInSubtree(
+      nextHtml,
+      nextElements,
+      element,
+      oldId,
+      newId,
+      referenceValues,
+    );
+  }
+  edits.push(...referenceValues.values());
+
+  if (edits.length === 0) return unchanged;
+  let content = nextHtml;
+  for (const edit of edits.sort((a, b) => b.start - a.start)) {
+    content = `${content.slice(0, edit.start)}${edit.value}${content.slice(edit.end)}`;
+  }
+  return {
+    content,
+    restampedNodeIds,
+    renamedHtmlIds: renamed.length,
+  };
+}
+
 export function ensureCodeLayerNodeIdInHtml(
   html: string,
   targetNodeId: string,

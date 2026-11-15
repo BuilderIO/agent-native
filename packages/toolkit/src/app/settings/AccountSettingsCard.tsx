@@ -621,6 +621,7 @@ export function AccountSettingsForm({
   );
   const updateProfile = useActionMutation<UserProfile, { name: string }>(
     "update-user-profile",
+    { errorNotification: "caller" },
   );
   const {
     avatarUrl,

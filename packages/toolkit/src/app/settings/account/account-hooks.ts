@@ -100,11 +100,11 @@ export function usePasswordForm() {
   const setPasswordMutation = useActionMutation<
     PasswordMutationResult,
     { newPassword: string }
-  >("set-password");
+  >("set-password", { errorNotification: "caller" });
   const changePasswordMutation = useActionMutation<
     PasswordMutationResult,
     { currentPassword: string; newPassword: string }
-  >("change-password");
+  >("change-password", { errorNotification: "caller" });
   const [currentPassword, setCurrentPassword] = useState("");
   const [newPassword, setNewPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");

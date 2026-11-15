@@ -452,7 +452,7 @@ export async function createResourceScriptEntries(): Promise<
               path: {
                 type: "string",
                 description:
-                  "Resource path (e.g. 'LEARNINGS.md', 'notes/ideas.md'). Required for read/write/delete.",
+                  "Resource path (e.g. 'notes/ideas.md'). Required for read/write/delete.",
               },
               content: {
                 type: "string",
@@ -461,7 +461,7 @@ export async function createResourceScriptEntries(): Promise<
               offset: {
                 type: "string",
                 description:
-                  "read: start character (default 0); use the partial header's next offset.",
+                  "read: start character; list: start entry. Use the next offset given.",
               },
               length: {
                 type: "string",
@@ -475,19 +475,20 @@ export async function createResourceScriptEntries(): Promise<
               },
               prefix: {
                 type: "string",
-                description:
-                  "Filter by path prefix when listing (e.g. 'notes/')",
+                description: "list: path prefix filter (e.g. 'notes/')",
               },
               mime: {
                 type: "string",
-                description:
-                  "MIME type for write (default: inferred from extension)",
+                description: "write: MIME type (default: from extension)",
               },
               format: {
                 type: "string",
-                description:
-                  'Output format for list: "json" or "text" (default: text)',
+                description: "list output format (default: text)",
                 enum: ["json", "text"],
+              },
+              limit: {
+                type: "number",
+                description: "list: page size, 1-100.",
               },
               visibility: {
                 type: "string",
@@ -497,7 +498,7 @@ export async function createResourceScriptEntries(): Promise<
               },
               includeAgentScratch: {
                 type: "boolean",
-                description: "Include hidden agent scratch files when listing.",
+                description: "list: include hidden agent scratch files.",
               },
             },
             required: ["action"],
@@ -518,7 +519,11 @@ export async function createResourceScriptEntries(): Promise<
         allowPersistentApproval: false,
         run: async (args: Record<string, string>, context) => {
           const { action: a, ...rest } = args;
-          if (a === "list") return listEntry.run(rest);
+          if (a === "list") {
+            // The CLI keeps unpaged json as a bare array; the agent always pages.
+            const noPageArgs = !rest.limit && !rest.offset;
+            return listEntry.run(noPageArgs ? { ...rest, offset: "0" } : rest);
+          }
           if (a === "read") {
             if (!rest.path) return "Error: path is required for read";
             let limitError:

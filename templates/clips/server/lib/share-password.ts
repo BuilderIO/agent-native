@@ -1,7 +1,7 @@
 /**
  * Share-password storage for recordings.
  *
- * The per-recording share password gates access to private recordings. It is
+ * The per-recording share password gates access to public recordings. It is
  * stored encrypted at rest (AES-256-GCM, same key story as the framework
  * secrets vault) so a leaked DB backup / pg_dump / read replica does not expose
  * every share password in plaintext, and it is never returned to clients (the
@@ -28,8 +28,8 @@ export function encryptSharePassword(
 /**
  * Recover the plaintext password from a stored value. Encrypted rows are
  * decrypted; rows written before encryption are legacy plaintext and read
- * transparently. A row that can't be decrypted (key rotated / corrupt) is
- * treated as "no password" rather than throwing.
+ * transparently. A row that can't be decrypted (key rotated / corrupt) cannot
+ * verify a supplied password.
  */
 function decodeStoredPassword(
   stored: string | null | undefined,
@@ -60,23 +60,23 @@ export function getRecordingAccessTokenResourceId(
   recordingId: string,
   storedPassword: string | null | undefined,
   sharePasswordVersion: string | null | undefined,
+  visibility: "private" | "org" | "public",
 ): string {
+  let base = recordingId;
   if (
-    sharePasswordVersion === "initial" ||
-    sharePasswordVersion?.startsWith("legacy:")
+    sharePasswordVersion !== "initial" &&
+    !sharePasswordVersion?.startsWith("legacy:")
   ) {
-    // Keep pre-version grants and grants from older writers valid until a password mutation.
-    return recordingId;
+    const versionSource =
+      storedPassword && isEncryptedSecretValue(storedPassword)
+        ? storedPassword
+        : sharePasswordVersion;
+    if (!versionSource) {
+      throw new Error("Recording access scope requires a password version");
+    }
+    const version = createHash("sha256").update(versionSource).digest("hex");
+    base = `${recordingId}:access:${version}`;
   }
 
-  // Encrypted passwords scope grants to the ciphertext; other rows use the dedicated version.
-  const versionSource =
-    storedPassword && isEncryptedSecretValue(storedPassword)
-      ? storedPassword
-      : sharePasswordVersion;
-  if (!versionSource) {
-    throw new Error("Recording access scope requires a password version");
-  }
-  const version = createHash("sha256").update(versionSource).digest("hex");
-  return `${recordingId}:access:${version}`;
+  return visibility === "public" ? base : `${base}:visibility:${visibility}`;
 }

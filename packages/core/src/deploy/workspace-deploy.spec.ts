@@ -2408,14 +2408,21 @@ describe("buildStart", () => {
     });
   });
 
-  it("starts a quoted line through a shell on Windows", () => {
+  it("starts a line through a shell on Windows, arguments quoted", () => {
     expect(
       buildStart("pnpm", ["--filter", "my app", "build"], "win32"),
     ).toEqual({
-      command: '"pnpm" "--filter" "my app" "build"',
+      command: 'pnpm "--filter" "my app" "build"',
       args: [],
       shell: true,
     });
+  });
+
+  it("quotes a command path on Windows", () => {
+    expect(
+      buildStart("C:\\Program Files\\nodejs\\node.exe", ["-v"], "win32")
+        .command,
+    ).toBe('"C:\\Program Files\\nodejs\\node.exe" "-v"');
   });
 });
 

@@ -9,6 +9,7 @@ import {
 import { isMigrationAuthorizedRuntime } from "../db/migration-runtime.js";
 import { retainRequestDbPoolScope } from "../db/request-pool-context.js";
 import { isRecordingStoreMigration } from "../db/runtime-facts.js";
+import { sql } from "../db/sql.js";
 import { defineStore } from "../db/store-registry.js";
 import { widenIntColumnsToBigInt } from "../db/widen-columns.js";
 import { noteJobFrontmatterWrite } from "../jobs/frontmatter-loss.js";
@@ -789,6 +790,11 @@ function currentWorkspaceAppId(explicit?: string | null): string | null {
     workspaceAppIdFromBasePath(process.env.APP_BASE_PATH) ??
     workspaceAppIdFromBasePath(process.env.VITE_APP_BASE_PATH)
   );
+}
+
+/** The app id Dispatch grants this app's workspace resources under, if any. */
+export function resourceWorkspaceAppId(): string | null {
+  return currentWorkspaceAppId();
 }
 
 function requestScopedResourceIdentity(options?: ResourceResolutionOptions): {
@@ -2885,6 +2891,28 @@ export async function resourceListAccessible(
   pathPrefix?: string,
   options?: ResourceListOptions,
 ): Promise<ResourceMeta[]> {
+  const { personal, organization, workspace } =
+    await resourceListAccessibleLayers(userEmail, pathPrefix, options);
+  return limitResourceMetas(
+    mergeResourceMetas(personal, mergeResourceMetas(organization, workspace)),
+    options?.limit,
+  );
+}
+
+/**
+ * The rows `resourceListAccessible` merges, before a personal row hides an
+ * organization or workspace row at the same path, and an organization row a
+ * workspace one. `organization` includes the legacy app-default rows.
+ */
+export async function resourceListAccessibleLayers(
+  userEmail: string,
+  pathPrefix?: string,
+  options?: ResourceListOptions,
+): Promise<{
+  personal: ResourceMeta[];
+  organization: ResourceMeta[];
+  workspace: ResourceMeta[];
+}> {
   const organizationOwner = sharedResourceOwner(options?.orgId);
   const [personal, organization, legacyShared, workspace] = await Promise.all([
     resourceList(userEmail, pathPrefix, options),
@@ -2897,17 +2925,55 @@ export async function resourceListAccessible(
       userEmail,
     }),
   ]);
+  return {
+    personal,
+    organization: mergeResourceMetas(organization, legacyShared),
+    workspace,
+  };
+}
 
-  return limitResourceMetas(
-    mergeResourceMetas(
-      personal,
-      mergeResourceMetas(
-        organization,
-        mergeResourceMetas(legacyShared, workspace),
-      ),
-    ),
-    options?.limit,
-  );
+const OWNERS_AT_PATHS_CHUNK = 400;
+
+/**
+ * Which of `owners` have a resource at each of `paths`, one entry per owner
+ * and path, with owners compared and returned in lowercase. Reads no content.
+ */
+export async function resourceOwnersAtPaths(
+  owners: readonly string[],
+  paths: readonly string[],
+): Promise<Array<{ owner: string; path: string }>> {
+  const uniqueOwners = [
+    ...new Set(owners.map((owner) => owner.trim().toLowerCase())),
+  ].filter(Boolean);
+  const uniquePaths = [...new Set(paths.filter(Boolean))];
+  if (uniqueOwners.length === 0 || uniquePaths.length === 0) return [];
+
+  const client = getDbExec();
+  const found: Array<{ owner: string; path: string }> = [];
+  for (
+    let start = 0;
+    start < uniqueOwners.length;
+    start += OWNERS_AT_PATHS_CHUNK
+  ) {
+    const chunk = uniqueOwners.slice(start, start + OWNERS_AT_PATHS_CHUNK);
+    const query = sql`SELECT DISTINCT LOWER(owner) AS owner, path
+        FROM resources
+       WHERE LOWER(owner) IN ${sql.in(chunk)}
+         AND path IN ${sql.in(uniquePaths)}
+         AND (visibility IS NULL OR visibility != 'agent_scratch')`;
+    let rows: Awaited<ReturnType<DbExec["execute"]>>["rows"];
+    try {
+      ({ rows } = await client.execute(query));
+    } catch (error) {
+      if (!isMissingResourceSchemaError(error)) throw error;
+      await ensureTable();
+      ({ rows } = await client.execute(query));
+    }
+    for (const row of rows) {
+      found.push({ owner: String(row.owner), path: String(row.path) });
+    }
+  }
+  return found;
 }
 
 /** Organization/shared rows a caller can list, including the legacy app default. */

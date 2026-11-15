@@ -42,8 +42,11 @@ vi.mock("@agent-native/toolkit/ui/sonner", () => ({
   ),
 }));
 
+import { useLocale } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { encodeContinuation } from "@agent-native/core/shared/sign-in-journey";
 import { SsrSessionBootstrapContext } from "@agent-native/core/shared/ssr-session-bootstrap-slot";
+import { toast } from "sonner";
 
 import { AppProviders } from "./AppProviders.js";
 
@@ -226,7 +229,118 @@ const SIGNED_IN_SESSION = {
   status: "authenticated" as const,
 };
 
+function LocaleToaster() {
+  const { locale } = useLocale();
+  return <div data-testid="locale-toaster">{locale}</div>;
+}
+
+function LocaleControl() {
+  const { locale, setPreference } = useLocale();
+  return <button onClick={() => void setPreference("es-ES")}>{locale}</button>;
+}
+
 describe("AppProviders session gate", () => {
+  it("shares the app locale with the custom toaster", async () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+    await act(async () => {
+      root.render(
+        <AppProviders
+          queryClient={new QueryClient()}
+          isPublicPath
+          disableWebMcp
+          i18n={{ persistPreference: false, initialLocale: "en-US" }}
+          toaster={<LocaleToaster />}
+        >
+          <LocaleControl />
+        </AppProviders>,
+      );
+    });
+    expect(
+      container.querySelector('[data-testid="locale-toaster"]')?.textContent,
+    ).toBe("en-US");
+    await act(async () => container.querySelector("button")?.click());
+    await vi.waitFor(() => {
+      expect(container.querySelector("button")?.textContent).toBe("es-ES");
+      expect(
+        container.querySelector('[data-testid="locale-toaster"]')?.textContent,
+      ).toBe("es-ES");
+    });
+    expect(
+      container.querySelectorAll('[data-testid="locale-toaster"]'),
+    ).toHaveLength(1);
+  });
+
+  it.each([true, false])(
+    "keeps the custom toaster visible when signed out with i18n enabled: %s",
+    async (localized) => {
+      useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+      await act(async () => {
+        root.render(
+          <AppProviders
+            queryClient={new QueryClient()}
+            disableWebMcp
+            i18n={
+              localized
+                ? { persistPreference: false, initialLocale: "en-US" }
+                : false
+            }
+            toaster={
+              localized ? (
+                <LocaleToaster />
+              ) : (
+                <div data-testid="locale-toaster">plain</div>
+              )
+            }
+          >
+            <div data-testid="app-content">content</div>
+          </AppProviders>,
+        );
+      });
+      expect(container.querySelector('[data-testid="app-content"]')).toBeNull();
+      expect(
+        container.querySelectorAll('[data-testid="locale-toaster"]'),
+      ).toHaveLength(1);
+      expect(
+        container.querySelector('[data-testid="locale-toaster"]')?.textContent,
+      ).toBe(localized ? "en-US" : "plain");
+    },
+  );
+  it("keeps the toaster outside the first-run onboarding cover", async () => {
+    useSessionMock.mockReturnValue(SIGNED_IN_SESSION);
+    vi.stubEnv("VITE_AGENT_NATIVE_FIRST_RUN_ONBOARDING", "1");
+    document.cookie = "agent-native-first-run=1; path=/";
+    Object.defineProperty(window, "fetch", {
+      configurable: true,
+      value: vi.fn(() => new Promise(() => {})),
+    });
+    try {
+      await act(async () => {
+        root.render(
+          <AppProviders
+            queryClient={new QueryClient()}
+            disableWebMcp
+            i18n={{ persistPreference: false, initialLocale: "en-US" }}
+            toaster={<LocaleToaster />}
+          >
+            <div data-testid="app-content">content</div>
+          </AppProviders>,
+        );
+      });
+      expect(container.querySelector("[data-first-run-cover]")).not.toBeNull();
+      expect(
+        container
+          .querySelector('[data-testid="app-content"]')
+          ?.closest("[inert]"),
+      ).not.toBeNull();
+      const toaster = container.querySelector('[data-testid="locale-toaster"]');
+      expect(toaster?.textContent).toBe("en-US");
+      expect(toaster?.closest("[inert]")).toBeNull();
+    } finally {
+      document.cookie = "agent-native-first-run=; Max-Age=0; path=/";
+      vi.unstubAllEnvs();
+    }
+  });
+
   it("mounts theme-family sync by default in an authenticated app shell", async () => {
     useSessionMock.mockReturnValue(SIGNED_IN_SESSION);
 
@@ -312,6 +426,55 @@ describe("AppProviders session gate", () => {
     expect(toaster?.getAttribute("data-mobile-offset")).toBe(
       JSON.stringify({ bottom: 44, left: 16 }),
     );
+  });
+
+  it.each([
+    ["without the i18n provider", false],
+    ["inside the i18n provider", undefined],
+  ] as const)(
+    "shows a reported write failure %s when a toaster is present",
+    (_label, i18n) => {
+      useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+      const error = vi.spyOn(toast, "error").mockImplementation(() => "");
+
+      act(() => {
+        root.render(
+          <AppProviders
+            queryClient={new QueryClient()}
+            i18n={i18n}
+            isPublicPath
+          >
+            <div>content</div>
+          </AppProviders>,
+        );
+      });
+      act(() => reportWriteFailure(new Error("boom")));
+
+      expect(error).toHaveBeenCalledTimes(1);
+      error.mockRestore();
+    },
+  );
+
+  it("still reports a write failure when the app renders its own toaster", () => {
+    useSessionMock.mockReturnValue(SIGNED_OUT_SESSION);
+    const error = vi.spyOn(toast, "error").mockImplementation(() => "");
+
+    act(() => {
+      root.render(
+        <AppProviders
+          queryClient={new QueryClient()}
+          i18n={false}
+          isPublicPath
+          toaster={null}
+        >
+          <div>content</div>
+        </AppProviders>,
+      );
+    });
+    act(() => reportWriteFailure(new Error("boom")));
+
+    expect(error).toHaveBeenCalledTimes(1);
+    error.mockRestore();
   });
 
   it("preserves a custom toaster without adding default offsets", () => {

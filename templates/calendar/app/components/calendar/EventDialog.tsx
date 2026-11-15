@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import type { CalendarEvent } from "@shared/api";
 import {
   IconMapPin,
@@ -147,7 +148,8 @@ export function EventDialog({
           setEditing(false);
           onClose();
         },
-        onError: () => toast.error(t("eventDialog.updateFailed")),
+        onError: (error) =>
+          reportWriteFailure(error, { label: t("eventDialog.updateFailed") }),
       },
     );
   }
@@ -170,7 +172,8 @@ export function EventDialog({
             toast.success(t("eventDialog.eventDeleted"));
             onClose();
           },
-          onError: () => toast.error(t("eventDialog.deleteFailed")),
+          onError: (error) =>
+            reportWriteFailure(error, { label: t("eventDialog.deleteFailed") }),
         },
       );
     }

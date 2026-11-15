@@ -1,5 +1,6 @@
 import { useT } from "@agent-native/core/client/i18n";
 import { startWorkspaceProviderOAuth } from "@agent-native/core/client/integrations";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { toast } from "sonner";
 
 import {
@@ -58,8 +59,8 @@ export function useCalendarConnections() {
         await disconnectGoogle.mutateAsync(account.email);
       }
       toast.success(t("settings.googleDisconnected"));
-    } catch {
-      toast.error(t("settings.disconnectFailed"));
+    } catch (error) {
+      reportWriteFailure(error, { label: t("settings.disconnectFailed") });
     }
   }
 
@@ -78,7 +79,10 @@ export function useCalendarConnections() {
   function disconnectZoomAccount() {
     disconnectZoom.mutate(undefined, {
       onSuccess: () => toast.success(t("settings.zoomDisconnected")),
-      onError: () => toast.error(t("settings.zoomDisconnectFailed")),
+      onError: (error) =>
+        reportWriteFailure(error, {
+          label: t("settings.zoomDisconnectFailed"),
+        }),
     });
   }
 

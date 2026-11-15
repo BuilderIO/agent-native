@@ -9,6 +9,7 @@ import {
   getRequestUserName,
   hasRequestContext,
 } from "../../server/request-context.js";
+import { AGENT_ORG_SCOPE_ENV } from "../dev-session.js";
 import { parseArgs } from "../utils.js";
 
 const MAX_OUTPUT = 50_000;
@@ -81,6 +82,14 @@ function childProcessEnvForRequest(): NodeJS.ProcessEnv {
   setOrClearRequestEnv(env, "AGENT_USER_EMAIL", userEmail, requestScoped);
   setOrClearRequestEnv(env, "AGENT_USER_NAME", userName, requestScoped);
   setOrClearRequestEnv(env, "AGENT_ORG_ID", orgId, requestScoped);
+  // A request with no org runs its commands with no org too. Without this, a
+  // `pnpm action` it runs would look up the user's active org instead.
+  setOrClearRequestEnv(
+    env,
+    AGENT_ORG_SCOPE_ENV,
+    requestScoped && !orgId ? "personal" : undefined,
+    requestScoped,
+  );
   setOrClearRequestEnv(env, "AGENT_USER_TIMEZONE", timezone, requestScoped);
 
   return env;

@@ -68,7 +68,9 @@ describe("AgentSuggestionBar", () => {
     expect(buttons).toHaveLength(2);
     expect(bar?.className).toContain("py-2");
     expect(bar?.className).toContain("min-w-0");
-    expect(buttons[0]?.className).toContain("rounded-full");
+    expect(buttons[0]?.className).toContain(
+      "rounded-[var(--agent-kit-radius-xs,0.25rem)]",
+    );
     expect(buttons[0]?.className).toContain("whitespace-nowrap");
     expect(buttons[0]?.className).not.toContain("max-w-");
     expect(buttons[0]?.className).toContain("text-foreground");

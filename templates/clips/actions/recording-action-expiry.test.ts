@@ -23,6 +23,10 @@ vi.mock("@agent-native/core/application-state", async (original) => ({
   writeAppState: async () => boundary.read(),
   compareAndSetManyAppState: async () => boundary.read(),
 }));
+vi.mock("@agent-native/core/server", async (original) => ({
+  ...(await original<typeof import("@agent-native/core/server")>()),
+  resolveChatModelAvailability: async () => "available",
+}));
 vi.mock("@agent-native/core/credentials", () => ({
   resolveCredential: async () => boundary.read(),
 }));

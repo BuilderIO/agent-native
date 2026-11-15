@@ -1,8 +1,8 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import type { HostOverlayStatusResult, OverlayPerson } from "@shared/api";
 import { IconTrash, IconUserPlus } from "@tabler/icons-react";
 import { useMemo, useState } from "react";
-import { toast } from "sonner";
 
 import { HostOverlayStatusIcon } from "@/components/booking/HostOverlayStatusIcon";
 import { AddCalendarDialog } from "@/components/calendar/AddCalendarDialog";
@@ -182,8 +182,10 @@ export function SharedAvailabilityPanel() {
                           disabled={removePerson.isPending}
                           onClick={() =>
                             removePerson.mutate(person.email, {
-                              onError: () =>
-                                toast.error(t("settings.saveFailed")),
+                              onError: (error) =>
+                                reportWriteFailure(error, {
+                                  label: t("settings.saveFailed"),
+                                }),
                             })
                           }
                         >

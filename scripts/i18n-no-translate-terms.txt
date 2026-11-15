@@ -17,6 +17,7 @@ Playfair Display
 ~/.claude/ on a local disk
 302 + signed JWT
 401 · WWW-Authenticate
+A → Z
 A2A
 adapter.sendResponse
 Agent-Native
@@ -100,7 +101,7 @@ POST JSON to NOTIFICATIONS_WEBHOOK_URL
 PR
 PR push
 Provider registry
-publicMcp + publicAgent.expose required
+publicAgent.expose required
 pull · push
 RBAC
 React UI
@@ -151,6 +152,7 @@ X-Request-Source: TAB_ID
 Y.Doc
 Y.Doc update
 Yjs CRDT
+Z → A
 Docs Components
 Microsoft Foundry
 Gemini Enterprise

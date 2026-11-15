@@ -1,6 +1,12 @@
 // @vitest-environment happy-dom
 
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  within,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -16,11 +22,15 @@ vi.mock("@agent-native/core/client/i18n", () => ({
       "commandPalette.shortcutsList": "Message list",
       "commandPalette.shortcutsThread": "Conversation",
       "commandPalette.shortcutsCompose": "Compose",
+      "commandPalette.askAi": "Ask AI",
       "commandPalette.backToCommands": "Back to commands",
       "commandPalette.backToMessageList": "Return to message list",
       "commandPalette.cycleTabs": "Cycle tabs",
       "commandPalette.extendSelection": "Extend selection",
+      "commandPalette.goToUnread": "Go to Unread",
       "commandPalette.moveSelection": "Move selection",
+      "commandPalette.pageDownUp": "Page down / up",
+      "commandPalette.selectConversation": "Select conversation",
       "commandPalette.openMessage": "Open message",
       "commandPalette.nextPreviousConversation": "Next / previous conversation",
       "commandPalette.nextPreviousMessage": "Next / previous message",
@@ -324,7 +334,7 @@ describe("CommandPalette Search action", () => {
     expect(screen.getByRole("heading", { name: "Compose" })).toBeTruthy();
     expect(screen.getByText("C")).toBeTruthy();
     expect(screen.getByText("G #")).toBeTruthy();
-    expect(screen.getByText("J / ↓ · K / ↑")).toBeTruthy();
+    expect(screen.getAllByText("J / ↓ · K / ↑")).toHaveLength(2);
     expect(screen.getByText("N / P")).toBeTruthy();
     expect(screen.getByText("⌘ Enter / Ctrl Enter")).toBeTruthy();
 
@@ -335,18 +345,35 @@ describe("CommandPalette Search action", () => {
         expect(matchingLabel.parentElement?.textContent).toContain(shortcut);
       }
     };
-    expectShortcut("Next / previous conversation", "J / K");
+    const expectScopedShortcut = (
+      heading: string,
+      label: string,
+      shortcut: string,
+    ) => {
+      const group = screen.getByRole("heading", { name: heading })
+        .parentElement as HTMLElement;
+      const matchingLabel = within(group).getByText(label);
+      expect(matchingLabel.parentElement?.textContent).toContain(shortcut);
+    };
+    expectShortcut("Next / previous conversation", "J / ↓ · K / ↑");
     expectShortcut("Next / previous message", "N / P");
-    expectShortcut("Expand / collapse message", "Enter / O");
+    expectShortcut("Expand / collapse message", "O");
+    expectShortcut("Ask AI", "?");
+    expectShortcut("Go to Unread", "Shift U");
+    expectShortcut("Select conversation", "X");
+    expectShortcut("Page down / up", "Space / Shift Space");
+    expectScopedShortcut("Message list", "Reply All", "A");
+    expectScopedShortcut("Conversation", "Reply All", "Enter / A");
     expectShortcut("Return to message list", "Esc");
     expectShortcut("Search in conversation...", "⌘ F / Ctrl F");
     expectShortcut("Toggle read state", "U");
-    expectShortcut("Move to Trash", "D / #");
+    expectShortcut("Move to Trash", "# / D");
     expectShortcut("Extend selection", "Shift+J/K · Shift+↑/↓");
     expectShortcut("Select all conversations", "⌘ A / Ctrl A");
-    expectShortcut("Reply All", "A");
     expectShortcut("Cycle tabs", "Tab / Shift+Tab");
     expectShortcut("Send and mark Done", "⌘ Shift Enter / Ctrl Shift Enter");
+    expect(screen.queryByText("Mark read")).toBeNull();
+    expect(screen.queryByText("Mark unread")).toBeNull();
   });
 
   it("supports keyboard navigation and resets to commands after closing", () => {

@@ -542,7 +542,6 @@ describe("execute Builder source execution", () => {
       request: plan.payload.request,
       expectedSourceSpace: "selected-space-key",
       expectedSourceConnectionId: "builder-oauth-connection-1",
-      requireSourceBinding: true,
     });
     expect(deps.markExecutionSucceeded).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -572,7 +571,6 @@ describe("execute Builder source execution", () => {
               hasAutosaves: null,
               values: {
                 "data.title": "Old title",
-                [BUILDER_CMS_ENTRY_NAME_KEY]: null,
               },
             },
           }),
@@ -614,7 +612,6 @@ describe("execute Builder source execution", () => {
     expect(deps.readLiveEntry).toHaveBeenCalledWith({
       model: BUILDER_CMS_SAFE_WRITE_MODEL,
       entryId: "builder-entry-1",
-      fieldPaths: ["data.title", BUILDER_CMS_ENTRY_NAME_KEY],
       expectedSourceSpace: "selected-space-key",
       expectedSourceConnectionId: "builder-oauth-connection-1",
     });
@@ -1051,7 +1048,6 @@ describe("execute Builder source execution", () => {
       }),
       expectedSourceSpace: "selected-space-key",
       expectedSourceConnectionId: "builder-oauth-connection-1",
-      requireSourceBinding: true,
     });
   });
 
@@ -1180,7 +1176,6 @@ describe("execute Builder source execution", () => {
       }),
       expectedSourceSpace: "selected-space-key",
       expectedSourceConnectionId: "builder-oauth-connection-1",
-      requireSourceBinding: true,
     });
   });
 
@@ -1345,7 +1340,6 @@ describe("execute Builder source execution", () => {
       }),
       expectedSourceSpace: "selected-space-key",
       expectedSourceConnectionId: "builder-oauth-connection-1",
-      requireSourceBinding: true,
     });
   });
 
@@ -1372,7 +1366,6 @@ describe("execute Builder source execution", () => {
     expect(deps.readLiveEntry).toHaveBeenCalledWith({
       model: BUILDER_CMS_SAFE_WRITE_MODEL,
       entryId: "builder-entry-1",
-      fieldPaths: ["data.title", BUILDER_CMS_ENTRY_NAME_KEY],
       expectedSourceSpace: "selected-space-key",
       expectedSourceConnectionId: "builder-oauth-connection-1",
     });
@@ -2584,7 +2577,7 @@ describe("Builder unpublished saves", () => {
     expect(deps.executeWrite).not.toHaveBeenCalled();
   });
 
-  it("blocks a save that would overwrite an entry name Builder changed", async () => {
+  it("saves without touching an entry name Builder changed", async () => {
     const { deps, run } = unpublishedSave({
       rows: [
         publishedRow({
@@ -2613,37 +2606,24 @@ describe("Builder unpublished saves", () => {
       },
     });
 
-    await expect(run()).rejects.toThrow(
-      "Entry name changed in Builder since you edited it; refresh and re-review.",
-    );
-    expect(deps.executeWrite).not.toHaveBeenCalled();
+    await expect(run()).resolves.toMatchObject(RESPONSE);
+    expect(deps.executeWrite).toHaveBeenCalledTimes(1);
+    expect(
+      vi.mocked(deps.executeWrite).mock.calls[0]?.[0].request.body,
+    ).not.toHaveProperty("name");
   });
 
-  it("checks and keeps Builder's own entry name on a save that leaves the title", async () => {
+  it("keeps Builder's own entry name when a save changes the title", async () => {
     const { deps, run } = unpublishedSave({
       rows: [
         publishedRow({
-          lastSourceUpdatedAt: String(STALE_BUILDER_LAST_UPDATED_MS),
           sourceValues: {
             published: "published",
             "data.title": "Old title",
-            "data.blurb": "Old blurb",
-            [BUILDER_CMS_ENTRY_NAME_KEY]: "CMS internal label",
+            [BUILDER_CMS_ENTRY_NAME_KEY]: "Dev Drop: Old title",
           },
         }),
       ],
-      changeSet: changeSet({
-        fieldChanges: [
-          {
-            propertyId: null,
-            propertyName: "Blurb",
-            localFieldKey: "blurb",
-            sourceFieldKey: "data.blurb",
-            currentValue: "Old blurb",
-            proposedValue: "New blurb",
-          },
-        ],
-      }),
       readLiveEntry: {
         exists: true,
         published: "published",
@@ -2651,21 +2631,17 @@ describe("Builder unpublished saves", () => {
         blocksHash: null,
         id: "builder-entry-1",
         values: {
-          "data.blurb": "Old blurb",
-          [BUILDER_CMS_ENTRY_NAME_KEY]: "CMS internal label",
+          "data.title": "Old title",
+          [BUILDER_CMS_ENTRY_NAME_KEY]: "Dev Drop: Old title",
         },
       },
     });
 
     await expect(run()).resolves.toMatchObject(RESPONSE);
     expect(deps.executeWrite).toHaveBeenCalledTimes(1);
-    expect(deps.executeWrite).toHaveBeenCalledWith(
-      expect.objectContaining({
-        request: expect.objectContaining({
-          body: expect.objectContaining({ name: "CMS internal label" }),
-        }),
-      }),
-    );
+    const body = vi.mocked(deps.executeWrite).mock.calls[0]?.[0].request.body;
+    expect(body).toMatchObject({ data: { title: "New title" } });
+    expect(body).not.toHaveProperty("name");
   });
 
   it("treats the live value Content saved over as the value this edit was made against", async () => {
@@ -2770,7 +2746,6 @@ describe("Builder unpublished saves", () => {
               values: {
                 "data.author": "Sam Lee",
                 "__agent_native_builder_reference_id:data.author": "author-1",
-                [BUILDER_CMS_ENTRY_NAME_KEY]: "Old title",
               },
             }),
           }),
@@ -2908,7 +2883,7 @@ describe("Builder unpublished saves", () => {
         existingSourceValuesJson: JSON.stringify({
           published: "published",
           "data.title": "Old title",
-          [BUILDER_CMS_ENTRY_NAME_KEY]: "Old title",
+          [BUILDER_CMS_ENTRY_NAME_KEY]: "Dev Drop: Old title",
         }),
         snapshotSourceValues: undefined,
         changeSet: approvedChangeSet,
@@ -2924,10 +2899,7 @@ describe("Builder unpublished saves", () => {
               lastUpdated: BUILDER_LAST_UPDATED_MS,
               blocksHash: null,
               hasAutosaves: null,
-              values: {
-                "data.title": "Old title",
-                [BUILDER_CMS_ENTRY_NAME_KEY]: "Old title",
-              },
+              values: { "data.title": "Old title" },
             },
           },
         },
@@ -2935,12 +2907,9 @@ describe("Builder unpublished saves", () => {
     );
 
     expect(values["data.title"]).toBe("New title");
-    expect(values[BUILDER_CMS_ENTRY_NAME_KEY]).toBe("New title");
+    expect(values[BUILDER_CMS_ENTRY_NAME_KEY]).toBe("Dev Drop: Old title");
     expect(JSON.parse(values[BUILDER_CMS_UNPUBLISHED_CHANGES_KEY])).toEqual({
-      liveValues: {
-        "data.title": "Old title",
-        [BUILDER_CMS_ENTRY_NAME_KEY]: "Old title",
-      },
+      liveValues: { "data.title": "Old title" },
       liveLastUpdated: BUILDER_LAST_UPDATED_MS,
     });
   });

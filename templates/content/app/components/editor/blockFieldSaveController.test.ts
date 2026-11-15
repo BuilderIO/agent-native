@@ -324,6 +324,31 @@ describe("blockFieldSaveController", () => {
     expect(order).toEqual(["first", "second"]);
   });
 
+  it("is clean once a save lands whose text an edit mid-flight repeated", async () => {
+    let finish!: () => void;
+    const save = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          finish = resolve;
+        }),
+    );
+    const c = createBlockFieldSaveController({ initialContent: "", save });
+
+    // A pasted image saves at once, and the editor then reports the same
+    // text again while that save is on its way.
+    c.change("with image");
+    const flushed = c.flush();
+    c.change("with image");
+    finish();
+    await flushed;
+
+    expect(c.lastSaved).toBe("with image");
+    expect(c.hasPendingTimer).toBe(false);
+    expect(c.isClean).toBe(true);
+    vi.advanceTimersByTime(500);
+    expect(save).toHaveBeenCalledTimes(1);
+  });
+
   it("tells subscribers each time a save settles, whether it saved or failed", async () => {
     const save = vi
       .fn()

@@ -8,13 +8,15 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 
 const mocks = vi.hoisted(() => ({
   data: undefined as ShareButtonSharesResponse | undefined,
+  accessStatus: undefined as { state: string; role?: string } | undefined,
+  accessError: false,
   query: vi.fn(),
   refetch: vi.fn(async () => undefined),
   visibility: vi.fn(),
   share: vi.fn(),
   unshare: vi.fn(),
   update: vi.fn(),
-  createLink: vi.fn(async () => ({
+  createLink: vi.fn(async (_variables?: unknown) => ({
     contextUrl: "https://clips.example.test/scoped-agent",
   })),
   clipboard: vi.fn(async (_value: string) => true),
@@ -40,19 +42,42 @@ function mutation(name: string) {
   if (name === "share-resource") return settledThrough(mocks.share);
   if (name === "unshare-resource") return settledThrough(mocks.unshare);
   if (name.includes("agent-link") || name === "create-agent-resource-link")
-    return { mutateAsync: mocks.createLink };
+    return {
+      mutateAsync: mocks.createLink,
+      mutate: (
+        variables: unknown,
+        callbacks: {
+          onSuccess: (result: unknown) => void;
+          onError: () => void;
+        },
+      ) => {
+        void mocks
+          .createLink(variables)
+          .then(callbacks.onSuccess, callbacks.onError);
+      },
+    };
   return { mutate: mocks.update };
 }
 vi.mock("@agent-native/core/client/use-action", () => ({
   useActionQuery: (...args: unknown[]) => {
     mocks.query(...args);
-    return { data: mocks.data, refetch: mocks.refetch, isLoading: false };
+    return {
+      data:
+        args[0] === "get-resource-access-status"
+          ? mocks.accessStatus
+          : mocks.data,
+      isError: args[0] === "get-resource-access-status" && mocks.accessError,
+      refetch: mocks.refetch,
+      isLoading: false,
+    };
   },
   useActionMutation: (name: string) => mutation(name),
 }));
 vi.mock("@agent-native/core/client/hooks", () => ({
   useActionMutation: (name: string) => mutation(name),
-  useSession: () => ({ session: { userId: "test-owner" } }),
+  useSession: () => ({
+    session: { userId: "test-owner", email: "owner@example.test" },
+  }),
 }));
 vi.mock("@agent-native/core/client/org/hooks", () => ({
   useOrg: () => ({ data: null }),
@@ -61,6 +86,7 @@ vi.mock("@agent-native/core/client/analytics", () => ({
   trackEvent: mocks.track,
 }));
 vi.mock("@agent-native/core/client/i18n", () => ({
+  useOptionalLocale: () => null,
   useT: () => (key: string, options?: { defaultValue?: string }) =>
     options?.defaultValue ?? key,
 }));
@@ -89,6 +115,8 @@ export function shareTestHarness() {
   let container: HTMLDivElement;
   let client: QueryClient;
   beforeEach(() => {
+    mocks.accessStatus = undefined;
+    mocks.accessError = false;
     vi.clearAllMocks();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.stubGlobal(

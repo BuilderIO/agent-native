@@ -530,3 +530,207 @@ describe("installErrorCapture stale-chunk recovery exhaustion", () => {
     expect(send).not.toHaveBeenCalled();
   });
 });
+
+describe("DOM mutation diagnostics", () => {
+  afterEach(() => {
+    delete (globalThis as any)[errorCaptureStateKey];
+    vi.unstubAllGlobals();
+  });
+
+  it("attaches translation fingerprints to the first removeChild NotFoundError only", () => {
+    installBrowser();
+    vi.stubGlobal("document", {
+      documentElement: {
+        getAttribute: (name: string) =>
+          ({ translate: null, lang: "fr" })[name] ?? null,
+        classList: { contains: (c: string) => c === "translated-ltr" },
+      },
+      body: { querySelector: () => ({}) },
+      querySelector: () => ({}),
+    });
+    vi.stubGlobal("navigator", { language: "fr-FR" });
+    const send = vi.fn();
+    const dispose = installErrorCapture({ send, dedupeWindowMs: 0 });
+    const crash = () =>
+      new DOMException(
+        "Failed to execute 'removeChild' on 'Node': The node to be removed is not a child of this node.",
+        "NotFoundError",
+      );
+
+    captureException(crash());
+    captureException(crash());
+    captureException(new Error("unrelated"));
+
+    const [first, second, other] = send.mock.calls.map(([e]) => e);
+    expect(first.extra).toEqual({
+      domMutationDiagnostics: {
+        htmlTranslate: null,
+        htmlLang: "fr",
+        translatedClass: true,
+        fontWrapperNodes: true,
+        navigatorLanguage: "fr-FR",
+      },
+    });
+    expect(second.extra).toBeUndefined();
+    expect(other.extra).toBeUndefined();
+    dispose();
+  });
+
+  it("retries diagnostics after a synchronous send failure", () => {
+    installBrowser();
+    vi.stubGlobal("document", {
+      documentElement: {
+        getAttribute: (name: string) => (name === "lang" ? "fr" : null),
+        classList: { contains: (name: string) => name === "translated-ltr" },
+      },
+      querySelector: () => null,
+    });
+    const send = vi
+      .fn((_event: CapturedExceptionEvent) => {})
+      .mockImplementationOnce(() => {
+        throw new Error("transport failed");
+      });
+    const dispose = installErrorCapture({ send, dedupeWindowMs: 0 });
+    const crash = () =>
+      new DOMException(
+        "Failed to execute 'removeChild' on 'Node': child missing",
+        "NotFoundError",
+      );
+
+    captureException(crash());
+    captureException(crash());
+    captureException(crash());
+
+    expect(send).toHaveBeenCalledTimes(3);
+    expect(send.mock.calls[1][0].extra).toMatchObject({
+      domMutationDiagnostics: {
+        htmlLang: "fr",
+        translatedClass: true,
+        fontWrapperNodes: false,
+      },
+    });
+    expect(send.mock.calls[2][0].extra).toBeUndefined();
+    dispose();
+  });
+
+  it.each([
+    [
+      "Firefox removeChild",
+      "Node.removeChild: The node is not a child of this node",
+    ],
+    [
+      "Firefox insertBefore",
+      "Node.insertBefore: Child to insert before is not a child of this node",
+    ],
+    [
+      "Chromium insertBefore",
+      "Failed to execute 'insertBefore' on 'Node': The node is not a child of this node.",
+    ],
+  ])(
+    "captures %s diagnostics once without matching unrelated errors",
+    (_browser, message) => {
+      installBrowser();
+      vi.stubGlobal("document", {
+        documentElement: {
+          getAttribute: () => null,
+          classList: { contains: () => false },
+        },
+        body: { querySelector: () => null },
+        querySelector: () => null,
+      });
+      const send = vi.fn();
+      const dispose = installErrorCapture({ send, dedupeWindowMs: 0 });
+
+      captureException(new DOMException(message, "InvalidStateError"));
+      captureException(
+        new DOMException("Node.replaceChild: unrelated", "NotFoundError"),
+      );
+      captureException(new DOMException(message, "NotFoundError"));
+      captureException(new DOMException(message, "NotFoundError"));
+
+      expect(send).toHaveBeenCalledTimes(4);
+      const [wrongType, wrongMethod, first, second] = send.mock.calls.map(
+        ([e]) => e,
+      );
+      expect(wrongType.extra).toBeUndefined();
+      expect(wrongMethod.extra).toBeUndefined();
+      expect(first.extra).toMatchObject({
+        domMutationDiagnostics: { fontWrapperNodes: false },
+      });
+      expect(second.extra).toBeUndefined();
+      dispose();
+    },
+  );
+
+  it("sends an error without a root and captures diagnostics when the root returns", () => {
+    installBrowser();
+    const documentMock = {
+      documentElement: null as {
+        getAttribute: (name: string) => string | null;
+        classList: { contains: (name: string) => boolean };
+      } | null,
+      querySelector: () => null,
+    };
+    vi.stubGlobal("document", documentMock);
+    const send = vi.fn();
+    const dispose = installErrorCapture({ send, dedupeWindowMs: 0 });
+    const message = "Failed to execute 'removeChild' on 'Node': child missing";
+
+    captureException(new DOMException(message, "NotFoundError"));
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0][0]).toMatchObject({
+      type: "NotFoundError",
+      message,
+      handled: true,
+    });
+    expect(send.mock.calls[0][0].extra).toBeUndefined();
+
+    documentMock.documentElement = {
+      getAttribute: (name) => (name === "lang" ? "fr" : null),
+      classList: { contains: (name) => name === "translated-ltr" },
+    };
+    captureException(new DOMException(message, "NotFoundError"));
+
+    expect(send).toHaveBeenCalledTimes(2);
+    expect(send.mock.calls[1][0].extra).toMatchObject({
+      domMutationDiagnostics: {
+        htmlLang: "fr",
+        translatedClass: true,
+        fontWrapperNodes: false,
+      },
+    });
+    dispose();
+  });
+
+  it("reports no font wrappers when the document has no body", () => {
+    installBrowser();
+    const querySelector = vi.fn((selector: string) =>
+      selector === "font" ? {} : null,
+    );
+    vi.stubGlobal("document", {
+      documentElement: {
+        getAttribute: () => null,
+        classList: { contains: () => false },
+      },
+      body: null,
+      querySelector,
+    });
+    const send = vi.fn();
+    const dispose = installErrorCapture({ send });
+
+    captureException(
+      new DOMException(
+        "Failed to execute 'removeChild' on 'Node': child missing",
+        "NotFoundError",
+      ),
+    );
+
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(querySelector).toHaveBeenCalledWith("body font");
+    expect(send.mock.calls[0][0].extra).toMatchObject({
+      domMutationDiagnostics: { fontWrapperNodes: false },
+    });
+    dispose();
+  });
+});

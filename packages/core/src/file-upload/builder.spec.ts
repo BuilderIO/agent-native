@@ -26,15 +26,23 @@ function jsonResponse(body: unknown, init?: { status?: number }): Response {
   } as unknown as Response;
 }
 
-function errorResponse(status: number, text = ""): Response {
+function errorResponse(
+  status: number,
+  text = "",
+  headers: Record<string, string> = {},
+): Response {
   return {
     ok: false,
     status,
     statusText: `status ${status}`,
+    headers: new Headers(headers),
     json: async () => ({}),
     text: async () => text,
   } as unknown as Response;
 }
+
+const GOOGLE_502_PAGE =
+  "<!DOCTYPE html><html lang=en><title>Error 502 (Server Error)!!1</title><p>That's an error.</p><p>The server encountered a temporary error and could not complete your request. Please try again in 30 seconds.</p></html>";
 
 describe("builderFileUploadProvider", () => {
   const originalEnv = { ...process.env };
@@ -678,6 +686,130 @@ describe("builderFileUploadProvider", () => {
     );
     expect(JSON.parse(String(completeInit.body))).toMatchObject({
       record: false,
+    });
+  });
+
+  describe("gateway retries", () => {
+    const html502 = () =>
+      errorResponse(502, GOOGLE_502_PAGE, {
+        "content-type": "text/html; charset=UTF-8",
+        server: "Google Frontend",
+      });
+    const signedUrl = () =>
+      jsonResponse({
+        uploadUrl: "https://storage.example.com/session-start",
+        assetId: "asset-1",
+        requiredHeaders: { "x-goog-content-length-range": "0,100" },
+      });
+    const sessionStarted = () =>
+      ({
+        ok: true,
+        status: 200,
+        statusText: "OK",
+        headers: new Headers({
+          location: "https://storage.example.com/session/abc",
+        }),
+        text: async () => "",
+      }) as unknown as Response;
+    const traceHeader = (call: unknown[]) =>
+      (call[1] as { headers: Record<string, string> }).headers[
+        "X-Cloud-Trace-Context"
+      ];
+
+    beforeEach(() => {
+      // 0.5 makes the retry jitter exactly the nominal delay.
+      vi.spyOn(Math, "random").mockReturnValue(0.5);
+      vi.spyOn(console, "log").mockImplementation(() => {});
+      vi.spyOn(console, "warn").mockImplementation(() => {});
+    });
+
+    it("retries a Google 502 page on the signed-URL request, then opens the session", async () => {
+      fetchMock
+        .mockResolvedValueOnce(html502())
+        .mockResolvedValueOnce(signedUrl())
+        .mockResolvedValueOnce(sessionStarted());
+
+      const started = builderFileUploadProvider.resumable!.startSession(
+        "clip.webm",
+        "video/webm",
+        100,
+      );
+      await vi.advanceTimersByTimeAsync(500);
+      const session = await started;
+
+      expect(session.sessionId).toBe("https://storage.example.com/session/abc");
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+      expect(new URL(fetchMock.mock.calls[1][0].toString()).pathname).toBe(
+        "/api/v1/upload/signed-url",
+      );
+      expect(traceHeader(fetchMock.mock.calls[0])).toMatch(
+        /^[0-9a-f]{32}\/1;o=1$/,
+      );
+      expect(traceHeader(fetchMock.mock.calls[1])).not.toBe(
+        traceHeader(fetchMock.mock.calls[0]),
+      );
+      expect(traceHeader(fetchMock.mock.calls[2])).toBeUndefined();
+    });
+
+    it("retries a 503 from the storage session start", async () => {
+      fetchMock
+        .mockResolvedValueOnce(signedUrl())
+        .mockResolvedValueOnce(errorResponse(503, "backend unavailable"))
+        .mockResolvedValueOnce(sessionStarted());
+
+      const started = builderFileUploadProvider.resumable!.startSession(
+        "clip.webm",
+        "video/webm",
+        100,
+      );
+      await vi.advanceTimersByTimeAsync(500);
+
+      await expect(started).resolves.toBeDefined();
+      expect(fetchMock).toHaveBeenCalledTimes(3);
+    });
+
+    it("retries a 502 on upload complete, then registers the asset", async () => {
+      fetchMock
+        .mockResolvedValueOnce(html502())
+        .mockResolvedValueOnce(
+          jsonResponse({ url: "https://cdn.builder.io/video", id: "asset-1" }),
+        );
+
+      const done = builderFileUploadProvider.resumable!.completeSession(
+        {
+          sessionId: "https://storage.example.com/session/abc",
+          meta: { assetId: "asset-1" },
+        },
+        "clip.webm",
+        { stableUrl: true },
+      );
+      await vi.advanceTimersByTimeAsync(500);
+
+      await expect(done).resolves.toBe("https://cdn.builder.io/video");
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      expect(
+        new URL(fetchMock.mock.calls[1][0].toString()).searchParams.get(
+          "stableUrl",
+        ),
+      ).toBe("true");
+    });
+
+    it("reports a storage upload failure without keeping the HTML page", async () => {
+      fetchMock
+        .mockResolvedValueOnce(signedUrl())
+        .mockResolvedValueOnce(html502());
+
+      await expect(
+        builderFileUploadProvider.upload({
+          data: new Uint8Array([1, 2, 3]),
+          filename: "clip.webm",
+          mimeType: "video/webm",
+        }),
+      ).rejects.toMatchObject({
+        status: 502,
+        message:
+          "GCS upload failed (502): HTML error page returned instead of JSON",
+      });
     });
   });
 });

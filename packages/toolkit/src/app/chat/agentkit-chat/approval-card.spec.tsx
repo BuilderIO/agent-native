@@ -17,6 +17,7 @@ import { CoreAgentKitApproval } from "./approval-card.js";
 import { CoreAgentKitRoot } from "./root.js";
 
 vi.mock("@agent-native/core/client/i18n", () => ({
+  useFormatters: () => ({ formatDate: (date: Date) => date.toISOString() }),
   useT: () => (key: string, options?: Record<string, unknown>) =>
     key === "agentChat.approval.question"
       ? `Approve to run ${String(options?.tool)}?`

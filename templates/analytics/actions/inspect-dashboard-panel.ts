@@ -103,6 +103,7 @@ export default defineAction({
     }
 
     const verification = await verifyDashboardPanels(config, [args.panelId], {
+      dashboardId: args.dashboardId,
       signal: actionContext?.signal,
       filters: args.filters,
       forceRefresh: args.forceRefresh,

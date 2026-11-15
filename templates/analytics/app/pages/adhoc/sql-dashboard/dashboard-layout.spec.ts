@@ -43,8 +43,148 @@ describe("dashboard layout rows", () => {
     expect(next.map((item) => [item.id, item.width])).toEqual([
       ["a", 2],
       ["c", 1],
-      ["d", 2],
+      ["d", 1],
       ["e", 1],
+    ]);
+  });
+
+  it("leaves other sections' widths alone when a panel joins a row", () => {
+    const panels: SqlPanel[] = [
+      panel("a"),
+      panel("b"),
+      { ...panel("section"), chartType: "section", columns: 3 },
+      panel("c", 2),
+      panel("d", 1),
+      panel("e", 1),
+      panel("f", 2),
+    ];
+    const slot: DashboardDropSlot = {
+      type: "column",
+      groupKey: "intro",
+      rowIndex: 0,
+      columnIndex: 1,
+    };
+
+    const next = movePanelToDropSlot([...panels, panel("new")], "new", slot, 3);
+
+    expect(next.map((item) => [item.id, item.width])).toEqual([
+      ["a", 1],
+      ["new", 1],
+      ["b", 1],
+      ["section", 1],
+      ["c", 2],
+      ["d", 1],
+      ["e", 1],
+      ["f", 2],
+    ]);
+  });
+
+  it("rebalances an untouched row that would otherwise pull up the next one", () => {
+    const panels = [panel("a"), panel("b"), panel("c", 3), panel("d")];
+
+    const next = removePanelFromLayout(panels, "c", 3);
+    const rows = buildDashboardPanelGroups(next, 3).flatMap(
+      (group) => group.rows,
+    );
+
+    expect(ids(rows)).toEqual([["a", "b"], ["d"]]);
+    expect(next.map((item) => [item.id, item.width])).toEqual([
+      ["a", 2],
+      ["b", 1],
+      ["d", 1],
+    ]);
+  });
+
+  it("lays a deleted section's rows out on the grid of the group before it", () => {
+    const section = (columns: number): SqlPanel => ({
+      ...panel("section"),
+      chartType: "section",
+      columns,
+    });
+
+    const wider = removePanelFromLayout(
+      [panel("a", 4), section(2), panel("b"), panel("c"), panel("d", 2)],
+      "section",
+      4,
+    );
+    expect(
+      ids(buildDashboardPanelGroups(wider, 4).flatMap((group) => group.rows)),
+    ).toEqual([["a"], ["b", "c"], ["d"]]);
+    expect(wider.map((item) => [item.id, item.width])).toEqual([
+      ["a", 4],
+      ["b", 2],
+      ["c", 2],
+      ["d", 4],
+    ]);
+
+    const narrower = removePanelFromLayout(
+      [panel("a", 2), section(3), panel("b"), panel("c"), panel("d")],
+      "section",
+      2,
+    );
+    expect(
+      ids(
+        buildDashboardPanelGroups(narrower, 2).flatMap((group) => group.rows),
+      ),
+    ).toEqual([["a"], ["b", "c"], ["d"]]);
+    expect(narrower.map((item) => [item.id, item.width])).toEqual([
+      ["a", 2],
+      ["b", 1],
+      ["c", 1],
+      ["d", 2],
+    ]);
+  });
+
+  it("keeps sections that follow the dashboard's columns when the top rows widen", () => {
+    const panels: SqlPanel[] = [
+      panel("a"),
+      panel("b"),
+      { ...panel("section"), chartType: "section" },
+      ...["c", "d", "e", "f"].map((id) => panel(id)),
+    ];
+    const slot: DashboardDropSlot = {
+      type: "column",
+      groupKey: "intro",
+      rowIndex: 0,
+      columnIndex: 1,
+    };
+
+    const next = movePanelToDropSlot([...panels, panel("new")], "new", slot, 2);
+    const groups = buildDashboardPanelGroups(next, 3);
+
+    expect(groups.map((group) => ids(group.rows))).toEqual([
+      [["a", "new", "b"]],
+      [
+        ["c", "d"],
+        ["e", "f"],
+      ],
+    ]);
+    expect(next.find((item) => item.id === "section")?.columns).toBe(2);
+    expect(
+      next.filter((item) => "cdef".includes(item.id)).map((p) => p.width),
+    ).toEqual([1, 1, 1, 1]);
+  });
+
+  it("lays every row out again when a dropped panel widens its group", () => {
+    const panels = [panel("a"), panel("b"), panel("c", 2)];
+    const slot: DashboardDropSlot = {
+      type: "column",
+      groupKey: "intro",
+      rowIndex: 0,
+      columnIndex: 1,
+    };
+
+    const next = movePanelToDropSlot([...panels, panel("new")], "new", slot, 2);
+    const rows = buildDashboardPanelGroups(next, 3).flatMap(
+      (group) => group.rows,
+    );
+
+    expect(ids(rows)).toEqual([["a", "new", "b"], ["c"]]);
+    expect(next.map((item) => [item.id, item.width])).toEqual([
+      ["a", 1],
+      ["new", 1],
+      ["b", 1],
+      ["c", 3],
     ]);
   });
 

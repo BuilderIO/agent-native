@@ -5,6 +5,10 @@ import { createFetchToolEntry } from "./fetch-tool.js";
 
 const mockWriteWorkspaceFile = vi.hoisted(() => vi.fn());
 
+vi.mock("node:dns/promises", () => ({
+  lookup: async () => [{ address: "93.184.216.34", family: 4 }],
+}));
+
 vi.mock("../workspace-files/store.js", () => ({
   SAVE_TO_FILE_MAX_BYTES: 20 * 1024 * 1024,
   isScratchWorkspacePath: (path: string) =>

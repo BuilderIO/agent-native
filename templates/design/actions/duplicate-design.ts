@@ -1,4 +1,4 @@
-import { defineAction } from "@agent-native/core/action";
+import { defineAction, fail } from "@agent-native/core/action";
 import {
   getRequestUserEmail,
   getRequestOrgId,
@@ -26,7 +26,12 @@ export default defineAction({
   }),
   run: async ({ id, title }, ctx) => {
     const access = await resolveAccess("design", id);
-    if (!access) throw new Error(`Design not found: ${id}`);
+    if (!access) {
+      fail(`Design not found: ${id}`, {
+        errorCode: "design_not_found",
+        statusCode: 404,
+      });
+    }
 
     const source = access.resource;
     const db = getDb();
@@ -65,7 +70,12 @@ export default defineAction({
     const orgId = getRequestOrgId() || null;
     const ownerEmail = (() => {
       const e = getRequestUserEmail();
-      if (!e) throw new Error("no authenticated user");
+      if (!e) {
+        fail("Sign in to duplicate a design.", {
+          errorCode: "unauthenticated",
+          statusCode: 401,
+        });
+      }
       return e;
     })();
 

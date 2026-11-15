@@ -59,6 +59,7 @@ import { formatMcpConnectError } from "./errors.js";
 import { fetchHubServers } from "./hub-client.js";
 import {
   buildMcpToolName,
+  fetchMcpOriginBound,
   parseMcpToolName,
   type McpClientManager,
   type McpTool,
@@ -1319,6 +1320,8 @@ async function tryConnect(
     }
     const transport = new StreamableHTTPClientTransport(new URL(url), {
       requestInit,
+      fetch: (input, init) =>
+        fetchMcpOriginBound(input, init, new URL(url).origin),
     });
     const client = new Client(
       { name: "agent-native-mcp-client-test", version: "1.0.0" },

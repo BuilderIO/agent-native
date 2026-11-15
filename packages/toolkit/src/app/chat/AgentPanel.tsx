@@ -26,7 +26,6 @@ import {
   IconX,
   IconDotsVertical,
   IconExternalLink,
-  IconShare3,
 } from "@tabler/icons-react";
 import React, {
   useState,
@@ -590,26 +589,31 @@ export interface AgentPanelProps extends Omit<
   isFullscreen?: boolean;
   /** @deprecated Fullscreen sidebar controls are no longer rendered. */
   onToggleFullscreen?: () => void;
-  onFullViewRequest?: (threadId?: string) => void;
-  onSnapTo75Percent?: () => void;
+  onFullViewRequest?: ((threadId?: string) => void) | undefined;
+  onSnapTo75Percent?: (() => void) | undefined;
   isWideDrawer?: boolean;
-  onExitWideDrawer?: () => void;
-  onOpenSettings?: (section?: string) => void;
-  onNewCliTab?: () => void;
-  onNewUiTab?: () => void;
-  renderCliTab?: (input: { id: string; active: boolean }) => React.ReactNode;
+  onExitWideDrawer?: (() => void) | undefined;
+  onOpenSettings?: ((section?: string) => void) | undefined;
+  onNewCliTab?: (() => void) | undefined;
+  onNewUiTab?: (() => void) | undefined;
+  renderCliTab?:
+    | ((input: { id: string; active: boolean }) => React.ReactNode)
+    | undefined;
   newTabMode?: "ui" | "cli";
-  newCliTabLabel?: string;
-  newUiTabLabel?: string;
-  storageKey?: string;
+  newCliTabLabel?: string | undefined;
+  newUiTabLabel?: string | undefined;
+  storageKey?: string | undefined;
   preferEngineDefaultModel?: MultiTabAssistantChatProps["preferEngineDefaultModel"];
   restoreActiveThread?: boolean;
-  scope?: import("@agent-native/core/client/agent-chat").ChatThreadScope | null;
+  scope?:
+    | import("@agent-native/core/client/agent-chat").ChatThreadScope
+    | null
+    | undefined;
   isolateHistoryByScope?: boolean;
   composerAutoFocus?: MultiTabAssistantChatProps["composerAutoFocus"];
   /** @deprecated Scope context now appears inside the composer. */
   showScopeBadge?: MultiTabAssistantChatProps["showScopeBadge"];
-  browserTabId?: string;
+  browserTabId?: string | undefined;
   threadUrlSync?: MultiTabAssistantChatProps["threadUrlSync"];
   chatNotice?: React.ReactNode;
   showTabBar?: boolean;
@@ -627,9 +631,9 @@ export interface AgentPanelProps extends Omit<
     | ((actions: AgentPanelPageToolbarActions) => React.ReactNode);
   onPageHeaderVisibilityChange?: (visible: boolean) => void;
   chatOnly?: boolean;
-  agentPageHref?: string;
+  agentPageHref?: string | undefined;
   codeAccess?: AgentPanelCodeAccess;
-  builderConnectTransport?: BuilderConnectTransport;
+  builderConnectTransport?: BuilderConnectTransport | undefined;
 }
 
 function useClientOnly() {
@@ -1320,7 +1324,6 @@ function AgentPanelInner({
                 allowedRoles={["viewer", "editor", "admin"]}
                 resourceTitle={activeTab.label || t("agentPanel.chat")}
                 shareUrl={getChatThreadShareUrl(activeTab.id)}
-                triggerClassName="h-6 px-2 text-xs"
                 defaultOpen={onCollapse && shareFromMenuOpen}
                 onOpenChange={onCollapse ? setShareFromMenuOpen : undefined}
               />
@@ -1839,18 +1842,7 @@ function AgentPanelInner({
                       allowedRoles={["viewer", "editor", "admin"]}
                       resourceTitle={activeTab.label || t("agentPanel.chat")}
                       shareUrl={getChatThreadShareUrl(activeTab.id)}
-                      triggerContent={
-                        pageHeaderShareTriggerContent ?? (
-                          <IconShare3 size={16} aria-hidden="true" />
-                        )
-                      }
-                      triggerClassName={cn(
-                        "h-6 border-0 bg-transparent text-xs shadow-none hover:bg-accent/60 [&_svg]:size-4",
-                        pageHeaderShareTriggerContent === undefined ||
-                          pageHeaderShareTriggerContent === null
-                          ? "size-6 p-0"
-                          : "w-auto px-2",
-                      )}
+                      triggerContent={pageHeaderShareTriggerContent}
                     />
                   ) : null}
                   {toolbarSlot}

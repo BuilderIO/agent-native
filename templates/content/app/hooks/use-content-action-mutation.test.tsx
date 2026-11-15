@@ -22,6 +22,7 @@ import { useContentActionMutation } from "./use-content-action-mutation";
 import {
   useDuplicateDatabaseItem,
   useRemoveDatabaseItems,
+  useUpdateDatabaseItem,
 } from "./use-content-database";
 import { useRestoreTrashItem } from "./use-content-trash";
 import {
@@ -99,6 +100,7 @@ const keys = {
   trashedDatabases: ["action", "list-trashed-content-databases", {}],
   trash: ["action", "list-content-trash", {}],
   search: ["action", "search-documents", { query: "page" }],
+  titles: ["action", "list-document-titles", {}],
 } satisfies Record<string, QueryKey>;
 
 type ReadName = keyof typeof keys;
@@ -309,6 +311,7 @@ describe("sidebar writes refresh only the affected branch", () => {
       "search",
       "sectionChildren",
       "sectionChildrenPage2",
+      "titles",
       "trackerTable",
     ]);
     expect(queryClient.getQueryData<any>(keys.recent).entries[0].title).toBe(
@@ -316,7 +319,34 @@ describe("sidebar writes refresh only the affected branch", () => {
     );
   });
 
-  it("create refreshes the parent's children, the parent's row, and the new page's path", async () => {
+  it("rename refreshes the path through the renamed page's parent, whose arrow can follow a name filter", async () => {
+    await mountReads(["otherPath", "pagePath"]);
+    queryClient.setQueryData(
+      ["action", "get-content-navigation-context", { id: "other-child" }],
+      {
+        document: { id: "other-child" },
+        path: [
+          { id: "other", parentId: null },
+          { id: "other-child", parentId: "other" },
+        ],
+      },
+    );
+    actionResponses["update-document"] = {
+      id: "other-child",
+      title: "Renamed",
+      updatedAt: "2026-09-27T00:00:00.000Z",
+      softDeletedDatabaseIds: [],
+    };
+    const update = await renderHook(() => useUpdateDocument());
+
+    await act(() =>
+      update.current.mutateAsync({ id: "other-child", title: "Renamed" }),
+    );
+
+    expect(await refetched()).toEqual(["otherPath"]);
+  });
+
+  it("create refreshes the parent's children, the parent's row, the paths through the parent and the new page, and search", async () => {
     await mountReads();
     actionResponses["create-document"] = {
       id: "new-page",
@@ -333,7 +363,10 @@ describe("sidebar writes refresh only the affected branch", () => {
     expect(await refetched()).toEqual([
       "newPath",
       "pageChildren",
+      "pagePath",
+      "search",
       "sectionChildren",
+      "titles",
     ]);
   });
 
@@ -358,7 +391,7 @@ describe("sidebar writes refresh only the affected branch", () => {
     expect(await refetched()).toEqual(["root", "rootPage2"]);
   });
 
-  it("move refreshes the old branch, the new parent's children and row, and the Files collection", async () => {
+  it("move refreshes the old branch, the new parent's children and row, the paths through both parents, the Files collection, and search", async () => {
     await mountReads();
     actionResponses["move-document"] = { id: "sibling", parentId: "other" };
     const move = await renderHook(() => useMoveDocument());
@@ -371,10 +404,14 @@ describe("sidebar writes refresh only the affected branch", () => {
       "documents",
       "files",
       "otherChildren",
+      "otherPath",
+      "pagePath",
       "root",
+      "search",
       "sectionChildren",
       "sectionChildrenPage2",
       "siblingDoc",
+      "titles",
     ]);
   });
 
@@ -395,12 +432,15 @@ describe("sidebar writes refresh only the affected branch", () => {
       "documents",
       "favorites",
       "files",
+      "pagePath",
       "recent",
       "root",
+      "search",
       "sectionChildren",
       "sectionChildrenPage2",
       "siblingDoc",
       "space2Root",
+      "titles",
       "tracker",
     ]);
   });
@@ -409,7 +449,7 @@ describe("sidebar writes refresh only the affected branch", () => {
 describe("Trash writes", () => {
   const trashLists = ["trash", "trashedDatabases", "trashedDocuments"];
 
-  it("delete refreshes the deleted row's branch, its parent's row, collections, search, and Trash", async () => {
+  it("delete refreshes the deleted row's branch, its parent's row and paths, collections, search, and Trash", async () => {
     await mountReads();
     actionResponses["delete-document"] = { success: true, deleted: 1 };
     const remove = await renderHook(() => useDeleteDocument());
@@ -421,6 +461,7 @@ describe("Trash writes", () => {
         "documents",
         "favorites",
         "files",
+        "pagePath",
         "recent",
         "root",
         "search",
@@ -428,10 +469,31 @@ describe("Trash writes", () => {
         "sectionChildrenPage2",
         "siblingDoc",
         "spaces",
+        "titles",
         "tracker",
         ...trashLists,
       ].sort(),
     );
+  });
+
+  it("delete refreshes the open parent's path when only a cached path knows the parent", async () => {
+    await mountReads(["otherPath", "pagePath"]);
+    queryClient.setQueryData(
+      ["action", "get-content-navigation-context", { id: "other-child" }],
+      {
+        document: { id: "other-child" },
+        path: [
+          { id: "other", parentId: null },
+          { id: "other-child", parentId: "other" },
+        ],
+      },
+    );
+    actionResponses["delete-document"] = { success: true, deleted: 1 };
+    const remove = await renderHook(() => useDeleteDocument());
+
+    await act(() => remove.current.mutateAsync({ id: "other-child" }));
+
+    expect(await refetched()).toEqual(["otherPath"]);
   });
 
   it.each([
@@ -465,6 +527,7 @@ describe("Trash writes", () => {
           "sectionChildrenPage2",
           "siblingDoc",
           "space2Root",
+          "titles",
           "tracker",
           "trackerTable",
           ...trashLists,
@@ -494,7 +557,7 @@ describe("Trash writes", () => {
 });
 
 describe("collection row writes", () => {
-  it("duplicate refreshes the collection and its sorted table", async () => {
+  it("duplicate refreshes the collection, its sorted table and search", async () => {
     await mountReads();
     actionResponses["duplicate-database-item"] = {
       database: { id: "tracker-db" },
@@ -506,10 +569,61 @@ describe("collection row writes", () => {
 
     await act(() => duplicate.current.mutateAsync({ itemId: "item-page" }));
 
-    expect(await refetched()).toEqual(["documents", "tracker", "trackerTable"]);
+    expect(await refetched()).toEqual([
+      "documents",
+      "search",
+      "titles",
+      "tracker",
+      "trackerTable",
+    ]);
   });
 
-  it("bulk removal by item id refreshes the removed pages named in the response", async () => {
+  it("a row's title edit refreshes search, and its other cells leave search alone", async () => {
+    await mountReads();
+    actionResponses["update-database-item"] = {
+      receipt: { target: { databaseId: "tracker-db" } },
+    };
+    const updateRow = await renderHook(() =>
+      useUpdateDatabaseItem("tracker-page"),
+    );
+    const edit = {
+      target: {
+        authorityScope: { kind: "personal" as const, id: "owner" },
+        spaceId: "space",
+        databaseId: "tracker-db",
+        databaseDocumentId: "tracker-page",
+      },
+      expectedSchemaRevision: "schema-1",
+      itemId: "item-page",
+      documentId: "page",
+      expectedRowRevision: "row-1",
+    };
+
+    await act(() =>
+      updateRow.current.mutateAsync({
+        ...edit,
+        idempotencyKey: "status-edit",
+        propertyValues: { status: "Done" },
+      }),
+    );
+    const afterCellEdit = await refetched();
+    expect(afterCellEdit).not.toContain("search");
+    expect(afterCellEdit).not.toContain("titles");
+
+    reads.forEach((queryFn) => queryFn.mockClear());
+    await act(() =>
+      updateRow.current.mutateAsync({
+        ...edit,
+        idempotencyKey: "title-edit",
+        title: "Renamed",
+      }),
+    );
+    expect(await refetched()).toEqual(
+      expect.arrayContaining(["search", "titles"]),
+    );
+  });
+
+  it("bulk removal by item id refreshes the removed pages named in the response, and search", async () => {
     await mountReads();
     actionResponses["remove-database-items"] = {
       database: { id: "tracker-db" },
@@ -533,6 +647,8 @@ describe("collection row writes", () => {
       "pageDoc",
       "pagePath",
       "pageProperties",
+      "search",
+      "titles",
       "tracker",
       "trackerTable",
     ]);
@@ -629,6 +745,12 @@ describe("optimistic sidebar creates", () => {
       "new-page",
     ]);
     expect(seeded?.path[2]?.databaseId).toBe(FILES);
+    expect(seeded?.path[1]?.hasChildren).toBe(true);
+    expect(
+      queryClient
+        .getQueryData<ContentNavigationContext>(keys.pagePath)
+        ?.path.map((entry) => entry.hasChildren),
+    ).toEqual([undefined, true]);
     expect(
       queryClient
         .getQueryData<any>(keys.sectionChildren)
@@ -643,6 +765,7 @@ describe("optimistic sidebar creates", () => {
     expect(queryClient.getQueryState(keys.sectionChildren)?.isInvalidated).toBe(
       true,
     );
+    expect(queryClient.getQueryState(keys.pagePath)?.isInvalidated).toBe(true);
   });
 
   it("reveal a new root page through its space's Files collection", () => {

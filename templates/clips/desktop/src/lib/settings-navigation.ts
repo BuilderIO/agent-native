@@ -16,6 +16,17 @@ export function initialDesktopSettingsTab(
   return tab ?? "general";
 }
 
+export function visibleDesktopSettingsTabs(labs: {
+  meetings: boolean;
+  dictation: boolean;
+}): DesktopSettingsTab[] {
+  return DESKTOP_SETTINGS_TABS.filter(
+    (tab) =>
+      (tab !== "meetings" || labs.meetings) &&
+      (tab !== "dictation" || labs.dictation),
+  );
+}
+
 export function asDesktopSettingsTab(
   value: string | undefined,
 ): DesktopSettingsTab | undefined {

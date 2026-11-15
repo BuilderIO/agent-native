@@ -414,9 +414,11 @@ export async function signInWithMagicLink({
       `${origin}/_agent-native/auth/desktop-exchange`,
     );
     exchangeUrl.searchParams.set("flow_id", flowId);
-    exchangeUrl.searchParams.set("verifier", verifier);
     const exchangeResponse = await fetch(exchangeUrl.toString(), {
-      headers: { Accept: "application/json" },
+      headers: {
+        Accept: "application/json",
+        "X-Agent-Native-Desktop-Verifier": verifier,
+      },
     });
     const exchangePayload = await readMagicLinkResponse(exchangeResponse);
     if (!exchangeResponse.ok) {

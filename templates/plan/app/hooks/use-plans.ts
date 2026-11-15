@@ -476,7 +476,7 @@ export function useSavePlanBlocks() {
   const invalidate = usePlanInvalidation();
   return useActionMutation<PlanBundle & { html?: string }, UpdatePlanInput>(
     "update-visual-plan",
-    { onSuccess: invalidate },
+    { onSuccess: invalidate, errorNotification: "caller" },
   );
 }
 

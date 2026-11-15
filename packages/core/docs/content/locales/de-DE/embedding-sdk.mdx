@@ -169,6 +169,8 @@ Dieser Modus ist die empfohlene Standardeinstellung, da er das gesamte Framework
 
 Hostauthentifizierung erfolgt serverseitig. Geben Sie nicht die Identität des Browsers als Quelle der Wahrheit weiter. Verwenden Sie das Anfrage-/Sitzungsobjekt des Hosts oder ein kurzlebiges, vom Server verifiziertes Token. Wenn der Host keine E-Mails verfügbar macht, geben Sie einen stabilen `userId` zurück und Agent-Native verwendet ihn als Besitzerschlüssel.
 
+Der serverseitige Host-Callback ist für die zurückgegebene Organisation maßgeblich; für diesen Bereich ist kein zusätzlicher lokaler Mitgliedschaftseintrag erforderlich. Unterstützte `orgRole`-Werte sind `owner`, `admin` und `member`. Ohne Rolle werden keine Organisationsadministratorrechte erteilt; nicht unterstützte Rollen führen zu einem Fehler. `orgId: null` wählt ausdrücklich den persönlichen Bereich; ohne Organisationsangabe bleibt die lokale Mitgliedschaftsermittlung aktiv. Eine ausdrückliche Auswahl des persönlichen Bereichs hat Vorrang, und delegierte Zugangsdaten erfordern weiterhin eine Mitgliedschaftsprüfung. Der Host-Bereich gilt nur für die Sitzung, die dieser Callback in derselben Anfrage authentifiziert hat. Er gewährt keine Bearbeitungsrechte für Ressourcen: Bestehende Freigaben und Berechtigungen gelten weiterhin. Ein ausdrücklicher null-Wert im primären Organisations- oder Rollenfeld hat Vorrang vor dessen Alias.
+
 ### Datenbankisolation
 
 Der eingebettete Modus verwaltet Agent-Native-Tabellen in SQL. Für ein ausgereiftes SaaS-Produkt ist die sicherste Standardeinstellung **gleiches Hosting und gleiche Authentifizierung, dedizierte Agent-Native-Datenbank/Schema**:

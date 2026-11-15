@@ -759,6 +759,37 @@ describe("undo-content-import", () => {
     expect(again.trashedIds).toEqual([]);
   });
 
+  it("refuses an agent undoing an import whose page a person locked", async () => {
+    const applied = await importGuide();
+    const pageId = applied.pages[0].id;
+    await getDb()
+      .update(schema.documents)
+      .set({ agentTextLocked: 1 })
+      .where(eq(schema.documents.id, pageId));
+
+    await expect(
+      asOwner(() =>
+        undoContentImport.run(
+          { importId: applied.importId },
+          { caller: "mcp", userEmail: OWNER },
+        ),
+      ),
+    ).rejects.toMatchObject({ errorCode: "AGENT_TEXT_LOCKED" });
+    const [page] = await getDb()
+      .select({ trashedAt: schema.documents.trashedAt })
+      .from(schema.documents)
+      .where(eq(schema.documents.id, pageId));
+    expect(page.trashedAt).toBeNull();
+
+    const undone = await asOwner(() =>
+      undoContentImport.run(
+        { importId: applied.importId },
+        { caller: "frontend", userEmail: OWNER },
+      ),
+    );
+    expect(undone.trashedIds).toEqual([pageId]);
+  });
+
   it("refuses to retry an undone import instead of reporting its pages imported", async () => {
     const apply = () =>
       asOwner(() =>

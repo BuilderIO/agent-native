@@ -1552,9 +1552,7 @@ describe("getMyOrgHandler", () => {
     expect(result.orgs).toEqual([
       expect.objectContaining({ orgId: "org_1", role: "member" }),
     ]);
-    expect(result.pendingInvitations).toEqual([
-      expect.objectContaining({ id: "invite-1", orgId: "org_1" }),
-    ]);
+    expect(result.pendingInvitations).toEqual([]);
     expect(result.signInMethods).toBeUndefined();
     expect(result.a2aSecretSet).toBeUndefined();
     expect(result.a2aMemberDelegationEnabled).toBeUndefined();
@@ -1568,7 +1566,7 @@ describe("getMyOrgHandler", () => {
     const invitationQuery = mockExecute.mock.calls.find(([query]) =>
       query.sql.includes("FROM org_invitations i"),
     )?.[0];
-    expect(invitationQuery?.args).toEqual(["owner@example.test", "org_1"]);
+    expect(invitationQuery).toBeUndefined();
   });
 
   it("does not expose a stale session org for a different delegated identity scope", async () => {

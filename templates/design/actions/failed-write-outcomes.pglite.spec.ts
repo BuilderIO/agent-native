@@ -219,7 +219,10 @@ describe("create-file", () => {
       agentToolContext("create-file"),
     );
 
-    expect(error).toMatchObject({ errorCode: "design_file_already_exists" });
+    expect(error).toMatchObject({
+      errorCode: "name_taken",
+      details: { name: "index.html", suggestion: "index-2.html" },
+    });
     expect(await countRows(exec, "design_versions", "cf-taken")).toBe(1);
     expect(effect).toMatchObject({ effect: "none" });
     expect(outcome.evidence?.writeObserved).toBe(false);

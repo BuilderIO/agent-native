@@ -221,7 +221,7 @@ export default function DesktopTerminalSurface({
               {onAgentChange ? (
                 <>
                   <DropdownMenuSub>
-                    <DropdownMenuSubTrigger className="gap-2">
+                    <DropdownMenuSubTrigger>
                       <IconTerminal2 size={14} strokeWidth={1.8} />
                       <span>Provider</span>
                     </DropdownMenuSubTrigger>

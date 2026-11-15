@@ -59,6 +59,7 @@ import {
   assertNoCloudflareWorkerStubDynamicImports,
   assertSingleTemplateNetlifyBuildOutput,
   bundleYjsRuntimeForServerlessOutput,
+  prepareVercelFunctionOutputs,
   CLOUDFLARE_SWEEP_CRON,
   CLOUDFLARE_WORKER_ESBUILD_EXTERNALS,
   CLOUDFLARE_MODULE_STUB_MODULES,
@@ -737,6 +738,24 @@ describe("resolveNitroBuildReplacements", () => {
     expect(
       resolveNitroBuildReplacements({})[
         "process.env.AGENT_NATIVE_BUILD_HARNESS"
+      ],
+    ).toBe(JSON.stringify(""));
+  });
+
+  it("embeds the app's required env names for the configuration probe", () => {
+    expect(
+      resolveNitroBuildReplacements(
+        {},
+        undefined,
+        undefined,
+        "",
+        "",
+        '["NOTION_API_KEY"]',
+      )["process.env.AGENT_NATIVE_BUILD_REQUIRED_ENV"],
+    ).toBe(JSON.stringify('["NOTION_API_KEY"]'));
+    expect(
+      resolveNitroBuildReplacements({})[
+        "process.env.AGENT_NATIVE_BUILD_REQUIRED_ENV"
       ],
     ).toBe(JSON.stringify(""));
   });
@@ -7803,6 +7822,50 @@ describe("durable-background Netlify function emit (single-template, default-on)
         throw new Error("missing");
       }),
     ).toThrow(/Could not resolve the esbuild dependency/);
+  });
+
+  it("rejects Vercel function links outside the build output", () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "an-vercel-link-"));
+    dirs.push(cwd);
+    const output = path.join(cwd, "output");
+    const functions = path.join(output, "functions");
+    const outside = path.join(cwd, "outside");
+    fs.mkdirSync(functions, { recursive: true });
+    fs.mkdirSync(outside);
+    fs.symlinkSync(outside, path.join(functions, "escape.func"), "dir");
+    expect(() => prepareVercelFunctionOutputs(output, cwd)).toThrow(
+      /leaves output/,
+    );
+    expect(
+      fs.lstatSync(path.join(functions, "escape.func")).isSymbolicLink(),
+    ).toBe(true);
+  });
+
+  it("prepares copied and linked Vercel functions for deployment", () => {
+    const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "an-vercel-yjs-"));
+    dirs.push(cwd);
+    const output = path.join(cwd, ".vercel", "output");
+    const functions = path.join(output, "functions");
+    const base = path.join(functions, "__server.func");
+    const copied = path.join(functions, "custom.func");
+    fs.mkdirSync(base, { recursive: true });
+    fs.writeFileSync(
+      path.join(base, "index.mjs"),
+      'import * as Y from "yjs"; export { Y };',
+    );
+    fs.cpSync(base, copied, { recursive: true });
+    const linked = path.join(functions, "linked.func");
+    fs.symlinkSync(base, linked, "dir");
+    prepareVercelFunctionOutputs(output, cwd);
+    for (const dir of [base, copied, linked]) {
+      expect(fs.lstatSync(dir).isSymbolicLink()).toBe(false);
+      expect(fs.readFileSync(path.join(dir, "index.mjs"), "utf8")).toContain(
+        "./_libs/yjs-runtime.mjs",
+      );
+      expect(fs.existsSync(path.join(dir, "_libs", "yjs-runtime.mjs"))).toBe(
+        true,
+      );
+    }
   });
 
   it("bundles one complete Yjs runtime for every serverless consumer", async () => {

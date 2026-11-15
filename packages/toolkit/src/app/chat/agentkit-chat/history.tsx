@@ -421,7 +421,7 @@ function RevertConfirmPopover({
         side="top"
         align="start"
         sideOffset={6}
-        className="w-56 rounded-lg p-3"
+        className="w-56 rounded-[var(--agent-kit-radius-sm,0.5rem)] p-3"
       >
         {phase === "confirming" ? (
           <div className="grid gap-2">
@@ -787,7 +787,7 @@ export function AgentKitHistoryProvider<
   >(history.restore.action);
   const createMutation = useActionMutation<unknown, Record<string, unknown>>(
     history.createVersion?.action ?? "create-resource-version",
-    { skipActionQueryInvalidation: true },
+    { skipActionQueryInvalidation: true, errorNotification: "caller" },
   );
   const [isRestoring, setIsRestoring] = useState(false);
   const restoreInFlightRef = useRef(false);

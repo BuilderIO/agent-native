@@ -169,6 +169,8 @@ Este modo es el predeterminado recomendado porque reutiliza el marco completo: l
 
 La autenticación del host es del lado del servidor. No pase la identidad del navegador como fuente de verdad; utilice el objeto de solicitud/sesión del host o un token de corta duración verificado por el servidor. Si el host no expone los correos electrónicos, devuelva un `userId` estable y Agent-Native lo usará como clave de propietario.
 
+El callback del servidor del anfitrión es la autoridad para la organización que devuelve; ese ámbito no requiere una fila de membresía local duplicada. Los valores de `orgRole` admitidos son `owner`, `admin` y `member`. Omitir el rol no concede autoridad de administrador de la organización, y los roles no admitidos producen un error. `orgId: null` selecciona explícitamente el ámbito personal; omitir la organización mantiene la búsqueda de membresías locales. La selección personal explícita tiene prioridad y las credenciales delegadas siguen requiriendo verificar la membresía. El ámbito del anfitrión solo se aplica a la sesión que ese callback autenticó en la misma solicitud. No concede permiso para editar recursos: siguen aplicándose los permisos y recursos compartidos existentes. Un null explícito en el campo principal de organización o rol tiene prioridad sobre su alias.
+
 ### Aislamiento de bases de datos
 
 El modo integrado gestiona las tablas Agent-Native en SQL. Para un producto SaaS maduro, el valor predeterminado más seguro es **mismo alojamiento y autenticación, base de datos/esquema dedicado Agent-Native**:

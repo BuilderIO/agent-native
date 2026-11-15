@@ -102,6 +102,9 @@ export const designFiles = table("design_files", {
   contentOperationSource: text("content_operation_source"),
   contentOperationRevision: integer("content_operation_revision"),
   contentOperationResultHash: text("content_operation_result_hash"),
+  contentOperationRevisions: text("content_operation_revisions")
+    .notNull()
+    .default("{}"),
   fileType: text("file_type").notNull().default("html"),
   createdAt: text("created_at").default(now()),
   updatedAt: text("updated_at").default(now()),

@@ -1,3 +1,4 @@
+import { useIsMcpAppWidgetEmbed } from "@agent-native/core/client/mcp-app-host";
 import type {
   ContentDatabaseItem,
   ContentDatabaseSource,
@@ -46,6 +47,7 @@ import {
   startOfMonth,
   type DatabaseFilter,
 } from "./DatabaseView";
+import { databaseItemHasRowMenu } from "./row-access";
 import { databaseRowOpenTarget } from "./row-open-target";
 
 export function DatabaseTimelineView({
@@ -172,7 +174,7 @@ export function DatabaseTimelineView({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuLabel className="text-xs text-muted-foreground">
+                <DropdownMenuLabel className="text-muted-foreground">
                   {dbText("startDate")}
                 </DropdownMenuLabel>
                 {dateProperties.map((property) => {
@@ -216,7 +218,7 @@ export function DatabaseTimelineView({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56">
-                <DropdownMenuLabel className="text-xs text-muted-foreground">
+                <DropdownMenuLabel className="text-muted-foreground">
                   {dbText("endDate")}
                 </DropdownMenuLabel>
                 <DropdownMenuItem
@@ -480,6 +482,7 @@ function DatabaseTimelineCard({
   onOpenPage: () => void;
 }) {
   const visibleProperties = properties.slice(0, 2);
+  const inWidget = useIsMcpAppWidgetEmbed();
 
   return (
     <div
@@ -533,10 +536,11 @@ function DatabaseTimelineCard({
             </span>
           ) : null}
         </div>
-        {canEdit ? (
+        {databaseItemHasRowMenu(item, canEdit, inWidget) ? (
           <RowActionsCell
             item={item}
             databaseDocumentId={databaseDocumentId}
+            canEdit={canEdit}
             canReorder={false}
             canMoveUp={false}
             canMoveDown={false}

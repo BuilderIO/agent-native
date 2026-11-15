@@ -79,31 +79,27 @@ for prompts by task.
 
 ### Import {#import}
 
-One panel, five ways to bring in outside content:
+Four ways to bring in outside content:
 
 <Table
   id="doc-block-design-import-table"
   columns={["Method", "How it works"]}
   rows={[
     [
-      "Figma frame URL",
-      "Paste a Figma share link. Connect your Figma account the first time. Imports as a real, editable screen.",
+      "Figma link",
+      "Paste a Figma page or frame link into the chat. Connect your Figma account the first time. Imports as real, editable screens, and works for files too large to import from disk.",
     ],
     [
       "Paste from Figma",
-      "Copy a frame in Figma, then paste (Cmd+V) directly onto the Design canvas. This is a canvas shortcut, not a separate button in the Import panel.",
+      "Copy a frame in Figma, then paste (Cmd+V) onto the Design canvas.",
     ],
     [
-      "Upload .fig",
-      "Upload a .fig file directly. A separate, design-level import, distinct from importing a .fig into a design system.",
-    ],
-    [
-      "Import HTML",
-      "Paste raw HTML into a text box, or upload an .html file, to bring it in as a screen.",
+      "File → Import…",
+      "Choose a .fig or .html file. Design imports the whole file onto the canvas and shows progress in a notification. A .fig over the in-browser limits is refused right away; use a Figma link instead. This is separate from importing a .fig into a design system.",
     ],
     [
       "Local app",
-      "Not self-service from this panel. It shows install and connect commands meant to be pasted into an external coding agent, which then opens your running app in Design as its own screens. See /visual-edit in the Developer Guide.",
+      "File → Connect local app opens the install command for the /visual-edit skill. Your coding agent then opens your running app in Design as its own screens. See /visual-edit in the Developer Guide.",
     ],
   ]}
 />

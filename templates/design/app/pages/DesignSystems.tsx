@@ -1,4 +1,4 @@
-import { appApiPath } from "@agent-native/core/client/api-path";
+import { appApiPath, appPath } from "@agent-native/core/client/api-path";
 import {
   isDesignSystemTierAtMax,
   type DesignSystemTierLimit,
@@ -84,7 +84,6 @@ import {
   formatDesignTokenValue,
   getCssColorToken,
 } from "@/lib/design-system-preview";
-import { SURFACE_MUTATION_ERROR } from "@/lib/design-write-failure";
 
 import { JoinDesignSystemWaitlistButton } from "../components/design-system/JoinDesignSystemWaitlistButton";
 import { QueryErrorState } from "../components/QueryErrorState";
@@ -183,7 +182,7 @@ export default function DesignSystems() {
   }>("list-design-systems");
 
   const setDefaultMutation = useActionMutation("set-default-design-system", {
-    meta: SURFACE_MUTATION_ERROR,
+    errorNotification: "shared",
   });
   const deleteMutation = useActionMutation("delete-design-system");
   const updateMutation = useActionMutation("update-design-system");
@@ -757,6 +756,11 @@ export default function DesignSystems() {
                           <ShareButton
                             resourceType="design-system"
                             resourceId={ds.id}
+                            shareUrl={
+                              typeof window === "undefined"
+                                ? undefined
+                                : `${window.location.origin}${appPath(`/design-systems?designSystemId=${encodeURIComponent(ds.id)}`)}`
+                            }
                             allowedRoles={["viewer", "editor", "admin"]}
                             resourceTitle={ds.title}
                           />

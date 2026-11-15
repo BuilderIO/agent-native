@@ -6,11 +6,20 @@ import { useOnboardingPreviewMode } from "@agent-native/core/client/onboarding/u
 import { useSessionPreloading } from "@agent-native/core/client/use-session";
 import { FIRST_RUN_ONBOARDING_COOKIE } from "@agent-native/core/shared/first-run-onboarding";
 import { Button } from "@agent-native/toolkit/ui/button";
+import { Skeleton } from "@agent-native/toolkit/ui/skeleton";
 import React, { Suspense, lazy, useEffect, useState } from "react";
 
-import { FirstRunOnboardingGateContext } from "./first-run-startup-gate-context.js";
+import { clearFirstRunFirstPaint } from "./first-run-first-paint.js";
+import {
+  FirstRunOnboardingGateContext,
+  StartupInteractionContext,
+  useStartupInteractionBlocked,
+} from "./first-run-startup-gate-context.js";
 
-export { useFirstRunOnboardingGateOwnsSurface } from "./first-run-startup-gate-context.js";
+export {
+  useFirstRunOnboardingGateOwnsSurface,
+  useStartupInteractionBlocked,
+} from "./first-run-startup-gate-context.js";
 
 const FirstRunOnboarding = lazy(() =>
   import("./FirstRunOnboarding.js").then((module) => ({
@@ -46,14 +55,30 @@ function readFirstRunOnboardingCookieState(): FirstRunCookieState {
   }
 }
 
+function DefaultStartupCover() {
+  return (
+    <div className="flex h-full gap-4 p-4">
+      <Skeleton className="h-full w-60" />
+      <Skeleton className="h-full flex-1" />
+    </div>
+  );
+}
+
 export function FirstRunOnboardingStartupGate({
   children,
   suppressSurface = false,
+  deferSurface = false,
+  cover = <DefaultStartupCover />,
 }: {
   children: React.ReactNode;
   suppressSurface?: boolean;
+  /** Another startup operation owns onboarding until it settles. */
+  deferSurface?: boolean;
+  /** Fills the screen while first run is possible but not yet on screen. */
+  cover?: React.ReactNode;
 }) {
   const t = useT();
+  const inheritedInteractionBlock = useStartupInteractionBlocked();
   const previewMode = useOnboardingPreviewMode();
   const preloading = useSessionPreloading();
   const [firstRunCookieState] = useState(readFirstRunOnboardingCookieState);
@@ -127,43 +152,82 @@ export function FirstRunOnboardingStartupGate({
     };
   }, [retryNumber, shouldResolve, preloading]);
 
-  const ownsSurface = !suppressSurface && decision === "eligible";
-  const gateOwnsSurface = !suppressSurface && decision !== "ineligible";
+  useEffect(() => {
+    if (decision === "ineligible") clearFirstRunFirstPaint();
+  }, [decision]);
+
+  // A deferral that starts once onboarding is on screen must not unmount it:
+  // that drops the user's answers and shows the app between two dialogs.
+  const [surfaceShown, setSurfaceShown] = useState(false);
+  const ownsSurface =
+    !suppressSurface &&
+    decision === "eligible" &&
+    (!deferSurface || surfaceShown);
+  useEffect(() => {
+    if (ownsSurface) setSurfaceShown(true);
+  }, [ownsSurface]);
+  const gateOwnsSurface =
+    deferSurface || (!suppressSurface && decision !== "ineligible");
+  // Until first run is ruled out, the app must not paint: a frame of it
+  // before (or between) onboarding screens reads as a flash of the home.
+  const coversApp =
+    !suppressSurface &&
+    !ownsSurface &&
+    (decision === "pending" || decision === "eligible");
+
+  // Deferral alone does not block the app: an ineligible user keeps using it
+  // while another startup operation settles.
+  const appIsInert =
+    coversApp || ownsSurface || (gateOwnsSurface && !deferSurface);
+  const coverElement = (
+    <div
+      aria-busy="true"
+      data-first-run-cover="true"
+      className="fixed inset-0 z-[100] bg-background"
+    >
+      {cover}
+    </div>
+  );
 
   return (
     <FirstRunOnboardingGateContext.Provider value={gateOwnsSurface}>
-      <div
-        aria-hidden={gateOwnsSurface ? "true" : undefined}
-        data-first-run-app-inert={gateOwnsSurface ? "true" : undefined}
-        inert={gateOwnsSurface}
-        style={{ display: "contents" }}
+      <StartupInteractionContext.Provider
+        value={inheritedInteractionBlock || appIsInert}
       >
-        {children}
-      </div>
-      {!suppressSurface && decision === "unavailable" && (
         <div
-          role="alert"
-          data-first-run-status-error="true"
-          className="fixed inset-x-4 bottom-4 z-[110] mx-auto flex max-w-md items-center justify-between gap-3 rounded-lg border border-border bg-background px-4 py-3 text-start shadow-lg"
+          aria-hidden={appIsInert ? "true" : undefined}
+          data-first-run-app-inert={appIsInert ? "true" : undefined}
+          inert={appIsInert}
+          style={{ display: "contents" }}
         >
-          <span className="text-sm text-muted-foreground">
-            {t("agentChat.common.chunkLoadFailed")}
-          </span>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            onClick={() => setRetryNumber((current) => current + 1)}
-          >
-            {t("agentChat.common.retry")}
-          </Button>
+          {children}
         </div>
-      )}
-      {ownsSurface && (
-        <Suspense fallback={null}>
-          <FirstRunOnboarding initialFirstRun />
-        </Suspense>
-      )}
+        {!suppressSurface && !deferSurface && decision === "unavailable" && (
+          <div
+            role="alert"
+            data-first-run-status-error="true"
+            className="fixed inset-x-4 bottom-4 z-[110] mx-auto flex max-w-md items-center justify-between gap-3 rounded-lg border border-border bg-background px-4 py-3 text-start shadow-lg"
+          >
+            <span className="text-sm text-muted-foreground">
+              {t("agentChat.common.chunkLoadFailed")}
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setRetryNumber((current) => current + 1)}
+            >
+              {t("agentChat.common.retry")}
+            </Button>
+          </div>
+        )}
+        {coversApp && coverElement}
+        {ownsSurface && (
+          <Suspense fallback={coverElement}>
+            <FirstRunOnboarding initialFirstRun />
+          </Suspense>
+        )}
+      </StartupInteractionContext.Provider>
     </FirstRunOnboardingGateContext.Provider>
   );
 }

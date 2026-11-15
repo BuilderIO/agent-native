@@ -197,6 +197,61 @@ describe("editor-normalized revisions", () => {
     const [draft] = draftSuggestionAnchors(operations, after);
     expect(after.slice(draft!.from, draft!.to)).toBe("Filled");
   });
+
+  it.each([
+    ["the pipe table's", "<td>gamma</td>\n<td></td>"],
+    ["the HTML table's header", "<td>Head</td>\n<td></td>"],
+    ["the HTML table's", "<td>kilo</td>\n<td></td>"],
+  ])(
+    "fills %s empty cell on a page with an empty cell in each kind of table",
+    (_, cells) => {
+      const page = [
+        "Intro.",
+        "",
+        "| Name | Value |",
+        "| --- | --- |",
+        "| gamma |  |",
+        "",
+        "<table>",
+        "<tr>",
+        "<th>Head</th>",
+        "<th></th>",
+        "</tr>",
+        "<tr>",
+        "<td>kilo</td>",
+        "<td></td>",
+        "</tr>",
+        "</table>",
+        "",
+        "End.",
+      ].join("\n");
+      const after = canonicalizeNfm(page).replace(
+        cells,
+        cells.replace("<td></td>", "<td>Filled</td>"),
+      );
+      const operations = markdownSuggestionOperationsForEditorRevision({
+        before: page,
+        after,
+        replacements: [],
+      });
+      expect(operations).toHaveLength(1);
+      const [{ anchor, after: proposed }] = operations as [
+        (typeof operations)[number],
+      ];
+      expect(
+        canonicalizeNfm(
+          page.slice(0, anchor.from) +
+            proposed.changedText +
+            page.slice(anchor.to),
+        ),
+      ).toBe(after);
+      expect(
+        draftSuggestionAnchors(operations, after).map(({ from, to }) =>
+          after.slice(from, to),
+        ),
+      ).toEqual(["Filled"]);
+    },
+  );
 });
 
 describe("mixed text and formatting proposals", () => {

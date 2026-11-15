@@ -1,6 +1,6 @@
 import {
-  parseSegmentsArray,
   parseTranscriptSegments,
+  storedSegmentsUnreadable,
 } from "./transcript-segments";
 
 type EarlierAudioEntry = {
@@ -32,8 +32,7 @@ export function earlierAudioMinutes(
 export function storedEarlierAudioMinutes(
   segmentsJson: string | null | undefined,
 ): number | null {
-  if (!segmentsJson) return 0;
-  if (!parseSegmentsArray(segmentsJson)) return null;
+  if (storedSegmentsUnreadable(segmentsJson)) return null;
   return earlierAudioMinutes(parseTranscriptSegments(segmentsJson));
 }
 

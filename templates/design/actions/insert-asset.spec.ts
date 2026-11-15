@@ -9,7 +9,8 @@
  * attribute is single- or double-quoted.
  */
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { readAppStateForCurrentTab } from "@agent-native/core/application-state";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => {
   function makeWhereResult(rows: unknown[]) {
@@ -163,12 +164,35 @@ function setFile(content: string) {
   ]);
 }
 
+function setTwoScreens() {
+  mocks.setRows([
+    {
+      id: "file-1",
+      designId: "design-1",
+      filename: "index.html",
+      fileType: "html",
+      content: "<html><body></body></html>",
+    },
+    {
+      id: "file-2",
+      designId: "design-1",
+      filename: "details.html",
+      fileType: "html",
+      content: "<html><body></body></html>",
+    },
+  ]);
+}
+
 describe("insert-asset", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.seededCollabText.clear();
     mocks.assertAccess.mockResolvedValue(undefined);
     mocks.updateChain.where.mockResolvedValue({ rowsAffected: 1 });
+  });
+
+  afterEach(() => {
+    vi.mocked(readAppStateForCurrentTab).mockResolvedValue(null);
   });
 
   it("background-fill: escapes single quotes so the URL cannot break out of url('...')", async () => {
@@ -243,5 +267,41 @@ describe("insert-asset", () => {
     expect(result.inserted).toBe(true);
     const content = mocks.updateChain.set.mock.calls[0]?.[0]?.content as string;
     expect(content).toContain('src="https://example.com/new.png"');
+  });
+
+  it("refuses to insert when editor state is unreadable and the design has several screens", async () => {
+    setTwoScreens();
+    vi.mocked(readAppStateForCurrentTab).mockRejectedValue(
+      new Error("db down"),
+    );
+
+    await expect(
+      action.run({
+        assetUrl: "https://example.com/image.png",
+        mode: "figure",
+        designId: "design-1",
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "asset_target_state_unreadable",
+      statusCode: 503,
+    });
+    expect(mocks.db.update).not.toHaveBeenCalled();
+  });
+
+  it("refuses an explicit fileId that is not an HTML screen of the design", async () => {
+    setTwoScreens();
+
+    await expect(
+      action.run({
+        assetUrl: "https://example.com/image.png",
+        mode: "figure",
+        designId: "design-1",
+        fileId: "does-not-exist",
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "asset_target_screen_invalid",
+      statusCode: 404,
+    });
+    expect(mocks.db.update).not.toHaveBeenCalled();
   });
 });

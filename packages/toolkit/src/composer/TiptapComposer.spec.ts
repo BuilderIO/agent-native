@@ -3438,6 +3438,65 @@ describe("TiptapComposer storage gate", () => {
 });
 
 describe("TiptapComposer paste handling", () => {
+  it.each([
+    [true, ""],
+    [false, "Pasted words"],
+  ])(
+    "lets the app claim a paste as context (claimed: %s)",
+    async (claimed, expectedText) => {
+      const onPasteContext = vi.fn(() => claimed);
+
+      function Harness() {
+        const runtime = useLocalRuntime(emptyChatModelAdapter);
+        return React.createElement(
+          AssistantRuntimeProvider,
+          { runtime },
+          React.createElement(
+            TooltipProvider,
+            null,
+            React.createElement(TiptapComposer, {
+              attachmentsEnabled: false,
+              includeDefaultSlashSkills: false,
+              plusMenuMode: "hidden",
+              providerConnectStatusEnabled: false,
+              voiceEnabled: false,
+              onPasteContext,
+            }),
+          ),
+        );
+      }
+
+      await act(async () => {
+        root.render(React.createElement(Harness));
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      const editor = container.querySelector<HTMLElement>(
+        ".agent-composer-prosemirror",
+      );
+      const clipboardData = {
+        files: [],
+        getData: (type: string) =>
+          type === "text/plain" ? "Pasted words" : "",
+      };
+      const pasteEvent = new Event("paste", {
+        bubbles: true,
+        cancelable: true,
+      });
+      Object.defineProperty(pasteEvent, "clipboardData", {
+        value: clipboardData,
+      });
+
+      await act(async () => {
+        editor?.dispatchEvent(pasteEvent);
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(onPasteContext).toHaveBeenCalledWith(clipboardData);
+      expect(editor?.textContent).toBe(expectedText);
+    },
+  );
+
   it("keeps text from a mixed text and image paste when uploads are disabled", async () => {
     const pastedText = "Keep this text";
 

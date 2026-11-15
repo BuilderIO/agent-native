@@ -3,11 +3,55 @@ import test from "node:test";
 
 import { isAutozQaEmail } from "../../../packages/core/src/shared/qa-test-email";
 import {
+  expectedEmail,
   hasSessionCredentials,
   sessionFailureReason,
   sessionTokenFor,
   shouldRetrySessionExchange,
 } from "./session";
+
+test("scopes QA identity overrides to one app and refuses personal or empty overrides", () => {
+  const previousEmail = process.env.BETA_E2E_EMAIL;
+  const previousMap = process.env.BETA_E2E_EMAILS;
+  process.env.BETA_E2E_EMAIL = "qa+autoz-fleet@example.com";
+  process.env.BETA_E2E_EMAILS = JSON.stringify({
+    slides: "qa+autoz-slides@example.org",
+  });
+  try {
+    assert.equal(expectedEmail("slides"), "qa+autoz-slides@example.org");
+    assert.equal(expectedEmail("clips"), "qa+autoz-fleet@example.com");
+    assert.equal(expectedEmail(), "qa+autoz-fleet@example.com");
+    delete process.env.BETA_E2E_EMAIL;
+    assert.equal(expectedEmail("slides"), "qa+autoz-slides@example.org");
+    assert.throws(() => expectedEmail("clips"), /BETA_E2E_EMAIL is not set/);
+    process.env.BETA_E2E_EMAIL = "qa+autoz-fleet@example.com";
+    for (const invalid of ["person@example.org", "", 42]) {
+      process.env.BETA_E2E_EMAILS = JSON.stringify({ slides: invalid });
+      assert.throws(() => expectedEmail("slides"), /BETA_E2E_EMAILS/);
+    }
+    process.env.BETA_E2E_EMAILS = JSON.stringify({
+      slide: "qa+autoz@example.org",
+    });
+    assert.throws(() => expectedEmail("slides"), /unknown app ID: slide/);
+    process.env.BETA_E2E_EMAILS = JSON.stringify({
+      slides: "qa+autoz@example.org",
+      analytics: "personal@example.org",
+    });
+    assert.throws(
+      () => expectedEmail("slides"),
+      /BETA_E2E_EMAILS entry for analytics/,
+    );
+    for (const invalidMap of [[], null, 42, "qa+autoz@example.org"]) {
+      process.env.BETA_E2E_EMAILS = JSON.stringify(invalidMap);
+      assert.throws(() => expectedEmail("slides"));
+    }
+  } finally {
+    if (previousEmail === undefined) delete process.env.BETA_E2E_EMAIL;
+    else process.env.BETA_E2E_EMAIL = previousEmail;
+    if (previousMap === undefined) delete process.env.BETA_E2E_EMAILS;
+    else process.env.BETA_E2E_EMAILS = previousMap;
+  }
+});
 
 test("requires the +autoz marker for automated QA identities", () => {
   assert.equal(isAutozQaEmail("qa+autoz-run@example.com"), true);

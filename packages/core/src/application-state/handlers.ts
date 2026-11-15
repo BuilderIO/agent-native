@@ -16,8 +16,10 @@ import {
   APP_STATE_BATCH_ROUTE_HEADER,
   APP_STATE_SEQ_HEADER,
   APP_STATE_WRITER_HEADER,
+  BROWSER_TAB_USED_APP_STATE_KEY,
   TAB_SCOPED_APP_STATE_KEYS,
 } from "../shared/app-state-routes.js";
+import { browserTabUsedKey } from "./last-used-tab.js";
 import { appStateSaveIfCurrent } from "./save-if-current.js";
 import { appStateKeyForBrowserTab } from "./script-helpers.js";
 import {
@@ -94,6 +96,10 @@ function headerSeq(event: H3Event): unknown {
 }
 
 function requestScopedKey(key: string, event: H3Event): string {
+  if (key === BROWSER_TAB_USED_APP_STATE_KEY) {
+    const browserTabId = readBrowserTabIdHeader(event);
+    return browserTabId ? browserTabUsedKey(browserTabId) : key;
+  }
   return TAB_SCOPED_APP_STATE_KEYS.has(key)
     ? appStateKeyForBrowserTab(key, readBrowserTabIdHeader(event))
     : key;

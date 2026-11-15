@@ -13,3 +13,18 @@ export const FirstRunOnboardingGateContext = (firstRunOnboardingGateGlobal[
 export function useFirstRunOnboardingGateOwnsSurface(): boolean {
   return useContext(FirstRunOnboardingGateContext);
 }
+
+// Shared across split/prebundled module copies, just like onboarding ownership.
+const STARTUP_INTERACTION_CONTEXT_KEY = Symbol.for(
+  "agent-native.toolkit.startupInteractionContext",
+);
+const startupInteractionGlobal = globalThis as typeof globalThis & {
+  [STARTUP_INTERACTION_CONTEXT_KEY]?: Context<boolean>;
+};
+export const StartupInteractionContext = (startupInteractionGlobal[
+  STARTUP_INTERACTION_CONTEXT_KEY
+] ??= createContext(false));
+
+export function useStartupInteractionBlocked(): boolean {
+  return useContext(StartupInteractionContext);
+}
