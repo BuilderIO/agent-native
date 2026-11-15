@@ -152,6 +152,7 @@ describe("saveCalendarSettings", () => {
         hiddenEventKeys: expect.anything(),
         eventRuleActivity: expect.anything(),
       }),
+      { global: true },
     );
     expect(saved.weekStart).toBe("monday");
   });

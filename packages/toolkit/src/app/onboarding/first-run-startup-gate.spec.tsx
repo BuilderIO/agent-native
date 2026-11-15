@@ -6,12 +6,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   enabled: vi.fn(),
+  mode: vi.fn(),
   fetchStatus: vi.fn(),
   preview: vi.fn(),
 }));
 
 vi.mock("@agent-native/core/client/onboarding/first-run-enabled", () => ({
   isFirstRunOnboardingEnabled: mocks.enabled,
+  resolveFirstRunOnboardingMode: mocks.mode,
 }));
 
 vi.mock(
@@ -90,6 +92,7 @@ describe("FirstRunOnboardingStartupGate", () => {
     mocks.fetchStatus.mockReset();
     mocks.preview.mockReset();
     mocks.enabled.mockReturnValue(true);
+    mocks.mode.mockReturnValue("connect");
     mocks.preview.mockReturnValue(false);
     document.cookie = `${FIRST_RUN_ONBOARDING_COOKIE}=1; path=/`;
     nextMountId = 0;
@@ -787,5 +790,61 @@ describe("FirstRunOnboardingStartupGate", () => {
     expect(
       container.querySelector("[data-testid='app-content']"),
     ).not.toBeNull();
+  });
+  it.each([false, true])(
+    "shows an app-owned surface only for positive eligibility (%s)",
+    async (eligible) => {
+      mocks.mode.mockReturnValue("app");
+      mocks.fetchStatus.mockResolvedValue(eligible);
+      await act(async () => {
+        root.render(
+          <FirstRunOnboardingStartupGate
+            appSurface={<div data-testid="app-first-run" />}
+          >
+            <div data-testid="app-content" />
+          </FirstRunOnboardingStartupGate>,
+        );
+      });
+      expect(
+        container.querySelector('[data-testid="app-first-run"]') !== null,
+      ).toBe(eligible);
+      expect(
+        container.querySelector('[data-testid="first-run-onboarding"]'),
+      ).toBeNull();
+      expect(
+        container.querySelector('[data-first-run-app-inert="true"]') !== null,
+      ).toBe(eligible);
+      if (eligible) {
+        await act(async () => {
+          window.dispatchEvent(
+            new CustomEvent("agent-native:first-run-completed"),
+          );
+        });
+        expect(
+          container.querySelector('[data-testid="app-first-run"]'),
+        ).toBeNull();
+        expect(
+          container.querySelector('[data-first-run-app-inert="true"]'),
+        ).toBeNull();
+      }
+    },
+  );
+  it("fails explicitly if app mode is eligible but no app surface was provided", async () => {
+    mocks.mode.mockReturnValue("app");
+    mocks.fetchStatus.mockResolvedValue(true);
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await expect(
+        act(async () => {
+          root.render(
+            <FirstRunOnboardingStartupGate>
+              <div />
+            </FirstRunOnboardingStartupGate>,
+          );
+        }),
+      ).rejects.toThrow("requires an onboarding surface");
+    } finally {
+      log.mockRestore();
+    }
   });
 });

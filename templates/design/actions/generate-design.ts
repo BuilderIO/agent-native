@@ -449,10 +449,10 @@ const designFileSchema = z.object({
     .default("html")
     .describe("Type of file"),
   frameType: z
-    .literal(HUBSPOT_EMAIL_FRAME_TYPE)
+    .enum(["unspecified", HUBSPOT_EMAIL_FRAME_TYPE])
     .optional()
     .describe(
-      "Set only on a HubSpot marketing email HTML file: the frame is 600px wide with no device variants and keeps email authoring rules on later edits. Omit for every other file.",
+      'Set "hubspot-email" only on a HubSpot marketing email HTML file. Omit or use "unspecified" for other files; this keeps any existing frame type and legacy email markers.',
     ),
 });
 
@@ -495,6 +495,16 @@ const filesDescription =
   "Do not use generate-design to replace a selected variant screen after a variant pick; snapshot that fileId and use edit-design instead.";
 
 const filesField = z.array(designFileSchema).min(1).describe(filesDescription);
+const runtimeFilesField = z
+  .array(
+    designFileSchema.extend({
+      frameType: designFileSchema.shape.frameType.transform((value) =>
+        value === "unspecified" ? undefined : value,
+      ),
+    }),
+  )
+  .min(1)
+  .describe(filesDescription);
 
 const designSystemIdField = z
   .string()
@@ -699,7 +709,7 @@ const generateDesignAction = defineAction({
   schema: z.object({
     designId: designIdField,
     prompt: promptField,
-    files: z.preprocess(jsonField("files"), filesField),
+    files: z.preprocess(jsonField("files"), runtimeFilesField),
     designSystemId: designSystemIdField,
     projectType: projectTypeField,
     tweaks: z.preprocess(jsonField("tweaks"), tweaksField).optional(),
@@ -883,6 +893,52 @@ const generateDesignAction = defineAction({
       if (fileId) seenPlacementIds.add(fileId);
     }
 
+    const accessedDesignData = parseDesignDataBlob(
+      (designAccess.resource as { data?: unknown }).data,
+    );
+    // A legacy screen keeps its email type when it has no stored type and
+    // either its previous or its new HTML carries the meta marker.
+    const generatedFrameType = (
+      file: (typeof files)[number],
+      designData: unknown,
+      fileId = existingByName.get(file.filename)?.id,
+    ) => {
+      if (file.frameType) return file.frameType;
+      const stored =
+        fileId === undefined
+          ? undefined
+          : storedScreenFrameType(designData, fileId);
+      if (stored !== undefined) {
+        return stored === HUBSPOT_EMAIL_FRAME_TYPE ? stored : null;
+      }
+      const previous = existingByName.get(file.filename)?.content;
+      return isHubSpotEmailHtml(file.content) ||
+        (typeof previous === "string" && isHubSpotEmailHtml(previous))
+        ? HUBSPOT_EMAIL_FRAME_TYPE
+        : null;
+    };
+
+    for (const file of files) {
+      try {
+        assertHubSpotEmailFileType({
+          fileType: file.fileType,
+          frameType: generatedFrameType(file, accessedDesignData),
+        });
+      } catch (error) {
+        const validationError = noWriteValidationError(error);
+        if (validationError.errorCode === "hubspot_email_html_required") {
+          throw new NoWriteError(
+            `${validationError.message} For an actual email, use fileType "html" and email-safe HTML. For non-email artwork, use renderable HTML with fileType "html" and omit frameType or use "unspecified". For a genuine non-email asset, omit frameType or use "unspecified". Omission and "unspecified" do not clear existing email metadata or legacy email markers; to convert an existing email screen, use update-file to set frameType "web", or save a new non-email file without an email marker.`,
+            {
+              errorCode: validationError.errorCode,
+              statusCode: validationError.statusCode,
+            },
+          );
+        }
+        throw validationError;
+      }
+    }
+
     let hasRenderableFile = files.some(isRenderableDesignFile);
     if (!hasRenderableFile) {
       const renderable = await db
@@ -941,42 +997,6 @@ const generateDesignAction = defineAction({
         }),
       ),
     });
-
-    const accessedDesignData = parseDesignDataBlob(
-      (designAccess.resource as { data?: unknown }).data,
-    );
-    // A legacy screen keeps its email type when it has no stored type and
-    // either its previous or its new HTML carries the meta marker.
-    const generatedFrameType = (
-      file: (typeof files)[number],
-      designData: unknown,
-      fileId = existingByName.get(file.filename)?.id,
-    ) => {
-      if (file.frameType) return file.frameType;
-      const stored =
-        fileId === undefined
-          ? undefined
-          : storedScreenFrameType(designData, fileId);
-      if (stored !== undefined) {
-        return stored === HUBSPOT_EMAIL_FRAME_TYPE ? stored : null;
-      }
-      const previous = existingByName.get(file.filename)?.content;
-      return isHubSpotEmailHtml(file.content) ||
-        (typeof previous === "string" && isHubSpotEmailHtml(previous))
-        ? HUBSPOT_EMAIL_FRAME_TYPE
-        : null;
-    };
-
-    for (const file of files) {
-      try {
-        assertHubSpotEmailFileType({
-          fileType: file.fileType,
-          frameType: generatedFrameType(file, accessedDesignData),
-        });
-      } catch (error) {
-        throw noWriteValidationError(error);
-      }
-    }
 
     const annotatedFiles = files.map((file) => ({
       ...file,

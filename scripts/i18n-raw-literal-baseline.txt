@@ -1,6 +1,7 @@
 # Existing raw visible UI literals.
 # Keep this file sorted. Remove entries as surfaces move to i18n.
 # Format: relative/source/path.tsx|Visible string
+packages/docs/app/components/SlidesTryNow.tsx|to access Slides via webhook, MCP, or A2A integration.
 packages/docs/app/components/blocks/badge.tsx|A small status/label chip for the top of a page or section — Beta, Deprecated, v9.1+. Block-level only, not embeddable mid-sentence.
 packages/docs/app/components/blocks/banner.tsx|A compact, full-width, single-line announcement strip for the top of a page or section — beta, deprecated, moved. Tones: info, decision, risk, warning, success.
 packages/docs/app/components/blocks/cards.tsx|Feature name
@@ -16,9 +17,48 @@ packages/docs/app/components/blocks/signature.tsx|Describe the parameter.
 packages/docs/app/components/blocks/signature.tsx|Function signature
 packages/docs/app/components/blocks/steps.tsx|A numbered step-by-step procedure with circled step numbers.
 packages/docs/app/components/blocks/steps.tsx|Step title
-packages/docs/app/components/docBlocks.tsx|| Extract
-templates/clips/app/components/workspace/notifications-list.tsx|["formatDate"], formatRelativeTime: ReturnType
+templates/analytics/app/components/dashboard/SqlChart.tsx|Ignored missing result columns:
+templates/analytics/app/components/monitoring/PublicStatusView.tsx|Last updated
+templates/analytics/app/components/monitoring/PublicStatusView.tsx|No incidents reported.
+templates/analytics/app/components/monitoring/PublicStatusView.tsx|No monitors have been added to this status page yet.
+templates/analytics/app/components/monitoring/PublicStatusView.tsx|Response time
+templates/analytics/app/components/monitoring/UptimeTimelineBars.tsx|No checks recorded
+templates/analytics/app/components/monitoring/UptimeTimelineBars.tsx|uptime ·
+templates/analytics/app/pages/adhoc/sql-dashboard/index.tsx|⌘⇧Z
+templates/assets/app/components/library/LibraryPresetGrid.tsx|Try:
+templates/assets/app/routes/brand-kits.$id.tsx|Add to context
+templates/calendar/app/components/calendar/IntegrationsSidebar.tsx|Est.
+templates/clips/app/components/editor/timeline.tsx|Recording began after the countdown ·
+templates/clips/app/routes/_app.meetings._index.tsx|. You can reconnect it again from the Meetings page.
+templates/clips/app/routes/_app.meetings._index.tsx|Clips will stop reading events from
 templates/content/app/components/ContentErrorBoundary.tsx|Go to page list
+templates/content/app/components/editor/database-sources/BuilderSourceReviewDialog.tsx|Builder entry
+templates/content/app/components/editor/database-sources/BuilderSourceReviewDialog.tsx|From:
+templates/content/app/components/editor/database-sources/BuilderSourceReviewDialog.tsx|To:
+templates/content/app/components/editor/database/DatabaseView.tsx|Add details
+templates/content/app/components/editor/database/DatabaseView.tsx|Add selected
+templates/content/app/components/editor/database/DatabaseView.tsx|Blocked:
+templates/content/app/components/editor/database/DatabaseView.tsx|Current:
+templates/content/app/components/editor/database/DatabaseView.tsx|Dry run
+templates/content/app/components/editor/database/DatabaseView.tsx|Grouped by
+templates/content/app/components/editor/database/DatabaseView.tsx|Match existing items to details. Suggested match:
+templates/content/app/components/editor/database/DatabaseView.tsx|No models match “
+templates/content/app/components/editor/database/DatabaseView.tsx|Proposed:
+templates/content/app/components/editor/database/DatabaseView.tsx|Use Builder.io
+templates/content/app/components/editor/database/DatabaseView.tsx|Would call
+templates/content/app/components/editor/database/DatabaseView.tsx|shown,
+templates/content/app/components/editor/database/TimelineView.tsx|End:
+templates/content/app/components/editor/database/settings.tsx|Add details
+templates/content/app/components/editor/database/settings.tsx|Add selected
+templates/content/app/components/editor/database/settings.tsx|Blocked:
+templates/content/app/components/editor/database/settings.tsx|Current:
+templates/content/app/components/editor/database/settings.tsx|Dry run
+templates/content/app/components/editor/database/settings.tsx|Match existing items to details. Suggested match:
+templates/content/app/components/editor/database/settings.tsx|No models match “
+templates/content/app/components/editor/database/settings.tsx|Proposed:
+templates/content/app/components/editor/database/settings.tsx|Use Builder.io
+templates/content/app/components/editor/database/settings.tsx|Would call
+templates/content/app/components/editor/database/settings.tsx|shown,
 templates/crm/app/components/crm/CreateCrmRecordDialog.tsx|This record lives in the local-authoritative Native SQL CRM. You can connect or mirror another CRM separately.
 templates/crm/app/components/crm/CrmSignalsPanel.tsx|Attach a bounded Clips evidence reference before running detectors.
 templates/crm/app/components/crm/CrmSignalsPanel.tsx|Confirm signal
@@ -67,6 +107,7 @@ templates/crm/app/routes/setup.tsx|Run accounts, people, opportunities, saved vi
 templates/crm/app/routes/setup.tsx|Salesforce objects
 templates/crm/app/routes/setup.tsx|Select HubSpot or Salesforce
 templates/crm/app/routes/setup.tsx|Start with Native SQL
+templates/crm/app/routes/setup.tsx|Using a Salesforce sandbox?
 templates/crm/app/routes/setup.tsx|You can start with Native SQL above, or authorize a provider and grant it to CRM from shared settings.
 templates/crm/app/routes/setup.tsx|Your native CRM is ready.
 templates/crm/app/routes/tasks.tsx|Create follow-up task
@@ -78,11 +119,10 @@ templates/crm/app/routes/tasks.tsx|Task created.
 templates/crm/app/routes/tasks.tsx|Task creation failed.
 templates/crm/app/routes/tasks.tsx|Task update failed.
 templates/crm/app/routes/tasks.tsx|Tasks are local by default and never write to the provider silently.
-templates/design/app/components/design/DesignCanvas.tsx|handle ? [
 templates/design/app/components/design/FusionAppMenu.tsx|Publish failed
 templates/design/app/components/design/FusionAppMenu.tsx|Push failed
 templates/design/app/components/design/FusionAppMenu.tsx|Your app is live
-templates/design/app/components/design/bridge/editor-chrome.bridge.ts|parentRect.right || clientY
+templates/design/app/components/design/MotionDock.tsx|ms —
 templates/design/app/components/design/code-workbench/commands.ts|Command failed
 templates/design/app/components/design/code-workbench/commands.ts|Could not save file
 templates/design/app/components/design/code-workbench/editor/EditorTabs.tsx|Could not save file
@@ -93,6 +133,18 @@ templates/design/app/components/design/code-workbench/search/SearchView.tsx|Whol
 templates/design/app/components/design/code-workbench/search/search-engine.ts|Invalid pattern
 templates/design/app/components/design/code-workbench/store.tsx|Could not read file
 templates/design/app/components/design/code-workbench/workspace/localhost-provider.ts|File changed on disk since it was last read
-templates/design/app/components/design/edit-panel/effects-properties.tsx|, elementKey: string, nextLayers: readonly Pick
 templates/design/app/pages/design-editor/commands/confirm-make-real.ts|Migration failed
 templates/design/app/pages/design-editor/domains/use-editor-generation-and-access.ts|Could not open component source
+templates/mail/app/components/agent-engine-picker.tsx|Connected —
+templates/mail/app/components/agent-engine-picker.tsx|Install: pnpm add
+templates/mail/app/components/agent-engine-picker.tsx|Requires:
+templates/mail/app/components/agent-engine-picker.tsx|Test connection
+templates/mail/app/components/email/EmailThread.tsx|To:
+templates/mail/app/components/email/IntegrationsSidebar.tsx|+Enter
+templates/mail/app/components/email/IntegrationsSidebar.tsx|API key is invalid or expired —
+templates/mail/app/components/email/IntegrationsSidebar.tsx|Could not reach
+templates/mail/app/components/email/IntegrationsSidebar.tsx|Est.
+templates/mail/app/components/email/IntegrationsSidebar.tsx|No data found in
+templates/mail/app/routes/email.tsx|To:
+templates/slides/app/components/design-system/DesignSystemCard.tsx|Body text in
+templates/slides/app/components/editor/ImageOverlay.tsx|Fit:

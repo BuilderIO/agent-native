@@ -326,10 +326,7 @@ function isWorkspaceRoot(): boolean {
   if (!fs.existsSync(pkgPath)) return false;
   try {
     const pkg = JSON.parse(fs.readFileSync(pkgPath, "utf-8"));
-    return (
-      typeof pkg?.["agent-native"]?.workspaceCore === "string" &&
-      fs.existsSync(path.resolve("apps"))
-    );
+    return typeof pkg?.["agent-native"]?.workspaceCore === "string";
   } catch {
     return false;
   }

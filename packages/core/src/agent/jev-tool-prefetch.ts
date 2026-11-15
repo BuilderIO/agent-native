@@ -38,10 +38,10 @@ export interface JevCandidate {
 
 export interface JevRankCandidatesOptions {
   request: string;
-  apiKey?: string;
-  personalApiKey?: string;
-  directApiKey?: string;
-  builderAuth?: BuilderGatewayAuth | null;
+  apiKey?: string | undefined;
+  personalApiKey?: string | undefined;
+  directApiKey?: string | undefined;
+  builderAuth?: BuilderGatewayAuth | null | undefined;
   candidates: readonly JevCandidate[];
   candidateStateKey: string;
   answerKey: string;

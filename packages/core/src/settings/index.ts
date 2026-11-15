@@ -1,13 +1,19 @@
 export {
   getSetting,
+  getSettingEntry,
   mutateSetting,
   putSetting,
   deleteSetting,
   deleteSettingIfValue,
   listSettingsByPrefix,
   getSettingsEmitter,
+  SettingsScopeError,
+  type SettingEntry,
   type StoreWriteOptions,
   type StoreMutationOptions,
+  type UserSettingWriteOptions,
+  type UserSettingMutationOptions,
+  type OrgSettingWriteOptions,
 } from "./store.js";
 
 export {
@@ -20,6 +26,7 @@ export { readSetting, writeSetting, removeSetting } from "./script-helpers.js";
 
 export {
   getUserSetting,
+  getUserSettingEntry,
   mutateUserSetting,
   publishUserSettingChange,
   putUserSetting,

@@ -5595,6 +5595,78 @@ export async function getThreadPrivateHistoryState(threadId: string): Promise<{
   };
 }
 
+/**
+ * The caller's own recent chat runs, newest first, with the thread title so a
+ * "recent runs" list can name them. Ownership lives on the thread row, not on
+ * agent_runs, so the join is the authorization: only threads this person owns are
+ * counted, and shared threads' runs stay out of their list.
+ *
+ * Bounded and index-backed: the runs list is polled by the progress tray, so this
+ * is one query with a LIMIT, not one query per thread.
+ */
+export async function listRecentRunsForOwner(
+  ownerEmail: string,
+  limit = 5,
+  appScope?: { sourceAppId: string | null },
+): Promise<Array<AgentRunSummary & { threadTitle: string | null }>> {
+  const sourceAppId = appScope?.sourceAppId?.trim();
+  if (appScope !== undefined && !sourceAppId) return [];
+  await ensureRunTables();
+  const bounded = Math.min(Math.max(limit, 1), 25);
+  const client = getDbExec();
+  // raw-sql-ok: the optional app filter is a fixed clause; its value is bound
+  const { rows } = await client.execute({
+    sql: `SELECT r.id, r.thread_id, r.turn_id, r.status, r.started_at, r.heartbeat_at,
+                 r.completed_at, r.last_progress_at, r.error_code, r.abort_reason,
+                 r.dispatch_mode, r.terminal_reason, r.diag_stage,
+                 r.thread_projection_error_code, r.in_flight_since, t.title
+          FROM agent_runs r
+          JOIN chat_threads t ON t.id = r.thread_id
+          WHERE LOWER(t.owner_email) = ?
+          ${appScope === undefined ? "" : "AND t.source_app_id = ?"}
+          ORDER BY r.started_at DESC
+          LIMIT ?`,
+    args: [
+      ownerEmail.trim().toLowerCase(),
+      ...(appScope === undefined ? [] : [sourceAppId]),
+      bounded,
+    ],
+  });
+  return rows.flatMap((raw) => {
+    const row = raw as Record<string, unknown>;
+    if (typeof row.id !== "string" || typeof row.thread_id !== "string")
+      return [];
+    return [
+      {
+        id: row.id,
+        threadId: row.thread_id,
+        turnId: typeof row.turn_id === "string" ? row.turn_id : null,
+        status: typeof row.status === "string" ? row.status : "unknown",
+        startedAt: Number(row.started_at ?? 0),
+        heartbeatAt: row.heartbeat_at == null ? null : Number(row.heartbeat_at),
+        completedAt: row.completed_at == null ? null : Number(row.completed_at),
+        lastProgressAt:
+          row.last_progress_at == null ? null : Number(row.last_progress_at),
+        errorCode: typeof row.error_code === "string" ? row.error_code : null,
+        abortReason:
+          typeof row.abort_reason === "string" ? row.abort_reason : null,
+        dispatchMode:
+          typeof row.dispatch_mode === "string" ? row.dispatch_mode : null,
+        terminalReason:
+          typeof row.terminal_reason === "string" ? row.terminal_reason : null,
+        diagStage: typeof row.diag_stage === "string" ? row.diag_stage : null,
+        threadProjectionErrorCode:
+          typeof row.thread_projection_error_code === "string"
+            ? row.thread_projection_error_code
+            : null,
+        inFlightSince:
+          row.in_flight_since == null ? null : Number(row.in_flight_since),
+        threadTitle: typeof row.title === "string" ? row.title : null,
+      },
+    ];
+  });
+}
+
 export async function listRunsForThread(
   threadId: string,
   options: { limit?: number; runIds?: readonly string[] } = {},

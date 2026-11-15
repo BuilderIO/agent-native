@@ -166,6 +166,8 @@ Set `AGENT_NATIVE_DEPLOY_CACHE_VERIFY=2` to rebuild two cached apps per deploy a
 
 Variables that change on every run without reaching a build, such as `PATH`, `PWD`, `npm_*` and `PNPM_*`, are already left out of the key. If a deploy environment adds its own (a run id, say), list it in `AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE`; a trailing `*` matches a prefix. Anything else counts, so a changed `VITE_*` or `DATABASE_URL` rebuilds every app.
 
+A workspace that sets `AGENT_NATIVE_BUILD_ID` to its commit would otherwise rebuild every app on every commit. With the cache on, that variable is left out of the key and each app is built with an id derived from its own key (`content-…`), so an unchanged app restores the same output on a new commit. Netlify responses still carry the commit in `x-agent-native-build-sha`, plus the app's baked id in `x-agent-native-app-build-id`. The deploy writes the expected values to `.netlify/agent-native-served-builds.json`, and `checkServedAppBuild` from `@agent-native/core/deploy/served-build` compares a live response with them. A `DEPLOY_ID` takes precedence and stays in the key.
+
 Hosted builders that start from a clean disk each time gain nothing from the cache. Set `AGENT_NATIVE_DEPLOY_CACHE=false` there to skip the copy it makes after each build.
 
 ## Self-hosted Workspace with Docker Compose {#workspace-docker-compose}

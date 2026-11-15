@@ -83,13 +83,17 @@ export async function putPageOnLiveCopy(
     })
     .where(eq(schema.documents.id, id));
   for (const flag of [LIVE_BODY_SHADOW_FLAG, LIVE_BODY_WRITER_FLAG]) {
-    await putSetting(`feature-flag:${flag.key}`, rulesFor([page.ownerEmail]));
+    await putSetting(`feature-flag:${flag.key}`, rulesFor([page.ownerEmail]), {
+      global: true,
+    });
   }
 }
 
 /** Turns both live-copy flags off for everyone, as main runs (SF-11). */
 export async function turnLiveCopyFlagsOff(): Promise<void> {
   for (const flag of [LIVE_BODY_SHADOW_FLAG, LIVE_BODY_WRITER_FLAG]) {
-    await putSetting(`feature-flag:${flag.key}`, rulesFor([]));
+    await putSetting(`feature-flag:${flag.key}`, rulesFor([]), {
+      global: true,
+    });
   }
 }

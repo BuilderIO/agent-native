@@ -4,6 +4,7 @@ import React, { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { DESKTOP_DOWNLOAD_URL } from "../desktop-download.js";
 import { ConnectBuilderCard } from "./ConnectBuilderCard.js";
 
 const mocks = vi.hoisted(() => ({
@@ -84,6 +85,26 @@ describe("ConnectBuilderCard", () => {
     delete (window as unknown as Record<string, unknown>).electronAPI;
     vi.clearAllMocks();
     vi.unstubAllGlobals();
+  });
+
+  it("points the desktop download link at the shared installer URL", () => {
+    act(() => {
+      root.render(
+        <ConnectBuilderCard
+          configured
+          builderEnabled={false}
+          connectUrl="/_agent-native/builder/connect?_an_connect=signed"
+          prompt="Update the dashboard layout"
+        />,
+      );
+    });
+
+    const links = Array.from(container.querySelectorAll("a")).filter((link) =>
+      link.textContent?.includes("Download desktop app"),
+    );
+    expect(links.map((link) => link.getAttribute("href"))).toEqual([
+      DESKTOP_DOWNLOAD_URL,
+    ]);
   });
 
   it("offers an external coding-agent handoff instead of a waitlist", async () => {

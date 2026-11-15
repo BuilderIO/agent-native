@@ -1,5 +1,8 @@
 import { useT } from "@agent-native/core/client/i18n";
-import { isFirstRunOnboardingEnabled } from "@agent-native/core/client/onboarding/first-run-enabled";
+import {
+  isFirstRunOnboardingEnabled,
+  resolveFirstRunOnboardingMode,
+} from "@agent-native/core/client/onboarding/first-run-enabled";
 import { fetchFirstRunOnboardingStatus } from "@agent-native/core/client/onboarding/first-run-status";
 import { trackOnboardingEvent } from "@agent-native/core/client/onboarding/use-onboarding";
 import { useOnboardingPreviewMode } from "@agent-native/core/client/onboarding/use-preview-mode";
@@ -69,6 +72,7 @@ export function FirstRunOnboardingStartupGate({
   suppressSurface = false,
   deferSurface = false,
   cover = <DefaultStartupCover />,
+  appSurface,
 }: {
   children: React.ReactNode;
   suppressSurface?: boolean;
@@ -76,9 +80,12 @@ export function FirstRunOnboardingStartupGate({
   deferSurface?: boolean;
   /** Fills the screen while first run is possible but not yet on screen. */
   cover?: React.ReactNode;
+  /** The app's own first-run surface, required when the mode is "app". */
+  appSurface?: React.ReactNode;
 }) {
   const t = useT();
   const inheritedInteractionBlock = useStartupInteractionBlocked();
+  const appOwned = resolveFirstRunOnboardingMode() === "app";
   const previewMode = useOnboardingPreviewMode();
   const preloading = useSessionPreloading();
   const [firstRunCookieState] = useState(readFirstRunOnboardingCookieState);
@@ -166,6 +173,9 @@ export function FirstRunOnboardingStartupGate({
   useEffect(() => {
     if (ownsSurface) setSurfaceShown(true);
   }, [ownsSurface]);
+  if (ownsSurface && appOwned && !appSurface) {
+    throw new Error("App first-run mode requires an onboarding surface.");
+  }
   const gateOwnsSurface =
     deferSurface || (!suppressSurface && decision !== "ineligible");
   // Until first run is ruled out, the app must not paint: a frame of it
@@ -224,7 +234,7 @@ export function FirstRunOnboardingStartupGate({
         {coversApp && coverElement}
         {ownsSurface && (
           <Suspense fallback={coverElement}>
-            <FirstRunOnboarding initialFirstRun />
+            {appOwned ? appSurface : <FirstRunOnboarding initialFirstRun />}
           </Suspense>
         )}
       </StartupInteractionContext.Provider>

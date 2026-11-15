@@ -1,6 +1,9 @@
+#[cfg(feature = "tauri-host")]
 use serde::Serialize;
+#[cfg(feature = "tauri-host")]
 use tauri::AppHandle;
 
+#[cfg(feature = "tauri-host")]
 #[derive(Serialize, Clone, Debug)]
 pub struct VersionStatus {
     pub supported: bool,
@@ -9,6 +12,7 @@ pub struct VersionStatus {
     pub reason: Option<String>,
 }
 
+#[cfg(feature = "tauri-host")]
 #[tauri::command]
 pub fn system_audio_version_status() -> VersionStatus {
     #[cfg(target_os = "macos")]
@@ -25,6 +29,7 @@ pub fn system_audio_version_status() -> VersionStatus {
     }
 }
 
+#[cfg(feature = "tauri-host")]
 #[tauri::command]
 pub async fn system_audio_request_permission() -> Result<bool, String> {
     #[cfg(target_os = "macos")]
@@ -46,6 +51,7 @@ pub async fn system_audio_request_permission() -> Result<bool, String> {
     }
 }
 
+#[cfg(feature = "tauri-host")]
 #[tauri::command]
 pub fn system_audio_open_privacy_settings() -> Result<(), String> {
     #[cfg(target_os = "macos")]
@@ -58,6 +64,7 @@ pub fn system_audio_open_privacy_settings() -> Result<(), String> {
     }
 }
 
+#[cfg(feature = "tauri-host")]
 #[tauri::command]
 pub async fn audio_transcription_start(
     app: AppHandle,
@@ -96,6 +103,7 @@ pub async fn audio_transcription_start(
     result
 }
 
+#[cfg(feature = "tauri-host")]
 #[tauri::command]
 pub async fn audio_transcription_stop(
     app: AppHandle,
@@ -107,6 +115,7 @@ pub async fn audio_transcription_stop(
         .await
 }
 
+#[cfg(feature = "tauri-host")]
 #[tauri::command]
 pub async fn audio_transcription_reset_timeline(
     owner: Option<String>,
@@ -128,7 +137,9 @@ pub(crate) mod macos {
     use std::time::Duration;
 
     use objc2_foundation::NSProcessInfo;
+    #[cfg(feature = "tauri-host")]
     use serde::Serialize;
+    #[cfg(feature = "tauri-host")]
     use tauri::{AppHandle, Emitter};
 
     use screencapturekit::cm::CMSampleBuffer;
@@ -143,6 +154,7 @@ pub(crate) mod macos {
         fn CGRequestScreenCaptureAccess() -> bool;
     }
 
+    #[cfg(feature = "tauri-host")]
     pub fn version_status() -> super::VersionStatus {
         // SAFETY: `processInfo` is a singleton; `operatingSystemVersion`
         // returns a plain struct of i64s.
@@ -170,6 +182,7 @@ pub(crate) mod macos {
         }
     }
 
+    #[cfg(feature = "tauri-host")]
     pub fn open_screen_recording_settings() -> Result<(), String> {
         use std::process::Command;
         let url = "x-apple.systempreferences:com.apple.settings.PrivacySecurity.extension?Privacy_ScreenCapture";
@@ -180,6 +193,7 @@ pub(crate) mod macos {
         Ok(())
     }
 
+    #[cfg(feature = "tauri-host")]
     pub async fn request_screen_capture_access() -> Result<bool, String> {
         // SAFETY: both functions are pure C calls into CoreGraphics; no
         // arguments, no out-pointers. They return a Boolean.
@@ -195,10 +209,9 @@ pub(crate) mod macos {
 
     struct RawAudioForwarder {
         on_samples: Arc<dyn Fn(&[f32]) + Send + Sync>,
-        app: AppHandle,
+        on_level: Arc<dyn Fn(f32, &'static str) + Send + Sync>,
         cancelled: Arc<AtomicBool>,
         level_tick: Arc<AtomicU32>,
-        run_id: Option<u64>,
         output_type: SCStreamOutputType,
         source: &'static str,
     }
@@ -220,8 +233,7 @@ pub(crate) mod macos {
             if self.cancelled.load(Ordering::SeqCst) {
                 return;
             }
-            let Some(samples) =
-                crate::native_screen::extract_mono_audio(&sample_buffer, self.source)
+            let Some(samples) = crate::capture_pcm::extract_mono_audio(&sample_buffer, self.source)
             else {
                 return;
             };
@@ -237,14 +249,7 @@ pub(crate) mod macos {
                     .map(f32::abs)
                     .fold(0.0_f32, f32::max)
                     .min(1.0);
-                let _ = self.app.emit(
-                    "voice:audio-level",
-                    AudioLevelPayload {
-                        level,
-                        source: self.source,
-                        run_id: self.run_id,
-                    },
-                );
+                (self.on_level)(level, self.source);
             }
         }
     }
@@ -261,28 +266,57 @@ pub(crate) mod macos {
     unsafe impl Send for RawSckAudioCapture {}
 
     impl RawSckAudioCapture {
+        #[cfg(feature = "tauri-host")]
         pub(crate) fn stop(self) {
+            if let Err(err) = self.stop_checked() {
+                eprintln!("[system-audio] bounded stop_capture: {err}");
+            }
+        }
+
+        pub(crate) fn stop_checked(self) -> Result<(), String> {
             self.cancelled.store(true, Ordering::SeqCst);
             let stream = self.stream;
-            if let Err(err) = crate::native_screen::run_bounded_capture_stop(
+            crate::capture_stop::run_bounded_capture_stop(
                 move || {
                     stream
                         .stop_capture()
                         .map_err(|e| format!("system audio SCStream stop failed: {e:?}"))
                 },
                 SYSTEM_AUDIO_SCK_STOP_TIMEOUT,
-            ) {
-                eprintln!("[system-audio] bounded stop_capture: {err}");
-            }
+            )
         }
     }
 
+    #[cfg(feature = "tauri-host")]
+    fn level_callback(
+        app: AppHandle,
+        run_id: Option<u64>,
+    ) -> Arc<dyn Fn(f32, &'static str) + Send + Sync> {
+        Arc::new(move |level, source| {
+            let _ = app.emit(
+                "voice:audio-level",
+                AudioLevelPayload {
+                    level,
+                    source,
+                    run_id,
+                },
+            );
+        })
+    }
+
+    #[cfg(feature = "tauri-host")]
     pub(crate) fn start_raw_system_capture(
         app: AppHandle,
         on_samples: Arc<dyn Fn(&[f32]) + Send + Sync>,
         run_id: Option<u64>,
     ) -> Result<RawSckAudioCapture, String> {
-        start_raw_sck_audio_capture(app, true, None, None, Some(on_samples), None, run_id)
+        start_raw_sck_audio_capture(
+            true,
+            None,
+            Some(on_samples),
+            None,
+            level_callback(app, run_id),
+        )
     }
 
     pub(crate) fn supports_sck_microphone_capture() -> bool {
@@ -290,6 +324,7 @@ pub(crate) mod macos {
         version.majorVersion >= 15
     }
 
+    #[cfg(feature = "tauri-host")]
     pub(crate) fn start_raw_meeting_capture(
         app: AppHandle,
         mic_device_id: Option<String>,
@@ -302,34 +337,36 @@ pub(crate) mod macos {
         if !supports_sck_microphone_capture() {
             return Err("ScreenCaptureKit microphone capture requires macOS 15 or later.".into());
         }
+        let selected_mic = crate::native_screen::resolve_microphone_capture_device(
+            mic_device_id.as_deref(),
+            mic_device_label.as_deref(),
+        )?
+        .map(|device| device.id);
         start_raw_sck_audio_capture(
-            app,
             capture_system,
-            mic_device_id,
-            mic_device_label,
+            selected_mic,
             on_system_samples,
             Some(on_mic_samples),
-            run_id,
+            level_callback(app, run_id),
         )
     }
 
-    fn start_raw_sck_audio_capture(
-        app: AppHandle,
+    pub(crate) fn start_raw_sck_audio_capture(
         capture_system: bool,
         mic_device_id: Option<String>,
-        mic_device_label: Option<String>,
         on_system_samples: Option<Arc<dyn Fn(&[f32]) + Send + Sync>>,
         on_mic_samples: Option<Arc<dyn Fn(&[f32]) + Send + Sync>>,
-        run_id: Option<u64>,
+        on_level: Arc<dyn Fn(f32, &'static str) + Send + Sync>,
     ) -> Result<RawSckAudioCapture, String> {
         let granted = unsafe { CGPreflightScreenCaptureAccess() };
         if !granted {
             let granted_now = unsafe { CGRequestScreenCaptureAccess() };
             if !granted_now {
-                return Err(
-                    "Screen Recording permission denied. Open System Settings > Privacy & Security > Screen Recording, enable Clips, then try again."
-                        .into(),
-                );
+                #[cfg(feature = "tauri-host")]
+                let message = "Screen Recording permission denied. Open System Settings > Privacy & Security > Screen Recording, enable Clips, then try again.";
+                #[cfg(not(feature = "tauri-host"))]
+                let message = "Screen Recording permission denied. Enable Agent-Native in System Settings and try again.";
+                return Err(message.into());
             }
         }
 
@@ -345,14 +382,6 @@ pub(crate) mod macos {
             .build();
 
         let capture_microphone = on_mic_samples.is_some();
-        let selected_mic = if capture_microphone {
-            crate::native_screen::resolve_microphone_capture_device(
-                mic_device_id.as_deref(),
-                mic_device_label.as_deref(),
-            )?
-        } else {
-            None
-        };
         let mut config = SCStreamConfiguration::new()
             .with_captures_audio(capture_system)
             .with_captures_microphone(capture_microphone)
@@ -361,12 +390,8 @@ pub(crate) mod macos {
             .with_channel_count(2)
             .with_width(2)
             .with_height(2);
-        if let Some(device) = selected_mic.as_ref() {
-            config.set_microphone_capture_device_id(&device.id);
-            eprintln!(
-                "[whisper] ScreenCaptureKit meeting microphone pinned to {} ({})",
-                device.name, device.id
-            );
+        if let Some(device_id) = mic_device_id.as_ref() {
+            config.set_microphone_capture_device_id(device_id);
         }
 
         let cancelled = Arc::new(AtomicBool::new(false));
@@ -374,10 +399,9 @@ pub(crate) mod macos {
         if let Some(on_samples) = on_system_samples {
             let forwarder = RawAudioForwarder {
                 on_samples,
-                app: app.clone(),
+                on_level: on_level.clone(),
                 cancelled: cancelled.clone(),
                 level_tick: Arc::new(AtomicU32::new(0)),
-                run_id,
                 output_type: SCStreamOutputType::Audio,
                 source: "system",
             };
@@ -386,10 +410,9 @@ pub(crate) mod macos {
         if let Some(on_samples) = on_mic_samples {
             let forwarder = RawAudioForwarder {
                 on_samples,
-                app: app.clone(),
+                on_level,
                 cancelled: cancelled.clone(),
                 level_tick: Arc::new(AtomicU32::new(0)),
-                run_id,
                 output_type: SCStreamOutputType::Microphone,
                 source: "mic",
             };
@@ -404,6 +427,7 @@ pub(crate) mod macos {
         Ok(RawSckAudioCapture { stream, cancelled })
     }
 
+    #[cfg(feature = "tauri-host")]
     #[derive(Serialize, Clone)]
     #[serde(rename_all = "camelCase")]
     struct AudioLevelPayload {

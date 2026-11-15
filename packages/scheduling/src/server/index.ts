@@ -7,5 +7,8 @@ export * from "./booking-service.js";
 export * from "./hooks.js";
 export * from "./ics.js";
 export * from "./providers/index.js";
+export * from "./calendar-credentials.js";
+export * from "./calendar-reminders.js";
+export * from "./video-credentials.js";
 export * from "./video-oauth.js";
 export * from "./video-oauth-state.js";

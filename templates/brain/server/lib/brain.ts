@@ -233,11 +233,15 @@ export async function readBrainSettings(): Promise<BrainSettings> {
 export async function writeBrainSettings(
   patch: Partial<BrainSettings>,
 ): Promise<BrainSettings> {
-  const stored = await mutateSetting(BRAIN_SETTINGS_KEY, (current) => ({
-    ...DEFAULT_BRAIN_SETTINGS,
-    ...(current ?? {}),
-    ...patch,
-  }));
+  const stored = await mutateSetting(
+    BRAIN_SETTINGS_KEY,
+    (current) => ({
+      ...DEFAULT_BRAIN_SETTINGS,
+      ...(current ?? {}),
+      ...patch,
+    }),
+    { global: true },
+  );
   return { ...DEFAULT_BRAIN_SETTINGS, ...stored } as BrainSettings;
 }
 

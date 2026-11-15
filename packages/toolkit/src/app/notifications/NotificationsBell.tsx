@@ -21,6 +21,11 @@ import {
 } from "@tabler/icons-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import {
+  formatLocaleDateTime,
+  useReaderLocale,
+} from "../shared/reader-locale.js";
+
 interface NotificationsBellProps {
   pollMs?: number;
   className?: string;
@@ -42,6 +47,7 @@ export function NotificationsBell({
   emptyDescription,
   onOpenChange,
 }: NotificationsBellProps) {
+  const readerLocale = useReaderLocale();
   const [unreadCount, setUnreadCount] = useState(0);
   const [open, setOpen] = useState(false);
   const [items, setItems] = useState<NotificationDto[] | null>(null);
@@ -326,7 +332,7 @@ export function NotificationsBell({
                       </span>
                     ) : null}
                     <span className="text-[10px] text-muted-foreground/70">
-                      {new Date(n.createdAt).toLocaleString()}
+                      {formatLocaleDateTime(n.createdAt, readerLocale)}
                     </span>
                   </button>
                   <button

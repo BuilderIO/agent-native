@@ -20,6 +20,7 @@ import {
   filesNavigationPageParams,
   filesNavigationQueryKey,
   forgetCreatedFilesRows,
+  isFilesRowCreationPending,
   readFilesNavigationPage,
   removeCreatedFilesRows,
   showCreatedFilesRow,
@@ -269,6 +270,15 @@ describe("pages this tab created in the Files tree", () => {
     expect(await reread(queryClient, page([row("a"), row("b")], true))).toEqual(
       ["a", "b"],
     );
+  });
+
+  it("count as being created until the server answers, so Move can't pick one as a destination yet", () => {
+    startCreate(queryClient, created("new"));
+    expect(isFilesRowCreationPending(queryClient, "new")).toBe(true);
+    expect(isFilesRowCreationPending(queryClient, "a")).toBe(false);
+
+    confirmCreatedFilesRow(queryClient, "new");
+    expect(isFilesRowCreationPending(queryClient, "new")).toBe(false);
   });
 
   it("stay in a branch whatever reader mounted last, because every reader reads through one hook", () => {

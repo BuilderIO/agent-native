@@ -332,9 +332,28 @@ describe("createBuilderEngine", () => {
     const events = await collectEvents(engine.stream(BASE_OPTS));
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("error");
+    // Changed on purpose: a run with no
+    // signed-in member reports that reason; a signed-in run with nothing
+    // connected still reports missing credentials (next test).
+    expect(stop?.errorCode).toBe("missing_credentials");
+    expect(stop?.error).toContain("no signed-in workspace member");
+    expect(stop?.error).not.toContain("BUILDER_PRIVATE_KEY");
+    expect(stop?.error).not.toMatch(/free tier/i);
+  });
+
+  it("reports missing credentials, not the run reason, when a signed-in member has nothing connected", async () => {
+    credentialState.builderPrivateKey = null;
+    oauthState.ownerEmail = "person@example.com";
+    oauthState.stored = false;
+    oauthState.accessToken = null;
+    vi.unstubAllEnvs();
+    const events = await collectEvents(createBuilderEngine().stream(BASE_OPTS));
+    const stop = events.find((e) => e.type === "stop");
+    expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("missing_credentials");
     expect(stop?.error).toContain("Settings > Agent > AI providers");
-    expect(stop?.error).not.toContain("BUILDER_PRIVATE_KEY");
+    expect(stop?.error).not.toContain("no signed-in workspace member");
+    expect(stop?.error).not.toMatch(/free tier/i);
   });
 
   it("uses per-user Builder OAuth without legacy space credentials", async () => {
@@ -459,6 +478,8 @@ describe("createBuilderEngine", () => {
 
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("error");
+    // No signed-in member on this run: the code is unchanged, the reason is
+    // the run's own.
     expect(stop?.errorCode).toBe("missing_credentials");
     expect(fetchSpy).not.toHaveBeenCalled();
   });
@@ -508,6 +529,8 @@ describe("createBuilderEngine", () => {
 
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("error");
+    // No signed-in member on this run: the code is unchanged, the reason is
+    // the run's own.
     expect(stop?.errorCode).toBe("missing_credentials");
     expect(fetchSpy).not.toHaveBeenCalled();
   });
@@ -1065,8 +1088,10 @@ describe("createBuilderEngine", () => {
       credentialState.recordBuilderGatewayAuthFailure,
     ).toHaveBeenCalledWith({
       status: 401,
-      code: "unauthorized",
-      message: "Invalid key",
+      code: "builder_auth_error",
+      provider: "builder",
+      message:
+        "Builder authentication failed. Sign in to Builder.io again in Settings (free tier available).",
     });
     expect(oauthState.markReconnect).not.toHaveBeenCalled();
   });
@@ -1472,8 +1497,10 @@ describe("createBuilderEngine", () => {
       credentialState.recordBuilderGatewayAuthFailure,
     ).toHaveBeenCalledWith({
       status: 403,
-      code: "http_403",
-      message: "Invalid token",
+      code: "builder_auth_error",
+      provider: "builder",
+      message:
+        "Builder authentication failed. Sign in to Builder.io again in Settings (free tier available).",
     });
   });
 
@@ -1966,8 +1993,10 @@ describe("createBuilderEngine", () => {
       credentialState.recordBuilderGatewayAuthFailure,
     ).toHaveBeenCalledWith({
       status: 403,
-      code: "http_403",
-      message: "Invalid or inactive personal access token",
+      code: "builder_auth_error",
+      provider: "builder",
+      message:
+        "Builder authentication failed. Sign in to Builder.io again in Settings (free tier available).",
     });
   });
 
@@ -1992,12 +2021,19 @@ describe("createBuilderEngine", () => {
     const stop = events.find((e) => e.type === "stop");
     expect(stop?.reason).toBe("error");
     expect(stop?.errorCode).toBe("builder_auth_error");
-    expect(stop?.error).toBe("Invalid or inactive personal access token");
+    expect(stop?.error).toBe(
+      "Builder authentication failed. Sign in to Builder.io again in Settings (free tier available).",
+    );
+    expect(stop?.error).not.toContain(
+      "Invalid or inactive personal access token",
+    );
     expect(
       credentialState.recordBuilderGatewayAuthFailure,
     ).toHaveBeenCalledWith({
       code: "builder_auth_error",
-      message: "Invalid or inactive personal access token",
+      provider: "builder",
+      message:
+        "Builder authentication failed. Sign in to Builder.io again in Settings (free tier available).",
     });
   });
 

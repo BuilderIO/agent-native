@@ -17,16 +17,73 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+#[cfg(feature = "tauri-host")]
 use tauri::{AppHandle, Emitter, Manager};
 
+#[cfg(feature = "tauri-host")]
 use crate::config::{feature_config, MeetingTranscriptionMode};
+#[cfg(feature = "tauri-host")]
 use crate::dlog;
+#[cfg(feature = "tauri-host")]
 use crate::meetings_watcher::{
     find_matching_calendar_meeting, parse_meetings, MeetingItem, MeetingsSessionSnapshot,
     MeetingsWatcherState, Poller, SessionCredentials, CALENDAR_MATCH_WINDOW_MINUTES,
 };
 
 const POLL_SECS: u64 = 2;
+
+/// How strongly a detection identifies a meeting. CoreAudio reports browser
+/// microphone use per process, so a browser candidate identified only by the
+/// focused URL cannot tell the call from another tab using the microphone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum DetectionEvidence {
+    Strong,
+    BrowserProcessOnly,
+}
+
+impl DetectionEvidence {
+    pub(crate) fn for_browser_candidate(browser_process_mic_only: bool) -> Self {
+        if browser_process_mic_only {
+            Self::BrowserProcessOnly
+        } else {
+            Self::Strong
+        }
+    }
+
+    /// Only strong evidence may start recording without asking.
+    pub(crate) fn allows_auto_start(self) -> bool {
+        self == Self::Strong
+    }
+
+    #[cfg_attr(feature = "tauri-host", allow(dead_code))]
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Self::Strong => "strong",
+            Self::BrowserProcessOnly => "browserProcessOnly",
+        }
+    }
+}
+
+#[cfg_attr(feature = "tauri-host", allow(dead_code))]
+pub(crate) fn detection_event(
+    platform: &str,
+    evidence: DetectionEvidence,
+    browser_bundle_id: Option<&str>,
+) -> serde_json::Value {
+    match browser_bundle_id {
+        Some(bundle) => serde_json::json!({
+            "platform": platform,
+            "source": "browser",
+            "browserBundleId": bundle,
+            "evidence": evidence.as_str(),
+        }),
+        None => serde_json::json!({
+            "platform": platform,
+            "source": "native",
+            "evidence": evidence.as_str(),
+        }),
+    }
+}
 
 const MIC_DWELL: Duration = Duration::from_secs(3);
 
@@ -85,6 +142,7 @@ struct AdhocMeetingsWatcherInner {
     create_in_doubt_since: HashMap<String, i64>,
 }
 
+#[cfg(feature = "tauri-host")]
 #[derive(Debug)]
 enum CreateFailure {
     NotCommitted(String),
@@ -93,6 +151,7 @@ enum CreateFailure {
     Unauthorized(String),
 }
 
+#[cfg(feature = "tauri-host")]
 impl CreateFailure {
     fn message(&self) -> &str {
         match self {
@@ -107,12 +166,14 @@ impl CreateFailure {
     }
 }
 
+#[cfg(feature = "tauri-host")]
 #[derive(Debug)]
 enum LookupError {
     Unauthorized,
     Other(String),
 }
 
+#[cfg(feature = "tauri-host")]
 impl std::fmt::Display for LookupError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -122,6 +183,7 @@ impl std::fmt::Display for LookupError {
     }
 }
 
+#[cfg(feature = "tauri-host")]
 fn is_auth_rejection(status: reqwest::StatusCode) -> bool {
     status == reqwest::StatusCode::UNAUTHORIZED || status == reqwest::StatusCode::FORBIDDEN
 }
@@ -463,6 +525,104 @@ impl AdhocMeetingsWatcherInner {
     }
 }
 
+#[cfg(not(feature = "tauri-host"))]
+#[derive(Default)]
+pub(crate) struct DetectionEngine {
+    inner: AdhocMeetingsWatcherInner,
+}
+
+#[cfg(not(feature = "tauri-host"))]
+impl DetectionEngine {
+    pub(crate) fn observe_native(
+        &mut self,
+        now: Instant,
+        platform: &str,
+        mic: Option<bool>,
+        frontmost: bool,
+    ) -> Option<String> {
+        let now_ts = chrono::Utc::now().timestamp();
+        self.inner.retain_live_cooldowns(now_ts);
+        let evidence = self.inner.evidence.entry(platform.to_string()).or_default();
+        evidence.observe(now, mic, frontmost);
+        let call_state = evidence.classify(now, mic, frontmost);
+        let ended = evidence.take_call_ended();
+        let abstained = evidence.take_mic_abstained();
+        let mic_live = evidence.mic_live(now, mic);
+        let authoritative = evidence.mic_is_authoritative(now);
+        if ended {
+            self.inner.end_call_session(platform);
+        }
+        if abstained || (!mic_live && !frontmost && !authoritative) {
+            self.inner.session_notified.remove(platform);
+        }
+        if call_state == CallState::Live && !self.inner.is_suppressed(platform, now_ts) {
+            self.inner.note_prompted(platform, now_ts);
+            return Some(platform.to_string());
+        }
+        None
+    }
+
+    #[cfg(target_os = "macos")]
+    pub(crate) fn sample(&mut self, now: Instant) -> Vec<serde_json::Value> {
+        let (context, _) = crate::accessibility::macos::active_window_context_with_pid_impl();
+        let front = context.bundle_id.as_deref();
+        let front_platform = front
+            .and_then(match_vc_bundle)
+            .map(|(platform, _)| platform);
+        let candidate = active_browser_candidate(front);
+        let mut events = Vec::new();
+        for (platform, _) in platform_titles() {
+            let mic =
+                crate::call_activity::call_app_uses_microphone(&bundles_for_platform(platform));
+            if let Some(platform) =
+                self.observe_native(now, platform, mic, front_platform == Some(platform))
+            {
+                events.push(detection_event(&platform, DetectionEvidence::Strong, None));
+            }
+        }
+        let mut processes = self.inner.browser_processes();
+        if let Some(candidate) = candidate {
+            processes.push((candidate.pid, candidate.bundle_id));
+        }
+        processes.sort_unstable();
+        processes.dedup();
+        let microphones = processes
+            .into_iter()
+            .map(|(pid, bundle)| {
+                (
+                    (pid, bundle),
+                    crate::call_activity::call_process_uses_microphone(pid, bundle),
+                )
+            })
+            .collect();
+        let updates = self
+            .inner
+            .observe_browser_calls(now, candidate, &microphones);
+        for platform in updates.ended_platforms {
+            self.inner.end_call_session(platform);
+        }
+        for platform in updates.abstained_platforms {
+            self.inner.session_notified.remove(platform);
+        }
+        let now_ts = chrono::Utc::now().timestamp();
+        for platform in updates.live_platforms {
+            if !self.inner.is_suppressed(platform, now_ts) {
+                self.inner.note_prompted(platform, now_ts);
+                events.push(detection_event(
+                    platform,
+                    DetectionEvidence::BrowserProcessOnly,
+                    updates
+                        .live_browser_bundle_ids
+                        .get(platform)
+                        .copied(),
+                ));
+            }
+        }
+        events
+    }
+}
+
+#[cfg(feature = "tauri-host")]
 pub fn refresh_dismissal_suppression(app: &AppHandle, platform: &str) -> Result<(), String> {
     let platform = platform.trim().to_lowercase();
     if platform.is_empty() {
@@ -476,6 +636,7 @@ pub fn refresh_dismissal_suppression(app: &AppHandle, platform: &str) -> Result<
     Ok(())
 }
 
+#[cfg(feature = "tauri-host")]
 pub fn spawn_watcher(app: AppHandle) {
     use std::sync::OnceLock;
     static STARTED: OnceLock<()> = OnceLock::new();
@@ -487,6 +648,7 @@ pub fn spawn_watcher(app: AppHandle) {
     });
 }
 
+#[cfg(feature = "tauri-host")]
 async fn run_watcher(app: AppHandle) {
     let mut interval = tokio::time::interval(Duration::from_secs(POLL_SECS));
     interval.tick().await;
@@ -588,12 +750,14 @@ fn active_browser_candidate(frontmost_bundle_id: Option<&str>) -> Option<Browser
     })
 }
 
+#[cfg(feature = "tauri-host")]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct AdhocNotificationPlan {
     show_widget: bool,
     auto_start: bool,
 }
 
+#[cfg(feature = "tauri-host")]
 fn adhoc_notification_plan(config: &crate::config::FeatureConfig) -> AdhocNotificationPlan {
     let auto_start = config.meeting_transcription_mode == MeetingTranscriptionMode::Auto;
     AdhocNotificationPlan {
@@ -604,14 +768,17 @@ fn adhoc_notification_plan(config: &crate::config::FeatureConfig) -> AdhocNotifi
     }
 }
 
+#[cfg(feature = "tauri-host")]
 fn adhoc_notification_plan_for_evidence(
     config: &crate::config::FeatureConfig,
     browser_process_mic_only: bool,
 ) -> AdhocNotificationPlan {
     let plan = adhoc_notification_plan(config);
-    // CoreAudio reports browser microphone use per process, so Auto mode must
-    // ask before recording a candidate identified only by the focused URL.
-    if browser_process_mic_only && plan.auto_start {
+    // Auto mode must ask before recording a candidate identified only by the
+    // focused URL.
+    if !DetectionEvidence::for_browser_candidate(browser_process_mic_only).allows_auto_start()
+        && plan.auto_start
+    {
         AdhocNotificationPlan {
             show_widget: true,
             auto_start: false,
@@ -621,6 +788,7 @@ fn adhoc_notification_plan_for_evidence(
     }
 }
 
+#[cfg(feature = "tauri-host")]
 async fn tick_once(app: &AppHandle, client: &reqwest::Client) -> Result<(), String> {
     let config = feature_config(app);
     if !config.meetings_enabled {
@@ -648,7 +816,7 @@ async fn tick_once(app: &AppHandle, client: &reqwest::Client) -> Result<(), Stri
     }
 }
 
-#[cfg(target_os = "macos")]
+#[cfg(all(feature = "tauri-host", target_os = "macos"))]
 async fn tick_macos(
     app: &AppHandle,
     client: &reqwest::Client,
@@ -921,7 +1089,7 @@ async fn tick_macos(
     Ok(())
 }
 
-#[cfg(test)]
+#[cfg(all(test, feature = "tauri-host"))]
 mod tests {
     use super::*;
 
@@ -1987,6 +2155,7 @@ mod tests {
     }
 }
 
+#[cfg(feature = "tauri-host")]
 fn reset_evidence(app: &AppHandle) {
     if let Some(state) = app.try_state::<AdhocMeetingsWatcherState>() {
         if let Ok(mut g) = state.inner.lock() {
@@ -1995,6 +2164,7 @@ fn reset_evidence(app: &AppHandle) {
     }
 }
 
+#[cfg(feature = "tauri-host")]
 async fn create_adhoc_meeting(
     app: &AppHandle,
     client: &reqwest::Client,
@@ -2131,6 +2301,7 @@ async fn create_adhoc_meeting(
     })
 }
 
+#[cfg(feature = "tauri-host")]
 async fn find_recent_adhoc_meeting(
     app: &AppHandle,
     client: &reqwest::Client,
@@ -2167,6 +2338,7 @@ async fn find_recent_adhoc_meeting(
     )))
 }
 
+#[cfg(feature = "tauri-host")]
 async fn fetch_agenda_page(
     app: &AppHandle,
     client: &reqwest::Client,
@@ -2220,6 +2392,7 @@ async fn fetch_agenda_page(
     })
 }
 
+#[cfg(feature = "tauri-host")]
 fn reconcile_window_was_covered(meetings: &[MeetingItem], now_ts: i64) -> bool {
     if meetings.len() < RECONCILE_PAGE_LIMIT {
         return true;
@@ -2233,6 +2406,7 @@ fn reconcile_window_was_covered(meetings: &[MeetingItem], now_ts: i64) -> bool {
     newest.is_some_and(|newest| newest >= now_ts + RECONCILE_SKEW_SECS)
 }
 
+#[cfg(feature = "tauri-host")]
 fn pick_recent_adhoc_meeting(
     meetings: &[MeetingItem],
     platform: &str,
@@ -2260,6 +2434,7 @@ fn pick_recent_adhoc_meeting(
         .map(|(_, m)| m.clone())
 }
 
+#[cfg(feature = "tauri-host")]
 async fn find_calendar_meeting(
     app: &AppHandle,
     client: &reqwest::Client,
@@ -2309,6 +2484,7 @@ async fn find_calendar_meeting(
     ))
 }
 
+#[cfg(feature = "tauri-host")]
 fn extract_meeting_id(body: &serde_json::Value) -> Option<String> {
     let meeting = body
         .get("result")
@@ -2319,4 +2495,38 @@ fn extract_meeting_id(body: &serde_json::Value) -> Option<String> {
         .and_then(|m| m.get("id"))
         .and_then(|id| id.as_str())
         .map(|s| s.to_string())
+}
+
+#[cfg(test)]
+mod evidence_tests {
+    use super::*;
+
+    #[test]
+    fn only_strong_evidence_may_auto_start() {
+        assert!(DetectionEvidence::Strong.allows_auto_start());
+        assert!(!DetectionEvidence::BrowserProcessOnly.allows_auto_start());
+        assert_eq!(
+            DetectionEvidence::for_browser_candidate(true),
+            DetectionEvidence::BrowserProcessOnly
+        );
+        assert_eq!(
+            DetectionEvidence::for_browser_candidate(false),
+            DetectionEvidence::Strong
+        );
+    }
+
+    #[test]
+    fn helper_events_carry_the_evidence_strength() {
+        let native = detection_event("zoom", DetectionEvidence::Strong, None);
+        assert_eq!(native["source"], "native");
+        assert_eq!(native["evidence"], "strong");
+        let browser = detection_event(
+            "google_meet",
+            DetectionEvidence::BrowserProcessOnly,
+            Some("com.google.Chrome"),
+        );
+        assert_eq!(browser["source"], "browser");
+        assert_eq!(browser["browserBundleId"], "com.google.Chrome");
+        assert_eq!(browser["evidence"], "browserProcessOnly");
+    }
 }

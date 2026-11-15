@@ -1025,6 +1025,54 @@ describe("mountActionRoutes", () => {
     },
   );
 
+  it.each([
+    ["declared read-only", { readOnly: true }, true],
+    [
+      "read-only with a read plan-mode effect",
+      { readOnly: true, planMode: { effect: "read" } },
+      true,
+    ],
+    ["undeclared", {}, false],
+    ["declared writing", { readOnly: false }, false],
+    [
+      "read-only only for some arguments",
+      { readOnly: true, planMode: { effect: () => "read" } },
+      false,
+    ],
+  ] as const)(
+    "vouches in a GET 405 only for a POST action %s for every call",
+    async (_label, declaration, vouched) => {
+      const { mountActionRoutes } = await import("./action-routes.js");
+      const mounted: Array<{ path: string; handler: any }> = [];
+      const run = vi.fn(async () => ({ ok: true }));
+      const nitroApp = {
+        use: vi.fn((path: string, handler: any) =>
+          mounted.push({ path, handler }),
+        ),
+      };
+
+      mountActionRoutes(nitroApp, {
+        "list-items": {
+          http: { method: "POST" },
+          ...declaration,
+          run,
+        } as any,
+      });
+      const event = {
+        _method: "GET",
+        _headers: { "x-agent-native-frontend": "1" },
+        req: { url: "http://app.test/_agent-native/actions/list-items" },
+      };
+
+      await expect(mounted[0]!.handler(event)).resolves.toEqual({
+        error: "Method not allowed. Use POST.",
+        ...(vouched ? { readOnly: true } : {}),
+      });
+      expect(event).toMatchObject({ _status: 405 });
+      expect(run).not.toHaveBeenCalled();
+    },
+  );
+
   it("mounts package actions registered through another core module instance", async () => {
     const packageCore = await import("./action-discovery.js");
     const packageRun = vi.fn(async () => ({ source: "package" }));

@@ -284,11 +284,13 @@ export function BuilderSignupStartupGate({
   experimentId,
   suppressSurface,
   cover,
+  appSurface,
   children,
 }: {
   experimentId?: string;
   suppressSurface: boolean;
   cover?: ReactNode;
+  appSurface?: ReactNode;
   children: ReactNode;
 }) {
   const { session } = useSession();
@@ -309,6 +311,7 @@ export function BuilderSignupStartupGate({
         suppressSurface={suppressSurface}
         deferSurface={resolving || activating}
         cover={cover}
+        appSurface={appSurface}
       >
         {children}
       </FirstRunOnboardingStartupGate>

@@ -5,7 +5,23 @@ import path from "path";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { hashBuildEnv, snapshotAppOutputs, treeHashOf } from "./build-cache.js";
+import {
+  resolveAgentNativeBuildId,
+  resolveAgentNativeCommitSha,
+} from "../shared/build-id.js";
+import {
+  computeAppCacheKey,
+  createDeployCacheRuntime,
+  hashBuildEnv,
+  snapshotAppOutputs,
+  treeHashOf,
+  usesContentBuildId,
+} from "./build-cache.js";
+import {
+  checkServedAppBuild,
+  htmlBakedBuildId,
+  readServedBuildManifest,
+} from "./served-build.js";
 import { runWorkspaceDeploy } from "./workspace-deploy.js";
 
 let root: string;
@@ -365,7 +381,270 @@ describe("workspace deploy build cache", () => {
   });
 });
 
+describe("content build ids across workspace commits", () => {
+  const COMMIT_1 = "1".repeat(40);
+  const COMMIT_2 = "2".repeat(40);
+  let bakedEnv: Record<string, string | undefined>;
+
+  /** Fake build that bakes its build id into server and client output, as the real one does. */
+  const bakingBuild = (async (
+    _cmd: string,
+    args: string[],
+    options: { env: NodeJS.ProcessEnv },
+  ) => {
+    const app = String(args[1]);
+    builds.push(app);
+    bakedEnv[app] = options.env.AGENT_NATIVE_BUILD_ID;
+    const appDir = path.join(root, "apps", app);
+    const id = resolveAgentNativeBuildId(options.env, "development");
+    const commit = resolveAgentNativeCommitSha(options.env);
+    const source = fs.readFileSync(path.join(appDir, "app/root.tsx"), "utf-8");
+    write(
+      path.join(appDir, "dist", app, "client.js"),
+      `const __AGENT_NATIVE_BUILD_ID__=${JSON.stringify(id)};const __AGENT_NATIVE_COMMIT_SHA__=${JSON.stringify(commit)};// ${source}`,
+    );
+    const html = `<html><script data-agent-native-build-id>globalThis.__AGENT_NATIVE_BUILD_ID__=${JSON.stringify(id)};</script></html>`;
+    const server = path.join(appDir, ".netlify/functions-internal/server");
+    write(
+      path.join(server, "main.mjs"),
+      `export default async function handler() { return new Response(${JSON.stringify(html)}, { headers: { "content-type": "text/html" } }); }\n`,
+    );
+    write(
+      path.join(server, "server.mjs"),
+      'export { default } from "./main.mjs";\nexport const config = { name: "server handler", path: "/*", preferStatic: true };\n',
+    );
+  }) as unknown as typeof execFileSync;
+
+  function deployCommit(commit: string) {
+    vi.stubEnv("AGENT_NATIVE_BUILD_ID", commit);
+    vi.stubEnv("AGENT_NATIVE_BUILD_SHA", "");
+    bakedEnv = {};
+    return runWorkspaceDeploy({
+      workspaceRoot: root,
+      preset: "netlify",
+      buildOnly: true,
+      execFile: bakingBuild,
+    });
+  }
+
+  function servedClient(app: string): string {
+    return fs.readFileSync(
+      path.join(root, "dist/_workspace_static", app, "client.js"),
+      "utf-8",
+    );
+  }
+
+  /** Call the deployed Netlify function the way the platform would. */
+  async function serve(functionDir: string, app: string) {
+    const envBefore = { ...process.env };
+    try {
+      const mod = await import(
+        `${path.join(functionDir, `${app}-server.mjs`)}?t=${Date.now()}-${Math.random()}`
+      );
+      const response: Response = await mod.default(
+        new Request(`https://labs.example/${app}`),
+      );
+      return { headers: response.headers, html: await response.text() };
+    } finally {
+      for (const key of Object.keys(process.env)) {
+        if (!(key in envBefore)) delete process.env[key];
+      }
+      Object.assign(process.env, envBefore);
+    }
+  }
+
+  const functionDir = (app: string) =>
+    path.join(root, ".netlify/functions-internal", `${app}-server`);
+
+  it("hits an unchanged app on a new commit with a byte-identical bundle", async () => {
+    await deployCommit(COMMIT_1);
+    const betaId = readServedBuildManifest(root).apps.beta;
+    const betaClient = servedClient("beta");
+    const betaTree = treeHashOf(
+      snapshotAppOutputs(path.join(root, "apps/beta")),
+    );
+    builds = [];
+    write(path.join(root, "apps/alpha/app/root.tsx"), "// alpha v2");
+
+    await deployCommit(COMMIT_2);
+
+    expect(builds).toEqual(["alpha"]);
+    expect(logs.some((l) => l.includes("cache HIT beta"))).toBe(true);
+    const manifest = readServedBuildManifest(root);
+    expect(manifest.revision).toBe(COMMIT_2);
+    expect(manifest.apps.beta).toBe(betaId);
+    expect(betaId).toMatch(/^content-[0-9a-f]{32}$/);
+    expect(servedClient("beta")).toBe(betaClient);
+    expect(treeHashOf(snapshotAppOutputs(path.join(root, "apps/beta")))).toBe(
+      betaTree,
+    );
+    // The build id is the content id, never the commit; the commit-SHA define
+    // keeps the commit each bundle was built at.
+    expect(servedClient("beta")).toContain(
+      `__AGENT_NATIVE_BUILD_ID__=${JSON.stringify(betaId)}`,
+    );
+    expect(servedClient("beta")).toContain(
+      `__AGENT_NATIVE_COMMIT_SHA__=${JSON.stringify(COMMIT_1)}`,
+    );
+    expect(servedClient("alpha")).toContain(
+      `__AGENT_NATIVE_COMMIT_SHA__=${JSON.stringify(COMMIT_2)}`,
+    );
+    expect(bakedEnv.alpha).toMatch(/^content-/);
+  });
+
+  it("bakes a non-commit AGENT_NATIVE_BUILD_ID as-is and keys it", async () => {
+    await deployCommit("agent-build-123");
+    expect(bakedEnv.alpha).toBe("agent-build-123");
+    expect(readServedBuildManifest(root).apps.alpha).toBe("agent-build-123");
+    expect(servedClient("alpha")).toContain('"agent-build-123"');
+
+    builds = [];
+    await deployCommit("agent-build-124");
+    expect(builds.sort()).toEqual(APPS);
+    expect(bakedEnv.beta).toBe("agent-build-124");
+  });
+
+  it("stamps the app build id when the deploy names no full commit", async () => {
+    vi.stubEnv("DEPLOY_ID", "a".repeat(24));
+    await deployCommit("agent-build-123");
+    const manifest = readServedBuildManifest(root);
+    expect(manifest.revision).toBeNull();
+
+    const served = await serve(functionDir("alpha"), "alpha");
+    expect(served.headers.get("x-agent-native-build-sha")).toBeNull();
+    expect(served.headers.get("x-agent-native-app-build-id")).toBe(
+      "a".repeat(24),
+    );
+    expect(
+      checkServedAppBuild(
+        { revision: manifest.revision, appBuildId: manifest.apps.alpha },
+        served,
+      ),
+    ).toEqual({ ok: true });
+  });
+
+  it("gives a changed app a new content id", async () => {
+    await deployCommit(COMMIT_1);
+    const before = readServedBuildManifest(root).apps.alpha;
+    write(path.join(root, "apps/alpha/app/root.tsx"), "// alpha v2");
+
+    await deployCommit(COMMIT_2);
+
+    const after = readServedBuildManifest(root).apps.alpha;
+    expect(after).not.toBe(before);
+    expect(bakedEnv.alpha).toBe(after);
+    expect(servedClient("alpha")).toContain(after);
+  });
+
+  it("keeps a platform DEPLOY_ID baked in and keyed", async () => {
+    vi.stubEnv("DEPLOY_ID", "a".repeat(24));
+    await deployCommit(COMMIT_1);
+
+    expect(bakedEnv.alpha).toBe(COMMIT_1);
+    expect(readServedBuildManifest(root).apps.alpha).toBe("a".repeat(24));
+    builds = [];
+    await deployCommit(COMMIT_2);
+    expect(builds.sort()).toEqual(APPS);
+  });
+
+  it("passes readback for a cached app and fails it for a stale serve", async () => {
+    await deployCommit(COMMIT_1);
+    const staleAlpha = path.join(root, ".tmp-stale-alpha-server");
+    fs.cpSync(functionDir("alpha"), staleAlpha, { recursive: true });
+    write(path.join(root, "apps/alpha/app/root.tsx"), "// alpha v2");
+
+    await deployCommit(COMMIT_2);
+    const manifest = readServedBuildManifest(root);
+    const expected = (app: string) => ({
+      revision: manifest.revision,
+      appBuildId: manifest.apps[app],
+    });
+
+    const cachedBeta = await serve(functionDir("beta"), "beta");
+    expect(checkServedAppBuild(expected("beta"), cachedBeta)).toEqual({
+      ok: true,
+    });
+    const freshAlpha = await serve(functionDir("alpha"), "alpha");
+    expect(checkServedAppBuild(expected("alpha"), freshAlpha)).toEqual({
+      ok: true,
+    });
+
+    // Planted fault: the previous deploy's alpha is still what is served.
+    const stale = await serve(staleAlpha, "alpha");
+    const staleCheck = checkServedAppBuild(expected("alpha"), stale);
+    expect(staleCheck.ok).toBe(false);
+    expect(!staleCheck.ok && staleCheck.problems.join("\n")).toMatch(
+      /x-agent-native-build-sha is 1{40}[\s\S]*x-agent-native-app-build-id is content-[\s\S]*page build id is content-/,
+    );
+
+    // Planted fault: current deploy stamps wrapped around the old alpha bundle.
+    const restamped = checkServedAppBuild(expected("alpha"), {
+      headers: freshAlpha.headers,
+      html: stale.html,
+    });
+    expect(restamped).toEqual({
+      ok: false,
+      problems: [
+        `page build id is ${htmlBakedBuildId(stale.html)} (expected ${manifest.apps.alpha})`,
+      ],
+    });
+  });
+});
+
 describe("build cache input and output integrity", () => {
+  it("uses a content build id only for a full commit SHA", () => {
+    expect(usesContentBuildId({ AGENT_NATIVE_BUILD_ID: "a".repeat(40) })).toBe(
+      true,
+    );
+    expect(usesContentBuildId({ AGENT_NATIVE_BUILD_ID: "B".repeat(64) })).toBe(
+      true,
+    );
+    expect(
+      usesContentBuildId({ AGENT_NATIVE_BUILD_ID: "agent-build-123" }),
+    ).toBe(false);
+    expect(usesContentBuildId({ AGENT_NATIVE_BUILD_ID: "a".repeat(39) })).toBe(
+      false,
+    );
+    expect(
+      usesContentBuildId({
+        DEPLOY_ID: "d".repeat(24),
+        AGENT_NATIVE_BUILD_ID: "a".repeat(40),
+      }),
+    ).toBe(false);
+  });
+
+  it("leaves the commit variables out of a content-id key only", () => {
+    const runtime = createDeployCacheRuntime({
+      dir: path.join(root, ".cache"),
+      workspaceRoot: root,
+      preset: "netlify",
+      envIgnore: [],
+      verifySample: 0,
+    });
+    const keyFor = (env: NodeJS.ProcessEnv) =>
+      computeAppCacheKey(
+        runtime,
+        "alpha",
+        path.join(root, "apps/alpha"),
+        env,
+        "v",
+      ).key;
+    expect(
+      keyFor({
+        AGENT_NATIVE_BUILD_ID: "1".repeat(40),
+        AGENT_NATIVE_BUILD_SHA: "1".repeat(40),
+      }),
+    ).toBe(
+      keyFor({
+        AGENT_NATIVE_BUILD_ID: "2".repeat(40),
+        AGENT_NATIVE_BUILD_SHA: "2".repeat(40),
+      }),
+    );
+    expect(keyFor({ AGENT_NATIVE_BUILD_ID: "agent-build-1" })).not.toBe(
+      keyFor({ AGENT_NATIVE_BUILD_ID: "agent-build-2" }),
+    );
+  });
+
   it("excludes volatile variables and configured exact or prefix matches from the environment key", () => {
     const env = {
       VITE_PUBLIC_FLAG: "on",

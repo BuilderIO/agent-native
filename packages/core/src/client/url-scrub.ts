@@ -3,9 +3,9 @@ import { SIGNED_LINK_PARAMS } from "../shared/agent-access.js";
 /**
  * Query parameters that may carry sensitive values in the URL bar. Browser
  * telemetry and feedback integrations must not copy OAuth codes, share tokens,
- * password params, email-confirm tokens, signed links, or similar
- * secrets into downstream systems. Callers may opt into additional
- * app-specific query parameters.
+ * password params, email-confirm tokens, signed agent-access links, or similar
+ * secrets into downstream systems. Addressable search content is removed from
+ * URL paths. Callers may opt into additional app-specific query parameters.
  */
 const SENSITIVE_QUERY_PARAMS = new Set([
   "password",
@@ -140,11 +140,16 @@ export function scrubUrl(
   if (!url || typeof url !== "string") return url;
   try {
     const u = new URL(url, "http://placeholder.local");
-    let mutated = false;
-    mutated = redactSensitiveQueryParams(
-      u.searchParams,
-      additionalSensitiveParams,
-    );
+    const redactedPath = u.pathname.replace(/\/search\/.*$/u, "/search");
+    let mutated = redactedPath !== u.pathname;
+    if (mutated) {
+      u.pathname = redactedPath;
+      u.search = "";
+      u.hash = "";
+    }
+    mutated =
+      redactSensitiveQueryParams(u.searchParams, additionalSensitiveParams) ||
+      mutated;
     const hash = u.hash.slice(1);
     const encodedRouteQueryIndex = hash.search(ENCODED_ROUTE_QUERY_DELIMITER);
     const routePathBeforeEncodedQuery =

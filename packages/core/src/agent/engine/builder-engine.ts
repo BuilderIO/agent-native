@@ -36,6 +36,7 @@ import {
   gatewayVisitorFacingError,
   LLM_MISSING_CREDENTIALS_ERROR_CODE,
   LLM_MISSING_CREDENTIALS_MESSAGE,
+  LLM_NO_OWNER_CONTEXT_MESSAGE,
 } from "./credential-errors.js";
 import {
   BUILDER_GATEWAY_INTERNAL_ERROR_CODE,
@@ -57,9 +58,14 @@ import { inlineOwnedToolResultImages } from "./inline-tool-result-images.js";
 import { limitProviderTools } from "./limit-provider-tools.js";
 import { resolveMaxOutputTokensForEngine } from "./output-tokens.js";
 import {
+  PrivateCompletionError,
+  toPrivateCompletionError,
+} from "./private-completion-error.js";
+import {
   splitSystemPromptForCache,
   stablePrefixCacheControl,
 } from "./prompt-cache.js";
+import { ProviderAuthenticationError } from "./provider-auth-error.js";
 import {
   createProviderToolNameMap,
   toEngineToolName,
@@ -153,12 +159,15 @@ function isExplicitBuilderCreditsLimitCode(errorCode?: string): boolean {
   return errorCode?.trim().toLowerCase().startsWith("credits-limit") === true;
 }
 
-async function clearBuilderCreditLimitAfterSuccess(): Promise<void> {
+async function clearBuilderCreditLimitAfterSuccess(
+  privateContent = false,
+): Promise<void> {
   const ownerEmail = getRequestUserEmail();
   if (!ownerEmail) return;
   try {
     await clearBuilderCreditLimitNotice(ownerEmail, getRequestOrgId());
   } catch (error) {
+    if (privateContent) return;
     console.warn(
       "[builder-engine] could not clear credit limit notice after success",
       error,
@@ -194,12 +203,35 @@ class BuilderEngine implements AgentEngine {
   readonly defaultModel = BUILDER_DEFAULT_MODEL;
   readonly supportedModels = BUILDER_SUPPORTED_MODELS;
   readonly capabilities = BUILDER_CAPABILITIES;
+  readonly supportsPrivateContent = true;
 
   constructor(
     private readonly configuredCredentials?: BuilderEngineCredentials,
   ) {}
 
   async *stream(opts: EngineStreamOptions): AsyncIterable<EngineEvent> {
+    if (opts.privateContent === true) {
+      try {
+        for await (const event of this.streamInternal(opts)) {
+          if (event.type === "tool-call-error") {
+            const failure = builderPrivateError();
+            yield failure.stopEvent();
+            throw failure;
+          }
+          yield event;
+        }
+      } catch (error) {
+        throw toPrivateCompletionError(error, "builder");
+      }
+      return;
+    }
+    yield* this.streamInternal(opts);
+  }
+
+  private async *streamInternal(
+    opts: EngineStreamOptions,
+  ): AsyncIterable<EngineEvent> {
+    const privateContent = opts.privateContent === true;
     const creds =
       this.configuredCredentials ??
       (await resolveBuilderGatewayCredentialsDetailed());
@@ -223,6 +255,10 @@ class BuilderEngine implements AgentEngine {
           orgId,
         });
       } catch (error) {
+        if (privateContent) {
+          yield builderPrivateStop(500);
+          return;
+        }
         if (isTransientDatabaseError(error)) {
           const unavailable = new CredentialStoreUnavailableError(error);
           yield gatewayErrorStop(
@@ -273,6 +309,10 @@ class BuilderEngine implements AgentEngine {
         // Custody exists but cannot run (expired, revoked, or short of the AI
         // scope). Reporting it as "no provider connected" sends the reader to
         // a Connect button that changes nothing.
+        if (privateContent) {
+          yield builderPrivateAuthStop();
+          return;
+        }
         yield gatewayErrorStop(
           {
             error: BUILDER_RECONNECT_MESSAGE,
@@ -292,6 +332,26 @@ class BuilderEngine implements AgentEngine {
     const builderUserId = oauthAccess ? undefined : creds.userId;
     const creditsLane = oauthAccess ? false : isBuilderCreditsLane(creds);
     if (!authHeader || (!oauthAccess && !spaceId)) {
+      if (privateContent) {
+        yield builderPrivateStop();
+        return;
+      }
+      // A scheduled or background run has no signed-in member, so no stored
+      // connection can be resolved for it. That is the run's own reason, not
+      // "nothing is connected" (a scheduled run failed with the
+      // generic message while the workspace had Builder connected). The error
+      // code stays missing_credentials because handlers and the visitor copy key
+      // on it; what changes is the reason the reader sees.
+      if (!ownerEmail) {
+        yield gatewayErrorStop(
+          {
+            error: LLM_NO_OWNER_CONTEXT_MESSAGE,
+            errorCode: LLM_MISSING_CREDENTIALS_ERROR_CODE,
+          },
+          creditsLane,
+        );
+        return;
+      }
       yield gatewayErrorStop(
         {
           error: LLM_MISSING_CREDENTIALS_MESSAGE,
@@ -416,9 +476,11 @@ class BuilderEngine implements AgentEngine {
     if (spaceId && !oauthAccess) gatewayUrl.searchParams.set("apiKey", spaceId);
     const orgLabel = creds.orgName || "unknown-org";
     const tStart = Date.now();
-    console.log(
-      `[builder-engine] → POST ${gatewayUrl.origin}${gatewayUrl.pathname} model=${model} tools=${tools.length} effort=${reasoningEffort ?? "unset"} org=${orgLabel}`,
-    );
+    if (!privateContent) {
+      console.log(
+        `[builder-engine] → POST ${gatewayUrl.origin}${gatewayUrl.pathname} model=${model} tools=${tools.length} effort=${reasoningEffort ?? "unset"} org=${orgLabel}`,
+      );
+    }
 
     const gatewayTimeoutMs = getBuilderGatewayTimeoutMs();
     const gatewayAbort = createGatewayAbortSignal(
@@ -475,11 +537,26 @@ class BuilderEngine implements AgentEngine {
       );
     };
     try {
-      const dispatch = await startGatewayRequest(authHeader);
+      let dispatch: Awaited<ReturnType<typeof startGatewayRequest>>;
+      try {
+        dispatch = await startGatewayRequest(authHeader);
+      } catch (error) {
+        if (!privateContent) throw error;
+        const privateError = builderPrivateError(500);
+        yield privateError.stopEvent();
+        throw privateError;
+      }
       if (!dispatch.started) return;
 
       const result = await dispatch.value;
       if (result.status === "rejected") {
+        if (privateContent) {
+          const privateError = builderPrivateError(
+            gatewayAbort.didTimeout() ? 504 : 502,
+          );
+          yield privateError.stopEvent();
+          throw privateError;
+        }
         yield gatewayTransportStop(result.error);
         return;
       }
@@ -497,6 +574,11 @@ class BuilderEngine implements AgentEngine {
             connectionId: oauthAccess.connectionId,
           });
         } catch (error) {
+          if (privateContent) {
+            await response.body?.cancel().catch(() => {});
+            yield builderPrivateAuthStop();
+            return;
+          }
           if (isTransientDatabaseError(error)) {
             const unavailable = new CredentialStoreUnavailableError(error);
             yield gatewayErrorStop(
@@ -547,12 +629,23 @@ class BuilderEngine implements AgentEngine {
           if (!retryDispatch.started) return;
           const retryResult = await retryDispatch.value;
           if (retryResult.status === "rejected") {
+            if (privateContent) {
+              const privateError = builderPrivateError(
+                gatewayAbort.didTimeout() ? 504 : 502,
+              );
+              yield privateError.stopEvent();
+              throw privateError;
+            }
             yield gatewayTransportStop(retryResult.error);
             return;
           }
           response = retryResult.response;
         } else {
           await response.body?.cancel().catch(() => {});
+          if (privateContent) {
+            yield builderPrivateAuthStop();
+            return;
+          }
           yield gatewayErrorStop(
             {
               error: BUILDER_RECONNECT_MESSAGE,
@@ -566,14 +659,17 @@ class BuilderEngine implements AgentEngine {
         }
       }
 
-      console.log(
-        `[builder-engine] ← ${response.status} ${response.statusText} in ${Date.now() - tStart}ms`,
-      );
+      if (!privateContent) {
+        console.log(
+          `[builder-engine] ← ${response.status} ${response.statusText} in ${Date.now() - tStart}ms`,
+        );
+      }
 
       if (!response.ok) {
         yield* emitHttpError(response, {
           creditsLane,
           requestShape,
+          privateContent,
           recordLegacyCredentialFailure: !oauthAccess,
           oauthScope: oauthAccess?.scope,
         });
@@ -597,6 +693,11 @@ class BuilderEngine implements AgentEngine {
 
       const contentType = response.headers.get("content-type") ?? "";
       if (contentType.includes("text/html")) {
+        if (privateContent) {
+          await response.body?.cancel().catch(() => {});
+          yield builderPrivateStop(502);
+          return;
+        }
         const rawText = await response.text().catch(() => "");
         const status = response.status || 502;
         const error = normalizeGatewayErrorText(rawText, status);
@@ -617,6 +718,10 @@ class BuilderEngine implements AgentEngine {
 
       const reader = response.body?.getReader();
       if (!reader) {
+        if (privateContent) {
+          yield builderPrivateStop(502);
+          return;
+        }
         yield gatewayErrorStop(
           {
             error: "Builder gateway response has no body",
@@ -639,6 +744,7 @@ class BuilderEngine implements AgentEngine {
         gatewayUrl,
         requestStartedAt: tStart,
         requestShape,
+        privateContent,
         recordLegacyCredentialFailure: !oauthAccess,
         oauthScope: oauthAccess?.scope,
       });
@@ -650,6 +756,7 @@ class BuilderEngine implements AgentEngine {
 
 interface GatewayErrorStopDetails {
   error: string;
+  provider?: string;
   errorCode?: string;
   upgradeUrl?: string;
   statusCode?: number;
@@ -682,11 +789,46 @@ function isTransientGatewayFailure(
   return TRANSIENT_UPSTREAM_PATTERN.test(rawMessage);
 }
 
+function isGatewayAuthenticationFailure(
+  status: unknown,
+  code: unknown,
+): boolean {
+  return (
+    status === 401 ||
+    [
+      "http_401",
+      "unauthorized",
+      "authentication_error",
+      "invalid_api_key",
+      "builder_auth_error",
+    ].includes(typeof code === "string" ? code : "")
+  );
+}
+
 function gatewayErrorStop(
   details: GatewayErrorStopDetails,
   creditsLane: boolean | undefined,
   requestShape?: EngineRequestShape,
 ): EngineEvent {
+  if (isGatewayAuthenticationFailure(details.statusCode, details.errorCode)) {
+    const failure = new ProviderAuthenticationError(
+      "builder",
+      details.statusCode ??
+        (details.errorCode === "http_401" ? 401 : undefined),
+    );
+    details = {
+      error: failure.message,
+      errorCode:
+        details.errorCode === "builder_oauth_refresh_failed"
+          ? details.errorCode
+          : failure.code,
+      provider: failure.provider,
+      providerRetryable: false,
+      ...(failure.statusCode !== undefined
+        ? { statusCode: failure.statusCode }
+        : {}),
+    };
+  }
   const { error, errorCode, upgradeUrl, ...retry } = details;
   return {
     type: "stop",
@@ -711,19 +853,62 @@ function gatewayErrorStop(
   };
 }
 
+/**
+ * Fixed, provider-free stop event for a private completion failure. Only a
+ * canonical status (when one is known) is retained; no raw code, message,
+ * request id, upgrade url, or request shape ever crosses this boundary.
+ */
+function builderPrivateStop(status?: number): EngineEvent {
+  return (
+    status !== undefined
+      ? new PrivateCompletionError("builder", { status })
+      : new PrivateCompletionError("builder")
+  ).stopEvent();
+}
+
+/** Canonical auth failure stop for a private completion (preserves 401). */
+function builderPrivateAuthStop(): EngineEvent {
+  return toPrivateCompletionError(
+    new ProviderAuthenticationError("builder", 401),
+    "builder",
+  ).stopEvent();
+}
+
+function builderPrivateError(status?: number): PrivateCompletionError {
+  return status !== undefined
+    ? new PrivateCompletionError("builder", { status })
+    : new PrivateCompletionError("builder");
+}
+
+/** Maps a non-success streamed stop reason to a canonical HTTP status. */
+function privateStatusForStopReason(
+  reason: unknown,
+  statusCode: unknown,
+): number {
+  if (
+    typeof statusCode === "number" &&
+    Number.isInteger(statusCode) &&
+    statusCode >= 400 &&
+    statusCode <= 599
+  ) {
+    return statusCode;
+  }
+  if (reason === "invalid_request") return 400;
+  if (reason === "rate_limited") return 429;
+  return 500;
+}
+
 async function recordAuthFailureForCurrentLane(opts: {
-  recordLegacyCredentialFailure?: boolean;
-  oauthScope?: "user" | "org";
+  recordLegacyCredentialFailure?: boolean | undefined;
+  oauthScope?: "user" | "org" | undefined;
   status?: number;
   code?: string;
   message?: string;
 }): Promise<void> {
   if (opts.recordLegacyCredentialFailure !== false) {
-    await recordBuilderGatewayAuthFailure({
-      status: opts.status,
-      code: opts.code,
-      message: opts.message,
-    });
+    await recordBuilderGatewayAuthFailure(
+      new ProviderAuthenticationError("builder", opts.status).details(),
+    );
     return;
   }
   const ownerEmail = getRequestUserEmail();
@@ -747,11 +932,47 @@ async function* emitHttpError(
   opts: {
     creditsLane: boolean;
     requestShape?: EngineRequestShape;
+    privateContent?: boolean;
     recordLegacyCredentialFailure?: boolean;
     oauthScope?: "user" | "org";
   },
 ): AsyncIterable<EngineEvent> {
   const status = response.status;
+  if (opts.privateContent === true) {
+    // Fixed status error before any body read or credit side effect.
+    await response.body?.cancel().catch(() => {});
+    if (status === 401) {
+      await recordAuthFailureForCurrentLane({
+        recordLegacyCredentialFailure: opts.recordLegacyCredentialFailure,
+        oauthScope: opts.oauthScope,
+        status,
+      });
+      yield builderPrivateAuthStop();
+      return;
+    }
+    yield builderPrivateStop(status);
+    return;
+  }
+  if (status === 401) {
+    // A rejected credential is the whole answer; the body can echo the request
+    // (prompt text included), so it is never read or recorded.
+    await response.body?.cancel().catch(() => {});
+    await recordAuthFailureForCurrentLane({
+      recordLegacyCredentialFailure: opts.recordLegacyCredentialFailure,
+      oauthScope: opts.oauthScope,
+      status,
+    });
+    yield gatewayErrorStop(
+      {
+        error: BUILDER_RECONNECT_MESSAGE,
+        errorCode: "builder_auth_error",
+        statusCode: status,
+      },
+      opts.creditsLane,
+      opts.requestShape,
+    );
+    return;
+  }
   let errBody: GatewayErrorBody | null = null;
   const rawText = await response.text().catch(() => "");
   if (rawText) {
@@ -811,6 +1032,7 @@ async function* emitHttpError(
     yield stop({
       error: BUILDER_RECONNECT_MESSAGE,
       errorCode: "builder_auth_error",
+      statusCode: status,
     });
     return;
   }
@@ -831,6 +1053,7 @@ async function* emitHttpError(
     yield stop({
       error: BUILDER_RECONNECT_MESSAGE,
       errorCode: "builder_auth_error",
+      statusCode: status,
     });
     return;
   }
@@ -907,6 +1130,7 @@ async function* parseJsonlStream(
     requestStartedAt?: number;
     creditsLane?: boolean;
     requestShape?: EngineRequestShape;
+    privateContent?: boolean;
     recordLegacyCredentialFailure?: boolean;
     oauthScope?: "user" | "org";
   } = {},
@@ -966,6 +1190,10 @@ async function* parseJsonlStream(
       try {
         event = JSON.parse(line);
       } catch {
+        if (captureContext.privateContent === true) {
+          yield builderPrivateStop(502);
+          return;
+        }
         const normalized = normalizeGatewayErrorText(line, 502);
         yield gatewayErrorStop(
           {
@@ -1059,6 +1287,10 @@ async function* parseJsonlStream(
             event.creditsUsed !== undefined &&
             (!Number.isFinite(event.creditsUsed) || event.creditsUsed < 0)
           ) {
+            if (captureContext.privateContent === true) {
+              yield builderPrivateStop(502);
+              return;
+            }
             yield gatewayErrorStop(
               {
                 error: "Builder gateway returned invalid credit usage",
@@ -1085,11 +1317,74 @@ async function* parseJsonlStream(
         }
 
         case "stop": {
+          const reportedAuthCode =
+            typeof event.errorCode === "string" ? event.errorCode : event.code;
+          if (
+            isGatewayAuthenticationFailure(event.statusCode, reportedAuthCode)
+          ) {
+            const failure = new ProviderAuthenticationError(
+              "builder",
+              event.statusCode === 401 || reportedAuthCode === "http_401"
+                ? 401
+                : undefined,
+            );
+            if (captureContext.privateContent !== true) {
+              console.error(
+                `[builder-engine] authentication failure provider=${failure.provider} code=${failure.code} status=${failure.statusCode ?? "unknown"}`,
+              );
+            }
+            if (
+              isBuilderCredentialAuthErrorInStream(
+                String(event.error || event.message || event.detail || ""),
+              )
+            ) {
+              await recordAuthFailureForCurrentLane({
+                ...(captureContext.recordLegacyCredentialFailure !== undefined
+                  ? {
+                      recordLegacyCredentialFailure:
+                        captureContext.recordLegacyCredentialFailure,
+                    }
+                  : {}),
+                ...(captureContext.oauthScope !== undefined
+                  ? { oauthScope: captureContext.oauthScope }
+                  : {}),
+                ...failure.details(),
+              });
+            }
+            if (captureContext.privateContent === true) {
+              yield builderPrivateAuthStop();
+              return;
+            }
+            yield gatewayErrorStop(
+              {
+                error: failure.message,
+                errorCode: failure.code,
+                ...(failure.statusCode !== undefined
+                  ? { statusCode: failure.statusCode }
+                  : {}),
+              },
+              captureContext.creditsLane,
+              captureContext.requestShape,
+            );
+            return;
+          }
+          const reason = event.reason ?? "end_turn";
+          if (
+            captureContext.privateContent === true &&
+            reason !== "end_turn" &&
+            reason !== "tool_use" &&
+            reason !== "max_tokens" &&
+            reason !== "stop_sequence"
+          ) {
+            yield builderPrivateStop(
+              privateStatusForStopReason(reason, event.statusCode),
+            );
+            return;
+          }
           flushPending();
           yield* recoverUndeliveredToolCalls();
           yield { type: "assistant-content", parts };
 
-          const reason = event.reason ?? "end_turn";
           const stop = (details: GatewayErrorStopDetails): EngineEvent =>
             gatewayErrorStop(
               details,
@@ -1120,8 +1415,14 @@ async function* parseJsonlStream(
               ) ??
               gatewayErrCode ??
               "invalid_request";
-            const gatewayRequestId =
-              typeof event.requestId === "string" ? event.requestId : undefined;
+            const gatewayRequestId = isGatewayAuthenticationFailure(
+              event.statusCode,
+              errCode,
+            )
+              ? undefined
+              : typeof event.requestId === "string"
+                ? event.requestId
+                : undefined;
             console.warn(
               `[builder-engine] stop reason=invalid_request model=${model} code=${errCode} requestId=${gatewayRequestId ?? "(none)"} requestShape=${JSON.stringify(captureContext.requestShape)} providerMessagePresent=${Boolean(event.error || event.message || event.detail)}`,
             );
@@ -1142,7 +1443,7 @@ async function* parseJsonlStream(
             });
           } else if (reason === "error") {
             const explicitErrMsg = event.error || event.message || event.detail;
-            const gatewayRequestId =
+            const rawGatewayRequestId =
               typeof event.requestId === "string" ? event.requestId : undefined;
             const errMsg = explicitErrMsg ?? "Gateway error (no detail)";
             const gatewayErrCode = canonicalizeBuilderGatewayErrorCode(
@@ -1179,11 +1480,19 @@ async function* parseJsonlStream(
                       (!explicitErrMsg
                         ? "builder_gateway_error"
                         : classifyTerminalErrorCode(String(errMsg))));
+            const safeErrCode = event.statusCode === 401 ? "http_401" : errCode;
+            const isAuthenticationFailure = isGatewayAuthenticationFailure(
+              event.statusCode,
+              safeErrCode,
+            );
+            const gatewayRequestId = isAuthenticationFailure
+              ? undefined
+              : rawGatewayRequestId;
             const isInvalidRequest =
               gatewayErrCode === "invalid_request" ||
               gatewayErrCode === "invalid_request_error";
             console.error(
-              `[builder-engine] stop reason=error model=${model} code=${errCode ?? "(none)"} requestId=${gatewayRequestId ?? "(none)"} providerMessagePresent=${Boolean(explicitErrMsg)}`,
+              `[builder-engine] stop reason=error model=${model} code=${safeErrCode ?? "(none)"} requestId=${gatewayRequestId ?? "(none)"} providerMessagePresent=${Boolean(explicitErrMsg)}`,
             );
             if (isCredentialAuthError) {
               await recordAuthFailureForCurrentLane({
@@ -1210,7 +1519,8 @@ async function* parseJsonlStream(
               error: isBareRejection
                 ? "The AI provider temporarily refused this request (HTTP 403 with no reason). Retrying."
                 : String(errMsg),
-              ...(errCode ? { errorCode: errCode } : {}),
+              ...(safeErrCode ? { errorCode: safeErrCode } : {}),
+              ...(event.statusCode === 401 ? { statusCode: 401 } : {}),
               ...(isCreditsLimitErrorCode(errCode)
                 ? { upgradeUrl: await buildUpgradeUrl() }
                 : {}),
@@ -1233,7 +1543,9 @@ async function* parseJsonlStream(
             reason === "max_tokens" ||
             reason === "stop_sequence"
           ) {
-            await clearBuilderCreditLimitAfterSuccess();
+            await clearBuilderCreditLimitAfterSuccess(
+              captureContext.privateContent === true,
+            );
             yield { type: "stop", reason };
           } else {
             yield stop({ error: `Unknown stop reason: ${reason}` });
@@ -1246,6 +1558,10 @@ async function* parseJsonlStream(
       }
     }
 
+    if (captureContext.privateContent === true) {
+      yield builderPrivateStop(502);
+      return;
+    }
     flushPending();
     yield* recoverUndeliveredToolCalls();
     yield { type: "assistant-content", parts };
@@ -1259,6 +1575,11 @@ async function* parseJsonlStream(
     );
   } catch (err) {
     const timedOut = captureContext.didGatewayTimeout?.() ?? false;
+    if (captureContext.privateContent === true) {
+      const privateError = builderPrivateError(timedOut ? 504 : 502);
+      yield privateError.stopEvent();
+      throw privateError;
+    }
     const gatewayTimeoutMs =
       captureContext.getGatewayTimeoutMs?.() ??
       DEFAULT_BUILDER_GATEWAY_TIMEOUT_MS;
