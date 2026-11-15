@@ -1,5 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
+import { PREPARING_AFTER_COUNTDOWN_DELAY_MS } from "./preparing-after-countdown";
 import { prepareRewindRecordingStart } from "./rewind-recording-start";
 
 function deferred<T = void>() {
@@ -134,5 +135,31 @@ describe("prepareRewindRecordingStart", () => {
     ).rejects.toThrow("sink unavailable");
 
     expect(events).toEqual(["cue", "activate"]);
+  });
+
+  it("keeps Preparing up until a slow activation is live, not just until preparation", async () => {
+    vi.useFakeTimers();
+    try {
+      const activateGate = deferred<string>();
+      const show = vi.fn(async () => {});
+      const hide = vi.fn(async () => {});
+      const startPromise = prepareRewindRecordingStart({
+        prepare: async () => "prepared",
+        countdown: async () => {},
+        cancelCountdown() {},
+        activate: () => activateGate.promise,
+        preparing: { show, hide },
+      });
+
+      await vi.advanceTimersByTimeAsync(PREPARING_AFTER_COUNTDOWN_DELAY_MS);
+      expect(show).toHaveBeenCalledTimes(1);
+      expect(hide).not.toHaveBeenCalled();
+
+      activateGate.resolve("started");
+      await expect(startPromise).resolves.toBe("started");
+      expect(hide).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

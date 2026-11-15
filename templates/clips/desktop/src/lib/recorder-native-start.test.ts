@@ -32,6 +32,7 @@ vi.mock("./local-export", async (importOriginal) => {
 });
 
 import { requestRecordingContext } from "../lookback/context-api";
+import { PREPARING_AFTER_COUNTDOWN_DELAY_MS } from "./preparing-after-countdown";
 import {
   emitRecorderSession,
   forgetRewindClipOriginIfNoRequest,
@@ -1472,6 +1473,130 @@ describe("native recording startup", () => {
       cancellationCount,
     );
     await handle.cancel();
+  });
+});
+
+describe("Preparing after the countdown", () => {
+  function commandOrder(...names: string[]) {
+    return mocks.invoke.mock.calls
+      .map(([name]) => name as string)
+      .filter((name) => names.includes(name));
+  }
+
+  it("shows nothing when capture goes live right after the countdown", async () => {
+    const pending = startRecording(params);
+    await vi.advanceTimersByTimeAsync(3_600);
+    const handle = await pending;
+    await vi.advanceTimersByTimeAsync(PREPARING_AFTER_COUNTDOWN_DELAY_MS * 2);
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(1);
+    expect(calls("show_preparing")).toHaveLength(0);
+    expect(calls("hide_preparing")).toHaveLength(0);
+    await handle.cancel();
+  });
+
+  it("keeps Preparing up through a slow warm-up after the server recording exists", async () => {
+    const warm = deferred<void>();
+    nativeCommands.set("native_fullscreen_recording_warm", () => warm.promise);
+    const pending = startRecording(params);
+    await vi.advanceTimersByTimeAsync(3_600);
+    expect(createdRecordingId()).toBeTruthy();
+    expect(calls("native_fullscreen_recording_warm")).toHaveLength(1);
+
+    await vi.advanceTimersByTimeAsync(PREPARING_AFTER_COUNTDOWN_DELAY_MS);
+    expect(calls("show_preparing")).toHaveLength(1);
+    await vi.advanceTimersByTimeAsync(8_000);
+    expect(calls("hide_preparing")).toHaveLength(0);
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
+
+    warm.resolve();
+    const handle = await pending;
+    expect(
+      commandOrder(
+        "show_preparing",
+        "native_fullscreen_recording_begin",
+        "hide_preparing",
+      ),
+    ).toEqual([
+      "show_preparing",
+      "native_fullscreen_recording_begin",
+      "hide_preparing",
+    ]);
+    await handle.cancel();
+  });
+
+  it("keeps Preparing up until a slow native begin returns", async () => {
+    const begin = deferred<void>();
+    nativeCommands.set(
+      "native_fullscreen_recording_begin",
+      () => begin.promise,
+    );
+    const pending = startRecording(params);
+    await vi.advanceTimersByTimeAsync(
+      3_600 + PREPARING_AFTER_COUNTDOWN_DELAY_MS,
+    );
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(1);
+    expect(calls("show_preparing")).toHaveLength(1);
+    expect(calls("hide_preparing")).toHaveLength(0);
+
+    begin.resolve();
+    const handle = await pending;
+    expect(calls("hide_preparing")).toHaveLength(1);
+    await handle.cancel();
+  });
+
+  it("covers a local-only take's warm-up too", async () => {
+    const warm = deferred<void>();
+    nativeCommands.set("native_fullscreen_recording_warm", () => warm.promise);
+    const pending = startRecording({
+      ...params,
+      localRecordingMode: "composed",
+    });
+    await vi.advanceTimersByTimeAsync(
+      3_600 + PREPARING_AFTER_COUNTDOWN_DELAY_MS,
+    );
+    expect(calls("show_preparing")).toHaveLength(1);
+    warm.resolve();
+    const handle = await pending;
+    expect(calls("hide_preparing")).toHaveLength(1);
+    await handle.cancel();
+  });
+
+  it("hides Preparing when startup is cancelled before native begin", async () => {
+    const warm = deferred<void>();
+    nativeCommands.set("native_fullscreen_recording_warm", () => warm.promise);
+    const controller = new AbortController();
+    const pending = startRecording({ ...params, signal: controller.signal });
+    const failed = expect(pending).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    await vi.advanceTimersByTimeAsync(
+      3_600 + PREPARING_AFTER_COUNTDOWN_DELAY_MS,
+    );
+    expect(calls("show_preparing")).toHaveLength(1);
+
+    // The warm-up finishes in the same tick as the cancel: the start must
+    // stop before begin and still take Preparing down.
+    warm.resolve();
+    controller.abort();
+    await failed;
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
+    expect(calls("hide_preparing")).toHaveLength(1);
+    expect(mocks.emit).not.toHaveBeenCalledWith("clips:toolbar-enabled", true);
+  });
+
+  it("hides Preparing when the server create fails after it was shown", async () => {
+    const create = deferred<Response>();
+    fetchMock.mockImplementationOnce(() => create.promise);
+    const pending = startRecording(params);
+    const failed = expect(pending).rejects.toBeTruthy();
+    await vi.advanceTimersByTimeAsync(
+      3_600 + PREPARING_AFTER_COUNTDOWN_DELAY_MS,
+    );
+    expect(calls("show_preparing")).toHaveLength(1);
+    create.resolve(new Response("unavailable", { status: 503 }));
+    await failed;
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(0);
+    expect(calls("hide_preparing")).toHaveLength(1);
   });
 });
 

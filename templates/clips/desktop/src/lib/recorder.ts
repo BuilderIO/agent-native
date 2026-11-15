@@ -36,10 +36,7 @@ import {
   createPauseTransitionQueue,
   type PauseTransitionQueue,
 } from "./pause-transition";
-import {
-  type PreparingAfterCountdown,
-  showPreparingAfterCountdown,
-} from "./preparing-after-countdown";
+import { showPreparingAfterCountdown } from "./preparing-after-countdown";
 import { reconcileProcessingBackup } from "./processing-backup-recovery";
 import {
   classifyRecordFirstOpenFailure,
@@ -3356,9 +3353,6 @@ async function tryStartRewindFullscreenRecording(
       preparing: {
         show: () => invoke("show_preparing"),
         hide: () => invoke("hide_preparing"),
-        // Preparation also warms the capture backend; only a wait well past
-        // the countdown is worth a "Preparing" screen.
-        delayMs: 1_000,
       },
       async beforeActivate() {
         await audioCue.playBeforeCapture(params.signal);
@@ -3906,117 +3900,114 @@ async function startNativeFullscreenRecording(
       assertStartupActive();
     };
     const clickStartedAt = Date.now();
-    let preparing: PreparingAfterCountdown | null = null;
-    if (localOnly) {
-      id = localFolderName;
-      const warmPromise = (async () => {
-        const warmStartedAt = Date.now();
-        await warmMic(id);
-        console.log(
-          `[clips-recorder] native warm durations: warmMs=${Date.now() - warmStartedAt}`,
-        );
-      })();
-      await Promise.all([countdownPromise, warmPromise]);
-    } else {
-      const captureTitlePromise = captureTitleForRecording({
-        mode: params.mode,
-        source: params.source,
-      });
-      const recordingPromise = (async () => {
-        const captureTitle = await captureTitlePromise;
-        assertStartupActive();
-        const createStartedAt = Date.now();
-        try {
-          return await createServerRecording(
-            params.serverUrl,
-            wantsCamera,
-            wantsRecordedAudio,
-            captureTitle,
-            {
-              mimeType: NATIVE_FULLSCREEN_MIME_TYPE,
-              requestStreaming: true,
-              streamingUploadClient: "desktop-native",
-              authToken: params.authToken,
-              announceStorageSetup: true,
-              signal: params.signal,
-            },
-          );
-        } finally {
-          console.log(
-            `[clips-recorder] createServerRecording durationMs=${Date.now() - createStartedAt}`,
-          );
-        }
-      })();
-      const warmAndId = planNativeFullscreenWarmOverlap({
-        createRecording: async () => {
-          const createRes = await recordingPromise;
-          assertStartupActive();
-          return createRes;
-        },
-        startTranscription: async () => {
-          const transcriptionStartedAt = Date.now();
-          try {
-            await startNativeTranscriptionBeforeRecording();
-          } finally {
-            console.log(
-              `[clips-recorder] transcription warm durationMs=${Date.now() - transcriptionStartedAt}`,
-            );
-          }
-        },
-        warmMic: async (recordingId) => {
-          const warmStartedAt = Date.now();
-          try {
-            await warmMic(recordingId);
-          } finally {
-            console.log(
-              `[clips-recorder] native warm durationMs=${Date.now() - warmStartedAt}`,
-            );
-          }
-        },
-      });
-      // Only the server is waited on here: the start cue and the capture
-      // warm-up after it take ~1 s on every take and are covered by the cue.
-      preparing = showPreparingAfterCountdown(
-        countdownPromise,
-        recordingPromise,
-        {
-          show: () => invoke("show_preparing"),
-          hide: () => invoke("hide_preparing"),
-        },
-      );
-      let createRes: Awaited<typeof warmAndId>;
-      try {
-        [, createRes] = await Promise.all([countdownPromise, warmAndId]);
-      } catch (err) {
-        await preparing.done();
-        abortCreatedRecordingOnStartFailure(
-          err,
-          recordingPromise,
-          params.serverUrl,
-          params.authToken,
-        );
-        throw err;
-      }
-      id = createRes.id;
-      uploadMode = createRes.uploadMode ?? uploadMode;
-    }
-
-    await countdownPromise;
-    assertStartupActive();
-    const beginStartedAt = Date.now();
-    params.onCaptureStartAttempted?.(localOnly ? null : id || null);
-    const beginPromise = invoke("native_fullscreen_recording_begin", {
-      recordingId: id,
-      ...captureParams,
-      localOnly,
-      hasCamera: wantsCamera,
+    let beginStartedAt = 0;
+    // Everything from here until capture is live sits inside one try/finally,
+    // so Preparing can show for any slow step after the countdown (server
+    // create, start cue, warm-up, native begin) and is hidden on every exit,
+    // including a cancellation between preparation and begin.
+    const preparing = showPreparingAfterCountdown(countdownPromise, {
+      show: () => invoke("show_preparing"),
+      hide: () => invoke("hide_preparing"),
     });
     try {
+      if (localOnly) {
+        id = localFolderName;
+        const warmPromise = (async () => {
+          const warmStartedAt = Date.now();
+          await warmMic(id);
+          console.log(
+            `[clips-recorder] native warm durations: warmMs=${Date.now() - warmStartedAt}`,
+          );
+        })();
+        await Promise.all([countdownPromise, warmPromise]);
+      } else {
+        const captureTitlePromise = captureTitleForRecording({
+          mode: params.mode,
+          source: params.source,
+        });
+        const recordingPromise = (async () => {
+          const captureTitle = await captureTitlePromise;
+          assertStartupActive();
+          const createStartedAt = Date.now();
+          try {
+            return await createServerRecording(
+              params.serverUrl,
+              wantsCamera,
+              wantsRecordedAudio,
+              captureTitle,
+              {
+                mimeType: NATIVE_FULLSCREEN_MIME_TYPE,
+                requestStreaming: true,
+                streamingUploadClient: "desktop-native",
+                authToken: params.authToken,
+                announceStorageSetup: true,
+                signal: params.signal,
+              },
+            );
+          } finally {
+            console.log(
+              `[clips-recorder] createServerRecording durationMs=${Date.now() - createStartedAt}`,
+            );
+          }
+        })();
+        const warmAndId = planNativeFullscreenWarmOverlap({
+          createRecording: async () => {
+            const createRes = await recordingPromise;
+            assertStartupActive();
+            return createRes;
+          },
+          startTranscription: async () => {
+            const transcriptionStartedAt = Date.now();
+            try {
+              await startNativeTranscriptionBeforeRecording();
+            } finally {
+              console.log(
+                `[clips-recorder] transcription warm durationMs=${Date.now() - transcriptionStartedAt}`,
+              );
+            }
+          },
+          warmMic: async (recordingId) => {
+            const warmStartedAt = Date.now();
+            try {
+              await warmMic(recordingId);
+            } finally {
+              console.log(
+                `[clips-recorder] native warm durationMs=${Date.now() - warmStartedAt}`,
+              );
+            }
+          },
+        });
+        let createRes: Awaited<typeof warmAndId>;
+        try {
+          [, createRes] = await Promise.all([countdownPromise, warmAndId]);
+        } catch (err) {
+          abortCreatedRecordingOnStartFailure(
+            err,
+            recordingPromise,
+            params.serverUrl,
+            params.authToken,
+          );
+          throw err;
+        }
+        id = createRes.id;
+        uploadMode = createRes.uploadMode ?? uploadMode;
+      }
+
+      await countdownPromise;
+      assertStartupActive();
+      beginStartedAt = Date.now();
+      params.onCaptureStartAttempted?.(localOnly ? null : id || null);
+      const beginPromise = invoke("native_fullscreen_recording_begin", {
+        recordingId: id,
+        ...captureParams,
+        localOnly,
+        hasCamera: wantsCamera,
+      });
       await guardRecordingStart(beginPromise, { signal: params.signal });
+      assertStartupActive();
     } finally {
-      await preparing?.done();
+      await preparing.done();
     }
-    assertStartupActive();
     params.onCaptureStartRequested?.(localOnly ? null : id || null, id || null);
     console.log(
       `[clips-recorder] native begin durationMs=${Date.now() - beginStartedAt} clickToLiveMs=${Date.now() - clickStartedAt}`,

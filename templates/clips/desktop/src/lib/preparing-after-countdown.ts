@@ -1,46 +1,48 @@
 /**
  * The countdown runs while the recording is still being set up (server
- * recording, capture warm-up). When the countdown ends first, the user starts
- * talking but nothing is captured yet: a slow server once cost the first
- * 8 seconds of a take. While capture is not ready shortly after the countdown,
- * show "Preparing recording" so nobody talks into a recording that has not
- * started.
+ * recording, start cue, capture warm-up, native begin). When the countdown
+ * ends first, the user starts talking but nothing is captured yet: a slow
+ * server once cost the first 8 seconds of a take. While capture is not live
+ * shortly after the countdown, show "Preparing recording" so nobody talks into
+ * a recording that has not started.
+ *
+ * The caller owns the whole capture-start lifecycle: it calls done() once,
+ * from a `finally` that covers everything from the countdown to capture being
+ * live (or the start failing / being cancelled). Until then, Preparing may be
+ * shown.
  */
-export const PREPARING_AFTER_COUNTDOWN_DELAY_MS = 300;
+/** The start cue (up to 1 s, its timeout) and capture activation follow the
+ * countdown on every take; only a wait past that is worth a Preparing screen. */
+export const PREPARING_AFTER_COUNTDOWN_DELAY_MS = 1_500;
 
 export interface PreparingAfterCountdown {
-  /** Hides "Preparing recording" if it was shown. Call once capture is live
-   * or the start failed; safe to call more than once. */
+  /** Capture is live, or the start failed or was cancelled: never show
+   * Preparing from now on, and hide it if it was shown. Safe to call more
+   * than once. */
   done(): Promise<void>;
+}
+
+export interface PreparingOverlay {
+  show(): Promise<void>;
+  hide(): Promise<void>;
+  delayMs?: number;
 }
 
 export function showPreparingAfterCountdown(
   countdown: Promise<unknown>,
-  ready: Promise<unknown>,
-  options: {
-    show(): Promise<void>;
-    hide(): Promise<void>;
-    delayMs?: number;
-  },
+  options: PreparingOverlay,
 ): PreparingAfterCountdown {
   const delayMs = options.delayMs ?? PREPARING_AFTER_COUNTDOWN_DELAY_MS;
-  let readySettled = false;
   let finished = false;
   let showing: Promise<void> | null = null;
-  void ready.then(
-    () => {
-      readySettled = true;
-    },
-    () => {
-      readySettled = true;
-    },
-  );
   void countdown.then(
     async () => {
-      if (readySettled || finished) return;
+      if (finished) return;
       await new Promise<void>((resolve) => setTimeout(resolve, delayMs));
-      if (readySettled || finished) return;
-      showing = options.show().catch(() => {});
+      if (finished) return;
+      showing = options.show().catch((err) => {
+        console.error("[clips-recorder] showing Preparing failed:", err);
+      });
     },
     () => {},
   );

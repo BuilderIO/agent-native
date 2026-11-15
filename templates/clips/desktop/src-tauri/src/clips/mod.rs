@@ -790,6 +790,14 @@ fn load_bubble_position(app: &AppHandle) -> Option<BubblePositionPreference> {
     serde_json::from_slice(&bytes).ok()
 }
 
+/// Whether a full-screen recording overlay (countdown, Preparing) may activate
+/// Clips. For window capture it must not: activating Clips pulls macOS back to
+/// the Space holding its other windows, away from a picked window on another
+/// (full-screen) Space.
+fn recording_overlay_activates_clips(window_capture: bool) -> bool {
+    !window_capture
+}
+
 #[tauri::command]
 pub async fn show_countdown(app: AppHandle, attempt_id: String) -> Result<u64, String> {
     dlog!("[clips-tray] show_countdown invoked");
@@ -817,9 +825,9 @@ pub async fn show_countdown(app: AppHandle, attempt_id: String) -> Result<u64, S
             mx,
             my
         );
-        // Activating Clips here would pull macOS back to the Space holding its
-        // other windows, away from a picked window on another (full-screen) Space.
-        let window_capture = crate::state::SelectedRecordingWindow::get(&app).is_some();
+        let activate = recording_overlay_activates_clips(
+            crate::state::SelectedRecordingWindow::get(&app).is_some(),
+        );
         let countdown_route = format!("countdown/{attempt_id}");
         let win =
             WebviewWindowBuilder::new(&app, COUNTDOWN_LABEL, build_overlay_url(&countdown_route))
@@ -830,7 +838,7 @@ pub async fn show_countdown(app: AppHandle, attempt_id: String) -> Result<u64, S
                 .skip_taskbar(true)
                 .shadow(false)
                 .visible(false)
-                .focused(!window_capture)
+                .focused(activate)
                 .accept_first_mouse(true)
                 .build()
                 .map_err(|e| {
@@ -850,10 +858,10 @@ pub async fn show_countdown(app: AppHandle, attempt_id: String) -> Result<u64, S
                     return Err(error);
                 }
             };
-        if window_capture {
-            show_without_activation(&win);
-        } else {
+        if activate {
             present_interactive_window(&win);
+        } else {
+            show_without_activation(&win);
         }
         start_countdown_control_tracking(&app);
         dlog!("[clips-tray] countdown shown");
@@ -948,6 +956,9 @@ pub async fn show_preparing(app: AppHandle) -> Result<(), String> {
     if let Some(existing) = app.get_webview_window(PREPARING_LABEL) {
         let _ = existing.close();
     }
+    let activate = recording_overlay_activates_clips(
+        crate::state::SelectedRecordingWindow::get(&app).is_some(),
+    );
     let (mx, my, mw, mh) = tray_monitor_physical_rect(&app);
     let win = WebviewWindowBuilder::new(&app, PREPARING_LABEL, build_overlay_url("preparing"))
         .title("Preparing recording")
@@ -958,7 +969,7 @@ pub async fn show_preparing(app: AppHandle) -> Result<(), String> {
         .resizable(false)
         .shadow(false)
         .visible(false)
-        .focused(true)
+        .focused(activate)
         .build()
         .map_err(|error| format!("preparing window build failed: {error}"))?;
     let _ = win.set_size(tauri::Size::Physical(PhysicalSize::new(mw, mh)));
@@ -966,7 +977,11 @@ pub async fn show_preparing(app: AppHandle) -> Result<(), String> {
     let _ = win.set_ignore_cursor_events(true);
     set_capture_excluded(&win);
     configure_recording_overlay(&win);
-    present_interactive_window(&win);
+    if activate {
+        present_interactive_window(&win);
+    } else {
+        show_without_activation(&win);
+    }
     let _ = app.emit("clips:toolbar-preparing", true);
     // A newly-created webview needs one paint before the async preparation can
     // race ahead and replace it with the countdown. Without this brief yield,
@@ -4133,7 +4148,7 @@ pub fn position_popover_with_size(
 
 #[cfg(test)]
 mod countdown_show_tests {
-    use super::with_countdown_show_lock;
+    use super::{recording_overlay_activates_clips, with_countdown_show_lock};
     use std::sync::{
         atomic::{AtomicUsize, Ordering},
         Arc,
@@ -4186,5 +4201,13 @@ mod countdown_show_tests {
 
         let succeeded = with_countdown_show_lock(async { Ok::<(), &str>(()) }).await;
         assert_eq!(succeeded, Ok(()));
+    }
+
+    #[test]
+    fn recording_overlays_never_activate_clips_for_window_capture() {
+        // Countdown and Preparing share this rule: activating Clips during a
+        // window capture can switch macOS Spaces away from the picked window.
+        assert!(!recording_overlay_activates_clips(true));
+        assert!(recording_overlay_activates_clips(false));
     }
 }

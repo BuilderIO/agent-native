@@ -1,4 +1,7 @@
-import { showPreparingAfterCountdown } from "./preparing-after-countdown";
+import {
+  type PreparingOverlay,
+  showPreparingAfterCountdown,
+} from "./preparing-after-countdown";
 
 export interface RewindRecordingStartPhases<TPrepared, TStarted> {
   prepare(): Promise<TPrepared>;
@@ -6,12 +9,9 @@ export interface RewindRecordingStartPhases<TPrepared, TStarted> {
   cancelCountdown(): void;
   beforeActivate?(): Promise<void>;
   activate(prepared: TPrepared): Promise<TStarted>;
-  /** Shown while preparation is still running after the countdown ended. */
-  preparing?: {
-    show(): Promise<void>;
-    hide(): Promise<void>;
-    delayMs?: number;
-  };
+  /** Shown while capture is not live yet after the countdown ended
+   * (preparation, start cue or activation still running). */
+  preparing?: PreparingOverlay;
 }
 
 export async function prepareRewindRecordingStart<TPrepared, TStarted>(
@@ -24,11 +24,7 @@ export async function prepareRewindRecordingStart<TPrepared, TStarted>(
   });
   const countdownPromise = phases.countdown();
   const preparing = phases.preparing
-    ? showPreparingAfterCountdown(
-        countdownPromise,
-        preparedPromise,
-        phases.preparing,
-      )
+    ? showPreparingAfterCountdown(countdownPromise, phases.preparing)
     : null;
   let prepared: TPrepared;
   try {
