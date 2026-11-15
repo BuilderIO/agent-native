@@ -538,15 +538,27 @@ export async function runGuardedDdl(
   }
 
   try {
+    await client.execute(`SET lock_timeout = '${lockTimeout}'`);
+    await client.execute(statement);
+  } catch (err) {
     try {
-      await client.execute(`SET lock_timeout = '${lockTimeout}'`);
-      await client.execute(statement);
-      return true;
-    } catch (err) {
-      if (isLockTimeoutError(err)) return false;
-      throw err;
+      await client.execute(`RESET lock_timeout`);
+    } catch (resetError) {
+      throw new AggregateError(
+        [err, resetError],
+        "Guarded DDL and session cleanup both failed",
+      );
     }
-  } finally {
-    await client.execute(`RESET lock_timeout`);
+    if (isLockTimeoutError(err)) return false;
+    throw err;
   }
+  try {
+    await client.execute(`RESET lock_timeout`);
+  } catch (resetError) {
+    throw new AggregateError(
+      [resetError],
+      "Guarded DDL session cleanup failed",
+    );
+  }
+  return true;
 }

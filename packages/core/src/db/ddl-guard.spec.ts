@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { createTestPglite } from "../a2a/test-pglite.js";
+
 describe("ddl-guard", () => {
   let originalEnv: NodeJS.ProcessEnv;
   beforeEach(() => {
@@ -646,6 +648,53 @@ describe("ddl-guard", () => {
       ).rejects.toThrow("syntax error");
     });
 
+    it("propagates a standalone DDL failure after resetting the timeout", async () => {
+      const { runGuardedDdl } = await import("./ddl-guard.js");
+      const ddlError = new Error("invalid DDL");
+      const { client, calls } = recordingClient((sql) => {
+        if (/CREATE TABLE/.test(sql)) throw ddlError;
+        return undefined;
+      });
+      await expect(
+        runGuardedDdl("CREATE TABLE foo (id TEXT)", {
+          injectedClient: { execute: client.execute },
+        }),
+      ).rejects.toBe(ddlError);
+      expect(calls).toEqual([
+        "SET lock_timeout = '3s'",
+        "CREATE TABLE foo (id TEXT)",
+        "RESET lock_timeout",
+      ]);
+    });
+
+    it("reports a reset failure without retrying even when DDL succeeds", async () => {
+      const { ensureSchemaObject, isLockTimeoutError } =
+        await import("./ddl-guard.js");
+      const resetError = Object.assign(new Error("reset failed"), {
+        code: "55P03",
+      });
+      const { client, calls } = recordingClient((sql) => {
+        if (/RESET lock_timeout/.test(sql)) throw resetError;
+        return undefined;
+      });
+      const probe = vi.fn(async () => false);
+      const result = await ensureSchemaObject({
+        probe,
+        ddl: "CREATE TABLE foo (id TEXT)",
+        label: "table foo",
+        injectedClient: { execute: client.execute },
+      }).catch((error: unknown) => error);
+      expect(result).toBeInstanceOf(AggregateError);
+      expect((result as AggregateError).errors).toEqual([resetError]);
+      expect(isLockTimeoutError(result)).toBe(false);
+      expect(probe).toHaveBeenCalledTimes(1);
+      expect(calls).toEqual([
+        "SET lock_timeout = '3s'",
+        "CREATE TABLE foo (id TEXT)",
+        "RESET lock_timeout",
+      ]);
+    });
+
     it("falls back to session SET + RESET when no transaction is available", async () => {
       vi.stubEnv("DATABASE_URL", "postgres://u:p@h:5432/db");
       const { runGuardedDdl } = await import("./ddl-guard.js");
@@ -878,33 +927,83 @@ describe("ddl-guard", () => {
       ]);
     });
 
-    it("does not retry if resetting a session lock timeout fails", async () => {
+    it("preserves both errors and does not retry if resetting after a lock timeout fails", async () => {
       vi.stubEnv("DATABASE_URL", "postgres://localhost:5432/db");
-      const { ensureSchemaObject } = await import("./ddl-guard.js");
+      const { ensureSchemaObject, isLockTimeoutError } =
+        await import("./ddl-guard.js");
+      const ddlError = Object.assign(new Error("lock timeout"), {
+        code: "55P03",
+      });
       const resetError = Object.assign(new Error("reset lock timeout failed"), {
         code: "55P03",
       });
       const { client, calls } = recordingClient((sql) => {
-        if (/CREATE TABLE/.test(sql))
-          throw Object.assign(new Error("lock timeout"), { code: "55P03" });
+        if (/CREATE TABLE/.test(sql)) throw ddlError;
         if (/RESET lock_timeout/.test(sql)) throw resetError;
         return undefined;
       });
       const probe = vi.fn(async () => false);
-      await expect(
-        ensureSchemaObject({
-          probe,
-          ddl: "CREATE TABLE foo (id TEXT)",
-          label: "table foo",
-          injectedClient: { execute: client.execute },
-        }),
-      ).rejects.toBe(resetError);
+      const result = await ensureSchemaObject({
+        probe,
+        ddl: "CREATE TABLE foo (id TEXT)",
+        label: "table foo",
+        injectedClient: { execute: client.execute },
+      }).catch((error: unknown) => error);
+      expect(result).toBeInstanceOf(AggregateError);
+      expect((result as AggregateError).errors).toEqual([ddlError, resetError]);
+      expect(isLockTimeoutError(result)).toBe(false);
       expect(probe).toHaveBeenCalledTimes(1);
       expect(calls).toEqual([
         "SET lock_timeout = '3s'",
         "CREATE TABLE foo (id TEXT)",
         "RESET lock_timeout",
       ]);
+    });
+
+    it("preserves the DDL and reset errors from an aborted PGlite transaction", async () => {
+      const { ensureSchemaObject, isLockTimeoutError } =
+        await import("./ddl-guard.js");
+      const pg = await createTestPglite();
+      const calls: string[] = [];
+      const probe = vi.fn(async () => false);
+      try {
+        await pg.exec("BEGIN");
+        const result = await ensureSchemaObject({
+          probe,
+          ddl: "CREATE TABLE foo (id NO_SUCH_TYPE)",
+          label: "table foo",
+          injectedClient: {
+            execute: async (statement) => {
+              const sql =
+                typeof statement === "string" ? statement : statement.sql;
+              calls.push(sql);
+              const result = await pg.query(sql);
+              return {
+                rows: result.rows,
+                rowsAffected: result.affectedRows ?? 0,
+              };
+            },
+          },
+        }).catch((error: unknown) => error);
+        expect(result).toBeInstanceOf(AggregateError);
+        expect((result as AggregateError).errors).toHaveLength(2);
+        expect((result as AggregateError).errors[0]).toMatchObject({
+          code: "42704",
+        });
+        expect((result as AggregateError).errors[1]).toMatchObject({
+          code: "25P02",
+        });
+        expect(isLockTimeoutError(result)).toBe(false);
+        expect(probe).toHaveBeenCalledTimes(1);
+        expect(calls).toEqual([
+          "SET lock_timeout = '3s'",
+          "CREATE TABLE foo (id NO_SUCH_TYPE)",
+          "RESET lock_timeout",
+        ]);
+      } finally {
+        await pg.exec("ROLLBACK");
+        await pg.close();
+      }
     });
 
     it("THROWS (does not memoize success) when DDL lock-times out and the object is STILL missing", async () => {
