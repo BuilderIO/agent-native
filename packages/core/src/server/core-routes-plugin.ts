@@ -3861,7 +3861,7 @@ export function createCoreRoutesPlugin(
                 global: true,
               });
               console.warn(
-                `[core] Removed ${scrubbed} legacy BUILDER_* key(s) from persisted-env-vars (cross-tenant leak fix).`,
+                `[core] Removed ${scrubbed} legacy BUILDER_* key(s) from persisted-env-vars.`,
               );
             } catch {
               // Couldn't rewrite the row — the skip-on-rehydrate above
