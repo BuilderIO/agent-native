@@ -1087,6 +1087,16 @@ export default {
     },
     componentInstances: {
       selectLayer: "레이어 선택",
+      layerKinds: {
+        webgl: "캔버스 · WebGL",
+        canvas: "캔버스",
+        video: "동영상",
+        image: "이미지",
+        svg: "SVG 그래픽",
+        embed: "임베드",
+        background: "배경",
+        effect: "효과",
+      },
       goToMain: "메인 컴포넌트로 이동",
       restore: "컴포넌트 복원",
       swap: "인스턴스 교체",

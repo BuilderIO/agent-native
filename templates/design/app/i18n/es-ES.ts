@@ -1101,6 +1101,16 @@ export default {
     },
     componentInstances: {
       selectLayer: "Seleccionar capa",
+      layerKinds: {
+        webgl: "Lienzo · WebGL",
+        canvas: "Lienzo",
+        video: "Vídeo",
+        image: "Imagen",
+        svg: "Gráfico SVG",
+        embed: "Insertado",
+        background: "Fondo",
+        effect: "Efecto",
+      },
       goToMain: "Ir al componente principal",
       restore: "Restaurar componente",
       swap: "Intercambiar instancia",

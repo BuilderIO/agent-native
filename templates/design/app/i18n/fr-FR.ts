@@ -1103,6 +1103,16 @@ export default {
     },
     componentInstances: {
       selectLayer: "Sélectionner un calque",
+      layerKinds: {
+        webgl: "Canevas · WebGL",
+        canvas: "Canevas",
+        video: "Vidéo",
+        image: "Image",
+        svg: "Graphique SVG",
+        embed: "Intégration",
+        background: "Arrière-plan",
+        effect: "Effet",
+      },
       goToMain: "Accéder au composant principal",
       restore: "Restaurer le composant",
       swap: "Permuter l’instance",

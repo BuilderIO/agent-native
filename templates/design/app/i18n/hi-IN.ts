@@ -1084,6 +1084,16 @@ export default {
     },
     componentInstances: {
       selectLayer: "लेयर चुनें",
+      layerKinds: {
+        webgl: "कैनवस · WebGL",
+        canvas: "कैनवस",
+        video: "वीडियो",
+        image: "छवि",
+        svg: "SVG ग्राफ़िक",
+        embed: "एम्बेड",
+        background: "पृष्ठभूमि",
+        effect: "इफ़ेक्ट",
+      },
       goToMain: "मुख्य कॉम्पोनेंट पर जाएं",
       restore: "कॉम्पोनेंट पुनर्स्थापित करें",
       swap: "इंस्टेंस बदलें",

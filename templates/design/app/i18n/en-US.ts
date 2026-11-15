@@ -1022,6 +1022,16 @@ export default {
     },
     componentInstances: {
       selectLayer: "Select layer",
+      layerKinds: {
+        webgl: "Canvas · WebGL",
+        canvas: "Canvas",
+        video: "Video",
+        image: "Image",
+        svg: "SVG",
+        embed: "Embed",
+        background: "Background",
+        effect: "Effect",
+      },
       goToMain: "Go to main component",
       restore: "Restore component",
       swap: "Swap instance",
