@@ -6551,21 +6551,26 @@ async function fetchWithTimeout(
     : await runOnce();
 
   if (result.bodyValidationError) {
-    const error = normalizeFetchError(result.bodyValidationError, {
-      method: options.method ?? "GET",
-      url: optionsUrl,
-      timeoutMs: clampTimeout(options.timeoutMs),
-      secretValues: options.secretValues ?? [],
-    });
     const retryAfterMs =
       result.quota?.retryAfterMs ?? parseRetryAfterMs(result.headers);
-    const retry =
+    const retryAfterSeconds =
       retryAfterMs !== null && Number.isFinite(retryAfterMs)
-        ? `; retry after ${Math.ceil(retryAfterMs / 1000)} seconds`
-        : "";
-    throw new Error(`${error.message} (HTTP ${result.status}${retry})`, {
-      cause: error,
-    });
+        ? Math.min(Math.ceil(retryAfterMs / 1000), Number.MAX_SAFE_INTEGER)
+        : undefined;
+    const retry =
+      retryAfterSeconds === undefined
+        ? ""
+        : `; retry after ${retryAfterSeconds} seconds`;
+    fail(
+      `Cannot save binary or invalid UTF-8 provider response (HTTP 429${retry}).`,
+      {
+        errorCode: "provider_response_invalid",
+        statusCode: 429,
+        ...(retryAfterSeconds === undefined
+          ? {}
+          : { details: { retryAfterSeconds } }),
+      },
+    );
   }
   return result;
 }
@@ -6808,14 +6813,11 @@ async function readResponseTextWithLimit(
   )
     ? redactedType.slice(0, 100)
     : "unknown";
-  if (requireTextForSave && isBinaryProviderContentType(mediaType)) {
-    await response.body?.cancel();
-    throw new ProviderResponseBodyValidationError(
-      `Cannot save binary provider response (content type: ${displayType}) as a text workspace file. Use a binary storage capability instead.`,
-    );
-  }
+  if (!response.body) return { text: "", truncated: false, size: 0 };
+  const binaryForSave =
+    requireTextForSave && isBinaryProviderContentType(mediaType);
   const contentLength = response.headers.get("content-length");
-  if (contentLength && Number(contentLength) > maxBytes) {
+  if (!binaryForSave && contentLength && Number(contentLength) > maxBytes) {
     await response.body?.cancel();
     return {
       text: `(response too large - ${contentLength} bytes, max ${maxBytes})`,
@@ -6833,6 +6835,12 @@ async function readResponseTextWithLimit(
     for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
+      if (value.byteLength > 0 && binaryForSave) {
+        await reader.cancel();
+        throw new ProviderResponseBodyValidationError(
+          `Cannot save binary provider response (content type: ${displayType}) as a text workspace file. Use a binary storage capability instead.`,
+        );
+      }
       size += value.byteLength;
       if (size > maxBytes) {
         kept.push(value.subarray(0, value.byteLength - (size - maxBytes)));

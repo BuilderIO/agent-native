@@ -5846,7 +5846,7 @@ describe("provider API runtime", () => {
           );
         const api = runtime();
         const request = { provider, path: "/records", auth: "none" as const };
-        const result = api.executeRequest({
+        const result = createProviderApiRequestAction(api).run({
           ...request,
           saveToFile: "scratch/response.txt",
           ...(paginated
@@ -5855,8 +5855,15 @@ describe("provider API runtime", () => {
         });
         await expect(result).rejects.toThrow(/binary|UTF-8/i);
         const error = await result.catch((err: unknown) => err);
+        expect(error).toMatchObject({
+          name: "ActionContractError",
+          statusCode: 429,
+          errorCode: "provider_response_invalid",
+          details: { retryAfterSeconds: 120 },
+        });
         expect(String(error)).toMatch(/HTTP 429/i);
         expect(String(error)).toMatch(/retry after 120 seconds/i);
+        expect(JSON.stringify(error)).not.toContain("private-");
         expect(String(error)).not.toContain("private-");
         expect(writeWorkspaceFile).not.toHaveBeenCalled();
 
@@ -5955,20 +5962,73 @@ describe("provider API runtime", () => {
             },
           }),
         );
-        const result = runtime().executeRequest({
+        const result = createProviderApiRequestAction(runtime()).run({
           provider: "hubspot",
           path: "/records",
+          query: { token: "private-query-secret" },
           auth: "none",
           saveToFile: "scratch/response.txt",
         });
         await expect(result).rejects.toThrow(/binary/i);
         const error = await result.catch((err: unknown) => err);
+        expect(error).toMatchObject({
+          name: "ActionContractError",
+          statusCode: 429,
+          errorCode: "provider_response_invalid",
+          ...(retryAfter === "120"
+            ? { details: { retryAfterSeconds: 120 } }
+            : {}),
+        });
         expect(String(error)).toMatch(/HTTP 429/i);
         if (retryAfter === "120") {
           expect(String(error)).toMatch(/retry after 120 seconds/i);
+        } else {
+          expect(error).not.toHaveProperty("details.retryAfterSeconds");
         }
         expect(String(error)).not.toContain("private-");
+        expect(JSON.stringify(error)).not.toContain("private-");
         expect(writeWorkspaceFile).not.toHaveBeenCalled();
+      },
+    );
+
+    it.each(
+      ["hubspot", "test-api"].flatMap((provider) => [
+        { provider, method: "HEAD" as const, body: null, length: "999999999" },
+        { provider, method: "GET" as const, body: null, length: "0" },
+        { provider, method: "GET" as const, body: "", length: "999999999" },
+      ]),
+    )(
+      "saves empty $method $provider responses with a binary content type",
+      async ({ provider, method, body, length }) => {
+        const fetchMock = vi.mocked(globalThis.fetch);
+        fetchMock.mockResolvedValueOnce(
+          new Response(body, {
+            headers: {
+              "content-type": "application/zip",
+              "content-length": length,
+            },
+          }),
+        );
+        await expect(
+          createProviderApiRequestAction(runtime()).run({
+            provider,
+            method,
+            path: "/records",
+            auth: "none",
+            saveToFile: "scratch/response.txt",
+          }),
+        ).resolves.toMatchObject({ savedToFile: true, ok: true, bytes: 0 });
+        expect(fetchMock).toHaveBeenCalledWith(
+          expect.anything(),
+          expect.objectContaining({ method }),
+        );
+        expect(writeWorkspaceFile).toHaveBeenCalledWith(
+          { scope: "org", scopeId: "org-1" },
+          "scratch/response.txt",
+          "",
+          "application/zip",
+          { maxFileBytes: 20 * 1024 * 1024 },
+        );
       },
     );
 
@@ -5983,6 +6043,12 @@ describe("provider API runtime", () => {
           provider,
           contentType: "application/octet-stream",
           body: new TextEncoder().encode("private-binary-payload"),
+        },
+        {
+          provider,
+          contentType: "application/zip",
+          body: new TextEncoder().encode("private-binary-payload"),
+          contentLength: "0",
         },
         {
           provider,
@@ -6007,9 +6073,16 @@ describe("provider API runtime", () => {
       ]),
     )(
       "rejects binary $provider responses declared $contentType without saving or exposing their body",
-      async ({ provider, contentType, body }) => {
+      async ({ provider, contentType, body, contentLength }) => {
         vi.mocked(globalThis.fetch).mockResolvedValueOnce(
-          new Response(body, { headers: { "content-type": contentType } }),
+          new Response(body, {
+            headers: {
+              "content-type": contentType,
+              ...(contentLength === undefined
+                ? {}
+                : { "content-length": contentLength }),
+            },
+          }),
         );
         const action = createProviderApiRequestAction(runtime());
         const result = action.run({

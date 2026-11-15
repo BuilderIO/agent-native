@@ -217,6 +217,57 @@ describe("createFetchToolEntry", () => {
     );
   });
 
+  it.each([
+    {
+      method: "HEAD",
+      contentType: "application/zip",
+      body: null,
+      length: "42",
+    },
+    {
+      method: "GET",
+      contentType: "application/zip",
+      body: new Uint8Array(),
+      length: "0",
+    },
+    {
+      method: "GET",
+      contentType: "image/png",
+      body: new Uint8Array(),
+      length: "0",
+    },
+  ])(
+    "returns an empty $method response with $contentType",
+    async ({ method, contentType, body, length }) => {
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(body, {
+          status: 200,
+          statusText: "OK",
+          headers: { "content-type": contentType, "content-length": length },
+        }),
+      );
+      await expect(
+        createFetchToolEntry()["web-request"].run({
+          url: "https://example.com/archive",
+          method,
+        }),
+      ).resolves.toBe("HTTP 200 OK\n\n");
+    },
+  );
+
+  it("rejects nonempty binary responses even with a zero content length", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response("binary", {
+        headers: { "content-type": "application/zip", "content-length": "0" },
+      }),
+    );
+    await expect(
+      runWebRequest("https://example.com/archive"),
+    ).rejects.toMatchObject({
+      errorCode: "web_request_binary_response",
+    });
+  });
+
   it("attaches public image responses as vision context", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(new Uint8Array([255, 216, 0, 4]), {

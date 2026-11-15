@@ -450,6 +450,9 @@ export function createFetchToolEntry(
           const hasCredentials =
             allUsedKeys.length > 0 ||
             hasCredentialBearingImageRequest(resolvedUrl, headers);
+          let bodyResult:
+            | { bytes: Uint8Array; truncated: boolean; size: number }
+            | undefined;
           if (
             !saveToFilePath &&
             method === "GET" &&
@@ -465,46 +468,49 @@ export function createFetchToolEntry(
             if (imageBody.truncated) {
               return `HTTP ${response.status} ${response.statusText}\n\nContent-Type: ${contentType}\n\nImage response too large to attach (${imageBody.size} bytes, max ${MAX_EXTENSION_PROXY_RESPONSE_SIZE}).`;
             }
-            console.log(
-              "[fetch-tool] " +
-                method +
-                " image → " +
-                response.status +
-                " (" +
-                elapsed +
-                "ms, vision image)",
-            );
-            return {
-              status: response.status,
-              statusText: response.statusText,
-              contentType,
-              url: resolvedUrl,
-              _agentImages: [
-                {
-                  data: uint8ArrayToBase64(imageBody.bytes),
-                  mediaType: contentType.toLowerCase(),
-                },
-              ],
-            };
+            if (imageBody.bytes.length > 0) {
+              console.log(
+                "[fetch-tool] " +
+                  method +
+                  " image → " +
+                  response.status +
+                  " (" +
+                  elapsed +
+                  "ms, vision image)",
+              );
+              return {
+                status: response.status,
+                statusText: response.statusText,
+                contentType,
+                url: resolvedUrl,
+                _agentImages: [
+                  {
+                    data: uint8ArrayToBase64(imageBody.bytes),
+                    mediaType: contentType.toLowerCase(),
+                  },
+                ],
+              };
+            }
+            bodyResult = imageBody;
           }
 
           let body: string;
-          let bodyResult: {
-            bytes: Uint8Array;
-            truncated: boolean;
-            size: number;
-          };
           const readLimit =
             saveToFilePath ||
             (isHtmlContentType && normalizedResponseMode !== "raw")
               ? MAX_WEB_REQUEST_HTML_BYTES
               : MAX_EXTENSION_PROXY_RESPONSE_SIZE;
-          try {
-            bodyResult = await readResponseBytesWithLimit(response, readLimit);
-          } catch {
-            fail("(could not read response body)", {
-              errorCode: httpErrorCode ?? "web_request_body_unreadable",
-            });
+          if (!bodyResult) {
+            try {
+              bodyResult = await readResponseBytesWithLimit(
+                response,
+                readLimit,
+              );
+            } catch {
+              fail("(could not read response body)", {
+                errorCode: httpErrorCode ?? "web_request_body_unreadable",
+              });
+            }
           }
           if (bodyResult.truncated) {
             const declaredBytes = Number(
@@ -529,7 +535,8 @@ export function createFetchToolEntry(
               `HTTP ${response.status} ${response.statusText}\n\nweb-request accepts UTF-8 text only. Binary data requires configured blob/file storage via an appropriate app capability.`,
               { errorCode: httpErrorCode ?? "web_request_binary_response" },
             );
-          if (isBinaryContentType(contentType)) binaryError();
+          if (bodyResult.bytes.length > 0 && isBinaryContentType(contentType))
+            binaryError();
           try {
             body = new TextDecoder("utf-8", { fatal: true }).decode(
               bodyResult.bytes,
