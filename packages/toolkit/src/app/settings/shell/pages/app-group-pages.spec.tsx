@@ -197,6 +197,7 @@ describe("app group pages", () => {
     labsActions.query.data = undefined;
     labsActions.isError = false;
     labsActions.refetch.mockReset();
+    labsActions.refetch.mockResolvedValue({ isSuccess: true });
     orgState.value = { orgId: "org-1", orgName: "Builder.io", role: "member" };
     jobsTab.props = null;
     changelogCard.props = null;

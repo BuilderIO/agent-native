@@ -82,8 +82,8 @@ function useLabsSettingsState(
             );
             // What the server applies can differ from the choice, so the row
             // shows the server's answer once it reads back.
-            void Promise.resolve(valuesQuery.refetch()).then((result) => {
-              if (result?.isSuccess) dropOverride();
+            void valuesQuery.refetch().then((result) => {
+              if (result.isSuccess) dropOverride();
             });
           },
           onError: () => {
@@ -129,7 +129,7 @@ function useLabsSettingsState(
     chosen: (lab) => {
       const state = values?.[lab.key];
       return (
-        overrides[lab.key] === undefined &&
+        !Object.hasOwn(overrides, lab.key) &&
         state !== undefined &&
         !("error" in state) &&
         state.source === "choice"
