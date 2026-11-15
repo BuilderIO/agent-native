@@ -274,6 +274,7 @@
     "./scripts": "./dist/scripts/index.js",
     "./deploy/function-bundle": "./dist/deploy/function-bundle.js",
     "./deploy/netlify-static-headers": "./dist/deploy/netlify-static-headers.js",
+    "./deploy/served-build": "./dist/deploy/served-build.js",
     "./guards": {
       "types": "./dist/guards/index.d.ts",
       "default": "./dist/guards/index.js"

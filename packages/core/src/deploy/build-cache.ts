@@ -4,6 +4,8 @@ import fs from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 
+import { resolveAgentNativeBuildId } from "../shared/build-id.js";
+
 /**
  * Per-app build cache for workspace deploys.
  *
@@ -17,6 +19,63 @@ import { fileURLToPath } from "url";
 
 /** Bump when the key recipe or entry layout changes; it is part of every key. */
 export const DEPLOY_CACHE_FORMAT_VERSION = 1;
+
+const WORKSPACE_REVISION_ENV = "AGENT_NATIVE_BUILD_ID";
+/**
+ * Carries the workspace commit into a content-id build for the client
+ * commit-SHA define, which reads it ahead of AGENT_NATIVE_BUILD_ID. The build id
+ * resolver reads it last, so it never displaces the content id. A cached app
+ * keeps the commit it was built at.
+ */
+const WORKSPACE_COMMIT_ENV = "AGENT_NATIVE_BUILD_SHA";
+const FULL_COMMIT_SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
+
+/**
+ * Whether the app is built with a content build id instead of the workspace
+ * revision. A workspace that sets AGENT_NATIVE_BUILD_ID to its commit would
+ * otherwise bake a new id into every app on every commit, so no app could hit.
+ * Only that variable is replaced, only when it holds a full commit SHA (any
+ * other value is a release or deploy id that is baked and keyed as-is), and
+ * only when it is the id the build would bake: a DEPLOY_ID ahead of it is a
+ * platform deploy id that runtime code reads back as one, so it stays in the
+ * key and in the bundle.
+ */
+export function usesContentBuildId(env: NodeJS.ProcessEnv): boolean {
+  const revision = env[WORKSPACE_REVISION_ENV]?.trim();
+  return (
+    !!revision &&
+    FULL_COMMIT_SHA.test(revision) &&
+    resolveAgentNativeBuildId(env, "") === revision
+  );
+}
+
+/**
+ * The build id baked into an app whose key left the revision out. It is a
+ * function of every other input, so equal inputs give byte-identical bundles,
+ * and its prefix keeps it from reading as a commit or a Netlify deploy id.
+ */
+export function contentBuildIdFor(key: string): string {
+  return `content-${key.slice(0, 32)}`;
+}
+
+/** The environment the app's build runs with for a given cache key. */
+export function appBuildEnv(
+  env: NodeJS.ProcessEnv,
+  key: string,
+): NodeJS.ProcessEnv {
+  if (!usesContentBuildId(env)) return env;
+  return {
+    ...env,
+    [WORKSPACE_COMMIT_ENV]:
+      env[WORKSPACE_COMMIT_ENV]?.trim() || env[WORKSPACE_REVISION_ENV]?.trim(),
+    [WORKSPACE_REVISION_ENV]: contentBuildIdFor(key),
+  };
+}
+
+/** The id a build with this environment bakes into its bundles. */
+export function bakedBuildId(env: NodeJS.ProcessEnv): string {
+  return resolveAgentNativeBuildId(env, "development");
+}
 
 /** Paths under an app dir that a build produces and the packaging step reads. */
 export const APP_BUILD_OUTPUT_PATHS = [
@@ -79,7 +138,7 @@ const VOLATILE_ENV_PREFIXES = [
   "claude",
   // GitHub Actions values that change every run or step. No build reads the commit
   // through GITHUB_SHA: a build that embeds one uses AGENT_NATIVE_BUILD_ID, which
-  // stays in the key. GITHUB_REPOSITORY, GITHUB_REF and GITHUB_CLIENT_* stay too.
+  // is keyed or replaced by a content id (see usesContentBuildId). GITHUB_REPOSITORY, GITHUB_REF and GITHUB_CLIENT_* stay too.
   // RUNNER_OS and RUNNER_ARCH identify the platform that built the output and stay in the key.
   "runner_temp",
   "runner_tool",
@@ -457,15 +516,24 @@ export function computeAppCacheKey(
     const label = (nameCounts.get(name) ?? 1) > 1 ? `${name}#${index}` : name;
     depHashes[label] = hashWorkspacePackage(runtime, dir);
   }
+  const contentBuildId = usesContentBuildId(env);
   const components: Record<string, string> = {
     format: String(DEPLOY_CACHE_FORMAT_VERSION),
+    // Separates a content-id build from one with no build id at all, which
+    // bakes "development" from otherwise identical inputs.
+    ...(contentBuildId ? { buildId: "content" } : {}),
     code: codeVersion,
     node: process.versions.node.split(".", 1).join(""),
     preset: runtime.preset,
     app,
     source: hashAppSource(runtime.workspaceRoot, appDir),
     root: hashWorkspaceRootFiles(runtime.workspaceRoot),
-    ...buildEnvComponents(env, runtime.envIgnore),
+    ...buildEnvComponents(
+      env,
+      contentBuildId
+        ? [...runtime.envIgnore, WORKSPACE_REVISION_ENV, WORKSPACE_COMMIT_ENV]
+        : runtime.envIgnore,
+    ),
     ...Object.fromEntries(
       Object.entries(depHashes).map(([name, h]) => [`dep:${name}`, h]),
     ),
@@ -822,6 +890,12 @@ export function readDeployCodeVersion(): string {
 
 export type AppCacheOutcome = "hit" | "miss" | "uncached";
 
+export interface AppCacheResult {
+  outcome: AppCacheOutcome;
+  /** The build id baked into the app's output, restored or built. */
+  appBuildId: string;
+}
+
 /**
  * Build one app through the cache. `build` runs the real build and `clean`
  * clears stale outputs before it; both are the caller's, so this module never
@@ -833,14 +907,14 @@ export async function buildAppWithCache(opts: {
   appDir: string;
   env: NodeJS.ProcessEnv;
   clean: () => void;
-  build: () => Promise<void>;
+  build: (env: NodeJS.ProcessEnv) => Promise<void>;
   log: (message: string) => void;
-}): Promise<AppCacheOutcome> {
+}): Promise<AppCacheResult> {
   const { runtime, app, appDir, log } = opts;
-  const timedBuild = async () => {
+  const timedBuild = async (env: NodeJS.ProcessEnv) => {
     opts.clean();
     const startedAt = Date.now();
-    await opts.build();
+    await opts.build(env);
     return Date.now() - startedAt;
   };
 
@@ -858,9 +932,11 @@ export async function buildAppWithCache(opts: {
     log(
       `[workspace-deploy] cache MISS ${app} (hash-failed: ${errorMessage(error)}); building`,
     );
-    await timedBuild();
-    return "uncached";
+    await timedBuild(opts.env);
+    return { outcome: "uncached", appBuildId: bakedBuildId(opts.env) };
   }
+  const buildEnv = appBuildEnv(opts.env, cacheKey.key);
+  const appBuildId = bakedBuildId(buildEnv);
 
   opts.clean();
   const lookup = restoreAppBuild(runtime, app, appDir, cacheKey.key);
@@ -868,7 +944,7 @@ export async function buildAppWithCache(opts: {
     if (runtime.verifyRemaining > 0) {
       runtime.verifyRemaining--;
       opts.clean();
-      const rebuiltMs = await timedBuild();
+      const rebuiltMs = await timedBuild(buildEnv);
       const rebuilt = snapshotAppOutputs(appDir, "stable");
       const cached = readEntryManifest(runtime, app, cacheKey.key);
       const problems = cached
@@ -884,7 +960,7 @@ export async function buildAppWithCache(opts: {
       log(
         `[workspace-deploy] cache HIT ${app} verified by rebuild (${(rebuiltMs / 1000).toFixed(1)}s, output identical)`,
       );
-      return "hit";
+      return { outcome: "hit", appBuildId };
     }
     runtime.stats.hits++;
     const saved = Math.max(0, lookup.buildMs - lookup.restoreMs);
@@ -892,7 +968,7 @@ export async function buildAppWithCache(opts: {
     log(
       `[workspace-deploy] cache HIT ${app} (restored in ${(lookup.restoreMs / 1000).toFixed(1)}s, saved ~${(saved / 1000).toFixed(1)}s)`,
     );
-    return "hit";
+    return { outcome: "hit", appBuildId };
   }
 
   runtime.stats.misses++;
@@ -903,7 +979,7 @@ export async function buildAppWithCache(opts: {
   log(
     `[workspace-deploy] cache MISS ${app} (${lookup.reason}: ${why}); building`,
   );
-  const buildMs = await timedBuild();
+  const buildMs = await timedBuild(buildEnv);
   try {
     storeAppBuild(runtime, app, appDir, cacheKey, buildMs);
   } catch (error) {
@@ -911,5 +987,5 @@ export async function buildAppWithCache(opts: {
       `[workspace-deploy] cache STORE failed for ${app}: ${errorMessage(error)}; the build is valid and was not cached`,
     );
   }
-  return "miss";
+  return { outcome: "miss", appBuildId };
 }

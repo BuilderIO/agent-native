@@ -166,6 +166,8 @@ Setzen Sie `AGENT_NATIVE_DEPLOY_CACHE_VERIFY=2`, um pro Bereitstellung zwei geca
 
 Variablen, die sich bei jedem Lauf ändern, ohne den Build zu erreichen, wie `PATH`, `PWD`, `npm_*` und `PNPM_*`, sind bereits aus dem Schlüssel ausgenommen. Wenn eine Bereitstellungsumgebung eigene hinzufügt (zum Beispiel eine Lauf-ID), tragen Sie sie in `AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE` ein; ein abschließendes `*` passt auf ein Präfix. Alles andere zählt, sodass ein geändertes `VITE_*` oder `DATABASE_URL` jede App neu baut.
 
+Ein Workspace, der `AGENT_NATIVE_BUILD_ID` auf seinen Commit setzt, würde sonst bei jedem Commit jede App neu bauen. Bei aktivem Cache bleibt diese Variable aus dem Schlüssel heraus, und jede App wird mit einer aus ihrem eigenen Schlüssel abgeleiteten ID (`content-…`) gebaut, sodass eine unveränderte App bei einem neuen Commit dieselbe Ausgabe wiederherstellt. Netlify-Antworten tragen weiterhin den Commit in `x-agent-native-build-sha` und zusätzlich die eingebaute ID der App in `x-agent-native-app-build-id`. Das Deployment schreibt die erwarteten Werte nach `.netlify/agent-native-served-builds.json`, und `checkServedAppBuild` aus `@agent-native/core/deploy/served-build` vergleicht eine Live-Antwort damit. Eine `DEPLOY_ID` hat Vorrang und bleibt im Schlüssel.
+
 Gehostete Builder, die jedes Mal mit einem leeren Datenträger starten, gewinnen durch den Cache nichts. Setzen Sie dort `AGENT_NATIVE_DEPLOY_CACHE=false`, um die Kopie zu überspringen, die er nach jedem Build anlegt.
 
 ## Selbstgehosteter Arbeitsbereich mit Docker Compose {#workspace-docker-compose}

@@ -166,6 +166,8 @@ npx @agent-native/core@latest deploy
 
 المتغيرات التي تتغير في كل تشغيل دون أن تصل إلى البناء، مثل `PATH` و`PWD` و`npm_*` و`PNPM_*`، مستثناة من المفتاح مسبقًا. وإذا أضافت بيئة النشر متغيرات خاصة بها (معرّف تشغيل مثلًا)، فأدرجها في `AGENT_NATIVE_DEPLOY_CACHE_ENV_IGNORE`؛ وعلامة `*` في النهاية تطابق بادئة. أما كل ما عدا ذلك فيُحتسب، ولذلك فإن تغيّر `VITE_*` أو `DATABASE_URL` يعيد بناء كل تطبيق.
 
+مساحة العمل التي تضبط `AGENT_NATIVE_BUILD_ID` على الـ commit الخاص بها كانت ستعيد بناء كل تطبيق مع كل commit. عند تشغيل الذاكرة المؤقتة، يُستبعد هذا المتغير من المفتاح ويُبنى كل تطبيق بمعرّف مشتق من مفتاحه (`content-…`)، فيستعيد التطبيق الذي لم يتغير المخرجات نفسها في commit جديد. تظل استجابات Netlify تحمل الـ commit في `x-agent-native-build-sha`، ومعه المعرّف المضمَّن في التطبيق في `x-agent-native-app-build-id`. يكتب النشر القيم المتوقعة في `.netlify/agent-native-served-builds.json`، وتقارن الدالة `checkServedAppBuild` من `@agent-native/core/deploy/served-build` استجابة حية بها. للمتغير `DEPLOY_ID` الأولوية ويبقى ضمن المفتاح.
+
 لا تستفيد أدوات البناء المستضافة التي تبدأ بقرص نظيف في كل مرة من الذاكرة المؤقتة. عيّن `AGENT_NATIVE_DEPLOY_CACHE=false` هناك لتخطي النسخ الذي تجريه بعد كل بناء.
 
 ## مساحة عمل مستضافة ذاتيًا باستخدام Docker Compose {#workspace-docker-compose}
