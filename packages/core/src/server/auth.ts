@@ -6033,9 +6033,13 @@ async function mountBetterAuthRoutes(
             image: typeof user.picture === "string" ? user.picture : undefined,
           });
           if (isGoogleProfileImageUrl(user.picture)) {
-            await putSetting(`avatar:${email}`, {
-              image: user.picture.trim(),
-            }).catch((error) => {
+            await putSetting(
+              `avatar:${email}`,
+              {
+                image: user.picture.trim(),
+              },
+              { owner: email.trim().toLowerCase() },
+            ).catch((error) => {
               console.warn(
                 "[auth] failed to store Google profile image:",
                 error,

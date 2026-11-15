@@ -13,6 +13,9 @@ import {
   type StoreReadOptions,
   type StoreWriteOptions,
   type StoreMutationOptions,
+  type UserSettingWriteOptions,
+  type UserSettingMutationOptions,
+  assertScopedSettingsOptions,
 } from "./store.js";
 
 function userKey(email: string, key: string): string {
@@ -87,8 +90,9 @@ export async function putUserSetting(
   email: string,
   key: string,
   value: Record<string, unknown>,
-  options?: StoreWriteOptions,
+  options?: UserSettingWriteOptions,
 ): Promise<void> {
+  assertScopedSettingsOptions(options);
   try {
     await putSetting(userKey(email, key), value, {
       ...options,
@@ -105,8 +109,9 @@ export async function mutateUserSetting(
   updater: (
     current: Record<string, unknown> | null,
   ) => Record<string, unknown> | Promise<Record<string, unknown>>,
-  options?: StoreMutationOptions,
+  options?: UserSettingMutationOptions,
 ): Promise<Record<string, unknown>> {
+  assertScopedSettingsOptions(options);
   try {
     return await mutateUserSettingValue(email, key, updater, {
       ...options,
@@ -120,8 +125,9 @@ export async function mutateUserSetting(
 export function publishUserSettingChange(
   email: string,
   key: string,
-  options?: StoreWriteOptions,
+  options?: UserSettingWriteOptions,
 ): void {
+  assertScopedSettingsOptions(options);
   invalidateSettingRequestCache(legacyUserKey(email, key));
   publishSettingChange(userKey(email, key), {
     ...options,
@@ -193,8 +199,9 @@ async function mutateUserSettingValue(
 export async function deleteUserSetting(
   email: string,
   key: string,
-  options?: StoreWriteOptions,
+  options?: UserSettingWriteOptions,
 ): Promise<boolean> {
+  assertScopedSettingsOptions(options);
   try {
     return await deleteUserSettingValue(email, key, {
       ...options,

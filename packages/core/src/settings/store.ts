@@ -201,6 +201,43 @@ export interface StoreWriteOptions {
   global?: true;
 }
 
+export class SettingsScopeError extends Error {
+  readonly code = "SETTINGS_SCOPE_CONFLICT";
+
+  constructor() {
+    super("Settings write scope conflicts with its wrapper.");
+    this.name = "SettingsScopeError";
+  }
+}
+
+export type UserSettingWriteOptions = Omit<
+  StoreWriteOptions,
+  "owner" | "orgId" | "global"
+>;
+
+export type UserSettingMutationOptions = Omit<
+  StoreMutationOptions,
+  "owner" | "orgId" | "global"
+>;
+
+export type OrgSettingWriteOptions = Omit<
+  StoreWriteOptions,
+  "owner" | "orgId" | "global"
+>;
+
+export function assertScopedSettingsOptions(
+  options: StoreWriteOptions | undefined,
+): void {
+  if (
+    options &&
+    (options.owner !== undefined ||
+      options.orgId !== undefined ||
+      options.global !== undefined)
+  ) {
+    throw new SettingsScopeError();
+  }
+}
+
 export interface StoreMutationOptions extends StoreWriteOptions {
   /** Initialize the settings store before the transaction and publish the change only after commit. */
   transaction?: DbExec;

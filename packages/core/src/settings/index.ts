@@ -6,8 +6,12 @@ export {
   deleteSettingIfValue,
   listSettingsByPrefix,
   getSettingsEmitter,
+  SettingsScopeError,
   type StoreWriteOptions,
   type StoreMutationOptions,
+  type UserSettingWriteOptions,
+  type UserSettingMutationOptions,
+  type OrgSettingWriteOptions,
 } from "./store.js";
 
 export {

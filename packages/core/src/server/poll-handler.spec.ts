@@ -1547,7 +1547,11 @@ describe("poll handler", () => {
       return { rows: [] };
     });
 
-    const { createPollHandler } = await import("./poll.js");
+    const { createPollHandler, getDefaultAppSyncState } =
+      await import("./poll.js");
+    Object.defineProperty(getDefaultAppSyncState(), "resolveAccessFn", {
+      value: async () => null,
+    });
     const handler = createPollHandler() as any;
 
     const result = await handler({ query: { since: "1000" } });

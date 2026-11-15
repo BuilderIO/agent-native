@@ -3857,7 +3857,9 @@ export function createCoreRoutesPlugin(
               for (const [k, v] of Object.entries(persistedEnvVars)) {
                 if (!builderKeys.has(k)) cleaned[k] = v;
               }
-              await putSetting("persisted-env-vars", cleaned);
+              await putSetting("persisted-env-vars", cleaned, {
+                global: true,
+              });
               console.warn(
                 `[core] Removed ${scrubbed} legacy BUILDER_* key(s) from persisted-env-vars (cross-tenant leak fix).`,
               );
@@ -6954,7 +6956,11 @@ export function createCoreRoutesPlugin(
                   "image must be a data URI with a raster MIME type (png, jpeg, gif, or webp)",
               };
             }
-            await putSetting(`avatar:${session.email}`, { image });
+            await putSetting(
+              `avatar:${session.email}`,
+              { image },
+              { owner: session.email.trim().toLowerCase() },
+            );
             return { ok: true };
           }
 

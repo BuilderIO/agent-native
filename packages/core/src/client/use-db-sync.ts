@@ -257,6 +257,8 @@ class HttpStatusError extends Error {
   }
 }
 
+class SyncResyncRequiredError extends Error {}
+
 export type SyncEvent = {
   version?: number;
   cursorId?: string;
@@ -482,6 +484,7 @@ type SyncBroadcast =
       cursor?: SyncCursor;
     }
   | { type: "sse-state"; connected: boolean; capabilities: string[] }
+  | { type: "resync" }
   | { type: "sse-state-request" };
 
 type EventSubscriber = (
@@ -647,7 +650,15 @@ async function fetchPollJson<T>(
       url,
       controller ? { signal: controller.signal } : undefined,
     );
-    if (!res.ok) throw new HttpStatusError(res.status);
+    if (!res.ok) {
+      if (res.status === 409) {
+        const body = (await res.json()) as { error?: unknown };
+        if (body.error === "SYNC_EVENT_READ_UNAVAILABLE") {
+          throw new SyncResyncRequiredError();
+        }
+      }
+      throw new HttpStatusError(res.status);
+    }
     return await res.json();
   } finally {
     if (timeout) clearTimeout(timeout);
@@ -656,6 +667,7 @@ async function fetchPollJson<T>(
 
 interface TransportSubscription {
   onEvents: EventSubscriber;
+  onResync?: () => void;
   pauseWhenHidden: boolean;
   interval: number;
   idleInterval: number;
@@ -930,6 +942,12 @@ class SyncTransport {
     }
   }
 
+  private resync(): void {
+    this.cursorRef = { ...INITIAL_SYNC_CURSOR };
+    for (const sub of this.subscribers.values()) sub.onResync?.();
+    this.broadcast({ type: "resync" });
+  }
+
   private setSseConnected(connected: boolean): void {
     if (this.sseConnected === connected) return;
     this.sseConnected = connected;
@@ -1086,6 +1104,9 @@ class SyncTransport {
           this.notifySseState();
         }
         this.reschedule();
+      } else if (frame?.type === "resync") {
+        this.cursorRef = { ...INITIAL_SYNC_CURSOR };
+        for (const sub of this.subscribers.values()) sub.onResync?.();
       }
     };
     this.channel = channel;
@@ -1341,6 +1362,11 @@ class SyncTransport {
       // retry waits the backed-off interval.
       readNextPage = false;
       if (this.stopped) return;
+      if (err instanceof SyncResyncRequiredError) {
+        this.resync();
+        readNextPage = true;
+        return;
+      }
       this.consecutiveFailures++;
       if (this.mode === "hosted" && this.gateway) {
         if (isTerminalAuthFailure(err)) {
@@ -1568,6 +1594,7 @@ export function _resetSyncTransportRegistryForTests(): void {
 
 export interface SubscribeSyncEventsOptions {
   onEvents: (events: SyncEvent[], version: number | undefined) => void;
+  onResync?: () => void;
   onSseStateChange?: (
     connected: boolean,
     capabilities?: readonly string[],
@@ -1592,6 +1619,7 @@ export function subscribeSyncEvents(
   const id = Symbol("subscribeSyncEvents");
   transport.add(id, {
     onEvents: options.onEvents,
+    onResync: options.onResync,
     onSseStateChange: options.onSseStateChange,
     pauseWhenHidden: options.pauseWhenHidden ?? false,
     interval: options.interval ?? 60_000,
@@ -2217,6 +2245,9 @@ export function useDbSync(
       );
       transport.add(id, {
         onEvents,
+        onResync: () => {
+          queryClient?.invalidateQueries();
+        },
         pauseWhenHidden,
         interval,
         idleInterval,

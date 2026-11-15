@@ -14,6 +14,7 @@ vi.mock("./store.js", () => ({
   putSetting: (...args: any[]) => mockPutSetting(...args),
   deleteSetting: (...args: any[]) => mockDeleteSetting(...args),
   deleteSettingIfValue: (...args: any[]) => mockDeleteSettingIfValue(...args),
+  assertScopedSettingsOptions: () => {},
 }));
 
 import {

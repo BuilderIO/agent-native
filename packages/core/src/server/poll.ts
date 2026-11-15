@@ -59,6 +59,15 @@ export interface TransactionalChange {
   publish(): ChangeEvent;
 }
 
+export class SyncEventReadError extends Error {
+  readonly code = "SYNC_EVENT_READ_UNAVAILABLE";
+
+  constructor() {
+    super("A sync event could not be read; clients must refresh their data.");
+    this.name = "SyncEventReadError";
+  }
+}
+
 const MAX_BUFFER = 200;
 const DURABLE_READ_LIMIT = 1000;
 const DURABLE_PRUNE_WRITE_INTERVAL_MS = 5 * 60 * 1000;
@@ -166,6 +175,12 @@ function withoutSettingsKey<T extends { source: string; key?: string }>(
   return event.source === "settings" && event.key !== "*"
     ? ({ ...event, key: "*" } as T)
     : event;
+}
+
+export function sanitizeChangeEvent<T extends { source: string; key?: string }>(
+  event: T,
+): T {
+  return withoutSettingsKey(event);
 }
 
 function syncEventsDisabled(): boolean {
@@ -405,7 +420,7 @@ async function readExtensionTargetsForRows(
   );
 }
 
-export type ChangeVisibility = "visible" | "hidden" | "pending";
+export type ChangeVisibility = "visible" | "hidden" | "pending" | "unreadable";
 
 class SyncEventsTableUnavailableError extends Error {
   constructor() {
@@ -417,6 +432,16 @@ class SyncEventsTableUnavailableError extends Error {
 function isMissingRelationError(error: unknown): boolean {
   if (typeof error !== "object" || error === null) return false;
   return (error as { code?: unknown }).code === "42P01";
+}
+
+function isInvalidJsonCastError(error: unknown): boolean {
+  if (!error || typeof error !== "object") return false;
+  const record = error as { code?: unknown; message?: unknown };
+  return (
+    record.code === "22P02" ||
+    (typeof record.message === "string" &&
+      record.message.startsWith("invalid input syntax for type json"))
+  );
 }
 
 export type ChangeReadResult = {
@@ -491,7 +516,7 @@ export class AppSyncState {
 
   private readonly accessCache = new Map<
     string,
-    { allowed: boolean; checkedAt: number }
+    { allowed: boolean | "unreadable"; checkedAt: number }
   >();
   private readonly accessInFlight = new Map<string, Promise<void>>();
   private readonly accessInvalidationEpoch = new Map<string, number>();
@@ -506,8 +531,8 @@ export class AppSyncState {
     this.pollEmitter.setMaxListeners(0);
   }
 
-  private accessCacheTtl(allowed: boolean): number {
-    return allowed ? this.accessAllowTtlMs : ACCESS_CACHE_DENY_TTL_MS;
+  private accessCacheTtl(allowed: boolean | "unreadable"): number {
+    return allowed === true ? this.accessAllowTtlMs : ACCESS_CACHE_DENY_TTL_MS;
   }
 
   private durableEventId(event: ChangeEvent, dedupeKey?: string): string {
@@ -835,7 +860,11 @@ export class AppSyncState {
     }
   }
 
-  private setAccessCache(key: string, allowed: boolean, now: number): void {
+  private setAccessCache(
+    key: string,
+    allowed: boolean | "unreadable",
+    now: number,
+  ): void {
     this.accessCache.delete(key);
     this.accessCache.set(key, { allowed, checkedAt: now });
     if (this.accessCache.size > ACCESS_CACHE_MAX) {
@@ -874,7 +903,7 @@ export class AppSyncState {
           if ((this.accessInvalidationEpoch.get(resourceKey) ?? 0) !== epoch) {
             return;
           }
-          this.setAccessCache(key, false, Date.now());
+          this.setAccessCache(key, "unreadable", Date.now());
         } finally {
           settled = true;
           this.accessInFlight.delete(key);
@@ -907,7 +936,8 @@ export class AppSyncState {
    *
    * Security: a cache MISS returns `false`, so we NEVER deliver to a user before
    * their access has been affirmatively confirmed by the resolver — the same
-   * authority that gates the HTTP routes. Errors fail closed (cached deny).
+   * authority that gates the HTTP routes. Resolver errors remain distinct from
+   * permission denials so callers can request a refresh without advancing.
    * Organization membership alone does not grant access to a resource-scoped event.
    */
   canSeeChangeForUser(
@@ -998,7 +1028,11 @@ export class AppSyncState {
         cached &&
         now - cached.checkedAt < this.accessCacheTtl(cached.allowed)
       ) {
-        return cached.allowed ? "visible" : "hidden";
+        return cached.allowed === "unreadable"
+          ? "unreadable"
+          : cached.allowed
+            ? "visible"
+            : "hidden";
       }
       this.scheduleAccessCheck(
         key,
@@ -1024,8 +1058,7 @@ export class AppSyncState {
     },
     opts?: { dedupeKey?: string },
   ): void {
-    const safeEvent =
-      event.source === "settings" ? { ...event, key: "*" } : event;
+    const safeEvent = sanitizeChangeEvent(event);
     if (this.dbAssignedVersions && !syncEventsDisabled()) {
       this.recordChain = retainRequestDbPoolScope(
         this.recordChain
@@ -1054,6 +1087,7 @@ export class AppSyncState {
     key?: string;
     [k: string]: unknown;
   }): Promise<TransactionalChange> {
+    const safeEvent = sanitizeChangeEvent(event);
     if (!(await this.ensureSyncEventsTable())) {
       throw new Error(
         "Transactional change delivery requires durable sync events",
@@ -1071,16 +1105,16 @@ export class AppSyncState {
             args: [
               this.version + 1,
               id,
-              JSON.stringify({ ...event, cursorId: id })
+              JSON.stringify({ ...safeEvent, cursorId: id })
                 .split("\\u0000")
                 .join(""),
-              event.source,
-              event.type,
-              event.key ?? null,
-              (event.owner as string | undefined) ?? null,
-              (event.orgId as string | undefined) ?? null,
-              (event.resourceType as string | undefined) ?? null,
-              (event.resourceId as string | undefined) ?? null,
+              safeEvent.source,
+              safeEvent.type,
+              safeEvent.key ?? null,
+              (safeEvent.owner as string | undefined) ?? null,
+              (safeEvent.orgId as string | undefined) ?? null,
+              (safeEvent.resourceType as string | undefined) ?? null,
+              (safeEvent.resourceId as string | undefined) ?? null,
               Date.now(),
             ],
           });
@@ -1090,7 +1124,7 @@ export class AppSyncState {
           }
         } else {
           version = Math.max(this.version + 1, Date.now());
-          const entry = { ...event, version, cursorId: id } as ChangeEvent;
+          const entry = { ...safeEvent, version, cursorId: id } as ChangeEvent;
           const result = await transaction.execute({
             sql: `INSERT INTO sync_events (id, version, event_json, source, type, event_key, owner, org_id, resource_type, resource_id, created_at)
                  VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (id) DO NOTHING`,
@@ -1112,7 +1146,7 @@ export class AppSyncState {
             throw new Error("Durable sync event was not persisted");
           }
         }
-        persisted = { ...event, version, cursorId: id } as ChangeEvent;
+        persisted = { ...safeEvent, version, cursorId: id } as ChangeEvent;
         return persisted;
       },
       isPersisted: () => persisted !== null,
@@ -1294,6 +1328,7 @@ export class AppSyncState {
         userEmail,
         orgId,
       );
+      if (visibility === "unreadable") throw new SyncEventReadError();
       if (visibility === "visible") {
         events.push(withoutSettingsKey(event));
         lastCursor = cursorForEvent(event);
@@ -1399,13 +1434,20 @@ export class AppSyncState {
         let rowCursor = rowId ? { version: rawVersion, id: rowId } : undefined;
         let event: ChangeEvent | null = null;
         try {
-          const parsed = JSON.parse(String(row.event_json));
-          if (
-            parsed &&
-            typeof parsed === "object" &&
-            typeof parsed.source === "string" &&
-            typeof parsed.type === "string"
-          ) {
+          let parsed: unknown;
+          try {
+            parsed = JSON.parse(String(row.event_json));
+          } catch {
+            throw new SyncEventReadError();
+          }
+          if (parsed && typeof parsed === "object") {
+            const parsedRecord = parsed as Record<string, unknown>;
+            if (
+              typeof parsedRecord.source !== "string" ||
+              typeof parsedRecord.type !== "string"
+            ) {
+              throw new SyncEventReadError();
+            }
             const parsedEvent = parsed as ChangeEvent;
             const {
               owner: _eventOwner,
@@ -1447,14 +1489,14 @@ export class AppSyncState {
                   }
                 : {}),
             };
+          } else {
+            throw new SyncEventReadError();
           }
-        } catch {
-          event = null;
+        } catch (error) {
+          if (error instanceof SyncEventReadError) throw error;
+          throw new SyncEventReadError();
         }
-        if (!event) {
-          if (rowCursor) lastCursor = rowCursor;
-          continue;
-        }
+        if (!event) throw new SyncEventReadError();
         if (!rowCursor && typeof event.cursorId === "string") {
           rowCursor = { version: event.version, id: event.cursorId };
         }
@@ -1464,6 +1506,7 @@ export class AppSyncState {
           userEmail,
           orgId,
         );
+        if (visibility === "unreadable") throw new SyncEventReadError();
         if (visibility === "visible") {
           events.push(withoutSettingsKey(event));
           if (rowCursor) lastCursor = rowCursor;
@@ -1517,6 +1560,7 @@ export class AppSyncState {
     } catch (error) {
       if (isMissingRelationError(error))
         throw new SyncEventsTableUnavailableError();
+      if (isInvalidJsonCastError(error)) throw new SyncEventReadError();
       throw error;
     }
   }
@@ -1537,17 +1581,19 @@ export class AppSyncState {
     );
     // Only an unresolved access check is worth waiting for; a row-limit
     // truncation (also `cursorLimited`) is not blocked on one.
-    if (!first.accessPending || this.accessInFlight.size === 0) {
+    if (!first.accessPending) {
       const { accessPending: _pending, ...result } = first;
       return result;
     }
     // A read stopped at an event whose access check had not finished. The
     // check is already running, so waiting for it here (bounded) delivers the
     // event now instead of one poll interval later.
-    await this.waitForAccessChecks(
-      this.accessInFlight.values(),
-      ACCESS_CHECK_WAIT_MS,
-    );
+    if (this.accessInFlight.size > 0) {
+      await this.waitForAccessChecks(
+        this.accessInFlight.values(),
+        ACCESS_CHECK_WAIT_MS,
+      );
+    }
     const { accessPending: _pending, ...result } =
       await this.readCombinedChangesSinceForUser(
         since,
@@ -2204,6 +2250,10 @@ export function createPollHandler(
         );
       }
     } catch (error) {
+      if (error instanceof SyncEventReadError) {
+        setResponseStatus(event, 409);
+        return { error: error.code };
+      }
       console.error(
         `[agent-native] Poll handler failed (request_id=${getHttpRequestTelemetryId(event) ?? "unavailable"})`,
         error,
