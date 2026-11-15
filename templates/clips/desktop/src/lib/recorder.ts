@@ -4029,8 +4029,7 @@ async function startNativeFullscreenRecording(
         }
         id = createRes.id;
         // createServerRecording already maps a missing uploadMode to "buffered".
-        uploadMode = createRes.uploadMode;| undefined = createRes.uploadMode;
-        uploadMode = serverUploadMode ?? uploadMode;
+        uploadMode = createRes.uploadMode;
       }
 
       await countdownPromise;
