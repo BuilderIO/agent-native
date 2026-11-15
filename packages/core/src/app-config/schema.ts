@@ -26,6 +26,10 @@ import { pluginsConfig } from "./plugins.js";
 import { privateBlobConfig } from "./private-blob.js";
 import { runtimeConfig } from "./runtime.js";
 import { testIdentityConfig } from "./test-identity.js";
+import type {
+  AppConfigSectionInputs,
+  AppConfigSectionOutputs,
+} from "./sections.js";
 import { workspaceConfig } from "./workspace.js";
 
 export const nativeCapabilitySchema = z.enum(nativeCapabilities);
@@ -100,6 +104,10 @@ export const appConfigSchema = z.object({
   workspace: workspaceConfig.prefault({}),
 });
 
-export type AppConfigInput = z.input<typeof appConfigSchema>;
+export type FrameworkAppConfigInput = z.input<typeof appConfigSchema>;
 
-export type AppConfig = z.output<typeof appConfigSchema>;
+export type FrameworkAppConfig = z.output<typeof appConfigSchema>;
+
+export type AppConfigInput = FrameworkAppConfigInput & AppConfigSectionInputs;
+
+export type AppConfig = FrameworkAppConfig & AppConfigSectionOutputs;
