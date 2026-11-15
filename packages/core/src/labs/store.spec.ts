@@ -372,7 +372,7 @@ describe("user labs", () => {
   it("clears a saved choice from both setting keys, so the lab reads as its default again", async () => {
     const rows: Record<string, Record<string, unknown> | null> = {
       labs: { "clips.editor": true, "clips.meetings": false },
-      experiments: { "clips.editor": true },
+      experiments: { "clips.editor": true, "clips.meetings": true },
     };
     storeSettingsInMemory(rows);
 
@@ -394,7 +394,7 @@ describe("user labs", () => {
     });
     expect(rows).toEqual({
       labs: { "clips.meetings": false },
-      experiments: {},
+      experiments: { "clips.meetings": true },
     });
     await expect(
       getUserLabState("alice@example.com", "clips.editor"),

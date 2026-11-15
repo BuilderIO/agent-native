@@ -415,6 +415,13 @@ describe("app group pages", () => {
       );
     }
 
+    /** Ends a save the way set-lab does, with the states it applies. */
+    function answer(options: unknown, states: LabStates) {
+      (
+        options as { onSuccess?: (result: { states: LabStates }) => void }
+      ).onSuccess?.({ states });
+    }
+
     it("groups app labs under the app's name with the footnote", async () => {
       await renderPage(LabsSettingsPage, { input: { labs } });
       const title = container.querySelector("#labs h2");
@@ -527,7 +534,13 @@ describe("app group pages", () => {
           expect(variables).toEqual({ key: "chatgpt-subscription", enabled });
           expect(modelConfigChanged).toHaveBeenCalledTimes(index);
           act(() => {
-            (options as { onSuccess?: () => void } | undefined)?.onSuccess?.();
+            answer(options, {
+              "chatgpt-subscription": {
+                enabled,
+                source: "choice",
+                mixed: false,
+              },
+            });
           });
           expect(modelConfigChanged).toHaveBeenCalledTimes(index + 1);
           expect(toggle?.getAttribute("aria-checked")).toBe(String(enabled));
@@ -560,7 +573,7 @@ describe("app group pages", () => {
       ).toBeNull();
     });
 
-    it("shows what the server applies once a save reads back, not the choice", async () => {
+    it("shows what the server applies once a save answers, not the choice", async () => {
       labsActions.query.data = {
         "clips.meetings": { enabled: false, source: "default", mixed: false },
       };
@@ -569,23 +582,20 @@ describe("app group pages", () => {
       act(() => toggle?.click());
       expect(toggle?.getAttribute("aria-checked")).toBe("true");
 
-      labsActions.query.data = {
-        "clips.meetings": { enabled: false, source: "host", mixed: false },
-      };
-      labsActions.refetch.mockResolvedValue({ isSuccess: true });
       const [, options] = labsActions.mutate.mock.calls[0] ?? [];
       act(() => {
-        (options as { onSuccess?: () => void } | undefined)?.onSuccess?.();
+        answer(options, {
+          "clips.meetings": { enabled: false, source: "host", mixed: false },
+        });
       });
-      await flush();
 
-      expect(labsActions.refetch).toHaveBeenCalled();
       expect(
         switchFor("Meetings and transcription")?.getAttribute("aria-checked"),
       ).toBe("false");
+      expect(switchFor("Meetings and transcription")?.disabled).toBe(true);
     });
 
-    it("keeps the saved choice showing when its read-back fails, until a later read lands", async () => {
+    it("shows a save's answer until a later read lands, even when no read follows it", async () => {
       labsActions.query.data = {
         "clips.meetings": { enabled: false, source: "default", mixed: false },
       };
@@ -593,20 +603,24 @@ describe("app group pages", () => {
       const toggle = switchFor("Meetings and transcription");
       act(() => toggle?.click());
 
-      labsActions.refetch.mockResolvedValue({ isSuccess: false });
       const [, options] = labsActions.mutate.mock.calls[0] ?? [];
       act(() => {
-        (options as { onSuccess?: () => void } | undefined)?.onSuccess?.();
+        answer(options, {
+          "clips.meetings": { enabled: true, source: "choice", mixed: false },
+        });
       });
-      await flush();
       await renderPage(LabsSettingsPage, { input: { labs } });
 
       expect(toggle?.getAttribute("aria-checked")).toBe("true");
+      expect(
+        container.querySelector(
+          '[aria-label="Meetings and transcription: Use default"]',
+        ),
+      ).not.toBeNull();
 
-      // A later read, here after another tab turned it off, shows the
-      // server's answer again, and Use default comes back for the choice.
+      // A later read, here after the host took the lab over, replaces it.
       labsActions.query.data = {
-        "clips.meetings": { enabled: false, source: "choice", mixed: false },
+        "clips.meetings": { enabled: false, source: "host", mixed: false },
       };
       labsActions.query.updatedAt = 1;
       await renderPage(LabsSettingsPage, { input: { labs } });
@@ -614,11 +628,12 @@ describe("app group pages", () => {
       expect(
         switchFor("Meetings and transcription")?.getAttribute("aria-checked"),
       ).toBe("false");
+      expect(switchFor("Meetings and transcription")?.disabled).toBe(true);
       expect(
         container.querySelector(
           '[aria-label="Meetings and transcription: Use default"]',
         ),
-      ).not.toBeNull();
+      ).toBeNull();
     });
 
     it("clears a saved choice with Use default, and offers it only for a saved choice", async () => {
@@ -643,6 +658,78 @@ describe("app group pages", () => {
       );
       expect(switchFor("Voice dictation")?.getAttribute("aria-checked")).toBe(
         "false",
+      );
+    });
+
+    it("shows a cleared lab following its default from the save's answer, with no read after it", async () => {
+      labsActions.query.data = {
+        "clips.wisprflow": { enabled: true, source: "choice", mixed: false },
+      };
+      await renderPage(LabsSettingsPage, { input: { labs } });
+      const reset = container.querySelector<HTMLButtonElement>(
+        '[aria-label="Voice dictation: Use default"]',
+      );
+      act(() => reset?.click());
+
+      const [, options] = labsActions.mutate.mock.calls[0] ?? [];
+      act(() => {
+        answer(options, {
+          "clips.wisprflow": { enabled: false, source: "default", mixed: false },
+        });
+      });
+
+      expect(switchFor("Voice dictation")?.getAttribute("aria-checked")).toBe(
+        "false",
+      );
+      expect(
+        container.querySelector('[aria-label="Voice dictation: Use default"]'),
+      ).toBeNull();
+    });
+
+    it("reads the labs again when a save fails, so the row shows what was saved", async () => {
+      labsActions.query.data = {
+        "clips.wisprflow": { enabled: true, source: "choice", mixed: false },
+      };
+      await renderPage(LabsSettingsPage, { input: { labs } });
+      const reset = container.querySelector<HTMLButtonElement>(
+        '[aria-label="Voice dictation: Use default"]',
+      );
+      act(() => reset?.click());
+      expect(labsActions.refetch).not.toHaveBeenCalled();
+
+      const [, options] = labsActions.mutate.mock.calls[0] ?? [];
+      act(() => {
+        (options as { onError?: () => void } | undefined)?.onError?.();
+      });
+
+      expect(labsActions.refetch).toHaveBeenCalledTimes(1);
+      expect(container.querySelector('[role="alert"]')).not.toBeNull();
+    });
+
+    it("puts focus on an unreadable row's first button when its save fails", async () => {
+      labsActions.query.data = {
+        "clips.wisprflow": { error: "invalid-choice" },
+      };
+      await renderPage(LabsSettingsPage, { input: { labs } });
+      const on = container.querySelector<HTMLButtonElement>(
+        '[aria-label="Voice dictation: On"]',
+      );
+      on?.focus();
+      act(() => on?.click());
+
+      labsActions.isPending = true;
+      await renderPage(LabsSettingsPage, { input: { labs } });
+      on?.blur();
+      const [, options] = labsActions.mutate.mock.calls[0] ?? [];
+      act(() => {
+        (options as { onError?: () => void } | undefined)?.onError?.();
+      });
+      labsActions.isPending = false;
+      await renderPage(LabsSettingsPage, { input: { labs } });
+
+      expect(switchFor("Voice dictation")).toBeNull();
+      expect(document.activeElement).toBe(
+        container.querySelector('[aria-label="Voice dictation: On"]'),
       );
     });
 

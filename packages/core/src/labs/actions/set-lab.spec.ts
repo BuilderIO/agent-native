@@ -88,4 +88,23 @@ describe("set-lab action", () => {
       states,
     });
   });
+
+  it.each([
+    ["an On", true, { "clips.editor": { error: "legacy-unavailable" } }],
+    ["a clear", null, {}],
+  ] as const)(
+    "fails %s it can't read back, instead of reporting the lab off",
+    async (_save, enabled, states) => {
+      mocks.setUserLabStates.mockResolvedValue(states);
+
+      await expect(
+        action.run(
+          { key: "clips.editor", enabled },
+          { userEmail: "alice@example.com" },
+        ),
+      ).rejects.toThrow(
+        "Could not read saved lab state after updating clips.editor",
+      );
+    },
+  );
 });

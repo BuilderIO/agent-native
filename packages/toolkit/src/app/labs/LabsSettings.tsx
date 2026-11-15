@@ -57,57 +57,51 @@ function useLabsSettingsState(
   >("set-lab" as never);
   const [overrides, setOverrides] = useState<Record<string, boolean>>({});
   const [failedKey, setFailedKey] = useState<string | null>(null);
-  // Saves whose own read-back failed. Their choice stays on screen until a
-  // later read lands, then the row shows the server's answer again.
-  const unreadSaves = useRef(new Map<string, boolean>());
-  const values = valuesQuery.data;
-
-  const dropOverride = useCallback((key: string, enabled: boolean | null) => {
-    setOverrides((current) => {
-      if (current[key] !== enabled) return current;
-      const next = { ...current };
-      delete next[key];
-      return next;
-    });
-  }, []);
-
+  // What the server applies can differ from the choice, so a save shows the
+  // states set-lab answers with. They stay until a later read lands, so a
+  // read after the save that fails can't put the row back on stale data.
+  const [answered, setAnswered] = useState<LabStates | null>(null);
   const readAt = valuesQuery.dataUpdatedAt;
   useEffect(() => {
-    const unread = unreadSaves.current;
-    for (const [key, enabled] of unread) dropOverride(key, enabled);
-    unread.clear();
-  }, [readAt, dropOverride]);
+    setAnswered(null);
+  }, [readAt]);
+  const values = answered ?? valuesQuery.data;
 
   const toggle = useCallback(
     (lab: LabDefinition, enabled: boolean | null) => {
       const key = lab.key;
       setFailedKey(null);
-      unreadSaves.current.delete(key);
       if (enabled !== null) {
         setOverrides((current) => ({ ...current, [key]: enabled }));
       }
+      const dropOverride = () =>
+        setOverrides((current) => {
+          if (current[key] !== enabled) return current;
+          const next = { ...current };
+          delete next[key];
+          return next;
+        });
       setLab.mutate(
         { key, enabled },
         {
-          onSuccess: () => {
+          onSuccess: (result) => {
             window.dispatchEvent(
               new CustomEvent("agent-engine:configured-changed"),
             );
-            // What the server applies can differ from the choice, so the row
-            // shows the server's answer once it reads back.
-            void valuesQuery.refetch().then((result) => {
-              if (result.isSuccess) dropOverride(key, enabled);
-              else if (enabled !== null) unreadSaves.current.set(key, enabled);
-            });
+            setAnswered(result.states);
+            dropOverride();
           },
           onError: () => {
             setFailedKey(key);
-            dropOverride(key, enabled);
+            dropOverride();
+            // Use default can fail after part of it was saved, so the row
+            // shows what the server has now rather than what it had.
+            void valuesQuery.refetch();
           },
         },
       );
     },
-    [setLab, valuesQuery.refetch, dropOverride],
+    [setLab, valuesQuery.refetch],
   );
 
   const visible = values ? labs.filter((lab) => hasOwn(values, lab.key)) : labs;
@@ -160,8 +154,8 @@ function useLabsSettingsState(
 /**
  * A row's controls are disabled until the server answers, which drops keyboard
  * focus, and Use default goes away once it's saved. When the save ends, focus
- * goes back to the row's switch, so someone using the keyboard keeps their
- * place.
+ * goes back to the row's switch, or its first button when it has none, so
+ * someone using the keyboard keeps their place.
  */
 function useRefocusAfterSave(saving: boolean): (key: string) => void {
   const pendingKey = useRef<string | null>(null);
@@ -174,7 +168,10 @@ function useRefocusAfterSave(saving: boolean): (key: string) => void {
     const active = document.activeElement;
     if (!row) return;
     if (active && active !== document.body && !row.contains(active)) return;
-    row.querySelector<HTMLElement>('[role="switch"]:not(:disabled)')?.focus();
+    (
+      row.querySelector<HTMLElement>('[role="switch"]:not(:disabled)') ??
+      row.querySelector<HTMLElement>("button:not(:disabled)")
+    )?.focus();
   }, [saving]);
   return useCallback((key: string) => {
     pendingKey.current = key;
