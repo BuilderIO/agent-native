@@ -132,12 +132,13 @@ pub(crate) mod macos {
         AVLinearPCMIsFloatKey, AVLinearPCMIsNonInterleaved, AVNumberOfChannelsKey,
     };
     use objc2_core_audio::{
-        kAudioDevicePropertyTransportType, kAudioDeviceTransportTypeAggregate,
-        kAudioDeviceTransportTypeBluetooth, kAudioDeviceTransportTypeBluetoothLE,
-        kAudioDeviceTransportTypeUnknown, kAudioHardwareNoError,
-        kAudioHardwarePropertyTranslateUIDToDevice, kAudioObjectPropertyElementMain,
-        kAudioObjectPropertyScopeGlobal, kAudioObjectSystemObject, AudioObjectGetPropertyData,
-        AudioObjectID, AudioObjectPropertyAddress,
+        kAudioAggregateDevicePropertyActiveSubDeviceList, kAudioDevicePropertyTransportType,
+        kAudioDeviceTransportTypeAggregate, kAudioDeviceTransportTypeBluetooth,
+        kAudioDeviceTransportTypeBluetoothLE, kAudioDeviceTransportTypeUnknown,
+        kAudioHardwareNoError, kAudioHardwarePropertyTranslateUIDToDevice,
+        kAudioObjectPropertyElementMain, kAudioObjectPropertyScopeGlobal, kAudioObjectSystemObject,
+        AudioObjectGetPropertyData, AudioObjectGetPropertyDataSize, AudioObjectID,
+        AudioObjectPropertyAddress,
     };
     use objc2_core_audio_types::kAudioFormatLinearPCM;
     use objc2_core_media::{CMAudioFormatDescriptionGetStreamBasicDescription, CMSampleBuffer};
@@ -842,12 +843,31 @@ pub(crate) mod macos {
     }
 
     /// `Some(true)` when CoreAudio reports the input as a Bluetooth (classic or
-    /// LE) device, `Some(false)` when its transport is confirmed to be
-    /// something else. `None` (unconfirmed) when CoreAudio cannot resolve the
-    /// device or read its transport, or the transport is unknown or an
-    /// aggregate; `unselected_input` then passes it over like Bluetooth.
+    /// LE) device, `Some(false)` when it is confirmed to be something else.
+    /// For an aggregate device, the active sub-devices decide (see
+    /// `aggregate_is_bluetooth`). `None` (unconfirmed) when CoreAudio cannot
+    /// resolve the device or read what it needs, or the transport is unknown;
+    /// `unselected_input` then passes it over like Bluetooth.
     fn is_bluetooth_input(device: &AudioInputDevice) -> Option<bool> {
         let object_id = audio_object_id_for_uid(&device.id).ok()?;
+        let transport = device_transport(object_id)?;
+        if transport == kAudioDeviceTransportTypeAggregate {
+            let sub_devices = aggregate_active_sub_devices(object_id)?;
+            return aggregate_is_bluetooth(sub_devices.into_iter().map(|sub| {
+                device_transport(sub).and_then(|transport| {
+                    // A nested aggregate is not followed further.
+                    if transport == kAudioDeviceTransportTypeAggregate {
+                        None
+                    } else {
+                        transport_is_bluetooth(transport)
+                    }
+                })
+            }));
+        }
+        transport_is_bluetooth(transport)
+    }
+
+    fn device_transport(object_id: AudioObjectID) -> Option<u32> {
         let mut transport: u32 = 0;
         let mut data_size = size_of::<u32>() as u32;
         let address = AudioObjectPropertyAddress {
@@ -865,10 +885,48 @@ pub(crate) mod macos {
                 NonNull::new_unchecked((&mut transport as *mut u32).cast::<c_void>()),
             )
         };
+        (status == kAudioHardwareNoError).then_some(transport)
+    }
+
+    fn aggregate_active_sub_devices(object_id: AudioObjectID) -> Option<Vec<AudioObjectID>> {
+        let address = AudioObjectPropertyAddress {
+            mSelector: kAudioAggregateDevicePropertyActiveSubDeviceList,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain,
+        };
+        let mut data_size: u32 = 0;
+        let status = unsafe {
+            AudioObjectGetPropertyDataSize(
+                object_id,
+                NonNull::from(&address),
+                0,
+                std::ptr::null(),
+                NonNull::from(&mut data_size),
+            )
+        };
         if status != kAudioHardwareNoError {
             return None;
         }
-        transport_is_bluetooth(transport)
+        let count = data_size as usize / size_of::<AudioObjectID>();
+        let mut sub_devices: Vec<AudioObjectID> = vec![0; count];
+        if count == 0 {
+            return Some(sub_devices);
+        }
+        let status = unsafe {
+            AudioObjectGetPropertyData(
+                object_id,
+                NonNull::from(&address),
+                0,
+                std::ptr::null(),
+                NonNull::from(&mut data_size),
+                NonNull::new_unchecked(sub_devices.as_mut_ptr().cast::<c_void>()),
+            )
+        };
+        if status != kAudioHardwareNoError {
+            return None;
+        }
+        sub_devices.truncate(data_size as usize / size_of::<AudioObjectID>());
+        Some(sub_devices)
     }
 
     /// Whether a CoreAudio transport type is Bluetooth. `None` when the type
@@ -880,6 +938,26 @@ pub(crate) mod macos {
             kAudioDeviceTransportTypeUnknown | kAudioDeviceTransportTypeAggregate => None,
             _ => Some(false),
         }
+    }
+
+    /// An aggregate device is Bluetooth when any active sub-device is, and
+    /// confirmed not Bluetooth only when every active sub-device is. An
+    /// aggregate without active sub-devices, or with one that cannot be
+    /// confirmed, stays unconfirmed.
+    pub(crate) fn aggregate_is_bluetooth(
+        sub_devices: impl IntoIterator<Item = Option<bool>>,
+    ) -> Option<bool> {
+        let mut any = false;
+        let mut unconfirmed = false;
+        for sub in sub_devices {
+            any = true;
+            match sub {
+                Some(true) => return Some(true),
+                Some(false) => {}
+                None => unconfirmed = true,
+            }
+        }
+        (any && !unconfirmed).then_some(false)
     }
 
     fn audio_object_id_for_uid(uid: &str) -> Result<AudioObjectID, String> {
@@ -2246,6 +2324,22 @@ pub(crate) mod macos {
                 transport_is_bluetooth(kAudioDeviceTransportTypeAggregate),
                 None
             );
+        }
+
+        #[test]
+        fn aggregate_is_bluetooth_follows_its_active_sub_devices() {
+            use super::aggregate_is_bluetooth;
+            assert_eq!(
+                aggregate_is_bluetooth([Some(false), Some(false)]),
+                Some(false)
+            );
+            assert_eq!(
+                aggregate_is_bluetooth([Some(false), Some(true)]),
+                Some(true)
+            );
+            assert_eq!(aggregate_is_bluetooth([None, Some(true)]), Some(true));
+            assert_eq!(aggregate_is_bluetooth([Some(false), None]), None);
+            assert_eq!(aggregate_is_bluetooth([]), None);
         }
 
         #[test]
