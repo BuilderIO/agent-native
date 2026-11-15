@@ -1446,7 +1446,7 @@ describe("native recording startup", () => {
     await handle.cancel();
   });
 
-  it("refuses an abandoned start's late stop once a newer recording owns the capture session", async () => {
+  it("blocks a retry with a visible error while an abandoned take is still not stopped, and saves that take", async () => {
     const begin = deferred<void>();
     nativeCommands.set(
       "native_fullscreen_recording_begin",
@@ -1464,32 +1464,31 @@ describe("native recording startup", () => {
     const chrome = deferred<void>();
     nativeCommands.set("hide_recording_chrome", () => chrome.promise);
     const second = startRecording(params);
+    const blocked = expect(second).rejects.toMatchObject({
+      name: "PreviousRecordingStillStoppingError",
+    });
     begin.resolve();
     await flush();
-    expect(calls("native_fullscreen_recording_stop_and_upload")).toHaveLength(
-      0,
-    );
-
-    // The wait gives up; the new start sends its own begin.
-    nativeCommands.delete("hide_recording_chrome");
     await vi.advanceTimersByTimeAsync(90_000);
-    await vi.advanceTimersByTimeAsync(3_600);
-    const handle = await second;
-    expect(calls("native_fullscreen_recording_begin")).toHaveLength(2);
+    await blocked;
+    // No new capture was started over the unsaved take.
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(1);
+    expect(calls("show_countdown")).toHaveLength(1);
 
-    // The old stop finally continues: it must not stop the new recording.
+    // The old stop continues and saves the abandoned take.
+    nativeCommands.delete("hide_recording_chrome");
     chrome.resolve();
-    await vi.advanceTimersByTimeAsync(1_000);
-    expect(calls("native_fullscreen_recording_stop_and_upload")).toHaveLength(
-      0,
-    );
-
-    // The new recording's own stop still works.
-    void handle.stop();
     await vi.advanceTimersByTimeAsync(1_000);
     expect(calls("native_fullscreen_recording_stop_and_upload")).toHaveLength(
       1,
     );
+
+    // Once it has been stopped, a retry starts normally.
+    const third = startRecording(params);
+    await vi.advanceTimersByTimeAsync(3_600);
+    const handle = await third;
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(2);
+    await handle.cancel();
   });
 
   it("keeps microphone-off local capture native and skips transcription", async () => {

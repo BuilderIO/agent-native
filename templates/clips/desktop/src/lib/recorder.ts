@@ -4723,6 +4723,15 @@ function nextCaptureStopSent(): { promise: Promise<void>; dispose(): void } {
   };
 }
 
+export class PreviousRecordingStillStoppingError extends Error {
+  constructor() {
+    super(
+      "The previous recording is still being saved. Try again in a moment.",
+    );
+    this.name = "PreviousRecordingStillStoppingError";
+  }
+}
+
 async function waitForAbandonedCapture(signal?: AbortSignal): Promise<void> {
   const settling = abandonedCaptureSettling;
   if (!settling) return;
@@ -4736,11 +4745,13 @@ async function waitForAbandonedCapture(signal?: AbortSignal): Promise<void> {
     });
   } catch (err) {
     if (!(err instanceof RecordingStartTimeoutError)) throw err;
-    // Safe to go on: this start claims a newer capture session when it
-    // sends its begin, so the old start's late stop is refused.
-    console.warn(
-      "[clips-recorder] abandoned start did not settle; starting anyway (its late stop is fenced)",
+    // Never start over a take that has not been stopped: a new begin could
+    // replace that native session before it is saved. Fail visibly instead;
+    // a later retry starts once the old stop has been sent.
+    console.error(
+      "[clips-recorder] abandoned start's take is still not stopped; refusing to start",
     );
+    throw new PreviousRecordingStillStoppingError();
   }
 }
 
