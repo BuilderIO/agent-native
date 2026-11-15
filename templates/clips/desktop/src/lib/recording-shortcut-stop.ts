@@ -200,3 +200,27 @@ export async function stopRecordingFromLink(
   await emit("clips:recorder-stop");
   return undefined;
 }
+
+/**
+ * Listens for `clips://stop`. Native keeps the stop until it's taken
+ * (`take_pending_stop_link`), so one sent before this listener was up is
+ * taken as soon as it is; each stop is taken once, by the event or that
+ * startup check.
+ */
+export function listenForStopLinks(onStop: () => void) {
+  const takePending = () =>
+    invoke<boolean>("take_pending_stop_link").then(
+      (pending) => {
+        if (pending) onStop();
+      },
+      (error) => {
+        console.error("[clips-tray] taking the stop link failed:", error);
+      },
+    );
+  return listen("clips:stop-link", () => {
+    void takePending();
+  }).then((unlisten) => {
+    void takePending();
+    return unlisten;
+  });
+}

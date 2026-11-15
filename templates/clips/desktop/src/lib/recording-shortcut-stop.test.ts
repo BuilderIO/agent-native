@@ -232,3 +232,72 @@ describe("requestRecordingShortcutStop", () => {
     expect(emit).toHaveBeenLastCalledWith("clips:recorder-stop");
   });
 });
+
+describe("listenForStopLinks", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    emit.mockReset().mockResolvedValue(undefined);
+    invoke.mockReset();
+    listen.mockReset();
+  });
+
+  // Native keeps one stop until it's taken.
+  function nativeStopLinks(waiting: boolean) {
+    let pending = waiting;
+    invoke.mockImplementation(async (command: string) => {
+      if (command !== "take_pending_stop_link") return undefined;
+      const taken = pending;
+      pending = false;
+      return taken;
+    });
+    return {
+      send: () => {
+        pending = true;
+      },
+    };
+  }
+
+  it.each([
+    {
+      name: "a stop sent before the listener was up is taken once it is",
+      waitingAtStartup: true,
+      sendAfterStartup: false,
+      stops: 1,
+    },
+    {
+      name: "a stop sent once the listener is up is taken from its event",
+      waitingAtStartup: false,
+      sendAfterStartup: true,
+      stops: 1,
+    },
+    {
+      name: "no stop, no action",
+      waitingAtStartup: false,
+      sendAfterStartup: false,
+      stops: 0,
+    },
+  ])("$name", async ({ waitingAtStartup, sendAfterStartup, stops }) => {
+    const { listenForStopLinks } = await import("./recording-shortcut-stop");
+    const native = nativeStopLinks(waitingAtStartup);
+    let deliver!: () => void;
+    listen.mockImplementation(async (_event, onEvent) => {
+      deliver = () => onEvent({ payload: null });
+      return vi.fn();
+    });
+    const onStop = vi.fn();
+
+    await listenForStopLinks(onStop);
+    await Promise.resolve();
+    if (sendAfterStartup) {
+      native.send();
+      deliver();
+    }
+    // A repeated event (or a second check) never stops twice.
+    deliver();
+    await vi.waitFor(() => expect(onStop).toHaveBeenCalledTimes(stops));
+    expect(listen).toHaveBeenCalledWith(
+      "clips:stop-link",
+      expect.any(Function),
+    );
+  });
+});

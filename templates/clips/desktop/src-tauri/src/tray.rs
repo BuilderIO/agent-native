@@ -531,15 +531,65 @@ mod tests {
     }
 }
 
+/// A `clips://stop` waiting for the popover to take it, since when.
+static PENDING_STOP_LINK: std::sync::Mutex<Option<std::time::Instant>> =
+    std::sync::Mutex::new(None);
+
+/// A stop link older than this is dropped rather than stopping a later
+/// recording.
+const STOP_LINK_HOLD_LIMIT: std::time::Duration = std::time::Duration::from_secs(30);
+
+/// Takes the waiting stop link, once; false when there is none or it's too
+/// old to act on.
+fn take_stop_link(pending: &mut Option<std::time::Instant>, now: std::time::Instant) -> bool {
+    pending
+        .take()
+        .is_some_and(|at| now.saturating_duration_since(at) < STOP_LINK_HOLD_LIMIT)
+}
+
 /// `clips://stop`: stops the running recording, and does nothing when no
-/// recording runs (a meeting is left alone). The popover stops it the way
-/// the recording shortcut does: through the recording bar, which must
-/// acknowledge, or else directly.
+/// recording runs (a meeting is left alone). The stop waits here until the
+/// popover takes it (`take_pending_stop_link`), on the event or once its
+/// listener is up, so one sent before that listener exists isn't lost. The
+/// popover stops it the way the recording shortcut does: through the
+/// recording bar, which must acknowledge, or else directly.
 pub fn stop_recording_from_link(app: &tauri::AppHandle) {
     use tauri::Emitter;
     if !tray_recording_active() || crate::util::is_meeting_active(app) {
         dlog!("[clips-tray] stop link ignored: no recording running");
         return;
     }
+    *PENDING_STOP_LINK.lock().unwrap_or_else(|e| e.into_inner()) = Some(std::time::Instant::now());
     let _ = app.emit("clips:stop-link", ());
+}
+
+#[tauri::command]
+pub fn take_pending_stop_link() -> bool {
+    take_stop_link(
+        &mut PENDING_STOP_LINK.lock().unwrap_or_else(|e| e.into_inner()),
+        std::time::Instant::now(),
+    )
+}
+
+#[cfg(test)]
+mod stop_link_tests {
+    use super::*;
+    use std::time::{Duration, Instant};
+
+    #[test]
+    fn a_stop_link_is_taken_once_while_fresh() {
+        let t0 = Instant::now();
+        for (taken_after, want) in [
+            (Duration::from_millis(0), true),
+            (Duration::from_secs(5), true),
+            (STOP_LINK_HOLD_LIMIT, false),
+        ] {
+            let mut pending = Some(t0);
+            assert_eq!(take_stop_link(&mut pending, t0 + taken_after), want);
+            // Taken (or dropped) once: the event and the listener's startup
+            // check can't both act on it.
+            assert!(!take_stop_link(&mut pending, t0 + taken_after));
+        }
+        assert!(!take_stop_link(&mut None, t0));
+    }
 }

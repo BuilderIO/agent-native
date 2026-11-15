@@ -251,6 +251,7 @@ import {
 } from "./lib/recording-request";
 import {
   listenForRecordingShortcutStopAcks,
+  listenForStopLinks,
   requestRecordingShortcutStop,
   stopRecordingFromLink,
 } from "./lib/recording-shortcut-stop";
@@ -4675,7 +4676,7 @@ export function App({
   useEffect(() => {
     let cancelled = false;
     let unlistenStopLink: (() => void) | undefined;
-    void listen("clips:stop-link", () => {
+    void listenForStopLinks(() => {
       stopLinkHandlerRef.current();
     })
       .then((unlisten) => {
