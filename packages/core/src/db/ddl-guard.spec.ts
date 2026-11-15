@@ -885,6 +885,83 @@ describe("ddl-guard", () => {
       ]);
     });
 
+    it.each([
+      [
+        "PostgreSQL 55P03",
+        Object.assign(new Error("could not obtain lock"), { code: "55P03" }),
+      ],
+      ["uncoded driver", new Error("canceling statement due to lock timeout")],
+    ])(
+      "retries a wrapped %s lock timeout after rollback",
+      async (_label, lockError) => {
+        const { ensureSchemaObject } = await import("./ddl-guard.js");
+        const wrappedError = new Error(
+          "Failed query: CREATE TABLE foo (id TEXT)",
+          {
+            cause: new Error("database operation failed", { cause: lockError }),
+          },
+        );
+        let attempts = 0;
+        const { client, calls } = recordingClient((sql) => {
+          if (/CREATE TABLE/.test(sql) && ++attempts === 1) throw wrappedError;
+          return undefined;
+        });
+        const probe = vi.fn(async () => false);
+        await expect(
+          ensureSchemaObject({
+            probe,
+            ddl: "CREATE TABLE foo (id TEXT)",
+            label: "table foo",
+            injectedClient: client,
+          }),
+        ).resolves.toBe(true);
+        expect(probe).toHaveBeenCalledTimes(2);
+        expect(calls.filter((sql) => /CREATE TABLE/.test(sql))).toHaveLength(2);
+        expect(calls.filter((sql) => sql === "ROLLBACK")).toHaveLength(1);
+        expect(calls.filter((sql) => sql === "COMMIT")).toHaveLength(1);
+      },
+    );
+
+    it.each([
+      [
+        "permission error",
+        Object.assign(new Error("permission denied"), { code: "42501" }),
+      ],
+      [
+        "statement timeout",
+        Object.assign(new Error("canceling statement due to lock timeout"), {
+          code: "57014",
+        }),
+      ],
+      ["uncoded error", new Error("permission denied")],
+    ])(
+      "propagates a wrapped %s without retrying SQL mentioning lock_timeout",
+      async (_label, cause) => {
+        const { ensureSchemaObject } = await import("./ddl-guard.js");
+        const wrappedError = new Error(
+          "Failed query: SET LOCAL lock_timeout = '3s'",
+          { cause },
+        );
+        const { client, calls } = recordingClient((sql) => {
+          if (/SET LOCAL lock_timeout/.test(sql)) throw wrappedError;
+          return undefined;
+        });
+        const probe = vi.fn(async () => false);
+        await expect(
+          ensureSchemaObject({
+            probe,
+            ddl: "CREATE TABLE foo (id TEXT)",
+            label: "table foo",
+            injectedClient: client,
+          }),
+        ).rejects.toBe(wrappedError);
+        expect(probe).toHaveBeenCalledTimes(1);
+        expect(calls.filter((sql) => sql === "BEGIN")).toHaveLength(1);
+        expect(calls.filter((sql) => sql === "ROLLBACK")).toHaveLength(1);
+        expect(calls.filter((sql) => /CREATE TABLE/.test(sql))).toHaveLength(0);
+      },
+    );
+
     it("refreshes the schema snapshot after a concurrent creator wins", async () => {
       vi.stubEnv("DATABASE_URL", "postgres://localhost:5432/db");
       const { ensureTableExists } = await import("./ddl-guard.js");
@@ -1120,6 +1197,21 @@ describe("ddl-guard", () => {
         ),
       ).toBe(true);
       expect(isLockTimeoutError(new Error("syntax error"))).toBe(false);
+      expect(
+        isLockTimeoutError(
+          new Error("Failed query: SET LOCAL lock_timeout = '3s'"),
+        ),
+      ).toBe(false);
+      expect(
+        isLockTimeoutError(
+          Object.assign(new Error("lock timeout"), { code: "57014" }),
+        ),
+      ).toBe(false);
+      const cyclic: { message: string; cause?: unknown } = {
+        message: "lock timeout",
+      };
+      cyclic.cause = cyclic;
+      expect(isLockTimeoutError(cyclic)).toBe(false);
       expect(isLockTimeoutError(null)).toBe(false);
     });
   });

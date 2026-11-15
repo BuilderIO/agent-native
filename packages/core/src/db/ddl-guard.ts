@@ -501,10 +501,33 @@ export async function ensureIndexExistsConcurrently(
 }
 
 export function isLockTimeoutError(err: unknown): boolean {
-  const anyErr = err as { code?: unknown; message?: unknown } | null;
-  if (anyErr?.code === "55P03") return true;
-  const msg = stringifyValue(anyErr?.message ?? anyErr ?? "");
-  return /lock[_ ]?timeout|canceling statement due to lock timeout/i.test(msg);
+  let current = err;
+  let message: unknown;
+  let hasCode = false;
+  const seen = new Set<object>();
+  for (let depth = 0; depth < 8; depth += 1) {
+    if (typeof current !== "object" || current === null) {
+      if (current != null) message = current;
+      break;
+    }
+    if (seen.has(current)) return false;
+    seen.add(current);
+    const error = current as {
+      code?: unknown;
+      message?: unknown;
+      cause?: unknown;
+    };
+    if (error.code === "55P03") return true;
+    if (typeof error.code === "string" && error.code) hasCode = true;
+    message = error.message;
+    if (error.cause == null) break;
+    if (depth === 7) return false;
+    current = error.cause;
+  }
+  if (hasCode || typeof message !== "string") return false;
+  return /^(?:cancel(?:l)?ing statement due to lock timeout|lock timeout(?: exceeded)?)(?:[.:;!]|$)/i.test(
+    message.trim(),
+  );
 }
 
 export async function runGuardedDdl(
