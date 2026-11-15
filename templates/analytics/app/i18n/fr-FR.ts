@@ -1426,6 +1426,8 @@ export default {
       "Le graphique affiche {{chart}}, mais {{total}} enregistrements correspondent",
     drilldownAggregateOnly:
       "Ce panneau ne contient que des lignes agrégées. Les lignes du point cliqué sont mises en évidence.",
+    drilldownNoXValueAggregateOnly:
+      "Ce panneau ne peut pas ouvrir d’enregistrements pour un point sans valeur ; il affiche donc des lignes agrégées. Les lignes du point cliqué sont mises en évidence.",
     drilldownNoRecords: "Aucun enregistrement correspondant",
     drilldownNoRecordsIncomplete:
       "Aucun enregistrement chargé. Le résultat est incomplet : des enregistrements peuvent tout de même correspondre.",

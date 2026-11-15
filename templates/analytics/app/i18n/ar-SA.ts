@@ -1371,6 +1371,8 @@ export default {
     drilldownCountMismatch: "يعرض المخطط {{chart}}، لكن {{total}} سجل تطابقت",
     drilldownAggregateOnly:
       "تحتوي هذه اللوحة على صفوف مجمّعة فقط. الصفوف المطابقة للنقطة المنقور عليها مميّزة.",
+    drilldownNoXValueAggregateOnly:
+      "لا يمكن لهذه اللوحة فتح سجلات نقطة بلا قيمة، لذا تعرض الصفوف المجمّعة. الصفوف المطابقة للنقطة المنقور عليها مميّزة.",
     drilldownNoRecords: "لا توجد سجلات مطابقة",
     drilldownNoRecordsIncomplete:
       "لم يتم تحميل أي سجلات. النتيجة غير مكتملة، لذا قد تكون هناك سجلات مطابقة.",

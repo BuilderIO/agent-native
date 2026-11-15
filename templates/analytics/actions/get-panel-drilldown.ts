@@ -10,7 +10,7 @@ export default defineAction({
   readOnly: true,
   http: { method: "POST" },
   description:
-    "Return a panel's declared record-level drill-down SQL template, the first-party catalog template, or null when the panel only has aggregate rows. Templates use {{drillX}} and {{drillSeries}} for the clicked chart point plus dashboard filter variables.",
+    "Return a panel's declared record-level drill-down SQL template, the first-party catalog template, or null when the panel only has aggregate rows. Templates use {{drillX}}, {{drillXIsNull}} ('true' when the clicked point's x is null) and {{drillSeries}} for the clicked chart point plus dashboard filter variables.",
   schema: z.object({
     panelId: z.string().min(1).max(200),
     panelSource: z.string().min(1).max(100),

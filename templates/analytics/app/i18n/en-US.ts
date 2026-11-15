@@ -976,6 +976,8 @@ export default {
       "The chart shows {{chart}}, but {{total}} records matched",
     drilldownAggregateOnly:
       "This panel only has aggregate rows. Rows matching the clicked point are highlighted.",
+    drilldownNoXValueAggregateOnly:
+      "This panel can't open records for a point with no value, so it shows aggregate rows. Rows matching the clicked point are highlighted.",
     drilldownNoRecords: "No matching records",
     drilldownNoRecordsIncomplete:
       "No records loaded. The result is incomplete, so some records may still match.",

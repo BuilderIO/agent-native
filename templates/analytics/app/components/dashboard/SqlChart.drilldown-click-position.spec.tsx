@@ -190,6 +190,7 @@ describe("SqlChart drill-down click position", () => {
       await clickChartAt(plot.left + plot.width / 2, plot.top + 10);
       expect(onDatumClick).toHaveBeenLastCalledWith({
         x: "",
+        xIsNull: true,
         series: undefined,
         value: undefined,
       });
