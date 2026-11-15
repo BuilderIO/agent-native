@@ -1300,7 +1300,7 @@ export const editorChromeBridgeScript: string = `"use strict";
     const view = el.ownerDocument.defaultView;
     if (!view) return false;
     const cs = view.getComputedStyle(el, pseudo);
-    if (!cs || cs.content === "none" || cs.display === "none") return false;
+    if (cs.content === "none" || cs.display === "none") return false;
     return cs.backgroundImage !== "none" || /url\\(/.test(cs.content);
   }
   function isTransparentColor(value) {
@@ -1360,8 +1360,8 @@ export const editorChromeBridgeScript: string = `"use strict";
     const elements = root.getElementsByTagName("*");
     const limit = Math.min(elements.length, VISUAL_LAYER_SCAN_MAX_ELEMENTS);
     for (let i = 0; i < limit; i += 1) {
-      const el = elements[i];
-      if (el.parentElement?.closest("svg")) continue;
+      const el = elements.item(i);
+      if (!el || el.parentElement?.closest("svg")) continue;
       visit(el, el.getBoundingClientRect());
     }
   }
@@ -1401,16 +1401,17 @@ export const editorChromeBridgeScript: string = `"use strict";
   function mergeVisualLayersAtPoint(doc, clientX, clientY, hitStack, exclude) {
     const stack = hitStack.slice();
     const added = /* @__PURE__ */ new Map();
-    if (!doc.body) return { stack, added };
-    scanElements(doc.body, function(el, rect) {
+    const body = doc.querySelector("body");
+    if (!body) return { stack, added };
+    scanElements(body, function(el, rect) {
       if (clientX < rect.left || clientX > rect.right || clientY < rect.top || clientY > rect.bottom || stack.indexOf(el) !== -1 || exclude(el)) {
         return;
       }
       const match = matchFor(el, rect);
       if (!match) return;
       let index = stack.length;
-      for (let i = 0; i < stack.length; i += 1) {
-        if (comparePaintOrder(el, stack[i]) > 0) {
+      for (const [i, other] of stack.entries()) {
+        if (comparePaintOrder(el, other) > 0) {
           index = i;
           break;
         }
@@ -1429,9 +1430,10 @@ export const editorChromeBridgeScript: string = `"use strict";
     const doc = target.ownerDocument;
     const targetRect = target.getBoundingClientRect();
     const targetArea = targetRect.width * targetRect.height;
-    if (!doc.body || targetArea <= 0) return [];
+    const body = doc.querySelector("body");
+    if (!body || targetArea <= 0) return [];
     const results = [];
-    scanElements(doc.body, function(el, rect) {
+    scanElements(body, function(el, rect) {
       if (el === target) return;
       const area = overlapArea(targetRect, rect);
       if (area <= 0 || exclude(el)) return;
