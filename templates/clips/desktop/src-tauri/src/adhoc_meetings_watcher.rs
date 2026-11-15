@@ -435,9 +435,10 @@ impl AdhocMeetingsWatcherInner {
                         .map(|candidate| candidate.platform);
                     self.browser_mic_off_at.insert(*key, (now, front));
                     // A brief off reading during a call keeps the call's
-                    // origin: only after the association has ended may the
-                    // microphone turning on again start a call elsewhere.
-                    if !associated_processes.contains(key) {
+                    // origin. Once the microphone has been off for the whole
+                    // drop grace, the next turn-on may start a new call, in
+                    // this tab or another one.
+                    if !self.browser_mic_drop_in_grace(*key, now) {
                         self.browser_mic_started_on.remove(key);
                     }
                 }
@@ -478,11 +479,18 @@ impl AdhocMeetingsWatcherInner {
                     .get(&(candidate.pid, candidate.bundle_id))
                     == Some(&Some(candidate.platform))
         });
+        let mut replaced = Vec::new();
         if let Some(candidate) = candidate {
+            // A new call in another tab of the same browser ends the previous
+            // one: the browser has one microphone for all its tabs.
             self.browser_associations.retain(|platform, association| {
-                *platform == candidate.platform
+                let keep = *platform == candidate.platform
                     || association.pid != candidate.pid
-                    || association.bundle_id != candidate.bundle_id
+                    || association.bundle_id != candidate.bundle_id;
+                if !keep {
+                    replaced.push(*platform);
+                }
+                keep
             });
             let association = self
                 .browser_associations
@@ -503,7 +511,10 @@ impl AdhocMeetingsWatcherInner {
             }
         }
 
-        let mut updates = BrowserCallUpdates::default();
+        let mut updates = BrowserCallUpdates {
+            ended_platforms: replaced,
+            ..BrowserCallUpdates::default()
+        };
         let mut expired = Vec::new();
         let mut ended_processes = Vec::new();
         let mut unreadable_processes = Vec::new();
@@ -556,6 +567,18 @@ impl AdhocMeetingsWatcherInner {
             self.forget_browser_mic_origin(key);
         }
         updates
+    }
+
+    /// Whether this browser process has a call whose microphone has not yet
+    /// been off for the whole drop grace.
+    fn browser_mic_drop_in_grace(&self, key: BrowserProcessKey, now: Instant) -> bool {
+        self.browser_associations.values().any(|association| {
+            (association.pid, association.bundle_id) == key
+                && association
+                    .evidence
+                    .mic_silent_since
+                    .is_none_or(|since| now.saturating_duration_since(since) < MIC_DROP_GRACE)
+        })
     }
 
     fn forget_browser_mic_origin(&mut self, key: BrowserProcessKey) {
@@ -1368,6 +1391,47 @@ mod tests {
         state.observe_browser_calls(start + Duration::from_secs(2), Some(zoom), &on);
         assert_eq!(state.browser_mic_started_on.get(&key), Some(&Some("zoom")));
         let confirmed = state.observe_browser_calls(start + Duration::from_secs(6), None, &on);
+        assert_eq!(confirmed.live_platforms, vec!["zoom"]);
+    }
+
+    #[test]
+    fn a_new_call_in_another_tab_after_the_mic_drop_grace_ends_the_previous_call() {
+        let start = Instant::now();
+        let meet = BrowserCallCandidate {
+            pid: 1234,
+            bundle_id: "com.google.chrome",
+            platform: "meet",
+        };
+        let zoom = BrowserCallCandidate {
+            pid: 1234,
+            bundle_id: "com.google.chrome",
+            platform: "zoom",
+        };
+        let on = browser_mic(meet.pid, Some(true));
+        let off = browser_mic(meet.pid, Some(false));
+        let mut state = AdhocMeetingsWatcherInner::default();
+
+        saw_mic_off(&mut state, meet, start);
+        state.observe_browser_calls(start, Some(meet), &on);
+        let live = state.observe_browser_calls(start + Duration::from_secs(4), None, &on);
+        assert_eq!(live.live_platforms, vec!["meet"]);
+
+        // The meet call hangs up; the microphone stays off past the drop
+        // grace but well inside the call-end threshold.
+        for secs in [6, 8, 10, 12, 14, 16] {
+            let updates =
+                state.observe_browser_calls(start + Duration::from_secs(secs), Some(meet), &off);
+            assert!(updates.ended_platforms.is_empty(), "after {secs}s");
+        }
+        assert!(Duration::from_secs(18 - 6) < CALL_END);
+        state.observe_browser_calls(start + Duration::from_secs(18), Some(zoom), &off);
+
+        // A new call starts in the zoom tab: it replaces the meet call.
+        let replaced =
+            state.observe_browser_calls(start + Duration::from_secs(20), Some(zoom), &on);
+        assert_eq!(replaced.ended_platforms, vec!["meet"]);
+        assert!(!state.browser_associations.contains_key("meet"));
+        let confirmed = state.observe_browser_calls(start + Duration::from_secs(24), None, &on);
         assert_eq!(confirmed.live_platforms, vec!["zoom"]);
     }
 
