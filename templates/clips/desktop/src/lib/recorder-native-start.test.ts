@@ -1491,6 +1491,47 @@ describe("native recording startup", () => {
     await handle.cancel();
   });
 
+  it("keeps new starts blocked when an abandoned take's stop fails before it is sent", async () => {
+    // The barrier stays closed for the life of the module, so use a fresh
+    // copy and keep it from leaking into the other tests.
+    vi.resetModules();
+    const { startRecording } = await import("./recorder");
+    const begin = deferred<void>();
+    nativeCommands.set(
+      "native_fullscreen_recording_begin",
+      () => begin.promise,
+    );
+    const controller = new AbortController();
+    const first = startRecording({ ...params, signal: controller.signal });
+    const failed = expect(first).rejects.toMatchObject({ name: "AbortError" });
+    await vi.advanceTimersByTimeAsync(3_600);
+    controller.abort();
+    await failed;
+    nativeCommands.delete("native_fullscreen_recording_begin");
+
+    // The late stop fails before the native stop command is sent.
+    const listen = mocks.listen.getMockImplementation()!;
+    mocks.listen.mockImplementation(async (name, callback) => {
+      if (name === "clips:native-recording-finalized") {
+        throw new Error("listener registration failed");
+      }
+      return listen(name, callback);
+    });
+    begin.resolve();
+    await vi.advanceTimersByTimeAsync(1_000);
+    expect(calls("native_fullscreen_recording_stop_and_upload")).toHaveLength(
+      0,
+    );
+
+    // The session may still be running: a retry fails visibly, at once,
+    // without starting a countdown or a begin over it.
+    await expect(startRecording(params)).rejects.toMatchObject({
+      name: "PreviousRecordingStillStoppingError",
+    });
+    expect(calls("show_countdown")).toHaveLength(1);
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(1);
+  });
+
   it("keeps microphone-off local capture native and skips transcription", async () => {
     const pending = startRecording({
       ...params,

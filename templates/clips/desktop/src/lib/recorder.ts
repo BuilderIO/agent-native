@@ -4788,9 +4788,15 @@ export async function startRecording(
       attemptId: countdownAttemptId,
     }).catch(() => {});
     if (startupState === "capturing") {
-      // Hold the next start until this take's stop command is sent (or the
-      // stop / start fails), so that stop cannot end the next recording.
+      // Hold the next start until this take's stop command is sent, or the
+      // start itself failed (nothing to stop). A stop that fails before it was
+      // sent leaves the session running, so the barrier stays closed and
+      // every retry fails with PreviousRecordingStillStoppingError.
       const stopSent = nextCaptureStopSent();
+      let stopDispatched = false;
+      void stopSent.promise.then(() => {
+        stopDispatched = true;
+      });
       const settling: Promise<void> = startPromise
         .then(
           () =>
@@ -4798,18 +4804,27 @@ export async function startRecording(
               stopSent.promise,
               (lateStop ?? Promise.resolve()).then(
                 () => undefined,
-                () => undefined,
+                () => {
+                  if (stopDispatched) return;
+                  console.error(
+                    "[clips-recorder] abandoned take's stop failed before it was sent; blocking new starts",
+                  );
+                  throw new PreviousRecordingStillStoppingError();
+                },
               ),
             ]),
           () => undefined,
         )
         .finally(() => stopSent.dispose());
       abandonedCaptureSettling = settling;
-      void settling.then(() => {
-        if (abandonedCaptureSettling === settling) {
-          abandonedCaptureSettling = null;
-        }
-      });
+      settling.then(
+        () => {
+          if (abandonedCaptureSettling === settling) {
+            abandonedCaptureSettling = null;
+          }
+        },
+        () => {},
+      );
       return;
     }
     void invoke("native_fullscreen_recording_cancel").catch(() => {});
