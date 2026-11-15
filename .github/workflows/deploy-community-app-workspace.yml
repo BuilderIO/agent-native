@@ -300,8 +300,10 @@ jobs:
         if: steps.gate.outputs.ready == 'true'
         env:
           NETLIFY_SITE_ID: ${{ secrets[steps.lane.outputs.site_id_secret] }}
+        # The CLI resolves --dir from the workspace root and --functions from
+        # the package directory, so both paths stay as they were at the root.
         run: |
-          netlify deploy \
+          pnpm --dir community-templates exec agent-native netlify-deploy \
             --site "$NETLIFY_SITE_ID" \
             --filter "@agent-native/community-templates" \
             --dir community-templates/dist \

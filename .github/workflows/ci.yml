@@ -2324,7 +2324,7 @@ jobs:
       - uses: ./.github/actions/setup-pnpm
         with:
           restore-dist-cache: "true"
-      - name: Run owned mutants with the complete original test scope
+      - name: Run this worker's mutants against every spec selected for their files
         env:
           GITHUB_BASE_REF: ${{ github.base_ref }}
         run: pnpm mutation:changed --shard '${{ matrix.index }}' '${{ matrix.count }}'

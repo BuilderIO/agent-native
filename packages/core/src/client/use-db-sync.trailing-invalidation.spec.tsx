@@ -22,22 +22,34 @@ class QueryClientProbe {
     | {
         queryKey?: string[];
         predicate?: (query: { queryKey: readonly unknown[] }) => boolean;
-        dedupeKey?: string;
       }
     | undefined
   > = [];
   refetchOptions: Array<{ cancelRefetch?: boolean } | undefined> = [];
   completion = deferred<void>();
 
-  isFetching() {
-    return 1;
+  actionQuery = { queryKey: ["action", "read"] };
+  appStateQuery = { queryKey: ["app-state", "selection"] };
+  queries = [this.actionQuery, this.appStateQuery];
+
+  isFetching(filters?: {
+    queryKey?: string[];
+    predicate?: (query: { queryKey: readonly unknown[] }) => boolean;
+  }) {
+    return this.queries.filter(
+      (query) =>
+        (filters?.queryKey?.every(
+          (key, index) => query.queryKey[index] === key,
+        ) ??
+          true) &&
+        (filters?.predicate?.(query) ?? true),
+    ).length;
   }
 
   invalidateQueries(
     filters?: {
       queryKey?: string[];
       predicate?: (query: { queryKey: readonly unknown[] }) => boolean;
-      dedupeKey?: string;
     },
     options?: { cancelRefetch?: boolean },
   ) {
@@ -189,9 +201,16 @@ describe("useDbSync trailing invalidation", () => {
       (filters) => filters?.predicate,
     );
     expect(predicateFilters).toHaveLength(2);
-    expect(predicateFilters.map((filters) => filters?.dedupeKey)).toEqual([
-      "app-state:9:selection",
-      "app-state:9:selection",
+    // oracle-change: query identities dedupe trailing work; the predicate's selection scope stays observable.
+    expect(
+      predicateFilters.map((filters) => [
+        filters?.predicate?.(queryClient.appStateQuery),
+        filters?.predicate?.({ queryKey: ["app-state", "other"] }),
+        filters?.predicate?.(queryClient.actionQuery),
+      ]),
+    ).toEqual([
+      [true, false, false],
+      [true, false, false],
     ]);
     expect(queryClient.refetchOptions).toEqual([
       { cancelRefetch: false },
@@ -210,11 +229,15 @@ describe("useDbSync trailing invalidation", () => {
     expect(
       queryClient.calls
         .filter((filters) => filters?.predicate)
-        .map((filters) => filters?.dedupeKey),
+        .map((filters) => [
+          filters?.predicate?.(queryClient.appStateQuery),
+          filters?.predicate?.({ queryKey: ["app-state", "other"] }),
+          filters?.predicate?.(queryClient.actionQuery),
+        ]),
     ).toEqual([
-      "app-state:9:selection",
-      "app-state:9:selection",
-      "app-state:9:selection",
+      [true, false, false],
+      [true, false, false],
+      [true, false, false],
     ]);
   });
 });

@@ -1073,6 +1073,57 @@ describe("callAction", () => {
     expect(defaultActionQueryRetry(0, error)).toBe(false);
   });
 
+  it("re-sends a GET read as POST once when the server vouches the action is read-only", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        jsonResponse(
+          { error: "Method not allowed. Use POST.", readOnly: true },
+          { status: 405 },
+        ),
+      )
+      .mockResolvedValueOnce(jsonResponse({ items: [1] }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await callAction(
+      "list-meetings",
+      { q: "a" },
+      { method: "GET" },
+    );
+
+    expect(result).toEqual({ items: [1] });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "GET" });
+    expect(fetchMock.mock.calls[1]?.[1]).toMatchObject({ method: "POST" });
+  });
+
+  it("never re-sends a GET as POST to an action the server does not vouch is read-only", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValue(
+        jsonResponse(
+          { error: "Method not allowed. Use POST." },
+          { status: 405 },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const error = await callAction(
+      "delete-todo",
+      { id: "1" },
+      { method: "GET" },
+    ).catch((err) => err);
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: "GET" });
+    expect(error).toMatchObject({
+      status: 405,
+      code: "action_method_mismatch",
+      sentMethod: "GET",
+      requiredMethod: "POST",
+    });
+  });
+
   it("times out an unabortable body stream after headers arrive", async () => {
     vi.useFakeTimers();
     try {
@@ -1237,6 +1288,19 @@ describe("callActionWithRetry", () => {
 });
 
 describe("tryCallActionKeepalive", () => {
+  it("preserves an omitted body for a public keepalive call without inputs", async () => {
+    const fetchMock = vi.fn().mockResolvedValue(jsonResponse({ ok: true }));
+    vi.stubGlobal("fetch", fetchMock);
+    const attempt = tryCallActionKeepalive<{ ok: boolean }>("empty-write");
+    if (!attempt.accepted) throw new Error("Expected keepalive to be accepted");
+    await expect(attempt.completion).resolves.toEqual({ ok: true });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/_agent-native/actions/empty-write",
+      expect.objectContaining({ method: "POST", keepalive: true }),
+    );
+    expect(fetchMock.mock.calls[0]?.[1]).not.toHaveProperty("body");
+  });
+
   it("uses the normal action transport and exposes response completion", async () => {
     const fetchMock = vi
       .fn()

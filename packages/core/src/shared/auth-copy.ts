@@ -6,6 +6,25 @@ import {
 
 export const AUTH_SIGNUP_INVITE_ONLY_CODE = "INVITE_ONLY";
 
+/**
+ * The deployment admits only a fixed set of email domains and the signer used
+ * another one. Distinct from invite-only so the refusal can name the domains
+ * the workspace does admit instead of a generic "couldn't create your account".
+ */
+export const AUTH_SIGNUP_DOMAIN_NOT_ALLOWED_CODE = "SIGNUP_DOMAIN_NOT_ALLOWED";
+
+export function signupDomainNotAllowedMessage(
+  allowedEmailDomains: readonly string[],
+): string {
+  const domains = allowedEmailDomains
+    .map((domain) => domain.trim().toLowerCase())
+    .filter(Boolean)
+    .map((domain) => `@${domain}`);
+  if (domains.length === 0)
+    return "We couldn't create your account right now. Please try again.";
+  return `This workspace only admits ${domains.join(", ")} accounts. Sign in with one of those addresses.`;
+}
+
 export interface NativeAuthCopy {
   googleButton: string;
   ssoButton: string;

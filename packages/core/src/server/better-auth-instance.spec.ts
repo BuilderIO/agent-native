@@ -352,6 +352,45 @@ describe("ensureGoogleAuthIdentityWithAdapter", () => {
     };
   }
 
+  it("rejects an existing Google account outside the deployment email domain", async () => {
+    const previous = process.env.AUTH_ALLOWED_EMAIL_DOMAINS;
+    process.env.AUTH_ALLOWED_EMAIL_DOMAINS = "builder.io";
+    resetAppConfigForTests();
+    const { adapter, linkAccount } = adapterFor();
+    try {
+      await expect(
+        ensureGoogleAuthIdentityWithAdapter(adapter, {
+          email: "outside@example.test",
+          accountId: "google-sub-qa",
+        }),
+      ).rejects.toThrow("Account domain is not allowed");
+      expect(adapter.findUserByEmail).not.toHaveBeenCalled();
+      expect(linkAccount).not.toHaveBeenCalled();
+    } finally {
+      if (previous === undefined) delete process.env.AUTH_ALLOWED_EMAIL_DOMAINS;
+      else process.env.AUTH_ALLOWED_EMAIL_DOMAINS = previous;
+      resetAppConfigForTests();
+    }
+  });
+
+  it("refreshes verification for an already-linked Google account", async () => {
+    const { adapter, updateUser } = adapterFor({
+      user: {
+        id: "existing-user",
+        email: "owner@example.com",
+        emailVerified: false,
+      },
+      accounts: [{ providerId: "google", accountId: "google-sub-1" }],
+    });
+    await ensureGoogleAuthIdentityWithAdapter(adapter, {
+      email: "owner@example.com",
+      accountId: "google-sub-1",
+    });
+    expect(updateUser).toHaveBeenCalledWith("existing-user", {
+      emailVerified: true,
+    });
+  });
+
   it("creates a verified canonical user and Google account", async () => {
     const { adapter, createOAuthUser } = adapterFor();
 

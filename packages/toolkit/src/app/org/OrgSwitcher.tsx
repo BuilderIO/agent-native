@@ -97,6 +97,10 @@ export interface OrgSwitcherProps {
   reserveSpace?: boolean;
   /** Render its Builder credit notice elsewhere in the sidebar. */
   hideBuilderCreditNotice?: boolean;
+  /** Omit workspace creation when the app owns its own workspace entry flow. */
+  hideCreateOrganization?: boolean;
+  /** Omit the shared usage destination when it is not part of the app menu. */
+  hideUsage?: boolean;
   /**
    * Avatar-only trigger for collapsed sidebar rails. The menu, and with it the
    * org list, pending invitations and "Join your team", is identical; dropping
@@ -463,6 +467,8 @@ export function OrgSwitcher({
   reserveSpace,
   compact,
   hideBuilderCreditNotice,
+  hideCreateOrganization,
+  hideUsage,
   utilityLinks,
 }: OrgSwitcherProps) {
   const { data: org, isLoading, dataUpdatedAt } = useOrg();
@@ -660,7 +666,8 @@ export function OrgSwitcher({
     shouldOfferWorkspace(window.location.href, org.workspaceUrl)
       ? org.workspaceUrl
       : null;
-  const canCreateOrg = org.access?.orgCreation !== "closed";
+  const canCreateOrg =
+    !hideCreateOrganization && org.access?.orgCreation !== "closed";
   const links = utilityLinks ?? [];
   const menuError = (switchOrg.error ||
     acceptInvitation.error ||
@@ -705,13 +712,16 @@ export function OrgSwitcher({
             />
           ) : null}
           <span className="truncate">{organizationLabel}</span>
-          {demoModeEnabled && (
-            <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-primary/10 px-1.5 text-[10px] font-medium text-primary">
-              <IconPresentation className="size-3" aria-hidden="true" />
-              {t("agentChat.accountMenu.demoMode")}
-            </span>
-          )}
         </span>
+        {/* The demo-mode badge takes its own line beneath the org row: on the org line it was
+            the only item that could not shrink (`truncate` zeroes the name's automatic minimum),
+            so a narrow sidebar collapsed the name to a few pixels. */}
+        {demoModeEnabled && (
+          <span className="mt-0.5 inline-flex w-fit shrink-0 items-center gap-0.5 rounded-full bg-primary/10 px-1.5 text-[10px] font-medium leading-tight text-primary">
+            <IconPresentation className="size-3" aria-hidden="true" />
+            {t("agentChat.accountMenu.demoMode")}
+          </span>
+        )}
       </span>
       <IconSelector className="size-3.5 shrink-0 text-muted-foreground" />
     </button>
@@ -923,11 +933,13 @@ export function OrgSwitcher({
             {settingsShortcut}
           </DropdownMenuShortcut>
         </DropdownMenuItem>
-        <DropdownMenuItem
-          onSelect={() => void navigate(buildSettingsRoute("usage"))}
-        >
-          <span className="flex-1">{t("agentChat.accountMenu.usage")}</span>
-        </DropdownMenuItem>
+        {!hideUsage && (
+          <DropdownMenuItem
+            onSelect={() => void navigate(buildSettingsRoute("usage"))}
+          >
+            <span className="flex-1">{t("agentChat.accountMenu.usage")}</span>
+          </DropdownMenuItem>
+        )}
         {links.length > 0 && (
           <DropdownMenuItem
             onSelect={(event) => {

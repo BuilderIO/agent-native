@@ -286,7 +286,7 @@ describe("WORKSPACE_CONNECTIONS_MIGRATIONS", () => {
           "SELECT MAX(version) AS version FROM workspace_group_runner_migrations",
         )
         .get();
-      expect(version?.version).toBe(14);
+      expect(version?.version).toBe(15);
     } finally {
       vi.clearAllMocks();
       await pglite.close();

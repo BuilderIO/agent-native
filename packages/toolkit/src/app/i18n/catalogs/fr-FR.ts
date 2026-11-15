@@ -494,6 +494,10 @@ const messages: ToolkitAgentChatTranslation = {
   "history.searching": "Recherche...",
   "history.untitledChat": "Chat",
   "history.yesterday": "Hier",
+  "history.today": "Aujourd'hui",
+  "commandMenu.systemGroup": "Application",
+  "share.alreadyInvited": "Déjà invité",
+  "share.notInvitedToPage": "Non invité sur la page",
   "history.mine": "Mes chats",
   "history.sharedWithYou": "Partagés avec vous",
   "history.showAll": "Tout afficher",
@@ -1467,7 +1471,7 @@ const messages: ToolkitAgentChatTranslation = {
   "errorMessages.invalidAttachment":
     "Le fournisseur du modèle a rejeté cette pièce jointe en raison de son format ou de sa taille. Pour les images, exportez une version plus petite en PNG, JPEG, GIF ou WebP ; pour les documents, utilisez un format de fichier pris en charge ou collez le texte pertinent, puis joignez-le à nouveau.",
   "errorMessages.noProviderConnected":
-    "Aucun fournisseur LLM n’est connecté. Ouvrez Paramètres > Agent > Fournisseurs IA, puis utilisez Builder.io (offre gratuite disponible) ou ajoutez une clé de fournisseur.",
+    "Aucun fournisseur LLM n’est connecté. Ouvrez Paramètres > Agent > Fournisseurs IA, puis connectez Builder.io ou ajoutez une clé de fournisseur.",
   "errorMessages.openBuilderSpaceSettings":
     "Ouvrir les paramètres de l’espace Builder",
   "errorMessages.providerAuthentication":
@@ -2382,6 +2386,10 @@ const messages: ToolkitAgentChatTranslation = {
   "settingsShell.account.passwordSaved": "Mot de passe mis à jour",
   "settingsShell.account.photoError": "Impossible de mettre à jour la photo.",
   "settingsShell.account.photoUpdated": "Photo mise à jour",
+  "settingsShell.account.photoRemoved": "Photo supprimée",
+  "settingsShell.account.removePhoto": "Supprimer la photo",
+  "settingsShell.account.emailDeliveryUnavailable":
+    "L'envoi d'e-mails n'est pas configuré ici",
   "settingsShell.account.profilePhoto": "Photo de profil",
   "settingsShell.account.requestCopyDescription":
     "Un administrateur vérifie votre identité et assure le suivi.",
@@ -3675,7 +3683,8 @@ const messages: ToolkitAgentChatTranslation = {
   "message.responseFailed": "Échec de la réponse",
   "message.waitingForApproval": "En attente d’approbation",
   "message.waitingForInput": "En attente d’une réponse",
-  "message.workSummaryFailedCount": "{{summary}}, {{count}} en échec",
+  "message.workSummaryFailedCount":
+    "{{summary}}, tentatives échouées : {{count}}",
   "message.taskStatusPending": "En attente",
   "message.taskStatusRunning": "En cours",
   "message.taskStatusCompleted": "Terminé",

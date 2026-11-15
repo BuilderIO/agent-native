@@ -34,6 +34,28 @@ export function escapeLikeTerm(value: string): string {
   return value.replace(/[\\%_]/g, (match) => `\\${match}`);
 }
 
+/**
+ * A LIKE pattern that finds `value` as a literal substring.
+ *
+ * Typed search text is a value, not a pattern: a reader who types `50%` means the
+ * characters `5`, `0`, `%`, so the wildcard cannot come from the query. Every
+ * `ilike(column, ...)`/`LIKE` containment filter is built from this helper, which
+ * is the one place that escapes LIKE metacharacters for the whole fleet.
+ */
+export function likeContainsPattern(value: string): string {
+  return `%${escapeLikeTerm(value)}%`;
+}
+
+/** The same literal rule for a prefix match: `contains` with one wildcard. */
+export function likeStartsWithPattern(value: string): string {
+  return `${escapeLikeTerm(value)}%`;
+}
+
+/** The same literal rule for a suffix match. */
+export function likeEndsWithPattern(value: string): string {
+  return `%${escapeLikeTerm(value)}`;
+}
+
 export function normalizeSearchTerms(query: string): string[] {
   const phrase = query
     .toLowerCase()

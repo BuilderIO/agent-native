@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   getSession: vi.fn(),
+  getRequestIdentityAuthenticatedAtMs: vi.fn(),
   getOrgContext: vi.fn(),
   getAppProductionUrl: vi.fn(),
   getForwardedRequestOrigin: vi.fn(),
@@ -21,6 +22,8 @@ vi.mock("@agent-native/core/server", async (importOriginal) => {
     getAppProductionUrl: mocks.getAppProductionUrl,
     getForwardedRequestOrigin: mocks.getForwardedRequestOrigin,
     getSession: mocks.getSession,
+    getRequestIdentityAuthenticatedAtMs:
+      mocks.getRequestIdentityAuthenticatedAtMs,
     resolveAppRuntimeUrl: mocks.resolveAppRuntimeUrl,
   };
 });
@@ -41,6 +44,7 @@ vi.mock("./mcp-gateway.js", () => ({
 
 import {
   clearWorkspaceAppChatSessions,
+  exchangeEmbedStartUrl,
   createWorkspaceAppChatProxyHandler,
 } from "./workspace-app-chat-proxy.js";
 
@@ -116,6 +120,7 @@ function stubFetch(
 describe("workspace app chat proxy", () => {
   beforeEach(() => {
     clearWorkspaceAppChatSessions();
+    mocks.getRequestIdentityAuthenticatedAtMs.mockReturnValue(1700000000000);
     mocks.getSession.mockResolvedValue({ email: "owner@example.com" });
     mocks.getOrgContext.mockResolvedValue({ orgId: "org-1" });
     mocks.getAppProductionUrl.mockReturnValue(
@@ -140,7 +145,9 @@ describe("workspace app chat proxy", () => {
           chrome: "minimal",
         });
         return {
-          startUrl: result.startUrl,
+          token: embedToken(),
+          expiresAt: Date.now() + 3600000,
+          targetPath: "/",
           appBaseUrl: new URL(result.startUrl).origin,
         };
       },
@@ -153,7 +160,9 @@ describe("workspace app chat proxy", () => {
           chrome: "minimal",
         });
         return {
-          startUrl: result.startUrl,
+          token: embedToken(),
+          expiresAt: Date.now() + 3600000,
+          targetPath: "/",
           appBaseUrl: new URL(result.startUrl).origin,
         };
       },
@@ -180,11 +189,11 @@ describe("workspace app chat proxy", () => {
 
     expect(response.status).toBe(200);
     const chatCall = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock
-      .calls[1];
+      .calls[0];
     expect(chatCall[0]).toBe(`${APP_ORIGIN}/_agent-native/agent-chat`);
     const headers = chatCall[1].headers as Headers;
     expect(headers.get("authorization")).toMatch(/^Bearer /);
-    expect(headers.get("x-agent-native-embed-target")).toBe("/");
+    expect(headers.get("x-agent-native-embed-target")).toBeNull();
     expect(headers.get("x-agent-native-csrf")).toBe("1");
     expect(headers.get("cookie")).toBeNull();
   });
@@ -193,7 +202,9 @@ describe("workspace app chat proxy", () => {
     const appId = "customer-ticket-triage";
     const appBaseUrl = `${WORKSPACE_ORIGIN}/dispatch/apps/${appId}`;
     mocks.createWorkspaceSsoEmbedSessionForWorkspaceAppChat.mockResolvedValue({
-      startUrl: `${WORKSPACE_ORIGIN}/dispatch/_agent-native/embed/start?ticket=ticket-1`,
+      token: embedToken(),
+      expiresAt: Date.now() + 3600000,
+      targetPath: "/",
       appBaseUrl,
     });
     const fetchImpl = stubFetch(() => new Response("ok", { status: 200 }), {
@@ -212,74 +223,53 @@ describe("workspace app chat proxy", () => {
 
     expect(response.status).toBe(200);
     const chatCall = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock
-      .calls[1];
+      .calls[0];
     expect(chatCall[0]).toBe(`${appBaseUrl}/_agent-native/agent-chat`);
     expect(
       (chatCall[1].headers as Headers).get("x-agent-native-embed-target"),
-    ).toBe(`/dispatch/apps/${appId}/`);
+    ).toBeNull();
   });
 
-  it("does not send an embed token to a sibling app on the same origin", async () => {
-    const appId = "customer-ticket-triage";
-    mocks.createWorkspaceSsoEmbedSessionForWorkspaceAppChat.mockResolvedValue({
-      startUrl: `${WORKSPACE_ORIGIN}/dispatch/_agent-native/embed/start?ticket=ticket-1`,
-      appBaseUrl: `${WORKSPACE_ORIGIN}/dispatch/apps/${appId}`,
-    });
-    const fetchImpl = stubFetch(
-      () => new Response("unexpected", { status: 200 }),
-      {
-        redirectLocation: (token) =>
-          `/dispatch/apps/other-app/?embedded=1&__an_embed_token=${encodeURIComponent(token)}`,
-      },
-    );
-    const handler = createWorkspaceAppChatProxyHandler({ fetchImpl });
-
-    const response = await handler(
-      proxyEvent(`/_agent-native/workspace-app-chat/${appId}`, {
-        method: "POST",
-      }),
-    );
-
-    expect(response.status).toBe(502);
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
-    expect(((await response.json()) as { error: string }).error).toContain(
+  it.each([
+    [
+      "a sibling app",
+      "/dispatch/apps/other-app/?__an_embed_token=token",
       "outside its app mount",
-    );
-  });
-
-  it("rejects encoded path segments before forwarding an embed token", async () => {
-    const appId = "customer-ticket-triage";
-    mocks.createWorkspaceSsoEmbedSessionForWorkspaceAppChat.mockResolvedValue({
-      startUrl: `${WORKSPACE_ORIGIN}/dispatch/_agent-native/embed/start?ticket=ticket-1`,
-      appBaseUrl: `${WORKSPACE_ORIGIN}/dispatch/apps/${appId}`,
-    });
-    const fetchImpl = stubFetch(
-      () => new Response("unexpected", { status: 200 }),
-      {
-        redirectLocation: () =>
-          `/dispatch/apps/${appId}%2F..%2Fother-app/?embedded=1&__an_embed_token=encoded`,
-      },
-    );
-    const handler = createWorkspaceAppChatProxyHandler({ fetchImpl });
-
-    const response = await handler(
-      proxyEvent(`/_agent-native/workspace-app-chat/${appId}`, {
-        method: "POST",
-      }),
-    );
-
-    expect(response.status).toBe(502);
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
-    expect(((await response.json()) as { error: string }).error).toContain(
+    ],
+    [
+      "encoded traversal",
+      "/dispatch/apps/customer-ticket-triage%2F..%2Fother-app/?__an_embed_token=token",
       "outside its app mount",
-    );
-  });
+    ],
+    [
+      "another origin",
+      "https://attacker.example/?__an_embed_token=token",
+      "untrusted origin",
+    ],
+  ])(
+    "keeps document exchange from sending an embed token to %s",
+    async (_name, location, error) => {
+      const fetchImpl = stubFetch(() => new Response("unexpected"), {
+        redirectLocation: () => location,
+      });
+      await expect(
+        exchangeEmbedStartUrl(
+          `${WORKSPACE_ORIGIN}/dispatch/_agent-native/embed/start?ticket=ticket-1`,
+          `${WORKSPACE_ORIGIN}/dispatch/apps/customer-ticket-triage`,
+          fetchImpl,
+        ),
+      ).rejects.toThrow(error);
+      expect(fetchImpl).toHaveBeenCalledTimes(1);
+    },
+  );
 
   it("allows an encoded app mount when the redirect preserves that mount", async () => {
     const appId = "customer-ticket-triage";
     const appBaseUrl = `${WORKSPACE_ORIGIN}/dispatch/apps/customer%20ticket-triage`;
     mocks.createWorkspaceSsoEmbedSessionForWorkspaceAppChat.mockResolvedValue({
-      startUrl: `${WORKSPACE_ORIGIN}/dispatch/_agent-native/embed/start?ticket=ticket-1`,
+      token: embedToken(),
+      expiresAt: Date.now() + 3600000,
+      targetPath: "/",
       appBaseUrl,
     });
     const fetchImpl = stubFetch(() => new Response("ok", { status: 200 }), {
@@ -295,31 +285,8 @@ describe("workspace app chat proxy", () => {
     );
 
     expect(response.status).toBe(200);
-    const chatCall = fetchImpl.mock.calls[1];
+    const chatCall = fetchImpl.mock.calls[0];
     expect(chatCall[0]).toBe(`${appBaseUrl}/_agent-native/agent-chat`);
-  });
-
-  it("does not send an embed token to a cross-origin exchange redirect", async () => {
-    const fetchImpl = stubFetch(
-      () => new Response("unexpected", { status: 200 }),
-      {
-        redirectLocation: (token) =>
-          `https://attacker.example/?__an_embed_token=${encodeURIComponent(token)}`,
-      },
-    );
-    const handler = createWorkspaceAppChatProxyHandler({ fetchImpl });
-
-    const response = await handler(
-      proxyEvent("/_agent-native/workspace-app-chat/analytics", {
-        method: "POST",
-      }),
-    );
-
-    expect(response.status).toBe(502);
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
-    expect(((await response.json()) as { error: string }).error).toContain(
-      "untrusted origin",
-    );
   });
 
   it("preserves a configured request origin for both embed-session signing paths", async () => {
@@ -366,6 +333,10 @@ describe("workspace app chat proxy", () => {
   });
 
   it("ignores untrusted forwarded origins for context and session caching", async () => {
+    mocks.getSession.mockResolvedValue({
+      email: "owner@example.com",
+      token: "verified-session",
+    });
     const requestOrigins = [
       "https://attacker-one.example",
       "https://attacker-two.example",
@@ -442,7 +413,7 @@ describe("workspace app chat proxy", () => {
     );
 
     const chatCall = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock
-      .calls[1];
+      .calls[0];
     expect(chatCall[0]).toBe(
       `${APP_ORIGIN}/_agent-native/agent-chat/runs/active?threadId=t-1`,
     );
@@ -461,7 +432,7 @@ describe("workspace app chat proxy", () => {
 
     expect(response.status).toBe(200);
     const chatCall = (fetchImpl as unknown as ReturnType<typeof vi.fn>).mock
-      .calls[1];
+      .calls[0];
     expect(chatCall[0]).toBe(`${APP_ORIGIN}/_agent-native/agent-chat/mode`);
   });
 
@@ -547,22 +518,11 @@ describe("workspace app chat proxy", () => {
     expect(fetchImpl).not.toHaveBeenCalled();
   });
 
-  it("reports an error when the app rejects the embed ticket exchange", async () => {
-    const fetchImpl = stubFetch(() => new Response("ok", { status: 200 }), {
-      startStatus: 401,
-    });
-    const handler = createWorkspaceAppChatProxyHandler({ fetchImpl });
-
-    const response = await handler(
-      proxyEvent("/_agent-native/workspace-app-chat/analytics", {
-        method: "POST",
-      }),
-    );
-
-    expect(response.status).toBe(502);
-    expect(((await response.json()) as { error: string }).error).toContain(
-      "status 401",
-    );
+  it("retains rejection of a document ticket exchange denied by the app", async () => {
+    const fetchImpl = stubFetch(() => new Response("ok"), { startStatus: 401 });
+    await expect(
+      exchangeEmbedStartUrl(START_URL, APP_ORIGIN, fetchImpl),
+    ).rejects.toThrow("status 401");
   });
 
   it("reports an error when the app's server is unreachable", async () => {
@@ -611,6 +571,10 @@ describe("workspace app chat proxy", () => {
   });
 
   it("reuses one app session across requests and re-mints after a rejection", async () => {
+    mocks.getSession.mockResolvedValue({
+      email: "owner@example.com",
+      token: "verified-session",
+    });
     const chatStatuses = [200, 401, 200];
     let call = 0;
     const fetchImpl = stubFetch(
@@ -632,10 +596,98 @@ describe("workspace app chat proxy", () => {
     expect(mocks.createWorkspaceSsoEmbedSession).toHaveBeenCalledTimes(2);
   });
 
+  it("does not retain token-less sessions, even when authentication timestamps repeat", async () => {
+    mocks.getSession.mockResolvedValue({ email: "owner@example.com" });
+    const handler = createWorkspaceAppChatProxyHandler({
+      fetchImpl: stubFetch(() => new Response("ok")),
+    });
+    for (let i = 0; i < 3; i++) {
+      expect(
+        (
+          await handler(
+            proxyEvent("/_agent-native/workspace-app-chat/analytics/mode"),
+          )
+        ).status,
+      ).toBe(200);
+    }
+    expect(
+      mocks.createWorkspaceSsoEmbedSessionForWorkspaceAppChat,
+    ).toHaveBeenCalledTimes(3);
+  });
+
+  it("bounds retained sessions and evicts the oldest when the cache fills", async () => {
+    const handler = createWorkspaceAppChatProxyHandler({
+      fetchImpl: stubFetch(() => new Response("ok")),
+    });
+    const send = async (token: string) => {
+      mocks.getSession.mockResolvedValue({ email: "owner@example.com", token });
+      expect(
+        (
+          await handler(
+            proxyEvent("/_agent-native/workspace-app-chat/analytics/mode"),
+          )
+        ).status,
+      ).toBe(200);
+    };
+    for (let i = 0; i < 129; i++) await send(`verified-session-${i}`);
+    expect(
+      mocks.createWorkspaceSsoEmbedSessionForWorkspaceAppChat,
+    ).toHaveBeenCalledTimes(129);
+    await send("verified-session-128");
+    expect(
+      mocks.createWorkspaceSsoEmbedSessionForWorkspaceAppChat,
+    ).toHaveBeenCalledTimes(129);
+    await send("verified-session-0");
+    expect(
+      mocks.createWorkspaceSsoEmbedSessionForWorkspaceAppChat,
+    ).toHaveBeenCalledTimes(130);
+  });
+
+  it("sweeps expired entries before evicting a live session", async () => {
+    let now = 1800000000000;
+    vi.spyOn(Date, "now").mockImplementation(() => now);
+    const handler = createWorkspaceAppChatProxyHandler({
+      fetchImpl: stubFetch(() => new Response("ok")),
+    });
+    const send = async (token: string) => {
+      mocks.getSession.mockResolvedValue({ email: "owner@example.com", token });
+      expect(
+        (
+          await handler(
+            proxyEvent("/_agent-native/workspace-app-chat/analytics/mode"),
+          )
+        ).status,
+      ).toBe(200);
+    };
+    await send("oldest-live");
+    mocks.createWorkspaceSsoEmbedSessionForWorkspaceAppChat.mockResolvedValueOnce(
+      {
+        appBaseUrl: APP_ORIGIN,
+        token: embedToken(301),
+        expiresAt: now + 301000,
+      },
+    );
+    await send("short-lived");
+    for (let i = 0; i < 126; i++) await send(`other-live-${i}`);
+    now += 302000;
+    await send("new-live");
+    await send("oldest-live");
+    expect(
+      mocks.createWorkspaceSsoEmbedSessionForWorkspaceAppChat,
+    ).toHaveBeenCalledTimes(129);
+    await send("short-lived");
+    expect(
+      mocks.createWorkspaceSsoEmbedSessionForWorkspaceAppChat,
+    ).toHaveBeenCalledTimes(130);
+  });
+
   it("refuses an embed token with no readable expiry rather than guessing one", async () => {
-    const fetchImpl = stubFetch(() => new Response("ok", { status: 200 }), {
+    mocks.createWorkspaceSsoEmbedSessionForWorkspaceAppChat.mockResolvedValue({
+      appBaseUrl: APP_ORIGIN,
+      expiresAt: Date.now() + 3600000,
       token: `${Buffer.from(JSON.stringify({ ownerEmail: "o@e.com" })).toString("base64url")}.sig`,
     });
+    const fetchImpl = stubFetch(() => new Response("ok", { status: 200 }));
     const handler = createWorkspaceAppChatProxyHandler({ fetchImpl });
 
     const response = await handler(
@@ -649,4 +701,125 @@ describe("workspace app chat proxy", () => {
       "no usable expiry",
     );
   });
+  it("does not expose the server-held chat credential or request a browser embed redirect", async () => {
+    const token = embedToken();
+    mocks.createWorkspaceSsoEmbedSessionForWorkspaceAppChat.mockResolvedValue({
+      token,
+      expiresAt: Date.now() + 3600000,
+      appBaseUrl: APP_ORIGIN,
+      targetPath: "/",
+    });
+    const fetchImpl = vi.fn(
+      async () =>
+        new Response("ok", { headers: { "set-cookie": `chat=${token}` } }),
+    );
+    const response = await createWorkspaceAppChatProxyHandler({ fetchImpl })(
+      proxyEvent("/_agent-native/workspace-app-chat/analytics/mode"),
+    );
+    expect(response.status).toBe(200);
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+    expect(fetchImpl.mock.calls[0][0]).toBe(
+      `${APP_ORIGIN}/_agent-native/agent-chat/mode`,
+    );
+    expect(response.headers.get("set-cookie")).toBeNull();
+    expect(response.headers.get("location")).toBeNull();
+    expect(await response.text()).toBe("ok");
+  });
+
+  it("does not reuse a cached grant after re-authentication", async () => {
+    const fetchImpl = stubFetch(() => new Response("ok"));
+    const handler = createWorkspaceAppChatProxyHandler({ fetchImpl });
+    expect(
+      (
+        await handler(
+          proxyEvent("/_agent-native/workspace-app-chat/analytics/mode"),
+        )
+      ).status,
+    ).toBe(200);
+    mocks.getRequestIdentityAuthenticatedAtMs.mockReturnValue(1700000001000);
+    expect(
+      (
+        await handler(
+          proxyEvent("/_agent-native/workspace-app-chat/analytics/mode"),
+        )
+      ).status,
+    ).toBe(200);
+    expect(
+      mocks.createWorkspaceSsoEmbedSessionForWorkspaceAppChat,
+    ).toHaveBeenCalledTimes(2);
+  });
+
+  it("refuses chat when the authenticated identity has no sign-in provenance", async () => {
+    mocks.getSession.mockResolvedValue({ email: "owner@example.com" });
+    mocks.getRequestIdentityAuthenticatedAtMs.mockReturnValue(undefined);
+    const fetchImpl = vi.fn();
+    const response = await createWorkspaceAppChatProxyHandler({ fetchImpl })(
+      proxyEvent("/_agent-native/workspace-app-chat/analytics/mode"),
+    );
+    expect(response.status).toBe(401);
+    expect(fetchImpl).not.toHaveBeenCalled();
+    expect(
+      mocks.createWorkspaceSsoEmbedSessionForWorkspaceAppChat,
+    ).not.toHaveBeenCalled();
+    expect(
+      mocks.createGrantedDispatchMcpEmbedSessionForWorkspaceAppChat,
+    ).not.toHaveBeenCalled();
+  });
+  it("reuses a stable verified session despite per-request authentication timestamps, then isolates re-login", async () => {
+    mocks.getSession.mockResolvedValue({
+      email: "owner@example.com",
+      token: "verified-session-one",
+    });
+    const fetchImpl = stubFetch(() => new Response("ok"));
+    const handler = createWorkspaceAppChatProxyHandler({ fetchImpl });
+    const request = () =>
+      handler(proxyEvent("/_agent-native/workspace-app-chat/analytics/mode"));
+    expect((await request()).status).toBe(200);
+    mocks.getRequestIdentityAuthenticatedAtMs.mockReturnValue(1700000001000);
+    expect((await request()).status).toBe(200);
+    expect(
+      mocks.createWorkspaceSsoEmbedSessionForWorkspaceAppChat,
+    ).toHaveBeenCalledTimes(1);
+    mocks.getSession.mockResolvedValue({
+      email: "owner@example.com",
+      token: "verified-session-two",
+    });
+    expect((await request()).status).toBe(200);
+    expect(
+      mocks.createWorkspaceSsoEmbedSessionForWorkspaceAppChat,
+    ).toHaveBeenCalledTimes(2);
+  });
+
+  it.each([
+    Object.assign(new Error("Refused"), { status: 401 }),
+    Object.assign(new Error("Refused"), { status: 403 }),
+    Object.assign(new Error("Refused"), { statusCode: 403 }),
+    Object.assign(new Error("Refused"), {
+      name: "TargetMcpAuthenticationRejectedError",
+    }),
+  ])(
+    "never retries a refused private mint through an app grant: %o",
+    async (refusal) => {
+      mocks.createWorkspaceSsoEmbedSessionForWorkspaceAppChat.mockRejectedValue(
+        refusal,
+      );
+      mocks.createGrantedDispatchMcpEmbedSessionForWorkspaceAppChat.mockResolvedValue(
+        {
+          token: embedToken(),
+          expiresAt: Date.now() + 3600000,
+          appBaseUrl: APP_ORIGIN,
+          targetPath: "/",
+        },
+      );
+      const fetchImpl = stubFetch(() => new Response("ok"));
+      const response = await createWorkspaceAppChatProxyHandler({ fetchImpl })(
+        proxyEvent("/_agent-native/workspace-app-chat/analytics/mode"),
+      );
+      expect(response.status).toBe(502);
+      expect(
+        mocks.createGrantedDispatchMcpEmbedSessionForWorkspaceAppChat,
+      ).not.toHaveBeenCalled();
+      expect(fetchImpl).not.toHaveBeenCalled();
+    },
+  );
 });

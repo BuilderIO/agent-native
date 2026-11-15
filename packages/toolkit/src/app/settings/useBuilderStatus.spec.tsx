@@ -21,6 +21,11 @@ import {
 } from "./useBuilderStatus.js";
 
 const toolkitI18nCatalog = createToolkitI18nCatalog({ messages: {} });
+const disconnectActionMock = vi.hoisted(() => vi.fn());
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
+  callAction: (...args: unknown[]) => disconnectActionMock(...args),
+}));
 
 vi.mock("@agent-native/core/client/mcp-app-host", () => ({
   openMcpAppHostLink: vi.fn(() => false),
@@ -99,6 +104,13 @@ function BuilderConnectProbeContent({
       >
         Connect
       </button>
+      <button
+        data-testid="disconnect"
+        onClick={() => void flow.disconnect?.("org").catch(() => {})}
+      >
+        Disconnect grant
+      </button>
+      {flow.grants?.org ? <span>stored-grant</span> : null}
       {flow.connecting ? (
         <button
           type="button"
@@ -536,6 +548,151 @@ describe("useBuilderConnectFlow", () => {
     Reflect.deleteProperty(window.location, "hostname");
     vi.useRealTimers();
     vi.unstubAllGlobals();
+  });
+
+  it("keeps reauthorization alive while the previous grant is expired, then observes its replacement", async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date("2026-05-14T12:00:00.000Z"));
+    const popup = createPopupStub();
+    openSpy.mockReturnValue(popup);
+    let replaced = false;
+    vi.mocked(fetch).mockImplementation(async () =>
+      jsonResponse(
+        replaced
+          ? connectedBuilderStatus
+          : {
+              ...connectedBuilderStatus,
+              configured: false,
+              builderReauthorizationRequired: true,
+              connectError: {
+                message: "Builder access expired",
+                at: Date.now(),
+              },
+              grants: { org: { connectedAt: 1, needsReconnect: true } },
+            },
+      ),
+    );
+    await act(async () => root.render(<BuilderConnectProbe />));
+    await act(async () => vi.advanceTimersByTimeAsync(300));
+    await act(async () => container.querySelector("button")?.click());
+    await act(async () => vi.advanceTimersByTimeAsync(2500));
+    expect(container.textContent).toContain("Cancel");
+    expect(container.textContent).not.toContain(
+      "Couldn't save Builder credentials",
+    );
+    replaced = true;
+    await act(async () => vi.advanceTimersByTimeAsync(2500));
+    expect(container.textContent).toContain("configured");
+    expect(container.textContent).not.toContain("not-configured");
+    expect(container.textContent).not.toContain("Cancel");
+  });
+
+  it.each([true, false])(
+    "optimistically disconnects an expired grant and rolls back only on error (success=%s)",
+    async (success) => {
+      let disconnected = false;
+      let resolveAction!: (value: unknown) => void;
+      let rejectAction!: (reason: Error) => void;
+      disconnectActionMock.mockReset();
+      disconnectActionMock.mockReturnValue(
+        new Promise((resolve, reject) => {
+          resolveAction = resolve;
+          rejectAction = reject;
+        }),
+      );
+      const statusFetchMock = vi.mocked(fetch);
+      statusFetchMock.mockImplementation(async () =>
+        jsonResponse({
+          ...connectedBuilderStatus,
+          configured: false,
+          effective: null,
+          canConnect: { org: true, personal: false },
+          grants: disconnected
+            ? {}
+            : { org: { connectedAt: 1, needsReconnect: true } },
+        }),
+      );
+      await act(async () => root.render(<BuilderConnectProbe />));
+      await flushAfterPaint();
+      expect(container.textContent).toContain("stored-grant");
+      let resolveStaleStatus!: (response: Response) => void;
+      statusFetchMock.mockReturnValueOnce(
+        new Promise((resolve) => {
+          resolveStaleStatus = resolve;
+        }),
+      );
+      await act(async () => window.dispatchEvent(new Event("focus")));
+      await act(async () =>
+        (
+          container.querySelector(
+            '[data-testid="disconnect"]',
+          ) as HTMLButtonElement
+        ).click(),
+      );
+      expect(disconnectActionMock).toHaveBeenCalledWith(
+        "manage-builder-connection",
+        { disconnect: "org" },
+      );
+      expect(container.textContent).not.toContain("stored-grant");
+      await act(async () => {
+        resolveStaleStatus(
+          jsonResponse({
+            ...connectedBuilderStatus,
+            grants: { org: { connectedAt: 1, needsReconnect: true } },
+          }),
+        );
+        (
+          container.querySelector(
+            '[data-testid="disconnect"]',
+          ) as HTMLButtonElement
+        ).click();
+      });
+      expect(disconnectActionMock).toHaveBeenCalledTimes(1);
+      expect(container.textContent).not.toContain("stored-grant");
+      await act(async () => {
+        if (success) {
+          disconnected = true;
+          resolveAction({ disconnected: "org" });
+        } else rejectAction(new Error("Disconnect refused"));
+      });
+      if (success) expect(container.textContent).not.toContain("stored-grant");
+      else {
+        expect(container.textContent).toContain("stored-grant");
+        expect(container.textContent).toContain("Disconnect refused");
+      }
+    },
+  );
+
+  it("explains why a connect cannot start during a pending disconnect", async () => {
+    let resolveAction!: (value: unknown) => void;
+    disconnectActionMock.mockReturnValueOnce(
+      new Promise((resolve) => {
+        resolveAction = resolve;
+      }),
+    );
+    vi.mocked(fetch).mockResolvedValue(
+      jsonResponse({
+        ...connectedBuilderStatus,
+        configured: false,
+        effective: null,
+        grants: { org: { connectedAt: 1, needsReconnect: true } },
+      }),
+    );
+    await act(async () => root.render(<BuilderConnectProbe />));
+    await flushAfterPaint();
+    await act(async () =>
+      (
+        container.querySelector(
+          '[data-testid="disconnect"]',
+        ) as HTMLButtonElement
+      ).click(),
+    );
+    await act(async () => container.querySelector("button")?.click());
+    expect(container.textContent).toContain(
+      "Disconnect is still in progress. Try connecting again when it finishes.",
+    );
+    expect(openSpy).not.toHaveBeenCalled();
+    await act(async () => resolveAction({ disconnected: "org" }));
   });
 
   it("polls the neutral Builder connection-status route", async () => {

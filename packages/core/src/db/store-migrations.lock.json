@@ -449,6 +449,10 @@
     {
       "name": "chat-thread-inbox-runtime-schema",
       "checksum": null
+    },
+    {
+      "name": "edit-lineage",
+      "checksum": "eccb140e27fc907b"
     }
   ],
   "checkpoints": [
@@ -674,6 +678,10 @@
   "notifications": [
     {
       "name": "baseline",
+      "checksum": null
+    },
+    {
+      "name": "notification-archive",
       "checksum": null
     }
   ],
@@ -917,6 +925,10 @@
     {
       "name": "baseline",
       "checksum": null
+    },
+    {
+      "name": "source-app-provenance",
+      "checksum": null
     }
   ],
   "provider_corpus_jobs": [
@@ -1085,6 +1097,10 @@
     {
       "name": "removed-markers",
       "checksum": null
+    },
+    {
+      "name": "source-completeness",
+      "checksum": null
     }
   ],
   "sync_events": [
@@ -1217,6 +1233,10 @@
     {
       "name": "v14",
       "checksum": "75d25dd8c52ada33"
+    },
+    {
+      "name": "v15",
+      "checksum": "614ef3f9d1834088"
     }
   ]
 }

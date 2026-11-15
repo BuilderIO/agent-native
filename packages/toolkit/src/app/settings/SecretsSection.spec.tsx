@@ -630,6 +630,37 @@ describe("SecretsSection", () => {
     );
   });
 
+  it("draws the Set status in a shade that stays legible on a light card", async () => {
+    mockFetchWithSecrets([
+      {
+        key: "OPENAI_API_KEY",
+        label: "OpenAI API key",
+        description: "OpenAI services",
+        scope: "user",
+        kind: "api-key",
+        required: false,
+        status: "set",
+        source: "vault",
+        managedHere: false,
+        last4: "1234",
+      },
+    ]);
+
+    await act(async () => {
+      renderSecretsSection(root);
+    });
+
+    const pill = Array.from(container.querySelectorAll("span"))
+      .filter((span) => span.textContent?.trim() === "Set · Vault")
+      .at(-1);
+    expect(pill).toBeTruthy();
+    // green-500 on white is 2.2:1, under the 4.5:1 body-text floor; the light
+    // theme needs the darker shade and dark mode keeps the bright one.
+    expect(pill?.className).not.toMatch(/(^|\s)text-green-500(\s|$)/);
+    expect(pill?.className).toContain("text-green-700");
+    expect(pill?.className).toContain("dark:text-green-500");
+  });
+
   it("shows a Vault-provided key as shadowed with no Rotate/Remove", async () => {
     mockFetchWithSecrets([
       {

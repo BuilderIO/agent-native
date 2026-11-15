@@ -107,6 +107,57 @@ function makeNamedExec(options: {
   return exec;
 }
 
+describe("runMigrations – declaration order", () => {
+  afterEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("applies steps in version order even when the file lists them newest-first", async () => {
+    // content-app declared its widenings above an older narrowing step, so the old step ran last and
+    // re-narrowed a CHECK. A store must apply in version order whatever order its file uses.
+    // Mutant that fails this: iterating the source array as given, which runs v9 before v2.
+    const exec = makeNamedExec({ version: 0 });
+    vi.mocked(getDbExec).mockReturnValue(exec);
+    vi.mocked(createDbExec).mockResolvedValue(exec);
+    vi.mocked(getMigrationDatabaseUrl).mockReturnValue("postgres://direct");
+
+    const plugin = runMigrations(
+      [
+        {
+          version: 9,
+          name: "newest",
+          sql: "CREATE TABLE newest (id INTEGER);",
+        },
+        {
+          version: 2,
+          name: "middle",
+          sql: "CREATE TABLE middle (id INTEGER);",
+        },
+        {
+          version: 1,
+          name: "oldest",
+          sql: "CREATE TABLE oldest (id INTEGER);",
+        },
+      ],
+      { table: "order_migrations" },
+    );
+    await plugin(null);
+
+    const statements = exec.execute.mock.calls.map(([statement]) =>
+      typeof statement === "string" ? statement : statement.sql,
+    );
+    const created = statements.filter((sql) =>
+      /CREATE TABLE (oldest|middle|newest)/.test(sql),
+    );
+    // splitSqlStatements drops the trailing semicolon.
+    expect(created).toEqual([
+      "CREATE TABLE oldest (id INTEGER)",
+      "CREATE TABLE middle (id INTEGER)",
+      "CREATE TABLE newest (id INTEGER)",
+    ]);
+  });
+});
+
 describe("runMigrations – serverless request runtime", () => {
   const ENV_KEYS = [
     "NETLIFY",

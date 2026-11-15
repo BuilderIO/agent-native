@@ -16,6 +16,10 @@ crate-type = ["lib", "cdylib", "staticlib"]
 name = "Clips"
 path = "src/main.rs"
 
+[features]
+default = ["tauri-host"]
+tauri-host = []
+
 [build-dependencies]
 serde_json = "1"
 tauri-build = { version = "2", features = [] }

@@ -19,6 +19,7 @@ export { workspaceAppRoute } from "../shared/workspace-app-route";
 
 export interface WorkspaceAppSummary {
   id: string;
+  icon?: string;
   name: string;
   description?: string;
   whenToUse?: string[];

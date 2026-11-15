@@ -20,7 +20,7 @@
  *
  * This guard scans two kinds of migration sources (see git ls-files
  * filtering below): the JS/TS migration-entry arrays consumed by
- * `runMigrations()` (every "migrations.ts" module and every template's
+ * `runMigrations()` (every "migrations.ts" or "*-migrations.ts" module and every template's
  * "server/plugins/db.ts" plugin that embeds its array inline), and the raw
  * idempotent .sql files under a template's supabase/migrations directory.
  * It fails on:
@@ -118,14 +118,16 @@ function findMigrationSourceFiles() {
   })
     .split("\n")
     .filter(Boolean);
-  return tracked.filter((file) => {
-    if (NOT_A_MIGRATION_LIST.has(file)) return false;
-    if (file.endsWith(".spec.ts") || file.endsWith(".test.ts")) return false;
-    if (path.basename(file) === "migrations.ts") return true;
-    if (file.endsWith("server/plugins/db.ts")) return true;
-    if (/\/supabase\/migrations\/.*\.sql$/.test(file)) return true;
-    return isFrameworkStoreModule(file);
-  });
+  return tracked.filter(isMigrationSourceFile);
+}
+
+export function isMigrationSourceFile(file) {
+  if (NOT_A_MIGRATION_LIST.has(file)) return false;
+  if (file.endsWith(".spec.ts") || file.endsWith(".test.ts")) return false;
+  if (/(?:^|-)migrations\.ts$/.test(path.basename(file))) return true;
+  if (file.endsWith("server/plugins/db.ts")) return true;
+  if (/\/supabase\/migrations\/.*\.sql$/.test(file)) return true;
+  return isFrameworkStoreModule(file);
 }
 
 function readTemplateLiteral(src, start) {
@@ -428,8 +430,14 @@ function blockingAddColumnMatches(statementText) {
 }
 
 function scanFile(file) {
+  return scanMigrationSource(
+    file,
+    readFileSync(path.join(REPO_ROOT, file), "utf8"),
+  );
+}
+
+export function scanMigrationSource(file, src) {
   const violations = [];
-  const src = readFileSync(path.join(REPO_ROOT, file), "utf8");
   const lines = src.split("\n");
   const isSql = file.endsWith(".sql");
 
@@ -535,4 +543,8 @@ function main() {
   process.exit(1);
 }
 
-main();
+if (
+  process.argv[1] &&
+  path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
+)
+  main();

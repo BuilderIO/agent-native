@@ -7090,12 +7090,7 @@ const SCK_FINALIZE_TIMEOUT: Duration = Duration::from_secs(10);
 const SCK_STOP_TIMEOUT: Duration = Duration::from_secs(3);
 
 #[cfg(target_os = "macos")]
-static PENDING_CAPTURE_STOP_WORKERS: AtomicUsize = AtomicUsize::new(0);
-
-#[cfg(target_os = "macos")]
-pub(crate) fn pending_capture_stop_workers() -> usize {
-    PENDING_CAPTURE_STOP_WORKERS.load(Ordering::SeqCst)
-}
+pub(crate) use crate::capture_stop::{pending_capture_stop_workers, run_bounded_capture_stop};
 
 #[cfg(target_os = "macos")]
 pub(crate) fn refuse_if_capture_stop_pending() -> Result<(), String> {
@@ -7105,30 +7100,6 @@ pub(crate) fn refuse_if_capture_stop_pending() -> Result<(), String> {
         ));
     }
     Ok(())
-}
-
-#[cfg(target_os = "macos")]
-pub(crate) fn run_bounded_capture_stop<F>(stop: F, timeout: Duration) -> Result<(), String>
-where
-    F: FnOnce() -> Result<(), String> + Send + 'static,
-{
-    let (tx, rx) = std::sync::mpsc::sync_channel(1);
-    PENDING_CAPTURE_STOP_WORKERS.fetch_add(1, Ordering::SeqCst);
-    std::thread::spawn(move || {
-        let result = stop();
-        PENDING_CAPTURE_STOP_WORKERS.fetch_sub(1, Ordering::SeqCst);
-        let _ = tx.send(result);
-    });
-    match rx.recv_timeout(timeout) {
-        Ok(result) => result,
-        Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(format!(
-            "custom ScreenCaptureKit stop timed out after {}s; continuing finalization",
-            timeout.as_secs()
-        )),
-        Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
-            Err("custom ScreenCaptureKit stop worker disconnected".into())
-        }
-    }
 }
 
 #[cfg(all(test, target_os = "macos"))]
