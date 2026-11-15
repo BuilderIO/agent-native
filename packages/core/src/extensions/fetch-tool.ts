@@ -19,7 +19,6 @@ import {
   MAX_EXTENSION_PROXY_RESPONSE_SIZE,
   normalizeExtensionProxyMethod,
   readResponseBytesWithLimit,
-  readResponseTextWithLimit,
   redactSecrets,
   redactString,
   sanitizeOutboundHeaders,
@@ -52,6 +51,18 @@ function isHtmlResponseContentType(contentType: string): boolean {
     mediaType === "text/html" ||
     mediaType === "application/xhtml+xml" ||
     mediaType.endsWith("+html")
+  );
+}
+
+function isBinaryContentType(contentType: string): boolean {
+  const mediaType = contentType.toLowerCase();
+  if (mediaType.endsWith("+json") || mediaType.endsWith("+xml")) return false;
+  if (mediaType === "image/svg+xml") return false;
+  return (
+    /^(image|audio|video|font)\//.test(mediaType) ||
+    /^application\/(?:octet-stream|pdf|zip|x-zip-compressed|gzip|x-gzip|x-tar|x-bzip2|x-xz|zstd|x-rar-compressed|vnd\.rar|x-7z-compressed|wasm|protobuf|x-protobuf|msword|vnd\.ms-[^/]+|vnd\.openxmlformats-officedocument\.[^/]+|vnd\.oasis\.opendocument\.[^/]+)$/.test(
+      mediaType,
+    )
   );
 }
 
@@ -164,7 +175,7 @@ export function createFetchToolEntry(
         openWorldHint: true,
       },
       tool: {
-        description: `Make an outbound HTTP request to a URL you already know: APIs, webhooks, or web pages. If web-search is available, use it to discover URLs, find current information, or locate documentation first. In constrained callers without web-search, use a URL from context instead of guessing; do not use this to build Google or other search-engine queries. HTML/XHTML responses up to 20 MB are extracted before maxChars limits the response body; optional metadata and links can add characters. Raw and other inline responses remain capped at 1 MB. saveToFile can stage responses up to 20 MB. For HTML, it saves extracted Markdown or text unless responseMode is raw; with search, it returns bounded matches instead of a preview. Sends realistic Chrome-on-macOS headers by default; explicit headers override them. Supports \${keys.NAME} placeholders in url, headers, and body, resolved server-side so raw secrets never enter context. Never use this for internal /_agent-native/ endpoints or localhost action URLs; call registered actions directly.`,
+        description: `Make an outbound HTTP request to a URL you already know: APIs, webhooks, or web pages. If web-search is available, use it to discover URLs, find current information, or locate documentation first. In constrained callers without web-search, use a URL from context instead of guessing; do not use this to build Google or other search-engine queries. HTML/XHTML responses up to 20 MB are extracted before maxChars limits the response body; optional metadata and links can add characters. Raw and other inline responses remain capped at 1 MB. saveToFile can stage UTF-8 text responses up to 20 MB; binary requires configured blob/file storage via an appropriate app capability. For HTML, it saves extracted Markdown or text unless responseMode is raw; with search, it returns bounded matches instead of a preview. Sends realistic Chrome-on-macOS headers by default; explicit headers override them. Supports \${keys.NAME} placeholders in url, headers, and body, resolved server-side so raw secrets never enter context. Never use this for internal /_agent-native/ endpoints or localhost action URLs; call registered actions directly.`,
         parameters: {
           type: "object" as const,
           properties: {
@@ -241,7 +252,7 @@ export function createFetchToolEntry(
             saveToFile: {
               type: "string",
               description:
-                "Workspace path to stage a response up to 20 MB (e.g. 'scratch/research/page.md'). HTML saves full extracted Markdown/text unless responseMode is raw; non-HTML and raw mode save the response body. With search, returns matches bounded by maxChars and reports when source scanning was capped; without search, returns a preview.",
+                "Workspace path to stage UTF-8 text only, up to 20 MB (e.g. 'scratch/research/page.md'). Binary requires configured blob/file storage via an appropriate app capability. HTML saves full extracted Markdown/text unless responseMode is raw; non-HTML and raw mode save the response body. With search, returns matches bounded by maxChars and reports when source scanning was capped; without search, returns a preview.",
             },
           },
           required: ["url"],
@@ -478,7 +489,7 @@ export function createFetchToolEntry(
 
           let body: string;
           let bodyResult: {
-            text: string;
+            bytes: Uint8Array;
             truncated: boolean;
             size: number;
           };
@@ -488,7 +499,7 @@ export function createFetchToolEntry(
               ? MAX_WEB_REQUEST_HTML_BYTES
               : MAX_EXTENSION_PROXY_RESPONSE_SIZE;
           try {
-            bodyResult = await readResponseTextWithLimit(response, readLimit);
+            bodyResult = await readResponseBytesWithLimit(response, readLimit);
           } catch {
             fail("(could not read response body)", {
               errorCode: httpErrorCode ?? "web_request_body_unreadable",
@@ -512,7 +523,24 @@ export function createFetchToolEntry(
               },
             );
           }
-          body = bodyResult.text;
+          if (saveToFilePath) {
+            const binaryError = () =>
+              fail(
+                `HTTP ${response.status} ${response.statusText}\n\nsaveToFile stores UTF-8 text only. Binary data requires configured blob/file storage via an appropriate app capability.`,
+                { errorCode: httpErrorCode ?? "web_request_binary_response" },
+              );
+            if (isBinaryContentType(contentType)) binaryError();
+            try {
+              body = new TextDecoder("utf-8", { fatal: true }).decode(
+                bodyResult.bytes,
+              );
+            } catch {
+              return binaryError();
+            }
+            if (body.includes("\0")) binaryError();
+          } else {
+            body = new TextDecoder().decode(bodyResult.bytes);
+          }
           body = redactString(body, secretValues);
           if (response.ok) {
             const { providerApiResponseOutcomeForUrl } =
@@ -631,23 +659,33 @@ export function createFetchToolEntry(
                   ? { scope: "user" as const, scopeId: email }
                   : null;
               if (!scope)
-                throw new Error("No authenticated context for saveToFile");
+                fail("No authenticated context for saveToFile", {
+                  errorCode: httpErrorCode ?? "web_request_save_failed",
+                });
               const scratchPath = isScratchWorkspacePath(saveToFilePath);
               if (!response.ok && !scratchPath) {
-                throw new Error(
+                fail(
                   `Refusing to save a failed response to durable workspace file "${saveToFilePath}" (status ${response.status}). Use a scratch/... path for diagnostics.`,
+                  { errorCode: httpErrorCode ?? "web_request_save_failed" },
                 );
               }
               const savedFormat = saveContentFormat ?? "raw";
-              const meta = await writeWorkspaceFile(
-                scope,
-                saveToFilePath,
-                fileContent,
-                fileContentType,
-                {
-                  maxFileBytes: SAVE_TO_FILE_MAX_BYTES,
-                },
-              );
+              let meta: Awaited<ReturnType<typeof writeWorkspaceFile>>;
+              try {
+                meta = await writeWorkspaceFile(
+                  scope,
+                  saveToFilePath,
+                  fileContent,
+                  fileContentType,
+                  {
+                    maxFileBytes: SAVE_TO_FILE_MAX_BYTES,
+                  },
+                );
+              } catch {
+                fail("saveToFile error: could not write workspace file.", {
+                  errorCode: httpErrorCode ?? "web_request_save_failed",
+                });
+              }
               const bytes = Buffer.byteLength(fileContent, "utf8");
               const previewSource = saveContentFormat
                 ? fileContent
@@ -683,12 +721,9 @@ export function createFetchToolEntry(
               });
             } catch (saveErr: any) {
               if (isActionContractError(saveErr)) throw saveErr;
-              fail(
-                `saveToFile error: ${saveErr?.message ?? String(saveErr)}\n\nHTTP ${response.status} ${response.statusText}\n\n${body.slice(0, maxChars)}`,
-                {
-                  errorCode: httpErrorCode ?? "web_request_save_failed",
-                },
-              );
+              fail("saveToFile error: could not save workspace file.", {
+                errorCode: httpErrorCode ?? "web_request_save_failed",
+              });
             }
           }
 

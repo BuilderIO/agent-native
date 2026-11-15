@@ -362,6 +362,167 @@ describe("createFetchToolEntry", () => {
     expect(mockWriteWorkspaceFile).not.toHaveBeenCalled();
   });
 
+  it.each([
+    {
+      name: "ZIP bytes mislabeled as text",
+      bytes: [80, 75, 3, 4, 0, 255],
+      contentType: "text/plain",
+      status: 200,
+    },
+    {
+      name: "ZIP bytes without a content type",
+      bytes: [80, 75, 3, 4, 0, 255],
+      contentType: undefined,
+      status: 200,
+    },
+    {
+      name: "invalid UTF-8 without NUL",
+      bytes: [255, 254],
+      contentType: "application/json",
+      status: 200,
+    },
+    {
+      name: "NUL in valid UTF-8",
+      bytes: [0],
+      contentType: "text/plain",
+      status: 200,
+    },
+    {
+      name: "valid UTF-8 ZIP MIME",
+      bytes: [65, 66],
+      contentType: "application/zip",
+      status: 200,
+    },
+    {
+      name: "valid UTF-8 binary media MIME",
+      bytes: [65, 66],
+      contentType: "audio/mpeg",
+      status: 200,
+    },
+    {
+      name: "valid UTF-8 octet stream",
+      bytes: [65, 66],
+      contentType: "application/octet-stream",
+      status: 200,
+    },
+    {
+      name: "valid UTF-8 ZIP alias",
+      bytes: [65, 66],
+      contentType: "application/x-zip-compressed",
+      status: 200,
+    },
+    {
+      name: "binary HTTP error",
+      bytes: [80, 75, 3, 4, 0, 255],
+      contentType: "text/plain",
+      status: 503,
+    },
+  ])(
+    "rejects $name before processing, errors, or writes",
+    async ({ bytes, contentType, status }) => {
+      const marker = "synthetic-binary-marker";
+      const body = new Uint8Array([
+        ...new TextEncoder().encode(marker),
+        ...bytes,
+      ]);
+      vi.spyOn(globalThis, "fetch").mockResolvedValue(
+        new Response(body, {
+          status,
+          headers: contentType ? { "content-type": contentType } : {},
+        }),
+      );
+
+      let caught: unknown;
+      try {
+        await runSavedWebRequest({
+          url: "https://example.com/archive",
+          saveToFile: "scratch/archive.zip",
+        });
+      } catch (error) {
+        caught = error;
+      }
+
+      expect(caught).toMatchObject({
+        errorCode:
+          status === 200 ? "web_request_binary_response" : `http_${status}`,
+        message: expect.stringContaining("UTF-8 text only"),
+      });
+      expect(String((caught as Error).message)).toContain("blob/file storage");
+      expect(String((caught as Error).message)).not.toContain(marker);
+      expect(String((caught as Error).message)).not.toContain("\0");
+      expect(mockWriteWorkspaceFile).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each([
+    { contentType: "application/json", body: '{"greeting":"こんにちは"}' },
+    { contentType: "application/problem+json", body: '{"title":"Example"}' },
+    { contentType: "application/xml", body: "<message>hello</message>" },
+    { contentType: "application/rss+xml", body: "<rss>hello</rss>" },
+    {
+      contentType: "image/svg+xml",
+      body: '<svg xmlns="http://www.w3.org/2000/svg"></svg>',
+    },
+  ])("saves UTF-8 text with $contentType", async ({ contentType, body }) => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(body, { headers: { "content-type": contentType } }),
+    );
+    await runSavedWebRequest({
+      url: "https://example.com/data",
+      saveToFile: "scratch/data.txt",
+    });
+    expect(mockWriteWorkspaceFile).toHaveBeenCalledWith(
+      expect.anything(),
+      "scratch/data.txt",
+      body,
+      contentType,
+      expect.anything(),
+    );
+  });
+
+  it("reports redirects without processing or saving their binary body", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(new Uint8Array([80, 75, 0, 255]), {
+        status: 302,
+        headers: { location: "https://example.com/elsewhere" },
+      }),
+    );
+    await expect(
+      runSavedWebRequest({
+        url: "https://example.com/archive",
+        saveToFile: "scratch/archive.zip",
+      }),
+    ).rejects.toMatchObject({
+      errorCode: "http_302",
+      message: expect.stringContaining(
+        "Redirect: https://example.com/elsewhere",
+      ),
+    });
+    expect(mockWriteWorkspaceFile).not.toHaveBeenCalled();
+  });
+
+  it("does not include response contents or writer diagnostics in save errors", async () => {
+    const body = "synthetic-save-body-marker";
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(body, { headers: { "content-type": "text/plain" } }),
+    );
+    mockWriteWorkspaceFile.mockRejectedValue(
+      new Error(`database rejected ${body}`),
+    );
+
+    let caught: unknown;
+    try {
+      await runSavedWebRequest({
+        url: "https://example.com/data",
+        saveToFile: "scratch/data.txt",
+      });
+    } catch (error) {
+      caught = error;
+    }
+    expect(caught).toMatchObject({ errorCode: "web_request_save_failed" });
+    expect(String((caught as Error).message)).not.toContain(body);
+  });
+
   it("fails oversized response bodies before processing or saving them", async () => {
     const responseBytes = 20 * 1024 * 1024 + 1;
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
