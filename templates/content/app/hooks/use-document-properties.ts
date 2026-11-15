@@ -94,6 +94,13 @@ type GuardedConfigurePropertyResult = {
   value: DocumentPropertyDefinition & { naturalKey?: boolean };
 };
 
+export class PropertyTypeChangeUnavailableError extends Error {
+  constructor() {
+    super("Property type changes are unavailable in ordinary database setup.");
+    this.name = "PropertyTypeChangeUnavailableError";
+  }
+}
+
 const guardedOrdinaryPropertyTypes = new Set([
   "text",
   "number",
@@ -129,13 +136,21 @@ function guardedConfigurePropertyInput(
   snapshot: ContentDatabaseResponse | undefined,
 ): GuardedConfigurePropertyInput | ConfigureDocumentPropertyRequest {
   const contract = snapshot?.mutationContract;
-  if (
-    !contract ||
-    contract.target.databaseId !== request.databaseId ||
-    !guardedOrdinaryPropertyTypes.has(request.type)
-  ) {
+  if (!contract || contract.target.databaseId !== request.databaseId) {
     return request;
   }
+  const existing = request.id
+    ? snapshot.properties.find(
+        (property) => property.definition.id === request.id,
+      )?.definition
+    : undefined;
+  if (request.id && !existing) {
+    throw new Error("The property is unavailable. Refresh before editing it.");
+  }
+  if (existing && existing.type !== request.type) {
+    throw new PropertyTypeChangeUnavailableError();
+  }
+  if (!guardedOrdinaryPropertyTypes.has(request.type)) return request;
   const { authorityScope: _authorityScope, ...target } = contract.target;
   const guard = {
     target,
@@ -174,16 +189,8 @@ function guardedConfigurePropertyInput(
     };
   }
 
-  const existing = snapshot.properties.find(
-    (property) => property.definition.id === request.id,
-  )?.definition;
   if (!existing) {
     throw new Error("The property is unavailable. Refresh before editing it.");
-  }
-  if (existing.type !== request.type) {
-    throw new Error(
-      "Property type changes are unavailable in ordinary database setup.",
-    );
   }
   const patch: Record<string, unknown> = {};
   if (request.icon !== undefined) patch.icon = request.icon;

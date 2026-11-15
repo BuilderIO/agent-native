@@ -341,6 +341,62 @@ describe("document property metadata persistence", () => {
     },
   );
 
+  it.each(["rejected", "successful"] as const)(
+    "rebases queued edits on a refresh during a %s write",
+    async (outcome) => {
+      const initial = {
+        name: "Status",
+        type: "select" as const,
+        description: "",
+        visibility: "always_show" as const,
+        options: { options },
+      };
+      let settle!: (value: void) => void;
+      let reject!: (error: Error) => void;
+      const firstWrite = new Promise<void>((resolve, fail) => {
+        settle = resolve;
+        reject = fail;
+      });
+      const writes: Array<typeof initial> = [];
+      const queue = createPropertyMetadataUpdateQueue(
+        initial,
+        async (metadata) => {
+          writes.push(metadata as typeof initial);
+          if (writes.length === 1) await firstWrite;
+        },
+      );
+      const first = queue.enqueue((current) => ({
+        ...current,
+        name: "Local name",
+      }));
+      const firstResult =
+        outcome === "rejected"
+          ? expect(first).rejects.toThrow("conflict")
+          : expect(first).resolves.toBeUndefined();
+      await Promise.resolve();
+      await Promise.resolve();
+      const refreshed = {
+        ...initial,
+        description: "Remote description",
+        options: { options: [options[0]] },
+      };
+      queue.replace(refreshed);
+      const second = queue.enqueue((current) => ({
+        ...current,
+        visibility: "always_hide" as const,
+      }));
+      if (outcome === "rejected") reject(new Error("conflict"));
+      else settle();
+      await firstResult;
+      await second;
+      expect(writes[1]).toEqual({
+        ...refreshed,
+        name: outcome === "successful" ? "Local name" : "Status",
+        visibility: "always_hide",
+      });
+    },
+  );
+
   it("keeps a pending successful edit when the menu is reopened", async () => {
     const initial = {
       name: "Status",

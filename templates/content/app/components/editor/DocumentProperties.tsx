@@ -153,6 +153,7 @@ import {
 import {
   documentPropertiesReadFailed,
   documentPropertiesResponseMatchesScope,
+  PropertyTypeChangeUnavailableError,
   useConfigureDocumentProperty,
   useContentDatabaseRowSearch,
   useDeleteDocumentProperty,
@@ -939,26 +940,49 @@ export function createPropertyMetadataUpdateQueue(
 ) {
   let current = initialMetadata;
   let tail: Promise<unknown> = Promise.resolve();
-  let pending = 0;
+  const pending: Array<
+    (metadata: PropertyMetadataSnapshot) => PropertyMetadataSnapshot
+  > = [];
 
   return {
     replace(metadata: PropertyMetadataSnapshot) {
-      if (pending === 0) current = metadata;
+      current = metadata;
+    },
+    snapshot() {
+      return pending.reduce((metadata, update) => update(metadata), current);
     },
     enqueue(
       update: (metadata: PropertyMetadataSnapshot) => PropertyMetadataSnapshot,
     ) {
-      pending += 1;
+      pending.push(update);
       const write = tail
         .catch(() => undefined)
         .then(async () => {
-          const snapshot = update(current);
+          const base = current;
+          const snapshot = update(base);
           const result = await persist(snapshot);
-          current = snapshot;
+          // A refresh during the write may contain changes to other fields.
+          current = {
+            name: snapshot.name !== base.name ? snapshot.name : current.name,
+            type: snapshot.type !== base.type ? snapshot.type : current.type,
+            description:
+              snapshot.description !== base.description
+                ? snapshot.description
+                : current.description,
+            visibility:
+              snapshot.visibility !== base.visibility
+                ? snapshot.visibility
+                : current.visibility,
+            options:
+              snapshot.options !== base.options
+                ? snapshot.options
+                : current.options,
+            icon: snapshot.icon !== base.icon ? snapshot.icon : current.icon,
+          };
           return result;
         });
       tail = write.finally(() => {
-        pending -= 1;
+        pending.shift();
       });
       return tail;
     },
@@ -1755,11 +1779,7 @@ export function PropertyManagementPopover({
     property.definition.type === "status" ||
     property.definition.type === "multi_select";
 
-  function resetDraft() {
-    setName(property.definition.name);
-    setDescription(property.definition.description);
-    setNewOption("");
-    setOptionsDraft(property.definition.options.options ?? []);
+  useEffect(() => {
     metadataUpdateQueueRef.current.replace({
       name: property.definition.name,
       type: property.definition.type,
@@ -1768,6 +1788,33 @@ export function PropertyManagementPopover({
       options: property.definition.options,
       icon: property.definition.icon ?? null,
     });
+    setOptionsDraft(
+      metadataUpdateQueueRef.current.snapshot().options.options ?? [],
+    );
+  }, [
+    property.definition.name,
+    property.definition.type,
+    property.definition.description,
+    property.definition.visibility,
+    property.definition.options,
+    property.definition.icon,
+  ]);
+
+  function resetDraft() {
+    setName(property.definition.name);
+    setDescription(property.definition.description);
+    setNewOption("");
+    metadataUpdateQueueRef.current.replace({
+      name: property.definition.name,
+      type: property.definition.type,
+      description: property.definition.description,
+      visibility: property.definition.visibility,
+      options: property.definition.options,
+      icon: property.definition.icon ?? null,
+    });
+    setOptionsDraft(
+      metadataUpdateQueueRef.current.snapshot().options.options ?? [],
+    );
   }
 
   useEffect(() => {
@@ -1808,13 +1855,23 @@ export function PropertyManagementPopover({
   async function updateOptions(
     update: (options: DocumentPropertyOption[]) => DocumentPropertyOption[],
   ) {
-    setOptionsDraft((current) => update(current));
-    await metadataUpdateQueueRef.current.enqueue((current) => ({
+    const queue = metadataUpdateQueueRef.current;
+    const write = queue.enqueue((current) => ({
       ...current,
       options: {
         options: update(current.options.options ?? []),
       },
     }));
+    setOptionsDraft(queue.snapshot().options.options ?? []);
+    try {
+      await write;
+      return true;
+    } catch (error) {
+      reportWriteFailure(error);
+      return false;
+    } finally {
+      setOptionsDraft(queue.snapshot().options.options ?? []);
+    }
   }
 
   persistMetadataSnapshotRef.current = (metadata) =>
@@ -1862,7 +1919,13 @@ export function PropertyManagementPopover({
         options: defaultPropertyOptions(nextType),
       });
     } catch (error) {
-      reportWriteFailure(error);
+      if (error instanceof PropertyTypeChangeUnavailableError) {
+        reportWriteFailure(error, {
+          label: t("editor.properties.typeChangeUnavailable"),
+        });
+      } else {
+        reportWriteFailure(error);
+      }
       return;
     }
     setOpen(false);
@@ -1899,7 +1962,7 @@ export function PropertyManagementPopover({
   async function addOption() {
     const optionName = newOption.trim();
     if (!optionName) return;
-    await updateOptions((existing) => [
+    const saved = await updateOptions((existing) => [
       ...existing,
       makeOption(
         optionName,
@@ -1907,7 +1970,7 @@ export function PropertyManagementPopover({
         existing.map((item) => item.id),
       ),
     ]);
-    setNewOption("");
+    if (saved) setNewOption("");
   }
 
   async function removeOption(id: string) {

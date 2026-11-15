@@ -997,6 +997,8 @@ const editor = {
     noFilesOrMedia: "Keine Dateien oder Medien",
     noMatchingOptions: "Keine passenden Optionen",
     noMatchingPropertyTypes: "Keine passenden Immobilientypen",
+    typeChangeUnavailable:
+      "Der Eigenschaftstyp kann in der normalen Datenbankkonfiguration nicht geändert werden.",
     notMappedToBuilder: "Nicht dem Builder zugeordnet.",
     onlyBlocksPropertyWarning:
       "Dies ist die einzige Blockeigenschaft, die in diesem Objekttyp vorhanden ist. Dadurch wird der Hauptinhalt (Body) für alle Objekte dieses Typs gelöscht.",

@@ -999,6 +999,8 @@ const editor = {
     noFilesOrMedia: "Aucun fichier ni média",
     noMatchingOptions: "Aucune option correspondante",
     noMatchingPropertyTypes: "Aucun type de propriété correspondant",
+    typeChangeUnavailable:
+      "Le type de propriété ne peut pas être modifié dans la configuration ordinaire de la base de données.",
     notMappedToBuilder: "Non mappé à Builder.",
     onlyBlocksPropertyWarning:
       "C'est la seule propriété de blocs présente dans ce type d'objet. Cela supprimera le contenu principal (corps) de tous les objets de ce type.",

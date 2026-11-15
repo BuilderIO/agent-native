@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 
 import type { DocumentProperty } from "@shared/api";
+import { act } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
@@ -48,6 +49,8 @@ vi.mock("@/hooks/use-document-properties", async (importOriginal) => ({
   useDeleteDocumentProperty: () => mutations.remove,
   useDocumentProperties: () => ({ data: undefined }),
 }));
+
+import { PropertyTypeChangeUnavailableError } from "@/hooks/use-document-properties";
 
 import {
   PropertyManagementPopover,
@@ -118,11 +121,10 @@ describe("property management menu", () => {
   it.each(["guard", "transport"])(
     "reports a rejected type change from %s and preserves metadata for the next edit",
     async (kind) => {
-      const failure = new Error(
+      const failure =
         kind === "guard"
-          ? "Property type changes are unavailable in ordinary database setup."
-          : "Transport failed",
-      );
+          ? new PropertyTypeChangeUnavailableError()
+          : new Error("Transport failed");
       mutations.configure.mutateAsync.mockImplementationOnce(() => {
         if (kind === "guard") throw failure;
         return Promise.reject(failure);
@@ -155,7 +157,13 @@ describe("property management menu", () => {
       );
       if (!number) throw new Error("No Number choice");
       await click(number);
-      expect(mutations.reportFailure).toHaveBeenCalledWith(failure);
+      if (kind === "guard") {
+        expect(mutations.reportFailure).toHaveBeenCalledWith(failure, {
+          label: "editor.properties.typeChangeUnavailable",
+        });
+      } else {
+        expect(mutations.reportFailure).toHaveBeenCalledWith(failure);
+      }
       expect(typeMenu.textContent).toContain(
         `editor.propertyTypes.${original.definition.type}`,
       );
@@ -175,6 +183,80 @@ describe("property management menu", () => {
       );
     },
   );
+
+  it("restores a rejected option removal and reports the failure", async () => {
+    const failure = new Error("Removal rejected");
+    mutations.configure.mutateAsync.mockRejectedValueOnce(failure);
+    renderUi(
+      <PropertyManagementPopover
+        property={property("select", "Status", "draft", statusOptions)}
+        documentId="document"
+        databaseId="database"
+        icon={TYPE_ICONS.select}
+      />,
+    );
+    await click(byLabel("editor.properties.propertyMenuFor(Status)"));
+    await click(byLabel("editor.properties.removeOption(Draft)"));
+    expect(mutations.reportFailure).toHaveBeenCalledWith(failure);
+    expect(byLabel("editor.properties.renameOption(Draft)")).toBeTruthy();
+    expect(byLabel("editor.properties.renameOption(Review)")).toBeTruthy();
+  });
+
+  it("keeps a later option edit when an earlier option removal fails", async () => {
+    let reject!: (error: Error) => void;
+    const first = new Promise<Record<string, never>>((_resolve, fail) => {
+      reject = fail;
+    });
+    mutations.configure.mutateAsync.mockImplementationOnce(() => first);
+    renderUi(
+      <PropertyManagementPopover
+        property={property("select", "Status", "draft", statusOptions)}
+        documentId="document"
+        databaseId="database"
+        icon={TYPE_ICONS.select}
+      />,
+    );
+    await click(byLabel("editor.properties.propertyMenuFor(Status)"));
+    await click(byLabel("editor.properties.removeOption(Draft)"));
+    await click(byLabel("editor.properties.removeOption(Review)"));
+    const failure = new Error("Removal rejected");
+    await act(async () => {
+      reject(failure);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(mutations.reportFailure).toHaveBeenCalledWith(failure);
+    expect(mutations.configure.mutateAsync).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        options: { options: [statusOptions.options[0]] },
+      }),
+    );
+    expect(byLabel("editor.properties.renameOption(Draft)")).toBeTruthy();
+    expect(queryByLabel("editor.properties.renameOption(Review)")).toBeNull();
+  });
+
+  it("restores the visible name after an option rename is rejected", async () => {
+    const failure = new Error("Rename rejected");
+    mutations.configure.mutateAsync.mockRejectedValueOnce(failure);
+    renderUi(
+      <PropertyManagementPopover
+        property={property("select", "Status", "draft", statusOptions)}
+        documentId="document"
+        databaseId="database"
+        icon={TYPE_ICONS.select}
+      />,
+    );
+    await click(byLabel("editor.properties.propertyMenuFor(Status)"));
+    const option = byLabel<HTMLInputElement>(
+      "editor.properties.renameOption(Draft)",
+    );
+    await focus(option);
+    await typeInto(option, "Unsaved");
+    await focus(byLabel("editor.properties.propertyName"));
+    expect(mutations.reportFailure).toHaveBeenCalledWith(failure);
+    expect(
+      byLabel<HTMLInputElement>("editor.properties.renameOption(Draft)").value,
+    ).toBe("Draft");
+  });
 
   it("closes the menu after a supported type change succeeds", async () => {
     renderUi(

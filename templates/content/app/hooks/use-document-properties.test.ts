@@ -675,6 +675,105 @@ describe("useConfigureDocumentProperty", () => {
     );
   });
 
+  it("retains legacy configuration for an existing nonordinary property of the same type", async () => {
+    const transport = vi.fn(async (_input: unknown) => undefined);
+    const queryClient = new QueryClient();
+    queryClient.setQueryData(
+      ["action", "get-content-database", { documentId: "database-page-1" }],
+      {
+        database: { id: "database-1" },
+        mutationContract: {
+          target: {
+            spaceId: "space-1",
+            databaseId: "database-1",
+            databaseDocumentId: "database-page-1",
+          },
+          schemaRevision: "S0",
+        },
+        properties: [
+          {
+            definition: {
+              id: "formula-1",
+              name: "Score",
+              type: "formula",
+              options: { formula: "1" },
+            },
+          },
+        ],
+      },
+    );
+    useQueryClient.mockReturnValue(queryClient);
+    useActionMutation.mockReturnValue({ mutateAsync: transport });
+    const configure = useConfigureDocumentProperty(
+      "database-page-1",
+      "database-1",
+    );
+    await configure.mutateAsync({
+      id: "formula-1",
+      documentId: "database-page-1",
+      name: "Score",
+      type: "formula",
+      options: { formula: "2" },
+    });
+    expect(transport).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "formula-1",
+        type: "formula",
+        options: { formula: "2" },
+      }),
+      undefined,
+    );
+  });
+
+  it.each(["blocks", "formula", "relation"] as const)(
+    "rejects ordinary to %s conversion without legacy transport",
+    (type) => {
+      const transport = vi.fn();
+      const queryClient = new QueryClient();
+      queryClient.setQueryData(
+        ["action", "get-content-database", { documentId: "database-page-1" }],
+        {
+          database: { id: "database-1" },
+          mutationContract: {
+            target: {
+              spaceId: "space-1",
+              databaseId: "database-1",
+              databaseDocumentId: "database-page-1",
+            },
+            schemaRevision: "S0",
+          },
+          properties: [
+            {
+              definition: {
+                id: "text-1",
+                name: "Notes",
+                type: "text",
+                options: {},
+              },
+              value: "keep this value",
+            },
+          ],
+        },
+      );
+      useQueryClient.mockReturnValue(queryClient);
+      useActionMutation.mockReturnValue({ mutateAsync: transport });
+      const configure = useConfigureDocumentProperty(
+        "database-page-1",
+        "database-1",
+      );
+      expect(() =>
+        configure.mutateAsync({
+          id: "text-1",
+          documentId: "database-page-1",
+          name: "Notes",
+          type,
+          options: {},
+        }),
+      ).toThrow("Property type changes are unavailable");
+      expect(transport).not.toHaveBeenCalled();
+    },
+  );
+
   it("rejects an ordinary text type change before transport and still permits metadata edits", async () => {
     const transport = vi.fn(async (_input: unknown) => undefined);
     const queryClient = new QueryClient();
