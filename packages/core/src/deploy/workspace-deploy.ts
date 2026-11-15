@@ -1682,14 +1682,14 @@ export default async function handler(...args) {
   setBasePathEnv();
   cachedHandler ??= (await import("./main.mjs")).default;
   const response = await cachedHandler(${handlerArgs});
+  const stamped = new Response(response.body, response);
   ${
     sourceRevision
-      ? `const stamped = new Response(response.body, response);
-  stamped.headers.set(${JSON.stringify(SERVED_REVISION_HEADER)}, ${JSON.stringify(sourceRevision)});
-  stamped.headers.set(${JSON.stringify(SERVED_APP_BUILD_ID_HEADER)}, ${JSON.stringify(appBuildId)});
-  return stamped;`
-      : "return response;"
-  }
+      ? `stamped.headers.set(${JSON.stringify(SERVED_REVISION_HEADER)}, ${JSON.stringify(sourceRevision)});
+  `
+      : ""
+  }stamped.headers.set(${JSON.stringify(SERVED_APP_BUILD_ID_HEADER)}, ${JSON.stringify(appBuildId)});
+  return stamped;
 }
 
 export const config = {

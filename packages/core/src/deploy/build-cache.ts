@@ -21,18 +21,32 @@ import { resolveAgentNativeBuildId } from "../shared/build-id.js";
 export const DEPLOY_CACHE_FORMAT_VERSION = 1;
 
 const WORKSPACE_REVISION_ENV = "AGENT_NATIVE_BUILD_ID";
+/**
+ * Carries the workspace commit into a content-id build for the client
+ * commit-SHA define, which reads it ahead of AGENT_NATIVE_BUILD_ID. The build id
+ * resolver reads it last, so it never displaces the content id. A cached app
+ * keeps the commit it was built at.
+ */
+const WORKSPACE_COMMIT_ENV = "AGENT_NATIVE_BUILD_SHA";
+const FULL_COMMIT_SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/i;
 
 /**
  * Whether the app is built with a content build id instead of the workspace
  * revision. A workspace that sets AGENT_NATIVE_BUILD_ID to its commit would
  * otherwise bake a new id into every app on every commit, so no app could hit.
- * Only that variable is replaced, and only when it is the id the build would
- * bake: a DEPLOY_ID ahead of it is a platform deploy id that runtime code reads
- * back as one, so it stays in the key and in the bundle.
+ * Only that variable is replaced, only when it holds a full commit SHA (any
+ * other value is a release or deploy id that is baked and keyed as-is), and
+ * only when it is the id the build would bake: a DEPLOY_ID ahead of it is a
+ * platform deploy id that runtime code reads back as one, so it stays in the
+ * key and in the bundle.
  */
 export function usesContentBuildId(env: NodeJS.ProcessEnv): boolean {
   const revision = env[WORKSPACE_REVISION_ENV]?.trim();
-  return !!revision && resolveAgentNativeBuildId(env, "") === revision;
+  return (
+    !!revision &&
+    FULL_COMMIT_SHA.test(revision) &&
+    resolveAgentNativeBuildId(env, "") === revision
+  );
 }
 
 /**
@@ -50,7 +64,12 @@ export function appBuildEnv(
   key: string,
 ): NodeJS.ProcessEnv {
   if (!usesContentBuildId(env)) return env;
-  return { ...env, [WORKSPACE_REVISION_ENV]: contentBuildIdFor(key) };
+  return {
+    ...env,
+    [WORKSPACE_COMMIT_ENV]:
+      env[WORKSPACE_COMMIT_ENV]?.trim() || env[WORKSPACE_REVISION_ENV]?.trim(),
+    [WORKSPACE_REVISION_ENV]: contentBuildIdFor(key),
+  };
 }
 
 /** The id a build with this environment bakes into its bundles. */
@@ -512,7 +531,7 @@ export function computeAppCacheKey(
     ...buildEnvComponents(
       env,
       contentBuildId
-        ? [...runtime.envIgnore, WORKSPACE_REVISION_ENV]
+        ? [...runtime.envIgnore, WORKSPACE_REVISION_ENV, WORKSPACE_COMMIT_ENV]
         : runtime.envIgnore,
     ),
     ...Object.fromEntries(
