@@ -1,4 +1,3 @@
-import { suspendActionQueryCacheBinding } from "@agent-native/core/client/action-query-cache";
 import {
   actionErrorCode,
   useActionQuery,
@@ -83,6 +82,7 @@ import {
 } from "@tabler/icons-react";
 import { useQueryClient, type QueryClient } from "@tanstack/react-query";
 import {
+  useCallback,
   useEffect,
   useMemo,
   useRef,
@@ -175,13 +175,6 @@ function useChatEngineChoice(): string | undefined {
 }
 
 const creditScopeRecoveries = new WeakMap<QueryClient, Promise<void>>();
-const suspendedCreditScopes = new WeakMap<
-  QueryClient,
-  {
-    identity: ReturnType<typeof sessionReadIdentity>;
-    resume: () => void;
-  }
->();
 
 export function BuilderCreditNotice({
   compact = false,
@@ -195,22 +188,28 @@ export function BuilderCreditNotice({
   const { data: org, refetch: refetchOrg, isError: orgError } = useOrg();
   const { session, status: sessionStatus, error: sessionError } = useSession();
   const queryClient = useQueryClient();
-  useEffect(() => {
-    const suspended = suspendedCreditScopes.get(queryClient);
-    if (
-      !suspended ||
-      !org ||
-      orgError ||
-      sessionError ||
-      sessionStatus !== "authenticated" ||
-      (session?.orgId ?? null) !== (org.orgId ?? null) ||
-      sessionReadIdentityStatus(sessionReadIdentity()) !== "current"
-    )
-      return;
-    if (sessionReadIdentityStatus(suspended.identity) === "current")
-      suspended.resume();
-    suspendedCreditScopes.delete(queryClient);
-  }, [queryClient, org, orgError, session, sessionError, sessionStatus]);
+  const recoverOrg = useCallback(() => {
+    if (creditScopeRecoveries.has(queryClient)) return;
+    const recovery = (async () => {
+      const sessionRead = notifySessionInvalidated();
+      const identity = sessionReadIdentity();
+      await sessionRead;
+      if (sessionReadIdentityStatus(identity) !== "current") return;
+      await refetchOrg({ throwOnError: true });
+    })();
+    creditScopeRecoveries.set(queryClient, recovery);
+    void recovery
+      .catch((error: unknown) => {
+        console.warn(
+          "Unable to refresh organization after credit scope changed",
+          error,
+        );
+      })
+      .finally(() => {
+        if (creditScopeRecoveries.get(queryClient) === recovery)
+          creditScopeRecoveries.delete(queryClient);
+      });
+  }, [queryClient, refetchOrg]);
   const chatEngine = useChatEngineChoice();
   const builderCreditStatus = useActionQuery<{
     /**
@@ -246,76 +245,36 @@ export function BuilderCreditNotice({
       // The 60s poll is the retry; retrying a Builder outage multiplies it.
       retry: false,
       onServerError: (error) => {
-        if (
-          actionErrorCode(error) !== "builder_credit_org_mismatch" ||
-          creditScopeRecoveries.has(queryClient)
-        )
-          return;
-        const recover = async () => {
-          const previousIdentity = sessionReadIdentity();
-          const resumeBinding = suspendActionQueryCacheBinding(queryClient);
-          suspendedCreditScopes.set(queryClient, {
-            identity: previousIdentity,
-            resume: resumeBinding,
-          });
-          const staleQueries = queryClient
-            .getQueryCache()
-            .getAll()
-            .filter(
-              (query) =>
-                !(
-                  query.queryKey[0] === "action" &&
-                  query.queryKey[1] === "get-builder-credit-status"
-                ),
-            );
-          const cancellations = staleQueries.map((query) => {
-            const cancelled = query.cancel({ silent: true });
-            query.setState({
-              data: undefined,
-              dataUpdatedAt: 0,
-              ...(query.state.status === "success"
-                ? { status: "pending" as const }
-                : {}),
-            });
-            return cancelled;
-          });
-          const sessionRead = notifySessionInvalidated();
-          const identity = sessionReadIdentity();
-          await Promise.all([sessionRead, ...cancellations]);
-          if (sessionReadIdentityStatus(identity) !== "current") return;
-          const refreshedOrg = await refetchOrg({ throwOnError: true });
-          if (
-            sessionReadIdentityStatus(previousIdentity) === "current" &&
-            (refreshedOrg.data?.orgId ?? null) === (session?.orgId ?? null)
-          ) {
-            resumeBinding();
-            suspendedCreditScopes.delete(queryClient);
-          }
-          await queryClient.invalidateQueries({
-            predicate: (query) =>
-              query.queryKey[0] !== "org-me" &&
-              !(
-                query.queryKey[0] === "action" &&
-                query.queryKey[1] === "get-builder-credit-status"
-              ),
-          });
-        };
-        const recovery = recover();
-        creditScopeRecoveries.set(queryClient, recovery);
-        void recovery
-          .catch((error: unknown) => {
-            console.warn(
-              "Unable to refresh organization after credit scope changed",
-              error,
-            );
-          })
-          .finally(() => {
-            if (creditScopeRecoveries.get(queryClient) === recovery)
-              creditScopeRecoveries.delete(queryClient);
-          });
+        if (actionErrorCode(error) === "builder_credit_org_mismatch")
+          recoverOrg();
       },
     },
   );
+  const creditScopeConflict =
+    actionErrorCode(builderCreditStatus.error) ===
+    "builder_credit_org_mismatch";
+  useEffect(() => {
+    if (
+      !org?.email ||
+      sessionError ||
+      sessionStatus !== "authenticated" ||
+      ((session?.orgId ?? null) === (org.orgId ?? null) &&
+        !(orgError && creditScopeConflict))
+    )
+      return;
+    if (!orgError) recoverOrg();
+    const retry = setInterval(recoverOrg, 60_000);
+    return () => clearInterval(retry);
+  }, [
+    org?.email,
+    org?.orgId,
+    orgError,
+    creditScopeConflict,
+    session?.orgId,
+    sessionError,
+    sessionStatus,
+    recoverOrg,
+  ]);
   const t = useT();
   const status = builderCreditStatus.data;
   const quota = status?.quota;

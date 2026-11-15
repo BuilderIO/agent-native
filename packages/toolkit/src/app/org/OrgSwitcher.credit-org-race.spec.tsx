@@ -272,6 +272,7 @@ it.each([
         ).toBe(true),
       );
       const previousBinding = currentActionQueryCacheBinding();
+      noticeClient.setQueryData(["local-draft"], { text: "unsaved edit" });
       server.activeOrg = to;
       expect(
         noticeClient.getQueryData<{ orgId: string | null }>(["org-me"])?.orgId,
@@ -320,6 +321,9 @@ it.each([
         });
       });
       expect(statusCodes).toEqual([200, 409, 200]);
+      expect(noticeClient.getQueryData(["local-draft"])).toEqual({
+        text: "unsaved edit",
+      });
       expect(requestedOrgs).toEqual([from ?? "", from ?? "", to ?? ""]);
       expect(creditBindings[2]).toBeDefined();
       expect(creditBindings[2]).not.toBe(previousBinding);
@@ -410,7 +414,6 @@ it.each([
         expect(sessionOrgs.length).toBeGreaterThan(sessionReadsBeforeFailure);
       });
       expect(orgReads).toBe(orgReadsBeforeOutage);
-      expect(currentActionQueryCacheBinding()).toBeUndefined();
       expect(statusCodes).toHaveLength(creditReadsBeforeFailure + 1);
       expect(statusCodes.at(-1)).toBe(409);
       expect(
@@ -421,9 +424,9 @@ it.each([
         ])?.status,
       ).toBe("error");
       expect(noticeContainer.querySelector("button")).toBeNull();
-      expect(noticeContainer.querySelector("[data-other]")?.textContent).toBe(
-        "loading",
-      );
+      expect(noticeClient.getQueryData(["local-draft"])).toEqual({
+        text: "unsaved edit",
+      });
 
       sessionUnavailable = false;
       await vi.waitFor(
@@ -470,7 +473,7 @@ it.each([
         });
         expect(noticeClient.getQueryState(["org-me"])?.status).toBe("error");
       });
-      expect(currentActionQueryCacheBinding()).toBeUndefined();
+      expect(currentActionQueryCacheBinding()).toBe(sameScopeBinding);
       failure = null;
       orgUnavailable = false;
       await act(async () => {
@@ -481,6 +484,45 @@ it.each([
           await new Promise((resolve) => setTimeout(resolve, 0));
         });
         expect(currentActionQueryCacheBinding()).toBe(sameScopeBinding);
+      });
+      const orgReadsBeforeSameSession = orgReads;
+      noticeClient.setQueryData(["action", "optimistic-draft"], {
+        text: "pending edit",
+      });
+      await act(async () => {
+        await notifySessionInvalidated();
+      });
+      expect(currentActionQueryCacheBinding()).toBe(sameScopeBinding);
+      expect(noticeClient.getQueryData(["action", "optimistic-draft"])).toEqual(
+        { text: "pending edit" },
+      );
+      expect(orgReads).toBe(orgReadsBeforeSameSession);
+      expect(noticeClient.getQueryData(["local-draft"])).toEqual({
+        text: "unsaved edit",
+      });
+
+      const creditReadsBeforeSessionSwitch = statusCodes.length;
+      server.activeOrg = to;
+      await act(async () => {
+        await notifySessionInvalidated();
+      });
+      await vi.waitFor(async () => {
+        await act(async () => {
+          await new Promise((resolve) => setTimeout(resolve, 0));
+        });
+        expect(
+          noticeClient.getQueryData<{ orgId: string | null }>(["org-me"])
+            ?.orgId,
+        ).toBe(to);
+        expect(noticeContainer.querySelector("button")?.textContent).toContain(
+          "Your Builder credits are used up",
+        );
+      });
+      expect(statusCodes.slice(creditReadsBeforeSessionSwitch)).not.toContain(
+        409,
+      );
+      expect(noticeClient.getQueryData(["local-draft"])).toEqual({
+        text: "unsaved edit",
       });
     } finally {
       act(() => {

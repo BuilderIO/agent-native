@@ -68,7 +68,8 @@ vi.mock("@agent-native/core/client/org", () => ({
   },
 }));
 
-vi.mock("@agent-native/core/client/hooks", () => ({
+vi.mock("@agent-native/core/client/hooks", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@agent-native/core/client/hooks")>()),
   useActionQuery: mocks.useActionQuery,
   useAvatarUrl: mocks.useAvatarUrl,
   useDemoModeStatus: mocks.useDemoModeStatus,
