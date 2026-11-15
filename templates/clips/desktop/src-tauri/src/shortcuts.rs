@@ -1808,7 +1808,10 @@ struct DictationGate {
     next_press: u64,
     hands_free: bool,
     flow_live: bool,
-    listener_ready: bool,
+    /// The frontend dictation listener that is up, by the id it installed
+    /// with; `None` while none is (startup, or between a teardown and the
+    /// next install), when link presses wait or are ignored.
+    listener: Option<String>,
     pending_hands_free: Option<Instant>,
     /// A hands-free link took over the push press that was held: that
     /// button is still down, and its up belongs to it, not to whatever runs
@@ -1826,7 +1829,7 @@ impl DictationGate {
             next_press: 0,
             hands_free: false,
             flow_live: false,
-            listener_ready: false,
+            listener: None,
             pending_hands_free: None,
             link_held_after_takeover: false,
         }
@@ -1873,7 +1876,7 @@ impl DictationGate {
             // A new down: the taken-over press's up was lost.
             self.link_held_after_takeover = false;
         }
-        if input == PressInput::Link && !self.listener_ready {
+        if input == PressInput::Link && self.listener.is_none() {
             // A cold start from the link: nothing could hear the start, so
             // change nothing and let the matching up find nothing to stop.
             return PressClaim::Ignored;
@@ -1967,7 +1970,7 @@ impl DictationGate {
         }
         self.released_taps
             .retain(|tap| tap.input != PressInput::Link);
-        let deliver_now = if self.listener_ready {
+        let deliver_now = if self.listener.is_some() {
             true
         } else {
             // A second press before the listener is up cancels the first,
@@ -1987,12 +1990,21 @@ impl DictationGate {
     /// The frontend's listener is (re)installed: no hands-free run from an
     /// earlier page load is left, presses go straight to it from now on,
     /// and true when a held hands-free press should start now.
-    fn listener_ready(&mut self, now: Instant) -> bool {
-        self.listener_ready = true;
+    fn listener_ready(&mut self, listener: &str, now: Instant) -> bool {
+        self.listener = Some(listener.to_owned());
         self.hands_free = false;
         self.pending_hands_free
             .take()
             .is_some_and(|at| now.saturating_duration_since(at) < HANDS_FREE_LINK_HOLD_LIMIT)
+    }
+
+    /// The frontend took listener `listener` down (a settings change or a
+    /// reinstall): link presses wait again until the next one is up. A
+    /// teardown that lands after a newer listener came up leaves that one.
+    fn listener_gone(&mut self, listener: &str) {
+        if self.listener.as_deref() == Some(listener) {
+            self.listener = None;
+        }
     }
 }
 
@@ -2085,13 +2097,19 @@ pub(crate) fn note_flow_hidden(app: &AppHandle) {
 /// Called by the frontend once its dictation listener is registered. Returns
 /// whether a hands-free link pressed before then should start now.
 #[tauri::command]
-pub fn take_pending_dictate_link(app: AppHandle) -> bool {
-    let pending = with_gate(&app, |gate, now| gate.listener_ready(now));
+pub fn take_pending_dictate_link(app: AppHandle, listener: String) -> bool {
+    let pending = with_gate(&app, |gate, now| gate.listener_ready(&listener, now));
     if pending {
         eprintln!("[clips-tray] dictate link — delivering the hands-free press held at startup");
         wake_popover_for_voice(&app);
     }
     pending
+}
+
+/// Called by the frontend when it takes its dictation listener down.
+#[tauri::command]
+pub fn dictation_listener_gone(app: AppHandle, listener: String) {
+    with_gate(&app, |gate, _| gate.listener_gone(&listener));
 }
 
 /// `clips://dictate` links. Push-to-talk acts like the dictation key going
@@ -2158,7 +2176,11 @@ mod dictation_gate_tests {
     /// One input to the gate.
     #[derive(Debug, Clone, Copy)]
     enum Step {
+        /// Listener "a" is up.
         ListenerReady,
+        /// Listener with this id is up / taken down.
+        ListenerUp(&'static str),
+        ListenerGone(&'static str),
         Press(PressInput),
         /// The wake delay of the n-th press (numbered from 1) is over.
         Due(u64),
@@ -2208,7 +2230,7 @@ mod dictation_gate_tests {
     fn run(steps: &[(u64, Step, Out, bool)]) {
         let t0 = Instant::now();
         let mut gate = DictationGate::new();
-        gate.listener_ready(t0);
+        gate.listener_ready("a", t0);
         run_from(&mut gate, t0, steps);
     }
 
@@ -2216,7 +2238,12 @@ mod dictation_gate_tests {
         for (i, &(at, step, want, armed)) in steps.iter().enumerate() {
             let now = t0 + ms(at);
             let got = match step {
-                Step::ListenerReady => Out::Pending(gate.listener_ready(now)),
+                Step::ListenerReady => Out::Pending(gate.listener_ready("a", now)),
+                Step::ListenerUp(id) => Out::Pending(gate.listener_ready(id, now)),
+                Step::ListenerGone(id) => {
+                    gate.listener_gone(id);
+                    Done
+                }
                 Step::Press(input) => Claim(gate.press(input, now)),
                 Step::Due(press) => Start(gate.start_due(press)),
                 Step::Check(press) => Out::Watching(gate.expire_if_lost(press, now)),
@@ -2595,6 +2622,31 @@ mod dictation_gate_tests {
     }
 
     #[test]
+    fn links_wait_while_the_listener_is_reinstalled() {
+        use Step::{HandsFreeLink, ListenerGone, ListenerUp, Press, Release};
+        run(&[
+            // Settings change: listener "a" is taken down.
+            (0, ListenerGone("a"), Done, false),
+            (100, Press(Link), Claim(Ignored), false),
+            (150, Release(Link), NOT_OWNER, false),
+            (
+                200,
+                HandsFreeLink,
+                Out::HandsFree {
+                    capture: true,
+                    now: false,
+                },
+                false,
+            ),
+            // The new listener takes the held hands-free press.
+            (300, ListenerUp("b"), Out::Pending(true), false),
+            // A late teardown of "a" leaves "b" up.
+            (400, ListenerGone("a"), Done, false),
+            (500, Press(Link), Claim(Owns), true),
+        ]);
+    }
+
+    #[test]
     fn cold_start_links_wait_for_the_listener() {
         use Step::{HandsFreeLink, ListenerReady, Press, Release};
         let t0 = Instant::now();
@@ -2681,7 +2733,7 @@ mod dictation_gate_tests {
         use std::sync::Arc;
         for _ in 0..200 {
             let gate = Arc::new(Mutex::new(DictationGate::new()));
-            gate.lock().unwrap().listener_ready(Instant::now());
+            gate.lock().unwrap().listener_ready("a", Instant::now());
             let owners = Arc::new(AtomicUsize::new(0));
             let barrier = Arc::new(std::sync::Barrier::new(3));
             let handles: Vec<_> = [Fn, Shortcut, Link]

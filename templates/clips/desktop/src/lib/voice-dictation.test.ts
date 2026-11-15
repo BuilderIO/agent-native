@@ -2308,6 +2308,34 @@ describe("desktop voice dictation runs", () => {
       ]);
     });
 
+    it("a brief push-to-talk link press is a discarded tap", async () => {
+      await install("push-to-talk");
+      await dispatch("voice:shortcut-start", { source: "link" });
+      await vi.advanceTimersByTimeAsync(120);
+      await dispatch("voice:shortcut-stop", { source: "link", heldMs: 120 });
+      await vi.advanceTimersByTimeAsync(10_000);
+      expect(calls("native_speech_start")).toBe(1);
+      expect(calls("native_speech_stop")).toBe(0);
+      expect(tauri.invoke).not.toHaveBeenCalledWith(
+        "complete_voice_dictation",
+        expect.anything(),
+      );
+    });
+
+    it("tells native its dictation listener is gone on teardown", async () => {
+      await install("push-to-talk");
+      const take = tauri.invoke.mock.calls.find(
+        ([command]) => command === "take_pending_dictate_link",
+      );
+      expect(take?.[1]).toEqual({ listener: expect.any(String) });
+      dispose?.();
+      dispose = undefined;
+      expect(tauri.invoke).toHaveBeenCalledWith(
+        "dictation_listener_gone",
+        take?.[1],
+      );
+    });
+
     it("asks for a hands-free link held at startup once its listener is up", async () => {
       tauri.invoke.mockImplementation((command) =>
         Promise.resolve(

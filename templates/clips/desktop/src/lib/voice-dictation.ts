@@ -2829,11 +2829,19 @@ export function installDesktopVoiceDictation(
     },
   );
   registerListener(shortcutStartListener);
+  // Native routes clips://dictate presses here only while this listener is
+  // up: it knows it by this id, and waits (or ignores push links) between
+  // this install's teardown and the next install.
+  const dictationListenerId = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   // A hands-free link that launched the app was held natively until this
   // listener existed; ask for it now.
   void shortcutStartListener
     .then(() =>
-      disposed ? false : invoke<boolean>("take_pending_dictate_link"),
+      disposed
+        ? false
+        : invoke<boolean>("take_pending_dictate_link", {
+            listener: dictationListenerId,
+          }),
     )
     .then((pending) => {
       if (
@@ -2853,7 +2861,8 @@ export function installDesktopVoiceDictation(
         // Only the up of the link press that started this dictation ends
         // it, even in toggle mode.
         if (dictationInput({ kind: "stop", source: "link" }) === "stop-link") {
-          stop();
+          // The hold time, so a brief accidental press is a discarded tap.
+          stop(event.payload.heldMs);
           // A link has no double-tap gesture: an early link up must not
           // read as the first tap of the key's hands-free upgrade.
           pendingHandsFreeTapAt = null;
@@ -2923,6 +2932,9 @@ export function installDesktopVoiceDictation(
 
   return () => {
     disposed = true;
+    invoke("dictation_listener_gone", { listener: dictationListenerId }).catch(
+      () => {},
+    );
     enabled = false;
     serverUrl = "";
     shortcut = "both";
