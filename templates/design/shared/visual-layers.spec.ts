@@ -42,5 +42,12 @@ describe("injectCanvasContextRecorder", () => {
     ).toBe(
       `<!-- <head> --><!doctype html>${CANVAS_CONTEXT_RECORDER_SCRIPT}<body></body>`,
     );
+    expect(
+      injectCanvasContextRecorder(
+        "<!-- <script> <style> <body> --><!doctype html><body></body>",
+      ),
+    ).toBe(
+      `<!-- <script> <style> <body> --><!doctype html>${CANVAS_CONTEXT_RECORDER_SCRIPT}<body></body>`,
+    );
   });
 });

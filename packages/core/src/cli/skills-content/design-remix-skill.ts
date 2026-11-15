@@ -164,9 +164,10 @@ tweak system, never a private UI:
    "color-swatch" | "color-swatches", min, max, step, defaultValue, cssVar,
    unit?, options?, scope }\`. \`segment\`, \`color-swatch\` and
    \`color-swatches\` require \`options\`, a list of \`{ label, value, color? }\`
-   choices; without it the inspector shows empty controls. Set \`scope\` to
-   \`{ screenId, nodeId }\` (or \`selector\` on a URL screen) of the effect's
-   root. Keep existing tweaks; append.
+   choices; without it the inspector shows empty controls. Always set
+   \`scope.screenId\`, plus \`nodeId\` (or \`selector\` on a URL screen) of the
+   effect's root: \`{ screenId, nodeId }\` or \`{ screenId, selector }\`. Keep
+   existing tweaks; append.
 3. Design shows them, already expanded, in the inspector's **Tweaks** section
    whenever the user selects that screen, the effect, or any parent or child of
    it, and never for a sibling.
