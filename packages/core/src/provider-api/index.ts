@@ -3505,7 +3505,7 @@ async function executeCustomProviderApiRequest(
   const requestKey = createProviderRequestDedupeKey({
     method,
     url: url.href,
-    body,
+    ...(body === undefined ? {} : { body }),
     headers,
     maxBytes: effectiveMaxBytes,
   });
@@ -6530,7 +6530,9 @@ async function fetchWithTimeout(
           identity: options.quota.identity,
           method: options.quota.method,
           target: options.quota.target,
-          requestKey: options.quota.requestKey,
+          ...(options.quota.requestKey === undefined
+            ? {}
+            : { requestKey: options.quota.requestKey }),
         },
         execute: async () => {
           const response = await runOnce();
@@ -6551,6 +6553,15 @@ async function fetchWithTimeout(
     : await runOnce();
 
   if (result.bodyValidationError) {
+    if (result.status !== 429) {
+      fail(
+        `Cannot save binary or invalid UTF-8 provider response (HTTP ${result.status}).`,
+        {
+          errorCode: "provider_response_invalid",
+          statusCode: result.status,
+        },
+      );
+    }
     const retryAfterMs =
       result.quota?.retryAfterMs ?? parseRetryAfterMs(result.headers);
     const retryAfterSeconds =
@@ -6701,10 +6712,7 @@ async function fetchProviderResponse(
       options.requireTextForSave,
     );
   } catch (error) {
-    if (
-      res.status !== 429 ||
-      !(error instanceof ProviderResponseBodyValidationError)
-    ) {
+    if (res.ok || !(error instanceof ProviderResponseBodyValidationError)) {
       throw error;
     }
     // The governor must observe 429 headers before this rejection escapes.

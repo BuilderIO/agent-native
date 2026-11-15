@@ -6252,6 +6252,57 @@ describe("provider API runtime", () => {
       },
     );
 
+    it.each(
+      ["hubspot", "test-api"].flatMap((provider) =>
+        [false, true].flatMap((paginated) => [
+          {
+            provider,
+            paginated,
+            contentType: "application/zip",
+            body: new TextEncoder().encode("private-binary-payload"),
+          },
+          {
+            provider,
+            paginated,
+            contentType: "text/plain",
+            body: new Uint8Array([112, 114, 105, 118, 97, 116, 101, 45, 255]),
+          },
+        ]),
+      ),
+    )(
+      "preserves HTTP 500 for invalid $contentType $provider saves (paginated: $paginated)",
+      async ({ provider, paginated, contentType, body }) => {
+        vi.mocked(globalThis.fetch).mockResolvedValueOnce(
+          new Response(body, {
+            status: 500,
+            headers: {
+              "content-type": contentType,
+              "x-private-header": "private-header-secret",
+            },
+          }),
+        );
+        const result = createProviderApiRequestAction(runtime()).run({
+          provider,
+          path: "/records",
+          auth: "none",
+          saveToFile: "scratch/response.txt",
+          ...(paginated
+            ? { fetchAllPages: { cursorPath: "next", cursorParam: "cursor" } }
+            : {}),
+        });
+        await expect(result).rejects.toMatchObject({
+          name: "ActionContractError",
+          statusCode: 500,
+          errorCode: "provider_response_invalid",
+        });
+        const error = await result.catch((err: unknown) => err);
+        expect(String(error)).toMatch(/HTTP 500/);
+        expect(String(error)).not.toContain("private-");
+        expect(JSON.stringify(error)).not.toContain("private-");
+        expect(writeWorkspaceFile).not.toHaveBeenCalled();
+      },
+    );
+
     it.each(["hubspot", "test-api"])(
       "preserves text HTTP errors in a paginated %s save",
       async (provider) => {
