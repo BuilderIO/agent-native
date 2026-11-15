@@ -304,3 +304,11 @@
     height: 560px;
   }
 }
+
+.hero-copy-scrim {
+  background: radial-gradient(
+    ellipse 62% 43% at 50% 48%,
+    color-mix(in srgb, var(--b-bg-page) 88%, transparent) 25%,
+    transparent 100%
+  );
+}

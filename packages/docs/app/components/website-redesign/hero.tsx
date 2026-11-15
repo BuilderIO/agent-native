@@ -11,6 +11,10 @@ export function Hero() {
   return (
     <PageSection>
       <HeroBackground />
+      <div
+        aria-hidden="true"
+        className="pointer-events-none absolute inset-0 z-0 hero-copy-scrim"
+      />
       {/* No top border on the GridInner below: the sticky SiteHeader already
           draws the border directly above this section, so a second one would
           double the line. */}
