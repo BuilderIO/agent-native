@@ -1395,7 +1395,7 @@ describe("native recording startup", () => {
     await handle.cancel();
   });
 
-  it("permits retry after cancellation while the old begin invoke is still pending", async () => {
+  it("holds a retry until the abandoned start's take is stopped, so its stop cannot end the new recording", async () => {
     const begin = deferred<void>();
     nativeCommands.set(
       "native_fullscreen_recording_begin",
@@ -1410,14 +1410,39 @@ describe("native recording startup", () => {
     await failed;
     await flush();
     expect(mocks.emit).not.toHaveBeenCalledWith("clips:toolbar-enabled", true);
+
+    // Stop, then start again at once while the old begin is still pending.
     nativeCommands.delete("native_fullscreen_recording_begin");
     const second = startRecording(params);
-    await vi.advanceTimersByTimeAsync(3_600);
-    const handle = await second;
-    expect(calls("native_fullscreen_recording_begin")).toHaveLength(2);
-    expect(mocks.emit).toHaveBeenCalledWith("clips:toolbar-enabled", true);
+    await vi.advanceTimersByTimeAsync(10_000);
+    expect(calls("show_countdown")).toHaveLength(1);
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(1);
+
+    // The old begin lands: its take is stopped and saved first, and only then
+    // does the new start run.
     begin.resolve();
     await flush();
+    await flush();
+    expect(calls("native_fullscreen_recording_stop_and_upload")).toHaveLength(
+      1,
+    );
+    await vi.advanceTimersByTimeAsync(3_600);
+    const handle = await second;
+    expect(calls("show_countdown")).toHaveLength(2);
+    expect(calls("native_fullscreen_recording_begin")).toHaveLength(2);
+    const order = mocks.invoke.mock.calls
+      .map(([name]) => name as string)
+      .filter(
+        (name) =>
+          name === "native_fullscreen_recording_stop_and_upload" ||
+          name === "native_fullscreen_recording_begin",
+      );
+    expect(order).toEqual([
+      "native_fullscreen_recording_begin",
+      "native_fullscreen_recording_stop_and_upload",
+      "native_fullscreen_recording_begin",
+    ]);
+    expect(mocks.emit).toHaveBeenCalledWith("clips:toolbar-enabled", true);
     await handle.cancel();
   });
 

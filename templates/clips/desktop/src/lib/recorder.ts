@@ -64,6 +64,7 @@ import {
   guardRecordingStart,
   RECORDING_START_TIMEOUT_MS,
   RecordingStartCancelledError,
+  RecordingStartTimeoutError,
 } from "./recording-start-guard";
 import { buildCaptureTitle, type CaptureTitleResult } from "./recording-title";
 import { prepareRewindRecordingStart } from "./rewind-recording-start";
@@ -3519,7 +3520,7 @@ async function tryStartRewindFullscreenRecording(
         if (!localOnly) showFinalizingFeedback();
         try {
           if (localOnly) {
-            const savePromise = invoke<NativeFullscreenSaveResult>(
+            const savePromise = invokeCaptureStop<NativeFullscreenSaveResult>(
               "rewind_clip_stop_and_save",
               {
                 folderName,
@@ -3543,7 +3544,7 @@ async function tryStartRewindFullscreenRecording(
 
           const viewUrl = `/r/${id}`;
           const stopStarted = performance.now();
-          const uploadPromise = invoke<NativeFullscreenUploadResult>(
+          const uploadPromise = invokeCaptureStop<NativeFullscreenUploadResult>(
             "rewind_clip_stop_and_upload",
             {
               serverUrl: params.serverUrl,
@@ -4283,7 +4284,7 @@ async function startNativeFullscreenRecording(
           const durationMs = Math.max(0, Date.now() - startedAt);
           try {
             const [nativeResult, cameraFiles] = await Promise.all([
-              invoke<NativeFullscreenSaveResult>(
+              invokeCaptureStop<NativeFullscreenSaveResult>(
                 "native_fullscreen_recording_stop_and_save",
                 {
                   folderName: localFolderName,
@@ -4338,7 +4339,7 @@ async function startNativeFullscreenRecording(
           },
         );
 
-        const uploadPromise = invoke<NativeFullscreenUploadResult>(
+        const uploadPromise = invokeCaptureStop<NativeFullscreenUploadResult>(
           "native_fullscreen_recording_stop_and_upload",
           {
             serverUrl: params.serverUrl,
@@ -4649,6 +4650,60 @@ function bubbleSizeRatioForName(size: string | null | undefined): number {
   return size === "medium" ? 0.24 : 0.18;
 }
 
+/**
+ * A start abandoned after its native begin / Rewind start was sent finishes in
+ * the background and its take is then stopped and saved. The native and
+ * Rewind stop commands finalize whatever session is active, not a specific
+ * recording, so a new start must wait until that take's stop command has been
+ * sent, or the late stop could end the new recording instead.
+ */
+let abandonedCaptureSettling: Promise<void> | null = null;
+const captureStopListeners = new Set<() => void>();
+
+/** Sends a native / Rewind stop command and tells a waiting start that the
+ * active capture session is being released. */
+function invokeCaptureStop<T>(
+  command: string,
+  args: Record<string, unknown>,
+): Promise<T> {
+  const promise = invoke<T>(command, args);
+  for (const listener of [...captureStopListeners]) listener();
+  return promise;
+}
+
+function nextCaptureStopSent(): { promise: Promise<void>; dispose(): void } {
+  let listener: () => void = () => {};
+  const promise = new Promise<void>((resolve) => {
+    listener = () => resolve();
+    captureStopListeners.add(listener);
+  });
+  return {
+    promise,
+    dispose: () => {
+      captureStopListeners.delete(listener);
+    },
+  };
+}
+
+async function waitForAbandonedCapture(signal?: AbortSignal): Promise<void> {
+  const settling = abandonedCaptureSettling;
+  if (!settling) return;
+  console.log(
+    "[clips-recorder] waiting for an abandoned start's take to be stopped",
+  );
+  try {
+    await guardRecordingStart(settling, {
+      signal,
+      timeoutMs: RECORDING_START_TIMEOUT_MS,
+    });
+  } catch (err) {
+    if (!(err instanceof RecordingStartTimeoutError)) throw err;
+    console.warn(
+      "[clips-recorder] abandoned start did not settle; starting anyway",
+    );
+  }
+}
+
 export async function startRecording(
   params: StartParams,
   preparedAudioCue?: AudioCue,
@@ -4656,6 +4711,12 @@ export async function startRecording(
   const countdownAttemptId = params.countdownAttemptId ?? crypto.randomUUID();
   const recordingParams = { ...params, countdownAttemptId };
   const audioCue = preparedAudioCue ?? createAudioCue();
+  try {
+    await waitForAbandonedCapture(params.signal);
+  } catch (err) {
+    audioCue.cleanup();
+    throw err;
+  }
   const startController = new AbortController();
   let requestedRecordingId: string | null = null;
   let startupAbortStop: {
@@ -4669,12 +4730,37 @@ export async function startRecording(
   // late-resolving handle is stopped and saved (onLateResolve). A start that
   // then fails cleans up on its own failure path.
   let startupState: "starting" | "capturing" = "starting";
+  let lateStop: Promise<unknown> | null = null;
   const cancelStartup = () => {
     startController.abort();
     void emit("clips:countdown-cancel", {
       attemptId: countdownAttemptId,
     }).catch(() => {});
-    if (startupState === "capturing") return;
+    if (startupState === "capturing") {
+      // Hold the next start until this take's stop command is sent (or the
+      // stop / start fails), so that stop cannot end the next recording.
+      const stopSent = nextCaptureStopSent();
+      const settling: Promise<void> = startPromise
+        .then(
+          () =>
+            Promise.race([
+              stopSent.promise,
+              (lateStop ?? Promise.resolve()).then(
+                () => undefined,
+                () => undefined,
+              ),
+            ]),
+          () => undefined,
+        )
+        .finally(() => stopSent.dispose());
+      abandonedCaptureSettling = settling;
+      void settling.then(() => {
+        if (abandonedCaptureSettling === settling) {
+          abandonedCaptureSettling = null;
+        }
+      });
+      return;
+    }
     void invoke("native_fullscreen_recording_cancel").catch(() => {});
     void invoke("hide_recording_chrome").catch(() => {});
   };
@@ -4723,7 +4809,8 @@ export async function startRecording(
       // Capture has already begun when a start resolves this late: keep what
       // it recorded. Only a confirmed discard deletes a recording.
       onLateResolve: (handle) => {
-        void handle.stop().catch((err) => {
+        lateStop = handle.stop();
+        void lateStop.catch((err) => {
           if (requestedRecordingId) {
             cleanupFailedCaptureStart(requestedRecordingId);
           }
