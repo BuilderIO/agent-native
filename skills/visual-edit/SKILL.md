@@ -49,23 +49,31 @@ no connector installation.
 
 ## Put Design Beside The Chat
 
-Prefer the MCP App from `open-visual-edit`: it keeps Design beside
-chat. Use **Copy prompt** to hand the visual edits to the coding agent; the host
-may request conversation confirmation. Otherwise,
-`openUrl` is a credential-free, read-only fallback; never claim it is editable.
+`open-visual-edit` accepts `target`: `inline-browser` (default MCP
+App/page), `system-browser`, or `desktop` (registered
+`agentnative://open`). `launch.status: "host-required"` returns
+`browserUrl`/`desktopUrl` for the local opener. Local CLI detects the
+desktop handler; browsers cannot. `dispatched` confirms dispatch only;
+`desktop-not-detected`, `blocked`, or `failed` require browser fallback.
+These URLs transfer no capability; account editing needs sign-in and a paired bridge.
 
-- Inline-browser hosts should open `https://design.agent-native.com/visual-edit`
-  and call its `open-visual-edit` WebMCP tool. It works signed in or out; the
-  one-time capability is not a Design account session. A page-capable browser
-  controller is enough, so Claude-in-Chrome, Claude Code browser tools, the
-  ChatGPT Chrome/browser extension, Puppeteer or Playwright MCP, CDP, and
-  similar JavaScript-capable controllers do not need the hosted MCP connector.
-- VS Code uses its Design webview/deep link. Without page WebMCP, use the hosted
-  Design MCP connector and its normal OAuth/device authorization. Never replace
-  either path with a local Design server.
+**Copy prompt** hands edits to the coding agent. `openUrl` is read-only.
+Inline hosts call WebMCP at `https://design.agent-native.com/visual-edit`,
+signed in or out; no connector needed.
+VS Code uses its webview/deep link; other hosts use authenticated Design MCP.
+Never start local Design.
 
-Inside Design, use **Show/Hide UI** from the `Cmd K` menu or press the
-`Shift \` shortcut to toggle all editing chrome so only the canvas remains.
+## Share The Canvas And Local Preview
+
+Use signed-in Share permissions (view/comment/edit).
+`get-visual-edit-collaboration({designId})` returns `shareUrl` and
+`previews`. For **Share live preview**, run ngrok or
+`cloudflared tunnel --url http://localhost:5173`, then
+`update-visual-edit-preview({designId,fileId,tunnelUrl})` with public HTTPS
+(`null` removes). Owner stays local; viewers get tunnel or snapshot. Tunnels expose the app publicly; never expose bridge secrets.
+Existing canvas/frame pins handle comments; **Suggest on snapshot** feeds
+`get-visual-edit-pending` and revision-based
+`acknowledge-visual-edit-pending` after the owner's agent applies source edits.
 
 ## Browser WebMCP (Default Without Connector)
 

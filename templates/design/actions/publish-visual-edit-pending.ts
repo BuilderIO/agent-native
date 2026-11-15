@@ -54,8 +54,14 @@ export default defineAction({
     }
 
     return withDesignSourceMutationTransaction(designId, async (tx) => {
-      const access = await assertAccess("design", designId, "editor");
+      const access = await assertAccess("design", designId, "viewer");
       const design = access.resource as typeof schema.designs.$inferSelect;
+      if (!["owner", "admin", "editor", "commenter"].includes(access.role)) {
+        fail("Comment access is required to suggest visual edits.", {
+          statusCode: 403,
+          errorCode: "visual_edit_comment_access_required",
+        });
+      }
       const now = new Date().toISOString();
       const canEditDesign = ["owner", "admin", "editor"].includes(access.role);
       const canClearOtherPublisher = access.role === "owner";

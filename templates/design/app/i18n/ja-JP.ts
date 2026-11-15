@@ -1050,6 +1050,37 @@ export default {
     },
   },
   designEditor: {
+    livePreview: {
+      share: "ライブプレビューを共有",
+      instructions:
+        "アプリ用に ngrok または cloudflared tunnel --url を実行し、公開 HTTPS URL を貼り付けます。自分の端末は localhost のまま、他の人はトンネルを表示したり、公開スナップショットに変更を提案できます。",
+      tunnelUrl: "トンネル URL",
+      save: "保存",
+      live: "ライブプレビュー",
+      suggest: "スナップショットに提案",
+      localOnly: "ライブプレビューは所有者の端末のみ",
+    },
+    referenceCopy: {
+      staticNotice:
+        "JavaScript は無効です。動的コンテンツが表示されない場合があります。",
+      captureAction: "静的スナップショットを取得",
+      capturePrompt:
+        "この公開参照 URL のスクリーンショットと DOM スナップショットを取得し、静的な参照画面としてこのデザインキャンバスに追加してください。ライブページではなくスナップショットと明記してください。",
+      unavailable:
+        "このページはフレーム表示を拒否しているか、読み込みに失敗しました。",
+      load: "参照コピーを読み込む",
+      label: "参照コピー · 公開ページ、読み取り専用",
+      noBridge:
+        "公開参照コピーを読み込むにはローカルブリッジを接続してください。",
+      snapshot: "公開スナップショットを使う",
+      capture:
+        "エージェントにスクリーンショットと DOM スナップショットの取得を依頼してください。",
+      failed:
+        "参照コピーに失敗しました。スクリーンショットと DOM を取得してください。",
+      loading: "参照コピーを読み込み中…",
+      original: "元のページを試す",
+    },
+
     sourceLoadFailed: "この画面を読み込めませんでした。",
     selectionPublishFailed:
       "エージェントが最新の選択範囲を認識していない可能性があります。もう一度選択してください。",

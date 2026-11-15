@@ -253,6 +253,7 @@ import {
 import { DeviceFrame } from "./DeviceFrame";
 import { dndHostLog } from "./dnd-debug";
 import type { RelativeStyleOperation } from "./edit-panel/style-change-types";
+import { ExternalReferenceFallback } from "./ExternalReferenceFallback";
 import { getBoardSurfaceRenderContent } from "./multi-screen/board-surface-html";
 import { shapeClosingHandles } from "./multi-screen/draft-primitives";
 import {
@@ -267,6 +268,7 @@ import {
   getIframePaintRetentionStyle,
   SCALED_IFRAME_PAINT_RETENTION_STYLE,
 } from "./scaled-iframe-paint";
+import { SharedTunnelPreview } from "./SharedTunnelPreview";
 import type {
   ElementInfo,
   GridGroupStructureMove,
@@ -654,6 +656,9 @@ interface DesignCanvasProps {
    */
   sourceType?: "inline" | "localhost" | "fusion";
   bridgeUrl?: string;
+  referenceBridgeUrl?: string;
+  referencePreviewToken?: string;
+  sharedTunnelUrl?: string;
   allowLocalNetworkAccessPrompt?: boolean;
   previewUrlOverride?: string;
   previewUrlSourceKey?: string;
@@ -1503,6 +1508,9 @@ export function DesignCanvas({
   contentKey,
   sourceType,
   bridgeUrl,
+  referenceBridgeUrl,
+  referencePreviewToken,
+  sharedTunnelUrl,
   allowLocalNetworkAccessPrompt = true,
   previewUrlOverride,
   previewUrlSourceKey,
@@ -2702,6 +2710,24 @@ export function DesignCanvas({
     iframePreviewUrlRef.current.url = resolvedExternalPreviewUrl;
   }
   const externalPreviewUrl = iframePreviewUrlRef.current.url;
+  const [referenceFrameFailed, setReferenceFrameFailed] = useState(false);
+  const [referenceCopyActive, setReferenceCopyActive] = useState(false);
+  const referenceEligible = Boolean(
+    externalPreviewUrl &&
+    sourceType !== "localhost" &&
+    !usesLiveEditInjectedBridge,
+  );
+  useEffect(() => {
+    setReferenceFrameFailed(false);
+    setReferenceCopyActive(false);
+    if (!referenceEligible) return;
+    const timeout = window.setTimeout(
+      () => setReferenceFrameFailed(true),
+      8_000,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [externalPreviewUrl, referenceEligible]);
+
   const { syncFrame: syncNativeShaderApprovals, approvedDefinitionHashes } =
     useNativeShaderApprovals({
       designId,
@@ -8504,6 +8530,7 @@ export function DesignCanvas({
             sandbox={previewIframeSandbox}
             allow={getDesignCanvasIframeAllow(externalPreviewUrl)}
             data-design-preview-iframe
+            onError={() => setReferenceFrameFailed(true)}
             onFocus={(event) => {
               if (
                 sourceType !== "localhost" ||
@@ -8575,10 +8602,38 @@ export function DesignCanvas({
           />
         </>
       )}
+      {referenceEligible && externalPreviewUrl ? (
+        <ExternalReferenceFallback
+          key={externalPreviewUrl}
+          url={externalPreviewUrl}
+          designId={designId}
+          screenId={screenId}
+          bridgeUrl={referenceBridgeUrl}
+          previewToken={referencePreviewToken}
+          snapshotHtml={matchingSharedSnapshot?.html ?? externalSnapshotHtml}
+          failed={referenceFrameFailed}
+          compact={previewFrameLoaded}
+          active={nativePreviewActive}
+          onReferenceChange={setReferenceCopyActive}
+        />
+      ) : null}
+      {snapshotOnly && !sharedTunnelUrl ? (
+        <span className="pointer-events-none absolute bottom-2 end-2 z-30 rounded-md border border-border bg-background px-2 py-1 text-xs text-muted-foreground">
+          {t("designEditor.livePreview.localOnly")}
+        </span>
+      ) : null}
+      {snapshotOnly && sharedTunnelUrl ? (
+        <SharedTunnelPreview
+          url={sharedTunnelUrl}
+          active={nativePreviewActive}
+        />
+      ) : null}
       {motionOriginProxy}
       {externalPreviewUrl &&
       !appStartingFrame &&
       !previewFrameLoaded &&
+      !referenceCopyActive &&
+      !(referenceEligible && referenceFrameFailed) &&
       !liveEditConnectionFailed ? (
         <div className="pointer-events-none absolute inset-0 z-40 flex items-center justify-center gap-2 bg-background px-2 text-muted-foreground">
           <Spinner className="size-4 shrink-0" />

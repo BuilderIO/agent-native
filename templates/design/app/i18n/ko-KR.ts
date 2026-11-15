@@ -1038,6 +1038,33 @@ export default {
     },
   },
   designEditor: {
+    livePreview: {
+      share: "실시간 미리보기 공유",
+      instructions:
+        "앱에 ngrok 또는 cloudflared tunnel --url을 실행하고 공개 HTTPS URL을 붙여 넣으세요. 내 기기는 localhost를 유지하고 다른 사람은 터널을 보거나 게시된 스냅샷에 수정을 제안할 수 있습니다.",
+      tunnelUrl: "터널 URL",
+      save: "저장",
+      live: "실시간 미리보기",
+      suggest: "스냅샷에 제안",
+      localOnly: "실시간 미리보기는 소유자 기기에서만 가능",
+    },
+    referenceCopy: {
+      staticNotice: "JavaScript가 비활성화되어 동적 콘텐츠가 없을 수 있습니다.",
+      captureAction: "정적 스냅샷 캡처",
+      capturePrompt:
+        "이 공개 참조 URL의 스크린샷과 DOM 스냅샷을 캡처하여 디자인 캔버스에 정적 참조 화면으로 추가하세요. 실시간 페이지가 아닌 스냅샷으로 표시하세요.",
+      unavailable:
+        "이 페이지가 프레임을 차단하거나 로드에 실패했을 수 있습니다.",
+      load: "참조 사본 로드",
+      label: "참조 사본 · 공개 페이지, 읽기 전용",
+      noBridge: "공개 참조 사본을 로드하려면 로컬 브리지를 연결하세요.",
+      snapshot: "게시된 스냅샷 사용",
+      capture: "에이전트에게 스크린샷과 DOM 스냅샷 캡처를 요청하세요.",
+      failed: "참조 사본에 실패했습니다. 스크린샷과 DOM을 캡처하세요.",
+      loading: "참조 사본 로드 중…",
+      original: "원본 페이지 시도",
+    },
+
     sourceLoadFailed: "이 화면을 불러올 수 없습니다.",
     selectionPublishFailed:
       "에이전트가 최신 선택 영역을 보지 못할 수 있습니다. 다시 선택해 주세요.",

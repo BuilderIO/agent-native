@@ -193,6 +193,35 @@ describe("visual-edit pending handoff", () => {
     });
   });
 
+  it("allows a private commenter to publish a source handoff without source access", async () => {
+    mocks.isSameOrigin.mockReturnValue(true);
+    mocks.assertAccess.mockResolvedValueOnce({
+      role: "commenter",
+      resource: { ...design, visibility: "private" },
+    });
+    await expect(
+      publishPendingAction.run(
+        {
+          designId: design.id,
+          publisherId,
+          revision: 1,
+          pending: {
+            designId: design.id,
+            pendingEditCount: 1,
+            status: "ready",
+            prompt: "Adjust heading spacing",
+          },
+        },
+        { caller: "frontend", requestHeaders: new Headers() },
+      ),
+    ).resolves.toMatchObject({ status: "ready" });
+    expect(mocks.assertAccess).toHaveBeenCalledWith(
+      "design",
+      design.id,
+      "viewer",
+    );
+  });
+
   it("rejects publication that did not come from the Design page", async () => {
     mocks.isSameOrigin.mockReturnValue(false);
 
@@ -207,9 +236,10 @@ describe("visual-edit pending handoff", () => {
 
   it("rejects a plain public viewer before publishing a handoff", async () => {
     mocks.isSameOrigin.mockReturnValue(true);
-    mocks.assertAccess.mockRejectedValueOnce(
-      new Error("Requires editor role on design design_public (have viewer)"),
-    );
+    mocks.assertAccess.mockResolvedValueOnce({
+      role: "viewer",
+      resource: design,
+    });
 
     await expect(
       publishPendingAction.run(
@@ -235,11 +265,11 @@ describe("visual-edit pending handoff", () => {
           }),
         },
       ),
-    ).rejects.toThrow(/Requires editor role/);
+    ).rejects.toThrow(/Comment access is required/);
     expect(mocks.assertAccess).toHaveBeenCalledWith(
       "design",
       "design_public",
-      "editor",
+      "viewer",
     );
     expect(mocks.getDb).not.toHaveBeenCalled();
     expect(mocks.insertChain.values).not.toHaveBeenCalled();
@@ -422,7 +452,7 @@ describe("visual-edit pending handoff", () => {
     expect(mocks.assertAccess).toHaveBeenCalledWith(
       "design",
       "design_public",
-      "editor",
+      "viewer",
     );
     expect(mocks.insertChain.values).toHaveBeenCalledWith(
       expect.objectContaining({ visibility: "private" }),
@@ -485,7 +515,7 @@ describe("visual-edit pending handoff", () => {
     expect(mocks.assertAccess).toHaveBeenCalledWith(
       "design",
       "design_public",
-      "editor",
+      "viewer",
     );
     expect(mocks.insertChain.values).toHaveBeenCalledWith(
       expect.objectContaining({

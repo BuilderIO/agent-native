@@ -1185,6 +1185,32 @@ export default {
     },
   },
   designEditor: {
+    livePreview: {
+      share: "分享即時預覽",
+      instructions:
+        "為應用程式執行 ngrok 或 cloudflared tunnel --url，然後貼上公開 HTTPS 網址。你的裝置繼續載入 localhost；其他人可查看通道或在已發佈快照上建議修改。",
+      tunnelUrl: "通道網址",
+      save: "儲存",
+      live: "即時預覽",
+      suggest: "在快照上建議",
+      localOnly: "即時預覽僅限擁有者的裝置",
+    },
+    referenceCopy: {
+      staticNotice: "JavaScript 已停用；動態內容可能缺少。",
+      captureAction: "擷取靜態快照",
+      capturePrompt:
+        "擷取此公開參考網址的螢幕截圖和 DOM 快照，並作為靜態參考畫面加入此設計畫布。請標示為快照，而非即時頁面。",
+      unavailable: "此頁面可能禁止嵌入或載入失敗。",
+      load: "載入參考副本",
+      label: "參考副本 · 公開頁面，唯讀",
+      noBridge: "連接本機橋接以載入公開參考副本。",
+      snapshot: "使用已發佈快照",
+      capture: "請讓代理擷取螢幕截圖和 DOM 快照。",
+      failed: "參考副本載入失敗，請改為擷取螢幕截圖和 DOM 快照。",
+      loading: "正在載入參考副本…",
+      original: "嘗試原始頁面",
+    },
+
     sourceLoadFailed: "無法載入此畫面。",
     selectionPublishFailed: "代理程式可能看不到你最新的選取內容。請重新選取。",
     liveCollaboration: {
