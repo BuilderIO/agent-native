@@ -6816,6 +6816,13 @@ async function readResponseTextWithLimit(
   if (!response.body) return { text: "", truncated: false, size: 0 };
   const binaryForSave =
     requireTextForSave && isBinaryProviderContentType(mediaType);
+  if (binaryForSave && response.status === 429) {
+    // Cancellation can itself wait for the stream, but the quota is already known.
+    void response.body.cancel().catch(() => undefined);
+    throw new ProviderResponseBodyValidationError(
+      `Cannot save binary provider response (content type: ${displayType}) as a text workspace file. Use a binary storage capability instead.`,
+    );
+  }
   const contentLength = response.headers.get("content-length");
   if (!binaryForSave && contentLength && Number(contentLength) > maxBytes) {
     await response.body?.cancel();

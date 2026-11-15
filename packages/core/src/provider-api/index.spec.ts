@@ -5883,38 +5883,123 @@ describe("provider API runtime", () => {
       },
     );
 
-    it("retries a rejected 429 body and saves the subsequent valid response", async () => {
+    it("records a binary 429 cooldown without waiting for the first body byte", async () => {
+      let streamController:
+        | ReadableStreamDefaultController<Uint8Array>
+        | undefined;
+      let finishCancel: () => void = () => {};
+      const cancelFinished = new Promise<void>((resolve) => {
+        finishCancel = resolve;
+      });
+      const cancel = vi.fn(() => cancelFinished);
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          streamController = controller;
+        },
+        cancel,
+      });
+      let fetched: () => void = () => {};
+      const fetchStarted = new Promise<void>((resolve) => {
+        fetched = resolve;
+      });
       const fetchMock = vi.mocked(globalThis.fetch);
       fetchMock.mockReset();
-      fetchMock
-        .mockResolvedValueOnce(
-          new Response(new Uint8Array([255]), {
-            status: 429,
-            headers: { "content-type": "text/plain", "retry-after": "0" },
-          }),
-        )
-        .mockResolvedValueOnce(
-          new Response("name,value\nexample,1\n", {
-            headers: { "content-type": "text/csv" },
-          }),
-        );
-      await expect(
-        runtime().executeRequest({
-          provider: "hubspot",
-          path: "/records",
-          auth: "none",
-          saveToFile: "scratch/response.csv",
-        }),
-      ).resolves.toMatchObject({ savedToFile: true, ok: true });
-      expect(fetchMock).toHaveBeenCalledTimes(2);
-      expect(writeWorkspaceFile).toHaveBeenCalledWith(
-        { scope: "org", scopeId: "org-1" },
-        "scratch/response.csv",
-        "name,value\nexample,1\n",
-        "text/csv",
-        { maxFileBytes: 20 * 1024 * 1024 },
+      fetchMock.mockImplementationOnce(async () => {
+        fetched();
+        return new Response(body, {
+          status: 429,
+          headers: {
+            "content-type": "application/zip",
+            "retry-after": "120",
+            "x-private-header": "private-header-secret",
+          },
+        });
+      });
+      const api = runtime();
+      const request = {
+        provider: "hubspot",
+        path: "/records",
+        auth: "none" as const,
+      };
+      const result = createProviderApiRequestAction(api).run({
+        ...request,
+        saveToFile: "scratch/response.txt",
+      });
+      const settled = result.then(
+        () => ({ kind: "resolved" as const }),
+        (error: unknown) => ({ kind: "rejected" as const, error }),
       );
+      await fetchStarted;
+      const outcome = await Promise.race([
+        settled,
+        new Promise<{ kind: "stalled" }>((resolve) =>
+          setImmediate(() => resolve({ kind: "stalled" })),
+        ),
+      ]);
+      if (outcome.kind === "stalled" && !cancel.mock.calls.length) {
+        streamController?.close();
+      }
+      finishCancel();
+      if (outcome.kind === "stalled") await settled;
+      expect(outcome.kind).toBe("rejected");
+      if (outcome.kind !== "rejected") throw new Error("Expected a rejection");
+      expect(outcome.error).toMatchObject({
+        name: "ActionContractError",
+        statusCode: 429,
+        errorCode: "provider_response_invalid",
+        details: { retryAfterSeconds: 120 },
+      });
+      expect(String(outcome.error)).not.toContain("private-");
+      expect(JSON.stringify(outcome.error)).not.toContain("private-");
+      expect(cancel).toHaveBeenCalledOnce();
+      expect(writeWorkspaceFile).not.toHaveBeenCalled();
+
+      const next = await api.executeRequest(request);
+      expect(next).toMatchObject({
+        response: {
+          status: 429,
+          quota: { exhausted: true, reason: "cooldown" },
+        },
+      });
+      expect(JSON.stringify(next)).not.toContain("private-");
+      expect(fetchMock).toHaveBeenCalledTimes(1);
     });
+
+    it.each(["text/plain", "application/zip"])(
+      "retries a rejected %s 429 body and saves the subsequent valid response",
+      async (contentType) => {
+        const fetchMock = vi.mocked(globalThis.fetch);
+        fetchMock.mockReset();
+        fetchMock
+          .mockResolvedValueOnce(
+            new Response(new Uint8Array([255]), {
+              status: 429,
+              headers: { "content-type": contentType, "retry-after": "0" },
+            }),
+          )
+          .mockResolvedValueOnce(
+            new Response("name,value\nexample,1\n", {
+              headers: { "content-type": "text/csv" },
+            }),
+          );
+        await expect(
+          runtime().executeRequest({
+            provider: "hubspot",
+            path: "/records",
+            auth: "none",
+            saveToFile: "scratch/response.csv",
+          }),
+        ).resolves.toMatchObject({ savedToFile: true, ok: true });
+        expect(fetchMock).toHaveBeenCalledTimes(2);
+        expect(writeWorkspaceFile).toHaveBeenCalledWith(
+          { scope: "org", scopeId: "org-1" },
+          "scratch/response.csv",
+          "name,value\nexample,1\n",
+          "text/csv",
+          { maxFileBytes: 20 * 1024 * 1024 },
+        );
+      },
+    );
 
     it("rejects every concurrent save sharing an invalid 429 response", async () => {
       const fetchMock = vi.mocked(globalThis.fetch);
