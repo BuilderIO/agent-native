@@ -80,4 +80,40 @@ describe("useDashboardViews", () => {
     });
     expect(container.textContent).toBe("success:");
   });
+
+  it("opts a failed view delete in to the shared write-failure toast", async () => {
+    callAction.mockImplementation(async (name: string) => {
+      if (name === "delete-dashboard-view") throw new Error("boom");
+      return { views: [] };
+    });
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+    const surfaced: unknown[] = [];
+    queryClient.getMutationCache().subscribe((event) => {
+      if (event.type === "updated" && event.action.type === "error") {
+        surfaced.push(event.mutation.meta);
+      }
+    });
+    let deleteView: ReturnType<
+      typeof useDashboardViews
+    >["deleteView"] = async () => {};
+
+    function Probe() {
+      deleteView = useDashboardViews("v3").deleteView;
+      return null;
+    }
+
+    await act(async () => {
+      root.render(
+        <QueryClientProvider client={queryClient}>
+          <Probe />
+        </QueryClientProvider>,
+      );
+    });
+    await act(async () => {
+      await expect(deleteView("q3")).rejects.toThrow("boom");
+    });
+    expect(surfaced).toEqual([{ surfaceError: true }]);
+  });
 });

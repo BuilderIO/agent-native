@@ -29,6 +29,7 @@ import {
   lockDatabaseMemberships,
   lockExistingDatabaseMemberships,
 } from "./_database-membership-lock.js";
+import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
 import {
   LOCAL_FOLDER_SOURCE_TYPE,
   localFolderObservedRevision,
@@ -180,13 +181,10 @@ export default defineAction({
       .optional(),
     dryRun: z.boolean().optional().default(false),
   }),
-  run: async ({
-    sourceId,
-    files,
-    fileIdentities = {},
-    observedRevisions,
-    dryRun,
-  }) => {
+  run: async (
+    { sourceId, files, fileIdentities = {}, observedRevisions, dryRun },
+    ctx,
+  ) => {
     const userEmail = getRequestUserEmail();
     if (!userEmail) throw new Error("no authenticated user");
     const builderPaths = Object.keys(files).filter(isBuilderMdxSourcePath);
@@ -521,11 +519,19 @@ export default defineAction({
       (plan.applyIncoming ||
         plan.existing.sourcePath !== plan.file.path ||
         plan.existing.sourceRootPath !== target.source.sourceTable);
+    // This caller supplies the text, so a sync doesn't get past the lock here
+    // the way one from a source a person connected does.
+    const assertAgentMayApply = (plan: (typeof plans)[number]) => {
+      if (plan.applyIncoming && rebindsExistingPage(plan)) {
+        assertAgentsMayEditPageText(plan.existing, ctx);
+      }
+    };
 
     if (dryRun) {
       // The sync refuses as a whole when it would link a page switched to its
       // live copy, so its preview does too.
       for (const plan of plans) {
+        assertAgentMayApply(plan);
         if (rebindsExistingPage(plan)) await assertLocalFileLinkable(plan.id);
       }
     } else {
@@ -613,6 +619,7 @@ export default defineAction({
           plans = buildPlans(transactionSnapshot);
           classifyPlans(transactionSnapshot);
         }
+        plans.forEach(assertAgentMayApply);
         for (const plan of plans) {
           if (plan.conflict) {
             const changeSetId = opaqueId(

@@ -180,7 +180,11 @@ describe("patch-visual-plan-source guardrails", () => {
           },
         ],
       }),
-    ).rejects.toThrow("Plan changed since the source was read");
+    ).rejects.toMatchObject({
+      errorCode: "save_conflict",
+      statusCode: 409,
+      details: { currentRevision: expect.any(String) },
+    });
 
     expect(exportPlanContentToMdxFolderMock).not.toHaveBeenCalled();
     expect(applyPlanMdxSourcePatchesMock).not.toHaveBeenCalled();

@@ -999,7 +999,7 @@ describe("MCP OAuth client", () => {
     );
   });
 
-  it("fails closed instead of posting a token to a loopback revocation endpoint", async () => {
+  it("fails closed before posting a token to an unconfigured loopback revocation endpoint", async () => {
     getOAuthTokensMock.mockResolvedValue({
       ...credentials,
       discoveryState: {
@@ -1010,9 +1010,6 @@ describe("MCP OAuth client", () => {
         },
       },
     });
-    ssrfSafeFetchMock.mockRejectedValueOnce(
-      new Error("SSRF blocked: refusing to fetch private/internal address"),
-    );
     const fetchMock = vi.spyOn(globalThis, "fetch");
 
     await expect(
@@ -1024,14 +1021,8 @@ describe("MCP OAuth client", () => {
       }),
     ).resolves.toEqual({ remote: "failed", local: "deleted" });
 
-    expect(ssrfSafeFetchMock).toHaveBeenCalledWith(
-      "http://127.0.0.1:9000/revoke",
-      expect.any(Object),
-      expect.objectContaining({
-        allowedPrivateOrigins: [],
-        maxRedirects: 0,
-      }),
-    );
+    // oracle-change: URL admission now rejects this endpoint before dispatch.
+    expect(ssrfSafeFetchMock).not.toHaveBeenCalled();
     expect(fetchMock).not.toHaveBeenCalled();
   });
 

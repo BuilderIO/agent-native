@@ -34,10 +34,14 @@ Drizzle (see `storing-data`).
   it again, so editing, renaming, reordering or deleting one never reaches
   databases that already applied it. To change a table, add a new named
   migration at the end. `store-migrations.lock.json` makes this a CI failure.
-- **Baselines converge old tables.** A database created by any older core runs
-  the baseline against whatever shape it has, so keep `CREATE TABLE IF NOT
-  EXISTS` plus `ensureColumnExists` for every column ever added. Never squash a
-  baseline into today's `CREATE TABLE`.
+- **Baselines converge only tables that never recorded them.** A database with
+  no ledger row for the baseline runs it against whatever shape it has, so keep
+  `CREATE TABLE IF NOT EXISTS` plus `ensureColumnExists` for every column ever
+  added. Never squash a baseline into today's `CREATE TABLE`. Where the ledger
+  is read (local, self-hosted, the release step), a database that recorded the
+  baseline, such as every snapshot install, never runs it again, and local
+  runtimes never run release-only list entries, so a new column also needs its
+  own appended migration.
 - **Idempotent and additive.** First runs can race and old functions keep
   serving during a release. New columns are nullable or defaulted.
 - **One store's tables only, or say so.** Stores apply in registry order (by

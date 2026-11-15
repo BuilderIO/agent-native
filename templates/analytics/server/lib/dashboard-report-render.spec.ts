@@ -1,3 +1,8 @@
+import {
+  getOrCreateRequestDbPool,
+  retainRequestDbPoolScope,
+  runWithRequestDbPoolScope,
+} from "@agent-native/core/db/request-pool-context";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SqlPanel } from "../../app/pages/adhoc/sql-dashboard/types";
@@ -247,6 +252,7 @@ describe("fetchReportPanelData", () => {
         source: "first-party",
         query: "select 1",
         timeoutMs: 147,
+        signal: expect.any(AbortSignal),
       },
       {
         userEmail: "owner@example.test",
@@ -387,6 +393,44 @@ describe("fetchReportPanelData", () => {
     });
 
     await expect(dataPromise).resolves.toBeInstanceOf(Map);
+  });
+
+  it("cancels a timed-out report source and releases its request pool", async () => {
+    let sourceSignal: AbortSignal | undefined;
+    let sourceWork: Promise<never> | undefined;
+    const ended = vi.fn(async () => {});
+    mocks.resolveAnalyticsPanelSource.mockImplementation(
+      (request: { signal?: AbortSignal }) => {
+        sourceSignal = request.signal;
+        sourceWork = retainRequestDbPoolScope(
+          new Promise<never>((_resolve, reject) => {
+            request.signal?.addEventListener(
+              "abort",
+              () => reject(new Error("source cancelled")),
+              { once: true },
+            );
+          }),
+        );
+        return sourceWork;
+      },
+    );
+    const data = await runWithRequestDbPoolScope(true, undefined, async () => {
+      getOrCreateRequestDbPool("report-timeout-fixture", () => ({
+        end: ended,
+      }));
+      return fetchReportPanelData({
+        ...owner,
+        perPanelTimeoutMs: 20,
+        snapshot: snapshotOf([panel({ id: "slow", source: "bigquery" })]),
+      });
+    });
+    expect(data.get("slow")).toMatchObject({
+      status: "query-failed",
+      timedOut: true,
+    });
+    expect(sourceSignal?.aborted).toBe(true);
+    await expect(sourceWork).rejects.toThrow("source cancelled");
+    expect(ended).toHaveBeenCalledOnce();
   });
 
   it("lets healthy panels resolve while another panel hangs past its timeout", async () => {

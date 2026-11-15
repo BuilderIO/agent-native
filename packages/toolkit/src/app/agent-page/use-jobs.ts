@@ -419,6 +419,7 @@ export function useRunAutomationNow() {
   return useActionMutation<RunAutomationNowResult, RunAutomationNowInput>(
     "run-automation-now",
     {
+      errorNotification: "caller",
       onSuccess: (_result, variables) => {
         if ("resourceId" in variables) {
           void queryClient.invalidateQueries({

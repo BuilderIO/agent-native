@@ -2,6 +2,7 @@ import {
   setAgentChatContextItem,
   removeAgentChatContextItem,
 } from "@agent-native/core/client/agent-chat";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import type { ReviewComment } from "@agent-native/core/review";
 import { type PromptComposerSubmitOptions } from "@agent-native/toolkit/app/chat/composer/index";
 import {
@@ -422,9 +423,9 @@ export function useEditorToolsAndVectors({
         },
         {
           onSuccess: openChat,
-          onError: () => {
+          onError: (error) => {
             setReviewSendingThreadId(null);
-            toast.error(t("review.sendToAgentFailed"));
+            reportWriteFailure(error, { label: t("review.sendToAgentFailed") });
           },
         },
       );
@@ -1677,6 +1678,7 @@ export function useEditorToolsAndVectors({
     ],
   );
 
+  const selectionPublishFailedLabel = t("designEditor.selectionPublishFailed");
   const screenFrameTypeCacheRef = useRef<ScreenFrameTypeCache>(new Map());
   const agentSelectionScreens = useMemo(
     () =>
@@ -1708,6 +1710,7 @@ export function useEditorToolsAndVectors({
         },
         interactTheme,
         isSignedIn,
+        selectionPublishFailedLabel,
         mode,
         motionAutoKeyframeEnabled,
         motionDockOpen,
@@ -1758,6 +1761,7 @@ export function useEditorToolsAndVectors({
       selectedStateId,
       openReviewThreadId,
       isSignedIn,
+      selectionPublishFailedLabel,
       interactDeviceName,
       interactDeviceSize.width,
       interactDeviceSize.height,

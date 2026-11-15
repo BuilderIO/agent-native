@@ -1351,6 +1351,8 @@ export default {
     resetFilters: "إعادة تعيين عوامل التصفية",
     collapseFilters: "طي عوامل التصفية",
     expandFilters: "قم بتوسيع عوامل التصفية",
+    collapseDescription: "طي الوصف",
+    expandDescription: "توسيع الوصف",
     drilldownChartPoints: "نقاط المخطط",
     drilldownPreviousPage: "الصفحة السابقة لنقاط المخطط",
     drilldownNextPage: "الصفحة التالية لنقاط المخطط",
@@ -1378,6 +1380,7 @@ export default {
     drilldownOverByteCap:
       "قد تقرأ هذه السجلات أكثر من {{gib}} غيغابايت، لذلك لم تُحمَّل. ضيّق عوامل تصفية لوحة المعلومات أو نطاقها الزمني ثم حاول مرة أخرى.",
     filterSeries: "Filter",
+    noXValue: "بلا قيمة",
     chartTimeRangeOverride: "تجاوز النطاق الزمني لهذه الرسمة البيانية",
     chartTimeRangeInherit: "نطاق لوحة المعلومات",
     hide: "Hide",

@@ -308,6 +308,57 @@ await callAction(
 
 Chaque requête `useActionQuery()`, `useActionMutation()`, et `callAction()` est limitée par un délai d'expiration de 60 secondes, et les délais d'expiration apparaissent comme des erreurs plutôt que de relancer silencieusement. `useActionQuery()` annule aussi automatiquement les requêtes remplacées, en utilisant le signal d'abandon de React Query.
 
+### Échecs d'écriture {#write-failures}
+
+Lorsqu'une sauvegarde lancée par l'utilisateur échoue, l'application affiche une notification partagée (toast) au lieu de rien. `useActionMutation()` le fait automatiquement. Un `mutate()` en échec affiche la notification, sauf si un `onError` gère l'échec, que ce soit dans les options du hook ou dans l'appel à `mutate()`. Un `mutateAsync()` en échec ne l'affiche que si le rejet reste non géré, par exemple un `await` sans `try/catch` au-dessus. Un `catch` qui lève une nouvelle `Error` à la place de l'erreur d'origine n'est pas signalé.
+
+L'option `errorNotification` modifie ce comportement par défaut :
+
+| Valeur                | Comportement                                                                                                                                                                  |
+| --------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `"auto"` (par défaut) | Affiche la notification uniquement si rien d'autre ne gère l'échec.                                                                                                           |
+| `"shared"`            | Affiche la notification à chaque échec, même à côté de votre propre `onError`. À utiliser lorsque le gestionnaire se contente d'annuler ou de journaliser.                    |
+| `"caller"`            | N'affiche jamais la notification. À utiliser pour les sauvegardes en arrière-plan, un échec que vous ignorez volontairement, ou un emplacement qui affiche lui-même l'erreur. |
+
+`errorLabel` remplace le titre de la notification par votre propre texte, déjà traduit. Dans l'exemple ci-dessous, une assignation échouée affiche ce titre au lieu du titre générique.
+
+```tsx
+import { useActionMutation } from "@agent-native/core/client/hooks";
+
+const assign = useActionMutation("update-ticket", {
+  errorLabel: t("tickets.assignFailed"),
+});
+
+assign.mutate({ ticketId, assignedToEmail: "jordan@example.com" });
+```
+
+Une sauvegarde automatique qui se relance au changement suivant ne doit pas interrompre l'utilisateur ; elle est donc désactivée.
+
+```tsx
+import { useActionMutation } from "@agent-native/core/client/hooks";
+
+const saveDraft = useActionMutation("save-ticket-draft", {
+  errorNotification: "caller",
+});
+```
+
+Une écriture qui n'est pas un `useActionMutation()`, comme un `fetch` pour un envoi de fichier ou un `catch` qui avale une erreur, signale son échec avec `reportWriteFailure()`. L'erreur d'un `fetch` brut ne contient pas de statut ; la notification affiche donc votre libellé ou le titre générique. Un `useMutation()` brut active la notification en passant `meta: surfaceMutationError(label)`, qui accepte le même libellé facultatif.
+
+```ts
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
+
+try {
+  const response = await fetch(uploadUrl, { method: "PUT", body: file });
+  if (!response.ok) throw new Error(`Upload failed with ${response.status}`);
+} catch (error) {
+  reportWriteFailure(error, { label: t("tickets.uploadFailed") });
+}
+```
+
+Le texte de la notification dépend de l'échec. Une requête annulée n'affiche rien. Hors ligne, un délai d'expiration, un `401` et un `403` affichent chacun un court message traduit sous le titre. Un `5xx` n'affiche que le titre, car le serveur masque son propre texte d'erreur. Lorsqu'une action refuse avec une erreur `4xx` typée levée par `fail()`, la notification affiche le message écrit par l'action ; voir [Faire échouer une action](/docs/actions-defining#failing). Un `401` ou un `403` n'affiche jamais le texte du serveur.
+
+`AppProviders` monte toujours le composant qui écoute ces échecs, `WriteFailureToaster`. Celui-ci affiche sa notification via le `Toaster` de l'application, donc une application qui passe `toaster={null}` doit rendre le sien. Une application qui n'utilise pas `AppProviders` rend `<WriteFailureToaster />` depuis `@agent-native/toolkit/app/shared` à l'intérieur de son `QueryClientProvider` et à côté de son `Toaster`. Sans lui, aucune notification n'est affichée.
+
 ## useDbSync {#usedbsync}
 
 <Signature

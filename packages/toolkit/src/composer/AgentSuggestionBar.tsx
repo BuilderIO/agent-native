@@ -224,7 +224,10 @@ export function AgentSuggestionBar({
                   key={index}
                   aria-hidden="true"
                   data-agent-suggestion-placeholder="true"
-                  className={cn("h-6 shrink-0 rounded-full", width)}
+                  className={cn(
+                    "h-6 shrink-0 rounded-[var(--agent-kit-radius-xs,0.25rem)]",
+                    width,
+                  )}
                 />
               ))
             : items.map((suggestion, index) => (
@@ -252,7 +255,7 @@ export function AgentSuggestionBar({
                   data-agent-suggestion-position={index + 1}
                   // The scroller clips overflow, so the focus ring sits inside.
                   className={cn(
-                    "agent-kit-caption-copy snap-start inline-flex h-6 shrink-0 items-center justify-center rounded-full border border-border bg-transparent px-2.5 py-0 text-center font-normal text-foreground shadow-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-inset focus-visible:ring-offset-0 whitespace-nowrap",
+                    "agent-kit-caption-copy snap-start inline-flex h-6 shrink-0 items-center justify-center rounded-[var(--agent-kit-radius-xs,0.25rem)] border border-border bg-transparent px-2.5 py-0 text-center font-normal text-foreground shadow-none hover:bg-accent hover:text-accent-foreground focus-visible:ring-inset focus-visible:ring-offset-0 whitespace-nowrap",
                     size === "comfortable" && "h-8 px-3 text-sm",
                   )}
                 >

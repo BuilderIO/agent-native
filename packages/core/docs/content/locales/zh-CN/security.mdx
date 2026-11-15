@@ -320,7 +320,7 @@ pnpm action db-check-scoping --require-org  # 还需要 org_id
 | OAuth 代币（Google、GitHub） | `oauth_tokens` 通过 `saveOAuthTokens()` 存储       |
 | 会话令牌                     | 自动（Better Auth 可以处理此问题）                 |
 
-每用户/每组织凭证和保管库使用 AES-256-GCM 进行静态加密。共享工作区保管库优先使用 `WORKSPACE_SECRETS_ENCRYPTION_KEY`，然后使用由 `SECRETS_ENCRYPTION_KEY`、`A2A_SECRET` 和 `BETTER_AUTH_SECRET` 派生的旧候选密钥；轮换期间设置 `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS`，让读取操作迁移数据行。要就地加密现有明文凭证行，请运行 `pnpm action db-migrate-encrypt-credentials`（幂等、非破坏性）。
+每用户/每组织凭证和保管库使用 AES-256-GCM 进行静态加密。 Dispatch 保管库不保留明文副本：每个密钥的名称、标签和加密后的值一起保存在其 `app_secrets` 行中，保管库自己的表只保存授权、请求和审计日志。共享工作区保管库优先使用 `WORKSPACE_SECRETS_ENCRYPTION_KEY`，然后使用由 `SECRETS_ENCRYPTION_KEY`、`A2A_SECRET` 和 `BETTER_AUTH_SECRET` 派生的旧候选密钥；轮换期间设置 `WORKSPACE_SECRETS_ENCRYPTION_KEY_PREVIOUS`，让读取操作迁移数据行。要就地加密现有明文凭证行，请运行 `pnpm action db-migrate-encrypt-credentials`（幂等、非破坏性）。
 
 切勿将机密存储在 `settings`、`application_state`、源代码或操作响应中。使用上面的凭证/保险库 API - 它们处理加密和每用户范围。
 

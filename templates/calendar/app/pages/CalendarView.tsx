@@ -2,6 +2,7 @@ import { trackEvent } from "@agent-native/core/client/analytics";
 import { agentNativePath } from "@agent-native/core/client/api-path";
 import { useT } from "@agent-native/core/client/i18n";
 import { buildSettingsRoute } from "@agent-native/core/client/navigation";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import type {
   CalendarEvent,
   CalendarEventDraft,
@@ -674,7 +675,8 @@ export default function CalendarView({
       { ...settings, timezone: timezonePrompt.browserTimezone },
       {
         onSuccess: () => setTimezonePrompt(null),
-        onError: () => toast.error(t("settings.saveFailed")),
+        onError: (error) =>
+          reportWriteFailure(error, { label: t("settings.saveFailed") }),
       },
     );
   }, [settings, t, timezonePrompt, updateSettings]);
@@ -1091,6 +1093,7 @@ export default function CalendarView({
                   },
                   { scope: "single", sendUpdates: "none" },
                 ),
+                { onError: (error) => reportWriteFailure(error) },
               );
             };
             setUndoAction(undo);
@@ -1332,13 +1335,17 @@ export default function CalendarView({
                 ev,
               ),
               {
-                onError: () =>
-                  toast.error(t("calendarView.failedRestoreAttendance")),
+                onError: (error) =>
+                  reportWriteFailure(error, {
+                    label: t("calendarView.failedRestoreAttendance"),
+                  }),
               },
             );
           }
         : () => {
-            createEvent.mutate(snapshot);
+            createEvent.mutate(snapshot, {
+              onError: (error) => reportWriteFailure(error),
+            });
           };
 
       deleteEvent.mutate(
@@ -1366,7 +1373,10 @@ export default function CalendarView({
               },
             );
           },
-          onError: () => toast.error(t("calendarView.failedDeleteEvent")),
+          onError: (error) =>
+            reportWriteFailure(error, {
+              label: t("calendarView.failedDeleteEvent"),
+            }),
         },
       );
     },
@@ -1456,6 +1466,7 @@ export default function CalendarView({
           },
           event,
         ),
+        { onError: (error) => reportWriteFailure(error) },
       );
     };
     const toastId = toast.loading(
@@ -1552,6 +1563,7 @@ export default function CalendarView({
             },
             event,
           ),
+          { onError: (error) => reportWriteFailure(error) },
         );
       };
       const toastId = toast.loading(
@@ -1822,6 +1834,7 @@ export default function CalendarView({
             },
             event,
           ),
+          { onError: (error) => reportWriteFailure(error) },
         );
       }
     },
@@ -1856,6 +1869,7 @@ export default function CalendarView({
           },
           event,
         ),
+        { onError: (error) => reportWriteFailure(error) },
       );
     },
     [events, updateDraftEvent, promptGuestNotification, updateEvent],
@@ -1882,6 +1896,7 @@ export default function CalendarView({
             scope: "single",
             sendUpdates: "none",
           }),
+          { onError: (error) => reportWriteFailure(error) },
         );
       }
     },
@@ -2495,7 +2510,10 @@ export default function CalendarView({
                     },
                   );
                 },
-                onError: () => toast.error(t("calendarView.failedDeleteEvent")),
+                onError: (error) =>
+                  reportWriteFailure(error, {
+                    label: t("calendarView.failedDeleteEvent"),
+                  }),
               },
             );
           }}

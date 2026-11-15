@@ -1,3 +1,4 @@
+// oracle-change(scripts/validate-content-product-impact-workflow.test.ts): The PR workflow and its wiring guard were retired. The standalone validator is still tested here.
 import assert from "node:assert/strict";
 import { execFileSync, spawnSync } from "node:child_process";
 import {
@@ -165,12 +166,7 @@ describe("Content impact applicability", () => {
       directContentEvidence("scripts/validate-content-product-impact.ts"),
       undefined,
     );
-    assert.equal(
-      directContentEvidence(
-        ".github/workflows/content-product-conformance.yml",
-      ),
-      undefined,
-    );
+    assert.equal(directContentEvidence(".github/workflows/ci.yml"), undefined);
   });
 
   it("ignores unit tests and test-runner config but keeps proof suites", () => {

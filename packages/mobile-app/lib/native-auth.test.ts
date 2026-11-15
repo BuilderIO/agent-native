@@ -426,5 +426,47 @@ describe("mobile parent authentication", () => {
       token: "magic-session",
       orgId: "org-builder",
     });
+    expect(fastFetchMock.mock.calls[1]).toEqual([
+      "https://dispatch.example/_agent-native/auth/desktop-exchange?flow_id=flow-2",
+      {
+        headers: {
+          Accept: "application/json",
+          "X-Agent-Native-Desktop-Verifier": "v".repeat(32),
+        },
+      },
+    ]);
+  });
+
+  it("shows the invite-only message when the workspace refuses the magic link", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            ok: true,
+            flowId: "flow-3",
+            verifier: "v".repeat(32),
+          }),
+          { status: 200 },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            error: "This workspace is invite-only.",
+            code: "INVITE_ONLY",
+          }),
+          { status: 400 },
+        ),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(
+      signInWithMagicLink({
+        email: "stranger@example.com",
+        baseUrl: "https://dispatch.example",
+      }),
+    ).rejects.toThrow("This workspace is invite-only.");
+    expect(await getSessionToken()).toBeNull();
   });
 });

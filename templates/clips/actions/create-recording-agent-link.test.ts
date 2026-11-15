@@ -36,8 +36,15 @@ vi.mock("../server/lib/public-agent-context.js", () => ({
 }));
 
 vi.mock("../server/lib/share-password.js", () => ({
-  getRecordingAccessTokenResourceId: (id: string, password: string | null) =>
-    password ? `${id}:password-scoped` : `${id}:update-scoped`,
+  getRecordingAccessTokenResourceId: (
+    id: string,
+    password: string | null,
+    _version: string,
+    visibility: string,
+  ) => {
+    const base = password ? `${id}:password-scoped` : `${id}:update-scoped`;
+    return visibility === "public" ? base : `${base}:visibility:${visibility}`;
+  },
 }));
 
 vi.mock("../shared/agent-context.js", () => ({
@@ -53,6 +60,7 @@ import action from "./create-recording-agent-link";
 
 const recording = (password: string | null) => ({
   id: "recording-1",
+  visibility: "public",
   archivedAt: null,
   trashedAt: null,
   password,

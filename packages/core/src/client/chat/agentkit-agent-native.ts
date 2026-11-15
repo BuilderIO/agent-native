@@ -7,17 +7,21 @@ import type {
   AgentCapabilitiesDiscovery,
   AgentCapabilityDescriptor,
   AgentCapabilityId,
+  AgentActivity,
   AgentConnectionRequest,
   AgentError,
   AgentEvent,
+  AgentInteraction,
   AgentMessage,
   AgentMessagePart,
   AgentObjectReference,
+  AgentParticipant,
   AgentRunSnapshot,
   AgentQueuedMessage,
   AgentSubmissionPayload,
   AgentRequestContext,
   DiscoverCapabilitiesInput,
+  AgentTask,
   AgentToolCall,
   AgentThreadSnapshot,
   AgentWidgetSnapshot,
@@ -1898,6 +1902,139 @@ function persistedConnectionRequest(
   };
 }
 
+const MAX_PERSISTED_DELEGATION_TEXT_CHARS = 2_048;
+const MAX_PERSISTED_DELEGATION_METADATA_CHARS = 256;
+
+function persistedDelegationText(text: string | undefined): string | undefined {
+  return text ? text.slice(0, MAX_PERSISTED_DELEGATION_TEXT_CHARS) : undefined;
+}
+
+function persistedScalarMetadata(
+  metadata: Record<string, unknown> | undefined,
+): { metadata: Record<string, string | number | boolean> } | undefined {
+  if (!metadata) return undefined;
+  const scalars = Object.fromEntries(
+    Object.entries(metadata).filter(
+      ([, value]) =>
+        typeof value === "boolean" ||
+        (typeof value === "number" && Number.isFinite(value)) ||
+        (typeof value === "string" &&
+          value.length <= MAX_PERSISTED_DELEGATION_METADATA_CHARS),
+    ),
+  ) as Record<string, string | number | boolean>;
+  return Object.keys(scalars).length > 0 ? { metadata: scalars } : undefined;
+}
+
+function persistedReference(
+  reference: AgentObjectReference,
+): AgentObjectReference {
+  return {
+    id: reference.id,
+    kind: reference.kind,
+    label: reference.label,
+    ...(reference.uri ? { uri: reference.uri } : {}),
+  };
+}
+
+/** Readable steps and reply only, never the delegated agent's raw snapshot. */
+function persistedSummary(
+  summary: AgentMessagePart[] | undefined,
+): AgentMessagePart[] | undefined {
+  const parts = (summary ?? []).flatMap((part): AgentMessagePart[] =>
+    part.type === "text"
+      ? [
+          {
+            type: "text",
+            text: part.text.slice(0, MAX_PERSISTED_DELEGATION_TEXT_CHARS),
+            ...(part.format ? { format: part.format } : {}),
+          },
+        ]
+      : [],
+  );
+  return parts.length > 0 ? parts : undefined;
+}
+
+function persistedParticipant(agent: AgentParticipant): AgentParticipant {
+  const description = persistedDelegationText(agent.description);
+  return {
+    id: agent.id,
+    name: agent.name,
+    status: agent.status,
+    ...(agent.kind ? { kind: agent.kind } : {}),
+    ...(agent.parentAgentId ? { parentAgentId: agent.parentAgentId } : {}),
+    ...(agent.activeTaskId ? { activeTaskId: agent.activeTaskId } : {}),
+    ...(description ? { description } : {}),
+    ...(agent.origin ? { origin: persistedReference(agent.origin) } : {}),
+    ...(agent.startedAt ? { startedAt: agent.startedAt } : {}),
+    ...(agent.updatedAt ? { updatedAt: agent.updatedAt } : {}),
+    ...(agent.completedAt ? { completedAt: agent.completedAt } : {}),
+    ...persistedScalarMetadata(agent.metadata),
+  };
+}
+
+function persistedInteraction(interaction: AgentInteraction): AgentInteraction {
+  const detail = persistedDelegationText(interaction.detail);
+  return {
+    id: interaction.id,
+    kind: interaction.kind,
+    agentId: interaction.agentId,
+    ...(interaction.targetAgentId
+      ? { targetAgentId: interaction.targetAgentId }
+      : {}),
+    ...(interaction.label ? { label: interaction.label } : {}),
+    ...(detail ? { detail } : {}),
+    ...(interaction.scope ? { scope: interaction.scope } : {}),
+    ...(interaction.object
+      ? { object: persistedReference(interaction.object) }
+      : {}),
+    ...(interaction.source
+      ? { source: persistedReference(interaction.source) }
+      : {}),
+    ...(interaction.occurredAt ? { occurredAt: interaction.occurredAt } : {}),
+    ...persistedScalarMetadata(interaction.metadata),
+  };
+}
+
+function persistedDelegatedActivityFields(
+  activity: AgentActivity,
+): Partial<AgentActivity> {
+  if (!activity.agentId) return {};
+  const detail = persistedDelegationText(activity.detail);
+  const summary = persistedSummary(activity.summary);
+  return {
+    agentId: activity.agentId,
+    ...(detail ? { detail } : {}),
+    ...(activity.scope ? { scope: activity.scope } : {}),
+    ...(activity.object ? { object: persistedReference(activity.object) } : {}),
+    ...(activity.source ? { source: persistedReference(activity.source) } : {}),
+    ...(summary ? { summary } : {}),
+    ...persistedScalarMetadata(activity.metadata),
+  };
+}
+
+function persistedTask(task: AgentTask): AgentTask {
+  const detail = persistedDelegationText(task.detail);
+  const summary = persistedSummary(task.summary);
+  return {
+    id: task.id,
+    title: task.title,
+    status: task.status,
+    ...(task.kind ? { kind: task.kind } : {}),
+    ...(task.parentTaskId ? { parentTaskId: task.parentTaskId } : {}),
+    ...(task.assignedAgentId ? { assignedAgentId: task.assignedAgentId } : {}),
+    ...(task.runId ? { runId: task.runId } : {}),
+    ...(detail ? { detail } : {}),
+    ...(task.progress ? { progress: task.progress } : {}),
+    ...(task.object ? { object: persistedReference(task.object) } : {}),
+    ...(task.source ? { source: persistedReference(task.source) } : {}),
+    ...(summary ? { summary } : {}),
+    ...(task.createdAt ? { createdAt: task.createdAt } : {}),
+    ...(task.updatedAt ? { updatedAt: task.updatedAt } : {}),
+    ...(task.completedAt ? { completedAt: task.completedAt } : {}),
+    ...persistedScalarMetadata(task.metadata),
+  };
+}
+
 function persistedAnnotations(
   annotations: AgentAnnotationSnapshot[] = [],
   messageIds: ReadonlySet<string>,
@@ -2122,7 +2259,45 @@ function persistedHistoryEvents(events: AgentEvent[] = []): AgentEvent[] {
           ...(activity.completedAt
             ? { completedAt: activity.completedAt }
             : {}),
+          ...persistedDelegatedActivityFields(activity),
         },
+      });
+      lastOmissionByRun.delete(event.runId);
+      continue;
+    }
+    // Without these, a reloaded chat loses its delegated agents' steps.
+    if (
+      event.type === "agent.registered" ||
+      event.type === "agent.updated" ||
+      event.type === "agent.unregistered"
+    ) {
+      persisted.push({
+        ...base(),
+        type: event.type,
+        agent: persistedParticipant(event.agent),
+      });
+      lastOmissionByRun.delete(event.runId);
+      continue;
+    }
+    if (event.type === "agent.interaction") {
+      persisted.push({
+        ...base(),
+        type: event.type,
+        interaction: persistedInteraction(event.interaction),
+      });
+      lastOmissionByRun.delete(event.runId);
+      continue;
+    }
+    if (
+      (event.type === "task.created" ||
+        event.type === "task.updated" ||
+        event.type === "task.completed") &&
+      event.task.assignedAgentId
+    ) {
+      persisted.push({
+        ...base(),
+        type: event.type,
+        task: persistedTask(event.task),
       });
       lastOmissionByRun.delete(event.runId);
       continue;

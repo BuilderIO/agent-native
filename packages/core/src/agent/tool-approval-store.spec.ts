@@ -64,11 +64,11 @@ describe("agent tool approval store", () => {
     };
     expect(insert.sql).toContain("INSERT INTO agent_tool_approvals");
     expect(insert.args[8]).toMatch(/^hmac-v1:[a-f0-9]{64}$/);
-    expect(insert.args[12]).toMatch(/^hmac-v1:[a-f0-9]{64}$/);
+    expect(insert.args[13]).toMatch(/^hmac-v1:[a-f0-9]{64}$/);
     expect(insert.args[8]).not.toBe(
       hashAgentToolApprovalKey(binding.approvalKey),
     );
-    expect(insert.args[12]).not.toBe(
+    expect(insert.args[13]).not.toBe(
       hashAgentToolApprovalKey("known-arguments"),
     );
     expect(insert.args).not.toContain(binding.approvalKey);
@@ -84,7 +84,7 @@ describe("agent tool approval store", () => {
     const after = Date.now();
 
     const insertArgs = dbMocks.execute.mock.calls[0]?.[0].args as unknown[];
-    const expiresAt = insertArgs[9] as number;
+    const expiresAt = insertArgs[10] as number;
     expect(expiresAt - after).toBeGreaterThanOrEqual(30 * 60_000);
     expect(expiresAt - before).toBeLessThanOrEqual(60 * 60_000 + 1_000);
   });
@@ -156,18 +156,20 @@ describe("agent tool approval store", () => {
     ).resolves.toBe("denied");
     expect(dbMocks.execute).toHaveBeenCalledWith(
       expect.objectContaining({
-        sql: expect.stringMatching(
-          /UPDATE agent_tool_approvals[\s\S]*status = 'pending'/,
-        ),
         args: [
+          "denied",
           expect.any(Number),
           approvalId,
           binding.ownerEmail,
           binding.orgId,
           binding.orgId,
           binding.threadId,
+          "pending",
         ],
       }),
+    );
+    expect(dbMocks.execute.mock.calls[0]?.[0].sql).toMatch(
+      /UPDATE agent_tool_approvals[\s\S]*status IN \(\?\)/,
     );
   });
 
@@ -219,9 +221,6 @@ describe("agent tool approval store", () => {
       expect(dbMocks.execute).toHaveBeenNthCalledWith(
         1,
         expect.objectContaining({
-          sql: expect.stringMatching(
-            /status = 'pending'[\s\S]*expires_at > \?/,
-          ),
           args: expect.arrayContaining([
             binding.ownerEmail,
             binding.toolName,
@@ -233,6 +232,9 @@ describe("agent tool approval store", () => {
         sql: string;
         args: unknown[];
       };
+      expect(consumeQuery.sql).toMatch(
+        /status IN \(\?\)[\s\S]*expires_at > \?/,
+      );
       expect(consumeQuery.sql).toContain("HAVING COUNT(*) = 1");
       expect(consumeQuery.sql).toContain("turn_id");
       expect(consumeQuery.sql).not.toContain("call_id = ?");

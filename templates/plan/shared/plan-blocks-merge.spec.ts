@@ -1,12 +1,18 @@
 import { describe, expect, it } from "vitest";
 
-import { mergePlanBlocks } from "./plan-blocks-merge";
+import { describeOverlappingBlock, mergePlanBlocks } from "./plan-blocks-merge";
 import type { PlanBlock } from "./plan-content";
 
 const prose = (id: string, markdown: string) =>
   ({ id, type: "rich-text", data: { markdown } }) as PlanBlock;
 const callout = (id: string, body: string) =>
   ({ id, type: "callout", data: { tone: "info", body } }) as PlanBlock;
+
+// What merged cleanly, or null when the writers overlap.
+function cleanMerge(...args: Parameters<typeof mergePlanBlocks>) {
+  const merge = mergePlanBlocks(...args);
+  return merge.ok ? merge.merged : null;
+}
 
 describe("mergePlanBlocks", () => {
   const base = [
@@ -16,7 +22,7 @@ describe("mergePlanBlocks", () => {
   ];
 
   it("keeps edits two writers made to different blocks", () => {
-    const merged = mergePlanBlocks(
+    const merged = cleanMerge(
       base,
       [prose("a", "Alpha. mine"), base[1], base[2]],
       [base[0], base[1], prose("b", "Bravo. theirs")],
@@ -30,7 +36,7 @@ describe("mergePlanBlocks", () => {
 
   it("refuses conflicting prose when both writers changed one block", () => {
     expect(
-      mergePlanBlocks(
+      cleanMerge(
         [prose("a", "Seed.")],
         [prose("a", "Seed. mine theirs")],
         [prose("a", "Seed. theirs")],
@@ -39,7 +45,7 @@ describe("mergePlanBlocks", () => {
   });
 
   it("takes prose another writer saved when the local copy never changed it", () => {
-    const merged = mergePlanBlocks(
+    const merged = cleanMerge(
       [prose("a", "Seed."), prose("b", "Other.")],
       [prose("a", "Seed."), prose("b", "Other. mine")],
       [prose("a", "Seed. saved elsewhere"), prose("b", "Other.")],
@@ -53,7 +59,7 @@ describe("mergePlanBlocks", () => {
   it("treats prose as untouched when only a field the editor does not write differs", () => {
     // Saved blocks carry `editable`; the blocks the editor sends back do not.
     const saved = { ...prose("b", "Bravo."), editable: true } as PlanBlock;
-    const merged = mergePlanBlocks(
+    const merged = cleanMerge(
       [saved],
       [prose("b", "Bravo.")],
       [{ ...saved, data: { markdown: "Bravo. theirs" } } as PlanBlock],
@@ -61,8 +67,34 @@ describe("mergePlanBlocks", () => {
     expect(merged).toEqual([{ ...saved, data: { markdown: "Bravo. theirs" } }]);
   });
 
+  it("keeps a field the editor does not write on prose it changed", () => {
+    const saved = { ...prose("b", "Bravo."), editable: true } as PlanBlock;
+    const merged = cleanMerge(
+      [saved],
+      [prose("b", "Bravo. mine")],
+      [{ ...saved, title: "Theirs" } as PlanBlock],
+    );
+    expect(merged).toEqual([
+      { ...saved, title: "Theirs", data: { markdown: "Bravo. mine" } },
+    ]);
+  });
+
+  it("offers both versions when the writers overlap", () => {
+    const merge = mergePlanBlocks(
+      [prose("a", "Seed."), prose("b", "Other.")],
+      [prose("a", "Seed. mine"), prose("b", "Other. mine")],
+      [prose("a", "Seed. theirs"), prose("b", "Other.")],
+    );
+    expect(merge).toEqual({
+      ok: false,
+      fields: ["a.data.markdown"],
+      keepMine: [prose("a", "Seed. mine"), prose("b", "Other. mine")],
+      useTheirs: [prose("a", "Seed. theirs"), prose("b", "Other. mine")],
+    });
+  });
+
   it("keeps a block one writer added and a block the other removed", () => {
-    const merged = mergePlanBlocks(
+    const merged = cleanMerge(
       base,
       [...base, prose("d", "Delta.")],
       [base[0], base[2]],
@@ -77,7 +109,7 @@ describe("mergePlanBlocks", () => {
       id: "a",
       title: undefined,
     } as unknown as PlanBlock;
-    const merged = mergePlanBlocks(
+    const merged = cleanMerge(
       base,
       [reordered, base[1], base[2]],
       [base[0], base[1], prose("b", "Bravo. theirs")],
@@ -98,7 +130,7 @@ describe("mergePlanBlocks", () => {
           ],
         },
       }) as unknown as PlanBlock;
-    const merged = mergePlanBlocks(
+    const merged = cleanMerge(
       [tabs("one", "two")],
       [tabs("one edited", "two")],
       [tabs("one", "two edited")],
@@ -108,7 +140,7 @@ describe("mergePlanBlocks", () => {
 
   it("refuses when both writers changed the same structured value", () => {
     expect(
-      mergePlanBlocks(
+      cleanMerge(
         base,
         [base[0], callout("c", "Mine."), base[2]],
         [base[0], callout("c", "Theirs."), base[2]],
@@ -118,7 +150,7 @@ describe("mergePlanBlocks", () => {
 
   it("refuses to drop a block the other writer edited", () => {
     expect(
-      mergePlanBlocks(
+      cleanMerge(
         base,
         [base[0], base[1]],
         [base[0], base[1], prose("b", "Bravo. theirs")],
@@ -128,11 +160,47 @@ describe("mergePlanBlocks", () => {
 
   it("refuses when both writers reordered the blocks", () => {
     expect(
-      mergePlanBlocks(
+      cleanMerge(
         base,
         [base[1], base[0], base[2]],
         [base[0], base[2], base[1]],
       ),
     ).toBeNull();
+  });
+});
+
+describe("describeOverlappingBlock", () => {
+  const blocks = (markdown: string) => ({
+    mine: [prose("a", markdown)],
+    theirs: [
+      callout("c", "Note."),
+      { ...callout("d", "Note."), title: "Risks" },
+    ],
+  });
+
+  it("names prose by its first line, without its markup", () => {
+    expect(
+      describeOverlappingBlock(
+        "a.data.markdown",
+        blocks("\n## Launch plan\nBody."),
+      ),
+    ).toBe("Launch plan");
+  });
+
+  it("shortens a long first line", () => {
+    expect(
+      describeOverlappingBlock("a.data.markdown", blocks("x".repeat(80))),
+    ).toBe(`${"x".repeat(60)}…`);
+  });
+
+  it("names a structured block by its title, if it has one", () => {
+    expect(describeOverlappingBlock("d.data.body", blocks("Text."))).toBe(
+      "Risks",
+    );
+    expect(describeOverlappingBlock("c.data.body", blocks("Text."))).toBeNull();
+  });
+
+  it("names nothing for a path that isn't a block, like the order", () => {
+    expect(describeOverlappingBlock("order", blocks("Text."))).toBeNull();
   });
 });

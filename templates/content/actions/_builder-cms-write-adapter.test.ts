@@ -397,7 +397,31 @@ describe("Builder CMS write adapter plan", () => {
     expect(plan.payload.request.body).not.toHaveProperty("name");
   });
 
-  it("repairs an existing safe-model entry name during a body-only PATCH", () => {
+  it.each([
+    ["autosave", "stage_only", "autosave"],
+    ["update_in_place", "publish_updates", "publish"],
+  ] as const)(
+    "keeps the safe-model entry name when an %s changes the title",
+    (effect, writeMode, pushMode) => {
+      const plan = buildBuilderCmsExecutionPlan({
+        source: source(true, BUILDER_CMS_SAFE_WRITE_MODEL, {
+          writeMode,
+          pushMode,
+          allowedWriteModes: ["autosave", "publish"],
+        }),
+        changeSet: approvedChangeSet(),
+        pushModeConfirmation: pushMode,
+      });
+
+      expect(plan.payload.effect).toBe(effect);
+      expect(plan.payload.request.body).toMatchObject({
+        data: { title: "New title" },
+      });
+      expect(plan.payload.request.body).not.toHaveProperty("name");
+    },
+  );
+
+  it("leaves a safe-model entry name alone during a body-only PATCH", () => {
     const plan = buildBuilderCmsExecutionPlan({
       source: source(true, BUILDER_CMS_SAFE_WRITE_MODEL, {
         writeMode: "publish_updates",
@@ -429,10 +453,10 @@ describe("Builder CMS write adapter plan", () => {
       path: `/api/v1/write/${BUILDER_CMS_SAFE_WRITE_MODEL}/builder-entry-1`,
       query: { triggerWebhooks: "true" },
       body: {
-        name: "Old title",
         data: { blocks: expect.any(Array) },
       },
     });
+    expect(plan.payload.request.body).not.toHaveProperty("name");
     expect(plan.payload.target.entryId).toBe("builder-entry-1");
   });
 
@@ -911,7 +935,6 @@ describe("Builder CMS write adapter plan", () => {
             triggerWebhooks: "true",
           },
           body: {
-            name: "New title",
             data: {
               title: "New title",
             },
@@ -923,6 +946,7 @@ describe("Builder CMS write adapter plan", () => {
         },
       },
     });
+    expect(plan.payload.request.body).not.toHaveProperty("name");
   });
 
   it("accepts reconciled required fields and a body hash when publishing a partial update", () => {
@@ -1038,7 +1062,6 @@ describe("Builder CMS write adapter plan", () => {
             triggerWebhooks: "true",
           },
           body: {
-            name: "New title",
             published: "draft",
           },
         },
@@ -1047,6 +1070,7 @@ describe("Builder CMS write adapter plan", () => {
         },
       },
     });
+    expect(plan.payload.request.body).not.toHaveProperty("name");
   });
 
   it("publishes or unpublishes an entry with no field or body change", () => {

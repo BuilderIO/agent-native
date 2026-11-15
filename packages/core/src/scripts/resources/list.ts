@@ -14,10 +14,13 @@ import {
 } from "../../server/request-context.js";
 import { parseArgs, fail } from "../utils.js";
 
+const DEFAULT_PAGE_SIZE = 50;
+const MAX_PAGE_SIZE = 100;
+
 export default async function resourceListScript(
   args: string[],
 ): Promise<void> {
-  const parsed = parseArgs(args);
+  const parsed: Partial<Record<string, string>> = parseArgs(args);
 
   if (parsed.help === "true") {
     console.log(`Usage: pnpm action resource-list [options]
@@ -28,8 +31,25 @@ Options:
                                Scope to list (default: all)
   --format json|text           Output format (default: text)
   --include-agent-scratch true Include hidden agent scratch files
+  --limit <n>                  Resources per page, 1-${MAX_PAGE_SIZE} (default: ${DEFAULT_PAGE_SIZE}).
+                               Text output always pages; json pages only
+                               when --limit or --offset is set
+  --offset <n>                 Resources to skip; pass the previous page's
+                               next offset
   --help                       Show this help message`);
     return;
+  }
+
+  const limitArg = parsed.limit;
+  const offsetArg = parsed.offset;
+  if (
+    limitArg !== undefined &&
+    !(/^\d+$/.test(limitArg) && +limitArg >= 1 && +limitArg <= MAX_PAGE_SIZE)
+  ) {
+    fail(`--limit must be a whole number from 1 to ${MAX_PAGE_SIZE}`);
+  }
+  if (offsetArg !== undefined && !/^\d+$/.test(offsetArg)) {
+    fail("--offset must be a whole number, 0 or more");
   }
 
   const prefix = parsed.prefix;
@@ -95,19 +115,55 @@ Options:
       : await resourceListAccessible(owner, prefix, { orgId });
   }
 
+  // Agents read this through tool-result caps (12,000 chars when replayed), so
+  // text always pages and json pages when asked. Sorting the merged list keeps
+  // pages stable across calls.
+  resources.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  const paged =
+    format !== "json" || limitArg !== undefined || offsetArg !== undefined;
+  const total = resources.length;
+  const offset = Number(offsetArg ?? 0);
+  const limit = Number(limitArg ?? DEFAULT_PAGE_SIZE);
+  const page = paged ? resources.slice(offset, offset + limit) : resources;
+  const nextOffset = offset + page.length < total ? offset + page.length : null;
+
   if (format === "json") {
-    console.log(JSON.stringify(resources, null, 2));
+    console.log(
+      JSON.stringify(
+        paged
+          ? {
+              total,
+              offset,
+              limit,
+              hasMore: nextOffset !== null,
+              nextOffset,
+              resources: page,
+            }
+          : resources,
+        null,
+        2,
+      ),
+    );
     return;
   }
 
-  if (resources.length === 0) {
+  if (total === 0) {
     console.log("No resources found.");
     return;
   }
+  if (page.length === 0) {
+    console.log(`No resources at offset ${offset} (${total} total).`);
+    return;
+  }
 
-  console.log(`Resources: ${resources.length}\n`);
+  // The next offset leads the header too: truncation cuts from the end.
+  const whole = page.length === total;
+  const range = whole
+    ? ""
+    : ` (showing ${offset + 1}-${offset + page.length}${nextOffset === null ? "" : `; next offset=${nextOffset}`})`;
+  console.log(`Resources: ${total}${range}\n`);
 
-  for (const r of resources) {
+  for (const r of page) {
     const ownerLabel = isWorkspaceResourceOwner(r.owner)
       ? "[workspace]"
       : r.owner === SHARED_OWNER
@@ -116,4 +172,11 @@ Options:
     const sizeLabel = r.size != null ? ` (${r.size} bytes)` : "";
     console.log(`  ${r.path}  ${ownerLabel}${sizeLabel}  ${r.mimeType}`);
   }
+
+  if (whole) return;
+  console.log(
+    nextOffset === null
+      ? "\nEnd of list."
+      : `\n${total - nextOffset} more not shown. Next page: repeat this call with offset=${nextOffset}.`,
+  );
 }

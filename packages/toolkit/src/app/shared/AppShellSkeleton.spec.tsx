@@ -5,9 +5,10 @@ import { act } from "react";
 import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
 import { MemoryRouter } from "react-router";
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it } from "vitest";
 
 import { consumeFirstPaintPromptDraft } from "../../app-shell/first-paint-prompt-draft.js";
+import { FIRST_RUN_PENDING_ATTRIBUTE } from "../onboarding/first-run-first-paint.js";
 import { AppShellSkeleton } from "./AppShellSkeleton.js";
 import type { AppShellFirstPaintHome } from "./AppShellSkeleton.js";
 
@@ -20,6 +21,64 @@ function render(layout: Parameters<typeof AppShellSkeleton>[0]["layout"]) {
     "[data-agent-native-app-skeleton]",
   )!;
 }
+
+function firstPaintFixture(): AppShellFirstPaintHome {
+  return {
+    appId: "slides",
+    appName: "Slides",
+    pageTitle: "Decks",
+    promptTitle: "Let's create your first presentation",
+    promptPlaceholder: "Describe your presentation",
+    suggestedPromptsLabel: "Suggested prompts",
+    sidebarItems: [{ label: "Decks", to: "/home", icon: IconHome }],
+    templatesLabel: "Templates",
+    recentLabel: "Recent",
+    browseAllLabel: "Browse all",
+    skipPromptLabel: "Skip prompt",
+    promptDraftScope: "slides:new:viewer-a:org-a",
+    promptHandoffScope: "viewer-a:org-a",
+    suggestions: [],
+    renderComposer: (props) => <textarea aria-label={props.ariaLabel} />,
+  };
+}
+
+describe("AppShellSkeleton first-paint home before first run", () => {
+  afterEach(() => {
+    document.documentElement.removeAttribute(FIRST_RUN_PENDING_ATTRIBUTE);
+    document.body.innerHTML = "";
+  });
+
+  function paint() {
+    document.body.innerHTML = renderToStaticMarkup(
+      <MemoryRouter>
+        <AppShellSkeleton
+          layout="prompt-library"
+          firstPaintHome={firstPaintFixture()}
+        />
+      </MemoryRouter>,
+    );
+    const display = (selector: string) =>
+      getComputedStyle(document.querySelector<HTMLElement>(selector)!).display;
+    return {
+      home: display("[data-agent-native-first-paint-home]"),
+      skeleton: display("[data-agent-native-first-run-skeleton]"),
+    };
+  }
+
+  it("paints the home when first run is not pending", () => {
+    expect(paint()).toEqual({ home: "contents", skeleton: "none" });
+  });
+
+  it("paints the plain skeleton instead of the home while first run is pending", () => {
+    document.documentElement.setAttribute(FIRST_RUN_PENDING_ATTRIBUTE, "");
+    expect(paint()).toEqual({ home: "none", skeleton: "contents" });
+    expect(
+      document.querySelector(
+        "[data-agent-native-first-run-skeleton] .agent-prompt-home-hero",
+      ),
+    ).toBeNull();
+  });
+});
 
 describe("AppShellSkeleton home layout", () => {
   it("paints the home hero and resource footer beside the sidebar, with no header row", () => {

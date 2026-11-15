@@ -3,6 +3,7 @@ import {
   defineAction,
   embedApp,
 } from "@agent-native/core";
+import type { ActionRunContext } from "@agent-native/core/action";
 import { writeAppState } from "@agent-native/core/application-state";
 import { buildDeepLink } from "@agent-native/core/server";
 import {
@@ -36,8 +37,10 @@ import type {
 } from "../shared/api.js";
 import { ensureDocumentFilesMembership } from "./_content-files.js";
 import { resolveContentSpaceAccess } from "./_content-space-access.js";
+import { resolveProvisionedContentSpaceAccess } from "./_content-space-target.js";
 import {
   organizationContentSpaceId,
+  personalContentSpaceId,
   provisionContentSpaces,
 } from "./_content-spaces.js";
 import { loadContext } from "./_database-row-mutation.js";
@@ -53,6 +56,7 @@ import {
   contentDatabaseResponseForCaller,
   getContentDatabaseResponse,
 } from "./_database-utils.js";
+import { assertAgentsMayEditPageText } from "./_document-agent-lock.js";
 import {
   documentsPositionScope,
   nextAppendPosition,
@@ -174,7 +178,7 @@ export default defineAction({
         await createReliableDatabase(createDatabaseReliableSchema.parse(args)),
         context,
       );
-    const result = await createContentDatabaseCore(args);
+    const result = await createContentDatabaseCore(args, { ctx: context });
     await writeAppState("refresh-signal", { ts: Date.now() });
     return contentDatabaseResponseForCaller(result, context);
   },
@@ -273,7 +277,10 @@ async function createReliableDatabase(
 
 export async function createContentDatabaseCore(
   args: CreateDatabaseRequest,
-  options: { db?: any } = {},
+  options: Pick<
+    NonNullable<Parameters<typeof createContentDatabaseRecord>[1]>,
+    "db" | "ctx"
+  > = {},
 ): Promise<ContentDatabaseResponse> {
   if (args.documentId && args.newDocumentId) {
     throw new Error("documentId and newDocumentId cannot both be provided");
@@ -288,12 +295,14 @@ export async function createContentDatabaseCore(
     databaseId = await createContentDatabaseRecord(args, {
       db,
       spaceId: resolvedSpaceId,
+      ctx: options.ctx,
     });
   } else {
     await db.transaction(async (tx: any) => {
       databaseId = await createContentDatabaseRecord(args, {
         db: tx,
         spaceId: resolvedSpaceId,
+        ctx: options.ctx,
       });
     });
   }
@@ -350,9 +359,13 @@ export async function resolveContentDatabaseSpace(
   }
   const userEmail = getRequestUserEmail();
   if (!userEmail) throw new Error("no authenticated user");
-  const provisioned = await provisionContentSpaces(db, userEmail);
-  const spaceId = args.spaceId ?? provisioned.personalSpaceId;
-  await resolveContentSpaceAccess(spaceId, "contributor");
+  const spaceId = args.spaceId ?? personalContentSpaceId(userEmail);
+  await resolveProvisionedContentSpaceAccess({
+    db,
+    userEmail,
+    spaceId,
+    requiredRole: "contributor",
+  });
   return spaceId;
 }
 
@@ -383,6 +396,7 @@ export async function createContentDatabaseRecord(
     db?: any;
     spaceId?: string;
     resolveSpaceAccess?: typeof resolveContentSpaceAccess;
+    ctx?: ActionRunContext;
   } = {},
 ): Promise<string> {
   const db = options.db ?? getDb();
@@ -466,7 +480,11 @@ export async function createContentDatabaseRecord(
       return existing.id;
     }
 
-    if (title && title !== document.title && !document.title.trim()) {
+    // Turning the page into a collection changes the page itself, title or not.
+    assertAgentsMayEditPageText(document, options.ctx);
+    const fillsTitle =
+      title && title !== document.title && !document.title.trim();
+    if (fillsTitle) {
       await db
         .update(schema.documents)
         .set({ title, updatedAt: now, ...documentEditAttribution(actor) })

@@ -2,6 +2,7 @@ import {
   agentNativePath,
   appBasePath,
 } from "@agent-native/core/client/api-path";
+import { useBrowserTabUse } from "@agent-native/core/client/navigation";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useRef } from "react";
 import { useLocation, useNavigate } from "react-router";
@@ -22,6 +23,7 @@ export interface NavigationState {
 
 export function useNavigationState() {
   const location = useLocation();
+  useBrowserTabUse(`${location.pathname}${location.search}`);
   const navigate = useNavigate();
   const qc = useQueryClient();
   const lastProcessedDedupKeyRef = useRef<string | null>(null);

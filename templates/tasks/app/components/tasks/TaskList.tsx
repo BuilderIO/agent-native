@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { focusAgentChat } from "@agent-native/toolkit/app/chat";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
@@ -175,8 +176,8 @@ export function TaskList({
       );
       selection.actions.clearSelection();
       setBulkDeleteOpen(false);
-    } catch {
-      toast.error(t("tasks.bulkDeleteError"));
+    } catch (error) {
+      reportWriteFailure(error, { label: t("tasks.bulkDeleteError") });
     }
   }
 

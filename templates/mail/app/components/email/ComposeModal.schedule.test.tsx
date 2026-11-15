@@ -16,6 +16,7 @@ import { FOCUS_COMPOSE_DRAFT_EVENT } from "@/hooks/use-compose-state";
 const mockScheduleEmail = vi.hoisted(() => vi.fn());
 const mockSendEmailAsync = vi.hoisted(() => vi.fn());
 const mockArchiveEmail = vi.hoisted(() => vi.fn());
+const mockReportWriteFailure = vi.hoisted(() => vi.fn());
 const mockSettings = vi.hoisted(() => ({ sendAndArchive: false }));
 const mockAccounts = vi.hoisted(
   () => [] as Array<{ email: string; displayName?: string }>,
@@ -40,6 +41,13 @@ vi.mock("@agent-native/core/client/i18n", () => ({
 }));
 
 vi.mock("sonner", () => ({ toast: mockToast }));
+
+vi.mock("@agent-native/core/client/write-failure", async (importOriginal) => ({
+  ...(await importOriginal<
+    typeof import("@agent-native/core/client/write-failure")
+  >()),
+  reportWriteFailure: mockReportWriteFailure,
+}));
 
 vi.mock("@/components/ui/button", () => ({
   Button: ({ children, ...props }: any) => (
@@ -72,6 +80,9 @@ vi.mock("@/hooks/use-account-filter", () => ({
 }));
 vi.mock("@/hooks/use-aliases", () => ({
   useAliases: () => ({ data: [] }),
+}));
+vi.mock("@/hooks/use-can-manage-storage", () => ({
+  useCanManageStorage: () => true,
 }));
 vi.mock("@/hooks/use-draft-queue", () => ({
   useUpdateQueuedDraft: () => ({ mutate: vi.fn() }),
@@ -202,6 +213,7 @@ describe("ComposeModal scheduling", () => {
     mockScheduleEmail.mockReset();
     mockSendEmailAsync.mockReset();
     mockArchiveEmail.mockReset();
+    mockReportWriteFailure.mockReset();
     mockSettings.sendAndArchive = false;
     mockToast.mockClear();
     mockToast.error.mockClear();
@@ -1270,6 +1282,7 @@ describe("ComposeModal scheduling", () => {
     expect(mockToast.error).not.toHaveBeenCalledWith(
       "mail.toasts.failedToSendEmail",
     );
+    expect(mockReportWriteFailure).not.toHaveBeenCalled();
   });
 
   it("applies the saved preference to ordinary reply sends", async () => {
@@ -1376,8 +1389,9 @@ describe("ComposeModal scheduling", () => {
     });
 
     expect(mockToast.dismiss).toHaveBeenCalled();
-    expect(mockToast.error).toHaveBeenCalledWith(
-      "mail.toasts.failedToSendEmail",
+    expect(mockReportWriteFailure).toHaveBeenCalledWith(
+      new Error("Provider rejected send"),
+      { label: "mail.toasts.failedToSendEmail" },
     );
     expect(mockArchiveEmail).not.toHaveBeenCalled();
     expect(onDiscard).not.toHaveBeenCalled();
@@ -1468,8 +1482,9 @@ describe("ComposeModal scheduling", () => {
     });
 
     expect(mockSendEmailAsync).toHaveBeenCalledOnce();
-    expect(mockToast.error).toHaveBeenCalledWith(
-      "mail.toasts.failedToSendEmail",
+    expect(mockReportWriteFailure).toHaveBeenCalledWith(
+      new Error("Provider rejected send"),
+      { label: "mail.toasts.failedToSendEmail" },
     );
     expect(
       mockToast.mock.calls.some(

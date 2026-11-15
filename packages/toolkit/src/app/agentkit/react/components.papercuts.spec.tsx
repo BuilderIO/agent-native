@@ -13,7 +13,7 @@ import type {
   AgentEvent,
   AgentTask,
 } from "@agent-native/agentkit/protocol";
-import { act, createElement, type ReactNode } from "react";
+import { act, createElement, useEffect, useRef, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -62,7 +62,7 @@ import {
   AgentTaskItem,
   useAgentKitFollowTranscript,
 } from "./components.js";
-import { AgentKitProvider } from "./context.js";
+import { AgentKitProvider, useAgentKit } from "./context.js";
 
 let container: HTMLDivElement;
 let root: Root;
@@ -160,6 +160,17 @@ function runningThread(threadId: string, runId: string): AgentThreadState {
   };
 }
 
+// Registered after the chat's own composer, so a focus request lands here.
+function ComposerFocusTarget() {
+  const { registerComposerFocus, threadId } = useAgentKit();
+  const target = useRef<HTMLButtonElement>(null);
+  useEffect(
+    () => registerComposerFocus(threadId, () => target.current?.focus()),
+    [registerComposerFocus, threadId],
+  );
+  return <button ref={target}>Composer focus target</button>;
+}
+
 describe("AgentKitChat papercuts", () => {
   it("offers a default Stop that cancels once however often it is clicked", async () => {
     const thread = runningThread("thread-stop", "run-stop");
@@ -193,6 +204,37 @@ describe("AgentKitChat papercuts", () => {
     expect(stop?.getAttribute("aria-busy")).toBe("true");
     await act(async () => cancelled.resolve(undefined));
     expect(stop?.disabled).toBe(false);
+  });
+
+  it("offers a skip link past the transcript to the composer", async () => {
+    const thread = runningThread("thread-skip", "run-skip");
+    const store = observableController(snapshotOf(thread));
+    await render(
+      <AgentKitProvider controller={store.controller} threadId={thread.id}>
+        <AgentKitChat
+          composerProps={{
+            autoFocus: false,
+            modelStatusChecksEnabled: false,
+            voiceEnabled: false,
+          }}
+        />
+        <ComposerFocusTarget />
+      </AgentKitProvider>,
+    );
+    const skip = container.querySelector<HTMLButtonElement>(
+      '[data-agentkit-skip-link="composer"]',
+    );
+    const transcript = container.querySelector(".agentkit-transcript");
+    expect(skip?.textContent).toBe("Skip to message box");
+    expect(
+      transcript && skip
+        ? skip.compareDocumentPosition(transcript) &
+            Node.DOCUMENT_POSITION_FOLLOWING
+        : 0,
+    ).toBeTruthy();
+
+    await act(async () => skip?.click());
+    expect(document.activeElement?.textContent).toBe("Composer focus target");
   });
 
   it("announces a finished response once in the shared status region", async () => {
@@ -230,6 +272,105 @@ describe("AgentKitChat papercuts", () => {
     expect(
       container.querySelectorAll("[data-agentkit-live-status]"),
     ).toHaveLength(1);
+  });
+
+  it.each([
+    ["awaiting_approval", "Waiting for approval"],
+    ["awaiting_input", "Waiting for input"],
+    ["cancelled", "Stopped"],
+  ] as const)("announces a run that goes %s", async (status, announcement) => {
+    const thread = runningThread("thread-pause", "run-pause");
+    const store = observableController(snapshotOf(thread));
+    await render(
+      <AgentKitProvider controller={store.controller} threadId={thread.id}>
+        <AgentKitChat composer={false} />
+      </AgentKitProvider>,
+    );
+
+    await act(async () => {
+      store.update(
+        snapshotOf(
+          {
+            ...thread,
+            runs: {
+              "run-pause": { ...thread.runs["run-pause"]!, status },
+            },
+          },
+          1,
+        ),
+      );
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(
+      container.querySelector("[data-agentkit-live-status]")?.textContent,
+    ).toBe(announcement);
+  });
+
+  it.each([
+    ["with an error, which its own alert reads", true, ""],
+    ["without an error", false, "Response failed"],
+  ] as const)(
+    "announces a failed run once: %s",
+    async (_case, withError, announcement) => {
+      const thread = runningThread("thread-fail", "run-fail");
+      const store = observableController(snapshotOf(thread));
+      await render(
+        <AgentKitProvider controller={store.controller} threadId={thread.id}>
+          <AgentKitChat composer={false} />
+        </AgentKitProvider>,
+      );
+      await act(async () => {
+        store.update(
+          snapshotOf(
+            {
+              ...thread,
+              activeRunIds: [],
+              runs: {
+                "run-fail": {
+                  ...thread.runs["run-fail"]!,
+                  status: "failed",
+                  ...(withError
+                    ? {
+                        error: {
+                          code: "provider_error",
+                          message: "The model provider returned an error.",
+                        },
+                      }
+                    : {}),
+                },
+              },
+            },
+            1,
+          ),
+        );
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(
+        container.querySelector("[data-agentkit-live-status]")?.textContent,
+      ).toBe(announcement);
+      expect(container.querySelectorAll('[role="alert"]')).toHaveLength(
+        withError ? 1 : 0,
+      );
+    },
+  );
+
+  it("gives every turn a heading for heading navigation", async () => {
+    const thread = runningThread("thread-headings", "run-headings");
+    const store = observableController(snapshotOf(thread));
+    await render(
+      <AgentKitProvider controller={store.controller} threadId={thread.id}>
+        <AgentKitChat composer={false} />
+      </AgentKitProvider>,
+    );
+    const articles = [
+      ...container.querySelectorAll("article.agentkit-message"),
+    ];
+    expect(articles.length).toBeGreaterThan(0);
+    expect(
+      articles.map(
+        (article) => article.querySelector(":scope > h2")?.textContent,
+      ),
+    ).toEqual(articles.map((article) => article.getAttribute("aria-label")));
   });
 
   it("marks a stopped run under its turn", async () => {

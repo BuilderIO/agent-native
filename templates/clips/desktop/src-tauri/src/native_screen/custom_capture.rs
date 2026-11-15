@@ -9,6 +9,19 @@ const AV_WRITER_STATUS_COMPLETED: i64 = 2;
 const AUDIO_FORMAT_AAC: i64 = 0x6161_6320;
 const OUTPUT_SEGMENT_INTERVAL_SECONDS: i64 = 1;
 const CAPTURE_VIDEO_BPP: f64 = 0.15;
+// AVAssetWriter closes the first media fragment once it accepts a second video
+// frame past the first segment boundary. ScreenCaptureKit only delivers a frame
+// when the screen changes, so a still screen never gets there.
+const FIRST_FRAGMENT_CLOSING_FRAMES: u64 = 2;
+// How long the writer gets to emit that fragment after accepting its closing
+// frame before startup or the watchdog counts it as stuck (about 50 ms on an M4).
+const FIRST_FRAGMENT_LATENCY: Duration = Duration::from_millis(500);
+// A backed-up writer drops frames and may never accept a closing one, so being
+// offered this many frames past the boundary without accepting one also counts
+// as stuck: half a second of frames at NATIVE_CAPTURE_FPS on top of the closing
+// ones.
+const FIRST_FRAGMENT_STUCK_OFFERED_FRAMES: u64 =
+    FIRST_FRAGMENT_CLOSING_FRAMES + NATIVE_CAPTURE_FPS as u64 / 2;
 
 const CAPTURE_STALL_TIMEOUT: Duration = Duration::from_secs(4);
 const CAPTURE_WATCHDOG_POLL: Duration = Duration::from_millis(1000);
@@ -552,6 +565,12 @@ struct SegmentProgress {
     has_initialization: bool,
 }
 
+impl SegmentProgress {
+    fn has_media(&self) -> bool {
+        self.has_initialization && self.media_fragments > 0 && self.bytes_written > 0
+    }
+}
+
 pub(super) struct SegmentSink {
     state: Mutex<SegmentSinkState>,
 }
@@ -594,10 +613,10 @@ impl SegmentSink {
     }
 
     fn failure(&self) -> Option<String> {
-        self.state
-            .lock()
-            .ok()
-            .and_then(|guard| guard.failed.clone())
+        match self.state.lock() {
+            Ok(guard) => guard.failed.clone(),
+            Err(_) => Some("segment output lock poisoned".to_string()),
+        }
     }
 
     fn progress(&self) -> SegmentProgress {
@@ -825,6 +844,14 @@ struct CustomScreenCaptureWriterState {
     #[allow(dead_code)]
     segment_delegate: Option<objc2::rc::Retained<SegmentWriterDelegate>>,
     session_start_time: Option<(i64, i32)>,
+    // Counted before the writer can drop a frame, so a backed-up writer isn't
+    // mistaken for a still screen.
+    video_frames_past_first_segment: u64,
+    video_frames_accepted_past_first_segment: u64,
+    // When the writer accepted the frame that should close the first fragment.
+    first_fragment_closing_frame_at: Option<Instant>,
+    // Set when startup accepted the capture before its first fragment.
+    awaiting_first_fragment: bool,
     finished: bool,
     failed: Option<String>,
     append_stats: std::collections::HashMap<&'static str, TrackAppendStats>,
@@ -1439,6 +1466,10 @@ impl CustomScreenCaptureWriter {
                     segment_sink,
                     segment_delegate,
                     session_start_time: None,
+                    video_frames_past_first_segment: 0,
+                    video_frames_accepted_past_first_segment: 0,
+                    first_fragment_closing_frame_at: None,
+                    awaiting_first_fragment: false,
                     finished: false,
                     failed: None,
                     append_stats: std::collections::HashMap::new(),
@@ -1549,6 +1580,68 @@ impl CustomScreenCaptureWriter {
             .unwrap_or_default()
     }
 
+    fn video_frames_past_first_segment(&self) -> u64 {
+        self.inner
+            .lock()
+            .map(|guard| guard.video_frames_past_first_segment)
+            .unwrap_or_default()
+    }
+
+    fn first_fragment_closing_frame_at(&self) -> Option<Instant> {
+        self.inner
+            .lock()
+            .ok()
+            .and_then(|guard| guard.first_fragment_closing_frame_at)
+    }
+
+    fn segment_failure(&self) -> Option<String> {
+        let Ok(guard) = self.inner.lock() else {
+            return Some("writer state lock poisoned".to_string());
+        };
+        guard.segment_sink.as_ref().and_then(|sink| sink.failure())
+    }
+
+    // Startup accepted the capture before its first fragment, so the watchdog
+    // keeps holding the writer to the first-fragment rule until it arrives.
+    fn await_first_fragment_after_startup(&self) {
+        if let Ok(mut guard) = self.inner.lock() {
+            guard.awaiting_first_fragment = true;
+        }
+    }
+
+    // Why the watchdog should finalize a capture whose appends are still open: a
+    // failed segment write discards every later fragment, and a first fragment
+    // overdue after a still-screen start means the writer is stuck.
+    fn output_failure_after_startup(&self) -> Option<String> {
+        if let Some(error) = self.segment_failure() {
+            return Some(format!("segment output failed: {error}"));
+        }
+        let Ok(mut guard) = self.inner.lock() else {
+            return Some("writer state lock poisoned".to_string());
+        };
+        if !guard.awaiting_first_fragment {
+            return None;
+        }
+        let progress = guard
+            .segment_sink
+            .as_ref()
+            .map(|sink| sink.progress())
+            .unwrap_or_default();
+        if progress.has_media() {
+            guard.awaiting_first_fragment = false;
+            return None;
+        }
+        let frames = guard.video_frames_past_first_segment;
+        let closing_frame_age = guard.first_fragment_closing_frame_at.map(|at| at.elapsed());
+        if first_fragment_awaits_screen_changes(frames, closing_frame_age) {
+            return None;
+        }
+        Some(format!(
+            "first media fragment overdue after startup ({frames} video frame(s) offered after the first segment boundary, closing frame {})",
+            describe_closing_frame(closing_frame_age)
+        ))
+    }
+
     fn failure(&self) -> Option<String> {
         self.inner
             .lock()
@@ -1645,13 +1738,27 @@ impl CustomScreenCaptureWriter {
                             .sample_timing_info(0)
                             .ok()
                             .and_then(|t| t.presentation_time_stamp.as_seconds());
-                        self.append_sample_ptr(
+                        let past_first_segment = track == track_labels::VIDEO
+                            && rebased_pts
+                                .is_some_and(|pts| pts >= OUTPUT_SEGMENT_INTERVAL_SECONDS as f64);
+                        if past_first_segment {
+                            guard.video_frames_past_first_segment += 1;
+                        }
+                        let accepted = self.append_sample_ptr(
                             &mut guard,
                             &input,
                             copy.as_ptr(),
                             track,
                             rebased_pts,
                         );
+                        if past_first_segment && accepted {
+                            guard.video_frames_accepted_past_first_segment += 1;
+                            if guard.video_frames_accepted_past_first_segment
+                                == FIRST_FRAGMENT_CLOSING_FRAMES
+                            {
+                                guard.first_fragment_closing_frame_at = Some(Instant::now());
+                            }
+                        }
                     }
                     Err(err) => {
                         drop(guard);
@@ -1820,7 +1927,7 @@ impl CustomScreenCaptureWriter {
         sample_ptr: *mut std::ffi::c_void,
         track: &'static str,
         pts_seconds: Option<f64>,
-    ) {
+    ) -> bool {
         use objc2::msg_send;
 
         let ready: bool = msg_send![&**input, isReadyForMoreMediaData];
@@ -1831,7 +1938,7 @@ impl CustomScreenCaptureWriter {
                     "[mixer] writer input not ready on {track}; dropped {dropped} sample(s) so far"
                 );
             }
-            return;
+            return false;
         }
         let stats = guard.append_stats.entry(track).or_default();
         let previous_pts = stats.last_pts_seconds;
@@ -1846,7 +1953,7 @@ impl CustomScreenCaptureWriter {
                         previous_pts.unwrap_or(f64::NAN)
                     ));
                 }
-                return;
+                return false;
             }
             stats.last_pts_seconds = Some(pts);
         }
@@ -1869,7 +1976,7 @@ impl CustomScreenCaptureWriter {
             appended
         }));
         match outcome {
-            Ok(true) => {}
+            Ok(true) => true,
             Ok(false) => {
                 self.appends_closed.store(true, Ordering::SeqCst);
                 guard.failed = Some(format!(
@@ -1877,6 +1984,7 @@ impl CustomScreenCaptureWriter {
                     pts_report("failed"),
                     av_writer_error_suffix(&guard.writer)
                 ));
+                false
             }
             Err(exc) => {
                 self.appends_closed.store(true, Ordering::SeqCst);
@@ -1885,6 +1993,7 @@ impl CustomScreenCaptureWriter {
                     "[mixer] appendSampleBuffer raised Objective-C exception on {track}: {detail}"
                 );
                 guard.failed = Some(format!("{}: {detail}", pts_report("raised")));
+                false
             }
         }
     }
@@ -3580,38 +3689,90 @@ fn await_segmented_capture_readiness(
     }
 
     let fragment_deadline = Instant::now() + CAPTURE_FIRST_FRAGMENT_TIMEOUT;
-    while Instant::now() < fragment_deadline {
+    loop {
         if let Some(error) = watch.take_stream_stopped() {
             return Err(error);
         }
         if let Some(error) = writer.failure() {
             return Err(error);
         }
+        // A failed segment write won't recover, so fail the start without waiting.
+        if writer.segment_failure().is_some() {
+            break;
+        }
         let progress = writer.segment_progress();
-        if progress.has_initialization && progress.media_fragments > 0 && progress.bytes_written > 0
-        {
+        if progress.has_media() {
             crate::logfile::diagnostic(&format!(
                 "[capture-health] segmented capture ready: {} bytes, {} media fragment(s)",
                 progress.bytes_written, progress.media_fragments
             ));
             return Ok(());
         }
+        // A closing frame that lands near the deadline still gets its full window.
+        let wait_until = writer
+            .first_fragment_closing_frame_at()
+            .map_or(fragment_deadline, |at| {
+                fragment_deadline.max(at + FIRST_FRAGMENT_LATENCY)
+            });
+        if Instant::now() >= wait_until {
+            break;
+        }
         std::thread::sleep(Duration::from_millis(25));
     }
 
     let (screen, usable_screen, system, mic) = watch.sample_counts();
     let progress = writer.segment_progress();
+    let frames_past_first_segment = writer.video_frames_past_first_segment();
+    let closing_frame_age = writer
+        .first_fragment_closing_frame_at()
+        .map(|at| at.elapsed());
+    let segment_failure = writer.segment_failure();
+    if segment_failure.is_none()
+        && first_fragment_awaits_screen_changes(frames_past_first_segment, closing_frame_age)
+    {
+        crate::logfile::diagnostic(&format!(
+            "[capture-health] segmented capture ready before its first media fragment ({frames_past_first_segment} video frame(s) offered after the first segment boundary, closing frame {}; screen={screen}, usable_screen={usable_screen}); the fragment follows when the screen changes or the capture stops, and the watchdog checks it until then",
+            describe_closing_frame(closing_frame_age)
+        ));
+        writer.await_first_fragment_after_startup();
+        return Ok(());
+    }
     let _ = stream.stop_capture();
     let finish_error = writer.finish(true).err();
+    let reason = match segment_failure {
+        Some(error) => format!("failed on segment output: {error}"),
+        None => String::from("timed out waiting for the first fragmented-media bytes"),
+    };
     Err(format!(
-        "capture startup timed out waiting for the first fragmented-media bytes (screen={screen}, usable_screen={usable_screen}, system_audio={system}, microphone={mic}, requested_system_audio={requested_system_audio}, requested_microphone={requested_microphone}, initialization={}, media_fragments={}, bytes={}){}",
+        "capture startup {reason} (screen={screen}, usable_screen={usable_screen}, system_audio={system}, microphone={mic}, requested_system_audio={requested_system_audio}, requested_microphone={requested_microphone}, initialization={}, media_fragments={}, bytes={}, video_frames_past_first_segment={frames_past_first_segment}, closing_frame={}){}",
         progress.has_initialization,
         progress.media_fragments,
         progress.bytes_written,
+        describe_closing_frame(closing_frame_age),
         finish_error
             .map(|error| format!("; writer: {error}"))
             .unwrap_or_default()
     ))
+}
+
+// Once the writer has accepted its closing frame, it gets the latency window to
+// emit the fragment, however many frames it dropped before. Until then, being
+// offered so many frames means a backed-up writer is dropping them. Anything less
+// means the screen hasn't changed enough yet.
+fn first_fragment_awaits_screen_changes(
+    video_frames_past_first_segment: u64,
+    closing_frame_age: Option<Duration>,
+) -> bool {
+    match closing_frame_age {
+        Some(age) => age < FIRST_FRAGMENT_LATENCY,
+        None => video_frames_past_first_segment < FIRST_FRAGMENT_STUCK_OFFERED_FRAMES,
+    }
+}
+
+fn describe_closing_frame(closing_frame_age: Option<Duration>) -> String {
+    closing_frame_age
+        .map(|age| format!("{}ms ago", age.as_millis()))
+        .unwrap_or_else(|| "none".to_string())
 }
 
 fn spawn_capture_watchdog(
@@ -3642,13 +3803,13 @@ fn spawn_capture_watchdog(
                 if shutdown.load(Ordering::SeqCst) {
                     return;
                 }
-                let writer_error = writer
-                    .failure()
-                    .unwrap_or_else(|| "unknown writer failure".to_string());
-                let failure = watchdog_fatal_error
-                    .take()
-                    .map(|error| format!("{error}; writer: {writer_error}"))
-                    .unwrap_or(writer_error);
+                let failure = match (watchdog_fatal_error.take(), writer.failure()) {
+                    (Some(error), Some(writer_error)) => format!("{error}; writer: {writer_error}"),
+                    (Some(error), None) => error,
+                    (None, writer_error) => {
+                        writer_error.unwrap_or_else(|| "unknown writer failure".to_string())
+                    }
+                };
                 eprintln!(
                     "[mixer] capture failed without a stop request ({failure}); finalizing partial recording"
                 );
@@ -3672,6 +3833,13 @@ fn spawn_capture_watchdog(
                     emit_capture_recorder_stop(&app, params.recording_id.as_deref());
                 }
                 return;
+            }
+            // The reason stays here rather than in the writer, whose lock may be
+            // what failed.
+            if let Some(error) = writer.output_failure_after_startup() {
+                watchdog_fatal_error = Some(error);
+                writer.appends_closed.store(true, Ordering::SeqCst);
+                continue;
             }
             if !recording_enabled.load(Ordering::SeqCst) || !writer.started.load(Ordering::SeqCst) {
                 continue;
@@ -4255,6 +4423,185 @@ mod fragment_fence_tests {
             true,
             true
         ));
+    }
+
+    #[test]
+    fn still_screen_cannot_fail_segmented_capture_startup() {
+        // A still screen, or one that changed only before the boundary, has at
+        // most one frame past it, so the writer never gets a closing frame.
+        assert!(first_fragment_awaits_screen_changes(0, None));
+        assert!(first_fragment_awaits_screen_changes(1, None));
+        // Frames the writer dropped never close the fragment, but enough of
+        // them means it's backed up, not that the screen is still.
+        let stuck = FIRST_FRAGMENT_STUCK_OFFERED_FRAMES;
+        assert!(first_fragment_awaits_screen_changes(stuck - 1, None));
+        assert!(!first_fragment_awaits_screen_changes(stuck, None));
+        // A moving screen fills two seconds past the boundary within the
+        // wait, so a writer that produces nothing still fails startup.
+        let moving_screen_frames = 2 * u64::from(NATIVE_CAPTURE_FPS);
+        assert!(!first_fragment_awaits_screen_changes(
+            moving_screen_frames,
+            None
+        ));
+    }
+
+    #[test]
+    fn writer_that_stalls_after_its_closing_frame_fails_startup() {
+        let just_closed = Some(Duration::ZERO);
+        assert!(first_fragment_awaits_screen_changes(2, just_closed));
+        let latency = FIRST_FRAGMENT_LATENCY;
+        let in_window = Some(latency - Duration::from_millis(1));
+        assert!(first_fragment_awaits_screen_changes(2, in_window));
+        // Two early frames past the boundary and then a still screen: the
+        // writer had what it needs, so no fragment means it's stuck.
+        assert!(!first_fragment_awaits_screen_changes(2, Some(latency)));
+        assert!(!first_fragment_awaits_screen_changes(
+            2,
+            Some(CAPTURE_FIRST_FRAGMENT_TIMEOUT)
+        ));
+    }
+
+    #[test]
+    fn writer_that_caught_up_keeps_its_latency_window() {
+        // A writer that dropped frames while busy and then accepted its closing
+        // ones still gets the full window, however many it was offered.
+        let stuck = FIRST_FRAGMENT_STUCK_OFFERED_FRAMES;
+        let latency = FIRST_FRAGMENT_LATENCY;
+        let just_closed = Some(Duration::ZERO);
+        assert!(first_fragment_awaits_screen_changes(stuck, just_closed));
+        let in_window = Some(latency - Duration::from_millis(1));
+        assert!(first_fragment_awaits_screen_changes(2 * stuck, in_window));
+        assert!(!first_fragment_awaits_screen_changes(stuck, Some(latency)));
+    }
+
+    #[test]
+    fn segment_progress_needs_initialization_and_a_media_fragment() {
+        let initialization_only = SegmentProgress {
+            bytes_written: 700,
+            media_fragments: 0,
+            has_initialization: true,
+        };
+        assert!(!initialization_only.has_media());
+        assert!(SegmentProgress {
+            bytes_written: 164_196,
+            media_fragments: 1,
+            has_initialization: true,
+        }
+        .has_media());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn segment_output_failure_reaches_capture_startup() {
+        let output = path("startup-segment-failure");
+        let writer = CustomScreenCaptureWriter::new(
+            &output,
+            1280,
+            800,
+            false,
+            false,
+            false,
+            false,
+            CustomWriterOutput::RewindCmaf,
+            false,
+            None,
+        )
+        .unwrap();
+        let sink = writer.inner.lock().unwrap().segment_sink.clone().unwrap();
+        sink.append(b"A", AV_ASSET_WRITER_SEGMENT_TYPE_SEPARABLE, Some(0.0));
+        assert!(writer.failure().is_none());
+        assert!(writer
+            .segment_failure()
+            .is_some_and(|error| error.contains("before initialization segment")));
+        drop(writer);
+        remove(&[&output]);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn segment_output_failure_after_startup_reaches_the_watchdog() {
+        let output = path("running-segment-failure");
+        let writer = CustomScreenCaptureWriter::new(
+            &output,
+            1280,
+            800,
+            false,
+            false,
+            false,
+            false,
+            CustomWriterOutput::RewindCmaf,
+            false,
+            None,
+        )
+        .unwrap();
+        assert!(writer.output_failure_after_startup().is_none());
+        let sink = writer.inner.lock().unwrap().segment_sink.clone().unwrap();
+        sink.append(b"A", AV_ASSET_WRITER_SEGMENT_TYPE_SEPARABLE, Some(0.0));
+        assert!(writer
+            .output_failure_after_startup()
+            .is_some_and(|error| error.starts_with("segment output failed: ")));
+        drop(writer);
+        remove(&[&output]);
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn writer_that_stalls_after_a_still_screen_start_reaches_the_watchdog() {
+        let output = path("running-first-fragment-overdue");
+        let writer = CustomScreenCaptureWriter::new(
+            &output,
+            1280,
+            800,
+            false,
+            false,
+            false,
+            false,
+            CustomWriterOutput::RewindCmaf,
+            false,
+            None,
+        )
+        .unwrap();
+        let overdue_closing_frame = Instant::now()
+            .checked_sub(FIRST_FRAGMENT_LATENCY + Duration::from_millis(1))
+            .unwrap();
+        {
+            let mut state = writer.inner.lock().unwrap();
+            state.video_frames_past_first_segment = 2;
+            state.first_fragment_closing_frame_at = Some(overdue_closing_frame);
+        }
+        // Only a start accepted before its first fragment is held to the rule.
+        assert!(writer.output_failure_after_startup().is_none());
+        writer.await_first_fragment_after_startup();
+        assert!(writer
+            .output_failure_after_startup()
+            .is_some_and(|error| error.starts_with("first media fragment overdue")));
+        let sink = writer.inner.lock().unwrap().segment_sink.clone().unwrap();
+        sink.append(b"init", AV_ASSET_WRITER_SEGMENT_TYPE_INITIALIZATION, None);
+        sink.append(
+            b"fragment",
+            AV_ASSET_WRITER_SEGMENT_TYPE_SEPARABLE,
+            Some(1.0),
+        );
+        assert!(writer.output_failure_after_startup().is_none());
+        assert!(!writer.inner.lock().unwrap().awaiting_first_fragment);
+        drop(writer);
+        remove(&[&output]);
+    }
+
+    #[test]
+    fn poisoned_segment_output_counts_as_failed() {
+        let output = path("poisoned-segment-output");
+        let sink = SegmentSink::create(&output).unwrap();
+        assert!(sink.failure().is_none());
+        let poisoner = Arc::clone(&sink);
+        let _ = std::thread::spawn(move || {
+            let _state = poisoner.state.lock().unwrap();
+            panic!("poison the segment output lock");
+        })
+        .join();
+        assert!(sink.failure().is_some());
+        drop(sink);
+        remove(&[&output]);
     }
 
     #[test]

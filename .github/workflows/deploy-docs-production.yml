@@ -1,6 +1,4 @@
 name: Deploy Agent-Native docs site from GitHub
-run-name: >-
-  ${{ github.event.inputs.coordinator_run_id && format('{0} [release:{1}]', github.workflow, github.event.inputs.coordinator_run_id) || '' }}
 
 on:
   push:
@@ -40,11 +38,6 @@ on:
         required: true
         type: boolean
         default: true
-      coordinator_run_id:
-        description: Release coordinator ID used to reconcile a transient dispatch failure
-        required: false
-        type: string
-        default: ""
 
 permissions:
   contents: read
@@ -56,58 +49,8 @@ concurrency:
   queue: max
 
 jobs:
-  verify-stable-release:
-    name: Verify coordinated stable release commit
-    if: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[stable-release]') }}
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: read
-    outputs:
-      verified: ${{ steps.verify.outputs.verified }}
-    steps:
-      - name: Verify the stable release pull request
-        id: verify
-        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
-        with:
-          script: |
-            const owner = context.repo.owner;
-            const repo = context.repo.repo;
-            if (context.actor !== "builder-io-integration[bot]") {
-              core.setOutput("verified", "false");
-              return;
-            }
-
-            const pullRequests = await github.paginate(
-              "GET /repos/{owner}/{repo}/commits/{commit_sha}/pulls",
-              { owner, repo, commit_sha: context.sha },
-            );
-            const verified = pullRequests.some(
-              (pullRequest) =>
-                pullRequest.base?.ref === "main" &&
-                pullRequest.head?.ref === "changeset-release/main" &&
-                pullRequest.head?.repo?.full_name === `${owner}/${repo}` &&
-                pullRequest.user?.login === "builder-io-integration[bot]" &&
-                pullRequest.merged_at != null &&
-                pullRequest.merge_commit_sha === context.sha &&
-                typeof pullRequest.title === "string" &&
-                pullRequest.title.includes("[stable-release]"),
-            );
-            core.setOutput("verified", verified ? "true" : "false");
-            if (!verified) {
-              core.warning(
-                "The stable-release marker is not backed by the trusted merged release PR; docs will deploy normally.",
-              );
-            }
-
   docs-source-freshness:
     name: Verify docs source before production side effects
-    needs: [verify-stable-release]
-    if: >-
-      ${{ always() && !cancelled() &&
-      (needs.verify-stable-release.result == 'skipped' ||
-      (needs.verify-stable-release.result == 'success' &&
-      needs.verify-stable-release.outputs.verified == 'false')) }}
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -262,12 +205,9 @@ jobs:
 
   migrate:
     name: Migrate docs production schema
-    needs: [verify-stable-release, docs-source-freshness, pause-netlify-builds]
+    needs: [docs-source-freshness, pause-netlify-builds]
     if: >-
       ${{ always() && !cancelled() &&
-      (needs.verify-stable-release.result == 'skipped' ||
-      (needs.verify-stable-release.result == 'success' &&
-      needs.verify-stable-release.outputs.verified == 'false')) &&
       needs.docs-source-freshness.result == 'success' &&
       needs.docs-source-freshness.outputs.current == 'true' &&
       needs.pause-netlify-builds.result == 'success' &&
@@ -291,18 +231,9 @@ jobs:
     name: docs production prebuilt deploy
     permissions:
       contents: read
-    needs:
-      [
-        verify-stable-release,
-        docs-source-freshness,
-        pause-netlify-builds,
-        migrate,
-      ]
+    needs: [docs-source-freshness, pause-netlify-builds, migrate]
     if: >-
       ${{ always() && !cancelled() &&
-      (needs.verify-stable-release.result == 'skipped' ||
-      (needs.verify-stable-release.result == 'success' &&
-      needs.verify-stable-release.outputs.verified == 'false')) &&
       needs.docs-source-freshness.result == 'success' &&
       needs.docs-source-freshness.outputs.current == 'true' &&
       needs.pause-netlify-builds.result == 'success' &&
@@ -324,12 +255,9 @@ jobs:
 
   pause-netlify-builds:
     name: Pause docs site's Git-connected Netlify builds
-    needs: [verify-stable-release, docs-source-freshness]
+    needs: [docs-source-freshness]
     if: >-
       ${{ always() && !cancelled() &&
-      (needs.verify-stable-release.result == 'skipped' ||
-      (needs.verify-stable-release.result == 'success' &&
-      needs.verify-stable-release.outputs.verified == 'false')) &&
       needs.docs-source-freshness.result == 'success' &&
       needs.docs-source-freshness.outputs.current == 'true' }}
     concurrency:
@@ -541,12 +469,8 @@ jobs:
 
   restore-netlify-builds:
     name: Restore docs site's Git-connected Netlify builds
-    needs: [verify-stable-release, pause-netlify-builds, migrate, deploy]
-    if: >-
-      ${{ always() && !cancelled() &&
-      (needs.verify-stable-release.result == 'skipped' ||
-      (needs.verify-stable-release.result == 'success' &&
-      needs.verify-stable-release.outputs.verified == 'false')) }}
+    needs: [pause-netlify-builds, migrate, deploy]
+    if: ${{ always() && !cancelled() }}
     runs-on: ubuntu-latest
     concurrency:
       group: agent-native-production-site-fw
@@ -649,3 +573,109 @@ jobs:
               },
             });
             core.info(`Handed off current main ${mainSha} to the beta publisher.`);
+
+  report:
+    name: "Report to #dev-agent-native-alerts"
+    needs:
+      [
+        docs-source-freshness,
+        pause-netlify-builds,
+        migrate,
+        deploy,
+        restore-netlify-builds,
+      ]
+    # A manual run reports to whoever started it. A push posts only when docs
+    # production starts failing or publishes again, not once per merge.
+    if: ${{ !cancelled() && github.event_name == 'push' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Compare with the last docs run that deployed or failed
+        id: change
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        env:
+          DOCS_JOB_RESULTS: ${{ toJSON(needs) }}
+        with:
+          script: |
+            core.setOutput("text", "");
+            const needs = JSON.parse(process.env.DOCS_JOB_RESULTS);
+            // Restoring the Git build setting runs after the deploy, so its
+            // failure does not decide whether docs deployed.
+            const published = needs.deploy.result === "success";
+            const failed = ["docs-source-freshness", "pause-netlify-builds", "migrate", "deploy"].filter(
+              (job) => needs[job].result === "failure",
+            );
+            // Skipped because a newer docs change reached the queue.
+            if (!published && failed.length === 0) return;
+
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const { data } = await github.rest.actions.listWorkflowRuns({
+              owner,
+              repo,
+              workflow_id: "deploy-docs-production.yml",
+              branch: "main",
+              event: "push",
+              status: "completed",
+              per_page: 100,
+            });
+            // Earlier runs are judged by the same jobs, not by the run's
+            // conclusion, which a failed restore or report also sets. A
+            // skipped reusable-workflow job is listed without its " / <job>".
+            const isJob = (job, name) => job.name === name || job.name.startsWith(`${name} / `);
+            const deployPathJobs = [
+              "Verify docs source before production side effects",
+              "Pause docs site's Git-connected Netlify builds",
+              "Migrate docs production schema",
+              "docs production prebuilt deploy",
+            ];
+            let previous = null;
+            for (const run of data.workflow_runs
+              .filter((run) => run.id < context.runId && run.conclusion !== "cancelled")
+              .sort((a, b) => b.id - a.id)) {
+              const { data: jobs } = await github.rest.actions.listJobsForWorkflowRun({
+                owner,
+                repo,
+                run_id: run.id,
+                filter: "latest",
+                per_page: 100,
+              });
+              if (jobs.jobs.some((job) => isJob(job, "docs production prebuilt deploy") && job.conclusion === "success")) {
+                previous = "published";
+                break;
+              }
+              if (
+                jobs.jobs.some(
+                  (job) => job.conclusion === "failure" && deployPathJobs.some((name) => isJob(job, name)),
+                )
+              ) {
+                previous = "failed";
+                break;
+              }
+            }
+
+            const commit = context.sha.slice(0, 10);
+            const runUrl = `${context.serverUrl}/${owner}/${repo}/actions/runs/${context.runId}`;
+            if (!published && previous !== "failed") {
+              core.setOutput(
+                "text",
+                `:warning: Docs production did not deploy ${commit}: ${failed.join(", ")} failed. www.agent-native.com keeps its last published build. Run: ${runUrl}. Re-run its failed jobs once the cause is fixed; the next docs change to main deploys too. This posts again only after docs deploy.`,
+              );
+            } else if (published && previous === "failed") {
+              core.setOutput("text", `:white_check_mark: Docs production deploys again: ${commit} is live. Run: ${runUrl}`);
+            }
+
+      - name: Post the change
+        if: ${{ steps.change.outputs.text != '' }}
+        uses: slackapi/slack-github-action@dcb1066f776dd043e64d0e8ba94ca15cc7e1875d # v4.0.0
+        with:
+          method: chat.postMessage
+          token: ${{ secrets.QA_SLACK_BOT_TOKEN }}
+          payload: |
+            channel: C0C7A1Y2EF6
+            text: ${{ toJSON(steps.change.outputs.text) }}
+            unfurl_links: false
+            unfurl_media: false

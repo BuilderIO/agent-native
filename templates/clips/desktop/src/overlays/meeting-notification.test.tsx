@@ -28,6 +28,7 @@ const tauriCore = vi.hoisted(() => ({
 }));
 const tauriWindow = vi.hoisted(() => ({
   hide: vi.fn(async () => undefined),
+  setFocus: vi.fn(async () => undefined),
   setSize: vi.fn(async () => undefined),
   show: vi.fn(async () => undefined),
 }));
@@ -78,6 +79,7 @@ describe("meeting notification recovery", () => {
     tauriEvents.listen.mockClear();
     tauriCore.invoke.mockClear();
     tauriWindow.hide.mockClear();
+    tauriWindow.setFocus.mockClear();
     tauriWindow.setSize.mockClear();
     tauriWindow.show.mockClear();
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
@@ -143,6 +145,47 @@ describe("meeting notification recovery", () => {
       debugSnapshots,
     };
   }
+
+  function invokedCommands() {
+    return tauriCore.invoke.mock.calls.map(([command]) => command);
+  }
+
+  it("shows the card through the non-activating native show, never the webview's own show", async () => {
+    await act(async () => {
+      await tauriEvents.emit(
+        "meetings:show-notification",
+        calendarCard("meeting-a", false),
+      );
+    });
+
+    expect(invokedCommands()).toContain("meeting_notification_show");
+    expect(tauriWindow.show).not.toHaveBeenCalled();
+    expect(tauriWindow.setFocus).not.toHaveBeenCalled();
+  });
+
+  it("starts notes from the card without surfacing the main window", async () => {
+    await act(async () => {
+      await tauriEvents.emit(
+        "meetings:show-notification",
+        calendarCard("meeting-a", false),
+      );
+    });
+    tauriCore.invoke.mockClear();
+    const startNotes = [...host.querySelectorAll("button")].find(
+      (button) => button.className === "meeting-notification-split-main",
+    );
+    if (!startNotes) throw new Error("start notes button not rendered");
+
+    await act(async () => startNotes.click());
+
+    expect(tauriEvents.emit).toHaveBeenCalledWith(
+      "meetings:start-transcription",
+      expect.objectContaining({ meetingId: "meeting-a", reason: "user" }),
+    );
+    expect(invokedCommands()).not.toContain("show_popover");
+    expect(tauriWindow.show).not.toHaveBeenCalled();
+    expect(tauriWindow.setFocus).not.toHaveBeenCalled();
+  });
 
   function snapshotCalls() {
     return tauriCore.invoke.mock.calls.filter(

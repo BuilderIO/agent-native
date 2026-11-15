@@ -8,9 +8,11 @@ import { appConfig } from "./app.js";
 import { authConfig } from "./auth.js";
 import { clipsConfig } from "./clips.js";
 import { decisionsConfig } from "./decisions.js";
+import { deployCacheConfig } from "./deploy-cache.js";
 import { dispatchConfig } from "./dispatch.js";
 import { experienceProfilesConfig } from "./experience-profiles.js";
 import { extensionsConfig } from "./extensions.js";
+import { googleOAuthRecoveryConfig } from "./google-oauth-recovery.js";
 import { hostedStorageConfig } from "./hosted-storage.js";
 import { integrationsConfig } from "./integrations.js";
 import { launchDarklyConfig } from "./launchdarkly.js";
@@ -77,9 +79,11 @@ export const appConfigSchema = z.object({
   auth: authConfig.prefault({}),
   clips: clipsConfig.prefault({}),
   decisions: decisionsConfig.prefault({}),
+  deployCache: deployCacheConfig.prefault({}),
   dispatch: dispatchConfig.prefault({}),
   experienceProfiles: experienceProfilesConfig.prefault({}),
   extensions: extensionsConfig.prefault({}),
+  googleOAuthRecovery: googleOAuthRecoveryConfig.prefault({}),
   hostedStorage: hostedStorageConfig.prefault({}),
   integrations: integrationsConfig.prefault({}),
   launchDarkly: launchDarklyConfig.prefault({}),

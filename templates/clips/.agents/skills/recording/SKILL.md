@@ -52,7 +52,7 @@ Builder uploads remain hidden. New hidden uploads record server-side ownership p
 
 ## Agent file upload
 
-An outside agent (MCP or CLI) with a local video file calls `create-recording-upload` with an explicit `visibility`, the file's `mimeType` and `sizeBytes`, and ideally `durationMs`/`width`/`height`. It creates the row through `create-recording` and returns a `chunkUrl`, an `Authorization: Bearer` upload ticket, `chunkSizeBytes` (3 MiB), `totalChunks`, `shareUrl`, and `next`. The agent POSTs the chunks in order with `&index=N&isFinal=0`, and the last with `isFinal=1`, which finalizes exactly as a browser upload does. Don't call `finalize-recording` separately.
+An outside agent (MCP or CLI) with a local video file calls `create-recording-upload` with an explicit `visibility`, the file's `mimeType` and `sizeBytes`. `durationMs`/`width`/`height` are optional: once it holds the file, Clips fills in any left out, and corrects `hasAudio` if the file has no audio stream. It creates the row through `create-recording` and returns a `chunkUrl`, an `Authorization: Bearer` upload ticket, `chunkSizeBytes` (3 MiB), `totalChunks`, `shareUrl`, and `next`. The agent POSTs the chunks in order with `&index=N&isFinal=0`, and the last with `isFinal=1`, which finalizes exactly as a browser upload does. Don't call `finalize-recording` separately.
 
 The size limit depends on where the clip is stored: `MAX_UPLOAD_BYTES` (2 GiB) with connected storage, and `maxClipBytes` (250 MB by default, `CLIPS_HOSTED_STORAGE_MAX_CLIP_BYTES`) on free hosted storage. The action passes `sizeBytes` through `create-recording` to `resolveClipsVideoStorage`, which refuses a file over the hosted limit with 413 `upload_too_large` before it reserves a hosted grant, so a refusal never leaves a grant held by no recording. The message and `details.maxUploadBytes` give the caller's limit. `create-recording`'s schema caps `sizeBytes` at `MAX_UPLOAD_BYTES`, and the chunk route still enforces the limit on the bytes actually received.
 
@@ -324,6 +324,7 @@ the recorder recreates it on every start.
 | ------------------------------ | ------------------------------------------------------------------------------------- |
 | Permission denied              | Mark the recording row `status: "failed"`, `failureReason: "permission"`.             |
 | Transient chunk upload failure | Pause delivery; replay the in-memory source only while the current tab remains open.  |
+| Gateway 502/503/504 at upload start or finalize | The Builder gateway calls retry with bounded backoff (3 attempts at start, 4 at finalize; never after finalize's own timeout), then fail as `BuilderGatewayError`; the `recording_failed` event carries `gateway_step`, `gateway_attempts` and `gateway_trace_id`, which finds the request in the upload function's logs. |
 | `IndexedDB` write failure      | Continue capture and upload; the local backup is unavailable for that specific chunk. |
 | `MediaRecorder` error event    | Stop, finalize what we have, set `failureReason`; let the user retry.                 |
 | User closes tab mid-recording  | No background resend or closed-tab recovery is promised.                              |

@@ -151,6 +151,19 @@ export function WorkspaceAppChatRail({
 }: WorkspaceAppChatRailProps) {
   const t = useT();
   const appChat = useWorkspaceAppChatApi(appId);
+  const retryRef = useRef<HTMLButtonElement>(null);
+
+  // The embedded app's chat button hands its toggle to Dispatch; with no sidebar mounted it would otherwise do nothing.
+  useEffect(() => {
+    if (!appChat.unavailable) return;
+    const focusRetry = () => retryRef.current?.focus();
+    window.addEventListener("agent-panel:toggle", focusRetry);
+    window.addEventListener("agent-panel:open", focusRetry);
+    return () => {
+      window.removeEventListener("agent-panel:toggle", focusRetry);
+      window.removeEventListener("agent-panel:open", focusRetry);
+    };
+  }, [appChat.unavailable]);
 
   if (appChat.unavailable) {
     return (
@@ -170,6 +183,7 @@ export function WorkspaceAppChatRail({
                 })}
               </span>
               <Button
+                ref={retryRef}
                 type="button"
                 variant="outline"
                 size="sm"

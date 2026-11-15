@@ -29,6 +29,7 @@ export function SavedViewDataProgram({ data }: { data: unknown }) {
   const lastRunViewId = useRef<string | undefined>(undefined);
   const run = useActionMutation<ProgramPreview, { viewId: string }>(
     "run-crm-saved-view-program" as never,
+    { errorNotification: "caller" },
   );
 
   useEffect(() => {

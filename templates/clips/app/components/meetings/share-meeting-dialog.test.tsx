@@ -27,6 +27,7 @@ describe("meeting sharing adoption", () => {
     );
   it("shares with the organization at once and defaults invites to notified Viewer", async () => {
     await render();
+    await click(button("Share"));
     await select(button("General access"), "Anyone in your organization");
     expect(document.querySelector('[role="alertdialog"]')).toBeNull();
     expect(mocks.visibility).toHaveBeenCalledWith({
@@ -49,23 +50,30 @@ describe("meeting sharing adoption", () => {
       expect.any(Object),
     );
   });
-  it("keeps People and Agents as the meeting tabs and copies the share link from the button", async () => {
+  it("uses the shared panel and copies the meeting link from the button", async () => {
     await render();
-    expect(
-      Array.from(document.querySelectorAll('[role="tab"]')).map(
-        (tab) => tab.textContent,
-      ),
-    ).toEqual(["shareDialog.people", "shareDialog.agents"]);
     await click(button("recordRoute.copyLinkAction"));
     expect(mocks.clipboard).toHaveBeenCalledWith(
       expect.stringContaining("/share/meeting/meeting-test"),
     );
+    expect(mocks.track).toHaveBeenCalledWith(
+      "share_link_copied",
+      expect.objectContaining({
+        resource_type: "meeting",
+        resource_id: "meeting-test",
+      }),
+    );
+    await click(button("Share"));
+    expect(document.body.textContent).toContain("People with access");
+    expect(document.body.textContent).toContain("General access");
   });
   it("keeps transcript opt-in separate and rolls back failed saves", async () => {
     await render();
+    await click(button("Share"));
     expect(document.body.textContent).toContain(
       "shareMeeting.linkShowsNotesOnly",
     );
+    await click(button("shareDialog.advanced"));
     const toggle = document.getElementById(
       "meeting-share-transcript-meeting-test",
     )!;
@@ -85,7 +93,11 @@ describe("meeting sharing adoption", () => {
     expect(mocks.visibility).not.toHaveBeenCalled();
   });
   it("disables unavailable transcripts and uses a scoped agent link for private meetings", async () => {
+    if (!mocks.data) throw new Error("Missing share data");
+    mocks.data = { ...mocks.data, agentReadable: true };
     await render(false);
+    await click(button("Share"));
+    await click(button("shareDialog.advanced"));
     expect(
       (
         document.getElementById(
@@ -94,12 +106,20 @@ describe("meeting sharing adoption", () => {
       ).disabled,
     ).toBe(true);
     expect(mocks.createLink).not.toHaveBeenCalled();
-    await click(button("shareDialog.agents"));
+    await act(async () =>
+      button("Send to").dispatchEvent(
+        new KeyboardEvent("keydown", { key: "Enter", bubbles: true }),
+      ),
+    );
     expect(mocks.createLink).toHaveBeenCalledWith({
       resourceType: "meeting",
       resourceId: "meeting-test",
     });
-    await click(button("shareMeeting.copyAgentLink"));
+    const agentLink = Array.from(
+      document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
+    ).find((item) => item.textContent.includes("shareMeeting.copyAgentLink"));
+    if (!agentLink) throw new Error("Missing agent link action");
+    await click(agentLink);
     expect(mocks.clipboard).toHaveBeenCalledWith(
       "https://clips.example.test/scoped-agent",
     );

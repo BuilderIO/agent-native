@@ -91,19 +91,12 @@ test("maps the framework production site to the docs project", () => {
   assert.equal(target.host, "www.agent-native.com");
 });
 
-test("maps the framework beta site to the docs project", () => {
-  const target = resolveNetlifyPrebuiltTarget("beta", "fw");
-
-  assert.equal(target.siteName, "fw");
-  assert.equal(target.sourceTemplate, "@agent-native/docs");
-  assert.equal(target.sourceRef, "beta");
-  assert.equal(target.publishDirectory, "packages/docs/dist");
-  assert.equal(
-    target.functionsDirectory,
-    "packages/docs/.netlify/functions-internal",
+// oracle-change: beta docs is retired; replace its field assertions with rejection of the removed target.
+test("rejects the retired framework beta target", () => {
+  assert.throws(
+    () => resolveNetlifyPrebuiltTarget("beta", "fw"),
+    /Unknown beta Netlify site/,
   );
-  assert.equal(target.host, "beta.agent-native.com");
-  assert.equal(target.siteId, "f5cdb30b-4be2-46b8-839f-294f4c3ac89f");
 });
 
 test("rejects production sites without a source project instead of guessing", () => {

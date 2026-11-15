@@ -1,3 +1,4 @@
+import { isActionContractError } from "@agent-native/core/action";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
@@ -61,5 +62,31 @@ describe("full app building Labs gate", () => {
     await expect(isFullAppBuildingEnabled()).rejects.toThrow(
       "Labs unavailable",
     );
+  });
+
+  it("refuses a caller with no signed-in user as a typed 401", async () => {
+    const error = await isFullAppBuildingEnabled().then(
+      () => undefined,
+      (reason: unknown) => reason,
+    );
+
+    expect(isActionContractError(error)).toBe(true);
+    expect(error).toMatchObject({
+      errorCode: "unauthenticated",
+      statusCode: 401,
+      message: "Full app building requires an authenticated user",
+    });
+  });
+
+  it("keeps an unreadable Labs state a plain error so it stays a 500", async () => {
+    mocks.getRequestUserEmail.mockReturnValue("user@example.com");
+    mocks.getUserLabState.mockRejectedValue(new Error("Labs unavailable"));
+
+    const error = await isFullAppBuildingEnabled().then(
+      () => undefined,
+      (reason: unknown) => reason,
+    );
+
+    expect(isActionContractError(error)).toBe(false);
   });
 });

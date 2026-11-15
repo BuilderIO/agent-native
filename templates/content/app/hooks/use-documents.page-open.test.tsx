@@ -95,6 +95,7 @@ vi.mock("@agent-native/core/client/hooks", () => {
   };
   return {
     callAction,
+    callActionWithRetry: vi.fn(callAction),
     getBrowserTabId: () => "tab-1",
     useDbSync: vi.fn(),
     // Mirrors core: the options run around the action call.
@@ -115,6 +116,8 @@ vi.mock("@agent-native/core/client/hooks", () => {
 vi.mock("@agent-native/core/client/i18n", () => ({
   useT: () => (key: string) => key,
 }));
+
+import { callActionWithRetry } from "@agent-native/core/client/hooks";
 
 import { lastDocumentReadFailure } from "../lib/document-read-failures";
 import {
@@ -451,6 +454,24 @@ describe("page open document reads", () => {
       ]),
     );
     expect(reads("get-page-open-read")).toBe(1);
+  });
+
+  it("reads a row's Properties ahead with the retries its panel would use", async () => {
+    const item = {
+      id: "item-1",
+      databaseId: "database",
+      document: { id: "row-1", title: "Plan" },
+      properties: [],
+    } as unknown as ContentDatabaseItem;
+
+    startDatabaseItemPreviewReads(queryClient, item, "database-page");
+
+    await vi.waitFor(() => expect(reads("list-document-properties")).toBe(1));
+    expect(callActionWithRetry).toHaveBeenCalledWith(
+      "list-document-properties",
+      { documentId: "row-1", databaseId: "database" },
+      expect.objectContaining({ method: "GET" }),
+    );
   });
 
   it("leaves a row's comments and suggestions to the switch when reading ahead", async () => {

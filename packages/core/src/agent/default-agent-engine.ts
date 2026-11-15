@@ -96,6 +96,16 @@ function hasEngine(value: Record<string, unknown>): boolean {
   return typeof value.engine === "string" && value.engine.trim().length > 0;
 }
 
+export function isDefaultAgentEngineScopeResolved(
+  ctx: DefaultAgentEngineContext = requestContext(),
+): boolean {
+  return !!(
+    normalizedContext(ctx).orgId ||
+    ctx.orgScope === "personal" ||
+    ctx.defaultAgentEngineScope === "deployment"
+  );
+}
+
 /**
  * Read the default that applies to `ctx` (the current request when omitted):
  * the organization's row, else an explicitly personal user's own row, else
@@ -109,11 +119,7 @@ export async function readDefaultAgentEngineSettingDetailed(
   ctx: DefaultAgentEngineContext = requestContext(),
 ): Promise<DefaultAgentEngineRead> {
   const { userEmail, orgId } = normalizedContext(ctx);
-  if (
-    !orgId &&
-    ctx.orgScope !== "personal" &&
-    ctx.defaultAgentEngineScope !== "deployment"
-  ) {
+  if (!isDefaultAgentEngineScopeResolved(ctx)) {
     throw new Error("Organization scope could not be resolved.");
   }
   if (orgId) {

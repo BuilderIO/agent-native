@@ -828,7 +828,7 @@ export function ComposerContextMenu({
                 type="button"
                 variant="ghost"
                 size="icon"
-                className="size-[var(--agentkit-composer-toolbar-control-size,1.5rem)] shrink-0 rounded-[var(--agentkit-composer-control-radius,var(--radius-md))] text-muted-foreground hover:text-foreground"
+                className="size-[var(--agentkit-composer-toolbar-control-size,1.5rem)] shrink-0 rounded-[var(--agentkit-composer-control-radius,var(--agent-kit-radius-xs,0.25rem))] text-muted-foreground hover:text-foreground aria-expanded:bg-accent aria-expanded:text-accent-foreground"
                 data-agent-composer-slot="plus-button"
                 disabled={disabled}
                 aria-label={label}
@@ -924,7 +924,7 @@ export function ComposerContextMenu({
                   <div
                     role="presentation"
                     aria-hidden="true"
-                    className="px-2 py-1 text-sm text-destructive"
+                    className="px-2 py-1 text-sm agent-kit-tone-warning"
                   >
                     {searchError}
                   </div>
@@ -973,7 +973,7 @@ export function ComposerContextMenu({
                     <div
                       role="presentation"
                       aria-hidden="true"
-                      className="px-2 py-1 text-sm text-destructive"
+                      className="px-2 py-1 text-sm agent-kit-tone-warning"
                     >
                       {integrationStatus.error}
                     </div>
@@ -1050,7 +1050,7 @@ export function ComposerContextMenu({
         />
       )}
       {error && (
-        <span role="alert" className="text-xs text-destructive">
+        <span role="alert" className="text-xs agent-kit-tone-warning">
           {error}
         </span>
       )}

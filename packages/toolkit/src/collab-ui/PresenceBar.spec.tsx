@@ -54,6 +54,60 @@ describe("PresenceBar", () => {
     expect(container.querySelector('[aria-label="AI agent"]')).not.toBeNull();
   });
 
+  it("shows a valid collaborator photo", () => {
+    const user = {
+      email: "steve@example.com",
+      name: "Steve",
+      color: "#123456",
+      avatarUrl: "https://example.com/steve.png",
+    };
+
+    act(() => {
+      root.render(<PresenceBar activeUsers={[user]} />);
+    });
+
+    const image = container.querySelector<HTMLImageElement>("img");
+    expect(image?.getAttribute("src")).toBe(user.avatarUrl);
+    act(() => image?.dispatchEvent(new Event("load")));
+    expect(container.querySelector("img")).toBe(image);
+  });
+
+  it("falls back on image failure and retries when the URL changes", () => {
+    const user = {
+      email: "steve@example.com",
+      name: "Steve",
+      color: "#123456",
+      avatarUrl: "https://example.com/missing.png",
+    };
+    const renderUser = (avatarUrl: string) => {
+      act(() => {
+        root.render(<PresenceBar activeUsers={[{ ...user, avatarUrl }]} />);
+      });
+    };
+
+    renderUser(user.avatarUrl);
+    const failedImage = container.querySelector<HTMLImageElement>("img");
+    expect(failedImage?.getAttribute("src")).toBe(user.avatarUrl);
+    act(() => failedImage?.dispatchEvent(new Event("error")));
+    expect(container.querySelector("img")).toBeNull();
+    expect(
+      container.querySelector('[aria-label="Steve (steve@example.com)"]')
+        ?.textContent,
+    ).toBe("S");
+
+    const newUrl = "https://example.com/new.png";
+    renderUser(newUrl);
+    const newImage = container.querySelector<HTMLImageElement>("img");
+    expect(newImage?.getAttribute("src")).toBe(newUrl);
+    act(() => newImage?.dispatchEvent(new Event("load")));
+    expect(container.querySelector("img")).toBe(newImage);
+
+    renderUser(user.avatarUrl);
+    expect(container.querySelector("img")?.getAttribute("src")).toBe(
+      user.avatarUrl,
+    );
+  });
+
   it("keeps the AI avatar display-only when agent follow is disabled", () => {
     const onAvatarClick = vi.fn();
     act(() => {

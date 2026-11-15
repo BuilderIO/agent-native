@@ -1,4 +1,5 @@
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import type { AvailabilityConfig, DaySchedule } from "@shared/api";
 import { IconPlus, IconTrash } from "@tabler/icons-react";
 import { useState, useEffect } from "react";
@@ -139,7 +140,10 @@ export default function AvailabilitySettings() {
       },
       {
         onSuccess: () => toast.success(t("bookingLinks.availabilitySaved")),
-        onError: () => toast.error(t("bookingLinks.availabilitySaveFailed")),
+        onError: (error) =>
+          reportWriteFailure(error, {
+            label: t("bookingLinks.availabilitySaveFailed"),
+          }),
       },
     );
   }

@@ -1,5 +1,9 @@
 import { isOpenAiMcpAppHost } from "@agent-native/core/client/agent-chat";
-import { callAction, useSession } from "@agent-native/core/client/hooks";
+import {
+  callAction,
+  isTerminalActionError,
+  useSession,
+} from "@agent-native/core/client/hooks";
 import { isEmbedMcpChatBridgeActive } from "@agent-native/core/client/host";
 import { useT } from "@agent-native/core/client/i18n";
 import { writeClipboardText } from "@agent-native/toolkit/clipboard";
@@ -315,6 +319,10 @@ export function PageDraftRecovery({
     // Replaying it here would race that queue from a stale base and remount
     // the editor mid-edit.
     if (journalState === "promoting" || editorReleased) return;
+    // A failed replay waits for Retry. Its save rewrote the journal entry, so
+    // running again would read it as a new attempt and resend that save on
+    // every pass.
+    if (journalState === "failed") return;
     if (
       !drafts.data ||
       !decisionsReady ||
@@ -595,7 +603,16 @@ export function PageDraftRecovery({
               : {}),
           });
         },
+      }).catch((error: unknown) => {
+        // A save the server refused outright can't land by sending it again,
+        // so its text goes where an unsettled draft goes and the page opens.
+        if (isTerminalActionError(error)) return null;
+        throw error;
       });
+      if (!outcome) {
+        await promote();
+        return;
+      }
       if (outcome.status === "superseded") {
         clearPageDraftJournal(entry.scope, journalStorageSnapshot);
         await queryClient.refetchQueries(documentQueryFilter(document.id));

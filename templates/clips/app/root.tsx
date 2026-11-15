@@ -438,6 +438,7 @@ export default function Root() {
   return (
     <AppToolkitProvider>
       <AppProviders
+        builderSignupExperiment="clips_builder_signup_v1"
         queryClient={queryClient}
         skeletonLayout="prompt-library"
         isPublicPath={isPublicPath}

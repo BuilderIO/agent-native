@@ -5,12 +5,17 @@ import {
   useQueryClient,
 } from "@tanstack/react-query";
 import type {
+  MutateOptions,
   Query,
   QueryClient,
-  UseQueryOptions,
+  QueryKey,
+  UseMutateAsyncFunction,
+  UseMutateFunction,
   UseMutationOptions,
+  UseMutationResult,
+  UseQueryOptions,
 } from "@tanstack/react-query";
-import { useContext } from "react";
+import { useCallback, useContext, useRef } from "react";
 
 import { ACTION_BATCH_ACTION_NAME } from "../shared/action-batch.js";
 import {
@@ -74,6 +79,7 @@ import {
   onSessionIdentityPublished,
 } from "./session-identity.js";
 import { recheckSessionAfterUnauthorized } from "./use-session.js";
+import { reportWriteFailure } from "./write-failure-event.js";
 
 export { actionErrorCode };
 
@@ -83,7 +89,8 @@ function actionPrefix(): string {
 
 const DEFAULT_ACTION_TIMEOUT_MS = 60_000;
 
-function isActionTimeout(error: unknown): boolean {
+/** @internal shared with `classifyWriteFailure` */
+export function isActionTimeout(error: unknown): boolean {
   return (
     !!error &&
     typeof error === "object" &&
@@ -128,7 +135,8 @@ function isBrowserResourceExhaustion(error: unknown): boolean {
   return /ERR_INSUFFICIENT_RESOURCES|insufficient resources/i.test(message);
 }
 
-function isNetworkLevelFailure(error: unknown): boolean {
+/** @internal shared with `classifyWriteFailure` */
+export function isNetworkLevelFailure(error: unknown): boolean {
   return (
     error instanceof Error &&
     (error as { status?: unknown }).status === undefined &&
@@ -1126,7 +1134,8 @@ export function callActionBlob<TName extends ActionName = ActionName>(
   });
 }
 
-function isAbortError(error: unknown): boolean {
+/** @internal shared with `classifyWriteFailure` */
+export function isAbortError(error: unknown): boolean {
   return (
     !!error &&
     typeof error === "object" &&
@@ -1493,6 +1502,75 @@ export function recordActionQueryBrowserPersist(
   }
 }
 
+/**
+ * Whether an `["action", …]` read may start now. Never while the app's API is
+ * off. While the browser's saved results are still being tied to the
+ * signed-in user, only a query already fetching or holding data reads; the
+ * rest wait for the binding. Without `queryKey`, it answers for a new read.
+ * `useActionQuery` applies this; a hand-written action query passes it to
+ * `enabled`, and a prefetch checks it first.
+ */
+export function useActionQueryCanFetch(queryKey?: QueryKey): boolean {
+  const trustedBindingPending = useContext(
+    trustedActionQueryCacheBindingPendingContext,
+  );
+  const queryClient = useQueryClient();
+  if (agentNativeApiDisabledReason()) return false;
+  if (!trustedBindingPending) return true;
+  const existing = queryKey
+    ? queryClient.getQueryCache().find({ queryKey, exact: true })
+    : undefined;
+  return (
+    existing?.state.fetchStatus === "fetching" ||
+    existing?.state.data !== undefined
+  );
+}
+
+/**
+ * Runs one read of an `["action", …]` query with `useActionQuery`'s handling
+ * of refused reads and saved results; whether it may start is
+ * `useActionQueryCanFetch`'s call. A 401, 403 or 404 drops the rows the query
+ * showed and the browser's saved copy of its results. A success may join the saved results only for the
+ * binding active when the read began, and only when `read` passes the
+ * `onResponse` it is given to the action call; a read that doesn't is never
+ * saved.
+ */
+export async function runActionQueryRead<R>(
+  client: QueryClient,
+  queryKey: QueryKey,
+  signal: AbortSignal | undefined,
+  read: (onResponse: (response: Response) => void) => Promise<R>,
+): Promise<R> {
+  const query = client.getQueryCache().find({ queryKey, exact: true });
+  const bindingTokenAtFetch = actionQueryCacheBindingToken;
+  let lastResponse: Response | undefined;
+  let result: R;
+  try {
+    result = await read((response) => {
+      lastResponse = response;
+    });
+  } catch (error) {
+    const status = actionErrorStatus(error);
+    if (
+      !signal?.aborted &&
+      (status === 401 || status === 403 || status === 404)
+    ) {
+      if (query) {
+        setAccessDeniedActionQueryBinding(query, bindingTokenAtFetch);
+        revokeBrowserPersistableActionQuery(query);
+        query.setState({ data: undefined, dataUpdatedAt: 0 });
+      }
+      revokeActionQueryCacheForClient(client, bindingTokenAtFetch);
+    }
+    throw error;
+  }
+  if (query && !signal?.aborted) {
+    clearAccessDeniedActionQueryBinding(query);
+    recordActionQueryBrowserPersist(query, lastResponse, bindingTokenAtFetch);
+  }
+  return result;
+}
+
 const UNBATCHED_REFETCHES_META_KEY = "actionUnbatchedRefetches";
 
 /**
@@ -1542,7 +1620,6 @@ export function useActionQuery<
   },
 ) {
   type R = TResult extends undefined ? ActionResult<TName> : TResult;
-  const apiDisabled = Boolean(agentNativeApiDisabledReason());
   const {
     refetchInterval,
     retry: callerRetry,
@@ -1555,60 +1632,27 @@ export function useActionQuery<
     ...restOptions
   } = options ?? {};
   const queryKey = ["action", actionName, params, ...(queryKeyScope ?? [])];
-  const trustedBindingPending = useContext(
-    trustedActionQueryCacheBindingPendingContext,
-  );
-  const queryClient = useQueryClient();
-  const existingQuery = trustedBindingPending
-    ? queryClient.getQueryCache().find({ queryKey, exact: true })
-    : undefined;
-  const deferFetchUntilBound =
-    trustedBindingPending &&
-    existingQuery?.state.fetchStatus !== "fetching" &&
-    existingQuery?.state.data === undefined;
+  const canFetch = useActionQueryCanFetch(queryKey);
   const circuitKey = () => hashKey(queryKey);
   return useQuery<R>({
     queryKey,
     queryFn: async ({ signal, client }) => {
       const key = circuitKey();
-      const query = client.getQueryCache().find({ queryKey, exact: true });
-      const bindingTokenAtFetch = actionQueryCacheBindingToken;
       assertActionCircuitClosed(key);
-      let lastResponse: Response | undefined;
-      let result: R;
-      try {
-        result = await actionFetch<R>(actionName, method, params, {
-          signal,
-          ...(beforeSend ? { beforeSend } : {}),
-          batch: method === "GET" && canBatchActionQueryFetch(query),
-          onResponse: (response) => {
-            lastResponse = response;
-          },
-        });
-      } catch (error) {
-        const status = actionErrorStatus(error);
-        if (
-          !signal.aborted &&
-          (status === 401 || status === 403 || status === 404)
-        ) {
-          if (query) {
-            setAccessDeniedActionQueryBinding(query, bindingTokenAtFetch);
-            revokeBrowserPersistableActionQuery(query);
-            query.setState({ data: undefined, dataUpdatedAt: 0 });
-          }
-          revokeActionQueryCacheForClient(client, bindingTokenAtFetch);
-        }
-        throw error;
-      }
+      const query = client.getQueryCache().find({ queryKey, exact: true });
+      const result = await runActionQueryRead(
+        client,
+        queryKey,
+        signal,
+        (onResponse) =>
+          actionFetch<R>(actionName, method, params, {
+            signal,
+            ...(beforeSend ? { beforeSend } : {}),
+            batch: method === "GET" && canBatchActionQueryFetch(query),
+            onResponse,
+          }),
+      );
       resetActionFailureCircuit(key);
-      if (query && !signal.aborted) {
-        clearAccessDeniedActionQueryBinding(query);
-        recordActionQueryBrowserPersist(
-          query,
-          lastResponse,
-          bindingTokenAtFetch,
-        );
-      }
       return result;
     },
     // The failure circuit counts fetch cycles, so a cycle is recorded where
@@ -1628,7 +1672,7 @@ export function useActionQuery<
     retryDelay: defaultActionQueryRetryDelay,
     ...restOptions,
     enabled: (query) => {
-      if (deferFetchUntilBound) return false;
+      if (!canFetch) return false;
       return typeof callerEnabled === "function"
         ? callerEnabled(query)
         : callerEnabled !== false;
@@ -1647,7 +1691,6 @@ export function useActionQuery<
     ...(refetchInterval !== undefined
       ? { refetchInterval: guardActionQueryRefetchInterval(refetchInterval) }
       : {}),
-    ...(apiDisabled ? { enabled: false as const } : {}),
   });
 }
 
@@ -1663,6 +1706,87 @@ function actionQueryInvalidation(resources: readonly string[] | undefined) {
     predicate: (query: ActionScopedQuery) =>
       actionQueryAffectedByResources(query, changed),
   };
+}
+
+/**
+ * How a failed `useActionMutation` reaches the shared write-failure toast.
+ * `mutate` toasts unless an `onError` handles it. `mutateAsync` toasts only
+ * when its rejection ends up unhandled (an `await` with no `catch` anywhere up
+ * the chain, a dropped promise); a caller that wraps the error in a new `Error`
+ * is not reported. `"shared"` toasts every failure even beside the caller's own
+ * handling, `"caller"` never toasts.
+ */
+export type ActionMutationErrorNotification = "auto" | "shared" | "caller";
+
+// A rejection that nobody handled arrives at `unhandledrejection` on whichever
+// promise ended the chain (`await p` with no catch ends it on the async
+// function's promise, not on `p`), but with the same error object. So the
+// error object is the key, not the promise.
+let unhandledMutationErrors = new WeakMap<object, string | undefined>();
+let unhandledMutationBackstop: ((event: PromiseRejectionEvent) => void) | null =
+  null;
+
+function reportUnhandledMutationError(event: PromiseRejectionEvent): void {
+  const reason: unknown = event.reason;
+  if (typeof reason !== "object" || reason === null) return;
+  if (!unhandledMutationErrors.has(reason)) return;
+  const label = unhandledMutationErrors.get(reason);
+  unhandledMutationErrors.delete(reason);
+  reportWriteFailure(reason, { label });
+}
+
+function trackUnhandledMutationError(
+  error: unknown,
+  label: string | undefined,
+): void {
+  if (typeof window === "undefined") return;
+  if (typeof error !== "object" || error === null) return;
+  unhandledMutationErrors.set(error, label);
+  if (unhandledMutationBackstop) return;
+  unhandledMutationBackstop = reportUnhandledMutationError;
+  window.addEventListener("unhandledrejection", unhandledMutationBackstop);
+}
+
+/** @internal exported for tests */
+export function resetUnhandledMutationBackstopForTests(): void {
+  if (unhandledMutationBackstop && typeof window !== "undefined") {
+    window.removeEventListener("unhandledrejection", unhandledMutationBackstop);
+  }
+  unhandledMutationBackstop = null;
+  unhandledMutationErrors = new WeakMap();
+}
+
+function shouldReportWriteFailure(
+  mode: ActionMutationErrorNotification,
+  handled: boolean,
+): boolean {
+  if (mode === "caller") return false;
+  return mode === "shared" || !handled;
+}
+
+/**
+ * TanStack runs a per-call onError only for the latest mutate call, so a
+ * superseded call's callback never runs. Wrap it so the caller can tell whether
+ * this call's callback actually ran.
+ */
+function trackCallOnError<D, V>(
+  options: MutateOptions<D, Error, V> | undefined,
+): {
+  options: MutateOptions<D, Error, V> | undefined;
+  ranCallOnError: () => boolean;
+} {
+  let ran = false;
+  const callOnError = options?.onError;
+  const tracked: MutateOptions<D, Error, V> | undefined = callOnError
+    ? {
+        ...options,
+        onError: (...args) => {
+          ran = true;
+          return callOnError(...args);
+        },
+      }
+    : options;
+  return { options: tracked, ranCallOnError: () => ran };
 }
 
 export function useActionMutation<
@@ -1693,8 +1817,23 @@ export function useActionMutation<
             ? ActionParams<TName>
             : TVariables,
         ) => Record<string, string> | undefined);
+    /**
+     * Whether a failed write shows the shared failure toast. Default `"auto"`:
+     * `mutate` toasts unless an `onError` (hook-level or per-call) handles it;
+     * `mutateAsync` toasts only when the rejection ends up unhandled (a caller
+     * that wraps the error in a new `Error` is not reported). Use `"shared"`
+     * when your `onError` or `catch` only rolls back or logs, `"caller"` for
+     * background saves and deliberate silent swallows.
+     */
+    errorNotification?: ActionMutationErrorNotification;
+    /** Already-translated toast title, for example `t("design.renameFailed")`. */
+    errorLabel?: string;
   },
-) {
+): UseMutationResult<
+  TData extends undefined ? ActionResult<TName> : TData,
+  Error,
+  TVariables extends undefined ? ActionParams<TName> : TVariables
+> {
   const queryClient = useQueryClient();
   const {
     method: methodOpt,
@@ -1704,6 +1843,8 @@ export function useActionMutation<
     timeoutMs,
     uiOnly,
     headers,
+    errorNotification = "auto",
+    errorLabel,
     ...restOptions
   } = options ?? ({} as any);
   const method = methodOpt ?? "POST";
@@ -1711,7 +1852,7 @@ export function useActionMutation<
   type D = TData extends undefined ? ActionResult<TName> : TData;
   type V = TVariables extends undefined ? ActionParams<TName> : TVariables;
 
-  return useMutation<D, Error, V>({
+  const mutation = useMutation<D, Error, V>({
     ...restOptions,
     mutationFn: async (params) => {
       let markerFailed = false;
@@ -1750,4 +1891,65 @@ export function useActionMutation<
       return (onSuccess as Function)?.(...args);
     },
   });
+
+  // The wrappers outlive renders and the component, so a failure that lands
+  // after unmount still reports. They read this ref instead of closing over
+  // options, which keeps their identity stable.
+  const reporting = useRef({
+    errorNotification,
+    errorLabel,
+    hookHandled: false,
+  });
+  reporting.current = {
+    errorNotification,
+    errorLabel,
+    hookHandled: typeof restOptions.onError === "function",
+  };
+  const attemptAsync = mutation.mutateAsync;
+
+  const mutate = useCallback<UseMutateFunction<D, Error, V>>(
+    (variables, mutateOptions) => {
+      const call = trackCallOnError(mutateOptions);
+      attemptAsync(variables, call.options).catch((error: unknown) => {
+        const { errorNotification, errorLabel, hookHandled } =
+          reporting.current;
+        const handled = hookHandled || call.ranCallOnError();
+        if (shouldReportWriteFailure(errorNotification, handled)) {
+          reportWriteFailure(error, { label: errorLabel });
+        }
+      });
+    },
+    [attemptAsync],
+  );
+
+  const mutateAsync = useCallback<UseMutateAsyncFunction<D, Error, V>>(
+    (variables, mutateOptions) => {
+      const call = trackCallOnError(mutateOptions);
+      const attempt = attemptAsync(variables, call.options);
+      const { errorNotification, errorLabel, hookHandled } = reporting.current;
+      // Only reports; the caller still receives the rejection.
+      if (errorNotification === "shared") {
+        attempt.catch((error: unknown) =>
+          reportWriteFailure(error, { label: errorLabel }),
+        );
+        return attempt;
+      }
+      if (errorNotification === "auto" && !hookHandled) {
+        return attempt.then(
+          (data) => data,
+          (error: unknown) => {
+            // A per-call onError that ran already handled this rejection.
+            if (!call.ranCallOnError()) {
+              trackUnhandledMutationError(error, errorLabel);
+            }
+            throw error;
+          },
+        );
+      }
+      return attempt;
+    },
+    [attemptAsync],
+  );
+
+  return { ...mutation, mutate, mutateAsync };
 }

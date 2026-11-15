@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 
+import type { ResourceSuggestion } from "@agent-native/core/review";
 import type { DocumentProperty } from "@shared/api";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, type ReactNode } from "react";
@@ -21,6 +22,7 @@ import {
   PropertyCommentsContext,
   openThreadsByProperty,
   propertyThreadTarget,
+  revealPendingComment,
   threadPropertyId,
   type PropertyCommentsValue,
 } from "./property-comments";
@@ -179,6 +181,7 @@ describe("Property comments in the comments sidebar", () => {
     expect(label?.getAttribute("data-comment-property-target")).toBe("current");
     expect(label?.textContent).toContain("Score");
     expect(label?.textContent).toContain("5");
+    expect(label?.querySelector(".truncate")).toBeNull();
     expect(container.textContent).not.toContain("comments.selectTextToComment");
 
     await setRichEditorValue(richEditor(container)!, "This should be 8");
@@ -239,6 +242,186 @@ describe("Property comments in the comments sidebar", () => {
     expect(target()?.textContent).toContain(
       'comments.propertyRemoved:{"name":"Score"}',
     );
+  });
+
+  it("shows a thread's Property in Info from Discussion, while the Property is there", async () => {
+    const showSubject = vi.fn();
+    const scoreThread = thread("t1", {
+      propertyId: "score",
+      propertyName: "Score",
+      propertyValue: "5",
+    });
+    function Discussion({ properties }: { properties: DocumentProperty[] }) {
+      const replyDrafts = useCommentReplyDrafts("row-1");
+      return (
+        <CommentsSidebar
+          documentId="row-1"
+          replyDrafts={replyDrafts}
+          threads={[scoreThread]}
+          documentProperties={properties}
+          presentation="history"
+          onShowThreadSubject={showSubject}
+          forceVisible
+        />
+      );
+    }
+    await render(<Discussion properties={[score(5)]} />);
+    await settle();
+    const subject = () =>
+      container.querySelector<HTMLElement>(
+        '[data-discussion-subject="property"]',
+      );
+    expect(subject()?.tagName).toBe("BUTTON");
+    expect(subject()?.getAttribute("aria-label")).toBe(
+      'comments.showPropertyInInfo:{"property":"Score"}',
+    );
+    expect(subject()?.textContent).toContain("Score · 5");
+    // A Property's value shows in full.
+    expect(subject()?.querySelector(".line-clamp-2")).toBeNull();
+    await act(async () => subject()?.click());
+    expect(showSubject).toHaveBeenCalledWith(scoreThread);
+
+    // A removed Property has nowhere to show.
+    await render(<Discussion properties={[]} />);
+    await settle();
+    expect(subject()?.tagName).toBe("DIV");
+  });
+});
+
+describe("a Property's threads under its row in Info", () => {
+  it("lists them flat with no line naming the Property, and writes a new one there", async () => {
+    let owner!: ReturnType<typeof usePendingCommentDraft>;
+    function Info() {
+      owner = usePendingCommentDraft("row-1");
+      const replyDrafts = useCommentReplyDrafts("row-1");
+      return (
+        <CommentsSidebar
+          documentId="row-1"
+          replyDrafts={replyDrafts}
+          threads={[
+            thread("t1", {
+              propertyId: "score",
+              propertyName: "Score",
+              propertyValue: "5",
+            }),
+            thread("t2", {
+              propertyId: "score",
+              propertyName: "Score",
+              propertyValue: "5",
+            }),
+          ]}
+          documentProperties={[score(5)]}
+          pendingComment={owner.pendingComment}
+          onPendingChange={owner.changePendingComment}
+          onPendingDone={(id) => owner.completePendingComment(id)}
+          alignToAnchors={false}
+          surface="panel"
+          underSubject
+          forceVisible
+        />
+      );
+    }
+    await render(<Info />);
+    await settle();
+    const cards = [...container.querySelectorAll("[data-thread-card]")];
+    expect(cards.map((card) => card.getAttribute("data-thread-card"))).toEqual([
+      "t1",
+      "t2",
+    ]);
+    expect(
+      cards.every(
+        (card) => card.getAttribute("data-comment-surface") === "panel",
+      ),
+    ).toBe(true);
+    expect(
+      container.querySelector("[data-comment-property-target]"),
+    ).toBeNull();
+    expect(container.querySelector("[data-discussion-subject]")).toBeNull();
+    for (const layout of container.querySelectorAll<HTMLElement>(
+      "[data-comment-layout-thread]",
+    ))
+      expect(layout.style.marginTop).toBe("");
+
+    await act(async () =>
+      owner.setPendingComment({
+        quotedText: "",
+        offsetTop: 0,
+        property: {
+          propertyId: "score",
+          propertyName: "Score",
+          propertyValue: "5",
+        },
+        databaseId: "db-1",
+      }),
+    );
+    await settle();
+    expect(container.querySelector("[data-comment-pending]")).not.toBeNull();
+    expect(richEditor(container)).toBeTruthy();
+    expect(
+      container.querySelector("[data-comment-property-target]"),
+    ).toBeNull();
+  });
+});
+
+describe("a Property's threads with a suggested edit selected on the Page", () => {
+  it("leaves the suggested edit out from under the Property", async () => {
+    const pageEdit = {
+      id: "edit-1",
+      proposalId: null,
+      revision: 1,
+      resourceType: "document",
+      resourceId: "row-1",
+      adapterKind: "markdown",
+      adapterVersion: 1,
+      threadId: "suggestion-edit-1",
+      authorEmail: "reviewer@example.test",
+      actorKind: "human",
+      baseRevision: "base",
+      status: "pending",
+      summary: "Tighten the intro",
+      ownerEmail: "reviewer@example.test",
+      orgId: null,
+      visibility: "private",
+      createdAt: "2026-10-18T11:00:00Z",
+      updatedAt: "2026-10-18T11:00:00Z",
+      metadata: null,
+      operations: [],
+    } as ResourceSuggestion;
+    function Info() {
+      const owner = usePendingCommentDraft("row-1");
+      const replyDrafts = useCommentReplyDrafts("row-1");
+      return (
+        <CommentsSidebar
+          documentId="row-1"
+          replyDrafts={replyDrafts}
+          threads={[
+            thread("t1", {
+              propertyId: "score",
+              propertyName: "Score",
+              propertyValue: "5",
+            }),
+          ]}
+          documentProperties={[score(5)]}
+          pendingComment={owner.pendingComment}
+          onPendingChange={owner.changePendingComment}
+          onPendingDone={(id) => owner.completePendingComment(id)}
+          suggestions={[pageEdit]}
+          activeSuggestionId="edit-1"
+          alignToAnchors={false}
+          surface="panel"
+          underSubject
+          forceVisible
+        />
+      );
+    }
+    await render(<Info />);
+    await settle();
+    expect(
+      [...container.querySelectorAll("[data-thread-card]")].map((card) =>
+        card.getAttribute("data-thread-card"),
+      ),
+    ).toEqual(["t1"]);
+    expect(container.querySelector("[data-suggestion-id]")).toBeNull();
   });
 });
 
@@ -338,6 +521,80 @@ describe("threadPropertyId", () => {
   });
 });
 
+describe("revealPendingComment", () => {
+  const selector = '[data-property-threads="a"] [data-comment-pending]';
+  let scope: HTMLElement;
+
+  function drawBox() {
+    const threads = document.createElement("div");
+    threads.setAttribute("data-property-threads", "a");
+    const box = document.createElement("div");
+    box.setAttribute("data-comment-pending", "");
+    threads.append(box);
+    scope.append(threads);
+    return box;
+  }
+
+  /** Lets the page deliver anything it was going to tell an observer. */
+  function nextTask() {
+    return new Promise((resolve) => setTimeout(resolve, 0));
+  }
+
+  beforeEach(() => {
+    scope = document.createElement("div");
+    document.body.append(scope);
+  });
+
+  afterEach(() => {
+    scope.remove();
+  });
+
+  it("reveals a box already drawn at once", () => {
+    const box = drawBox();
+    const reveal = vi.fn();
+
+    expect(revealPendingComment(scope, selector, reveal)).toBeUndefined();
+    expect(reveal).toHaveBeenCalledWith(box);
+  });
+
+  it("reveals a box once Info draws it after reading its Properties", async () => {
+    const reveal = vi.fn();
+    const stop = revealPendingComment(scope, selector, reveal);
+    expect(reveal).not.toHaveBeenCalled();
+
+    const box = drawBox();
+    await vi.waitFor(() => expect(reveal).toHaveBeenCalledWith(box));
+
+    drawBox();
+    await nextTask();
+    expect(reveal).toHaveBeenCalledTimes(1);
+    stop?.();
+  });
+
+  it("stops waiting once the person moves on, or when cleaned up", async () => {
+    for (const movedOn of [
+      new KeyboardEvent("keydown", { key: "a" }),
+      new PointerEvent("pointerdown"),
+      new WheelEvent("wheel"),
+    ]) {
+      scope.replaceChildren();
+      const late = vi.fn();
+      revealPendingComment(scope, selector, late);
+      document.body.dispatchEvent(movedOn);
+      drawBox();
+      await nextTask();
+      expect(late).not.toHaveBeenCalled();
+    }
+
+    scope.replaceChildren();
+    const cancelled = vi.fn();
+    revealPendingComment(scope, selector, cancelled)?.();
+    drawBox();
+    await nextTask();
+    expect(cancelled).not.toHaveBeenCalled();
+  });
+});
+
 describe("PropertyCommentControl", () => {
   function controls(overrides: Partial<PropertyCommentsValue> = {}) {
     return {
@@ -405,5 +662,68 @@ describe("PropertyCommentControl", () => {
     await act(async () => marker.click());
     expect(value.openThread).toHaveBeenCalledWith("latest");
     expect(container.querySelector("[data-property-comment-start]")).toBeNull();
+  });
+
+  it("opens and closes the threads under the row in Info", async () => {
+    const value = controls({
+      openThreadsByProperty: openThreadsByProperty([
+        thread("only", {
+          propertyId: "score",
+          propertyName: "Score",
+          propertyValue: "5",
+        }),
+      ]),
+    });
+    const toggle = vi.fn();
+    const renderInfo = (openPropertyId: string | null) =>
+      render(
+        <PropertyCommentsContext.Provider
+          value={{
+            ...value,
+            inline: { openPropertyId, toggle, renderThreads: () => null },
+          }}
+        >
+          <PropertyCommentControl property={score(5)} />
+        </PropertyCommentsContext.Provider>,
+      );
+    await renderInfo(null);
+    const marker = () =>
+      container.querySelector<HTMLButtonElement>(
+        "[data-property-comment-marker]",
+      );
+    expect(marker()?.textContent).toBe("1");
+    expect(marker()?.getAttribute("aria-expanded")).toBe("false");
+    // Info has no margin to place it in, and the page opens a thread at its
+    // place when clicked.
+    expect(marker()?.hasAttribute("data-comment-thread")).toBe(false);
+    await act(async () => marker()?.click());
+    expect(toggle).toHaveBeenCalledWith("score");
+    expect(value.openThread).not.toHaveBeenCalled();
+
+    await renderInfo("score");
+    expect(marker()?.getAttribute("aria-expanded")).toBe("true");
+  });
+
+  it("leaves aria-expanded off the count beside the page", async () => {
+    await render(
+      <PropertyCommentsContext.Provider
+        value={controls({
+          openThreadsByProperty: openThreadsByProperty([
+            thread("only", {
+              propertyId: "score",
+              propertyName: "Score",
+              propertyValue: "5",
+            }),
+          ]),
+        })}
+      >
+        <PropertyCommentControl property={score(5)} />
+      </PropertyCommentsContext.Provider>,
+    );
+    expect(
+      container
+        .querySelector("[data-property-comment-marker]")
+        ?.hasAttribute("aria-expanded"),
+    ).toBe(false);
   });
 });

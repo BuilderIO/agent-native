@@ -23,6 +23,7 @@ vi.mock("@/hooks/use-deck-design-system", () => ({
 vi.mock("@/lib/export-pdf-client", () => ({ exportDeckAsPdf: vi.fn() }));
 vi.mock("@/components/presentation/present-channel", () => ({
   openPresentChannel: () => null,
+  presentChannelSupported: () => true,
 }));
 
 // The real SlideRenderer sanitizes and injects the stored HTML. This stand-in

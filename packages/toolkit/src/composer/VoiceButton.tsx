@@ -32,6 +32,8 @@ export interface VoiceButtonProps {
   className?: string;
   /** Show a live voice-chat session's controls in this slot (default: true). */
   voiceChat?: boolean;
+  /** Name the ⌘⇧M shortcut (default: true); off outside the composer, which it dictates into. */
+  showShortcut?: boolean;
 }
 
 /**
@@ -45,6 +47,7 @@ export function VoiceButton({
   disabled,
   className,
   voiceChat = true,
+  showShortcut = true,
 }: VoiceButtonProps) {
   const t = useComposerRuntimeAdapters().translate;
   const realtimeVoice = useRealtimeVoiceModeOptional();
@@ -61,10 +64,12 @@ export function VoiceButton({
   }
 
   const shortcut = supportChecked && isMac ? "⌘⇧M" : "Ctrl+Shift+M";
-  const label = t("agentChat.voice.dictation.start", {
-    shortcut,
-    defaultValue: `Dictate (${shortcut})`,
-  });
+  const label = showShortcut
+    ? t("agentChat.voice.dictation.start", {
+        shortcut,
+        defaultValue: `Dictate (${shortcut})`,
+      })
+    : t("agentChat.voice.dictation.startPlain", { defaultValue: "Dictate" });
 
   return (
     <Tooltip>
@@ -180,7 +185,7 @@ export function VoiceDictationPill({ voice }: VoiceRecordingOverlayProps) {
       aria-label={t("agentChat.voice.dictation.recording", {
         defaultValue: "Dictating",
       })}
-      className="flex h-[var(--agentkit-composer-toolbar-control-size,1.5rem)] w-[4.5rem] shrink-0 items-center justify-between gap-1.5 overflow-hidden rounded-full bg-muted ps-2.5 pe-0.5 text-foreground transition-[width,background-color] duration-150 ease-out starting:w-[var(--agentkit-composer-toolbar-control-size,1.5rem)] starting:bg-transparent motion-reduce:transition-none"
+      className="flex h-[var(--agentkit-composer-toolbar-control-size,1.5rem)] w-[4.5rem] shrink-0 items-center justify-between gap-1.5 overflow-hidden rounded-[var(--agent-kit-radius-xs,0.25rem)] bg-muted ps-2.5 pe-0.5 text-foreground transition-[width,background-color] duration-150 ease-out starting:w-[var(--agentkit-composer-toolbar-control-size,1.5rem)] starting:bg-transparent motion-reduce:transition-none"
     >
       {transcribing ? (
         <span
@@ -208,7 +213,7 @@ export function VoiceDictationPill({ voice }: VoiceRecordingOverlayProps) {
             data-agent-composer-slot="voice-stop"
             onClick={state === "recording" ? stop : cancel}
             aria-label={controlLabel}
-            className="flex size-[calc(var(--agentkit-composer-toolbar-control-size,1.5rem)-0.25rem)] shrink-0 items-center justify-center rounded-full bg-foreground text-background transition-colors duration-150 hover:bg-foreground/80"
+            className="flex size-[calc(var(--agentkit-composer-toolbar-control-size,1.5rem)-0.25rem)] shrink-0 items-center justify-center rounded-[calc(var(--agent-kit-radius-xs,0.25rem)-2px)] bg-foreground text-background transition-colors duration-150 hover:bg-foreground/80"
           >
             {transcribing ? (
               <IconX aria-hidden="true" className="size-3" />
@@ -334,7 +339,7 @@ function ComposerPrimaryButton({
           aria-busy={busy || undefined}
           data-agent-composer-slot="send-button"
           data-composer-primary={mode}
-          className="agent-composer-send-button shrink-0 flex size-[var(--agentkit-composer-primary-control-size,1.75rem)] items-center justify-center rounded-full bg-primary text-primary-foreground hover:opacity-90 transition-[opacity,transform] duration-150 active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed"
+          className="agent-composer-send-button shrink-0 flex size-[var(--agentkit-composer-primary-control-size,1.75rem)] items-center justify-center rounded-[var(--agent-kit-radius-sm,0.5rem)] bg-primary text-primary-foreground hover:opacity-90 transition-[opacity,transform] duration-150 active:scale-[0.97] disabled:opacity-30 disabled:cursor-not-allowed"
         >
           {/* Keyed so the glyph swap replays the entry transition in place. */}
           <span

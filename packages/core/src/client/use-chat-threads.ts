@@ -3,6 +3,7 @@ import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { AGENT_CHAT_THREAD_ABSENCE_HEADER } from "../shared/agent-chat.js";
 import { agentNativePath } from "./api-path.js";
 import { getBrowserTabId } from "./browser-tab-id.js";
+import { reportWriteFailure } from "./write-failure-event.js";
 
 export interface ChatThreadScope {
   type: string;
@@ -1630,6 +1631,7 @@ export function useChatThreads(
           },
         );
         if (!res.ok) {
+          reportWriteFailure(new ChatThreadMutationError(res.status));
           await fetchThreads();
           return;
         }
@@ -1673,7 +1675,8 @@ export function useChatThreads(
           );
         }
         notifyChatThreadsUpdated();
-      } catch {
+      } catch (error) {
+        reportWriteFailure(error);
         await fetchThreads().catch(() => {});
       }
     },
@@ -2009,7 +2012,7 @@ export function useChatThreads(
   const removeThread = useCallback(
     async (id: string) => {
       try {
-        await fetch(
+        const res = await fetch(
           withChatThreadScope(
             `${apiUrl}/threads/${encodeURIComponent(id)}`,
             historyScope,
@@ -2018,8 +2021,14 @@ export function useChatThreads(
             method: "DELETE",
           },
         );
+        // A chat that was never saved answers 404: there is nothing to delete.
+        if (!res.ok && res.status !== 404) {
+          reportWriteFailure(new ChatThreadMutationError(res.status));
+        }
         notifyChatThreadsUpdated();
-      } catch {}
+      } catch (error) {
+        reportWriteFailure(error);
+      }
       clearUserRenamedThread(id);
       optimisticThreadScopesRef.current.delete(id);
       setThreads((prev) => prev.filter((t) => t.id !== id));

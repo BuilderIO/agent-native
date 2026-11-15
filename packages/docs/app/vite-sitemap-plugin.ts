@@ -14,7 +14,10 @@ import {
   isLocaleCode,
   normalizeLocaleCode,
 } from "../../core/src/localization/shared";
-import { createAgentWebVitePlugin } from "../../core/src/vite/agent-web-plugin";
+import {
+  createAgentWebVitePlugin,
+  type AgentWebVitePluginOptions,
+} from "../../core/src/vite/agent-web-plugin";
 import { docsBodyToMarkdownMirror } from "../lib/docs-markdown-export";
 import {
   docSourceSlugFromFilename,
@@ -59,12 +62,11 @@ function gitLastmod(filePath: string): Date {
   return fs.statSync(filePath).mtime;
 }
 
-export function sitemapPlugin(): Plugin {
-  const rootDir = path.resolve(__dirname, "..");
+function siteGeneratorOptions(rootDir: string): AgentWebVitePluginOptions {
   const pkg = JSON.parse(
     fs.readFileSync(path.resolve(rootDir, "package.json"), "utf8"),
   );
-  return createAgentWebVitePlugin({
+  return {
     siteName: "Agent-Native",
     siteUrl: SITE_URL,
     description:
@@ -151,7 +153,13 @@ export function sitemapPlugin(): Plugin {
         addressCountry: "US",
       },
     },
-  }) as unknown as Plugin;
+  };
+}
+
+export function sitemapPlugin(): Plugin {
+  return createAgentWebVitePlugin(
+    siteGeneratorOptions(path.resolve(__dirname, "..")),
+  ) as unknown as Plugin;
 }
 
 export function sitemapGroupForPage(page: AgentWebPage): string {

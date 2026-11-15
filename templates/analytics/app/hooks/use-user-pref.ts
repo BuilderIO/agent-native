@@ -1,11 +1,11 @@
 import { callAction } from "@agent-native/core/client/hooks";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   useQuery,
   useMutation,
   useQueryClient,
   type QueryClient,
 } from "@tanstack/react-query";
-import { toast } from "sonner";
 
 // What the server last confirmed for each preference, by a read or a write.
 // The cache can't say: a queued write puts its unsaved value there at once.
@@ -58,7 +58,7 @@ export function useUserPref<T extends Record<string, unknown>>(key: string) {
     onSuccess: (_result, value) => {
       confirmed.set(key, value);
     },
-    onError: () => {
+    onError: (error) => {
       // Rolling back to this write's snapshot would hide a newer queued value
       // that is still to be saved, and the snapshot can itself be an unsaved
       // queued value. Only the last pending write rolls back, to what the
@@ -72,7 +72,7 @@ export function useUserPref<T extends Record<string, unknown>>(key: string) {
           void queryClient.resetQueries({ queryKey });
         }
       }
-      toast.error("Failed to save preference");
+      reportWriteFailure(error, { label: "Failed to save preference" });
     },
   });
 
@@ -84,8 +84,8 @@ export function useUserPref<T extends Record<string, unknown>>(key: string) {
     onSuccess: () => {
       confirmed.set(key, {});
     },
-    onError: () => {
-      toast.error("Failed to reset preference");
+    onError: (error) => {
+      reportWriteFailure(error, { label: "Failed to reset preference" });
     },
     onSettled: () => {
       void queryClient.invalidateQueries({ queryKey });

@@ -105,6 +105,8 @@ report by its key, `chat-health:<app>:<date>`).
    merged and clean, so removal is expected and loses nothing.
 
 End your reply with the OUTCOME and CONFIDENCE lines the prompt asks for.
-Score CONFIDENCE with the fix rubric in [confidence.md](confidence.md): how
-sure you are the PR's fix is correct as it now stands. Under 70, the
+Score CONFIDENCE with the fix signals in [confidence.md](confidence.md): how
+sure you are the PR's fix is correct as it now stands. List the signal ids in
+square brackets after the score, e.g.
+`CONFIDENCE: 75 [test-reproduces, fix-proof, surface] - <why>`. Under 70, the
 factory won't merge it until a person approves it on GitHub.

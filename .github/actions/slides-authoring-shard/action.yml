@@ -29,7 +29,7 @@ runs:
       run: |
         log="$RUNNER_TEMP/slides-shared-server.log"
         pnpm exec tsx scripts/claude-launch.ts \
-          --name slides-edit-fidelity --dir templates/slides \
+          --name slides-edit-fidelity --dir templates/slides --ephemeral \
           --env AUTH_MODE=local --env AUTH_DISABLED=true \
           -- dev --port 8099 --inspect=0 > "$log" 2>&1 &
         echo "$!" > "$RUNNER_TEMP/slides-shared-server.pid"

@@ -5,6 +5,7 @@ import {
   openMcpAppHostLink,
   updateMcpAppModelContext,
 } from "@agent-native/core/client/mcp-app-host";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import {
   SaveOverlapError,
   saveWithMerge,
@@ -336,7 +337,9 @@ function useDraftEdits(draftId: string) {
       console.error(`Couldn't save draft ${draftId}:`, error);
       // The prompt already said so when it couldn't ask.
       if (!(error instanceof SaveOverlapError)) {
-        toast.error(t("mail.toasts.failedToSaveDraft"));
+        reportWriteFailure(error, {
+          label: t("mail.toasts.failedToSaveDraft"),
+        });
       }
       // The draft may be gone by now; the read says so.
       void queryClient.invalidateQueries({

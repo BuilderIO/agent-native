@@ -7,6 +7,7 @@ import { createRoot, hydrateRoot, type Root } from "react-dom/client";
 import { renderToString } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { loadCodeHighlighter } from "../../code-highlighter.js";
 import { AgentMessagePartView } from "./components.js";
 import { AgentKitProvider } from "./context.js";
 
@@ -28,6 +29,14 @@ async function renderPart(
         />
       </AgentKitProvider>,
     );
+    await Promise.resolve();
+  });
+}
+
+async function settleHighlighting() {
+  await act(async () => {
+    vi.runAllTimers();
+    await loadCodeHighlighter();
     await Promise.resolve();
   });
 }
@@ -187,16 +196,16 @@ describe("AgentKit Markdown text parts", () => {
       { active: false, resetKey: "code-block" },
     );
 
-    const figure = container.querySelector("figure.agentkit-code-block");
+    const figure = container.querySelector(".agentkit-code-block");
     const language = figure?.querySelector(
-      ".agentkit-code-block-header > span.agentkit-code-block-language",
+      ".agentkit-code-block-header > span.agentkit-code-block-title",
     );
     const pre = figure?.querySelector<HTMLPreElement>(
-      ":scope > pre[role='region']",
+      ":scope > pre[role='group']",
     );
-    expect(language?.textContent).toBe("ts");
+    expect(language?.textContent).toBe("TypeScript");
     expect(pre?.tabIndex).toBe(0);
-    expect(pre?.getAttribute("aria-label")).toBe("ts code");
+    expect(pre?.getAttribute("aria-label")).toBe("TypeScript code");
     const copy = figure?.querySelector<HTMLButtonElement>(
       ".agentkit-code-block-header button",
     );
@@ -218,7 +227,7 @@ describe("AgentKit Markdown text parts", () => {
       { active: false, resetKey: "plain-code-block" },
     );
     expect(
-      container.querySelector("pre[role='region']")?.getAttribute("aria-label"),
+      container.querySelector("pre[role='group']")?.getAttribute("aria-label"),
     ).toBe("Code block");
   });
 
@@ -253,7 +262,7 @@ describe("AgentKit Markdown text parts", () => {
       { active: false, resetKey: "table" },
     );
     const table = container.querySelector(
-      "div.agentkit-markdown-table[role='region'] > table",
+      "div.agentkit-markdown-table[role='group'] > table",
     );
     expect(table).not.toBeNull();
     expect(table?.querySelector("[data-prose]")).toBeNull();
@@ -492,7 +501,7 @@ describe("AgentKit streamed Markdown reveal", () => {
       expect(container.textContent).not.toMatch(/\*\*|\]\(|`|\|\s*-/);
     }
     await renderPart(markdown(text), { active: false, resetKey });
-    await act(async () => vi.runAllTimers());
+    await settleHighlighting();
     const normalize = (html: string) =>
       html
         .replace(/<span class="agentkit-stream-word">([^<]*)<\/span>/g, "$1")
@@ -503,6 +512,7 @@ describe("AgentKit streamed Markdown reveal", () => {
     await act(async () => root.unmount());
     root = createRoot(container);
     await renderPart(markdown(text), { active: false, resetKey: "static" });
+    await settleHighlighting();
 
     expect(streamedHtml).toBe(container.innerHTML);
   });

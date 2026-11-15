@@ -728,7 +728,12 @@ function insertPanel(
   const placeholderId = `__agent_native_insert_${id}`;
   if (isVisualPlacementTarget(target)) {
     const slot = resolveVisualDropSlot(config, target);
-    config.panels = [...panels, { ...panel, id: placeholderId }];
+    // Full width, so the placeholder gets a row of its own and leaving it
+    // resizes no panel; the placement rebalances its width anyway.
+    config.panels = [
+      ...panels,
+      { ...panel, id: placeholderId, width: MAX_DASHBOARD_COLUMNS },
+    ];
     const expansion = ensureVisualDropSlotCapacity(config, placeholderId, slot);
     const currentPanels = panelsForLayout(config);
     const nextPanels = movePanelToDropSlot(
@@ -754,6 +759,62 @@ function insertPanel(
   const inserted = requirePanel(nextPanels, placeholderId);
   inserted.id = id;
   return result.insertIndex;
+}
+
+type PanelLayout = { width: unknown; columns: unknown };
+
+type LayoutSnapshot = {
+  columns: unknown;
+  panels: Map<string, PanelLayout>;
+};
+
+function panelLayout(panel: Record<string, unknown>): PanelLayout {
+  return { width: panel.width, columns: panel.columns };
+}
+
+function layoutSnapshot(config: Record<string, unknown>): LayoutSnapshot {
+  return {
+    columns: config.columns,
+    panels: new Map(
+      panelsFromConfig(config).map((panel): [string, PanelLayout] => [
+        panelId(panel),
+        panelLayout(panel),
+      ]),
+    ),
+  };
+}
+
+/**
+ * A row-aware placement rebalances the row the panel joins or leaves, and a
+ * group it widens; the command log names those resizes so the caller sees
+ * every panel the op changed, the placed one included. An inserted panel is
+ * compared with the layout it asked for.
+ */
+function reflowNote(
+  before: LayoutSnapshot,
+  config: Record<string, unknown>,
+): string {
+  const describe = (value: unknown) =>
+    value === undefined ? "unset" : JSON.stringify(value);
+  const changes: string[] = [];
+  if (!sameJsonValue(before.columns, config.columns)) {
+    changes.push(
+      `dashboard columns ${describe(before.columns)} to ${describe(config.columns)}`,
+    );
+  }
+  for (const panel of panelsFromConfig(config)) {
+    const id = panelId(panel);
+    const previous = before.panels.get(id);
+    if (!previous) continue;
+    for (const key of ["columns", "width"] as const) {
+      if (!sameJsonValue(previous[key], panel[key])) {
+        changes.push(
+          `${id} ${key} ${describe(previous[key])} to ${describe(panel[key])}`,
+        );
+      }
+    }
+  }
+  return changes.length > 0 ? `; also changed ${changes.join(", ")}` : "";
 }
 
 export function sameJsonValue(left: unknown, right: unknown): boolean {
@@ -929,13 +990,12 @@ function setConfigPath(
   return { field: `config.${segments.join(".")}`, changed: true };
 }
 
-function duplicatePanel(
+function duplicateOfPanel(
   config: Record<string, unknown>,
   panelIdToCopy: string,
   newPanelId: string,
   patch: Record<string, unknown>,
-  target: DashboardPlacementTarget,
-): number {
+): Record<string, unknown> {
   const panels = panelsFromConfig(config);
   const source = requirePanel(panels, panelIdToCopy);
   const duplicate = JSON.parse(JSON.stringify(source)) as Record<
@@ -944,7 +1004,7 @@ function duplicatePanel(
   >;
   duplicate.id = newPanelId;
   patchPanel(duplicate, patch);
-  return insertPanel(config, duplicate, target);
+  return duplicate;
 }
 
 export function applyDashboardMutationOperations(
@@ -962,8 +1022,7 @@ export function applyDashboardMutationOperations(
   const insertedPanelIds = new Set<string>();
   const dashboardFieldsChanged = new Set<string>();
 
-  for (let opIndex = 0; opIndex < operations.length; opIndex++) {
-    const op = operations[opIndex];
+  for (const [opIndex, op] of operations.entries()) {
     try {
       switch (op.op) {
         case "movePanels": {
@@ -974,6 +1033,7 @@ export function applyDashboardMutationOperations(
                 "row-aware visual placement supports one moving panel at a time",
               );
             }
+            const before = layoutSnapshot(config);
             const index = moveSinglePanelToVisualTarget(
               config,
               op.panelIds[0],
@@ -981,7 +1041,9 @@ export function applyDashboardMutationOperations(
             );
             changedPanelIds.add(op.panelIds[0]);
             movedPanelIds.add(op.panelIds[0]);
-            commandLog.push(`movePanels(${op.panelIds[0]}) -> index ${index}`);
+            commandLog.push(
+              `movePanels(${op.panelIds[0]}) -> index ${index}${reflowNote(before, config)}`,
+            );
             break;
           }
           const panelOrderBefore = panelsFromConfig(config).map(panelId);
@@ -1069,25 +1131,31 @@ export function applyDashboardMutationOperations(
           break;
         }
         case "insertPanel": {
+          const before = layoutSnapshot(config);
           const index = insertPanel(config, op.panel, targetFromOperation(op));
           const id = assertString(op.panel.id, "panel.id");
+          before.panels.set(id, panelLayout(op.panel));
           changedPanelIds.add(id);
           insertedPanelIds.add(id);
-          commandLog.push(`insertPanel(${id}) -> index ${index}`);
+          commandLog.push(
+            `insertPanel(${id}) -> index ${index}${reflowNote(before, config)}`,
+          );
           break;
         }
         case "duplicatePanel": {
-          const index = duplicatePanel(
+          const before = layoutSnapshot(config);
+          const duplicate = duplicateOfPanel(
             config,
             op.panelId,
             op.newPanelId,
             op.patch ?? {},
-            targetFromOperation(op),
           );
+          const index = insertPanel(config, duplicate, targetFromOperation(op));
+          before.panels.set(op.newPanelId, panelLayout(duplicate));
           changedPanelIds.add(op.newPanelId);
           insertedPanelIds.add(op.newPanelId);
           commandLog.push(
-            `duplicatePanel(${op.panelId} -> ${op.newPanelId}) -> index ${index}`,
+            `duplicatePanel(${op.panelId} -> ${op.newPanelId}) -> index ${index}${reflowNote(before, config)}`,
           );
           break;
         }

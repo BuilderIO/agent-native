@@ -27,6 +27,10 @@ import {
   parseStoredFormSettings,
   setPublicFormCors,
 } from "../lib/form-request.js";
+import {
+  readLimitedRequestBody,
+  RequestBodyTooLargeError,
+} from "../lib/read-limited-request-body.js";
 import { assertValidFields } from "../lib/validate-fields.js";
 
 const MAX_UPLOAD_REQUEST_BYTES = DEFAULT_FORM_FILE_MAX_BYTES + 32 * 1024;
@@ -43,13 +47,6 @@ function cleanFilename(value: string | undefined): string {
 function invalidFormResponse(event: H3Event) {
   setResponseStatus(event, 500);
   return { error: "Form configuration is invalid" };
-}
-
-function contentLengthExceedsLimit(event: H3Event): boolean {
-  const raw = getRequestHeader(event, "content-length");
-  if (!raw) return false;
-  const length = Number(raw);
-  return !Number.isSafeInteger(length) || length > MAX_UPLOAD_REQUEST_BYTES;
 }
 
 export const uploadFormFile = defineEventHandler(async (event: H3Event) => {
@@ -81,9 +78,19 @@ export const uploadFormFile = defineEventHandler(async (event: H3Event) => {
     setResponseStatus(event, 415);
     return { error: "File uploads must use multipart/form-data" };
   }
-  if (contentLengthExceedsLimit(event)) {
-    setResponseStatus(event, 413);
-    return { error: "File upload is too large" };
+  try {
+    await readLimitedRequestBody(event, MAX_UPLOAD_REQUEST_BYTES);
+  } catch (error) {
+    setResponseStatus(
+      event,
+      error instanceof RequestBodyTooLargeError ? 413 : 400,
+    );
+    return {
+      error:
+        error instanceof RequestBodyTooLargeError
+          ? "File upload is too large"
+          : "Invalid file upload",
+    };
   }
 
   let parts;

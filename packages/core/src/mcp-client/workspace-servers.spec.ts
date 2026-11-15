@@ -5,6 +5,7 @@ import { parseMergedKey } from "./remote-store.js";
 const mocks = vi.hoisted(() => ({
   execute: vi.fn(),
   readAppSecret: vi.fn(),
+  readAppSecretMeta: vi.fn(),
 }));
 
 vi.mock("../db/client.js", () => ({
@@ -13,6 +14,7 @@ vi.mock("../db/client.js", () => ({
 
 vi.mock("../secrets/storage.js", () => ({
   readAppSecret: (...args: any[]) => mocks.readAppSecret(...args),
+  readAppSecretMeta: (...args: any[]) => mocks.readAppSecretMeta(...args),
 }));
 
 describe("loadWorkspaceMcpServers", () => {
@@ -22,6 +24,10 @@ describe("loadWorkspaceMcpServers", () => {
     process.env.AGENT_NATIVE_WORKSPACE_APP_ID = "analytics";
     mocks.execute.mockReset();
     mocks.readAppSecret.mockReset();
+    mocks.readAppSecretMeta.mockReset();
+    mocks.readAppSecretMeta.mockResolvedValue({
+      urlAllowlist: ["https://mcp.zapier.example"],
+    });
     mocks.readAppSecret.mockImplementation(async (ref: any) =>
       ref.key === "ZAPIER_TOKEN" &&
       ref.scope === "org" &&
@@ -107,12 +113,53 @@ describe("loadWorkspaceMcpServers", () => {
       type: "http",
       url: "https://mcp.zapier.example/mcp",
       headers: { Authorization: "Bearer secret-zapier" },
+      secretRequestOrigin: "https://mcp.zapier.example",
       description: "Workspace Zapier MCP",
     });
     expect(servers[linearKey!]).toMatchObject({
       type: "http",
       url: "https://linear.example/mcp",
     });
+  });
+
+  it("retains a configuration error when a shared key is used at an unapproved MCP origin", async () => {
+    mocks.readAppSecretMeta.mockResolvedValue({
+      urlAllowlist: ["https://approved.example.test"],
+    });
+    mocks.execute
+      .mockResolvedValueOnce({
+        rows: [
+          {
+            id: "res_unapproved",
+            owner_email: "owner@example.test",
+            org_id: "acme",
+            name: "Unapproved",
+            description: null,
+            path: "mcp-servers/unapproved.json",
+            content: JSON.stringify({
+              type: "http",
+              url: "https://unapproved.example.test/mcp",
+              headers: { Authorization: "Bearer ${keys.ZAPIER_TOKEN}" },
+            }),
+            scope: "all",
+            updated_at: 2,
+          },
+        ],
+      })
+      .mockResolvedValueOnce({ rows: [] });
+
+    const { loadWorkspaceMcpServers } = await import("./workspace-servers.js");
+    const servers = await loadWorkspaceMcpServers({
+      userEmail: "owner@example.test",
+      orgId: "acme",
+    });
+    expect(Object.values(servers)).toEqual([
+      expect.objectContaining({
+        configurationError: expect.objectContaining({
+          message: expect.stringContaining("not approved"),
+        }),
+      }),
+    ]);
   });
 
   it("does not load selected resources without a matching app id", async () => {

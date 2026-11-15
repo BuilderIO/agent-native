@@ -37,9 +37,15 @@ export function ContextXRayDetails({
     Map<string, ContextSegmentStatus>
   >(new Map());
   const currentThreadId = useRef(threadId);
-  const pin = useActionMutation("context-pin");
-  const evict = useActionMutation("context-evict");
-  const restore = useActionMutation("context-restore");
+  const pin = useActionMutation("context-pin", {
+    errorNotification: "shared",
+  });
+  const evict = useActionMutation("context-evict", {
+    errorNotification: "shared",
+  });
+  const restore = useActionMutation("context-restore", {
+    errorNotification: "shared",
+  });
 
   useEffect(() => {
     currentThreadId.current = threadId;

@@ -233,6 +233,43 @@ describe("DeckCard delete flow", () => {
     expect(screen.getByText("home.duplicateDeck")).toBeTruthy();
   });
 
+  it("offers a viewer admin the workspace default only when it needs no visibility change", () => {
+    const props = {
+      onDelete: vi.fn(),
+      onRename: vi.fn(),
+      onDuplicate: vi.fn(),
+      onToggleStar: vi.fn(),
+      canSetWorkspaceDefault: true,
+      onSetWorkspaceDefault: vi.fn(),
+    };
+    const viewer = { ...deck, canEdit: false, canManage: false };
+
+    const { rerender } = render(
+      <DeckCard {...props} deck={{ ...viewer, visibility: "private" }} />,
+    );
+    expect(screen.queryByText("home.setWorkspaceDefault")).toBeNull();
+
+    rerender(<DeckCard {...props} deck={viewer} />);
+    expect(screen.queryByText("home.setWorkspaceDefault")).toBeNull();
+
+    rerender(<DeckCard {...props} deck={{ ...viewer, visibility: "org" }} />);
+    expect(screen.getByText("home.setWorkspaceDefault")).toBeTruthy();
+
+    rerender(
+      <DeckCard {...props} deck={{ ...viewer, visibility: "public" }} />,
+    );
+    expect(screen.getByText("home.setWorkspaceDefault")).toBeTruthy();
+
+    rerender(
+      <DeckCard
+        {...props}
+        deck={{ ...viewer, visibility: "private" }}
+        isWorkspaceDefault
+      />,
+    );
+    expect(screen.getByText("home.clearWorkspaceDefault")).toBeTruthy();
+  });
+
   it("renders the first-slide preview returned by the light deck listing", () => {
     render(
       <DeckCard

@@ -79,7 +79,7 @@ Lorsqu'une exécution reprend (délai d'expiration logiciel, délai d'expiration
 - quel outil appelle **déjà terminé** (avec des résultats courts) afin qu'il les réutilise et ne les réexécute **pas**, et
 - quels appels d'outil ont été **interrompus avec un résultat inconnu** afin qu'il vérifie l'état avant de supposer un succès ou un échec.
 
-Lorsque le journal est vide (un tour sans activité d'outil ou une continuation propre), rien de plus n'est ajouté et le comportement de reprise est octet pour octet ce qu'il était avant. La note est de la meilleure des manières : un échec de lecture du grand livre ne bloque jamais une récupération qui autrement réussirait.
+Lorsque le journal est vide (un tour sans activité d'outil ou une continuation propre), rien de plus n'est ajouté et le comportement de reprise est octet pour octet ce qu'il était avant. Le journal lui-même est toutefois indispensable : si le grand livre ne peut pas être lu, même après une nouvelle tentative, l'exécution reprise s'arrête avant que le modèle ne s'exécute, avec `tool_call_journal_unreadable`, et vous demande de renvoyer la requête. Sans le grand livre, elle ne peut pas savoir quelles étapes sont déjà terminées.
 
 ## Couche 2 : bloc dur de la couche d'outils {#hard-block}
 
@@ -99,12 +99,21 @@ Propriétés clés :
 Le bloc dur n'arrête qu'une **répétition exacte** : le même outil d'écriture avec la même entrée, après qu'une tentative antérieure dans le même tour s'est terminée et a enregistré son résultat. Il n'exclut pas tous les e-mails, débits ou tickets en double :
 
 - **Une nouvelle tentative reformulée n'est pas reconnue.** Si le modèle modifie n'importe quel argument, comme le corps de l'e-mail, l'appel ne correspond plus à un appel terminé, et le bloc dur ne l'arrête donc pas.
-- **Un plantage en plein envoi peut entraîner une répétition.** Si le processus s'arrête brutalement après que l'effet secondaire s'est produit, mais avant que son résultat ne soit enregistré, l'appel est considéré comme interrompu, et le bloc dur ne couvre que les appels terminés. Une protection distincte refuse une nouvelle tentative identique d'une écriture interrompue, mais seulement quand l'historique de l'exécution reprise montre l'interruption.
+- **Après un plantage en plein envoi, la répétition n'est retenue que pour le reste du tour.** Si le processus s'arrête brutalement après que l'effet secondaire s'est produit, mais avant que son résultat ne soit enregistré, l'appel est considéré comme interrompu, et le bloc dur ne couvre que les appels terminés. L'exécution reprise retient alors cet outil d'écriture, comme l'explique [Écritures au résultat inconnu](#unknown-outcome). Un nouveau message démarre un nouveau tour, où rien ne le retient.
 - **Une exécution plantée peut reprendre dans le même tour par deux voies distinctes.** La première est une [exécution durable en arrière-plan](/docs/durable-background-runs). La seconde est un segment ultérieur d'un tour normal au premier plan qui utilise l'[auto-chaînage au premier plan](/docs/durable-background-runs#foreground-self-chain). Toute autre exécution plantée se termine par une erreur. Choisir **Continuer** sur celle-ci reprend le même tour, si bien que les deux couches s'appliquent.
 
 Une action dont l'effet secondaire ne doit jamais se répéter a besoin de sa propre vérification d'idempotence. Le bloc dur ne s'applique jamais aux actions en lecture seule.
 
 </Callout>
+
+## Écritures au résultat inconnu {#unknown-outcome}
+
+Le résultat d'une écriture est inconnu lorsqu'elle a démarré sans qu'aucun résultat ne soit enregistré, lorsqu'elle a expiré, ou lorsqu'elle a échoué après avoir commencé à écrire sans indiquer si quelque chose a été enregistré. La relancer pourrait appliquer la modification deux fois, donc pour le reste du tour la boucle retient cet outil :
+
+- **Le même appel à nouveau.** Si le modèle répète l'appel avec les mêmes arguments, la boucle vérifie d'abord si le résultat propre à cet appel a finalement été enregistré, et le renvoie le cas échéant. Sinon, l'appel ne s'exécute pas : l'exécution s'arrête avec `write_tool_outcome_unknown` et vous demande de vérifier ce qui a été enregistré, puis de répondre « continuer ».
+- **Tout autre appel à cet outil.** Un appel avec des arguments différents, comme un e-mail reformulé, ne s'exécute pas non plus. Le modèle est informé que l'appel précédent a peut-être déjà été appliqué, et qu'il doit vérifier l'état actuel par une lecture et vous dire ce qu'il a trouvé. Le tour continue, sauf si l'appel précédent ne peut pas être identifié, parce qu'il n'a enregistré aucun argument à comparer ou qu'il manque dans l'historique rejoué. Dans ce cas, tout appel à cet outil pourrait être une répétition : il arrête donc l'exécution comme le même appel.
+
+Une action marquée `retrySafe` en est exemptée, car la relancer ne peut ni dupliquer ni corrompre des données : elle valide avant d'écrire, ou elle fixe un état final, comme le remplacement d'un enregistrement par son ID. Le modèle peut corriger ses arguments et réessayer. Les actions en lecture seule ne sont pas retenues, sauf si une écriture s'est exécutée à l'intérieur de l'une d'elles.
 
 ## Reprise automatique après une limite de temps {#auto-continue}
 

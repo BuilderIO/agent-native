@@ -1,7 +1,7 @@
 import { useSession } from "@agent-native/core/client/hooks";
 import { useT } from "@agent-native/core/client/i18n";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { useQueryClient } from "@tanstack/react-query";
-import { toast } from "sonner";
 
 import { useRequestDeckAccess } from "@/hooks/use-deck-access";
 
@@ -43,8 +43,10 @@ export function ViewOnlyBadge({
                       queryKey: ["action", "list-resource-shares"],
                     });
                   },
-                  onError: () =>
-                    toast.error(t("editorToolbar.editAccessRequestFailed")),
+                  onError: (error) =>
+                    reportWriteFailure(error, {
+                      label: t("editorToolbar.editAccessRequestFailed"),
+                    }),
                 },
               )
             }

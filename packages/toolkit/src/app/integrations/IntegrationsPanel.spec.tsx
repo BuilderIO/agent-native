@@ -365,7 +365,7 @@ describe("IntegrationsPanel MCP connection errors", () => {
   });
 
   it.each([
-    ["Claude Cowork", "codex"],
+    ["Claude Cowork", "claude"],
     ["Claude Code", "claude-code"],
     ["Anthropic", "claude"],
     ["OpenAI", "chatgpt"],

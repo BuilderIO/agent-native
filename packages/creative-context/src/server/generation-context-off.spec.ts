@@ -46,6 +46,7 @@ vi.mock("./context.js", () => ({
 
 import {
   getGenerationCreativeContext,
+  isCreativeContextOffForUser,
   resolveGenerationCreativeContext,
   validateGenerationCreativeContext,
 } from "./generation-context.js";
@@ -280,5 +281,33 @@ describe("creative context structural opt-out", () => {
       reuseLabels: [{ label: "Fresh slide", influence: "generated" }],
     });
     expect(mocks.getContextPack).not.toHaveBeenCalled();
+  });
+});
+
+describe("isCreativeContextOffForUser", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.isCreativeContextLabAvailable.mockResolvedValue(true);
+    mocks.readAppState.mockResolvedValue({ contextMode: "auto" });
+  });
+
+  it("is off when the lab is unavailable to this user, without reading the saved preference", async () => {
+    mocks.isCreativeContextLabAvailable.mockResolvedValue(false);
+
+    await expect(isCreativeContextOffForUser()).resolves.toBe(true);
+    expect(mocks.readAppState).not.toHaveBeenCalled();
+  });
+
+  it("is off when the saved preference is off", async () => {
+    mocks.readAppState.mockResolvedValue({ contextMode: "off" });
+
+    await expect(isCreativeContextOffForUser()).resolves.toBe(true);
+  });
+
+  it("is on when the lab is available and the saved preference is auto or unset", async () => {
+    await expect(isCreativeContextOffForUser()).resolves.toBe(false);
+
+    mocks.readAppState.mockResolvedValue(null);
+    await expect(isCreativeContextOffForUser()).resolves.toBe(false);
   });
 });

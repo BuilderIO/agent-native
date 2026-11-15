@@ -427,7 +427,7 @@ describe("<ExportMenu>", () => {
     ).toEqual([
       "Download as PDF",
       "Download as PPTX",
-      "Export to Google Slides",
+      expect.stringMatching(/^Export to Google Slides/),
       "Download as HTML",
     ]);
     for (const item of screen.getAllByRole("menuitem")) {

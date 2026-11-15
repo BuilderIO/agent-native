@@ -3,7 +3,12 @@
 This lane exercises the real email magic-link flow on the selected apps. It
 follows the link delivered by Mailosaur, proves the
 authenticated Better Auth session before a refresh, then proves it again after
-the refresh that exposed the reported outage.
+the refresh that exposed the reported outage. For Design, Clips and Slides,
+when the real pre-signup assignment is automatic, the canary also requires a
+user-scoped Builder connection after verification. It does not force a variant;
+the run annotates which path it exercised and records connection timing without
+credentials. Both browser and HTTP synthetic-traffic markers keep anonymous
+canary exposures out of experiment reporting.
 
 The scheduled target is `all` email-capable sites on beta. That currently covers
 12 of the 15 fleet apps; Google-only apps (`mail` and `calendar`) and the app

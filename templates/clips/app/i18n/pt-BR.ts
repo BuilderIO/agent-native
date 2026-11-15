@@ -638,6 +638,8 @@ const messages = {
     them: "Eles",
     me: "Meu",
     regeneratingNotes: "Regenerando resumo",
+    notesAlreadyGenerating:
+      "Um resumo já está sendo gerado. Ele aparecerá aqui quando estiver pronto.",
     meetingRemoved: "Reunião removida",
     couldNotRemoveMeeting: "Não foi possível remover a reunião",
     couldNotLoadMeeting: "Não foi possível carregar esta reunião.",
@@ -727,6 +729,8 @@ const messages = {
     noMatches: "Nenhuma correspondência.",
     noTranscript: "Nenhuma transcrição ainda.",
     noTranscriptCaptured: "Nenhuma transcrição foi capturada.",
+    unreadableDescription:
+      "A transcrição salva está corrompida. Gerar novamente cria uma nova a partir do áudio do clipe.",
     partialTranscript:
       "Transcrição parcial: a gravação foi cortada, então parte pode estar faltando.",
     backupFailed:
@@ -810,6 +814,10 @@ const messages = {
     saveThumbnail: "Salvar miniatura",
   },
   shareDialog: {
+    enterPassword: "Digite uma senha",
+    showPassword: "Mostrar senha",
+    hidePassword: "Ocultar senha",
+    copyPassword: "Copiar senha",
     redactionsPendingTitle: "Conclua as ocultações antes de compartilhar",
     redactionsPendingBody:
       "Ocultações pendentes: {{count}}. Aplique-as no editor antes de compartilhar; o vídeo ainda contém o conteúdo original.",
@@ -2066,6 +2074,7 @@ const messages = {
     freeClipsLeft_one: "{{count}} clipe grátis restante",
     freeClipsLeft_other: "{{count}} clipes grátis restantes",
     freeClipsLeft_many: "{{count}} clipes grátis restantes",
+    activateBuilder: "Ativar Builder.io",
     hostedClipsExhaustedTitle:
       "Conecte o Builder.io gratuitamente para continuar gravando",
     hostedClipsExhaustedDescription:
@@ -2274,6 +2283,12 @@ const messages = {
     flowOriginalTranscript: "Mostrar transcrição original",
     flowCleanupSkipped: "Ajuste do texto ignorado; texto original mantido",
     flowBacktrackSkipped: "Edição ignorada; texto reconhecido mantido",
+    flowAppleSpeechParakeetMissing: "Apple Speech · Parakeet não baixado",
+    flowAppleSpeechParakeetDownloading: "Apple Speech · Baixando o Parakeet",
+    flowAppleSpeechParakeetLoading: "Apple Speech · Carregando o Parakeet",
+    flowAppleSpeechParakeetBusy: "Apple Speech · Parakeet ocupado",
+    flowAppleSpeechParakeetFailed:
+      "Apple Speech · Falha ao carregar o Parakeet",
     flowCancelDictation: "Cancelar ditado",
     flowCopying: "Copiando a transcrição…",
     aiProcessed: "Processado por IA",

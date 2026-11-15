@@ -1,4 +1,5 @@
 import { useActionMutation } from "@agent-native/core/client/hooks";
+import { reportWriteFailure } from "@agent-native/core/client/write-failure";
 import { toast } from "sonner";
 
 import type { DesignFile } from "@/pages/design-editor/types";
@@ -81,8 +82,10 @@ export function runDetachInstanceMenuAction({
           }
         }
       },
-      onError: () =>
-        toast.error(t("designEditor.componentInstances.detachFailed")),
+      onError: (error) =>
+        reportWriteFailure(error, {
+          label: t("designEditor.componentInstances.detachFailed"),
+        }),
     },
   );
 }

@@ -7,6 +7,7 @@ import { createRequire } from "node:module";
 import os from "node:os";
 import path from "node:path";
 
+import type { FullConfig } from "@playwright/test";
 import type {
   FullResult,
   TestCase,
@@ -22,6 +23,7 @@ import {
 import RetryFailureReporter, {
   RETRY_FAILURE_MARKER,
 } from "./e2e/retry-failure-reporter";
+import { verifyIsolatedE2eMember } from "./e2e/sql-inline-bytes-scan";
 import { startE2EChildWithReadiness } from "./e2e/startup-child";
 
 const testCase = (expectedStatus: TestCase["expectedStatus"]): TestCase =>
@@ -38,6 +40,7 @@ const pinTitle = "the pinned behavior runs";
 const pinIdentity = { selector: pinSelector, title: pinTitle };
 const require = createRequire(import.meta.url);
 const PLAYWRIGHT_CLI = require.resolve("@playwright/test/cli");
+const CI_DESIGN_DATABASE_URL = "postgres://postgres@127.0.0.1:5432/design_e2e";
 const REPORTER_PATH = path.join(
   import.meta.dirname,
   "e2e",
@@ -76,6 +79,68 @@ async function waitForPidFile(pidPath: string): Promise<number> {
   }
   throw new Error("The startup helper did not write its PID marker.");
 }
+
+describe("Design E2E member fixture policy", () => {
+  it.each([
+    {
+      name: "the run-owned PGlite database",
+      databaseUrl: "pglite:/tmp/design-member-fixture/pglite",
+      ci: undefined,
+      actions: undefined,
+      accepted: true,
+    },
+    {
+      name: "the dedicated CI loopback Postgres database",
+      databaseUrl: CI_DESIGN_DATABASE_URL,
+      ci: "true",
+      actions: "true",
+      accepted: true,
+    },
+    {
+      name: "another Postgres database on the same loopback server",
+      databaseUrl: "postgres://postgres@127.0.0.1:5432/app_db",
+      ci: "true",
+      actions: "true",
+      accepted: false,
+    },
+    {
+      name: "the CI database outside GitHub Actions",
+      databaseUrl: CI_DESIGN_DATABASE_URL,
+      ci: "true",
+      actions: undefined,
+      accepted: false,
+    },
+  ])("accepts only $name", async ({ databaseUrl, ci, actions, accepted }) => {
+    vi.stubEnv("E2E_RUN_ROOT", "/tmp/design-member-fixture");
+    vi.stubEnv("E2E_RUN_PGLITE_DIR", "/tmp/design-member-fixture/pglite");
+    vi.stubEnv("E2E_DATABASE_URL", databaseUrl);
+    vi.stubEnv("E2E_BASE_URL", undefined);
+    vi.stubEnv("CI", ci);
+    vi.stubEnv("GITHUB_ACTIONS", actions);
+    const inspector = vi
+      .fn()
+      .mockRejectedValue(new Error("inspector unavailable"));
+    vi.stubGlobal("fetch", inspector);
+    try {
+      const verification = () =>
+        verifyIsolatedE2eMember(
+          { metadata: { serverInspectPort: 9229 } } as FullConfig,
+          "alice+e2e@local.test",
+        );
+      if (accepted) {
+        await expect(verification()).rejects.toThrow("inspector unavailable");
+      } else {
+        expect(verification).toThrow(
+          "Member verification requires Playwright's isolated PGlite or dedicated CI Postgres fixture.",
+        );
+      }
+      expect(inspector).toHaveBeenCalledTimes(accepted ? 1 : 0);
+    } finally {
+      vi.unstubAllGlobals();
+      vi.unstubAllEnvs();
+    }
+  });
+});
 
 describe("Design Playwright artifact cleanup", () => {
   it("removes only this run's artifacts after a pass", () => {

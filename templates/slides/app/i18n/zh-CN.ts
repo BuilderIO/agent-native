@@ -417,6 +417,7 @@ const messages = {
     deckTitle: "演示文稿标题",
     presentPresenterViewDescription: "演示时查看演讲者备注",
     presenterViewBlocked: "请允许弹出窗口以打开演讲者视图。",
+    presenterViewUnsupported: "此浏览器不支持演讲者视图。",
     export: "导出",
     privacyPrivate: "私密",
     privacyOrg: "已与组织共享",
@@ -465,6 +466,11 @@ const messages = {
   editorExport: {
     pptxFailed: "无法生成 PPTX 文件。",
     exportFailed: "导出失败",
+    exportFinishedWithWarnings: "已导出，但有警告",
+    imagesDropped:
+      "有 {{count}} 张图片无法加载，未包含在 PowerPoint 文件中（幻灯片 {{slides}}）。",
+    pdfSidecarSkipped:
+      "此 PDF 导出时未包含可编辑源文件。重新导入时，将根据页面内容重建幻灯片。",
     exporting: "正在导出...",
     exportPptxError: "导出为 PPTX 时出了点问题。",
     googleSlidesDownloaded: "已为 Google Slides 下载",
@@ -483,6 +489,9 @@ const messages = {
     exportPdf: "导出为 PDF",
     exportPptx: "导出为 PPTX",
     connectGoogle: "连接 Google",
+    disconnectGoogle: "断开 Google 连接",
+    googleDisconnectFailed: "无法断开 Google Drive 连接。",
+    googleSlidesStatusUnknown: "无法检查状态",
     openInGoogleSlides: "在 Google Slides 中打开",
     googleSlidesUnavailable: "不可用",
     googleSlidesOpenImporter: "打开 Google Slides 导入",
@@ -500,6 +509,7 @@ const messages = {
   share: {
     createFailed: "无法创建共享链接",
     snapshotLinks: "快照链接",
+    snapshotLinksLoadFailed: "无法加载快照链接",
     revokeLink: "撤销",
     revokeFailed: "无法撤销共享链接",
     title: "共享演示文稿",

@@ -1,4 +1,5 @@
 import { callAction, useActionQuery } from "@agent-native/core/client/hooks";
+import { surfaceMutationError } from "@agent-native/core/client/write-failure";
 import type { CalendarEvent, ExternalCalendar } from "@shared/api";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 
@@ -42,6 +43,7 @@ export function useAddExternalCalendar() {
 export function useUpdateExternalCalendarColor() {
   const queryClient = useQueryClient();
   return useMutation({
+    meta: surfaceMutationError(),
     mutationFn: async ({ id, color }: { id: string; color: string }) => {
       const current: ExternalCalendar[] =
         queryClient.getQueryData([
@@ -111,6 +113,7 @@ export function useUpdateExternalCalendarColor() {
 export function useRemoveExternalCalendar() {
   const queryClient = useQueryClient();
   return useMutation({
+    meta: surfaceMutationError(),
     mutationFn: async (id: string) => {
       try {
         await callAction("remove-external-calendar", { id });

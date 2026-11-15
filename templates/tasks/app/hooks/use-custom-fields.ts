@@ -92,5 +92,6 @@ export function useReorderCustomFields() {
       void invalidateTasks(queryClient);
       void invalidateVisibleTaskFields(queryClient);
     },
+    errorNotification: "shared",
   });
 }

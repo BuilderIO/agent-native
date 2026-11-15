@@ -1,12 +1,13 @@
 import fs from "node:fs";
 import path from "node:path";
-import { fileURLToPath, pathToFileURL } from "node:url";
+import { pathToFileURL } from "node:url";
 
 import { Client } from "@modelcontextprotocol/client";
 import { InMemoryTransport } from "@modelcontextprotocol/server";
 import { createApp } from "h3";
 import { vi } from "vitest";
 
+import { workspaceRoot } from "../../vitest.workspace-root.js";
 import type { ActionEntry } from "../agent/production-agent.js";
 import {
   coreActionLoaderEntries,
@@ -16,10 +17,7 @@ import { generateActionRegistryForProject } from "../vite/action-types-plugin.js
 import { createMCPServerForRequest, type MCPConfig } from "./build-server.js";
 import { getBuiltinCrossAppTools } from "./builtin-tools.js";
 
-export const repoRoot = path.resolve(
-  path.dirname(fileURLToPath(import.meta.url)),
-  "../../../../",
-);
+export const repoRoot = workspaceRoot;
 
 export const LOAD_TIMEOUT_MS = 600_000;
 

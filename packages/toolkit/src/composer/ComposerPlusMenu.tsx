@@ -497,7 +497,7 @@ export function useComposerDefaultActions({
                   className={cn(
                     "break-words text-xs",
                     skillUploadStatus.kind === "err"
-                      ? "text-destructive"
+                      ? "agent-kit-tone-warning"
                       : "text-muted-foreground",
                   )}
                 >

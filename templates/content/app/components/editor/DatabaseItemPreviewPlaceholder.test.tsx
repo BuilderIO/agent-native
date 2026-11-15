@@ -161,4 +161,9 @@ describe("a row's panel while its page is read", () => {
     expect(placeholder.hasAttribute("inert")).toBe(true);
     expect(placeholder.getAttribute("aria-busy")).toBe("true");
   });
+
+  it("leaves a failed read to the page, whose Retry can be clicked", () => {
+    draw(row({}));
+    expect(drawn.properties).toMatchObject({ leaveReadFailureToPage: true });
+  });
 });
