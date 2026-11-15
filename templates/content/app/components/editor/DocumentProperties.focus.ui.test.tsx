@@ -132,7 +132,7 @@ describe("property management menu", () => {
     const menuItem = (text: string) => {
       const item = [
         ...document.querySelectorAll<HTMLElement>('[role="menuitem"]'),
-      ].find((candidate) => candidate.textContent?.trim() === text);
+      ].find((candidate) => candidate.textContent.trim() === text);
       if (!item) throw new Error(`No menu item "${text}"`);
       return item;
     };
