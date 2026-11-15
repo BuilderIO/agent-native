@@ -366,18 +366,23 @@ export async function ensureSchemaObject(options: {
     }
     return codedError?.code === "42701" || isPgCatalogRace(codedError);
   };
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  const attempts = lockTimeout === undefined ? 3 : 1;
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
     let ran: boolean;
     try {
       try {
         ran = await withLegacyServerlessSchemaDdl(() =>
-          runGuardedDdl(ddl, { lockTimeout, timeoutMs, injectedClient }),
+          runGuardedDdl(ddl, {
+            lockTimeout: lockTimeout ?? "1s",
+            ...(timeoutMs === undefined ? {} : { timeoutMs }),
+            ...(injectedClient === undefined ? {} : { injectedClient }),
+          }),
         );
       } finally {
         invalidateSchemaSnapshot(injectedClient);
       }
     } catch (err) {
-      if (attempt === 0 || !isDuplicateSchemaError(err)) throw err;
+      if (!isDuplicateSchemaError(err)) throw err;
       let existsAfterDuplicate: boolean | undefined;
       try {
         existsAfterDuplicate = await probe();
@@ -404,7 +409,7 @@ export async function ensureSchemaObject(options: {
         `ensureSchemaObject: could not re-probe required schema "${label}" after a lock-timed-out DDL`,
       );
     }
-    if (attempt < 2) {
+    if (attempt + 1 < attempts) {
       await new Promise((resolve) => setTimeout(resolve, 100 * (attempt + 1)));
     }
   }
@@ -426,8 +431,7 @@ export async function ensureTableExists(
     probe: () => pgTableExists(table, options.injectedClient),
     ddl: createSql,
     label: `table ${table}`,
-    lockTimeout: options.lockTimeout,
-    injectedClient: options.injectedClient,
+    ...options,
   });
 }
 
@@ -441,8 +445,7 @@ export async function ensureColumnExists(
     probe: () => pgColumnExists(table, column, options.injectedClient),
     ddl: addColumnSql,
     label: `column ${table}.${column}`,
-    lockTimeout: options.lockTimeout,
-    injectedClient: options.injectedClient,
+    ...options,
   });
 }
 
@@ -492,9 +495,7 @@ export async function ensureIndexExists(
     probe: () => pgIndexExists(indexName, options.injectedClient),
     ddl: createIndexSql,
     label: `index ${indexName}`,
-    lockTimeout: options.lockTimeout,
-    timeoutMs: options.timeoutMs,
-    injectedClient: options.injectedClient,
+    ...options,
   });
 }
 

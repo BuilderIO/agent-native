@@ -8,22 +8,24 @@ import { getAsyncLocalStorageCtor } from "../shared/optional-node-builtins.js";
 export async function retryOnDdlRace<T>(fn: () => Promise<T>): Promise<T> {
   try {
     return await fn();
-  } catch (e: any) {
+  } catch (e: unknown) {
     if (!isPgCatalogRace(e)) throw e;
     return await fn();
   }
 }
 
-export function isPgCatalogRace(e: any): boolean {
-  const msg = String(e?.message ?? "");
-  if (e?.code === "42P07") return true;
-  if (e?.code === "42710") {
-    const routine = String(e?.routine ?? "");
+export function isPgCatalogRace(e: unknown): boolean {
+  if (typeof e !== "object" || e === null) return false;
+  const error = e as Record<string, unknown>;
+  const msg = String(error.message ?? "");
+  if (error.code === "42P07") return true;
+  if (error.code === "42710") {
+    const routine = String(error.routine ?? "");
     return routine === "TypeCreate" || /type .* already exists/i.test(msg);
   }
-  if (e?.code !== "23505") return false;
-  const constraint = String(e?.constraint_name ?? e?.constraint ?? "");
-  const detail = String(e?.detail ?? "");
+  if (error.code !== "23505") return false;
+  const constraint = String(error.constraint_name ?? error.constraint ?? "");
+  const detail = String(error.detail ?? "");
   return (
     constraint.startsWith("pg_type") ||
     constraint.startsWith("pg_class") ||
