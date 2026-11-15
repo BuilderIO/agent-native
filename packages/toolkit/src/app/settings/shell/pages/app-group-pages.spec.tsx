@@ -35,6 +35,7 @@ vi.mock("@agent-native/core/client/app-model-default", () => ({
 const labsActions = vi.hoisted(() => ({
   query: { data: undefined as LabStates | undefined },
   isError: false,
+  isPending: false,
   mutate: vi.fn(),
   refetch: vi.fn(),
 }));
@@ -55,7 +56,7 @@ vi.mock("@agent-native/core/client/use-action", () => ({
   }),
   useActionMutation: () => ({
     mutate: labsActions.mutate,
-    isPending: false,
+    isPending: labsActions.isPending,
   }),
 }));
 
@@ -196,6 +197,7 @@ describe("app group pages", () => {
     header = null;
     labsActions.query.data = undefined;
     labsActions.isError = false;
+    labsActions.isPending = false;
     labsActions.refetch.mockReset();
     labsActions.refetch.mockResolvedValue({ isSuccess: true });
     orgState.value = { orgId: "org-1", orgName: "Builder.io", role: "member" };
@@ -622,6 +624,36 @@ describe("app group pages", () => {
       expect(switchFor("Voice dictation")?.getAttribute("aria-checked")).toBe(
         "false",
       );
+    });
+
+    it("puts focus back on the row's switch once Use default is saved", async () => {
+      labsActions.query.data = {
+        "clips.wisprflow": { enabled: true, source: "choice", mixed: false },
+      };
+      await renderPage(LabsSettingsPage, { input: { labs } });
+      const reset = container.querySelector<HTMLButtonElement>(
+        '[aria-label="Voice dictation: Use default"]',
+      );
+      reset?.focus();
+      act(() => reset?.click());
+
+      // The save disables the row's controls, which takes focus off them.
+      labsActions.isPending = true;
+      await renderPage(LabsSettingsPage, { input: { labs } });
+      reset?.blur();
+      labsActions.isPending = false;
+      await renderPage(LabsSettingsPage, { input: { labs } });
+      expect(document.activeElement).toBe(switchFor("Voice dictation"));
+
+      // Then the read-back shows the default, and Use default goes away.
+      labsActions.query.data = {
+        "clips.wisprflow": { enabled: false, source: "default", mixed: false },
+      };
+      await renderPage(LabsSettingsPage, { input: { labs } });
+      expect(
+        container.querySelector('[aria-label="Voice dictation: Use default"]'),
+      ).toBeNull();
+      expect(document.activeElement).toBe(switchFor("Voice dictation"));
     });
 
     it("offers explicit choices for inherited mixed settings", async () => {

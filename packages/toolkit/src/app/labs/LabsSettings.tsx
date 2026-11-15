@@ -7,7 +7,7 @@ import {
 import type { LabDefinition } from "@agent-native/core/labs/registry";
 import { Switch } from "@agent-native/toolkit/design-system";
 import { Button } from "@agent-native/toolkit/ui/button";
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { SettingsGroup, SettingsRow } from "../settings/SettingsRow.js";
 
@@ -143,8 +143,37 @@ function useLabsSettingsState(
   };
 }
 
+/**
+ * A row's controls are disabled until the server answers, which drops keyboard
+ * focus, and Use default goes away once it's saved. When the save ends, focus
+ * goes back to the row's switch, so someone using the keyboard keeps their
+ * place.
+ */
+function useRefocusAfterSave(saving: boolean): (key: string) => void {
+  const pendingKey = useRef<string | null>(null);
+  useEffect(() => {
+    if (saving) return;
+    const key = pendingKey.current;
+    pendingKey.current = null;
+    if (key === null) return;
+    const row = document.getElementById(`lab-${key}`);
+    const active = document.activeElement;
+    if (!row) return;
+    if (active && active !== document.body && !row.contains(active)) return;
+    row.querySelector<HTMLElement>('[role="switch"]:not(:disabled)')?.focus();
+  }, [saving]);
+  return useCallback((key: string) => {
+    pendingKey.current = key;
+  }, []);
+}
+
 function LabRows({ state }: { state: LabsSettingsState }) {
   const t = useT();
+  const refocusAfterSave = useRefocusAfterSave(state.disabled);
+  const save = (lab: LabDefinition, enabled: boolean | null) => {
+    refocusAfterSave(lab.key);
+    state.toggle(lab, enabled);
+  };
   return (
     <>
       {state.loadFailed ? (
@@ -212,7 +241,7 @@ function LabRows({ state }: { state: LabsSettingsState }) {
                     variant="outline"
                     size="sm"
                     disabled={state.disabled}
-                    onClick={() => state.toggle(lab, true)}
+                    onClick={() => save(lab, true)}
                     aria-label={`${label}: ${t("agentChat.settingsShell.channels.state.on")}`}
                   >
                     {t("agentChat.settingsShell.channels.state.on")}
@@ -222,7 +251,7 @@ function LabRows({ state }: { state: LabsSettingsState }) {
                     variant="outline"
                     size="sm"
                     disabled={state.disabled}
-                    onClick={() => state.toggle(lab, false)}
+                    onClick={() => save(lab, false)}
                     aria-label={`${label}: ${t("agentChat.settingsShell.channels.state.off")}`}
                   >
                     {t("agentChat.settingsShell.channels.state.off")}
@@ -236,7 +265,7 @@ function LabRows({ state }: { state: LabsSettingsState }) {
                       variant="ghost"
                       size="sm"
                       disabled={state.disabled}
-                      onClick={() => state.toggle(lab, null)}
+                      onClick={() => save(lab, null)}
                       aria-label={`${label}: ${t("agentChat.settingsShell.appGroup.labsUseDefault")}`}
                     >
                       {t("agentChat.settingsShell.appGroup.labsUseDefault")}
@@ -244,7 +273,7 @@ function LabRows({ state }: { state: LabsSettingsState }) {
                   ) : null}
                   <Switch
                     checked={state.enabled(lab)}
-                    onChange={(next) => state.toggle(lab, next)}
+                    onChange={(next) => save(lab, next)}
                     disabled={state.disabled || hostDecided}
                     aria-label={label}
                   />
