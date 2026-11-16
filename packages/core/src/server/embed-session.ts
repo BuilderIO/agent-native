@@ -947,14 +947,20 @@ const FULL_APP_READ_ONLY_PREFIXES = [
   "/_agent-native/agent-chat",
 ];
 
-// App routes outside the framework, such as a template's `PUT /api/pylon/key`
-// or `POST /api/auth/logout`, store credentials or change the account by
-// name; a panel can read them but not write them.
-const FULL_APP_READ_ONLY_SEGMENTS = new Set([
-  "auth",
+// OAuth starts, callbacks, connects and disconnects change the owner's
+// connected accounts, some of them on GET, wherever an app mounts them:
+// `/_agent-native/zoom/disconnect`, `/api/auth/google-calendar`.
+const FULL_APP_DENIED_SEGMENTS = new Set([
   "oauth",
   "callback",
   "connect",
+  "disconnect",
+  "auth-url",
+  "add-account",
+]);
+// App routes that store credentials by name, such as a template's
+// `PUT /api/pylon/key`; a panel can read them but not write them.
+const FULL_APP_READ_ONLY_SEGMENTS = new Set([
   "key",
   "keys",
   "api-key",
@@ -991,13 +997,20 @@ export function fullAppEmbedAllowsRequest(
   const route = decoded.replace(/\/{2,}/g, "/").replace(/\/+$/, "") || "/";
   if (FULL_APP_DENIED_PREFIXES.some((prefix) => underPrefix(route, prefix)))
     return false;
+  const segments = route.toLowerCase().split("/");
+  // The framework's own `/_agent-native/auth` reads, such as the session,
+  // stay open below; an app's `auth` routes sign in or out.
+  if (
+    segments.some(
+      (segment, index) =>
+        FULL_APP_DENIED_SEGMENTS.has(segment) ||
+        (segment === "auth" && segments[index - 1] !== "_agent-native"),
+    )
+  )
+    return false;
   const readOnly =
     FULL_APP_READ_ONLY_PREFIXES.some((prefix) => underPrefix(route, prefix)) ||
-    route
-      .split("/")
-      .some((segment) =>
-        FULL_APP_READ_ONLY_SEGMENTS.has(segment.toLowerCase()),
-      );
+    segments.some((segment) => FULL_APP_READ_ONLY_SEGMENTS.has(segment));
   return !readOnly || method === "GET" || method === "HEAD";
 }
 
