@@ -2327,6 +2327,7 @@ export default {
         "ट्वीक्स कहीं और बदल दिए गए हैं। फिर से प्रयास करने से पहले डिज़ाइन रीफ़्रेश करें।",
       tweakBaselineUnreadable:
         "सहेजा गया tweak baseline पढ़ा नहीं जा सका। डिज़ाइन डेटा ठीक होने तक tweak बदलाव रोक दिए गए हैं.",
+      resetTweakBaseline: "आधार रीसेट करें",
       tweakSaveNotDurable:
         "ट्वीक्स अभी सहेजे नहीं गए हैं। इस टैब को खुला रखें और फिर से प्रयास करें।",
       undoSkippedConcurrentEdit:

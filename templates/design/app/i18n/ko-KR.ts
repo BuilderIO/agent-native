@@ -2338,6 +2338,7 @@ export default {
         "조정 값이 다른 곳에서 변경되었습니다. 디자인을 새로고침한 후 다시 시도하세요.",
       tweakBaselineUnreadable:
         "저장된 조정 기준을 읽을 수 없습니다. 디자인 데이터를 복구할 때까지 조정 변경이 일시 중지됩니다.",
+      resetTweakBaseline: "기준선 재설정",
       tweakSaveNotDurable:
         "조정 값이 아직 저장되지 않았습니다. 이 탭을 열어 둔 채 다시 시도하세요.",
       undoSkippedConcurrentEdit:

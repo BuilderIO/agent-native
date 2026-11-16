@@ -19,6 +19,7 @@ export function FloatingTweaksPanel({
   tweaks,
   values,
   onChange,
+  disabled = false,
   open,
   collapsed,
   position,
@@ -29,6 +30,7 @@ export function FloatingTweaksPanel({
   tweaks: TweakDefinition[];
   values: Record<string, TweakValue>;
   onChange: (id: string, value: TweakValue) => void;
+  disabled?: boolean;
   open: boolean;
   collapsed: boolean;
   position: { x: number; y: number };
@@ -184,11 +186,13 @@ export function FloatingTweaksPanel({
       </header>
       {!collapsed && (
         <div className="flex flex-col gap-[var(--design-inspector-grid-gap)] p-3">
-          <TweakProperties
-            tweaks={tweaks}
-            values={values}
-            onChange={onChange}
-          />
+          <fieldset disabled={disabled} className="min-w-0 border-0 p-0">
+            <TweakProperties
+              tweaks={tweaks}
+              values={values}
+              onChange={onChange}
+            />
+          </fieldset>
         </div>
       )}
     </section>

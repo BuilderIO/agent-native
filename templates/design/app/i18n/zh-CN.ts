@@ -2272,6 +2272,7 @@ export default {
       tweakConflict: "微调设置已在其他位置更改。请刷新设计后重试。",
       tweakBaselineUnreadable:
         "无法读取已保存的微调基线。修复设计数据前，微调更改已暂停。",
+      resetTweakBaseline: "重置基准",
       tweakSaveNotDurable: "微调设置尚未保存。请保持此标签页打开并重试。",
       undoSkippedConcurrentEdit: "已跳过撤消 — 其他人移动了该内容",
       redoSkippedConcurrentEdit: "已跳过重做 — 其他人移动了该内容",

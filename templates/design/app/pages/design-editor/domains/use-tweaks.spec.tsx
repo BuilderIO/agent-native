@@ -168,6 +168,11 @@ describe("useTweaks save scheduling", () => {
     expect(result.current.pendingTweakChanges).toEqual([]);
     expect(toast.warning).toHaveBeenCalledWith(
       "designEditor.toasts.tweakBaselineUnreadable",
+      expect.objectContaining({
+        action: expect.objectContaining({
+          label: "designEditor.toasts.resetTweakBaseline",
+        }),
+      }),
     );
     expect(result.current.tweakMutationsEnabled).toBe(false);
     expect(result.current.handleTweakChange("speed", 4)).toEqual({
