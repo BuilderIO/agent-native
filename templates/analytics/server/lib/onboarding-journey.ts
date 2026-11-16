@@ -607,6 +607,8 @@ interface EventRead {
     | "page_budget"
     | "read_deadline"
     | null;
+  /** Where the read ran; null when the deadline came before it was known. */
+  backendSink: FirstPartyAnalyticsSink | null;
 }
 
 export interface OnboardingJourneyEventPageRequest {
@@ -709,9 +711,9 @@ async function readJourneyEvents(
     : deadline.signal;
   const prefetched = new Map<number, PendingJourneyPage>();
   const stopPrefetch = new AbortController();
+  let backendSink: FirstPartyAnalyticsSink | null = null;
   try {
     throwIfAborted(signal);
-    let backendSink: FirstPartyAnalyticsSink | null = null;
     try {
       const backend = await getFirstPartyAnalyticsBackend(scope, querySignal);
       backendSink = backend.sink;
@@ -885,6 +887,7 @@ async function readJourneyEvents(
       ? "stable"
       : "may_have_shifted",
     truncationReason,
+    backendSink,
   };
 }
 
@@ -2607,12 +2610,21 @@ export async function getOnboardingJourney(
     followUp.incompleteReason === "followup_aggregate_query_timeout" ||
     personFollowUp?.incompleteReason === "person_followup_query_timeout";
   // A BigQuery query stopped by a time limit keeps running, so calling again
-  // collects it even when it needed more than one call's time.
+  // collects it even when it needed more than one call's time. Elsewhere, only
+  // a follow-up this call cut short can finish on the next one.
+  const followupContinues =
+    read.backendSink === "bigquery" ||
+    followupTimeoutMs < ONBOARDING_QUERY_TIMEOUT_MS;
   const stoppedForTime =
-    read.truncationReason === "read_deadline" || followupTimedOut;
+    read.truncationReason === "read_deadline" ||
+    (followupTimedOut && followupContinues);
   if (stoppedForTime) {
     notes.push(
       `This request stopped at its time budget (${ONBOARDING_EVENT_READ_DEADLINE_MS / 1000} seconds for the event read, ${ONBOARDING_JOURNEY_QUERY_BUDGET_MS / 1000} in all). Call again within a few minutes with the same arguments and observationWatermark="${observation.observationWatermark}": queries that finished are kept in the query cache and unfinished BigQuery queries keep running, so the next call collects them instead of starting over. Repeat until this note is gone.`,
+    );
+  } else if (followupTimedOut) {
+    notes.push(
+      `A follow-up query needed more than the ${ONBOARDING_QUERY_TIMEOUT_MS / 1000} seconds one query may run, so calling again will not finish it; a shorter date range reads less.`,
     );
   }
   const head = {

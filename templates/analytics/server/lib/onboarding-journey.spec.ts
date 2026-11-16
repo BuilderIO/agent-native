@@ -2197,6 +2197,36 @@ describe("getOnboardingJourney", () => {
     }
   });
 
+  it.each(["postgres", "dual"] as const)(
+    "does not offer a retry when a %s-backed follow-up had a query's full time",
+    async (sink) => {
+      // Only a BigQuery job keeps running for the next call to collect.
+      mocks.getFirstPartyAnalyticsBackend.mockResolvedValue({
+        sink,
+        table: null,
+      });
+      mocks.queryFirstPartyAnalytics
+        .mockResolvedValueOnce({ rows: journeyRows(), schema: [] })
+        .mockRejectedValueOnce(new FirstPartyAnalyticsQueryTimeoutError());
+
+      const summary = (await getOnboardingJourney(scope, {
+        ...ARGS,
+        format: "summary",
+      })) as JourneySummary;
+
+      expect(summary.followUp).toMatchObject({
+        status: "incomplete",
+        incompleteReason: "followup_aggregate_query_timeout",
+      });
+      expect(summary.notes).toEqual([
+        expect.stringMatching(
+          /needed more than the 20 seconds one query may run, so calling again will not finish it/,
+        ),
+      ]);
+      expect(summary.continueWith).toBeUndefined();
+    },
+  );
+
   it("reads as of a pinned observationWatermark, so a later call sends the same queries", async () => {
     const watermark = "2026-10-09T11:58:00.000Z";
     const now = vi.spyOn(Date, "now");

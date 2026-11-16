@@ -161,7 +161,9 @@ top-level tree to `journey:capture`; the capture CLI reads top-level `nodes`.
   still running keep running, so the next call collects them instead of
   starting over, even a query that needs longer than one call. Each call gets
   further; repeat until the note is gone. A job is collected only within an
-  hour of when it started; after that, a call runs the query again. In
+  hour of when it started; after that, a call runs the query again. A
+  PostgreSQL-backed app has no jobs to collect, so a follow-up that ran out of
+  its full 20 seconds gets a note to read a shorter range instead. In
   session mode the watermark pins event time but not receive time, so an event
   that arrives between calls can still change pages; the read then reports
   `may_have_shifted`. A truncated event sample skips replay reads and
