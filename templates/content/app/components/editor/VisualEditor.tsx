@@ -79,7 +79,7 @@ import {
   TextSelection,
   type Transaction,
 } from "@tiptap/pm/state";
-import { CellSelection, cellAround } from "@tiptap/pm/tables";
+import { CellSelection, cellAround, isInTable } from "@tiptap/pm/tables";
 import { Decoration, DecorationSet, type EditorView } from "@tiptap/pm/view";
 import {
   useEditor,
@@ -239,6 +239,13 @@ import {
 } from "./live-body-parity";
 import { imageDisplaySrc } from "./private-media-src";
 import { SlashCommandMenu } from "./SlashCommandMenu";
+import {
+  expandColumnSpans,
+  isSpreadsheetPicture,
+  parseSpreadsheetText,
+  spreadsheetTableSlice,
+  spreadsheetTextForSlice,
+} from "./spreadsheet-clipboard";
 import { StaticDocumentBody } from "./StaticDocumentBody";
 import { suggestionPlacements } from "./suggestion-placement";
 import { caretAfterPageSwap } from "./suggestions/keep-caret";
@@ -246,7 +253,10 @@ import {
   resolveSuggestionPresentationRange,
   type SuggestionPresentationTransition,
 } from "./suggestions/presentation-rebase";
-import { SuggestingReadOnlyBlocks } from "./suggestions/read-only-blocks";
+import {
+  isSuggestingEdits,
+  SuggestingReadOnlyBlocks,
+} from "./suggestions/read-only-blocks";
 import { ContentTableView, contentTableColumnSizing } from "./table-view";
 import { TableHoverControls } from "./TableHoverControls";
 import { WidgetLoadDiagnostic } from "./WidgetLoadDiagnostic";
@@ -463,6 +473,14 @@ function dispatchLiteralPaste(view: EditorView, slice: Slice): void {
   }
 }
 
+// A table for cells copied as tab-separated text. Suggesting can't add a
+// table, so while suggesting the cells paste as text.
+function spreadsheetTable(editor: CoreEditor, text: string): Slice | null {
+  if (isSuggestingEdits(editor.state)) return null;
+  const rows = parseSpreadsheetText(text);
+  return rows && spreadsheetTableSlice(editor.schema, rows);
+}
+
 const MarkdownPasteDetection = Extension.create({
   name: "markdownPasteDetection",
   addProseMirrorPlugins() {
@@ -471,8 +489,11 @@ const MarkdownPasteDetection = Extension.create({
       new Plugin({
         key: new PluginKey("markdownPasteDetection"),
         props: {
+          transformPastedHTML: expandColumnSpans,
           clipboardTextParser(text, _context, plainText) {
             if (!plainText) {
+              const table = spreadsheetTable(editor, text);
+              if (table) return table;
               const markdown = parseMarkdownClipboardSlice(
                 editor,
                 text,
@@ -481,6 +502,23 @@ const MarkdownPasteDetection = Extension.create({
               if (markdown) return markdown;
             }
             return parsePlainTextClipboardSlice(editor, text, _context);
+          },
+          // A copied table, or cells of one, goes out as tab-separated text,
+          // which spreadsheets paste as cells; anything else as Markdown.
+          // This is the only copy serializer: tiptap-markdown's own copy
+          // transform is off, since its plugin would run ahead of this one.
+          clipboardTextSerializer(slice) {
+            const { serializer } = (
+              editor.storage as unknown as {
+                markdown: {
+                  serializer: { serialize(content: Fragment): string };
+                };
+              }
+            ).markdown;
+            return (
+              spreadsheetTextForSlice(slice, editor.schema) ??
+              serializer.serialize(slice.content)
+            );
           },
           handlePaste(view, event) {
             const context = view.state.selection.$from;
@@ -498,6 +536,18 @@ const MarkdownPasteDetection = Extension.create({
 
             const html = clipboardData.getData("text/html");
             const plainText = clipboardData.getData("text/plain");
+
+            // Cells copied as text alone. ProseMirror's table plugin fills a
+            // table at the caret from the table clipboardTextParser made;
+            // anywhere else the table goes in literally, so Markdown paste
+            // rules leave the cells' text as it was.
+            const table = html ? null : spreadsheetTable(editor, plainText);
+            if (table) {
+              if (isInTable(view.state)) return false;
+              event.preventDefault();
+              dispatchLiteralPaste(view, table);
+              return true;
+            }
 
             if (!html && plainText && !looksLikeMarkdown(plainText)) {
               const slice = parsePlainTextClipboardSlice(
@@ -3407,7 +3457,9 @@ export function createVisualEditorExtensions({
       Markdown.configure({
         html: true,
         transformPastedText: false,
-        transformCopiedText: true,
+        // MarkdownPasteDetection writes copied text, as Markdown or as
+        // tab-separated cells.
+        transformCopiedText: false,
       }),
     ],
   });
@@ -4488,6 +4540,9 @@ export function VisualEditor({
       handlePaste(view, event) {
         if (view.editable) markUserEditIntent();
         if (!view.editable || !event.clipboardData) return false;
+        // Excel puts a picture of the copied cells beside them: paste the
+        // cells as a table, not the picture.
+        if (isSpreadsheetPicture(event.clipboardData)) return false;
 
         const imageFiles = getImageFiles(event.clipboardData.files);
         const videoFiles = getVideoFiles(event.clipboardData.files);
