@@ -394,19 +394,18 @@ describe("the Discussion panel", () => {
       container.querySelector("[data-discussion-sort-trigger]"),
     ).toBeNull();
 
-    await act(async () =>
-      head
-        .querySelector<HTMLButtonElement>(
-          'button[aria-label="comments.searchDiscussion"]',
-        )!
-        .click(),
+    const searchButton = head.querySelector<HTMLButtonElement>(
+      'button[aria-label="comments.searchDiscussion"]',
     );
+    expect(searchButton).toBeInstanceOf(HTMLButtonElement);
+    await act(async () => searchButton?.click());
     const field = container.querySelector<HTMLInputElement>(
       'input[aria-label="comments.searchDiscussion"]',
     );
-    expect(field).not.toBeNull();
     // Escape there closes the search, not the panel.
-    expect(field!.closest("[data-discussion-toolbar]")).not.toBeNull();
+    expect(field?.closest("[data-discussion-toolbar]")).toBeInstanceOf(
+      HTMLElement,
+    );
     expect(head.querySelector("input")).toBeNull();
   });
 
