@@ -259,9 +259,9 @@ const reply = useActionMutation("send-ticket-reply", {
 });
 ```
 
-本地变更和同步事件使用对称匹配。`ticket` 标签匹配 `ticket` 和任意 `ticket:id` 标签。`ticket:123` 标签匹配 `ticket` 和 `ticket:123`，但不匹配 `ticket:456`。没有标签的查询会保守地失效。没有标签的变更会使所有 action 查询失效。
+对于不含冒号的类型，本地变更和同步事件使用对称匹配。匹配本地变更时，`design:layer` 表示类型 `design` 和 ID `layer`。`resourceType` 为 `design:layer` 的同步事件使用的类型不同于 `design`，不会匹配查询标签 `design`。`ticket` 标签匹配 `ticket` 和任意 `ticket:id` 标签。`ticket:123` 标签匹配 `ticket` 和 `ticket:123`，但不匹配 `ticket:456`。没有标签的查询会保守地失效。没有标签的变更会使所有 action 查询失效。
 
-对于 action 同步事件，`resourceType` 和 `resourceId` 构成已更改资源的标签。如果 `resourceId` 缺失或为空，则所有匹配该类型的查询都会失效。如果任何未被抑制的 action 事件缺少 `resourceType`，该批次将禁用资源范围过滤，所有 action 查询都有可能失效。可选的谓词仍可过滤失效操作。
+对于 action 同步事件，`resourceType` 和 `resourceId` 分别标识已更改的资源。如果 `resourceId` 缺失或为空，则所有匹配该类型的查询都会失效。如果任何未被抑制的 action 事件缺少 `resourceType`，该批次将禁用资源范围过滤，所有 action 查询都有可能失效。可选的谓词仍可过滤失效操作。
 
 对于包含 action 事件且仅包含 action 或 app-state 事件的批次，资源过滤器匹配未被抑制的 action 事件中任一已更改资源。提供 `actionInvalidatePredicate` 时，查询必须同时通过资源过滤器和谓词。谓词接收完整的相关非 awareness 事件批次，包括被抑制的 action 事件。如果批次还包含其他会更改数据的来源，则禁用资源范围过滤，但仍应用谓词。对于包含其他数据变更事件但没有未被抑制的 action 事件的批次，谓词也会过滤广泛的 action 失效操作。
 

@@ -262,9 +262,9 @@ const reply = useActionMutation("send-ticket-reply", {
 });
 ```
 
-로컬 뮤테이션과 동기화 이벤트에서 대칭적으로 일치 여부를 판단합니다. `ticket` 태그는 `ticket` 및 모든 `ticket:id` 태그와 일치합니다. `ticket:123` 태그는 `ticket` 및 `ticket:123`과 일치하지만 `ticket:456`과는 일치하지 않습니다. 태그가 없는 쿼리는 보수적으로 무효화됩니다. 태그가 없는 뮤테이션은 모든 action 쿼리를 무효화합니다.
+콜론이 없는 유형에서는 로컬 뮤테이션과 동기화 이벤트의 매칭이 대칭적입니다. 로컬 뮤테이션을 매칭할 때 `design:layer`는 유형 `design`과 ID `layer`를 뜻합니다. `resourceType`이 `design:layer`인 동기화 이벤트는 `design`과 다른 유형이며 쿼리 태그 `design`과 일치하지 않습니다. `ticket` 태그는 `ticket` 및 모든 `ticket:id` 태그와 일치합니다. `ticket:123` 태그는 `ticket` 및 `ticket:123`과 일치하지만 `ticket:456`과는 일치하지 않습니다. 태그가 없는 쿼리는 보수적으로 무효화됩니다. 태그가 없는 뮤테이션은 모든 action 쿼리를 무효화합니다.
 
-action 동기화 이벤트에서는 `resourceType`과 `resourceId`가 변경된 리소스 태그를 구성합니다. `resourceId`가 없거나 비어 있으면 해당 유형과 일치하는 모든 쿼리가 무효화됩니다. 억제되지 않은 action 이벤트 중 하나라도 `resourceType`이 없으면 배치의 리소스 범위 지정이 비활성화되고 모든 action 쿼리가 대상이 됩니다. 선택적 predicate는 여전히 무효화를 필터링할 수 있습니다.
+action 동기화 이벤트에서는 `resourceType`과 `resourceId`가 변경된 리소스를 별도로 식별합니다. `resourceId`가 없거나 비어 있으면 해당 유형과 일치하는 모든 쿼리가 무효화됩니다. 억제되지 않은 action 이벤트 중 하나라도 `resourceType`이 없으면 배치의 리소스 범위 지정이 비활성화되고 모든 action 쿼리가 대상이 됩니다. 선택적 predicate는 여전히 무효화를 필터링할 수 있습니다.
 
 action 이벤트를 포함하고 action 또는 app-state 이벤트로만 구성된 배치에서는 리소스 필터가 억제되지 않은 action 이벤트에서 변경된 리소스 중 하나와 일치합니다. `actionInvalidatePredicate`가 있으면 쿼리는 필터와 predicate를 모두 통과해야 합니다. predicate는 억제된 action 이벤트를 포함해 관련된 awareness 외 이벤트의 전체 배치를 받습니다. 배치에 데이터를 변경하는 다른 소스도 있으면 리소스 범위 지정은 비활성화되지만 predicate는 계속 적용됩니다. 데이터를 변경하는 다른 이벤트는 있지만 억제되지 않은 action 이벤트가 없는 배치에서도 predicate는 광범위한 action 무효화를 필터링합니다.
 

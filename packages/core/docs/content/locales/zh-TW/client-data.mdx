@@ -259,9 +259,9 @@ const reply = useActionMutation("send-ticket-reply", {
 });
 ```
 
-本機變異和同步事件使用對稱比對。`ticket` 標籤符合 `ticket` 和任何 `ticket:id` 標籤。`ticket:123` 標籤符合 `ticket` 和 `ticket:123`，但不符合 `ticket:456`。沒有標籤的查詢會保守地失效。沒有標籤的變異會使所有 action 查詢失效。
+對於不含冒號的類型，本機變異和同步事件使用對稱比對。比對本機變異時，`design:layer` 表示類型 `design` 和 ID `layer`。`resourceType` 為 `design:layer` 的同步事件使用的類型不同於 `design`，不會符合查詢標籤 `design`。`ticket` 標籤符合 `ticket` 和任何 `ticket:id` 標籤。`ticket:123` 標籤符合 `ticket` 和 `ticket:123`，但不符合 `ticket:456`。沒有標籤的查詢會保守地失效。沒有標籤的變異會使所有 action 查詢失效。
 
-對於 action 同步事件，`resourceType` 和 `resourceId` 構成已變更資源的標籤。若 `resourceId` 缺少或為空，所有符合該類型的查詢都會失效。若任何未被抑制的 action 事件缺少 `resourceType`，該批次會停用資源範圍篩選，所有 action 查詢都可能失效。選用的述詞仍可篩選失效作業。
+對於 action 同步事件，`resourceType` 和 `resourceId` 分別識別已變更的資源。若 `resourceId` 缺少或為空，所有符合該類型的查詢都會失效。若任何未被抑制的 action 事件缺少 `resourceType`，該批次會停用資源範圍篩選，所有 action 查詢都可能失效。選用的述詞仍可篩選失效作業。
 
 對於包含 action 事件且只包含 action 或 app-state 事件的批次，資源篩選器會符合未被抑制的 action 事件中任一已變更資源。提供 `actionInvalidatePredicate` 時，查詢必須同時通過資源篩選器和述詞。述詞會收到完整的相關非 awareness 事件批次，包括被抑制的 action 事件。若批次還包含其他會變更資料的來源，資源範圍篩選會停用，但仍會套用述詞。對於包含其他資料變更事件但沒有未被抑制的 action 事件的批次，述詞也會篩選廣泛的 action 失效作業。
 

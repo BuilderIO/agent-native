@@ -261,9 +261,9 @@ const reply = useActionMutation("send-ticket-reply", {
 });
 ```
 
-Matching is symmetric for local mutations and sync events. A `ticket` tag matches `ticket` and any `ticket:id` tag. A `ticket:123` tag matches `ticket` and `ticket:123`, but not `ticket:456`. Untagged queries are invalidated conservatively. A mutation without tags invalidates all action queries.
+For types without colons, matching is symmetric for local mutations and sync events. For local mutation matching, `design:layer` means type `design` and ID `layer`. A sync event with `resourceType` `design:layer` has a distinct type from `design` and does not match a `design` query tag. A `ticket` tag matches `ticket` and any `ticket:id` tag. A `ticket:123` tag matches `ticket` and `ticket:123`, but not `ticket:456`. Untagged queries are invalidated conservatively. A mutation without tags invalidates all action queries.
 
-For an action sync event, `resourceType` and `resourceId` form the changed resource tag. If `resourceId` is missing or empty, all queries matching that type are invalidated. If any unsuppressed action event has no `resourceType`, resource narrowing is disabled for the batch and all action queries are eligible. The optional predicate can still filter the invalidation.
+For an action sync event, `resourceType` and `resourceId` identify the changed resource separately. If `resourceId` is missing or empty, all queries matching that type are invalidated. If any unsuppressed action event has no `resourceType`, resource narrowing is disabled for the batch and all action queries are eligible. The optional predicate can still filter the invalidation.
 
 For a batch containing action events and only action or app-state events, the resource filter matches any changed resource in the unsuppressed action events. When `actionInvalidatePredicate` is supplied, a query must pass both that filter and the predicate. The predicate receives the full relevant non-awareness batch, including suppressed action events. If the batch also contains another data-changing source, resource narrowing is disabled, but the predicate still applies. For a batch with another data-changing event but no unsuppressed action event, the predicate also filters the broad action invalidation.
 
