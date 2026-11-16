@@ -69,10 +69,30 @@ describe("wall-clock assertion detection", () => {
       "expect(",
       "  Date.now() - startedAt,",
       ").toBeLessThan(2_000);",
+      "await run();",
     ].join("\n");
 
     assert.deepEqual(flaggedLines(source, new Set([4])), [3]);
-    assert.deepEqual(flaggedLines(source, new Set([1])), []);
+    assert.deepEqual(flaggedLines(source, new Set([6])), []);
+  });
+
+  it("reports an unchanged assertion whose clock binding this branch changed", () => {
+    const source = [
+      'it("a", () => {',
+      "  const startedAt = Date.now();",
+      "  const elapsed = stop() - startedAt;",
+      "  expect(elapsed).toBeLessThan(1_000);",
+      "});",
+      'it("b", () => {',
+      "  const startedAt = Date.now();",
+      "  const elapsed = performance.now() - t0;",
+      "  expect(elapsed).toBeLessThan(1_000);",
+      "});",
+    ].join("\n");
+
+    assert.deepEqual(flaggedLines(source, new Set([3])), [4]);
+    assert.deepEqual(flaggedLines(source, new Set([2])), [4]);
+    assert.deepEqual(flaggedLines(source, new Set([7])), []);
   });
 
   it("reports every finding when measuring the backlog", () => {
@@ -128,6 +148,45 @@ describe("fake timers", () => {
     ].join("\n");
 
     assert.deepEqual(flaggedLines(source), []);
+  });
+
+  it("ignores a fake-timer helper the test declares but never calls", () => {
+    const source = [
+      'it("declares", async () => {',
+      "  const freeze = () => vi.useFakeTimers();",
+      "  const started = Date.now();",
+      "  await run();",
+      "  expect(Date.now() - started).toBeLessThan(1_000);",
+      "});",
+      'it("calls", () => {',
+      "  const freeze = () => vi.useFakeTimers();",
+      "  freeze();",
+      "  const started = Date.now();",
+      "  expect(Date.now() - started).toBe(0);",
+      "});",
+    ].join("\n");
+
+    assert.deepEqual(flaggedLines(source), [5]);
+  });
+
+  it("lets setSystemTime alone cover Date reads but not performance.now()", () => {
+    const source = [
+      'it("mocks the date", () => {',
+      "  vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));",
+      "  const started = Date.now();",
+      "  expect(Date.now() - started).toBe(0);",
+      "  const t0 = performance.now();",
+      "  expect(performance.now() - t0).toBeLessThan(50);",
+      "});",
+      'it("fakes timers, then sets the date", () => {',
+      "  vi.useFakeTimers();",
+      "  vi.setSystemTime(new Date('2026-01-01T00:00:00Z'));",
+      "  const t0 = performance.now();",
+      "  expect(performance.now() - t0).toBe(0);",
+      "});",
+    ].join("\n");
+
+    assert.deepEqual(flaggedLines(source), [6]);
   });
 
   it("still flags a real-timer test beside a fake-timer one", () => {

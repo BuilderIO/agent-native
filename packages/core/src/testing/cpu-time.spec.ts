@@ -68,6 +68,9 @@ describe("measureCpuMs", () => {
   });
 
   it("refuses the process-wide clock inside a worker thread", async () => {
+    // The static import above already evaluated cpu-time.js with the real
+    // isMainThread; without a reset the dynamic import returns that module.
+    vi.resetModules();
     vi.doMock("node:worker_threads", () => ({ isMainThread: false }));
     const { measureCpuMs: measureInWorker } = await import("./cpu-time.js");
 

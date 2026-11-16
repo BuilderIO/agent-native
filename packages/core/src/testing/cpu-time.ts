@@ -41,6 +41,11 @@ function elapsedCpuMs(read: CpuUsageReader, start: NodeJS.CpuUsage): number {
  *
  * Returns a number for a synchronous `run` and a promise for an async one. An
  * async `run` is charged for whatever else runs on this thread while it awaits.
+ *
+ * On Node without `process.threadCpuUsage()` (before 22.19 / 23.9) the main
+ * thread falls back to `process.cpuUsage()`, which also counts CPU spent by
+ * worker threads in the same process, so the number is this thread's alone
+ * only when no worker threads run during `run`.
  */
 export function measureCpuMs(run: () => PromiseLike<unknown>): Promise<number>;
 export function measureCpuMs(run: () => unknown): number;
