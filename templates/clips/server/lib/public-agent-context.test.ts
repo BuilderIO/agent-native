@@ -1207,17 +1207,19 @@ describe("loadRecordingMediaBytes", () => {
       const originalOpen = mockOpen.getMockImplementation();
       mockOpen.mockImplementation(async (...args: Parameters<typeof open>) => {
         if (!originalOpen) throw new Error("Missing file open implementation");
-        const file = await originalOpen(...args);
-        const write = file.write.bind(file);
-        vi.spyOn(file, "write").mockImplementation(
-          async (...args: unknown[]) => {
-            const bytes = args[0];
-            if (!(bytes instanceof Uint8Array))
-              throw new Error("Expected bytes");
-            if (zeroProgress) return { bytesWritten: 0, buffer: bytes };
-            return write(bytes.subarray(0, Math.min(2, bytes.length)));
-          },
+        const file: Awaited<ReturnType<typeof open>> = await originalOpen(
+          ...args,
         );
+        const writable: {
+          write: (
+            bytes: Uint8Array,
+          ) => Promise<{ bytesWritten: number; buffer: Uint8Array }>;
+        } = file;
+        const write = writable.write.bind(file);
+        vi.spyOn(writable, "write").mockImplementation(async (bytes) => {
+          if (zeroProgress) return { bytesWritten: 0, buffer: bytes };
+          return write(bytes.subarray(0, Math.min(2, bytes.length)));
+        });
         return file;
       });
       const response = () => {
