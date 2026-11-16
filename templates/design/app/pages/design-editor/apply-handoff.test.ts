@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { composeApplyHandoff } from "./apply-handoff";
+import { composeApplyHandoff, getDurableApplyHandoff } from "./apply-handoff";
 
 describe("composeApplyHandoff", () => {
   it("orders remote, visuals, and tweak deltas after one leading full-app header", () => {
@@ -42,6 +42,27 @@ describe("composeApplyHandoff", () => {
     expect(result.prompt).toContain("acknowledge-visual-edit-pending");
     expect(result.includes.tweakIds).toEqual(["speed"]);
     expect(result.includes.remote).toBe(false);
+    expect(getDurableApplyHandoff(result, 0)).toEqual({
+      pendingEditCount: 1,
+      prompt: result.prompt,
+    });
+  });
+
+  it("publishes the composed visual and tweak prompt with both counts", () => {
+    const handoff = composeApplyHandoff({
+      localVisualEdits: [{ id: "visual-1", prompt: "Visual instructions" }],
+      localTweakChanges: [
+        { id: "spacing", label: "Spacing", oldValue: 2, newValue: 4 },
+      ],
+      fullApp: { enabled: false },
+    });
+    expect(getDurableApplyHandoff(handoff, 2)).toEqual({
+      pendingEditCount: 3,
+      prompt: handoff.prompt,
+    });
+    expect(getDurableApplyHandoff(handoff, 2)?.prompt).toContain(
+      "Changed tweaks",
+    );
   });
 
   it("routes full-app tweaks through Builder without local source instructions", () => {

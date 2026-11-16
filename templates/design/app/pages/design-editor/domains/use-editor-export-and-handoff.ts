@@ -23,7 +23,7 @@ import {
   type LiveFigmaSvgSource,
 } from "@/lib/figma-svg-copy";
 
-import { composeApplyHandoff } from "../apply-handoff";
+import { composeApplyHandoff, getDurableApplyHandoff } from "../apply-handoff";
 import { elementInfoFromCodeLayerNode } from "../code-layer-state";
 import type { CodingHandoffResult } from "../command-types";
 import { runApplyPendingVisualStylesWithAgent } from "../commands/apply-pending-visual-styles-with-agent";
@@ -463,6 +463,11 @@ export function useEditorExportAndHandoff({
     [id, isFullAppDesign, localVisualEditHandoff, pendingTweakChanges],
   );
   const pendingApplyPrompt = localApplyHandoff.prompt;
+  const durableApplyHandoff = getDurableApplyHandoff(
+    localApplyHandoff,
+    pendingVisualEditCount,
+  );
+  const pendingApplyEditCount = durableApplyHandoff?.pendingEditCount ?? 0;
   const visualEditPromptResult = useCallback<
     () => VisualEditPromptResult
   >(() => {
@@ -1595,6 +1600,8 @@ export function useEditorExportAndHandoff({
     handleSendCodingHandoff,
     showPendingVisualStyleApply,
     pendingVisualStylePrompt,
+    pendingApplyPrompt,
+    pendingApplyEditCount,
     visualEditPromptResult,
     handleApplyPendingVisualStylesWithAgent,
     handleCopyPendingVisualStylePrompt,

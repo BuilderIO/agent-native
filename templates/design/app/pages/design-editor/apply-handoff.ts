@@ -16,6 +16,16 @@ export interface ApplyHandoff {
   };
 }
 
+export function getDurableApplyHandoff(
+  handoff: ApplyHandoff,
+  visualEditCount: number,
+) {
+  const pendingEditCount = visualEditCount + handoff.includes.tweakIds.length;
+  return pendingEditCount > 0
+    ? { pendingEditCount, prompt: handoff.prompt }
+    : null;
+}
+
 export function composeApplyHandoff(input: ApplyHandoffInput): ApplyHandoff {
   const localVisualPrompt = input.localVisualEdits
     .map((edit) => edit.prompt)
