@@ -5,6 +5,12 @@ export const MAX_EXTRA_KEYS = 30;
 export const MAX_EXTRA_VALUE_LENGTH = 1000;
 
 const SECRET_RE = /\b(?:bearer|basic)\s+[^\s]+/gi;
+// A key-looking run is tried once and, when it is not an assignment, skipped
+// whole by the trailing `|[A-Za-z0-9_$.-]+`. Letting the engine restart inside
+// the run, or search for the keyword after the suffix check, is cubic on
+// `token_token_...`.
+const SECRET_ASSIGNMENT_RE =
+  /(?=[A-Za-z0-9_$.-]*(?:authorization|cookie|token|secret|password|passwd|pwd|api[-_]?key|apikey|credential))([A-Za-z0-9_$.-]+\s*[:=]\s*)([^\s,;}]+)|[A-Za-z0-9_$.-]+/gi;
 const SQL_PARAMS_RE = /^([\s\S]*?)(\r?\n[ \t]*params:\s*)[\s\S]*$/i;
 const SQL_QUERY_FAILURE_RE = /\b(?:failed query|query failed):\s*/i;
 const SQL_STATEMENT_RE =
@@ -650,8 +656,9 @@ export function redact(value: string): string {
   return value
     .replace(SECRET_RE, (match) => `${match.split(/\s+/, 1)[0]} <redacted>`)
     .replace(
-      /([A-Za-z0-9_$.-]*(?:authorization|cookie|token|secret|password|passwd|pwd|api[-_]?key|apikey|credential)[A-Za-z0-9_$.-]*\s*[:=]\s*)([^\s,;}]+)/gi,
-      "$1<redacted>",
+      SECRET_ASSIGNMENT_RE,
+      (match: string, assignment: string | undefined) =>
+        assignment === undefined ? match : `${assignment}<redacted>`,
     )
     .replace(SQL_PARAMS_RE, (match, query: string, params: string) =>
       isSqlStatementText(query) ? `${query}${params}<redacted>` : match,

@@ -18,18 +18,36 @@ const SECRET_KEY_FRAGMENT =
   "(?:authorization|cookie|set[-_]?cookie|token|secret|password|passwd|pwd|api[-_]?key|apikey|session|credential)";
 const AUTHORIZATION_SCHEME_RE =
   /\b(authorization)\b(\s*[:=]\s*)(?:bearer|basic)\s+[a-z0-9._~+/-]+=*/gi;
+// A key-looking run is tried once and, when it is not an assignment, skipped
+// whole by the trailing `|[A-Za-z0-9_$.-]+`. Letting the engine restart inside
+// the run, or search for the keyword after the suffix check, is cubic on
+// `token_token_...`.
+const SECRET_KEY_RUN = `(["']?)(?=[A-Za-z0-9_$.-]*${SECRET_KEY_FRAGMENT})([A-Za-z0-9_$.-]+)\\1(\\s*[:=]\\s*)`;
+const SKIP_KEY_RUN = "|[A-Za-z0-9_$.-]+";
 const DOUBLE_QUOTED_SECRET_VALUE_RE = new RegExp(
-  `(["']?)([A-Za-z0-9_$.-]*${SECRET_KEY_FRAGMENT}[A-Za-z0-9_$.-]*)\\1(\\s*[:=]\\s*)"(?:[^"\\\\]|\\\\.)*"`,
+  `${SECRET_KEY_RUN}"(?:[^"\\\\]|\\\\.)*"${SKIP_KEY_RUN}`,
   "gi",
 );
 const SINGLE_QUOTED_SECRET_VALUE_RE = new RegExp(
-  `(["']?)([A-Za-z0-9_$.-]*${SECRET_KEY_FRAGMENT}[A-Za-z0-9_$.-]*)\\1(\\s*[:=]\\s*)'(?:[^'\\\\]|\\\\.)*'`,
+  `${SECRET_KEY_RUN}'(?:[^'\\\\]|\\\\.)*'${SKIP_KEY_RUN}`,
   "gi",
 );
 const UNQUOTED_SECRET_VALUE_RE = new RegExp(
-  `(["']?)([A-Za-z0-9_$.-]*${SECRET_KEY_FRAGMENT}[A-Za-z0-9_$.-]*)\\1(\\s*[:=]\\s*)([^"',\\s;}\\]]+)`,
+  `${SECRET_KEY_RUN}([^"',\\s;}\\]]+)${SKIP_KEY_RUN}`,
   "gi",
 );
+
+function redactedSecretValue(redactedValue: string) {
+  return (
+    match: string,
+    quote: string | undefined,
+    key: string,
+    separator: string,
+  ) =>
+    quote === undefined
+      ? match
+      : `${quote}${key}${quote}${separator}${redactedValue}`;
+}
 
 const SECRET_KEY_RE = new RegExp(SECRET_KEY_FRAGMENT, "i");
 
@@ -48,9 +66,9 @@ export function redactBrowserDiagnosticString(
   const redacted = value
     .replace(AUTHORIZATION_SCHEME_RE, "$1$2<redacted>")
     .replace(/\b(bearer|basic)\s+[a-z0-9._~+/-]+=*/gi, "$1 <redacted>")
-    .replace(DOUBLE_QUOTED_SECRET_VALUE_RE, '$1$2$1$3"<redacted>"')
-    .replace(SINGLE_QUOTED_SECRET_VALUE_RE, "$1$2$1$3'<redacted>'")
-    .replace(UNQUOTED_SECRET_VALUE_RE, "$1$2$1$3<redacted>");
+    .replace(DOUBLE_QUOTED_SECRET_VALUE_RE, redactedSecretValue('"<redacted>"'))
+    .replace(SINGLE_QUOTED_SECRET_VALUE_RE, redactedSecretValue("'<redacted>'"))
+    .replace(UNQUOTED_SECRET_VALUE_RE, redactedSecretValue("<redacted>"));
   return options.redactQueryValues
     ? redacted.replace(/([?&][^=\s&?#]+)=([^&\s#]+)/g, "$1=<redacted>")
     : redacted;

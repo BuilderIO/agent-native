@@ -142,8 +142,12 @@ const ERROR_CAPTURE_STATE_KEY = Symbol.for("agent-native.client.errorCapture");
 const SECRET_KEY_FRAGMENT =
   "(?:authorization|cookie|set[-_]?cookie|token|secret|password|passwd|pwd|api[-_]?key|apikey|session|credential)";
 const BEARER_RE = /\b(bearer|basic)\s+[a-z0-9._~+/-]+=*/gi;
+// A key-looking run is tried once and, when it is not an assignment, skipped
+// whole by the trailing `|[A-Za-z0-9_$.-]+`. Letting the engine restart inside
+// the run, or search for the keyword after the suffix check, is cubic on
+// `token_token_...`.
 const UNQUOTED_SECRET_RE = new RegExp(
-  `(["']?)([A-Za-z0-9_$.-]*${SECRET_KEY_FRAGMENT}[A-Za-z0-9_$.-]*)\\1(\\s*[:=]\\s*)([^"',\\s;}\\]]+)`,
+  `(["']?)(?=[A-Za-z0-9_$.-]*${SECRET_KEY_FRAGMENT})([A-Za-z0-9_$.-]+)\\1(\\s*[:=]\\s*)([^"',\\s;}\\]]+)|[A-Za-z0-9_$.-]+`,
   "gi",
 );
 const SECRET_KEY_RE = new RegExp(SECRET_KEY_FRAGMENT, "i");
@@ -151,7 +155,18 @@ const SECRET_KEY_RE = new RegExp(SECRET_KEY_FRAGMENT, "i");
 function redactSecrets(value: string): string {
   return value
     .replace(BEARER_RE, "$1 <redacted>")
-    .replace(UNQUOTED_SECRET_RE, "$1$2$1$3<redacted>");
+    .replace(
+      UNQUOTED_SECRET_RE,
+      (
+        match: string,
+        quote: string | undefined,
+        key: string,
+        separator: string,
+      ) =>
+        quote === undefined
+          ? match
+          : `${quote}${key}${quote}${separator}<redacted>`,
+    );
 }
 
 function getRuntime(): ErrorCaptureRuntime {
