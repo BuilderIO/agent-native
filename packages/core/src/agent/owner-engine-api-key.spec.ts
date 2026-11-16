@@ -6,6 +6,7 @@ const readDeployCredentialEnvMock = vi.hoisted(() => vi.fn());
 const canUseDeployCredentialFallbackForRequestMock = vi.hoisted(() => vi.fn());
 const getProviderCredentialAuthFailureMock = vi.hoisted(() => vi.fn());
 const readOrgMemberRoleMock = vi.hoisted(() => vi.fn());
+const resolveOrgIdForEmailMock = vi.hoisted(() => vi.fn());
 const requestContextState = vi.hoisted(() => ({
   synthetic: false,
   orgId: undefined as string | undefined,
@@ -14,6 +15,11 @@ const requestContextState = vi.hoisted(() => ({
   userEmail: undefined as string | undefined,
   credentialScope: undefined as "org" | undefined,
   assurance: undefined as "user" | "organization" | "org-member" | undefined,
+}));
+
+vi.mock("../org/context.js", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../org/context.js")>()),
+  resolveOrgIdForEmail: resolveOrgIdForEmailMock,
 }));
 
 vi.mock("../secrets/storage.js", () => ({
@@ -100,6 +106,7 @@ beforeEach(() => {
   requestContextState.credentialScope = undefined;
   requestContextState.assurance = undefined;
   readOrgMemberRoleMock.mockResolvedValue("member");
+  resolveOrgIdForEmailMock.mockResolvedValue("org-1");
   vi.mocked(isPersonalProviderKeyUseRestricted).mockResolvedValue(false);
 });
 
@@ -126,6 +133,121 @@ describe("getOwnerApiKey scope order", () => {
       "org-1",
       "owner@example.com",
     );
+  });
+
+  it.each(["org-only", "delegated member", "delegated organization"])(
+    "does not read personal stores for %s identity checks",
+    async (scenario) => {
+      requestContextState.orgId = "org-1";
+      requestContextState.userEmail = "owner@example.com";
+      requestContextState.credentialScope =
+        scenario === "org-only" ? "org" : undefined;
+      requestContextState.assurance =
+        scenario === "delegated member"
+          ? "org-member"
+          : scenario === "delegated organization"
+            ? "organization"
+            : undefined;
+      await getOwnerApiKeyForEngine("anthropic", "owner@example.com", {
+        matchApiKey: "test-unrecognized",
+      });
+      expect(
+        readAppSecretMock.mock.calls.every(
+          ([ref]) => ref.scope !== "user" && !ref.scopeId.startsWith("solo:"),
+        ),
+      ).toBe(true);
+      expect(getSettingMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it.each(["org-only", "delegated member", "delegated organization"])(
+    "marks unverified credential identity incomplete for %s",
+    async (scenario) => {
+      requestContextState.orgId = "org-1";
+      requestContextState.userEmail = "owner@example.com";
+      requestContextState.credentialScope =
+        scenario === "org-only" ? "org" : undefined;
+      requestContextState.assurance =
+        scenario === "delegated member"
+          ? "org-member"
+          : scenario === "delegated organization"
+            ? "organization"
+            : undefined;
+      const onIdentityIncomplete = vi.fn();
+      await getOwnerApiKeyForEngine("anthropic", "owner@example.com", {
+        matchApiKey: "test-unrecognized",
+        onIdentityIncomplete,
+      });
+      expect(onIdentityIncomplete).toHaveBeenCalledOnce();
+    },
+  );
+
+  it.each(["org-only", "delegated member", "delegated organization"])(
+    "retains authorized org credentials without reading personal stores for %s",
+    async (scenario) => {
+      requestContextState.orgId = "org-1";
+      requestContextState.userEmail = "owner@example.com";
+      requestContextState.credentialScope =
+        scenario === "org-only" ? "org" : undefined;
+      requestContextState.assurance =
+        scenario === "delegated member"
+          ? "org-member"
+          : scenario === "delegated organization"
+            ? "organization"
+            : undefined;
+      readAppSecretMock.mockImplementation(
+        async ({ scope, scopeId }: { scope: string; scopeId: string }) =>
+          scope === "org" && scopeId === "org-1"
+            ? { value: "test-org-key" }
+            : null,
+      );
+      const onIdentityIncomplete = vi.fn();
+      await expect(
+        getOwnerApiKeyForEngine("anthropic", "owner@example.com", {
+          matchApiKey: "test-org-key",
+          onIdentityIncomplete,
+        }),
+      ).resolves.toMatchObject({
+        apiKeyEnvVar: "ANTHROPIC_API_KEY",
+        credentialProvenance: { scope: "org", scopeId: "org-1" },
+      });
+      expect(onIdentityIncomplete).toHaveBeenCalledOnce();
+      expect(
+        readAppSecretMock.mock.calls.every(
+          ([ref]) => ref.scope !== "user" && !ref.scopeId.startsWith("solo:"),
+        ),
+      ).toBe(true);
+      expect(getSettingMock).not.toHaveBeenCalled();
+      readAppSecretMock.mockClear();
+      await expect(
+        getOwnerApiKey("anthropic", "owner@example.com"),
+      ).resolves.toBe("test-org-key");
+      expect(
+        readAppSecretMock.mock.calls.every(
+          ([ref]) => ref.scope !== "user" && !ref.scopeId.startsWith("solo:"),
+        ),
+      ).toBe(true);
+      expect(getSettingMock).not.toHaveBeenCalled();
+    },
+  );
+
+  it("does not read any vault if delegated membership is revoked or points to another org", async () => {
+    requestContextState.orgId = "org-1";
+    requestContextState.userEmail = "owner@example.com";
+    requestContextState.assurance = "org-member";
+    for (const resolution of [null, "other-org"] as const) {
+      resolveOrgIdForEmailMock.mockResolvedValue(resolution);
+      const onLookupFailure = vi.fn();
+      await expect(
+        getOwnerApiKeyForEngine("anthropic", "owner@example.com", {
+          matchApiKey: "test-key",
+          onLookupFailure,
+        }),
+      ).resolves.toEqual({ apiKey: undefined, apiKeyEnvVar: undefined });
+      expect(onLookupFailure).toHaveBeenCalledOnce();
+      expect(readAppSecretMock).not.toHaveBeenCalled();
+      expect(getSettingMock).not.toHaveBeenCalled();
+    }
   });
 
   it("identifies only the signed-in user's pre-org solo key when an org is active", async () => {

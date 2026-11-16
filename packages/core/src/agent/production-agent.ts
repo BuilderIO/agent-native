@@ -792,11 +792,18 @@ function ownerProviderSecretKey(provider: string): string {
 async function getOwnerApiKeyDetailed(
   provider: string,
   ownerEmail: string | null | undefined,
-  options?: { onLookupFailure?: () => void; matchApiKey?: string },
+  options?: {
+    onLookupFailure?: () => void;
+    onIdentityIncomplete?: () => void;
+    matchApiKey?: string;
+  },
 ): Promise<
   { apiKey: string; credentialProvenance: CredentialProvenance } | undefined
 > {
-  if (!ownerEmail) return undefined;
+  if (!ownerEmail) {
+    if (options?.matchApiKey !== undefined) options.onIdentityIncomplete?.();
+    return undefined;
+  }
   let lookupFailed = false;
   const reportLookupFailure = (): void => {
     if (!lookupFailed) return;
@@ -813,6 +820,21 @@ async function getOwnerApiKeyDetailed(
     request.credentialScope !== "org" &&
     (request.a2aIdentityAssurance === undefined ||
       request.a2aIdentityAssurance === "user");
+  const delegated =
+    request?.a2aIdentityAssurance === "org-member" ||
+    request?.a2aIdentityAssurance === "organization";
+  const mismatchedIdentity =
+    options?.matchApiKey !== undefined &&
+    request?.userEmail !== undefined &&
+    request.userEmail.trim().toLowerCase() !== ownerEmail.trim().toLowerCase();
+  const personalScopeForbidden =
+    request?.credentialScope === "org" || delegated || mismatchedIdentity;
+  if (
+    options?.matchApiKey !== undefined &&
+    (syntheticTraffic || !canMatchOwnSolo)
+  ) {
+    options.onIdentityIncomplete?.();
+  }
   const matchesKey = async (value: string): Promise<boolean> =>
     options?.matchApiKey !== undefined
       ? value === options.matchApiKey
@@ -823,7 +845,20 @@ async function getOwnerApiKeyDetailed(
   // never gated, so their lookup must not depend on the policy read either.
   let personalRestricted = false;
   try {
+    if (request?.a2aIdentityAssurance === "org-member") {
+      const { resolveOrgIdForEmail } = await import("../org/context.js");
+      if (
+        !orgId ||
+        !request.userEmail ||
+        request.userEmail.trim().toLowerCase() !==
+          ownerEmail.trim().toLowerCase() ||
+        (await resolveOrgIdForEmail(ownerEmail)) !== orgId
+      ) {
+        throw new Error("Delegated credential scope is unavailable.");
+      }
+    }
     personalRestricted =
+      !personalScopeForbidden &&
       isPersonalProviderPolicyKey(secretKey) &&
       (await isPersonalProviderKeyUseRestricted(
         orgId ? { email: ownerEmail, orgId } : { email: ownerEmail },
@@ -838,7 +873,10 @@ async function getOwnerApiKeyDetailed(
     const refs: Array<{
       scope: "user" | "org" | "workspace";
       scopeId: string;
-    }> = personalRestricted ? [] : [{ scope: "user", scopeId: ownerEmail }];
+    }> =
+      personalRestricted || personalScopeForbidden
+        ? []
+        : [{ scope: "user", scopeId: ownerEmail }];
     if (orgId && !syntheticTraffic) {
       refs.push(
         { scope: "org", scopeId: orgId },
@@ -850,6 +888,7 @@ async function getOwnerApiKeyDetailed(
       if (
         options?.matchApiKey !== undefined &&
         !personalRestricted &&
+        !personalScopeForbidden &&
         canMatchOwnSolo
       ) {
         refs.push({ scope: "workspace", scopeId: `solo:${ownerEmail}` });
@@ -857,6 +896,7 @@ async function getOwnerApiKeyDetailed(
     } else if (
       !syntheticTraffic &&
       !personalRestricted &&
+      !personalScopeForbidden &&
       (options?.matchApiKey === undefined || canMatchOwnSolo)
     ) {
       refs.push({ scope: "workspace", scopeId: `solo:${ownerEmail}` });
@@ -881,7 +921,7 @@ async function getOwnerApiKeyDetailed(
     reportLookupFailure();
     return undefined;
   }
-  if (syntheticTraffic || personalRestricted) {
+  if (syntheticTraffic || personalRestricted || personalScopeForbidden) {
     // An identity check cannot rule out a restricted, unreadable personal key.
     if (personalRestricted && options?.matchApiKey !== undefined)
       lookupFailed = true;
@@ -1087,6 +1127,8 @@ export async function getOwnerApiKeyForEngine(
   options?: {
     allowDeploymentFallback?: boolean;
     onLookupFailure?: () => void;
+    /** The caller's authorized scopes cannot establish identity for an opaque key. */
+    onIdentityIncomplete?: () => void;
     /** Identify this exact caller key, even when another stored key has precedence. */
     matchApiKey?: string;
   },
@@ -1102,6 +1144,9 @@ export async function getOwnerApiKeyForEngine(
     const envVar = PROVIDER_TO_ENV[provider];
     const ownerKey = await getOwnerApiKeyDetailed(provider, ownerEmail, {
       onLookupFailure: reportLookupFailure,
+      ...(options?.onIdentityIncomplete !== undefined
+        ? { onIdentityIncomplete: options.onIdentityIncomplete }
+        : {}),
       ...(options?.matchApiKey !== undefined
         ? { matchApiKey: options.matchApiKey }
         : {}),

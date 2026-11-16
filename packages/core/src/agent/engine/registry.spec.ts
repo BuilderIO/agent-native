@@ -1328,11 +1328,17 @@ describe("AgentEngine registry", () => {
     let shadowLegacy = false;
     let soloKeyPresent = false;
     let lookupFailure = false;
+    let restrictDeployment = false;
+    let limitedScope: "org-only" | "org-member" | "organization" | undefined;
     vi.doMock("../../server/request-context.js", () => ({
       getRequestContext: () => ({
         userEmail: "member@example.com",
         orgScope: "personal",
         isSyntheticTraffic: synthetic,
+        ...(limitedScope === "org-only" ? { credentialScope: "org" } : {}),
+        ...(limitedScope && limitedScope !== "org-only"
+          ? { a2aIdentityAssurance: limitedScope }
+          : {}),
       }),
       getRequestUserEmail: () => "member@example.com",
       getRequestOrgId: () => "org-example",
@@ -1344,6 +1350,10 @@ describe("AgentEngine registry", () => {
         activeEngine ? { engine: activeEngine } : null,
       ),
     }));
+    vi.doMock("../../org/context.js", async (original) => ({
+      ...(await original<typeof import("../../org/context.js")>()),
+      resolveOrgIdForEmail: vi.fn(async () => "org-example"),
+    }));
     vi.doMock(
       "../../server/personal-provider-key-policy.js",
       async (original) => ({
@@ -1354,23 +1364,28 @@ describe("AgentEngine registry", () => {
         readOrgMemberRole: vi.fn(async () => "member"),
       }),
     );
+    const readSetting = vi.fn(async (key: string) =>
+      key === "user-anthropic-api-key:member@example.com"
+        ? { key: "example-legacy-anthropic" }
+        : null,
+    );
     vi.doMock("../../settings/store.js", async (original) => ({
       ...(await original<typeof import("../../settings/store.js")>()),
-      getSetting: vi.fn(async (key: string) =>
-        key === "user-anthropic-api-key:member@example.com"
-          ? { key: "example-legacy-anthropic" }
-          : null,
-      ),
+      getSetting: readSetting,
     }));
+    const readDeploy = vi.fn((key: string) =>
+      key === "ANTHROPIC_API_KEY" ? "example-host-anthropic" : undefined,
+    );
     vi.doMock("../../server/credential-provider.js", async (original) => ({
       ...(await original<
         typeof import("../../server/credential-provider.js")
       >()),
       getProviderCredentialAuthFailure: vi.fn(async () => null),
       prefetchSecrets: vi.fn(async () => {}),
-      readDeployCredentialEnv: vi.fn((key: string) =>
-        key === "ANTHROPIC_API_KEY" ? "example-host-anthropic" : undefined,
+      canUseDeployCredentialFallbackForRequest: vi.fn(
+        () => !restrictDeployment,
       ),
+      readDeployCredentialEnv: readDeploy,
       resolveSecretDetailed: vi.fn(async (key: string) =>
         key === "OPENAI_API_KEY"
           ? {
@@ -1545,6 +1560,57 @@ describe("AgentEngine registry", () => {
     expect(openaiCreate.mock.calls.at(-1)?.[0].apiKey).toBe(
       "example-opaque-openai",
     );
+    for (const mode of ["org-only", "org-member", "organization"] as const) {
+      limitedScope = mode;
+      const beforeLimited = openaiCreate.mock.calls.length;
+      readAppSecret.mockClear();
+      readSetting.mockClear();
+      readDeploy.mockClear();
+      await expect(
+        completeText({
+          engine: "ai-sdk:openai",
+          apiKey: "example-unverified",
+          input: "go",
+        }),
+      ).rejects.toThrow(/identify/i);
+      await expect(
+        completeText({ apiKey: "example-unverified", input: "go" }),
+      ).rejects.toThrow(/identify/i);
+      expect(openaiCreate).toHaveBeenCalledTimes(beforeLimited);
+      expect(
+        readAppSecret.mock.calls.every(
+          ([ref]) => ref.scope !== "user" && !ref.scopeId?.startsWith("solo:"),
+        ),
+      ).toBe(true);
+      expect(
+        readSetting.mock.calls.every(
+          ([key]) =>
+            !key.startsWith("user-api-key:") &&
+            !key.startsWith("user-anthropic-api-key:"),
+        ),
+      ).toBe(true);
+      expect(readDeploy).not.toHaveBeenCalled();
+      await completeText({
+        engine: "ai-sdk:openai",
+        apiKey: "example-openai",
+        input: "go",
+      });
+      expect(openaiCreate.mock.calls.at(-1)?.[0].apiKey).toBe("example-openai");
+    }
+    limitedScope = undefined;
+    restrictDeployment = true;
+    readDeploy.mockClear();
+    const beforeRestrictedDeploy = openaiCreate.mock.calls.length;
+    await expect(
+      completeText({
+        engine: "ai-sdk:openai",
+        apiKey: "example-unverified",
+        input: "go",
+      }),
+    ).rejects.toThrow(/identify/i);
+    expect(openaiCreate).toHaveBeenCalledTimes(beforeRestrictedDeploy);
+    expect(readDeploy).not.toHaveBeenCalled();
+    restrictDeployment = false;
     shadowLegacy = false;
     soloKeyPresent = true;
     await completeText({
@@ -1599,14 +1665,20 @@ describe("AgentEngine registry", () => {
       completeText({ apiKey: "example-opaque", input: "go" }),
     ).rejects.toThrow(/explicit engine/i);
     expect(openaiCreate).toHaveBeenCalledTimes(beforeSynthetic);
+    await expect(
+      completeText({
+        engine: "ai-sdk:openai",
+        apiKey: "example-synthetic-opaque",
+        input: "go",
+      }),
+    ).rejects.toThrow(/identify/i);
+    expect(openaiCreate).toHaveBeenCalledTimes(beforeSynthetic);
     await completeText({
       engine: "ai-sdk:openai",
-      apiKey: "example-synthetic-opaque",
+      apiKey: "example-openai",
       input: "go",
     });
-    expect(openaiCreate.mock.calls.at(-1)?.[0].apiKey).toBe(
-      "example-synthetic-opaque",
-    );
+    expect(openaiCreate.mock.calls.at(-1)?.[0].apiKey).toBe("example-openai");
     synthetic = false;
     await completeText({ apiKey: "example-openai", input: "go" });
     expect(openaiCreate.mock.calls.at(-1)?.[0].apiKey).toBe("example-openai");

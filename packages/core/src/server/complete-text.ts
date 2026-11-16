@@ -23,7 +23,10 @@ import {
 } from "../agent/production-agent.js";
 import { getAppConfig } from "../app-config/index.js";
 import type { ReasoningEffort } from "../shared/reasoning-effort.js";
-import { readDeployCredentialEnv } from "./credential-provider.js";
+import {
+  canUseDeployCredentialFallbackForRequest,
+  readDeployCredentialEnv,
+} from "./credential-provider.js";
 import { getRequestContext, getRequestUserEmail } from "./request-context.js";
 
 export interface CompleteTextMessage {
@@ -163,12 +166,19 @@ async function resolveCompletionApiKey(
     return { apiKey: options.apiKey, apiKeyEnvVar: undefined };
   }
   const configuredEngine = getAppConfig().agent.engine;
-  const synthetic = getRequestContext()?.isSyntheticTraffic === true;
+  const request = getRequestContext();
+  const synthetic = request?.isSyntheticTraffic === true;
+  const deploymentScopeRestricted =
+    synthetic ||
+    request?.credentialScope === "org" ||
+    request?.a2aIdentityAssurance === "org-member" ||
+    request?.a2aIdentityAssurance === "organization";
   if (options.apiKey && (options.engine || (configuredEngine && !synthetic))) {
     // Explicit selection pins an opaque caller key to that engine. Recognize
     // every accessible matching credential, even one shadowed by another key,
     // before treating it as opaque.
     let lookupFailed = false;
+    let identityIncomplete = false;
     const entries = listAgentEngines();
     const providers = new Set([
       "anthropic",
@@ -187,6 +197,9 @@ async function resolveCompletionApiKey(
           onLookupFailure: () => {
             lookupFailed = true;
           },
+          onIdentityIncomplete: () => {
+            identityIncomplete = true;
+          },
         }),
       );
     }
@@ -203,9 +216,13 @@ async function resolveCompletionApiKey(
     ]);
     for (const apiKeyEnvVar of deployKeyNames) {
       if (
-        !synthetic &&
-        readDeployCredentialEnv(apiKeyEnvVar) === options.apiKey
+        deploymentScopeRestricted ||
+        !canUseDeployCredentialFallbackForRequest(apiKeyEnvVar)
       ) {
+        identityIncomplete = true;
+        continue;
+      }
+      if (readDeployCredentialEnv(apiKeyEnvVar) === options.apiKey) {
         matching.push({
           apiKey: options.apiKey,
           apiKeyEnvVar,
@@ -217,6 +234,11 @@ async function resolveCompletionApiKey(
       throw new Error("Unable to identify the completion API key provider.");
     }
     if (matching[0]) return matching[0];
+    if (identityIncomplete) {
+      throw new Error(
+        "Unable to identify the completion API key within the authorized credential scope.",
+      );
+    }
     return {
       apiKey: options.apiKey,
       apiKeyEnvVar: undefined,
