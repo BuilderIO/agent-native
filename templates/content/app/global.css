@@ -1202,6 +1202,19 @@
   user-select: none;
 }
 
+.content-table-moving,
+.content-table-moving * {
+  cursor: grabbing !important;
+  user-select: none;
+}
+
+/* Where a dragged row or column will land, drawn as the block drop line is. */
+.content-table-drop-indicator {
+  border-radius: 999px;
+  background: hsl(210 100% 52%);
+  box-shadow: 0 0 0 1px hsl(var(--background));
+}
+
 .content-image {
   max-width: 100%;
   border-radius: 4px;

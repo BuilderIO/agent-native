@@ -17,6 +17,9 @@ import {
   getTableHeaders,
   insertTableColumn,
   insertTableRow,
+  movedBlockStart,
+  moveTableColumns,
+  moveTableRows,
   setColumnColor,
   setColumnColors,
   setRowColor,
@@ -27,6 +30,9 @@ import {
   setTableRowCount,
   type TableAt,
   tableGridSize,
+  tableMoveBlock,
+  tableMoveChangesOrder,
+  tableMoveGaps,
   tableWithDuplicatedColumn,
 } from "./table-commands";
 import { createVisualEditorExtensions } from "./VisualEditor";
@@ -314,6 +320,120 @@ describe("rows", () => {
   });
 });
 
+describe("moving rows and columns", () => {
+  const rows = [
+    ["h:Item", "h:State", "h:Notes"],
+    ["Alpha", "Draft", "First"],
+    ["Beta", "Ready", "Second"],
+  ];
+
+  it("moves a row up, with its colour", () => {
+    const coloured = edit(table(rows, { headerRow: true }), (tr, target) =>
+      setRowColor(tr, target, 2, "blue_bg"),
+    );
+
+    const moved = edit(coloured, (tr, target) =>
+      moveTableRows(tr, target, { start: 2, end: 3 }, 1),
+    );
+    expect(cells(moved)).toEqual([
+      ["h:Item", "h:State", "h:Notes"],
+      ["Beta", "Ready", "Second"],
+      ["Alpha", "Draft", "First"],
+    ]);
+    expect([0, 1, 2].map((row) => getRowColor(moved, row))).toEqual([
+      null,
+      "blue_bg",
+      null,
+    ]);
+  });
+
+  it("moves rows down past the last row", () => {
+    const moved = edit(table([["A"], ["B"], ["C"], ["D"]]), (tr, target) =>
+      moveTableRows(tr, target, { start: 0, end: 2 }, 4),
+    );
+    expect(cells(moved)).toEqual([["C"], ["D"], ["A"], ["B"]]);
+    expect(movedBlockStart({ start: 0, end: 2 }, 4)).toBe(2);
+  });
+
+  it("makes the row dropped first the header row", () => {
+    const moved = edit(table(rows, { headerRow: true }), (tr, target) =>
+      moveTableRows(tr, target, { start: 2, end: 3 }, 0),
+    );
+    expect(cells(moved)).toEqual([
+      ["h:Beta", "h:Ready", "h:Second"],
+      ["Item", "State", "Notes"],
+      ["Alpha", "Draft", "First"],
+    ]);
+    expect(getTableHeaders(moved)).toEqual({ row: true, column: false });
+
+    const headerMoved = edit(table(rows, { headerRow: true }), (tr, target) =>
+      moveTableRows(tr, target, { start: 0, end: 1 }, 2),
+    );
+    expect(cells(headerMoved)).toEqual([
+      ["h:Alpha", "h:Draft", "h:First"],
+      ["Item", "State", "Notes"],
+      ["Beta", "Ready", "Second"],
+    ]);
+  });
+
+  it("leaves the table alone when dropped at its own edges", () => {
+    for (const gap of [1, 2]) {
+      expect(tableMoveChangesOrder({ start: 1, end: 2 }, gap)).toBe(false);
+      const tr = EditorState.create({ doc: docWith(table(rows)) }).tr;
+      moveTableRows(tr, firstTable(tr.doc), { start: 1, end: 2 }, gap);
+      moveTableColumns(tr, firstTable(tr.doc), { start: 1, end: 2 }, gap);
+      expect(tr.docChanged).toBe(false);
+    }
+  });
+
+  it("moves a column left, with its colour and width", () => {
+    const coloured = edit(table(rows), (tr, target) => {
+      setColumnColor(tr, target, 2, "red");
+      setColumnColor(tr, target, 0, "blue");
+    });
+
+    const moved = edit(coloured, (tr, target) =>
+      moveTableColumns(tr, target, { start: 2, end: 3 }, 1),
+    );
+    expect(cells(moved)).toEqual([
+      ["h:Item", "h:Notes", "h:State"],
+      ["Alpha", "First", "Draft"],
+      ["Beta", "Second", "Ready"],
+    ]);
+    expect(columnColors(moved)).toEqual(["blue", "red", null]);
+    expect(moved.attrs.colMeta).toEqual([{ color: "blue" }, { color: "red" }]);
+  });
+
+  it("moves a column right, after the last", () => {
+    const moved = edit(table(rows), (tr, target) =>
+      moveTableColumns(tr, target, { start: 0, end: 1 }, 3),
+    );
+    expect(cells(moved)).toEqual([
+      ["h:State", "h:Notes", "h:Item"],
+      ["Draft", "First", "Alpha"],
+      ["Ready", "Second", "Beta"],
+    ]);
+  });
+
+  it("makes the column dropped first the header column", () => {
+    const node = table(
+      [
+        ["h:Item", "State"],
+        ["h:Alpha", "Draft"],
+      ],
+      { headerColumn: true },
+    );
+    const moved = edit(node, (tr, target) =>
+      moveTableColumns(tr, target, { start: 1, end: 2 }, 0),
+    );
+    expect(cells(moved)).toEqual([
+      ["h:State", "Item"],
+      ["h:Draft", "Alpha"],
+    ]);
+    expect(getTableHeaders(moved)).toEqual({ row: false, column: true });
+  });
+});
+
 describe("a merged cell's rows and columns", () => {
   // A table whose first cell spans `span` columns or rows.
   function withMergedCell(span: "colspan" | "rowspan", rows: string[][]) {
@@ -427,5 +547,60 @@ describe("a merged cell's rows and columns", () => {
       deleteTableRows(tr, target, span),
     );
     expect(cells(deleted)).toEqual([["D", "E"]]);
+  });
+
+  it("moves a cell merged down rows with all of its rows, never between them", () => {
+    const { node } = withMergedCell("rowspan", [["B"], ["C"], ["D", "E"]]);
+    expect(tableMoveGaps(node, "row")).toEqual([0, 2, 3]);
+    expect(tableMoveGaps(node, "column")).toEqual([0, 1, 2]);
+    expect(tableMoveBlock(node, "row", { start: 1, end: 2 })).toEqual({
+      start: 0,
+      end: 2,
+    });
+
+    const moved = edit(node, (tr, target) =>
+      moveTableRows(tr, target, { start: 0, end: 2 }, 3),
+    );
+    expect(cells(moved)).toEqual([["D", "E"], ["A", "B"], ["C"]]);
+    expect(moved.child(1).child(0).attrs.rowspan).toBe(2);
+    expect(TableMap.get(moved).problems).toBeNull();
+  });
+
+  it("moves a column past a cell merged down rows, each row moving its own cells", () => {
+    const { node } = withMergedCell("rowspan", [
+      ["B", "C"],
+      ["D", "E"],
+    ]);
+
+    const moved = edit(node, (tr, target) =>
+      moveTableColumns(tr, target, { start: 2, end: 3 }, 0),
+    );
+    // The merged A is now the second column, so the second row's E comes
+    // first and its D last.
+    expect(cells(moved)).toEqual([
+      ["C", "A", "B"],
+      ["E", "D"],
+    ]);
+    expect(TableMap.get(moved).problems).toBeNull();
+    const map = TableMap.get(moved);
+    expect(moved.nodeAt(map.positionAt(1, 2, moved))?.textContent).toBe("D");
+  });
+
+  it("moves a cell merged across columns with all of its columns", () => {
+    const { node } = withMergedCell("colspan", [["C"], ["D", "E", "F"]]);
+    expect(tableMoveGaps(node, "column")).toEqual([0, 2, 3]);
+    expect(tableMoveBlock(node, "column", { start: 1, end: 2 })).toEqual({
+      start: 0,
+      end: 2,
+    });
+
+    const moved = edit(node, (tr, target) =>
+      moveTableColumns(tr, target, { start: 0, end: 2 }, 3),
+    );
+    expect(cells(moved)).toEqual([
+      ["C", "A"],
+      ["F", "D", "E"],
+    ]);
+    expect(TableMap.get(moved).problems).toBeNull();
   });
 });

@@ -42,13 +42,21 @@ import {
   getTableHeaders,
   insertTableColumn,
   insertTableRow,
+  movedBlockStart,
+  moveTableColumns,
+  moveTableRows,
   setColumnColors,
   setRowColors,
   setTableColumnCount,
   setTableHeaders,
   setTableRowCount,
   type TableAt,
+  type TableAxis,
   tableGridSize,
+  tableMoveBlock,
+  tableMoveChangesOrder,
+  tableMoveGaps,
+  type TableSpan,
   tableWithDuplicatedColumn,
 } from "./table-commands";
 import { COLUMN_SIZING_ATTRIBUTE } from "./table-sizing";
@@ -89,6 +97,40 @@ interface SelectionOverlayRect {
   width: number;
 }
 
+// A row or column moved by dragging its options handle.
+interface AxisDrag {
+  table: HTMLElement;
+  tableIndex: number;
+  // The dragged cell, by the grid, and the rows or columns moving with it.
+  cell: TableCellRect;
+  block: TableSpan;
+  // From the block's start edge to the pointer, along the axis.
+  grabOffset: number;
+  // The gap it would land in, or null where it would stay put.
+  gap: number | null;
+}
+
+// A press on a row or column options handle: a click opens its menu, and a
+// drag past DRAG_THRESHOLD moves the row or column.
+interface AxisPress {
+  kind: TableAxis;
+  pointerId: number;
+  startX: number;
+  startY: number;
+  x: number;
+  y: number;
+  moved: boolean;
+  drag: AxisDrag | null;
+  scrollFrame: number;
+  listeners: AbortController;
+}
+
+interface AxisDragView {
+  source: SelectionOverlayRect;
+  preview: SelectionOverlayRect;
+  dropLine: SelectionOverlayRect | null;
+}
+
 const DRAG_THRESHOLD = 5;
 const MAX_DRAG_COLUMNS = 12;
 const MAX_DRAG_ROWS = 24;
@@ -123,6 +165,10 @@ const ROW_EDGE_HANDLE_HIT_WIDTH =
 const ROW_EDGE_HANDLE_HIT_HEIGHT =
   EDGE_HANDLE_THICKNESS + TABLE_HANDLE_HIT_PADDING * 2;
 const EDGE_HANDLE_TOOLTIP_DELAY = 350;
+// A drag this close to the edge of what scrolls the table scrolls it.
+const AUTOSCROLL_EDGE = 48;
+const AUTOSCROLL_MAX_STEP = 16;
+const DROP_LINE_THICKNESS = 3;
 const MENU_COLLISION_PADDING = 8;
 
 // A reference preview inside a cell brings its own tables, so these keep only
@@ -374,6 +420,188 @@ function getTableOverlayId(table: HTMLElement) {
   return id;
 }
 
+/**
+ * Where each gap between a table's rows or columns is on screen, by the grid:
+ * entry `g` is the edge before row or column `g`, and the last the table's
+ * end. An edge that every row's merged cells cross is NaN; it's never a gap a
+ * block can land in. Null while the table's rows don't match its node's.
+ */
+function getAxisEdges(
+  table: HTMLElement,
+  node: ProseMirrorNode,
+  axis: TableAxis,
+) {
+  const rows = getRows(table);
+  if (rows.length === 0 || rows.length !== node.childCount) return null;
+  if (axis === "row") {
+    return [
+      ...rows.map((row) => row.getBoundingClientRect().top),
+      rows[rows.length - 1].getBoundingClientRect().bottom,
+    ];
+  }
+
+  const map = TableMap.get(node);
+  const rtl = getComputedStyle(table).direction === "rtl";
+  const edges = new Array<number>(map.width + 1).fill(Number.NaN);
+  node.forEach((row, rowOffset, rowIndex) => {
+    const cells = getCells(rows[rowIndex]);
+    row.forEach((_cell, cellOffset, cellIndex) => {
+      const rect = cells[cellIndex]?.getBoundingClientRect();
+      if (!rect) return;
+      const { left, right } = map.findCell(rowOffset + 1 + cellOffset);
+      if (Number.isNaN(edges[left])) edges[left] = rtl ? rect.right : rect.left;
+      if (Number.isNaN(edges[right])) {
+        edges[right] = rtl ? rect.left : rect.right;
+      }
+    });
+  });
+  return edges;
+}
+
+/** The gap among `gaps` whose edge is nearest `at`. */
+export function nearestMoveGap(edges: number[], gaps: number[], at: number) {
+  let nearest = gaps[0];
+  for (const gap of gaps) {
+    if (Math.abs(edges[gap] - at) < Math.abs(edges[nearest] - at)) {
+      nearest = gap;
+    }
+  }
+  return nearest;
+}
+
+// How far to scroll for a drag at `at` between the `start` and `end` of what
+// scrolls: faster the nearer the edge.
+function getAutoScrollStep(at: number, start: number, end: number) {
+  const speed = (depth: number) =>
+    Math.ceil(AUTOSCROLL_MAX_STEP * Math.min(1, depth / AUTOSCROLL_EDGE));
+  if (at < start + AUTOSCROLL_EDGE) return -speed(start + AUTOSCROLL_EDGE - at);
+  if (at > end - AUTOSCROLL_EDGE) return speed(at - end + AUTOSCROLL_EDGE);
+  return 0;
+}
+
+function isVerticalScroller(element: HTMLElement) {
+  const { overflowY } = getComputedStyle(element);
+  return (
+    (overflowY === "auto" || overflowY === "scroll") &&
+    element.scrollHeight > element.clientHeight
+  );
+}
+
+/**
+ * Scrolls a table sideways in its `.tableWrapper`, or the page holding it up
+ * or down, while a drag nears that edge. Returns whether anything scrolled.
+ */
+function autoScrollForDrag(table: HTMLElement, axis: TableAxis, at: number) {
+  let scroller: HTMLElement | null;
+  let start: number;
+  let end: number;
+  if (axis === "column") {
+    scroller = table.closest(".tableWrapper") as HTMLElement | null;
+    if (!scroller || scroller.scrollWidth <= scroller.clientWidth) return false;
+    ({ left: start, right: end } = scroller.getBoundingClientRect());
+  } else {
+    scroller = table.parentElement;
+    while (scroller && !isVerticalScroller(scroller)) {
+      scroller = scroller.parentElement;
+    }
+    const rect = scroller?.getBoundingClientRect();
+    start = Math.max(rect?.top ?? 0, 0);
+    end = Math.min(rect?.bottom ?? window.innerHeight, window.innerHeight);
+    scroller ??= document.scrollingElement as HTMLElement | null;
+    if (!scroller) return false;
+  }
+
+  const step = getAutoScrollStep(at, start, end);
+  if (step === 0) return false;
+  const before = axis === "column" ? scroller.scrollLeft : scroller.scrollTop;
+  if (axis === "column") scroller.scrollLeft += step;
+  else scroller.scrollTop += step;
+  return (
+    (axis === "column" ? scroller.scrollLeft : scroller.scrollTop) !== before
+  );
+}
+
+// The dragged block where it is, a copy of it under the pointer, and the line
+// where it would land.
+function getAxisDragView(
+  press: AxisPress,
+  drag: AxisDrag,
+  edges: number[],
+): AxisDragView {
+  const tableRect = drag.table.getBoundingClientRect();
+  const scrollport = getTableScrollport(drag.table);
+  const blockStart = Math.min(edges[drag.block.start], edges[drag.block.end]);
+  const blockSize = Math.abs(edges[drag.block.end] - edges[drag.block.start]);
+  const lineAt = drag.gap === null ? null : edges[drag.gap];
+
+  if (press.kind === "row") {
+    const left = Math.max(tableRect.left, scrollport.left);
+    const width = Math.min(tableRect.right, scrollport.right) - left;
+    return {
+      source: { height: blockSize, left, top: blockStart, width },
+      preview: {
+        height: blockSize,
+        left,
+        top: press.y - drag.grabOffset,
+        width,
+      },
+      dropLine:
+        lineAt === null
+          ? null
+          : {
+              height: DROP_LINE_THICKNESS,
+              left,
+              top: lineAt - DROP_LINE_THICKNESS / 2,
+              width,
+            },
+    };
+  }
+
+  const column = (left: number, width: number) => ({
+    height: tableRect.height,
+    left,
+    top: tableRect.top,
+    width,
+  });
+  return {
+    source: clampToScrollport(column(blockStart, blockSize), scrollport),
+    preview: column(press.x - drag.grabOffset, blockSize),
+    dropLine:
+      lineAt === null ||
+      lineAt < scrollport.left - 1 ||
+      lineAt > scrollport.right + 1
+        ? null
+        : column(lineAt - DROP_LINE_THICKNESS / 2, DROP_LINE_THICKNESS),
+  };
+}
+
+// The cell at a place on a table's grid: its address and where it starts.
+function getCellAtGrid(
+  table: TableAt,
+  tableIndex: number,
+  gridRow: number,
+  gridColumn: number,
+) {
+  const map = TableMap.get(table.node);
+  const offset = map.map[gridRow * map.width + gridColumn];
+  let rowOffset = 0;
+  for (let rowIndex = 0; rowIndex < table.node.childCount; rowIndex += 1) {
+    const row = table.node.child(rowIndex);
+    let cellOffset = rowOffset + 1;
+    for (let columnIndex = 0; columnIndex < row.childCount; columnIndex += 1) {
+      if (cellOffset === offset) {
+        return {
+          address: { columnIndex, rowIndex, tableIndex },
+          pos: table.pos + 1 + offset,
+        };
+      }
+      cellOffset += row.child(columnIndex).nodeSize;
+    }
+    rowOffset += row.nodeSize;
+  }
+  return null;
+}
+
 export function TableHoverControls({ editor }: TableHoverControlsProps) {
   const t = useT();
   const selectedCellRef = useRef<HTMLElement | null>(null);
@@ -387,6 +615,8 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
     rowTable: null,
   });
   const pointerResizeRef = useRef<PointerResizeState | null>(null);
+  const axisPressRef = useRef<AxisPress | null>(null);
+  const axisDragEndedAtRef = useRef(0);
   const tablesRef = useRef<HTMLElement[]>([]);
   const hoveredCellRef = useRef<HTMLElement | null>(null);
   const menuDismissedOutsideRef = useRef(false);
@@ -401,6 +631,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
   const [rowMenuOpen, setRowMenuOpen] = useState(false);
   const [viewRetry, setViewRetry] = useState(0);
   const [, setGeometryRevision] = useState(0);
+  const [axisDragView, setAxisDragView] = useState<AxisDragView | null>(null);
 
   const holdTableUiSelection = () => {
     tableUiPointerDownRef.current = true;
@@ -908,6 +1139,271 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
     window.addEventListener("pointercancel", handlePointerCancel);
   };
 
+  const openAxisMenu = (kind: TableAxis) => {
+    holdTableUiSelection();
+    setColumnMenuOpen(kind === "column");
+    setRowMenuOpen(kind === "row");
+  };
+
+  // The click that ends a drag isn't one: it would open the menu, or land
+  // outside the table and drop the moved cell's selection.
+  const takeClickAfterDrag = () => {
+    const afterDrag = performance.now() - axisDragEndedAtRef.current < 500;
+    axisDragEndedAtRef.current = 0;
+    return afterDrag;
+  };
+
+  const endAxisPress = () => {
+    const press = axisPressRef.current;
+    axisPressRef.current = null;
+    if (!press) return null;
+    press.listeners.abort();
+    cancelAnimationFrame(press.scrollFrame);
+    document.documentElement.classList.remove("content-table-moving");
+    setAxisDragView(null);
+    if (press.moved) axisDragEndedAtRef.current = performance.now();
+    return press;
+  };
+
+  const cancelAxisPress = (press: AxisPress) => {
+    if (axisPressRef.current !== press) return;
+    endAxisPress();
+    syncOverlay();
+  };
+
+  // The dragged cell's rows or columns, widened past any merged cell, unless
+  // they are the whole table and have nowhere to go.
+  const startAxisDrag = (press: AxisPress): AxisDrag | null => {
+    // The refs, not state: the press selected the hovered cell after the
+    // render these handlers came from.
+    const context = getTableMutationContext(
+      selectedCellRef.current?.isConnected
+        ? selectedCellRef.current
+        : getCellAtAddress(tablesRef.current, selectedCellAddressRef.current),
+    );
+    const cell = context && getCellRect(context.table, context.address);
+    const table = context
+      ? getEditorTables(editor.view.dom)[context.address.tableIndex]
+      : null;
+    if (!context || !cell || !table) return null;
+    // Cards stack each row's cells, so columns have nowhere to be dragged.
+    if (
+      press.kind === "column" &&
+      table.getAttribute(COLUMN_SIZING_ATTRIBUTE) === "cards"
+    ) {
+      return null;
+    }
+
+    const node = context.table.node;
+    const block = tableMoveBlock(
+      node,
+      press.kind,
+      press.kind === "row"
+        ? { start: cell.top, end: cell.bottom }
+        : { start: cell.left, end: cell.right },
+    );
+    const { width, height } = TableMap.get(node);
+    if (
+      block.start === 0 &&
+      block.end === (press.kind === "row" ? height : width)
+    ) {
+      return null;
+    }
+    const edges = getAxisEdges(table, node, press.kind);
+    if (!edges) return null;
+
+    closeTableMenus();
+    document.documentElement.classList.add("content-table-moving");
+    const blockStart = Math.min(edges[block.start], edges[block.end]);
+    return {
+      table,
+      tableIndex: context.address.tableIndex,
+      cell,
+      block,
+      grabOffset:
+        (press.kind === "row" ? press.startY : press.startX) - blockStart,
+      gap: null,
+    };
+  };
+
+  // Picks the gap nearest the pointer from the table as it is now: the page or
+  // the table may have scrolled, and a collaborator may have changed it.
+  const updateAxisDrag = (press: AxisPress) => {
+    const drag = press.drag;
+    const view = getMountedEditorView(editor);
+    const target =
+      view && drag ? findTableByIndex(view.state.doc, drag.tableIndex) : null;
+    if (!drag || !target || !drag.table.isConnected) {
+      cancelAxisPress(press);
+      return;
+    }
+    const gaps = tableMoveGaps(target.node, press.kind);
+    const edges = getAxisEdges(drag.table, target.node, press.kind);
+    if (
+      !edges ||
+      !gaps.includes(drag.block.start) ||
+      !gaps.includes(drag.block.end)
+    ) {
+      cancelAxisPress(press);
+      return;
+    }
+
+    const gap = nearestMoveGap(
+      edges,
+      gaps,
+      press.kind === "row" ? press.y : press.x,
+    );
+    drag.gap = tableMoveChangesOrder(drag.block, gap) ? gap : null;
+    setAxisDragView(getAxisDragView(press, drag, edges));
+  };
+
+  const autoScrollAxisDrag = (press: AxisPress) => {
+    if (axisPressRef.current !== press || !press.drag) return;
+    const at = press.kind === "row" ? press.y : press.x;
+    if (autoScrollForDrag(press.drag.table, press.kind, at)) {
+      updateAxisDrag(press);
+    }
+    press.scrollFrame = requestAnimationFrame(() => autoScrollAxisDrag(press));
+  };
+
+  const moveAxisPress = (press: AxisPress, event: PointerEvent) => {
+    if (event.pointerId !== press.pointerId || axisPressRef.current !== press) {
+      return;
+    }
+    press.x = event.clientX;
+    press.y = event.clientY;
+    if (!press.moved) {
+      const distance = Math.hypot(
+        press.x - press.startX,
+        press.y - press.startY,
+      );
+      if (distance < DRAG_THRESHOLD) return;
+      press.moved = true;
+      press.drag = startAxisDrag(press);
+      if (press.drag) autoScrollAxisDrag(press);
+    }
+    if (!press.drag) return;
+    event.preventDefault();
+    updateAxisDrag(press);
+  };
+
+  // Moves the block to the gap it was dropped at, and puts the caret back in
+  // the dragged cell, so its handles stay with it.
+  const dropAxisBlock = (kind: TableAxis, drag: AxisDrag) => {
+    let next = null as SelectedCellAddress | null;
+    editTable(drag.tableIndex, (tr, table) => {
+      const { block, cell, gap } = drag;
+      const gaps = tableMoveGaps(table.node, kind);
+      if (
+        gap === null ||
+        ![block.start, block.end, gap].every((edge) => gaps.includes(edge))
+      ) {
+        return;
+      }
+      if (kind === "row") moveTableRows(tr, table, block, gap);
+      else moveTableColumns(tr, table, block, gap);
+
+      const moved = movedBlockStart(block, gap) - block.start;
+      const landed = getCellAtGrid(
+        { node: tr.doc.nodeAt(table.pos) ?? table.node, pos: table.pos },
+        drag.tableIndex,
+        cell.top + (kind === "row" ? moved : 0),
+        cell.left + (kind === "column" ? moved : 0),
+      );
+      if (!landed) return;
+      next = landed.address;
+      tr.setSelection(TextSelection.near(tr.doc.resolve(landed.pos + 1)));
+    });
+    if (!next) return;
+
+    selectedCellRef.current = null;
+    selectedCellAddressRef.current = next;
+    const view = getMountedEditorView(editor);
+    view?.focus();
+    requestAnimationFrame(() => {
+      const nextCell = view
+        ? getCellAtAddress(getEditorTables(view.dom), next)
+        : null;
+      if (nextCell) selectCellForCommand(nextCell, true);
+      else syncOverlay();
+    });
+  };
+
+  const releaseAxisPress = (press: AxisPress, event: PointerEvent) => {
+    if (event.pointerId !== press.pointerId || axisPressRef.current !== press) {
+      return;
+    }
+    endAxisPress();
+    if (!press.moved) openAxisMenu(press.kind);
+    else if (press.drag) dropAxisBlock(press.kind, press.drag);
+    syncOverlay();
+  };
+
+  // A press on a row or column options handle opens its menu on release, or
+  // moves the row or column if it's dragged first.
+  const pressAxisHandle = (kind: TableAxis, event: PointerEvent) => {
+    endAxisPress();
+    selectHoveredCell();
+    if (event.button !== 0) {
+      openAxisMenu(kind);
+      return;
+    }
+    holdTableUiSelection();
+
+    const listeners = new AbortController();
+    const press: AxisPress = {
+      kind,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      x: event.clientX,
+      y: event.clientY,
+      moved: false,
+      drag: null,
+      scrollFrame: 0,
+      listeners,
+    };
+    axisPressRef.current = press;
+    const options = { capture: true, signal: listeners.signal };
+    window.addEventListener(
+      "pointermove",
+      (moveEvent) => moveAxisPress(press, moveEvent),
+      options,
+    );
+    window.addEventListener(
+      "pointerup",
+      (upEvent) => releaseAxisPress(press, upEvent),
+      options,
+    );
+    window.addEventListener(
+      "pointercancel",
+      (cancelEvent) => {
+        if (cancelEvent.pointerId === press.pointerId) cancelAxisPress(press);
+      },
+      options,
+    );
+    // Escape puts the row or column back where it was.
+    window.addEventListener(
+      "keydown",
+      (keyEvent) => {
+        if (keyEvent.key !== "Escape" || !press.drag) return;
+        keyEvent.preventDefault();
+        keyEvent.stopPropagation();
+        cancelAxisPress(press);
+      },
+      options,
+    );
+    window.addEventListener("blur", () => cancelAxisPress(press), options);
+  };
+
+  useEffect(
+    () => () => {
+      axisPressRef.current?.listeners.abort();
+      document.documentElement.classList.remove("content-table-moving");
+    },
+    [],
+  );
+
   useEffect(() => {
     if (!editor || editor.isDestroyed) return;
     const view = getMountedEditorView(editor);
@@ -923,27 +1419,30 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
       const target = getTargetElement(event.target);
       if (!target) return;
 
-      const columnAxisTrigger = target.closest(
-        '[data-testid="table-column-options"]',
-      );
-      if (columnAxisTrigger) {
+      if (event.type === "click" && takeClickAfterDrag()) {
         event.preventDefault();
         event.stopPropagation();
-        selectHoveredCell();
-        holdTableUiSelection();
-        setColumnMenuOpen(true);
         return;
       }
 
-      const rowAxisTrigger = target.closest(
-        '[data-testid="table-row-options"]',
+      const axisTrigger = target.closest(
+        '[data-testid="table-column-options"], [data-testid="table-row-options"]',
       );
-      if (rowAxisTrigger) {
+      if (axisTrigger) {
         event.preventDefault();
         event.stopPropagation();
-        selectHoveredCell();
-        holdTableUiSelection();
-        setRowMenuOpen(true);
+        const kind: TableAxis =
+          axisTrigger.getAttribute("data-testid") === "table-column-options"
+            ? "column"
+            : "row";
+        // A press waits to see if it drags; a click without a press, as from
+        // a script or Enter, opens the menu straight away.
+        if (event.type === "pointerdown") {
+          pressAxisHandle(kind, event as PointerEvent);
+        } else if (event.type === "click") {
+          selectHoveredCell();
+          openAxisMenu(kind);
+        }
         return;
       }
 
@@ -977,7 +1476,8 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
       updateHoveredEdges(getHoveredTableEdges(editor, target));
     };
     const handleHoverPointerMove = (event: PointerEvent) => {
-      if (pointerResizeRef.current) return;
+      // The handles stay on the row or column being dragged.
+      if (pointerResizeRef.current || axisPressRef.current?.drag) return;
       // Touch has no hover. A finger that moves during a tap would show a
       // handle under it before the tap lands, so taps use handleTapEdges.
       if (event.pointerType !== "touch") updateEdgesFromTarget(event.target);
@@ -986,7 +1486,7 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
     // Once a tap has placed the caret, the cell it landed on shows its edge
     // handles, so a second tap can use them.
     const handleTapEdges = (event: MouseEvent) => {
-      if (pointerResizeRef.current) return;
+      if (pointerResizeRef.current || axisPressRef.current?.drag) return;
       updateEdgesFromTarget(event.target);
     };
 
@@ -1193,8 +1693,9 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
     ? -ROW_OPTIONS_MENU_ALIGN_OFFSET
     : ROW_OPTIONS_MENU_ALIGN_OFFSET;
 
+  // touch-none lets a finger drag the row or column instead of the page.
   const lineButtonClass =
-    "content-table-axis-trigger group absolute z-40 flex items-center justify-center rounded-md bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
+    "content-table-axis-trigger group absolute z-40 flex cursor-grab touch-none items-center justify-center rounded-md bg-transparent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2";
   const axisMarkerClass =
     "block rounded-full bg-muted-foreground/55 transition-colors group-hover:bg-primary group-focus-visible:bg-primary";
   // touch-none lets a finger drag a handle instead of scrolling the page.
@@ -1203,9 +1704,39 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
   const edgeHandleMarkerClass =
     "block rounded-full bg-muted-foreground/55 transition-colors group-hover:bg-primary group-focus-visible:bg-primary";
 
+  const overlayStyle = (rect: SelectionOverlayRect) => ({
+    left: rect.left - wrapperRect.left,
+    top: rect.top - wrapperRect.top,
+    width: rect.width,
+    height: rect.height,
+  });
+
   return (
     <>
-      {visibleSelectedRect &&
+      {axisDragView ? (
+        <>
+          <div
+            className="pointer-events-none absolute z-20 rounded-[3px] bg-primary/10"
+            data-testid="table-move-source"
+            style={overlayStyle(axisDragView.source)}
+          />
+          <div
+            className="pointer-events-none absolute z-40 rounded-[3px] border-2 border-primary/60 bg-primary/10 shadow-lg"
+            data-testid="table-move-preview"
+            style={overlayStyle(axisDragView.preview)}
+          />
+          {axisDragView.dropLine ? (
+            <div
+              className="content-table-drop-indicator pointer-events-none absolute z-50"
+              data-testid="table-drop-indicator"
+              style={overlayStyle(axisDragView.dropLine)}
+            />
+          ) : null}
+        </>
+      ) : null}
+
+      {!axisDragView &&
+      visibleSelectedRect &&
       selectedScrollport &&
       selectedTable &&
       selectedTableRect ? (
@@ -1265,22 +1796,21 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
             <DropdownMenuTrigger asChild>
               <button
                 aria-label={t("database.columnOptions")}
-                className={cn(lineButtonClass, !axisRect.width && "invisible")}
+                className={cn(
+                  lineButtonClass,
+                  (!axisRect.width || axisDragView) && "invisible",
+                )}
                 data-testid="table-column-options"
                 onClickCapture={(event) => {
                   event.preventDefault();
                   event.stopPropagation();
-                  holdTableUiSelection();
-                  setRowMenuOpen(false);
-                  setColumnMenuOpen(true);
+                  openAxisMenu("column");
                 }}
                 onMouseDown={(event) => event.preventDefault()}
+                // A press opens the menu on release, unless it drags.
                 onPointerDownCapture={(event) => {
                   event.preventDefault();
                   event.stopPropagation();
-                  holdTableUiSelection();
-                  setRowMenuOpen(false);
-                  setColumnMenuOpen(true);
                 }}
                 style={{
                   left: axisRect.left - wrapperRect.left + axisRect.width / 2,
@@ -1395,22 +1925,19 @@ export function TableHoverControls({ editor }: TableHoverControlsProps) {
                 className={cn(
                   lineButtonClass,
                   rowOptionsInside && "justify-start",
+                  axisDragView && "invisible",
                 )}
                 data-testid="table-row-options"
                 onClickCapture={(event) => {
                   event.preventDefault();
                   event.stopPropagation();
-                  holdTableUiSelection();
-                  setColumnMenuOpen(false);
-                  setRowMenuOpen(true);
+                  openAxisMenu("row");
                 }}
                 onMouseDown={(event) => event.preventDefault()}
+                // A press opens the menu on release, unless it drags.
                 onPointerDownCapture={(event) => {
                   event.preventDefault();
                   event.stopPropagation();
-                  holdTableUiSelection();
-                  setColumnMenuOpen(false);
-                  setRowMenuOpen(true);
                 }}
                 style={{
                   left:

@@ -372,6 +372,165 @@ export function deleteTableRow(
   return tr;
 }
 
+export type TableAxis = "row" | "column";
+
+/** Rows or columns from `start` up to, not including, `end`, by the grid. */
+export interface TableSpan {
+  start: number;
+  end: number;
+}
+
+/**
+ * The gaps a block of rows or columns can be dropped into, by the grid: gap
+ * `g` lies before row or column `g`, so 0 is the table's start and its height
+ * or width its end. A gap through a merged cell isn't one.
+ */
+export function tableMoveGaps(table: ProseMirrorNode, axis: TableAxis) {
+  const map = TableMap.get(table);
+  const covered = new Set<number>();
+  for (const cellPos of new Set(map.map)) {
+    const cell = map.findCell(cellPos);
+    const [start, end] =
+      axis === "row" ? [cell.top, cell.bottom] : [cell.left, cell.right];
+    for (let gap = start + 1; gap < end; gap += 1) covered.add(gap);
+  }
+  const size = axis === "row" ? map.height : map.width;
+  return Array.from({ length: size + 1 }, (_, gap) => gap).filter(
+    (gap) => !covered.has(gap),
+  );
+}
+
+/**
+ * The rows or columns that move with `span`: it widens until no merged cell
+ * crosses its edges, so a merged cell moves whole.
+ */
+export function tableMoveBlock(
+  table: ProseMirrorNode,
+  axis: TableAxis,
+  span: TableSpan,
+): TableSpan {
+  const gaps = tableMoveGaps(table, axis);
+  return {
+    start: Math.max(...gaps.filter((gap) => gap <= span.start)),
+    end: Math.min(...gaps.filter((gap) => gap >= span.end)),
+  };
+}
+
+/** Whether dropping `block` at `gap` moves it: its own edges leave it put. */
+export function tableMoveChangesOrder(block: TableSpan, gap: number) {
+  return gap < block.start || gap > block.end;
+}
+
+/** Where a block dropped at `gap` starts once it's there. */
+export function movedBlockStart(block: TableSpan, gap: number) {
+  return gap < block.start ? gap : gap - (block.end - block.start);
+}
+
+// A header row or column belongs to the table, not to the cells that were in
+// it: the cells that land first become headers, and the ones that leave stop
+// being headers.
+function keepHeaders(
+  tr: Transaction,
+  tablePos: number,
+  headers: TableHeaders,
+  axis: TableAxis,
+  block: TableSpan,
+  gap: number,
+) {
+  if (!(axis === "row" ? headers.row : headers.column)) return;
+  if (block.start !== 0 && gap !== 0) return;
+  setTableHeaders(
+    tr,
+    { node: tableNodeAt(tr.doc, tablePos), pos: tablePos },
+    headers,
+  );
+}
+
+/**
+ * Moves rows `block` to `gap`, one of `tableMoveGaps`. Each row moves whole,
+ * colour and all. Only the moved rows change, so a collaborator's edit
+ * elsewhere in the table survives.
+ */
+export function moveTableRows(
+  tr: Transaction,
+  table: TableAt,
+  block: TableSpan,
+  gap: number,
+) {
+  if (!tableMoveChangesOrder(block, gap)) return tr;
+  const rowPos = (index: number) => {
+    let pos = table.pos + 1;
+    for (let row = 0; row < index; row += 1) {
+      pos += table.node.child(row).nodeSize;
+    }
+    return pos;
+  };
+  const from = rowPos(block.start);
+  const to = rowPos(block.end);
+  const rows = table.node.content.cut(from - table.pos - 1, to - table.pos - 1);
+  const firstStep = tr.steps.length;
+  tr.delete(from, to);
+  tr.insert(tr.mapping.slice(firstStep).map(rowPos(gap)), rows);
+  keepHeaders(tr, table.pos, getTableHeaders(table.node), "row", block, gap);
+  return tr;
+}
+
+/**
+ * Moves columns `block` to `gap`, one of `tableMoveGaps`. Cells keep their
+ * widths, and the columns' colours and widths in `colMeta` move with them.
+ * Each row moves only its own cells, so a cell merged down from a row above
+ * moves in that row.
+ */
+export function moveTableColumns(
+  tr: Transaction,
+  table: TableAt,
+  block: TableSpan,
+  gap: number,
+) {
+  if (!tableMoveChangesOrder(block, gap)) return tr;
+  const map = TableMap.get(table.node);
+  const firstStep = tr.steps.length;
+  const mapped = (pos: number) => tr.mapping.slice(firstStep).map(pos);
+
+  table.node.forEach((row, rowOffset) => {
+    // Offsets in the row: the moved cells run from `from` to `to`, and they
+    // go before the row's first other cell at or past the gap.
+    let from = -1;
+    let to = -1;
+    let at = -1;
+    row.forEach((cell, cellOffset) => {
+      const { left } = map.findCell(rowOffset + 1 + cellOffset);
+      if (left >= block.start && left < block.end) {
+        if (from < 0) from = cellOffset;
+        to = cellOffset + cell.nodeSize;
+      } else if (at < 0 && left >= gap) {
+        at = cellOffset;
+      }
+    });
+    if (at < 0) at = row.content.size;
+    if (from < 0 || at === from || at === to) return;
+
+    const contentPos = table.pos + 1 + rowOffset + 1;
+    const cells = row.content.cut(from, to);
+    tr.delete(mapped(contentPos + from), mapped(contentPos + to));
+    tr.insert(mapped(contentPos + at), cells);
+  });
+
+  const columns = getColumnMeta(table.node);
+  if (columns.length > 0) {
+    while (columns.length < map.width) columns.push({});
+    const moved = columns.splice(block.start, block.end - block.start);
+    columns.splice(movedBlockStart(block, gap), 0, ...moved);
+    const isEmpty = (column: ColumnMeta) => !column.color && !column.width;
+    while (columns.length > 0 && isEmpty(columns[columns.length - 1])) {
+      columns.pop();
+    }
+    setColumnMeta(tr, table.pos, columns);
+  }
+  keepHeaders(tr, table.pos, getTableHeaders(table.node), "column", block, gap);
+  return tr;
+}
+
 /**
  * A table's size by its grid, as these commands count it: a cell merged
  * across columns takes up every column it spans.

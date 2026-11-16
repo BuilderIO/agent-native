@@ -78,6 +78,22 @@ async function savedTableRows(page: Page, id: string) {
     .filter((line) => line.startsWith("|") && !/^\|\s*-/.test(line)).length;
 }
 
+/**
+ * Drags the named row or column options handle to `to`. The handle shows at
+ * the hovered cell, so the pointer jumps onto it rather than crossing others.
+ */
+async function dragHandle(
+  page: Page,
+  name: "Row options" | "Column options",
+  to: { x: number; y: number },
+) {
+  const box = (await page.getByRole("button", { name }).boundingBox())!;
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(to.x, to.y, { steps: 8 });
+  await page.mouse.up();
+}
+
 async function openTablePage(page: Page, title: string, content = TABLE) {
   const id = await createPage(page, `${title} ${Date.now()}`, content);
   await gotoEditor(page, id);
@@ -636,6 +652,111 @@ test.describe("inline table controls", () => {
       expect(Math.abs(width - before[index])).toBeLessThanOrEqual(1),
     );
   });
+
+  test("dragging a row's handle moves the row, and one undo puts it back", async ({
+    page,
+  }) => {
+    const id = await openTablePage(page, "Table row drag");
+    await cell(page, "Beta").hover();
+    const alpha = (await cell(page, "Alpha").boundingBox())!;
+    await dragHandle(page, "Row options", {
+      x: alpha.x + alpha.width / 2,
+      y: alpha.y + 4,
+    });
+
+    await expect
+      .poll(() => cellTexts(page, "tr > :first-child"))
+      .toEqual(["Item", "Beta", "Alpha"]);
+    expect(await cellTexts(page, "tr:nth-child(2) > *")).toEqual([
+      "Beta",
+      "Ready",
+      "Second",
+    ]);
+    await expect(page.getByRole("menu")).toHaveCount(0);
+    expect(await caretCell(page)).toBe("Beta");
+    await expect
+      .poll(async () => {
+        const { content = "" } = await getDocument(page, id);
+        const beta = content.indexOf("Beta");
+        return beta >= 0 && beta < content.indexOf("Alpha");
+      })
+      .toBe(true);
+
+    await page.keyboard.press("Control+z");
+    await expect
+      .poll(() => cellTexts(page, "tr > :first-child"))
+      .toEqual(["Item", "Alpha", "Beta"]);
+  });
+
+  test("a row dragged above the header row becomes the header row", async ({
+    page,
+  }) => {
+    await openTablePage(page, "Table row drag header");
+    await cell(page, "Beta").hover();
+    const item = (await cell(page, "Item").boundingBox())!;
+    await dragHandle(page, "Row options", {
+      x: item.x + item.width / 2,
+      y: item.y + 2,
+    });
+
+    await expect
+      .poll(() => cellTexts(page, ".content-table-header-cell"))
+      .toEqual(["Beta", "Ready", "Second"]);
+    expect(await cellTexts(page, "tr > :first-child")).toEqual([
+      "Beta",
+      "Item",
+      "Alpha",
+    ]);
+  });
+
+  test("dragging a column's handle moves the column", async ({ page }) => {
+    await openTablePage(page, "Table column drag");
+    await cell(page, "Notes").hover();
+    const state = (await cell(page, "State").boundingBox())!;
+    await dragHandle(page, "Column options", {
+      x: state.x + 4,
+      y: state.y + state.height / 2,
+    });
+
+    await expect
+      .poll(() => cellTexts(page, "tr:first-child > *"))
+      .toEqual(["Item", "Notes", "State"]);
+    expect(await cellTexts(page, "tr:nth-child(2) > *")).toEqual([
+      "Alpha",
+      "First",
+      "Draft",
+    ]);
+    await expect(page.getByRole("menu")).toHaveCount(0);
+    expect(await caretCell(page)).toBe("Notes");
+  });
+
+  test("Escape during a drag leaves the row where it was", async ({ page }) => {
+    await openTablePage(page, "Table drag escape");
+    await cell(page, "Beta").hover();
+    const handle = (await page
+      .getByRole("button", { name: "Row options" })
+      .boundingBox())!;
+    const alpha = (await cell(page, "Alpha").boundingBox())!;
+    await page.mouse.move(
+      handle.x + handle.width / 2,
+      handle.y + handle.height / 2,
+    );
+    await page.mouse.down();
+    await page.mouse.move(alpha.x + alpha.width / 2, alpha.y + 4, {
+      steps: 8,
+    });
+    await expect(page.getByTestId("table-drop-indicator")).toBeVisible();
+
+    await page.keyboard.press("Escape");
+    await expect(page.getByTestId("table-drop-indicator")).toHaveCount(0);
+    await page.mouse.up();
+    await expect(page.getByRole("menu")).toHaveCount(0);
+    expect(await cellTexts(page, "tr > :first-child")).toEqual([
+      "Item",
+      "Alpha",
+      "Beta",
+    ]);
+  });
 });
 
 test.describe("inline table controls on a touch screen", () => {
@@ -753,5 +874,48 @@ test.describe("inline table controls on a touch screen", () => {
     expect(await caretCell(page)).toBe("Alpha");
     await page.waitForTimeout(300);
     await expect(headerCells).toHaveCount(3);
+  });
+
+  test("a finger drags a row by its handle instead of scrolling the page", async ({
+    page,
+  }) => {
+    await openTablePage(page, "Table touch drag");
+    await cell(page, "Beta").tap();
+    const handle = (await page
+      .getByRole("button", { name: "Row options" })
+      .boundingBox())!;
+    const alpha = (await cell(page, "Alpha").boundingBox())!;
+    const from = {
+      x: handle.x + handle.width / 2,
+      y: handle.y + handle.height / 2,
+    };
+    const to = { x: alpha.x + alpha.width / 2, y: alpha.y + 4 };
+
+    // Playwright's touchscreen only taps, so the drag goes through CDP.
+    const cdp = await page.context().newCDPSession(page);
+    await cdp.send("Input.dispatchTouchEvent", {
+      type: "touchStart",
+      touchPoints: [from],
+    });
+    for (let step = 1; step <= 8; step += 1) {
+      await cdp.send("Input.dispatchTouchEvent", {
+        type: "touchMove",
+        touchPoints: [
+          {
+            x: from.x + ((to.x - from.x) * step) / 8,
+            y: from.y + ((to.y - from.y) * step) / 8,
+          },
+        ],
+      });
+    }
+    await cdp.send("Input.dispatchTouchEvent", {
+      type: "touchEnd",
+      touchPoints: [],
+    });
+
+    await expect
+      .poll(() => cellTexts(page, "tr > :first-child"))
+      .toEqual(["Item", "Beta", "Alpha"]);
+    await expect(page.getByRole("menu")).toHaveCount(0);
   });
 });
