@@ -52,7 +52,8 @@ import {
 } from "../design-editor-shared";
 import { isCurrentRuntimeLayerSnapshot } from "../export-snapshot-frame";
 import {
-  countRemovedPendingStyleEntries,
+  removePendingHistoryOrderEntries,
+  removedPendingVisualStyleHistoryEntries,
   retainPendingVisualStyleUndoTargets,
 } from "../history-cleanup";
 import {
@@ -580,23 +581,18 @@ export function useEditorExportAndHandoff({
         includedVisualEditIds: handoff.includes.visualEditIds,
         finalizeIncludedHistory: (includedIds) => {
           const included = new Set(includedIds);
-          const counts = {
-            undo: { "pending-style": 0, "pending-live": 0 },
-            redo: { "pending-style": 0, "pending-live": 0 },
-          };
-          const stackId = (edit: {
-            screenId: string;
-            selector: string;
-            updatedAt: number;
-          }) => `style:${edit.screenId}:${edit.selector}:${edit.updatedAt}`;
+          const removedHistoryEntries = new Set<string>();
           const styleStacks = [
             editorHistory.pendingVisualStyleUndoStackRef,
             editorHistory.pendingVisualStyleRedoStackRef,
           ];
-          for (const [index, stack] of styleStacks.entries()) {
-            const direction = index === 0 ? "undo" : "redo";
-            counts[direction]["pending-style"] +=
-              countRemovedPendingStyleEntries(stack.current, included);
+          for (const stack of styleStacks) {
+            for (const entry of removedPendingVisualStyleHistoryEntries(
+              stack.current,
+              included,
+            )) {
+              removedHistoryEntries.add(entry.id);
+            }
             stack.current = stack.current.flatMap((entry) => {
               const kept = retainPendingVisualStyleUndoTargets(entry, included);
               return kept ? [kept] : [];
@@ -606,32 +602,25 @@ export function useEditorExportAndHandoff({
             editorHistory.pendingLiveNonStyleUndoStackRef,
             editorHistory.pendingLiveNonStyleRedoStackRef,
           ];
-          for (const [index, stack] of liveStacks.entries()) {
-            const direction = index === 0 ? "undo" : "redo";
+          for (const stack of liveStacks) {
             stack.current = stack.current.filter((entry) => {
               const edit = entry.edit;
               const key = `live:${edit.kind}:${edit.screenId}:${edit.selector}:${edit.updatedAt}`;
               if (!included.has(key)) return true;
-              counts[direction]["pending-live"] += 1;
+              if (entry.historyOrderEntry) {
+                removedHistoryEntries.add(entry.historyOrderEntry.id);
+              }
               return false;
             });
           }
-          for (const kind of ["pending-style", "pending-live"] as const) {
-            for (const [index, order] of [
-              editorHistory.historyOrderRef,
-              editorHistory.redoOrderRef,
-            ].entries()) {
-              let remaining = counts[index === 0 ? "undo" : "redo"][kind];
-              for (
-                let index = order.current.length - 1;
-                index >= 0 && remaining > 0;
-                index -= 1
-              ) {
-                if (order.current[index] !== kind) continue;
-                order.current.splice(index, 1);
-                remaining -= 1;
-              }
-            }
+          for (const order of [
+            editorHistory.historyOrderRef,
+            editorHistory.redoOrderRef,
+          ]) {
+            order.current = removePendingHistoryOrderEntries(
+              order.current,
+              removedHistoryEntries,
+            );
           }
         },
         hasStandalonePrompt:

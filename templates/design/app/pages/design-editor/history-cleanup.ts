@@ -1,6 +1,10 @@
+import type { PendingHistoryOrderEntry } from "./editor-state";
+import type { UndoRedoOrderKind } from "./editor-state";
+import { firstArrayValue } from "./editor-state";
 import {
   pendingVisualStyleUndoTargets,
   type PendingVisualStyleUndoEntry,
+  type PendingVisualStyleUndoTarget,
 } from "./pending-edits";
 
 interface StyleEditKey {
@@ -20,25 +24,41 @@ export function retainPendingVisualStyleUndoTargets(
   if (kept.length === 0) return undefined;
   if (kept.length === targets.length) return entry;
 
-  const [head, ...groupedTargets] = kept;
+  const head: PendingVisualStyleUndoTarget | undefined = firstArrayValue(kept);
+  if (!head) return undefined;
+  const groupedTargets = kept.slice(1);
+  const {
+    groupedTargets: _previousGroupedTargets,
+    ...entryWithoutGroupedTargets
+  } = entry;
   return {
-    ...entry,
-    edit: head!.edit,
-    revertStyles: head!.revertStyles,
-    ...(groupedTargets.length > 0
-      ? { groupedTargets }
-      : { groupedTargets: undefined }),
+    ...entryWithoutGroupedTargets,
+    edit: head.edit,
+    revertStyles: head.revertStyles,
+    ...(groupedTargets.length > 0 ? { groupedTargets } : {}),
   };
 }
 
-export function countRemovedPendingStyleEntries(
+export function removedPendingVisualStyleHistoryEntries(
   entries: PendingVisualStyleUndoEntry[],
   included: ReadonlySet<string>,
-): number {
-  return entries.filter((entry) => {
+): PendingHistoryOrderEntry[] {
+  return entries.flatMap((entry) => {
     const targets = pendingVisualStyleUndoTargets(entry);
-    return targets.every((target) => included.has(styleEditId(target.edit)));
-  }).length;
+    return targets.every((target) => included.has(styleEditId(target.edit))) &&
+      entry.historyOrderEntry
+      ? [entry.historyOrderEntry]
+      : [];
+  });
+}
+
+export function removePendingHistoryOrderEntries(
+  order: UndoRedoOrderKind[],
+  removedEntries: ReadonlySet<string>,
+): UndoRedoOrderKind[] {
+  return order.filter(
+    (entry) => typeof entry === "string" || !removedEntries.has(entry.id),
+  );
 }
 
 function styleEditId(edit: StyleEditKey): string {

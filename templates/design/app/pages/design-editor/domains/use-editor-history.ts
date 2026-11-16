@@ -50,6 +50,7 @@ import {
 import { reloadRunningAppPreviewFrames } from "../editor-helpers";
 import {
   removeUndoRedoOrderKind,
+  undoRedoOrderKind,
   type UndoRedoOrderKind,
 } from "../editor-state";
 import { focusAgentComposer } from "../effects/focus-agent-composer";
@@ -516,10 +517,14 @@ export function useEditorHistory({ editorCore }: { editorCore: EditorCore }) {
       pendingLiveNonStyleUndoStackRef.current = [];
       pendingLiveNonStyleRedoStackRef.current = [];
       historyOrderRef.current = historyOrderRef.current.filter(
-        (kind) => kind !== "pending-style" && kind !== "pending-live",
+        (kind) =>
+          undoRedoOrderKind(kind) !== "pending-style" &&
+          undoRedoOrderKind(kind) !== "pending-live",
       );
       redoOrderRef.current = redoOrderRef.current.filter(
-        (kind) => kind !== "pending-style" && kind !== "pending-live",
+        (kind) =>
+          undoRedoOrderKind(kind) !== "pending-style" &&
+          undoRedoOrderKind(kind) !== "pending-live",
       );
       pendingStructureRedoReplayRef.current = undefined;
       if (pendingStructureRedoReplayTimerRef.current !== undefined) {
