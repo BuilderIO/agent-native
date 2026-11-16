@@ -5,6 +5,18 @@ import {
   tweakAppliesToSelection,
 } from "../edit-panel/tweak-scope";
 
+const parsedDocuments = new Map<string, Document | null>();
+
+function parsedScreenDocument(html: string | undefined): Document | null {
+  if (!html) return null;
+  if (!parsedDocuments.has(html)) {
+    parsedDocuments.set(html, parseScreenDocument(html));
+    if (parsedDocuments.size > 8)
+      parsedDocuments.delete(parsedDocuments.keys().next().value!);
+  }
+  return parsedDocuments.get(html) ?? null;
+}
+
 export interface InteractTweakSet {
   tweakId: string;
   value: string | number | boolean;
@@ -37,11 +49,17 @@ export function resolveInteractTweakSet(
         ? tweaks.find((candidate) => candidate.cssVar === message.cssVar)
         : undefined;
   if (!tweak) return null;
+  const scopes = Array.isArray(tweak.scope)
+    ? tweak.scope
+    : tweak.scope
+      ? [tweak.scope]
+      : [];
+  const needsDocument = scopes.some((scope) => scope.nodeId || scope.selector);
   if (
     !tweakAppliesToSelection(
       tweak,
       { screenId },
-      parseScreenDocument(screenHtml),
+      needsDocument ? parsedScreenDocument(screenHtml) : null,
     )
   ) {
     return null;
