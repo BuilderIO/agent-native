@@ -623,6 +623,69 @@ describe("BubbleToolbar", () => {
     );
   });
 
+  it("applies the link on Enter and keeps the key out of the editor", () => {
+    editorElement = document.createElement("div");
+    toolbarElement = document.createElement("div");
+    document.body.append(editorElement, toolbarElement);
+    editor = new Editor({
+      element: editorElement,
+      extensions: [StarterKit],
+      content: "<p>Builder link</p>",
+    });
+    editor.commands.setTextSelection({ from: 1, to: 8 });
+    root = createRoot(toolbarElement);
+    act(() => root!.render(<BubbleToolbar editor={editor!} />));
+    const openLinkInput = () => {
+      act(() =>
+        toolbarElement!
+          .querySelector<HTMLButtonElement>('button[aria-label="editor.link"]')!
+          .click(),
+      );
+      return toolbarElement!.querySelector<HTMLInputElement>(
+        'input[aria-label="editor.pasteLink"]',
+      )!;
+    };
+    const press = (input: HTMLInputElement, key: string) => {
+      const event = new KeyboardEvent("keydown", {
+        key,
+        bubbles: true,
+        cancelable: true,
+      });
+      act(() => {
+        input.dispatchEvent(event);
+      });
+      return event;
+    };
+
+    const input = openLinkInput();
+    act(() => {
+      Object.getOwnPropertyDescriptor(
+        HTMLInputElement.prototype,
+        "value",
+      )!.set!.call(input, "https://www.builder.io/");
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      input.dispatchEvent(new Event("change", { bubbles: true }));
+    });
+    const enter = press(input, "Enter");
+
+    // Applying focuses the editor; an uncancelled Enter would then split it.
+    expect(enter.defaultPrevented).toBe(true);
+    expect(editor.getHTML()).toBe(
+      '<p><a target="_blank" rel="noopener noreferrer nofollow" href="https://www.builder.io/">Builder</a> link</p>',
+    );
+    expect(
+      toolbarElement.querySelector('input[aria-label="editor.pasteLink"]'),
+    ).toBeNull();
+
+    const escape = press(openLinkInput(), "Escape");
+
+    expect(escape.defaultPrevented).toBe(true);
+    expect(
+      toolbarElement.querySelector('input[aria-label="editor.pasteLink"]'),
+    ).toBeNull();
+    expect(editor.getAttributes("link").href).toBe("https://www.builder.io/");
+  });
+
   it("saves a link removal made while the link input has focus", () => {
     editorElement = document.createElement("div");
     toolbarElement = document.createElement("div");

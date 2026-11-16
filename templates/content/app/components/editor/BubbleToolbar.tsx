@@ -885,8 +885,14 @@ export function BubbleToolbar({ editor, onComment }: BubbleToolbarProps) {
             value={linkUrl}
             onChange={(e) => setLinkUrl(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === "Enter") handleSetLink();
+              // Applying the link focuses the editor, so an Enter left
+              // uncancelled can carry on into it and replace the selection.
+              if (e.key === "Enter") {
+                e.preventDefault();
+                handleSetLink();
+              }
               if (e.key === "Escape") {
+                e.preventDefault();
                 setShowLinkInput(false);
                 setLinkUrl("");
               }
