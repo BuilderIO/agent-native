@@ -1,7 +1,12 @@
 // @vitest-environment happy-dom
 
 import { AgentNativeI18nProvider } from "@agent-native/core/client/i18n";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  defaultScheduler,
+  notifyManager,
+  QueryClient,
+  QueryClientProvider,
+} from "@tanstack/react-query";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -99,15 +104,19 @@ const app = (id: string, name: string, rules: typeof ON | typeof OFF) => ({
     { key: "receiver", displayName: "Receiver", defaultValue: false, rules },
   ],
 });
+const ORG_SCOPE = { kind: "org", orgId: "org-1", orgDomain: "acme.test" };
+const GLOBAL_SCOPE = { kind: "global", orgId: null, orgDomain: null };
+// The same shape the Analytics server returns for a verified change.
 const verified = (
   rules: typeof ON | typeof OFF,
   enabledForCurrentUser: boolean | null,
+  scope: typeof ORG_SCOPE | typeof GLOBAL_SCOPE = ORG_SCOPE,
 ) => ({
   contractVersion: 3,
   status: "verified",
   key: "receiver",
   rules,
-  scope: "org",
+  scope,
   enabledForCurrentUser,
 });
 
@@ -197,6 +206,9 @@ async function enableThenTurnOffContent() {
 describe("FeatureFlagsFleetPanel verified change", () => {
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+    // Query updates normally land on their own zero-delay timer, which can
+    // fire after flush's. In microtasks they always land before it.
+    notifyManager.setScheduler(queueMicrotask);
     client = new QueryClient();
     container = document.createElement("div");
     document.body.appendChild(container);
@@ -207,6 +219,7 @@ describe("FeatureFlagsFleetPanel verified change", () => {
     act(() => root.unmount());
     container.remove();
     client.clear();
+    notifyManager.setScheduler(defaultScheduler);
     vi.unstubAllGlobals();
     vi.clearAllMocks();
   });
@@ -274,6 +287,16 @@ describe("FeatureFlagsFleetPanel verified change", () => {
     );
     expect(note()).toContain(
       "Receiver in Content is set to Off for this organization.",
+    );
+  });
+
+  it("says when the server verified a change for every organization", async () => {
+    await mountPanel();
+    mocks.write.mockResolvedValueOnce(verified(OFF, false, GLOBAL_SCOPE));
+    await click("Content", "off");
+
+    expect(note()).toContain(
+      "Receiver in Content is set to Off for every organization.",
     );
   });
 

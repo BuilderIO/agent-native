@@ -281,10 +281,24 @@ describe("describeVerifiedFleetChange", () => {
       describeVerifiedFleetChange(
         undefined,
         { appId: "content", key: "receiver", operation: "off" },
-        { ...verified, scope: "global" },
+        {
+          ...verified,
+          scope: { kind: "global", orgId: null, orgDomain: null },
+        },
         1,
       ).scope,
     ).toBe("global");
+  });
+
+  it("reads a verified scope without a kind as the organization's", () => {
+    expect(
+      describeVerifiedFleetChange(
+        undefined,
+        { appId: "content", key: "receiver", operation: "off" },
+        { ...verified, scope: { orgId: "org-1", orgDomain: "acme.test" } },
+        1,
+      ).scope,
+    ).toBe("org");
   });
 
   it("prefers the name on the read-back flag", () => {

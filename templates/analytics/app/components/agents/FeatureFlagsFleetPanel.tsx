@@ -45,12 +45,19 @@ export interface FlagDirectory {
   apps?: FlagApp[];
 }
 
+/** Where the target app says it wrote the rule. */
+interface VerifiedMutationScope {
+  kind?: NonNullable<SetFeatureFlagInput["scope"]>;
+  orgId: string | null;
+  orgDomain: string | null;
+}
+
 interface VerifiedFlagMutation {
   contractVersion: 3;
   status: "verified";
   key: string;
   rules: NonNullable<FeatureFlagMetadata["rules"]>;
-  scope?: NonNullable<SetFeatureFlagInput["scope"]>;
+  scope?: VerifiedMutationScope;
   enabledForCurrentUser: boolean | null;
   flag?: FeatureFlag;
 }
@@ -82,7 +89,13 @@ export function describeVerifiedFleetChange(
   return {
     appName: app ? appName(app) : input.appId,
     flagName: verified.flag?.displayName || flag?.displayName || verified.key,
-    scope: verified.scope ?? input.scope ?? "org",
+    // Only an explicit "global" kind proves a global write; an org write may
+    // leave `kind` out.
+    scope: verified.scope
+      ? verified.scope.kind === "global"
+        ? "global"
+        : "org"
+      : (input.scope ?? "org"),
     mode: verified.rules.mode,
     enabledForCurrentUser: verified.enabledForCurrentUser,
     verifiedAt,
