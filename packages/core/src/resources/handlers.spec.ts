@@ -1608,33 +1608,107 @@ Legacy webhook.`,
           expect(mockResourceDeleteIfCurrent).toHaveBeenNthCalledWith(2, copy);
         });
 
-        it("treats a resent save the copy already holds as done", async () => {
+        it("treats a save as done when a copy made meanwhile holds it", async () => {
           mockResourceGet.mockResolvedValue(shared);
           mockResourcePutIfAbsent.mockResolvedValue(null);
-          mockResourceGetByPath.mockResolvedValue(copy);
+          mockResourceGetByPath
+            .mockResolvedValueOnce(null)
+            .mockResolvedValue(copy);
 
           const result = await save();
 
           expect(lastStatus).toBe(200);
           expect(result).toEqual(withRevision(copy));
-          expect(mockResourceGetByPath).toHaveBeenCalledWith(
+          expect(mockResourceGetByPath).toHaveBeenLastCalledWith(
             "__organization__:org-1",
             shared.path,
             { orgId: "org-1" },
           );
         });
 
-        it("refuses a save when the copy holds other content", async () => {
+        it("refuses with the copy when one made meanwhile holds other content", async () => {
+          const other = { ...copy, content: "other" };
           mockResourceGet.mockResolvedValue(shared);
           mockResourcePutIfAbsent.mockResolvedValue(null);
-          mockResourceGetByPath.mockResolvedValue({
-            ...copy,
-            content: "other",
-          });
+          mockResourceGetByPath
+            .mockResolvedValueOnce(null)
+            .mockResolvedValue(other);
 
-          await save();
+          const result = await save();
 
           expect(lastStatus).toBe(409);
+          expect(result).toMatchObject({
+            errorCode: "save_conflict",
+            details: {
+              current: { content: "other" },
+              currentRevision: withRevision(other).revision,
+            },
+          });
+        });
+
+        describe("once the copy exists", () => {
+          const copied = { ...copy, content: "old" };
+          const byId = (copyNow: typeof copy) => (id: string) =>
+            Promise.resolve(id === "s1" ? shared : copyNow);
+
+          it("saves to the copy, over the version of it read", async () => {
+            mockResourceGet.mockImplementation(byId(copied));
+            mockResourceGetByPath.mockResolvedValue(copied);
+            const written = { ...copied, content: "mine", updatedAt: 2000 };
+            mockResourcePutIfSnapshot.mockResolvedValue({
+              before: copied,
+              resource: written,
+            });
+
+            const result = await save();
+
+            expect(lastStatus).toBe(200);
+            expect(result).toEqual(withRevision(written));
+            expect(mockResourceGetByPath).toHaveBeenCalledWith(
+              "__organization__:org-1",
+              shared.path,
+              { orgId: "org-1" },
+            );
+            expect(mockResourcePutIfSnapshot).toHaveBeenCalledWith({
+              previous: copied,
+              owner: "__organization__:org-1",
+              path: "doc.md",
+              content: "mine",
+              mimeType: "text/markdown",
+            });
+            expect(mockResourcePutIfAbsent).not.toHaveBeenCalled();
+          });
+
+          it("treats a resent save the copy already holds as done", async () => {
+            mockResourceGet.mockImplementation(byId(copy));
+            mockResourceGetByPath.mockResolvedValue(copy);
+
+            const result = await save();
+
+            expect(lastStatus).toBe(200);
+            expect(result).toEqual(withRevision(copy));
+            expect(mockResourcePutIfSnapshot).not.toHaveBeenCalled();
+            expect(mockResourcePutIfAbsent).not.toHaveBeenCalled();
+          });
+
+          it("refuses with the copy when it holds other content", async () => {
+            const other = { ...copy, content: "other" };
+            mockResourceGet.mockImplementation(byId(other));
+            mockResourceGetByPath.mockResolvedValue(other);
+
+            const result = await save();
+
+            expect(lastStatus).toBe(409);
+            expect(result).toMatchObject({
+              errorCode: "save_conflict",
+              details: {
+                current: { content: "other" },
+                currentRevision: withRevision(other).revision,
+              },
+            });
+            expect(mockResourcePutIfSnapshot).not.toHaveBeenCalled();
+            expect(mockResourcePutIfAbsent).not.toHaveBeenCalled();
+          });
         });
 
         it("keeps the copy when the shared version was deleted meanwhile", async () => {

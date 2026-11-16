@@ -70,6 +70,9 @@ export function useResourceContentSave({
     revision: resource.revision ?? null,
   });
   const savedUpdatedAtRef = useRef(resource.updatedAt);
+  // Saves go where the last one landed, and the revision they send is that
+  // resource's.
+  const saveIdRef = useRef(resource.id);
   const dirtyRef = useRef(false);
   const savingRef = useRef(false);
   const retryOnFailureRef = useRef(false);
@@ -85,16 +88,19 @@ export function useResourceContentSave({
   // Content someone else saved shows here unless it would replace edits not
   // saved yet; then it waits until they are. A read no newer than the last
   // save is skipped, since it left before that save came back, or is that
-  // save.
+  // save. So is a read of this resource once saves go to another one, since
+  // what it shows is no longer what they save over.
   const serverRef = useRef<ServerContent>({
     content: resource.content,
     revision: resource.revision,
     updatedAt: resource.updatedAt,
   });
   const deferredRef = useRef(false);
+  const resourceId = resource.id;
   const adoptServer = useCallback(
     (next: ServerContent) => {
       deferredRef.current = false;
+      if (saveIdRef.current !== resourceId) return;
       if (next.updatedAt <= savedUpdatedAtRef.current) return;
       savedUpdatedAtRef.current = next.updatedAt;
       savedRef.current = {
@@ -105,7 +111,7 @@ export function useResourceContentSave({
         replaceLocal(next.content);
       }
     },
-    [replaceLocal],
+    [replaceLocal, resourceId],
   );
 
   const flushRef = useRef<() => Promise<void>>(async () => {});
@@ -134,9 +140,6 @@ export function useResourceContentSave({
       editContent(restoreOnto(localRef.current).content),
   });
 
-  // Saves go where the last one landed, and the revision they send is that
-  // resource's.
-  const saveIdRef = useRef(resource.id);
   flushRef.current = async () => {
     if (!saveContent) {
       dirtyRef.current = false;

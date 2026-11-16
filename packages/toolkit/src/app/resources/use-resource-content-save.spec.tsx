@@ -159,6 +159,19 @@ describe("useResourceContentSave", () => {
     ]);
   });
 
+  it("stops showing reads of a resource once saves go to another one", async () => {
+    saveContent.mockResolvedValueOnce(saved("mine", "rev-2", 2000, "org-copy"));
+    const { edit, content, rerender } = setup();
+
+    edit("mine");
+    await settle();
+    // The shared version, saved after the copy was made, is no longer what
+    // edits here save over.
+    rerender(doc("shared", "rev-9", 3000));
+
+    expect(content()).toBe("mine");
+  });
+
   it("asks when someone else saved other content, and keeps mine when told to", async () => {
     saveContent.mockRejectedValueOnce(conflict("theirs", "rev-2"));
     saveContent.mockResolvedValueOnce(saved("mine", "rev-3"));

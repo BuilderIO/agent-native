@@ -750,27 +750,41 @@ async function resourcePathTaken(
 }
 
 export async function handleUpdateResource(event: any) {
-  const id = getRouterParam(event, "id") || event.context.params?.id;
-  if (!id) {
+  const requestedId = getRouterParam(event, "id") || event.context.params?.id;
+  if (!requestedId) {
     setResponseStatus(event, 400);
     return { error: "Resource ID is required" };
   }
 
   const email = await resolveEmail(event);
   const orgId = await resolveOrgId(event);
-  const existing = await resourceGet(id, { userEmail: email, orgId });
-  if (!existing) {
+  const found = await resourceGet(requestedId, { userEmail: email, orgId });
+  if (!found) {
     setResponseStatus(event, 404);
     return { error: "Resource not found" };
   }
 
   if (
-    !canReadOwner(existing.owner, email, orgId) ||
-    !isLegacySharedResourceVisibleToOrganization(existing, orgId)
+    !canReadOwner(found.owner, email, orgId) ||
+    !isLegacySharedResourceVisibleToOrganization(found, orgId)
   ) {
     setResponseStatus(event, 404);
     return { error: "Resource not found" };
   }
+  // A legacy shared resource's first save in an organization copies it
+  // there, and from then on the copy is the resource. A save sent to the
+  // shared one, from a tab opened before the copy or a resend whose response
+  // was lost, goes to the copy and is checked against it.
+  const activeSharedOwner = sharedResourceOwner(orgId);
+  const organizationCopy =
+    found.owner === SHARED_OWNER && activeSharedOwner !== SHARED_OWNER
+      ? await resourceGetByPath(activeSharedOwner, found.path, { orgId })
+      : null;
+  const existing =
+    organizationCopy && canReadOwner(organizationCopy.owner, email, orgId)
+      ? organizationCopy
+      : found;
+  const id = existing === found ? requestedId : existing.id;
   const isLocalWorkspaceResource =
     isWorkspaceResourceOwner(existing.owner) && isLocalWorkspaceResourceId(id);
   if (isWorkspaceResourceOwner(existing.owner) && !isLocalWorkspaceResource) {
@@ -832,7 +846,6 @@ export async function handleUpdateResource(event: any) {
     }
   }
   const nextPath = body.path ?? existing.path;
-  const activeSharedOwner = sharedResourceOwner(orgId);
   const isLegacyOrganizationWorkspaceResource =
     existing.owner === SHARED_OWNER &&
     isLegacyOrganizationWorkspaceFile(existing, orgId);
@@ -863,12 +876,23 @@ export async function handleUpdateResource(event: any) {
       if (nextPath !== existing.path) {
         return resourcePathTaken(event, activeSharedOwner, nextPath, false);
       }
-      // A resent save whose first try made the copy and lost its response:
-      // the copy holds this save already, so it's done.
+      // Another save made the copy since the look above, and the copy is the
+      // resource now. If it holds this save already, as when a resend's first
+      // try made it, the save is done.
       const copy = await resourceGetByPath(activeSharedOwner, nextPath, {
         orgId,
       });
       if (copy && isSameSaveOver(copy)) return withContentRevision(copy);
+      if (copy && checksRevision) {
+        return contractErrorResponse(
+          event,
+          saveConflict(
+            RESOURCE_CONTENT_RECORD,
+            { content: copy.content },
+            resourceContentRevision(copy),
+          ),
+        );
+      }
       setResponseStatus(event, 409);
       return { error: `A resource already exists at path "${nextPath}"` };
     }
