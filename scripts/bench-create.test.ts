@@ -48,9 +48,11 @@ function tunnel(
       method: "CONNECT",
       path: `127.0.0.1:${port}`,
     });
-    req.on("connect", (res, socket) => {
+    req.on("connect", (res, socket, head: Buffer) => {
       assert.equal(res.statusCode, 200);
-      let received = 0;
+      // Tunnel bytes that arrive in the same read as the proxy's 200 come
+      // through `head`, not the socket's data events.
+      let received = head.length;
       socket.on("data", (chunk: Buffer) => (received += chunk.length));
       socket.on("end", () => resolve(received));
       socket.write(Buffer.alloc(send, 2));
