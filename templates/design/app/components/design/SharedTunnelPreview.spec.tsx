@@ -14,9 +14,11 @@ beforeEach(() => {
       happyDOM: { settings: { disableIframePageLoading: boolean } };
     }
   ).happyDOM.settings.disableIframePageLoading = true;
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({ type: "opaque" }));
 });
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllGlobals();
 });
 
 vi.mock("@agent-native/core/client/i18n", () => ({
@@ -77,36 +79,40 @@ const liveLayer = (host: HTMLElement) =>
 const advance = (ms: number) =>
   act(async () => void vi.advanceTimersByTime(ms));
 
-it("reveals the snapshot when the tunnel never finishes loading", async () => {
+it("keeps the snapshot visible and reports an unavailable tunnel after a failed probe", async () => {
   vi.useFakeTimers();
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() => new Promise(() => {})),
+  );
   const { host, cleanup } = await renderPreview();
   try {
+    expect(host.querySelector("iframe")).toBeNull();
     await advance(REFERENCE_FRAME_LOAD_TIMEOUT_MS - 1);
-    expect(liveLayer(host)?.hidden).toBe(false);
+    expect(host.querySelector('[role="status"]')).toBeNull();
     await advance(1);
-    expect(liveLayer(host)?.hidden).toBe(true);
+    expect(host.querySelector('[role="status"]')?.textContent).toBe(
+      "designEditor.livePreview.unavailable",
+    );
     expect(host.querySelector("button")?.textContent).toBe(
       "designEditor.livePreview.live",
     );
     await act(async () =>
       host.querySelector("iframe")?.dispatchEvent(new Event("load")),
     );
-    expect(liveLayer(host)?.hidden).toBe(false);
-    expect(host.querySelector("button")?.textContent).toBe(
-      "designEditor.livePreview.suggest",
-    );
+    expect(host.querySelector("iframe")).toBeNull();
   } finally {
     await cleanup();
   }
 });
 
-it("keeps a tunnel that loads before the timeout live", async () => {
+it("reveals a tunnel only after its network probe succeeds", async () => {
   vi.useFakeTimers();
   const { host, cleanup } = await renderPreview();
   try {
-    await act(async () =>
-      host.querySelector("iframe")?.dispatchEvent(new Event("load")),
-    );
+    await act(async () => {
+      await Promise.resolve();
+    });
     await advance(REFERENCE_FRAME_LOAD_TIMEOUT_MS * 2);
     expect(liveLayer(host)?.hidden).toBe(false);
   } finally {
@@ -116,16 +122,20 @@ it("keeps a tunnel that loads before the timeout live", async () => {
 
 it("retries a timed-out tunnel with a fresh frame and timer", async () => {
   vi.useFakeTimers();
+  vi.stubGlobal(
+    "fetch",
+    vi.fn(() => new Promise(() => {})),
+  );
   const { host, cleanup } = await renderPreview();
   try {
     await advance(REFERENCE_FRAME_LOAD_TIMEOUT_MS);
-    const stale = host.querySelector("iframe");
-    expect(liveLayer(host)?.hidden).toBe(true);
+    expect(host.querySelector("iframe")).toBeNull();
     await act(async () => host.querySelector("button")?.click());
-    expect(host.querySelector("iframe")).not.toBe(stale);
-    expect(liveLayer(host)?.hidden).toBe(false);
+    expect(host.querySelector("iframe")).toBeNull();
     await advance(REFERENCE_FRAME_LOAD_TIMEOUT_MS);
-    expect(liveLayer(host)?.hidden).toBe(true);
+    expect(host.querySelector('[role="status"]')?.textContent).toBe(
+      "designEditor.livePreview.unavailable",
+    );
   } finally {
     await cleanup();
   }
