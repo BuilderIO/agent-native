@@ -1,26 +1,33 @@
+import { isNonPublicHostname } from "@agent-native/core/shared/public-host";
+
 import {
   designConnectionIdsFromData,
   designSourceTypeFromData,
 } from "./source-mode";
 
-export function normalizeVisualEditTunnelUrl(value: string): string {
+function publicTunnelUrl(value: string): URL | null {
+  if (!URL.canParse(value)) return null;
   const url = new URL(value);
-  const host = url.hostname.toLowerCase().replace(/^\[|\]$/g, "");
   if (
     url.protocol !== "https:" ||
     url.username ||
     url.password ||
-    host === "localhost" ||
-    host.endsWith(".localhost") ||
-    host.endsWith(".local") ||
-    !host.includes(".") ||
-    /^[\d.]+$/.test(host) ||
-    host.includes(":")
-  ) {
-    throw new Error("Use a public HTTPS preview hostname without credentials.");
-  }
+    isNonPublicHostname(url.hostname)
+  )
+    return null;
   url.hash = "";
   url.search = "";
+  return url;
+}
+
+/**
+ * Checks the name only. Viewers' browsers load this URL directly, so the save
+ * path must also reject a name that resolves to a private address.
+ */
+export function normalizeVisualEditTunnelUrl(value: string): string {
+  const url = publicTunnelUrl(value);
+  if (!url)
+    throw new Error("Use a public HTTPS preview hostname without credentials.");
   return url.href.replace(/\/$/, "");
 }
 
@@ -34,9 +41,11 @@ export function visualEditPreviewForViewer({
   isOwner: boolean;
 }): string | undefined {
   if (isOwner) return localUrl;
-  if (!tunnelUrl || !localUrl) return undefined;
+  const base = tunnelUrl ? publicTunnelUrl(tunnelUrl) : null;
+  // A mapping saved before a stricter rule landed falls back to the snapshot.
+  if (!base || !localUrl) return undefined;
   const local = new URL(localUrl);
-  const tunnel = new URL(normalizeVisualEditTunnelUrl(tunnelUrl) + "/");
+  const tunnel = new URL(base.href.replace(/\/$/, "") + "/");
   tunnel.pathname = `${tunnel.pathname.replace(/\/$/, "")}${local.pathname}`;
   tunnel.search = local.search;
   tunnel.hash = local.hash;

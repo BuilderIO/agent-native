@@ -5,6 +5,7 @@ import {
   isBlockedExtensionUrlWithDns,
   ssrfSafeFetch,
 } from "../extensions/url-safety.js";
+import { isNonPublicHostname } from "../shared/public-host.js";
 
 const MAX_REFERENCE_BYTES = 2 * 1024 * 1024;
 const MAX_REFERENCE_ORIGINS = 32;
@@ -33,16 +34,6 @@ const LINK_RELS = new Set([
   "shortcut",
   "apple-touch-icon",
 ]);
-const NONPUBLIC_SUFFIXES = [
-  ".local",
-  ".localhost",
-  ".internal",
-  ".intranet",
-  ".lan",
-  ".home",
-  ".corp",
-  ".home.arpa",
-];
 const CSS_URL = /url\(\s*(['"]?)([^'")]*)\1\s*\)/gi;
 const CSS_IMPORT = /@import\s+(['"])([^'"]*)\1/gi;
 
@@ -65,15 +56,11 @@ export class ReferenceCopyError extends Error {
 function publicReferenceOrigin(raw: string, pageUrl: string): string | null {
   if (!URL.canParse(raw.trim(), pageUrl)) return null;
   const url = new URL(raw.trim(), pageUrl);
-  const host = url.hostname.toLowerCase().replace(/\.$/, "");
   if (
     url.protocol !== "https:" ||
     url.username ||
     url.password ||
-    !host.includes(".") ||
-    /^[\d.]+$/.test(host) ||
-    host.startsWith("[") ||
-    NONPUBLIC_SUFFIXES.some((suffix) => host.endsWith(suffix)) ||
+    isNonPublicHostname(url.hostname) ||
     isBlockedExtensionUrl(url.href)
   )
     return null;

@@ -1,4 +1,5 @@
 import { defineAction, fail } from "@agent-native/core/action";
+import { isBlockedExtensionUrlWithDns } from "@agent-native/core/extensions/url-safety";
 import { getRequestContext } from "@agent-native/core/server/request-context";
 import { accessFilter, currentAccess } from "@agent-native/core/sharing";
 import { and, eq } from "drizzle-orm";
@@ -12,7 +13,7 @@ import { normalizeVisualEditTunnelUrl } from "../shared/visual-edit-preview.js";
 
 export default defineAction({
   description:
-    "Set or remove a public HTTPS preview URL (for example an ngrok or cloudflared tunnel) for a localhost screen's shared live preview. Any public HTTPS origin the editor chooses is accepted. Signed-in editors only; sharing permissions remain unchanged.",
+    "Set or remove a public HTTPS preview URL (for example an ngrok or cloudflared tunnel) for a localhost screen's shared live preview. Any public HTTPS origin the editor chooses is accepted if its hostname resolves to public addresses. Signed-in editors only; sharing permissions remain unchanged.",
   requiresAuth: true,
   mcpAnnotations: {
     readOnlyHint: false,
@@ -51,6 +52,11 @@ export default defineAction({
       fail("The public preview URL must use a different origin from Design.", {
         statusCode: 400,
         errorCode: "invalid_tunnel_origin",
+      });
+    if (normalized && (await isBlockedExtensionUrlWithDns(normalized)))
+      fail("The public preview URL must resolve to a public address.", {
+        statusCode: 400,
+        errorCode: "private_tunnel_address",
       });
     await withDesignSourceMutationTransaction(designId, async (tx) => {
       await assertVisualEditAccountEditor(designId);

@@ -5,6 +5,10 @@ const mocks = vi.hoisted(() => ({
   assertAccess: vi.fn(),
   data: {} as Record<string, unknown>,
   stored: undefined as Record<string, unknown> | undefined,
+  blockedByDns: vi.fn(),
+}));
+vi.mock("@agent-native/core/extensions/url-safety", () => ({
+  isBlockedExtensionUrlWithDns: mocks.blockedByDns,
 }));
 vi.mock("@agent-native/core/action", () => ({
   defineAction: (config: unknown) => config,
@@ -62,6 +66,7 @@ beforeEach(() => {
     tweaks: [{ id: "speed" }],
   };
   mocks.stored = undefined;
+  mocks.blockedByDns.mockReset().mockResolvedValue(false);
 });
 it("persists only the selected localhost mapping without replacing peer state", async () => {
   await expect(
@@ -112,3 +117,27 @@ it("rejects an inline screen without writing a tunnel", async () => {
   ).rejects.toMatchObject({ errorCode: "not_localhost_screen" });
   expect(mocks.stored).toBeUndefined();
 });
+it("rejects a hostname that resolves to a private address before storing it", async () => {
+  mocks.blockedByDns.mockResolvedValue(true);
+  await expect(
+    action.run({
+      designId: "design-one",
+      fileId: "local",
+      tunnelUrl: "https://intranet-alias.example.com",
+    }),
+  ).rejects.toMatchObject({ errorCode: "private_tunnel_address" });
+  expect(mocks.blockedByDns).toHaveBeenCalledWith(
+    "https://intranet-alias.example.com",
+  );
+  expect(mocks.stored).toBeUndefined();
+});
+it.each(["https://service.internal", "https://router.lan", "https://intranet"])(
+  "rejects the private-network name %s without a lookup",
+  async (tunnelUrl) => {
+    await expect(
+      action.run({ designId: "design-one", fileId: "local", tunnelUrl }),
+    ).rejects.toThrow("public HTTPS preview hostname");
+    expect(mocks.blockedByDns).not.toHaveBeenCalled();
+    expect(mocks.stored).toBeUndefined();
+  },
+);
