@@ -398,6 +398,99 @@ describe("Design HTML integrity", () => {
     });
   });
 
+  it("accepts noscript fallback styles while still rejecting an orphan outside", () => {
+    const content =
+      "<main><noscript><style>.fallback { display: block; }</style></noscript></main>";
+
+    expect(inspectDesignHtmlDocumentIntegrity(content)).toEqual({
+      valid: true,
+    });
+    expect(
+      inspectDesignHtmlDocumentIntegrity(`${content}</style>`),
+    ).toMatchObject({
+      valid: false,
+      issue: "close-tag-orphaned",
+      detail: [{ tag: "style" }],
+    });
+  });
+
+  it("preserves fallback CSS tolerance without accepting invalid active CSS", () => {
+    const css = ".fallback &gt; .content { visibility: visible; }";
+    expect(
+      inspectDesignHtmlDocumentIntegrity(
+        `<main><noscript><style>${css}</style></noscript></main>`,
+      ),
+    ).toEqual({ valid: true });
+    expect(
+      inspectDesignHtmlDocumentIntegrity(`<style>${css}</style><main></main>`),
+    ).toMatchObject({ valid: false, issue: "style-invalid" });
+  });
+
+  it("checks active SVG styles under an SVG noscript element", () => {
+    const content =
+      "<svg><noscript><style>.x { color: red</style></noscript></svg>";
+    expect(inspectDesignHtmlDocumentIntegrity(content)).toMatchObject({
+      valid: false,
+      issue: "style-invalid",
+    });
+  });
+
+  it("does not validate inert fallback scripts as active code", () => {
+    const content = "<main><noscript><script>if (</script></noscript></main>";
+    expect(inspectDesignHtmlDocumentIntegrity(content)).toEqual({
+      valid: true,
+    });
+    expect(
+      inspectDesignHtmlDocumentIntegrity("<main><script>if (</script></main>"),
+    ).toMatchObject({ valid: false, issue: "script-invalid" });
+  });
+
+  it("does not count a noscript style as an active cloak rule", () => {
+    const content =
+      '<!doctype html><html><head><script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.15.11/dist/cdn.min.js"></script></head><body><noscript><style>[x-cloak]{display:none}</style></noscript><div x-cloak>Hidden</div></body></html>';
+    expect(inspectDesignHtmlDocumentIntegrity(content)).toMatchObject({
+      valid: false,
+      issue: "runtime-cloak-missing",
+    });
+  });
+
+  it("rejects an orphan closing tag in a noscript fallback", () => {
+    const content = "<main><noscript>fallback</div></noscript></main>";
+    expect(inspectDesignHtmlDocumentIntegrity(content)).toMatchObject({
+      valid: false,
+      issue: "close-tag-orphaned",
+      detail: [{ tag: "div" }],
+    });
+  });
+
+  it("rejects a fallback closing tag that only matches an outer element", () => {
+    const result = inspectDesignHtmlDocumentIntegrity(
+      "<div><noscript></div></noscript></div>",
+    );
+    expect(result.valid).toBe(false);
+    expect(result.detail).toContainEqual(
+      expect.objectContaining({ issue: "close-tag-orphaned", tag: "div" }),
+    );
+  });
+
+  it.each([
+    [
+      "unclosed fallback element",
+      "<main><noscript><div>unfinished</noscript></main>",
+      "element-unclosed",
+    ],
+    [
+      "unterminated fallback attribute",
+      '<main><noscript><a href="x</noscript></main>',
+      "attribute-unterminated",
+    ],
+  ])("rejects %s", (_label, content, issue) => {
+    expect(inspectDesignHtmlDocumentIntegrity(content)).toMatchObject({
+      valid: false,
+      issue,
+    });
+  });
+
   it("does not count root or raw-text tags inside Alpine attributes and comments", () => {
     const withMarkupExamples = DOCUMENT.replace(
       '<body x-data="{ open: true }">',

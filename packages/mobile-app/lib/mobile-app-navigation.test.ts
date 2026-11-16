@@ -61,9 +61,10 @@ describe("mobile chat-first navigation", () => {
     });
   });
 
-  it("uses the tab route for registered apps and the secure fallback for custom apps", () => {
+  it("keeps built-in and custom app launches in the tab navigator", () => {
     expect(getAppRoute("mail")).toBe("/mail");
-    expect(getAppRoute("custom-notes")).toBe("/app/custom-notes");
+    expect(getAppRoute("custom-notes")).toBe("/tab-app/custom-notes");
+    expect(getAppRoute("custom notes")).toBe("/tab-app/custom%20notes");
   });
 
   it("keeps embedded app settings routes on the app origin", () => {

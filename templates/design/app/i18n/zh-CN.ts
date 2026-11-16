@@ -1023,6 +1023,35 @@ export default {
     },
   },
   designEditor: {
+    livePreview: {
+      share: "分享实时预览",
+      instructions:
+        "粘贴应用的公开 HTTPS 预览地址，例如 ngrok 或 cloudflared 隧道。你的设备继续加载 localhost；其他人可查看公开预览或在已发布快照上提出修改。",
+      tunnelUrl: "公开预览地址",
+      enableCollaboration: "为所有有权访问此设计的人启用实时协作",
+      save: "保存",
+      unavailable: "实时预览不可用 — 正在显示快照",
+      live: "实时预览",
+      openLive: "在 {{hostname}} 打开实时预览",
+      suggest: "在快照上建议",
+      localOnly: "实时预览仅限所有者的设备",
+    },
+    referenceCopy: {
+      staticNotice: "JavaScript 已禁用；动态内容可能缺失。",
+      captureAction: "捕获静态快照",
+      capturePrompt:
+        "捕获此公开参考地址的截图和 DOM 快照，并作为静态参考屏幕添加到此设计画布。请标注为快照，而非实时页面。",
+      unavailable: "此页面可能禁止嵌入或加载失败。",
+      load: "加载参考副本",
+      label: "参考副本 · 公开页面，只读",
+      noBridge: "连接本地桥接以加载公开参考副本。",
+      snapshot: "使用已发布快照",
+      capture: "请让代理捕获截图和 DOM 快照。",
+      failed: "参考副本加载失败，请改为捕获截图和 DOM 快照。",
+      loading: "正在加载参考副本…",
+      original: "尝试原页面",
+    },
+
     sourceLoadFailed: "无法加载此屏幕。",
     selectionPublishFailed: "智能体可能看不到你最新的选择。请重新选择。",
     liveCollaboration: {
@@ -2065,6 +2094,7 @@ export default {
       applyAria: "应用待处理的视觉样式编辑",
       applyButton: "应用样式",
       applySharedEdits: "应用修改",
+      reviewSuggestion: "查看建议",
       previewLabel: "待处理的视觉预览",
       applyDesignUpdates: "应用设计更新",
       applying: "正在应用…",
@@ -2163,6 +2193,9 @@ export default {
     toasts: {
       annotationSendError: "无法发送批注。你的绘图仍保留在这里，请重试。",
       codingHandoffError: "无法创建编码交接",
+      unknownCollaborator: "协作者",
+      supersededVisualEditSuggestion:
+        "来自 {{authorEmail}} 的先前建议已被替换。原文：{{text}}",
       visualEditPendingConflict:
         "另一位协作者有待应用的更改。请先应用或清除这些更改，再发送新更改。",
       codingHandoffCopied: "编码交接已复制",

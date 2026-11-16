@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 
+import { getAppConfig } from "../app-config/index.js";
 import { getDbExec, safeJsonParse } from "../db/client.js";
 import {
   ensureColumnExists,
@@ -430,6 +431,19 @@ export async function hasNotificationWithMetadata(
   });
 }
 
+// usage/alerts-store.ts stamps this key on every usage-limit notification.
+const USAGE_LIMIT_NOTICE_METADATA = '%"usageAlertRuleId":%';
+
+/**
+ * Read-side filter for notice kinds the deployment turned off. Rows stay in the
+ * table, so turning the setting back on shows them again.
+ */
+function hiddenNoticesClause(args: Array<string | number>): string {
+  if (getAppConfig().notifications.usageLimitNotices) return "";
+  args.push(USAGE_LIMIT_NOTICE_METADATA);
+  return ` AND (metadata IS NULL OR metadata NOT LIKE ?)`;
+}
+
 export async function listNotifications(
   owner: string,
   options: ListNotificationsOptions = {},
@@ -449,6 +463,7 @@ export async function listNotifications(
   const limit = normalizeLimit(options.limit);
   const args: Array<string | number> = [owner];
   let where = `owner = ?`;
+  where += hiddenNoticesClause(args);
   if (options.archivedOnly) where += ` AND archived_at IS NOT NULL`;
   else if (!options.includeArchived) where += ` AND archived_at IS NULL`;
   if (options.unreadOnly) where += ` AND read_at IS NULL`;
@@ -474,11 +489,15 @@ export async function listNotifications(
 export async function countUnread(owner: string): Promise<number> {
   await ensureTable();
   const client = getDbExec();
+  const args: Array<string | number> = [owner];
   // An archived notification was filed away, so it is not something the badge
   // should still be asking about.
+  let where = `owner = ? AND read_at IS NULL AND archived_at IS NULL`;
+  where += hiddenNoticesClause(args);
+  // raw-sql-ok: where is built only from literal clauses; every value is bound
   const { rows } = await client.execute({
-    sql: `SELECT COUNT(*) as c FROM notifications WHERE owner = ? AND read_at IS NULL AND archived_at IS NULL`,
-    args: [owner],
+    sql: `SELECT COUNT(*) as c FROM notifications WHERE ${where}`,
+    args,
   });
   return Number(rows[0]?.c ?? 0);
 }
@@ -554,6 +573,7 @@ export async function archiveNotifications(
   const client = getDbExec();
   const args: Array<string | number> = [Date.now(), owner];
   let where = `owner = ? AND archived_at IS NULL`;
+  where += hiddenNoticesClause(args);
   if (scope === "unread") where += ` AND read_at IS NULL`;
   if (scope === "read") where += ` AND read_at IS NOT NULL`;
   // raw-sql-ok: where is built only from literal clauses; every value is bound
