@@ -6504,19 +6504,20 @@ export class AgentKitClient implements AgentKitController {
     ).filter(
       (runId) => !this.isTerminalStatus(runs[runId]?.status ?? "running"),
     );
+    const mergedMessages =
+      reconciliation &&
+      (preserveLiveMessages || messagesChanged || hasMessageIdRemap)
+        ? reconciliation.messages
+        : loaded.messages.length > 0 || current.messages.length === 0
+          ? loaded.messages
+          : current.messages;
     return {
       ...loaded,
       thread:
         current.thread === baseline.thread ? loaded.thread : current.thread,
       // A snapshot can trail accepted events even when no event arrives
       // during this load.
-      messages:
-        reconciliation &&
-        (preserveLiveMessages || messagesChanged || hasMessageIdRemap)
-          ? reconciliation.messages
-          : loaded.messages.length > 0 || current.messages.length === 0
-            ? loaded.messages
-            : current.messages,
+      messages: mergedMessages,
       queuedMessages:
         current.queuedMessages === baseline.queuedMessages &&
         !snapshotIncludes("queuedMessages")
@@ -6526,7 +6527,7 @@ export class AgentKitClient implements AgentKitController {
               loaded.queuedMessages,
               live.queuedMessages,
               !hasActiveAgentRuns(loaded),
-              loaded.messages,
+              mergedMessages,
             ),
       runs,
       activeRunIds,
@@ -7371,7 +7372,11 @@ export class AgentKitClient implements AgentKitController {
       ...(queued.attachments?.length
         ? { attachments: queued.attachments }
         : {}),
+      ...(queued.requestAttachments?.length
+        ? { requestAttachments: queued.requestAttachments }
+        : {}),
       ...(queued.references?.length ? { references: queued.references } : {}),
+      ...(queued.options ? { options: queued.options } : {}),
       ...(queued.metadata ? { metadata: queued.metadata } : {}),
       queueWhileRunning: false,
     };

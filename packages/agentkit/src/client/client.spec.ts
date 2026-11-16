@@ -4190,6 +4190,61 @@ describe("AgentKitClient", () => {
     expect(client.getThread("thread-1").queuedMessages).toEqual([]);
   });
 
+  it("keeps a promoted row's run options and request attachments", async () => {
+    const { promise: terminal, resolve: resolveTerminal } =
+      Promise.withResolvers<void>();
+    const inputs: any[] = [];
+    const transport: AgentTransport = {
+      capabilities: { messageQueue: true },
+      async startRun(input: unknown) {
+        inputs.push(input);
+        return { runId: `run-${inputs.length}` };
+      },
+      async *subscribeToRun({ runId }) {
+        yield { ...protocolEvent(1, { type: "run.started" }), runId };
+        if (runId === "run-1") await terminal;
+        yield { ...protocolEvent(2, { type: "run.completed" }), runId };
+      },
+      async getThreadSnapshot() {
+        return {
+          id: "thread-1",
+          createdAt: "2026-08-29T00:00:00.000Z",
+          updatedAt: "2026-08-29T00:00:00.000Z",
+          messages: [],
+          queuedMessages: [],
+        };
+      },
+      async queueMessage(input) {
+        return {
+          message: {
+            id: "queued-opts",
+            threadId: input.threadId,
+            text: input.text,
+            createdAt: "2026-08-29T00:00:01.000Z",
+            options: { model: "model-x" },
+            requestAttachments: [{ type: "image", name: "a.png", url: "u" }],
+          },
+        };
+      },
+      async steerQueuedMessage() {
+        throw new Error("No live run accepts this queued message.");
+      },
+      async removeQueuedMessage() {},
+      async cancelRun() {},
+    };
+    const client = new AgentKitClient({ transport });
+    await client.loadThread("thread-1");
+    await client.sendMessage({ threadId: "thread-1", text: "Go" });
+    await vi.waitFor(() =>
+      expect(client.getThread("thread-1").activeRunIds).toContain("run-1"),
+    );
+    await client.queueMessage({ threadId: "thread-1", text: "Follow up" });
+    resolveTerminal();
+    await vi.waitFor(() => expect(inputs.length).toBe(2), { timeout: 3000 });
+    expect(JSON.stringify(inputs[1])).toContain("model-x");
+    expect(JSON.stringify(inputs[1])).toContain("a.png");
+  });
+
   it("does not requeue a promoted row whose turn failed to start and is kept as an errored message", async () => {
     const { promise: terminal, resolve: resolveTerminal } =
       Promise.withResolvers<void>();
