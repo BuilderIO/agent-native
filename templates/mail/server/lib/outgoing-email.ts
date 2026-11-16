@@ -54,6 +54,13 @@ function safeHeaderParam(value: string): string {
   return stripCrlf(value).replace(/["\\]/g, "_") || "attachment";
 }
 
+/** The filename an attachment's MIME part carries, as Gmail reports it back. */
+export function mimeAttachmentFilename(
+  attachment: Pick<ComposeAttachment, "filename" | "originalName">,
+): string {
+  return safeHeaderParam(attachment.originalName || attachment.filename);
+}
+
 export function encodeMimeHeaderValue(value: string): string {
   if (/^[\x20-\x7e]*$/.test(value)) return value;
   return `=?UTF-8?B?${Buffer.from(value, "utf8").toString("base64")}?=`;
@@ -322,7 +329,7 @@ export function buildRawEmail(opts: {
             ...alternativePart,
           ];
           for (const att of attachments) {
-            const filename = safeHeaderParam(att.originalName || att.filename);
+            const filename = mimeAttachmentFilename(att);
             mixed.push(
               "",
               `--${mixedBoundary}`,

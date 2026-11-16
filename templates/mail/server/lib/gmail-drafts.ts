@@ -1,5 +1,6 @@
 import { listOAuthAccountsByOwner } from "@agent-native/core/oauth-tokens";
 
+import type { MovedGmailAttachment } from "../../shared/compose-attachments.js";
 import type { ComposeAttachment } from "../../shared/types.js";
 import {
   gmailGetAttachment,
@@ -7,7 +8,12 @@ import {
   googleFetch,
 } from "./google-api.js";
 import { getClientForConnectedAccount } from "./google-auth.js";
-import { buildRawEmail, resolveComposeAttachments } from "./outgoing-email.js";
+import {
+  buildRawEmail,
+  mimeAttachmentFilename,
+  resolveComposeAttachments,
+  type ResolvedComposeAttachment,
+} from "./outgoing-email.js";
 
 type GmailScopeUse = "write" | "reply" | "attachment";
 function hasGmailScope(
@@ -119,6 +125,146 @@ export async function withSavedGmailDraft<T>(
   }
 }
 
+const gmailDraftUrl = (draftId: string, query?: Record<string, string>) =>
+  `https://gmail.googleapis.com/gmail/v1/users/me/drafts/${encodeURIComponent(draftId)}${query ? `?${new URLSearchParams(query)}` : ""}`;
+
+/**
+ * Where each attachment Mail copied out of the draft's replaced message now
+ * lives. Mail built the new message, so its parts after the body are the
+ * attachments in the order they were sent.
+ */
+async function readMovedDraftAttachments(
+  accessToken: string,
+  draftId: string,
+  attachments: ResolvedComposeAttachment[],
+  replacedMessageId: string,
+): Promise<MovedGmailAttachment[]> {
+  let draft;
+  try {
+    draft = await googleFetch(
+      gmailDraftUrl(draftId, {
+        format: "full",
+        fields: "message(id,payload(parts(filename,body(attachmentId,size))))",
+      }),
+      accessToken,
+    );
+  } catch (error) {
+    throw new Error(
+      `Gmail saved the draft, but Mail couldn't read where its attachments moved: ${error instanceof Error ? error.message : String(error)}`,
+    );
+  }
+  const messageId: unknown = draft?.message?.id;
+  const parts: unknown = draft?.message?.payload?.parts;
+  const fileParts = Array.isArray(parts) ? parts.slice(1) : [];
+  if (
+    typeof messageId !== "string" ||
+    fileParts.length !== attachments.length
+  ) {
+    throw new Error(
+      "Gmail saved the draft, but its attachments don't match the ones Mail sent.",
+    );
+  }
+  return attachments.flatMap((attachment, index) => {
+    if (
+      attachment.source !== "gmail" ||
+      attachment.gmailMessageId !== replacedMessageId ||
+      !attachment.gmailAttachmentId
+    ) {
+      return [];
+    }
+    const part:
+      | {
+          filename?: unknown;
+          body?: { attachmentId?: unknown; size?: unknown };
+        }
+      | undefined = fileParts[index];
+    if (
+      part?.filename !== mimeAttachmentFilename(attachment) ||
+      part.body?.size !== attachment.data.length ||
+      typeof part.body.attachmentId !== "string"
+    ) {
+      throw new Error(
+        `Gmail saved the draft, but its copy of "${attachment.filename}" doesn't match the one Mail sent.`,
+      );
+    }
+    return [
+      {
+        from: {
+          gmailMessageId: replacedMessageId,
+          gmailAttachmentId: attachment.gmailAttachmentId,
+        },
+        to: {
+          gmailMessageId: messageId,
+          gmailAttachmentId: part.body.attachmentId,
+        },
+      },
+    ];
+  });
+}
+
+/**
+ * Replaces the message of the Gmail draft `savedDraftId` names, or returns null
+ * when Gmail has no such draft. Gmail drops the old message and its parts, so
+ * attachments read from that message come back as `movedAttachments`, and the
+ * next save or send must use those refs instead.
+ */
+export async function updateSavedGmailDraft(
+  accessToken: string,
+  savedDraftId: string,
+  message: { raw: string; threadId?: string },
+  attachments: ResolvedComposeAttachment[],
+): Promise<{
+  draftId: string;
+  movedAttachments: MovedGmailAttachment[];
+} | null> {
+  const readsGmail = attachments.some(
+    (attachment) => attachment.source === "gmail",
+  );
+  const updated = await withSavedGmailDraft(
+    accessToken,
+    savedDraftId,
+    async (draftId) => {
+      const replacedMessageId: unknown = readsGmail
+        ? (
+            await googleFetch(
+              gmailDraftUrl(draftId, {
+                format: "minimal",
+                fields: "message/id",
+              }),
+              accessToken,
+            )
+          )?.message?.id
+        : undefined;
+      const draft = await googleFetch(gmailDraftUrl(draftId), accessToken, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message }),
+      });
+      return { draftId: draft.id as string, replacedMessageId };
+    },
+  );
+  if (!updated) return null;
+  const { draftId, replacedMessageId } = updated.result;
+  const movesAttachments =
+    typeof replacedMessageId === "string" &&
+    attachments.some(
+      (attachment) =>
+        attachment.source === "gmail" &&
+        attachment.gmailMessageId === replacedMessageId,
+    );
+  return {
+    draftId,
+    movedAttachments: movesAttachments
+      ? await readMovedDraftAttachments(
+          accessToken,
+          draftId,
+          attachments,
+          replacedMessageId,
+        )
+      : [],
+  };
+}
+
 export async function findGmailDraftAccount(args: {
   ownerEmail: string;
   accountEmail?: string;
@@ -186,6 +332,7 @@ export async function saveGmailDraft(args: {
   accountEmail: string;
   created: boolean;
   updated?: boolean;
+  movedAttachments?: MovedGmailAttachment[];
 } | null> {
   const accountEmail = await resolveAccountEmail(
     args.accountEmail,
@@ -264,26 +411,21 @@ export async function saveGmailDraft(args: {
     ...(threadId ? { threadId } : {}),
   };
   if (args.draftId) {
-    const updated = await withSavedGmailDraft(
+    const updated = await updateSavedGmailDraft(
       accessToken,
       args.draftId,
-      (draftId) =>
-        googleFetch(
-          `https://gmail.googleapis.com/gmail/v1/users/me/drafts/${encodeURIComponent(draftId)}`,
-          accessToken,
-          {
-            method: "PUT",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ message }),
-          },
-        ),
+      message,
+      attachments,
     );
     if (updated) {
       return {
-        draftId: updated.result.id,
+        draftId: updated.draftId,
         accountEmail,
         created: false,
         updated: true,
+        ...(updated.movedAttachments.length
+          ? { movedAttachments: updated.movedAttachments }
+          : {}),
       };
     }
     // A deleted Gmail draft is safe to replace with a new one.

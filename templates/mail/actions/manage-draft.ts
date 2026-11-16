@@ -34,6 +34,7 @@ import {
 } from "../server/lib/local-email-store.js";
 import { attachmentFromUpload } from "../server/lib/media-upload.js";
 import { resolveExistingSavedDraftOwnership } from "../server/lib/saved-draft-ownership.js";
+import { moveGmailAttachments } from "../shared/compose-attachments.js";
 import { appendSignatureToBody } from "../shared/signature.js";
 import type { ComposeAttachment, ComposeState } from "../shared/types.js";
 
@@ -808,6 +809,12 @@ export default defineAction({
         draft.savedDraftBackend = "gmail";
         draft.savedDraftAccountEmail = savedGmailDraft.accountEmail;
         draft.accountEmail = savedGmailDraft.accountEmail;
+        if (savedGmailDraft.movedAttachments && draft.attachments) {
+          draft.attachments = moveGmailAttachments(
+            draft.attachments,
+            savedGmailDraft.movedAttachments,
+          );
+        }
       }
       const newGmailDraft =
         savedGmailDraft?.created && ownerEmail

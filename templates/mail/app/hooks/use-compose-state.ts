@@ -11,6 +11,10 @@ import {
   type SavedRecord,
   type SaveOverlap,
 } from "@agent-native/core/save-conflict";
+import {
+  moveGmailAttachments,
+  type MovedGmailAttachment,
+} from "@shared/compose-attachments";
 import { appendSignatureToBody } from "@shared/signature";
 import type { Alias, ComposeState, UserSettings } from "@shared/types";
 import {
@@ -40,6 +44,7 @@ export type SavedDraftMetadata = {
   draftId: string;
   backend: "gmail" | "local";
   accountEmail?: string;
+  movedAttachments?: MovedGmailAttachment[];
 };
 
 export type DeleteSavedDraftResult =
@@ -261,6 +266,7 @@ async function saveDraftToEmails(
     draftId?: string;
     backend?: "gmail" | "local";
     accountEmail?: string;
+    movedAttachments?: MovedGmailAttachment[];
   }>("/api/emails/draft", {
     method: "POST",
     body: JSON.stringify({
@@ -282,7 +288,9 @@ async function saveDraftToEmails(
     typeof result.draftId !== "string" ||
     !result.draftId ||
     (result.backend !== "gmail" && result.backend !== "local") ||
-    (result.backend === "gmail" && !result.accountEmail)
+    (result.backend === "gmail" && !result.accountEmail) ||
+    (result.movedAttachments !== undefined &&
+      !Array.isArray(result.movedAttachments))
   ) {
     throw new Error("Draft save response is missing its mailbox metadata");
   }
@@ -290,6 +298,9 @@ async function saveDraftToEmails(
     draftId: result.draftId,
     backend: result.backend,
     ...(result.accountEmail ? { accountEmail: result.accountEmail } : {}),
+    ...(result.movedAttachments
+      ? { movedAttachments: result.movedAttachments }
+      : {}),
   };
 }
 
@@ -326,6 +337,9 @@ export function enqueueDraftSave(
             backend: previousResult.backend,
             ...(previousResult.accountEmail
               ? { accountEmail: previousResult.accountEmail }
+              : {}),
+            ...(previousResult.movedAttachments
+              ? { movedAttachments: previousResult.movedAttachments }
               : {}),
           }
         : previousResult && "savedDraft" in previousResult
@@ -430,6 +444,14 @@ export function applyDraftSaveResult(
     savedDraftId: metadata.draftId,
     savedDraftBackend: metadata.backend,
     savedDraftAccountEmail: metadata.accountEmail,
+    ...(metadata.movedAttachments && draft.attachments
+      ? {
+          attachments: moveGmailAttachments(
+            draft.attachments,
+            metadata.movedAttachments,
+          ),
+        }
+      : {}),
   };
 }
 
@@ -450,7 +472,8 @@ export function getDraftSaveMetadataUpdate(
   if (
     result.draftId === draft.savedDraftId &&
     result.backend === draft.savedDraftBackend &&
-    result.accountEmail === draft.savedDraftAccountEmail
+    result.accountEmail === draft.savedDraftAccountEmail &&
+    !result.movedAttachments?.length
   ) {
     return undefined;
   }
@@ -1123,6 +1146,42 @@ export function useComposeState() {
     ],
   );
 
+  /**
+   * A staged draft with the Gmail file refs to send it with. A mailbox save
+   * still running when it was staged replaces the Gmail message its own files
+   * are read from; the draft held here follows that move, the staged copy
+   * doesn't.
+   */
+  const settleForSend = useCallback(
+    async (staged: ComposeState): Promise<ComposeState> => {
+      await pendingDraftSavesRef.current.get(staged.id);
+      const latest = (
+        qc.getQueryData<ComposeState[]>(["compose-drafts"]) ?? []
+      ).find((draft) => draft.id === staged.id);
+      if (!staged.attachments || !latest?.attachments) return staged;
+      const latestById = new Map(
+        latest.attachments.map((attachment) => [attachment.id, attachment]),
+      );
+      return {
+        ...staged,
+        attachments: staged.attachments.map((attachment) => {
+          const current = latestById.get(attachment.id);
+          return attachment.source === "gmail" &&
+            current?.source === "gmail" &&
+            current.gmailMessageId &&
+            current.gmailAttachmentId
+            ? {
+                ...attachment,
+                gmailMessageId: current.gmailMessageId,
+                gmailAttachmentId: current.gmailAttachmentId,
+              }
+            : attachment;
+        }),
+      };
+    },
+    [qc],
+  );
+
   const flush = useCallback(
     (id: string) => {
       if (debounceRef.current[id]) clearTimeout(debounceRef.current[id]);
@@ -1156,6 +1215,7 @@ export function useComposeState() {
     discard,
     stageForSend,
     restoreAfterSend,
+    settleForSend,
     deleteSavedDraft,
     setActiveId,
     flush,

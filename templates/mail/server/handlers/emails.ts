@@ -55,7 +55,10 @@ import {
   persistTracking,
   type TrackingContext,
 } from "../lib/email-tracking.js";
-import { withSavedGmailDraft } from "../lib/gmail-drafts.js";
+import {
+  updateSavedGmailDraft,
+  withSavedGmailDraft,
+} from "../lib/gmail-drafts.js";
 import {
   filterInboxScopedThreadMessages,
   filterLabelMessages,
@@ -1626,26 +1629,21 @@ export const saveDraft = defineEventHandler(async (event: H3Event) => {
       });
 
       if (savedDraftId) {
-        const updated = await withSavedGmailDraft(
+        const updated = await updateSavedGmailDraft(
           accessToken,
           savedDraftId,
-          (draftId) =>
-            googleFetch(
-              `https://gmail.googleapis.com/gmail/v1/users/me/drafts/${encodeURIComponent(draftId)}`,
-              accessToken,
-              {
-                method: "PUT",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ message: { raw } }),
-              },
-            ),
+          { raw },
+          attachments,
         );
         if (updated) {
           return {
-            draftId: updated.result.id,
+            draftId: updated.draftId,
             backend: "gmail" as const,
             accountEmail: acct,
             updated: true,
+            ...(updated.movedAttachments.length
+              ? { movedAttachments: updated.movedAttachments }
+              : {}),
           };
         }
         // A deleted Gmail draft is safe to replace with a new one.

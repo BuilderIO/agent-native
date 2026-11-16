@@ -1612,3 +1612,92 @@ describe("manage-draft local create when the draft write throws", () => {
     consoleError.mockRestore();
   });
 });
+
+describe("manage-draft updates of a reopened Gmail draft with its own file", () => {
+  const draftFile = {
+    id: "part-1",
+    filename: "brief.pdf",
+    originalName: "brief.pdf",
+    mimeType: "application/pdf",
+    size: 10,
+    source: "gmail" as const,
+    gmailMessageId: "message-of-draft",
+    gmailAttachmentId: "part-1",
+    accountEmail: "owner@example.com",
+  };
+
+  beforeEach(() => {
+    appState.set("compose-reopened", {
+      id: "reopened",
+      to: "recipient@example.com",
+      subject: "Brief",
+      body: "Draft",
+      mode: "compose",
+      attachments: [draftFile],
+      savedDraftId: "message-of-draft",
+      savedDraftBackend: "gmail",
+      savedDraftAccountEmail: "owner@example.com",
+      accountEmail: "owner@example.com",
+    });
+    // Like Gmail, each update replaces the draft's message and its part IDs,
+    // and a file can only be read from the message the draft holds now.
+    let version = 1;
+    let messageId = "message-of-draft";
+    mocks.saveGmailDraft.mockImplementation(
+      async (args: { attachments?: (typeof draftFile)[] }) => {
+        const file = args.attachments?.[0];
+        if (
+          file?.gmailMessageId !== messageId ||
+          file.gmailAttachmentId !== `part-${version}`
+        ) {
+          throw new Error("Gmail attachment could not be read");
+        }
+        version += 1;
+        const from = {
+          gmailMessageId: messageId,
+          gmailAttachmentId: file.gmailAttachmentId,
+        };
+        messageId = `message-${version}`;
+        return {
+          draftId: "r-draft-7",
+          accountEmail: "owner@example.com",
+          created: false,
+          updated: true,
+          movedAttachments: [
+            {
+              from,
+              to: {
+                gmailMessageId: messageId,
+                gmailAttachmentId: `part-${version}`,
+              },
+            },
+          ],
+        };
+      },
+    );
+  });
+
+  it("keeps the file readable through two updates", async () => {
+    await action.run({
+      action: "update",
+      id: "reopened",
+      expectedRevision: revisionOf("reopened"),
+      body: "First edit",
+    });
+    const second = await action.run({
+      action: "update",
+      id: "reopened",
+      expectedRevision: revisionOf("reopened"),
+      body: "Second edit",
+    });
+
+    expect(second.draft.attachments).toEqual([
+      {
+        ...draftFile,
+        gmailMessageId: "message-3",
+        gmailAttachmentId: "part-3",
+      },
+    ]);
+    expect(second.draft.savedDraftId).toBe("r-draft-7");
+  });
+});

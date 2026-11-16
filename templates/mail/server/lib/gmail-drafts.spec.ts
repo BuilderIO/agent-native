@@ -23,6 +23,11 @@ vi.mock("./google-auth.js", () => ({
 }));
 
 import {
+  moveGmailAttachments,
+  type MovedGmailAttachment,
+} from "../../shared/compose-attachments.js";
+import type { ComposeAttachment } from "../../shared/types.js";
+import {
   deleteGmailDraft,
   findGmailDraftAccount,
   saveGmailDraft,
@@ -227,7 +232,10 @@ describe("saveGmailDraft", () => {
       "source-message-1",
       "source-attachment-1",
     );
-    const [, , options] = mocks.googleFetch.mock.calls[0] ?? [];
+    const [, , options] =
+      mocks.googleFetch.mock.calls.find(
+        ([, , init]) => (init as { method?: string })?.method === "PUT",
+      ) ?? [];
     const raw = Buffer.from(
       JSON.parse(options.body).message.raw,
       "base64url",
@@ -558,5 +566,241 @@ describe("a Gmail draft reopened by its message ID", () => {
       }),
     ).resolves.toBe("owner@example.com");
     expect(calls()).toContain("GET /drafts/r-draft-7");
+  });
+});
+
+// Gmail replaces a draft's message on every update, and the old message's
+// attachment IDs stop working with it. A draft reopened from Drafts carries
+// attachments read from the message it had then.
+describe("attachments of a Gmail draft updated in place", () => {
+  const notFound = () => new Error("Google API error (404): Not Found");
+  type Part = { filename: string; data: string; attachmentId: string };
+
+  /** The attachments of a raw MIME message Mail built, in order. */
+  function mimeAttachments(raw: string) {
+    const mime = Buffer.from(raw, "base64url").toString("utf8");
+    return [
+      ...mime.matchAll(
+        /filename="([^"]*)"\r\nContent-Transfer-Encoding: base64\r\n\r\n([A-Za-z0-9+/=\r\n]+?)\r\n\r\n--/g,
+      ),
+    ].map(([, filename = "", body = ""]) => ({
+      filename,
+      data: Buffer.from(body.replace(/\r\n/g, ""), "base64").toString("utf8"),
+    }));
+  }
+
+  /** A mailbox holding draft "r-draft-7" and a received "source-message". */
+  function fakeGmail() {
+    let version = 1;
+    const draft = {
+      messageId: "message-of-draft",
+      parts: [
+        { filename: "brief.pdf", data: "draft file", attachmentId: "part-1-0" },
+      ] as Part[],
+    };
+    const messages = new Map<string, Part[]>([
+      [
+        "source-message",
+        [
+          {
+            filename: "forwarded.txt",
+            data: "forwarded file",
+            attachmentId: "source-part",
+          },
+        ],
+      ],
+    ]);
+    const partsOf = (messageId: string) =>
+      messageId === draft.messageId ? draft.parts : messages.get(messageId);
+    mocks.gmailGetAttachment.mockImplementation(
+      async (_token: string, messageId: string, attachmentId: string) => {
+        const part = partsOf(messageId)?.find(
+          (candidate) => candidate.attachmentId === attachmentId,
+        );
+        if (!part) throw notFound();
+        return { data: Buffer.from(part.data).toString("base64url") };
+      },
+    );
+    mocks.googleFetch.mockImplementation(
+      async (url: string, _token: string, options?: RequestInit) => {
+        if (url.includes("/drafts?")) {
+          return {
+            drafts: [{ id: "r-draft-7", message: { id: draft.messageId } }],
+          };
+        }
+        if (!new URL(url).pathname.endsWith("/drafts/r-draft-7")) {
+          throw notFound();
+        }
+        if (options?.method === "PUT") {
+          version += 1;
+          draft.messageId = `message-${version}`;
+          draft.parts = mimeAttachments(
+            JSON.parse(String(options.body)).message.raw,
+          ).map((part, index) => ({
+            ...part,
+            attachmentId: `part-${version}-${index}`,
+          }));
+          return { id: "r-draft-7", message: { id: draft.messageId } };
+        }
+        return {
+          id: "r-draft-7",
+          message: {
+            id: draft.messageId,
+            payload: {
+              parts: [
+                { filename: "", body: { size: 0 } },
+                ...draft.parts.map((part) => ({
+                  filename: part.filename,
+                  body: {
+                    attachmentId: part.attachmentId,
+                    size: Buffer.byteLength(part.data),
+                  },
+                })),
+              ],
+            },
+          },
+        };
+      },
+    );
+    return draft;
+  }
+
+  const draftFile: ComposeAttachment = {
+    id: "part-1-0",
+    filename: "brief.pdf",
+    originalName: "brief.pdf",
+    mimeType: "application/pdf",
+    size: 10,
+    source: "gmail",
+    gmailMessageId: "message-of-draft",
+    gmailAttachmentId: "part-1-0",
+    accountEmail: "owner@example.com",
+  };
+  const forwardedFile: ComposeAttachment = {
+    id: "source-part",
+    filename: "forwarded.txt",
+    originalName: "forwarded.txt",
+    mimeType: "text/plain",
+    size: 14,
+    source: "gmail",
+    gmailMessageId: "source-message",
+    gmailAttachmentId: "source-part",
+    accountEmail: "owner@example.com",
+  };
+
+  const save = (draftId: string, attachments: ComposeAttachment[]) =>
+    saveGmailDraft({
+      ownerEmail: "owner@example.com",
+      accountEmail: "owner@example.com",
+      draftId,
+      to: "recipient@example.com",
+      subject: "Edited",
+      body: "Edited body",
+      attachments,
+    });
+
+  const requests = () =>
+    mocks.googleFetch.mock.calls.map(([url, , options]) => {
+      const { pathname, searchParams } = new URL(String(url));
+      return `${(options as RequestInit | undefined)?.method ?? "GET"} ${pathname.replace("/gmail/v1/users/me", "")}${searchParams.has("format") ? `?format=${searchParams.get("format")}` : ""}`;
+    });
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocks.listOAuthAccountsByOwner.mockResolvedValue([
+      {
+        accountId: "owner@example.com",
+        displayName: null,
+        tokens: { scope: "https://mail.google.com/" },
+      },
+    ]);
+    mocks.getClientForConnectedAccount.mockResolvedValue({
+      email: "owner@example.com",
+      accessToken: "token",
+    });
+  });
+
+  it("keeps a reopened draft's own file through two saves", async () => {
+    const draft = fakeGmail();
+
+    const first = await save("message-of-draft", [draftFile]);
+    expect(first?.movedAttachments).toEqual([
+      {
+        from: {
+          gmailMessageId: "message-of-draft",
+          gmailAttachmentId: "part-1-0",
+        },
+        to: { gmailMessageId: "message-2", gmailAttachmentId: "part-2-0" },
+      },
+    ]);
+    const moved = moveGmailAttachments(
+      [draftFile],
+      first?.movedAttachments ?? [],
+    );
+
+    const second = await save("r-draft-7", moved);
+    expect(second?.movedAttachments).toEqual([
+      {
+        from: { gmailMessageId: "message-2", gmailAttachmentId: "part-2-0" },
+        to: { gmailMessageId: "message-3", gmailAttachmentId: "part-3-0" },
+      },
+    ]);
+    expect(draft.parts).toEqual([
+      { filename: "brief.pdf", data: "draft file", attachmentId: "part-3-0" },
+    ]);
+  });
+
+  it("leaves a forwarded file's refs alone, since its message stays", async () => {
+    fakeGmail();
+
+    const result = await save("r-draft-7", [forwardedFile]);
+
+    expect(result).not.toHaveProperty("movedAttachments");
+    expect(requests()).toEqual([
+      "GET /drafts/r-draft-7?format=minimal",
+      "PUT /drafts/r-draft-7",
+    ]);
+  });
+
+  it("matches each file to its own part when only some moved", async () => {
+    const draft = fakeGmail();
+
+    const result = await save("r-draft-7", [forwardedFile, draftFile]);
+
+    expect(result?.movedAttachments).toEqual([
+      {
+        from: {
+          gmailMessageId: "message-of-draft",
+          gmailAttachmentId: "part-1-0",
+        },
+        to: { gmailMessageId: "message-2", gmailAttachmentId: "part-2-1" },
+      },
+    ] satisfies MovedGmailAttachment[]);
+    expect(draft.parts.map((part) => part.data)).toEqual([
+      "forwarded file",
+      "draft file",
+    ]);
+  });
+
+  it("asks Gmail nothing more for a draft with no Gmail files", async () => {
+    fakeGmail();
+
+    await save("r-draft-7", []);
+
+    expect(requests()).toEqual(["PUT /drafts/r-draft-7"]);
+  });
+
+  it("fails loudly when Gmail's copy doesn't hold the files Mail sent", async () => {
+    const draft = fakeGmail();
+    const gmail = mocks.googleFetch.getMockImplementation();
+    mocks.googleFetch.mockImplementation(async (...args: unknown[]) => {
+      const result = await gmail?.(...args);
+      draft.parts = [];
+      return result;
+    });
+
+    await expect(save("r-draft-7", [draftFile])).rejects.toThrow(
+      "its attachments don't match",
+    );
   });
 });

@@ -29,3 +29,41 @@ export function composeAttachmentLink(
   }
   return `/api/media/${encodeURIComponent(attachment.filename)}`;
 }
+
+export type GmailAttachmentRef = {
+  gmailMessageId: string;
+  gmailAttachmentId: string;
+};
+
+/**
+ * Gmail replaces a draft's message on every update, and the parts of the old
+ * message go with it. A save that copied a file out of the draft's own message
+ * reports where that file now lives in the new one.
+ */
+export type MovedGmailAttachment = {
+  from: GmailAttachmentRef;
+  to: GmailAttachmentRef;
+};
+
+/**
+ * Points each attachment a save moved at its new part, matched by the refs the
+ * save sent, so a file added or removed while the save ran keeps its place.
+ * Returns `attachments` itself when nothing moved.
+ */
+export function moveGmailAttachments(
+  attachments: ComposeAttachment[],
+  moved: readonly MovedGmailAttachment[],
+): ComposeAttachment[] {
+  const unused = [...moved];
+  const next = attachments.map((attachment) => {
+    const move = unused.find(
+      ({ from }) =>
+        from.gmailMessageId === attachment.gmailMessageId &&
+        from.gmailAttachmentId === attachment.gmailAttachmentId,
+    );
+    if (!move) return attachment;
+    unused.splice(unused.indexOf(move), 1);
+    return { ...attachment, ...move.to };
+  });
+  return unused.length < moved.length ? next : attachments;
+}
