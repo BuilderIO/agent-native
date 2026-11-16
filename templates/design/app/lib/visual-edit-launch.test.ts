@@ -31,10 +31,26 @@ describe("visual edit browser host launch", () => {
     });
     expect(open).not.toHaveBeenCalled();
   });
-  it("requires a local opener when the browser cannot escape its host", async () => {
-    vi.stubGlobal("window", { open: vi.fn().mockReturnValue(null) });
+  it("dispatches desktop launches through the desktop preload shell API", async () => {
+    const openExternal = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("window", {
+      agentNativeDesktop: {},
+      electronAPI: { shell: { openExternal } },
+      location: { assign: vi.fn() },
+    });
+    expect(
+      (await dispatchVisualEditBrowserLaunch({ ...launch, target: "desktop" }))
+        .status,
+    ).toBe("dispatched");
+    expect(openExternal).toHaveBeenCalledWith(launch.desktopUrl);
+  });
+
+  it("preserves normal browser navigation when no external opener exists", async () => {
+    const assign = vi.fn();
+    vi.stubGlobal("window", { location: { assign } });
     expect((await dispatchVisualEditBrowserLaunch(launch)).status).toBe(
-      "host-required",
+      "dispatched",
     );
+    expect(assign).toHaveBeenCalledWith(launch.browserUrl);
   });
 });
