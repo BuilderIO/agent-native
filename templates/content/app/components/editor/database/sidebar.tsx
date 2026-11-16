@@ -70,6 +70,7 @@ import { usePendingTrash } from "@/hooks/use-pending-trash";
 import {
   filesNavigationPageParams,
   filesRowDocument,
+  keptFilesRows,
   useFilesNavigationPage,
   type FilesRowMove,
 } from "@/lib/files-navigation";
@@ -404,10 +405,24 @@ function PagedContentFilesBranch({
       : props.parentId === null
         ? rootPlaceholder
         : props.branchPlaceholders?.[props.parentId];
-    // A page moved into a folder that hasn't loaded yet shows below it.
+    // A page moved into a folder that hasn't loaded yet shows below it, from
+    // the click, through the move's answer, until the folder's read lands.
     const movingIn =
       cursor === undefined
-        ? [...pendingMoves.values()].filter(movesHere).map((move) => move.item)
+        ? [
+            ...[...pendingMoves.values()]
+              .filter(movesHere)
+              .map((move) => move.item),
+            ...keptFilesRows(queryClient, props.databaseId, props.parentId),
+          ].filter((item, index, all) => {
+            if (pendingTrash.documentIds.has(item.documentId)) return false;
+            const move = pendingMoves.get(item.documentId);
+            return (
+              (!move || movesHere(move)) &&
+              all.findIndex((other) => other.documentId === item.documentId) ===
+                index
+            );
+          })
         : [];
     return (
       <>

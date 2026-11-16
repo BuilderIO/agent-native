@@ -261,6 +261,25 @@ export function keepMovedFilesRow(
 }
 
 /**
+ * The pages this tab keeps at the end of a branch's first page, created there
+ * or moved in, for a branch whose first read hasn't landed: its read keeps
+ * the same rows, so they show while it loads.
+ */
+export function keptFilesRows(
+  queryClient: QueryClient,
+  databaseId: string,
+  parentId: string | null,
+): ContentDatabaseNavigationItem[] {
+  const rows = createdFilesRows.get(queryClient);
+  if (!rows) return [];
+  return [...rows.values()].flatMap((row) =>
+    row.databaseId === databaseId && row.item.parentId === parentId
+      ? [row.item]
+      : [],
+  );
+}
+
+/**
  * Takes pages out of the sidebar whose create failed or was discarded. The
  * server never had them, so no reread would remove their rows.
  */

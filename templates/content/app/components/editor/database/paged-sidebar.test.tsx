@@ -19,6 +19,7 @@ import {
   type MoveDocumentContext,
 } from "@/hooks/use-pending-moves";
 import { DELETE_DOCUMENT_MUTATION_KEY } from "@/hooks/use-pending-trash";
+import { keepMovedFilesRow } from "@/lib/files-navigation";
 import type { SidebarRowsHint } from "@/lib/sidebar-layout-hint";
 
 const useFilesNavigationPage = vi.hoisted(() => vi.fn());
@@ -666,7 +667,8 @@ describe("PagedContentFilesSidebarView", () => {
     await act(async () => root.unmount());
   });
 
-  it("draws a page moved into a folder that hasn't loaded below the folder's placeholder rows", async () => {
+  it("draws a page moved into a folder that hasn't loaded below the folder's placeholder rows, through the move's answer", async () => {
+    let rootRows = [navigationItem("folder"), navigationItem("page-b")];
     useFilesNavigationPage.mockImplementation((args) =>
       args.navigation.parentId === "folder"
         ? {
@@ -677,7 +679,7 @@ describe("PagedContentFilesSidebarView", () => {
             refetch: vi.fn(),
           }
         : {
-            data: page([navigationItem("folder"), navigationItem("page-b")]),
+            data: page(rootRows),
             isLoading: false,
             isError: false,
             isFetching: false,
@@ -703,13 +705,18 @@ describe("PagedContentFilesSidebarView", () => {
       ["/page/page-b", topDepth],
     ]);
 
+    let answerMove: () => void = () => {};
+    const moveAnswer = new Promise<void>((resolve) => {
+      answerMove = resolve;
+    });
+    let moving: Promise<unknown> = Promise.resolve();
     await act(async () => {
-      void queryClient
+      moving = queryClient
         .getMutationCache()
         .build(queryClient, {
           mutationKey: MOVE_DOCUMENT_MUTATION_KEY,
           mutationFn: (_variables: { id: string; parentId: string }) =>
-            new Promise<never>(() => {}),
+            moveAnswer,
           onMutate: (): MoveDocumentContext => ({
             move: {
               documentId: "page-b",
@@ -719,12 +726,31 @@ describe("PagedContentFilesSidebarView", () => {
               item: { ...navigationItem("page-b"), parentId: "folder" },
             },
           }),
+          // As `useMoveDocument` does: the new branch keeps the page, and the
+          // cached branch it left lists the folder with children, not the page.
+          onSuccess: (_data, _variables, result) => {
+            const move = (result as MoveDocumentContext | undefined)?.move;
+            if (move) keepMovedFilesRow(queryClient, move);
+            rootRows = [{ ...navigationItem("folder"), hasChildren: true }];
+          },
         })
         .execute({ id: "page-b", parentId: "folder" });
       await new Promise<void>((resolve) => setTimeout(resolve, 0));
     });
 
     // The folder's children are still loading; the moved page shows under them.
+    expect(shown()).toEqual([
+      ["/page/folder", topDepth],
+      ["/page/page-b", topDepth + 1],
+    ]);
+
+    await act(async () => {
+      answerMove();
+      await moving;
+      await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    });
+
+    // The move answered before the folder's read: the page stays under it.
     expect(shown()).toEqual([
       ["/page/folder", topDepth],
       ["/page/page-b", topDepth + 1],
