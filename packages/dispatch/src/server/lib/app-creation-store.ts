@@ -1933,30 +1933,14 @@ async function filterWorkspaceAppsByAccess(
   return apps.filter((app) => visibleIds.has(app.id));
 }
 
-async function filterOrgAccessInventory(
+function filterOrgAccessInventory(
   apps: WorkspaceAppSummary[],
-  orgId: string,
-): Promise<WorkspaceAppSummary[]> {
-  const mounted = apps.filter((app) => app.status === "ready" && !app.archived);
-  const ids = new Set<string>();
-  const db = getDb();
-  for (let start = 0; start < mounted.length; start += 500) {
-    const batch = mounted.slice(start, start + 500);
-    const rows = await db
-      .select({ id: workspaceApps.id })
-      .from(workspaceApps)
-      .where(
-        and(
-          eq(workspaceApps.orgId, orgId),
-          inArray(
-            workspaceApps.id,
-            batch.map((app) => app.id),
-          ),
-        ),
-      );
-    for (const row of rows) ids.add(row.id);
-  }
-  return mounted.filter((app) => ids.has(app.id));
+): WorkspaceAppSummary[] {
+  // The authenticated gateway inventory is already scoped to this workspace.
+  // A shared mounted app may have no row in the current organization (Dispatch
+  // itself is deliberately excluded from persistence), so DB membership cannot
+  // be used as the completeness test for the Access settings inventory.
+  return apps.filter((app) => app.status === "ready" && !app.archived);
 }
 
 async function filterOrganizationVisibleWorkspaceApps(
@@ -2614,7 +2598,7 @@ async function listWorkspaceAppsWithPrincipal(
     const candidates = filterAppsByAudience(listed, options.audience);
     const visible =
       principal === "org-access-inventory"
-        ? await filterOrgAccessInventory(candidates, requireWorkspaceAppOrgId())
+        ? filterOrgAccessInventory(candidates)
         : principal === "organization"
           ? await filterOrganizationVisibleWorkspaceApps(
               candidates,

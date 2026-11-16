@@ -797,6 +797,32 @@ describe("listWorkspaceApps", () => {
     }
   });
 
+  it("includes mounted shared apps and Dispatch without current-org records in the admin inventory", async () => {
+    vi.stubEnv("WORKSPACE_GATEWAY_URL", "");
+    stubManifest([
+      { id: "dispatch", name: "Dispatch", path: "/dispatch" },
+      { id: "shared", name: "Shared", path: "/shared" },
+    ]);
+    mocks.state.workspaceApps = [
+      {
+        id: "shared",
+        owner_email: "other@example.test",
+        org_id: "other-org",
+        visibility: "org",
+        org_enabled: 1,
+      },
+    ];
+
+    const apps = await runWithRequestContext(
+      { userEmail: "admin@example.test", orgId: "org-123" },
+      () => listWorkspaceAppsForOrgAccessInventory(),
+    );
+    expect(apps.map((app) => app.id).sort()).toEqual(["dispatch", "shared"]);
+    expect(
+      mocks.executedSql.filter((sql) => /\b(UPDATE|DELETE)\b/i.test(sql)),
+    ).toEqual([]);
+  });
+
   it("fails admin inventory for a domainless hosted organization instead of using the manifest", async () => {
     const fetchMock = vi.fn();
     vi.stubGlobal("fetch", fetchMock);
