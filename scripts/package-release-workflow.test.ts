@@ -1608,6 +1608,54 @@ esac
     assert(changesetsIndex < restoreIndex);
   });
 
+  it("keeps release credentials valid for a publish that outlasts the app token", () => {
+    // An app installation token lives one hour. A stable publish runs longer
+    // and pushes its tags at the very end, so neither that push nor the
+    // follow-up push to main may use the token minted when the job started.
+    const releaseSteps = (jobs.release as Workflow).steps as Workflow[];
+    const stepNamed = (name: string) => {
+      const step = releaseSteps.find((candidate) => candidate.name === name);
+      assert(step, `missing step: ${name}`);
+      return step;
+    };
+
+    const checkout = releaseSteps.find((step) =>
+      String(step.uses).startsWith("actions/checkout@"),
+    );
+    assert(checkout);
+    assert.match(
+      String((checkout.with as Workflow)["persist-credentials"]),
+      /github\.event_name != 'push'/,
+    );
+
+    const changesets = stepNamed("Create stable Release PR or publish to npm");
+    assert.match(
+      String((changesets.env as Workflow).GITHUB_TOKEN),
+      /github\.event_name == 'push' && github\.token \|\| steps\.app-token\.outputs\.token/,
+    );
+
+    const fresh = stepNamed(
+      "Generate fresh app token for the post-publish push",
+    );
+    assert.equal(fresh.id, "app-token-post-publish");
+    assert.match(String(fresh.if), /github\.event_name == 'push'/);
+    assert.match(String(fresh.if), /steps\.changesets\.outcome == 'success'/);
+    assert.match(String(fresh.uses), /actions\/create-github-app-token/);
+
+    const consume = stepNamed("Consume concurrent public-package changesets");
+    assert.match(
+      String((consume.env as Workflow).POST_PUBLISH_TOKEN),
+      /steps\.app-token-post-publish\.outputs\.token/,
+    );
+    assert.match(
+      String(consume.run),
+      /http\.https:\/\/github\.com\/\.extraheader/,
+    );
+
+    assert(releaseSteps.indexOf(changesets) < releaseSteps.indexOf(fresh));
+    assert(releaseSteps.indexOf(fresh) < releaseSteps.indexOf(consume));
+  });
+
   it("updates plain internal dependency ranges only in non-stable releases", async () => {
     const { getPackages } = changesetsRequire("@manypkg/get-packages") as {
       getPackages: (cwd: string) => Promise<unknown>;
