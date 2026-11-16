@@ -149,6 +149,7 @@ function rowsResult(rows: unknown[]) {
   return result;
 }
 
+// raw-sql-ok: this Drizzle SQL-tag mock records fragments for in-memory predicates and never executes SQL.
 vi.mock("drizzle-orm", () => ({
   eq: (column: unknown, value: unknown) => ({ kind: "eq", column, value }),
   and: (...conditions: unknown[]) => ({ kind: "and", conditions }),
