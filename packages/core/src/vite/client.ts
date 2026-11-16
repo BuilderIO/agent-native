@@ -4526,10 +4526,40 @@ async function requestNitroDevDatabaseLifecycleEvent(
     );
   }
 
+  const on = hot.on.bind(hot);
+  const off = hot.off.bind(hot);
+  const sendPayload = hot.send.bind(hot);
+
   await new Promise<void>((resolve, reject) => {
     const cleanup = () => {
       clearTimeout(timeout);
-      hot.off?.(acknowledgementEvent, onClosed);
+      off("agent-native:dev-database-ready", onReady);
+      off(acknowledgementEvent, onClosed);
+    };
+    const send = (event: string, data?: object) => {
+      try {
+        sendPayload({ type: "custom", event, data });
+      } catch (error) {
+        cleanup();
+        reject(error);
+      }
+    };
+    const waitFor = (stage: string) =>
+      setTimeout(() => {
+        cleanup();
+        reject(
+          new NitroDevDatabaseLifecycleTimeout(
+            `Nitro dev environment did not ${stage} before restart.`,
+          ),
+        );
+      }, 5_000);
+    // A worker that has not loaded its lifecycle listeners drops the request
+    // instead of queueing it, so it is sent only once the worker says ready.
+    const onReady = () => {
+      off("agent-native:dev-database-ready", onReady);
+      clearTimeout(timeout);
+      timeout = waitFor(`acknowledge database ${operation}`);
+      send(requestEvent, { requestId });
     };
     const onClosed = (payload: any) => {
       if (payload?.requestId !== requestId) return;
@@ -4544,25 +4574,10 @@ async function requestNitroDevDatabaseLifecycleEvent(
         resolve();
       }
     };
-    const timeout = setTimeout(() => {
-      cleanup();
-      reject(
-        new NitroDevDatabaseLifecycleTimeout(
-          `Nitro dev environment did not acknowledge database ${operation} before restart.`,
-        ),
-      );
-    }, 5_000);
-    hot.on?.(acknowledgementEvent, onClosed);
-    try {
-      hot.send?.({
-        type: "custom",
-        event: requestEvent,
-        data: { requestId },
-      });
-    } catch (error) {
-      cleanup();
-      reject(error);
-    }
+    let timeout = waitFor(`report database ${operation} listeners ready`);
+    on(acknowledgementEvent, onClosed);
+    on("agent-native:dev-database-ready", onReady);
+    send("agent-native:dev-database-ready-check");
   });
 }
 

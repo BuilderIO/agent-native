@@ -132,6 +132,293 @@ describe("Nitro dev server lifecycle", () => {
   });
 });
 
+describe("Nitro dev database lifecycle requests", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  // Like the env runner, the fake worker drops a message that reaches it
+  // before its lifecycle listeners are loaded.
+  function nitroWorkerServer() {
+    const pluginListeners = new Map<string, Set<(payload: any) => void>>();
+    const emit = (event: string, data?: unknown) => {
+      for (const listener of [...(pluginListeners.get(event) ?? [])]) {
+        listener(data);
+      }
+    };
+    let workerListeners: Map<string, (data: any) => void> | undefined;
+    const held: Array<() => void> = [];
+    const requests: Array<{
+      event: string;
+      requestId?: string;
+      delivered: boolean;
+    }> = [];
+    const worker = {
+      acknowledge: true,
+      load() {
+        const reply = (event: string) => (data: any) => {
+          if (typeof data?.requestId !== "string") return;
+          const acknowledge = () =>
+            queueMicrotask(() => emit(event, { requestId: data.requestId }));
+          if (worker.acknowledge) acknowledge();
+          else held.push(acknowledge);
+        };
+        workerListeners = new Map([
+          [
+            "agent-native:dev-database-close",
+            reply("agent-native:dev-database-closed"),
+          ],
+          [
+            "agent-native:dev-database-resume",
+            reply("agent-native:dev-database-resumed"),
+          ],
+          [
+            "agent-native:dev-database-ready-check",
+            () => worker.announceReady(),
+          ],
+        ]);
+        worker.announceReady();
+      },
+      announceReady() {
+        queueMicrotask(() => emit("agent-native:dev-database-ready"));
+      },
+      releaseHeld() {
+        for (const acknowledge of held.splice(0)) acknowledge();
+      },
+    };
+    const hot = {
+      on(event: string, listener: (payload: any) => void) {
+        const listeners = pluginListeners.get(event) ?? new Set();
+        listeners.add(listener);
+        pluginListeners.set(event, listeners);
+      },
+      off(event: string, listener: (payload: any) => void) {
+        pluginListeners.get(event)?.delete(listener);
+      },
+      send(payload: {
+        type?: string;
+        event: string;
+        data?: { requestId?: string };
+      }) {
+        const listener =
+          payload.type === "custom"
+            ? workerListeners?.get(payload.event)
+            : undefined;
+        requests.push({
+          event: payload.event,
+          ...(payload.data?.requestId === undefined
+            ? {}
+            : { requestId: payload.data.requestId }),
+          delivered: listener !== undefined,
+        });
+        listener?.(payload.data);
+      },
+    };
+    const vite = {
+      close: vi.fn(async () => {}),
+      listen: vi.fn(async () => {}),
+      restart: vi.fn(async () => {}),
+    };
+    const logger = { warn: vi.fn(), error: vi.fn() };
+    const server = {
+      ...vite,
+      config: { inlineConfig: {}, logger },
+      environments: {
+        nitro: { devServer: { closed: false, ready: true }, hot },
+      },
+    };
+    _nitroDevEnvironmentClosePlugin().configureServer?.(server as never);
+    const closeRequests = () =>
+      requests.filter(
+        (request) => request.event === "agent-native:dev-database-close",
+      );
+    const pluginListenerCount = () =>
+      [...pluginListeners.values()].reduce(
+        (total, listeners) => total + listeners.size,
+        0,
+      );
+    return {
+      closeRequests,
+      hot,
+      logger,
+      pluginListenerCount,
+      requests,
+      server,
+      vite,
+      worker,
+    };
+  }
+
+  it("holds a restart's cleanup request until the new worker's listeners are ready", async () => {
+    vi.useFakeTimers();
+    const { closeRequests, logger, requests, server, vite, worker } =
+      nitroWorkerServer();
+
+    const restarting = server.restart();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(requests).toEqual([
+      { event: "agent-native:dev-database-ready-check", delivered: false },
+    ]);
+    expect(vite.restart).not.toHaveBeenCalled();
+
+    worker.load();
+    await restarting;
+
+    expect(closeRequests()).toEqual([
+      {
+        event: "agent-native:dev-database-close",
+        requestId: expect.any(String),
+        delivered: true,
+      },
+    ]);
+    expect(logger.warn).not.toHaveBeenCalled();
+    expect(vite.restart).toHaveBeenCalledOnce();
+  });
+
+  it("gets a ready worker's acknowledgement to its first request", async () => {
+    vi.useFakeTimers();
+    const { logger, pluginListenerCount, requests, server, vite, worker } =
+      nitroWorkerServer();
+    worker.load();
+    await vi.advanceTimersByTimeAsync(0);
+
+    await server.close();
+
+    expect(pluginListenerCount()).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+
+    expect(requests).toEqual([
+      { event: "agent-native:dev-database-ready-check", delivered: true },
+      {
+        event: "agent-native:dev-database-close",
+        requestId: expect.any(String),
+        delivered: true,
+      },
+    ]);
+    expect(logger.warn).not.toHaveBeenCalled();
+    expect(logger.error).not.toHaveBeenCalled();
+    expect(vite.close).toHaveBeenCalledOnce();
+  });
+
+  it("gives a worker that becomes ready late the full acknowledgement wait", async () => {
+    vi.useFakeTimers();
+    const { closeRequests, logger, server, vite, worker } = nitroWorkerServer();
+    worker.acknowledge = false;
+
+    const closing = server.close();
+    await vi.advanceTimersByTimeAsync(4_000);
+    worker.load();
+    await vi.advanceTimersByTimeAsync(4_000);
+    worker.releaseHeld();
+    await closing;
+
+    expect(closeRequests()).toHaveLength(1);
+    expect(logger.warn).not.toHaveBeenCalled();
+    expect(vite.close).toHaveBeenCalledOnce();
+  });
+
+  it("sends its request once when the worker reports ready again before acknowledging", async () => {
+    vi.useFakeTimers();
+    const { closeRequests, server, worker } = nitroWorkerServer();
+    worker.load();
+    await vi.advanceTimersByTimeAsync(0);
+    worker.acknowledge = false;
+
+    const closing = server.close();
+    await vi.advanceTimersByTimeAsync(0);
+    worker.announceReady();
+    await vi.advanceTimersByTimeAsync(0);
+    worker.releaseHeld();
+    await closing;
+
+    expect(closeRequests()).toHaveLength(1);
+  });
+
+  it("sends one request to a worker that becomes ready after an attempt timed out", async () => {
+    vi.useFakeTimers();
+    const { closeRequests, logger, server, worker } = nitroWorkerServer();
+
+    const closing = server.close();
+    await vi.advanceTimersByTimeAsync(5_000);
+    worker.load();
+    await closing;
+
+    expect(logger.warn).toHaveBeenCalledOnce();
+    expect(closeRequests()).toHaveLength(1);
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it("gives up on a worker that never becomes ready after the bounded attempts", async () => {
+    vi.useFakeTimers();
+    const { closeRequests, logger, requests, server, vite } =
+      nitroWorkerServer();
+
+    const closing = server.close();
+    await vi.advanceTimersByTimeAsync(15_000);
+    await closing;
+
+    expect(logger.warn.mock.calls.map(([message]) => message)).toEqual(
+      Array.from({ length: 3 }, () =>
+        expect.stringContaining(
+          "did not report database cleanup listeners ready",
+        ),
+      ),
+    );
+    expect(logger.error).toHaveBeenCalledOnce();
+    expect(logger.error.mock.calls[0]?.[0]).toContain(
+      "not acknowledged after 3 attempts",
+    );
+    expect(requests).toHaveLength(3);
+    expect(closeRequests()).toEqual([]);
+    expect(vite.close).toHaveBeenCalledOnce();
+  });
+
+  it("gives up on a ready worker that never acknowledges, naming the missing acknowledgement", async () => {
+    vi.useFakeTimers();
+    const { closeRequests, logger, server, vite, worker } = nitroWorkerServer();
+    worker.load();
+    await vi.advanceTimersByTimeAsync(0);
+    worker.acknowledge = false;
+
+    const closing = server.close();
+    await vi.advanceTimersByTimeAsync(15_000);
+    await closing;
+
+    expect(logger.warn.mock.calls.map(([message]) => message)).toEqual(
+      Array.from({ length: 3 }, () =>
+        expect.stringContaining("did not acknowledge database cleanup"),
+      ),
+    );
+    expect(logger.error).toHaveBeenCalledOnce();
+    const sent = closeRequests();
+    expect(sent).toHaveLength(3);
+    expect(new Set(sent.map((request) => request.requestId)).size).toBe(1);
+    expect(vite.close).toHaveBeenCalledOnce();
+  });
+
+  it("reports a hot channel that cannot send without waiting for a timeout", async () => {
+    vi.useFakeTimers();
+    const { hot, logger, pluginListenerCount, server, vite } =
+      nitroWorkerServer();
+    hot.send = () => {
+      throw new Error("worker channel closed");
+    };
+
+    const closing = server.close();
+    await vi.advanceTimersByTimeAsync(0);
+
+    expect(pluginListenerCount()).toBe(0);
+    expect(vi.getTimerCount()).toBe(0);
+
+    expect(logger.warn).not.toHaveBeenCalled();
+    expect(logger.error).toHaveBeenCalledOnce();
+    expect(logger.error.mock.calls[0]?.[0]).toContain("worker channel closed");
+    await closing;
+    expect(vite.close).toHaveBeenCalledOnce();
+  });
+});
+
 describe("Nitro dev startup recovery", () => {
   it("requires a continuous 5xx streak before restarting after a long idle", () => {
     let time = 0;

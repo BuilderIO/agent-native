@@ -501,6 +501,7 @@ export default async () => {
       const acknowledgementsBeforeRestart = databaseCloseAcknowledgements;
       const restartsBeforeEnvChange = serverRestarts;
       const listensBeforeEnvChange = serverListens;
+      const closeRequestsBeforeEnvChange = databaseCloseRequestIds.length;
       resumeRequestsToDrop = 2;
       deferNextResumeRequest = true;
 
@@ -514,6 +515,13 @@ export default async () => {
       expect(databaseCloseAcknowledgements).toBeGreaterThan(
         acknowledgementsBeforeRestart,
       );
+      // One cleanup request to the old worker and one to its replacement. A
+      // repeated id means a request went unanswered and was sent again.
+      const envRestartCloseRequests = databaseCloseRequestIds.slice(
+        closeRequestsBeforeEnvChange,
+      );
+      expect(envRestartCloseRequests).toHaveLength(2);
+      expect(new Set(envRestartCloseRequests).size).toBe(2);
       expect(serverRestarts).toBeGreaterThan(restartsBeforeEnvChange);
       expect(serverListens).toBeGreaterThan(listensBeforeEnvChange);
       expect(fs.existsSync(`${databaseDir}.agent-native-pglite.lock`)).toBe(
@@ -565,6 +573,11 @@ export default async () => {
       expect(closeRequestsAtDeferredResumeAcknowledgement).toBe(
         closeRequestsBeforeOverlappingRestart,
       );
+      const overlappingRestartCloseRequests = databaseCloseRequestIds.slice(
+        closeRequestsBeforeOverlappingRestart,
+      );
+      expect(overlappingRestartCloseRequests).toHaveLength(2);
+      expect(new Set(overlappingRestartCloseRequests).size).toBe(2);
       expect(databaseCloseAcknowledgements).toBeGreaterThan(
         acknowledgementsBeforeRestart,
       );
