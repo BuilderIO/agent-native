@@ -301,7 +301,7 @@ async function editThroughLiveCopy(args: {
 
 export default defineAction({
   description:
-    "Edit an existing document's NFM with exact search-and-replace operations, or initialize a literally empty body with initializeContent. NFM uses one block per line, <br> for hard breaks, and <empty-block/> for empty paragraphs; plain CommonMark blank lines are not preserved. Every find string must match exactly once in the immutable base. Pass a caller-generated idempotencyKey and a baseRevision: the revision from get-document or create-document, or receipt.revisions.after from your previous edit of this document. A receipt with outcome \"applied\" and readback.verified means the server read the saved body back and it matched, so don't call get-document to check the edit; read the document again only after another outcome or an error.",
+    "Edit an existing document's NFM with exact search-and-replace operations, or initialize a literally empty body with initializeContent. NFM uses one block per line, <br> for hard breaks (text between backticks is literal), and <empty-block/> for empty paragraphs; plain CommonMark blank lines are not preserved. Every find string must match exactly once in the immutable base. Pass a caller-generated idempotencyKey and a baseRevision: the revision from get-document or create-document, or receipt.revisions.after from your previous edit of this document. A receipt with outcome \"applied\" and readback.verified means the server read the saved body back and it matched, so don't call get-document to check the edit; read the document again only after another outcome or an error.",
   deferLoading: false,
   mcpTool: true,
   agentInputSchema: externalEditDocumentSchema,
