@@ -13,10 +13,6 @@ import type { MCPConfig } from "./build-server.js";
 // off the production MCP catalog for other reasons remain; each says why.
 const CARDS_WITHOUT_A_TARGET: Record<string, { why: string; tools: string[] }> =
   {
-    analytics: {
-      why: "Its production MCP listing carries no app resource.",
-      tools: ["mutate-dashboard"],
-    },
     design: {
       why: "The action sets mcpTool: false.",
       tools: ["show-design-questions"],
