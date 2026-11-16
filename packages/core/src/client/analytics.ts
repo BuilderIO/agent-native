@@ -1537,9 +1537,8 @@ function ensureSentry(loadWithoutDsn = false): void {
             return null;
           }
           if (event.request?.url) {
-            event.request.url = scrubUrl(event.request.url, {
-              routePath: true,
-            });
+            event.request.url =
+              scrubUrl(event.request.url, { routePath: true }) ?? "";
           }
           if (Array.isArray(event.breadcrumbs)) {
             for (const crumb of event.breadcrumbs) {

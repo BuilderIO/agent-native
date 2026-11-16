@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { measureCpuMs } from "../testing/cpu-time";
 import {
   normalizePathSegments,
   scrubLocationHash,
@@ -303,12 +304,13 @@ describe("scrubUrl allowlist", () => {
   it("scrubs a URL with thousands of repeated parameters in linear time", () => {
     const repeated = "utm_source=a&".repeat(20_000);
 
-    const start = performance.now();
-    const scrubbed = scrubUrl(`https://app.example.test/x?${repeated}p-key=s`);
-    const elapsed = performance.now() - start;
+    let scrubbed: string | undefined;
+    const cpuMs = measureCpuMs(() => {
+      scrubbed = scrubUrl(`https://app.example.test/x?${repeated}p-key=s`);
+    });
 
     expect(scrubbed).toContain("p-key=%3Credacted%3E");
-    expect(elapsed).toBeLessThan(500);
+    expect(cpuMs).toBeLessThan(500);
   });
 
   it("drops the query and hash from a URL it cannot parse", () => {

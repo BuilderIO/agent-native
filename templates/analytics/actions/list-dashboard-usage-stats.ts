@@ -150,6 +150,7 @@ export default defineAction({
 
     const [savedViewRows, revisionRows, eventRows, eventUserRows] =
       await Promise.all([
+        // guard:allow-unbounded-read — one row per dashboard, joined to this org's dashboards
         db
           .select({
             dashboardId: schema.dashboardViews.dashboardId,

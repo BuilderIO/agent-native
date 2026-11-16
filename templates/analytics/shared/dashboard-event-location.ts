@@ -1,15 +1,13 @@
 export function dashboardIdFromPath(path: string | null): string | null {
   const pathname = path ?? "";
-  const match = pathname.match(/(?:^|\/)(?:dashboards|adhoc)\/([^/?#]+)/);
-  if (!match) return null;
+  const id = pathname.match(/(?:^|\/)(?:dashboards|adhoc)\/([^/?#]+)/)?.[1];
+  if (!id) return null;
   // A route template (`/dashboards/:id`) names the page, not the dashboard.
-  if (match[1] === "explorer-dashboard" || match[1].startsWith(":")) {
-    return null;
-  }
+  if (id === "explorer-dashboard" || id.startsWith(":")) return null;
   try {
-    return decodeURIComponent(match[1]);
+    return decodeURIComponent(id);
   } catch {
-    return match[1];
+    return id;
   }
 }
 
@@ -32,15 +30,15 @@ export function dashboardIdFromEventLocation(
       return id && id.trim() ? id : null;
     }
   } catch {
-    // Fall through to regex below for malformed relative strings.
+    // coercion-ok: a malformed URL falls through to the regex below.
   }
-  const match = raw.match(
+  const encodedId = raw.match(
     /(?:^|\/)(?:dashboards|adhoc)\/explorer-dashboard(?:\?[^#]*)?[?&]id=([^&#]+)/,
-  );
-  if (!match) return null;
+  )?.[1];
+  if (!encodedId) return null;
   try {
-    return decodeURIComponent(match[1].replace(/\+/g, " "));
+    return decodeURIComponent(encodedId.replace(/\+/g, " "));
   } catch {
-    return match[1];
+    return encodedId;
   }
 }
