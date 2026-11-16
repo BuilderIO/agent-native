@@ -1240,14 +1240,15 @@ export async function listDashboardSummaries(
     );
   }
   try {
-    const all = await getScopedLegacySettings(
-      ctx,
-      summaryLimit === undefined
-        ? undefined
-        : { resourceKind: filter?.kind, limit: summaryLimit },
-    );
+    const all = await getScopedLegacySettings(ctx);
+    const candidates: Array<{
+      id: string;
+      kind: DashboardKind;
+      orgId: string | null;
+      visibility: DashboardSummaryRecord["visibility"];
+      config: Record<string, unknown>;
+    }> = [];
     for (const [key, value] of Object.entries(all)) {
-      if (summaryLimit !== undefined && out.length >= summaryLimit) break;
       let id: string | null = null;
       let kind: DashboardKind | null = null;
       let orgId: string | null = null;
@@ -1269,9 +1270,38 @@ export async function listDashboardSummaries(
       }
       if (!id || !kind || isBuiltinDashboardId(id) || seen.has(id)) continue;
       if (filter?.kind && filter.kind !== kind) continue;
+      candidates.push({ id, kind, orgId, visibility, config: value });
+    }
+
+    // SQL owns an ID even when its row is private or filtered out; only probe IDs
+    // already present in the caller's scoped settings, and never return metadata.
+    const candidateIds = [
+      ...new Set(candidates.map((candidate) => candidate.id)),
+    ];
+    for (let offset = 0; offset < candidateIds.length; offset += 500) {
+      const shadows: Array<{ id: string }> = await db
+        .select({ id: schema.dashboards.id })
+        .from(schema.dashboards)
+        .where(
+          inArray(
+            schema.dashboards.id,
+            candidateIds.slice(offset, offset + 500),
+          ),
+        );
+      for (const shadow of shadows) seen.add(shadow.id);
+    }
+
+    for (const { id, kind, orgId, visibility, config } of candidates) {
+      if (seen.has(id)) continue;
       seen.add(id);
-      const config = value as Record<string, unknown>;
       const { title } = configFromSettings(config, kind);
+      const search = filter?.search?.trim().toLowerCase();
+      if (
+        search &&
+        !title.toLowerCase().includes(search) &&
+        !id.toLowerCase().includes(search)
+      )
+        continue;
       const catalogMetadata = includeCatalogMetadata
         ? catalogMetadataFromConfig(config)
         : {

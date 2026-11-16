@@ -5,6 +5,8 @@ const state = vi.hoisted(() => ({
   projection: null as Record<string, unknown> | null,
   where: null as unknown,
   rows: [] as Record<string, unknown>[],
+  filterRows: false,
+  shadowError: null as Error | null,
   settings: {} as Record<string, Record<string, unknown>>,
   settingsError: null as Error | null,
   settingsPrefixCalls: [] as Array<{
@@ -64,6 +66,8 @@ vi.mock("drizzle-orm", () => ({
   }),
   isNotNull: (target: unknown) => ({ kind: "isNotNull", target }),
   isNull: (target: unknown) => ({ kind: "isNull", target }),
+  ilike: (target: unknown, value: string) => ({ kind: "ilike", target, value }),
+  or: (...conditions: unknown[]) => ({ kind: "or", conditions }),
   sql: (strings: TemplateStringsArray, ...values: unknown[]) => ({
     kind: "sql",
     strings: [...strings],
@@ -119,14 +123,51 @@ vi.mock("../db/index.js", () => {
         from: () => ({
           where: (where: unknown) => {
             state.where = where;
-            const result = Promise.resolve(state.rows);
+            if (
+              state.shadowError &&
+              projection &&
+              Object.keys(projection).length === 1
+            )
+              throw state.shadowError;
+            type Condition = {
+              kind: string;
+              conditions: Condition[];
+              target: { name: string };
+              value: string;
+              values: unknown[];
+            };
+            const matches = (
+              condition: Condition,
+              row: Record<string, unknown>,
+            ): boolean => {
+              if (condition.kind === "and")
+                return condition.conditions.every((part) => matches(part, row));
+              if (condition.kind === "or")
+                return condition.conditions.some((part) => matches(part, row));
+              if (condition.kind === "access") return row.accessible !== false;
+              const value = row[condition.target.name];
+              if (condition.kind === "isNull") return value == null;
+              if (condition.kind === "isNotNull") return value != null;
+              if (condition.kind === "eq") return value === condition.value;
+              if (condition.kind === "inArray")
+                return condition.values.includes(value);
+              if (condition.kind === "ilike")
+                return String(value ?? "")
+                  .toLowerCase()
+                  .includes(condition.value.slice(1, -1).toLowerCase());
+              throw new Error(`Unexpected condition: ${condition.kind}`);
+            };
+            const rows = state.filterRows
+              ? state.rows.filter((row) => matches(where as Condition, row))
+              : state.rows;
+            const result = Promise.resolve(rows);
             Object.assign(result, {
               orderBy: (...ordering: unknown[]) => {
                 state.orderBy = ordering;
                 return {
                   limit: (limit: number) => {
                     state.queryLimit = limit;
-                    return Promise.resolve(state.rows.slice(0, limit));
+                    return Promise.resolve(rows.slice(0, limit));
                   },
                 };
               },
@@ -157,6 +198,8 @@ beforeEach(() => {
   state.projection = null;
   state.where = null;
   state.rows = [];
+  state.filterRows = false;
+  state.shadowError = null;
   state.settings = {};
   state.settingsError = null;
   state.settingsPrefixCalls = [];
@@ -364,6 +407,102 @@ describe("listDashboardSummaries", () => {
       limit: 1,
     });
     expect(state.settingsPrefixCalls).toEqual([]);
+  });
+
+  it("suppresses shadowed legacy settings without exposing inaccessible dashboards or reserving stale names", async () => {
+    state.filterRows = true;
+    state.rows = [
+      {
+        id: "archived",
+        kind: "sql",
+        name: "Archived current",
+        archivedAt: "2026-01-01",
+        hiddenAt: null,
+      },
+      {
+        id: "hidden",
+        kind: "sql",
+        name: "Hidden current",
+        archivedAt: null,
+        hiddenAt: "2026-01-01",
+      },
+      {
+        id: "renamed",
+        kind: "sql",
+        name: "Current name",
+        archivedAt: null,
+        hiddenAt: null,
+      },
+      {
+        id: "private",
+        kind: "sql",
+        name: "Private current",
+        archivedAt: null,
+        hiddenAt: null,
+        accessible: false,
+      },
+    ];
+    state.settings = {
+      "u:alice@example.com:sql-dashboard-archived": { name: "Old archived" },
+      "u:alice@example.com:sql-dashboard-hidden": { name: "Old hidden" },
+      "u:alice@example.com:sql-dashboard-renamed": { name: "Old renamed" },
+      "o:org-1:sql-dashboard-private": { name: "Old private" },
+      "u:alice@example.com:sql-dashboard-legacy-only": { name: "Real legacy" },
+      "u:bob@example.com:sql-dashboard-other-user": { name: "Other user" },
+      "o:other-org:sql-dashboard-other-org": { name: "Other org" },
+    };
+
+    expect(
+      (await listDashboardSummaries(ctx)).map(({ id, name }) => [id, name]),
+    ).toEqual([
+      ["renamed", "Current name"],
+      ["legacy-only", "Real legacy"],
+    ]);
+    expect(state.projection).toEqual({ id: { name: "id" } });
+    expect(state.where).toEqual({
+      kind: "inArray",
+      target: { name: "id" },
+      values: ["archived", "hidden", "legacy-only", "private"],
+    });
+    for (const name of [
+      "Old archived",
+      "Old hidden",
+      "Old renamed",
+      "Old private",
+      "Private current",
+    ]) {
+      await expect(
+        assertDashboardNameIsAvailable(name, ctx),
+      ).resolves.toBeUndefined();
+    }
+    for (const name of ["Current name", "Real legacy"]) {
+      await expect(
+        assertDashboardNameIsAvailable(name, ctx),
+      ).rejects.toMatchObject({
+        errorCode: "dashboard_name_conflict",
+      });
+    }
+    expect(
+      await listDashboardSummaries(ctx, { search: "Old renamed" }),
+    ).toEqual([]);
+    expect(
+      (await listDashboardSummaries(ctx, { search: "Real legacy" })).map(
+        ({ id }) => id,
+      ),
+    ).toEqual(["legacy-only"]);
+  });
+
+  it("fails closed when the SQL shadow check is unavailable", async () => {
+    const error = new Error("dashboard shadow check unavailable");
+    state.shadowError = error;
+    state.settings = {
+      "u:alice@example.com:sql-dashboard-legacy": { name: "Legacy" },
+    };
+
+    await expect(assertDashboardNameIsAvailable("New name", ctx)).rejects.toBe(
+      error,
+    );
+    await expect(listDashboardSummaries(ctx)).resolves.toEqual([]);
   });
 
   it("normalizes dashboard names consistently for matching", () => {
