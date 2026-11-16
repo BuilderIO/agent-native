@@ -1836,6 +1836,17 @@ const overrides = {
       "이 컬렉션의 모든 행에서 ‘{{name}}’과(와) 그 텍스트가 삭제됩니다. 되돌릴 수 없습니다.",
     deleteBlockFieldBodyWarning:
       "‘{{name}}’은(는) 페이지 본문이므로 모든 행의 본문 텍스트도 삭제됩니다.",
+    blockFieldFrozen: "{{column}}이(가) {{value}}인 동안 고정됨",
+    blockFieldFrozenDescription:
+      "이 컬렉션의 규칙에 따라 사람이든 에이전트든 이 탭을 변경할 수 없습니다. 편집하려면 {{column}}을(를) {{value}}이(가) 아닌 값으로 바꾸세요.",
+    blockFieldFrozenByManagers:
+      "{{column}}이(가) {{value}}인 동안 고정됩니다. 컬렉션에 대한 전체 액세스 권한이 있는 사람만 변경할 수 있습니다.",
+    blockFieldFrozenSaveRefused:
+      "이 탭은 고정되어 있어 편집 내용이 저장되지 않았습니다",
+    freezeBlockField: "고정 조건…",
+    freezeBlockFieldWhile: "{{column}}이(가) 다음 값인 동안",
+    freezeBlockFieldNoColumns: "기준으로 삼을 상태 또는 선택 열을 추가하세요",
+    unfreezeBlockField: "고정 안 함",
   },
   comments: {
     add: "댓글 추가...",
