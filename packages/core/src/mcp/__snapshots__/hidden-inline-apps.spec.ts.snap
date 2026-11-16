@@ -12,14 +12,14 @@ exports[`explicit connector inline apps > advertises each inline tool on the def
         "openai/widgetCSP": {
           "connect_domains": [
             "https://esm.sh",
-            "$requestOrigin",
+            "https://catalog.agent-native.test",
           ],
           "frame_domains": [
-            "$requestOrigin",
+            "https://catalog.agent-native.test",
           ],
           "resource_domains": [
             "https://esm.sh",
-            "$requestOrigin",
+            "https://catalog.agent-native.test",
           ],
         },
         "ui": {
@@ -50,14 +50,14 @@ exports[`explicit connector inline apps > advertises each inline tool on the def
         "openai/widgetCSP": {
           "connect_domains": [
             "https://esm.sh",
-            "$requestOrigin",
+            "https://catalog.agent-native.test",
           ],
           "frame_domains": [
-            "$requestOrigin",
+            "https://catalog.agent-native.test",
           ],
           "resource_domains": [
             "https://esm.sh",
-            "$requestOrigin",
+            "https://catalog.agent-native.test",
           ],
         },
         "ui": {
@@ -89,14 +89,14 @@ exports[`explicit connector inline apps > advertises each inline tool on the def
         "openai/widgetCSP": {
           "connect_domains": [
             "https://esm.sh",
-            "$requestOrigin",
+            "https://catalog.agent-native.test",
           ],
           "frame_domains": [
-            "$requestOrigin",
+            "https://catalog.agent-native.test",
           ],
           "resource_domains": [
             "https://esm.sh",
-            "$requestOrigin",
+            "https://catalog.agent-native.test",
           ],
         },
         "ui": {
@@ -128,14 +128,14 @@ exports[`explicit connector inline apps > advertises each inline tool on the def
         "openai/widgetCSP": {
           "connect_domains": [
             "https://esm.sh",
-            "$requestOrigin",
+            "https://catalog.agent-native.test",
           ],
           "frame_domains": [
-            "$requestOrigin",
+            "https://catalog.agent-native.test",
           ],
           "resource_domains": [
             "https://esm.sh",
-            "$requestOrigin",
+            "https://catalog.agent-native.test",
           ],
         },
         "ui": {
@@ -165,14 +165,14 @@ exports[`explicit connector inline apps > advertises each inline tool on the def
         "openai/widgetCSP": {
           "connect_domains": [
             "https://esm.sh",
-            "$requestOrigin",
+            "https://catalog.agent-native.test",
           ],
           "frame_domains": [
-            "$requestOrigin",
+            "https://catalog.agent-native.test",
           ],
           "resource_domains": [
             "https://esm.sh",
-            "$requestOrigin",
+            "https://catalog.agent-native.test",
           ],
         },
         "ui": {
@@ -204,14 +204,14 @@ exports[`explicit connector inline apps > advertises each inline tool on the def
         "openai/widgetCSP": {
           "connect_domains": [
             "https://esm.sh",
-            "$requestOrigin",
+            "https://catalog.agent-native.test",
           ],
           "frame_domains": [
-            "$requestOrigin",
+            "https://catalog.agent-native.test",
           ],
           "resource_domains": [
             "https://esm.sh",
-            "$requestOrigin",
+            "https://catalog.agent-native.test",
           ],
         },
         "ui": {
@@ -242,14 +242,14 @@ exports[`explicit connector inline apps > advertises each inline tool on the def
         "openai/widgetCSP": {
           "connect_domains": [
             "https://esm.sh",
-            "$requestOrigin",
+            "https://catalog.agent-native.test",
           ],
           "frame_domains": [
-            "$requestOrigin",
+            "https://catalog.agent-native.test",
           ],
           "resource_domains": [
             "https://esm.sh",
-            "$requestOrigin",
+            "https://catalog.agent-native.test",
           ],
         },
         "ui": {

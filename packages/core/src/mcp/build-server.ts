@@ -1562,7 +1562,7 @@ export async function withServerMintedMcpAppEmbedStart(
 
 /**
  * Gives a result the full-session ticket a full-app embed starts from, opening
- * the page the result or the tool's link names. A ticket the action minted
+ * the page the result names, in the open link's order, or the tool's link. A ticket the action minted
  * itself, such as a cross-app open, is kept. Callers mint only for a verified
  * user, anchored to the credential's issue time so revoking it ends the session.
  */
@@ -1587,7 +1587,7 @@ export async function withServerMintedFullAppEmbedStart(
     await import("../server/embed-session.js");
   const { buildEmbedStartPath } = await import("../server/embed-route.js");
   const linked = entry.link?.({ args, result: { ...record, embed: false } });
-  const targetPath = [record.path, record.url, linked?.url]
+  const targetPath = [record.deepLinkUrl, record.url, record.path, linked?.url]
     .filter(
       (value): value is string =>
         typeof value === "string" &&
@@ -2531,6 +2531,15 @@ export async function resolveMcpAppResourceSafely(
     : requestMeta?.origin === undefined
       ? undefined
       : validateEmbedRequestOrigin(requestMeta.origin);
+  if (
+    resource.requiresEmbedSession === true &&
+    !requestOrigin &&
+    (!widgetTargets || !Object.hasOwn(widgetTargets, actionName))
+  ) {
+    // A full-app session is minted for the request's origin; without one the
+    // tool answers with a link.
+    return null;
+  }
   try {
     const description = resource.description ?? entry.tool.description;
     const resolvedCsp = await resolveMcpAppCsp(resource, {

@@ -579,6 +579,18 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
         !missingWidgetCapability &&
         !mcpResultIsError &&
         !embedHasContent;
+      // The host mounts this tool's app from its descriptor, so a full-app call
+      // that has no session must say so rather than leave an empty frame.
+      const fullAppNotOpened =
+        !directoryCatalog &&
+        requiresEmbedSession &&
+        !!getRequestContext()?.requestOrigin &&
+        !Object.hasOwn(config.directoryProfile?.widgetTargets ?? {}, name) &&
+        !!mcpAppResourceCandidate &&
+        directoryWidget === undefined &&
+        !mcpResultIsError &&
+        metadataObject(projectedRawResult).embed !== false &&
+        !mcpAppResource;
       const mcpAppOpenLinkMeta = mcpAppResource
         ? mcpAppEmbedOpenLinkMeta(
             actionResultForClient,
@@ -711,15 +723,19 @@ export function createDirectActionCall(scope: DirectActionCallScope) {
           text:
             embedProducedNothing && isWrite
               ? `${name} completed; its change was saved, but it produced no widget content.`
-              : upstream === "unknown"
-                ? `${upstreamStatusText(name, upstream)} ${text}`
-                : text,
+              : fullAppNotOpened
+                ? `${name} completed${isWrite ? "; its change was saved" : ""}, but its app could not open here. Use the link to open it. ${text}`
+                : upstream === "unknown"
+                  ? `${upstreamStatusText(name, upstream)} ${text}`
+                  : text,
         },
       ];
       if (block) content.push(block);
       const assembled = {
         content,
-        ...(mcpResultIsError || embedProducedNothing ? { isError: true } : {}),
+        ...(mcpResultIsError || embedProducedNothing || fullAppNotOpened
+          ? { isError: true }
+          : {}),
         ...(structuredContent ? { structuredContent } : {}),
         ...(Object.keys(responseMeta).length > 0
           ? { _meta: responseMeta }

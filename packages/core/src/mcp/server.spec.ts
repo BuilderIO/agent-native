@@ -11543,7 +11543,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
       },
     );
 
-    it("falls back to a full-app link when the full-app session cannot be minted", async () => {
+    it("flags the call and keeps the full-app link when the session cannot be minted", async () => {
       const { run, serverConfig } = unsupportedCardConfig(
         "unsupported-card",
         "startUrl",
@@ -11562,7 +11562,7 @@ describe("handleMcpRequest — web-standard runtime fallback (no Node req/res)",
           },
           { config: serverConfig, headers: await mcpAppsAuthHeaders() },
         );
-        expect(called.result.isError).not.toBe(true);
+        expect(called.result.isError).toBe(true);
         expect(called.result._meta["agent-native/embedStart"]).toBeUndefined();
         expect(called.result._meta["agent-native/openLink"].webUrl).toBe(
           "https://mail.agent-native.com/documents/doc-1",

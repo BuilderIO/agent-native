@@ -59,8 +59,9 @@ describe("explicit connector inline apps", () => {
             fullSurface: false,
             inlineMcpApps: true,
           });
-          // Outside a directory listing an embedApp card opens the full app
-          // when the app declares no scoped widget target for it.
+          // oracle-change: every inline card now carries its UI resource, so the
+          // branch asserting none for cards without a widget target is gone.
+          // Outside a directory listing such a card opens the full app.
           catalogs[app.appId] = INLINE_ACTIONS[app.appId]!.map((name) => {
             const tool = tools.find((candidate) => candidate.name === name);
             expect(tool, `${app.appId}/${name}`).toBeDefined();

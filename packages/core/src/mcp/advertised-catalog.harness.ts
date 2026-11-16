@@ -288,6 +288,8 @@ export async function listAdvertised(
   }));
 }
 
+const CATALOG_ORIGIN = "https://catalog.agent-native.test";
+
 export async function withCatalogClient<T>(
   config: MCPConfig,
   request: {
@@ -307,6 +309,8 @@ export async function withCatalogClient<T>(
     },
     {
       transport: "http",
+      // A hosted request always carries its origin; full-app cards need it.
+      origin: CATALOG_ORIGIN,
       inlineMcpApps: request.inlineMcpApps ?? false,
       ...(request.fullCatalog ? { fullCatalog: true } : {}),
       ...(request.fullSurface ? { fullSurface: true } : {}),

@@ -3092,6 +3092,16 @@ describe("direct tools/call full-app embeds", () => {
         mcpApp: fullApp,
         run: async () => ({ id: "t-5", title: "Thread" }),
       }),
+      "open-deep-link": act({
+        description: "Open the deep link, not the card path",
+        readOnly: true,
+        mcpApp: fullApp,
+        run: async () => ({
+          id: "t-6",
+          path: "/cards/t-6",
+          deepLinkUrl: "/inbox/t-6?view=full",
+        }),
+      }),
       "open-failing": act({
         description: "Fails",
         readOnly: true,
@@ -3163,15 +3173,34 @@ describe("direct tools/call full-app embeds", () => {
     expect(minted()).toEqual([]);
   });
 
-  it.each(["open-plain", "open-nowhere"])(
-    "returns %s as a full-app link without a session",
-    async (name) => {
-      const result = await call(name);
-      expect(result.isError).not.toBe(true);
-      expect(result._meta?.["agent-native/embedStart"]).toBeUndefined();
-      expect(minted()).toEqual([]);
-    },
-  );
+  it("returns an embed opt-out as a plain full-app link", async () => {
+    const result = await call("open-plain");
+    expect(result.isError).not.toBe(true);
+    expect(result._meta?.["agent-native/embedStart"]).toBeUndefined();
+    expect(minted()).toEqual([]);
+  });
+
+  it("flags a call whose app cannot open so the host mounts no empty frame", async () => {
+    const result = await call("open-nowhere");
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain(
+      "open-nowhere completed, but its app could not open here.",
+    );
+    expect(result._meta?.["agent-native/embedStart"]).toBeUndefined();
+    expect(minted()).toEqual([]);
+  });
+
+  it("opens the result's deep link ahead of its path", async () => {
+    const result = await call("open-deep-link");
+    expect(result._meta["agent-native/embedStart"].startUrl).toContain(
+      "ticket=minted-ticket",
+    );
+    expect(minted()).toEqual([
+      expect.objectContaining({
+        targetPath: "/inbox/t-6?view=full&__an_mcp_chat_bridge=1",
+      }),
+    ]);
+  });
 
   it("mints nothing for a failed call", async () => {
     const result = await call("open-failing");
