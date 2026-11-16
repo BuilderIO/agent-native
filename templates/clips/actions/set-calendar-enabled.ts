@@ -46,16 +46,13 @@ export default defineAction({
   run: async (args): Promise<z.infer<typeof resultSchema>> => {
     await assertAccess("calendar-account", args.accountId, "editor");
     const db = getDb();
-    const account = (
-      await db
-        .select()
-        .from(schema.calendarAccounts)
-        .where(eq(schema.calendarAccounts.id, args.accountId))
-        .limit(1)
-    ).at(0);
-    if (!account || account.provider !== "google") {
-      failAccountNotFound(args.accountId);
-    }
+    const accounts = await db
+      .select()
+      .from(schema.calendarAccounts)
+      .where(eq(schema.calendarAccounts.id, args.accountId))
+      .limit(1);
+    const account = accounts.find((row) => row.provider === "google");
+    if (!account) failAccountNotFound(args.accountId);
 
     if (args.enabled) {
       const accessToken = await resolveCalendarAccessToken(account);
@@ -79,16 +76,15 @@ export default defineAction({
       if (!(await lockCalendarAccount(tx, account.id, account.ownerEmail))) {
         failAccountNotFound(args.accountId);
       }
-      const current = (
-        await tx
-          .select({
-            enabledCalendarIdsJson:
-              schema.calendarAccounts.enabledCalendarIdsJson,
-          })
-          .from(schema.calendarAccounts)
-          .where(eq(schema.calendarAccounts.id, account.id))
-          .limit(1)
-      ).at(0);
+      const rows = await tx
+        .select({
+          enabledCalendarIdsJson:
+            schema.calendarAccounts.enabledCalendarIdsJson,
+        })
+        .from(schema.calendarAccounts)
+        .where(eq(schema.calendarAccounts.id, account.id))
+        .limit(1);
+      const current = rows.length > 0 ? rows[0] : undefined;
       const ids = enabledCalendarIds(current ?? {});
       const next = args.enabled
         ? [...new Set([...ids, args.calendarId])]
