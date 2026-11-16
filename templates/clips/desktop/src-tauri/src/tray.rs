@@ -545,36 +545,47 @@ mod tests {
     }
 }
 
-/// A `clips://stop` waiting for the popover to take it: since when, and the
-/// recording it was sent for.
+/// A control link waiting for the frontend to take it: since when, the
+/// recording it was sent for, and what it asks.
 #[derive(Debug, Clone, Copy)]
-struct PendingStopLink {
+struct PendingLink<T> {
     at: std::time::Instant,
     recording: u64,
+    value: T,
 }
 
-static PENDING_STOP_LINK: std::sync::Mutex<Option<PendingStopLink>> = std::sync::Mutex::new(None);
+static PENDING_STOP_LINK: std::sync::Mutex<Option<PendingLink<()>>> = std::sync::Mutex::new(None);
 
-/// A stop link older than this is dropped rather than stopping a later
-/// recording.
+/// `Some(state)` pauses or resumes; `None` toggles.
+static PENDING_PAUSE_LINK: std::sync::Mutex<Option<PendingLink<Option<bool>>>> =
+    std::sync::Mutex::new(None);
+
+/// A link older than this is dropped rather than acting late.
 const STOP_LINK_HOLD_LIMIT: std::time::Duration = std::time::Duration::from_secs(30);
 
-/// Takes the waiting stop link, once; false when there is none or it's too
-/// old to act on.
-fn take_stop_link(
-    pending: &mut Option<PendingStopLink>,
+/// Takes a waiting link, once: its recording and request, or `None` when
+/// there is none, it's too old, or the recording it was sent for (the one
+/// running now is `recording`) has ended, so it can't act on a later one.
+fn take_link<T>(
+    pending: &mut Option<PendingLink<T>>,
     now: std::time::Instant,
     recording: Option<u64>,
-) -> Option<u64> {
-    // None too once the recording it was sent for (the one running now is
-    // `recording`) has ended, so it can't stop a later one.
+) -> Option<(u64, T)> {
     pending
         .take()
         .filter(|link| {
             now.saturating_duration_since(link.at) < STOP_LINK_HOLD_LIMIT
                 && recording == Some(link.recording)
         })
-        .map(|link| link.recording)
+        .map(|link| (link.recording, link.value))
+}
+
+fn hold_link<T>(slot: &std::sync::Mutex<Option<PendingLink<T>>>, recording: u64, value: T) {
+    *slot.lock().unwrap_or_else(|e| e.into_inner()) = Some(PendingLink {
+        at: std::time::Instant::now(),
+        recording,
+        value,
+    });
 }
 
 /// `clips://stop`: stops the running recording, and does nothing when no
@@ -590,11 +601,33 @@ pub fn stop_recording_from_link(app: &tauri::AppHandle) {
         dlog!("[clips-tray] stop link ignored: no recording running");
         return;
     };
-    *PENDING_STOP_LINK.lock().unwrap_or_else(|e| e.into_inner()) = Some(PendingStopLink {
-        at: std::time::Instant::now(),
-        recording,
-    });
+    hold_link(&PENDING_STOP_LINK, recording, ());
     let _ = app.emit("clips:stop-link", ());
+}
+
+/// `clips://pause`: pauses, resumes or toggles the running recording. The
+/// request waits here until a recorder takes it (`take_pending_pause_link`),
+/// on the event or once its pause listeners are installed, so one sent
+/// while they're still being set up isn't lost; it only ever applies to the
+/// recording it was sent for. During a meeting it goes straight to the
+/// meeting's pause handling, as before.
+pub fn pause_recording_from_link(app: &tauri::AppHandle, state: Option<bool>) {
+    use tauri::Emitter;
+    match current_recording() {
+        Some(recording) => {
+            hold_link(&PENDING_PAUSE_LINK, recording, state);
+            let _ = app.emit("clips:pause-link", ());
+        }
+        None if crate::util::is_meeting_active(app) => {
+            let event = match state {
+                None => "clips:recorder-toggle-pause",
+                Some(true) => "clips:recorder-pause",
+                Some(false) => "clips:recorder-resume",
+            };
+            let _ = app.emit(event, ());
+        }
+        None => dlog!("[clips-tray] pause link ignored: no recording running"),
+    }
 }
 
 /// The recording a waiting stop link is for, taken once; `None` when there
@@ -602,11 +635,28 @@ pub fn stop_recording_from_link(app: &tauri::AppHandle) {
 /// `stop_link_recording_current` before each stop it sends.
 #[tauri::command]
 pub fn take_pending_stop_link() -> Option<u64> {
-    take_stop_link(
+    take_link(
         &mut PENDING_STOP_LINK.lock().unwrap_or_else(|e| e.into_inner()),
         std::time::Instant::now(),
         current_recording(),
     )
+    .map(|(recording, ())| recording)
+}
+
+/// A waiting pause link for the running recording, taken once: "pause",
+/// "resume" or "toggle", or `None`.
+#[tauri::command]
+pub fn take_pending_pause_link() -> Option<&'static str> {
+    take_link(
+        &mut PENDING_PAUSE_LINK.lock().unwrap_or_else(|e| e.into_inner()),
+        std::time::Instant::now(),
+        current_recording(),
+    )
+    .map(|(_, state)| match state {
+        Some(true) => "pause",
+        Some(false) => "resume",
+        None => "toggle",
+    })
 }
 
 /// Whether `recording` (from `take_pending_stop_link`) is still the one
@@ -622,7 +672,7 @@ mod stop_link_tests {
     use std::time::{Duration, Instant};
 
     #[test]
-    fn a_stop_link_is_taken_once_while_fresh_and_for_its_own_recording() {
+    fn a_stop_or_pause_link_is_taken_once_while_fresh_and_for_its_own_recording() {
         let t0 = Instant::now();
         // (taken after, recording running then, taken for)
         for (taken_after, running, want) in [
@@ -634,21 +684,19 @@ mod stop_link_tests {
             // And a later recording started since: left running.
             (Duration::from_millis(100), Some(2), None),
         ] {
-            let mut pending = Some(PendingStopLink {
+            let mut pending = Some(PendingLink {
                 at: t0,
                 recording: 1,
+                value: Some(true),
             });
             assert_eq!(
-                take_stop_link(&mut pending, t0 + taken_after, running),
+                take_link(&mut pending, t0 + taken_after, running).map(|(recording, _)| recording),
                 want
             );
             // Taken (or dropped) once: the event and the listener's startup
             // check can't both act on it.
-            assert_eq!(
-                take_stop_link(&mut pending, t0 + taken_after, running),
-                None
-            );
+            assert_eq!(take_link(&mut pending, t0 + taken_after, running), None);
         }
-        assert_eq!(take_stop_link(&mut None, t0, Some(1)), None);
+        assert_eq!(take_link::<()>(&mut None, t0, Some(1)), None);
     }
 }

@@ -169,6 +169,27 @@ describe("requestRecordingShortcutStop", () => {
     },
   );
 
+  it.each([true, false])(
+    "a stop link whose recording check fails rejects, sending nothing (recorder running: %s)",
+    async (recorderRunning) => {
+      listen.mockResolvedValue(vi.fn());
+      invoke.mockImplementation(async (command: string) => {
+        if (command === "stop_link_recording_current") {
+          throw new Error("ipc down");
+        }
+        return undefined;
+      });
+      unlistenAcks = await listenForRecordingShortcutStopAcks();
+
+      const stop = stopRecordingFromLink(recorderRunning, 7);
+      const outcome = expect(stop).rejects.toThrow("ipc down");
+      await vi.advanceTimersByTimeAsync(300);
+
+      await outcome;
+      expect(emit).not.toHaveBeenCalled();
+    },
+  );
+
   it("stops directly when the pill does not acknowledge the request", async () => {
     listen.mockResolvedValue(vi.fn());
     unlistenAcks = await listenForRecordingShortcutStopAcks();

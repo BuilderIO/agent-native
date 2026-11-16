@@ -2804,11 +2804,12 @@ export function installDesktopVoiceDictation(
           break;
       }
       if (mode === "toggle" && (session || startInFlight)) {
-        stop();
+        stopIncludingPendingStart();
         return;
       }
       if (mode === "push-to-talk" && handsFreeActive) {
-        stop();
+        // Like the links: a hands-free start still hanging is disarmed too.
+        stopIncludingPendingStart();
         return;
       }
       const upgradeToHandsFree =

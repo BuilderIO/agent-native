@@ -185,10 +185,15 @@ fn present_popover(app: &tauri::AppHandle) {
 
 /// Control links (pause, stop, dictate) act without opening the popover, so
 /// the app in front keeps focus; every other link opens it as before.
-fn route_deep_links(app: &tauri::AppHandle, urls: Vec<String>) {
+/// `at_launch`: the links that launched the app, routed during setup before
+/// any frontend listener exists.
+fn route_deep_links(app: &tauri::AppHandle, urls: Vec<String>, at_launch: bool) {
     let mut for_popover = Vec::new();
     for url in urls {
         match deep_links::parse_control_link(&url) {
+            Some(link) if at_launch && !deep_links::acts_at_launch(link) => {
+                dlog!("[clips-tray] {url} ignored at launch: no recording runs yet");
+            }
             Some(link) => deep_links::handle_control_link(app, link),
             None => for_popover.push(url),
         }
@@ -406,6 +411,7 @@ pub fn run() {
             shortcuts::dictation_listener_gone,
             tray::take_pending_stop_link,
             tray::stop_link_recording_current,
+            tray::take_pending_pause_link,
             whisper_model::whisper_models,
             whisper_model::whisper_model_status,
             whisper_model::whisper_model_download,
@@ -498,7 +504,7 @@ pub fn run() {
                 app.deep_link().on_open_url(move |event| {
                     let urls: Vec<String> = event.urls().iter().map(|u| u.to_string()).collect();
                     dlog!("[clips-tray] deep link opened: {:?}", urls);
-                    route_deep_links(&dl_handle, urls);
+                    route_deep_links(&dl_handle, urls, false);
                 });
                 #[cfg(any(windows, target_os = "linux"))]
                 if let Err(err) = app.deep_link().register_all() {
@@ -507,7 +513,7 @@ pub fn run() {
                 if let Ok(Some(urls)) = app.deep_link().get_current() {
                     let url_strings: Vec<String> = urls.iter().map(|u| u.to_string()).collect();
                     dlog!("[clips-tray] deep link cold start: {:?}", url_strings);
-                    route_deep_links(app.handle(), url_strings);
+                    route_deep_links(app.handle(), url_strings, true);
                 }
             }
 

@@ -223,10 +223,10 @@ export async function stopRecordingFromLink(
 ): Promise<StopOutcome | undefined> {
   // Native confirms the link's recording is still the one running before
   // each stop event, so a link can't stop a recording started after it.
+  // An IPC failure rejects, so the caller logs it, rather than reading as a
+  // recording that ended.
   const stillCurrent = () =>
-    invoke<boolean>("stop_link_recording_current", { recording }).catch(
-      () => false,
-    );
+    invoke<boolean>("stop_link_recording_current", { recording });
   if (recorderRunning) return requestRecordingShortcutStop(stillCurrent);
   if (!(await stillCurrent())) return STALE;
   await emit("clips:recorder-stop");

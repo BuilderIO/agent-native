@@ -76,16 +76,19 @@ pub fn parse_control_link(raw: &str) -> Option<ControlLink> {
     }
 }
 
+/// Whether a link can act when it launched the app. Dictate, stop and pause
+/// links wait natively until the frontend takes them (and stop and pause
+/// only for a recording that runs); restart and cancel ask the recording
+/// bar about a recording, and none can be running at launch.
+pub fn acts_at_launch(link: ControlLink) -> bool {
+    !matches!(link, ControlLink::Restart | ControlLink::Cancel)
+}
+
 /// Acts on a control link.
 pub fn handle_control_link(app: &AppHandle, link: ControlLink) {
     match link {
         ControlLink::Pause(state) => {
-            let event = match state {
-                None => "clips:recorder-toggle-pause",
-                Some(true) => "clips:recorder-pause",
-                Some(false) => "clips:recorder-resume",
-            };
-            let _ = app.emit(event, ());
+            crate::tray::pause_recording_from_link(app, state);
         }
         ControlLink::Stop => {
             crate::tray::stop_recording_from_link(app);
@@ -128,7 +131,10 @@ mod tests {
             parse_control_link("clips://restart"),
             Some(ControlLink::Restart)
         );
-        assert_eq!(parse_control_link("clips://cancel"), Some(ControlLink::Cancel));
+        assert_eq!(
+            parse_control_link("clips://cancel"),
+            Some(ControlLink::Cancel)
+        );
         assert_eq!(
             parse_control_link("clips://discard"),
             Some(ControlLink::Cancel)
@@ -151,6 +157,21 @@ mod tests {
         );
         assert_eq!(parse_control_link("clips://dictate?mode=push"), None);
         assert_eq!(parse_control_link("clips://dictate"), None);
+    }
+
+    #[test]
+    fn only_links_that_can_wait_act_at_launch() {
+        for (raw, acts) in [
+            ("clips://dictate?mode=hands-free", true),
+            ("clips://dictate?mode=push&state=down", true),
+            ("clips://stop", true),
+            ("clips://pause", true),
+            ("clips://restart", false),
+            ("clips://cancel", false),
+        ] {
+            let link = parse_control_link(raw).unwrap();
+            assert_eq!(acts_at_launch(link), acts, "{raw}");
+        }
     }
 
     #[test]

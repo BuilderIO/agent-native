@@ -2210,7 +2210,9 @@ pub(crate) fn note_hands_free_active(app: &AppHandle, active: bool) {
 
 /// The frontend's dictation flow state (`voice:state-change`).
 pub(crate) fn note_voice_flow_state(app: &AppHandle, state: &str) {
-    let live = matches!(state, "recording" | "processing");
+    // Only recording: during processing (transcribing a finished run) a new
+    // press starts the next dictation, a push link as much as a key.
+    let live = state == "recording";
     with_gate(app, |gate, now| gate.set_flow_live(live, now));
 }
 
@@ -2436,7 +2438,7 @@ mod dictation_gate_tests {
                     Done
                 }
                 Step::Flow(state) => {
-                    gate.set_flow_live(matches!(state, "recording" | "processing"), now);
+                    gate.set_flow_live(state == "recording", now);
                     Done
                 }
                 Step::FlowHidden => {
@@ -2953,6 +2955,26 @@ mod dictation_gate_tests {
         assert!(gate.fn_start_due(fn_press));
         // Once the key's run is live, the link may stop it.
         assert!(!gate.hands_free_link(t0 + ms(200), false).blocked);
+    }
+
+    #[test]
+    fn a_push_link_during_processing_starts_the_next_dictation() {
+        use Step::{Due, Flow, Press, Release};
+        run(&[
+            (0, Press(Link), Claim(Owns), true),
+            (80, Due(1), HOLD, true),
+            (100, Flow("recording"), Done, true),
+            (500, Release(Link), STOP, false),
+            // Transcribing the first run: the next press starts a new one,
+            // as a key press does.
+            (510, Flow("processing"), Done, false),
+            (600, Press(Link), Claim(Owns), true),
+            (650, Press(Shortcut), Claim(Ignored), true),
+        ]);
+        run(&[
+            (0, Flow("processing"), Done, false),
+            (10, Press(Shortcut), Claim(Owns), true),
+        ]);
     }
 
     #[test]
