@@ -1086,17 +1086,22 @@ export async function inviteOne(
       [descriptor.appId]: [...new Set(appRoles)],
     });
   }
-  await e.execute({
-    sql: `INSERT INTO org_invitations (id, org_id, email, invited_by, created_at, status, role, app_roles_json) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`,
-    args: [id, ctx.orgId, email, ctx.email, Date.now(), role, appRolesJson],
-  });
-  // An explicit admin invitation lifts a prior deactivation, but only once the invitation
-  // exists: a failed insert must leave the member excluded from domain auto-join.
-  await e.execute({
-    sql: `DELETE FROM org_invitations
-          WHERE org_id = ? AND LOWER(email) = ? AND status = 'deactivated'`,
-    args: [ctx.orgId, email],
-  });
+  // An explicit admin invitation lifts a prior deactivation. Both writes commit together: a
+  // failed insert must leave the member excluded from domain auto-join, and a failed delete
+  // must not leave a pending invitation behind that makes a retry look like a duplicate.
+  const writeInvitation = async (tx: typeof e) => {
+    await tx.execute({
+      sql: `INSERT INTO org_invitations (id, org_id, email, invited_by, created_at, status, role, app_roles_json) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)`,
+      args: [id, ctx.orgId, email, ctx.email, Date.now(), role, appRolesJson],
+    });
+    await tx.execute({
+      sql: `DELETE FROM org_invitations
+            WHERE org_id = ? AND LOWER(email) = ? AND status = 'deactivated'`,
+      args: [ctx.orgId, email],
+    });
+  };
+  if (e.transaction) await e.transaction(writeInvitation);
+  else await writeInvitation(e);
 
   try {
     const inviteSentPromise = import("../tracking/registry.js")
